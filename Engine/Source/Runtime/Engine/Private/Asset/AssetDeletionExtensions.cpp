@@ -3,6 +3,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 
 #include "DObject/Class.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset
 {
@@ -42,7 +43,8 @@ namespace Durin::Asset
 		OutFiles.clear();
 		if (OutHasContributor) *OutHasContributor = false;
 		FAssetPackageInspection Inspection;
-		FAssetResult InspectionResult = InspectAssetPackage(Data.PhysicalPath, Inspection);
+		FAssetResult InspectionResult = InspectAssetPackage(
+			Data.PhysicalPath, Data.PackagePath, Inspection);
 		if (!InspectionResult) return InspectionResult;
 		std::string BulkError;
 		if (!InspectEditorBulkDataCompanionPaths(
@@ -129,6 +131,8 @@ namespace Durin::Asset
 			std::filesystem::absolute(PhysicalPath).lexically_normal();
 		for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
 		{
+			if (!FMountPaths::FindMountForVirtualPath(Path.GetView()))
+				continue;
 			std::error_code ExistenceError;
 			const bool bPackageExists =
 				std::filesystem::is_regular_file(Data.PhysicalPath, ExistenceError);

@@ -77,12 +77,6 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageObjectStreamWireContractTests.cpp
 		Private/PackageObjectStreamReferenceModel.cpp
 		Private/PackageObjectStreamReferenceModelTests.cpp
-		Private/PackageObjectStreamWriterTests.cpp
-		Private/PackageObjectStreamReaderTests.cpp
-	PRIVATE_SOURCE_RATIONALE
-		"Engine-owned package bulk directory white-box tests exercise its private wire format without exporting runtime symbols."
-	PRIVATE_SOURCES
-		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private/Asset/PackageBulkDataWire.cpp
 	PRIVATE_INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )

@@ -2,7 +2,7 @@
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
-#include "Asset/PackageSchema.h"
+#include "Asset/Load.h"
 #include "Asset/Testing.h"
 
 #include "DObject/Class.h"
@@ -142,7 +142,7 @@ namespace Durin::Asset::PackageObjectStream
 			Writer.WriteString(Signature); Writer.Write(uint64(Payload.size())); Writer.WriteBytes(Payload);
 		}
 
-		auto EncodeIntrinsicValue(uint64 Layout, std::span<const uint64> Components,
+		auto EncodeIntrinsicLoadValue(uint64 Layout, std::span<const uint64> Components,
 			Private::FByteWriter& Writer, FReaderDiagnostic& Diagnostic) -> bool
 		{
 			const std::string Owner(IntrinsicName(Layout));
@@ -157,7 +157,7 @@ namespace Durin::Asset::PackageObjectStream
 					{"Translation", 2, 4, 3}, {"Scale3D", 2, 7, 3}})
 				{
 					Private::FByteWriter Payload;
-					if (!EncodeIntrinsicValue(ChildLayout, Components.subspan(Offset, Count), Payload, Diagnostic)) return false;
+					if (!EncodeIntrinsicLoadValue(ChildLayout, Components.subspan(Offset, Count), Payload, Diagnostic)) return false;
 					WriteProjectedField(Writer, Owner, Name, DurinCodeGen::EPropertyGenFlags::Struct,
 						std::format("Struct<{}>", IntrinsicName(ChildLayout)), std::move(Payload.Bytes));
 				}
@@ -182,7 +182,7 @@ namespace Durin::Asset::PackageObjectStream
 			return true;
 		}
 
-		auto EncodeInspectionValue(const FDecodedType& Type, const FValue& Value,
+		auto EncodeLoadArchiveValue(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package, Private::FByteWriter& Writer,
 			FReaderDiagnostic& Diagnostic, std::string Path) -> bool
 		{
@@ -217,12 +217,12 @@ namespace Durin::Asset::PackageObjectStream
 				}
 			}
 			case ETypeOpcode::Intrinsic:
-				return EncodeIntrinsicValue(Type.Parameter, Value.ComponentBits, Writer, Diagnostic);
+				return EncodeIntrinsicLoadValue(Type.Parameter, Value.ComponentBits, Writer, Diagnostic);
 			case ETypeOpcode::Struct:
 			{
 				uint64 SchemaId = 0; const FDecodedSchema* Schema = FindSchema(Package, Type.QualifiedName, SchemaId);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size())
-					return Fail(Diagnostic, EReaderFailure::InvalidValue, "Struct inspection projection is invalid.", 0, std::move(Path));
+					return Fail(Diagnostic, EReaderFailure::InvalidValue, "Struct load projection is invalid.", 0, std::move(Path));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(uint64(Value.Elements.size()));
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -231,7 +231,7 @@ namespace Durin::Asset::PackageObjectStream
 					const FDecodedType* ChildType = TypeAt(Package, It->TypeId);
 					if (!ChildType) return Fail(Diagnostic, EReaderFailure::InvalidTable, "Struct field type is invalid.", 0, std::move(Path));
 					Private::FByteWriter Payload;
-					if (!EncodeInspectionValue(*ChildType, Value.Elements[Index], Package, Payload, Diagnostic,
+					if (!EncodeLoadArchiveValue(*ChildType, Value.Elements[Index], Package, Payload, Diagnostic,
 						std::format("{}::{}", Schema->QualifiedName, It->Name))) return false;
 					Writer.WriteString(Schema->QualifiedName); Writer.WriteString(It->Name);
 					Writer.Write(uint8(TypeKind(*ChildType, Package))); Writer.WriteString(TypeSignature(*ChildType, Package));
@@ -245,7 +245,7 @@ namespace Durin::Asset::PackageObjectStream
 				if (!Element) return Fail(Diagnostic, EReaderFailure::InvalidTable, "Array element type is invalid.", 0, std::move(Path));
 				if (Type.Opcode == ETypeOpcode::Array) Writer.Write(uint64(Value.Elements.size()));
 				for (const FValue& Item : Value.Elements)
-					if (!EncodeInspectionValue(*Element, Item, Package, Writer, Diagnostic, Path)) return false;
+					if (!EncodeLoadArchiveValue(*Element, Item, Package, Writer, Diagnostic, Path)) return false;
 				return true;
 			}
 			case ETypeOpcode::Map:
@@ -255,8 +255,8 @@ namespace Durin::Asset::PackageObjectStream
 				if (!Key || !Mapped || Value.Elements.size() % 2 != 0) return Fail(Diagnostic, EReaderFailure::InvalidValue, "Map projection is invalid.", 0, std::move(Path));
 				Writer.Write(uint64(Value.Elements.size() / 2));
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
-					if (!EncodeInspectionValue(*Key, Value.Elements[Index], Package, Writer, Diagnostic, Path)
-						|| !EncodeInspectionValue(*Mapped, Value.Elements[Index + 1], Package, Writer, Diagnostic, Path)) return false;
+					if (!EncodeLoadArchiveValue(*Key, Value.Elements[Index], Package, Writer, Diagnostic, Path)
+						|| !EncodeLoadArchiveValue(*Mapped, Value.Elements[Index + 1], Package, Writer, Diagnostic, Path)) return false;
 				return true;
 			}
 			case ETypeOpcode::HardRef:
@@ -269,61 +269,7 @@ namespace Durin::Asset::PackageObjectStream
 			case ETypeOpcode::Bytes: case ETypeOpcode::BulkData:
 				Writer.WriteBytes(Value.Bytes); return true;
 			}
-			return Fail(Diagnostic, EReaderFailure::InvalidValue, "Unsupported inspection value.", 0, std::move(Path));
-		}
-
-		auto BuildInspection(const FDecodedPackage& Package, std::span<const std::byte> Bytes,
-			FAssetPackageInspection& Out, FReaderDiagnostic& Diagnostic) -> bool
-		{
-			FAssetPackageInspection Inspection;
-			Inspection.Header = {
-				.AssetClassName = Package.Header.AssetClass,
-				.EntryKind = Package.Header.EntryKind,
-				.FormatVersion = Version,
-				.ObjectCount = Package.Header.ObjectCount,
-				.BytesRead = Package.Header.BytesRead};
-			if (!Package.Header.RedirectDestination.empty())
-				FAssetPath::TryCreate(Package.Header.RedirectDestination, Inspection.Header.RedirectDestination);
-			for (const std::string& Dependency : Package.Header.Dependencies)
-			{
-				FAssetPath Path; if (!FAssetPath::TryCreate(Dependency, Path))
-					return Fail(Diagnostic, EReaderFailure::InvalidHeader, "Dependency path is invalid.");
-				Inspection.Header.Dependencies.push_back(std::move(Path));
-			}
-			Inspection.Fingerprint = {.FileSize = Bytes.size(),
-				.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
-			for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
-			{
-				const FDecodedObject& Object = Package.Objects[ObjectIndex];
-				FAssetPackageObjectInspection Output{Object.Id, Object.OuterId, Object.ClassName, Object.ObjectName, Object.Path, {}};
-				for (const FDecodedOverride& Override : Package.ObjectValues[ObjectIndex].Overrides)
-				{
-					const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
-					if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size()) return false;
-					const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
-					FAssetPackageField OutputField{.DeclaringClass = Schema->QualifiedName, .Name = Field.Name,
-						.SourceFormatVersion = Version};
-					if (Override.Provenance == 2)
-					{
-						OutputField.TypeSignature = "DASTv4:RetainedClosure";
-						Private::FByteWriter Body; Body.Write(uint64(Override.DescriptorClosure.size()));
-						Body.WriteBytes(Override.DescriptorClosure); Body.Write(uint64(Override.RetainedPayload.size()));
-						Body.WriteBytes(Override.RetainedPayload); OutputField.Payload = std::move(Body.Bytes);
-					}
-					else
-					{
-						const FDecodedType* Type = TypeAt(Package, Field.TypeId); if (!Type) return false;
-						OutputField.Kind = TypeKind(*Type, Package); OutputField.TypeSignature = TypeSignature(*Type, Package);
-						Private::FByteWriter Payload;
-						if (!EncodeInspectionValue(*Type, Override.Value, Package, Payload, Diagnostic,
-							std::format("{}::{}", Schema->QualifiedName, Field.Name))) return false;
-						OutputField.Payload = std::move(Payload.Bytes);
-					}
-					Output.Fields.push_back(std::move(OutputField));
-				}
-				Inspection.Objects.push_back(std::move(Output));
-			}
-			Out = std::move(Inspection); return true;
+			return Fail(Diagnostic, EReaderFailure::InvalidValue, "Unsupported load value.", 0, std::move(Path));
 		}
 
 		auto ShouldFail(const FLiveLoadOptions& Options, ELiveLoadPhase Phase, uint64 Index) -> bool
@@ -342,112 +288,6 @@ namespace Durin::Asset::PackageObjectStream
 				return Object;
 			}
 			return nullptr;
-		}
-
-		template<std::unsigned_integral T>
-		auto AppendBigEndian(std::vector<std::byte>& Token, T Value) -> void
-		{
-			for (size_t Index = sizeof(T); Index > 0; --Index)
-				Token.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
-		}
-
-		template<std::integral T>
-		auto AppendSortable(std::vector<std::byte>& Token, T Value) -> void
-		{
-			using U = std::make_unsigned_t<T>;
-			U Bits = std::bit_cast<U>(Value);
-			if constexpr (std::is_signed_v<T>) Bits ^= U(1) << (sizeof(U) * 8 - 1);
-			AppendBigEndian(Token, Bits);
-		}
-
-		template<std::floating_point T>
-		auto AppendSortableFloat(std::vector<std::byte>& Token, T Value) -> void
-		{
-			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
-			U Bits = std::bit_cast<U>(Value); constexpr U Sign = U(1) << (sizeof(U) * 8 - 1);
-			if ((Bits & ~Sign) == 0) Bits = 0;
-			Bits = (Bits & Sign) ? ~Bits : (Bits ^ Sign); AppendBigEndian(Token, Bits);
-		}
-
-		auto BuildIntrinsicLedgerToken(uint64 Layout, std::span<const uint64> Components,
-			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
-		{
-			Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Struct));
-			if (Layout == 5)
-			{
-				if (Components.size() != 10) return false;
-				for (const auto [Ordinal, ChildLayout, Offset, Count] : {
-					std::tuple<uint32, uint64, size_t, size_t>{0, 4, 0, 4}, {1, 2, 4, 3}, {2, 2, 7, 3}})
-				{
-					AppendBigEndian(Out, Ordinal); AppendBigEndian(Out, uint32(0));
-					if (!BuildIntrinsicLedgerToken(ChildLayout, Components.subspan(Offset, Count), Out, Diagnostic)) return false;
-				}
-				return true;
-			}
-			const uint64 Count = Layout == 1 ? 2 : Layout == 2 ? 3 : 4;
-			if (Components.size() != Count) return false;
-			for (uint32 Index = 0; Index < Count; ++Index)
-			{
-				AppendBigEndian(Out, Index); AppendBigEndian(Out, uint32(0));
-				if (Layout == 6)
-				{
-					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Float));
-					AppendSortableFloat(Out, std::bit_cast<float>(uint32(Components[Index])));
-				}
-				else
-				{
-					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Double));
-					AppendSortableFloat(Out, std::bit_cast<double>(Components[Index]));
-				}
-			}
-			return true;
-		}
-
-		auto BuildLedgerMapKeyToken(const FDecodedType& Type, const FValue& Value,
-			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
-		{
-			Out.push_back(static_cast<std::byte>(TypeKind(Type, FDecodedPackage{})));
-			switch (Type.Opcode)
-			{
-			case ETypeOpcode::Bool: Out.back() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Bool); Out.push_back(Value.Bool ? std::byte{1} : std::byte{0}); return true;
-			case ETypeOpcode::I8: AppendSortable(Out, int8(Value.Signed)); return true;
-			case ETypeOpcode::I16: AppendSortable(Out, int16(Value.Signed)); return true;
-			case ETypeOpcode::I32: AppendSortable(Out, int32(Value.Signed)); return true;
-			case ETypeOpcode::I64: AppendSortable(Out, Value.Signed); return true;
-			case ETypeOpcode::U8: AppendSortable(Out, uint8(Value.Unsigned)); return true;
-			case ETypeOpcode::U16: AppendSortable(Out, uint16(Value.Unsigned)); return true;
-			case ETypeOpcode::U32: AppendSortable(Out, uint32(Value.Unsigned)); return true;
-			case ETypeOpcode::U64: AppendSortable(Out, Value.Unsigned); return true;
-			case ETypeOpcode::String:
-				AppendBigEndian(Out, uint64(Value.Text.size())); {
-					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); } return true;
-			case ETypeOpcode::Name:
-				AppendBigEndian(Out, uint64(Value.Text.size())); {
-					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); }
-				AppendBigEndian(Out, uint32(0)); return true;
-			case ETypeOpcode::Guid:
-				AppendBigEndian(Out, Value.Guid.A); AppendBigEndian(Out, Value.Guid.B);
-				AppendBigEndian(Out, Value.Guid.C); AppendBigEndian(Out, Value.Guid.D); return true;
-			case ETypeOpcode::Enum:
-			{
-				const auto Storage = static_cast<ETypeOpcode>(Type.Parameter);
-				Out.front() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Enum);
-				if (Storage == ETypeOpcode::I8) AppendSortable(Out, int8(Value.Signed));
-				else if (Storage == ETypeOpcode::I16) AppendSortable(Out, int16(Value.Signed));
-				else if (Storage == ETypeOpcode::I32) AppendSortable(Out, int32(Value.Signed));
-				else if (Storage == ETypeOpcode::I64) AppendSortable(Out, Value.Signed);
-				else if (Storage == ETypeOpcode::U8) AppendSortable(Out, uint8(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U16) AppendSortable(Out, uint16(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U32) AppendSortable(Out, uint32(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U64) AppendSortable(Out, Value.Unsigned);
-				else return Fail(Diagnostic, EReaderFailure::InvalidValue, "Map enum key storage is invalid.");
-				return true;
-			}
-			case ETypeOpcode::Intrinsic:
-				Out.clear(); return BuildIntrinsicLedgerToken(Type.Parameter, Value.ComponentBits, Out, Diagnostic);
-			default: return Fail(Diagnostic, EReaderFailure::ArchiveFailure,
-				"Live nested authored intent does not support this map key type.");
-			}
 		}
 
 		auto FindDecodedDeprecatedRoute(const FDecodedPackage& Package,
@@ -537,7 +377,7 @@ namespace Durin::Asset::PackageObjectStream
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
 					std::vector<std::byte> Token;
-					if (!BuildLedgerMapKeyToken(*KeyType, Value.Elements[Index], Token, Diagnostic)) return false;
+					if (!BuildCanonicalMapKeyToken(Package, *KeyType, Value.Elements[Index], Token, &Diagnostic)) return false;
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path,
 						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
@@ -547,116 +387,14 @@ namespace Durin::Asset::PackageObjectStream
 			return true;
 		}
 
-		auto ExtractValueReferences(const FDecodedType& Type, const FValue& Value,
-			const FDecodedPackage& Package, const FAssetPath& SourcePackage,
-			const FAssetPackageFingerprint& Fingerprint, uint64 SourceObjectId,
-			std::string_view SourceClass, std::string_view DeclaringType,
-			std::string_view FieldName, std::vector<FAssetReferenceRouteSegment>& Route,
-			std::vector<FAssetReferenceEdge>& Out, FReaderDiagnostic& Diagnostic) -> bool
+		auto CanonicalizeSerializedClassName(std::string& Name) -> void
 		{
-			auto Add = [&](EAssetReferenceKind Kind, std::string_view Target,
-				std::string ExpectedClass) -> bool {
-				FAssetPath TargetPath; std::string Error;
-				if (!FAssetPath::TryCreate(Target, TargetPath, &Error))
-					return Fail(Diagnostic, EReaderFailure::InvalidValue, Error);
-				std::string Display = std::format("{}::{}", DeclaringType, FieldName);
-				for (const auto& Segment : Route)
-				{
-					if (Segment.Kind == EAssetReferenceRouteKind::FixedArray || Segment.Kind == EAssetReferenceRouteKind::ArrayElement)
-						Display += std::format("[{}]", Segment.Index);
-					else if (Segment.Kind == EAssetReferenceRouteKind::MapValue) Display += "{value}";
-					else Display += std::format(".{}", Segment.FieldName);
-				}
-				Out.push_back({.SourcePackage = SourcePackage, .SourceFingerprint = Fingerprint,
-					.SourceObjectId = SourceObjectId, .SourceClass = std::string(SourceClass),
-					.DeclaringType = std::string(DeclaringType), .FieldName = std::string(FieldName),
-					.Kind = Kind, .ExpectedClass = std::move(ExpectedClass),
-					.TargetPath = std::move(TargetPath), .Route = Route, .DisplayRoute = std::move(Display)});
-				return true;
-			};
-			if (Type.Opcode == ETypeOpcode::HardRef && Value.ReferenceTag != 0)
-			{
-				const std::string_view Target = Value.ReferenceTag == 1 ? SourcePackage.GetView()
-					: std::string_view(Package.Header.Dependencies[static_cast<size_t>(Value.ReferenceId - 1)]);
-				return Add(EAssetReferenceKind::HardObject, Target,
-					Type.QualifiedName.empty() ? "DObject" : Type.QualifiedName);
-			}
-			if (Type.Opcode == ETypeOpcode::SoftRef && Value.ReferenceTag == 1)
-				return Add(EAssetReferenceKind::SoftObject, Value.Text,
-					Type.QualifiedName.empty() ? "DObject" : Type.QualifiedName);
-			if (Type.Opcode == ETypeOpcode::Struct)
-			{
-				uint64 SchemaId = 0; const FDecodedSchema* Schema = FindSchema(Package, Type.QualifiedName, SchemaId);
-				if (!Schema) return false;
-				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-				{
-					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FDecodedField::Name);
-					if (It == Schema->Fields.end()) return false;
-					const FDecodedType* Child = TypeAt(Package, It->TypeId); if (!Child) return false;
-					Route.push_back({.Kind = EAssetReferenceRouteKind::StructField,
-						.DeclaringType = Schema->QualifiedName, .FieldName = It->Name});
-					if (!ExtractValueReferences(*Child, Value.Elements[Index], Package, SourcePackage,
-						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
-					Route.pop_back();
-				}
-			}
-			else if ((Type.Opcode == ETypeOpcode::FixedArray || Type.Opcode == ETypeOpcode::Array)
-				&& Type.ChildTypeIds.size() == 1)
-			{
-				const FDecodedType* Child = TypeAt(Package, Type.ChildTypeIds[0]); if (!Child) return false;
-				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-				{
-					Route.push_back({.Kind = Type.Opcode == ETypeOpcode::FixedArray
-						? EAssetReferenceRouteKind::FixedArray : EAssetReferenceRouteKind::ArrayElement,
-						.Index = Index});
-					if (!ExtractValueReferences(*Child, Value.Elements[Index], Package, SourcePackage,
-						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
-					Route.pop_back();
-				}
-			}
-			else if (Type.Opcode == ETypeOpcode::Map && Type.ChildTypeIds.size() == 2)
-			{
-				const FDecodedType* Key = TypeAt(Package, Type.ChildTypeIds[0]);
-				const FDecodedType* Mapped = TypeAt(Package, Type.ChildTypeIds[1]);
-				if (!Key || !Mapped) return false;
-				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
-				{
-					std::vector<std::byte> Token;
-					if (!BuildLedgerMapKeyToken(*Key, Value.Elements[Index], Token, Diagnostic)) return false;
-					Route.push_back({.Kind = EAssetReferenceRouteKind::MapValue, .MapKeyToken = std::move(Token)});
-					if (!ExtractValueReferences(*Mapped, Value.Elements[Index + 1], Package, SourcePackage,
-						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
-					Route.pop_back();
-				}
-			}
-			return true;
-		}
-
-		auto CanonicalizeSerializedClassName(
-			std::string& Name, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
-		{
-			if (Catalog)
-			{
-				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Name);
-				if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Class)
-					Name = Alias->CurrentIdentity;
-				return;
-			}
 			if (DClass* Class = FindClassBySerializedName(FName(Name)))
 				Name = Class->GetQualifiedName().ToString();
 		}
 
-		auto CanonicalizeSerializedSchemaName(
-			std::string& Name, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
+		auto CanonicalizeSerializedSchemaName(std::string& Name) -> void
 		{
-			if (Catalog)
-			{
-				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Name);
-				if (Alias && (Alias->Kind == EAssetReflectedIdentityKind::Class
-					|| Alias->Kind == EAssetReflectedIdentityKind::Struct))
-					Name = Alias->CurrentIdentity;
-				return;
-			}
 			if (DClass* Class = FindClassBySerializedName(FName(Name)))
 			{
 				Name = Class->GetQualifiedName().ToString();
@@ -668,16 +406,8 @@ namespace Durin::Asset::PackageObjectStream
 
 		auto CanonicalizeSerializedPropertyName(
 			std::string_view DeclaringType,
-			std::string& Name,
-			const FReflectionSchemaCatalog* Catalog = nullptr) -> void
+			std::string& Name) -> void
 		{
-			if (Catalog)
-			{
-				if (const FReflectionSerializedPropertyAlias* Alias =
-					Catalog->FindSerializedPropertyAlias(DeclaringType, Name))
-					Name = Alias->CurrentName;
-				return;
-			}
 			DStructBase* Owner = FindClassBySerializedName(FName(DeclaringType));
 			if (!Owner) Owner = FindStructBySerializedName(FName(DeclaringType));
 			if (Owner)
@@ -685,21 +415,9 @@ namespace Durin::Asset::PackageObjectStream
 					Name = Property->NamePrivate.ToString();
 		}
 
-		auto CanonicalizeSerializedTypeName(
-			FDecodedType& Type, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
+		auto CanonicalizeSerializedTypeName(FDecodedType& Type) -> void
 		{
 			if (Type.QualifiedName.empty()) return;
-			if (Catalog)
-			{
-				const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Type.QualifiedName);
-				const bool bKindMatches = Alias && (
-					(Type.Opcode == ETypeOpcode::Enum && Alias->Kind == EAssetReflectedIdentityKind::Enum)
-					|| (Type.Opcode == ETypeOpcode::Struct && Alias->Kind == EAssetReflectedIdentityKind::Struct)
-					|| ((Type.Opcode == ETypeOpcode::HardRef || Type.Opcode == ETypeOpcode::SoftRef)
-						&& Alias->Kind == EAssetReflectedIdentityKind::Class));
-				if (bKindMatches) Type.QualifiedName = Alias->CurrentIdentity;
-				return;
-			}
 			if (Type.Opcode == ETypeOpcode::Enum)
 			{
 				if (DEnum* Enum = FindEnumBySerializedName(FName(Type.QualifiedName)))
@@ -718,21 +436,12 @@ namespace Durin::Asset::PackageObjectStream
 
 		auto GatherCanonicalizationEvidence(
 			const FDecodedPackage& Package,
-			const FAssetPath& PackagePath,
-			const FReflectionSchemaCatalog* Catalog = nullptr)
+			const FAssetPath& PackagePath)
 			-> std::vector<FAssetCanonicalizationEvidence>
 		{
 			std::vector<FAssetCanonicalizationEvidence> Result;
 			auto AddClass = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
 				std::string LogicalPath) {
-				if (Catalog)
-				{
-					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
-					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Class)
-						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
-							Alias->Kind, Location, std::move(LogicalPath)});
-					return;
-				}
 				if (DClass* Class = FindClassBySerializedName(FName(Stored));
 					Class && Class->GetQualifiedName().ToString() != Stored)
 					Result.push_back({PackagePath, std::string(Stored),
@@ -741,14 +450,6 @@ namespace Durin::Asset::PackageObjectStream
 			};
 			auto AddStruct = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
 				std::string LogicalPath) {
-				if (Catalog)
-				{
-					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
-					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Struct)
-						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
-							Alias->Kind, Location, std::move(LogicalPath)});
-					return;
-				}
 				if (DStruct* Struct = FindStructBySerializedName(FName(Stored));
 					Struct && Struct->GetQualifiedName().ToString() != Stored)
 					Result.push_back({PackagePath, std::string(Stored),
@@ -757,14 +458,6 @@ namespace Durin::Asset::PackageObjectStream
 			};
 			auto AddEnum = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
 				std::string LogicalPath) {
-				if (Catalog)
-				{
-					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
-					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Enum)
-						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
-							Alias->Kind, Location, std::move(LogicalPath)});
-					return;
-				}
 				if (DEnum* Enum = FindEnumBySerializedName(FName(Stored));
 					Enum && Enum->GetQualifiedName().ToString() != Stored)
 					Result.push_back({PackagePath, std::string(Stored),
@@ -786,40 +479,19 @@ namespace Durin::Asset::PackageObjectStream
 				if (Result.size() == Before)
 					AddStruct(Stored, EAssetSerializedIdentityLocation::Schema,
 						std::format("schemas[{}].identity", Index));
-				std::string CurrentDeclaringType = Stored;
-				if (Catalog)
-				{
-					if (const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
-						Alias && (Alias->Kind == EAssetReflectedIdentityKind::Class
-							|| Alias->Kind == EAssetReflectedIdentityKind::Struct))
-						CurrentDeclaringType = Alias->CurrentIdentity;
+				DStructBase* Owner = FindClassBySerializedName(FName(Stored));
+				if (!Owner) Owner = FindStructBySerializedName(FName(Stored));
+				if (Owner)
 					for (size_t FieldIndex = 0; FieldIndex < Package.Schemas[Index].Fields.size(); ++FieldIndex)
 					{
 						const std::string& FieldName = Package.Schemas[Index].Fields[FieldIndex].Name;
-						if (const FReflectionSerializedPropertyAlias* Alias =
-							Catalog->FindSerializedPropertyAlias(CurrentDeclaringType, FieldName))
-							Result.push_back({PackagePath, FieldName, Alias->CurrentName,
+						if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(FieldName), false);
+							Property && Property->NamePrivate.ToString() != FieldName)
+							Result.push_back({PackagePath, FieldName, Property->NamePrivate.ToString(),
 								EAssetReflectedIdentityKind::Property,
 								EAssetSerializedIdentityLocation::Schema,
 								std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
 					}
-				}
-				else
-				{
-					DStructBase* Owner = FindClassBySerializedName(FName(Stored));
-					if (!Owner) Owner = FindStructBySerializedName(FName(Stored));
-					if (Owner)
-						for (size_t FieldIndex = 0; FieldIndex < Package.Schemas[Index].Fields.size(); ++FieldIndex)
-						{
-							const std::string& FieldName = Package.Schemas[Index].Fields[FieldIndex].Name;
-							if (FProperty* Property = Owner->FindPropertyBySerializedName(FName(FieldName), false);
-								Property && Property->NamePrivate.ToString() != FieldName)
-								Result.push_back({PackagePath, FieldName, Property->NamePrivate.ToString(),
-									EAssetReflectedIdentityKind::Property,
-									EAssetSerializedIdentityLocation::Schema,
-									std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
-						}
-				}
 			}
 			for (size_t Index = 0; Index < Package.Types.size(); ++Index)
 			{
@@ -845,19 +517,18 @@ namespace Durin::Asset::PackageObjectStream
 		// The raw DecodePackage/ReencodePackage contract remains byte-preserving.
 		auto CanonicalizeSerializedReflectionNames(
 			FDecodedPackage& Package,
-			std::string* OutError = nullptr,
-			const FReflectionSchemaCatalog* Catalog = nullptr) -> bool
+			std::string* OutError = nullptr) -> bool
 		{
-			CanonicalizeSerializedClassName(Package.Header.AssetClass, Catalog);
+			CanonicalizeSerializedClassName(Package.Header.AssetClass);
 			for (FDecodedObject& Object : Package.Objects)
-				CanonicalizeSerializedClassName(Object.ClassName, Catalog);
+				CanonicalizeSerializedClassName(Object.ClassName);
 			for (FDecodedSchema& Schema : Package.Schemas)
 			{
-				CanonicalizeSerializedSchemaName(Schema.QualifiedName, Catalog);
+				CanonicalizeSerializedSchemaName(Schema.QualifiedName);
 				std::unordered_set<std::string> CurrentFieldNames;
 				for (FDecodedField& Field : Schema.Fields)
 				{
-					CanonicalizeSerializedPropertyName(Schema.QualifiedName, Field.Name, Catalog);
+					CanonicalizeSerializedPropertyName(Schema.QualifiedName, Field.Name);
 					if (!CurrentFieldNames.emplace(Field.Name).second)
 					{
 						if (OutError) *OutError = std::format(
@@ -868,7 +539,7 @@ namespace Durin::Asset::PackageObjectStream
 				}
 			}
 			for (FDecodedType& Type : Package.Types)
-				CanonicalizeSerializedTypeName(Type, Catalog);
+				CanonicalizeSerializedTypeName(Type);
 			return true;
 		}
 
@@ -905,7 +576,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto GatherNestedDeprecatedRouteEvidence(const FDecodedType& Type, const FValue& Value,
-			const FDecodedPackage& Package, const FReflectionSchemaCatalog* Catalog,
+			const FDecodedPackage& Package,
 			std::span<const std::pair<FGuid, int32>> Versions, const FAssetPath& PackagePath,
 			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
 		{
@@ -921,37 +592,28 @@ namespace Durin::Asset::PackageObjectStream
 					if (Field == Schema->Fields.end()) continue;
 					const FDecodedType* ChildType = TypeAt(Package, Field->TypeId);
 					if (!ChildType) continue;
-					const FReflectionDeprecatedPropertyRoute* SnapshotRoute = Catalog
-						? Catalog->FindDeprecatedPropertyRoute(Schema->QualifiedName, Field->Name,
-							TypeKind(*ChildType, Package), TypeSignature(*ChildType, Package), Versions)
-						: nullptr;
-					FProperty* LiveRoute = Catalog ? nullptr
-						: FindDecodedDeprecatedRoute(Package, *Schema, *Field, *ChildType);
-					if (SnapshotRoute || LiveRoute)
+					FProperty* LiveRoute =
+						FindDecodedDeprecatedRoute(Package, *Schema, *Field, *ChildType);
+					if (LiveRoute)
 					{
-						const FPropertyDeprecation* Deprecation = LiveRoute
-							? LiveRoute->GetDeprecation() : nullptr;
-						const FGuid VersionGuid = SnapshotRoute
-							? SnapshotRoute->CustomVersionGuid : Deprecation->CustomVersionGuid;
+						const FPropertyDeprecation* Deprecation = LiveRoute->GetDeprecation();
+						const FGuid VersionGuid = Deprecation->CustomVersionGuid;
 						const auto Version = std::ranges::find_if(Versions,
 							[&](const auto& Pair) { return Pair.first == VersionGuid; });
 						std::vector<std::string> MigrationTargets;
-						if (SnapshotRoute) MigrationTargets = SnapshotRoute->MigrationTargets;
-						else for (FName Target : Deprecation->MigrationTargets)
+						for (FName Target : Deprecation->MigrationTargets)
 							MigrationTargets.push_back(Target.ToString());
 						Out.push_back({
 							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
 							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Name,
-							.DeprecatedPropertyName = SnapshotRoute
-								? SnapshotRoute->DeprecatedPropertyName : LiveRoute->NamePrivate.ToString(),
+							.DeprecatedPropertyName = LiveRoute->NamePrivate.ToString(),
 							.MigrationTargets = std::move(MigrationTargets),
 							.CustomVersionGuid = VersionGuid,
 							.SourceVersion = Version == Versions.end() ? -1 : Version->second,
-							.DeprecatedBefore = SnapshotRoute
-								? SnapshotRoute->DeprecatedBefore : Deprecation->DeprecatedBefore});
+							.DeprecatedBefore = Deprecation->DeprecatedBefore});
 					}
 					else GatherNestedDeprecatedRouteEvidence(*ChildType, Value.Elements[Index],
-						Package, Catalog, Versions, PackagePath, ObjectPath, Out);
+						Package, Versions, PackagePath, ObjectPath, Out);
 				}
 			}
 			else if ((Type.Opcode == ETypeOpcode::FixedArray || Type.Opcode == ETypeOpcode::Array)
@@ -959,7 +621,7 @@ namespace Durin::Asset::PackageObjectStream
 			{
 				if (const FDecodedType* Child = TypeAt(Package, Type.ChildTypeIds[0]))
 					for (const FValue& Element : Value.Elements)
-						GatherNestedDeprecatedRouteEvidence(*Child, Element, Package, Catalog,
+						GatherNestedDeprecatedRouteEvidence(*Child, Element, Package,
 							Versions, PackagePath, ObjectPath, Out);
 			}
 			else if (Type.Opcode == ETypeOpcode::Map && Type.ChildTypeIds.size() == 2)
@@ -967,7 +629,7 @@ namespace Durin::Asset::PackageObjectStream
 				if (const FDecodedType* Child = TypeAt(Package, Type.ChildTypeIds[1]))
 					for (size_t Index = 1; Index < Value.Elements.size(); Index += 2)
 						GatherNestedDeprecatedRouteEvidence(*Child, Value.Elements[Index], Package,
-							Catalog, Versions, PackagePath, ObjectPath, Out);
+							Versions, PackagePath, ObjectPath, Out);
 			}
 		}
 	}
@@ -1002,12 +664,11 @@ namespace Durin::Asset::PackageObjectStream
 		CollectGarbage();
 	}
 
-	auto LoadAssetPackage(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
+	auto LoadDecodedAssetPackage(FDecodedPackage Decoded, const FAssetPath& PackagePath,
 		FLoadedAssetPackage& OutPackage, FAssetLoadReport* OutReport,
-		const FLiveLoadOptions& Options, const FReaderLimits& Limits,
-		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
+		const FLiveLoadOptions& Options, FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
-		FReaderDiagnostic Diagnostic; FDecodedPackage Decoded;
+		FReaderDiagnostic Diagnostic;
 		auto Finish = [&](FAssetResult Result) {
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic; return Result;
 		};
@@ -1022,8 +683,6 @@ namespace Durin::Asset::PackageObjectStream
 				"A package with the requested path is already live.");
 			return Finish({EAssetError::AlreadyExists, Diagnostic.Message});
 		}
-		if (!DecodePackageStructure(Bytes, Decoded, Limits, &Diagnostic))
-			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 			GatherCanonicalizationEvidence(Decoded, PackagePath);
 		std::string CanonicalizationError;
@@ -1207,7 +866,7 @@ namespace Durin::Asset::PackageObjectStream
 				const FDecodedField& Field = Schema->Fields[Override.FieldId - 1];
 				if (const FDecodedType* Type = TypeAt(Decoded, Field.TypeId))
 					GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Decoded,
-						nullptr, LoadedCustomVersions, PackagePath,
+						LoadedCustomVersions, PackagePath,
 						Decoded.Objects[ObjectIndex].Path, Report.DeprecatedRouteEvidence);
 			}
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
@@ -1225,7 +884,7 @@ namespace Durin::Asset::PackageObjectStream
 				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
 				Private::FByteWriter Payload;
-				if (!Type || !EncodeInspectionValue(*Type, Override.Value, Decoded, Payload, Diagnostic,
+				if (!Type || !EncodeLoadArchiveValue(*Type, Override.Value, Decoded, Payload, Diagnostic,
 					std::format("{}::{}", Schema->QualifiedName, Field.Name)))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
@@ -1336,402 +995,4 @@ namespace Durin::Asset::PackageObjectStream
 		Diagnostic.Reset(); return Finish({});
 	}
 
-	auto InspectPackage(std::span<const std::byte> Bytes, FAssetPackageInspection& OutInspection,
-		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> FAssetResult
-	{
-		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
-		if (!DecodePackage(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		std::string CanonicalizationError;
-		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError))
-		{
-			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		FAssetPackageInspection Inspection;
-		if (!BuildInspection(Package, Bytes, Inspection, Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		OutInspection = std::move(Inspection);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return {};
-	}
-
-	auto RequiresDecodedSchemaPayloadValues(
-		const FDecodedPackage& Package,
-		const FReflectionSchemaCatalog& Catalog) -> bool
-	{
-		std::vector<std::pair<FGuid, int32>> Versions;
-		for (const FCustomVersion& Version : Package.CustomVersions)
-			Versions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
-		std::unordered_set<uint64> Visiting;
-		std::function<bool(uint64)> ContainsNestedRoute = [&](uint64 TypeId) {
-			if (TypeId == 0 || TypeId > Package.Types.size()) return false;
-			if (!Visiting.insert(TypeId).second) return false;
-			const FDecodedType& Type = Package.Types[static_cast<size_t>(TypeId - 1)];
-			bool bFound = false;
-			if (Type.Opcode == ETypeOpcode::Struct)
-			{
-				const auto Schema = std::ranges::find(
-					Package.Schemas, Type.QualifiedName, &FDecodedSchema::QualifiedName);
-				if (Schema != Package.Schemas.end())
-				{
-					for (const FDecodedField& Field : Schema->Fields)
-					{
-						const FDecodedType* FieldType = TypeAt(Package, Field.TypeId);
-						if (!FieldType) continue;
-						if (Catalog.FindDeprecatedPropertyRoute(Schema->QualifiedName, Field.Name,
-							TypeKind(*FieldType, Package), TypeSignature(*FieldType, Package), Versions)
-							|| ContainsNestedRoute(Field.TypeId))
-						{
-							bFound = true;
-							break;
-						}
-					}
-				}
-			}
-			else if ((Type.Opcode == ETypeOpcode::FixedArray || Type.Opcode == ETypeOpcode::Array)
-				&& Type.ChildTypeIds.size() == 1)
-				bFound = ContainsNestedRoute(Type.ChildTypeIds[0]);
-			else if (Type.Opcode == ETypeOpcode::Map && Type.ChildTypeIds.size() == 2)
-				bFound = ContainsNestedRoute(Type.ChildTypeIds[1]);
-			Visiting.erase(TypeId);
-			return bFound;
-		};
-		for (const FDecodedObjectValues& Values : Package.ObjectValues)
-			for (const FDecodedOverride& Override : Values.Overrides)
-			{
-				const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
-				if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size())
-					continue;
-				if (ContainsNestedRoute(Schema->Fields[static_cast<size_t>(Override.FieldId - 1)].TypeId))
-					return true;
-			}
-		return false;
-	}
-
-	auto InspectDecodedPackageSchema(FDecodedPackage Package, uint64,
-		bool bPayloadValuesDecoded, const FAssetPath& PackagePath,
-		const FReflectionSchemaCatalog& Catalog,
-		FPackageSchemaInspection& OutRecord,
-		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
-	{
-		FReaderDiagnostic Diagnostic;
-		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
-			GatherCanonicalizationEvidence(Package, PackagePath, &Catalog);
-		std::string CanonicalizationError;
-		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError, &Catalog))
-		{
-			if (OutDiagnostic)
-				Fail(*OutDiagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
-			return {EAssetError::CorruptFile, CanonicalizationError};
-		}
-		FPackageSchemaInspection Record{
-			.FormatVersion = Version,
-			.EntryKind = Package.Header.EntryKind,
-			.Status = EPackageSchemaStatus::Compatible,
-			.CanonicalizationEvidence = std::move(CanonicalizationEvidence)};
-		for (const std::string& Dependency : Package.Header.Dependencies)
-		{
-			FAssetPath Path; if (FAssetPath::TryCreate(Dependency, Path)) Record.Dependencies.push_back(std::move(Path));
-		}
-		std::vector<std::pair<FGuid, int32>> SourceVersions;
-		for (const FCustomVersion& CustomVersion : Package.CustomVersions)
-			SourceVersions.emplace_back(
-				CustomVersion.Guid, static_cast<int32>(CustomVersion.Value));
-		for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
-		{
-			const FDecodedObject& Object = Package.Objects[ObjectIndex];
-			const FReflectionSchemaClass* Class = Catalog.FindClass(Object.ClassName);
-			if (!Class)
-			{
-				Record.Status = EPackageSchemaStatus::Unsupported;
-				Record.Issues.push_back({.Code = EPackageSchemaIssueCode::UnavailableClass,
-					.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
-					.Diagnostic = "Serialized class is unavailable."});
-				continue;
-			}
-			for (const FDecodedOverride& Override : Package.ObjectValues[ObjectIndex].Overrides)
-			{
-				const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
-				if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size()) continue;
-				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
-				const FDecodedType* Type = TypeAt(Package, Field.TypeId);
-				const auto StoredKind = Override.Provenance == 2 || !Type
-					? DurinCodeGen::EPropertyGenFlags::None : TypeKind(*Type, Package);
-				const std::string StoredSignature = Override.Provenance == 2 || !Type
-					? "DASTv4:RetainedClosure" : TypeSignature(*Type, Package);
-				const size_t NestedEvidenceBegin = Record.DeprecatedRouteEvidence.size();
-				if (bPayloadValuesDecoded && Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
-					&Catalog, SourceVersions, PackagePath, Object.Path,
-					Record.DeprecatedRouteEvidence);
-				for (size_t EvidenceIndex = NestedEvidenceBegin;
-					EvidenceIndex < Record.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
-				{
-					const auto& Evidence = Record.DeprecatedRouteEvidence[EvidenceIndex];
-					Record.Issues.push_back({
-						.Code = EPackageSchemaIssueCode::DeprecatedRouteUsed,
-						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
-						.DeclaringType = Evidence.DeclaringType,
-						.FieldName = Evidence.StoredFieldName,
-						.Diagnostic = "Nested serialized field is consumed by a versioned deprecated route."});
-				}
-				const FReflectionDeprecatedPropertyRoute* DeprecatedRoute =
-					Override.Provenance == 2 ? nullptr : Catalog.FindDeprecatedPropertyRoute(
-						Schema->QualifiedName, Field.Name, StoredKind, StoredSignature,
-						SourceVersions);
-				if (DeprecatedRoute)
-				{
-					const auto Version = std::ranges::find_if(SourceVersions,
-						[&](const auto& Pair) { return Pair.first == DeprecatedRoute->CustomVersionGuid; });
-					const int32 SourceVersion = Version == SourceVersions.end()
-						? -1 : Version->second;
-					Record.Issues.push_back({
-						.Code = EPackageSchemaIssueCode::DeprecatedRouteUsed,
-						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
-						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
-						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
-						.ExpectedKind = DeprecatedRoute->Kind,
-						.ExpectedTypeSignature = DeprecatedRoute->TypeSignature,
-						.PayloadSize = Override.PayloadSize, .PayloadOffset = Override.PayloadOffset,
-						.Diagnostic = "Serialized field is consumed by a versioned deprecated route."});
-					Record.DeprecatedRouteEvidence.push_back({
-						.PackagePath = PackagePath, .ObjectPath = Object.Path,
-						.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field.Name,
-						.DeprecatedPropertyName = DeprecatedRoute->DeprecatedPropertyName,
-						.MigrationTargets = DeprecatedRoute->MigrationTargets,
-						.CustomVersionGuid = DeprecatedRoute->CustomVersionGuid,
-						.SourceVersion = SourceVersion,
-						.DeprecatedBefore = DeprecatedRoute->DeprecatedBefore});
-					continue;
-				}
-				const FReflectionSchemaField* Expected = Catalog.FindField(*Class, Schema->QualifiedName, Field.Name);
-				if (!Expected)
-				{
-					if (Record.Status == EPackageSchemaStatus::Compatible)
-						Record.Status = EPackageSchemaStatus::Incompatible;
-					Record.Issues.push_back({.Code = EPackageSchemaIssueCode::UnknownField,
-						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
-						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
-						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
-						.PayloadSize = Override.PayloadSize, .PayloadOffset = Override.PayloadOffset,
-						.Diagnostic = "Serialized field is not present in the current reflection catalog."});
-				}
-				else if (Expected->Kind != StoredKind || Expected->TypeSignature != StoredSignature)
-				{
-					if (Record.Status == EPackageSchemaStatus::Compatible)
-						Record.Status = EPackageSchemaStatus::Incompatible;
-					Record.Issues.push_back({.Code = EPackageSchemaIssueCode::IncompatibleFieldSignature,
-						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
-						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
-						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
-						.ExpectedKind = Expected->Kind, .ExpectedTypeSignature = Expected->TypeSignature,
-						.PayloadSize = Override.PayloadSize, .PayloadOffset = Override.PayloadOffset,
-						.Diagnostic = "Serialized field signature differs from the current reflection catalog."});
-				}
-			}
-		}
-		OutRecord = std::move(Record);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return {};
-	}
-
-	auto InspectSchema(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
-		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutRecord,
-		FPackageSchemaReadStats* OutStats, const FReaderLimits& Limits,
-		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
-	{
-		FReaderDiagnostic Diagnostic;
-		FDecodedPackage Package;
-		if (!DecodePackageDescriptors(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		const bool bNeedsPayloadValues =
-			RequiresDecodedSchemaPayloadValues(Package, Catalog);
-		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		FAssetResult Result = InspectDecodedPackageSchema(Package, Bytes.size(),
-			bNeedsPayloadValues, PackagePath, Catalog, OutRecord, &Diagnostic);
-		if (!Result)
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return Result;
-		}
-		if (OutStats)
-		{
-			OutStats->PayloadBytesSkipped = 0;
-			if (!bNeedsPayloadValues)
-				for (const auto& Object : Package.ObjectValues)
-					for (const auto& Override : Object.Overrides)
-						OutStats->PayloadBytesSkipped += Override.PayloadSize;
-			OutStats->MetadataBytesRead = bNeedsPayloadValues ? Bytes.size()
-				: Package.Header.BytesRead + Package.Header.Sections[0].Length
-					+ Package.Header.Sections[1].Length + Package.Header.Sections[2].Length
-					+ Package.Header.Sections[3].Length;
-			OutStats->PeakMetadataBytes = OutStats->MetadataBytesRead;
-		}
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return {};
-	}
-
-	auto RewriteReferences(
-		std::span<const std::byte> Bytes,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
-		uint64 ExpectedRewriteCount,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
-	{
-		auto FindDestination = [&](const FAssetPath& Source) -> const FAssetPath* {
-			const auto It = std::ranges::find(
-				Mappings, Source, &FAssetRedirectorFixupMapping::RedirectorPath);
-			return It == Mappings.end() ? nullptr : &It->FinalPath;
-		};
-		FDecodedPackage Package;
-		FReaderDiagnostic Diagnostic;
-		if (!DecodePackage(Bytes, Package, {}, &Diagnostic))
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-
-		std::vector<std::string> RewrittenDependencies = Package.Header.Dependencies;
-		for (std::string& Dependency : RewrittenDependencies)
-		{
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Dependency, Path))
-				return {EAssetError::CorruptFile, "Invalid dependency path."};
-			if (const FAssetPath* Destination = FindDestination(Path))
-				Dependency = Destination->ToString();
-		}
-		std::vector<std::string> CanonicalDependencies = RewrittenDependencies;
-		std::ranges::sort(CanonicalDependencies);
-		CanonicalDependencies.erase(
-			std::unique(CanonicalDependencies.begin(), CanonicalDependencies.end()),
-			CanonicalDependencies.end());
-		std::vector<uint64> DependencyIds(RewrittenDependencies.size());
-		for (size_t Index = 0; Index < RewrittenDependencies.size(); ++Index)
-			DependencyIds[Index] = static_cast<uint64>(
-				std::ranges::lower_bound(CanonicalDependencies, RewrittenDependencies[Index])
-				- CanonicalDependencies.begin() + 1);
-
-		uint64 RewriteCount = 0;
-		std::function<FAssetResult(uint64, FValue&)> RewriteValue;
-		RewriteValue = [&](uint64 TypeId, FValue& Value) -> FAssetResult {
-			if (TypeId == 0 || TypeId > Package.Types.size())
-				return {EAssetError::CorruptFile, "Asset reference type id is invalid."};
-			const FDecodedType& Type = Package.Types[static_cast<size_t>(TypeId - 1)];
-			if (Type.Opcode == ETypeOpcode::HardRef && Value.ReferenceTag == 2)
-			{
-				if (Value.ReferenceId == 0 || Value.ReferenceId > DependencyIds.size())
-					return {EAssetError::CorruptFile, "Hard reference dependency id is invalid."};
-				const size_t ReferenceIndex = static_cast<size_t>(Value.ReferenceId - 1);
-				if (DependencyIds[ReferenceIndex] != Value.ReferenceId
-					|| RewrittenDependencies[ReferenceIndex]
-						!= Package.Header.Dependencies[ReferenceIndex])
-					++RewriteCount;
-				Value.ReferenceId = DependencyIds[ReferenceIndex];
-				return {};
-			}
-			if (Type.Opcode == ETypeOpcode::SoftRef && Value.ReferenceTag == 1)
-			{
-				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Value.Text, Path))
-					return {EAssetError::CorruptFile, "Soft reference path is invalid."};
-				if (const FAssetPath* Destination = FindDestination(Path))
-				{
-					Value.Text = Destination->ToString();
-					Package.Names.push_back(Value.Text);
-					++RewriteCount;
-				}
-				return {};
-			}
-			if (Type.Opcode == ETypeOpcode::Struct)
-			{
-				const auto Schema = std::ranges::find(
-					Package.Schemas, Type.QualifiedName, &FDecodedSchema::QualifiedName);
-				if (Schema == Package.Schemas.end()
-					|| Value.Elements.size() != Schema->Fields.size())
-					return {EAssetError::CorruptFile, "Struct reference schema is invalid."};
-				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-					if (FAssetResult Result = RewriteValue(
-						Schema->Fields[Index].TypeId, Value.Elements[Index]); !Result)
-						return Result;
-				return {};
-			}
-			if (Type.ChildTypeIds.empty()) return {};
-			for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-			{
-				const size_t ChildIndex = Type.ChildTypeIds.size() == 1
-					? 0 : Index % Type.ChildTypeIds.size();
-				if (FAssetResult Result = RewriteValue(
-					Type.ChildTypeIds[ChildIndex], Value.Elements[Index]); !Result)
-					return Result;
-			}
-			return {};
-		};
-		for (FDecodedObjectValues& Object : Package.ObjectValues)
-			for (FDecodedOverride& Override : Object.Overrides)
-			{
-				if (Override.SchemaId == 0 || Override.SchemaId > Package.Schemas.size())
-					return {EAssetError::CorruptFile, "Override schema id is invalid."};
-				const auto& Schema = Package.Schemas[static_cast<size_t>(Override.SchemaId - 1)];
-				if (Override.FieldId == 0 || Override.FieldId > Schema.Fields.size())
-					return {EAssetError::CorruptFile, "Override field id is invalid."};
-				if (FAssetResult Result = RewriteValue(
-					Schema.Fields[static_cast<size_t>(Override.FieldId - 1)].TypeId,
-					Override.Value); !Result)
-					return Result;
-			}
-		Package.Header.Dependencies = std::move(CanonicalDependencies);
-		if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
-		{
-			FAssetPath Redirect;
-			if (!FAssetPath::TryCreate(Package.Header.RedirectDestination, Redirect))
-				return {EAssetError::CorruptFile, "Redirect destination is invalid."};
-			if (const FAssetPath* Destination = FindDestination(Redirect))
-				Package.Header.RedirectDestination = Destination->ToString();
-		}
-		if (ExpectedRewriteCount != std::numeric_limits<uint64>::max()
-			&& RewriteCount != ExpectedRewriteCount)
-			return {EAssetError::InUse, std::format(
-				"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
-				ExpectedRewriteCount, RewriteCount)};
-		if (!ReencodePackage(Package, OutBytes, &Diagnostic))
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		return {};
-	}
-
-	auto RelocatePackage(
-		std::span<const std::byte> Bytes,
-		const FAssetPath& DestinationPath,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
-	{
-		FDecodedPackage Package;
-		FReaderDiagnostic Diagnostic;
-		if (!DecodePackage(Bytes, Package, {}, &Diagnostic))
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		if (Package.Header.EntryKind != EAssetRegistryEntryKind::Asset)
-			return {EAssetError::InvalidPackageType,
-				"Only a real asset package can be relocated."};
-		const auto Root = std::ranges::find(Package.Objects, uint64{0}, &FDecodedObject::OuterId);
-		if (Root == Package.Objects.end())
-			return {EAssetError::InvalidObjectGraph,
-				"The relocation source has no valid main object."};
-		const std::string OldRootPath = Root->Path;
-		const std::string NewRootPath(DestinationPath.GetAssetName());
-		for (FDecodedObject& Object : Package.Objects)
-			if (Object.Path == OldRootPath || Object.Path.starts_with(OldRootPath + "/"))
-				Object.Path.replace(0, OldRootPath.size(), NewRootPath);
-		Root->ObjectName = NewRootPath;
-		if (!ReencodePackage(Package, OutBytes, &Diagnostic))
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		return {};
-	}
 }

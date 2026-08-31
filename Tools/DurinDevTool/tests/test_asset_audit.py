@@ -539,7 +539,8 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
     finding_properties = schema["$defs"]["finding"]["properties"]
     assert schema["properties"]["schemaVersion"]["const"] == asset.SCHEMA_VERSION
     native_contract = (
-        REPOSITORY_ROOT / "Engine/Source/Runtime/Engine/Public/Asset/Compatibility.h"
+        REPOSITORY_ROOT
+        / "Engine/Source/Developer/AssetMaintenance/Public/AssetMaintenance/CompatibilityAudit.h"
     ).read_text(encoding="utf-8")
     assert f"AssetCompatibilityReportSchemaVersion = {asset.SCHEMA_VERSION};" in native_contract
     assert set(package_properties["inspection"]["enum"]) == {"NotChecked", "Ready", "Failed"}

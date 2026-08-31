@@ -543,13 +543,14 @@ namespace Durin::Editor::ContentBrowser::Private
 					if (const Asset::FAssetCatalogEntry Data =
 						Asset::FindAssetExact(Path))
 					{
-						Row("Dependencies", std::format("{}", Data->Dependencies.size()));
+						Row("Hard dependencies", std::format("{}", Data->Dependencies.size()));
+						Row("Soft dependencies", std::format("{}", Data->SoftDependencies.size()));
 						const Asset::FAssetReferenceIndex ReferenceIndex =
 							Asset::CaptureAssetReferenceIndex();
 						size_t HardReferencers = 0;
 						size_t SoftReferencers = 0;
 						size_t RedirectReferencers = 0;
-						for (const Asset::FAssetReferenceEdge& Edge :
+						for (const Asset::FAssetPackageReferenceEdge& Edge :
 							 ReferenceIndex.FindReferencers(Path))
 							switch (Edge.Kind)
 							{
@@ -957,7 +958,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (FAssetPath::TryCreate(Item.VirtualPath, Path))
 			{
 				std::vector<FAssetPath> Referencers;
-				for (const Asset::FAssetReferenceEdge& Edge :
+				for (const Asset::FAssetPackageReferenceEdge& Edge :
 					 Asset::CaptureAssetReferenceIndex().FindReferencers(Path))
 					if (std::ranges::find(Referencers, Edge.SourcePackage)
 						== Referencers.end())

@@ -1,0 +1,862 @@
+#include "AssetPackageV8Codec.h"
+#include "AssetPackageByteSource.h"
+#include "AssetPackageLinkerAdapter.h"
+
+#include "Asset/PackageInspection.h"
+#include "Asset/RedirectorFixup.h"
+#include "Asset/References.h"
+#include "AssetRegistry/PackageHeader.h"
+#include "DObject/CanonicalMapKey.h"
+#include "DObject/PackageFormat.h"
+#include "Hash/XxHash.h"
+#include "Misc/FileHelper.h"
+#include "Misc/MountPaths.h"
+
+namespace Durin::Asset::Private::DastV8
+{
+	namespace
+	{
+		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		{
+			return {Code, std::move(Message)};
+		}
+
+		auto ReaderError(const ObjectPackage::FPackageReaderDiagnostic& Diagnostic)
+			-> FAssetResult
+		{
+			return Error(EAssetError::CorruptFile,
+				std::format("DAST v8 package validation failed: {}", Diagnostic.Message));
+		}
+
+		auto ReadLinker(const FAssetPackageReadContext& Context,
+			ObjectPackage::FLinkerTables& Out) -> FAssetResult
+		{
+			if (!Context.PackagePath.IsValid())
+				return Error(EAssetError::InvalidPath,
+					"DAST v8 requires the mounted package identity.");
+			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
+			if (!ObjectPackage::ReadPackageV8(Context.PackageBytes, Context.BulkBytes,
+				Context.PackagePath.GetView(), Out, &Diagnostic))
+				return ReaderError(Diagnostic);
+			return {};
+		}
+
+		auto ReadHeader(const FAssetPackageReadContext& Context,
+			FAssetPackageHeader& OutHeader) -> FAssetResult
+		{
+			const uint64 PhysicalBytes = Context.PhysicalPackageBytes == 0
+				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
+			return ReadAssetPackageHeaderBytes(Context.PackageBytes, PhysicalBytes,
+				Context.BulkBytes.size(), Context.PackagePath, OutHeader);
+		}
+
+		auto Validate(const FAssetPackageReadContext& Context) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			return ReadLinker(Context, Linker);
+		}
+
+		auto PropertyKind(ObjectPackage::EValueKind Kind)
+			-> DurinCodeGen::EPropertyGenFlags
+		{
+			using K = ObjectPackage::EValueKind;
+			using P = DurinCodeGen::EPropertyGenFlags;
+			switch (Kind)
+			{
+			case K::Bool: return P::Bool;
+			case K::I8: return P::Int8;
+			case K::I16: return P::Int16;
+			case K::I32: return P::Int32;
+			case K::I64: return P::Int64;
+			case K::U8: return P::UInt8;
+			case K::U16: return P::UInt16;
+			case K::U32: return P::UInt32;
+			case K::U64: return P::UInt64;
+			case K::F32: return P::Float;
+			case K::F64: return P::Double;
+			case K::String: return P::String;
+			case K::Name: return P::Name;
+			case K::Guid: return P::Guid;
+			case K::Enum: return P::Enum;
+			case K::Struct: return P::Struct;
+			case K::Array: return P::Array;
+			case K::Map: return P::Map;
+			case K::HardReference: return P::Object;
+			case K::SoftReference: return P::SoftObject;
+			case K::Byte: return P::Byte;
+			case K::Bytes: return P::Blob;
+			case K::BulkData: return P::BulkData;
+			case K::FixedArray:
+				return P::None;
+			case K::Intrinsic:
+				return P::None;
+			}
+			return P::None;
+		}
+
+		auto InspectionPropertyKind(const ObjectPackage::FSerializedType& Type)
+			-> DurinCodeGen::EPropertyGenFlags
+		{
+			if (Type.Kind == ObjectPackage::EValueKind::FixedArray)
+				return Type.Children.size() == 1
+					? InspectionPropertyKind(Type.Children[0])
+					: DurinCodeGen::EPropertyGenFlags::None;
+			return PropertyKind(Type.Kind);
+		}
+
+		auto ScalarBytes(ObjectPackage::EValueKind Kind) -> uint32
+		{
+			using K = ObjectPackage::EValueKind;
+			switch (Kind)
+			{
+			case K::Bool: case K::I8: case K::U8: case K::Byte: return 1;
+			case K::I16: case K::U16: return 2;
+			case K::I32: case K::U32: case K::F32: return 4;
+			case K::I64: case K::U64: case K::F64: return 8;
+			default: return 0;
+			}
+		}
+
+		auto TypeSignature(const ObjectPackage::FSerializedType& Type) -> std::string
+		{
+			using K = ObjectPackage::EValueKind;
+			using P = DurinCodeGen::EPropertyGenFlags;
+			if (Type.Kind == K::FixedArray)
+				return Type.Children.size() == 1 ? TypeSignature(Type.Children[0]) : "Invalid";
+			if (Type.Kind == K::Array)
+				return std::format("Array<{}>", Type.Children.size() == 1
+					? TypeSignature(Type.Children[0]) : "Invalid");
+			if (Type.Kind == K::Map)
+				return std::format("Map<{},{}>", Type.Children.size() == 2
+					? TypeSignature(Type.Children[0]) : "Invalid", Type.Children.size() == 2
+					? TypeSignature(Type.Children[1]) : "Invalid");
+			if (Type.Kind == K::HardReference)
+				return std::format("Object:{}:true",
+					Type.QualifiedName.empty() ? "DObject" : Type.QualifiedName);
+			if (Type.Kind == K::SoftReference)
+				return std::format("SoftObject:{}:v1",
+					Type.QualifiedName.empty() ? "DObject" : Type.QualifiedName);
+			if (Type.Kind == K::Enum)
+				return std::format("Enum:{}:{}", Type.QualifiedName,
+					ScalarBytes(static_cast<K>(Type.Parameter)));
+			if (Type.Kind == K::Struct)
+				return std::format("Struct<{}>", Type.QualifiedName);
+			const P Kind = PropertyKind(Type.Kind);
+			if (Kind == P::String || Kind == P::Name || Kind == P::Guid
+				|| Kind == P::Byte || Kind == P::Blob || Kind == P::BulkData)
+				return std::format("{}:v1", static_cast<uint32>(Kind));
+			return std::format("{}:{}", static_cast<uint32>(Kind),
+				std::max<uint32>(1, ScalarBytes(Type.Kind)));
+		}
+
+		template<typename T>
+		auto AppendNative(std::vector<std::byte>& Out, const T& Value) -> void
+		{
+			const auto Bytes = std::as_bytes(std::span(&Value, 1));
+			Out.insert(Out.end(), Bytes.begin(), Bytes.end());
+		}
+
+		auto AppendString(std::vector<std::byte>& Out, std::string_view Value) -> void
+		{
+			AppendNative(Out, static_cast<uint64>(Value.size()));
+			const auto Bytes = std::as_bytes(std::span(Value.data(), Value.size()));
+			Out.insert(Out.end(), Bytes.begin(), Bytes.end());
+		}
+
+		struct FInspectionEncodeState
+		{
+			uint64 BulkFieldIndex = 0;
+			uint64 NextExternalOffset = 0;
+		};
+
+		auto FindSchema(const ObjectPackage::FLinkerTables& Linker,
+			std::string_view Name) -> const ObjectPackage::FSerializedSchema*
+		{
+			const auto It = std::ranges::find(
+				Linker.Schemas, Name,
+				&ObjectPackage::FSerializedSchema::QualifiedName);
+			return It == Linker.Schemas.end() ? nullptr : &*It;
+		}
+
+		auto EncodeInspectionPayload(const ObjectPackage::FSerializedType& Type,
+			const ObjectPackage::FSerializedValue& Value,
+			const ObjectPackage::FLinkerTables& Linker,
+			std::vector<std::byte>& Out,
+			FInspectionEncodeState& State) -> bool
+		{
+			using K = ObjectPackage::EValueKind;
+			switch (Type.Kind)
+			{
+			case K::Bool: AppendNative(Out, Value.Bool); return true;
+			case K::I8: AppendNative(Out, static_cast<int8>(Value.Signed)); return true;
+			case K::I16: AppendNative(Out, static_cast<int16>(Value.Signed)); return true;
+			case K::I32: AppendNative(Out, static_cast<int32>(Value.Signed)); return true;
+			case K::I64: AppendNative(Out, Value.Signed); return true;
+			case K::U8: case K::Byte: AppendNative(Out, static_cast<uint8>(Value.Unsigned)); return true;
+			case K::U16: AppendNative(Out, static_cast<uint16>(Value.Unsigned)); return true;
+			case K::U32: AppendNative(Out, static_cast<uint32>(Value.Unsigned)); return true;
+			case K::U64: AppendNative(Out, Value.Unsigned); return true;
+			case K::F32: AppendNative(Out, static_cast<uint32>(Value.FloatingBits)); return true;
+			case K::F64: AppendNative(Out, Value.FloatingBits); return true;
+			case K::String: case K::Name: AppendString(Out, Value.Text); return true;
+			case K::Guid: AppendNative(Out, Value.Guid); return true;
+			case K::Enum:
+			{
+				const uint32 Bytes = ScalarBytes(static_cast<K>(Type.Parameter));
+				for (uint32 Index = 0; Index < Bytes; ++Index)
+					Out.push_back(static_cast<std::byte>((Value.Unsigned >> (Index * 8)) & 0xff));
+				return Bytes != 0;
+			}
+			case K::HardReference:
+			{
+				if (Value.Reference.IsNull()) { AppendNative(Out, uint8{0}); return true; }
+				if (Value.Reference.IsExport())
+				{
+					AppendNative(Out, uint8{1});
+					AppendNative(Out, uint64(Value.Reference.GetTableIndex() + 1));
+					return true;
+				}
+				if (Value.Reference.GetTableIndex() >= Linker.Imports.size()) return false;
+				AppendNative(Out, uint8{2});
+				AppendString(Out, Linker.Imports[Value.Reference.GetTableIndex()].PackageName);
+				return true;
+			}
+			case K::SoftReference:
+				AppendNative(Out, static_cast<uint8>(Value.Text.empty() ? 0 : 1));
+				if (!Value.Text.empty()) AppendString(Out, Value.Text);
+				return true;
+			case K::Bytes:
+				AppendNative(Out, static_cast<uint64>(Value.Bytes.size()));
+				Out.insert(Out.end(), Value.Bytes.begin(), Value.Bytes.end());
+				return true;
+			case K::FixedArray:
+			{
+				if (Type.Children.size() != 1) return false;
+				for (const auto& Element : Value.Elements)
+					if (!EncodeInspectionPayload(
+						Type.Children[0], Element, Linker, Out, State)) return false;
+				return true;
+			}
+			case K::Array:
+			{
+				if (Type.Children.size() != 1) return false;
+				AppendNative(Out, static_cast<uint64>(Value.Elements.size()));
+				for (const auto& Element : Value.Elements)
+					if (!EncodeInspectionPayload(
+						Type.Children[0], Element, Linker, Out, State)) return false;
+				return true;
+			}
+			case K::Map:
+			{
+				if (Type.Children.size() != 2 || Value.Elements.size() % 2 != 0)
+					return false;
+				AppendNative(Out, static_cast<uint64>(Value.Elements.size() / 2));
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					if (!EncodeInspectionPayload(Type.Children[Index % 2],
+						Value.Elements[Index], Linker, Out, State)) return false;
+				return true;
+			}
+			case K::Struct:
+			{
+				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				if (!Schema || Value.FieldNames.size() != Value.Elements.size()) return false;
+				AppendString(Out, Type.QualifiedName);
+				AppendNative(Out, static_cast<uint64>(Value.Elements.size()));
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					const auto Field = std::ranges::find(
+						Schema->Fields, Value.FieldNames[Index],
+						&ObjectPackage::FSerializedField::Name);
+					if (Field == Schema->Fields.end()) return false;
+					std::vector<std::byte> Payload;
+					if (!EncodeInspectionPayload(
+						Field->Type, Value.Elements[Index], Linker, Payload, State))
+						return false;
+					AppendString(Out, Schema->QualifiedName);
+					AppendString(Out, Field->Name);
+					AppendNative(Out, static_cast<uint8>(InspectionPropertyKind(Field->Type)));
+					AppendString(Out, TypeSignature(Field->Type));
+					AppendNative(Out, static_cast<uint64>(Payload.size()));
+					Out.insert(Out.end(), Payload.begin(), Payload.end());
+				}
+				return true;
+			}
+			case K::BulkData:
+			{
+				if (Value.BulkElementSize == 0 || Value.BulkAlignment == 0
+					|| Value.BulkStorage == ObjectPackage::EBulkStorageKind::Unset)
+					return false;
+				const bool bExternal = Value.BulkStorage
+					== ObjectPackage::EBulkStorageKind::External;
+				const uint64 Offset = bExternal
+					? (State.NextExternalOffset + Value.BulkAlignment - 1)
+						& ~uint64(Value.BulkAlignment - 1)
+					: 0;
+				if (bExternal) State.NextExternalOffset = Offset + Value.Bytes.size();
+				const FXxHash128 Hash = FXxHash128::HashBuffer(Value.Bytes);
+				FGuid PayloadId{
+					static_cast<uint32>(Hash.HashLow),
+					static_cast<uint32>(Hash.HashLow >> 32),
+					static_cast<uint32>(Hash.HashHigh),
+					static_cast<uint32>(Hash.HashHigh >> 32)};
+				if (!PayloadId.IsValid()) PayloadId.A = 1;
+				AppendNative(Out, uint32{1});
+				AppendNative(Out, static_cast<uint8>(bExternal ? 1 : 0));
+				AppendNative(Out, uint8{0});
+				AppendNative(Out, static_cast<uint16>(Value.BulkAlignment));
+				AppendNative(Out, Value.BulkElementSize);
+				AppendNative(Out, ++State.BulkFieldIndex);
+				AppendNative(Out, PayloadId);
+				AppendNative(Out, Hash);
+				AppendNative(Out, static_cast<uint64>(Value.Bytes.size()));
+				AppendNative(Out, static_cast<uint64>(Value.Bytes.size()));
+				AppendNative(Out, Offset);
+				if (!bExternal)
+					Out.insert(Out.end(), Value.Bytes.begin(), Value.Bytes.end());
+				return true;
+			}
+			default:
+				return false;
+			}
+		}
+
+		auto Inspect(const FAssetPackageReadContext& Context,
+			FAssetPackageInspection& OutInspection) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			FAssetPackageInspection Inspection;
+			if (FAssetResult Result = ReadHeader(Context, Inspection.Header); !Result) return Result;
+			Inspection.Fingerprint = {
+				.FileSize = Context.PackageBytes.size(),
+				.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
+				.ReaderVersion = AssetPackageV8FormatVersion};
+			FInspectionEncodeState EncodeState;
+			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
+			{
+				const auto& Export = Linker.Exports[Index];
+				ObjectPackage::FPackageIndex ExportIndex;
+				std::string Path;
+				if (!ObjectPackage::FPackageIndex::TryExport(Index, ExportIndex)
+					|| !Linker.TryResolvePath(ExportIndex, Path))
+					return Error(EAssetError::CorruptFile,
+						"DAST v8 export topology cannot resolve an object path.");
+				FAssetPackageObjectInspection Object{
+					.Id = Index + 1,
+					.OuterId = Export.Outer.IsExport()
+						? uint64(Export.Outer.GetTableIndex() + 1) : 0,
+					.ClassName = Export.ClassName,
+					.ObjectName = Export.ObjectName,
+					.ObjectPath = std::move(Path)};
+				for (const auto& Property : Export.Properties)
+				{
+					FAssetPackageField Field{
+						.DeclaringClass = Property.DeclaringType,
+						.Name = Property.FieldName,
+						.Kind = InspectionPropertyKind(Property.Type),
+						.TypeSignature = TypeSignature(Property.Type),
+						.SourceFormatVersion = AssetPackageV8FormatVersion};
+					if (!EncodeInspectionPayload(Property.Type, Property.Value, Linker,
+						Field.Payload, EncodeState))
+						return Error(EAssetError::CorruptFile,
+							std::format("DAST v8 inspection cannot project {}::{}.",
+								Property.DeclaringType, Property.FieldName));
+					Object.Fields.push_back(std::move(Field));
+				}
+				Inspection.Objects.push_back(std::move(Object));
+			}
+			OutInspection = std::move(Inspection);
+			return {};
+		}
+
+		auto CollectReferences(const ObjectPackage::FSerializedType& Type,
+			const ObjectPackage::FSerializedValue& Value,
+			const ObjectPackage::FLinkerTables& Linker,
+			const FAssetPackageReadContext& Context,
+			const ObjectPackage::FPackageExport& Export,
+			const ObjectPackage::FPropertyTag& Property,
+			uint64 ObjectId,
+			std::vector<FAssetReferenceRouteSegment>& Route,
+			std::vector<FAssetReferenceEdge>& Out,
+			uint32 Depth = 0) -> bool
+		{
+			if (Depth > ObjectPackage::DastV8MaximumValueDepth) return false;
+			using K = ObjectPackage::EValueKind;
+			auto AppendEdge = [&](EAssetReferenceKind Kind,
+				const FAssetPath& Target) {
+				std::string Display = std::format("{}::{}", Property.DeclaringType,
+					Property.FieldName);
+				for (const auto& Segment : Route)
+				{
+					if (Segment.Kind == EAssetReferenceRouteKind::StructField)
+						Display += std::format(".{}", Segment.FieldName);
+					else if (Segment.Kind == EAssetReferenceRouteKind::MapValue)
+						Display += "{value}";
+					else Display += std::format("[{}]", Segment.Index);
+				}
+				Out.push_back({
+					.SourcePackage = Context.PackagePath,
+					.SourceFingerprint = {
+						.FileSize = Context.PackageBytes.size(),
+						.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
+						.ReaderVersion = AssetPackageV8FormatVersion},
+					.SourceObjectId = ObjectId,
+					.SourceClass = Export.ClassName,
+					.DeclaringType = Property.DeclaringType,
+					.FieldName = Property.FieldName,
+					.Kind = Kind,
+					.ExpectedClass = Type.QualifiedName,
+					.TargetPath = Target,
+					.Route = Route,
+					.DisplayRoute = std::move(Display)});
+			};
+			if (Type.Kind == K::HardReference)
+			{
+				if (!Value.Reference.IsImport()) return Value.Reference.IsNull()
+					|| Value.Reference.IsExport();
+				if (Value.Reference.GetTableIndex() >= Linker.Imports.size()) return false;
+				FAssetPath Target;
+				if (!FAssetPath::TryCreate(
+					Linker.Imports[Value.Reference.GetTableIndex()].PackageName, Target))
+					return false;
+				AppendEdge(EAssetReferenceKind::HardObject, Target);
+				return true;
+			}
+			if (Type.Kind == K::SoftReference)
+			{
+				if (Value.Text.empty()) return true;
+				FAssetPath Target;
+				if (!FAssetPath::TryCreate(Value.Text, Target)) return false;
+				AppendEdge(EAssetReferenceKind::SoftObject, Target);
+				return true;
+			}
+			if (Type.Kind == K::Struct)
+			{
+				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				if (!Schema || Value.FieldNames.size() != Value.Elements.size()) return false;
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					const auto Field = std::ranges::find(
+						Schema->Fields, Value.FieldNames[Index],
+						&ObjectPackage::FSerializedField::Name);
+					if (Field == Schema->Fields.end()) return false;
+					Route.push_back({.Kind = EAssetReferenceRouteKind::StructField,
+						.DeclaringType = Schema->QualifiedName, .FieldName = Field->Name});
+					if (!CollectReferences(Field->Type, Value.Elements[Index], Linker,
+						Context, Export, Property, ObjectId, Route, Out, Depth + 1))
+						return false;
+					Route.pop_back();
+				}
+				return true;
+			}
+			if (Type.Kind == K::Array || Type.Kind == K::FixedArray)
+			{
+				if (Type.Children.size() != 1) return false;
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					Route.push_back({.Kind = Type.Kind == K::Array
+						? EAssetReferenceRouteKind::ArrayElement
+						: EAssetReferenceRouteKind::FixedArray,
+						.Index = Index});
+					if (!CollectReferences(Type.Children[0], Value.Elements[Index], Linker,
+						Context, Export, Property, ObjectId, Route, Out, Depth + 1))
+						return false;
+					Route.pop_back();
+				}
+				return true;
+			}
+			if (Type.Kind == K::Map)
+			{
+				if (Type.Children.size() != 2 || Value.Elements.size() % 2 != 0)
+					return false;
+				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
+				{
+					std::vector<std::byte> Token;
+					if (!ObjectPackage::BuildCanonicalMapKeyToken(
+						Type.Children[0], Value.Elements[Index], Token)) return false;
+					Route.push_back({.Kind = EAssetReferenceRouteKind::MapValue,
+						.Index = Index / 2, .MapKeyToken = std::move(Token)});
+					if (!CollectReferences(Type.Children[1], Value.Elements[Index + 1], Linker,
+						Context, Export, Property, ObjectId, Route, Out, Depth + 1))
+						return false;
+					Route.pop_back();
+				}
+			}
+			return true;
+		}
+
+		auto ExtractReferences(const FAssetPackageReadContext& Context,
+			std::vector<FAssetReferenceEdge>& Out) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			std::vector<FAssetReferenceEdge> References;
+			std::vector<FAssetReferenceRouteSegment> Route;
+			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
+				for (const auto& Property : Linker.Exports[Index].Properties)
+					if (!CollectReferences(Property.Type, Property.Value, Linker, Context,
+						Linker.Exports[Index], Property, Index + 1, Route, References))
+						return Error(EAssetError::CorruptFile,
+							"DAST v8 reference traversal encountered an invalid linker value.");
+			std::ranges::sort(References, [](const auto& A, const auto& B) {
+				return std::tuple(A.TargetPath.GetView(), A.SourceObjectId,
+					std::string_view(A.DeclaringType), std::string_view(A.FieldName),
+					std::string_view(A.DisplayRoute), A.Kind)
+					< std::tuple(B.TargetPath.GetView(), B.SourceObjectId,
+						std::string_view(B.DeclaringType), std::string_view(B.FieldName),
+						std::string_view(B.DisplayRoute), B.Kind);
+			});
+			Out = std::move(References);
+			return {};
+		}
+
+		auto InspectSchema(IAssetPackageByteSource& Source,
+			const FAssetPath& Path, const FReflectionSchemaCatalog& Catalog,
+			FPackageSchemaInspection& OutRecord, FPackageSchemaReadStats* OutStats,
+			bool, const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
+		{
+			if (IsCancelled && IsCancelled())
+				return Error(EAssetError::IoError, "Asset schema inspection was cancelled.");
+			if (Source.GetSize() > ObjectPackage::DastV8MaximumPackageBytes
+				|| Source.GetSize() > std::numeric_limits<size_t>::max())
+				return Error(EAssetError::CorruptFile, "DAST v8 package exceeds the byte bound.");
+			std::vector<std::byte> Main(static_cast<size_t>(Source.GetSize()));
+			std::string ReadError;
+			if (!Source.ReadAt(0, Main, &ReadError))
+				return Error(EAssetError::IoError, std::move(ReadError));
+			std::vector<std::byte> Bulk;
+			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+				Path.GetView(), EMountPathExistence::AllowMissing);
+			if (Resolved)
+			{
+				std::filesystem::path BulkPath = Resolved.PhysicalPath;
+				BulkPath.replace_extension(".dbulk");
+				std::error_code Ec;
+				if (std::filesystem::is_regular_file(BulkPath, Ec)
+					&& !FFileHelper::LoadFileToArray(Bulk, BulkPath))
+					return Error(EAssetError::IoError, "DAST v8 bulk companion is unreadable.");
+			}
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
+				return Result;
+			FPackageSchemaInspection Record{
+				.FormatVersion = AssetPackageV8FormatVersion,
+				.EntryKind = Linker.Summary.bRedirect
+					? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset};
+			for (const auto& Dependency : Linker.Summary.HardPackageReferences)
+			{
+				FAssetPath DependencyPath;
+				if (FAssetPath::TryCreate(Dependency, DependencyPath))
+					Record.Dependencies.push_back(std::move(DependencyPath));
+			}
+			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
+			{
+				const auto& Export = Linker.Exports[Index];
+				const auto* Class = Catalog.FindClass(Export.ClassName);
+				ObjectPackage::FPackageIndex ExportIndex;
+				std::string ObjectPath;
+				ObjectPackage::FPackageIndex::TryExport(Index, ExportIndex);
+				Linker.TryResolvePath(ExportIndex, ObjectPath);
+				if (!Class)
+				{
+					Record.Status = EPackageSchemaStatus::Unsupported;
+					Record.Issues.push_back({
+						.Code = EPackageSchemaIssueCode::UnavailableClass,
+						.ObjectPath = ObjectPath,
+						.ClassIdentity = Export.ClassName,
+						.Diagnostic = "Serialized class is unavailable."});
+					continue;
+				}
+				for (const auto& Property : Export.Properties)
+				{
+					const auto Kind = PropertyKind(Property.Type.Kind);
+					const std::string Signature = TypeSignature(Property.Type);
+					const auto* Expected = Catalog.FindField(
+						*Class, Property.DeclaringType, Property.FieldName);
+					if (!Expected || Expected->Kind != Kind
+						|| Expected->TypeSignature != Signature)
+					{
+						if (Record.Status == EPackageSchemaStatus::Compatible)
+							Record.Status = EPackageSchemaStatus::Incompatible;
+						Record.Issues.push_back({
+							.Code = Expected
+								? EPackageSchemaIssueCode::IncompatibleFieldSignature
+								: EPackageSchemaIssueCode::UnknownField,
+							.ObjectPath = ObjectPath,
+							.ClassIdentity = Export.ClassName,
+							.DeclaringType = Property.DeclaringType,
+							.FieldName = Property.FieldName,
+							.StoredKind = Kind,
+							.StoredTypeSignature = Signature,
+							.ExpectedKind = Expected ? Expected->Kind
+								: DurinCodeGen::EPropertyGenFlags::None,
+							.ExpectedTypeSignature = Expected ? Expected->TypeSignature : std::string{},
+							.Diagnostic = Expected
+								? "Serialized field signature differs from the current reflection catalog."
+								: "Serialized field is not present in the current reflection catalog."});
+					}
+				}
+			}
+			if (OutStats)
+			{
+				OutStats->MetadataBytesRead = Main.size();
+				OutStats->PeakMetadataBytes = Main.size() + Bulk.size();
+			}
+			OutRecord = std::move(Record);
+			return {};
+		}
+
+		auto Load(const FAssetPackageReadContext& Context, DPackage*& OutPackage,
+			FAssetLoadReport* OutReport,
+			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
+			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			return ApplyLivePackageLinker(Linker, Context.PackagePath, OutPackage,
+				OutReport, {.OnSkeletonReady = OnSkeletonReady,
+					.OnSkeletonRollback = OnSkeletonRollback,
+					.SourceFormatVersion = AssetPackageV8FormatVersion,
+					.bCooked = Context.bCooked,
+					.Target = Context.bCooked
+						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
+						: FArchiveTarget{}});
+		}
+
+		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,
+			EDefaultDeltaMode DeltaMode,
+			const FAssetPackageSerializationOptions& Options) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			std::string ErrorMessage;
+			if (FAssetResult Result = CaptureLivePackageLinker(Package, DeltaMode,
+				Options, Linker, &ErrorMessage); !Result) return Result;
+			FAssetPackageEncodedClosure Closure;
+			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
+			if (!ObjectPackage::WritePackageV8(Linker, Closure.PackageBytes,
+				Closure.BulkBytes, &Diagnostic))
+				return Error(EAssetError::CorruptFile,
+					std::format("DAST v8 package write failed: {}", Diagnostic.Message));
+			ObjectPackage::FLinkerTables Verified;
+			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
+			if (!ObjectPackage::ReadPackageV8(Closure.PackageBytes, Closure.BulkBytes,
+				Linker.Summary.PackageName, Verified, &ReaderDiagnostic))
+				return ReaderError(ReaderDiagnostic);
+			OutClosure = std::move(Closure);
+			return {};
+		}
+
+		auto WriteLinker(ObjectPackage::FLinkerTables Linker,
+			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+		{
+			Linker.Names.clear();
+			FAssetPackageEncodedClosure Closure;
+			ObjectPackage::FPackageWriterDiagnostic Diagnostic;
+			if (!ObjectPackage::WritePackageV8(Linker, Closure.PackageBytes,
+				Closure.BulkBytes, &Diagnostic))
+				return Error(EAssetError::CorruptFile,
+					std::format("DAST v8 package mutation failed: {}", Diagnostic.Message));
+			ObjectPackage::FLinkerTables Verified;
+			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
+			if (!ObjectPackage::ReadPackageV8(Closure.PackageBytes, Closure.BulkBytes,
+				Linker.Summary.PackageName, Verified, &ReaderDiagnostic))
+				return ReaderError(ReaderDiagnostic);
+			OutClosure = std::move(Closure);
+			return {};
+		}
+
+		auto RewriteReferences(const FAssetPackageReadContext& Context,
+			std::span<const FAssetRedirectorFixupMapping> Mappings,
+			uint64 ExpectedCount, FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			auto FindDestination = [&](std::string_view Source) -> const FAssetPath* {
+				const auto It = std::ranges::find_if(Mappings, [&](const auto& Mapping) {
+					return Mapping.RedirectorPath.GetView() == Source;
+				});
+				return It == Mappings.end() ? nullptr : &It->FinalPath;
+			};
+			uint64 RewriteCount = 0;
+			std::function<bool(const ObjectPackage::FSerializedType&,
+				ObjectPackage::FSerializedValue&)> RewriteValue;
+			RewriteValue = [&](const ObjectPackage::FSerializedType& Type,
+				ObjectPackage::FSerializedValue& Value) -> bool {
+				using K = ObjectPackage::EValueKind;
+				if (Type.Kind == K::HardReference && Value.Reference.IsImport())
+				{
+					if (Value.Reference.GetTableIndex() >= Linker.Imports.size()) return false;
+					const auto& Import = Linker.Imports[Value.Reference.GetTableIndex()];
+					if (FindDestination(Import.PackageName)) ++RewriteCount;
+					return true;
+				}
+				if (Type.Kind == K::SoftReference && !Value.Text.empty())
+				{
+					if (const FAssetPath* Destination = FindDestination(Value.Text))
+					{
+						Value.Text = Destination->ToString();
+						++RewriteCount;
+					}
+					return true;
+				}
+				if (Type.Kind == K::Struct)
+				{
+					const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+					if (!Schema || Value.FieldNames.size() != Value.Elements.size())
+						return false;
+					for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					{
+						const auto Field = std::ranges::find(
+							Schema->Fields, Value.FieldNames[Index],
+							&ObjectPackage::FSerializedField::Name);
+						if (Field == Schema->Fields.end()
+							|| !RewriteValue(Field->Type, Value.Elements[Index]))
+							return false;
+					}
+				}
+				else if (Type.Kind == K::Array || Type.Kind == K::FixedArray)
+				{
+					if (Type.Children.size() != 1) return false;
+					for (auto& Element : Value.Elements)
+						if (!RewriteValue(Type.Children[0], Element)) return false;
+				}
+				else if (Type.Kind == K::Map)
+				{
+					if (Type.Children.size() != 2 || Value.Elements.size() % 2 != 0) return false;
+					for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+						if (!RewriteValue(Type.Children[Index % 2], Value.Elements[Index])) return false;
+				}
+				return true;
+			};
+			for (auto& Export : Linker.Exports)
+				for (auto& Property : Export.Properties)
+					if (!RewriteValue(Property.Type, Property.Value))
+						return Error(EAssetError::CorruptFile,
+							"DAST v8 reference value has an invalid shape.");
+			if (ExpectedCount != std::numeric_limits<uint64>::max()
+				&& RewriteCount != ExpectedCount)
+				return Error(EAssetError::InUse, std::format(
+					"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
+					ExpectedCount, RewriteCount));
+
+			std::vector<ObjectPackage::FPackageImport> Imports;
+			std::vector<uint32> ImportRemap(Linker.Imports.size());
+			for (size_t Index = 0; Index < Linker.Imports.size(); ++Index)
+			{
+				auto Import = Linker.Imports[Index];
+				if (const FAssetPath* Destination = FindDestination(Import.PackageName))
+					Import.PackageName = Destination->ToString();
+				const auto Existing = std::ranges::find(Imports, Import);
+				if (Existing == Imports.end())
+				{
+					ImportRemap[Index] = Imports.size();
+					Imports.push_back(std::move(Import));
+				}
+				else ImportRemap[Index] = std::distance(Imports.begin(), Existing);
+			}
+			std::function<void(ObjectPackage::FSerializedValue&)> RemapValue;
+			RemapValue = [&](ObjectPackage::FSerializedValue& Value) {
+				if (Value.Reference.IsImport())
+				{
+					ObjectPackage::FPackageIndex Remapped;
+					ObjectPackage::FPackageIndex::TryImport(
+						ImportRemap[Value.Reference.GetTableIndex()], Remapped);
+					Value.Reference = Remapped;
+				}
+				for (auto& Element : Value.Elements) RemapValue(Element);
+			};
+			for (auto& Export : Linker.Exports)
+				for (auto& Property : Export.Properties) RemapValue(Property.Value);
+			Linker.Imports = std::move(Imports);
+			for (std::string& Reference : Linker.Summary.HardPackageReferences)
+				if (const FAssetPath* Destination = FindDestination(Reference))
+					Reference = Destination->ToString();
+			for (std::string& Reference : Linker.Summary.SoftPackageReferences)
+				if (const FAssetPath* Destination = FindDestination(Reference))
+					Reference = Destination->ToString();
+			for (auto* References : {&Linker.Summary.HardPackageReferences,
+				&Linker.Summary.SoftPackageReferences})
+			{
+				std::ranges::sort(*References);
+				References->erase(std::ranges::unique(*References).begin(), References->end());
+			}
+			if (const FAssetPath* Destination = FindDestination(
+				Linker.Summary.RedirectDestination))
+				Linker.Summary.RedirectDestination = Destination->ToString();
+			return WriteLinker(std::move(Linker), OutClosure);
+		}
+
+		auto Relocate(const FAssetPackageReadContext& Context,
+			const FAssetPath& Destination, FAssetPackageEncodedClosure& OutClosure)
+			-> FAssetResult
+		{
+			ObjectPackage::FLinkerTables Linker;
+			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
+			if (Linker.Summary.bRedirect || !Linker.Summary.MainExport.IsExport()
+				|| Linker.Summary.MainExport.GetTableIndex() >= Linker.Exports.size())
+				return Error(EAssetError::InvalidPackageType,
+					"Only a real DAST v8 asset package can be relocated.");
+			Linker.Summary.PackageName = Destination.ToString();
+			Linker.Exports[Linker.Summary.MainExport.GetTableIndex()].ObjectName =
+				std::string(Destination.GetAssetName());
+			return WriteLinker(std::move(Linker), OutClosure);
+		}
+
+		auto WriteRedirector(const FAssetPath& Source, const FAssetPath& Destination,
+			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
+		{
+			constexpr std::string_view RedirectorClass =
+				"Durin::Asset::DAssetRedirector";
+			ObjectPackage::FPackageIndex Main;
+			ObjectPackage::FPackageIndex Import;
+			ObjectPackage::FPackageIndex::TryExport(0, Main);
+			ObjectPackage::FPackageIndex::TryImport(0, Import);
+			ObjectPackage::FSerializedType ReferenceType{
+				.Kind = ObjectPackage::EValueKind::HardReference,
+				.QualifiedName = "Durin::DObject"};
+			ObjectPackage::FLinkerTables Linker;
+			Linker.Summary = {
+				.PackageName = Source.ToString(),
+				.AssetClass = std::string(RedirectorClass),
+				.MainExport = Main,
+				.bRedirect = true,
+				.RedirectDestination = Destination.ToString(),
+				.HardPackageReferences = {Destination.ToString()}};
+			Linker.Types.push_back(ReferenceType);
+			Linker.Schemas.push_back({std::string(RedirectorClass),
+				{{"DestinationObject", ReferenceType, 0}}});
+			Linker.Imports.push_back({.PackageName = Destination.ToString()});
+			Linker.Exports.push_back({
+				.ObjectName = std::string(Source.GetAssetName()),
+				.ClassName = std::string(RedirectorClass),
+				.Properties = {{
+					.DeclaringType = std::string(RedirectorClass),
+					.FieldName = "DestinationObject",
+					.Type = ReferenceType,
+					.Provenance = ObjectPackage::EPropertyProvenance::Explicit,
+					.Value = {.Reference = Import}}}});
+			return WriteLinker(std::move(Linker), OutClosure);
+		}
+	}
+
+	auto GetCodec() -> const FAssetPackageCodec&
+	{
+		static const FAssetPackageCodec Codec{
+			.CodecId = "dast-v8",
+			.FormatVersion = AssetPackageV8FormatVersion,
+			.bCanRead = true,
+			.bCanWrite = true,
+			.bCanMutate = true,
+			.ReadHeader = &ReadHeader,
+			.Validate = &Validate,
+			.Inspect = &Inspect,
+			.ExtractReferences = &ExtractReferences,
+			.InspectSchema = &InspectSchema,
+			.Load = &Load,
+			.Write = &Write,
+			.RewriteReferences = &RewriteReferences,
+			.Relocate = &Relocate,
+			.WriteRedirector = &WriteRedirector};
+		return Codec;
+	}
+}

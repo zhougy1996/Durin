@@ -109,10 +109,10 @@ namespace Durin::Asset
 	struct FCookSavePlan
 	{
 		std::string VirtualPath;
+		FAssetPath SourcePackagePath;
 		std::vector<std::byte> PackageBytes;
 		std::vector<std::byte> BulkBytes;
 		FPackageBulkSegmentSummary BulkSummary;
-		std::vector<FPackageBulkDataEntry> BulkEntries;
 		FXxHash128 InputFingerprint;
 		FXxHash128 PackageDigest;
 		FXxHash128 SegmentDigest;
@@ -253,6 +253,12 @@ namespace Durin::Asset
 		);
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
+			std::vector<std::byte> PackageBytes,
+			std::string* OutError = nullptr
+		) -> bool;
+		ENGINE_API auto AddPackage(
+			std::string VirtualPackagePath,
+			const FAssetPath& SourcePackagePath,
 			std::vector<std::byte> PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;

@@ -97,14 +97,18 @@ namespace Durin::Asset::Private
 					Header.RedirectDestination = CachedIt->second.RedirectDestination;
 					Header.FormatVersion = CachedIt->second.FormatVersion;
 					Header.Dependencies = CachedIt->second.Dependencies;
-					Header.ObjectCount = Header.EntryKind == EAssetRegistryEntryKind::Redirector ? 1 : 0;
+					Header.SoftDependencies = CachedIt->second.SoftDependencies;
+					Header.SearchableNames = CachedIt->second.SearchableNames;
+					Header.ObjectCount = CachedIt->second.ObjectCount;
+					Header.BulkSegmentExtent = CachedIt->second.BulkSegmentExtent;
+					Header.BulkSegmentDigest = CachedIt->second.BulkSegmentDigest;
 					++Result.Stats.Reused;
 				}
 				else
 				{
 					++Result.Stats.HeaderReadAttempts;
 					FAssetResult ReadResult = ReadAssetPackageHeader(
-						It->path().generic_string(), Header);
+						It->path().generic_string(), DiskPath, Header);
 					Result.Stats.HeaderBytesRead += Header.BytesRead;
 					Result.Stats.HeaderFileBytesRead += Header.FileBytesRead;
 					if (!ReadResult)
@@ -143,6 +147,11 @@ namespace Durin::Asset::Private
 					.RedirectDestination = Header.RedirectDestination,
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = Header.Dependencies,
+					.SoftDependencies = Header.SoftDependencies,
+					.SearchableNames = Header.SearchableNames,
+					.ObjectCount = Header.ObjectCount,
+					.BulkSegmentExtent = Header.BulkSegmentExtent,
+					.BulkSegmentDigest = Header.BulkSegmentDigest,
 					.FileSize = FileSize,
 					.LastWriteTimeTicks = LastWriteTimeTicks});
 				Result.Assets.emplace(DiskPath, FAssetData{
@@ -153,6 +162,11 @@ namespace Durin::Asset::Private
 					.RedirectDestination = std::move(Header.RedirectDestination),
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = std::move(Header.Dependencies),
+					.SoftDependencies = std::move(Header.SoftDependencies),
+					.SearchableNames = std::move(Header.SearchableNames),
+					.ObjectCount = Header.ObjectCount,
+					.BulkSegmentExtent = Header.BulkSegmentExtent,
+					.BulkSegmentDigest = Header.BulkSegmentDigest,
 					.FileSize = FileSize,
 					.LastWriteTime = LastWriteTime,
 					.LastWriteTimeTicks = LastWriteTimeTicks});

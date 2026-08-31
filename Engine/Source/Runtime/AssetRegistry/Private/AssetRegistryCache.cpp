@@ -11,21 +11,26 @@ namespace Durin::Asset::Private
 	namespace
 	{
 		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-		constexpr uint32 AssetRegistrySchemaVersion = 2;
+		constexpr uint32 AssetRegistrySchemaVersion = 3;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
-		constexpr uint64 MaximumReferencesPerPackage = 100000;
-		constexpr uint64 MaximumReferencesPerSnapshot = 1000000;
-		constexpr uint64 MaximumReferenceRouteTokenBytes = 1024 * 1024;
-		constexpr uint32 MaximumReferenceContainerDepth = 4;
-		constexpr uint64 MaximumReferenceDisplayRouteBytes = 4 * 1024;
-		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr std::string_view RedirectorClassName =
 			"Durin::Asset::DAssetRedirector";
 
 		auto IsValidRegistryCacheHeader(
 			const FRegistryCacheEntry& Entry) -> bool
 		{
+			const auto PathsCanonical = [](const std::vector<FAssetPath>& Paths)
+			{
+				return std::ranges::is_sorted(Paths, [](const FAssetPath& A, const FAssetPath& B)
+					{ return A.GetView() < B.GetView(); })
+					&& std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
+			};
+			if (Entry.ObjectCount == 0 || !PathsCanonical(Entry.Dependencies)
+				|| !PathsCanonical(Entry.SoftDependencies)
+				|| !std::ranges::is_sorted(Entry.SearchableNames)
+				|| std::adjacent_find(Entry.SearchableNames.begin(), Entry.SearchableNames.end())
+					!= Entry.SearchableNames.end()) return false;
 			if (Entry.EntryKind == EAssetRegistryEntryKind::Asset)
 				return !Entry.RedirectDestination.IsValid()
 					&& Entry.AssetClassName != RedirectorClassName;
@@ -43,7 +48,7 @@ namespace Durin::Asset::Private
 		return std::filesystem::path(FPaths::DerivedDataCacheDir()) / "AssetRegistry" / "Registry.bin";
 	}
 
-		auto GetMountManifest() -> std::vector<std::string>
+	auto GetMountManifest() -> std::vector<std::string>
 		{
 			std::vector<std::string> Roots;
 			for (const FMountPoint& Mount : FMountPaths::GetRegisteredMountPoints())
@@ -144,7 +149,47 @@ namespace Durin::Asset::Private
 				}
 				Entry.Dependencies.push_back(std::move(Dependency));
 			}
-			if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
+			uint32 SoftCount = 0;
+			if (!Reader.ReadU32(SoftCount) || SoftCount > MaximumRegistryDependencies)
+			{
+				OutWarning = "Ignoring invalid soft dependency count in asset registry cache.";
+				OutEntries.clear();
+				return false;
+			}
+			for (uint32 DependencyIndex = 0; DependencyIndex < SoftCount; ++DependencyIndex)
+			{
+				std::string DependencyString;
+				FAssetPath Dependency;
+				if (!Reader.ReadString(DependencyString) || !FAssetPath::TryCreate(DependencyString, Dependency))
+				{
+					OutWarning = "Ignoring invalid soft dependency in asset registry cache.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.SoftDependencies.push_back(std::move(Dependency));
+			}
+			uint32 SearchableCount = 0;
+			if (!Reader.ReadU32(SearchableCount) || SearchableCount > MaximumRegistryDependencies)
+			{
+				OutWarning = "Ignoring invalid searchable-name count in asset registry cache.";
+				OutEntries.clear();
+				return false;
+			}
+			for (uint32 SearchableIndex = 0; SearchableIndex < SearchableCount; ++SearchableIndex)
+			{
+				std::string Name;
+				if (!Reader.ReadString(Name) || Name.empty())
+				{
+					OutWarning = "Ignoring invalid searchable name in asset registry cache.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.SearchableNames.push_back(std::move(Name));
+			}
+			if (!Reader.ReadU64(Entry.ObjectCount) || !Reader.ReadU64(Entry.BulkSegmentExtent)
+				|| !Reader.ReadHash128(Entry.BulkSegmentDigest)
+				|| ((Entry.BulkSegmentExtent == 0) != Entry.BulkSegmentDigest.IsZero())
+				|| !Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
 				|| !IsSupportedAssetPackageReaderVersion(Entry.FormatVersion)
 				|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 				|| std::filesystem::path(Entry.RelativePath).is_absolute()
@@ -199,6 +244,13 @@ namespace Durin::Asset::Private
 			Writer.WriteU32(Entry.FormatVersion);
 			Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
 			for (const FAssetPath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
+			Writer.WriteU32(static_cast<uint32>(Entry.SoftDependencies.size()));
+			for (const FAssetPath& Dependency : Entry.SoftDependencies) Writer.WriteString(Dependency.GetView());
+			Writer.WriteU32(static_cast<uint32>(Entry.SearchableNames.size()));
+			for (const std::string& Name : Entry.SearchableNames) Writer.WriteString(Name);
+			Writer.WriteU64(Entry.ObjectCount);
+			Writer.WriteU64(Entry.BulkSegmentExtent);
+			Writer.WriteHash128(Entry.BulkSegmentDigest);
 			Writer.WriteU64(Entry.FileSize);
 			Writer.WriteI64(Entry.LastWriteTimeTicks);
 		}
@@ -243,239 +295,15 @@ namespace Durin::Asset::Private
 				.RedirectDestination = Data.RedirectDestination,
 				.FormatVersion = Data.FormatVersion,
 				.Dependencies = Data.Dependencies,
+				.SoftDependencies = Data.SoftDependencies,
+				.SearchableNames = Data.SearchableNames,
+				.ObjectCount = Data.ObjectCount,
+				.BulkSegmentExtent = Data.BulkSegmentExtent,
+				.BulkSegmentDigest = Data.BulkSegmentDigest,
 				.FileSize = Data.FileSize,
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks});
 		}
 		return true;
 	}
 
-	constexpr uint32 AssetReferenceIndexMagic = 0x58495241; // ARIX
-	constexpr uint32 AssetReferenceIndexSchemaVersion = 1;
-	constexpr uint32 AssetReferenceExtractorSchemaVersion = 1;
-	constexpr uintmax_t MaximumReferenceCacheBytes = 1024ull * 1024ull * 1024ull;
-
-
-	auto ReferenceCachePath() -> std::filesystem::path
-	{
-		return std::filesystem::path(FPaths::DerivedDataCacheDir())
-			/ "AssetRegistry" / "References.bin";
-	}
-
-	auto LoadReferenceCache(
-		std::unordered_map<FAssetPath, FReferenceCacheSource>& OutSources,
-		std::string& OutWarning) -> bool
-	{
-		OutSources.clear();
-		const std::filesystem::path Path = ReferenceCachePath();
-		std::error_code Ec;
-		if (!std::filesystem::exists(Path, Ec)) return false;
-		const uintmax_t Size = std::filesystem::file_size(Path, Ec);
-		if (Ec || Size > MaximumReferenceCacheBytes)
-		{
-			OutWarning = std::format("Ignoring invalid asset-reference cache {}.", Path.generic_string());
-			return false;
-		}
-		std::vector<std::byte> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path))
-		{
-			OutWarning = std::format("Failed to read asset-reference cache {}.", Path.generic_string());
-			return false;
-		}
-		FBinaryReader Reader(Bytes);
-		uint32 ExtractorSchema = 0;
-		uint64 SourceCount = 0;
-		if (!Reader.ReadAndValidateHeader(
-				AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageReaderPolicyFingerprint)
-			|| !Reader.ReadU32(ExtractorSchema)
-			|| ExtractorSchema != AssetReferenceExtractorSchemaVersion
-			|| !Reader.ReadU64(SourceCount) || SourceCount > MaximumRegistryEntries)
-		{
-			OutWarning = "Ignoring incompatible or corrupt asset-reference cache header.";
-			return false;
-		}
-		uint64 TotalOccurrences = 0;
-		for (uint64 SourceIndex = 0; SourceIndex < SourceCount; ++SourceIndex)
-		{
-			std::string SourceString;
-			FAssetPath SourcePath;
-			FReferenceCacheSource Source;
-			uint64 FileSize = 0;
-			uint64 OccurrenceCount = 0;
-			if (!Reader.ReadString(SourceString, MaximumPackageStringBytes)
-				|| !FAssetPath::TryCreate(SourceString, SourcePath)
-				|| !Reader.ReadU64(FileSize)
-				|| !Reader.ReadI64(Source.Fingerprint.LastWriteTimeTicks)
-				|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashLow)
-				|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashHigh)
-				|| !Reader.ReadU32(Source.Fingerprint.ReaderVersion)
-				|| !IsSupportedAssetPackageReaderVersion(Source.Fingerprint.ReaderVersion)
-				|| !Reader.ReadU64(OccurrenceCount)
-				|| OccurrenceCount > MaximumReferencesPerPackage
-				|| TotalOccurrences > MaximumReferencesPerSnapshot - OccurrenceCount)
-			{
-				OutWarning = "Ignoring corrupt asset-reference cache source record.";
-				OutSources.clear();
-				return false;
-			}
-			Source.Fingerprint.FileSize = static_cast<uintmax_t>(FileSize);
-			TotalOccurrences += OccurrenceCount;
-			Source.References.reserve(static_cast<size_t>(OccurrenceCount));
-			for (uint64 OccurrenceIndex = 0; OccurrenceIndex < OccurrenceCount; ++OccurrenceIndex)
-			{
-				FAssetReferenceEdge Reference{
-					.SourcePackage = SourcePath,
-					.SourceFingerprint = Source.Fingerprint};
-				std::string TargetString;
-				uint32 RouteCount = 0;
-				uint8 ReferenceKind = 0;
-				if (!Reader.ReadU64(Reference.SourceObjectId)
-					|| !Reader.ReadString(Reference.SourceClass, MaximumPackageStringBytes)
-					|| !Reader.ReadString(Reference.DeclaringType, MaximumPackageStringBytes)
-					|| !Reader.ReadString(Reference.FieldName, MaximumPackageStringBytes)
-					|| !Reader.ReadU8(ReferenceKind)
-					|| ReferenceKind > static_cast<uint8>(EAssetReferenceKind::Redirect)
-					|| !Reader.ReadString(Reference.ExpectedClass, MaximumPackageStringBytes)
-					|| !Reader.ReadString(TargetString, MaximumPackageStringBytes)
-					|| !FAssetPath::TryCreate(TargetString, Reference.TargetPath)
-					|| !Reader.ReadU32(RouteCount)
-					|| RouteCount > MaximumReferenceContainerDepth)
-				{
-					OutWarning = "Ignoring corrupt asset-reference cache occurrence.";
-					OutSources.clear();
-					return false;
-				}
-				Reference.Kind = static_cast<EAssetReferenceKind>(ReferenceKind);
-				Reference.Route.reserve(RouteCount);
-				for (uint32 RouteIndex = 0; RouteIndex < RouteCount; ++RouteIndex)
-				{
-					uint8 Kind = 0;
-					uint64 TokenBytes = 0;
-					FAssetReferenceRouteSegment Segment;
-					if (!Reader.ReadU8(Kind)
-						|| Kind > static_cast<uint8>(EAssetReferenceRouteKind::StructField)
-						|| !Reader.ReadU64(Segment.Index)
-						|| !Reader.ReadU64(TokenBytes)
-						|| !Reader.ReadBytes(
-							Segment.MapKeyToken, TokenBytes, MaximumReferenceRouteTokenBytes)
-						|| !Reader.ReadString(Segment.DeclaringType, MaximumPackageStringBytes)
-						|| !Reader.ReadString(Segment.FieldName, MaximumPackageStringBytes))
-					{
-						OutWarning = "Ignoring corrupt asset-reference cache route.";
-						OutSources.clear();
-						return false;
-					}
-					Segment.Kind = static_cast<EAssetReferenceRouteKind>(Kind);
-					if ((Segment.Kind == EAssetReferenceRouteKind::MapValue)
-						!= !Segment.MapKeyToken.empty()
-						|| (Segment.Kind == EAssetReferenceRouteKind::StructField)
-						!= (!Segment.DeclaringType.empty() && !Segment.FieldName.empty()))
-					{
-						OutWarning = "Ignoring inconsistent asset-reference cache route.";
-						OutSources.clear();
-						return false;
-					}
-					Reference.Route.push_back(std::move(Segment));
-				}
-				if (!Reader.ReadString(
-					Reference.DisplayRoute, MaximumReferenceDisplayRouteBytes)
-					|| Reference.DisplayRoute.empty())
-				{
-					OutWarning = "Ignoring invalid asset-reference cache display route.";
-					OutSources.clear();
-					return false;
-				}
-				Source.References.push_back(std::move(Reference));
-			}
-			if (!OutSources.emplace(SourcePath, std::move(Source)).second)
-			{
-				OutWarning = "Ignoring duplicate asset-reference cache source.";
-				OutSources.clear();
-				return false;
-			}
-		}
-		if (!Reader.IsAtEnd())
-		{
-			OutWarning = "Ignoring asset-reference cache with trailing data.";
-			OutSources.clear();
-			return false;
-		}
-		return true;
-	}
-
-	auto WriteReferenceCache(
-		const std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints,
-		std::span<const FAssetReferenceEdge> References,
-		std::string& OutWarning) -> bool
-	{
-		if (Fingerprints.size() > MaximumRegistryEntries
-			|| References.size() > MaximumReferencesPerSnapshot)
-		{
-			OutWarning = "Asset-reference index exceeds its persisted snapshot bounds.";
-			return false;
-		}
-		std::unordered_map<FAssetPath, std::vector<const FAssetReferenceEdge*>> BySource;
-		for (const FAssetReferenceEdge& Reference : References)
-			BySource[Reference.SourcePackage].push_back(&Reference);
-		std::vector<FAssetPath> Sources;
-		Sources.reserve(Fingerprints.size());
-		for (const auto& [Source, Fingerprint] : Fingerprints) Sources.push_back(Source);
-		std::ranges::sort(Sources, [](const FAssetPath& Left, const FAssetPath& Right) {
-			return Left.GetView() < Right.GetView();
-		});
-
-		FBinaryWriter Writer;
-		Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageReaderPolicyFingerprint});
-		Writer.WriteU32(AssetReferenceExtractorSchemaVersion);
-		Writer.WriteU64(Sources.size());
-		for (const FAssetPath& Source : Sources)
-		{
-			const FAssetPackageFingerprint& Fingerprint = Fingerprints.at(Source);
-			const auto ReferencesIt = BySource.find(Source);
-			const size_t ReferenceCount = ReferencesIt == BySource.end()
-				? 0 : ReferencesIt->second.size();
-			if (ReferenceCount > MaximumReferencesPerPackage)
-			{
-				OutWarning = std::format(
-					"Asset-reference source {} exceeds its occurrence bound.", Source.ToString());
-				return false;
-			}
-			Writer.WriteString(Source.GetView());
-			Writer.WriteU64(static_cast<uint64>(Fingerprint.FileSize));
-			Writer.WriteI64(Fingerprint.LastWriteTimeTicks);
-			Writer.WriteU64(Fingerprint.ContentHash.HashLow);
-			Writer.WriteU64(Fingerprint.ContentHash.HashHigh);
-			Writer.WriteU32(Fingerprint.ReaderVersion);
-			Writer.WriteU64(ReferenceCount);
-			if (ReferencesIt == BySource.end()) continue;
-			for (const FAssetReferenceEdge* Reference : ReferencesIt->second)
-			{
-				Writer.WriteU64(Reference->SourceObjectId);
-				Writer.WriteString(Reference->SourceClass);
-				Writer.WriteString(Reference->DeclaringType);
-				Writer.WriteString(Reference->FieldName);
-				Writer.WriteU8(static_cast<uint8>(Reference->Kind));
-				Writer.WriteString(Reference->ExpectedClass);
-				Writer.WriteString(Reference->TargetPath.GetView());
-				Writer.WriteU32(static_cast<uint32>(Reference->Route.size()));
-				for (const FAssetReferenceRouteSegment& Segment : Reference->Route)
-				{
-					Writer.WriteU8(static_cast<uint8>(Segment.Kind));
-					Writer.WriteU64(Segment.Index);
-					Writer.WriteU64(Segment.MapKeyToken.size());
-					Writer.WriteBytes(Segment.MapKeyToken);
-					Writer.WriteString(Segment.DeclaringType);
-					Writer.WriteString(Segment.FieldName);
-				}
-				Writer.WriteString(Reference->DisplayRoute);
-			}
-		}
-		FFileHelper::FAtomicFileError FileError;
-		if (!FFileHelper::SaveArrayToFileAtomically(
-			Writer.GetBytes(), ReferenceCachePath(), &FileError))
-		{
-			OutWarning = FileError.ToString();
-			return false;
-		}
-		return true;
-	}
 }

@@ -349,7 +349,7 @@ namespace Durin::Asset
 		for (const FAssetPath& Path : SortedPaths)
 		{
 			std::vector<FAssetPath> SoftReferencers;
-			for (const FAssetReferenceEdge& Edge :
+			for (const FAssetPackageReferenceEdge& Edge :
 				 ReferenceIndex.FindReferencers(Path))
 			{
 				if (Edge.Kind != EAssetReferenceKind::SoftObject
@@ -599,7 +599,7 @@ namespace Durin::Asset
 			Prepared.Assets.erase(Path);
 			Prepared.ReferenceFingerprints.erase(Path);
 			std::erase_if(Prepared.ReferenceEdges,
-				[&](const FAssetReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
+				[&](const FAssetPackageReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
 		}
 		Prepared.bReferenceIndexComplete = Prepared.ReferenceErrors.empty()
 			&& Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
@@ -628,22 +628,13 @@ namespace Durin::Asset
 		}
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			FAssetPackageInspection Inspection;
-			FAssetResult Result = InspectAssetPackage(
-				Entry.RegistryEntry.PhysicalPath, Inspection);
-			std::vector<FAssetReferenceEdge> References;
-			if (Result) Result = ExtractAssetReferences(
-				Entry.RegistryEntry.PackagePath, Inspection, References);
-			if (!Result) return Result;
-			Prepared.Assets.emplace(
-				Entry.RegistryEntry.PackagePath, Entry.RegistryEntry);
-			Prepared.ReferenceEdges.insert(Prepared.ReferenceEdges.end(),
-				std::make_move_iterator(References.begin()),
-				std::make_move_iterator(References.end()));
-			Prepared.ReferenceFingerprints.insert_or_assign(
-				Entry.RegistryEntry.PackagePath, Inspection.Fingerprint);
-		}
-		std::ranges::sort(Prepared.ReferenceEdges, &Private::AssetReferenceLess);
+				Prepared.Assets.emplace(
+					Entry.RegistryEntry.PackagePath, Entry.RegistryEntry);
+			}
+			FAssetResult ProjectionResult = BuildAssetPackageReferenceProjection(
+				Prepared.Assets, Prepared.ReferenceEdges,
+				Prepared.ReferenceFingerprints);
+			if (!ProjectionResult) return ProjectionResult;
 		Prepared.ReferenceErrors.clear();
 		Prepared.bReferenceIndexComplete =
 			Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
@@ -759,8 +750,8 @@ namespace Durin::Asset
 		}
 		Prepared.Assets.erase(Path);
 		Prepared.ReferenceFingerprints.erase(Path);
-		std::erase_if(Prepared.ReferenceEdges,
-			[&](const FAssetReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
+			std::erase_if(Prepared.ReferenceEdges,
+				[&](const FAssetPackageReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
 		Prepared.bReferenceIndexComplete = Prepared.ReferenceErrors.empty()
 			&& Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
 		if (FAssetResult PublishResult = Registry.PublishPreparedState(

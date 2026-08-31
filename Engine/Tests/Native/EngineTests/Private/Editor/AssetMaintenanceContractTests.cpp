@@ -2,6 +2,7 @@
 
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
+#include "AssetRegistry/PackageFormat.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -115,6 +116,15 @@ TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPa
 	ASSERT_EQ(Packages.Num(), 2u);
 	EXPECT_EQ(Packages.GetView(0).GetView("packagePath").GetString(), "/Maintenance/A");
 	EXPECT_EQ(Packages.GetView(1).GetView("packagePath").GetString(), "/Maintenance/B");
+}
+
+TEST_F(FAssetMaintenanceContractTests, CanonicalResaveTargetsCurrentPackageFormat)
+{
+	const Durin::Asset::FAssetCanonicalResavePlan Plan =
+		Durin::Asset::PlanAssetCanonicalResaves({}, {});
+
+	EXPECT_EQ(Plan.TargetFormatVersion,
+		Durin::Asset::AssetPackageV8FormatVersion);
 }
 
 TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlCharacters)

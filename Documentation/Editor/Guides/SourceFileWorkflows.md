@@ -4,7 +4,7 @@ Summary: Explain how built-in importers select, persist, reimport, and diagnose 
 
 Modules: AssetTools, DurinEd, AssetForgeBuiltins
 
-Last reviewed: 2026-08-28
+Last reviewed: 2026-08-31
 
 Durin imports from ordinary files selected with the platform file chooser.
 Source files do not need to live beneath an Asset mount, and the editor does
@@ -64,7 +64,8 @@ set even when no hint exists. Both actions capture once, prepare a detached
 candidate, and commit canonical imported data, settings, derived result, and
 hints together. A resolution, decode, build, or cancellation failure leaves
 both live and persisted state unchanged. A later save failure preserves the
-prior DAST v7 package/raw-segment bundle and leaves the complete new live state Dirty for retry.
+prior canonical DAST v8 main/raw-bulk closure and leaves the complete new live
+state Dirty for retry.
 
 These actions are class-aware capabilities supplied by the reflected factory
 for the loaded asset; the Content Browser does not maintain a separate family

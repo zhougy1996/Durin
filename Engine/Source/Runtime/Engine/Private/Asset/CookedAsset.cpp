@@ -446,13 +446,34 @@ namespace Durin::Asset
 		std::string* OutError
 	) -> bool
 	{
+		FAssetPath SourcePackagePath;
+		if (!FAssetPath::TryCreate(VirtualPackagePath, SourcePackagePath)
+			&& !FAssetPath::TryCreateProjectContent(
+				VirtualPackagePath, SourcePackagePath))
+			return Fail("Cook package path is not a canonical asset identity.", OutError);
+		return AddPackage(std::move(VirtualPackagePath), SourcePackagePath,
+			std::move(PackageBytes), OutError);
+	}
+
+	auto FCookContext::AddPackage(
+		std::string VirtualPackagePath,
+		const FAssetPath& SourcePackagePath,
+		std::vector<std::byte> PackageBytes,
+		std::string* OutError
+	) -> bool
+	{
 		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError))
 			return false;
+		if (!SourcePackagePath.IsValid())
+			return Fail("Cook source package identity is invalid.", OutError);
 		if (PackageBytes.empty()) return Fail("Cook package bytes must be nonempty.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
 			})) return Fail("Cook package path is duplicated.", OutError);
-		Packages.push_back({.VirtualPath = std::move(VirtualPackagePath), .PackageBytes = std::move(PackageBytes)});
+		Packages.push_back({
+			.VirtualPath = std::move(VirtualPackagePath),
+			.SourcePackagePath = SourcePackagePath,
+			.PackageBytes = std::move(PackageBytes)});
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -466,27 +487,29 @@ namespace Durin::Asset
 		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError)) return false;
 		if (!Package || !Package->IsAssetPackage() || !Package->GetAsset())
 			return Fail("Cook package projection requires a valid asset package.", OutError);
+		FAssetPath SourcePackagePath;
+		if (!FAssetPath::TryCreate(Package->GetPackagePath(), SourcePackagePath))
+			return Fail("Cook source package identity is invalid.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
 			})) return Fail("Cook package path is duplicated.", OutError);
 
-		std::vector<FEditorBulkDataStoragePayload> Payloads;
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
-		Options.EditorBulkDataStoragePayloads = &Payloads;
 		std::vector<std::byte> PackageBytes;
-		const FAssetResult Result = SerializeAssetPackageBytes(Package, PackageBytes, Options);
+		std::vector<std::byte> Segment;
+		const FAssetResult Result = SerializeAssetPackageClosure(
+			Package, PackageBytes, Segment, Options);
 		if (!Result)
 			return Fail(std::format("Cook package projection failed: {}", Result.Message), OutError);
-		std::vector<std::byte> Segment;
-		FPackageBulkSegmentSummary Summary;
-		std::vector<FPackageBulkDataEntry> Entries;
-		if (!BuildPackageBulkDataSegment(Payloads, Segment, Summary, Entries, OutError)) return false;
+		FPackageBulkSegmentSummary Summary{
+			.Extent = Segment.size(),
+			.Digest = Segment.empty() ? FXxHash128{} : FXxHash128::HashBuffer(Segment)};
 		FCookSavePlan Pending{
 			.VirtualPath = std::move(VirtualPackagePath),
+			.SourcePackagePath = std::move(SourcePackagePath),
 			.PackageBytes = std::move(PackageBytes),
 			.BulkBytes = std::move(Segment),
 			.BulkSummary = Summary,
-			.BulkEntries = std::move(Entries),
 			.bRawBulkSegment = true
 		};
 		Packages.push_back(std::move(Pending));
@@ -529,15 +552,29 @@ namespace Durin::Asset
 			return Fail("Cook capture target is invalid.", OutError);
 		for (FCookSavePlan& Plan : OutPlans)
 		{
+			if (!Plan.bOpaqueRawSegment)
+			{
+				std::vector<std::byte> CanonicalBytes;
+				std::vector<std::byte> CanonicalBulkBytes;
+				FAssetPath PackagePath;
+				if (!FAssetPath::TryCreate(Plan.VirtualPath, PackagePath)
+					&& !FAssetPath::TryCreateProjectContent(
+						Plan.VirtualPath, PackagePath))
+					return Fail("Cook package path is not a canonical asset identity.", OutError);
+				const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
+					Plan.PackageBytes, Plan.BulkBytes,
+					Plan.SourcePackagePath.IsValid()
+						? Plan.SourcePackagePath : PackagePath,
+					PackagePath,
+					CanonicalBytes, CanonicalBulkBytes
+				);
+				if (!CanonicalResult)
+					return Fail(std::format("Cook package {} could not be canonicalized: {}", Plan.VirtualPath, CanonicalResult.Message), OutError);
+				Plan.PackageBytes = std::move(CanonicalBytes);
+				Plan.BulkBytes = std::move(CanonicalBulkBytes);
+			}
 			if (!CanonicalizeCookVirtualPath(Plan.VirtualPath, OutError))
 				return false;
-			std::vector<std::byte> CanonicalBytes;
-			const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
-				Plan.PackageBytes, CanonicalBytes
-			);
-			if (!CanonicalResult)
-				return Fail(std::format("Cook package {} could not be canonicalized: {}", Plan.VirtualPath, CanonicalResult.Message), OutError);
-			Plan.PackageBytes = std::move(CanonicalBytes);
 			Plan.PackageDigest = FXxHash128::HashBuffer(Plan.PackageBytes);
 			Plan.SegmentDigest = FXxHash128::HashBuffer(Plan.BulkBytes);
 			Plan.PackageFileSize = Plan.PackageBytes.size();

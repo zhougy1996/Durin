@@ -15,6 +15,8 @@ namespace Durin::Asset
 		FAssetPath RedirectDestination;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
+		std::vector<FAssetPath> SoftDependencies;
+		std::vector<std::string> SearchableNames;
 		uint64 ObjectCount = 0;
 		uint64 BulkSegmentExtent = 0;
 		FXxHash128 BulkSegmentDigest;
@@ -26,11 +28,15 @@ namespace Durin::Asset
 	// discovery. This never constructs or loads package objects.
 	ASSETREGISTRY_API auto ReadAssetPackageHeader(
 		std::string_view PhysicalPath,
+		const FAssetPath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 
+	// Supplies the mounted identity and exact raw-bulk extent required by DAST v8 Registry validation.
 	ASSETREGISTRY_API auto ReadAssetPackageHeaderBytes(
 		std::span<const std::byte> FrontMatter,
 		uint64 PhysicalFileBytes,
+		uint64 PhysicalBulkBytes,
+		const FAssetPath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 }
 

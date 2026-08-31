@@ -19,3 +19,7 @@ durin_add_core_object_functional_test(
 	CorePropertyChangeTests Private/PropertyChangeTests.cpp)
 durin_add_core_object_functional_test(
 	CorePropertyValueSnapshotTests Private/ZPropertyValueSnapshotTests.cpp)
+durin_add_core_object_functional_test(
+	PackageLinkerContractTests Private/PackageLinkerTests.cpp)
+durin_add_core_object_functional_test(
+	PackageWriterContractTests Private/PackageWriterTests.cpp)

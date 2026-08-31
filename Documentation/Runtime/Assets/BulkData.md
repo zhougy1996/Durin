@@ -1,10 +1,10 @@
 # Package Bulk Data
 
-Summary: Define field-level BulkData values, package-resource range access, and authored/cooked raw package segments.
+Summary: Define reflected BulkData values, canonical DAST v8 placement, package-resource range access, and raw package segments.
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -12,228 +12,173 @@ the asset family owns the meaning of the bytes. A BulkData value never stores a
 physical filename, DDC key, target platform, asset schema, or source-control
 policy.
 
-## Runtime field state
+## Runtime Field State
 
-`FBulkData` has the following observable states. Empty has zero logical and
-stored size, no resource and no allocation. Attached is an unloaded immutable
-package range. Loading is an admitted asynchronous read. Resident is an
-unlocked allocation. ReadLocked and WriteLocked are resident allocations with
-one or more read locks or exactly one write lock. Detached is resident storage
-without a package source. Failed is an attached field whose most recent read
-failed; a later explicit reload may retry. Retired is an attached field whose
-package resource no longer admits work.
+`FBulkData` has these observable states:
 
-Only Resident or Detached may acquire locks. A read lock on Attached first
-loads a detached immutable snapshot; a write lock is admitted only for Detached
-or Empty and makes the allocation detached before returning. Read locks may be
-nested; a write lock is exclusive. Resize is legal only while write-locked,
-uses checked `uint64` arithmetic, and may not exceed 1 GiB. Unlock without a
-matching lock, a read/write conflict, resize outside a write lock, unload while
-locked or loading, and access after retirement fail without changing state.
-Unload drops an unlocked resident allocation only when a package source exists;
-a detached allocation cannot be re-created and therefore cannot unload.
+- Empty: zero size, no resource, and no allocation.
+- Attached: unloaded immutable package-resource range.
+- Loading: one admitted asynchronous range read.
+- Resident: unlocked allocation whose package source remains available.
+- ReadLocked or WriteLocked: one or more shared read locks or one exclusive
+  write lock.
+- Detached: resident mutable storage without a package source.
+- Failed: attached storage whose latest explicit read failed and may be retried.
+- Retired: a range whose package resource admits no new work.
 
-Copies snapshot metadata, source ownership, and resident bytes but start
-unlocked. Immutable resident allocations may be shared until either copy takes
-a write lock, which detaches it. Moves transfer the same snapshot and leave an
-Empty source. Destruction never waits while holding a field lock. Every admitted
-asynchronous request publishes exactly one terminal Success, Failed, Cancelled,
-or Retired result.
+Only Resident or Detached storage may acquire locks. Reading Attached first
+loads an immutable snapshot. Writing is admitted only for Detached or Empty and
+detaches shared storage before returning. Resize is legal only while
+write-locked, uses checked `uint64` arithmetic, and may not exceed 1 GiB.
+Conflicting locks, unmatched unlock, resize outside a write lock, unload while
+locked/loading, and access after retirement fail without changing state.
 
-The runtime field metadata is `(storage flags, logical size, stored size,
-segment-relative offset, alignment, package-resource handle)`. M1 supports only
+Copies snapshot metadata, resource ownership, and resident bytes but begin
+unlocked. Immutable allocations may remain shared until one copy takes a write
+lock. Moves transfer the snapshot and leave an Empty source. Every admitted
+asynchronous request publishes exactly one terminal Success, Failed,
+Cancelled, or Retired result.
+
+Runtime field metadata is logical size, stored size, storage flags, segment
+offset, alignment, and a package-resource handle. Current storage supports
 flags zero, equal logical/stored sizes, power-of-two alignment from 1 through
-4096, and the Bulk segment. The metadata contains no content identity.
+4096, and an exact inline or external package range. Physical content identity
+belongs to the package descriptor, not mutable runtime state.
 
-## Editor field state and identity
+## Editor Field State And Identity
 
-`FEditorBulkData` is independent of `FBulkData`. It has no lock API. It owns a
-random instance GUID, a content ID, logical size, and either immutable memory or
-an immutable package-resource range. Copies retain the complete immutable
-snapshot, including instance identity and source, and later updates to one copy
-do not affect another. `UpdatePayload` first validates and copies/takes the
-complete candidate, then atomically replaces all identity, size, source, and
-memory facts. A failed update leaves the old value unchanged.
+`FEditorBulkData` is independent of `FBulkData` and has no lock API. It owns an
+instance GUID, XXH3-128 content ID, logical size, and either immutable memory or
+an immutable package-resource range. Copies retain a complete immutable
+snapshot. `UpdatePayload` validates and owns the complete candidate before
+atomically replacing content facts; failure preserves the prior value.
 
-The content ID encoding is XXH3-128 over the canonical uncompressed payload
-bytes and is written as two little-endian `uint64` words (`HashLow`, then
-`HashHigh`). Algorithm version 1 is fixed by DAST v7. Empty bytes therefore use
-the ordinary XXH3-128 digest of an empty span; there is no sentinel identity.
-Content equality compares content ID and byte size without loading. Instance
-identity is registration identity only and does not participate in equality or
-build keys. A new memory value receives a new instance GUID; a loaded value
-retains the persisted instance GUID; updating an existing value retains its
-instance GUID and replaces its content ID.
+The content ID is XXH3-128 over canonical uncompressed payload bytes, encoded
+as little-endian `HashLow` then `HashHigh`. Empty bytes use the ordinary empty
+span digest; there is no sentinel. Content equality uses content ID plus size
+without loading. Instance identity is registration identity only and does not
+enter equality or build keys. Updating an existing value retains its instance
+GUID while replacing content identity.
 
-`GetPayload` returns a request for an immutable owned/shared byte buffer. Memory
-sources may complete inline, but callers use the same request contract. Package
-sources complete through the resource manager. Cancellation is advisory until
-the backend reaches a cancellation point; it still produces one terminal
-result. A source failure does not erase the field's content ID or size and may
-be retried. No request callback or backend object may escape the request.
+`GetPayload` returns an immutable owned/shared buffer request. Memory sources
+may complete inline, but package sources use the same terminal contract through
+the resource manager. A failure never erases content identity or size.
 
-## Package-resource ownership
+## Package-Resource Ownership
 
-`FPackageResourceRange` stores only a ref-counted logical resource handle,
-segment offset, stored size, storage flags, and alignment. Its shared validator
-checks flags, alignment, arithmetic, the caller's size bound, and the resource's
-validated segment extent. `FEditorBulkData` wraps the range with authored
-instance/content identity and logical size; `FBulkData` wraps it with logical
-size and residency state. The range never owns a hash, GUID, DDC key, schema,
-target, asset path, or physical path.
+`FPackageResourceRange` stores a ref-counted logical resource handle, offset,
+stored size, flags, and alignment. Its validator checks flags, alignment,
+overflow, caller limits, and the resource's validated segment extent. It owns
+no hash, GUID, DDC key, schema, target, asset path, or physical path.
 
-Only the loose backend stores the mounted physical package path and derives the
-stable `.dbulk` sibling. A read is admitted only when the resource is Active and
-the checked range is within the validated segment extent.
+Only the loose backend stores the mounted `.dasset` path and derives the stable
+`.dbulk` sibling. At package admission it validates the complete external
+segment against the v8 Registry extent and XXH3-128 digest using no more than
+1 MiB scratch and the 1 GiB package limit. It then exposes immutable ranges
+from the already validated Bulk Directory. Metadata-only Registry inspection
+reads no segment bytes and does not create a live resource.
 
-Retirement changes the resource to Retiring, rejects new requests as Retired,
-requests cancellation for admitted work, and waits for admitted callbacks to
-publish one terminal result before becoming Retired. Package unload retires its
-resource before object publication is withdrawn. Engine shutdown retires all
-resources before filesystem and task services stop. Backend failures use the
-stable vocabulary InvalidRange, MissingSegment, TruncatedSegment,
-SegmentDigestMismatch, Cancelled, Retired, and IoError.
+A read is admitted only while the resource is Active and its checked range is
+inside the validated extent. Retirement enters Retiring, rejects new requests,
+requests cancellation for admitted work, waits for one terminal result per
+request, then becomes Retired. Package unload retires the resource before
+withdrawing object publication; Engine shutdown retires all resources before
+filesystem and task services stop.
 
-The loose backend validates the complete segment extent and XXH3-128 digest
-once when registering a DAST v7 package. Registration streams at most 1 GiB and
-uses at most 1 MiB of temporary I/O storage; it does not allocate payload-sized
-memory. Construct-free full inspection and canonical resave perform the same
-validation. A range request trusts that immutable registration snapshot but
-checks before/after file size and rejects a changed segment. Metadata-only
-header inspection reads no segment bytes and reports the declared closure
-without admitting it for live access.
+The backend reports InvalidRange, MissingSegment, TruncatedSegment,
+SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
+checks before/after physical size and rejects a changed segment rather than
+returning a mixed generation.
 
-## DAST v7 authored wire contract
+## DAST v8 Authored Placement
 
-DAST v7 retains the DURF envelope and the eight required DAST sections in v6
-order. Its 32-byte format header and 48-byte section entries are unchanged.
-Public Summary version 2 contains, in order:
+CoreDObject receives BulkData as detached linker values. Each value includes
+logical bytes, element size, power-of-two alignment, and explicit Inline or
+External placement. The v8 writer owns placement; it never writes offsets,
+handles, residency, or resource state back into the live field.
 
-1. `uint32 SummaryVersion = 2`, `uint32 MainExportIndex = 1`.
-2. `uint64 ImportCount`, `uint64 ExportCount`, `uint64 BulkFieldCount`.
-3. `uint64 SegmentExtent`, `uint64 SegmentDigestLow`, and
-   `uint64 SegmentDigestHigh`.
-4. `uint32 SegmentFlags = 0`, `uint32 Reserved = 0`.
-5. The existing asset-class and redirect-destination wire strings.
+The package contains two physical payload domains:
 
-`SegmentExtent == 0` requires a zero digest and no `.dbulk` sibling.
-`SegmentExtent > 0` requires a nonzero digest and exactly one stable `.dbulk`
-sibling. The authored segment limit is 1 GiB, each package has at most 65,536
-BulkData fields, and the complete `.dasset` remains bounded to 1 GiB.
+- Inline Bulk is the ninth `.dasset` section and holds canonical aligned inline
+  payload ranges.
+- External bulk is one headerless raw `.dbulk` sibling containing aligned
+  payload ranges and zero padding only.
 
-Payload Directory version 2 begins with `uint32 Version = 2`, `uint32
-EntryBytes = 72`, and `uint64 Count`. One entry per BulkData field follows in
-canonical frozen object order and canonical reflected field order:
+Bulk Directory version 1 has one canonical record for every BulkData value and
+binds its export/property identity, storage kind, offset, extent, element size,
+alignment, and XXH3-128 content digest. Records use frozen linker order. Inline
+and external offsets are relative to their respective segment starts. Empty
+values have zero extent; a package with no external bytes has no `.dbulk`
+sibling and Registry declares zero extent and a zero whole-segment digest.
 
-| Offset | Type | Meaning |
-| ---: | --- | --- |
-| 0 | `uint64` | One-based field index; equals directory position + 1 |
-| 8 | `uint32` | Placement: 0 inline, 1 external raw segment |
-| 12 | `uint32` | Storage flags; zero in M1 |
-| 16 | `uint64` | Logical byte count |
-| 24 | `uint64` | Stored byte count; equals logical size in M1 |
-| 32 | `uint64` | Segment-relative offset; zero for inline |
-| 40 | `uint32` | Alignment; 1 for inline, 16 for external authored data |
-| 44 | `uint32` | Reserved zero |
-| 48 | `uint64` | Content ID low word |
-| 56 | `uint64` | Content ID high word |
-| 64 | `uint64` | Reserved zero |
+Validation requires each record to resolve to one `BulkData` property tag and
+requires its tag placement facts and byte content to match. Ranges are ordered,
+nonoverlapping, correctly aligned, digest-verified, and separated only by zero
+padding. Every byte in Inline Bulk and the external segment is consumed by one
+range or required alignment padding; leading/trailing undeclared bytes and a
+missing or extra stable companion are invalid. The raw companion has no DURF
+envelope, nested metadata header, generation id, target, schema, or trailer.
 
-The logical BulkData field encoding is `uint64 FieldIndex`, `uint8 Placement`,
-`uint8 StorageFlags`, `uint16 Alignment`, `uint32 ContentIdVersion = 1`, the
-16-byte instance GUID, two `uint64` content-ID words, `uint64 LogicalSize`,
-`uint64 StoredSize`, and `uint64 SegmentOffset`, followed only for inline
-placement by exactly `StoredSize` bytes. It must agree byte-for-byte with its
-directory entry. Zero-length fields are inline, have alignment 1 and offset 0,
-and carry the canonical empty content ID.
+The Registry section binds the external segment by exact extent and whole-file
+XXH3-128. Header validation checks declared extent against physical extent;
+complete package validation checks the whole digest and every directory range
+before linker publication or object construction.
 
-Authored payloads of at most 256 KiB are inline. Larger payloads are external
-and aligned to 16 bytes. External offsets are relative to byte zero of the raw
-segment. The writer appends fields in directory order, inserts only zero bytes
-to reach each declared alignment, assigns a distinct range to every nonempty
-external field, and ends the segment at the final payload byte. There is no
-leading header, directory, magic, generation ID, target, schema, or trailing
-padding in `.dbulk`.
+## Cooked Projection
 
-Validation rejects unsupported versions, placements or flags; noncanonical
-field indexes; invalid sizes, alignments, offsets or arithmetic; duplicate,
-overlapping or out-of-order ranges; nonzero padding; missing or trailing segment
-bytes; digest disagreement; field/directory disagreement; and a segment whose
-first bytes merely happen to resemble a container header no differently from
-any other payload bytes. Segment content is opaque: a header-like payload is
-valid when declared as payload, but undeclared header bytes before the first
-range are nonzero padding and invalid.
+A cooked Archive dispatches `DObject::SerializeCooked`, supplies exact
+platform/profile facts, filters editor-only state, and captures runtime
+`FBulkData` into the same v8 linker value and placement contract. Detached live
+fields remain detached while capture copies immutable bytes. The writer assigns
+physical offsets only inside detached output.
 
-## Cooked raw-field projection
+`FCookContext::AddPackage(VirtualPath, Package)` carries canonical identity and
+exact v8 main/bulk bytes through reachability, pruning, output planning, and
+CMNF publication. Cooked load validates the closure first, then attaches
+external fields to the package resource. Metadata load issues no range request;
+first access requests exactly the declared range. There is no Cook-only package
+raw-segment metadata grammar.
 
-A cooked Archive dispatches `DObject::SerializeCooked` and captures runtime
-`FBulkData` fields through the same DAST v7 field grammar and raw-segment
-placement used above. Cook supplies explicit platform/profile context, filters
-editor-only state, and uses NoDelta planning with the same cooked dispatch.
-Detached fields remain detached while capture copies their immutable bytes.
-The package writer assigns transient field identities and content checks for
-physical validation; neither becomes `FBulkData` semantic state.
+Opaque non-package Cook segments remain a separate explicit plan kind. They
+are validated by their own extent/digest and are never passed to the v8 package
+reader or misidentified as a `.dbulk` closure.
 
-`FCookContext::AddPackage(VirtualPath, Package)` publishes the resulting raw
-segment and records it as `PackageBulk` in CMNF. This route has no
-descriptor callback, container header, payload table, or family companion
-resolver. Cooked load validates the complete segment before
-object publication, dispatches `SerializeCooked`, and attaches external fields
-to the registered package resource. Metadata load performs zero range requests;
-the first lock requests exactly the declared field range. Construct-free tools
-inspect this same field metadata without constructing a runtime descriptor.
+## Publication And Companion Ownership
 
-## Publication, compatibility, and migration
-
-Project Cook captures canonical package bytes and the optional raw segment into
-immutable `FCookSavePlan` values before publication. Ordinary reflected assets,
-metadata-only packages, and Terrain World opaque regions can contribute to the
-same `FCookContext` batch. Contributors never receive output paths or store
-handles; Terrain World retains its TWMF schema while sharing the package,
-segment, Cook-state, and CMNF transaction.
-
-The local Cook store stages and read-back validates changed segments, packages,
-`CookState.bin`, and CMNF. Commit order is segment, referencing package,
-incremental state, then `CookManifest.bin`; backups restore every overwritten
-or newly introduced file when staging, commit, or cancellation fails. A
-validated unchanged plan is reused without rewriting bytes or timestamps.
-Post-commit stale cleanup is restricted to entries owned by the previous CMNF.
-
-A save captures immutable payload snapshots, lays out the segment without
-mutating live fields, stages package and optional segment, and preserves the
-prior stable segment as `.dbulk.durin-backup`. It publishes `.dbulk` first,
-`.dasset` second, and catalog state last, validates the committed pair, then
-removes the backup. Failure before catalog publication restores the previous
-complete pair or removes a first uncommitted pair. Inline-only saves publish no
-empty segment and remove a stale canonical segment only after the package is
+An authored save snapshots all payloads, writes canonical v8 main/bulk buffers,
+validates the detached closure, and stages the optional external segment before
+the referencing main package. The prior stable segment is preserved as
+recoverable backup state. Catalog publication occurs last; after committed
+bytes validate, backups are removed. Failure restores the previous complete
+pair or removes a first uncommitted pair. Inline-only saves publish no empty
+segment and remove a stale prior companion only after the new main package is
 committed.
 
-DAST v7 plus an optional raw `.dbulk` segment is the only supported authored
-closure. Canonical resave verifies, republishes, and catalogs that closure
-transactionally. Git LFS pointer text, missing LFS content, partial clones, and
-absent required segments are reported as missing or mismatched closure and
-never published as live packages.
+Cook publication follows segment, package, incremental state, then CMNF commit
+order. Read-back validation covers each changed output, backups restore every
+overwritten/new file on failure, and unchanged validated plans preserve bytes
+and timestamps. Stale cleanup is restricted to entries owned by the prior
+manifest.
 
-Move, duplicate, delete, inventory, orphan detection, and source-control
-closure derive the stable raw segment from validated v7 field metadata and
-summary. Transaction temporaries and `.durin-backup` files are recovery state,
-not authored companions.
+Move, duplicate, delete, inventory, orphan detection, source-control closure,
+and canonical resave derive companion ownership from validated v8 Registry and
+Bulk Directory facts. A suffix scan is never authority. Atomic temporaries and
+`.durin-backup` files are recovery state, not authored companions. Git LFS
+pointer text, absent content, truncated companions, and partial clones fail
+closure validation and never publish a live package.
 
-## Qualification budgets
+## Qualification Budget
 
-`FPackageAssetTests.FieldBulkQualificationMeetsBoundedLooseFixtureBudgets`
-freezes one 4 MiB uncompressed external authored field. The MacOS arm64 Debug
-measurement on 2026-08-30 recorded 9.95 ms metadata load, 19.77 ms first access,
-and 175.81 ms canonical v7 save. The
-enforced diagnostic ceilings are 500 ms metadata load, 500 ms first access,
-and 2 seconds save.
+`FPackageAssetTests.V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets` freezes a
+4 MiB uncompressed external field and enforces bounded metadata load, first
+access, and save. Metadata load retains zero payload bytes and issues no range
+request; first access returns one owned 4 MiB buffer through one exact request;
+ordinary save preserves a 4 MiB headerless segment; unload returns the resource
+count to zero. These are regression ceilings, not hardware benchmarks.
 
-Metadata load retains zero field payload bytes, registers one logical package
-resource, and issues zero range requests. First access returns one owned 4 MiB
-buffer through exactly one 4 MiB request; the field remains nonresident. The
-ordinary save preserves a 4 MiB headerless segment. Package unload returns the
-registered-resource count to zero. Family fixtures separately require zero
-source-range reads on validated warm DDC hits and one owned source snapshot on
-cold build paths. These are bounded regression gates, not hardware benchmark
-claims; rebaseline requires a dedicated qualification change with recorded host
-and fixture evidence.
+## Related Documentation
+
+- [Asset Packages](AssetPackages.md)
+- [Asset Data Lifecycle](AssetDataLifecycle.md)
+- [File I/O](../Core/FileIO.md)
+- [Serialization](../Core/Serialization.md)

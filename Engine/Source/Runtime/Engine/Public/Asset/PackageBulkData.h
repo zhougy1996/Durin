@@ -1,7 +1,6 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/EditorBulkDataStorageTypes.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::Asset
@@ -53,13 +52,5 @@ namespace Durin::Asset
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
 		std::span<const std::byte> Segment,
-		std::string* OutError = nullptr) -> bool;
-
-	// Produces the canonical raw segment and directory from captured field payloads.
-	ENGINE_API auto BuildPackageBulkDataSegment(
-		std::span<const FEditorBulkDataStoragePayload> Payloads,
-		std::vector<std::byte>& OutSegment,
-		FPackageBulkSegmentSummary& OutSummary,
-		std::vector<FPackageBulkDataEntry>& OutEntries,
 		std::string* OutError = nullptr) -> bool;
 }

@@ -232,35 +232,4 @@ namespace Durin::Asset::PackageObjectStream
 		return {};
 	}
 
-	auto ExtractAssetPackageReferences(std::span<const std::byte> PackageBytes,
-		const FAssetPath& SourcePackage,
-		std::vector<FAssetReferenceEdge>& OutReferences,
-		FAssetPackageFingerprint* OutFingerprint) -> FAssetResult
-	{
-		std::vector<std::byte> ObjectStream;
-		if (FAssetResult Result = ExtractDastObjectStream(PackageBytes, ObjectStream); !Result)
-			return Result;
-		FBinaryEnvelopePreamble PackagePreamble;
-		FBinaryEnvelopeDiagnostic PackageDiagnostic;
-		if (!ParseBinaryEnvelopePrefix(PackageBytes, PackageBytes.size(), EnvelopeLimits,
-				PackagePreamble, &PackageDiagnostic))
-			return Error(std::string(PackageDiagnostic.Message));
-		FReaderDiagnostic Diagnostic;
-		if (FAssetResult Result = ExtractReferences(
-			ObjectStream, SourcePackage, OutReferences, {}, &Diagnostic); !Result)
-			return Result;
-		std::erase_if(OutReferences, [&](const FAssetReferenceEdge& Reference) {
-			return Reference.Kind == EAssetReferenceKind::HardObject
-				&& Reference.TargetPath == SourcePackage;
-		});
-		const FAssetPackageFingerprint Fingerprint{
-			.FileSize = PackageBytes.size(),
-			.ContentHash = FXxHash128::HashBuffer(PackageBytes),
-			.ReaderVersion = PackagePreamble.FormatVersion};
-		for (FAssetReferenceEdge& Reference : OutReferences)
-			Reference.SourceFingerprint = Fingerprint;
-		if (OutFingerprint)
-			*OutFingerprint = Fingerprint;
-		return {};
-	}
 }

@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 ## Asset boundary
 
@@ -101,11 +101,11 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/package-resource
 placement and replacement remain authored-only capabilities.
 
-Ordinary and explicit saves emit DURF/DAST v7 and only the authored BulkData
-field. Small voxel values stay inline. External values produce one matching
-Payload Directory v2 entry and a range in the stable headerless
-`<package-stem>.dbulk` segment. Other DAST versions and structured authored-bulk
-containers are unsupported.
+Ordinary and explicit saves emit canonical DURF/DAST v8 and only the authored
+BulkData field. Small voxel values stay in Inline Bulk. External values produce
+one matching Bulk Directory record and a range in the stable headerless
+`<package-stem>.dbulk` segment. Other DAST versions and nested authored-bulk
+containers are unsupported in production.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, platform payload, cooked field, or upload
@@ -134,7 +134,7 @@ The volume producer version is 2 and the primary cooked payload ID is
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an
 importer, and fails transactionally on missing or corrupt bulk. New output is
-DAST v7 plus an optional headerless raw `.dbulk` segment.
+canonical DAST v8 plus its exact optional headerless raw `.dbulk` segment.
 
 ## GPU resource and diagnostics
 

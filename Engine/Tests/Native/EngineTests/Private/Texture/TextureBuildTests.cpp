@@ -193,8 +193,12 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
 	Durin::Asset::FAssetPackageInspection CookedInspection;
+	Durin::FAssetPath CookedInspectionPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		"/Game/CookedVolume", CookedInspectionPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(CookRoot / "Game/CookedVolume.dasset").generic_string(), CookedInspection));
+		(CookRoot / "Game/CookedVolume.dasset").generic_string(),
+		CookedInspectionPath, CookedInspection));
 	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Texture = nullptr;
@@ -540,8 +544,9 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_EQ(Descriptors.size(), 1u);
 	EXPECT_EQ(Descriptors.front().StorageKind,
 		Durin::Asset::EEditorBulkDataStorageKind::External);
-	EXPECT_EQ(Descriptors.front().PayloadId,
-		Imported.Asset->GetImportedData().Pixels.GetInstanceId());
+	EXPECT_TRUE(Descriptors.front().PayloadId.IsValid());
+	EXPECT_EQ(Descriptors.front().ContentHash,
+		Imported.Asset->GetImportedData().Pixels.GetPayloadId());
 	std::vector<std::filesystem::path> Companions;
 	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
 		Entry->PhysicalPath, Inspection, Companions, &Error)) << Error;

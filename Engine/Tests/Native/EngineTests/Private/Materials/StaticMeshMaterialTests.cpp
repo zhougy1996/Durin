@@ -493,10 +493,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 		/ "StaticMeshSlotOverrides" / "Component.dasset";
 	std::vector<std::byte> FixtureBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, "Materials"));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, "MaterialOverridesVersion"));
-	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, "MaterialOverrides"));
-	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, "OverrideMaterials"));
+	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "Materials"));
+	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "MaterialOverridesVersion"));
+	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "MaterialOverrides"));
+	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, ComponentPath, "OverrideMaterials"));
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SecondMaterialPath));
@@ -643,10 +643,10 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		Material->GetPackage(), SecondSerialization));
 	EXPECT_EQ(FirstSerialization, SecondSerialization);
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Program"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "SchemaVersion"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Nodes"));
-	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Outputs"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Program"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "SchemaVersion"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Nodes"));
+	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, Path, "Outputs"));
 
 	auto* Duplicate = Durin::Cast<Durin::DMaterial>(
 		Durin::DuplicateObject(
@@ -722,12 +722,14 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 
 	std::vector<std::byte> BaseBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BaseBytes, (Root / "Base.dasset")));
-	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(BaseBytes, "ParameterDefinitions", "VectorParameters"));
+	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
+		BaseBytes, BasePath, "ParameterDefinitions", "VectorParameters"));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(BaseBytes)), Root / "Base.dasset"));
 
 	std::vector<std::byte> InstanceBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
-	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(InstanceBytes, "ParameterOverrides", "ScalarParameters"));
+	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
+		InstanceBytes, InstancePath, "ParameterOverrides", "ScalarParameters"));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(InstanceBytes)), Root / "Instance.dasset"));
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;

@@ -6,14 +6,13 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/AssetPackageV7Codec.h"
-#include "Asset/PackageObjectStreamReader.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/PackageFormat.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Rendering/StaticMeshSceneProxy.h"
@@ -58,134 +57,69 @@ namespace
 
 	auto RewriteSerializedFieldAsLegacyMap(
 		std::vector<std::byte>& Bytes,
+		const Durin::FAssetPath& PackagePath,
 		std::string_view CurrentName,
 		std::string_view LegacyName
 	) -> bool
 	{
-		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
-				Bytes, ObjectStream)) return false;
-		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
-		if (!Durin::Asset::PackageObjectStream::DecodePackage(ObjectStream, Package)) return false;
-
-		size_t SchemaIndex = std::string::npos;
-		size_t FieldIndex = std::string::npos;
-		for (size_t CandidateSchemaIndex = 0;
-			CandidateSchemaIndex < Package.Schemas.size();
-			++CandidateSchemaIndex)
+		Durin::ObjectPackage::FLinkerTables Linker;
+		if (!Durin::ObjectPackage::ReadPackageV8(
+			Bytes, {}, PackagePath.GetView(), Linker)) return false;
+		Durin::ObjectPackage::FSerializedSchema* MatchedSchema = nullptr;
+		Durin::ObjectPackage::FSerializedField* MatchedField = nullptr;
+		for (auto& Schema : Linker.Schemas)
 		{
-			auto& Fields = Package.Schemas[CandidateSchemaIndex].Fields;
-			for (size_t CandidateFieldIndex = 0;
-				CandidateFieldIndex < Fields.size();
-				++CandidateFieldIndex)
+			for (auto& Field : Schema.Fields)
 			{
-				if (Fields[CandidateFieldIndex].Name != CurrentName) continue;
-				if (SchemaIndex != std::string::npos) return false;
-				SchemaIndex = CandidateSchemaIndex;
-				FieldIndex = CandidateFieldIndex;
+				if (Field.Name != CurrentName) continue;
+				if (MatchedField) return false;
+				MatchedSchema = &Schema;
+				MatchedField = &Field;
 			}
 		}
-		if (SchemaIndex == std::string::npos) return false;
-
-		using Durin::Asset::PackageObjectStream::ETypeOpcode;
-		const uint64 KeyTypeId = Package.Types.size() + 1;
-		Package.Types.push_back({.Opcode = ETypeOpcode::String});
-		const uint64 ValueTypeId = Package.Types.size() + 1;
-		Package.Types.push_back({.Opcode = ETypeOpcode::String});
-		const uint64 MapTypeId = Package.Types.size() + 1;
-		Package.Types.push_back({
-			.Opcode = ETypeOpcode::Map,
-			.ChildTypeIds = {KeyTypeId, ValueTypeId}});
-		auto& Field = Package.Schemas[SchemaIndex].Fields[FieldIndex];
-		Field.Name = LegacyName;
-		Field.TypeId = MapTypeId;
-
-		size_t RewrittenOverrides = 0;
-		for (auto& ObjectValues : Package.ObjectValues)
+		if (!MatchedSchema || !MatchedField) return false;
+		Durin::ObjectPackage::FSerializedType StringType{
+			.Kind = Durin::ObjectPackage::EValueKind::String};
+		Durin::ObjectPackage::FSerializedType MapType{
+			.Kind = Durin::ObjectPackage::EValueKind::Map,
+			.Children = {StringType, StringType}};
+		MatchedField->Name = LegacyName;
+		MatchedField->Type = MapType;
+		size_t Rewritten = 0;
+		for (auto& Export : Linker.Exports)
 		{
-			for (auto& Override : ObjectValues.Overrides)
+			for (auto& Property : Export.Properties)
 			{
-				if (Override.SchemaId != SchemaIndex + 1
-					|| Override.FieldId != FieldIndex + 1) continue;
-				if (Override.Provenance == 2) return false;
-				Override.Value = {};
-				++RewrittenOverrides;
+				if (Property.DeclaringType != MatchedSchema->QualifiedName
+					|| Property.FieldName != CurrentName) continue;
+				Property.FieldName = LegacyName;
+				Property.Type = MapType;
+				Property.Value = {};
+				++Rewritten;
 			}
 		}
-		if (RewrittenOverrides == 0
-			|| !Durin::Asset::PackageObjectStream::ReencodePackage(Package, ObjectStream))
+		if (Rewritten == 0) return false;
+		std::vector<std::byte> Main;
+		std::vector<std::byte> Bulk;
+		if (!Durin::ObjectPackage::WritePackageV8(Linker, Main, Bulk) || !Bulk.empty())
 			return false;
-		return static_cast<bool>(
-			Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
-				ObjectStream, Bytes));
+		Bytes = std::move(Main);
+		return true;
 	}
 
-	auto ContainsSerializedField(std::span<const std::byte> Bytes, std::string_view Name) -> bool
+	auto ContainsSerializedField(std::span<const std::byte> Bytes,
+		const Durin::FAssetPath& PackagePath, std::string_view Name) -> bool
 	{
-		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
-				Bytes, ObjectStream)) return false;
-		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
-		if (!Durin::Asset::PackageObjectStream::DecodePackage(
-			ObjectStream, Package)) return false;
-		for (const auto& Schema : Package.Schemas)
+		Durin::ObjectPackage::FLinkerTables Linker;
+		if (!Durin::ObjectPackage::ReadPackageV8(
+			Bytes, {}, PackagePath.GetView(), Linker)) return false;
+		for (const auto& Schema : Linker.Schemas)
 		{
 			if (std::ranges::any_of(
 				Schema.Fields,
 				[Name](const auto& Field) { return Field.Name == Name; })) return true;
 		}
 		return false;
-	}
-
-	auto RemoveSerializedField(
-		std::vector<std::byte>& Bytes,
-		std::string_view Name) -> bool
-	{
-		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
-				Bytes, ObjectStream)) return false;
-		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
-		if (!Durin::Asset::PackageObjectStream::DecodePackage(
-			ObjectStream, Package)) return false;
-
-		size_t SchemaIndex = std::string::npos;
-		size_t FieldIndex = std::string::npos;
-		for (size_t CandidateSchema = 0;
-			CandidateSchema < Package.Schemas.size(); ++CandidateSchema)
-		{
-			for (size_t CandidateField = 0;
-				CandidateField < Package.Schemas[CandidateSchema].Fields.size();
-				++CandidateField)
-			{
-				if (Package.Schemas[CandidateSchema]
-					.Fields[CandidateField].Name != Name) continue;
-				if (SchemaIndex != std::string::npos) return false;
-				SchemaIndex = CandidateSchema;
-				FieldIndex = CandidateField;
-			}
-		}
-		if (SchemaIndex == std::string::npos) return false;
-
-		const uint64 SchemaId = SchemaIndex + 1;
-		const uint64 FieldId = FieldIndex + 1;
-		Package.Schemas[SchemaIndex].Fields.erase(
-			Package.Schemas[SchemaIndex].Fields.begin() + FieldIndex);
-		for (auto& ObjectValues : Package.ObjectValues)
-		{
-			std::erase_if(ObjectValues.Overrides, [&](const auto& Override) {
-				return Override.SchemaId == SchemaId
-					&& Override.FieldId == FieldId;
-			});
-			for (auto& Override : ObjectValues.Overrides)
-				if (Override.SchemaId == SchemaId
-					&& Override.FieldId > FieldId)
-					--Override.FieldId;
-		}
-		if (!Durin::Asset::PackageObjectStream::ReencodePackage(
-			Package, ObjectStream)) return false;
-		return static_cast<bool>(
-			Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
-				ObjectStream, Bytes));
 	}
 
 	auto ReplaceAll(std::string& Text, std::string_view From, std::string_view To) -> void

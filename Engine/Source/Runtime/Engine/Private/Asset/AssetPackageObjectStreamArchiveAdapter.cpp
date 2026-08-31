@@ -32,6 +32,11 @@ namespace Durin::Asset::Private
 			FProperty* ReflectedProperty = nullptr;
 			std::vector<std::byte> Raw;
 			std::vector<FCapturedNode> Children;
+			std::vector<std::byte> BulkBytes;
+			uint64 BulkElementSize = 1;
+			uint32 BulkAlignment = 1;
+			uint8 BulkStorage = 0;
+			bool bDetachedBulk = false;
 		};
 
 		struct FCapturedObject
@@ -291,7 +296,7 @@ namespace Durin::Asset::Private
 				Scope.Offset += Bytes.size();
 			}
 
-			auto SerializeBulkData(
+				auto SerializeBulkData(
 				FArchiveBulkDataValue& Value,
 				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
@@ -299,11 +304,11 @@ namespace Durin::Asset::Private
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV7FormatVersion)
+				if (!DastVersion || DastVersion->Version != AssetPackageV8FormatVersion)
 				{
 					FailLoad(EAssetError::UnsupportedVersion,
 						EArchiveFailureCode::InvalidData,
-						"Authored bulk fields require DAST v7.");
+						"Authored bulk fields require a supported DAST package version.");
 					return;
 				}
 				uint64 FieldIndex = 0;
@@ -327,7 +332,7 @@ namespace Durin::Asset::Private
 						|| SegmentOffset % Alignment != 0)))
 				{
 					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"DAST v7 authored bulk field metadata is invalid.");
+						"DAST v8 authored bulk field metadata is invalid.");
 					return;
 				}
 				Value = {.PayloadId = InstanceId,
@@ -346,7 +351,7 @@ namespace Durin::Asset::Private
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 					{
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST v7 inline authored bulk content identity is invalid.");
+							"DAST v8 inline authored bulk content identity is invalid.");
 						return;
 					}
 					Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
@@ -357,7 +362,7 @@ namespace Durin::Asset::Private
 						PackagePath.ToString());
 					if (!Value.PackageResource)
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST v7 package bulk resource was not registered before graph load.");
+							"DAST v8 package bulk resource was not registered before graph load.");
 				}
 			}
 
@@ -816,10 +821,10 @@ namespace Durin::Asset::Private
 				if (HasError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV7FormatVersion)
+				if (!DastVersion || DastVersion->Version != AssetPackageV8FormatVersion)
 				{
 					Fail(EArchiveFailureCode::InvalidData,
-						"Package bulk fields require DAST v7.");
+						"Package bulk fields require a supported DAST package version.");
 					return;
 				}
 				const bool bCooked = IsCooking();
@@ -879,6 +884,19 @@ namespace Durin::Asset::Private
 					.SegmentOffset = SegmentOffset,
 					.Alignment = Alignment};
 				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
+				if (NodeStack.empty() || !NodeStack.back())
+				{
+					Fail(EArchiveFailureCode::MalformedSerializer,
+						"Package bulk capture requires an active value node.");
+					return;
+				}
+				FCapturedNode& Node = *NodeStack.back();
+				Node.BulkBytes.assign(Value.Buffer.GetBytes().begin(),
+					Value.Buffer.GetBytes().end());
+				Node.BulkElementSize = Parameters.ElementSize;
+				Node.BulkAlignment = Alignment;
+				Node.BulkStorage = bExternal ? 1 : 0;
+				Node.bDetachedBulk = true;
 
 				uint8 Placement = bExternal ? 1 : 0;
 				uint8 StorageFlags = 0;
@@ -1522,8 +1540,18 @@ namespace Durin::Asset::Private
 				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.A) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.B)
 					|| !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.C) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.D)) return Invalid();
 				break;
-			case K::Bytes: case K::BulkData:
+			case K::Bytes:
 				Out.Bytes = Node.Raw; Offset = Node.Raw.size(); break;
+			case K::BulkData:
+				if (!Node.bDetachedBulk || Node.BulkElementSize == 0
+					|| Node.BulkAlignment == 0 || Node.BulkStorage > 1) return Invalid();
+				Out.Bytes = Node.BulkBytes;
+				Out.BulkElementSize = Node.BulkElementSize;
+				Out.BulkAlignment = Node.BulkAlignment;
+				Out.BulkStorage = Node.BulkStorage;
+				Out.bDetachedBulk = true;
+				Offset = Node.Raw.size();
+				break;
 			case K::Object:
 				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 2) return Invalid();
 				if (Out.ReferenceTag == 1)
@@ -1654,21 +1682,6 @@ namespace Durin::Asset::Private
 			Out = std::move(Input); return true;
 		}
 
-		auto EncodeCapturedPackage(
-			const FCapturedPackage& Captured,
-			const FAuthoredPackageSummary& Summary,
-			std::span<DObject* const> ObjectIdentities,
-			const FDefaultDeltaPlan& DeltaPlan,
-			std::span<const PackageObjectStream::FCustomVersion> CustomVersions,
-			std::vector<std::byte>& OutBytes,
-			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
-		{
-			PackageObjectStream::FPackageInput Input;
-			if (!BuildObjectStreamInput(
-				Captured, Summary, ObjectIdentities, DeltaPlan, CustomVersions,
-				Input, Diagnostic)) return false;
-			return PackageObjectStream::WritePackage(Input, OutBytes, &Diagnostic);
-		}
 	}
 
 	auto LoadAuthoredObject(
@@ -1704,33 +1717,7 @@ namespace Durin::Asset::Private
 
 namespace Durin::Asset::PackageObjectStream
 {
-	auto WriteRedirectorPackage(
-		const FAssetPath& SourcePath,
-		const FAssetPath& DestinationPath,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
-	{
-		constexpr std::string_view RedirectorClass = "Durin::Asset::DAssetRedirector";
-		auto DestinationType = MakeType(ETypeOpcode::HardRef, "Durin::DObject");
-		FPackageInput Input{
-			.AssetClass = std::string(RedirectorClass),
-			.EntryKind = EAssetRegistryEntryKind::Redirector,
-			.RedirectDestination = DestinationPath.ToString(),
-			.Dependencies = {DestinationPath.ToString()},
-			.Types = {DestinationType},
-			.Schemas = {{std::string(RedirectorClass), {{"DestinationObject", DestinationType, 0}}}},
-			.Objects = {{std::string(SourcePath.GetAssetName()), {},
-				std::string(RedirectorClass), std::string(SourcePath.GetAssetName())}},
-			.ObjectValues = {{std::string(SourcePath.GetAssetName()), {{
-				.SchemaName = std::string(RedirectorClass),
-				.FieldName = "DestinationObject",
-				.Value = {.ReferenceTag = 2, .ReferenceId = 1}}}}}};
-		FWriterDiagnostic Diagnostic;
-		if (!WritePackage(Input, OutBytes, &Diagnostic))
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		return {};
-	}
-
-	auto WriteAssetPackage(DPackage* Package, std::vector<std::byte>& OutBytes,
+	auto CaptureAssetPackage(DPackage* Package, FPackageInput& OutInput,
 		const FAssetPackageWriteOptions& Options, FWriterDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FWriterDiagnostic Diagnostic;
@@ -1938,27 +1925,14 @@ namespace Durin::Asset::PackageObjectStream
 		FPackageInput SchemaMetadata;
 		if (!Private::GatherDeprecationCustomVersions(Objects, SchemaMetadata, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-		std::vector<std::byte> Bytes;
-		if (!Private::EncodeCapturedPackage(
+		FPackageInput Input;
+		if (!Private::BuildObjectStreamInput(
 			Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
-			Bytes, Diagnostic))
+			Input, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-		if (Options.bVerifyRepeatedEncoding)
-		{
-			std::vector<std::byte> RepeatedBytes;
-			if (!Private::EncodeCapturedPackage(
-				Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
-				RepeatedBytes, Diagnostic))
-				return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-			if (RepeatedBytes != Bytes)
-			{
-				Diagnostic = {EWriterFailure::ManifestMismatch, {},
-					"Repeated encoding of one captured package produced different bytes."};
-				return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-			}
-		}
-		OutBytes = std::move(Bytes);
+		OutInput = std::move(Input);
 		Diagnostic.Reset();
 		return Finish({});
 	}
+
 }

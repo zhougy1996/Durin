@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, immutable catalog and reference proje
 
 Modules: AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -20,12 +20,17 @@ normalized package path; it is never a content mount or a source of package
 bytes. Startup enumerates every registered auto-scan mount once. A package in a
 manual-scan mount remains a valid authored identity but becomes load-visible
 only through explicit admission. Exact file-size and stable last-write-time
-matches may reuse cached class, entry kind, redirect, format, and dependency
-metadata; new or changed files use the bounded package header reader.
+matches may reuse cached class, entry kind, redirect, format, object count,
+main/bulk extents, hard and soft package dependencies, and searchable names.
+New or changed files read only the declared bounded front matter. V8 metadata
+is projected by CoreDObject's construct-free Registry reader. Unsupported
+versions fail before metadata publication; ordinary discovery has no legacy
+header fallback.
 
 Schema, package-format, serialization, mount-manifest, or snapshot corruption
-causes a nonfatal rebuild. Full validation bypasses fingerprint reuse and
-verifies package and redirector bodies. Successful mutation prepares a complete
+causes a nonfatal rebuild. Full validation bypasses fingerprint reuse but keeps
+the same front-matter boundary; it does not read export/value payloads.
+Successful mutation prepares a complete
 replacement in Engine and publishes it through AssetRegistry with an expected
 prior revision. Public callers receive
 owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
@@ -51,23 +56,25 @@ public mutable catalog manager.
 
 ## Reference Projection
 
-`AssetRegistry/References.bin` is the single rebuildable hard, soft, and
-redirect occurrence projection. A source entry is keyed by package fingerprint,
-DAST version, and extractor schema. Each occurrence records source package and
-object, declaring type and field, reference kind and expected class, target
-path, typed container route, and deterministic display path.
+AssetRegistry stores package-level hard, soft, and redirect edges only. Every
+edge is derived deterministically from the same `FAssetData` candidate as the
+catalog, and the catalog, fingerprints, and edge projection publish under one
+expected revision. Duplicate `(source, target, category)` edges collapse;
+publication rejects unsorted metadata, invalid redirects, fingerprint drift,
+or any edge set that does not exactly match catalog metadata.
 
-Extraction reads package fields and reflection metadata without constructing
-objects, invoking `PostLoad`, resolving targets, or changing residency. It is
-bounded to four container levels, 100,000 occurrences per package, 1,000,000
-per snapshot, 1 MiB paths and map-key tokens, and 4 KiB display paths. A failed
-source extraction publishes no partial entry.
+There is one rebuildable cache, `AssetRegistry/Registry.bin`. It contains the
+complete persistent package metadata projection and never contains object ids,
+declaring fields, container routes, display paths, or canonical Map-key tokens.
+There is no second cache or payload-extraction pass. Incremental scans reuse
+an exact identity/size/stable-timestamp match; full validation reparses bounded
+front matter. Both produce identical package metadata and edges.
 
-Incremental reconciliation may trust an exact path, size, and stable timestamp
-match. `FullValidation` reads and hashes every package and performs complete
-package and reference validation. Callers that require destructive safety must
-reject incomplete projections rather than interpreting missing occurrences as
-absence.
+An exact object/property occurrence is transient Engine tooling data. A
+relocation, deletion, or redirector operation first uses package edges to select
+candidate packages, then explicitly opens only those candidates through
+Engine's package-inspection seam. Exact records never enter AssetRegistry state,
+snapshots, publications, or caches.
 
 Cook reachability resolves explicit and registered external roots, follows
 canonical hard and soft edges, validates final classes and redirects, excludes
@@ -92,9 +99,10 @@ destination if persistence fails.
 
 ## Editor Orchestration Boundary
 
-AssetRegistry owns persistent package discovery, construct-free DAST inspection,
-immutable metadata and reference snapshots, their revisions, and rebuildable
-registry/reference caches. Engine owns package bytes and writing, object
+AssetRegistry owns persistent package discovery, bounded header projection,
+immutable package metadata and dependency snapshots, their revisions, and the
+single rebuildable registry cache. Engine owns package bytes and writing, exact
+on-demand package inspection, object
 construction and residency, Cook, graph copying, publication preparation, and
 opaque mutation transactions.
 `IAssetTools` owns reusable editor acceptance, typed terminal and persistence
@@ -119,10 +127,11 @@ denotes the same real asset. Relocation does not rewrite persistent hard or soft
 paths or arbitrary settings/import stores.
 
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
-v7 package contributes its validated raw `.dbulk` when its field metadata
-requires an external segment. Relocation, duplication, deletion, Undo, Redo,
-and recovery journal that companion with the `.dasset`. Atomic temporaries and
-`.durin-backup` files are recovery state and never mutation participants.
+v8 package contributes its validated raw `.dbulk` only when Registry and Bulk
+Directory bind a nonempty external segment. Relocation, duplication, deletion,
+Undo, Redo, and recovery journal that companion with the `.dasset`. Atomic
+temporaries and `.durin-backup` files are recovery state and never mutation
+participants.
 
 Stale tokens, read-only participants, collisions, staging failures, and
 publication failures either leave authority unchanged or compensate in reverse
@@ -139,9 +148,11 @@ broken aliases, and incomplete alias closure are blocked. Soft and external
 references warn that authored paths will dangle. Commit, Undo, and Redo retain
 enough exact metadata to restore redirectors and catalog state.
 
-Fix Up is the only path-canonicalizing asset-mutation transaction. It rewrites tagged
-hard and soft package fields plus registered external stores, verifies that no
-incoming persistent occurrence remains, and may then delete proven aliases.
+Fix Up is the only path-canonicalizing asset-mutation transaction. It rewrites
+tagged hard and soft package fields plus registered external stores, reopens
+package-level candidates to verify that no exact incoming occurrence remains,
+and may then delete proven aliases. Exact occurrences remain transient Engine
+tooling data throughout the transaction.
 Dirty, incompatible, read-only, incomplete, stale, or failed participants leave
 valid redirectors in place and restore published changes.
 

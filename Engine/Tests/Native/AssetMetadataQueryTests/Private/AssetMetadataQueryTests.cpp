@@ -2,7 +2,6 @@
 #include "AssetRegistry/PackageFormat.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/PackageTypes.h"
-#include "AssetRegistry/ObjectStream.h"
 #include "AssetRegistry/Publication.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -13,6 +12,57 @@
 namespace
 {
 	using namespace Durin::Asset;
+
+	auto MakeAssetData(const Durin::FAssetPath& Path,
+		std::vector<Durin::FAssetPath> Hard = {},
+		std::vector<Durin::FAssetPath> Soft = {}) -> FAssetData
+	{
+		return {.PackagePath = Path,
+			.AssetClassName = "Example::MetadataAsset",
+			.FormatVersion = AssetPackageV8FormatVersion,
+			.Dependencies = std::move(Hard),
+			.SoftDependencies = std::move(Soft),
+			.ObjectCount = 1,
+			.FileSize = 128,
+			.LastWriteTimeTicks = 42};
+	}
+
+	auto RebuildPackageProjection(FAssetRegistryPublication& Publication) -> void
+	{
+		Publication.ReferenceEdges.clear();
+		Publication.ReferenceFingerprints.clear();
+		for (const auto& [Path, Data] : Publication.Assets)
+		{
+			const FAssetPackageFingerprint Fingerprint{
+				.FileSize = Data.FileSize,
+				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
+				.ReaderVersion = Data.FormatVersion};
+			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
+			auto Add = [&](EAssetReferenceKind Kind, const Durin::FAssetPath& Target) {
+				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
+					.SourceFingerprint = Fingerprint, .Kind = Kind,
+					.TargetPath = Target});
+			};
+			for (const Durin::FAssetPath& Target : Data.Dependencies)
+				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
+					|| Target != Data.RedirectDestination)
+					Add(EAssetReferenceKind::HardObject, Target);
+			for (const Durin::FAssetPath& Target : Data.SoftDependencies)
+				Add(EAssetReferenceKind::SoftObject, Target);
+			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+		}
+		std::ranges::sort(Publication.ReferenceEdges,
+			[](const FAssetPackageReferenceEdge& Left,
+				const FAssetPackageReferenceEdge& Right) {
+				return std::tuple(Left.TargetPath.GetView(),
+					Left.SourcePackage.GetView(), Left.Kind)
+					< std::tuple(Right.TargetPath.GetView(),
+						Right.SourcePackage.GetView(), Right.Kind);
+			});
+		Publication.ReferenceErrors.clear();
+		Publication.bReferenceIndexComplete = true;
+	}
 
 	TEST(FAssetMetadataQueryTests, SnapshotOwnsExactMetadataWithoutEngine)
 	{
@@ -43,7 +93,7 @@ namespace
 	{
 		EXPECT_EQ(AssetPackageV7FormatVersion, 7u);
 		EXPECT_EQ(DastBinaryFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(7));
+		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(7));
 		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(6));
 
 		const FAssetPackageFingerprint Fingerprint{
@@ -75,10 +125,9 @@ namespace
 		First.Assets.insert_or_assign(Path, FAssetData{
 			.PackagePath = Path,
 			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = AssetPackageV7FormatVersion});
-		First.ReferenceFingerprints.insert_or_assign(Path, FAssetPackageFingerprint{});
-		First.ReferenceErrors.clear();
-		First.bReferenceIndexComplete = true;
+			.FormatVersion = AssetPackageV7FormatVersion,
+			.ObjectCount = 1});
+		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
 		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
 		ASSERT_TRUE(FindAssetExact(Path));
@@ -108,12 +157,9 @@ namespace
 		std::atomic<uint32> Successes = 0;
 		auto Publish = [&](const Durin::FAssetPath& InAssetPathValue) {
 			FAssetRegistryPublication Publication = Base;
-			FAssetData Data;
-			Data.PackagePath = InAssetPathValue;
+			FAssetData Data = MakeAssetData(InAssetPathValue);
 			Publication.Assets.insert_or_assign(InAssetPathValue, std::move(Data));
-			Publication.ReferenceFingerprints.insert_or_assign(
-				InAssetPathValue, FAssetPackageFingerprint{});
-			Publication.bReferenceIndexComplete = true;
+			RebuildPackageProjection(Publication);
 			if (PublishAssetRegistryPublication(std::move(Publication))) ++Successes;
 		};
 		std::thread First([&] { Publish(FirstPath); });
@@ -147,18 +193,11 @@ namespace
 			"/MetadataTests/ClosureUnrelated", Unrelated));
 
 		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
-		Publication.Assets.insert_or_assign(Root, FAssetData{
-			.PackagePath = Root,
-			.Dependencies = {Dependency}});
-		Publication.Assets.insert_or_assign(Dependency, FAssetData{
-			.PackagePath = Dependency});
-		Publication.Assets.insert_or_assign(Unrelated, FAssetData{
-			.PackagePath = Unrelated});
-		for (const Durin::FAssetPath& Path : {Root, Dependency, Unrelated})
-			Publication.ReferenceFingerprints.insert_or_assign(
-				Path, FAssetPackageFingerprint{});
-		Publication.ReferenceErrors.clear();
-		Publication.bReferenceIndexComplete = true;
+		Publication.Assets.insert_or_assign(Root,
+			MakeAssetData(Root, {Dependency}));
+		Publication.Assets.insert_or_assign(Dependency, MakeAssetData(Dependency));
+		Publication.Assets.insert_or_assign(Unrelated, MakeAssetData(Unrelated));
+		RebuildPackageProjection(Publication);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 
 		const FAssetDependencyClosureSnapshot Closure =
@@ -174,7 +213,7 @@ namespace
 			&FAssetData::PackagePath), 0);
 	}
 
-	TEST(FAssetMetadataQueryTests, ExtractsCanonicalObjectStreamReferencesWithoutEngine)
+	TEST(FAssetMetadataQueryTests, PublishesCanonicalPackageLevelDependenciesWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
@@ -188,68 +227,18 @@ namespace
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MetadataTests/SoftTarget", SoftPath));
 
-		namespace ObjectStream = Durin::Asset::PackageObjectStream;
-		auto Hard = ObjectStream::MakeType(
-			ObjectStream::ETypeOpcode::HardRef, "DObject");
-		auto Soft = ObjectStream::MakeType(
-			ObjectStream::ETypeOpcode::SoftRef, "DObject");
-		ObjectStream::FPackageInput Input{
-			.AssetClass = "Example::MetadataAsset",
-			.Dependencies = {TargetPath.ToString()},
-			.AdditionalNames = {SoftPath.ToString()},
-			.Types = {Hard, Soft},
-			.Schemas = {{"Example::MetadataAsset",
-				{{"Hard", Hard, 0}, {"Soft", Soft, 0}}}},
-			.Objects = {{"Root", {}, "Example::MetadataAsset", "Root"}},
-			.ObjectValues = {{"Root", {
-				{.SchemaName = "Example::MetadataAsset", .FieldName = "Hard",
-					.Value = ObjectStream::FValue{
-						.ReferenceTag = 2, .ReferenceId = 1}},
-				{.SchemaName = "Example::MetadataAsset", .FieldName = "Soft",
-					.Value = ObjectStream::FValue{
-						.Text = SoftPath.ToString(), .ReferenceTag = 1}},
-			}}},
-		};
-		std::vector<std::byte> Bytes;
-		ObjectStream::FWriterDiagnostic WriterDiagnostic;
-		ASSERT_TRUE(ObjectStream::WritePackage(Input, Bytes, &WriterDiagnostic))
-			<< WriterDiagnostic.Message;
-		std::vector<FAssetReferenceEdge> References;
-		ObjectStream::FReaderDiagnostic ReaderDiagnostic;
-		ASSERT_TRUE(ObjectStream::ExtractReferences(
-			Bytes, SourcePath, References, {}, &ReaderDiagnostic))
-			<< ReaderDiagnostic.Message;
-		ASSERT_EQ(References.size(), 2u);
-		EXPECT_EQ(References[0].SourcePackage, SourcePath);
-		EXPECT_EQ(std::ranges::count(
-			References, TargetPath, &FAssetReferenceEdge::TargetPath), 1);
-		EXPECT_EQ(std::ranges::count(
-			References, SoftPath, &FAssetReferenceEdge::TargetPath), 1);
-
 		Durin::FAssetPath RedirectPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MetadataTests/Redirect", RedirectPath));
-		References.push_back({
-			.SourcePackage = RedirectPath,
-			.Kind = EAssetReferenceKind::Redirect,
-			.TargetPath = TargetPath,
-			.DisplayRoute = "RedirectDestination"});
 		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
-		for (const Durin::FAssetPath& Source : std::array{SourcePath, RedirectPath})
-		{
-			Publication.Assets.insert_or_assign(Source, FAssetData{
-				.PackagePath = Source,
-				.AssetClassName = "Example::MetadataAsset",
-				.FormatVersion = AssetPackageV7FormatVersion});
-			Publication.ReferenceFingerprints.insert_or_assign(
-				Source, FAssetPackageFingerprint{});
-		}
-		for (FAssetReferenceEdge& Reference : References)
-			Reference.SourceFingerprint = FAssetPackageFingerprint{};
-		Publication.ReferenceEdges.insert(Publication.ReferenceEdges.end(),
-			References.begin(), References.end());
-		Publication.ReferenceErrors.clear();
-		Publication.bReferenceIndexComplete = true;
+		Publication.Assets.insert_or_assign(SourcePath,
+			MakeAssetData(SourcePath, {TargetPath}, {SoftPath}));
+		FAssetData Redirect = MakeAssetData(RedirectPath, {TargetPath});
+		Redirect.AssetClassName = "Durin::Asset::DAssetRedirector";
+		Redirect.EntryKind = EAssetRegistryEntryKind::Redirector;
+		Redirect.RedirectDestination = TargetPath;
+		Publication.Assets.insert_or_assign(RedirectPath, std::move(Redirect));
+		RebuildPackageProjection(Publication);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 		const FAssetReferenceIndex Index = CaptureAssetReferenceIndex();
 		EXPECT_EQ(Index.FindTargets(SourcePath),
@@ -257,8 +246,8 @@ namespace
 		const auto Referencers = Index.FindReferencers(TargetPath);
 		ASSERT_EQ(Referencers.size(), 2u);
 		EXPECT_EQ(std::ranges::count(Referencers,
-			EAssetReferenceKind::HardObject, &FAssetReferenceEdge::Kind), 1);
+			EAssetReferenceKind::HardObject, &FAssetPackageReferenceEdge::Kind), 1);
 		EXPECT_EQ(std::ranges::count(Referencers,
-			EAssetReferenceKind::Redirect, &FAssetReferenceEdge::Kind), 1);
+			EAssetReferenceKind::Redirect, &FAssetPackageReferenceEdge::Kind), 1);
 	}
 }

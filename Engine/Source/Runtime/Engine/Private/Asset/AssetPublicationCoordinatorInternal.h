@@ -18,13 +18,17 @@ namespace Durin::Asset
 	struct FAssetPublicationState
 	{
 		std::unordered_map<FAssetPath, FAssetData> Assets;
-		std::vector<FAssetReferenceEdge> ReferenceEdges;
+		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> ReferenceFingerprints;
 		std::vector<FAssetResult> ReferenceErrors;
-		FAssetReferenceIndexStats ReferenceStats;
-		std::string ReferenceCacheWarning;
 		bool bReferenceIndexComplete = false;
 	};
+
+	auto BuildAssetPackageReferenceProjection(
+		const std::unordered_map<FAssetPath, FAssetData>& Assets,
+		std::vector<FAssetPackageReferenceEdge>& OutEdges,
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint>& OutFingerprints)
+		-> FAssetResult;
 
 	class FAssetPublicationCoordinator
 	{

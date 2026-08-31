@@ -13,7 +13,9 @@
 namespace Durin::Asset
 {
 	ENGINE_API auto ValidateAssetPackageBytes(
-		std::span<const std::byte> Bytes
+		std::span<const std::byte> Bytes,
+		const FAssetPath& PackagePath,
+		std::span<const std::byte> BulkBytes = {}
 	) -> FAssetResult;
 
 	enum class EAssetPackageObjectReferenceKind : uint8
@@ -107,6 +109,11 @@ namespace Durin::Asset
 
 	ENGINE_API auto InspectAssetPackage(
 		std::string_view PhysicalPath,
+		FAssetPackageInspection& OutInspection
+	) -> FAssetResult;
+	ENGINE_API auto InspectAssetPackage(
+		std::string_view PhysicalPath,
+		const FAssetPath& PackagePath,
 		FAssetPackageInspection& OutInspection
 	) -> FAssetResult;
 } // namespace Durin::Asset

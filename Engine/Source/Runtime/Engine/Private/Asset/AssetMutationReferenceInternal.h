@@ -12,6 +12,7 @@ namespace Durin::Asset::Private
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FAssetPath RedirectDestination;
 		std::vector<FAssetPath> Dependencies;
+		std::vector<FAssetPath> SoftDependencies;
 	};
 
 	// Rebuilds only the reference-index slice affected by published mutation
@@ -24,20 +25,20 @@ namespace Durin::Asset::Private
 		-> FAssetResult;
 	auto RewritePackageReferencesForMutation(
 		std::span<const std::byte> Bytes,
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
 		std::vector<std::byte>& OutBytes) -> FAssetResult;
 	auto ReadMutationPackageMetadata(
 		std::span<const std::byte> Bytes,
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& PackagePath,
 		FMutationPackageMetadata& OutMetadata) -> FAssetResult;
 	auto ValidateMutationPackageMetadata(
 		const FMutationPackageMetadata& Metadata,
 		uint64 ObjectCount,
 		const FAssetPath* SourcePath = nullptr) -> FAssetResult;
-	auto InspectAssetPackageBytesForCatalog(
-		std::string_view PhysicalPath,
-		std::span<const std::byte> Bytes,
-		FAssetPackageInspection& OutInspection) -> FAssetResult;
 	auto CollectLoadedPackageSoftReferencesForMutation(
 		DPackage* Package,
 		const FAssetPath& TargetPath,
@@ -45,9 +46,6 @@ namespace Durin::Asset::Private
 	auto AssetReferenceLess(
 		const FAssetReferenceEdge& Left,
 		const FAssetReferenceEdge& Right) -> bool;
-	auto ExtractAssetReferencesForCook(
-		const FAssetPackageInspection& Inspection,
-		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult;
 	auto DecodeReferenceByteToolValue(
 		FProperty* Property,
 		void* Container,

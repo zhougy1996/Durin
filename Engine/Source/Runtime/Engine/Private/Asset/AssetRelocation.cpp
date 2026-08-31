@@ -11,6 +11,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
@@ -78,6 +79,8 @@ namespace Durin::Asset
 
 		auto BuildMovedPackageBytes(
 			std::span<const std::byte> SourceBytes,
+			const FAssetPath& SourcePath,
+			std::span<const std::byte> SourceBulkBytes,
 			const FAssetPath& DestinationPath,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
@@ -88,10 +91,22 @@ namespace Durin::Asset
 			if (!Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
 					"Relocation requires package mutation capability.");
+			Private::FAssetPackageEncodedClosure Closure;
 			if (FAssetResult Result = Codec->Relocate(
-				SourceBytes, DestinationPath, OutBytes); !Result)
+				{.PackageBytes = SourceBytes,
+					.BulkBytes = SourceBulkBytes,
+					.PackagePath = SourcePath,
+					.PhysicalPackageBytes = SourceBytes.size()},
+				DestinationPath, Closure); !Result)
 				return Result;
-			return Codec->Validate(OutBytes);
+			FAssetResult Result = Codec->Validate({
+				.PackageBytes = Closure.PackageBytes,
+				.BulkBytes = Closure.BulkBytes,
+				.PackagePath = DestinationPath,
+				.PhysicalPackageBytes = Closure.PackageBytes.size()});
+			if (!Result) return Result;
+			OutBytes = std::move(Closure.PackageBytes);
+			return {};
 		}
 
 		auto BuildRedirectorPackageBytes(
@@ -105,8 +120,12 @@ namespace Durin::Asset
 			if (!Codec || !Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
 					"Redirector creation requires package mutation capability.");
-			return Codec->WriteRedirector(
-				SourcePath, DestinationPath, OutBytes);
+			Private::FAssetPackageEncodedClosure Closure;
+			FAssetResult Result = Codec->WriteRedirector(
+				SourcePath, DestinationPath, Closure);
+			if (!Result) return Result;
+			OutBytes = std::move(Closure.PackageBytes);
+			return {};
 		}
 	}
 
@@ -159,7 +178,20 @@ namespace Durin::Asset
 		State->PreAssets = Prepared.Assets;
 		State->PostAssets = State->PreAssets;
 		State->ExpectedAssets = State->PreAssets;
-		State->PreReferenceEdges = Prepared.ReferenceEdges;
+		for (const auto& [Path, Data] : Prepared.Assets)
+		{
+			FAssetPackageInspection Inspection;
+			FAssetResult InspectionResult = InspectAssetPackage(
+				Data.PhysicalPath, Path, Inspection);
+			if (!InspectionResult) return InspectionResult;
+			std::vector<FAssetReferenceEdge> References;
+			InspectionResult = ExtractAssetReferences(Path, Inspection, References);
+			if (!InspectionResult) return InspectionResult;
+			State->PreReferenceEdges.insert(State->PreReferenceEdges.end(),
+				std::make_move_iterator(References.begin()),
+				std::make_move_iterator(References.end()));
+		}
+		std::ranges::sort(State->PreReferenceEdges, &Private::AssetReferenceLess);
 		State->PostReferenceEdges = State->PreReferenceEdges;
 		State->PreReferenceFingerprints = Prepared.ReferenceFingerprints;
 		State->PostReferenceFingerprints = State->PreReferenceFingerprints;
@@ -274,8 +306,16 @@ namespace Durin::Asset
 					DestinationFile.generic_string()));
 
 			std::vector<std::byte> MovedBytes;
+			std::vector<std::byte> SourceBulkBytes;
+			std::filesystem::path SourceBulkFile = SourceFile;
+			SourceBulkFile.replace_extension(".dbulk");
+			if (std::filesystem::is_regular_file(SourceBulkFile)
+				&& !FFileHelper::LoadFileToArray(SourceBulkBytes, SourceBulkFile))
+				return Error(EAssetError::IoError,
+					"Relocation source bulk companion is unreadable.");
 			Result = BuildMovedPackageBytes(
-				SourceBytes, Mapping.DestinationPath, MovedBytes);
+				SourceBytes, Mapping.SourcePath, SourceBulkBytes,
+				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
 			std::vector<std::byte> SourceRedirectorBytes;
 			Result = BuildRedirectorPackageBytes(
@@ -302,7 +342,8 @@ namespace Durin::Asset
 			if (!Result) return Result;
 
 			FAssetPackageInspection BulkInspection;
-			Result = InspectAssetPackage(SourceFile.generic_string(), BulkInspection);
+			Result = InspectAssetPackage(
+				SourceFile.generic_string(), Mapping.SourcePath, BulkInspection);
 			if (!Result) return Result;
 			std::vector<std::filesystem::path> SourceBulkFiles;
 			std::vector<std::filesystem::path> DestinationBulkFiles;
@@ -346,7 +387,8 @@ namespace Durin::Asset
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = Mapping.DestinationPath,
 				.FormatVersion = SourceData->FormatVersion,
-				.Dependencies = {Mapping.DestinationPath}});
+				.Dependencies = {Mapping.DestinationPath},
+				.ObjectCount = 1});
 
 			for (const auto& [AliasPath, AliasData] : State->PreAssets)
 			{
@@ -792,13 +834,17 @@ namespace Durin::Asset
 		if (!Result) return Compensate(std::move(Result));
 
 		const FAssetPublicationState Current = Registry.CapturePreparedState();
+		std::vector<FAssetPackageReferenceEdge> PackageEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		Result = BuildAssetPackageReferenceProjection(
+			State.PostAssets, PackageEdges, PackageFingerprints);
+		if (!Result) return Compensate(std::move(Result));
 		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
 			.Assets = State.PostAssets,
-			.ReferenceEdges = State.PostReferenceEdges,
-			.ReferenceFingerprints = State.PostReferenceFingerprints,
+			.ReferenceEdges = std::move(PackageEdges),
+			.ReferenceFingerprints = std::move(PackageFingerprints),
 			.ReferenceErrors = Current.ReferenceErrors,
-			.bReferenceIndexComplete = Current.ReferenceErrors.empty()
-				&& State.PostReferenceFingerprints.size() == State.PostAssets.size()});
+			.bReferenceIndexComplete = Current.ReferenceErrors.empty()});
 		if (!Result) return Compensate(std::move(Result));
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
@@ -917,13 +963,18 @@ namespace Durin::Asset
 				ProjectionResult.Message));
 
 		const FAssetPublicationState Current = Registry.CapturePreparedState();
+		std::vector<FAssetPackageReferenceEdge> PackageEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		Result = BuildAssetPackageReferenceProjection(
+			State.PreAssets, PackageEdges, PackageFingerprints);
+		if (!Result) return EnterRecovery(std::format(
+			"restored package projection failed: {}", Result.Message));
 		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
 			.Assets = State.PreAssets,
-			.ReferenceEdges = State.PreReferenceEdges,
-			.ReferenceFingerprints = State.PreReferenceFingerprints,
+			.ReferenceEdges = std::move(PackageEdges),
+			.ReferenceFingerprints = std::move(PackageFingerprints),
 			.ReferenceErrors = Current.ReferenceErrors,
-			.bReferenceIndexComplete = Current.ReferenceErrors.empty()
-				&& State.PreReferenceFingerprints.size() == State.PreAssets.size()});
+			.bReferenceIndexComplete = Current.ReferenceErrors.empty()});
 		if (!Result) return Result;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;

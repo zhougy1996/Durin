@@ -494,6 +494,8 @@ command:
 .\DevTool.bat asset resave /Game/Characters
 .\DevTool.bat asset resave /Game/Characters --apply
 .\DevTool.bat asset resave --all --apply
+.\DevTool.bat asset migrate-v8 --all
+.\DevTool.bat asset migrate-v8 /Game/Characters --apply --json
 .\DevTool.bat asset storage
 ```
 
@@ -506,12 +508,21 @@ and descendants, or the mutually exclusive `--all`. It is a preview unless
 machine-readable output. `storage` writes its detailed qualification artifacts
 below `Saved/AuthoredPackageStorageQualification`.
 
+`migrate-v8` uses the same selection and preview/apply grammar but is a bounded,
+construct-free offline v7-to-v8 package-closure migration. The native host exits after project
+mount initialization and never initializes DObject, Engine reflection, editor
+services, Cook, or an application loop. Plans and apply reports include exact
+main/bulk hashes; stale or failed publication leaves the prior closure intact or
+returns an explicit recovery-required status.
+
 `DurinAssetTool` is the lower-level host and uses the same compact grammar:
 
 ```text
 DurinAssetTool check --project=<project.dproject> [--json]
 DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]
 DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]
+DurinAssetTool migrate-v8 --project=<project.dproject> <scope>... [--apply] [--json]
+DurinAssetTool migrate-v8 --project=<project.dproject> --all [--apply] [--json]
 DurinAssetTool storage-inventory --project=<project.dproject>
 ```
 

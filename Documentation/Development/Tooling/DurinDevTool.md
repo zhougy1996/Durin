@@ -2,7 +2,7 @@
 
 Summary: Define the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 ## Interactive Shell
 
@@ -32,6 +32,7 @@ Representative commands are:
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
+.\DevTool.bat asset migrate-v8 --all
 .\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
 .\DevTool.bat path runtime
 .\DevTool.bat open logs
@@ -46,7 +47,8 @@ Build, run, clean, recovery, output, and ownership behavior is defined by
 [Build and Run](../Build/BuildAndRun.md). Native-test selection and execution
 are defined by [Native Test Execution](../Build/NativeTests.md); target
 construction is defined by [Native Test Authoring](../Build/NativeTestAuthoring.md).
-Asset checking, canonical resave, and storage qualification are defined by
+Asset checking, canonical v8 resave, bounded offline v7-to-v8 migration, and storage
+qualification are defined by
 [Build and Run](../Build/BuildAndRun.md#asset-maintenance).
 
 ## Project Cook

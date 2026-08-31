@@ -14,6 +14,21 @@ namespace Durin::Asset::Private
 {
 	class IAssetPackageByteSource;
 
+	struct FAssetPackageReadContext
+	{
+		std::span<const std::byte> PackageBytes;
+		std::span<const std::byte> BulkBytes;
+		FAssetPath PackagePath;
+		uint64 PhysicalPackageBytes = 0;
+		bool bCooked = false;
+	};
+
+	struct FAssetPackageEncodedClosure
+	{
+		std::vector<std::byte> PackageBytes;
+		std::vector<std::byte> BulkBytes;
+	};
+
 	// Defines the complete engine-owned capability set for one immutable package format.
 	struct FAssetPackageCodec
 	{
@@ -23,12 +38,12 @@ namespace Durin::Asset::Private
 		bool bCanWrite = false;
 		bool bCanMutate = false;
 
-		auto (*ReadHeader)(std::span<const std::byte>, uint64, FAssetPackageHeader&)
+		auto (*ReadHeader)(const FAssetPackageReadContext&, FAssetPackageHeader&)
 			-> FAssetResult = nullptr;
-		auto (*Validate)(std::span<const std::byte>) -> FAssetResult = nullptr;
-		auto (*Inspect)(std::span<const std::byte>, FAssetPackageInspection&) -> FAssetResult = nullptr;
+		auto (*Validate)(const FAssetPackageReadContext&) -> FAssetResult = nullptr;
+		auto (*Inspect)(const FAssetPackageReadContext&, FAssetPackageInspection&) -> FAssetResult = nullptr;
 		auto (*ExtractReferences)(
-			std::span<const std::byte>, const FAssetPath&, std::vector<FAssetReferenceEdge>&)
+			const FAssetPackageReadContext&, std::vector<FAssetReferenceEdge>&)
 			-> FAssetResult = nullptr;
 		auto (*InspectSchema)(
 			IAssetPackageByteSource&, const FAssetPath&,
@@ -37,19 +52,19 @@ namespace Durin::Asset::Private
 			const FPackageReadCancellationCheck&)
 			-> FAssetResult = nullptr;
 		auto (*Load)(
-			std::span<const std::byte>, const FAssetPath&, DPackage*&, FAssetLoadReport*,
+			const FAssetPackageReadContext&, DPackage*&, FAssetLoadReport*,
 			const std::function<FAssetResult(DPackage*)>&,
 			const std::function<void(DPackage*)>&) -> FAssetResult = nullptr;
-		auto (*Write)(DPackage*, std::vector<std::byte>&, EDefaultDeltaMode,
+		auto (*Write)(DPackage*, FAssetPackageEncodedClosure&, EDefaultDeltaMode,
 			const FAssetPackageSerializationOptions&) -> FAssetResult = nullptr;
 		auto (*RewriteReferences)(
-			std::span<const std::byte>, std::span<const FAssetRedirectorFixupMapping>,
-			uint64, std::vector<std::byte>&) -> FAssetResult = nullptr;
+			const FAssetPackageReadContext&, std::span<const FAssetRedirectorFixupMapping>,
+			uint64, FAssetPackageEncodedClosure&) -> FAssetResult = nullptr;
 		auto (*Relocate)(
-			std::span<const std::byte>, const FAssetPath&, std::vector<std::byte>&)
+			const FAssetPackageReadContext&, const FAssetPath&, FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 		auto (*WriteRedirector)(
-			const FAssetPath&, const FAssetPath&, std::vector<std::byte>&)
+			const FAssetPath&, const FAssetPath&, FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 	};
 

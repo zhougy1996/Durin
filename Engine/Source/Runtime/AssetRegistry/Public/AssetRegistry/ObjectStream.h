@@ -119,6 +119,12 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<EDefaultDeltaProvenance> Provenances;
 		uint8 ReferenceTag = 0;
 		uint64 ReferenceId = 0;
+		// Detached live-capture facts. The legacy object-stream codec ignores
+		// these fields; the v8 linker adapter consumes them directly.
+		uint64 BulkElementSize = 1;
+		uint32 BulkAlignment = 1;
+		uint8 BulkStorage = 0;
+		bool bDetachedBulk = false;
 	};
 
 	struct FKnownOverride
@@ -304,6 +310,14 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<FDecodedObjectValues> ObjectValues;
 	};
 
+	// Reuses CoreDObject's canonical writer for a validated decoded v7 Map key.
+	ASSETREGISTRY_API auto BuildCanonicalMapKeyToken(
+		const FDecodedPackage& Package,
+		const FDecodedType& Type,
+		const FValue& Value,
+		std::vector<std::byte>& OutToken,
+		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
+
 	ASSETREGISTRY_API auto ReadHeader(std::span<const std::byte> Bytes,
 		FValidatedHeader& OutHeader, const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr, uint64 PackageSize = 0) -> bool;
@@ -332,21 +346,11 @@ namespace Durin::Asset::PackageObjectStream
 	ASSETREGISTRY_API auto ReencodePackage(const FDecodedPackage& Package,
 		std::vector<std::byte>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
-	ASSETREGISTRY_API auto ExtractReferences(std::span<const std::byte> Bytes,
-		const FAssetPath& SourcePackage,
-		std::vector<FAssetReferenceEdge>& OutReferences,
-		const FReaderLimits& Limits = {},
-		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 	// Validates a complete DAST v7 envelope and reconstructs its canonical
 	// construct-free logical object stream.
 	ASSETREGISTRY_API auto ExtractDastObjectStream(
 		std::span<const std::byte> PackageBytes,
 		std::vector<std::byte>& OutObjectStream) -> FAssetResult;
-	ASSETREGISTRY_API auto ExtractAssetPackageReferences(
-		std::span<const std::byte> PackageBytes,
-		const FAssetPath& SourcePackage,
-		std::vector<FAssetReferenceEdge>& OutReferences,
-		FAssetPackageFingerprint* OutFingerprint = nullptr) -> FAssetResult;
 	ASSETREGISTRY_API auto ResetReencodeCountForTesting() -> void;
 	ASSETREGISTRY_API auto GetReencodeCountForTesting() -> uint64;
 }

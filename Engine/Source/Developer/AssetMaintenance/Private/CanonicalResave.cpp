@@ -170,7 +170,7 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogRevision();
-		Plan.TargetFormatVersion = AssetPackageV7FormatVersion;
+		Plan.TargetFormatVersion = AssetPackageV8FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);

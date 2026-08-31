@@ -96,30 +96,84 @@ namespace Durin::Asset
 				|| Publication.ReferenceFingerprints.size() != Publication.Assets.size())
 				return {EAssetError::StaleData,
 					"Asset registry publication requires a complete catalog/reference projection."};
+			const auto PathsCanonical = [](const std::vector<FAssetPath>& Paths) {
+				return std::ranges::is_sorted(Paths,
+					[](const FAssetPath& Left, const FAssetPath& Right) {
+						return Left.GetView() < Right.GetView();
+					}) && std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
+			};
+			std::vector<FAssetPackageReferenceEdge> ExpectedEdges;
 			for (const auto& [Path, Data] : Publication.Assets)
+			{
 				if (Path != Data.PackagePath
-					|| !Publication.ReferenceFingerprints.contains(Path))
+					|| !Publication.ReferenceFingerprints.contains(Path)
+					|| Data.ObjectCount == 0 || !PathsCanonical(Data.Dependencies)
+					|| !PathsCanonical(Data.SoftDependencies)
+					|| !std::ranges::is_sorted(Data.SearchableNames)
+					|| std::adjacent_find(Data.SearchableNames.begin(),
+						Data.SearchableNames.end()) != Data.SearchableNames.end()
+					|| ((Data.BulkSegmentExtent == 0)
+						!= Data.BulkSegmentDigest.IsZero()))
 					return {EAssetError::CorruptFile,
 						"Asset registry publication contains inconsistent package metadata."};
-			for (const FAssetReferenceEdge& Edge : Publication.ReferenceEdges)
-			{
-				const auto Fingerprint = Publication.ReferenceFingerprints.find(
-					Edge.SourcePackage);
-				if (!Publication.Assets.contains(Edge.SourcePackage)
-					|| Fingerprint == Publication.ReferenceFingerprints.end()
-					|| Fingerprint->second != Edge.SourceFingerprint)
+				if ((Data.EntryKind == EAssetRegistryEntryKind::Asset
+						&& (Data.RedirectDestination.IsValid()
+							|| Data.AssetClassName == RedirectorClassName))
+					|| (Data.EntryKind == EAssetRegistryEntryKind::Redirector
+						&& (Data.AssetClassName != RedirectorClassName
+							|| !Data.RedirectDestination.IsValid()
+							|| Data.Dependencies.size() != 1
+							|| Data.Dependencies.front() != Data.RedirectDestination
+							|| Data.ObjectCount != 1)))
 					return {EAssetError::CorruptFile,
-						"Asset registry publication contains an invalid reference source."};
+						"Asset registry publication contains invalid redirect metadata."};
+				const FAssetPackageFingerprint ExpectedFingerprint{
+					.FileSize = Data.FileSize,
+					.LastWriteTimeTicks = Data.LastWriteTimeTicks,
+					.ReaderVersion = Data.FormatVersion};
+				if (Publication.ReferenceFingerprints.at(Path) != ExpectedFingerprint)
+					return {EAssetError::CorruptFile,
+						"Asset registry publication fingerprint drifted from catalog metadata."};
+				auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target) {
+					ExpectedEdges.push_back({.SourcePackage = Path,
+						.SourceFingerprint = ExpectedFingerprint, .Kind = Kind,
+						.TargetPath = Target});
+				};
+				for (const FAssetPath& Target : Data.Dependencies)
+					if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
+						|| Target != Data.RedirectDestination)
+						Add(EAssetReferenceKind::HardObject, Target);
+				for (const FAssetPath& Target : Data.SoftDependencies)
+					Add(EAssetReferenceKind::SoftObject, Target);
+				if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+					Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
 			}
+			std::ranges::sort(ExpectedEdges,
+				[](const FAssetPackageReferenceEdge& Left,
+					const FAssetPackageReferenceEdge& Right) {
+					return std::tuple(Left.TargetPath.GetView(),
+						Left.SourcePackage.GetView(), Left.Kind)
+						< std::tuple(Right.TargetPath.GetView(),
+							Right.SourcePackage.GetView(), Right.Kind);
+				});
+			ExpectedEdges.erase(std::unique(ExpectedEdges.begin(), ExpectedEdges.end(),
+				[](const FAssetPackageReferenceEdge& Left,
+					const FAssetPackageReferenceEdge& Right) {
+					return Left.SourcePackage == Right.SourcePackage
+						&& Left.TargetPath == Right.TargetPath && Left.Kind == Right.Kind;
+				}), ExpectedEdges.end());
+			if (Publication.ReferenceEdges != ExpectedEdges)
+				return {EAssetError::CorruptFile,
+					"Asset registry publication package edges drifted from catalog metadata."};
 			return {};
 		}
 	}
 
 	auto FAssetReferenceIndex::FindReferencers(
-		const FAssetPath& Target) const -> std::vector<FAssetReferenceEdge>
+		const FAssetPath& Target) const -> std::vector<FAssetPackageReferenceEdge>
 	{
-		std::vector<FAssetReferenceEdge> Result;
-		for (const FAssetReferenceEdge& Reference : Edges)
+		std::vector<FAssetPackageReferenceEdge> Result;
+		for (const FAssetPackageReferenceEdge& Reference : Edges)
 			if (Reference.TargetPath == Target) Result.push_back(Reference);
 		return Result;
 	}
@@ -128,7 +182,7 @@ namespace Durin::Asset
 		const FAssetPath& Source) const -> std::vector<FAssetPath>
 	{
 		std::vector<FAssetPath> Result;
-		for (const FAssetReferenceEdge& Reference : Edges)
+		for (const FAssetPackageReferenceEdge& Reference : Edges)
 			if (Reference.SourcePackage == Source) Result.push_back(Reference.TargetPath);
 		std::ranges::sort(Result, [](const FAssetPath& Left, const FAssetPath& Right) {
 			return Left.GetView() < Right.GetView();
@@ -256,8 +310,6 @@ namespace Durin::Asset
 			.ReferenceEdges = References.Edges,
 			.ReferenceFingerprints = References.SourceFingerprints,
 			.ReferenceErrors = References.Errors,
-			.ReferenceStats = References.Stats,
-			.ReferenceCacheWarning = References.CacheWarning,
 			.bReferenceIndexComplete = References.bComplete};
 	}
 
@@ -283,16 +335,12 @@ namespace Durin::Asset
 			&& References.bComplete == Publication.bReferenceIndexComplete)
 		{
 			References.Errors = std::move(Publication.ReferenceErrors);
-			References.Stats = Publication.ReferenceStats;
-			References.CacheWarning = std::move(Publication.ReferenceCacheWarning);
 			return {};
 		}
 		Assets = std::move(Publication.Assets);
 		References.Edges = std::move(Publication.ReferenceEdges);
 		References.SourceFingerprints = std::move(Publication.ReferenceFingerprints);
 		References.Errors = std::move(Publication.ReferenceErrors);
-		References.Stats = Publication.ReferenceStats;
-		References.CacheWarning = std::move(Publication.ReferenceCacheWarning);
 		References.bComplete = Publication.bReferenceIndexComplete;
 		++Revision;
 		return {};

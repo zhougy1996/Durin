@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 ## Archive And Object Serialization
 
@@ -63,11 +63,12 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through DAST v7 object packages. A DAST v7 authored
-or cooked `.dbulk` is deliberately not a DURF envelope: it is a raw package
-segment interpreted only through its owning package. Embedded family payloads
-and raw DDC `.bin` values likewise do not nest another DURF envelope; their
-owning asset slot supplies the codec and schema.
+Engine consumes this envelope through canonical DAST v8 object packages. An
+authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
+external BulkData segment bound by its owning package's Registry and Bulk
+Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
+nest another DURF envelope; their owning asset slot supplies the codec and
+schema.
 
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
@@ -82,6 +83,42 @@ references and object-aware adapters. `DObject/Archive.h` forwards the Core
 Archive API and temporarily aliases its prior memory-Archive spellings to the
 object-aware canonical implementations for named migration consumers; it does
 not contain a second primitive serializer.
+
+CoreDObject also owns the format-neutral construct-free package-linker
+vocabulary in `DObject/PackageLinker.h`: checked null/import/export indices,
+recursive serialized types, detached logical values, property tags, custom
+versions, import/export records, and bounded table/path lookup. These records
+contain no `DObject`, `FProperty`, AssetRegistry, Engine, or DAST-version
+identity. Format adapters publish a complete `FLinkerTables` only after
+validating table indices and Outer topology.
+
+`DObject/CanonicalMapKey.h` is the sole low-level encoder for canonical Map-key
+type tags, sortable signed and unsigned integers, zero-normalized IEEE floating
+values, strings, names, GUIDs, enum storage, and Struct field framing. Both the
+live reflected-property entry and construct-free decoded values use this
+writer. Token construction is transactional: an unsupported type or invalid
+shape leaves the caller's prior output unchanged.
+
+`DObject/PackageFormat.h` owns the construct-free DAST v8 save boundary.
+`FreezePackageV8(...)` validates and canonicalizes names, structural types,
+schemas, imports, exports, property identities, references, and BulkData facts
+into stable one-based ids. `WritePackageV8(...)` emits detached main and raw
+external-bulk buffers and replaces neither caller output on failure. Values use
+native `EValueKind` tags, Maps use the sole canonical-key writer, NaNs collapse
+to one quiet pattern while signed zero is retained, and BulkData placement is
+explicit detached input rather than live-object policy. This layer constructs
+no `DObject` and depends on neither AssetRegistry nor Engine.
+
+The same boundary owns bounded v8 reading. `ReadPackageV8Registry(...)`
+validates an exact declared front-matter span, independently known main/bulk
+extents, the caller-supplied mounted package identity, all directory facts, and
+the header-resident Registry/names/imports before atomically publishing package
+metadata. `ReadPackageV8(...)` validates complete section hashes, tables,
+recursive native tags, package topology, references, canonical ordering, and
+inline/external BulkData ranges and digests before publishing `FLinkerTables`.
+Successful decode re-emits through the sole writer and requires byte-identical
+main and bulk output, so noncanonical but otherwise interpretable bytes fail
+closed. Neither API retains input spans in its published result.
 
 `DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
 Its base implementation calls `SerializeDObjectProperties(...)`, which enters
@@ -190,14 +227,14 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
-DAST v7 does not introduce a second logical Archive dialect. Its `DURF`
-sections carry the canonical object-stream table and tagged-value encoding.
-V7 package capture records each logical BulkData field in Payload Directory v2
-and assigns raw-segment placement without writing offsets, handles, flags, or
-residency back into the live value. Package validation binds every external
-field to the declared segment before object publication. Section extents,
-placement, and segment generation remain physical package concerns rather than
-reflected semantics.
+DAST v8 does not introduce a second logical Archive dialect. Engine captures
+the ordinary object-aware Archive graph into detached `FLinkerTables`, and
+CoreDObject emits the canonical tagged-value sections from that model. Each
+logical BulkData field becomes one linker value with explicit inline/external
+placement; capture never writes offsets, handles, flags, or residency back into
+the live value. Complete package validation binds every range and segment before
+Engine applies the linker. Section extents, placement, and generation remain
+physical package concerns rather than reflected semantics.
 
 Engine's private bounded manifest codec is not an Archive implementation.
 It serializes only explicit little-endian fixed-width integers, GUID words, and
@@ -236,7 +273,8 @@ publication. Bulk replacement sorts complete paths and rejects duplicates
 without changing the prior ledger.
 
 Known intent is exactly `LoadedExplicit` or `Forced`; absence means no known
-intent, while retained unknown object-stream values remain separate Engine state.
+intent. Canonical v8 load rejects unknown or unsupported tagged values before
+live publication rather than retaining an opaque Engine-side wire value.
 Enabled planning applies `Forced`, then `LoadedExplicit`, then logical
 difference, then omission. Nested intent emits every required parent record.
 Forced state cannot be downgraded by a loaded-explicit update. Exact clear,
@@ -249,7 +287,8 @@ remapped after structural edits, while Map marks survive iteration-order changes
 graph exists and revalidates every path against the destination. GC ignores the
 pointer-free tokens, object destruction releases the snapshot, and class/Struct
 default teardown cannot invalidate it. Authored-package load creates no ledger
-and current v5 save never queries one.
+until an explicit/forced v8 property tag needs one; subsequent package capture
+queries the same ledger when rebuilding canonical provenance.
 
 Structs use the shared reflected save-selected field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk

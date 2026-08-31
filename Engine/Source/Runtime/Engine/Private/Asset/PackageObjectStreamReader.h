@@ -26,7 +26,7 @@ namespace Durin::Asset::PackageObjectStream
 		// resolved, allowing dependency cycles to observe the in-flight package.
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
-		uint32 SourceFormatVersion = AssetPackageObjectStreamVersion;
+		uint32 SourceFormatVersion = AssetPackageV8FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
 	};
@@ -50,65 +50,20 @@ namespace Durin::Asset::PackageObjectStream
 	private:
 		DPackage* Package = nullptr;
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
-		friend ENGINE_API auto LoadAssetPackage(
-			std::span<const std::byte>, const FAssetPath&, FLoadedAssetPackage&,
-			FAssetLoadReport*, const FLiveLoadOptions&, const FReaderLimits&,
-			FReaderDiagnostic*) -> FAssetResult;
+		friend auto LoadDecodedAssetPackage(
+			FDecodedPackage, const FAssetPath&, FLoadedAssetPackage&,
+			FAssetLoadReport*, const FLiveLoadOptions&, FReaderDiagnostic*)
+			-> FAssetResult;
 	};
 
-	// Explicit bytes-only object-stream live-load boundary. The returned handle owns the
-	// standalone graph and is replaced only after dependencies, values, ledgers, and
-	// PostLoad all succeed. It does not publish registry or ordinary-load policy.
-	ENGINE_API auto LoadAssetPackage(
-		std::span<const std::byte> Bytes,
+	// Applies an already validated, detached logical package without parsing an
+	// Engine-owned package wire representation.
+	auto LoadDecodedAssetPackage(
+		FDecodedPackage Package,
 		const FAssetPath& PackagePath,
 		FLoadedAssetPackage& OutPackage,
 		FAssetLoadReport* OutReport = nullptr,
 		const FLiveLoadOptions& Options = {},
-		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
-	// Construct-free projection used by compatibility and reference tooling.
-	ENGINE_API auto InspectPackage(
-		std::span<const std::byte> Bytes,
-		FAssetPackageInspection& OutInspection,
-		const FReaderLimits& Limits = {},
-		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
-
-	ENGINE_API auto RewriteReferences(
-		std::span<const std::byte> Bytes,
-		std::span<const FAssetRedirectorFixupMapping> Mappings,
-		uint64 ExpectedRewriteCount,
-		std::vector<std::byte>& OutBytes) -> FAssetResult;
-
-	ENGINE_API auto RelocatePackage(
-		std::span<const std::byte> Bytes,
-		const FAssetPath& DestinationPath,
-		std::vector<std::byte>& OutBytes) -> FAssetResult;
-
-	ENGINE_API auto InspectSchema(
-		std::span<const std::byte> Bytes,
-		const FAssetPath& PackagePath,
-		const FReflectionSchemaCatalog& Catalog,
-		FPackageSchemaInspection& OutRecord,
-		FPackageSchemaReadStats* OutStats = nullptr,
-		const FReaderLimits& Limits = {},
-		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
-
-	// Schema evaluator for package codecs that already decoded the
-	// canonical logical tables and value descriptors from non-contiguous ranges.
-	auto InspectDecodedPackageSchema(
-		FDecodedPackage Package,
-		uint64 PhysicalPackageBytes,
-		bool bPayloadValuesDecoded,
-		const FAssetPath& PackagePath,
-		const FReflectionSchemaCatalog& Catalog,
-		FPackageSchemaInspection& OutRecord,
-		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
-
-	// Returns true only when a nested serialized value can contain an exact
-	// versioned deprecated-property route. Root overrides need descriptors only.
-	auto RequiresDecodedSchemaPayloadValues(
-		const FDecodedPackage& Package,
-		const FReflectionSchemaCatalog& Catalog) -> bool;
 }

@@ -538,9 +538,12 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	ASSERT_TRUE(ContributeTerrainWorldToCook(
 		CookRequest, Cook, CookedManifest, Outcome, Error
 	)) << Error;
+	FAssetPath PackageTemplatePath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/TerrainWorld/PackageTemplate", PackageTemplatePath));
 	ASSERT_TRUE(Cook.AddPackage(
-		"/Game/Metadata", CookRequest.PackageTemplateBytes, &Error
-	)) << Error;
+		"/Game/Metadata", PackageTemplatePath,
+		CookRequest.PackageTemplateBytes, &Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	ASSERT_EQ(CookedManifest.Regions.size(), 2u);
 	EXPECT_TRUE(CookedManifest.Regions[0].bInstalled);

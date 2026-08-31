@@ -33,6 +33,7 @@ namespace Durin::Asset
 				EAssetRegistryEntryKind::Asset;
 			FAssetPath RedirectDestination;
 			std::vector<FAssetPath> Dependencies;
+			std::vector<FAssetPath> SoftDependencies;
 		};
 
 		auto GatherObjects(
@@ -373,7 +374,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					AssetPackageObjectStreamVersion);
+					AssetPackageV8FormatVersion);
 				if (!KeyResult)
 				{
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
@@ -778,7 +779,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					AssetPackageObjectStreamVersion);
+					AssetPackageV8FormatVersion);
 				if (!Result) return Result;
 				Writer.WriteBytes(Reader.Bytes.subspan(KeyOffset, Reader.Offset - KeyOffset));
 				Result = RewriteSerializedReferenceValue(
@@ -852,6 +853,8 @@ namespace Durin::Asset
 
 	auto RewritePackageReferences(
 		std::span<const std::byte> Bytes,
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
 		std::vector<std::byte>& OutBytes) -> FAssetResult
@@ -862,18 +865,32 @@ namespace Durin::Asset
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
 				"Reference rewrite requires package mutation capability.");
-		return Codec->RewriteReferences(Bytes, Mappings, ExpectedRewriteCount, OutBytes);
+		Private::FAssetPackageEncodedClosure Closure;
+		FAssetResult Result = Codec->RewriteReferences(
+			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()},
+			Mappings, ExpectedRewriteCount, Closure);
+		if (!Result) return Result;
+		if (!std::ranges::equal(Closure.BulkBytes, BulkBytes))
+			return Error(EAssetError::CorruptFile,
+				"Reference rewrite unexpectedly changed the package bulk closure.");
+		OutBytes = std::move(Closure.PackageBytes);
+		return {};
 	}
 
 	auto ReadPackageMetadata(
-		std::span<const std::byte> Bytes, FPackageFile& OutFile) -> FAssetResult
+		std::span<const std::byte> Bytes,
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& PackagePath,
+		FPackageFile& OutFile) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		FAssetPackageHeader Header;
 		if (FAssetResult Result = Codec->ReadHeader(
-			Bytes, Bytes.size(), Header); !Result)
+			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()}, Header); !Result)
 			return Result;
 		FPackageFile File{
 			.FormatVersion = Header.FormatVersion,
@@ -881,6 +898,7 @@ namespace Durin::Asset
 			.EntryKind = Header.EntryKind};
 		File.RedirectDestination = std::move(Header.RedirectDestination);
 		File.Dependencies = std::move(Header.Dependencies);
+		File.SoftDependencies = std::move(Header.SoftDependencies);
 		OutFile = std::move(File);
 		return {};
 	}
@@ -891,27 +909,34 @@ namespace Durin::Asset
 	{
 		auto RewritePackageReferencesForMutation(
 			std::span<const std::byte> Bytes,
+			std::span<const std::byte> BulkBytes,
+			const FAssetPath& PackagePath,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			return RewritePackageReferences(
-				Bytes, Mappings, ExpectedRewriteCount, OutBytes);
+				Bytes, BulkBytes, PackagePath, Mappings,
+				ExpectedRewriteCount, OutBytes);
 		}
 
 		auto ReadMutationPackageMetadata(
 			std::span<const std::byte> Bytes,
+			std::span<const std::byte> BulkBytes,
+			const FAssetPath& PackagePath,
 			FMutationPackageMetadata& OutMetadata) -> FAssetResult
 		{
 			FPackageFile File;
-			FAssetResult Result = ReadPackageMetadata(Bytes, File);
+			FAssetResult Result = ReadPackageMetadata(
+				Bytes, BulkBytes, PackagePath, File);
 			if (!Result) return Result;
 			OutMetadata = {
 				.FormatVersion = File.FormatVersion,
 				.AssetClassName = std::move(File.AssetClassName),
 				.EntryKind = File.EntryKind,
 				.RedirectDestination = std::move(File.RedirectDestination),
-				.Dependencies = std::move(File.Dependencies)};
+				.Dependencies = std::move(File.Dependencies),
+				.SoftDependencies = std::move(File.SoftDependencies)};
 			return {};
 		}
 
@@ -931,9 +956,6 @@ namespace Durin::Asset
 			return AssetReferenceLessImpl(Left, Right);
 		}
 
-		auto ExtractAssetReferencesForCook(
-			const FAssetPackageInspection& Inspection,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult;
 	}
 
 	namespace
@@ -941,11 +963,10 @@ namespace Durin::Asset
 		auto ExtractAssetReferencesInternal(
 			const FAssetPath& SourcePackage,
 			const FAssetPackageInspection& Inspection,
-			std::vector<FAssetReferenceEdge>& OutReferences,
-			bool bRequireValidSource) -> FAssetResult
+			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 		{
 			OutReferences.clear();
-			if (bRequireValidSource && !SourcePackage.IsValid())
+			if (!SourcePackage.IsValid())
 				return Error(EAssetError::InvalidPath,
 					"AssetReferenceIndexInvalidSource: source package path is invalid.");
 			if (Inspection.Objects.empty())
@@ -1020,17 +1041,6 @@ namespace Durin::Asset
 		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 	{
 		return ExtractAssetReferencesInternal(
-			SourcePackage, Inspection, OutReferences, true);
-	}
-
-	namespace Private
-	{
-		auto ExtractAssetReferencesForCook(
-			const FAssetPackageInspection& Inspection,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
-		{
-			return ExtractAssetReferencesInternal(
-				{}, Inspection, OutReferences, false);
-		}
+			SourcePackage, Inspection, OutReferences);
 	}
 }

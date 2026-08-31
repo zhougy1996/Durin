@@ -366,12 +366,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(Asset::FindAssetExact(BaseAssetPath)->FormatVersion,
-		7u);
-	const Asset::FAssetCatalogEntry InlineV6 = Asset::FindAssetExact(DetailAssetPath);
-	ASSERT_TRUE(InlineV6);
-	ASSERT_EQ(InlineV6->FormatVersion, 7u);
+		Asset::AssetPackageV8FormatVersion);
+	const Asset::FAssetCatalogEntry InlineEntry = Asset::FindAssetExact(DetailAssetPath);
+	ASSERT_TRUE(InlineEntry);
+	ASSERT_EQ(InlineEntry->FormatVersion, Asset::AssetPackageV8FormatVersion);
 	Asset::FAssetPackageInspection InlineInspection;
-	ASSERT_TRUE(Asset::InspectAssetPackage(InlineV6->PhysicalPath, InlineInspection));
+	ASSERT_TRUE(Asset::InspectAssetPackage(InlineEntry->PhysicalPath, InlineInspection));
 	std::vector<Asset::FEditorBulkDataStorageDescriptor> InlineDescriptors;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataStorageDescriptors(
 		InlineInspection, InlineDescriptors, &RepairError)) << RepairError;
@@ -443,11 +443,11 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		Imported.Asset->GetSourceData().GetVoxelBytes().end());
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
-	const Asset::FAssetCatalogEntry V6Entry = Asset::FindAssetExact(AssetPath);
-	ASSERT_TRUE(V6Entry);
-	ASSERT_EQ(V6Entry->FormatVersion, 7u);
+	const Asset::FAssetCatalogEntry PackageEntry = Asset::FindAssetExact(AssetPath);
+	ASSERT_TRUE(PackageEntry);
+	ASSERT_EQ(PackageEntry->FormatVersion, Asset::AssetPackageV8FormatVersion);
 	Asset::FAssetPackageInspection V6Inspection;
-	ASSERT_TRUE(Asset::InspectAssetPackage(V6Entry->PhysicalPath, V6Inspection));
+	ASSERT_TRUE(Asset::InspectAssetPackage(PackageEntry->PhysicalPath, V6Inspection));
 	std::vector<Asset::FEditorBulkDataStorageDescriptor> V6Descriptors;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataStorageDescriptors(
 		V6Inspection, V6Descriptors, &Error)) << Error;
@@ -456,7 +456,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		Asset::EEditorBulkDataStorageKind::External);
 	std::vector<std::filesystem::path> V6Companions;
 	ASSERT_TRUE(Asset::InspectEditorBulkDataCompanionPaths(
-		V6Entry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
+		PackageEntry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
 	ASSERT_EQ(V6Companions.size(), 1u);
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
@@ -500,7 +500,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), V6DerivedDataKey);
 	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(Asset::FindAssetExact(AssetPath)->FormatVersion,
-		7u);
+		Asset::AssetPackageV8FormatVersion);
 	EXPECT_TRUE(std::filesystem::is_regular_file(V6Companions.front()));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(

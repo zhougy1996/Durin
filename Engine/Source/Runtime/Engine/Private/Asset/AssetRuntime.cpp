@@ -5,8 +5,8 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
-#include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageResource.h"
+#include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
@@ -102,6 +102,44 @@ namespace Durin::Asset
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
 		{
 			return {Code, std::move(Message)};
+		}
+
+		auto RecoverLooseBulkBackup(
+			std::string_view PhysicalPath,
+			const FAssetPackageHeader& Header,
+			std::vector<std::byte>& InOutBulkBytes) -> FAssetResult
+		{
+			if (Header.BulkSegmentExtent == 0
+				|| (InOutBulkBytes.size() == Header.BulkSegmentExtent
+					&& FXxHash128::HashBuffer(InOutBulkBytes)
+						== Header.BulkSegmentDigest))
+				return {};
+
+			std::filesystem::path BulkPath(PhysicalPath);
+			BulkPath.replace_extension(".dbulk");
+			std::filesystem::path BackupPath = BulkPath;
+			BackupPath += EditorBulkDataCompanionBackupSuffix;
+			std::vector<std::byte> BackupBytes;
+			if (!FFileHelper::LoadFileToArray(BackupBytes, BackupPath)
+				|| BackupBytes.size() != Header.BulkSegmentExtent
+				|| FXxHash128::HashBuffer(BackupBytes)
+					!= Header.BulkSegmentDigest)
+				return {};
+
+			FFileHelper::FAtomicFileError PublicationError;
+			if (!FFileHelper::SaveArrayToFileAtomically(
+					BackupBytes, BulkPath, &PublicationError))
+				return Error(EAssetError::IoError, std::format(
+					"Asset bulk backup recovery failed: {}",
+					PublicationError.ToString()));
+			std::error_code RemovalError;
+			std::filesystem::remove(BackupPath, RemovalError);
+			if (RemovalError)
+				return Error(EAssetError::IoError, std::format(
+					"Recovered asset bulk backup could not be removed: {}",
+					RemovalError.message()));
+			InOutBulkBytes = std::move(BackupBytes);
+			return {};
 		}
 
 		auto CorruptRedirector(std::string Message) -> FAssetResult
@@ -500,15 +538,35 @@ namespace Durin::Asset
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;
-			const Private::FAssetPackageCodec* Codec = nullptr;
-			if (FAssetResult Result = Private::ResolveAssetPackageReader(
+		std::vector<std::byte> BulkBytes;
+		std::filesystem::path BulkPath(PhysicalPath);
+		BulkPath.replace_extension(".dbulk");
+		std::error_code BulkError;
+		if (std::filesystem::is_regular_file(BulkPath, BulkError)
+			&& !FFileHelper::LoadFileToArray(BulkBytes, BulkPath))
+			return Error(EAssetError::IoError,
+				std::format("Asset {} bulk companion could not be read.", Path.ToString()));
+		if (BulkError && BulkError != std::errc::no_such_file_or_directory)
+			return Error(EAssetError::IoError,
+				std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
+		const Private::FAssetPackageReadContext HeaderContext{
+			.PackageBytes = Bytes, .BulkBytes = BulkBytes, .PackagePath = Path,
+			.PhysicalPackageBytes = Bytes.size(),
+			.bCooked = RuntimeConfiguration.IsCooked()};
+		const Private::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(
 				Bytes, Codec); !Result)
 			return Result;
 		{
 			FAssetPackageHeader Header;
-			FAssetResult Result = Codec->ReadHeader(
-				Bytes, Bytes.size(), Header);
+			FAssetResult Result = Codec->ReadHeader(HeaderContext, Header);
 			if (!Result) return Result;
+			Result = RecoverLooseBulkBackup(PhysicalPath, Header, BulkBytes);
+			if (!Result) return Result;
+			const Private::FAssetPackageReadContext ReadContext{
+				.PackageBytes = Bytes, .BulkBytes = BulkBytes, .PackagePath = Path,
+				.PhysicalPackageBytes = Bytes.size(),
+				.bCooked = RuntimeConfiguration.IsCooked()};
 			const Private::FMutationPackageMetadata HeaderMetadata{
 				.FormatVersion = Header.FormatVersion,
 				.AssetClassName = Header.AssetClassName,
@@ -519,9 +577,45 @@ namespace Durin::Asset
 				HeaderMetadata, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
+			bool bRegisteredBulkResource = false;
+			if (Header.BulkSegmentExtent != 0)
+			{
+				FAssetPackageInspection Inspection;
+				Result = Codec->Inspect(ReadContext, Inspection);
+				if (!Result) return Result;
+				std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+				std::string BulkDiagnostic;
+				if (!InspectEditorBulkDataStorageDescriptors(
+						Inspection, Descriptors, &BulkDiagnostic))
+					return Error(EAssetError::CorruptFile, std::move(BulkDiagnostic));
+				std::vector<FPackageBulkDataEntry> Entries;
+				Entries.reserve(Descriptors.size());
+				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
+				{
+					const auto& Descriptor = Descriptors[Index];
+					Entries.push_back({
+						.FieldIndex = Index + 1,
+						.Placement = Descriptor.StorageKind
+							== EEditorBulkDataStorageKind::External
+							? EPackageBulkDataPlacement::External
+							: EPackageBulkDataPlacement::Inline,
+						.LogicalSize = Descriptor.LogicalByteCount,
+						.StoredSize = Descriptor.StoredByteCount,
+						.SegmentOffset = Descriptor.SegmentOffset,
+						.Alignment = Descriptor.Alignment,
+						.ContentId = Descriptor.ContentHash});
+				}
+				FPackageResourceHandle Resource;
+				if (!GetPackageResourceManager().RegisterLoosePackage(
+						Path.ToString(), std::filesystem::path(PhysicalPath),
+						{Header.BulkSegmentExtent, Header.BulkSegmentDigest},
+						Entries, Resource, &BulkDiagnostic))
+					return Error(EAssetError::CorruptFile, std::move(BulkDiagnostic));
+				bRegisteredBulkResource = true;
+			}
 			DPackage* Package = nullptr;
 			Result = Codec->Load(
-				Bytes, Path, Package, CodecReport,
+				ReadContext, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetResult {
 					if (!LoadedPackage
 						|| FindPackage(Path.GetView()) != LoadedPackage
@@ -536,7 +630,12 @@ namespace Durin::Asset
 					LoadingPackages.erase(Path);
 				});
 			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
-			if (!Result) return Result;
+			if (!Result)
+			{
+				if (bRegisteredBulkResource)
+					GetPackageResourceManager().RetirePackage(Path.ToString());
+				return Result;
+			}
 			LoadingPackages.erase(Path);
 			OutPackage = Package;
 			return {};

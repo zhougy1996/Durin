@@ -11,19 +11,14 @@ namespace Durin::Asset::PackageObjectStream
 	{
 		EDefaultDeltaMode DeltaMode = EDefaultDeltaMode::Enabled;
 		FAssetPackageSerializationOptions Serialization;
-		bool bVerifyRepeatedEncoding = false;
 	};
 
-	// Production integration boundary shared by ordinary serialization, saves,
-	// and explicit callers that need writer diagnostics or delta-mode control.
-	ENGINE_API auto WriteAssetPackage(
+	// Captures one live package into the format-neutral reflected logical model.
+	// The caller owns package-format encoding and publication.
+	ENGINE_API auto CaptureAssetPackage(
 		DPackage* Package,
-		std::vector<std::byte>& OutBytes,
+		FPackageInput& OutInput,
 		const FAssetPackageWriteOptions& Options = {},
 		FWriterDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
-	ENGINE_API auto WriteRedirectorPackage(
-		const FAssetPath& SourcePath,
-		const FAssetPath& DestinationPath,
-		std::vector<std::byte>& OutBytes) -> FAssetResult;
 }

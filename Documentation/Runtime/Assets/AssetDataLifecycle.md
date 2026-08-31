@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -100,7 +100,7 @@ not the name of the compilation domain or one of its requests.
 | --- | --- | --- | --- | --- |
 | Physical source input | User-selected physical file closure | Source-specific | Explicit Import, Reimport, or Reimport From File only | Yes, after a successful authored save if reimport is not needed |
 | Object package | Mounted content directory | `.dasset` | Asset identity, editable object state, and inline canonical imported data | No |
-| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v7 metadata | No |
+| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v8 Bulk Directory metadata | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
@@ -134,7 +134,7 @@ policy.
 
 ## Authored Packages
 
-An editor DAST v7 package and optional raw `.dbulk` segment contain authoritative object and imported state:
+An editor DAST v8 package and optional raw `.dbulk` segment contain authoritative object and imported state:
 
 - reflected properties and cross-package asset references;
 - bounded decoder-free canonical imported data, inline or in authored bulk;
@@ -374,11 +374,12 @@ or stack-local projections and never mutate authored fields, dirty state,
 diagnostics, build revisions, DDC state, or live residency. Editor-only source
 provenance, canonical imported data, and rebuild keys are omitted.
 
-Payload-bearing packages use DAST v7 BulkData fields. Values up to the package
-inline threshold remain in the `.dasset`; larger fields occupy aligned ranges
-in one stable, headerless `.dbulk` sibling. The package summary owns the exact
-segment extent and digest, and Payload Directory v2 owns every range. The raw
-segment has no DURF header, descriptor table, target, schema, or physical
+Payload-bearing packages use DAST v8 BulkData linker values. Values selected
+for inline storage occupy aligned ranges in the `.dasset` Inline Bulk section;
+external values occupy aligned ranges in one stable, headerless `.dbulk`
+sibling. Registry owns the exact external extent and whole-segment digest, and
+Bulk Directory binds every inline/external range to its reflected value. The
+raw segment has no DURF header, nested directory, target, schema, or physical
 path. Metadata-only packages, including Skeleton and packages whose fields stay
 inline, have no companion and no empty manifest record.
 
@@ -507,10 +508,10 @@ manifest be removed; unowned files are never cleanup candidates.
 
 ## Compatibility, targets, and inspection
 
-DAST v7 field metadata and an optional headerless raw segment are the only
-supported cooked package representation. Construct-free inspection decodes the
-field storage metadata directly and never constructs an asset or a separate
-container descriptor.
+DAST v8 main bytes and their exact optional headerless raw segment are the only
+supported cooked asset-package representation. Construct-free inspection reads
+validated linker BulkData descriptors and never constructs an asset or a
+second container model.
 
 The implemented compatibility identifiers are Win64 platform `1`, Game
 profile `1`, and EditorValidation profile `2`. Production family Cook and
@@ -552,16 +553,18 @@ payload GUID, DDC key, schema, target, or physical path. `FEditorBulkData` is an
 independent authored value with instance identity, content-derived payload
 identity, asynchronous immutable retrieval, and atomic whole-payload update.
 
-DAST v7 live load validates the raw segment extent, digest, ranges, ordering,
-and padding before object publication, while leaving external field allocations
-unloaded. Family build keys use the editor payload identity before requesting
-bytes, so a validated DDC hit performs zero source-range reads. A miss obtains
-and owns exactly one immutable payload snapshot before worker execution.
+DAST v8 live load validates the raw segment extent, whole and per-value digests,
+ranges, ordering, alignment, and padding before object publication, while
+leaving external field allocations unloaded. Family build keys use editor
+payload identity before requesting bytes, so a validated DDC hit performs zero
+source-range reads. A miss obtains and owns exactly one immutable payload
+snapshot before worker execution.
 
-DAST v7 plus an optional raw `.dbulk` segment is the sole supported authored
-package closure. Canonical resave republishes that closure transactionally and
-rolls back both storage and catalog authority on failure. Exact state, wire,
-and resource rules are defined by [Package Bulk Data](BulkData.md).
+DAST v8 plus its exact optional raw `.dbulk` segment is the sole supported
+authored package closure. Canonical resave republishes that closure
+transactionally and rolls back storage and catalog authority on failure. Exact
+state, wire, and resource rules are defined by
+[Package Bulk Data](BulkData.md).
 
 ## Domain-qualified inspection and repair ownership
 

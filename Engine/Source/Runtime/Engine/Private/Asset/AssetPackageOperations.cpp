@@ -3,10 +3,8 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
-#include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetPackageCodec.h"
-#include "AssetPackageV7Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
 #include "Asset/EditorBulkData.h"
@@ -14,6 +12,7 @@
 #include "AssetPackageArchive.h"
 #include "AssetPropertyKindTraits.h"
 #include "AssetPackageValueCodec.h"
+#include "DObject/DefaultDeltaPlan.h"
 #include "Profiling/Profiling.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
@@ -168,6 +167,7 @@ namespace Durin::Asset
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			std::span<const std::byte> Bytes,
+			const FAssetPath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
 		auto AssetPathResolutionError(
@@ -275,10 +275,56 @@ namespace Durin::Asset
 			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 			FAssetPath RedirectDestination;
 			std::vector<FAssetPath> Dependencies;
-			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
+			std::vector<FAssetPath> SoftDependencies;
+			std::vector<std::string> SearchableNames;
+			uint64 ObjectCount = 0;
+			uint64 BulkSegmentExtent = 0;
+			FXxHash128 BulkSegmentDigest;
+			std::vector<std::byte> BulkBytes;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
+
+		auto LoadPackageBulkBytes(std::string_view PhysicalPath,
+			std::vector<std::byte>& OutBytes) -> FAssetResult
+		{
+			OutBytes.clear();
+			std::filesystem::path BulkPath(PhysicalPath);
+			BulkPath.replace_extension(".dbulk");
+			std::error_code ErrorCode;
+			if (!std::filesystem::is_regular_file(BulkPath, ErrorCode))
+			{
+				if (ErrorCode && ErrorCode != std::errc::no_such_file_or_directory)
+					return Error(EAssetError::IoError,
+						"Failed to inspect the package bulk companion.");
+				return {};
+			}
+			if (!FFileHelper::LoadFileToArray(OutBytes, BulkPath))
+				return Error(EAssetError::IoError,
+					"Failed to read the package bulk companion.");
+			return {};
+		}
+
+		auto ClassifyPackageIdentity(std::string_view PhysicalPath,
+			FAssetPath& OutPath) -> bool
+		{
+			std::filesystem::path Path(PhysicalPath);
+			Path.replace_extension();
+			const FAssetPathResult Classified = FMountPaths::ClassifyAssetPath(Path);
+			return Classified && FAssetPath::TryCreate(
+				Classified.NormalizedVirtualPath, OutPath);
+		}
+
+		auto ValidateAssetPackageClosure(std::span<const std::byte> Bytes,
+			std::span<const std::byte> BulkBytes, const FAssetPath& PackagePath)
+			-> FAssetResult
+		{
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+				return Result;
+			return Codec->Validate({.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()});
+		}
 
 		auto ValidatePackageWriteAdmission(const FAssetPath& Path) -> FAssetResult
 		{
@@ -560,7 +606,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = AssetPackageObjectStreamVersion) -> FAssetResult
+			uint32 SourceVersion = AssetPackageV8FormatVersion) -> FAssetResult
 		{
 			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 			if (Private::IsByteToolRawScalarKind(Kind))
@@ -895,22 +941,38 @@ namespace Durin::Asset
 				return Error(EAssetError::UnsupportedVersion,
 					"The ordinary asset package writer is unavailable.");
 			FAssetPackageSerializationOptions EffectiveOptions = Options;
-			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &OutFile->BulkPayloads;
+			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
+			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &BulkPayloads;
+			Private::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->Write(
-				Package, OutBytes, EDefaultDeltaMode::NoDelta, EffectiveOptions);
+				Package, Closure, EDefaultDeltaMode::NoDelta, EffectiveOptions);
 			if (!Result) return Result;
+			FAssetPath PackagePath;
+			if (!Package || !FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
+				return Error(EAssetError::InvalidPath, "Package path is invalid.");
 			if (OutFile)
 			{
+				OutFile->BulkBytes = Closure.BulkBytes;
 				FAssetPackageHeader Header;
-				if (FAssetResult HeaderResult = Codec->ReadHeader(
-					OutBytes, OutBytes.size(), Header); !HeaderResult)
+				const Private::FAssetPackageReadContext Context{
+					.PackageBytes = Closure.PackageBytes,
+					.BulkBytes = Closure.BulkBytes,
+					.PackagePath = PackagePath,
+					.PhysicalPackageBytes = Closure.PackageBytes.size()};
+				if (FAssetResult HeaderResult = Codec->ReadHeader(Context, Header); !HeaderResult)
 					return HeaderResult;
 				OutFile->FormatVersion = Header.FormatVersion;
 				OutFile->AssetClassName = std::move(Header.AssetClassName);
 				OutFile->EntryKind = Header.EntryKind;
 				OutFile->RedirectDestination = std::move(Header.RedirectDestination);
 				OutFile->Dependencies = std::move(Header.Dependencies);
+				OutFile->SoftDependencies = std::move(Header.SoftDependencies);
+				OutFile->SearchableNames = std::move(Header.SearchableNames);
+				OutFile->ObjectCount = Header.ObjectCount;
+				OutFile->BulkSegmentExtent = Header.BulkSegmentExtent;
+				OutFile->BulkSegmentDigest = Header.BulkSegmentDigest;
 			}
+			OutBytes = std::move(Closure.PackageBytes);
 			return Result;
 		}
 
@@ -947,15 +1009,6 @@ namespace Durin::Asset
 			return ValidateRedirectorHeader(File, ObjectCount, SourcePath);
 		}
 
-		auto InspectAssetPackageBytesForCatalog(
-			std::string_view PhysicalPath,
-			std::span<const std::byte> Bytes,
-			FAssetPackageInspection& OutInspection) -> FAssetResult
-		{
-			return InspectAssetPackageBytes(
-				PhysicalPath, Bytes, OutInspection);
-		}
-
 		auto DecodeReferenceByteToolValue(
 			FProperty* Property,
 			void* Container,
@@ -975,12 +1028,10 @@ namespace Durin::Asset
 
 	}
 
-	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes) -> FAssetResult
+	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes,
+		const FAssetPath& PackagePath, std::span<const std::byte> BulkBytes) -> FAssetResult
 	{
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
-			return Result;
-		return Codec->Validate(Bytes);
+		return ValidateAssetPackageClosure(Bytes, BulkBytes, PackagePath);
 	}
 
 	auto SerializeAssetPackageBytes(
@@ -989,6 +1040,19 @@ namespace Durin::Asset
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
+	}
+
+	auto SerializeAssetPackageClosure(
+		DPackage* Package,
+		std::vector<std::byte>& OutBytes,
+		std::vector<std::byte>& OutBulkBytes,
+		const FAssetPackageSerializationOptions& Options) -> FAssetResult
+	{
+		FPackageFile File;
+		FAssetResult Result = BuildPackageBytes(Package, OutBytes, &File, Options);
+		if (!Result) return Result;
+		OutBulkBytes = std::move(File.BulkBytes);
+		return {};
 	}
 
 	auto SavePackagesAtomically(
@@ -1051,7 +1115,8 @@ namespace Durin::Asset
 			Result = BuildPackageBytes(
 				Package, Staged.Bytes, &Staged.File, Serialization);
 			if (!Result) return Result;
-			Result = ValidateAssetPackageBytes(Staged.Bytes);
+			Result = ValidateAssetPackageBytes(
+				Staged.Bytes, Path, Staged.File.BulkBytes);
 			if (!Result) return Result;
 			Staged.Destination = GetPhysicalPath(Path);
 			if (Staged.Destination.empty())
@@ -1132,10 +1197,7 @@ namespace Durin::Asset
 					"Failed to create package directory {}: {}",
 					Staged.Destination.parent_path().generic_string(), Ec.message()));
 			}
-			if (std::ranges::any_of(Staged.File.BulkPayloads,
-				[](const FEditorBulkDataStoragePayload& Payload) {
-					return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
-				}))
+			if (!Staged.File.BulkBytes.empty())
 			{
 				if (Options.ShouldFail
 					&& Options.ShouldFail(EAssetBundleSavePhase::PublishCompanion, Index))
@@ -1146,14 +1208,10 @@ namespace Durin::Asset
 				}
 				std::vector<std::byte> CompanionBytes;
 				FPackageBulkSegmentSummary SegmentSummary;
-				std::vector<FPackageBulkDataEntry> SegmentEntries;
 				std::string CompanionError;
-				if (!BuildPackageBulkDataSegment(Staged.File.BulkPayloads, CompanionBytes,
-						SegmentSummary, SegmentEntries, &CompanionError))
-				{
-					AbortStaging();
-					return Error(EAssetError::CorruptFile, std::move(CompanionError));
-				}
+				CompanionBytes = Staged.File.BulkBytes;
+				SegmentSummary = {CompanionBytes.size(),
+					FXxHash128::HashBuffer(CompanionBytes)};
 				Staged.PublishedCompanion = Staged.Destination;
 				Staged.PublishedCompanion.replace_extension(".dbulk");
 				if (!PublishEditorBulkDataCompanion(
@@ -1277,6 +1335,11 @@ namespace Durin::Asset
 				.RedirectDestination = Staged.File.RedirectDestination,
 				.FormatVersion = Staged.File.FormatVersion,
 				.Dependencies = Staged.File.Dependencies,
+				.SoftDependencies = Staged.File.SoftDependencies,
+				.SearchableNames = Staged.File.SearchableNames,
+				.ObjectCount = Staged.File.ObjectCount,
+				.BulkSegmentExtent = Staged.File.BulkSegmentExtent,
+				.BulkSegmentDigest = Staged.File.BulkSegmentDigest,
 				.FileSize = Staged.PublishedFileSize,
 				.LastWriteTime = Staged.PublishedLastWriteTime,
 				.LastWriteTimeTicks = FileTime::ToStableTicks(
@@ -1321,13 +1384,16 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidPath,
 				"The asset admission path is outside mounted package content.");
 		FAssetPackageHeader Header;
-		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header); !Result)
+		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Path, Header); !Result)
 			return Result;
 		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
 				"The asset package could not be read for admission validation.");
-		if (FAssetResult Result = ValidateAssetPackageBytes(Bytes); !Result)
+		std::vector<std::byte> BulkBytes;
+		if (FAssetResult Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
+			return Result;
+		if (FAssetResult Result = ValidateAssetPackageBytes(Bytes, Path, BulkBytes); !Result)
 			return Result;
 		std::error_code ErrorCode;
 		const auto LastWriteTime = std::filesystem::last_write_time(
@@ -1348,6 +1414,11 @@ namespace Durin::Asset
 			.RedirectDestination = Header.RedirectDestination,
 			.FormatVersion = Header.FormatVersion,
 			.Dependencies = Header.Dependencies,
+			.SoftDependencies = Header.SoftDependencies,
+			.SearchableNames = Header.SearchableNames,
+			.ObjectCount = Header.ObjectCount,
+			.BulkSegmentExtent = Header.BulkSegmentExtent,
+			.BulkSegmentDigest = Header.BulkSegmentDigest,
 			.FileSize = FileSize,
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
@@ -1407,45 +1478,45 @@ namespace Durin::Asset
 		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
 	{
 		OutValue = {};
-		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData) return false;
+		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
+			|| SourceFormatVersion != AssetPackageV8FormatVersion) return false;
 		FByteReader Reader{Payload};
-		if (SourceFormatVersion == AssetPackageV7FormatVersion)
-		{
-			uint64 FieldIndex = 0;
-			uint8 Placement = 0;
-			uint8 StorageFlags = 0;
-			uint16 Alignment = 0;
-			uint32 ContentIdVersion = 0;
-			uint64 HashLow = 0, HashHigh = 0;
-			if (!Reader.Read(FieldIndex) || FieldIndex == 0
-				|| !Reader.Read(Placement) || Placement > 1
-				|| !Reader.Read(StorageFlags) || StorageFlags != 0
-				|| !Reader.Read(Alignment)
-				|| !Reader.Read(ContentIdVersion)
-				|| ContentIdVersion != EditorBulkDataContentIdVersion
-				|| !Reader.Read(OutValue.PayloadId)
-				|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
-				|| !Reader.Read(OutValue.LogicalByteCount)
-				|| !Reader.Read(OutValue.StoredByteCount)
-				|| !Reader.Read(OutValue.SegmentOffset)) return false;
-			OutValue.ContentHash = {HashLow, HashHigh};
-			OutValue.StorageKind = Placement == 0
-				? EEditorBulkDataStorageKind::Inline : EEditorBulkDataStorageKind::External;
-			OutValue.Alignment = Alignment;
-			if (!OutValue.PayloadId.IsValid() || OutValue.ContentHash.IsZero()
-				|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
-			if (Placement == 1)
-				return Alignment == EditorBulkDataExternalAlignment
-					&& OutValue.SegmentOffset % Alignment == 0
-					&& Reader.Offset == Payload.size();
-			if (Alignment != 1 || OutValue.SegmentOffset != 0
-				|| Reader.Offset > Payload.size()
-				|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
-			return FXxHash128::HashBuffer(
-				std::span<const std::byte>(Payload).subspan(Reader.Offset))
-				== OutValue.ContentHash;
-		}
-		return false;
+		uint32 Version = 0;
+		uint8 Placement = 0;
+		uint8 Reserved = 0;
+		uint16 Alignment = 0;
+		uint32 ElementSize = 0;
+		uint64 FieldIndex = 0;
+		uint64 HashLow = 0;
+		uint64 HashHigh = 0;
+		if (!Reader.Read(Version) || Version != 1
+			|| !Reader.Read(Placement) || Placement > 1
+			|| !Reader.Read(Reserved) || Reserved != 0
+			|| !Reader.Read(Alignment) || Alignment == 0 || Alignment > 4096
+			|| (Alignment & (Alignment - 1)) != 0
+			|| !Reader.Read(ElementSize) || ElementSize == 0
+			|| !Reader.Read(FieldIndex) || FieldIndex == 0
+			|| !Reader.Read(OutValue.PayloadId)
+			|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
+			|| !Reader.Read(OutValue.LogicalByteCount)
+			|| !Reader.Read(OutValue.StoredByteCount)
+			|| !Reader.Read(OutValue.SegmentOffset)) return false;
+		OutValue.ContentHash = {HashLow, HashHigh};
+		OutValue.StorageKind = Placement == 0
+			? EEditorBulkDataStorageKind::Inline
+			: EEditorBulkDataStorageKind::External;
+		OutValue.Alignment = Alignment;
+		if (!OutValue.PayloadId.IsValid() || OutValue.ContentHash.IsZero()
+			|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
+		if (Placement == 1)
+			return OutValue.SegmentOffset % Alignment == 0
+				&& Reader.Offset == Payload.size();
+		if (Alignment != 1 || OutValue.SegmentOffset != 0
+			|| Reader.Offset > Payload.size()
+			|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
+		return FXxHash128::HashBuffer(
+			std::span<const std::byte>(Payload).subspan(Reader.Offset))
+			== OutValue.ContentHash;
 	}
 
 	auto FAssetPackageField::TryReadEditorBulkDataStorageDescriptor(
@@ -1504,7 +1575,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? AssetPackageObjectStreamVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? AssetPackageV8FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -1513,6 +1584,7 @@ namespace Durin::Asset
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			std::span<const std::byte> Bytes,
+			const FAssetPath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
 			OutInspection = {};
@@ -1521,31 +1593,18 @@ namespace Durin::Asset
 			const Private::FAssetPackageCodec* Codec = nullptr;
 			if (Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 				return Result;
+			if (!PackagePath.IsValid())
+				return Error(EAssetError::InvalidPath,
+					"DAST v8 inspection requires a mounted package identity.");
+			std::vector<std::byte> BulkBytes;
+			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
+				return Result;
+			const Private::FAssetPackageReadContext Context{
+				.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()};
 			FAssetPackageInspection Inspection;
-			Result = Codec->Inspect(Bytes, Inspection);
+			Result = Codec->Inspect(Context, Inspection);
 			if (!Result) return Result;
-			if (Inspection.Header.FormatVersion == AssetPackageV7FormatVersion)
-			{
-				Private::DastV7::FParsedPackage Parsed;
-				std::string SegmentError;
-				if (!Private::DastV7::ParsePackage(Bytes, Parsed, &SegmentError))
-					return Error(EAssetError::CorruptFile, std::move(SegmentError));
-				std::filesystem::path PackagePath(PhysicalPath);
-				std::filesystem::path SegmentPath = PackagePath;
-				SegmentPath.replace_extension(".dbulk");
-				std::error_code FileError;
-				const bool bHasSegment = std::filesystem::is_regular_file(SegmentPath, FileError);
-				if (Parsed.BulkSegment.Extent != 0)
-				{
-					std::vector<std::byte> Segment;
-					if (!bHasSegment || !FFileHelper::LoadFileToArray(Segment, SegmentPath)
-						|| !ValidatePackageBulkDataSegment(
-							Parsed.BulkSegment, Parsed.BulkEntries, Segment, &SegmentError))
-						return Error(EAssetError::CorruptFile, SegmentError.empty()
-							? "DAST v7 package bulk segment is missing or unreadable."
-							: std::move(SegmentError));
-				}
-			}
 			Inspection.PhysicalPath = PhysicalPath;
 			Inspection.Fingerprint = OutInspection.Fingerprint;
 			OutInspection = std::move(Inspection);
@@ -1555,34 +1614,80 @@ namespace Durin::Asset
 
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
+		FAssetPath PackagePath;
+		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
+			return Error(EAssetError::InvalidPath,
+				"DAST v8 inspection requires a mounted package identity.");
+		return InspectAssetPackage(PhysicalPath, PackagePath, OutInspection);
+	}
+
+	auto InspectAssetPackage(std::string_view PhysicalPath,
+		const FAssetPath& PackagePath,
+		FAssetPackageInspection& OutInspection) -> FAssetResult
+	{
 		OutInspection = {};
 		std::vector<std::byte> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
-		return InspectAssetPackageBytes(PhysicalPath, Bytes, OutInspection);
+		return InspectAssetPackageBytes(PhysicalPath, Bytes, PackagePath, OutInspection);
 	}
 
 
 	auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& PackagePath,
+		std::vector<std::byte>& OutBytes,
+		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
+	{
+		return CanonicalizeAssetPackageForCook(
+			Bytes, BulkBytes, PackagePath, PackagePath, OutBytes, OutBulkBytes);
+	}
+
+	auto CanonicalizeAssetPackageForCook(
+		std::span<const std::byte> Bytes,
+		std::span<const std::byte> BulkBytes,
+		const FAssetPath& SourcePackagePath,
+		const FAssetPath& OutputPackagePath,
+		std::vector<std::byte>& OutBytes,
+		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
 	{
 		OutBytes.clear();
+		OutBulkBytes.clear();
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
 				"Cook canonicalization requires package mutation capability.");
-		FAssetPackageInspection Inspection;
-		FAssetResult Result = Codec->Inspect(Bytes, Inspection);
+		std::vector<std::byte> RelocatedBytes;
+		std::vector<std::byte> RelocatedBulkBytes;
+		if (SourcePackagePath != OutputPackagePath)
+		{
+			const Private::FAssetPackageReadContext SourceContext{
+				.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+				.PackagePath = SourcePackagePath,
+				.PhysicalPackageBytes = Bytes.size()};
+			Private::FAssetPackageEncodedClosure Relocated;
+			FAssetResult RelocateResult = Codec->Relocate(
+				SourceContext, OutputPackagePath, Relocated);
+			if (!RelocateResult) return RelocateResult;
+			RelocatedBytes = std::move(Relocated.PackageBytes);
+			RelocatedBulkBytes = std::move(Relocated.BulkBytes);
+			Bytes = RelocatedBytes;
+			BulkBytes = RelocatedBulkBytes;
+		}
+		const Private::FAssetPackageReadContext Context{
+			.PackageBytes = Bytes, .BulkBytes = BulkBytes,
+			.PackagePath = OutputPackagePath, .PhysicalPackageBytes = Bytes.size()};
+		FAssetPackageHeader Header;
+		FAssetResult Result = Codec->ReadHeader(Context, Header);
 		if (!Result) return Result;
-		if (Inspection.Header.EntryKind != EAssetRegistryEntryKind::Asset)
+		if (Header.EntryKind != EAssetRegistryEntryKind::Asset)
 			return Error(EAssetError::InvalidPackageType,
 				"CookCanonicalizationRedirectorPackage: redirector packages are uncooked-only.");
 		std::vector<FAssetReferenceEdge> References;
-		Result = Private::ExtractAssetReferencesForCook(
-			Inspection, References);
+		Result = Codec->ExtractReferences(Context, References);
 		if (!Result) return Result;
 		const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
@@ -1621,7 +1726,7 @@ namespace Durin::Asset
 					"Cook canonicalization observed inconsistent redirect resolution.");
 			return {};
 		};
-		for (const FAssetPath& Dependency : Inspection.Header.Dependencies)
+		for (const FAssetPath& Dependency : Header.Dependencies)
 		{
 			Result = ResolveReference(Dependency, {}, "package dependency table");
 			if (!Result) return Result;
@@ -1635,10 +1740,14 @@ namespace Durin::Asset
 		if (Mappings.empty())
 		{
 			OutBytes.assign(Bytes.begin(), Bytes.end());
+			OutBulkBytes.assign(BulkBytes.begin(), BulkBytes.end());
 			return {};
 		}
-		return Private::RewritePackageReferencesForMutation(
-			Bytes, Mappings, std::numeric_limits<uint64>::max(), OutBytes);
+		Result = Private::RewritePackageReferencesForMutation(
+			Bytes, BulkBytes, OutputPackagePath, Mappings,
+			std::numeric_limits<uint64>::max(), OutBytes);
+		if (Result) OutBulkBytes.assign(BulkBytes.begin(), BulkBytes.end());
+		return Result;
 
 	}
 
@@ -1680,18 +1789,14 @@ namespace Durin::Asset
 		FFileHelper::FAtomicFileError PublicationError;
 		std::filesystem::path PublishedCompanion;
 		FEditorBulkDataCompanionTransaction CompanionTransaction;
-		if (std::ranges::any_of(File.BulkPayloads,
-			[](const FEditorBulkDataStoragePayload& Payload) {
-				return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
-			}))
+		if (!File.BulkBytes.empty())
 		{
 			std::vector<std::byte> CompanionBytes;
 			FPackageBulkSegmentSummary SegmentSummary;
-			std::vector<FPackageBulkDataEntry> SegmentEntries;
 			std::string CompanionError;
-			if (!BuildPackageBulkDataSegment(File.BulkPayloads, CompanionBytes,
-					SegmentSummary, SegmentEntries, &CompanionError))
-				return Error(EAssetError::CorruptFile, std::move(CompanionError));
+			CompanionBytes = File.BulkBytes;
+			SegmentSummary = {CompanionBytes.size(),
+				FXxHash128::HashBuffer(CompanionBytes)};
 			PublishedCompanion = Destination;
 			PublishedCompanion.replace_extension(".dbulk");
 			if (!PublishEditorBulkDataCompanion(
@@ -1734,6 +1839,11 @@ namespace Durin::Asset
 			.RedirectDestination = File.RedirectDestination,
 			.FormatVersion = File.FormatVersion,
 			.Dependencies = File.Dependencies,
+			.SoftDependencies = File.SoftDependencies,
+			.SearchableNames = File.SearchableNames,
+			.ObjectCount = File.ObjectCount,
+			.BulkSegmentExtent = File.BulkSegmentExtent,
+			.BulkSegmentDigest = File.BulkSegmentDigest,
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});

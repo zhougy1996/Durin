@@ -1,10 +1,7 @@
-#include "AssetRegistry/ObjectStream.h"
 #include "AssetRegistry/Publication.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetRegistryStateInternal.h"
 #include "AssetRegistryScanInternal.h"
-
-#include "Misc/FileHelper.h"
 
 namespace Durin::Asset
 {
@@ -17,24 +14,18 @@ namespace Durin::Asset
 			return {Code, std::move(Message)};
 		}
 
-		auto ReferenceLess(const FAssetReferenceEdge& Left,
-			const FAssetReferenceEdge& Right) -> bool
+		auto ReferenceLess(const FAssetPackageReferenceEdge& Left,
+			const FAssetPackageReferenceEdge& Right) -> bool
 		{
-			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(),
-				Left.SourceObjectId, std::string_view(Left.DeclaringType),
-				std::string_view(Left.FieldName), Left.Kind, Left.DisplayRoute)
-				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(),
-					Right.SourceObjectId, std::string_view(Right.DeclaringType),
-					std::string_view(Right.FieldName), Right.Kind, Right.DisplayRoute);
+			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
 		}
 
 		struct FCacheOperationalState
 		{
 			std::mutex Mutex;
 			bool bCatalogDirty = false;
-			bool bReferencesDirty = false;
 			std::string CatalogWarning;
-			std::string ReferenceWarning;
 		};
 
 		auto GetCacheOperationalState() -> FCacheOperationalState&
@@ -53,13 +44,7 @@ namespace Durin::Asset
 		Private::ScanMountedAssetMetadata(Mode, Candidate);
 		const std::vector<std::string> MountManifest = Private::GetMountManifest();
 
-		std::unordered_map<FAssetPath, Private::FReferenceCacheSource> CachedSources;
-		std::string ReferenceCacheWarning;
-		const bool bReferenceCacheLoaded =
-			Private::LoadReferenceCache(CachedSources, ReferenceCacheWarning);
-		FAssetReferenceIndexStats ReferenceStats;
-		std::vector<FAssetResult> ReferenceErrors;
-		std::vector<FAssetReferenceEdge> ReferenceEdges;
+		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> Fingerprints;
 
 		std::vector<const FAssetData*> SortedAssets;
@@ -73,71 +58,32 @@ namespace Durin::Asset
 
 		for (const FAssetData* Data : SortedAssets)
 		{
-			const auto Cached = CachedSources.find(Data->PackagePath);
-			if (Mode == EAssetRegistryScanMode::Incremental && bReferenceCacheLoaded
-				&& Cached != CachedSources.end()
-				&& Cached->second.Fingerprint.FileSize == Data->FileSize
-				&& Cached->second.Fingerprint.LastWriteTimeTicks
-					== Data->LastWriteTimeTicks
-				&& Cached->second.Fingerprint.ReaderVersion == Data->FormatVersion)
-			{
-				if (ReferenceEdges.size() > MaximumReferencesPerSnapshot
-					- Cached->second.References.size())
-				{
-					ReferenceErrors.push_back(Error(EAssetError::CorruptFile,
-						"AssetReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
-					++ReferenceStats.FailedSources;
-					continue;
-				}
-				ReferenceEdges.insert(ReferenceEdges.end(),
-					Cached->second.References.begin(), Cached->second.References.end());
-				Fingerprints.emplace(Data->PackagePath, Cached->second.Fingerprint);
-				++ReferenceStats.ReusedSources;
-				continue;
-			}
-
-			std::vector<std::byte> Bytes;
-			std::vector<FAssetReferenceEdge> SourceReferences;
-			FAssetPackageFingerprint Fingerprint;
-			FAssetResult Result;
-			++ReferenceStats.PayloadReadAttempts;
-			if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
-				Result = Error(EAssetError::IoError, std::format(
-					"AssetReferenceIndexReadFailed: could not read {}.",
-					Data->PhysicalPath));
-			else
-			{
-				ReferenceStats.PayloadBytesRead += Bytes.size();
-				Result = PackageObjectStream::ExtractAssetPackageReferences(
-					Bytes, Data->PackagePath, SourceReferences, &Fingerprint);
-				Fingerprint.LastWriteTimeTicks = Data->LastWriteTimeTicks;
-				for (FAssetReferenceEdge& Reference : SourceReferences)
-					Reference.SourceFingerprint = Fingerprint;
-			}
-			++ReferenceStats.ExtractedSources;
-			if (!Result)
-			{
-				Result.Message = std::format("{} ({})", Result.Message, Data->PhysicalPath);
-				ReferenceErrors.push_back(std::move(Result));
-				++ReferenceStats.FailedSources;
-				continue;
-			}
-			if (ReferenceEdges.size() > MaximumReferencesPerSnapshot
-				- SourceReferences.size())
-			{
-				ReferenceErrors.push_back(Error(EAssetError::CorruptFile,
-					"AssetReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
-				++ReferenceStats.FailedSources;
-				continue;
-			}
-			ReferenceEdges.insert(ReferenceEdges.end(),
-				std::make_move_iterator(SourceReferences.begin()),
-				std::make_move_iterator(SourceReferences.end()));
+			const FAssetPackageFingerprint Fingerprint{
+				.FileSize = Data->FileSize,
+				.LastWriteTimeTicks = Data->LastWriteTimeTicks,
+				.ReaderVersion = Data->FormatVersion};
 			Fingerprints.emplace(Data->PackagePath, Fingerprint);
+			auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target)
+			{
+				ReferenceEdges.push_back({.SourcePackage = Data->PackagePath,
+					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
+			};
+			for (const FAssetPath& Dependency : Data->Dependencies)
+				if (Data->EntryKind != EAssetRegistryEntryKind::Redirector
+					|| Dependency != Data->RedirectDestination)
+					Add(EAssetReferenceKind::HardObject, Dependency);
+			for (const FAssetPath& Dependency : Data->SoftDependencies)
+				Add(EAssetReferenceKind::SoftObject, Dependency);
+			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
+				Add(EAssetReferenceKind::Redirect, Data->RedirectDestination);
 		}
 		std::ranges::sort(ReferenceEdges, ReferenceLess);
-		const bool bReferenceComplete = ReferenceErrors.empty()
-			&& Fingerprints.size() == Candidate.Assets.size();
+		ReferenceEdges.erase(std::unique(ReferenceEdges.begin(), ReferenceEdges.end(),
+			[](const FAssetPackageReferenceEdge& A, const FAssetPackageReferenceEdge& B)
+			{ return A.SourcePackage == B.SourcePackage && A.TargetPath == B.TargetPath && A.Kind == B.Kind; }),
+			ReferenceEdges.end());
+		const bool bReferenceComplete = Fingerprints.size() == Candidate.Assets.size()
+			&& ReferenceEdges.size() <= MaximumReferencesPerSnapshot;
 
 		Candidate.Stats.DurationMilliseconds =
 			std::chrono::duration<double, std::milli>(
@@ -150,12 +96,8 @@ namespace Durin::Asset
 			.PriorRevision = PriorRevision,
 			.ResultingRevision = PriorRevision,
 			.CatalogStats = Candidate.Stats,
-			.ReferenceStats = ReferenceStats,
 			.Errors = Candidate.Errors,
-			.CatalogCacheWarning = Candidate.CacheWarning,
-			.ReferenceCacheWarning = ReferenceCacheWarning};
-		Refresh.Errors.insert(Refresh.Errors.end(),
-			ReferenceErrors.begin(), ReferenceErrors.end());
+			.CatalogCacheWarning = Candidate.CacheWarning};
 		if (!Refresh.Succeeded()) return Refresh;
 
 		FAssetResult PublishResult = PublishAssetRegistryPublication({
@@ -163,9 +105,7 @@ namespace Durin::Asset
 			.Assets = Candidate.Assets,
 			.ReferenceEdges = ReferenceEdges,
 			.ReferenceFingerprints = Fingerprints,
-			.ReferenceErrors = ReferenceErrors,
-			.ReferenceStats = ReferenceStats,
-			.ReferenceCacheWarning = ReferenceCacheWarning,
+			.ReferenceErrors = {},
 			.bReferenceIndexComplete = true});
 		if (!PublishResult)
 		{
@@ -182,29 +122,17 @@ namespace Durin::Asset
 		Refresh.bCatalogCacheDirty = !Private::WriteRegistryCache(
 			MountManifest, std::move(Candidate.CacheEntries),
 			Refresh.CatalogCacheWarning);
-		std::string ReferenceWriteWarning;
-		Refresh.bReferenceCacheDirty = !Private::WriteReferenceCache(
-			Fingerprints, ReferenceEdges, ReferenceWriteWarning);
-		if (!ReferenceWriteWarning.empty())
-		{
-			if (!Refresh.ReferenceCacheWarning.empty())
-				Refresh.ReferenceCacheWarning.append(" ");
-			Refresh.ReferenceCacheWarning.append(ReferenceWriteWarning);
-		}
 		{
 			FCacheOperationalState& Operational = GetCacheOperationalState();
 			std::lock_guard Lock(Operational.Mutex);
 			if (GetAssetCatalogRevision() == PublishedRevision)
 			{
 				Operational.bCatalogDirty = Refresh.bCatalogCacheDirty;
-				Operational.bReferencesDirty = Refresh.bReferenceCacheDirty;
 				Operational.CatalogWarning = Refresh.CatalogCacheWarning;
-				Operational.ReferenceWarning = Refresh.ReferenceCacheWarning;
 			}
 			else
 			{
 				Operational.bCatalogDirty = true;
-				Operational.bReferencesDirty = true;
 			}
 		}
 		return Refresh;
@@ -215,7 +143,6 @@ namespace Durin::Asset
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
 		Operational.bCatalogDirty = true;
-		Operational.bReferencesDirty = true;
 	}
 
 	auto FlushAssetRegistryCaches() -> void
@@ -237,33 +164,19 @@ namespace Durin::Asset
 			}
 			else Operational.CatalogWarning = std::move(Warning);
 		}
-		if (Operational.bReferencesDirty)
-		{
-			std::string Warning;
-			if (Private::WriteReferenceCache(Publication.ReferenceFingerprints,
-				Publication.ReferenceEdges, Warning))
-			{
-				Operational.bReferencesDirty = false;
-				Operational.ReferenceWarning.clear();
-			}
-			else Operational.ReferenceWarning = std::move(Warning);
-		}
 	}
 
 	auto IsAssetRegistryCacheDirty() -> bool
 	{
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
-		return Operational.bCatalogDirty || Operational.bReferencesDirty;
+		return Operational.bCatalogDirty;
 	}
 
 	auto GetAssetRegistryCacheWarning() -> std::string
 	{
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
-		if (Operational.ReferenceWarning.empty()) return Operational.CatalogWarning;
-		if (Operational.CatalogWarning.empty()) return Operational.ReferenceWarning;
-		return std::format("{} {}", Operational.CatalogWarning,
-			Operational.ReferenceWarning);
+		return Operational.CatalogWarning;
 	}
 }

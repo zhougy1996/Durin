@@ -4,7 +4,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/PackageObjectStreamWriter.h"
 #include "Animation/AnimationClip.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -194,8 +193,9 @@ TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)
 	std::string Error;
 	FCookContext First({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookContext Second({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(First.AddRawPackage("/Game/Detached", MakePackageBytes(), {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
-	ASSERT_TRUE(Second.AddRawPackage("/Game/Detached", MakePackageBytes(), {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
+	const std::vector<std::byte> PackageBytes = MakePackageBytes();
+	ASSERT_TRUE(First.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
+	ASSERT_TRUE(Second.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
 	std::vector<FCookSavePlan> FirstPlans, SecondPlans;
 	ASSERT_TRUE(First.TakeSavePlans(FirstPlans, &Error)) << Error;
 	ASSERT_TRUE(Second.TakeSavePlans(SecondPlans, &Error)) << Error;

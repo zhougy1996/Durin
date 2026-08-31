@@ -33,7 +33,8 @@ namespace
 		void SetUp() override
 		{
 			Root = Durin::Testing::GetTestWorkDirectory()
-				/ "ContentBrowserModel";
+				/ "ContentBrowserModel"
+				/ testing::UnitTest::GetInstance()->current_test_info()->name();
 			std::error_code Ec;
 			Durin::Testing::RemoveTestWorkDirectory(Root, Ec);
 			std::filesystem::create_directories(Root / "Content/A");
@@ -49,6 +50,16 @@ namespace
 				std::make_unique<Testing::FScopedMountRegistryFixture>(
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
+			Asset::ShutdownAssetManager();
+			CollectGarbage();
+			ASSERT_TRUE(Asset::InitializeAssetManager());
+		}
+
+		static void TearDownTestSuite()
+		{
+			Asset::ShutdownAssetManager();
+			CollectGarbage();
+			ASSERT_TRUE(Asset::InitializeAssetManager());
 		}
 
 		std::filesystem::path Root;
@@ -1095,8 +1106,9 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 		.Extension = ".txt"};
 	const FContentBrowserOperationResult FileResult =
 		Operations.Rename(FileItem, "renamed.txt");
-	EXPECT_FALSE(FileResult);
-	EXPECT_EQ(FileResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_FALSE(FileResult) << FileResult.Status.Message;
+	EXPECT_EQ(FileResult.Status.Error, Asset::EAssetError::ReadOnlyMode)
+		<< FileResult.Status.Message;
 	EXPECT_TRUE(std::filesystem::exists(File));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/renamed.txt"));
 

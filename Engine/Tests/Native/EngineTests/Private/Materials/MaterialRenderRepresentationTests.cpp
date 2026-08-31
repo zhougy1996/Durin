@@ -295,12 +295,6 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
-	Durin::Asset::FAssetPackageInspection Inspection;
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
-		Inspection));
-	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
-
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	auto RuntimeConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
@@ -319,6 +313,11 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::Testing::FScopedMountRegistryFixture CookMounts(
 		CookMountDefinitions);
 	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
+		Inspection));
+	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;

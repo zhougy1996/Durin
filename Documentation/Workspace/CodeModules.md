@@ -22,10 +22,10 @@ direction.
 | `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
 | `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
-| `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
+| `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, and canonical DAST v8 read/write | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
-| `AssetRegistry` | Mounted package discovery, construct-free DAST inspection, immutable catalog/reference snapshots and queries, revisions, and rebuildable registry/reference caches | [source](../../Engine/Source/Runtime/AssetRegistry) |
-| `Engine` | Asset package construction, residency, loading, serialization and writing, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, render-facing engine objects, and producer-facing primitive draw submission | [source](../../Engine/Source/Runtime/Engine) |
+| `AssetRegistry` | Mounted package discovery, bounded v8 Registry projection, immutable package metadata/dependency snapshots and queries, revisions, one rebuildable registry cache, and the private decoder used only by explicit offline v7 conversion | [source](../../Engine/Source/Runtime/AssetRegistry) |
+| `Engine` | Asset package construction, residency, live graph capture/linker application, transient exact package inspection, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, render-facing engine objects, and producer-facing primitive draw submission | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread/resources, Global/Material/mesh-Material registration and typed maps, source-independent Shader request/output values, `DSHD` codec, `DSLB` cooked-library reader, immutable authored/cooked domain selection, stable Vertex Factory descriptors, scene views, simple-element vocabulary, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
@@ -63,7 +63,7 @@ physical root communicates ownership but does not select them for a target.
 | `StaticMeshBuild` | StaticMesh render/collision keys, canonical-geometry recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
 | `SkeletalBuild` | SkeletalMesh/AnimationClip keys, canonical-payload recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
 | `TerrainBuild` | TerrainHeightmap canonical-sample and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
-| `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-resave planning/application orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
+| `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, canonical-v8-resave orchestration, and bounded construct-free offline v7-to-v8 closure migration with stale checks and rollback; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
 
 ## Project Modules
 
@@ -77,7 +77,8 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | --- | --- | --- |
 | generic DDC bucket/key get, put, bounded trim, Build policy, or recipe orchestration | `DerivedDataCache` | Recipe modules only for typed inputs, execution, and validation |
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
-| asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for object identity; editor modules for UI |
+| package linker tables, serialized type identity, canonical Map-key tokens, DAST v8 codec | `CoreDObject` | `AssetRegistry` for bounded metadata projection; `Engine` only for live graph capture/application |
+| asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for package/object link identity; editor modules for UI |
 | actor, component, level, world, runtime asset type | `Engine` | `CoreDObject` or rendering modules at their owned boundary |
 | debug line, point, sprite, primitive draw submission | `Engine` | `RenderCore` for copied value vocabulary; `Renderer` only for collection and GPU execution; `LevelEditor` only for editor-specific producers |
 | Global/Material/mesh shader category, typed shader map, render resource, stable Vertex Factory type, scene view | `RenderCore` | `Engine` for accepted Material compiler results; `RHI` for GPU abstraction; `Renderer` for adaptation, bounded exact-set storage, frame use, and explicit generation fan-out |
@@ -89,6 +90,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `Engine` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
 | project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
+| offline DAST v7-to-v8 package-closure migration | `AssetMaintenance` | `AssetRegistry` for bounded v7 conversion; `CoreDObject` for canonical v8 read/write; no Engine object application or editor host |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

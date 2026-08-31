@@ -42,6 +42,7 @@ COMMAND_CASES = (
     (("cook",), "cook --output Saved/Cooked --target win64 --target-profile game"),
     (("asset", "check"), "asset check --baseline --json"),
     (("asset", "resave"), "asset resave /Game/Characters --apply"),
+    (("asset", "migrate-v8"), "asset migrate-v8 --all --json"),
     (("asset", "storage"), "asset storage"),
     (
         ("scene", "graybox-build"),
@@ -98,6 +99,7 @@ EXPECTED_COMMAND_PATHS = {
     ("asset",),
     ("asset", "check"),
     ("asset", "resave"),
+    ("asset", "migrate-v8"),
     ("asset", "storage"),
     ("scene",),
     ("scene", "graybox-build"),
@@ -222,7 +224,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "ae84f94b412f40a926128375f2910f164d155057480587de2ae197f6a5a02237"
+            "c7749b4c8775adf9be9c7ffa0d8201680a22e1cc4133d719ecc25e171a79dedb"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "7d44e1043a23fa443bb05186e4aefdf451b537dcfd8fb6b4439f1aab24dd4f83"

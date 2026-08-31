@@ -142,8 +142,12 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
 	Durin::Asset::FAssetPackageInspection Inspection;
+	Durin::FAssetPath CookedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		"/Game/StudioEnvironment", CookedPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(), Inspection));
+		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(),
+		CookedPath, Inspection));
 	EXPECT_NE(Inspection.FindField("PlatformData"), nullptr);
 	std::vector<std::byte> CookedBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(

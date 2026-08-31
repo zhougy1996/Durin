@@ -8,11 +8,9 @@ namespace Durin::Asset
 	{
 		uint64 ExpectedRevision = 0;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
-		std::vector<FAssetReferenceEdge> ReferenceEdges;
+		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> ReferenceFingerprints;
 		std::vector<FAssetResult> ReferenceErrors;
-		FAssetReferenceIndexStats ReferenceStats;
-		std::string ReferenceCacheWarning;
 		bool bReferenceIndexComplete = false;
 	};
 

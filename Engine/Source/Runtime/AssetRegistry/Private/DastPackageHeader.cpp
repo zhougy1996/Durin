@@ -1,5 +1,6 @@
 #include "AssetRegistry/PackageHeader.h"
 
+#include "DObject/PackageFormat.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
@@ -163,7 +164,8 @@ namespace Durin::Asset
 	}
 
 	auto ReadAssetPackageHeaderBytes(std::span<const std::byte> FrontMatter,
-		uint64 PhysicalFileBytes, FAssetPackageHeader& OutHeader) -> FAssetResult
+		uint64 PhysicalFileBytes, uint64 PhysicalBulkBytes, const FAssetPath& PackagePath,
+		FAssetPackageHeader& OutHeader) -> FAssetResult
 	{
 		OutHeader = {};
 		FBinaryEnvelopePreamble Preamble;
@@ -172,8 +174,52 @@ namespace Durin::Asset
 			Preamble, &Diagnostic))
 			return EnvelopeError(Diagnostic);
 		if (Preamble.HeaderBytes > FrontMatter.size())
-			return Error(EAssetError::CorruptFile, "DAST v7 front matter is truncated.");
+			return Error(EAssetError::CorruptFile, "DAST front matter is truncated.");
 		const auto Front = FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes));
+		if (Preamble.FormatVersion == ObjectPackage::DastV8FormatVersion)
+		{
+			if (!PackagePath.IsValid())
+				return Error(EAssetError::InvalidPath,
+					"DAST v8 Registry projection requires the mounted package identity.");
+			ObjectPackage::FPackageV8RegistryData Registry;
+			ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
+			if (!ObjectPackage::ReadPackageV8Registry(Front, PhysicalFileBytes, PhysicalBulkBytes,
+				PackagePath.GetView(), Registry, &ReaderDiagnostic))
+				return Error(EAssetError::CorruptFile, std::format(
+					"DAST v8 Registry projection failed: {}", ReaderDiagnostic.Message));
+			FAssetPackageHeader Header{
+				.AssetClassName = std::move(Registry.AssetClass),
+				.EntryKind = Registry.bRedirect ? EAssetRegistryEntryKind::Redirector
+					: EAssetRegistryEntryKind::Asset,
+				.FormatVersion = Preamble.FormatVersion,
+				.ObjectCount = Registry.ExportCount,
+				.BulkSegmentExtent = Registry.ExternalBulkBytes,
+				.BulkSegmentDigest = Registry.ExternalBulkHash,
+				.BytesRead = Preamble.HeaderBytes};
+			auto ConvertPaths = [&](const std::vector<std::string>& Source,
+				std::vector<FAssetPath>& Destination, std::string_view Category) -> FAssetResult
+			{
+				for (const std::string& Value : Source)
+				{
+					FAssetPath Path;
+					if (!FAssetPath::TryCreate(Value, Path)) return Error(EAssetError::CorruptFile,
+						std::format("DAST v8 Registry {} path is invalid.", Category));
+					Destination.push_back(std::move(Path));
+				}
+				return {};
+			};
+			if (!Registry.RedirectDestination.empty()
+				&& !FAssetPath::TryCreate(Registry.RedirectDestination, Header.RedirectDestination))
+				return Error(EAssetError::CorruptFile,
+					"DAST v8 redirect destination path is invalid.");
+			if (FAssetResult Result = ConvertPaths(Registry.HardPackageReferences,
+				Header.Dependencies, "hard dependency"); !Result) return Result;
+			if (FAssetResult Result = ConvertPaths(Registry.SoftPackageReferences,
+				Header.SoftDependencies, "soft dependency"); !Result) return Result;
+			Header.SearchableNames = std::move(Registry.SearchableNames);
+			OutHeader = std::move(Header);
+			return {};
+		}
 		FValidatedBinaryEnvelope Envelope;
 		if (!ValidateBinaryEnvelopeHeader(Front, PhysicalFileBytes, EnvelopeLimits,
 			GetRegistry(), Envelope, &Diagnostic))
@@ -275,7 +321,7 @@ namespace Durin::Asset
 	}
 
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath,
-		FAssetPackageHeader& OutHeader) -> FAssetResult
+		const FAssetPath& PackagePath, FAssetPackageHeader& OutHeader) -> FAssetResult
 	{
 		OutHeader = {};
 		std::ifstream Stream(std::filesystem::path(PhysicalPath), std::ios::binary | std::ios::ate);
@@ -328,8 +374,22 @@ namespace Durin::Asset
 					std::format("Failed to read asset package {}.", PhysicalPath));
 			}
 		}
-		FAssetResult Result = ReadAssetPackageHeaderBytes(Bytes, FileSize, OutHeader);
+		uint64 BulkBytes = 0;
+		std::filesystem::path BulkPath(PhysicalPath);
+		BulkPath.replace_extension(".dbulk");
+		std::error_code BulkEc;
+		if (std::filesystem::exists(BulkPath, BulkEc))
+		{
+			const uintmax_t Extent = std::filesystem::file_size(BulkPath, BulkEc);
+			if (BulkEc || Extent > ObjectPackage::DastV8MaximumBulkBytes)
+				return Error(EAssetError::CorruptFile,
+					"Asset package bulk segment exceeds the supported byte bound.");
+			BulkBytes = static_cast<uint64>(Extent);
+		}
+		FAssetResult Result = ReadAssetPackageHeaderBytes(
+			Bytes, FileSize, BulkBytes, PackagePath, OutHeader);
 		if (Result) OutHeader.FileBytesRead = HeaderBytes;
 		return Result;
 	}
+
 }

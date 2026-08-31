@@ -667,8 +667,12 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
 	const Durin::FTextureCubePlatformData Expected = *Import.Asset->GetPlatformData();
-	const std::filesystem::path FirstRoot = std::filesystem::absolute(Root / "CookFirst");
-	const std::filesystem::path SecondRoot = std::filesystem::absolute(Root / "CookSecond");
+	const std::filesystem::path FirstRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "TextureCubeCookFirst");
+	const std::filesystem::path SecondRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "TextureCubeCookSecond");
+	Durin::Testing::RemoveTestWorkDirectory(FirstRoot);
+	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	std::string Error;
 	Durin::Asset::FCookContext First(
 		FirstRoot, Durin::Asset::ECookTargetPlatform::Win64,
@@ -693,8 +697,12 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	EXPECT_FALSE(std::filesystem::exists(FirstRoot / "Game/CookedCube.dbulk"));
 	EXPECT_FALSE(std::filesystem::exists(SecondRoot / "Game/CookedCube.dbulk"));
 	Durin::Asset::FAssetPackageInspection CookedInspection;
+	Durin::FAssetPath CookedInspectionPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		"/Game/CookedCube", CookedInspectionPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(FirstRoot / "Game/CookedCube.dasset").generic_string(), CookedInspection));
+		(FirstRoot / "Game/CookedCube.dasset").generic_string(),
+		CookedInspectionPath, CookedInspection));
 	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
 
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
@@ -708,11 +716,16 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FAssetPath AuthoredPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AuthoredPath));
+	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	RestartAssetManager(FirstRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
+		Durin::Asset::RefreshAssetRegistry(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
+		? "asset catalog refresh failed without a diagnostic"
+		: Refresh.Errors.front().Message);
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;

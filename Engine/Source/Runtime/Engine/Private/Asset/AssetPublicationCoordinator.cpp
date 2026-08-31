@@ -1,18 +1,15 @@
 #include "AssetRegistry/Scan.h"
-#include "AssetRegistry/ObjectStream.h"
 #include "AssetPublicationCoordinatorInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
 
 #include "DObject/Class.h"
 #include "Misc/FileTime.h"
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::Asset
 {
-	using Private::AssetReferenceLess;
 	using Private::FMutationPackageMetadata;
 	using Private::GetAssetReferenceStoreRegistry;
 	using Private::ValidateMutationPackageMetadata;
@@ -34,6 +31,40 @@ namespace Durin::Asset
 			return ErrorCode == std::errc::no_such_file_or_directory
 				   || ErrorCode.value() == 2
 				   || ErrorCode.value() == 3;
+		}
+
+		auto PackageReferenceLess(const FAssetPackageReferenceEdge& Left,
+			const FAssetPackageReferenceEdge& Right) -> bool
+		{
+			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
+		}
+
+		auto AppendPackageReferences(const FAssetData& Data,
+			std::vector<FAssetPackageReferenceEdge>& OutEdges,
+			FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
+		{
+			OutFingerprint = {.FileSize = Data.FileSize,
+				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
+				.ReaderVersion = Data.FormatVersion};
+			auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target)
+			{
+				OutEdges.push_back({.SourcePackage = Data.PackagePath,
+					.SourceFingerprint = OutFingerprint, .Kind = Kind,
+					.TargetPath = Target});
+			};
+			for (const FAssetPath& Dependency : Data.Dependencies)
+				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
+					|| Dependency != Data.RedirectDestination)
+					Add(EAssetReferenceKind::HardObject, Dependency);
+			for (const FAssetPath& Dependency : Data.SoftDependencies)
+				Add(EAssetReferenceKind::SoftObject, Dependency);
+			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+			if (OutEdges.size() > MaximumReferencesPerSnapshot)
+				return Error(EAssetError::CorruptFile,
+					"AssetReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 package edges.");
+			return {};
 		}
 
 		auto AssetPathResolutionError(
@@ -172,25 +203,39 @@ namespace Durin::Asset
 				}
 				Pending.push_back({Resolution.FinalPath, {}, std::format("hard dependency of {}", Source.ToString())});
 			}
-			for (const FAssetReferenceEdge& Reference : ReferenceIndex.GetEdges())
+			FAssetPackageInspection Inspection;
+			FAssetResult InspectionResult = InspectAssetPackage(
+				SourceData->PhysicalPath, Source, Inspection);
+			if (!InspectionResult) return InspectionResult;
+			std::vector<FAssetReferenceEdge> ExactReferences;
+			InspectionResult = ExtractAssetReferences(
+				Source, Inspection, ExactReferences);
+			if (!InspectionResult) return InspectionResult;
+			for (const FAssetReferenceEdge& Reference : ExactReferences)
 			{
-				if (Reference.SourcePackage != Source
-					|| Reference.Kind == EAssetReferenceKind::Redirect) continue;
-				DClass* ExpectedClass = FindClassByQualifiedName(FName(Reference.ExpectedClass));
-				if (!ExpectedClass)
-					return Error(EAssetError::UnknownClass, std::format("CookReachabilityUnknownReferenceClass: {} expects unavailable class {}.", Reference.DisplayRoute, Reference.ExpectedClass));
-				const FAssetPathResolveResult Resolution = RegistrySnapshot.ResolveAssetPath(
-					Reference.TargetPath, {.ExpectedClass = ExpectedClass}
-				);
+				if (Reference.Kind == EAssetReferenceKind::Redirect) continue;
+				DClass* ReferenceClass = nullptr;
+				if (!Reference.ExpectedClass.empty())
+				{
+					ReferenceClass = FindClassByQualifiedName(
+						FName(Reference.ExpectedClass));
+					if (!ReferenceClass)
+						return Error(EAssetError::UnknownClass, std::format(
+							"CookReachabilityUnknownReferenceClass: {} expects unavailable class {}.",
+							Reference.DisplayRoute, Reference.ExpectedClass));
+				}
+				const FAssetPathResolveResult Resolution =
+					RegistrySnapshot.ResolveAssetPath(
+						Reference.TargetPath, {.ExpectedClass = ReferenceClass});
 				if (!Resolution)
 				{
 					FAssetResult ResolutionError = AssetPathResolutionError(Resolution);
 					if (ResolutionError.Error == EAssetError::NotFound)
 						ResolutionError.Error = EAssetError::MissingDependency;
 					ResolutionError.Message = std::format(
-						"CookReachabilityUnresolvedReference: {} references {} at {}. {}",
+						"CookReachabilityUnresolvedReference: {} references {}. {}",
 						Source.ToString(), Reference.TargetPath.ToString(),
-						Reference.DisplayRoute, ResolutionError.Message
+						ResolutionError.Message
 					);
 					return ResolutionError;
 				}
@@ -201,6 +246,43 @@ namespace Durin::Asset
 		std::ranges::sort(OutPackages, [](const FAssetPath& Left, const FAssetPath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
+		return {};
+	}
+
+	auto BuildAssetPackageReferenceProjection(
+		const std::unordered_map<FAssetPath, FAssetData>& Assets,
+		std::vector<FAssetPackageReferenceEdge>& OutEdges,
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint>& OutFingerprints)
+		-> FAssetResult
+	{
+		OutEdges.clear();
+		OutFingerprints.clear();
+		std::vector<const FAssetData*> SortedAssets;
+		SortedAssets.reserve(Assets.size());
+		for (const auto& [Path, Data] : Assets)
+		{
+			(void)Path;
+			SortedAssets.push_back(&Data);
+		}
+		std::ranges::sort(SortedAssets, [](const FAssetData* Left,
+			const FAssetData* Right) {
+			return Left->PackagePath.GetView() < Right->PackagePath.GetView();
+		});
+		for (const FAssetData* Data : SortedAssets)
+		{
+			FAssetPackageFingerprint Fingerprint;
+			FAssetResult Result = AppendPackageReferences(
+				*Data, OutEdges, Fingerprint);
+			if (!Result) return Result;
+			OutFingerprints.emplace(Data->PackagePath, Fingerprint);
+		}
+		std::ranges::sort(OutEdges, PackageReferenceLess);
+		OutEdges.erase(std::unique(OutEdges.begin(), OutEdges.end(),
+			[](const FAssetPackageReferenceEdge& Left,
+				const FAssetPackageReferenceEdge& Right) {
+				return Left.SourcePackage == Right.SourcePackage
+					&& Left.TargetPath == Right.TargetPath && Left.Kind == Right.Kind;
+			}), OutEdges.end());
 		return {};
 	}
 
@@ -238,46 +320,19 @@ namespace Durin::Asset
 			const FAssetPath Path = Data.PackagePath;
 			Publication.Assets.insert_or_assign(Path, std::move(Data));
 			Publication.ReferenceFingerprints.erase(Path);
-			std::erase_if(Publication.ReferenceEdges, [&](const FAssetReferenceEdge& Edge) {
+			std::erase_if(Publication.ReferenceEdges, [&](const FAssetPackageReferenceEdge& Edge) {
 				return Edge.SourcePackage == Path;
 			});
 		}
 
-		for (const FAssetPath& Path : Paths)
-		{
-			const FAssetData& Stored = Publication.Assets.at(Path);
-			std::vector<std::byte> Bytes;
-			std::vector<FAssetReferenceEdge> SourceReferences;
-			FAssetPackageFingerprint SourceFingerprint;
-			if (!FFileHelper::LoadFileToArray(Bytes, Stored.PhysicalPath))
-				return Error(EAssetError::IoError, std::format("Could not read asset package {}.", Stored.PhysicalPath));
-			FAssetResult Result = PackageObjectStream::ExtractAssetPackageReferences(
-				Bytes, Path, SourceReferences, &SourceFingerprint
-			);
-			if (!Result)
-			{
-				Result.Message = std::format(
-					"{} ({})", Result.Message, Stored.PhysicalPath
-				);
-				return Result;
-			}
-			if (SourceReferences.size() > MaximumReferencesPerSnapshot
-				|| Publication.ReferenceEdges.size() > MaximumReferencesPerSnapshot
-														   - SourceReferences.size())
-				return Error(EAssetError::CorruptFile, "AssetReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 occurrences.");
-			SourceFingerprint.LastWriteTimeTicks = Stored.LastWriteTimeTicks;
-			for (FAssetReferenceEdge& Reference : SourceReferences)
-				Reference.SourceFingerprint = SourceFingerprint;
-			Publication.ReferenceEdges.insert(Publication.ReferenceEdges.end(), std::make_move_iterator(SourceReferences.begin()), std::make_move_iterator(SourceReferences.end()));
-			Publication.ReferenceFingerprints.insert_or_assign(
-				Path, SourceFingerprint
-			);
-		}
-		std::ranges::sort(Publication.ReferenceEdges, &AssetReferenceLess);
+		FAssetResult ProjectionResult = BuildAssetPackageReferenceProjection(
+			Publication.Assets, Publication.ReferenceEdges,
+			Publication.ReferenceFingerprints);
+		if (!ProjectionResult) return ProjectionResult;
 		Publication.ReferenceErrors.clear();
 		Publication.bReferenceIndexComplete =
 			Publication.ReferenceFingerprints.size() == Publication.Assets.size();
-		return PublishPreparedState(ExpectedRevision, {.Assets = std::move(Publication.Assets), .ReferenceEdges = std::move(Publication.ReferenceEdges), .ReferenceFingerprints = std::move(Publication.ReferenceFingerprints), .ReferenceErrors = std::move(Publication.ReferenceErrors), .ReferenceStats = Publication.ReferenceStats, .ReferenceCacheWarning = std::move(Publication.ReferenceCacheWarning), .bReferenceIndexComplete = Publication.bReferenceIndexComplete});
+		return PublishPreparedState(ExpectedRevision, {.Assets = std::move(Publication.Assets), .ReferenceEdges = std::move(Publication.ReferenceEdges), .ReferenceFingerprints = std::move(Publication.ReferenceFingerprints), .ReferenceErrors = std::move(Publication.ReferenceErrors), .bReferenceIndexComplete = Publication.bReferenceIndexComplete});
 	}
 
 	auto FAssetPublicationCoordinator::CapturePreparedState() const
@@ -289,8 +344,6 @@ namespace Durin::Asset
 			.ReferenceEdges = std::move(Publication.ReferenceEdges),
 			.ReferenceFingerprints = std::move(Publication.ReferenceFingerprints),
 			.ReferenceErrors = std::move(Publication.ReferenceErrors),
-			.ReferenceStats = Publication.ReferenceStats,
-			.ReferenceCacheWarning = std::move(Publication.ReferenceCacheWarning),
 			.bReferenceIndexComplete = Publication.bReferenceIndexComplete
 		};
 	}
@@ -299,6 +352,6 @@ namespace Durin::Asset
 	{
 		if (GetAssetCatalogRevision() != ExpectedRevision)
 			return Error(EAssetError::StaleData, std::format("Asset registry publication expected revision {} but current revision is {}.", ExpectedRevision, GetAssetCatalogRevision()));
-		return PublishAssetRegistryPublication({.ExpectedRevision = ExpectedRevision, .Assets = std::move(State.Assets), .ReferenceEdges = std::move(State.ReferenceEdges), .ReferenceFingerprints = std::move(State.ReferenceFingerprints), .ReferenceErrors = std::move(State.ReferenceErrors), .ReferenceStats = State.ReferenceStats, .ReferenceCacheWarning = std::move(State.ReferenceCacheWarning), .bReferenceIndexComplete = State.bReferenceIndexComplete});
+		return PublishAssetRegistryPublication({.ExpectedRevision = ExpectedRevision, .Assets = std::move(State.Assets), .ReferenceEdges = std::move(State.ReferenceEdges), .ReferenceFingerprints = std::move(State.ReferenceFingerprints), .ReferenceErrors = std::move(State.ReferenceErrors), .bReferenceIndexComplete = State.bReferenceIndexComplete});
 	}
 } // namespace Durin::Asset

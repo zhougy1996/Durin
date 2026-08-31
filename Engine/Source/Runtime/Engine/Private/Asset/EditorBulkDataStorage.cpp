@@ -18,8 +18,8 @@ namespace Durin::Asset
 				return Fail("Authored bulk inspection exceeded the struct depth limit.", OutError);
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
-				if (SourceFormatVersion != AssetPackageV7FormatVersion)
-					return Fail("Authored bulk inspection requires DAST v7 field metadata.", OutError);
+				if (SourceFormatVersion != AssetPackageV8FormatVersion)
+					return Fail("Authored bulk inspection requires DAST v8 field metadata.", OutError);
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = std::vector<std::byte>(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};

@@ -66,6 +66,23 @@ namespace Durin::Asset
 			Remaining.erase(Injected);
 			return true;
 		}
+
+		auto LoadBulkClosure(std::string_view PhysicalPath,
+			std::vector<std::byte>& OutBytes) -> FAssetResult
+		{
+			OutBytes.clear();
+			std::filesystem::path BulkPath(PhysicalPath);
+			BulkPath.replace_extension(".dbulk");
+			std::error_code ErrorCode;
+			if (!std::filesystem::is_regular_file(BulkPath, ErrorCode))
+			{
+				if (!ErrorCode || ErrorCode == std::errc::no_such_file_or_directory)
+					return {};
+				return Error(EAssetError::IoError,
+					"A reference rewrite bulk companion could not be inspected.");
+			}
+			return LoadRelocationBytes(BulkPath, OutBytes);
+		}
 	}
 
 	auto SetAssetRedirectorFixupFailurePointForTesting(
@@ -216,7 +233,6 @@ namespace Durin::Asset
 		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State->ExpectedAssets = Prepared.Assets;
 		State->PostAssets = Prepared.Assets;
-		State->PostEdges = Prepared.ReferenceEdges;
 		State->PostFingerprints = Prepared.ReferenceFingerprints;
 		State->PostErrors = Prepared.ReferenceErrors;
 		State->bPostIndexComplete = Prepared.bReferenceIndexComplete;
@@ -270,7 +286,29 @@ namespace Durin::Asset
 		std::map<FAssetPath, uint64, decltype([](const FAssetPath& Left,
 			const FAssetPath& Right) { return Left.GetView() < Right.GetView(); })>
 			PackageRewriteCounts;
-		for (const FAssetReferenceEdge& Edge : Prepared.ReferenceEdges)
+		std::unordered_set<FAssetPath> CandidatePackages;
+		for (const FAssetPackageReferenceEdge& Edge : Prepared.ReferenceEdges)
+			if (Closure.contains(Edge.TargetPath))
+				CandidatePackages.insert(Edge.SourcePackage);
+		for (const FAssetPath& SourcePath : CandidatePackages)
+		{
+			const FAssetData* Data = FindPrepared(SourcePath);
+			if (!Data) return Error(EAssetError::StaleData,
+				"A package referencer is no longer registered.");
+			FAssetPackageInspection Inspection;
+			FAssetResult InspectionResult = InspectAssetPackage(
+				Data->PhysicalPath, SourcePath, Inspection);
+			if (!InspectionResult) return InspectionResult;
+			std::vector<FAssetReferenceEdge> References;
+			InspectionResult = ExtractAssetReferences(
+				SourcePath, Inspection, References);
+			if (!InspectionResult) return InspectionResult;
+			State->PostEdges.insert(State->PostEdges.end(),
+				std::make_move_iterator(References.begin()),
+				std::make_move_iterator(References.end()));
+		}
+		std::ranges::sort(State->PostEdges, &Private::AssetReferenceLess);
+		for (const FAssetReferenceEdge& Edge : State->PostEdges)
 		{
 			if (!Closure.contains(Edge.TargetPath)) continue;
 			State->PackageOccurrences.push_back(Edge);
@@ -328,12 +366,18 @@ namespace Durin::Asset
 			FAssetPackageFingerprint CurrentFingerprint;
 			Result = MakePackageFingerprint(Data->PhysicalPath, PreBytes, CurrentFingerprint);
 			if (!Result) return Result;
-			if (CurrentFingerprint != Fingerprint->second)
+			if (CurrentFingerprint.FileSize != Fingerprint->second.FileSize
+				|| CurrentFingerprint.LastWriteTimeTicks
+					!= Fingerprint->second.LastWriteTimeTicks)
 				return Error(EAssetError::StaleData,
 					"A package referencer changed after reference indexing.");
 			std::vector<std::byte> PostBytes;
+			std::vector<std::byte> BulkBytes;
+			Result = LoadBulkClosure(Data->PhysicalPath, BulkBytes);
+			if (!Result) return Result;
 			Result = RewritePackageReferencesForMutation(
-				PreBytes, State->Mappings, ExpectedCount, PostBytes);
+				PreBytes, BulkBytes, SourcePath,
+				State->Mappings, ExpectedCount, PostBytes);
 			if (!Result) return Result;
 			size_t JournalEntry = 0;
 			Result = AddJournalEntry(
@@ -344,7 +388,8 @@ namespace Durin::Asset
 			State->Packages.push_back({SourcePath, JournalEntry, Loaded});
 
 			FMutationPackageMetadata PostFile;
-			Result = ReadMutationPackageMetadata(PostBytes, PostFile);
+			Result = ReadMutationPackageMetadata(
+				PostBytes, BulkBytes, SourcePath, PostFile);
 			if (!Result) return Result;
 			FAssetData& PostData = State->PostAssets.at(SourcePath);
 			PostData.AssetClassName = PostFile.AssetClassName;
@@ -352,6 +397,7 @@ namespace Durin::Asset
 			PostData.RedirectDestination = PostFile.RedirectDestination;
 			PostData.FormatVersion = PostFile.FormatVersion;
 			PostData.Dependencies = PostFile.Dependencies;
+			PostData.SoftDependencies = PostFile.SoftDependencies;
 
 			if (Loaded)
 			{
@@ -466,7 +512,11 @@ namespace Durin::Asset
 					if (CurrentBytes != PackageRewrite.PreBytes)
 						return Error(EAssetError::StaleData,
 							"An asset reference-store package changed during rewrite preparation.");
-					Result = ValidateAssetPackageBytes(PackageRewrite.PostBytes);
+					std::vector<std::byte> BulkBytes;
+					Result = LoadBulkClosure(Data->PhysicalPath, BulkBytes);
+					if (!Result) return Result;
+					Result = ValidateAssetPackageBytes(
+						PackageRewrite.PostBytes, PackageRewrite.PackagePath, BulkBytes);
 					if (!Result) return Result;
 					size_t JournalEntry = 0;
 					Result = AddJournalEntry(
@@ -480,7 +530,8 @@ namespace Durin::Asset
 
 					FMutationPackageMetadata PostFile;
 					Result = ReadMutationPackageMetadata(
-						PackageRewrite.PostBytes, PostFile);
+						PackageRewrite.PostBytes, BulkBytes,
+						PackageRewrite.PackagePath, PostFile);
 					if (!Result) return Result;
 					FAssetData& PostData = State->PostAssets.at(
 						PackageRewrite.PackagePath);
@@ -490,6 +541,7 @@ namespace Durin::Asset
 						PostFile.RedirectDestination;
 					PostData.FormatVersion = PostFile.FormatVersion;
 					PostData.Dependencies = PostFile.Dependencies;
+					PostData.SoftDependencies = PostFile.SoftDependencies;
 				}
 			}
 			State->Stores.push_back(std::move(StoreState));
@@ -905,10 +957,15 @@ namespace Durin::Asset
 			Data.LastWriteTimeTicks = FileTime::ToStableTicks(
 				Data.LastWriteTime);
 		}
+		std::vector<FAssetPackageReferenceEdge> PackageEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		Result = BuildAssetPackageReferenceProjection(
+			State.PostAssets, PackageEdges, PackageFingerprints);
+		if (!Result) return Compensate(std::move(Result));
 		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
 			.Assets = State.PostAssets,
-			.ReferenceEdges = State.PostEdges,
-			.ReferenceFingerprints = State.PostFingerprints,
+			.ReferenceEdges = std::move(PackageEdges),
+			.ReferenceFingerprints = std::move(PackageFingerprints),
 			.ReferenceErrors = State.PostErrors,
 			.bReferenceIndexComplete = State.Mode
 				== EAssetRedirectorFixupMode::RewriteAndDelete

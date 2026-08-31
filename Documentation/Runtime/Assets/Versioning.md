@@ -1,117 +1,124 @@
 # Versioning
 
-Summary: Define serialized type, object, package, and compatibility version contracts.
+Summary: Define engine release, Archive, authored package, custom-version, and offline compatibility contracts.
 
-Modules: Core, CoreDObject, Engine
+Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
-Durin's engine release version is defined once in `Engine/Build/Build.version`. The current development version is `0.1.0-dev`. CMake validates that file, exposes the numeric core as the workspace project version, and generates the header consumed by Core's public version API.
-
-Runtime code should use `GetEngineVersion()` for numeric components and `GetEngineVersionString()` for display. Do not duplicate the engine version in module sources, window titles, API integration metadata, or packaging scripts.
+Durin's engine release version is defined once in `Engine/Build/Build.version`.
+CMake validates that file, exposes the numeric core as the workspace project
+version, and generates the header consumed by Core's public version API.
+Runtime code uses `GetEngineVersion()` and `GetEngineVersionString()` rather
+than duplicating the value in module sources, UI, integrations, or scripts.
 
 ## Independent Version Domains
 
-The engine release version identifies a Durin release for users, logs, diagnostics, source tags, and distributable binaries. It does not define serialization compatibility. Formats that evolve independently keep their own versions, including:
+The engine release version identifies a Durin release for users, logs, source
+tags, and distributable binaries. It does not define serialization
+compatibility. Independently versioned domains include `.dasset` packages,
+transient object graphs, DurinHeaderTool schemas, shader/cache records, editor
+settings, project descriptors, Cook manifests, and asset-family payloads.
 
-- `.dasset` package files
-- transient object graphs
-- DurinHeaderTool schemas and tool output
-- shader metadata, cache records, and variant keys
-- editor layout and user-setting schemas
-- project descriptor schemas
-
-Changing the engine release version alone must not rewrite assets or invalidate caches. A format version changes only when that format's reader or writer contract changes. A saved-by engine version may be added later for diagnostics, but readers must make compatibility decisions from the relevant format and custom schema versions.
+Changing the engine release alone must not rewrite assets or invalidate caches.
+A format version changes only when that format's byte/semantic contract changes.
+Readers decide compatibility from the selected format plus package-local custom
+versions, never from the saved-by engine release.
 
 ## Archive Version Context
 
-`FArchiveVersionContext` carries named format versions separately from optional
+`FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored-package Archives report DAST v7. Ordinary and bundle saves report and
-emit v7. Property snapshots are
-process-local and unversioned. Struct
-`PostDeserialize` receives the Archive purpose and source format version instead
-of deriving compatibility from the engine release number. During authored
-loading it also receives the complete source custom-version context, allowing a
-detached reflected struct to perform the same bounded conversion as an
-object's pre-publication `PostLoad`.
+authored and cooked package Archives report DAST v8. Property snapshots are
+process-local and unversioned.
 
-The DAST v7 logical object stream owns the package-local custom-version table, canonical GUID ordering,
-discovery freeze, reader bounds, unknown-version rejection, and exact retained
-closure/payload semantics.
+CoreDObject linker tables own the package-local custom-version list, canonical
+GUID order, discovery freeze, known-codec flags, emitted value, optional maximum
+supported value, and whether a version is required for interpretation. The v8
+writer freezes these facts with all other linker tables. The reader rejects
+duplicates, malformed flags, unsupported required values, or late-discovery
+drift before linker or object publication.
 
-Reflected schema evolution uses these existing GUID-keyed records directly.
-An explicitly annotated `_DEPRECATED` route owns one stable domain GUID, an
-exclusive `DeprecatedBefore` bound, and its domain's `LatestVersion`. Current
-saves discover and emit `LatestVersion` automatically. Missing tags resolve to
-the domain's `BeforeCustomVersionWasAdded` value (`-1` by convention); they do
-not resolve to the current version. A source value above the runtime domain's
-`LatestVersion` fails before object publication. Engine release version changes
-are neither required nor consulted.
+Struct `PostDeserialize` receives Archive purpose, source DAST version, and the
+complete custom-version context. An object's pre-publication `PostLoad` sees the
+same already validated package state. Neither derives compatibility from the
+engine release.
 
-Version registration is part of serializer discovery/emission parity. A format
-or custom version first observed during emission is a late-discovery failure;
-unsupported versions are rejected before destination mutation or output
-publication.
+Reflected `_DEPRECATED` routes use one stable domain GUID, an exclusive
+`DeprecatedBefore` bound, and a domain `LatestVersion`. Current saves discover
+and emit `LatestVersion`. Missing tags resolve to the domain's
+`BeforeCustomVersionWasAdded` value (`-1` by convention), not the current
+version. A source value above the runtime's supported maximum fails before
+object publication. Version discovery and emission must agree exactly.
 
-## Authored Package Version Policy
+## Authored Package Policy
 
-Supported readers and the ordinary writer are separate policies backed by one
-private, statically composed codec table. Each codec has an immutable string
-identity, permanent nonzero `FormatId`, wire version, and complete reader,
-writer, and mutation capability set. Shared code validates the `DURF` preamble
-through Core's bounded two-phase envelope validation and Engine's explicit
-immutable descriptor registry. Once that registry has selected DAST, the
-package codec table resolves only its format version. It fails closed before
-codec parsing when no reader exists. Header
-reads, validation, inspection, compatibility probes,
-reference projection, live loading, serialization, relocation, reference
-rewrite, redirector creation, and cook canonicalization do not branch on a
-version enum. The repository registers only the v7 reader and selects v7 for
-ordinary writing and mutation. Read-only entrypoints never select a writer or
-dirty authored content. Every other DAST version and every legacy prefix are
-unsupported and fail before object-stream parsing or publication.
+DAST has one permanent nonzero format GUID and current production wire version
+8. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v8
+reader/writer owns all package tables and tagged-value semantics. Engine's
+immutable ordinary codec policy selects v8 only for header reads, validation,
+inspection, schema probes, reference projection, live load, serialization,
+relocation, fix-up, redirectors, Cook, and canonical resave.
 
-DURF selects DAST object packages by permanent GUID. DAST v7 ordinary writers place
-authored and cooked BulkData in package-owned raw `.dbulk` segments; raw
-segments are not DURF formats. Their versions describe storage grammar only.
-The reflected asset slot selects and validates its payload schema. DDC/Cook
-keys advance with family schema or producer changes so old raw values cannot
-enter a new decoder.
+Every production entry requires exact package identity and, when present, the
+complete main/raw-bulk closure. Unknown format identities, non-v8 DAST versions,
+required features, legacy prefixes, noncanonical bytes, or invalid closure
+facts fail before object construction, mutation, catalog publication, or Dirty
+state changes. Read-only entry points never select a writer.
 
-A frozen writer constructs its Archive context from its own codec identity.
-The v7 writer therefore always reports DAST v7 to serializers and emits v7. The
-reader-policy cache identity is an explicit generation, not a wire-version
-alias; changing the supported-reader contract requires changing that identity.
+Package format version is independent of reflected field evolution. Tagged
+field addition/removal and compatible default changes normally use schemas and
+custom versions without changing DAST version. A wire-layout or canonical-value
+change requires a new DAST version and a separately planned corpus transition.
+The Registry cache fingerprints exact source bytes/format and is invalidated by
+any relevant main/bulk change.
 
-Registry and reference-cache fingerprints include the source DAST version.
-Changing package bytes or versions invalidates the corresponding projection;
-full validation bypasses cheap timestamp/size reuse. Ordinary load decodes the
-selected current-format package once and validates its serialized classes and
-fields against one captured reflection catalog before constructing any object
-skeleton. Unknown classes, fields, or signatures fail the complete load unless
-an exact declaring-type/name/signature/custom-version `_DEPRECATED` route
-claims the field. Canonical byte
-comparison belongs to the construct-free audit path, not ordinary load.
+Raw `.dbulk` is not a DURF format. DAST v8 Registry and Bulk Directory own its
+extent, whole-segment digest, field ranges, alignments, and per-value digests.
+Asset-family payload schemas and DDC/Cook keys version independently.
 
-## Early-Development Asset Compatibility
+## Offline V7-To-V8 Boundary
 
-Until Durin makes an explicit external compatibility commitment, the repository
-keeps one authored `.dasset` format and schema baseline. A format change first
-inventories real source content and gets a separately scoped child plan. If
-conversion is required, that plan adds the smallest exact, lossless offline
-converter needed for the proven source format, rewrites the complete tracked
-corpus explicitly, verifies it with `DevTool asset check --baseline`, and removes the
-converter and obsolete reader in the same bounded effort. Engine does not
-retain a general migration graph, structure-upgrader registry, partial
-compatibility objects, or data-loss save permission between transitions.
-Audit, registry discovery, ordinary loading, and editor startup never rewrite
-authored packages.
+The maintained repository baseline is canonical v8. V7 is not a supported
+production reader, writer, mutation route, or runtime fallback. It is accepted
+only as explicit detached input to the bounded construct-free converter in
+AssetRegistry, orchestrated by `AssetMaintenance/PackageMigration.h`.
 
-External-project compatibility windows, release deprecation policy, and
-downloadable migration bundles require a separate release-level decision; the
-repository baseline alone does not establish such a promise.
+The converter validates the complete v7 main/raw-bulk closure, rejects
+ambiguous, retained-unknown, unsupported, corrupt, or incomplete input, adapts
+supported facts to format-neutral linker tables, and emits only through the v8
+writer. Plan/apply records bind exact source and target fingerprints; apply
+rechecks stale inputs, reconverts, validates byte-identical v8 re-emission, and
+rolls back publication failure. Ordinary discovery, load, editor startup,
+audit, Cook, and resave never invoke conversion implicitly.
+
+The converter and its focused fixtures remain only to service an explicit
+offline migration command. This is a bounded compatibility capability, not a
+general migration graph or a promise to load arbitrary historical projects.
+
+## Early-Development Compatibility
+
+Until Durin makes an explicit external compatibility commitment, the
+repository keeps one authored `.dasset` baseline. A future format change first
+inventories real source content and receives a scoped plan. If conversion is
+required, that plan adds only the exact offline converter justified by the
+source corpus, rewrites the tracked corpus explicitly, verifies the restart and
+baseline boundary, and removes obsolete production readers in the same bounded
+effort. Runtime never retains a data-loss save permission or partial-compatibility
+object graph.
+
+External-project support windows, release deprecation policy, and downloadable
+migration bundles require a separate release-level decision.
 
 ## Release Convention
 
-Durin follows Semantic Versioning for the engine release identifier. While the public API and long-lived content compatibility policy are still developing, releases remain under major version zero. Development builds use a prerelease channel such as `0.1.0-dev`; release tags use the corresponding stable form such as `v0.1.0` when that release is ready.
+Durin follows Semantic Versioning for the engine release identifier. While API
+and long-lived content policy remain under development, releases stay below
+major version one. Development builds use a prerelease channel such as
+`0.1.0-dev`; release tags use the corresponding stable form when ready.
+
+## Related Documentation
+
+- [Asset Packages](AssetPackages.md)
+- [Serialization](../Core/Serialization.md)
+- [Package Bulk Data](BulkData.md)

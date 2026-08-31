@@ -295,8 +295,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
 		Durin::Asset::FAssetPackageInspection Inspection;
+		Durin::FAssetPath CookedPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+			"/Game/CookedCollisionMesh", CookedPath));
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-			(CookRoot / "Game/CookedCollisionMesh.dasset").generic_string(), Inspection));
+			(CookRoot / "Game/CookedCollisionMesh.dasset").generic_string(),
+			CookedPath, Inspection));
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
 		EXPECT_NE(Inspection.FindField("CollisionData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
@@ -366,8 +370,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedMesh.dbulk"));
 		Durin::Asset::FAssetPackageInspection Inspection;
+		Durin::FAssetPath CookedPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+			"/Game/CookedMesh", CookedPath));
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-			(CookRoot / "Game/CookedMesh.dasset").generic_string(), Inspection));
+			(CookRoot / "Game/CookedMesh.dasset").generic_string(),
+			CookedPath, Inspection));
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");

@@ -3,6 +3,7 @@
 #include "AssetRegistryAPI.h"
 #include "AssetRegistry/Result.h"
 #include "DObject/AssetPath.h"
+#include "Hash/XxHash.h"
 
 namespace Durin
 {
@@ -27,6 +28,11 @@ namespace Durin::Asset
 		FAssetPath RedirectDestination;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
+		std::vector<FAssetPath> SoftDependencies;
+		std::vector<std::string> SearchableNames;
+		uint64 ObjectCount = 0;
+		uint64 BulkSegmentExtent = 0;
+		FXxHash128 BulkSegmentDigest;
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 		int64 LastWriteTimeTicks = 0;
@@ -127,15 +133,6 @@ namespace Durin::Asset
 		double DurationMilliseconds = 0.0;
 	};
 
-	struct FAssetReferenceIndexStats
-	{
-		uint64 ReusedSources = 0;
-		uint64 ExtractedSources = 0;
-		uint64 FailedSources = 0;
-		uint64 PayloadReadAttempts = 0;
-		uint64 PayloadBytesRead = 0;
-	};
-
 	// Reports completeness and publication for one atomic registry refresh.
 	struct FAssetCatalogRefreshResult
 	{
@@ -145,14 +142,11 @@ namespace Durin::Asset
 		bool bPublished = false;
 		bool bRetainedPriorRevision = false;
 		bool bCatalogCacheDirty = false;
-		bool bReferenceCacheDirty = false;
 		uint64 PriorRevision = 0;
 		uint64 ResultingRevision = 0;
 		FAssetRegistryScanStats CatalogStats;
-		FAssetReferenceIndexStats ReferenceStats;
 		std::vector<FAssetResult> Errors;
 		std::string CatalogCacheWarning;
-		std::string ReferenceCacheWarning;
 
 		auto Succeeded() const -> bool
 		{

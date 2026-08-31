@@ -1,6 +1,7 @@
 #include "DObject/DurinPropertyTypes.h"
 
 #include "DObject/Class.h"
+#include "DObject/CanonicalMapKey.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
@@ -1733,154 +1734,95 @@ namespace Durin
 
 	namespace
 	{
-		template<std::unsigned_integral T>
-		auto AppendBigEndian(std::vector<std::byte>& Token, T Value) -> void
-		{
-			for (size_t Index = sizeof(T); Index > 0; --Index)
-				Token.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
-		}
-
-		template<std::integral T>
-		auto AppendSortableInteger(std::vector<std::byte>& Token, const void* Value) -> void
-		{
-			using U = std::make_unsigned_t<T>;
-			U Bits = 0;
-			std::memcpy(&Bits, Value, sizeof(Bits));
-			if constexpr (std::is_signed_v<T>) Bits ^= U(1) << (sizeof(U) * 8 - 1);
-			AppendBigEndian(Token, Bits);
-		}
-
-		template<std::floating_point T>
-		auto AppendSortableFloat(std::vector<std::byte>& Token, const void* Value) -> void
-		{
-			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
-			U Bits = 0;
-			std::memcpy(&Bits, Value, sizeof(Bits));
-			constexpr U Sign = U(1) << (sizeof(U) * 8 - 1);
-			if ((Bits & ~Sign) == 0) Bits = 0;
-			Bits = (Bits & Sign) ? ~Bits : (Bits ^ Sign);
-			AppendBigEndian(Token, Bits);
-		}
-
 		auto FailCanonicalToken(std::string_view Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = Message;
 			return false;
 		}
-	} // namespace
 
-	auto BuildCanonicalMapKeyToken(
-		const FProperty* Property,
-		const void* Container,
-		uint32 ArrayIndex,
-		std::vector<std::byte>& OutToken,
-		std::string* OutError
-	) -> bool
-	{
-		if (OutError) OutError->clear();
-		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
-			return FailCanonicalToken("CanonicalMapKeyInvalidInput: property, value, or array index is invalid.", OutError);
-
-		OutToken.push_back(static_cast<std::byte>(Property->GetKind()));
-		const void* Value = Property->GetValuePtr(Container, ArrayIndex);
-		switch (Property->GetKind())
+		auto CanonicalKind(DurinCodeGen::EPropertyGenFlags Kind)
+			-> std::optional<ObjectPackage::ECanonicalMapKeyKind>
 		{
-		case DurinCodeGen::EPropertyGenFlags::Bool: OutToken.push_back(
-			*static_cast<const bool*>(Value) ? std::byte{1} : std::byte{0}); return true;
-		case DurinCodeGen::EPropertyGenFlags::Int8: AppendSortableInteger<int8>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Int16: AppendSortableInteger<int16>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Int32: AppendSortableInteger<int32>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Int64: AppendSortableInteger<int64>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::UInt8: AppendSortableInteger<uint8>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::UInt16: AppendSortableInteger<uint16>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::UInt32: AppendSortableInteger<uint32>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::UInt64: AppendSortableInteger<uint64>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Float: AppendSortableFloat<float>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Double: AppendSortableFloat<double>(OutToken, Value); return true;
-		case DurinCodeGen::EPropertyGenFlags::Enum:
+			using EPropertyKind = DurinCodeGen::EPropertyGenFlags;
+			using ETokenKind = ObjectPackage::ECanonicalMapKeyKind;
+			switch (Kind)
+			{
+			case EPropertyKind::Bool: return ETokenKind::Bool;
+			case EPropertyKind::Int8: return ETokenKind::I8;
+			case EPropertyKind::Int16: return ETokenKind::I16;
+			case EPropertyKind::Int32: return ETokenKind::I32;
+			case EPropertyKind::Int64: return ETokenKind::I64;
+			case EPropertyKind::UInt8: return ETokenKind::U8;
+			case EPropertyKind::UInt16: return ETokenKind::U16;
+			case EPropertyKind::UInt32: return ETokenKind::U32;
+			case EPropertyKind::UInt64: return ETokenKind::U64;
+			case EPropertyKind::Float: return ETokenKind::F32;
+			case EPropertyKind::Double: return ETokenKind::F64;
+			case EPropertyKind::String: return ETokenKind::String;
+			case EPropertyKind::Enum: return ETokenKind::Enum;
+			case EPropertyKind::Struct: return ETokenKind::Struct;
+			case EPropertyKind::Name: return ETokenKind::Name;
+			case EPropertyKind::Guid: return ETokenKind::Guid;
+			case EPropertyKind::Byte: return ETokenKind::Byte;
+			default: return std::nullopt;
+			}
+		}
+
+		auto AppendCanonicalProperty(const FProperty* Property, const void* Container,
+			uint32 ArrayIndex, ObjectPackage::FCanonicalMapKeyWriter& Writer,
+			std::string* OutError) -> bool
+		{
+			using EWidth = ObjectPackage::ECanonicalIntegerWidth;
+			if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+				return FailCanonicalToken("CanonicalMapKeyInvalidInput: property, value, or array index is invalid.", OutError);
+			const auto Tag = CanonicalKind(Property->GetKind());
+			if (!Tag)
+				return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+			Writer.WriteType(*Tag);
+			const void* Value = Property->GetValuePtr(Container, ArrayIndex);
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Bool: Writer.WriteBool(*static_cast<const bool*>(Value)); return true;
+			case DurinCodeGen::EPropertyGenFlags::Int8: Writer.WriteSigned(*static_cast<const int8*>(Value), EWidth::One); return true;
+			case DurinCodeGen::EPropertyGenFlags::Int16: Writer.WriteSigned(*static_cast<const int16*>(Value), EWidth::Two); return true;
+			case DurinCodeGen::EPropertyGenFlags::Int32: Writer.WriteSigned(*static_cast<const int32*>(Value), EWidth::Four); return true;
+			case DurinCodeGen::EPropertyGenFlags::Int64: Writer.WriteSigned(*static_cast<const int64*>(Value), EWidth::Eight); return true;
+			case DurinCodeGen::EPropertyGenFlags::UInt8: Writer.WriteUnsigned(*static_cast<const uint8*>(Value), EWidth::One); return true;
+			case DurinCodeGen::EPropertyGenFlags::UInt16: Writer.WriteUnsigned(*static_cast<const uint16*>(Value), EWidth::Two); return true;
+			case DurinCodeGen::EPropertyGenFlags::UInt32: Writer.WriteUnsigned(*static_cast<const uint32*>(Value), EWidth::Four); return true;
+			case DurinCodeGen::EPropertyGenFlags::UInt64: Writer.WriteUnsigned(*static_cast<const uint64*>(Value), EWidth::Eight); return true;
+			case DurinCodeGen::EPropertyGenFlags::Float: Writer.WriteFloat32Bits(std::bit_cast<uint32>(*static_cast<const float*>(Value))); return true;
+			case DurinCodeGen::EPropertyGenFlags::Double: Writer.WriteFloat64Bits(std::bit_cast<uint64>(*static_cast<const double*>(Value))); return true;
+			case DurinCodeGen::EPropertyGenFlags::String:
+				Writer.WriteString(*static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex)); return true;
+			case DurinCodeGen::EPropertyGenFlags::Name:
+			{
+				const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
+				Writer.WriteName(Name.GetComparisonNameEntry()->GetPlainNameString(), Name.GetNumber());
+				return true;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+				Writer.WriteGuid(*static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex)); return true;
+			case DurinCodeGen::EPropertyGenFlags::Byte:
+				Writer.WriteUnsigned(std::to_integer<uint8>(*static_cast<const std::byte*>(Value)), EWidth::One); return true;
+			case DurinCodeGen::EPropertyGenFlags::Enum:
 			{
 				const auto* Enum = static_cast<const FEnumProperty*>(Property);
 				const uint64 Raw = Enum->GetValueAsUInt64(Container, ArrayIndex);
 				switch (Enum->GetUnderlyingType())
 				{
-				case DurinCodeGen::EEnumUnderlyingType::Int8:
-					{
-						const int8 V = static_cast<int8>(Raw);
-						AppendSortableInteger<int8>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::Int16:
-					{
-						const int16 V = static_cast<int16>(Raw);
-						AppendSortableInteger<int16>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::Int32:
-					{
-						const int32 V = static_cast<int32>(Raw);
-						AppendSortableInteger<int32>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::Int64:
-					{
-						const int64 V = static_cast<int64>(Raw);
-						AppendSortableInteger<int64>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::UInt8:
-					{
-						const uint8 V = static_cast<uint8>(Raw);
-						AppendSortableInteger<uint8>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::UInt16:
-					{
-						const uint16 V = static_cast<uint16>(Raw);
-						AppendSortableInteger<uint16>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::UInt32:
-					{
-						const uint32 V = static_cast<uint32>(Raw);
-						AppendSortableInteger<uint32>(OutToken, &V);
-						return true;
-					}
-				case DurinCodeGen::EEnumUnderlyingType::UInt64: AppendSortableInteger<uint64>(OutToken, &Raw); return true;
+				case DurinCodeGen::EEnumUnderlyingType::Int8: Writer.WriteSigned(static_cast<int8>(Raw), EWidth::One); return true;
+				case DurinCodeGen::EEnumUnderlyingType::Int16: Writer.WriteSigned(static_cast<int16>(Raw), EWidth::Two); return true;
+				case DurinCodeGen::EEnumUnderlyingType::Int32: Writer.WriteSigned(static_cast<int32>(Raw), EWidth::Four); return true;
+				case DurinCodeGen::EEnumUnderlyingType::Int64: Writer.WriteSigned(std::bit_cast<int64>(Raw), EWidth::Eight); return true;
+				case DurinCodeGen::EEnumUnderlyingType::UInt8: Writer.WriteUnsigned(static_cast<uint8>(Raw), EWidth::One); return true;
+				case DurinCodeGen::EEnumUnderlyingType::UInt16: Writer.WriteUnsigned(static_cast<uint16>(Raw), EWidth::Two); return true;
+				case DurinCodeGen::EEnumUnderlyingType::UInt32: Writer.WriteUnsigned(static_cast<uint32>(Raw), EWidth::Four); return true;
+				case DurinCodeGen::EEnumUnderlyingType::UInt64: Writer.WriteUnsigned(Raw, EWidth::Eight); return true;
 				default: return FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
 				}
 			}
-		case DurinCodeGen::EPropertyGenFlags::String:
-			{
-				const auto& Text = *static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex);
-				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-				const auto Bytes = std::as_bytes(std::span(Text));
-				OutToken.insert(OutToken.end(), Bytes.begin(), Bytes.end());
-				return true;
-			}
-		case DurinCodeGen::EPropertyGenFlags::Name:
-			{
-				const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
-				const std::string Text = Name.GetComparisonNameEntry()->GetPlainNameString();
-				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-				const auto Bytes = std::as_bytes(std::span(Text));
-				OutToken.insert(OutToken.end(), Bytes.begin(), Bytes.end());
-				AppendBigEndian(OutToken, Name.GetNumber());
-				return true;
-			}
-		case DurinCodeGen::EPropertyGenFlags::Guid:
-			{
-				const FGuid& Guid = *static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
-				AppendBigEndian(OutToken, Guid.A);
-				AppendBigEndian(OutToken, Guid.B);
-				AppendBigEndian(OutToken, Guid.C);
-				AppendBigEndian(OutToken, Guid.D);
-				return true;
-			}
-		case DurinCodeGen::EPropertyGenFlags::Byte:
-			OutToken.push_back(
-				*static_cast<const std::byte*>(Property->GetValuePtr(Container, ArrayIndex)));
-			return true;
-		case DurinCodeGen::EPropertyGenFlags::Struct:
+			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
@@ -1893,17 +1835,30 @@ namespace Durin
 					if (!bSuccess || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && bSuccess; ++FieldIndex)
 					{
-						AppendBigEndian(OutToken, FieldOrdinal);
-						AppendBigEndian(OutToken, FieldIndex);
-						bSuccess = BuildCanonicalMapKeyToken(Field, Value, FieldIndex, OutToken, OutError);
+						Writer.WriteStructField(FieldOrdinal, FieldIndex);
+						bSuccess = AppendCanonicalProperty(Field, Value, FieldIndex, Writer, OutError);
 					}
-				},
-										false);
+				}, false);
 				return bSuccess;
 			}
-		default:
-			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+			default: return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+			}
 		}
+	} // namespace
+
+	auto BuildCanonicalMapKeyToken(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex,
+		std::vector<std::byte>& OutToken,
+		std::string* OutError
+	) -> bool
+	{
+		if (OutError) OutError->clear();
+		ObjectPackage::FCanonicalMapKeyWriter Writer;
+		if (!AppendCanonicalProperty(Property, Container, ArrayIndex, Writer, OutError)) return false;
+		OutToken = Writer.TakeBytes();
+		return true;
 	}
 
 	auto ValidateCanonicalMapKeyProperty(const FProperty* Property, std::string* OutError) -> bool

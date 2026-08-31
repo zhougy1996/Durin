@@ -4,13 +4,19 @@
 
 namespace Durin
 {
-	// Stores a validated canonical asset path rooted in a registered virtual mount.
+	// Stores a validated canonical asset path. Ordinary creation requires a
+	// registered virtual mount; Cook may stage the fixed /Game namespace early.
 	class FAssetPath
 	{
 	public:
 		FAssetPath() = default;
 
 		COREDOBJECT_API static auto TryCreate(std::string_view InPath, FAssetPath& OutPath, std::string* OutError = nullptr) -> bool;
+		// Cook output is staged before its fixed /Game mount exists. This factory
+		// admits only that deferred project-content namespace.
+		COREDOBJECT_API static auto TryCreateProjectContent(
+			std::string_view InPath, FAssetPath& OutPath,
+			std::string* OutError = nullptr) -> bool;
 		COREDOBJECT_API static auto IsValid(std::string_view InPath, std::string* OutError = nullptr) -> bool;
 
 		auto IsValid() const -> bool { return !Path.empty(); }

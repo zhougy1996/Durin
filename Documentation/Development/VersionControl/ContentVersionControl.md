@@ -1,6 +1,6 @@
 # Content Version Control
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 Durin keeps authored content reproducible alongside the source revision that consumes it. Do not ignore an entire `Content` directory. Store Durin packages and small metadata in Git, large source assets in Git LFS, and leave regenerable output out of version control.
 
@@ -161,7 +161,7 @@ When a new large asset extension is introduced, add an explicit LFS rule to `.gi
 
 Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
-self-contained. Ordinary DAST v7 packages keep large authored fields in a raw
+self-contained. Ordinary DAST v8 packages keep large authored fields in a raw
 `.dbulk`; `.dasset` remains ordinary Git and the segment remains LFS. A submit
 must include the package and every newly referenced stable companion. Hidden
 `.dbulk.durin-backup` and atomic temporary files are
@@ -169,10 +169,10 @@ transaction state and must never be submitted. Revisit
 `.dasset` LFS only if a separately qualified route begins embedding large
 render data.
 
-The package version and Payload Directory, not a suffix scan, select the
+The v8 Registry and Bulk Directory, not a suffix scan, select and bind the
 canonical closure. Review migration or resave reports and submit the `.dasset`
 and its LFS-backed `.dbulk` together whenever either changes. Never submit only
-the package or only the companion side.
+one side of a closure that still references the other.
 
 ## Existing Repository Files
 

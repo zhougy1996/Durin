@@ -182,15 +182,15 @@ namespace Durin::Asset
 				EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
 			};
 			std::vector<FReferenceFact> Facts;
-			for (const FAssetReferenceEdge& Edge : Registry.References.GetEdges())
+			for (const FAssetPackageReferenceEdge& Edge : Registry.References.GetEdges())
 			{
 				if (Edge.SourcePackage != Data.PackagePath
 					|| Edge.Kind == EAssetReferenceKind::Redirect) continue;
 				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
 					Edge.TargetPath
 				);
-				if (!Resolution) return Fail(std::format("CookFingerprintReferenceResolutionFailed: {} at {}", Edge.TargetPath.ToString(), Edge.DisplayRoute), &OutError);
-				Facts.push_back({Resolution.FinalPath, Edge.ExpectedClass, Edge.DisplayRoute, Edge.Kind});
+				if (!Resolution) return Fail(std::format("CookFingerprintReferenceResolutionFailed: {}", Edge.TargetPath.ToString()), &OutError);
+				Facts.push_back({Resolution.FinalPath, {}, "package dependency", Edge.Kind});
 			}
 			for (const FAssetPath& Dependency : Data.Dependencies)
 			{
@@ -273,21 +273,27 @@ namespace Durin::Asset
 						)
 						|| (Index && !(Plans[Index - 1].VirtualPath < Plan.VirtualPath)))
 						return Fail(OutError.empty() ? "CookOutputStoreInvalidPlan: save plans are invalid, duplicated, or unsorted." : OutError, &OutError);
-					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
-						Plan.PackageBytes
-					);
-					if (!PackageValidation)
-						return Fail(std::format("CookOutputStoreInvalidPackage: {}: {}", Plan.VirtualPath, PackageValidation.Message), &OutError);
-					if (Plan.SegmentFileSize == 0) continue;
 					if (Plan.bOpaqueRawSegment)
 					{
 						if (Plan.BulkSummary.Extent != Plan.SegmentFileSize
 							|| Plan.BulkSummary.Digest != Plan.SegmentDigest)
 							return Fail("CookOutputStoreInvalidOpaqueSegment", &OutError);
+						continue;
 					}
-					else if (Plan.bRawBulkSegment && !Plan.bReuseExistingOutput
-							 && !ValidatePackageBulkDataSegment(Plan.BulkSummary, Plan.BulkEntries, Plan.BulkBytes, &OutError))
-						return false;
+					FAssetPath VirtualPath;
+					if (!FAssetPath::TryCreate(Plan.VirtualPath, VirtualPath)
+						&& !FAssetPath::TryCreateProjectContent(
+							Plan.VirtualPath, VirtualPath))
+						return Fail("CookOutputStoreInvalidPackageIdentity", &OutError);
+					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
+						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
+					if (!PackageValidation)
+						return Fail(std::format("CookOutputStoreInvalidPackage: {}: {}", Plan.VirtualPath, PackageValidation.Message), &OutError);
+					if (Plan.SegmentFileSize == 0) continue;
+					if (Plan.bRawBulkSegment
+						&& (Plan.BulkSummary.Extent != Plan.SegmentFileSize
+							|| Plan.BulkSummary.Digest != Plan.SegmentDigest))
+						return Fail("CookOutputStoreInvalidRawBulkClosure", &OutError);
 				}
 				for (size_t Index = 0; Index < AuxiliaryOutputs.size(); ++Index)
 				{

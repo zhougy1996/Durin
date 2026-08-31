@@ -4,7 +4,7 @@ Summary: Define physical-path validation, byte I/O, and atomic file-publication 
 
 Modules: Core
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
@@ -73,14 +73,16 @@ Publication has these invariants:
 
 This API publishes one file. Multi-file transactions, asset move/delete
 rollback, and cook ordering retain their owning subsystem's coordination rules.
-DURF/DAST publication uses the same primitive for the complete package;
-sections and their front directory are never updated in place. For DAST v7
-authored external bulk, Engine stages and validates the headerless raw `.dbulk`,
-preserves the prior stable segment, publishes the segment before the package,
-and publishes catalog state last. Failure restores the prior complete pair;
-the backup is removed only after the new extent/digest closure verifies. Cooked DAST v7 publication
-uses the same segment-before-package rule and publishes its CMNF manifest last.
-Backups and hidden atomic temporaries are not submitted content.
+DURF/DAST v8 publication uses the same primitive for each complete file;
+sections and their front directory are never updated in place. A package
+transaction first validates detached main/bulk output, stages the optional
+headerless raw `.dbulk`, preserves the prior stable closure, publishes the
+segment before the referencing `.dasset`, and publishes catalog state last.
+Failure restores the prior complete closure or removes a first uncommitted
+closure. The backup is removed only after the new Registry extent/digest and
+Bulk Directory ranges verify. Cook uses the same segment-before-package rule,
+then publishes incremental state and its CMNF manifest last. Backups and hidden
+atomic temporaries are recovery state, not submitted content.
 
 ## Diagnostics
 

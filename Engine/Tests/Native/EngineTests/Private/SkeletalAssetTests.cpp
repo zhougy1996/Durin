@@ -324,6 +324,9 @@ namespace
 		Durin::Testing::RemoveTestWorkDirectory(Root);
 		Durin::Testing::RegisterMountPointForTests(
 			"/SkeletalAssetTests/", Root.generic_string() + "/");
+		requiref(Durin::Asset::RefreshAssetRegistry(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation),
+			"Skeletal test catalog refresh must succeed.");
 		return Root;
 	}
 
@@ -1361,10 +1364,18 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	EXPECT_FALSE(std::filesystem::exists(FirstCookRoot / "Game/Clip.dbulk"));
 	Durin::Asset::FAssetPackageInspection MeshInspection;
 	Durin::Asset::FAssetPackageInspection ClipInspection;
+	Durin::FAssetPath CookedMeshPath;
+	Durin::FAssetPath CookedClipPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		"/Game/Mesh", CookedMeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		"/Game/Clip", CookedClipPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(FirstCookRoot / "Game/Mesh.dasset").generic_string(), MeshInspection));
+		(FirstCookRoot / "Game/Mesh.dasset").generic_string(),
+		CookedMeshPath, MeshInspection));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		(FirstCookRoot / "Game/Clip.dasset").generic_string(), ClipInspection));
+		(FirstCookRoot / "Game/Clip.dasset").generic_string(),
+		CookedClipPath, ClipInspection));
 	EXPECT_NE(MeshInspection.FindField("PlatformData"), nullptr);
 	EXPECT_NE(ClipInspection.FindField("PlatformData"), nullptr);
 
@@ -1446,8 +1457,11 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	RestartAssetManager(FirstCookRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
-	EXPECT_FALSE(Durin::Asset::RefreshAssetRegistry(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::DSkeletalMesh* CorruptMesh = nullptr;
+	EXPECT_FALSE(Durin::Asset::LoadAsset(MeshPath, CorruptMesh));
+	EXPECT_EQ(CorruptMesh, nullptr);
 
 	RestartAssetManager();
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});

@@ -1,4 +1,4 @@
-#include "AssetRegistry/ObjectStream.h"
+#include "AssetObjectStreamReaderInternal.h"
 
 #include "DObject/Class.h"
 #include "Serialization/BinaryFormat.h"
@@ -793,117 +793,12 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			return K::None;
 		}
-		template<std::unsigned_integral T>
-		auto AppendBigEndian(std::vector<std::byte>& Token, T Value) -> void
-		{
-			for (size_t Index = sizeof(T); Index > 0; --Index)
-				Token.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
-		}
-
-		template<std::integral T>
-		auto AppendSortable(std::vector<std::byte>& Token, T Value) -> void
-		{
-			using U = std::make_unsigned_t<T>;
-			U Bits = std::bit_cast<U>(Value);
-			if constexpr (std::is_signed_v<T>) Bits ^= U(1) << (sizeof(U) * 8 - 1);
-			AppendBigEndian(Token, Bits);
-		}
-
-		template<std::floating_point T>
-		auto AppendSortableFloat(std::vector<std::byte>& Token, T Value) -> void
-		{
-			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
-			U Bits = std::bit_cast<U>(Value); constexpr U Sign = U(1) << (sizeof(U) * 8 - 1);
-			if ((Bits & ~Sign) == 0) Bits = 0;
-			Bits = (Bits & Sign) ? ~Bits : (Bits ^ Sign); AppendBigEndian(Token, Bits);
-		}
-
-		auto BuildIntrinsicLedgerToken(uint64 Layout, std::span<const uint64> Components,
-			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
-		{
-			Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Struct));
-			if (Layout == 5)
-			{
-				if (Components.size() != 10) return false;
-				for (const auto [Ordinal, ChildLayout, Offset, Count] : {
-					std::tuple<uint32, uint64, size_t, size_t>{0, 4, 0, 4}, {1, 2, 4, 3}, {2, 2, 7, 3}})
-				{
-					AppendBigEndian(Out, Ordinal); AppendBigEndian(Out, uint32(0));
-					if (!BuildIntrinsicLedgerToken(ChildLayout, Components.subspan(Offset, Count), Out, Diagnostic)) return false;
-				}
-				return true;
-			}
-			const uint64 Count = Layout == 1 ? 2 : Layout == 2 ? 3 : 4;
-			if (Components.size() != Count) return false;
-			for (uint32 Index = 0; Index < Count; ++Index)
-			{
-				AppendBigEndian(Out, Index); AppendBigEndian(Out, uint32(0));
-				if (Layout == 6)
-				{
-					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Float));
-					AppendSortableFloat(Out, std::bit_cast<float>(uint32(Components[Index])));
-				}
-				else
-				{
-					Out.push_back(static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Double));
-					AppendSortableFloat(Out, std::bit_cast<double>(Components[Index]));
-				}
-			}
-			return true;
-		}
-
-		auto BuildLedgerMapKeyToken(const FDecodedType& Type, const FValue& Value,
-			std::vector<std::byte>& Out, FReaderDiagnostic& Diagnostic) -> bool
-		{
-			Out.push_back(static_cast<std::byte>(TypeKind(Type, FDecodedPackage{})));
-			switch (Type.Opcode)
-			{
-			case ETypeOpcode::Bool: Out.back() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Bool); Out.push_back(Value.Bool ? std::byte{1} : std::byte{0}); return true;
-			case ETypeOpcode::I8: AppendSortable(Out, int8(Value.Signed)); return true;
-			case ETypeOpcode::I16: AppendSortable(Out, int16(Value.Signed)); return true;
-			case ETypeOpcode::I32: AppendSortable(Out, int32(Value.Signed)); return true;
-			case ETypeOpcode::I64: AppendSortable(Out, Value.Signed); return true;
-			case ETypeOpcode::U8: AppendSortable(Out, uint8(Value.Unsigned)); return true;
-			case ETypeOpcode::U16: AppendSortable(Out, uint16(Value.Unsigned)); return true;
-			case ETypeOpcode::U32: AppendSortable(Out, uint32(Value.Unsigned)); return true;
-			case ETypeOpcode::U64: AppendSortable(Out, Value.Unsigned); return true;
-			case ETypeOpcode::String:
-				AppendBigEndian(Out, uint64(Value.Text.size())); {
-					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); } return true;
-			case ETypeOpcode::Name:
-				AppendBigEndian(Out, uint64(Value.Text.size())); {
-					const auto Bytes = std::as_bytes(std::span(Value.Text)); Out.insert(Out.end(), Bytes.begin(), Bytes.end()); }
-				AppendBigEndian(Out, uint32(0)); return true;
-			case ETypeOpcode::Guid:
-				AppendBigEndian(Out, Value.Guid.A); AppendBigEndian(Out, Value.Guid.B);
-				AppendBigEndian(Out, Value.Guid.C); AppendBigEndian(Out, Value.Guid.D); return true;
-			case ETypeOpcode::Enum:
-			{
-				const auto Storage = static_cast<ETypeOpcode>(Type.Parameter);
-				Out.front() = static_cast<std::byte>(DurinCodeGen::EPropertyGenFlags::Enum);
-				if (Storage == ETypeOpcode::I8) AppendSortable(Out, int8(Value.Signed));
-				else if (Storage == ETypeOpcode::I16) AppendSortable(Out, int16(Value.Signed));
-				else if (Storage == ETypeOpcode::I32) AppendSortable(Out, int32(Value.Signed));
-				else if (Storage == ETypeOpcode::I64) AppendSortable(Out, Value.Signed);
-				else if (Storage == ETypeOpcode::U8) AppendSortable(Out, uint8(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U16) AppendSortable(Out, uint16(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U32) AppendSortable(Out, uint32(Value.Unsigned));
-				else if (Storage == ETypeOpcode::U64) AppendSortable(Out, Value.Unsigned);
-				else return Fail(Diagnostic, EReaderFailure::InvalidValue, "Map enum key storage is invalid.");
-				return true;
-			}
-			case ETypeOpcode::Intrinsic:
-				Out.clear(); return BuildIntrinsicLedgerToken(Type.Parameter, Value.ComponentBits, Out, Diagnostic);
-			default: return Fail(Diagnostic, EReaderFailure::ArchiveFailure,
-				"Live nested authored intent does not support this map key type.");
-			}
-		}
 		auto ExtractValueReferences(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package, const FAssetPath& SourcePackage,
 			const FAssetPackageFingerprint& Fingerprint, uint64 SourceObjectId,
 			std::string_view SourceClass, std::string_view DeclaringType,
-			std::string_view FieldName, std::vector<FAssetReferenceRouteSegment>& Route,
-			std::vector<FAssetReferenceEdge>& Out, FReaderDiagnostic& Diagnostic) -> bool
+			std::string_view FieldName, std::vector<FReferenceRouteSegment>& Route,
+			std::vector<FReferenceOccurrence>& Out, FReaderDiagnostic& Diagnostic) -> bool
 		{
 			auto Add = [&](EAssetReferenceKind Kind, std::string_view Target,
 				std::string ExpectedClass) -> bool {
@@ -913,9 +808,9 @@ namespace Durin::Asset::PackageObjectStream
 				std::string Display = std::format("{}::{}", DeclaringType, FieldName);
 				for (const auto& Segment : Route)
 				{
-					if (Segment.Kind == EAssetReferenceRouteKind::FixedArray || Segment.Kind == EAssetReferenceRouteKind::ArrayElement)
+					if (Segment.Kind == EReferenceRouteKind::FixedArray || Segment.Kind == EReferenceRouteKind::ArrayElement)
 						Display += std::format("[{}]", Segment.Index);
-					else if (Segment.Kind == EAssetReferenceRouteKind::MapValue) Display += "{value}";
+					else if (Segment.Kind == EReferenceRouteKind::MapValue) Display += "{value}";
 					else Display += std::format(".{}", Segment.FieldName);
 				}
 				Out.push_back({.SourcePackage = SourcePackage, .SourceFingerprint = Fingerprint,
@@ -946,7 +841,7 @@ namespace Durin::Asset::PackageObjectStream
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index], &FDecodedField::Name);
 					if (It == Schema->Fields.end()) return false;
 					const FDecodedType* Child = TypeAt(Package, It->TypeId); if (!Child) return false;
-					Route.push_back({.Kind = EAssetReferenceRouteKind::StructField,
+					Route.push_back({.Kind = EReferenceRouteKind::StructField,
 						.DeclaringType = Schema->QualifiedName, .FieldName = It->Name});
 					if (!ExtractValueReferences(*Child, Value.Elements[Index], Package, SourcePackage,
 						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
@@ -960,7 +855,7 @@ namespace Durin::Asset::PackageObjectStream
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					Route.push_back({.Kind = Type.Opcode == ETypeOpcode::FixedArray
-						? EAssetReferenceRouteKind::FixedArray : EAssetReferenceRouteKind::ArrayElement,
+						? EReferenceRouteKind::FixedArray : EReferenceRouteKind::ArrayElement,
 						.Index = Index});
 					if (!ExtractValueReferences(*Child, Value.Elements[Index], Package, SourcePackage,
 						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
@@ -975,8 +870,8 @@ namespace Durin::Asset::PackageObjectStream
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
 					std::vector<std::byte> Token;
-					if (!BuildLedgerMapKeyToken(*Key, Value.Elements[Index], Token, Diagnostic)) return false;
-					Route.push_back({.Kind = EAssetReferenceRouteKind::MapValue, .MapKeyToken = std::move(Token)});
+					if (!BuildCanonicalMapKeyToken(Package, *Key, Value.Elements[Index], Token, &Diagnostic)) return false;
+					Route.push_back({.Kind = EReferenceRouteKind::MapValue, .MapKeyToken = std::move(Token)});
 					if (!ExtractValueReferences(*Mapped, Value.Elements[Index + 1], Package, SourcePackage,
 						Fingerprint, SourceObjectId, SourceClass, DeclaringType, FieldName, Route, Out, Diagnostic)) return false;
 					Route.pop_back();
@@ -1185,7 +1080,7 @@ namespace Durin::Asset::PackageObjectStream
 	}
 
 	auto ExtractReferences(std::span<const std::byte> Bytes, const FAssetPath& SourcePackage,
-		std::vector<FAssetReferenceEdge>& OutReferences, const FReaderLimits& Limits,
+		std::vector<FReferenceOccurrence>& OutReferences, const FReaderLimits& Limits,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
@@ -1209,7 +1104,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 		const FAssetPackageFingerprint Fingerprint{.FileSize = Bytes.size(),
 			.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
-		std::vector<FAssetReferenceEdge> References;
+		std::vector<FReferenceOccurrence> References;
 		if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
 		{
 			FAssetPath Target; std::string Error;
@@ -1231,7 +1126,7 @@ namespace Durin::Asset::PackageObjectStream
 				const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
 				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
 				const FDecodedType* Type = TypeAt(Package, Field.TypeId); if (!Type) continue;
-				std::vector<FAssetReferenceRouteSegment> Route;
+				std::vector<FReferenceRouteSegment> Route;
 				if (!ExtractValueReferences(*Type, Override.Value, Package, SourcePackage, Fingerprint,
 					ObjectIndex + 1, Package.Objects[ObjectIndex].ClassName, Schema->QualifiedName,
 					Field.Name, Route, References, Diagnostic))

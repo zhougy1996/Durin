@@ -13,14 +13,13 @@ namespace Durin::Asset::Private
 		FAssetPath RedirectDestination;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
+		std::vector<FAssetPath> SoftDependencies;
+		std::vector<std::string> SearchableNames;
+		uint64 ObjectCount = 0;
+		uint64 BulkSegmentExtent = 0;
+		FXxHash128 BulkSegmentDigest;
 		uint64 FileSize = 0;
 		int64 LastWriteTimeTicks = 0;
-	};
-
-	struct FReferenceCacheSource
-	{
-		FAssetPackageFingerprint Fingerprint;
-		std::vector<FAssetReferenceEdge> References;
 	};
 
 	auto GetMountManifest() -> std::vector<std::string>;
@@ -38,12 +37,5 @@ namespace Durin::Asset::Private
 	auto BuildRegistryCacheEntries(
 		const std::unordered_map<FAssetPath, FAssetData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries,
-		std::string& OutWarning) -> bool;
-	auto LoadReferenceCache(
-		std::unordered_map<FAssetPath, FReferenceCacheSource>& OutSources,
-		std::string& OutWarning) -> bool;
-	auto WriteReferenceCache(
-		const std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints,
-		std::span<const FAssetReferenceEdge> References,
 		std::string& OutWarning) -> bool;
 }
