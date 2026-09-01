@@ -4,7 +4,7 @@ Summary: Replace persistent reference occurrences and export-payload scans with 
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -176,14 +176,14 @@ convert the corpus without preserving an occurrence cache.
 
 ## Related Code and Documentation
 
-- [AssetRegistry catalog](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/Catalog.h)
-- [AssetRegistry references](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
-- [AssetRegistry refresh](../../Engine/Source/Runtime/AssetRegistry/Private/AssetRegistryRefresh.cpp)
-- [AssetRegistry cache](../../Engine/Source/Runtime/AssetRegistry/Private/AssetRegistryCache.cpp)
-- [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [AssetRegistry catalog](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/Catalog.h)
+- [AssetRegistry references](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
+- [AssetRegistry refresh](../../../../Engine/Source/Runtime/AssetRegistry/Private/AssetRegistryRefresh.cpp)
+- [AssetRegistry cache](../../../../Engine/Source/Runtime/AssetRegistry/Private/AssetRegistryCache.cpp)
+- [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
 - [Construct-Free DAST v8 reader plan](ConstructFreeDastV8Reader.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

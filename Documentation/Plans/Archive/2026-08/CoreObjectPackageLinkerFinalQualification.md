@@ -4,7 +4,7 @@ Summary: Publish the canonical DAST v8 linker contracts and prove the retired pr
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 - 2026-08-31: Stage 0 assigned each lasting package/linker rule to one owning
@@ -181,11 +181,11 @@ Completed on 2026-08-31 without launching an application:
 
 ## Related Code and Documentation
 
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Bulk Data](../Runtime/Assets/BulkData.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Bulk Data](../../../Runtime/Assets/BulkData.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Testing Workflow](../../../Agents/Testing.md)

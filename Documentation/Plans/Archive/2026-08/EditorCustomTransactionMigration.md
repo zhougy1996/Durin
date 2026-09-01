@@ -4,7 +4,7 @@ Summary: Add executable custom changes to the editor transactor and migrate ever
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -142,10 +142,10 @@ Completion evidence on `macos-xcode-arm64` /
 
 ## Related Code
 
-- [`Transaction.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
-- [`Transactor.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
-- [`Transactor.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
-- [`AssetOperations.cpp`](../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
-- [`ContentBrowserOperations.h`](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.h)
-- [`MaterialGraphOperations.cpp`](../../Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphOperations.cpp)
-- [`TransformGizmo.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp)
+- [`Transaction.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
+- [`Transactor.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
+- [`Transactor.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
+- [`AssetOperations.cpp`](../../../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
+- [`ContentBrowserOperations.h`](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.h)
+- [`MaterialGraphOperations.cpp`](../../../../Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphOperations.cpp)
+- [`TransformGizmo.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp)

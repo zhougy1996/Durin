@@ -4,7 +4,7 @@ Summary: Build the reflected editor transactor, GC-visible bounded history buffe
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -17,8 +17,8 @@ undoable, and redoable records. `DEditorEngine` owns the buffer through the
 transient reflected `Trans` edge and clears it safely during shutdown.
 
 The lasting service, recording, history, accounting, GC, and coexistence rules
-are recorded in [Editor Transactor Core](../Editor/Architecture/Transactors.md),
-while [Transaction Record Foundation](../Editor/Architecture/TransactionRecords.md)
+are recorded in [Editor Transactor Core](../../../Editor/Architecture/Transactors.md),
+while [Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
 remains authoritative for exact identity and focused payload behavior.
 
 Qualification passed on the `macos-xcode-arm64` registered Debug editor profile:
@@ -296,8 +296,8 @@ activates no P2 work before this plan's exit gates pass.
 ## Validation
 
 Select and run native tests through the
-[Agent Testing Workflow](../Agents/Testing.md), and configure/build through the
-[Agent Build And Run Workflow](../Agents/BuildAndRun.md). The required P1 lane
+[Agent Testing Workflow](../../../Agents/Testing.md), and configure/build through the
+[Agent Build And Run Workflow](../../../Agents/BuildAndRun.md). The required P1 lane
 is:
 
 1. `EditorOperationTests` for the transactor state machine, scopes, memory
@@ -310,11 +310,11 @@ is:
 
 ## Related Code
 
-- [`Transaction.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
-- [`Transactor.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
-- [`TransactionRecord.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/TransactionRecord.h)
-- [`TransactionRecord.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/TransactionRecord.cpp)
-- [`EditorEngine.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
-- [`EditorEngine.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
-- [`TransactionRecordTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Editor/TransactionRecordTests.cpp)
-- [`ReflectedPropertyTransactionTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyTransactionTests.cpp)
+- [`Transaction.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
+- [`Transactor.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
+- [`TransactionRecord.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/TransactionRecord.h)
+- [`TransactionRecord.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/TransactionRecord.cpp)
+- [`EditorEngine.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
+- [`EditorEngine.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
+- [`TransactionRecordTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Editor/TransactionRecordTests.cpp)
+- [`ReflectedPropertyTransactionTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyTransactionTests.cpp)

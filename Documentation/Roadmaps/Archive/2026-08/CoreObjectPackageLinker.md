@@ -4,7 +4,7 @@ Summary: Replace the split AssetRegistry/Engine object-stream stack with a CoreD
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 - 2026-08-31: P0 through P6 completed the CoreDObject linker, canonical v8
@@ -22,25 +22,25 @@ Completed: 2026-08-31
 ## Current Status
 
 P0 through P7 are complete. The
-[Core Object Package Linker Foundation plan](../Plans/CoreObjectPackageLinkerFoundation.md)
+[Core Object Package Linker Foundation plan](../../../Plans/Archive/2026-08/CoreObjectPackageLinkerFoundation.md)
 landed CoreDObject-owned linker tables and canonical Map-key mechanics, and the
-[Canonical DAST v8 Writer plan](../Plans/CanonicalDastV8Writer.md) landed the
+[Canonical DAST v8 Writer plan](../../../Plans/Archive/2026-08/CanonicalDastV8Writer.md) landed the
 canonical nine-section v8 writer with explicit BulkData placement and exact byte
-fixtures. The [Construct-Free DAST v8 Reader plan](../Plans/ConstructFreeDastV8Reader.md)
+fixtures. The [Construct-Free DAST v8 Reader plan](../../../Plans/Archive/2026-08/ConstructFreeDastV8Reader.md)
 landed bounded Registry projection, complete detached decode, and exact
 write-read-write qualification. The
-[Package-Level Asset Registry plan](../Plans/PackageLevelAssetRegistry.md)
+[Package-Level Asset Registry plan](../../../Plans/Archive/2026-08/PackageLevelAssetRegistry.md)
 landed bounded v8 front-matter scans, one package-metadata cache, package-level
 dependency publication, and Engine-owned transient occurrence inspection. The
 maintained corpus is canonical v8. The
-[CoreDObject Engine Cutover plan](../Plans/CoreDObjectEngineCutover.md) has
+[CoreDObject Engine Cutover plan](../../../Plans/Archive/2026-08/CoreDObjectEngineCutover.md) has
 switched ordinary Engine save/load and codec policy to exact v8 main/bulk
 closures and deleted the Engine v7 codec, live object-stream byte entrypoints,
 and payload-directory wire implementation. The
-[higher-level operations plan](../Plans/CoreObjectHigherLevelAssetOperations.md)
+[higher-level operations plan](../../../Plans/Archive/2026-08/CoreObjectHigherLevelAssetOperations.md)
 qualified retained relocation, redirector fix-up, deletion, inspection, Cook,
 and maintenance workflows on exact v8 closures and removed dormant seams. The
-[final qualification plan](../Plans/CoreObjectPackageLinkerFinalQualification.md)
+[final qualification plan](../../../Plans/Archive/2026-08/CoreObjectPackageLinkerFinalQualification.md)
 published lasting contracts and passed the program-wide gates.
 
 ## Outcome
@@ -126,37 +126,37 @@ format and, after corpus migration, the sole production read format.
 ## Milestones
 
 - [x] **P0: Core Object Package Linker Foundation.** Execute the
-  [foundation plan](../Plans/CoreObjectPackageLinkerFoundation.md); depends only
+  [foundation plan](../../../Plans/Archive/2026-08/CoreObjectPackageLinkerFoundation.md); depends only
   on the current v7 fixtures and completes when CoreDObject owns the linker
   vocabulary and canonical token primitives, AssetRegistry can adapt decoded
   v7 packages into the format-neutral model, duplicate helpers are retired,
   and no Engine runtime has been launched.
 - [x] **P1: Canonical DAST v8 Writer.** Execute the
-  [writer plan](../Plans/CanonicalDastV8Writer.md) to freeze the v8 section contract and build
+  [writer plan](../../../Plans/Archive/2026-08/CanonicalDastV8Writer.md) to freeze the v8 section contract and build
   a CoreDObject linker-save path for name/import/export tables, tagged values,
   Registry metadata, and bulk references; depends on P0 and completes when
   deterministic fixtures re-emit byte-identically without AssetRegistry or
   Engine serialization code.
 - [x] **P2: Construct-Free DAST v8 Reader and Linker Model.** Implement bounded
   summary/table/export decoding and logical round-trip validation through the
-  [reader plan](../Plans/ConstructFreeDastV8Reader.md); depends on
+  [reader plan](../../../Plans/Archive/2026-08/ConstructFreeDastV8Reader.md); depends on
   P1 and completes when malformed-input, topology, reference, type, and limit
   coverage passes entirely below Engine.
 - [x] **P3: Package-Level Asset Registry.** Replace occurrence persistence and
   export-payload scanning through the
-  [registry plan](../Plans/PackageLevelAssetRegistry.md) with v8 Registry data plus import/soft-reference
+  [registry plan](../../../Plans/Archive/2026-08/PackageLevelAssetRegistry.md) with v8 Registry data plus import/soft-reference
   tables; depends on P2 and completes when ordinary scans read no export data,
   registry/cache state contains only selected dependency categories, and
   obsolete occurrence APIs and caches are removed.
 - [x] **P4: Offline v7-to-v8 Migration.** Move v7 support behind a bounded
   conversion capability through the
-  [migration plan](../Plans/OfflineDastV7ToV8Migration.md), produce deterministic migration reports, and convert
+  [migration plan](../../../Plans/Archive/2026-08/OfflineDastV7ToV8Migration.md), produce deterministic migration reports, and convert
   the maintained asset corpus; depends on P1 and P2 and completes when all
   supported repository assets are v8, failures are explicit and non-mutating,
   and production writers expose no v7 route.
 - [x] **P5: CoreDObject Load Application and Engine Cutover.** Apply linker
   exports to DPackage/DObject graphs through the
-  [cutover plan](../Plans/CoreDObjectEngineCutover.md), then replace Engine package readers and
+  [cutover plan](../../../Plans/Archive/2026-08/CoreDObjectEngineCutover.md), then replace Engine package readers and
   writers with the CoreDObject capability; depends on P2 through P4 and
   completes when focused object-lifecycle tests pass, Engine contains no
   package-wire interpreter, and retired v7/live compatibility code is deleted.
@@ -165,14 +165,14 @@ format and, after corpus migration, the sole production read format.
   maintenance workflows; depends on P3 and P5 and completes when every former
   workflow is either qualified on the new contracts or deliberately removed
   with callers and documentation cleaned up. Execute the
-  [higher-level operations plan](../Plans/CoreObjectHigherLevelAssetOperations.md).
+  [higher-level operations plan](../../../Plans/Archive/2026-08/CoreObjectHigherLevelAssetOperations.md).
 - [x] **P7: Final Qualification and Contract Publication.** Move lasting linker,
   v8 format, Registry, and migration rules into their owning Runtime and
   Workspace documents; depends on all required prior milestones and completes
   when routine native aggregates, the full build gate, documentation
   validation, and repository-wide searches prove that no retired production
   route remains. Execute the
-  [final qualification plan](../Plans/CoreObjectPackageLinkerFinalQualification.md).
+  [final qualification plan](../../../Plans/Archive/2026-08/CoreObjectPackageLinkerFinalQualification.md).
 
 ## Program Validation
 
@@ -201,9 +201,9 @@ editor launch during earlier milestones.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

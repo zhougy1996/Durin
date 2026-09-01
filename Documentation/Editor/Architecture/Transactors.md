@@ -166,4 +166,4 @@ reflected engine edge and open-transaction shutdown coverage.
 ## Related Documentation
 
 - [Transaction Record Foundation](TransactionRecords.md)
-- [Editor Transaction System roadmap](../../Roadmaps/EditorTransactionSystem.md)
+- [Editor Transaction System roadmap](../../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)

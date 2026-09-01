@@ -4,7 +4,7 @@ Summary: Decode the frozen DAST v8 byte contract into validated CoreDObject link
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -181,12 +181,12 @@ consume a trusted header projection without parsing exports.
 
 ## Related Code and Documentation
 
-- [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [CoreDObject package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
-- [Core binary envelope](../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
+- [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [CoreDObject package linker](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
+- [Core binary envelope](../../../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
 - [Canonical DAST v8 writer plan](CanonicalDastV8Writer.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

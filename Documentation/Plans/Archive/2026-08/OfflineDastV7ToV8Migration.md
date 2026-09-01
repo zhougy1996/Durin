@@ -4,7 +4,7 @@ Summary: Build a bounded construct-free v7 converter, report every decision dete
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -248,11 +248,11 @@ P5 can remove the remaining Engine v7 live path without another corpus rewrite.
 
 - Retired historical path:
   `Engine/Source/Runtime/AssetRegistry/Private/PackageLinkerV7Adapter.h`
-- [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [AssetMaintenance](../../Engine/Source/Developer/AssetMaintenance)
-- [DurinAssetTool](../../Engine/Source/Programs/DurinAssetTool)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [AssetMaintenance](../../../../Engine/Source/Developer/AssetMaintenance)
+- [DurinAssetTool](../../../../Engine/Source/Programs/DurinAssetTool)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

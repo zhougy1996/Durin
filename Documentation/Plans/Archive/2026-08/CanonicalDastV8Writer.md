@@ -4,7 +4,7 @@ Summary: Freeze DAST v8 package sections and implement the canonical construct-f
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -178,12 +178,12 @@ modules compile, no Engine runtime ran, and P2 has frozen bytes to read.
 
 ## Related Code and Documentation
 
-- [CoreDObject package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
-- [Core binary envelope](../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
+- [CoreDObject package linker](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
+- [Core binary envelope](../../../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
 - Temporary v7 writer (retired by the single-package-IR cutover)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

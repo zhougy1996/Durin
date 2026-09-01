@@ -4,7 +4,7 @@ Summary: Add executable root-free property object records and migrate reflected 
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -221,11 +221,11 @@ Completion evidence on `macos-xcode-arm64` / `MacOS-arm64-Debug-DurinEditor`:
 
 ## Related Code
 
-- [`Archive.h`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h)
-- [`PropertyEditing.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h)
-- [`PropertyEditing.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/PropertyEditing.cpp)
-- [`PropertyView.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyView.h)
-- [`Transactor.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
-- [`Transactor.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
-- [`ReflectedPropertyTransactionTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyTransactionTests.cpp)
-- [`ReflectedPropertyContainerTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyContainerTests.cpp)
+- [`Archive.h`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h)
+- [`PropertyEditing.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h)
+- [`PropertyEditing.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/PropertyEditing.cpp)
+- [`PropertyView.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyView.h)
+- [`Transactor.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
+- [`Transactor.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
+- [`ReflectedPropertyTransactionTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyTransactionTests.cpp)
+- [`ReflectedPropertyContainerTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyContainerTests.cpp)

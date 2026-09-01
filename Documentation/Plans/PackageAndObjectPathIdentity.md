@@ -401,7 +401,7 @@ and the plan contains an evidence-backed handoff.
 
 ## Related Documentation
 
-- [Compact Object Paths And Soft Object Pointers](CompactObjectPathsAndSoftObjectPointers.md)
+- [Compact Object Paths And Soft Object Pointers](Archive/2026-08/CompactObjectPathsAndSoftObjectPointers.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Versioning](../Runtime/Assets/Versioning.md)

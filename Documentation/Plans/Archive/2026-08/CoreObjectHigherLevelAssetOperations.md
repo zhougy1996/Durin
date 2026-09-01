@@ -4,7 +4,7 @@ Summary: Qualify justified higher-level asset workflows on exact DAST v8 closure
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 - 2026-08-31: Stage 0 classified the 36 failures into retained relocation /
@@ -174,7 +174,7 @@ complete output is recorded in
 ## Related Code and Documentation
 
 - [CoreDObject Engine Cutover](CoreDObjectEngineCutover.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Testing Workflow](../../../Agents/Testing.md)

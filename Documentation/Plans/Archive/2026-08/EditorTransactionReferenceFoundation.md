@@ -4,7 +4,7 @@ Summary: Establish exact transaction participant identity, GC-enumerable non-ref
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -25,8 +25,8 @@ the current member, then decodes only into detached reflected storage.
 `EditorOperationTests` (25 tests), and `EditorPropertyTests` (32 tests) passed
 on `MacOS-arm64-Debug-DurinEditor`. The complete registered `all` profile build
 also passed. Lasting contracts are recorded in
-[Transaction Record Foundation](../Editor/Architecture/TransactionRecords.md)
-and [Garbage Collection](../Runtime/Core/GarbageCollection.md). The active
+[Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
+and [Garbage Collection](../../../Runtime/Core/GarbageCollection.md). The active
 `FTransactionManager` remains the only user-visible history; P1 may now begin.
 
 ## Goal
@@ -61,9 +61,9 @@ belong to later roadmap plans.
 
 | Owner | Current retention | P0 treatment |
 | --- | --- | --- |
-| [`FPropertyValueSnapshot`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h) | Copies now retain every hard referenced object with independently owned `TStrongObjectPtr` values. | The retention-neutral payload remains the transaction-record representation. |
-| [`FPropertyTransaction`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Committed history uses exact handles and collector traversal. | The object record uses `FPersistentObjectRef` plus collector traversal. |
-| [`FPropertyEditSession`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Pins the live edit target before using snapshot-container addresses and deferred callbacks. | Temporary native ownership uses `TStrongObjectPtr`. |
+| [`FPropertyValueSnapshot`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h) | Copies now retain every hard referenced object with independently owned `TStrongObjectPtr` values. | The retention-neutral payload remains the transaction-record representation. |
+| [`FPropertyTransaction`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Committed history uses exact handles and collector traversal. | The object record uses `FPersistentObjectRef` plus collector traversal. |
+| [`FPropertyEditSession`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Pins the live edit target before using snapshot-container addresses and deferred callbacks. | Temporary native ownership uses `TStrongObjectPtr`. |
 | `FTransactionManager::FTrackedPackageState` (removed by P4) | Historically stored a raw `DPackage*` with a scoped manual root. | P1/P4 replaced package-history ownership after the transactor was introduced. |
 
 `FAssetRetentionService`, preview scenes, default materials, package residency,
@@ -200,7 +200,7 @@ the transaction foundation.
 
 ### Stage 3: Qualification And Lasting Contracts
 
-- [x] Update [Garbage Collection](../Runtime/Core/GarbageCollection.md) with the
+- [x] Update [Garbage Collection](../../../Runtime/Core/GarbageCollection.md) with the
   exact collector-enumerated transaction-reference boundary and update or add
   the owning editor architecture contract for the landed foundation.
 - [x] Run `CoreObjectTests`, `CorePropertyValueSnapshotTests`, and the focused
@@ -240,8 +240,8 @@ P0 completion and the P1 entry gate.
 ## Validation
 
 Select and run native tests through the
-[Agent Testing Workflow](../Agents/Testing.md), and configure/build through the
-[Agent Build And Run Workflow](../Agents/BuildAndRun.md). The required P0 lane
+[Agent Testing Workflow](../../../Agents/Testing.md), and configure/build through the
+[Agent Build And Run Workflow](../../../Agents/BuildAndRun.md). The required P0 lane
 is:
 
 1. `CoreObjectTests` for handle generations, GC, and hierarchy reachability;
@@ -254,11 +254,11 @@ is:
 
 ## Related Code
 
-- [`ObjectHandle.h`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectHandle.h)
-- [`ObjectLifecycle.h`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectLifecycle.h)
-- [`Archive.h`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h)
-- [`Archive.cpp`](../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
-- [`Transaction.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
-- [`PropertyEditing.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h)
-- [`Transactor.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
-- [`PropertyEditing.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/PropertyEditing.cpp)
+- [`ObjectHandle.h`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectHandle.h)
+- [`ObjectLifecycle.h`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectLifecycle.h)
+- [`Archive.h`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h)
+- [`Archive.cpp`](../../../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
+- [`Transaction.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
+- [`PropertyEditing.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h)
+- [`Transactor.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
+- [`PropertyEditing.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/PropertyEditing.cpp)

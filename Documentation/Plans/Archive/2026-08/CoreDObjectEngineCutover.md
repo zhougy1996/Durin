@@ -4,7 +4,7 @@ Summary: Apply detached v8 linker tables to live object graphs and atomically re
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 - 2026-08-31: Stages 0 through 3 landed direct Archive-to-linker capture,
@@ -196,9 +196,9 @@ ordinary save/load, v8 codec/mutation, and external BulkData cases passed.
 
 ## Related Code and Documentation
 
-- [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [Engine package operations](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [Engine package operations](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

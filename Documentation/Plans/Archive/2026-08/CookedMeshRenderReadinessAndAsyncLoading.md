@@ -4,7 +4,7 @@ Summary: Guarantee first-consumer render-resource initialization for cooked mesh
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -384,13 +384,13 @@ Dependencies: Stages 3 and 4.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Package Bulk Data](../Runtime/Assets/BulkData.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Package Bulk Data](../../../Runtime/Assets/BulkData.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

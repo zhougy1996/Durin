@@ -4,7 +4,7 @@ Summary: Replace transaction-owned manual roots with a GC-integrated editor tran
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -20,11 +20,11 @@ Activity History surface, property edit, asset mutation, graph edit, Level
 mutation, placement, attachment, and gizmo command routes through
 `DTransBuffer`; the legacy manager, ID bridges, and transaction-specific roots
 are absent. P2 is complete through the
-[Object Transaction And Property Migration](../Plans/ObjectTransactionAndPropertyMigration.md)
+[Object Transaction And Property Migration](../../../Plans/Archive/2026-08/ObjectTransactionAndPropertyMigration.md)
 plan, and P3 is complete through the
-[Editor Custom Transaction Migration](../Plans/EditorCustomTransactionMigration.md)
+[Editor Custom Transaction Migration](../../../Plans/Archive/2026-08/EditorCustomTransactionMigration.md)
 plan. P4 completed through the
-[Editor Transaction Global Cutover](../Plans/EditorTransactionGlobalCutover.md)
+[Editor Transaction Global Cutover](../../../Plans/Archive/2026-08/EditorTransactionGlobalCutover.md)
 plan.
 
 P5 is complete with a decision not to add persistent editor-session replay or
@@ -114,7 +114,7 @@ snapshot.
 ## Milestones
 
 - [x] **P0: Transaction reference and record foundation.** Execute the
-  [Editor Transaction Reference Foundation](../Plans/EditorTransactionReferenceFoundation.md)
+  [Editor Transaction Reference Foundation](../../../Plans/Archive/2026-08/EditorTransactionReferenceFoundation.md)
   plan after its completed inventory of every current transaction-owned root,
   raw participant pointer, object creation/deletion command, and module-owned
   transaction implementation. Deliver
@@ -127,7 +127,7 @@ snapshot.
   CoreDObject collector and handle contracts.
 
 - [x] **P1: Transactor and buffer core.** Execute the
-  [Editor Transactor Core](../Plans/EditorTransactorCore.md) plan. Deliver
+  [Editor Transactor Core](../../../Plans/Archive/2026-08/EditorTransactorCore.md) plan. Deliver
   abstract transient `DTransactor`, concrete
   `DTransBuffer`, `FTransaction`, `FScopedTransaction`, Begin/End/Cancel nesting,
   Undo/Redo barriers, memory-bounded history, event publication, and a transient
@@ -205,8 +205,8 @@ snapshot.
 ## Validation Strategy
 
 Each child plan selects the smallest registered native-test targets following
-[Agent Testing Workflow](../Agents/Testing.md) and performs the build coverage
-required by [Agent Build And Run Workflow](../Agents/BuildAndRun.md). Across the
+[Agent Testing Workflow](../../../Agents/Testing.md) and performs the build coverage
+required by [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md). Across the
 program, acceptance must cover:
 
 - collector reachability through `DTransBuffer -> FTransaction -> object record`;
@@ -253,8 +253,8 @@ documents.
 
 ## Related Documentation
 
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Transaction Record Foundation](../Editor/Architecture/TransactionRecords.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Transaction Record Foundation](../../../Editor/Architecture/TransactionRecords.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)

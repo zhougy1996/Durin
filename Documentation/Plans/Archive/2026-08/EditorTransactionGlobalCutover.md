@@ -4,7 +4,7 @@ Summary: Make the editor-owned transactor the sole application history, move rev
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -110,8 +110,8 @@ Completed evidence on macOS arm64 Debug `DurinEditor`:
 
 ## Related Code
 
-- [`Transaction.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
-- [`Transactor.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
-- [`Transactor.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
-- [`EditorEngine.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
-- [`WorkspaceRootWindow.cpp`](../../Engine/Source/Editor/DurinEd/Private/Editor/WorkspaceRootWindow.cpp)
+- [`Transaction.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
+- [`Transactor.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h)
+- [`Transactor.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp)
+- [`EditorEngine.h`](../../../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
+- [`WorkspaceRootWindow.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Editor/WorkspaceRootWindow.cpp)

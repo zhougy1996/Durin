@@ -4,7 +4,7 @@ Summary: Compact structural object paths around interned names and rebuild soft 
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -19,7 +19,7 @@ Case-insensitive identity, first-spelling display, strict interned-name bounds,
 deterministic ordering, allocation-free subobject iteration, exact cache
 population, and the four cache states have focused contract coverage.
 
-The parent [Package And Object Path Identity](PackageAndObjectPathIdentity.md)
+The parent [Package And Object Path Identity](../../PackageAndObjectPathIdentity.md)
 plan supplied the bounded DAST v8-to-v9 migration required to clear the final
 qualification gate. All 25 maintained packages now use DAST v9,
 `asset check --baseline` accepts the complete corpus, the broad native
@@ -274,21 +274,21 @@ unblocked.
 
 ## Related Documentation
 
-- [Package And Object Path Identity](PackageAndObjectPathIdentity.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Package And Object Path Identity](../../PackageAndObjectPathIdentity.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [Name](../../Engine/Source/Runtime/Core/Public/Misc/Name.h)
-- [Asset path](../../Engine/Source/Runtime/CoreDObject/Public/DObject/AssetPath.h)
-- [Soft object pointer](../../Engine/Source/Runtime/CoreDObject/Public/DObject/SoftObjectPtr.h)
-- [Weak object pointer](../../Engine/Source/Runtime/CoreDObject/Public/DObject/WeakObjectPtr.h)
-- [Archive](../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
-- [Asset loading](../../Engine/Source/Runtime/Engine/Public/Asset/Load.h)
-- [Asset runtime](../../Engine/Source/Runtime/Engine/Private/Asset/AssetRuntime.cpp)
-- [Durin Header Tool property parser](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/parser/property_parser.py)
+- [Name](../../../../Engine/Source/Runtime/Core/Public/Misc/Name.h)
+- [Asset path](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/AssetPath.h)
+- [Soft object pointer](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/SoftObjectPtr.h)
+- [Weak object pointer](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/WeakObjectPtr.h)
+- [Archive](../../../../Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp)
+- [Asset loading](../../../../Engine/Source/Runtime/Engine/Public/Asset/Load.h)
+- [Asset runtime](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetRuntime.cpp)
+- [Durin Header Tool property parser](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/parser/property_parser.py)

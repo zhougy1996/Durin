@@ -4,7 +4,7 @@ Summary: Establish the CoreDObject linker model and canonical property semantics
 
 Last reviewed: 2026-08-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-31
 
 ## Current Status
@@ -234,14 +234,14 @@ a permanent wrapper around `FDecodedPackage`.
 
 ## Related Code and Documentation
 
-- [CoreDObject module](../../Engine/Source/Runtime/CoreDObject)
+- [CoreDObject module](../../../../Engine/Source/Runtime/CoreDObject)
 - AssetRegistry object-stream API (retired by the single-package-IR cutover)
 - AssetRegistry object-stream reader (retired by the single-package-IR cutover)
-- [Engine direct linker application](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
-- [Asset reference records](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Core Object Package Linker roadmap](../Roadmaps/CoreObjectPackageLinker.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Engine direct linker application](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
+- [Asset reference records](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)

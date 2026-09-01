@@ -4,7 +4,7 @@ Summary: Cook every DurinGame-reachable non-Material Shader into a validated lib
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -546,31 +546,31 @@ its package-local program bytes.
 
 ## Related Documentation
 
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Global Shaders](../Runtime/Rendering/GlobalShaders.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Shader Derived Data Cache Migration Plan](Archive/2026-08/ShaderDerivedDataCacheMigration.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Shader Derived Data Cache Migration Plan](ShaderDerivedDataCacheMigration.md)
 
 ## Related Code
 
-- [`RenderCore`](../../Engine/Source/Runtime/RenderCore)
-- [`Renderer`](../../Engine/Source/Runtime/Renderer)
-- [`MonaImGui`](../../Engine/Source/Runtime/MonaImGui)
-- [`DerivedDataCache`](../../Engine/Source/Developer/DerivedDataCache)
-- [`ShaderBuild`](../../Engine/Source/Developer/ShaderBuild)
-- [`ShaderCompilerCore.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCompilerCore.h)
-- [`ShaderCookedLibrary.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCookedLibrary.h)
-- [`ShaderData.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderData.h)
-- [`ShaderCompileService.cpp`](../../Engine/Source/Developer/ShaderBuild/Private/ShaderCompileService.cpp)
-- [`ShaderDerivedData.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.cpp)
-- [`ShaderDependencyManifestStore.cpp`](../../Engine/Source/Developer/ShaderBuild/Private/ShaderDependencyManifestStore.cpp)
-- [`GlobalShader.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/GlobalShader.cpp)
-- [`MaterialCook.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCook.cpp)
-- [`Engine.dproject`](../../Engine/Engine.dproject)
+- [`RenderCore`](../../../../Engine/Source/Runtime/RenderCore)
+- [`Renderer`](../../../../Engine/Source/Runtime/Renderer)
+- [`MonaImGui`](../../../../Engine/Source/Runtime/MonaImGui)
+- [`DerivedDataCache`](../../../../Engine/Source/Developer/DerivedDataCache)
+- [`ShaderBuild`](../../../../Engine/Source/Developer/ShaderBuild)
+- [`ShaderCompilerCore.h`](../../../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCompilerCore.h)
+- [`ShaderCookedLibrary.h`](../../../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCookedLibrary.h)
+- [`ShaderData.h`](../../../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderData.h)
+- [`ShaderCompileService.cpp`](../../../../Engine/Source/Developer/ShaderBuild/Private/ShaderCompileService.cpp)
+- [`ShaderDerivedData.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.cpp)
+- [`ShaderDependencyManifestStore.cpp`](../../../../Engine/Source/Developer/ShaderBuild/Private/ShaderDependencyManifestStore.cpp)
+- [`GlobalShader.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/GlobalShader.cpp)
+- [`MaterialCook.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCook.cpp)
+- [`Engine.dproject`](../../../../Engine/Engine.dproject)

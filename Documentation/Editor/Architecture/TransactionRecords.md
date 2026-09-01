@@ -100,4 +100,4 @@ collector-backed property-history path.
 - [Editor Transactor Core](Transactors.md)
 - [Garbage Collection](../../Runtime/Core/GarbageCollection.md)
 - [Reflected Property Editing](ReflectedPropertyEditing.md)
-- [Editor Transaction System roadmap](../../Roadmaps/EditorTransactionSystem.md)
+- [Editor Transaction System roadmap](../../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)
