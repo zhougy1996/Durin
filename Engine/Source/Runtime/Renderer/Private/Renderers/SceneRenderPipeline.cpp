@@ -5,6 +5,7 @@
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RDG.h"
@@ -68,28 +69,7 @@ namespace Durin
 	} // namespace
 
 	FSceneRenderPipeline::FSceneRenderPipeline(FSceneRenderer& Renderer)
-		: DefaultTextures(Renderer.DefaultTextures)
-		, EnvironmentLighting(Renderer.EnvironmentLighting)
-		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)
-		, GBufferRenderer(Renderer.GBufferRenderer)
-		, GBufferDebugRenderer(Renderer.GBufferDebugRenderer)
-		, DeferredDirectionalLightingRenderer(
-			Renderer.DeferredDirectionalLightingRenderer)
-		, GroundTruthAmbientOcclusionRenderer(
-			Renderer.GroundTruthAmbientOcclusionRenderer)
-		, StaticMeshRenderer(Renderer.StaticMeshRenderer)
-		, TerrainRenderer(Renderer.TerrainRenderer)
-		, SkeletalMeshRenderer(Renderer.SkeletalMeshRenderer)
-		, SkyBoxRenderer(Renderer.SkyBoxRenderer)
-		, PostProcessRenderer(Renderer.PostProcessRenderer)
-		, ContactShadowRenderer(Renderer.ContactShadowRenderer)
-		, VolumetricCloudRenderer(Renderer.VolumetricCloudRenderer)
-		, VolumetricCloudShadowRenderer(Renderer.VolumetricCloudShadowRenderer)
-		, EditorAssistanceRenderer(Renderer.EditorAssistanceRenderer)
-		, ViewStates(Renderer.ViewStates)
-		, RenderSubmissionSerial(Renderer.RenderSubmissionSerial)
-		, Qualification(GetRendererQualificationPolicy())
-		, Recorders(Renderer, Telemetry, ResolvedSceneResources, TemporalContext, ViewState)
+		: Renderer(Renderer)
 	{
 	}
 
@@ -101,17 +81,36 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		const FSceneRenderGraphExecute& ExecuteGraph
+		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
-		Telemetry = {};
-		ResolvedSceneResources = {};
-		TemporalContext = {};
-		ViewState = nullptr;
-		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
-			++RenderSubmissionSerial;
+		FSceneFrameContext Context;
+		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
+		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
+		FSceneViewTemporalContext& TemporalContext = Context.Transaction.Temporal;
+		FSceneViewState*& ViewState = Context.Transaction.ViewState;
+		Context.Logical.Qualification = GetRendererQualificationPolicy();
+		const FRendererQualificationPolicy& Qualification =
+			Context.Logical.Qualification;
+		auto& DefaultTextures = Renderer.DefaultTextures;
+		auto& EnvironmentLighting = Renderer.EnvironmentLighting;
+		auto& DirectionalShadowRenderer = Renderer.DirectionalShadowRenderer;
+		auto& GBufferRenderer = Renderer.GBufferRenderer;
+		auto& SkyBoxRenderer = Renderer.SkyBoxRenderer;
+		auto& PostProcessRenderer = Renderer.PostProcessRenderer;
+		auto& StaticMeshRenderer = Renderer.StaticMeshRenderer;
+		auto& SkeletalMeshRenderer = Renderer.SkeletalMeshRenderer;
+		auto& TerrainRenderer = Renderer.TerrainRenderer;
+		auto& ContactShadowRenderer = Renderer.ContactShadowRenderer;
+		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
+		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
+		auto& EditorAssistanceRenderer = Renderer.EditorAssistanceRenderer;
+		FSceneRenderFeatureRecorders Recorders(
+			Renderer, Telemetry, ResolvedSceneResources, TemporalContext, ViewState);
+		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+			++Renderer.RenderSubmissionSerial;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
 			CanonicalizeVolumetricCloudQuality(View.Settings.VolumetricCloud.Quality);
 		Telemetry.View.VolumetricCloud.VolumetricCloudDebugMode =
@@ -127,6 +126,12 @@ namespace Durin
 		{
 			return ERenderViewResult::InvalidOutput;
 		}
+		Context.Logical.Scene = Scene;
+		Context.Logical.OutputTarget = OutputTarget;
+		Context.Logical.Options = Options;
+		Context.Logical.Width = Width;
+		Context.Logical.Height = Height;
+		Context.Logical.bPresentOutput = bPresentOutput;
 		if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
@@ -143,9 +148,10 @@ namespace Durin
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		FSceneView RenderView = FSceneRenderer::FitViewToOutput(
+		Context.Logical.RenderView = FSceneRenderer::FitViewToOutput(
 			View, Width, Height);
-		ViewState = ViewStates.Find(RenderView.ViewStateId);
+		FSceneView& RenderView = Context.Logical.RenderView;
+		ViewState = Renderer.ViewStates.Find(RenderView.ViewStateId);
 		if (ViewState != nullptr && ViewState->IsSubmissionActive())
 		{
 			TemporalContext.Current =
@@ -153,7 +159,7 @@ namespace Durin
 					RenderView, Scene, Width, Height
 				);
 			TemporalContext.SubmissionSerial =
-				RenderSubmissionSerial;
+				Renderer.RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::DuplicateSubmission;
 			ReportSceneRenderGraphRejectedViewState(
@@ -169,7 +175,7 @@ namespace Durin
 				BuildSceneViewTemporalMetadata(
 					RenderView, Scene, Width, Height
 				),
-				RenderSubmissionSerial, RenderView.bDiscardHistory
+				Renderer.RenderSubmissionSerial, RenderView.bDiscardHistory
 			);
 		}
 		else if (TemporalContext.Discontinuities
@@ -180,7 +186,7 @@ namespace Durin
 					RenderView, Scene, Width, Height
 				);
 			TemporalContext.SubmissionSerial =
-				RenderSubmissionSerial;
+				Renderer.RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::MissingState;
 			if (RenderView.ViewStateId.IsValid())
@@ -192,51 +198,37 @@ namespace Durin
 			}
 		}
 		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
-			CommandList, Scene, RenderView, Options);
+			CommandList, Context);
 		if (!Preparation.IsSuccess()) return Preparation.Result;
-		const FSceneRenderPlan PreparedView = std::move(*Preparation.Plan);
+		Context.Logical.PreparedView = std::move(*Preparation.Plan);
+		const FSceneRenderPlan& PreparedView = *Context.Logical.PreparedView;
 		const ERenderViewResult ResolutionResult =
-			ResolveSceneRenderResources_RenderThread(CommandList, PreparedView);
+			ResolveSceneRenderResources_RenderThread(
+				CommandList, PreparedView, Context);
 		if (ResolutionResult != ERenderViewResult::Success)
 			return ResolutionResult;
-		FSceneRenderTopology Requirements = BuildSceneRenderTopology(
-			PreparedView, Options, Width, Height);
+		Context.Features.Plan = BuildSceneFrameFeaturePlan(
+			PreparedView, Options, Width, Height, Qualification);
+		FSceneFrameFeaturePlan& FeaturePlan = Context.Features.Plan;
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
 				PreparedView.Context.RendererSimpleElements);
-		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
+		RendererEditorAssistance::FPrepared& PreparedEditorAssistance =
+			Context.Logical.EditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
 			PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
 				CommandList, RenderView, EditorAssistanceRequest,
 				PreparedView.Context.RendererSimpleElements);
-		const bool bHasEditorAssistance =
+		Context.Logical.bHasEditorAssistance =
 			PreparedEditorAssistance.HasDrawableOperation();
-		const bool bRequiresDeferredOpaque =
-			RenderView.Settings.Mode.RenderMode == ERenderMode::Lit
-			&& RenderView.Settings.Mode.RasterMode == ERasterMode::Solid;
-		const bool bWantsIsolatedDeferred =
-			Qualification.bEnableDeferredDirectional
-			|| Options.DeferredDirectionalDebugMode
-				   != EDeferredDirectionalDebugMode::Disabled
-			|| Options.GroundTruthAmbientOcclusionDebugMode
-				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
-		const bool bWantsIsolatedGroundTruthAmbientOcclusion =
-			Qualification.bEnableGroundTruthAmbientOcclusion
-			|| Options.GroundTruthAmbientOcclusionDebugMode
-				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
-		const bool bWantsProductionDeferred = bRequiresDeferredOpaque;
-		const bool bWantsProductionGroundTruthAmbientOcclusion =
-			bWantsProductionDeferred
-			&& RenderView.Settings.AmbientOcclusion.bEnabled;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			bWantsIsolatedGroundTruthAmbientOcclusion
-			|| bWantsProductionGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs = bWantsIsolatedDeferred
-										  || bWantsProductionDeferred
-										  || bWantsGroundTruthAmbientOcclusion;
-		const bool bHybridRetainedResourcesReady =
+		if (Context.Logical.bHasEditorAssistance)
+			FeaturePlan.EditorAssistance.Purposes =
+				ESceneFeaturePurpose::Production;
+		const bool bWantsProductionDeferred =
+			FeaturePlan.RequiresProductionDeferred();
+		Context.Resolved.bHybridRetainedResourcesReady =
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.StaticMeshes,
@@ -250,10 +242,10 @@ namespace Durin
 					CommandList, PreparedView.Receiver.Terrains,
 					ResolvedSceneResources.Receiver.Terrains
 				));
-		const bool bNeedsGBuffer = Qualification.bEnableGBuffer
-								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
-								   || bWantsDeferredInputs;
-		FContactShadowVisibilityRenderer::FRouteDecision PreparedContactRoute;
+		const bool bHybridRetainedResourcesReady =
+			Context.Resolved.bHybridRetainedResourcesReady;
+		const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
+		auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
 		const bool bForceContactShadowVisibilityFragment =
 			Qualification.bForceFragmentContactVisibility
 			|| RenderView.Settings.DirectionalShadow.ContactRoutePreference
@@ -262,28 +254,16 @@ namespace Durin
 			!Qualification.bForceFragmentContactVisibility
 			&& RenderView.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Compute;
-		if (Requirements.ContactShadowVisibility != ESceneRenderRoute::Disabled
+		if (FeaturePlan.ContactVisibility.IsEnabled()
 			&& PreparedView.DirectionalShadow)
 		{
-			const auto Prepared = ContactShadowRenderer.Render_RenderThread(
-				CommandList, true, nullptr, nullptr, nullptr, nullptr, nullptr,
-				nullptr, nullptr, RenderView,
-				PreparedView.DirectionalShadow->View.LightDirection, Width, Height,
-				{.bPreparationOnly = true,
-					.bInputsExpected = bNeedsGBuffer,
-					.bFragmentTargetExpected = !bForceContactShadowVisibilityCompute,
-					.bComputeTargetExpected = !bForceContactShadowVisibilityFragment});
-			PreparedContactRoute = {
-				.Route = Prepared.Route, .Reason = Prepared.Reason};
-			Requirements.ContactShadowVisibility = Prepared.Route
-				== FContactShadowVisibilityRenderer::ERoute::Fragment
-				? ESceneRenderRoute::Fragment
-				: (Prepared.Route == FContactShadowVisibilityRenderer::ERoute::Compute
-					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
+			PreparedContactRoute = ContactShadowRenderer.PrepareRoute_RenderThread(
+				CommandList, true, bNeedsGBuffer,
+				!bForceContactShadowVisibilityCompute,
+				!bForceContactShadowVisibilityFragment, RenderView,
+				PreparedView.DirectionalShadow->View.LightDirection, Width, Height);
 		}
-		FVolumetricCloudShadowRenderer::ERoute PreparedCloudShadowRoute =
-			FVolumetricCloudShadowRenderer::ERoute::FactorOne;
-		FRHITexture* CloudWeatherTexture = nullptr;
+		FRHITexture*& CloudWeatherTexture = Context.Resolved.CloudWeatherTexture;
 		const bool bForceCloudFragment =
 			Qualification.bForceFragmentVolumetricCloud;
 		if (ResolvedSceneResources.VolumetricCloud)
@@ -293,11 +273,11 @@ namespace Durin
 				CloudWeatherTexture = DefaultTextures.Get_RenderThread(
 					EDefaultTexture::White);
 		}
-		if (Requirements.VolumetricCloudShadow != ESceneRenderRoute::Disabled
+		if (FeaturePlan.CloudShadow.IsEnabled()
 			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
 		{
-			const auto Prepared = VolumetricCloudShadowRenderer.Render_RenderThread(
-				CommandList, nullptr, nullptr,
+			const auto Prepared =
+				VolumetricCloudShadowRenderer.PrepareRoute_RenderThread(CommandList,
 				{.bRequested = true,
 					.BaseDensity = ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity,
 					.DetailDensity = ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity,
@@ -309,27 +289,17 @@ namespace Durin
 					.QualityTier = CanonicalizeVolumetricCloudQuality(
 						RenderView.Settings.VolumetricCloud.Quality),
 					.Width = Width, .Height = Height},
-				{.bPreparationOnly = true,
-					.bInputsExpected = true,
-					.bFragmentTargetExpected = true,
-					.bComputeTargetExpected = !bForceCloudFragment});
-			PreparedCloudShadowRoute = Prepared.Route;
-			Requirements.VolumetricCloudShadow = Prepared.Route
-				== FVolumetricCloudShadowRenderer::ERoute::Fragment
-				? ESceneRenderRoute::Fragment
-				: (Prepared.Route == FVolumetricCloudShadowRenderer::ERoute::Compute
-					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
+				true, !bForceCloudFragment);
+			FeaturePlan.CloudShadow.Decision = Prepared;
 		}
-		FVolumetricCloudRenderer::ERoute PreparedCloudRoute =
-			FVolumetricCloudRenderer::ERoute::Disabled;
-		if (Requirements.VolumetricCloud != ESceneRenderRoute::Disabled
+		if (FeaturePlan.CloudSpatial.IsEnabled()
 			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
 		{
 			auto Textures = ResolvedSceneResources.VolumetricCloud->Textures;
 			Textures.Weather = CloudWeatherTexture;
 			Textures.SceneDepth = nullptr;
-			const auto Prepared = VolumetricCloudRenderer.Render_RenderThread(
-				CommandList, nullptr, nullptr,
+			const auto Prepared = VolumetricCloudRenderer.PrepareRoute_RenderThread(
+				CommandList,
 				{.bRequested = true,
 					.Textures = Textures,
 					.Parameters = PreparedView.VolumetricCloud->Parameters,
@@ -338,28 +308,27 @@ namespace Durin
 						RenderView.Settings.VolumetricCloud.Quality),
 					.SuccessfulSequence = TemporalContext.SuccessfulSequence,
 					.Width = static_cast<uint32>(std::max(
-						Requirements.VolumetricCloudExtent.x, 0)),
+						FeaturePlan.CloudSpatial.Extent.x, 0)),
 					.Height = static_cast<uint32>(std::max(
-						Requirements.VolumetricCloudExtent.y, 0)),
+						FeaturePlan.CloudSpatial.Extent.y, 0)),
 					.OutputWidth = Width,
 					.OutputHeight = Height},
-				{.bPreparationOnly = true,
-					.bInputsExpected = true,
-					.bFragmentTargetExpected = true,
-					.bComputeTargetExpected = !bForceCloudFragment});
-			PreparedCloudRoute = Prepared.Counters.Route;
-			Requirements.VolumetricCloud = PreparedCloudRoute
-				== FVolumetricCloudRenderer::ERoute::Fragment
-				? ESceneRenderRoute::Fragment
-				: (PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
-					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
-			Requirements.bVolumetricCloudComposite = PreparedCloudRoute
-				!= FVolumetricCloudRenderer::ERoute::Disabled;
+				true, !bForceCloudFragment);
+			FeaturePlan.CloudSpatial.Decision = Prepared;
 		}
+		const FSceneFrameFeaturePlan& PublishedFeatures =
+			Context.Features.Plan;
 		FRDGBuilder Graph;
-		FSceneRenderGraphComposition Composition;
+		FSceneRenderGraphComposition& Composition =
+			Context.Transaction.Composition;
 		FSceneRenderGraphServices GraphServices{
 			.Recorders = Recorders,
+			.RDGAllocator = Renderer.RDGAllocator,
+			.GBufferRenderer = GBufferRenderer,
+			.StaticMeshRenderer = StaticMeshRenderer,
+			.SkeletalMeshRenderer = SkeletalMeshRenderer,
+			.TerrainRenderer = TerrainRenderer,
+			.ContactShadowRenderer = ContactShadowRenderer,
 			.DefaultTextures = DefaultTextures,
 			.EnvironmentLighting = EnvironmentLighting,
 			.DirectionalShadowRenderer = DirectionalShadowRenderer,
@@ -371,27 +340,19 @@ namespace Durin
 			.View = View,
 			.OutputTarget = OutputTarget,
 			.Options = Options,
-			.Topology = Requirements,
+			.Features = PublishedFeatures,
 			.EditorAssistance = PreparedEditorAssistance,
-			.ContactRoute = PreparedContactRoute,
-			.CloudShadowRoute = PreparedCloudShadowRoute,
-			.CloudRoute = PreparedCloudRoute,
 			.CloudWeatherTexture = CloudWeatherTexture,
 			.Width = Width,
 			.Height = Height,
 			.bPresentOutput = bPresentOutput,
-			.bHasEditorAssistance = bHasEditorAssistance,
-			.bRequiresDeferredOpaque = bRequiresDeferredOpaque,
-			.bWantsIsolatedDeferred = bWantsIsolatedDeferred,
-			.bWantsGroundTruthAmbientOcclusion =
-				bWantsGroundTruthAmbientOcclusion,
-			.bWantsDeferredInputs = bWantsDeferredInputs,
-			.bWantsProductionDeferred = bWantsProductionDeferred,
 			.bHybridRetainedResourcesReady =
-				bHybridRetainedResourcesReady,
-			.bNeedsGBuffer = bNeedsGBuffer};
+				bHybridRetainedResourcesReady};
 		FSceneRenderGraphComposer::Compose(Graph, ComposeInputs, Composition);
-		const ESceneRenderGraphExecutionStatus GraphStatus = ExecuteGraph(Graph);
+		const ESceneRenderGraphExecutionStatus GraphStatus =
+			CompileAndExecuteGraph_RenderThread(
+				Graph, CommandList, OutRenderGraphCapture,
+				Context.Observation);
 		if (GraphStatus == ESceneRenderGraphExecutionStatus::CompileFailed)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (GraphStatus == ESceneRenderGraphExecutionStatus::ExecutionFailed)
@@ -405,5 +366,52 @@ namespace Durin
 			TelemetryPublication.Commit();
 		}
 		return Composition.PostProcessPublication.Result;
+	}
+
+	auto FSceneRenderPipeline::CompileAndExecuteGraph_RenderThread(
+		FRDGBuilder& Graph,
+		FRHICommandListImmediate& CommandList,
+		FRDGCapture* OutRenderGraphCapture,
+		FSceneFrameContext::FObservation& Observation
+	) -> ESceneRenderGraphExecutionStatus
+	{
+		auto CompiledGraph = Graph.Compile();
+		if (!CompiledGraph.IsSuccess())
+		{
+			DURIN_WARN("Scene render graph compilation failed: {}",
+				CompiledGraph.Error);
+			return ESceneRenderGraphExecutionStatus::CompileFailed;
+		}
+		const FRDGStatistics Statistics = CompiledGraph.Graph->GetStatistics();
+		if (Statistics.IsStructuralRegressionBudgetExceeded()
+			&& !Observation.bReportedRegressionOverage)
+		{
+			const FRDGBudget& Budget = CompiledGraph.Graph->GetBudget();
+			DURIN_WARN(
+				"Scene render graph regression budget exceeded: passes={}/{} "
+				"dependencies={}/{} buffer-transitions={}/{} "
+				"texture-transitions={}/{}",
+				Statistics.DeclaredPasses, Budget.RegressionMaxPasses,
+				Statistics.Dependencies, Budget.RegressionMaxDependencies,
+				Statistics.BufferTransitions,
+				Budget.RegressionMaxBufferTransitions,
+				Statistics.TextureTransitions,
+				Budget.RegressionMaxTextureTransitions);
+			Observation.bReportedRegressionOverage = true;
+		}
+		std::string ExecutionError;
+		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
+		const bool Executed = CompiledGraph.Graph->Execute(
+			CommandList, ExecutionContext, &ExecutionError);
+		if (!Executed
+			&& !std::exchange(Observation.bReportedExecutionFailure, true))
+		{
+			DURIN_WARN("Scene render graph execution failed: {}",
+				ExecutionError.empty() ? "unspecified error" : ExecutionError);
+		}
+		PublishSceneRenderGraphCapture(
+			*CompiledGraph.Graph, OutRenderGraphCapture);
+		return Executed ? ESceneRenderGraphExecutionStatus::Executed
+			: ESceneRenderGraphExecutionStatus::ExecutionFailed;
 	}
 } // namespace Durin

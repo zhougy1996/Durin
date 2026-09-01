@@ -62,10 +62,7 @@ namespace Durin
 
 		struct FRenderPolicy
 		{
-			bool bPreparationOnly = false;
-			bool bInputsExpected = false;
-			bool bFragmentTargetExpected = false;
-			bool bComputeTargetExpected = false;
+			std::optional<FSpatial::FRouteDecision> PreparedRoute;
 			bool bGraphManagedTextureAccess = false;
 		};
 
@@ -108,6 +105,11 @@ namespace Durin
 		static auto DescribeCompositeTarget(uint32 Width, uint32 Height)
 			-> FRHITextureCreateDesc;
 		auto EnsureDensitySampler_RenderThread() -> FRHISampler*;
+		auto PrepareRoute_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FRenderInput& Input,
+			bool bFragmentTargetExpected,
+			bool bComputeTargetExpected) -> FSpatial::FRouteDecision;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
@@ -135,6 +137,9 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto EnsureComputeResources_RenderThread() -> bool;
+		auto EnsureFragmentResources_RenderThread(
+			FRHICommandListImmediate& CommandList) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;

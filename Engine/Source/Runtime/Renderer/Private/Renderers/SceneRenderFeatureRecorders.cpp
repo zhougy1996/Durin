@@ -12,7 +12,6 @@ namespace Durin
 		, DefaultTextures(Renderer.DefaultTextures)
 		, EnvironmentLighting(Renderer.EnvironmentLighting)
 		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)
-		, GBufferRenderer(Renderer.GBufferRenderer)
 		, GBufferDebugRenderer(Renderer.GBufferDebugRenderer)
 		, DeferredDirectionalLightingRenderer(
 			Renderer.DeferredDirectionalLightingRenderer)
@@ -23,7 +22,6 @@ namespace Durin
 		, SkeletalMeshRenderer(Renderer.SkeletalMeshRenderer)
 		, SkyBoxRenderer(Renderer.SkyBoxRenderer)
 		, PostProcessRenderer(Renderer.PostProcessRenderer)
-		, ContactShadowRenderer(Renderer.ContactShadowRenderer)
 		, VolumetricCloudRenderer(Renderer.VolumetricCloudRenderer)
 		, VolumetricCloudShadowRenderer(Renderer.VolumetricCloudShadowRenderer)
 		, EditorAssistanceRenderer(Renderer.EditorAssistanceRenderer)

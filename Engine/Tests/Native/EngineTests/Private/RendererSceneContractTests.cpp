@@ -16,7 +16,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
-#include "Renderers/SceneRenderGraphExecutor.h"
+#include "Renderers/SceneRenderPipeline.h"
 #include "Renderers/SceneRenderGraphContributors.h"
 #include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -318,12 +318,13 @@ static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
-static_assert(std::is_final_v<Durin::FSceneRenderGraphExecutor>);
-static_assert(!std::is_empty_v<Durin::FSceneRenderGraphExecutor>);
-static_assert(!std::is_copy_constructible_v<Durin::FSceneRenderGraphExecutor>);
-static_assert(!std::is_copy_assignable_v<Durin::FSceneRenderGraphExecutor>);
-static_assert(!std::is_move_constructible_v<Durin::FSceneRenderGraphExecutor>);
-static_assert(!std::is_move_assignable_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(std::is_final_v<Durin::FSceneRenderPipeline>);
+static_assert(!std::is_empty_v<Durin::FSceneRenderPipeline>);
+static_assert(!std::is_copy_constructible_v<Durin::FSceneRenderPipeline>);
+static_assert(!std::is_copy_assignable_v<Durin::FSceneRenderPipeline>);
+static_assert(!std::is_move_constructible_v<Durin::FSceneRenderPipeline>);
+static_assert(!std::is_move_assignable_v<Durin::FSceneRenderPipeline>);
+static_assert(std::is_default_constructible_v<Durin::FSceneFrameContext>);
 static_assert(!CHasPublicQualificationSwitches<
 			  Durin::FSceneViewRenderOptions>);
 static_assert(!std::is_copy_constructible_v<
@@ -338,16 +339,16 @@ static_assert(!CHasDeferredParameters<Durin::FSceneRenderOutcome>);
 static_assert(std::is_default_constructible_v<Durin::FSceneRenderOutcome>);
 static_assert(!CHasUploadRange<Durin::FPreparedSkeletalPaletteTable::FEntry>);
 static_assert(CHasUploadRange<Durin::FResolvedSkeletalPaletteTable::FEntry>);
-static_assert(std::is_copy_constructible_v<Durin::FSceneRenderTopology>);
+static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
 static_assert(std::is_same_v<
-			  Durin::FDirectionalShadowGraphContributor::Result,
+			  Durin::FDirectionalShadowRendering::Result,
 			  Durin::FDirectionalShadowPassResult>);
 static_assert(CAcceptsContributorInputs<
-			  Durin::FDirectionalShadowGraphContributor,
+			  Durin::FDirectionalShadowRendering,
 			  Durin::FDirectionalShadowGraphInputs>);
 static_assert(CAcceptsContributorInputs<
-			  Durin::FGBufferGraphContributor,
-			  Durin::FGBufferGraphInputs>);
+			  Durin::FGBufferRendering,
+			  Durin::FGBufferFeatureInputs>);
 static_assert(std::is_standard_layout_v<Durin::FGBufferPassParameters>);
 static_assert(Durin::CRDGParameters<Durin::FGBufferPassParameters>);
 static_assert(Durin::CRDGParameters<
@@ -372,42 +373,42 @@ static_assert(Durin::CRDGParameters<Durin::FPostProcessPassParameters>);
 static_assert(Durin::CRDGParameters<
 			  Durin::FEditorAssistancePassParameters>);
 static_assert(CAcceptsContributorInputs<
-			  Durin::FVolumetricCloudShadowGraphContributor,
+			  Durin::FVolumetricCloudShadowRendering,
 			  Durin::FCloudShadowGraphInputs>);
 static_assert(CAcceptsContributorInputs<
-			  Durin::FBaseSceneGraphContributor,
+			  Durin::FBaseSceneRendering,
 			  Durin::FBaseSceneGraphInputs>);
-static_assert(CContributorReturns<Durin::FDirectionalShadowGraphContributor, Durin::FDirectionalShadowGraphInputs, Durin::FDirectionalShadowGraphOutput>);
-static_assert(CContributorReturns<Durin::FGBufferGraphContributor, Durin::FGBufferGraphInputs, Durin::FGBufferGraphOutput>);
-static_assert(CContributorReturns<Durin::FAmbientOcclusionGraphContributor, Durin::FAmbientOcclusionGraphInputs, Durin::FAmbientOcclusionGraphOutput>);
+static_assert(CContributorReturns<Durin::FDirectionalShadowRendering, Durin::FDirectionalShadowGraphInputs, Durin::FDirectionalShadowGraphOutput>);
+static_assert(CContributorReturns<Durin::FGBufferRendering, Durin::FGBufferFeatureInputs, Durin::FGBufferGraphOutput>);
+static_assert(CContributorReturns<Durin::FAmbientOcclusionRendering, Durin::FAmbientOcclusionGraphInputs, Durin::FAmbientOcclusionGraphOutput>);
 static_assert(CContributorReturns<
-			  Durin::FContactShadowVisibilityGraphContributor,
-			  Durin::FContactShadowGraphInputs,
+			  Durin::FContactShadowVisibilityRendering,
+			  Durin::FContactShadowFeatureInputs,
 			  Durin::FContactShadowGraphOutput>);
 static_assert(CContributorReturns<
-			  Durin::FVolumetricCloudShadowGraphContributor,
+			  Durin::FVolumetricCloudShadowRendering,
 			  Durin::FCloudShadowGraphInputs,
 			  Durin::FCloudShadowGraphOutput>);
 static_assert(CContributorReturns<
-			  Durin::FDeferredDirectionalLightingGraphContributor,
+			  Durin::FDeferredDirectionalLightingRendering,
 			  Durin::FDeferredLightingGraphInputs,
 			  Durin::FDeferredLightingGraphOutput>);
-static_assert(CContributorReturns<Durin::FBaseSceneGraphContributor, Durin::FBaseSceneGraphInputs, Durin::FBaseSceneGraphOutput>);
+static_assert(CContributorReturns<Durin::FBaseSceneRendering, Durin::FBaseSceneGraphInputs, Durin::FBaseSceneGraphOutput>);
 static_assert(CContributorReturns<
-			  Durin::FVolumetricCloudSpatialGraphContributor,
+			  Durin::FVolumetricCloudSpatialRendering,
 			  Durin::FCloudSpatialGraphInputs,
 			  Durin::FCloudSpatialGraphOutput>);
 static_assert(CContributorReturns<
-			  Durin::FVolumetricCloudCompositeGraphContributor,
+			  Durin::FVolumetricCloudCompositeRendering,
 			  Durin::FCloudCompositeGraphInputs,
 			  Durin::FCloudCompositeGraphOutput>);
-static_assert(CContributorReturns<Durin::FSceneColorGraphContributor, Durin::FSceneColorGraphInputs, Durin::FSceneColorGraphOutput>);
-static_assert(CContributorReturns<Durin::FPostProcessGraphContributor, Durin::FPostProcessGraphInputs, Durin::FPostProcessGraphOutput>);
-static_assert(CContributorReturns<Durin::FEditorAssistanceGraphContributor, Durin::FEditorAssistanceGraphInputs, void>);
+static_assert(CContributorReturns<Durin::FSceneColorRendering, Durin::FSceneColorGraphInputs, Durin::FSceneColorGraphOutput>);
+static_assert(CContributorReturns<Durin::FPostProcessRendering, Durin::FPostProcessGraphInputs, Durin::FPostProcessGraphOutput>);
+static_assert(CContributorReturns<Durin::FEditorAssistanceRendering, Durin::FEditorAssistanceGraphInputs, void>);
 static_assert(!CHasPreparedView<Durin::FDirectionalShadowGraphInputs>);
 static_assert(!CHasPreparedView<Durin::FPostProcessGraphInputs>);
 static_assert(!CAcceptsContributorInputs<
-			  Durin::FDirectionalShadowGraphContributor,
+			  Durin::FDirectionalShadowRendering,
 			  Durin::FSceneRenderPlan>);
 static_assert(CHasResolvedDrawRecords<Durin::FResolvedStaticMeshView>);
 static_assert(CHasResolvedDrawRecords<Durin::FResolvedSkeletalMeshView>);
@@ -510,41 +511,44 @@ TEST(FRendererSceneContractTests, ContactShadowPilotsComposeExactGraphicsAndComp
 	EXPECT_EQ(Compute->Members.back().Use, Durin::ERDGUse::Write);
 }
 
-TEST(FRendererSceneContractTests, SceneRenderTopologyUsesExclusiveRoutes)
+TEST(FRendererSceneContractTests, SceneFeaturePlanOwnsPurposesAndExactRoutes)
 {
-	Durin::FSceneRenderTopology Topology;
-	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
-	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
-	Topology.ContactShadowVisibility = Durin::ESceneRenderRoute::Fragment;
-	EXPECT_TRUE(Topology.UsesContactShadowVisibilityFragment());
-	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
-	Topology.ContactShadowVisibility = Durin::ESceneRenderRoute::Compute;
-	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
-	EXPECT_TRUE(Topology.UsesContactShadowVisibilityCompute());
-
-	Topology.VolumetricCloudShadow = Durin::ESceneRenderRoute::Fragment;
-	EXPECT_TRUE(Topology.UsesCloudShadowFragment());
-	EXPECT_FALSE(Topology.UsesCloudShadowCompute());
-	Topology.VolumetricCloud = Durin::ESceneRenderRoute::Compute;
-	EXPECT_FALSE(Topology.UsesCloudFragment());
-	EXPECT_TRUE(Topology.UsesCloudCompute());
+	Durin::FSceneFrameFeaturePlan Plan;
+	EXPECT_FALSE(Plan.RequiresDeferredInputs());
+	Plan.Deferred.Purposes = Durin::ESceneFeaturePurpose::Production
+		| Durin::ESceneFeaturePurpose::Debug;
+	EXPECT_TRUE(Plan.RequiresProductionDeferred());
+	EXPECT_TRUE(Plan.RequiresIsolatedDeferred());
+	EXPECT_TRUE(Plan.RequiresDeferredInputs());
+	Plan.ContactVisibility.Decision.Route =
+		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment;
+	Plan.CloudShadow.Decision.Route =
+		Durin::FVolumetricCloudShadowRenderer::ERoute::Compute;
+	Plan.CloudSpatial.Decision.Route =
+		Durin::FVolumetricCloudRenderer::ERoute::Fragment;
+	EXPECT_EQ(Plan.ContactVisibility.Decision.Route,
+		Durin::FContactShadowVisibilityRenderer::ERoute::Fragment);
+	EXPECT_EQ(Plan.CloudShadow.Decision.Route,
+		Durin::FVolumetricCloudShadowRenderer::ERoute::Compute);
+	EXPECT_EQ(Plan.CloudSpatial.Decision.Route,
+		Durin::FVolumetricCloudRenderer::ERoute::Fragment);
 }
 
 TEST(FRendererSceneContractTests, FeatureContributorOrderIsStableAndUnique)
 {
 	const std::array<std::string_view, 12> Names{
-		Durin::FDirectionalShadowGraphContributor::Name,
-		Durin::FGBufferGraphContributor::Name,
-		Durin::FAmbientOcclusionGraphContributor::Name,
-		Durin::FContactShadowVisibilityGraphContributor::Name,
-		Durin::FVolumetricCloudShadowGraphContributor::Name,
-		Durin::FDeferredDirectionalLightingGraphContributor::Name,
-		Durin::FBaseSceneGraphContributor::Name,
-		Durin::FVolumetricCloudSpatialGraphContributor::Name,
-		Durin::FVolumetricCloudCompositeGraphContributor::Name,
-		Durin::FSceneColorGraphContributor::Name,
-		Durin::FPostProcessGraphContributor::Name,
-		Durin::FEditorAssistanceGraphContributor::Name
+		Durin::FDirectionalShadowRendering::Name,
+		Durin::FGBufferRendering::Name,
+		Durin::FAmbientOcclusionRendering::Name,
+		Durin::FContactShadowVisibilityRendering::Name,
+		Durin::FVolumetricCloudShadowRendering::Name,
+		Durin::FDeferredDirectionalLightingRendering::Name,
+		Durin::FBaseSceneRendering::Name,
+		Durin::FVolumetricCloudSpatialRendering::Name,
+		Durin::FVolumetricCloudCompositeRendering::Name,
+		Durin::FSceneColorRendering::Name,
+		Durin::FPostProcessRendering::Name,
+		Durin::FEditorAssistanceRendering::Name
 	};
 	EXPECT_EQ(Names.front(), "Scene.DirectionalShadow");
 	EXPECT_EQ(Names.back(), "Scene.EditorAssistance");

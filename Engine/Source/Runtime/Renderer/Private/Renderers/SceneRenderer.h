@@ -28,7 +28,6 @@
 namespace Durin
 {
 	class FConsoleCommandRegistry;
-	class FSceneRenderGraphExecutor;
 	class FSceneRenderPipeline;
 	class FSceneRenderFeatureRecorders;
 	class FRHICommandListImmediate;
@@ -86,7 +85,6 @@ namespace Durin
 		}
 
 	private:
-		friend class FSceneRenderGraphExecutor;
 		friend class FSceneRenderPipeline;
 		friend class FSceneRenderFeatureRecorders;
 		auto EnqueueResourceInvalidation(

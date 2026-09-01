@@ -166,6 +166,121 @@ namespace Durin
 				| ETextureCreateFlags::ShaderResource
 				| ETextureCreateFlags::SourceCopy);
 	}
+
+	auto FContactShadowVisibilityRenderer::EnsureComputeResources_RenderThread()
+		-> bool
+	{
+		using FPayload = FState::FComputePayload;
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return State->ComputeResources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
+				const std::array<const FGlobalShaderType*, 1> Types{
+					&FContactVisibilityComputeShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"ContactVisibility.Compute", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						"ContactVisibilityCompute", "shader",
+						"Global shader set is unavailable.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Manual));
+				Candidate.ComputeShader =
+					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
+				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
+				if (ComputeRHI == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibilityCompute", "pipeline",
+						"Compute shader RHI creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FComputePipelineStateInitializer Initializer;
+				Initializer.ComputeShader = ComputeRHI;
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
+					"ContactVisibilityComputePipeline", Initializer);
+				if (Candidate.PipelineState == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"ContactVisibilityCompute", "pipeline",
+						"Compute pipeline creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
+			!= nullptr;
+	}
+
+	auto FContactShadowVisibilityRenderer::EnsureFragmentResources_RenderThread(
+		FRHICommandListImmediate& CommandList) -> bool
+	{
+		using FPayload = FState::FFragmentPayload;
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return State->FragmentResources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
+				const std::array<const FGlobalShaderType*, 2> Types{
+					&FContactVisibilityVertexShader::StaticType(),
+					&FContactVisibilityFragmentShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"ContactVisibility.Fragment", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						"ContactVisibility", "shader",
+						"Global shader set is unavailable.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Manual));
+				Candidate.VertexShader =
+					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader =
+					TShaderMapRef<FContactVisibilityFragmentShader>(Candidate.ShaderSet);
+				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibility", "fullscreen-geometry",
+						"Shared fullscreen geometry is unavailable.",
+						ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
+				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
+				if (VertexRHI == nullptr || FragmentRHI == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"ContactVisibility", "pipeline",
+						"RHI shader creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeContactVisibilityOutput();
+				Initializer.BoundShaders.VertexShader = VertexRHI;
+				Initializer.BoundShaders.FragmentShader = FragmentRHI;
+				Initializer.VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+					"ContactVisibilityPipeline", Initializer);
+				if (Candidate.PipelineState == nullptr)
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::GraphicsPipeline,
+						"ContactVisibility", "pipeline",
+						"Graphics pipeline creation returned null.",
+						ERenderResourceGenerationDependency::Shader
+							| ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
+			!= nullptr;
+	}
 	auto FContactShadowVisibilityRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList, bool bRequested,
 		const FTargets* FragmentTargets,
@@ -185,58 +300,10 @@ namespace Durin
 			&& Surface != nullptr && Emissive != nullptr && SceneDepth != nullptr
 			&& View.ViewportWidth != 0 && View.ViewportHeight != 0 && bViewFits
 			&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8;
-		const bool bInputsValid = Policy.bPreparationOnly
-			? Policy.bInputsExpected && View.ViewportWidth != 0
-				&& View.ViewportHeight != 0 && bViewFits
-				&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8
-			: bPhysicalInputsValid;
-
-		using FComputePayload = FState::FComputePayload;
-		using FComputeResult = TRenderResourceCreateResult<FComputePayload>;
-		FComputePayload* ComputePayload = nullptr;
+		const bool bInputsValid = bPhysicalInputsValid;
 		if (bRequested && bInputsValid && Width != 0 && Height != 0)
-		{
-			ComputePayload = State->ComputeResources.Resolve(
-				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
-					const std::array<const FGlobalShaderType*, 1> Types{
-						&FContactVisibilityComputeShader::StaticType()};
-					FComputePayload Candidate;
-					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
-						"ContactVisibility.Compute", Types, true,
-						ReportRendererResourceCreateDiagnostic);
-					if (!Candidate.ShaderSet)
-						return FComputeResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"ContactVisibilityCompute", "shader", "Global shader set is unavailable.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-					Candidate.ComputeShader = TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
-					FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
-					if (ComputeRHI == nullptr)
-						return FComputeResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"ContactVisibilityCompute", "pipeline",
-							"Compute shader RHI creation returned null.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-					FComputePipelineStateInitializer Initializer;
-					Initializer.ComputeShader = ComputeRHI;
-					Initializer.PipelineLayout =
-						Candidate.ShaderSet.GetPipelineLayout();
-					Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
-						"ContactVisibilityComputePipeline", Initializer);
-					if (Candidate.PipelineState == nullptr)
-						return FComputeResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::GraphicsPipeline,
-							"ContactVisibilityCompute", "pipeline",
-							"Compute pipeline creation returned null.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-					return FComputeResult::Success(std::move(Candidate));
-				}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
-		}
+			EnsureComputeResources_RenderThread();
+		auto* ComputePayload = State->ComputeResources.GetPayload();
 
 		const FRHICapabilities* Capabilities =
 			GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
@@ -244,9 +311,8 @@ namespace Durin
 			.bRequested = bRequested,
 			.bInputsValid = bInputsValid,
 			.bComputePayloadReady = ComputePayload != nullptr,
-			.bComputeTargetReady = Policy.bPreparationOnly
-				? Policy.bComputeTargetExpected
-				: ComputeTargets != nullptr && ComputeTargets->Visibility != nullptr,
+			.bComputeTargetReady =
+				ComputeTargets != nullptr && ComputeTargets->Visibility != nullptr,
 			.bFragmentReady = false,
 			.Width = Width,
 			.Height = Height,
@@ -256,76 +322,22 @@ namespace Durin
 				? Capabilities->MaxComputeWorkGroupCount[1] : 0};
 		FRouteDecision Decision = SelectRoute(RouteInputs);
 
-		using FFragmentPayload = FState::FFragmentPayload;
-		using FFragmentResult = TRenderResourceCreateResult<FFragmentPayload>;
-		FFragmentPayload* FragmentPayload = nullptr;
 		if (Decision.Route != ERoute::Compute && bRequested && bInputsValid
 			&& Width != 0 && Height != 0
-			&& (Policy.bPreparationOnly ? Policy.bFragmentTargetExpected
-				: FragmentTargets != nullptr
-					&& FragmentTargets->Visibility != nullptr))
-		{
-			FragmentPayload = State->FragmentResources.Resolve(
-			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
-				const std::array<const FGlobalShaderType*, 2> Types{
-					&FContactVisibilityVertexShader::StaticType(),
-					&FContactVisibilityFragmentShader::StaticType()};
-				FFragmentPayload Candidate;
-				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
-					"ContactVisibility.Fragment", Types, true,
-					ReportRendererResourceCreateDiagnostic);
-				if (!Candidate.ShaderSet)
-					return FFragmentResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"ContactVisibility", "shader", "Global shader set is unavailable.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				Candidate.VertexShader = TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
-				Candidate.FragmentShader = TShaderMapRef<FContactVisibilityFragmentShader>(Candidate.ShaderSet);
-				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-					return FFragmentResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibility", "fullscreen-geometry",
-						"Shared fullscreen geometry is unavailable.",
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
-				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
-				if (VertexRHI == nullptr || FragmentRHI == nullptr)
-					return FFragmentResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::RHIResource,
-						"ContactVisibility", "pipeline",
-						"RHI shader creation returned null.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout = RenderTargetLayouts::MakeContactVisibilityOutput();
-				Initializer.BoundShaders.VertexShader = VertexRHI;
-				Initializer.BoundShaders.FragmentShader = FragmentRHI;
-				Initializer.VertexDeclaration =
-					FullscreenGeometry.GetVertexDeclaration_RenderThread();
-				Initializer.RasterizerState.CullMode = ERHICullMode::None;
-				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
-					"ContactVisibilityPipeline", Initializer);
-				if (Candidate.PipelineState == nullptr)
-					return FFragmentResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"ContactVisibility", "pipeline",
-						"Graphics pipeline creation returned null.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
-				return FFragmentResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
-		}
+			&& FragmentTargets != nullptr && FragmentTargets->Visibility != nullptr)
+			EnsureFragmentResources_RenderThread(CommandList);
+		auto* FragmentPayload = State->FragmentResources.GetPayload();
 		RouteInputs.bFragmentReady = FragmentPayload != nullptr
 			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
 			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
 		Decision = SelectRoute(RouteInputs);
-		if (Policy.bPreparationOnly)
-			return {.Route = Decision.Route, .Reason = Decision.Reason};
+		if (Policy.PreparedRoute)
+		{
+			if (Decision.Route != Policy.PreparedRoute->Route)
+				return {.Route = ERoute::FactorOne,
+					.Reason = Decision.Reason};
+			Decision = *Policy.PreparedRoute;
+		}
 		if (Decision.Route == ERoute::FactorOne)
 			return {.Route = Decision.Route, .Reason = Decision.Reason};
 
@@ -494,6 +506,53 @@ namespace Durin
 			CommandList.TransitionTextures(FinalVisibilityTransition);
 		return {.Visibility = FragmentTargets->Visibility,
 			.Route = Decision.Route, .Reason = Decision.Reason};
+	}
+
+	auto FContactShadowVisibilityRenderer::PrepareRoute_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		bool bRequested,
+		bool bInputsExpected,
+		bool bFragmentTargetExpected,
+		bool bComputeTargetExpected,
+		const FSceneView& View,
+		const FVector3& LightDirection,
+		uint32 Width,
+		uint32 Height) -> FRouteDecision
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		const double LightLengthSquared = Math::Dot(LightDirection, LightDirection);
+		const bool bViewFits = View.ViewportX <= Width && View.ViewportY <= Height
+			&& View.ViewportWidth <= Width - View.ViewportX
+			&& View.ViewportHeight <= Height - View.ViewportY;
+		const bool bInputsValid = bInputsExpected && View.ViewportWidth != 0
+			&& View.ViewportHeight != 0 && bViewFits
+			&& std::isfinite(LightLengthSquared) && LightLengthSquared > 1.0e-8;
+		if (bRequested && bInputsValid && Width != 0 && Height != 0)
+			EnsureComputeResources_RenderThread();
+		const FRHICapabilities* Capabilities =
+			GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		FRouteInputs Inputs{
+			.bRequested = bRequested,
+			.bInputsValid = bInputsValid,
+			.bComputePayloadReady = State->ComputeResources.GetPayload() != nullptr,
+			.bComputeTargetReady = bComputeTargetExpected,
+			.bFragmentReady = false,
+			.Width = Width,
+			.Height = Height,
+			.MaxGroupCountX = Capabilities != nullptr
+				? Capabilities->MaxComputeWorkGroupCount[0] : 0,
+			.MaxGroupCountY = Capabilities != nullptr
+				? Capabilities->MaxComputeWorkGroupCount[1] : 0};
+		FRouteDecision Decision = SelectRoute(Inputs);
+		if (Decision.Route != ERoute::Compute && bRequested && bInputsValid
+			&& Width != 0 && Height != 0 && bFragmentTargetExpected)
+			EnsureFragmentResources_RenderThread(CommandList);
+		Inputs.bFragmentReady = bFragmentTargetExpected
+			&& State->FragmentResources.GetPayload() != nullptr
+			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
+			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
+		return SelectRoute(Inputs);
 	}
 
 	auto FContactShadowVisibilityRenderer::ReleaseResources_RenderThread() -> void

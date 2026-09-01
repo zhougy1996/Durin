@@ -1,6 +1,6 @@
 #include "Renderers/SceneRenderer.h"
 
-#include "Renderers/SceneRenderGraphExecutor.h"
+#include "Renderers/SceneRenderPipeline.h"
 
 #include "Asset/Asset.h"
 #include "Console/ConsoleCommand.h"
@@ -254,7 +254,7 @@ namespace Durin
 		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
-		return FSceneRenderGraphExecutor(*this).Execute_RenderThread(
+		return FSceneRenderPipeline(*this).Execute_RenderThread(
 			CommandList, Scene, View, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture
 		);

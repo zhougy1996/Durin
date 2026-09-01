@@ -21,7 +21,7 @@ namespace Durin
 		}
 	} // namespace
 
-	auto FPostProcessGraphContributor::AddPasses(
+	auto FPostProcessRendering::AddPasses(
 		const FPostProcessGraphInputs& Inputs) -> FPostProcessGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
@@ -33,13 +33,13 @@ namespace Durin
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		const bool bPresentOutput = Inputs.bPresentOutput;
-		const bool bHasEditorAssistance = Inputs.bHasEditorAssistance;
-		FSceneRenderTopology Topology;
-		Topology.bGBufferDebug = Inputs.bGBufferDebug;
+		const bool bHasEditorAssistance =
+			Inputs.EditorAssistanceFeature.IsEnabled();
+		const bool bGBufferDebug = Inputs.GBufferDebugFeature.IsEnabled();
 		std::optional<FRDGTextureHandle> GBufferDebug;
 		const auto PostProcessCompletion = Graph.CreateValue<FPostProcessPassResult>(
 			"Scene.PostProcessValue", "post-process-result");
-		if (Topology.bGBufferDebug)
+		if (bGBufferDebug)
 			GBufferDebug = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"GBufferDebugColor", Width, Height,
@@ -63,7 +63,7 @@ namespace Durin
 			Parameters->Resources.CloudComposite = {
 				*Inputs.SceneColor.CloudComposite,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (Topology.bGBufferDebug)
+		if (bGBufferDebug)
 			Parameters->Resources.SceneDepth = {Inputs.SceneColor.Depth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const FRDGColorAttachmentParameter Output{
@@ -80,7 +80,7 @@ namespace Durin
 			Parameters->Resources.GBufferDebugOutput = {
 				*GBufferDebug,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (Inputs.GBuffer.Textures[0] && Topology.bGBufferDebug)
+		if (Inputs.GBuffer.Textures[0] && bGBufferDebug)
 			for (uint32 Index = 0; Index < Inputs.GBuffer.Textures.size(); ++Index)
 				Parameters->Resources.GBuffer[Index] = {
 					*Inputs.GBuffer.Textures[Index],
@@ -90,10 +90,10 @@ namespace Durin
 				*Inputs.Deferred.Isolated,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		const auto PostProcessPass =
-			AddSceneRenderFeaturePass<FPostProcessGraphContributor>(
+			AddSceneRenderFeaturePass<FPostProcessRendering>(
 				Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
-				RecordView = &RecordView, &View, Topology, &Options,
+				RecordView = &RecordView, &View, bGBufferDebug, &Options,
 				bPresentOutput, bHasEditorAssistance](
 				FRHICommandListImmediate& Commands,
 				const FPostProcessPassParameters& PassParameters,
@@ -105,7 +105,7 @@ namespace Durin
 				if (!SceneColorResult.IsSuccess()) return;
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = Resolver.GetTexture(PassParameters.Resources.SceneColor),
-					.Depth = Topology.bGBufferDebug
+					.Depth = bGBufferDebug
 						? Resolver.GetTexture(PassParameters.Resources.SceneDepth)
 						: nullptr};
 				FRHITexture* SceneColorInput = SceneTargets.Color;
@@ -118,7 +118,7 @@ namespace Durin
 					DebugTargets = {.Color = Resolver.GetColorAttachment(
 						PassParameters.Resources.GBufferDebugOutput).Texture};
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (PassParameters.Resources.GBuffer[0] && Topology.bGBufferDebug)
+				if (PassParameters.Resources.GBuffer[0] && bGBufferDebug)
 					GBufferTargets = {
 						.Material = Resolver.GetTexture(PassParameters.Resources.GBuffer[0]),
 						.Normals = Resolver.GetTexture(PassParameters.Resources.GBuffer[1]),

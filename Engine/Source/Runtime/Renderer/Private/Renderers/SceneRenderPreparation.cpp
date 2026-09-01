@@ -19,11 +19,13 @@ namespace Durin
 {
 	auto FSceneRenderPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FScene* Scene,
-		FSceneView& RenderView,
-		const FSceneViewRenderOptions& Options
+		FSceneFrameContext& Context
 	) -> FSceneRenderPreparationResult
 	{
+		FScene* Scene = Context.Logical.Scene;
+		FSceneView& RenderView = Context.Logical.RenderView;
+		const FSceneViewRenderOptions& Options = Context.Logical.Options;
+		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		FSceneRenderPlan PreparedView;
 		PreparedView.Context.View = RenderView;
 		if (Options.Environment)
@@ -416,31 +418,34 @@ namespace Durin
 
 	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FSceneRenderPlan& PreparedView
+		const FSceneRenderPlan& PreparedView,
+		FSceneFrameContext& Context
 	) -> ERenderViewResult
 	{
+		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
+		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.Context.View;
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
-		StaticMeshRenderer.PrepareResources_RenderThread(
+		Renderer.StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.StaticMeshes,
 			ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
-		SkeletalMeshRenderer.PrepareResources_RenderThread(
+		Renderer.SkeletalMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.SkeletalPalettes,
 			ResolvedSceneResources.Receiver.SkeletalPalettes,
 			PreparedView.Receiver.SkeletalMeshes,
 			ResolvedSceneResources.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
-		TerrainRenderer.PrepareResources_RenderThread(
+		Renderer.TerrainRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.Terrains,
 			ResolvedSceneResources.Receiver.Terrains, !bRequiresDeferredOpaque);
 
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
-			DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
-				TerrainRenderer, *PreparedView.DirectionalShadow,
+			Renderer.DirectionalShadowRenderer.PrepareResources_RenderThread(
+				CommandList, Renderer.StaticMeshRenderer, Renderer.SkeletalMeshRenderer,
+				Renderer.TerrainRenderer, *PreparedView.DirectionalShadow,
 				*ResolvedSceneResources.DirectionalShadow,
 				PreparedView.Receiver.SkeletalPalettes,
 				ResolvedSceneResources.Receiver.SkeletalPalettes, Telemetry.View);
@@ -449,9 +454,9 @@ namespace Durin
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
 			&& ResolvedSceneResources.DirectionalShadow->bEnabled;
 		FRHITexture* DirectionalShadowTexture =
-			DirectionalShadowRenderer.GetTexture_RenderThread();
+			Renderer.DirectionalShadowRenderer.GetTexture_RenderThread();
 		FRHISampler* DirectionalShadowSampler =
-			DirectionalShadowRenderer.GetSampler_RenderThread();
+			Renderer.DirectionalShadowRenderer.GetSampler_RenderThread();
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
@@ -483,56 +488,70 @@ namespace Durin
 			ResolvedSceneResources.VolumetricCloud->Textures =
 				PreparedView.VolumetricCloud->Textures;
 			ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler =
-				VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
+				Renderer.VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
 		}
 		return ERenderViewResult::Success;
 	}
 
-	auto FSceneRenderPipeline::BuildSceneRenderTopology(
+	auto FSceneRenderPipeline::BuildSceneFrameFeaturePlan(
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
-		uint32 Height
-	) const -> FSceneRenderTopology
+		uint32 Height,
+		const FRendererQualificationPolicy& Qualification
+	) const -> FSceneFrameFeaturePlan
 	{
 		const FSceneView& View = PreparedView.Context.View;
+		FSceneFrameFeaturePlan Plan;
+		auto AddPurpose = [](FSceneFeatureDecision& Feature,
+			ESceneFeaturePurpose Purpose, bool bEnabled) {
+			if (bEnabled) Feature.Purposes = Feature.Purposes | Purpose;
+		};
 		const bool bProductionDeferred =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
-		const bool bIsolatedDeferred =
-			Qualification.bEnableDeferredDirectional
-			|| Options.DeferredDirectionalDebugMode
+		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Production,
+			bProductionDeferred);
+		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Qualification,
+			Qualification.bEnableDeferredDirectional);
+		AddPurpose(Plan.Deferred, ESceneFeaturePurpose::Debug,
+			Options.DeferredDirectionalDebugMode
 				!= EDeferredDirectionalDebugMode::Disabled
 			|| Options.GroundTruthAmbientOcclusionDebugMode
-				!= EGroundTruthAmbientOcclusionDebugMode::Disabled;
-		const bool bAmbientOcclusion =
-			Qualification.bEnableGroundTruthAmbientOcclusion
-			|| Options.GroundTruthAmbientOcclusionDebugMode
-				!= EGroundTruthAmbientOcclusionDebugMode::Disabled
-			|| (bProductionDeferred
-				&& View.Settings.AmbientOcclusion.bEnabled);
-		const bool bGBuffer = Qualification.bEnableGBuffer
-			|| Options.GBufferDebugMode != EGBufferDebugMode::Disabled
-			|| bIsolatedDeferred || bProductionDeferred || bAmbientOcclusion;
+				!= EGroundTruthAmbientOcclusionDebugMode::Disabled);
+		AddPurpose(Plan.AmbientOcclusion, ESceneFeaturePurpose::Production,
+			bProductionDeferred && View.Settings.AmbientOcclusion.bEnabled);
+		AddPurpose(Plan.AmbientOcclusion, ESceneFeaturePurpose::Qualification,
+			Qualification.bEnableGroundTruthAmbientOcclusion);
+		AddPurpose(Plan.AmbientOcclusion, ESceneFeaturePurpose::Debug,
+			Options.GroundTruthAmbientOcclusionDebugMode
+				!= EGroundTruthAmbientOcclusionDebugMode::Disabled);
+		Plan.AmbientOcclusion.Quality = View.Settings.AmbientOcclusion.Quality;
+		AddPurpose(Plan.GBuffer, ESceneFeaturePurpose::Qualification,
+			Qualification.bEnableGBuffer);
+		AddPurpose(Plan.GBuffer, ESceneFeaturePurpose::Debug,
+			Options.GBufferDebugMode != EGBufferDebugMode::Disabled);
+		AddPurpose(Plan.GBuffer, ESceneFeaturePurpose::Dependency,
+			Plan.RequiresDeferredInputs());
+		AddPurpose(Plan.GBufferDebug, ESceneFeaturePurpose::Debug,
+			Options.GBufferDebugMode != EGBufferDebugMode::Disabled);
 		const bool bContact = bProductionDeferred
 			&& View.Settings.DirectionalShadow.bEnableContactShadows
 			&& PreparedView.DirectionalShadow
 			&& PreparedView.DirectionalShadow->View.bEnabled;
-		const bool bForceContactShadowVisibilityFragment =
-			Qualification.bForceFragmentContactVisibility
-			|| View.Settings.DirectionalShadow.ContactRoutePreference
-				== EContactShadowRoutePreference::Fragment;
-		const bool bForceContactShadowVisibilityCompute =
-			!Qualification.bForceFragmentContactVisibility
-			&& View.Settings.DirectionalShadow.ContactRoutePreference
-				== EContactShadowRoutePreference::Compute;
+		AddPurpose(Plan.ContactVisibility, ESceneFeaturePurpose::Production,
+			bContact);
 		const bool bCloudShadow = bProductionDeferred
 			&& PreparedView.VolumetricCloud
 			&& !PreparedView.Lighting.Lights.Directional.empty();
+		AddPurpose(Plan.CloudShadow, ESceneFeaturePurpose::Production,
+			bCloudShadow);
 		const bool bCloudInputs = bProductionDeferred
 			&& PreparedView.VolumetricCloud
 			&& PreparedView.VolumetricCloud->Textures.BaseDensity
 			&& PreparedView.VolumetricCloud->Textures.DetailDensity;
+		AddPurpose(Plan.CloudSpatial, ESceneFeaturePurpose::Production,
+			bCloudInputs);
 		const auto CloudQuality = CanonicalizeVolumetricCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
 		const auto CloudPolicy =
@@ -540,31 +559,11 @@ namespace Durin
 		const auto CloudExtent =
 			FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
 				Width, Height, CloudPolicy);
-		const bool bForceCloudFragment = PreparedView.VolumetricCloud
-			&& Qualification.bForceFragmentVolumetricCloud;
-		return {
-			.Width = Width,
-			.Height = Height,
-			.bGBuffer = bGBuffer,
-			.bGroundTruthAmbientOcclusion = bAmbientOcclusion,
-			.ContactShadowVisibility = !bContact ? ESceneRenderRoute::Disabled
-				: (bForceContactShadowVisibilityFragment ? ESceneRenderRoute::Fragment
-					: ESceneRenderRoute::Compute),
-			.VolumetricCloudShadow = !bCloudShadow
-				? ESceneRenderRoute::Disabled
-				: (bForceCloudFragment ? ESceneRenderRoute::Fragment
-					: ESceneRenderRoute::Compute),
-			.bIsolatedDeferred = bIsolatedDeferred,
-			.bGBufferDebug =
-				Options.GBufferDebugMode != EGBufferDebugMode::Disabled,
-			.VolumetricCloud = !bCloudInputs ? ESceneRenderRoute::Disabled
-				: (bForceCloudFragment ? ESceneRenderRoute::Fragment
-					: ESceneRenderRoute::Compute),
-			.bVolumetricCloudComposite = bCloudInputs,
-			.AmbientOcclusionQuality = View.Settings.AmbientOcclusion.Quality,
-			.VolumetricCloudExtent = {
-				static_cast<int32>(CloudExtent.Width),
-				static_cast<int32>(CloudExtent.Height)}};
+		Plan.CloudSpatial.Extent = {
+			static_cast<int32>(CloudExtent.Width),
+			static_cast<int32>(CloudExtent.Height)};
+		Plan.PostProcess.Purposes = ESceneFeaturePurpose::Production;
+		return Plan;
 	}
 
 } // namespace Durin

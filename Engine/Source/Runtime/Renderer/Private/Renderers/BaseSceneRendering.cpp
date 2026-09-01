@@ -11,14 +11,15 @@
 
 namespace Durin
 {
-	auto FBaseSceneGraphContributor::AddPasses(
+	auto FBaseSceneRendering::AddPasses(
 		const FBaseSceneGraphInputs& Inputs) -> FBaseSceneGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
-		const bool bRequiresDeferredOpaque = Inputs.bRequiresDeferredOpaque;
-		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
+		const bool bRequiresDeferredOpaque =
+			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
+		const bool bNeedsGBuffer = Inputs.GBufferFeature.IsEnabled();
 		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
 		const auto BaseSceneCompletion = Graph.CreateValue<FSceneColorPassResult>(
 			"Scene.BaseValue", "scene-color-result");
@@ -68,7 +69,7 @@ namespace Durin
 			Parameters->Resources.SceneDepthDepthToGraphics = Depth;
 		else
 			Parameters->Resources.SceneDepthDepthToDepth = Depth;
-		(void)AddSceneRenderFeaturePass<FBaseSceneGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FBaseSceneRendering>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs, &ProductionDeferredParameters](
 				FRHICommandListImmediate& Commands,

@@ -6,52 +6,87 @@
 
 namespace Durin
 {
-	enum class ESceneRenderRoute : uint8
+	enum class ESceneFeaturePurpose : uint8
 	{
-		Disabled,
-		Fragment,
-		Compute,
+		None = 0,
+		Production = 1 << 0,
+		Debug = 1 << 1,
+		Qualification = 1 << 2,
+		Dependency = 1 << 3,
 	};
 
-	struct FSceneRenderTopology
+	constexpr auto operator|(
+		ESceneFeaturePurpose Left,
+		ESceneFeaturePurpose Right) -> ESceneFeaturePurpose
 	{
-		uint32 Width = 0;
-		uint32 Height = 0;
-		bool bGBuffer = false;
-		bool bGroundTruthAmbientOcclusion = false;
-		ESceneRenderRoute ContactShadowVisibility = ESceneRenderRoute::Disabled;
-		ESceneRenderRoute VolumetricCloudShadow = ESceneRenderRoute::Disabled;
-		bool bIsolatedDeferred = false;
-		bool bGBufferDebug = false;
-		ESceneRenderRoute VolumetricCloud = ESceneRenderRoute::Disabled;
-		bool bVolumetricCloudComposite = false;
-		EGroundTruthAmbientOcclusionQuality AmbientOcclusionQuality =
-			EGroundTruthAmbientOcclusionQuality::FullResolution;
-		FIntPoint VolumetricCloudExtent{0, 0};
+		return static_cast<ESceneFeaturePurpose>(
+			static_cast<uint8>(Left) | static_cast<uint8>(Right));
+	}
 
-		[[nodiscard]] auto UsesContactShadowVisibilityFragment() const -> bool
+	struct FSceneFeatureDecision
+	{
+		ESceneFeaturePurpose Purposes = ESceneFeaturePurpose::None;
+
+		[[nodiscard]] auto IsEnabled() const -> bool
 		{
-			return ContactShadowVisibility == ESceneRenderRoute::Fragment;
+			return Purposes != ESceneFeaturePurpose::None;
 		}
-		[[nodiscard]] auto UsesContactShadowVisibilityCompute() const -> bool
+
+		[[nodiscard]] auto HasPurpose(ESceneFeaturePurpose Purpose) const -> bool
 		{
-			return ContactShadowVisibility == ESceneRenderRoute::Compute;
+			return (static_cast<uint8>(Purposes) & static_cast<uint8>(Purpose)) != 0;
 		}
-		[[nodiscard]] auto UsesCloudShadowFragment() const -> bool
+	};
+
+	// Publishes the complete immutable feature policy for one scene submission.
+	struct FSceneFrameFeaturePlan final
+	{
+		struct FAmbientOcclusion final : FSceneFeatureDecision
 		{
-			return VolumetricCloudShadow == ESceneRenderRoute::Fragment;
+			EGroundTruthAmbientOcclusionQuality Quality =
+				EGroundTruthAmbientOcclusionQuality::FullResolution;
+		};
+
+		struct FContactVisibility final : FSceneFeatureDecision
+		{
+			FContactShadowVisibilityRenderer::FRouteDecision Decision;
+		};
+
+		struct FCloudShadow final : FSceneFeatureDecision
+		{
+			FVolumetricCloudShadowRenderer::FRouteDecision Decision;
+		};
+
+		struct FCloudSpatial final : FSceneFeatureDecision
+		{
+			FVolumetricCloudSpatialRenderer::FRouteDecision Decision;
+			FIntPoint Extent{0, 0};
+		};
+
+		FSceneFeatureDecision Deferred;
+		FSceneFeatureDecision GBuffer;
+		FAmbientOcclusion AmbientOcclusion;
+		FContactVisibility ContactVisibility;
+		FCloudShadow CloudShadow;
+		FCloudSpatial CloudSpatial;
+		FSceneFeatureDecision GBufferDebug;
+		FSceneFeatureDecision PostProcess;
+		FSceneFeatureDecision EditorAssistance;
+
+		[[nodiscard]] auto RequiresProductionDeferred() const -> bool
+		{
+			return Deferred.HasPurpose(ESceneFeaturePurpose::Production);
 		}
-		[[nodiscard]] auto UsesCloudShadowCompute() const -> bool
+
+		[[nodiscard]] auto RequiresIsolatedDeferred() const -> bool
 		{
-			return VolumetricCloudShadow == ESceneRenderRoute::Compute;
+			return Deferred.HasPurpose(ESceneFeaturePurpose::Debug)
+				|| Deferred.HasPurpose(ESceneFeaturePurpose::Qualification);
 		}
-		[[nodiscard]] auto UsesCloudFragment() const -> bool
+
+		[[nodiscard]] auto RequiresDeferredInputs() const -> bool
 		{
-			return VolumetricCloud == ESceneRenderRoute::Fragment;
-		}
-		[[nodiscard]] auto UsesCloudCompute() const -> bool
-		{
-			return VolumetricCloud == ESceneRenderRoute::Compute;
+			return Deferred.IsEnabled() || AmbientOcclusion.IsEnabled();
 		}
 	};
 
@@ -63,6 +98,16 @@ namespace Durin
 		std::optional<FResolvedVolumetricCloud> VolumetricCloud;
 	};
 
+	struct FSceneRenderGraphComposition final
+	{
+		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
+			DeferredParameters;
+		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
+			ProductionDeferredParameters;
+		FSceneColorPassResult SceneColorPublication;
+		FPostProcessPassResult PostProcessPublication;
+	};
+
 	enum class ESceneRenderGraphExecutionStatus : uint8
 	{
 		CompileFailed,
@@ -70,6 +115,4 @@ namespace Durin
 		Executed,
 	};
 
-	using FSceneRenderGraphExecute = std::function<ESceneRenderGraphExecutionStatus(
-		FRDGBuilder&)>;
 } // namespace Durin

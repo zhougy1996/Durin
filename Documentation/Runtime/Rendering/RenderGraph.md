@@ -355,12 +355,13 @@ owns ordering against GBuffer, depth, deferred lighting, and final output.
 
 ## Scene Render Graph
 
-`FSceneRenderGraphExecutor` owns the sole production graph's
-compile/execute/capture boundary. `FSceneRenderPipeline` owns frame
-preparation, topology selection, and commit or abort, while
-`FSceneRenderGraphComposer` wires renderer-private feature contributors in a
-fixed order. Each contributor accepts a feature-specific immutable input,
-creates its own typed completion value and logical textures, then returns a
+`FSceneRenderPipeline` owns the sole production graph's preparation,
+compile/execute/capture, and commit-or-abort boundary. One stack-owned
+`FSceneFrameContext` separates logical preparation, resolved resources, feature
+decisions, transaction state, and observation state, while
+`FSceneRenderGraphComposer` wires renderer-private features in a fixed order.
+Feature-owned `AddPasses` entries accept a feature-specific immutable input,
+create their own typed completion value and logical textures, then return a
 narrow typed output for the next contributor. Every production scene pass is
 parameterized: one graph-owned parameter object supplies its exact texture,
 attachment, value, token, and selected-route declarations to both compilation
@@ -368,12 +369,15 @@ and the bounded callback. Present or offscreen output is the explicit typed
 root. Stable compilation preserves declaration order between independent
 optional producers.
 
-The composer is the only boundary allowed to see the complete immutable
-`FSceneRenderPlan`; it slices that plan into feature-specific recorder inputs
-before invoking contributors. Contributors and their callbacks cannot receive
+The composer is the only graph-authoring boundary allowed to see the complete
+immutable `FSceneRenderPlan` and canonical `FSceneFrameFeaturePlan`; it slices
+those plans into feature-specific inputs before invoking each feature.
+Features and their callbacks cannot receive
 the complete plan or execution pipeline. `FSceneRenderFeatureRecorders` owns
-feature command semantics and renderer services, but does not author, compile,
-or execute graph structure.
+the remaining feature command semantics and renderer services during migration,
+but does not author, compile, or execute graph structure. GBuffer and Contact
+Visibility already own their complete metadata/setup/callback/recording path
+and do not pass through that facade.
 
 Production scene authoring has no frame-wide resource/channel bag, repeated
 persistent-input declaration helper, or manual `Graph.Use*` supplement. A pass
@@ -383,7 +387,9 @@ fields mean the route cannot access those capabilities.
 
 Persistent geometry and feature pipeline preparation complete before graph
 compile. Compute, fragment, disabled, and factor-one routes are therefore part
-of the authored topology rather than callback-time choices. After culling, the
+of the published feature plan rather than callback-time choices. Callbacks
+validate that physical capabilities still match the authored route and fail the
+feature instead of selecting another route. After culling, the
 descriptor-keyed Renderer allocator reserves a distinct physical entry for
 every retained logical resource and atomically publishes the complete
 strong-reference table. Diagnostic names and feature routes do not participate

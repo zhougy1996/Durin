@@ -73,10 +73,7 @@ namespace Durin
 		};
 		struct FRenderPolicy
 		{
-			bool bPreparationOnly = false;
-			bool bInputsExpected = false;
-			bool bFragmentTargetExpected = false;
-			bool bComputeTargetExpected = false;
+			std::optional<FRouteDecision> PreparedRoute;
 			bool bGraphManagedTextureAccess = false;
 			const FRDGShaderParameterScope* GraphShaderParameters = nullptr;
 		};
@@ -94,6 +91,16 @@ namespace Durin
 			return Extent == 0 ? 0 : (Extent + ThreadGroupSize - 1) / ThreadGroupSize;
 		}
 		static auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
+		auto PrepareRoute_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			bool bRequested,
+			bool bInputsExpected,
+			bool bFragmentTargetExpected,
+			bool bComputeTargetExpected,
+			const FSceneView& View,
+			const FVector3& LightDirection,
+			uint32 Width,
+			uint32 Height) -> FRouteDecision;
 
 		// Owns the render-targetable fragment fallback for one extent.
 		struct FTargets { FTextureRHIRef Visibility; };
@@ -130,6 +137,9 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto EnsureComputeResources_RenderThread() -> bool;
+		auto EnsureFragmentResources_RenderThread(
+			FRHICommandListImmediate& CommandList) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;

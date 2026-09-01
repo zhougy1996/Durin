@@ -53,7 +53,7 @@ Supported GBuffer, deferred, and GTAO debug modes remain explicit public view
 options and execute through the same compiled graph schedule. Timing and
 capture sinks observe completed typed pass results only.
 
-The graph executor's preparation stage builds the plan from the fitted
+The frame pipeline's preparation stage builds the plan from the fitted
 `FSceneView` and render-thread `FScene` snapshot. The plan never contains a
 reflected or game-thread object and remains bounded by the render command's
 existing SceneInfo/proxy lifetime. Optional environment and cloud partitions
@@ -64,9 +64,12 @@ Preparation returns either one complete plan or a typed failure. The published
 plan is then held as `const`. A distinct resolution stage allocates the packed
 lighting uniform, resolves receiver and shadow resources, uploads shared
 Skeletal palettes into a resolved palette table, and resolves the cloud
-sampler. The pipeline then derives one immutable `FSceneRenderTopology` value.
-Mutually exclusive Contact Visibility, cloud-shadow, and cloud routes use
-`Disabled`/`Fragment`/`Compute` states rather than independent booleans. Scene
+sampler. The pipeline then publishes one immutable `FSceneFrameFeaturePlan`.
+Purpose flags explain production, debug, qualification, and dependency demand;
+feature-specific decisions carry the exact Contact Visibility, cloud-shadow,
+and cloud route plus reason. Route preparation resolves persistent payloads and
+selects against expected graph target capabilities without invoking recording
+with empty targets. Scene
 Color, depth, GBuffer, and output receive graph identities before
 physical target creation; compiled execution allocates their exact retained
 descriptions through the Renderer RDG allocator. There is no resolved frame-target
@@ -105,10 +108,14 @@ introduce synchronization.
 
 ## Render Graph Frame Schedule
 
-`FSceneRenderer::RenderView_RenderThread` delegates to the thin
-`FSceneRenderGraphExecutor`. The executor owns the compile/execute/capture
-boundary. `FSceneRenderGraphComposer` constructs the sole production graph in
-stable order through renderer-private named feature contributors:
+`FSceneRenderer::RenderView_RenderThread` creates one temporary
+`FSceneRenderPipeline`. The pipeline owns preparation, the stack-local
+five-part `FSceneFrameContext`, compile/execute/capture, and final transaction
+publication. `FSceneRenderGraphComposer` constructs the sole production graph
+in stable order through renderer-private named feature entries. GBuffer and
+Contact Visibility already use direct feature-owned `AddPasses`; remaining
+features retain the migration-era contributor boundary until the same ownership
+shape is applied:
 
 1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
@@ -116,7 +123,8 @@ stable order through renderer-private named feature contributors:
 3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
    shared poses, combined translucency, and optional cloud inputs; publish the
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
-   resources into `FResolvedSceneResources`. Derive frame topology once.
+   resources into `FResolvedSceneResources`. Derive dependency closure and the
+   final feature plan once.
 4. Compile explicit top-level dependencies and output roots, cull unreachable
    versions, then allocate retained logical descriptions as one complete-or-null
    strong-reference table before any command records.

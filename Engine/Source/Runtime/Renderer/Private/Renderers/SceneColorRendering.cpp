@@ -11,15 +11,16 @@
 
 namespace Durin
 {
-	auto FSceneColorGraphContributor::AddPasses(
+	auto FSceneColorRendering::AddPasses(
 		const FSceneColorGraphInputs& Inputs) -> FSceneColorGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
-		const bool bRequiresDeferredOpaque = Inputs.bRequiresDeferredOpaque;
-		FSceneRenderTopology Topology;
-		Topology.bVolumetricCloudComposite = Inputs.bVolumetricCloudComposite;
+		const bool bRequiresDeferredOpaque =
+			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
+		const bool bVolumetricCloudComposite = Inputs.CloudFeature.Decision.Route
+			!= FVolumetricCloudRenderer::ERoute::Disabled;
 		const auto SceneColorCompletion = Graph.CreateValue<FSceneColorPassResult>(
 			"Scene.ColorValue", "scene-color-result");
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
@@ -29,7 +30,7 @@ namespace Durin
 		if (bRequiresDeferredOpaque)
 		{
 			const FRDGTextureHandle Color =
-				Topology.bVolumetricCloudComposite
+				bVolumetricCloudComposite
 					&& Inputs.VolumetricCloud.Composite
 				? *Inputs.VolumetricCloud.Composite
 				: Inputs.BaseScene.Color;
@@ -40,10 +41,11 @@ namespace Durin
 				.Texture = Inputs.BaseScene.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)AddSceneRenderFeaturePass<FSceneColorGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FSceneColorRendering>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
-				RecordInputs, Topology, bRequiresDeferredOpaque](
+				RecordInputs, bVolumetricCloudComposite,
+				bRequiresDeferredOpaque](
 				FRHICommandListImmediate& Commands,
 				const FSceneColorPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) {
@@ -58,7 +60,7 @@ namespace Durin
 				else
 				{
 					FSceneColorPassResult Input = BaseSceneResult;
-					if (Topology.bVolumetricCloudComposite
+					if (bVolumetricCloudComposite
 						&& !VolumetricCloudResult.bCompositeOutputValid)
 						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
 					FRHITexture* Color = Resolver.GetTexture(

@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	auto FAmbientOcclusionGraphContributor::AddPasses(
+	auto FAmbientOcclusionRendering::AddPasses(
 		const FAmbientOcclusionGraphInputs& Inputs)
 		-> FAmbientOcclusionGraphOutput
 	{
@@ -21,18 +21,18 @@ namespace Durin
 		const auto& Options = Inputs.Options;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
-		const bool bWantsGroundTruthAmbientOcclusion = Inputs.bRequested;
-		FSceneRenderTopology Topology;
-		Topology.bGroundTruthAmbientOcclusion = Inputs.bEnabled;
-		Topology.AmbientOcclusionQuality = Inputs.Quality;
+		const bool bWantsGroundTruthAmbientOcclusion =
+			Inputs.Feature.IsEnabled();
+		const bool bEnabled = Inputs.Feature.IsEnabled();
+		const auto Quality = Inputs.Feature.Quality;
 		std::array<std::optional<FRDGTextureHandle>, 4>
 			GroundTruthAmbientOcclusion;
 		const auto AmbientOcclusionCompletion = Graph.CreateValue<
 			FGroundTruthAmbientOcclusionPassResult>(
 				"Scene.AmbientOcclusionValue", "ambient-occlusion-result");
-		if (Topology.bGroundTruthAmbientOcclusion)
+		if (bEnabled)
 		{
-			const bool bHalfResolution = Topology.AmbientOcclusionQuality
+			const bool bHalfResolution = Quality
 				== EGroundTruthAmbientOcclusionQuality::HalfResolution;
 			const uint32 NativeWidth = bHalfResolution
 				? FGroundTruthAmbientOcclusionRenderer::CalculateHalfExtent(Width)
@@ -88,7 +88,7 @@ namespace Durin
 		auto Parameters = Graph.AllocParameters<FAmbientOcclusionPassParameters>();
 		Parameters->GBufferCompletion = {.Value = Inputs.GBuffer.Completion};
 		Parameters->Completion = {.Value = AmbientOcclusionCompletion};
-		if (Inputs.GBuffer.Textures[0] && Topology.bGroundTruthAmbientOcclusion)
+		if (Inputs.GBuffer.Textures[0] && bEnabled)
 		{
 			for (uint32 Index = 0; Index < Inputs.GBuffer.Textures.size(); ++Index)
 				Parameters->Resources.GBuffer[Index] = {
@@ -103,16 +103,16 @@ namespace Durin
 						*GroundTruthAmbientOcclusion[Index],
 						{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		}
-		(void)AddSceneRenderFeaturePass<FAmbientOcclusionGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FAmbientOcclusionRendering>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordView = &RecordView, Topology,
+			[&Services, RecordView = &RecordView, bEnabled, Quality,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
 				FRHICommandListImmediate& Commands,
 				const FAmbientOcclusionPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
 				if (PassParameters.Resources.GBuffer[0]
-					&& Topology.bGroundTruthAmbientOcclusion)
+					&& bEnabled)
 					GBufferTargets = {
 						.Material = Resolver.GetTexture(PassParameters.Resources.GBuffer[0]),
 						.Normals = Resolver.GetTexture(PassParameters.Resources.GBuffer[1]),
@@ -138,7 +138,7 @@ namespace Durin
 							? Resolver.GetTexture(
 								PassParameters.Resources.AmbientOcclusionManaged[3])
 							: nullptr,
-						.Quality = Topology.AmbientOcclusionQuality};
+						.Quality = Quality};
 				Resolver.WriteValue(PassParameters.Completion) =
 					Services.Recorders.RenderGroundTruthAmbientOcclusion_RenderThread(
 						Commands, *RecordView,
@@ -150,7 +150,7 @@ namespace Durin
 			});
 		return {.Completion = AmbientOcclusionCompletion,
 			.Textures = GroundTruthAmbientOcclusion,
-			.Quality = Topology.AmbientOcclusionQuality};
+			.Quality = Quality};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderGroundTruthAmbientOcclusion_RenderThread(

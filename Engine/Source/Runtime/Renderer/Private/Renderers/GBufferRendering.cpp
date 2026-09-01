@@ -1,8 +1,8 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/GBufferRendering.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
+#include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/SceneRenderTelemetry.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -11,6 +11,26 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto RecordGBuffer_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& RenderView,
+			const FPreparedReceiverGeometry& Receiver,
+			FResolvedSceneResources& Resolved,
+			FSceneRenderTelemetry& Telemetry,
+			FGBufferRenderer& GBufferRenderer,
+			FStaticMeshRenderer& StaticMeshRenderer,
+			FSkeletalMeshRenderer& SkeletalMeshRenderer,
+			FTerrainRenderer& TerrainRenderer,
+			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FSceneViewRenderOptions& Options,
+			uint32 Width, uint32 Height,
+			bool bNeedsGBuffer, bool bWantsIsolatedDeferred)
+			-> FGBufferPassResult;
+	}
+
 	auto FGBufferPassParameters::GetRDGParametersMetadata()
 		-> const FRDGParametersMetadata*
 	{
@@ -50,21 +70,22 @@ namespace Durin
 		return &Metadata;
 	}
 
-	auto FGBufferGraphContributor::AddPasses(
-		const FGBufferGraphInputs& Inputs) -> FGBufferGraphOutput
+	auto FGBufferRendering::AddPasses(
+		const FGBufferFeatureInputs& Inputs) -> FGBufferGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
-		const auto RecordInputs = Inputs.Record;
 		const auto& Options = Inputs.Options;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
-		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
-		const bool bWantsIsolatedDeferred = Inputs.bWantsIsolatedDeferred;
+		const bool bNeedsGBuffer = Inputs.Feature.IsEnabled();
+		const bool bWantsIsolatedDeferred =
+			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Debug)
+			|| Inputs.DeferredFeature.HasPurpose(
+				ESceneFeaturePurpose::Qualification);
 		std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
 		const auto GBufferCompletion = Graph.CreateValue<FGBufferPassResult>(
 			"Scene.GBufferValue", "gbuffer-result");
-		if (Inputs.bEnabled)
+		if (Inputs.Feature.IsEnabled())
 		{
 			const std::array Formats{EPixelFormat::RGBA8_UNORM,
 				EPixelFormat::RGBA8_UNORM, EPixelFormat::RGBA8_UNORM,
@@ -96,9 +117,15 @@ namespace Durin
 				.Texture = Inputs.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)AddSceneRenderFeaturePass<FGBufferGraphContributor>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordInputs, &Options,
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics,
+			std::move(Parameters),
+			[&Renderer = Inputs.Renderer,
+				&StaticMeshes = Inputs.StaticMeshes,
+				&SkeletalMeshes = Inputs.SkeletalMeshes,
+				&Terrains = Inputs.Terrains,
+				&Resolved = Inputs.Resolved,
+				&Telemetry = Inputs.Telemetry,
+				&View = Inputs.View, &Receiver = Inputs.Receiver, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
 				FRHICommandListImmediate& Commands,
 				const FGBufferPassParameters& PassParameters,
@@ -123,8 +150,9 @@ namespace Durin
 							PassParameters.Colors[3]).Texture};
 				}
 				Resolver.WriteValue(PassParameters.Completion) =
-					Services.Recorders.RenderGBuffer_RenderThread(
-					Commands, RecordInputs, SceneTargets,
+					RecordGBuffer_RenderThread(
+					Commands, View, Receiver, Resolved, Telemetry, Renderer,
+					StaticMeshes, SkeletalMeshes, Terrains, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
@@ -133,9 +161,18 @@ namespace Durin
 			.Textures = GBuffer, .Depth = Inputs.Depth};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderGBuffer_RenderThread(
+	namespace
+	{
+	auto RecordGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FGBufferRecordInputs& Inputs,
+		const FSceneView& RenderView,
+		const FPreparedReceiverGeometry& Receiver,
+		FResolvedSceneResources& ResolvedSceneResources,
+		FSceneRenderTelemetry& Telemetry,
+		FGBufferRenderer& GBufferRenderer,
+		FStaticMeshRenderer& StaticMeshRenderer,
+		FSkeletalMeshRenderer& SkeletalMeshRenderer,
+		FTerrainRenderer& TerrainRenderer,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FSceneViewRenderOptions& Options,
@@ -145,7 +182,6 @@ namespace Durin
 		bool bWantsIsolatedDeferred
 	) -> FGBufferPassResult
 	{
-		const FSceneView& RenderView = Inputs.View;
 		FGBufferPassResult Result;
 		if (bNeedsGBuffer)
 		{
@@ -205,17 +241,17 @@ namespace Durin
 				);
 				const FGeometryExecutionResult StaticResult = StaticMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
-					Inputs.Receiver.StaticMeshes,
+					Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes
 				);
 				const FGeometryExecutionResult SkeletalResult = SkeletalMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
-					Inputs.Receiver.SkeletalMeshes,
+					Receiver.SkeletalMeshes,
 					ResolvedSceneResources.Receiver.SkeletalMeshes
 				);
 				const FGeometryExecutionResult TerrainResult = TerrainRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
-					Inputs.Receiver.Terrains,
+					Receiver.Terrains,
 					ResolvedSceneResources.Receiver.Terrains
 				);
 				CommandList.EndRenderPass();
@@ -295,4 +331,5 @@ namespace Durin
 		}
 		return Result;
 	}
+	} // namespace
 } // namespace Durin

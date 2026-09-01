@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Renderers/ContactShadowVisibilityRendering.h"
+#include "Renderers/GBufferRendering.h"
 #include "Renderers/SceneRenderFeatureRecorders.h"
 #include "Renderers/SceneRenderGraphComposer.h"
 #include "RDG.h"
@@ -165,58 +167,10 @@ namespace Durin
 
 #undef DURIN_DECLARE_SCENE_PASS_PARAMETERS
 
-	struct FGBufferPassParameters final
-	{
-		TRDGValueWrite<FGBufferPassResult> Completion;
-		std::array<std::optional<FRDGColorAttachmentParameter>, 4> Colors;
-		std::optional<FRDGDepthStencilAttachmentParameter> Depth;
-
-		static RENDERER_API auto GetRDGParametersMetadata()
-			-> const FRDGParametersMetadata*;
-	};
-
-	struct FContactShadowGraphicsPassParameters final
-	{
-		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
-		TRDGValueWrite<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRDGTextureParameter> GBufferMaterial;
-		std::optional<FRDGTextureParameter> GBufferNormals;
-		std::optional<FRDGTextureParameter> GBufferSurface;
-		std::optional<FRDGTextureParameter> GBufferEmissive;
-		std::optional<FRDGTextureParameter> SceneDepth;
-		std::optional<FRDGColorAttachmentParameter> Output;
-
-		static RENDERER_API auto GetRDGParametersMetadata()
-			-> const FRDGParametersMetadata*;
-	};
-
-	struct FContactShadowComputePassParameters final
-	{
-		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
-		TRDGValueWrite<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRDGTextureParameter> GBufferMaterial;
-		std::optional<FRDGTextureParameter> GBufferNormals;
-		std::optional<FRDGTextureParameter> GBufferSurface;
-		std::optional<FRDGTextureParameter> GBufferEmissive;
-		std::optional<FRDGTextureParameter> SceneDepth;
-		std::optional<FRDGTextureParameter> ContactVisibilityOutput;
-
-		static RENDERER_API auto GetRDGParametersMetadata()
-			-> const FRDGParametersMetadata*;
-	};
-
 	struct FDirectionalShadowGraphOutput final
 	{
 		TRDGValueHandle<FDirectionalShadowPassResult> Completion;
 		std::optional<FRDGTextureHandle> Shadow;
-	};
-	struct FGBufferGraphOutput final
-	{
-		TRDGValueHandle<FGBufferPassResult> Completion;
-		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
-		FRDGTextureHandle Depth;
 	};
 	struct FAmbientOcclusionGraphOutput final
 	{
@@ -224,12 +178,6 @@ namespace Durin
 		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
 		EGroundTruthAmbientOcclusionQuality Quality =
 			EGroundTruthAmbientOcclusionQuality::FullResolution;
-	};
-	struct FContactShadowGraphOutput final
-	{
-		TRDGValueHandle<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRDGTextureHandle> Fragment;
-		std::optional<FRDGTextureHandle> Compute;
 	};
 	struct FCloudShadowGraphOutput final
 	{
@@ -280,19 +228,6 @@ namespace Durin
 		FDirectionalShadowRecordInputs Record;
 		std::optional<FRDGTextureHandle> Shadow;
 	};
-	struct FGBufferGraphInputs final
-	{
-		FRDGBuilder& Graph;
-		FSceneRenderGraphServices& Services;
-		FGBufferRecordInputs Record;
-		FRDGTextureHandle Depth;
-		const FSceneViewRenderOptions& Options;
-		uint32 Width;
-		uint32 Height;
-		bool bEnabled;
-		bool bNeedsGBuffer;
-		bool bWantsIsolatedDeferred;
-	};
 	struct FAmbientOcclusionGraphInputs final
 	{
 		FRDGBuilder& Graph;
@@ -302,23 +237,7 @@ namespace Durin
 		const FGBufferGraphOutput& GBuffer;
 		uint32 Width;
 		uint32 Height;
-		bool bEnabled;
-		bool bRequested;
-		EGroundTruthAmbientOcclusionQuality Quality;
-	};
-	struct FContactShadowGraphInputs final
-	{
-		FRDGBuilder& Graph;
-		FSceneRenderGraphServices& Services;
-		FContactShadowVisibilityRecordInputs Record;
-		const FSceneViewRenderOptions& Options;
-		const FDirectionalShadowGraphOutput& DirectionalShadow;
-		const FGBufferGraphOutput& GBuffer;
-		FContactShadowVisibilityRenderer::FRouteDecision Route;
-		ESceneRenderRoute GraphRoute;
-		uint32 Width;
-		uint32 Height;
-		bool bProductionDeferred;
+		const FSceneFrameFeaturePlan::FAmbientOcclusion& Feature;
 	};
 	struct FCloudShadowGraphInputs final
 	{
@@ -331,11 +250,10 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DetailDensity;
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
-		FVolumetricCloudShadowRenderer::ERoute Route;
-		ESceneRenderRoute GraphRoute;
+		const FSceneFrameFeaturePlan::FCloudShadow& Feature;
+		const FSceneFeatureDecision& DeferredFeature;
 		uint32 Width;
 		uint32 Height;
-		bool bProductionDeferred;
 	};
 	struct FDeferredLightingGraphInputs final
 	{
@@ -363,10 +281,8 @@ namespace Durin
 			ProductionDeferredParameters;
 		uint32 Width;
 		uint32 Height;
-		bool bIsolated;
-		bool bWantsDeferredInputs;
-		bool bWantsIsolatedDeferred;
-		bool bWantsProductionDeferred;
+		const FSceneFeatureDecision& Feature;
+		const FSceneFrameFeaturePlan::FAmbientOcclusion& AmbientOcclusionFeature;
 		bool bHybridRetainedResourcesReady;
 	};
 	struct FBaseSceneGraphInputs final
@@ -388,8 +304,8 @@ namespace Durin
 		FRHITexture* SelectedEnvironmentBrdfLut;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>&
 			ProductionDeferredParameters;
-		bool bRequiresDeferredOpaque;
-		bool bNeedsGBuffer;
+		const FSceneFeatureDecision& DeferredFeature;
+		const FSceneFeatureDecision& GBufferFeature;
 	};
 	struct FCloudSpatialGraphInputs final
 	{
@@ -401,12 +317,9 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DetailDensity;
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
-		FVolumetricCloudRenderer::ERoute Route;
-		ESceneRenderRoute GraphRoute;
-		FIntPoint Extent;
+		const FSceneFrameFeaturePlan::FCloudSpatial& Feature;
 		uint32 Width;
 		uint32 Height;
-		bool bComposite;
 	};
 	struct FCloudCompositeGraphInputs final
 	{
@@ -420,7 +333,7 @@ namespace Durin
 		std::optional<FRDGTextureHandle> DetailDensity;
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
-		bool bEnabled;
+		const FSceneFrameFeaturePlan::FCloudSpatial& Feature;
 	};
 	struct FSceneColorGraphInputs final
 	{
@@ -430,8 +343,8 @@ namespace Durin
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudCompositeGraphOutput& VolumetricCloud;
 		FSceneColorPassResult& Publication;
-		bool bRequiresDeferredOpaque;
-		bool bVolumetricCloudComposite;
+		const FSceneFeatureDecision& DeferredFeature;
+		const FSceneFrameFeaturePlan::FCloudSpatial& CloudFeature;
 	};
 	struct FPostProcessGraphInputs final
 	{
@@ -448,9 +361,9 @@ namespace Durin
 		FPostProcessPassResult& Publication;
 		uint32 Width;
 		uint32 Height;
-		bool bGBufferDebug;
+		const FSceneFeatureDecision& GBufferDebugFeature;
+		const FSceneFeatureDecision& EditorAssistanceFeature;
 		bool bPresentOutput;
-		bool bHasEditorAssistance;
 	};
 	struct FEditorAssistanceGraphInputs final
 	{
@@ -462,8 +375,8 @@ namespace Durin
 		FRDGTextureHandle SceneDepth;
 		FRHITexture* OutputTarget;
 		FPostProcessPassResult& Publication;
+		const FSceneFeatureDecision& Feature;
 		bool bPresentOutput;
-		bool bEnabled;
 	};
 
 #define DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(TypeName, ResultType, PassName, InputType, OutputType) \
@@ -474,41 +387,35 @@ namespace Durin
 		static auto AddPasses(const InputType& Inputs) -> OutputType; \
 	}
 
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FDirectionalShadowGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FDirectionalShadowRendering,
 		FDirectionalShadowPassResult, "Scene.DirectionalShadow",
 		FDirectionalShadowGraphInputs, FDirectionalShadowGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FGBufferGraphContributor,
-		FGBufferPassResult, "Scene.GBuffer", FGBufferGraphInputs,
-		FGBufferGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FAmbientOcclusionGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FAmbientOcclusionRendering,
 		FGroundTruthAmbientOcclusionPassResult, "Scene.AmbientOcclusion",
 		FAmbientOcclusionGraphInputs, FAmbientOcclusionGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FContactShadowVisibilityGraphContributor,
-		FContactShadowVisibilityPassResult, "Scene.ContactShadowVisibility",
-		FContactShadowGraphInputs, FContactShadowGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudShadowGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudShadowRendering,
 		FVolumetricCloudShadowPassResult, "Scene.VolumetricCloudShadow",
 		FCloudShadowGraphInputs, FCloudShadowGraphOutput);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(
-		FDeferredDirectionalLightingGraphContributor,
+		FDeferredDirectionalLightingRendering,
 		FIsolatedDeferredPassResult, "Scene.DeferredDirectionalLighting",
 		FDeferredLightingGraphInputs, FDeferredLightingGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FBaseSceneGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FBaseSceneRendering,
 		FSceneColorPassResult, "Scene.Base", FBaseSceneGraphInputs,
 		FBaseSceneGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudSpatialGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudSpatialRendering,
 		FVolumetricCloudSpatialPassResult, "Scene.VolumetricCloudSpatial",
 		FCloudSpatialGraphInputs, FCloudSpatialGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudCompositeGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FVolumetricCloudCompositeRendering,
 		FVolumetricCloudPassResult, "Scene.VolumetricCloud",
 		FCloudCompositeGraphInputs, FCloudCompositeGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FSceneColorGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FSceneColorRendering,
 		FSceneColorPassResult, "Scene.Color", FSceneColorGraphInputs,
 		FSceneColorGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FPostProcessGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FPostProcessRendering,
 		FPostProcessPassResult, "Scene.PostProcess", FPostProcessGraphInputs,
 		FPostProcessGraphOutput);
-	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FEditorAssistanceGraphContributor,
+	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FEditorAssistanceRendering,
 		bool, "Scene.EditorAssistance", FEditorAssistanceGraphInputs, void);
 
 #undef DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR

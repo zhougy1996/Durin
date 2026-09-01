@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	auto FDirectionalShadowGraphContributor::AddPasses(
+	auto FDirectionalShadowRendering::AddPasses(
 		const FDirectionalShadowGraphInputs& Inputs)
 		-> FDirectionalShadowGraphOutput
 	{
@@ -28,7 +28,7 @@ namespace Durin
 				.Texture = *Inputs.Shadow,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					DirectionalShadowCascadeCount}};
-		(void)AddSceneRenderFeaturePass<FDirectionalShadowGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FDirectionalShadowRendering>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs](FRHICommandListImmediate& Commands,
 				const FDirectionalShadowPassParameters& PassParameters,

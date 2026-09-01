@@ -5,13 +5,66 @@
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRenderGraphTypes.h"
-#include "Renderers/SceneRenderFeatureRecorders.h"
 #include "RDG.h"
 
 namespace Durin
 {
 	class FSceneRenderGraphComposer;
-	// Owns scene-render preparation, topology selection, and lifecycle finalization.
+
+	// Owns all submission-local state and keeps policy, resources, transaction,
+	// and observation lifetimes distinct.
+	struct FSceneFrameContext final
+	{
+		struct FLogical final
+		{
+			FScene* Scene = nullptr;
+			FSceneView RenderView;
+			FRHITexture* OutputTarget = nullptr;
+			FSceneViewRenderOptions Options;
+			FRendererQualificationPolicy Qualification;
+			std::optional<FSceneRenderPlan> PreparedView;
+			RendererEditorAssistance::FPrepared EditorAssistance;
+			uint32 Width = 0;
+			uint32 Height = 0;
+			bool bPresentOutput = false;
+			bool bHasEditorAssistance = false;
+		};
+
+		struct FResolved final
+		{
+			FResolvedSceneResources Scene;
+			FRHITexture* CloudWeatherTexture = nullptr;
+			bool bHybridRetainedResourcesReady = false;
+		};
+
+		struct FFeatures final
+		{
+			FSceneFrameFeaturePlan Plan;
+		};
+
+		struct FTransaction final
+		{
+			FSceneViewTemporalContext Temporal;
+			FSceneViewState* ViewState = nullptr;
+			FSceneRenderGraphComposition Composition;
+		};
+
+		struct FObservation final
+		{
+			FSceneRenderTelemetry Telemetry;
+			bool bReportedRegressionOverage = false;
+			bool bReportedExecutionFailure = false;
+		};
+
+		FLogical Logical;
+		FResolved Resolved;
+		FFeatures Features;
+		FTransaction Transaction;
+		FObservation Observation;
+	};
+
+	// Owns preparation, graph authoring/execution, and lifecycle finalization for
+	// one scene-render submission.
 	class FSceneRenderPipeline final
 	{
 	public:
@@ -32,50 +85,33 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			const FSceneRenderGraphExecute& ExecuteGraph
+			FRDGCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 	private:
 		auto PrepareView_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FScene* Scene,
-			FSceneView& RenderView,
-			const FSceneViewRenderOptions& Options
+			FSceneFrameContext& Context
 		) -> FSceneRenderPreparationResult;
 		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneRenderPlan& PreparedView
+			const FSceneRenderPlan& PreparedView,
+			FSceneFrameContext& Context
 		) -> ERenderViewResult;
-		auto BuildSceneRenderTopology(
+		auto BuildSceneFrameFeaturePlan(
 			const FSceneRenderPlan& PreparedView,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
-			uint32 Height
-		) const -> FSceneRenderTopology;
+			uint32 Height,
+			const FRendererQualificationPolicy& Qualification
+		) const -> FSceneFrameFeaturePlan;
+		auto CompileAndExecuteGraph_RenderThread(
+			FRDGBuilder& Graph,
+			FRHICommandListImmediate& CommandList,
+			FRDGCapture* OutRenderGraphCapture,
+			FSceneFrameContext::FObservation& Observation
+		) -> ESceneRenderGraphExecutionStatus;
 
-		FDefaultTextureResources& DefaultTextures;
-		FEnvironmentLightingResources& EnvironmentLighting;
-		FDirectionalShadowRenderer& DirectionalShadowRenderer;
-		FGBufferRenderer& GBufferRenderer;
-		FGBufferDebugRenderer& GBufferDebugRenderer;
-		FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
-		FGroundTruthAmbientOcclusionRenderer& GroundTruthAmbientOcclusionRenderer;
-		FStaticMeshRenderer& StaticMeshRenderer;
-		FTerrainRenderer& TerrainRenderer;
-		FSkeletalMeshRenderer& SkeletalMeshRenderer;
-		FSkyBoxRenderer& SkyBoxRenderer;
-		FPostProcessRenderer& PostProcessRenderer;
-		FContactShadowVisibilityRenderer& ContactShadowRenderer;
-		FVolumetricCloudRenderer& VolumetricCloudRenderer;
-		FVolumetricCloudShadowRenderer& VolumetricCloudShadowRenderer;
-		FEditorAssistanceRenderer& EditorAssistanceRenderer;
-		FSceneViewStateRegistry& ViewStates;
-		uint64& RenderSubmissionSerial;
-		FRendererQualificationPolicy Qualification;
-		FSceneRenderTelemetry Telemetry;
-		FResolvedSceneResources ResolvedSceneResources;
-		FSceneViewTemporalContext TemporalContext;
-		FSceneViewState* ViewState = nullptr;
-		FSceneRenderFeatureRecorders Recorders;
+		FSceneRenderer& Renderer;
 	};
 } // namespace Durin

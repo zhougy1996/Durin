@@ -59,12 +59,23 @@ namespace Durin
 			uint32 SampleCount = 0;
 			uint64 TargetBytes = 0;
 		};
+		struct FRouteDecision
+		{
+			ERoute Route = ERoute::FactorOne;
+			ERouteReason Reason = ERouteReason::DisabledOrUnneeded;
+		};
+		struct FRouteInputs
+		{
+			bool bRequested = false;
+			bool bInputsValid = false;
+			bool bComputePayloadReady = false;
+			bool bComputeTargetReady = false;
+			bool bFragmentReady = false;
+			bool bComputeExtentSupported = false;
+		};
 		struct FRenderPolicy
 		{
-			bool bPreparationOnly = false;
-			bool bInputsExpected = false;
-			bool bFragmentTargetExpected = false;
-			bool bComputeTargetExpected = false;
+			std::optional<FRouteDecision> PreparedRoute;
 			bool bGraphManagedTextureAccess = false;
 		};
 		using FTimingQuerySink = void (*)(const FGPUTimingQueryRHIRef&, ERoute);
@@ -108,6 +119,12 @@ namespace Durin
 			-> FRHITextureCreateDesc;
 		static auto DescribeComputeTarget(uint32 Width, uint32 Height)
 			-> FRHITextureCreateDesc;
+		static auto SelectRoute(const FRouteInputs& Inputs) -> FRouteDecision;
+		auto PrepareRoute_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FRenderInput& Input,
+			bool bFragmentTargetExpected,
+			bool bComputeTargetExpected) -> FRouteDecision;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
@@ -116,6 +133,9 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto EnsureComputeResources_RenderThread() -> bool;
+		auto EnsureFragmentResources_RenderThread(
+			FRHICommandListImmediate& CommandList) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;

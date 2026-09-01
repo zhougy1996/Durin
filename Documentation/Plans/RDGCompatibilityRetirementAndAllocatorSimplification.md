@@ -26,6 +26,12 @@ request before inspecting payload and RenderData; its focused case and the
 complete aggregate pass. The plan remains Active until the GBuffer timing gate
 passes in a quiet lane.
 
+Scene-render source ownership is explicitly released to the
+[Scene Render Frame Orchestration Simplification Plan](SceneRenderFrameOrchestrationSimplification.md)
+as of 2026-09-01. The remaining work in this plan is an exclusive quiet-GPU
+qualification rerun and its documentation update; it will not modify the
+scene-render orchestration sources listed by the successor plan.
+
 A Stage 4 follow-on retired the remaining raw-pointer `ImportTexture` /
 `ImportBuffer` and prebound `CreateTexture` / `CreateBuffer` overloads after a
 repository inventory confirmed that only `RenderContractTests` used them.

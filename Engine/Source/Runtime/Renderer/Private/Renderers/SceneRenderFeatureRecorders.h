@@ -14,18 +14,6 @@ namespace Durin
 		const FPreparedDirectionalShadow* Shadow = nullptr;
 	};
 
-	struct FGBufferRecordInputs final
-	{
-		const FSceneView& View;
-		const FPreparedReceiverGeometry& Receiver;
-	};
-
-	struct FContactShadowVisibilityRecordInputs final
-	{
-		const FSceneView& View;
-		const FPreparedDirectionalShadow* Shadow = nullptr;
-	};
-
 	struct FVolumetricCloudShadowRecordInputs final
 	{
 		const FSceneView& View;
@@ -62,17 +50,6 @@ namespace Durin
 		const FDirectionalShadowRecordInputs& Inputs,
 		FRHITexture* DirectionalShadowTarget
 	) -> FDirectionalShadowPassResult;
-	auto RenderGBuffer_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FGBufferRecordInputs& Inputs,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
-		const FGBufferRenderer::FTargets* GBufferTargets,
-		const FSceneViewRenderOptions& Options,
-		uint32 Width,
-		uint32 Height,
-		bool bNeedsGBuffer,
-		bool bWantsIsolatedDeferred
-	) -> FGBufferPassResult;
 	auto RenderGroundTruthAmbientOcclusion_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
@@ -86,26 +63,10 @@ namespace Durin
 		bool bWantsGroundTruthAmbientOcclusion,
 		bool bGBufferComplete
 	) -> FGroundTruthAmbientOcclusionPassResult;
-	auto RenderContactShadowVisibility_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FContactShadowVisibilityRecordInputs& Inputs,
-		const FGBufferRenderer::FTargets* GBufferTargets,
-		const FContactShadowVisibilityRenderer::FTargets*
-			FragmentContactTargets,
-		const FContactShadowVisibilityRenderer::FComputeTargets*
-			ComputeContactTargets,
-		const FPostProcessRenderer::FSceneTargets& SceneTargets,
-		const FRDGShaderParameterScope* ShaderParameters,
-		const FSceneViewRenderOptions& Options,
-		uint32 Width,
-		uint32 Height,
-		bool bWantsProductionDeferred,
-		bool bGBufferComplete,
-		bool bGBufferHasGeometry
-	) -> FContactShadowVisibilityPassResult;
 	auto RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudShadowRecordInputs& Inputs,
+		const FVolumetricCloudShadowRenderer::FRouteDecision& PreparedRoute,
 		const FVolumetricCloudShadowRenderer::FTargets* FragmentTargets,
 		const FVolumetricCloudShadowRenderer::FComputeTargets* ComputeTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
@@ -178,6 +139,7 @@ namespace Durin
 	auto RenderVolumetricCloudSpatial_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudRecordInputs& Inputs,
+		const FVolumetricCloudSpatialRenderer::FRouteDecision& PreparedRoute,
 		const FVolumetricCloudRenderer::FTargets* FragmentTargets,
 		const FVolumetricCloudRenderer::FComputeTargets* ComputeTargets,
 		FRHITexture* BaseDensity,
@@ -223,7 +185,6 @@ namespace Durin
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
-		FGBufferRenderer& GBufferRenderer;
 		FGBufferDebugRenderer& GBufferDebugRenderer;
 		FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
 		FGroundTruthAmbientOcclusionRenderer& GroundTruthAmbientOcclusionRenderer;
@@ -232,7 +193,6 @@ namespace Durin
 		FSkeletalMeshRenderer& SkeletalMeshRenderer;
 		FSkyBoxRenderer& SkyBoxRenderer;
 		FPostProcessRenderer& PostProcessRenderer;
-		FContactShadowVisibilityRenderer& ContactShadowRenderer;
 		FVolumetricCloudRenderer& VolumetricCloudRenderer;
 		FVolumetricCloudShadowRenderer& VolumetricCloudShadowRenderer;
 		FEditorAssistanceRenderer& EditorAssistanceRenderer;

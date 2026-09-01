@@ -1,7 +1,7 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/ContactShadowVisibilityRendering.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
+#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,6 +11,27 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto RecordContactShadowVisibility_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& RenderView,
+			const FPreparedDirectionalShadow* Shadow,
+			FResolvedSceneResources& Resolved,
+			FSceneRenderTelemetry& Telemetry,
+			FRendererRDGAllocator& Allocator,
+			FContactShadowVisibilityRenderer& Renderer,
+			const FContactShadowVisibilityRenderer::FRouteDecision& PreparedRoute,
+			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FContactShadowVisibilityRenderer::FTargets* FragmentTargets,
+			const FContactShadowVisibilityRenderer::FComputeTargets* ComputeTargets,
+			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			const FRDGShaderParameterScope* ShaderParameters,
+			uint32 Width, uint32 Height, bool bRequested,
+			bool bGBufferComplete, bool bGBufferHasGeometry)
+			-> FContactShadowVisibilityPassResult;
+	}
+
 	auto FContactShadowGraphicsPassParameters::GetRDGParametersMetadata()
 		-> const FRDGParametersMetadata*
 	{
@@ -161,26 +182,23 @@ namespace Durin
 		return &Metadata;
 	}
 
-	auto FContactShadowVisibilityGraphContributor::AddPasses(
-		const FContactShadowGraphInputs& Inputs) -> FContactShadowGraphOutput
+	auto FContactShadowVisibilityRendering::AddPasses(
+		const FContactShadowFeatureInputs& Inputs) -> FContactShadowGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
-		const auto RecordInputs = Inputs.Record;
-		const auto& Options = Inputs.Options;
-		const auto PreparedContactRoute = Inputs.Route;
+		const auto PreparedContactRoute = Inputs.Feature.Decision;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
-		const bool bWantsProductionDeferred = Inputs.bProductionDeferred;
-		FSceneRenderTopology Topology;
-		Topology.ContactShadowVisibility = Inputs.GraphRoute;
+		const bool bRequested = Inputs.Feature.HasPurpose(
+			ESceneFeaturePurpose::Production);
 		std::optional<FRDGTextureHandle> ContactShadowVisibilityFragment;
 		std::optional<FRDGTextureHandle> ContactShadowVisibilityCompute;
 		const auto ContactShadowVisibilityCompletion = Graph.CreateValue<
 			FContactShadowVisibilityPassResult>(
 				"Scene.ContactShadowVisibilityValue",
 				"contact-shadow-visibility-result");
-		if (Topology.UsesContactShadowVisibilityFragment())
+		if (PreparedContactRoute.Route
+			== FContactShadowVisibilityRenderer::ERoute::Fragment)
 			ContactShadowVisibilityFragment = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactVisibility", Width, Height,
@@ -193,7 +211,8 @@ namespace Durin
 						ERDGAllocationObservation::ContactFragment)},
 				"Scene.ContactShadowVisibility.Fragment",
 				ERHIAccess::GraphicsShaderRead);
-		if (Topology.UsesContactShadowVisibilityCompute())
+		if (PreparedContactRoute.Route
+			== FContactShadowVisibilityRenderer::ERoute::Compute)
 			ContactShadowVisibilityCompute = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactShadowVisibilityCompute", Width, Height,
@@ -228,8 +247,11 @@ namespace Durin
 					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 			}
 		};
-		auto Execute = [&Services, RecordInputs, &Options, Width, Height,
-			bWantsProductionDeferred](FRHICommandListImmediate& Commands,
+		auto Execute = [&Resolved = Inputs.Resolved,
+			&Telemetry = Inputs.Telemetry, &Allocator = Inputs.Allocator,
+			&Renderer = Inputs.Renderer, &View = Inputs.View,
+			Shadow = Inputs.Shadow, PreparedContactRoute, Width, Height,
+			bRequested](FRHICommandListImmediate& Commands,
 			const auto& Parameters,
 			const FRDGParameterResolver& Resolver) {
 			std::optional<FGBufferRenderer::FTargets> GBufferTargets;
@@ -262,13 +284,14 @@ namespace Durin
 			const auto& GBufferResult = Resolver.ReadValue(
 				Parameters.GBufferCompletion);
 			Resolver.WriteValue(Parameters.Completion) =
-				Services.Recorders.RenderContactShadowVisibility_RenderThread(
-					Commands, RecordInputs,
+				RecordContactShadowVisibility_RenderThread(
+					Commands, View, Shadow, Resolved, Telemetry, Allocator,
+					Renderer, PreparedContactRoute,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					FragmentContactTargets ? &*FragmentContactTargets : nullptr,
 					ComputeContactTargets ? &*ComputeContactTargets : nullptr,
-					SceneTargets, &ShaderParameters, Options, Width, Height,
-					bWantsProductionDeferred, GBufferResult.IsComplete(),
+					SceneTargets, &ShaderParameters, Width, Height,
+					bRequested, GBufferResult.IsComplete(),
 					GBufferResult.bRenderedGeometry);
 		};
 
@@ -282,9 +305,8 @@ namespace Durin
 				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
 					*ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)AddSceneRenderFeaturePass<
-				FContactShadowVisibilityGraphContributor>(Graph,
-				ERDGPassType::Compute, std::move(Parameters), Execute);
+			(void)Graph.AddPass(Name, ERDGPassType::Compute,
+				std::move(Parameters), Execute);
 		}
 		else
 		{
@@ -295,18 +317,25 @@ namespace Durin
 				Parameters->Output = FRDGColorAttachmentParameter{
 					*ContactShadowVisibilityFragment,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)AddSceneRenderFeaturePass<
-				FContactShadowVisibilityGraphContributor>(Graph,
-				ERDGPassType::Graphics, std::move(Parameters), Execute);
+			(void)Graph.AddPass(Name, ERDGPassType::Graphics,
+				std::move(Parameters), Execute);
 		}
 		return {.Completion = ContactShadowVisibilityCompletion,
 			.Fragment = ContactShadowVisibilityFragment,
 			.Compute = ContactShadowVisibilityCompute};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderContactShadowVisibility_RenderThread(
+	namespace
+	{
+	auto RecordContactShadowVisibility_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		const FContactShadowVisibilityRecordInputs& Inputs,
+		const FSceneView& RenderView,
+		const FPreparedDirectionalShadow* Shadow,
+		FResolvedSceneResources& ResolvedSceneResources,
+		FSceneRenderTelemetry& Telemetry,
+		FRendererRDGAllocator& RDGAllocator,
+		FContactShadowVisibilityRenderer& ContactShadowRenderer,
+		const FContactShadowVisibilityRenderer::FRouteDecision& PreparedRoute,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FContactShadowVisibilityRenderer::FTargets*
 			FragmentContactTargets,
@@ -314,19 +343,17 @@ namespace Durin
 			ComputeContactTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FRDGShaderParameterScope* ShaderParameters,
-		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
-		bool bWantsProductionDeferred,
+		bool bRequested,
 		bool bGBufferComplete,
 		bool bGBufferHasGeometry
 	) -> FContactShadowVisibilityPassResult
 	{
 		FContactShadowVisibilityPassResult PassResult;
-		const FSceneView& RenderView = Inputs.View;
-		const bool bWantsContactVisibility = bWantsProductionDeferred
+		const bool bWantsContactVisibility = bRequested
 											 && RenderView.Settings.DirectionalShadow.bEnableContactShadows
-											 && Inputs.Shadow != nullptr
+											 && Shadow != nullptr
 											 && ResolvedSceneResources.DirectionalShadow
 											 && ResolvedSceneResources.DirectionalShadow->bEnabled;
 		if (!bWantsContactVisibility) return PassResult;
@@ -334,14 +361,6 @@ namespace Durin
 		if (bWantsContactVisibility && bGBufferComplete
 			&& bGBufferHasGeometry)
 		{
-			const EContactShadowRoutePreference RoutePreference =
-				RenderView.Settings.DirectionalShadow.ContactRoutePreference;
-			const bool bForceFragment = Qualification.bForceFragmentContactVisibility
-										|| RoutePreference == EContactShadowRoutePreference::Fragment;
-			const bool bForceCompute = !Qualification.bForceFragmentContactVisibility
-									   && RoutePreference == EContactShadowRoutePreference::Compute;
-			if (bForceCompute) FragmentContactTargets = nullptr;
-			if (bForceFragment) ComputeContactTargets = nullptr;
 			Telemetry.View.ContactShadow.ContactShadowRetainedBytes =
 				RDGAllocator.GetObservedRetainedBytes_RenderThread(
 					ERDGAllocationObservation::ContactFragment)
@@ -352,8 +371,9 @@ namespace Durin
 				GBufferTargets->Material, GBufferTargets->Normals,
 				GBufferTargets->Surface, GBufferTargets->Emissive,
 				SceneTargets.Depth, RenderView,
-				Inputs.Shadow->View.LightDirection, Width, Height,
-				{.bGraphManagedTextureAccess = true,
+				Shadow->View.LightDirection, Width, Height,
+				{.PreparedRoute = PreparedRoute,
+				 .bGraphManagedTextureAccess = true,
 				 .GraphShaderParameters = ShaderParameters}
 			);
 			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
@@ -391,4 +411,5 @@ namespace Durin
 		}
 		return PassResult;
 	}
+	} // namespace
 } // namespace Durin

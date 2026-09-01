@@ -303,6 +303,96 @@ namespace Durin
 							  .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 	}
 
+	auto FVolumetricCloudRenderer::EnsureComputeResources_RenderThread() -> bool
+	{
+		using FPayload = FState::FComputePayload;
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return State->ComputeResources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), []() -> FResult {
+				const std::array<const FGlobalShaderType*, 1> Types{
+					&FCloudComputeShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"VolumetricCloud.Compute", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
+					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
+						"shader", "Global shader set is unavailable.",
+						ERenderResourceCreateErrorCategory::ShaderCompile));
+				Candidate.ComputeShader =
+					TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
+				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
+				if (RHIShader == nullptr || GDynamicRHI == nullptr)
+					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
+						"pipeline", "Compute shader RHI creation returned null.",
+						ERenderResourceCreateErrorCategory::RHIResource));
+				FComputePipelineStateInitializer Initializer;
+				Initializer.ComputeShader = RHIShader;
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
+					"VolumetricCloudComputePipeline", Initializer);
+				if (!Candidate.PipelineState)
+					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
+						"pipeline", "Compute pipeline creation returned null.",
+						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
+			!= nullptr;
+	}
+
+	auto FVolumetricCloudRenderer::EnsureFragmentResources_RenderThread(
+		FRHICommandListImmediate& CommandList) -> bool
+	{
+		using FPayload = FState::FFragmentPayload;
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return State->FragmentResources.Resolve(
+			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FResult {
+				const std::array<const FGlobalShaderType*, 2> Types{
+					&FCloudVertexShader::StaticType(),
+					&FCloudFragmentShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"VolumetricCloud.Fragment", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
+					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
+						"shader", "Global shader set is unavailable.",
+						ERenderResourceCreateErrorCategory::ShaderCompile));
+				Candidate.VertexShader =
+					TShaderMapRef<FCloudVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader =
+					TShaderMapRef<FCloudFragmentShader>(Candidate.ShaderSet);
+				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
+						"fullscreen-geometry", "Shared fullscreen geometry is unavailable.",
+						ERenderResourceCreateErrorCategory::RHIResource));
+				FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
+				FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
+				if (VertexRHI == nullptr || FragmentRHI == nullptr
+					|| GDynamicRHI == nullptr)
+					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
+						"pipeline", "RHI shader creation returned null.",
+						ERenderResourceCreateErrorCategory::RHIResource));
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeVolumetricCloudOutput();
+				Initializer.BoundShaders.VertexShader = VertexRHI;
+				Initializer.BoundShaders.FragmentShader = FragmentRHI;
+				Initializer.VertexDeclaration =
+					FullscreenGeometry.GetVertexDeclaration_RenderThread();
+				Initializer.RasterizerState.CullMode = ERHICullMode::None;
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
+				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+					"VolumetricCloudFragmentPipeline", Initializer);
+				if (!Candidate.PipelineState)
+					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
+						"pipeline", "Graphics pipeline creation returned null.",
+						ERenderResourceCreateErrorCategory::GraphicsPipeline));
+				return FResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable)
+			!= nullptr;
+	}
+
 	// Resource resolution, binding, and execution continue below to keep target
 	// creation independently testable.
 	auto FVolumetricCloudRenderer::Render_RenderThread(
@@ -345,8 +435,7 @@ namespace Durin
 		FParameters Parameters = Input.Parameters;
 		Parameters.PrimarySampleCount = Quality.PrimarySampleCount;
 		Parameters.LightSampleCount = Quality.LightSampleCount;
-		const bool bBaseInputsValid = (Policy.bPreparationOnly
-			? Policy.bInputsExpected : Input.Textures.HasRequiredInputs())
+		const bool bBaseInputsValid = Input.Textures.HasRequiredInputs()
 									  && Parameters.IsValid() && bViewFits && bTargetMatchesPolicy
 									  && CloudView.ViewportWidth != 0 && CloudView.ViewportHeight != 0;
 
@@ -383,52 +472,20 @@ namespace Durin
 		FRHITexture* Weather = Input.Textures.Weather != nullptr ? Input.Textures.Weather : (Fallback != nullptr ? Fallback->WhiteWeather.GetReference() : nullptr);
 		const bool bInputsValid = bBaseInputsValid && Weather != nullptr;
 
-		using FComputePayload = FState::FComputePayload;
-		using FComputeResult = TRenderResourceCreateResult<FComputePayload>;
-		FComputePayload* ComputePayload = nullptr;
 		if (Input.bRequested && bInputsValid && Input.Width != 0 && Input.Height != 0
-			&& (Policy.bPreparationOnly
-				? Policy.bComputeTargetExpected : ComputeTargets != nullptr))
-		{
-			ComputePayload = State->ComputeResources.Resolve(
-				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
-					const std::array<const FGlobalShaderType*, 1> Types{
-						&FCloudComputeShader::StaticType()};
-					FComputePayload Candidate;
-					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
-						"VolumetricCloud.Compute", Types, true,
-						ReportRendererResourceCreateDiagnostic);
-					if (!Candidate.ShaderSet)
-						return FComputeResult::Failure(MakeFailure("VolumetricCloudCompute", "shader", "Global shader set is unavailable.", ERenderResourceCreateErrorCategory::ShaderCompile));
-					Candidate.ComputeShader = TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
-					FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
-					if (RHIShader == nullptr || GDynamicRHI == nullptr)
-						return FComputeResult::Failure(MakeFailure("VolumetricCloudCompute", "pipeline", "Compute shader RHI creation returned null.", ERenderResourceCreateErrorCategory::RHIResource));
-					FComputePipelineStateInitializer Initializer;
-					Initializer.ComputeShader = RHIShader;
-					Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-					Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
-						"VolumetricCloudComputePipeline", Initializer
-					);
-					if (!Candidate.PipelineState)
-						return FComputeResult::Failure(MakeFailure("VolumetricCloudCompute", "pipeline", "Compute pipeline creation returned null.", ERenderResourceCreateErrorCategory::GraphicsPipeline));
-					return FComputeResult::Success(std::move(Candidate));
-				},
-				ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
-			);
-		}
+			&& ComputeTargets != nullptr)
+			EnsureComputeResources_RenderThread();
+		auto* ComputePayload = State->ComputeResources.GetPayload();
 		const FRHICapabilities* Capabilities = GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
 		FSpatial::FRouteInputs RouteInputs{
 			.bRequested = Input.bRequested,
 			.bRequiredInputsValid = bInputsValid,
 			.bComputePayloadReady = ComputePayload != nullptr,
-			.bComputeTargetReady = Policy.bPreparationOnly
-				? Policy.bComputeTargetExpected
-				: ComputeTargets != nullptr && ComputeTargets->Cloud != nullptr,
+			.bComputeTargetReady =
+				ComputeTargets != nullptr && ComputeTargets->Cloud != nullptr,
 			.bFragmentPayloadReady = false,
-			.bFragmentTargetReady = Policy.bPreparationOnly
-				? Policy.bFragmentTargetExpected
-				: FragmentTargets != nullptr && FragmentTargets->Cloud != nullptr,
+			.bFragmentTargetReady =
+				FragmentTargets != nullptr && FragmentTargets->Cloud != nullptr,
 			.Width = Input.Width,
 			.Height = Input.Height,
 			.MaxGroupCountX = Capabilities ? Capabilities->MaxComputeWorkGroupCount[0] : 0,
@@ -436,52 +493,21 @@ namespace Durin
 		};
 		FSpatial::FRouteDecision Decision = FSpatial::SelectRoute(RouteInputs);
 
-		using FFragmentPayload = FState::FFragmentPayload;
-		using FFragmentResult = TRenderResourceCreateResult<FFragmentPayload>;
-		FFragmentPayload* FragmentPayload = nullptr;
 		if (Decision.Route != ERoute::Compute && Input.bRequested && bInputsValid
 			&& RouteInputs.bFragmentTargetReady)
-		{
-			FragmentPayload = State->FragmentResources.Resolve(
-				Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
-					const std::array<const FGlobalShaderType*, 2> Types{
-						&FCloudVertexShader::StaticType(),
-						&FCloudFragmentShader::StaticType()};
-					FFragmentPayload Candidate;
-					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
-						"VolumetricCloud.Fragment", Types, true,
-						ReportRendererResourceCreateDiagnostic);
-					if (!Candidate.ShaderSet)
-						return FFragmentResult::Failure(MakeFailure("VolumetricCloudFragment", "shader", "Global shader set is unavailable.", ERenderResourceCreateErrorCategory::ShaderCompile));
-					Candidate.VertexShader = TShaderMapRef<FCloudVertexShader>(Candidate.ShaderSet);
-					Candidate.FragmentShader = TShaderMapRef<FCloudFragmentShader>(Candidate.ShaderSet);
-					if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
-						return FFragmentResult::Failure(MakeFailure("VolumetricCloudFragment", "fullscreen-geometry", "Shared fullscreen geometry is unavailable.", ERenderResourceCreateErrorCategory::RHIResource));
-					FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
-					FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
-					if (VertexRHI == nullptr || FragmentRHI == nullptr || GDynamicRHI == nullptr)
-						return FFragmentResult::Failure(MakeFailure("VolumetricCloudFragment", "pipeline", "RHI shader creation returned null.", ERenderResourceCreateErrorCategory::RHIResource));
-					FGraphicsPipelineStateInitializer Initializer;
-					Initializer.RenderTargetLayout = RenderTargetLayouts::MakeVolumetricCloudOutput();
-					Initializer.BoundShaders.VertexShader = VertexRHI;
-					Initializer.BoundShaders.FragmentShader = FragmentRHI;
-					Initializer.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
-					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-					Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
-						"VolumetricCloudFragmentPipeline", Initializer
-					);
-					if (!Candidate.PipelineState)
-						return FFragmentResult::Failure(MakeFailure("VolumetricCloudFragment", "pipeline", "Graphics pipeline creation returned null.", ERenderResourceCreateErrorCategory::GraphicsPipeline));
-					return FFragmentResult::Success(std::move(Candidate));
-				},
-				ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
-			);
-		}
+			EnsureFragmentResources_RenderThread(CommandList);
+		auto* FragmentPayload = State->FragmentResources.GetPayload();
 		RouteInputs.bFragmentPayloadReady = FragmentPayload != nullptr
 											&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
 											&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
 		Decision = FSpatial::SelectRoute(RouteInputs);
+		if (Policy.PreparedRoute)
+		{
+			if (Decision.Route != Policy.PreparedRoute->Route)
+				return {.Counters = FSpatial::MakeExecutionCounters(
+					RouteInputs, Decision, 0, 0)};
+			Decision = *Policy.PreparedRoute;
+		}
 		const uint64 Pixels = bBaseInputsValid ? static_cast<uint64>(CloudView.ViewportWidth) * CloudView.ViewportHeight : 0;
 		FExecutionCounters Counters = FSpatial::MakeExecutionCounters(RouteInputs, Decision, Pixels * Parameters.PrimarySampleCount, Pixels * Parameters.PrimarySampleCount * Parameters.LightSampleCount);
 		auto DescribeRoute = [&](FExecutionCounters& Value) {
@@ -494,9 +520,6 @@ namespace Durin
 		DescribeRoute(Counters);
 		if (Decision.Route == ERoute::Disabled)
 			return {.Counters = Counters};
-		if (Policy.bPreparationOnly)
-			return {.Counters = Counters};
-
 		FMatrix InverseViewProjection;
 		if (!Math::TryInverse(View->ViewProjectionMatrix, InverseViewProjection, 1.0e-8))
 		{
@@ -645,6 +668,71 @@ namespace Durin
 		const FCaptureSink CaptureSink = GVolumetricCloudCaptureSink.load(std::memory_order_acquire);
 		if (CaptureSink != nullptr) CaptureSink(Cloud, Decision.Route);
 		return {.Cloud = Cloud, .Counters = Counters};
+	}
+
+	auto FVolumetricCloudRenderer::PrepareRoute_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FRenderInput& Input,
+		bool bFragmentTargetExpected,
+		bool bComputeTargetExpected) -> FSpatial::FRouteDecision
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		const FSceneView* View = Input.View;
+		const uint32 OutputWidth =
+			Input.OutputWidth != 0 ? Input.OutputWidth : Input.Width;
+		const uint32 OutputHeight =
+			Input.OutputHeight != 0 ? Input.OutputHeight : Input.Height;
+		const FSpatial::FQualityPolicy Quality =
+			FSpatial::ResolveQualityPolicy(Input.QualityTier);
+		const FSpatial::FExtent ExpectedExtent = FSpatial::CalculateScaledExtent(
+			OutputWidth, OutputHeight, Quality);
+		const bool bTargetMatchesPolicy = ExpectedExtent.Width == Input.Width
+			&& ExpectedExtent.Height == Input.Height;
+		const bool bViewFits = View != nullptr && View->ViewportX <= OutputWidth
+			&& View->ViewportY <= OutputHeight
+			&& View->ViewportWidth <= OutputWidth - View->ViewportX
+			&& View->ViewportHeight <= OutputHeight - View->ViewportY;
+		FSceneView CloudView = View != nullptr ? *View : FSceneView{};
+		if (bViewFits && bTargetMatchesPolicy)
+		{
+			const auto Scaled = FSpatial::CalculateScaledViewport(
+				{View->ViewportX, View->ViewportY, View->ViewportWidth,
+					View->ViewportHeight},
+				{OutputWidth, OutputHeight}, {Input.Width, Input.Height});
+			CloudView.ViewportWidth = Scaled.Width;
+			CloudView.ViewportHeight = Scaled.Height;
+		}
+		const bool bInputsValid = Input.Parameters.IsValid() && bViewFits
+			&& bTargetMatchesPolicy && CloudView.ViewportWidth != 0
+			&& CloudView.ViewportHeight != 0;
+		if (Input.bRequested && bInputsValid && Input.Width != 0
+			&& Input.Height != 0 && bComputeTargetExpected)
+			EnsureComputeResources_RenderThread();
+		const FRHICapabilities* Capabilities =
+			GDynamicRHI != nullptr ? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		FSpatial::FRouteInputs Inputs{
+			.bRequested = Input.bRequested,
+			.bRequiredInputsValid = bInputsValid,
+			.bComputePayloadReady = State->ComputeResources.GetPayload() != nullptr,
+			.bComputeTargetReady = bComputeTargetExpected,
+			.bFragmentPayloadReady = false,
+			.bFragmentTargetReady = bFragmentTargetExpected,
+			.Width = Input.Width,
+			.Height = Input.Height,
+			.MaxGroupCountX = Capabilities
+				? Capabilities->MaxComputeWorkGroupCount[0] : 0,
+			.MaxGroupCountY = Capabilities
+				? Capabilities->MaxComputeWorkGroupCount[1] : 0};
+		FSpatial::FRouteDecision Decision = FSpatial::SelectRoute(Inputs);
+		if (Decision.Route != ERoute::Compute && Input.bRequested && bInputsValid
+			&& bFragmentTargetExpected)
+			EnsureFragmentResources_RenderThread(CommandList);
+		Inputs.bFragmentPayloadReady =
+			State->FragmentResources.GetPayload() != nullptr
+			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr
+			&& FullscreenGeometry.GetIndexBuffer_RenderThread() != nullptr;
+		return FSpatial::SelectRoute(Inputs);
 	}
 
 	auto FVolumetricCloudRenderer::ReconstructTemporal_RenderThread(

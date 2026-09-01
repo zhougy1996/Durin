@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	auto FDeferredDirectionalLightingGraphContributor::AddPasses(
+	auto FDeferredDirectionalLightingRendering::AddPasses(
 		const FDeferredLightingGraphInputs& Inputs)
 		-> FDeferredLightingGraphOutput
 	{
@@ -24,21 +24,24 @@ namespace Durin
 		auto* EnvironmentSampler = Inputs.EnvironmentSampler;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
-		const bool bWantsIsolatedDeferred = Inputs.bWantsIsolatedDeferred;
-		const bool bWantsDeferredInputs = Inputs.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred = Inputs.bWantsProductionDeferred;
+		const bool bWantsIsolatedDeferred =
+			Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Debug)
+			|| Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Qualification);
+		const bool bWantsDeferredInputs = Inputs.Feature.IsEnabled()
+			|| Inputs.AmbientOcclusionFeature.IsEnabled();
+		const bool bWantsProductionDeferred =
+			Inputs.Feature.HasPurpose(ESceneFeaturePurpose::Production);
 		const bool bHybridRetainedResourcesReady =
 			Inputs.bHybridRetainedResourcesReady;
 		auto& DeferredParameters = Inputs.DeferredParameters;
 		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
-		FSceneRenderTopology Topology;
-		Topology.bIsolatedDeferred = Inputs.bIsolated;
-		Topology.AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
+		const bool bIsolated = bWantsIsolatedDeferred;
+		const auto AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
 		std::optional<FRDGTextureHandle> IsolatedDeferred;
 		const auto DeferredDirectionalLightingCompletion = Graph.CreateValue<
 			FIsolatedDeferredPassResult>("Scene.DeferredDirectionalLightingValue",
 				"deferred-directional-lighting-result");
-		if (Topology.bIsolatedDeferred)
+		if (bIsolated)
 			IsolatedDeferred = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DeferredDirectionalColor", Width, Height,
@@ -124,9 +127,9 @@ namespace Durin
 			Parameters->Resources.IsolatedDeferredOutput = {
 				*IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneRenderFeaturePass<FDeferredDirectionalLightingGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FDeferredDirectionalLightingRendering>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordView = &RecordView, Topology,
+			[&Services, RecordView = &RecordView, AmbientOcclusionQuality,
 				&Options, &DeferredParameters, &ProductionDeferredParameters,
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
 				bWantsProductionDeferred, bHybridRetainedResourcesReady,
@@ -160,7 +163,7 @@ namespace Durin
 						.Resolved = PassParameters.Resources.AmbientOcclusion[3]
 							? Resolver.GetTexture(PassParameters.Resources.AmbientOcclusion[3])
 							: nullptr,
-						.Quality = Topology.AmbientOcclusionQuality};
+						.Quality = AmbientOcclusionQuality};
 				std::optional<FContactShadowVisibilityRenderer::FTargets>
 					FragmentContactTargets;
 				if (PassParameters.Resources.ContactShadowFragment)
