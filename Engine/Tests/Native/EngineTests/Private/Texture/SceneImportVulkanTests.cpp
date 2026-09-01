@@ -111,9 +111,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
-	Durin::FPackagePath SpherePath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
+	Durin::FObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(

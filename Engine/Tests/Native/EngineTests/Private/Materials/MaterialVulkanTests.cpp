@@ -121,9 +121,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		.bContentWritable = true});
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
-	Durin::FPackagePath SpherePath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
-		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
+	Durin::FObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
@@ -471,7 +471,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::Asset::FindAssetExact(StaticMeshFixturePath);
 		ASSERT_NE(StaticMeshAssetData, nullptr);
 		const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
-			.VirtualPath = StaticMeshAssetData->PackagePath,
+			.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
+				StaticMeshAssetData->PackagePath),
+			.PackagePath = StaticMeshAssetData->PackagePath,
 			.AssetClassName = StaticMeshAssetData->AssetClassName,
 			.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
 			.FileSize = static_cast<uint64>(StaticMeshAssetData->FileSize),
@@ -490,7 +492,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				Cache.Request(
 					StaticMeshFingerprint,
 					Durin::Editor::EAssetThumbnailPriority::Visible);
-				View = Cache.Find(StaticMeshFixturePath);
+				View = Cache.Find(StaticMeshFingerprint.AssetPath);
 				Cache.EndFrame();
 				Durin::FlushRenderingCommands();
 				if (View.State == Durin::Editor::EAssetThumbnailState::Ready
@@ -540,7 +542,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 
 			WarmCache.CancelPendingRequests();
 			const Durin::Editor::FAssetThumbnailView Retained =
-				WarmCache.Find(StaticMeshFixturePath);
+				WarmCache.Find(StaticMeshFingerprint.AssetPath);
 			EXPECT_EQ(Retained.State, Durin::Editor::EAssetThumbnailState::Ready);
 			EXPECT_EQ(Retained.Texture, Ready.Texture);
 			WarmCache.BeginFrame();
@@ -548,7 +550,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				StaticMeshFingerprint,
 				Durin::Editor::EAssetThumbnailPriority::Visible);
 			const Durin::Editor::FAssetThumbnailView Revisited =
-				WarmCache.Find(StaticMeshFixturePath);
+				WarmCache.Find(StaticMeshFingerprint.AssetPath);
 			WarmCache.EndFrame();
 			EXPECT_EQ(Revisited.State, Durin::Editor::EAssetThumbnailState::Ready);
 			EXPECT_EQ(Revisited.Texture, Ready.Texture);
@@ -1150,7 +1152,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::MarkAsGarbage(LowRoughnessMaterial);
 	Durin::MarkAsGarbage(LowRoughnessMesh);
 	PreloadedSphere = {};
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath.GetPackagePath()));
 	Durin::CollectGarbage();
 	struct FRetireThumbnailCubeResource
 	{
