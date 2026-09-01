@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Renderer, RenderCore, RHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 ## Ownership Boundary
 
@@ -15,8 +15,9 @@ execution pipeline may inspect this outer value. It owns command-local logical
 partitions for the fitted view, optional environment, selected lighting,
 receiver geometry and its shared Skeletal pose table, optional directional
 shadow, and optional volumetric cloud. The temporal transaction, resolved
-execution resources, pass results, and telemetry are sibling executor state,
-not fields of the logical plan.
+execution resources, final feature decisions, pass results, and telemetry
+occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
+of the same stack-owned `FSceneFrameContext`, not fields of the logical plan.
 
 Logical geometry is immutable after publication. StaticMesh, SplineMesh,
 SkeletalMesh, and Terrain logical draws contain visibility, LOD, material and
@@ -45,7 +46,7 @@ policy and draw readiness inspect only prepared identities and resolved records.
 Qualification-only route selection is not part of public
 `FSceneViewRenderOptions` or the logical plan. Tests and development tools may
 install one Renderer-private `FScopedRendererQualificationPolicy` on the
-render thread; the graph executor snapshots it once when the submission starts.
+render thread; the frame pipeline snapshots it once when the submission starts.
 That bounded value can request isolated GBuffer/deferred/GTAO work or force the
 contact/cloud fragment comparison routes. It cannot change scene preparation,
 and the former mutable volumetric-cloud preparation callback no longer exists.
@@ -112,10 +113,7 @@ introduce synchronization.
 `FSceneRenderPipeline`. The pipeline owns preparation, the stack-local
 five-part `FSceneFrameContext`, compile/execute/capture, and final transaction
 publication. `FSceneRenderGraphComposer` constructs the sole production graph
-in stable order through renderer-private named feature entries. GBuffer and
-Contact Visibility already use direct feature-owned `AddPasses`; remaining
-features retain the migration-era contributor boundary until the same ownership
-shape is applied:
+in stable order through renderer-private, feature-owned `AddPasses` entries:
 
 1. Validate output extent and persistent startup resources.
 2. Fit the view, reject an interleaved view-state submission, and begin the
@@ -221,17 +219,17 @@ editor assistance, and output finalization. Its inputs are typed preparation
 partitions, resolved geometry values, imported/persistent graph handles,
 retained logical target descriptions, and non-RHI pass results described above.
 
-Each stable pass identity is owned by one named contributor type in
-`SceneRenderGraphContributors.h`; contributors add parameterized passes only to
-the caller-owned builder and never compile or execute a graph. The composer
-wires returned typed outputs into narrow downstream inputs. Each pass owns one
-feature-local parameter schema whose assigned fields are its sole graph
-declaration and callback capability. It converts the complete
-prepared plan into feature-specific shadow, geometry, visibility, cloud, or
-view inputs; neither contributors nor their callbacks can discover the whole
-plan or the execution pipeline. `FSceneRenderFeatureRecorders` owns command
-recording through the same narrow contracts. Retained allocation policy is the
-Renderer-owned implementation of `FRDGAllocator`. It receives only exact
+Each stable pass identity, parameter metadata definition, graph setup,
+callback, and private command-recording function is owned by its rendering
+unit. The composer wires returned typed outputs into narrow downstream inputs
+and passes only the exact renderer services, immutable decisions, and upstream
+capabilities required by that feature. Features add parameterized passes only
+to the caller-owned builder and never compile or execute a graph; neither they
+nor their callbacks can discover the complete frame context or execution
+pipeline. There is no central contributor declaration, parameter
+implementation, recorder facade, service bag, or wide compose input. Retained
+allocation policy is the Renderer-owned implementation of `FRDGAllocator`. It
+receives only exact
 descriptors and lifetimes from RenderCore, and publishes one complete candidate
 table by resource ID. Human-readable resource names remain diagnostics and
 never reach allocation compatibility or physical selection.

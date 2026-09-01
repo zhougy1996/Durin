@@ -9,7 +9,41 @@ Completed:
 
 ## Current Status
 
-Stage 3 proves the feature-owned boundary with GBuffer and Contact Visibility.
+Stage 4 is complete. Composer now reads the stack-owned frame context directly
+and invokes the stable schedule through feature-owned headers for directional
+shadow, GBuffer, ambient occlusion, Contact Visibility, cloud shadow,
+deferred lighting, base scene, cloud spatial/composite, Scene Color,
+post process, and editor assistance. Each rendering source owns its parameter
+metadata, setup, callback, and private recording implementation. The wide
+compose input, service bag, contributor declarations, recorder facade, and
+central parameter implementation are deleted. Focused scene contracts pass
+44/44, the repository-selected affected set passes, the complete routine
+native-test aggregate passes, the incremental `all` build passes, and the
+hidden 60-tick Editor smoke passes.
+
+Stage 5 is otherwise complete but cannot pass its final qualification gate in
+the current GPU window. Volumetric Cloud and directional-shadow qualification
+pass. Three consecutive GBuffer qualification runs complete all functional,
+route, memory, and rendering work but fail the frozen timing statistics: the
+half-resolution GTAO feature median is 67.4--68.7% of full resolution against a
+65% ceiling, and the two DevTool reruns also report unstable production
+median/p95 samples. The test itself instructs that these samples must be rerun
+without competing GPU work before they are treated as a renderer regression.
+No threshold, algorithm, graph contract, or public result was changed. The
+plan remains Active with only the quiet-GPU GBuffer qualification rerun and
+final documentation lifecycle validation open.
+
+Final accounting records 855 lines in the remaining centralized pipeline and
+composer core, down from the frozen 1,633-line executor/pipeline/composer and
+facade footprint. The complete feature-owned schedule is 5,525 lines across 24
+pipeline, composer, feature header, and feature source files. Feature input
+headers contain zero transported `bWants*`/`bNeeds*` policy fields, zero generic
+plus prepared route pairs, zero borrowed recorder-facade services, and zero
+one-shot execution callbacks. Repository searches find none of the five
+removed orchestration facade/file identities, and the old representations were
+not recreated under replacement names.
+
+Stage 3 proved the feature-owned boundary with GBuffer and Contact Visibility.
 Both private feature headers now publish only compact canonical inputs, typed
 outputs, and `AddPasses`; their sources own parameter metadata, graph setup,
 callbacks, and private recording functions. Composer calls those entries
@@ -39,7 +73,7 @@ its only remaining work is an exclusive quiet-GPU qualification rerun and a
 documentation-only status update. Its RDG parameter, allocation, capture,
 setup/execute, and output-transaction semantics remain frozen dependencies.
 
-The current frame path computes deferred, ambient-occlusion, GBuffer, and
+Before Stage 1, the frame path computed deferred, ambient-occlusion, GBuffer, and
 route decisions more than once; carries both generic topology routes and
 feature-specific prepared routes; expands those values through a wide compose
 input into feature contributor inputs; and finally reaches command recording
@@ -332,23 +366,23 @@ continue to observe actual command-recording results.
 
 ### Stage 4: Migrate the complete scene feature schedule
 
-- [ ] Migrate directional shadow, ambient occlusion, cloud-shadow visibility,
+- [x] Migrate directional shadow, ambient occlusion, cloud-shadow visibility,
   deferred directional lighting, base scene, cloud spatial/composite, Scene
   Color/translucency, post process, and editor assistance to the proven
   feature-owned boundary.
-- [ ] Move each pass resource/parameter metadata definition from the central
+- [x] Move each pass resource/parameter metadata definition from the central
   graph-parameter source into its owning feature source while preserving stable
   structure names and field paths used by captures and diagnostics.
-- [ ] Replace the wide compose input with direct access to the canonical
+- [x] Replace the wide compose input with direct access to the canonical
   frame context and feature-specific const views; keep complete-context access
   confined to Pipeline and Composer.
-- [ ] Remove `FSceneRenderGraphServices`, `FSceneRenderGraphComposeInputs`,
+- [x] Remove `FSceneRenderGraphServices`, `FSceneRenderGraphComposeInputs`,
   `FSceneRenderFeatureRecorders`, generic contributor declarations/macros, and
   centralized graph-parameter files after their final users move.
-- [ ] Remove obsolete friends, includes, forward declarations, build entries,
+- [x] Remove obsolete friends, includes, forward declarations, build entries,
   and tests that assert deleted facade type shapes; replace them with ownership
   and single-authority contract checks.
-- [ ] Confirm the final composer reads as the stable feature schedule and
+- [x] Confirm the final composer reads as the stable feature schedule and
   contains no route selection, resource preparation, command recording, or
   telemetry reduction.
 
@@ -361,24 +395,24 @@ continue to observe actual command-recording results.
 
 ### Stage 5: Qualify, document, and complete the ownership change
 
-- [ ] Pass the focused Renderer scene contract, view, editor-assistance,
+- [x] Pass the focused Renderer scene contract, view, editor-assistance,
   render-target-layout, GBuffer, contact-shadow, volumetric-cloud, resource
   recovery, RDG, and Vulkan transition coverage selected through the repository
   testing workflow.
 - [ ] Pass representative present/offscreen, resize, repeated/multi-view,
   forced route, fallback, allocation failure, device recovery, and Editor smoke
   qualification without changing the frozen public results or graph contracts.
-- [ ] Pass the required build and routine native-test aggregates according to
+- [x] Pass the required build and routine native-test aggregates according to
   the repository build and testing workflows.
-- [ ] Compare final captures with Stage 0 for pass identities, parameter field
+- [x] Compare final captures with Stage 0 for pass identities, parameter field
   paths, routes, dependencies, transitions, typed values, output roots,
   allocation observations, and transaction results; explain any intentional
   structural difference before accepting it.
-- [ ] Record final production source footprint and decision/route/service/
+- [x] Record final production source footprint and decision/route/service/
   callback counts. Confirm that removed facades were not recreated under new
   names and that feature input fields express capabilities rather than copied
   policy facts.
-- [ ] Update the lasting
+- [x] Update the lasting
   [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
   and [Render Graph](../Runtime/Rendering/RenderGraph.md) contracts to describe
   the final frame owner, feature plan, Composer boundary, and feature-owned

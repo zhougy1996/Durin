@@ -1,7 +1,5 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/EditorAssistanceRendering.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,8 +9,58 @@
 
 namespace Durin
 {
+	#define DURIN_ATTACHMENT(Field, Wrapper, Kind, Access, Result) \
+		MakeRDGResourceParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
+				Kind, ERDGResourceKind::Texture, \
+				ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, Access, \
+				false, ERHIRenderTargetLoadAction::Load, \
+				ERHIRenderTargetStoreAction::Store, true, Result)
+	auto FEditorAssistancePassResources::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FEditorAssistancePassResources;
+		static const std::array Members = {
+			DURIN_ATTACHMENT(EditorOutputPresent, FRDGColorAttachmentParameter,
+				ERDGParameterMemberKind::ManagedColorAttachment,
+				ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::Present),
+			DURIN_ATTACHMENT(EditorOutputOffscreen, FRDGColorAttachmentParameter,
+				ERDGParameterMemberKind::ManagedColorAttachment,
+				ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::GraphicsShaderRead),
+			DURIN_ATTACHMENT(EditorDepth, FRDGDepthStencilAttachmentParameter,
+				ERDGParameterMemberKind::ManagedDepthStencilAttachment,
+				ERHIAccess::DepthStencilReadWrite, ERHIAccess::DepthStencilReadWrite)};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FEditorAssistancePassResources", Members);
+		return &Metadata;
+	}
+	#undef DURIN_ATTACHMENT
+
+	auto FEditorAssistancePassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FEditorAssistancePassParameters;
+		static const std::array Members = {
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::PostProcess), FPostProcessPassResult>(
+					"PostProcess", offsetof(FParameters, PostProcess)),
+			MakeRDGNestedParameterMemberMetadata<FParameters,
+				decltype(FParameters::Resources)>("Resources",
+					offsetof(FParameters, Resources),
+					FEditorAssistancePassResources::GetRDGParametersMetadata())};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FEditorAssistancePassParameters", Members);
+		return &Metadata;
+	}
+
 	namespace
 	{
+		auto RecordEditorAssistance(FRHICommandListImmediate& CommandList,
+			const FSceneView& RenderView, FRHITexture* OutputTarget,
+			FRHITexture* DepthTarget, bool bPresentOutput,
+			const RendererEditorAssistance::FPrepared& Prepared,
+			FEditorAssistanceRenderer& Renderer) -> bool;
+
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -22,11 +70,11 @@ namespace Durin
 	} // namespace
 
 	auto FEditorAssistanceRendering::AddPasses(
-		const FEditorAssistanceGraphInputs& Inputs) -> void
+		const FEditorAssistanceFeatureInputs& Inputs) -> void
 	{
 		if (!Inputs.Feature.IsEnabled()) return;
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		auto* Renderer = &Inputs.Renderer;
 		const auto& RecordView = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
 		const bool bPresentOutput = Inputs.bPresentOutput;
@@ -45,9 +93,8 @@ namespace Durin
 			.Texture = Inputs.SceneDepth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
-			AddSceneRenderFeaturePass<FEditorAssistanceRendering>(
-				Graph, ERDGPassType::Graphics, std::move(Parameters),
-				[&Services, &Publication = Inputs.Publication,
+			Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+				[Renderer, &Publication = Inputs.Publication,
 					RecordView = &RecordView, &PreparedEditorAssistance,
 					bPresentOutput](FRHICommandListImmediate& Commands,
 					const FEditorAssistancePassParameters& PassParameters,
@@ -62,23 +109,26 @@ namespace Durin
 						Output = Resolver.GetColorAttachment(
 							PassParameters.Resources.EditorOutputOffscreen).Texture;
 					Publication.bEditorAssistance =
-						Services.Recorders.RenderEditorAssistance_RenderThread(
+						RecordEditorAssistance(
 							Commands, *RecordView,
 							Output, Resolver.GetDepthStencilAttachment(
 								PassParameters.Resources.EditorDepth).Texture,
-							bPresentOutput, PreparedEditorAssistance);
+							bPresentOutput, PreparedEditorAssistance, *Renderer);
 				});
 		Graph.MarkPassRoot(EditorAssistancePass,
 			bPresentOutput ? "present" : "offscreen-output");
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderEditorAssistance_RenderThread(
+	namespace
+	{
+	auto RecordEditorAssistance(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		FRHITexture* OutputTarget,
 		FRHITexture* DepthTarget,
 		bool bPresentOutput,
-		const RendererEditorAssistance::FPrepared& Prepared
+		const RendererEditorAssistance::FPrepared& Prepared,
+		FEditorAssistanceRenderer& Renderer
 	) -> bool
 	{
 		if (!Prepared.HasDrawableOperation()) return false;
@@ -94,7 +144,7 @@ namespace Durin
 			EditorAssistancePassInfo,
 			bPresentOutput ? "EditorAssistancePresentRenderPass" : "EditorAssistanceOffscreenRenderPass"
 		);
-		EditorAssistanceRenderer.Draw_RenderThread(
+		Renderer.Draw_RenderThread(
 			CommandList,
 			RenderView,
 			Prepared
@@ -102,4 +152,5 @@ namespace Durin
 		CommandList.EndRenderPass();
 		return true;
 	}
+	} // namespace
 } // namespace Durin

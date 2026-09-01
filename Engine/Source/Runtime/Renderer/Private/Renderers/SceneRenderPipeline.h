@@ -18,6 +18,7 @@ namespace Durin
 		struct FLogical final
 		{
 			FScene* Scene = nullptr;
+			const FSceneView* CallerView = nullptr;
 			FSceneView RenderView;
 			FRHITexture* OutputTarget = nullptr;
 			FSceneViewRenderOptions Options;

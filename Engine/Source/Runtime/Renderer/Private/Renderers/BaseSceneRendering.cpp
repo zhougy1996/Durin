@@ -1,7 +1,6 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/BaseSceneRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,11 +10,90 @@
 
 namespace Durin
 {
+	#define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, Use, Access, ...) \
+		MakeRDGResourceParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
+				Kind, ERDGResourceKind::Texture, \
+				ERDGParameterRangeKind::TextureSubresource, Use, Access \
+				__VA_OPT__(,) __VA_ARGS__)
+	#define DURIN_TEXTURE(Field) DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
+		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
+		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_MANAGED_TEXTURE(Field, EntryAccess, Discard, ResultAccess) \
+		DURIN_RESOURCE_MEMBER(Field, FRDGManagedTextureParameter, \
+			ERDGParameterMemberKind::ManagedTexture, ERDGUse::ReadWrite, EntryAccess, \
+			Discard, ERHIRenderTargetLoadAction::Load, \
+			ERHIRenderTargetStoreAction::Store, true, ResultAccess)
+	#define DURIN_DEFINE_METADATA(TypeName, ...) \
+		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
+		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
+		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>( \
+			#TypeName, Members); return &Metadata; }
+
+	DURIN_DEFINE_METADATA(FBaseScenePassResources,
+		DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite),
+		DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance),
+		DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut),
+		DURIN_RESOURCE_MEMBER(SceneColorOutput, FRDGColorAttachmentParameter,
+			ERDGParameterMemberKind::ManagedColorAttachment, ERDGUse::ReadWrite,
+			ERHIAccess::ColorAttachmentReadWrite, true,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store, true,
+			ERHIAccess::GraphicsShaderRead),
+		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToGraphics,
+			ERHIAccess::GraphicsShaderRead, false, ERHIAccess::GraphicsShaderRead),
+		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToDepth,
+			ERHIAccess::GraphicsShaderRead, false, ERHIAccess::DepthStencilReadWrite),
+		DURIN_MANAGED_TEXTURE(SceneDepthDepthToGraphics,
+			ERHIAccess::DepthStencilReadWrite, true, ERHIAccess::GraphicsShaderRead),
+		DURIN_MANAGED_TEXTURE(SceneDepthDepthToDepth,
+			ERHIAccess::DepthStencilReadWrite, true, ERHIAccess::DepthStencilReadWrite));
+
+	DURIN_DEFINE_METADATA(FBaseScenePassParameters,
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
+				"DeferredLighting", offsetof(FParameters, DeferredLighting)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::Completion), FSceneColorPassResult>(
+				"Completion", offsetof(FParameters, Completion)),
+		MakeRDGNestedParameterMemberMetadata<FParameters,
+			decltype(FParameters::Resources)>("Resources",
+				offsetof(FParameters, Resources),
+				FBaseScenePassResources::GetRDGParametersMetadata()));
+
+	#undef DURIN_DEFINE_METADATA
+	#undef DURIN_MANAGED_TEXTURE
+	#undef DURIN_TEXTURE
+	#undef DURIN_RESOURCE_MEMBER
+
+	namespace
+	{
+		struct FBaseSceneRecorder final
+		{
+			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
+			FStaticMeshRenderer& StaticMeshRenderer;
+			FTerrainRenderer& TerrainRenderer;
+			FSkeletalMeshRenderer& SkeletalMeshRenderer;
+			FSkyBoxRenderer& SkyBoxRenderer;
+			FSceneRenderTelemetry& Telemetry;
+			FResolvedSceneResources& ResolvedSceneResources;
+
+			auto RenderBaseScene_RenderThread(FRHICommandListImmediate&,
+				const FSceneGeometryRecordInputs&, FRHITexture*, FRHITexture*,
+				const FDeferredDirectionalLightingRenderer::FRenderParameters*)
+				-> FSceneColorPassResult;
+			auto RenderForwardScene_RenderThread(FRHICommandListImmediate&,
+				const FSceneGeometryRecordInputs&, FRHITexture*) -> bool;
+		};
+	} // namespace
+
 	auto FBaseSceneRendering::AddPasses(
-		const FBaseSceneGraphInputs& Inputs) -> FBaseSceneGraphOutput
+		const FBaseSceneFeatureInputs& Inputs) -> FBaseSceneGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FBaseSceneRecorder Recorder{Inputs.DeferredRenderer,
+			Inputs.StaticMeshes, Inputs.Terrains, Inputs.SkeletalMeshes,
+			Inputs.SkyBox, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
@@ -40,12 +118,12 @@ namespace Durin
 		};
 		AssignRead(Parameters->Resources.DirectionalShadow,
 			Inputs.DirectionalShadow.Shadow,
-			Services.DirectionalShadowRenderer.GetTexture_RenderThread());
+			Inputs.DirectionalShadowRenderer.GetTexture_RenderThread());
 		AssignRead(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
-			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+			Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		AssignRead(Parameters->Resources.DefaultShadowArray,
 			Inputs.DefaultShadowArray,
-			Services.DefaultTextures.GetArray_RenderThread());
+			Inputs.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
 			Inputs.EnvironmentIrradiance,
 			Inputs.SelectedEnvironmentIrradiance);
@@ -69,12 +147,11 @@ namespace Durin
 			Parameters->Resources.SceneDepthDepthToGraphics = Depth;
 		else
 			Parameters->Resources.SceneDepthDepthToDepth = Depth;
-		(void)AddSceneRenderFeaturePass<FBaseSceneRendering>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordInputs, &ProductionDeferredParameters](
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Recorder, RecordInputs, &ProductionDeferredParameters](
 				FRHICommandListImmediate& Commands,
 				const FBaseScenePassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = Resolver.GetColorAttachment(
 						PassParameters.Resources.SceneColorOutput).Texture,
@@ -92,7 +169,7 @@ namespace Durin
 				const FSceneColorTimingQuerySink TimingSink =
 					GetSceneColorTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
-				Resolver.WriteValue(PassParameters.Completion) = Services.Recorders.RenderBaseScene_RenderThread(
+				Resolver.WriteValue(PassParameters.Completion) = Recorder.RenderBaseScene_RenderThread(
 					Commands,
 					RecordInputs,
 					SceneTargets.Color, SceneTargets.Depth,
@@ -104,7 +181,7 @@ namespace Durin
 			.Color = Inputs.SceneColor, .Depth = Inputs.SceneDepth};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderBaseScene_RenderThread(
+	auto FBaseSceneRecorder::RenderBaseScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,
@@ -275,7 +352,7 @@ namespace Durin
 		return {.Result = ERenderViewResult::Success};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderForwardScene_RenderThread(
+	auto FBaseSceneRecorder::RenderForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* RenderTarget

@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
 ## Ownership Boundary
 
@@ -305,8 +305,8 @@ production acceptance gate.
 New renderer work that crosses pass boundaries must use the graph path:
 
 - Prefer one typed parameter object as the declaration and callback capability
-  for a new pass. Use the manual surface only while migrating an existing
-  contributor, and never mix both authorities on one pass.
+  for a new pass. Use the manual surface only for the bounded low-level
+  compatibility oracles, and never mix both authorities on one pass.
 - Declare every cross-pass texture/buffer range with exact access and use a
   graph-owned typed value for a non-RHI outcome. Tokens remain for unmigrated
   execution-only compatibility edges.
@@ -339,7 +339,7 @@ production Renderer or Renderer contract-fixture authoring option.
 
 `RendererSceneContractTests` scans all production Renderer C++ source and
 rejects a manual `Use*` call or an `AddPass` whose third argument is not a moved
-parameter object. This allows new parameter structures and contributors without
+parameter object. This allows new feature-owned parameter structures without
 maintaining a filename allowlist while making the production prohibition
 executable. The compatibility surface may be removed only when these compiler
 and RHI transition oracles have parameterized replacements that remain
@@ -362,22 +362,22 @@ decisions, transaction state, and observation state, while
 `FSceneRenderGraphComposer` wires renderer-private features in a fixed order.
 Feature-owned `AddPasses` entries accept a feature-specific immutable input,
 create their own typed completion value and logical textures, then return a
-narrow typed output for the next contributor. Every production scene pass is
+narrow typed output for the next consumer. Every production scene pass is
 parameterized: one graph-owned parameter object supplies its exact texture,
 attachment, value, token, and selected-route declarations to both compilation
 and the bounded callback. Present or offscreen output is the explicit typed
 root. Stable compilation preserves declaration order between independent
 optional producers.
 
-The composer is the only graph-authoring boundary allowed to see the complete
-immutable `FSceneRenderPlan` and canonical `FSceneFrameFeaturePlan`; it slices
-those plans into feature-specific inputs before invoking each feature.
-Features and their callbacks cannot receive
-the complete plan or execution pipeline. `FSceneRenderFeatureRecorders` owns
-the remaining feature command semantics and renderer services during migration,
-but does not author, compile, or execute graph structure. GBuffer and Contact
-Visibility already own their complete metadata/setup/callback/recording path
-and do not pass through that facade.
+The pipeline and composer are the only graph-authoring boundaries allowed to
+see the complete frame context. The composer reads the immutable
+`FSceneRenderPlan` and canonical `FSceneFrameFeaturePlan`, then slices them into
+feature-specific inputs before invoking each feature. Features and their
+callbacks cannot receive the complete plan, frame context, or execution
+pipeline. Every feature rendering unit owns its parameter metadata, graph
+setup, callback, and private command-recording function. The production path
+has no central contributor declaration, parameter implementation, recorder
+facade, renderer-service bag, or wide compose input.
 
 Production scene authoring has no frame-wide resource/channel bag, repeated
 persistent-input declaration helper, or manual `Graph.Use*` supplement. A pass

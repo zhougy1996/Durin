@@ -1,6 +1,7 @@
 #include "Renderers/ContactShadowVisibilityRendering.h"
 
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/DirectionalShadowRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"

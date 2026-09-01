@@ -4,8 +4,6 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
-#include "Renderers/SceneRenderGraphContributors.h"
-#include "Renderers/SceneRenderFeatureRecorders.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RDG.h"
@@ -96,8 +94,6 @@ namespace Durin
 			Context.Logical.Qualification;
 		auto& DefaultTextures = Renderer.DefaultTextures;
 		auto& EnvironmentLighting = Renderer.EnvironmentLighting;
-		auto& DirectionalShadowRenderer = Renderer.DirectionalShadowRenderer;
-		auto& GBufferRenderer = Renderer.GBufferRenderer;
 		auto& SkyBoxRenderer = Renderer.SkyBoxRenderer;
 		auto& PostProcessRenderer = Renderer.PostProcessRenderer;
 		auto& StaticMeshRenderer = Renderer.StaticMeshRenderer;
@@ -107,8 +103,6 @@ namespace Durin
 		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
 		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
 		auto& EditorAssistanceRenderer = Renderer.EditorAssistanceRenderer;
-		FSceneRenderFeatureRecorders Recorders(
-			Renderer, Telemetry, ResolvedSceneResources, TemporalContext, ViewState);
 		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++Renderer.RenderSubmissionSerial;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
@@ -127,6 +121,7 @@ namespace Durin
 			return ERenderViewResult::InvalidOutput;
 		}
 		Context.Logical.Scene = Scene;
+		Context.Logical.CallerView = &View;
 		Context.Logical.OutputTarget = OutputTarget;
 		Context.Logical.Options = Options;
 		Context.Logical.Width = Width;
@@ -242,8 +237,6 @@ namespace Durin
 					CommandList, PreparedView.Receiver.Terrains,
 					ResolvedSceneResources.Receiver.Terrains
 				));
-		const bool bHybridRetainedResourcesReady =
-			Context.Resolved.bHybridRetainedResourcesReady;
 		const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 		auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
 		const bool bForceContactShadowVisibilityFragment =
@@ -316,39 +309,10 @@ namespace Durin
 				true, !bForceCloudFragment);
 			FeaturePlan.CloudSpatial.Decision = Prepared;
 		}
-		const FSceneFrameFeaturePlan& PublishedFeatures =
-			Context.Features.Plan;
 		FRDGBuilder Graph;
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;
-		FSceneRenderGraphServices GraphServices{
-			.Recorders = Recorders,
-			.RDGAllocator = Renderer.RDGAllocator,
-			.GBufferRenderer = GBufferRenderer,
-			.StaticMeshRenderer = StaticMeshRenderer,
-			.SkeletalMeshRenderer = SkeletalMeshRenderer,
-			.TerrainRenderer = TerrainRenderer,
-			.ContactShadowRenderer = ContactShadowRenderer,
-			.DefaultTextures = DefaultTextures,
-			.EnvironmentLighting = EnvironmentLighting,
-			.DirectionalShadowRenderer = DirectionalShadowRenderer,
-			.ResolvedSceneResources = ResolvedSceneResources,
-			.Telemetry = Telemetry};
-		const FSceneRenderGraphComposeInputs ComposeInputs{
-			.Services = GraphServices,
-			.PreparedView = PreparedView,
-			.View = View,
-			.OutputTarget = OutputTarget,
-			.Options = Options,
-			.Features = PublishedFeatures,
-			.EditorAssistance = PreparedEditorAssistance,
-			.CloudWeatherTexture = CloudWeatherTexture,
-			.Width = Width,
-			.Height = Height,
-			.bPresentOutput = bPresentOutput,
-			.bHybridRetainedResourcesReady =
-				bHybridRetainedResourcesReady};
-		FSceneRenderGraphComposer::Compose(Graph, ComposeInputs, Composition);
+		FSceneRenderGraphComposer::Compose(Graph, Renderer, Context);
 		const ESceneRenderGraphExecutionStatus GraphStatus =
 			CompileAndExecuteGraph_RenderThread(
 				Graph, CommandList, OutRenderGraphCapture,

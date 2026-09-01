@@ -1,6 +1,16 @@
 #include "Renderers/SceneRenderGraphComposer.h"
 
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/AmbientOcclusionRendering.h"
+#include "Renderers/BaseSceneRendering.h"
+#include "Renderers/ContactShadowVisibilityRendering.h"
+#include "Renderers/DeferredDirectionalLightingRendering.h"
+#include "Renderers/DirectionalShadowRendering.h"
+#include "Renderers/EditorAssistanceRendering.h"
+#include "Renderers/GBufferRendering.h"
+#include "Renderers/PostProcessRendering.h"
+#include "Renderers/SceneColorRendering.h"
+#include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -10,23 +20,26 @@ namespace Durin
 {
 	auto FSceneRenderGraphComposer::Compose(
 		FRDGBuilder& Graph,
-		const FSceneRenderGraphComposeInputs& Inputs,
-		FSceneRenderGraphComposition& Composition) -> void
+		FSceneRenderer& Renderer,
+		FSceneFrameContext& Context) -> void
 	{
-		auto& Services = Inputs.Services;
-		const auto& PreparedView = Inputs.PreparedView;
-		const auto& View = Inputs.View;
-		auto* OutputTarget = Inputs.OutputTarget;
-		const auto& Options = Inputs.Options;
-		const auto& Features = Inputs.Features;
-		const auto& PreparedEditorAssistance = Inputs.EditorAssistance;
-		auto* CloudWeatherTexture = Inputs.CloudWeatherTexture;
-		const uint32 Width = Inputs.Width;
-		const uint32 Height = Inputs.Height;
-		const bool bPresentOutput = Inputs.bPresentOutput;
+		const auto& Logical = Context.Logical;
+		auto& Resolved = Context.Resolved;
+		const auto& PreparedView = *Logical.PreparedView;
+		const auto& View = *Logical.CallerView;
+		auto* OutputTarget = Logical.OutputTarget;
+		const auto& Options = Logical.Options;
+		const auto& Features = Context.Features.Plan;
+		const auto& PreparedEditorAssistance = Logical.EditorAssistance;
+		auto* CloudWeatherTexture = Resolved.CloudWeatherTexture;
+		const uint32 Width = Logical.Width;
+		const uint32 Height = Logical.Height;
+		const bool bPresentOutput = Logical.bPresentOutput;
 		const bool bWantsDeferredInputs = Features.RequiresDeferredInputs();
 		const bool bHybridRetainedResourcesReady =
-			Inputs.bHybridRetainedResourcesReady;
+			Resolved.bHybridRetainedResourcesReady;
+		auto& Composition = Context.Transaction.Composition;
+		auto& Telemetry = Context.Observation.Telemetry;
 		auto& DeferredParameters = Composition.DeferredParameters;
 		auto& ProductionDeferredParameters =
 			Composition.ProductionDeferredParameters;
@@ -68,45 +81,45 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 		};
 		FRHITexture* DirectionalShadowTexture =
-			Services.DirectionalShadowRenderer.GetTexture_RenderThread();
-		if (PreparedView.DirectionalShadow && Services.ResolvedSceneResources.DirectionalShadow
-			&& Services.ResolvedSceneResources.DirectionalShadow->bEnabled
+			Renderer.DirectionalShadowRenderer.GetTexture_RenderThread();
+		if (PreparedView.DirectionalShadow && Resolved.Scene.DirectionalShadow
+			&& Resolved.Scene.DirectionalShadow->bEnabled
 			&& DirectionalShadowTexture != nullptr)
 			GraphResources.DirectionalShadow = ImportPersistentTexture(
 				"Scene.DirectionalShadow", DirectionalShadowTexture);
-		if (Services.ResolvedSceneResources.VolumetricCloud)
+		if (Resolved.Scene.VolumetricCloud)
 		{
 			GraphResources.VolumetricCloudBaseDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.BaseDensity",
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
+				Resolved.Scene.VolumetricCloud->Textures.BaseDensity);
 			GraphResources.VolumetricCloudDetailDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.DetailDensity",
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
+				Resolved.Scene.VolumetricCloud->Textures.DetailDensity);
 			GraphResources.VolumetricCloudWeather = ImportPersistentTexture(
 				"Scene.VolumetricCloud.Weather", CloudWeatherTexture);
 		}
 		GraphResources.DefaultWhite = ImportPersistentTexture(
 			"Scene.Default.White",
-			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+			Renderer.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		GraphResources.DefaultShadowArray = ImportPersistentTexture(
-			"Scene.Default.ShadowArray", Services.DefaultTextures.GetArray_RenderThread());
+			"Scene.Default.ShadowArray", Renderer.DefaultTextures.GetArray_RenderThread());
 		FRHISampler* SelectedEnvironmentSampler = nullptr;
 		if (bWantsDeferredInputs)
 		{
 			FRHITexture* Irradiance =
-				Services.EnvironmentLighting.GetIrradiance_RenderThread();
+				Renderer.EnvironmentLighting.GetIrradiance_RenderThread();
 			FRHITexture* Prefiltered =
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread();
+				Renderer.EnvironmentLighting.GetPrefiltered_RenderThread();
 			FRHITexture* BrdfLut =
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread();
+				Renderer.EnvironmentLighting.GetBrdfLut_RenderThread();
 			SelectedEnvironmentSampler =
-				Services.EnvironmentLighting.GetSampler_RenderThread();
+				Renderer.EnvironmentLighting.GetSampler_RenderThread();
 			if (Irradiance == nullptr || Prefiltered == nullptr
 				|| BrdfLut == nullptr || SelectedEnvironmentSampler == nullptr)
 			{
-				Irradiance = Services.DefaultTextures.GetCube_RenderThread();
-				Prefiltered = Services.DefaultTextures.GetCube_RenderThread();
-				BrdfLut = Services.DefaultTextures.Get_RenderThread(
+				Irradiance = Renderer.DefaultTextures.GetCube_RenderThread();
+				Prefiltered = Renderer.DefaultTextures.GetCube_RenderThread();
+				BrdfLut = Renderer.DefaultTextures.Get_RenderThread(
 					EDefaultTexture::Black);
 				SelectedEnvironmentSampler = nullptr;
 			}
@@ -153,42 +166,53 @@ namespace Durin
 			PreparedView.Environment ? &*PreparedView.Environment : nullptr;
 		const auto DirectionalShadowOutput =
 			FDirectionalShadowRendering::AddPasses({
-				.Graph = Graph, .Services = Services,
-				.Record = {DirectionalShadow}, .Shadow = GraphResources.DirectionalShadow});
+				.Graph = Graph, .ShadowRecord = DirectionalShadow,
+				.Shadow = GraphResources.DirectionalShadow,
+				.Renderer = Renderer.DirectionalShadowRenderer,
+				.StaticMeshes = Renderer.StaticMeshRenderer,
+				.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
+				.Terrains = Renderer.TerrainRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry});
 		const auto GBufferOutput = FGBufferRendering::AddPasses({
 			.Graph = Graph, .View = PreparedRenderView,
 			.Receiver = PreparedView.Receiver,
-			.Resolved = Services.ResolvedSceneResources,
-			.Telemetry = Services.Telemetry,
-			.Renderer = Services.GBufferRenderer,
-			.StaticMeshes = Services.StaticMeshRenderer,
-			.SkeletalMeshes = Services.SkeletalMeshRenderer,
-			.Terrains = Services.TerrainRenderer,
+			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
+			.Renderer = Renderer.GBufferRenderer,
+			.StaticMeshes = Renderer.StaticMeshRenderer,
+			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
+			.Terrains = Renderer.TerrainRenderer,
 			.Depth = GraphResources.SceneDepth, .Options = Options,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
 			.DeferredFeature = Features.Deferred});
 		const auto AmbientOcclusionOutput =
 			FAmbientOcclusionRendering::AddPasses({
-				.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+				.Graph = Graph, .View = PreparedRenderView,
 				.Options = Options, .GBuffer = GBufferOutput,
+				.Allocator = Renderer.RDGAllocator,
+				.Renderer = Renderer.GroundTruthAmbientOcclusionRenderer,
+				.Telemetry = Telemetry,
 				.Width = Width, .Height = Height,
 				.Feature = Features.AmbientOcclusion});
 		const auto ContactShadowOutput =
 			FContactShadowVisibilityRendering::AddPasses({
 				.Graph = Graph, .View = PreparedRenderView,
 				.Shadow = DirectionalShadow,
-				.Resolved = Services.ResolvedSceneResources,
-				.Telemetry = Services.Telemetry,
-				.Allocator = Services.RDGAllocator,
-				.Renderer = Services.ContactShadowRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry,
+				.Allocator = Renderer.RDGAllocator,
+				.Renderer = Renderer.ContactShadowRenderer,
 				.DirectionalShadow = DirectionalShadowOutput,
 				.GBuffer = GBufferOutput, .Feature = Features.ContactVisibility,
 				.Width = Width, .Height = Height});
 		const auto CloudShadowOutput =
 			FVolumetricCloudShadowRendering::AddPasses({
-				.Graph = Graph, .Services = Services,
+				.Graph = Graph,
 				.Record = {PreparedRenderView, VolumetricCloud, PreparedView.Lighting},
-				.GBuffer = GBufferOutput, .SceneDepth = GraphResources.SceneDepth,
+				.GBuffer = GBufferOutput,
+				.Allocator = Renderer.RDGAllocator,
+				.Renderer = Renderer.VolumetricCloudShadowRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry,
+				.Qualification = Context.Logical.Qualification,
+				.SceneDepth = GraphResources.SceneDepth,
 				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
 				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
 				.Weather = GraphResources.VolumetricCloudWeather,
@@ -198,10 +222,14 @@ namespace Durin
 				.Width = Width, .Height = Height});
 		const auto DeferredOutput =
 			FDeferredDirectionalLightingRendering::AddPasses({
-				.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+				.Graph = Graph, .View = PreparedRenderView,
 				.Options = Options, .DirectionalShadow = DirectionalShadowOutput,
 				.GBuffer = GBufferOutput, .AmbientOcclusion = AmbientOcclusionOutput,
 				.ContactShadow = ContactShadowOutput, .CloudShadow = CloudShadowOutput,
+				.DefaultTextures = Renderer.DefaultTextures,
+				.DirectionalShadowRenderer = Renderer.DirectionalShadowRenderer,
+				.Renderer = Renderer.DeferredDirectionalLightingRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 				.DefaultWhite = GraphResources.DefaultWhite,
 				.DefaultShadowArray = GraphResources.DefaultShadowArray,
 				.EnvironmentIrradiance = GraphResources.EnvironmentIrradiance,
@@ -220,10 +248,17 @@ namespace Durin
 		const FSceneGeometryRecordInputs GeometryInputs{
 			PreparedRenderView, Environment, PreparedView.Receiver};
 		const auto BaseSceneOutput = FBaseSceneRendering::AddPasses({
-			.Graph = Graph, .Services = Services, .Record = GeometryInputs,
+			.Graph = Graph, .Record = GeometryInputs,
 			.Deferred = DeferredOutput, .SceneColor = GraphResources.SceneColor,
 			.SceneDepth = GraphResources.SceneDepth,
 			.DirectionalShadow = DirectionalShadowOutput,
+			.DefaultTextures = Renderer.DefaultTextures,
+			.DirectionalShadowRenderer = Renderer.DirectionalShadowRenderer,
+			.DeferredRenderer = Renderer.DeferredDirectionalLightingRenderer,
+			.StaticMeshes = Renderer.StaticMeshRenderer,
+			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
+			.Terrains = Renderer.TerrainRenderer, .SkyBox = Renderer.SkyBoxRenderer,
+			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
 			.EnvironmentIrradiance = GraphResources.EnvironmentIrradiance,
@@ -239,8 +274,14 @@ namespace Durin
 			PreparedRenderView, VolumetricCloud};
 		const auto CloudSpatialOutput =
 			FVolumetricCloudSpatialRendering::AddPasses({
-				.Graph = Graph, .Services = Services, .Record = CloudInputs,
+				.Graph = Graph, .Record = CloudInputs,
 				.BaseScene = BaseSceneOutput,
+				.Allocator = Renderer.RDGAllocator,
+				.Renderer = Renderer.VolumetricCloudRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry,
+				.Temporal = Context.Transaction.Temporal,
+				.ViewState = Context.Transaction.ViewState,
+				.Qualification = Context.Logical.Qualification,
 				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
 				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
 				.Weather = GraphResources.VolumetricCloudWeather,
@@ -249,24 +290,35 @@ namespace Durin
 				.Width = Width, .Height = Height});
 		const auto CloudCompositeOutput =
 			FVolumetricCloudCompositeRendering::AddPasses({
-				.Graph = Graph, .Services = Services, .Record = CloudInputs,
+				.Graph = Graph, .Record = CloudInputs,
 				.BaseScene = BaseSceneOutput, .Spatial = CloudSpatialOutput,
 				.CloudShadow = CloudShadowOutput,
+				.Allocator = Renderer.RDGAllocator,
+				.Renderer = Renderer.VolumetricCloudRenderer,
+				.Resolved = Resolved.Scene, .Telemetry = Telemetry,
+				.Temporal = Context.Transaction.Temporal,
+				.ViewState = Context.Transaction.ViewState,
 				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
 				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
 				.Weather = GraphResources.VolumetricCloudWeather,
 				.WeatherTexture = CloudWeatherTexture,
 				.Feature = Features.CloudSpatial});
 		const auto SceneColorOutput = FSceneColorRendering::AddPasses({
-			.Graph = Graph, .Services = Services, .Record = GeometryInputs,
+			.Graph = Graph, .Record = GeometryInputs,
 			.BaseScene = BaseSceneOutput, .VolumetricCloud = CloudCompositeOutput,
+			.StaticMeshes = Renderer.StaticMeshRenderer,
+			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
+			.Terrains = Renderer.TerrainRenderer,
+			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.Publication = Composition.SceneColorPublication,
 			.DeferredFeature = Features.Deferred,
 			.CloudFeature = Features.CloudSpatial});
 		const auto PostProcessOutput = FPostProcessRendering::AddPasses({
-			.Graph = Graph, .Services = Services, .RecordView = PreparedRenderView,
+			.Graph = Graph, .RecordView = PreparedRenderView,
 			.View = View, .Options = Options, .SceneColor = SceneColorOutput,
 			.GBuffer = GBufferOutput, .Deferred = DeferredOutput,
+			.GBufferDebug = Renderer.GBufferDebugRenderer,
+			.Renderer = Renderer.PostProcessRenderer, .Telemetry = Telemetry,
 			.Output = GraphResources.Output, .OutputTarget = OutputTarget,
 			.Publication = Composition.PostProcessPublication,
 			.Width = Width, .Height = Height,
@@ -274,8 +326,9 @@ namespace Durin
 			.EditorAssistanceFeature = Features.EditorAssistance,
 			.bPresentOutput = bPresentOutput});
 		FEditorAssistanceRendering::AddPasses({
-			.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+			.Graph = Graph, .View = PreparedRenderView,
 			.Prepared = PreparedEditorAssistance, .PostProcess = PostProcessOutput,
+			.Renderer = Renderer.EditorAssistanceRenderer,
 			.SceneDepth = GraphResources.SceneDepth, .OutputTarget = OutputTarget,
 			.Publication = Composition.PostProcessPublication,
 			.Feature = Features.EditorAssistance,

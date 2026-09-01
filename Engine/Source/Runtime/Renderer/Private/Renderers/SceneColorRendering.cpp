@@ -1,7 +1,6 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/SceneColorRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,11 +10,75 @@
 
 namespace Durin
 {
+	auto FSceneColorPassResources::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FSceneColorPassResources;
+		#define DURIN_MANAGED(Field, Entry, Discard, Result) \
+			MakeRDGResourceParameterMemberMetadata<FParameters, \
+				decltype(FParameters::Field), FRDGManagedTextureParameter>(#Field, \
+					offsetof(FParameters, Field), ERDGParameterMemberKind::ManagedTexture, \
+					ERDGResourceKind::Texture, \
+					ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, Entry, \
+					Discard, ERHIRenderTargetLoadAction::Load, \
+					ERHIRenderTargetStoreAction::Store, true, Result)
+		static const std::array Members = {
+			DURIN_MANAGED(SceneColorManaged, ERHIAccess::ColorAttachmentReadWrite,
+				false, ERHIAccess::GraphicsShaderRead),
+			DURIN_MANAGED(SceneDepthManaged, ERHIAccess::GraphicsShaderRead,
+				false, ERHIAccess::DepthStencilReadWrite)};
+		#undef DURIN_MANAGED
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FSceneColorPassResources", Members);
+		return &Metadata;
+	}
+
+	auto FSceneColorPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FSceneColorPassParameters;
+		static const std::array Members = {
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::BaseScene), FSceneColorPassResult>(
+					"BaseScene", offsetof(FParameters, BaseScene)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::VolumetricCloud), FVolumetricCloudPassResult>(
+					"VolumetricCloud", offsetof(FParameters, VolumetricCloud)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::Completion), FSceneColorPassResult>(
+					"Completion", offsetof(FParameters, Completion)),
+			MakeRDGNestedParameterMemberMetadata<FParameters,
+				decltype(FParameters::Resources)>("Resources",
+					offsetof(FParameters, Resources),
+					FSceneColorPassResources::GetRDGParametersMetadata())};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FSceneColorPassParameters", Members);
+		return &Metadata;
+	}
+
+	namespace
+	{
+		struct FSceneColorRecorder final
+		{
+			FStaticMeshRenderer& StaticMeshRenderer;
+			FTerrainRenderer& TerrainRenderer;
+			FSkeletalMeshRenderer& SkeletalMeshRenderer;
+			FSceneRenderTelemetry& Telemetry;
+			FResolvedSceneResources& ResolvedSceneResources;
+
+			auto RenderSceneTranslucency_RenderThread(
+				FRHICommandListImmediate&, const FSceneGeometryRecordInputs&,
+				FRHITexture*, FRHITexture*, const FSceneColorPassResult&,
+				const FVolumetricCloudPassResult&) -> FSceneColorPassResult;
+		};
+	} // namespace
+
 	auto FSceneColorRendering::AddPasses(
-		const FSceneColorGraphInputs& Inputs) -> FSceneColorGraphOutput
+		const FSceneColorFeatureInputs& Inputs) -> FSceneColorGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FSceneColorRecorder Recorder{Inputs.StaticMeshes, Inputs.Terrains,
+			Inputs.SkeletalMeshes, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
@@ -41,14 +104,13 @@ namespace Durin
 				.Texture = Inputs.BaseScene.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)AddSceneRenderFeaturePass<FSceneColorRendering>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, &Publication = Inputs.Publication,
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Recorder, &Publication = Inputs.Publication,
 				RecordInputs, bVolumetricCloudComposite,
 				bRequiresDeferredOpaque](
 				FRHICommandListImmediate& Commands,
 				const FSceneColorPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				auto& SceneColorResult = Resolver.WriteValue(
 					PassParameters.Completion);
 				const auto& BaseSceneResult = Resolver.ReadValue(
@@ -65,7 +127,7 @@ namespace Durin
 						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
 					FRHITexture* Color = Resolver.GetTexture(
 						PassParameters.Resources.SceneColorManaged);
-					SceneColorResult = Services.Recorders.RenderSceneTranslucency_RenderThread(
+					SceneColorResult = Recorder.RenderSceneTranslucency_RenderThread(
 						Commands,
 						RecordInputs,
 						Color,
@@ -76,19 +138,19 @@ namespace Durin
 				Publication = SceneColorResult;
 				if (!SceneColorResult.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
-					Services.ResolvedSceneResources.Receiver.StaticMeshes, Services.Telemetry.View);
+					Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
 				ReduceSkeletalMeshTelemetry(RecordInputs.Receiver.SkeletalMeshes,
-					Services.ResolvedSceneResources.Receiver.SkeletalMeshes,
-					Services.ResolvedSceneResources.Receiver.SkeletalPalettes, Services.Telemetry.View);
+					Recorder.ResolvedSceneResources.Receiver.SkeletalMeshes,
+					Recorder.ResolvedSceneResources.Receiver.SkeletalPalettes, Recorder.Telemetry.View);
 				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
-					Services.ResolvedSceneResources.Receiver.Terrains, Services.Telemetry.View);
+					Recorder.ResolvedSceneResources.Receiver.Terrains, Recorder.Telemetry.View);
 			});
 		return {.Completion = SceneColorCompletion,
 			.Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth,
 			.CloudComposite = Inputs.VolumetricCloud.Composite};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderSceneTranslucency_RenderThread(
+	auto FSceneColorRecorder::RenderSceneTranslucency_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,

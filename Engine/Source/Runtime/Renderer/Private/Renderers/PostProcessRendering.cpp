@@ -1,7 +1,6 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/PostProcessRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,8 +10,85 @@
 
 namespace Durin
 {
+	#define DURIN_RESOURCE(Field, Wrapper, Kind, Use, Access, ...) \
+		MakeRDGResourceParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
+				Kind, ERDGResourceKind::Texture, \
+				ERDGParameterRangeKind::TextureSubresource, Use, Access \
+				__VA_OPT__(,) __VA_ARGS__)
+	#define DURIN_TEXTURE(Field) DURIN_RESOURCE(Field, FRDGTextureParameter, \
+		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
+		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_COLOR(Field, Result) DURIN_RESOURCE(Field, \
+		FRDGColorAttachmentParameter, ERDGParameterMemberKind::ManagedColorAttachment, \
+		ERDGUse::ReadWrite, ERHIAccess::ColorAttachmentReadWrite, true, \
+		ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store, true, \
+		Result)
+
+	auto FPostProcessPassResources::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FPostProcessPassResources;
+		static const std::array Members = {
+			DURIN_COLOR(OutputPresent, ERHIAccess::Present),
+			DURIN_COLOR(OutputOffscreen, ERHIAccess::GraphicsShaderRead),
+			DURIN_COLOR(OutputForEditor, ERHIAccess::ColorAttachmentReadWrite),
+			DURIN_TEXTURE(SceneColor), DURIN_TEXTURE(CloudComposite),
+			DURIN_TEXTURE(SceneDepth),
+			DURIN_COLOR(GBufferDebugOutput, ERHIAccess::GraphicsShaderRead),
+			DURIN_TEXTURE(GBuffer), DURIN_TEXTURE(IsolatedDeferred)};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FPostProcessPassResources", Members);
+		return &Metadata;
+	}
+
+	auto FPostProcessPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FPostProcessPassParameters;
+		static const std::array Members = {
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneColor), FSceneColorPassResult>(
+					"SceneColor", offsetof(FParameters, SceneColor)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
+					"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
+					"DeferredLighting", offsetof(FParameters, DeferredLighting)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::Completion), FPostProcessPassResult>(
+					"Completion", offsetof(FParameters, Completion)),
+			MakeRDGNestedParameterMemberMetadata<FParameters,
+				decltype(FParameters::Resources)>("Resources",
+					offsetof(FParameters, Resources),
+					FPostProcessPassResources::GetRDGParametersMetadata())};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FPostProcessPassParameters", Members);
+		return &Metadata;
+	}
+
+	#undef DURIN_COLOR
+	#undef DURIN_TEXTURE
+	#undef DURIN_RESOURCE
+
 	namespace
 	{
+		struct FPostProcessRecorder final
+		{
+			FGBufferDebugRenderer& GBufferDebugRenderer;
+			FPostProcessRenderer& PostProcessRenderer;
+			FSceneRenderTelemetry& Telemetry;
+
+			auto RenderPostProcess_RenderThread(FRHICommandListImmediate&,
+				const FSceneView&, const FSceneView&, FRHITexture*, bool,
+				const FSceneViewRenderOptions&,
+				const FPostProcessRenderer::FSceneTargets&,
+				const FGBufferRenderer::FTargets*,
+				const FGBufferDebugRenderer::FTargets*, FRHITexture*, FRHITexture*,
+				bool) -> FPostProcessPassResult;
+		};
+
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -22,10 +98,11 @@ namespace Durin
 	} // namespace
 
 	auto FPostProcessRendering::AddPasses(
-		const FPostProcessGraphInputs& Inputs) -> FPostProcessGraphOutput
+		const FPostProcessFeatureInputs& Inputs) -> FPostProcessGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FPostProcessRecorder Recorder{
+			Inputs.GBufferDebug, Inputs.Renderer, Inputs.Telemetry};
 		const auto& RecordView = Inputs.RecordView;
 		const auto& View = Inputs.View;
 		auto* OutputTarget = Inputs.OutputTarget;
@@ -90,14 +167,13 @@ namespace Durin
 				*Inputs.Deferred.Isolated,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		const auto PostProcessPass =
-			AddSceneRenderFeaturePass<FPostProcessRendering>(
-				Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, &Publication = Inputs.Publication,
+			Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Recorder, &Publication = Inputs.Publication,
 				RecordView = &RecordView, &View, bGBufferDebug, &Options,
 				bPresentOutput, bHasEditorAssistance](
 				FRHICommandListImmediate& Commands,
 				const FPostProcessPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				const auto& SceneColorResult = Resolver.ReadValue(
 					PassParameters.SceneColor);
 				auto& PostProcessResult = Resolver.WriteValue(
@@ -137,7 +213,7 @@ namespace Durin
 				if (Output == nullptr)
 					Output = Resolver.GetColorAttachment(
 						PassParameters.Resources.OutputOffscreen).Texture;
-				PostProcessResult = Services.Recorders.RenderPostProcess_RenderThread(
+				PostProcessResult = Recorder.RenderPostProcess_RenderThread(
 					Commands, *RecordView, View,
 					Output,
 					bPresentOutput, Options, SceneTargets,
@@ -156,7 +232,7 @@ namespace Durin
 		return {.Completion = PostProcessCompletion, .Output = Inputs.Output};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderPostProcess_RenderThread(
+	auto FPostProcessRecorder::RenderPostProcess_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		const FSceneView& View,

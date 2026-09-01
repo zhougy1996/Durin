@@ -1,7 +1,6 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/AmbientOcclusionRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,12 +10,88 @@
 
 namespace Durin
 {
+	auto FAmbientOcclusionPassResources::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FAmbientOcclusionPassResources;
+		static const std::array Members = {
+			MakeRDGResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBuffer), FRDGTextureParameter>("GBuffer",
+					offsetof(FParameters, GBuffer), ERDGParameterMemberKind::Texture,
+					ERDGResourceKind::Texture,
+					ERDGParameterRangeKind::TextureSubresource, ERDGUse::Read,
+					ERHIAccess::GraphicsShaderRead),
+			MakeRDGResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneDepth), FRDGTextureParameter>("SceneDepth",
+					offsetof(FParameters, SceneDepth), ERDGParameterMemberKind::Texture,
+					ERDGResourceKind::Texture,
+					ERDGParameterRangeKind::TextureSubresource, ERDGUse::Read,
+					ERHIAccess::GraphicsShaderRead),
+			MakeRDGResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::AmbientOcclusionManaged),
+				FRDGManagedTextureParameter>("AmbientOcclusionManaged",
+					offsetof(FParameters, AmbientOcclusionManaged),
+					ERDGParameterMemberKind::ManagedTexture,
+					ERDGResourceKind::Texture,
+					ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite,
+					ERHIAccess::GraphicsShaderRead, true,
+					ERHIRenderTargetLoadAction::Load,
+					ERHIRenderTargetStoreAction::Store, true,
+					ERHIAccess::GraphicsShaderRead)};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FAmbientOcclusionPassResources", Members);
+		return &Metadata;
+	}
+
+	auto FAmbientOcclusionPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
+	{
+		using FParameters = FAmbientOcclusionPassParameters;
+		static const std::array Members = {
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
+					"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
+			MakeRDGValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::Completion),
+				FGroundTruthAmbientOcclusionPassResult>("Completion",
+					offsetof(FParameters, Completion)),
+			MakeRDGNestedParameterMemberMetadata<FParameters,
+				decltype(FParameters::Resources)>("Resources",
+					offsetof(FParameters, Resources),
+					FAmbientOcclusionPassResources::GetRDGParametersMetadata())};
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
+			FParameters>("FAmbientOcclusionPassParameters", Members);
+		return &Metadata;
+	}
+
+	namespace
+	{
+		auto RecordGroundTruthAmbientOcclusion(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& RenderView,
+			const FGBufferRenderer::FTargets* GBufferTargets,
+			const FGroundTruthAmbientOcclusionRenderer::FTargets*
+				InAmbientOcclusionTargets,
+			const FPostProcessRenderer::FSceneTargets& SceneTargets,
+			const FSceneViewRenderOptions& Options,
+			uint32 Width,
+			uint32 Height,
+			bool bWantsGroundTruthAmbientOcclusion,
+			bool bGBufferComplete,
+			FRendererRDGAllocator& RDGAllocator,
+			FGroundTruthAmbientOcclusionRenderer& GroundTruthAmbientOcclusionRenderer,
+			FSceneRenderTelemetry& Telemetry
+		) -> FGroundTruthAmbientOcclusionPassResult;
+	} // namespace
+
 	auto FAmbientOcclusionRendering::AddPasses(
-		const FAmbientOcclusionGraphInputs& Inputs)
+		const FAmbientOcclusionFeatureInputs& Inputs)
 		-> FAmbientOcclusionGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		auto* Allocator = &Inputs.Allocator;
+		auto* Renderer = &Inputs.Renderer;
+		auto* Telemetry = &Inputs.Telemetry;
 		const auto& RecordView = Inputs.View;
 		const auto& Options = Inputs.Options;
 		const uint32 Width = Inputs.Width;
@@ -103,9 +178,8 @@ namespace Durin
 						*GroundTruthAmbientOcclusion[Index],
 						{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		}
-		(void)AddSceneRenderFeaturePass<FAmbientOcclusionRendering>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordView = &RecordView, bEnabled, Quality,
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Allocator, Renderer, Telemetry, RecordView = &RecordView, bEnabled, Quality,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
 				FRHICommandListImmediate& Commands,
 				const FAmbientOcclusionPassParameters& PassParameters,
@@ -140,20 +214,23 @@ namespace Durin
 							: nullptr,
 						.Quality = Quality};
 				Resolver.WriteValue(PassParameters.Completion) =
-					Services.Recorders.RenderGroundTruthAmbientOcclusion_RenderThread(
+					RecordGroundTruthAmbientOcclusion(
 						Commands, *RecordView,
 						GBufferTargets ? &*GBufferTargets : nullptr,
 						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
 						SceneTargets, Options, Width, Height,
 						bWantsGroundTruthAmbientOcclusion,
-						Resolver.ReadValue(PassParameters.GBufferCompletion).IsComplete());
+						Resolver.ReadValue(PassParameters.GBufferCompletion).IsComplete(),
+						*Allocator, *Renderer, *Telemetry);
 			});
 		return {.Completion = AmbientOcclusionCompletion,
 			.Textures = GroundTruthAmbientOcclusion,
 			.Quality = Quality};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderGroundTruthAmbientOcclusion_RenderThread(
+	namespace
+	{
+	auto RecordGroundTruthAmbientOcclusion(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		const FGBufferRenderer::FTargets* GBufferTargets,
@@ -164,7 +241,10 @@ namespace Durin
 		uint32 Width,
 		uint32 Height,
 		bool bWantsGroundTruthAmbientOcclusion,
-		bool bGBufferComplete
+		bool bGBufferComplete,
+		FRendererRDGAllocator& RDGAllocator,
+		FGroundTruthAmbientOcclusionRenderer& GroundTruthAmbientOcclusionRenderer,
+		FSceneRenderTelemetry& Telemetry
 	) -> FGroundTruthAmbientOcclusionPassResult
 	{
 		FGroundTruthAmbientOcclusionPassResult Result;
@@ -318,4 +398,5 @@ namespace Durin
 		}
 		return Result;
 	}
+	} // namespace
 } // namespace Durin

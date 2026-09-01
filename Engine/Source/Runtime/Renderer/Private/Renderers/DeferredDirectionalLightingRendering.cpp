@@ -1,7 +1,7 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/DeferredDirectionalLightingRendering.h"
+#include "Renderers/VolumetricCloudRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,16 +11,112 @@
 
 namespace Durin
 {
+	#define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, Use, Access, ...) \
+		MakeRDGResourceParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
+				Kind, ERDGResourceKind::Texture, \
+				ERDGParameterRangeKind::TextureSubresource, Use, Access \
+				__VA_OPT__(,) __VA_ARGS__)
+	#define DURIN_TEXTURE(Field) DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
+		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
+		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_DEFINE_METADATA(TypeName, ...) \
+		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
+		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
+		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>( \
+			#TypeName, Members); return &Metadata; }
+
+	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassResources,
+		DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(GBuffer),
+		DURIN_TEXTURE(SceneDepth), DURIN_TEXTURE(AmbientOcclusion),
+		DURIN_TEXTURE(ContactShadowFragment), DURIN_TEXTURE(ContactShadowCompute),
+		DURIN_TEXTURE(CloudShadowFragment), DURIN_TEXTURE(CloudShadowCompute),
+		DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray),
+		DURIN_TEXTURE(EnvironmentIrradiance),
+		DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut),
+		DURIN_RESOURCE_MEMBER(IsolatedDeferredOutput,
+			FRDGColorAttachmentParameter,
+			ERDGParameterMemberKind::ManagedColorAttachment, ERDGUse::ReadWrite,
+			ERHIAccess::ColorAttachmentReadWrite, true,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store, true,
+			ERHIAccess::GraphicsShaderRead));
+
+	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassParameters,
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::DirectionalShadow), FDirectionalShadowPassResult>(
+				"DirectionalShadow", offsetof(FParameters, DirectionalShadow)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
+				"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::AmbientOcclusion),
+			FGroundTruthAmbientOcclusionPassResult>("AmbientOcclusion",
+				offsetof(FParameters, AmbientOcclusion)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::ContactShadow), FContactShadowVisibilityPassResult>(
+				"ContactShadow", offsetof(FParameters, ContactShadow)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::CloudShadow), FVolumetricCloudShadowPassResult>(
+				"CloudShadow", offsetof(FParameters, CloudShadow)),
+		MakeRDGValueParameterMemberMetadata<FParameters,
+			decltype(FParameters::Completion), FIsolatedDeferredPassResult>(
+				"Completion", offsetof(FParameters, Completion)),
+		MakeRDGNestedParameterMemberMetadata<FParameters,
+			decltype(FParameters::Resources)>("Resources",
+				offsetof(FParameters, Resources),
+				FDeferredDirectionalLightingPassResources::GetRDGParametersMetadata()));
+
+	#undef DURIN_DEFINE_METADATA
+	#undef DURIN_TEXTURE
+	#undef DURIN_RESOURCE_MEMBER
+
+	namespace
+	{
+		struct FDeferredDirectionalLightingRecorder final
+		{
+			FDefaultTextureResources& DefaultTextures;
+			FDirectionalShadowRenderer& DirectionalShadowRenderer;
+			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
+			FSceneRenderTelemetry& Telemetry;
+			FResolvedSceneResources& ResolvedSceneResources;
+
+			auto BuildDeferredParameters(
+				const FSceneView&, FRHITexture*, FRHITexture*, FRHITexture*,
+				FRHISampler*, const FDirectionalShadowPassResult&, FRHITexture*,
+				const FGBufferPassResult&, const FGBufferRenderer::FTargets*,
+				const FGroundTruthAmbientOcclusionPassResult&,
+				const FGroundTruthAmbientOcclusionRenderer::FTargets*,
+				const FContactShadowVisibilityPassResult&,
+				const FContactShadowVisibilityRenderer::FTargets*,
+				const FContactShadowVisibilityRenderer::FComputeTargets*,
+				const FVolumetricCloudShadowPassResult&,
+				const FVolumetricCloudShadowRenderer::FTargets*,
+				const FVolumetricCloudShadowRenderer::FComputeTargets*,
+				const FPostProcessRenderer::FSceneTargets&,
+				const FSceneViewRenderOptions&)
+				-> std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>;
+			auto RenderIsolatedDeferred_RenderThread(
+				FRHICommandListImmediate&,
+				const FDeferredDirectionalLightingRenderer::FTargets*,
+				const FDeferredDirectionalLightingRenderer::FRenderParameters&,
+				const FSceneViewRenderOptions&, uint32, uint32, bool)
+				-> FIsolatedDeferredPassResult;
+		};
+	} // namespace
+
 	auto FDeferredDirectionalLightingRendering::AddPasses(
-		const FDeferredLightingGraphInputs& Inputs)
+		const FDeferredLightingFeatureInputs& Inputs)
 		-> FDeferredLightingGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FDeferredDirectionalLightingRecorder Recorder{
+			Inputs.DefaultTextures, Inputs.DirectionalShadowRenderer,
+			Inputs.Renderer, Inputs.Telemetry, Inputs.Resolved};
 		const auto& RecordView = Inputs.View;
 		const auto& Options = Inputs.Options;
 		auto* DirectionalShadowTexture =
-			Services.DirectionalShadowRenderer.GetTexture_RenderThread();
+			Inputs.DirectionalShadowRenderer.GetTexture_RenderThread();
 		auto* EnvironmentSampler = Inputs.EnvironmentSampler;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
@@ -110,10 +206,10 @@ namespace Durin
 				*Inputs.CloudShadow.Compute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		AssignRead(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
-			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
+			Inputs.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		AssignRead(Parameters->Resources.DefaultShadowArray,
 			Inputs.DefaultShadowArray,
-			Services.DefaultTextures.GetArray_RenderThread());
+			Inputs.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
 			Inputs.EnvironmentIrradiance,
 			Inputs.SelectedEnvironmentIrradiance);
@@ -127,9 +223,8 @@ namespace Durin
 			Parameters->Resources.IsolatedDeferredOutput = {
 				*IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneRenderFeaturePass<FDeferredDirectionalLightingRendering>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordView = &RecordView, AmbientOcclusionQuality,
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Recorder, RecordView = &RecordView, AmbientOcclusionQuality,
 				&Options, &DeferredParameters, &ProductionDeferredParameters,
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
 				bWantsProductionDeferred, bHybridRetainedResourcesReady,
@@ -139,7 +234,7 @@ namespace Durin
 				EnvironmentBrdfLut = Inputs.SelectedEnvironmentBrdfLut](
 				FRHICommandListImmediate& Commands,
 				const FDeferredDirectionalLightingPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
 				if (PassParameters.Resources.GBuffer[0])
 					GBufferTargets = {
@@ -196,7 +291,7 @@ namespace Durin
 					PassParameters.CloudShadow);
 				auto& DeferredResult = Resolver.WriteValue(PassParameters.Completion);
 				DeferredParameters = bWantsDeferredInputs
-					? Services.Recorders.BuildDeferredParameters(
+					? Recorder.BuildDeferredParameters(
 						*RecordView,
 						PassParameters.Resources.EnvironmentIrradiance
 							? Resolver.GetTexture(
@@ -233,7 +328,7 @@ namespace Durin
 					if (PassParameters.Resources.IsolatedDeferredOutput)
 						IsolatedTargets = {.Color = Resolver.GetColorAttachment(
 							PassParameters.Resources.IsolatedDeferredOutput).Texture};
-					DeferredResult = Services.Recorders.RenderIsolatedDeferred_RenderThread(
+					DeferredResult = Recorder.RenderIsolatedDeferred_RenderThread(
 						Commands, IsolatedTargets ? &*IsolatedTargets : nullptr,
 						*DeferredParameters, Options, Width, Height,
 						bWantsIsolatedDeferred);
@@ -241,7 +336,7 @@ namespace Durin
 				else if (bWantsIsolatedDeferred)
 				{
 					DeferredResult.Status = EScenePassStatus::Failed;
-					++Services.Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
+					++Recorder.Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
 				}
 				const bool bProductionResourcesReady =
 					!bWantsProductionDeferred
@@ -258,7 +353,7 @@ namespace Durin
 			.Isolated = IsolatedDeferred};
 	}
 
-	auto FSceneRenderFeatureRecorders::BuildDeferredParameters(
+	auto FDeferredDirectionalLightingRecorder::BuildDeferredParameters(
 		const FSceneView& RenderView,
 		FRHITexture* EnvironmentIrradiance,
 		FRHITexture* EnvironmentPrefiltered,
@@ -373,7 +468,7 @@ namespace Durin
 				bCloudShadowVisibilityComplete};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderIsolatedDeferred_RenderThread(
+	auto FDeferredDirectionalLightingRecorder::RenderIsolatedDeferred_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FDeferredDirectionalLightingRenderer::FTargets* Targets,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,

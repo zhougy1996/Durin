@@ -1,7 +1,7 @@
-#include "Renderers/SceneRenderGraphContributors.h"
+#include "Renderers/VolumetricCloudRendering.h"
+#include "Renderers/BaseSceneRendering.h"
+#include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SceneRenderFeatureRecorders.h"
-#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -11,12 +11,153 @@
 
 namespace Durin
 {
+	#define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, Use, Access, ...) \
+		MakeRDGResourceParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
+				Kind, ERDGResourceKind::Texture, \
+				ERDGParameterRangeKind::TextureSubresource, Use, Access \
+				__VA_OPT__(,) __VA_ARGS__)
+	#define DURIN_TEXTURE(Field, Use, Access, ...) \
+		DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
+			ERDGParameterMemberKind::Texture, Use, Access __VA_OPT__(,) __VA_ARGS__)
+	#define DURIN_MANAGED_TEXTURE(Field) \
+		DURIN_RESOURCE_MEMBER(Field, FRDGManagedTextureParameter, \
+			ERDGParameterMemberKind::ManagedTexture, ERDGUse::ReadWrite, \
+			ERHIAccess::GraphicsShaderRead, true, ERHIRenderTargetLoadAction::Load, \
+			ERHIRenderTargetStoreAction::Store, true, \
+			ERHIAccess::GraphicsShaderRead)
+	#define DURIN_DEFINE_METADATA(TypeName, ...) \
+		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
+		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
+		static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>( \
+			#TypeName, Members); return &Metadata; }
+	#define DURIN_GRAPHICS_READ(Field) DURIN_TEXTURE(Field, ERDGUse::Read, \
+		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_COMPUTE_READ(Field) DURIN_TEXTURE(Field, ERDGUse::Read, \
+		ERHIAccess::ComputeShaderRead)
+
+	DURIN_DEFINE_METADATA(FVolumetricCloudShadowPassResources,
+		DURIN_GRAPHICS_READ(SceneDepth), DURIN_COMPUTE_READ(SceneDepthCompute),
+		DURIN_GRAPHICS_READ(CloudBaseDensity),
+		DURIN_GRAPHICS_READ(CloudDetailDensity), DURIN_GRAPHICS_READ(CloudWeather),
+		DURIN_COMPUTE_READ(CloudBaseDensityCompute),
+		DURIN_COMPUTE_READ(CloudDetailDensityCompute),
+		DURIN_COMPUTE_READ(CloudWeatherCompute),
+		DURIN_MANAGED_TEXTURE(CloudShadowFragmentOutput),
+		DURIN_TEXTURE(CloudShadowComputeOutput, ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true));
+	DURIN_DEFINE_METADATA(FVolumetricCloudSpatialPassResources,
+		DURIN_GRAPHICS_READ(SceneDepth), DURIN_COMPUTE_READ(SceneDepthCompute),
+		DURIN_GRAPHICS_READ(CloudBaseDensity),
+		DURIN_GRAPHICS_READ(CloudDetailDensity), DURIN_GRAPHICS_READ(CloudWeather),
+		DURIN_COMPUTE_READ(CloudBaseDensityCompute),
+		DURIN_COMPUTE_READ(CloudDetailDensityCompute),
+		DURIN_COMPUTE_READ(CloudWeatherCompute),
+		DURIN_MANAGED_TEXTURE(CloudFragmentOutput),
+		DURIN_TEXTURE(CloudComputeOutput, ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true));
+	DURIN_DEFINE_METADATA(FVolumetricCloudCompositePassResources,
+		DURIN_GRAPHICS_READ(SceneColor), DURIN_GRAPHICS_READ(SceneDepth),
+		DURIN_GRAPHICS_READ(CloudBaseDensity),
+		DURIN_GRAPHICS_READ(CloudDetailDensity), DURIN_GRAPHICS_READ(CloudWeather),
+		DURIN_GRAPHICS_READ(CloudShadowFragment),
+		DURIN_GRAPHICS_READ(CloudShadowCompute), DURIN_GRAPHICS_READ(CloudFragment),
+		DURIN_GRAPHICS_READ(CloudCompute),
+		DURIN_MANAGED_TEXTURE(CloudCompositeOutput));
+
+	#define DURIN_VALUE(Field, Type) \
+		MakeRDGValueParameterMemberMetadata<FParameters, \
+			decltype(FParameters::Field), Type>(#Field, offsetof(FParameters, Field))
+	#define DURIN_NESTED(Type) MakeRDGNestedParameterMemberMetadata<FParameters, \
+		decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), \
+			Type::GetRDGParametersMetadata())
+	DURIN_DEFINE_METADATA(FVolumetricCloudShadowPassParameters,
+		DURIN_VALUE(GBufferCompletion, FGBufferPassResult),
+		DURIN_VALUE(Completion, FVolumetricCloudShadowPassResult),
+		DURIN_NESTED(FVolumetricCloudShadowPassResources));
+	DURIN_DEFINE_METADATA(FVolumetricCloudSpatialPassParameters,
+		DURIN_VALUE(BaseScene, FSceneColorPassResult),
+		DURIN_VALUE(Completion, FVolumetricCloudSpatialPassResult),
+		DURIN_NESTED(FVolumetricCloudSpatialPassResources));
+	DURIN_DEFINE_METADATA(FVolumetricCloudCompositePassParameters,
+		DURIN_VALUE(BaseScene, FSceneColorPassResult),
+		DURIN_VALUE(Spatial, FVolumetricCloudSpatialPassResult),
+		DURIN_VALUE(CloudShadow, FVolumetricCloudShadowPassResult),
+		DURIN_VALUE(Completion, FVolumetricCloudPassResult),
+		DURIN_NESTED(FVolumetricCloudCompositePassResources));
+
+	#undef DURIN_NESTED
+	#undef DURIN_VALUE
+	#undef DURIN_COMPUTE_READ
+	#undef DURIN_GRAPHICS_READ
+	#undef DURIN_DEFINE_METADATA
+	#undef DURIN_MANAGED_TEXTURE
+	#undef DURIN_TEXTURE
+	#undef DURIN_RESOURCE_MEMBER
+
+	namespace
+	{
+		struct FCloudShadowRecorder final
+		{
+			FRendererRDGAllocator& RDGAllocator;
+			FVolumetricCloudShadowRenderer& VolumetricCloudShadowRenderer;
+			FRendererQualificationPolicy Qualification;
+			FSceneRenderTelemetry& Telemetry;
+			FResolvedSceneResources& ResolvedSceneResources;
+
+			auto RenderVolumetricCloudShadows_RenderThread(
+				FRHICommandListImmediate&, const FVolumetricCloudShadowRecordInputs&,
+				const FVolumetricCloudShadowRenderer::FRouteDecision&,
+				const FVolumetricCloudShadowRenderer::FTargets*,
+				const FVolumetricCloudShadowRenderer::FComputeTargets*,
+				const FPostProcessRenderer::FSceneTargets&, FRHITexture*, FRHITexture*,
+				FRHITexture*, uint32, uint32, bool, bool)
+				-> FVolumetricCloudShadowPassResult;
+		};
+
+		struct FCloudSpatialRecorder final
+		{
+			FRendererRDGAllocator& RDGAllocator;
+			FVolumetricCloudRenderer& VolumetricCloudRenderer;
+			FRendererQualificationPolicy Qualification;
+			FSceneRenderTelemetry& Telemetry;
+			FResolvedSceneResources& ResolvedSceneResources;
+			FSceneViewTemporalContext& TemporalContext;
+			FSceneViewState*& ViewState;
+
+			auto RenderVolumetricCloudSpatial_RenderThread(
+				FRHICommandListImmediate&, const FVolumetricCloudRecordInputs&,
+				const FVolumetricCloudSpatialRenderer::FRouteDecision&,
+				const FVolumetricCloudRenderer::FTargets*,
+				const FVolumetricCloudRenderer::FComputeTargets*, FRHITexture*,
+				FRHITexture*, FRHITexture*, FRHITexture*)
+				-> FVolumetricCloudSpatialPassResult;
+		};
+
+		struct FCloudCompositeRecorder final
+		{
+			FRendererRDGAllocator& RDGAllocator;
+			FVolumetricCloudRenderer& VolumetricCloudRenderer;
+			FSceneRenderTelemetry& Telemetry;
+			FSceneViewTemporalContext& TemporalContext;
+			FSceneViewState*& ViewState;
+
+			auto RenderVolumetricCloudComposite_RenderThread(
+				FRHICommandListImmediate&, const FVolumetricCloudRecordInputs&,
+				const FVolumetricCloudSpatialPassResult&,
+				const FVolumetricCloudRenderer::FTargets*,
+				const FVolumetricCloudRenderer::FComputeTargets*,
+				const FVolumetricCloudRenderer::FTargets*, FRHITexture*, FRHITexture*,
+				FRHITexture*) -> FVolumetricCloudPassResult;
+		};
+	} // namespace
 
 	auto FVolumetricCloudShadowRendering::AddPasses(
-		const FCloudShadowGraphInputs& Inputs) -> FCloudShadowGraphOutput
+		const FCloudShadowFeatureInputs& Inputs) -> FCloudShadowGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FCloudShadowRecorder Recorder{Inputs.Allocator, Inputs.Renderer,
+			Inputs.Qualification, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const auto PreparedCloudShadowRoute = Inputs.Feature.Decision.Route;
 		const auto PreparedCloudShadowDecision = Inputs.Feature.Decision;
@@ -82,16 +223,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Services.ResolvedSceneResources.VolumetricCloud)
+		if (Inputs.Resolved.VolumetricCloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.BaseDensity,
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
+				Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.DetailDensity,
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
+				Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Weather, CloudWeatherTexture);
@@ -104,14 +245,14 @@ namespace Durin
 			Parameters->Resources.CloudShadowComputeOutput = {
 				*VolumetricCloudShadowCompute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneRenderFeaturePass<FVolumetricCloudShadowRendering>(Graph,
+		(void)Graph.AddPass(Name,
 			bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics,
 			std::move(Parameters),
-			[&Services, RecordInputs, PreparedCloudShadowDecision,
+			[Recorder, RecordInputs, PreparedCloudShadowDecision,
 				PreparedCloudShadowRoute, Width, Height,
 				bWantsProductionDeferred](FRHICommandListImmediate& Commands,
 				const FVolumetricCloudShadowPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				std::optional<FVolumetricCloudShadowRenderer::FTargets>
 					FragmentTargets;
 				if (PassParameters.Resources.CloudShadowFragmentOutput)
@@ -136,7 +277,7 @@ namespace Durin
 					return Texture != nullptr ? Texture : Resolver.GetTexture(Compute);
 				};
 				Resolver.WriteValue(PassParameters.Completion) =
-					Services.Recorders.RenderVolumetricCloudShadows_RenderThread(
+					Recorder.RenderVolumetricCloudShadows_RenderThread(
 						Commands,
 						RecordInputs, PreparedCloudShadowDecision,
 						FragmentTargets ? &*FragmentTargets : nullptr,
@@ -157,10 +298,12 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudSpatialRendering::AddPasses(
-		const FCloudSpatialGraphInputs& Inputs) -> FCloudSpatialGraphOutput
+		const FCloudSpatialFeatureInputs& Inputs) -> FCloudSpatialGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FCloudSpatialRecorder Recorder{Inputs.Allocator, Inputs.Renderer,
+			Inputs.Qualification, Inputs.Telemetry,
+			Inputs.Resolved, Inputs.Temporal, Inputs.ViewState};
 		const auto RecordInputs = Inputs.Record;
 		const auto PreparedCloudRoute = Inputs.Feature.Decision.Route;
 		const auto PreparedCloudDecision = Inputs.Feature.Decision;
@@ -233,16 +376,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Services.ResolvedSceneResources.VolumetricCloud)
+		if (Inputs.Resolved.VolumetricCloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.BaseDensity,
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
+				Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.DetailDensity,
-				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
+				Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Weather, CloudWeatherTexture);
@@ -262,14 +405,14 @@ namespace Durin
 			Parameters->Resources.CloudComputeOutput = {
 				*VolumetricCloudCompute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneRenderFeaturePass<FVolumetricCloudSpatialRendering>(Graph,
+		(void)Graph.AddPass(Name,
 			bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics,
 			std::move(Parameters),
-			[&Services, RecordInputs, PreparedCloudDecision,
+			[Recorder, RecordInputs, PreparedCloudDecision,
 				PreparedCloudRoute](
 				FRHICommandListImmediate& Commands,
 				const FVolumetricCloudSpatialPassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
 				if (PassParameters.Resources.CloudFragmentOutput)
 					FragmentTargets = {.Cloud = Resolver.GetTexture(
@@ -286,7 +429,7 @@ namespace Durin
 					GetVolumetricCloudTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
 				Resolver.WriteValue(PassParameters.Completion) =
-					Services.Recorders.RenderVolumetricCloudSpatial_RenderThread(
+					Recorder.RenderVolumetricCloudSpatial_RenderThread(
 						Commands,
 						RecordInputs, PreparedCloudDecision,
 						FragmentTargets ? &*FragmentTargets : nullptr,
@@ -309,10 +452,11 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudCompositeRendering::AddPasses(
-		const FCloudCompositeGraphInputs& Inputs) -> FCloudCompositeGraphOutput
+		const FCloudCompositeFeatureInputs& Inputs) -> FCloudCompositeGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		auto& Services = Inputs.Services;
+		FCloudCompositeRecorder Recorder{Inputs.Allocator, Inputs.Renderer,
+			Inputs.Telemetry, Inputs.Temporal, Inputs.ViewState};
 		const auto RecordInputs = Inputs.Record;
 		auto* CloudWeatherTexture = Inputs.WeatherTexture;
 		const bool bEnabled = Inputs.Feature.Decision.Route
@@ -339,14 +483,14 @@ namespace Durin
 					{GetTextureAspects(Physical->GetFormat()), 0,
 						Physical->GetNumMips(), 0, Physical->GetArraySize()}};
 			};
-			if (Services.ResolvedSceneResources.VolumetricCloud)
+			if (Inputs.Resolved.VolumetricCloud)
 			{
 				AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 					Inputs.BaseDensity,
-					Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
+					Inputs.Resolved.VolumetricCloud->Textures.BaseDensity);
 				AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 					Inputs.DetailDensity,
-					Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
+					Inputs.Resolved.VolumetricCloud->Textures.DetailDensity);
 				AssignCloudInput(Parameters->Resources.CloudWeather,
 					Inputs.Weather, CloudWeatherTexture);
 			}
@@ -371,12 +515,11 @@ namespace Durin
 			Parameters->Resources.CloudCompositeOutput = {
 				*Inputs.Spatial.Composite,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneRenderFeaturePass<FVolumetricCloudCompositeRendering>(
-			Graph, ERDGPassType::Graphics, std::move(Parameters),
-			[&Services, RecordInputs, bEnabled](
+		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
+			[Recorder, RecordInputs, bEnabled](
 				FRHICommandListImmediate& Commands,
 				const FVolumetricCloudCompositePassParameters& PassParameters,
-				const FRDGParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) mutable {
 				if (!bEnabled) return;
 				std::optional<FVolumetricCloudRenderer::FTargets> FragmentTargets;
 				if (PassParameters.Resources.CloudFragment)
@@ -404,7 +547,7 @@ namespace Durin
 					ShadowVisibility = Resolver.GetTexture(
 						PassParameters.Resources.CloudShadowFragment);
 				Resolver.WriteValue(PassParameters.Completion) =
-					Services.Recorders.RenderVolumetricCloudComposite_RenderThread(
+					Recorder.RenderVolumetricCloudComposite_RenderThread(
 						Commands,
 						RecordInputs,
 						Resolver.ReadValue(PassParameters.Spatial),
@@ -419,7 +562,7 @@ namespace Durin
 			.Composite = Inputs.Spatial.Composite};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudShadows_RenderThread(
+	auto FCloudShadowRecorder::RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudShadowRecordInputs& Inputs,
 		const FVolumetricCloudShadowRenderer::FRouteDecision& PreparedRoute,
@@ -506,7 +649,7 @@ namespace Durin
 		return PassResult;
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudSpatial_RenderThread(
+	auto FCloudSpatialRecorder::RenderVolumetricCloudSpatial_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudRecordInputs& Inputs,
 		const FVolumetricCloudSpatialRenderer::FRouteDecision& PreparedRoute,
@@ -589,7 +732,7 @@ namespace Durin
 			.Route = Result.Counters.Route};
 	}
 
-	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudComposite_RenderThread(
+	auto FCloudCompositeRecorder::RenderVolumetricCloudComposite_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudRecordInputs& Inputs,
 		const FVolumetricCloudSpatialPassResult& Spatial,
