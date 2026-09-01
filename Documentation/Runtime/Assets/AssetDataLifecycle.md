@@ -63,25 +63,30 @@ Terrain function names intentionally retain their historical
 `Durin.GeometryBuild.Terrain...` prefix: the name is a stable production
 protocol rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
-TextureBuild's Texture2D compilation domain calls the synchronous session from
-its workers and directly owns admission, cancellation, supersession, metrics,
-the completion mailbox, and main-thread publication. AssetForgeBuiltins retains TextureCube source
+Engine's Texture2D compilation domain calls TextureBuild's synchronous
+`ITexture2DBuildProvider` from Engine-owned workers. Engine owns admission,
+cancellation, supersession, metrics, the completion mailbox, object-qualified
+main-thread publication, and terminal record retirement; TextureBuild owns the
+DDC session, recipes, codecs, and producer identity. AssetForgeBuiltins retains TextureCube source
 normalization, private Scene parsing/orchestration, Terrain source decoding/coalescing, and GameThread
 publication. Shader and other unrelated DDC paths remain direct family clients.
 
 Engine's object-aware compilation aggregate owns asynchronous domain
 registration, frame pumping, selected-object finish/cancel, aggregate progress,
 successful post-compile notification, and shutdown placement. Concrete domains
-retain scheduling, DDC, validation, and publication. DerivedDataCache build
+retain typed scheduling and publication; provider modules may retain DDC and
+build validation without acquiring object lifecycle. DerivedDataCache build
 function registration still uses a module callback gate for bounded synchronous
 calls but does not become a compilation domain. See
 [Asset Compilation](AssetCompilation.md).
 
-Accepted asynchronous Texture2D requests use TextureBuild's terminal
+Accepted asynchronous Texture2D requests use Engine's terminal
 `FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
-including cancellation and supersession. The family domain still owns request
-identity, workers, typed publication, and the thread on which it pumps that
-completion. Editor-side commit and recovery sequencing is separately defined by
+including cancellation and supersession. `DTexture2D` owns a process-local
+request serial; the Engine family domain owns generation-safe object handles,
+workers, typed publication, and the GameThread completion pump. Deterministic
+build/provider identity, DDC identity, CPU payload readiness, and GPU resource
+readiness remain separate. Editor-side commit and recovery sequencing is separately defined by
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
 it does not move scheduling or typed build policy into DurinEd.
 
@@ -216,7 +221,8 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 
 Runtime Engine owns asset state and typed optional operation contracts:
 `IStaticMeshPostLoadFeature`, `IStaticMeshCollisionBuildFeature`,
-`ITexture2DPostLoadFeature`, `ITextureCubePostLoadFeature`,
+`ITexture2DPostLoadFeature`, `ITexture2DBuildProvider`,
+`ITextureCubePostLoadFeature`,
 `ITerrainHeightmapDerivedDataLoadFeature`,
 and `ISkeletalDerivedDataFeature`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
@@ -225,7 +231,8 @@ visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
 `StaticMeshBuild` owns static-mesh post-load and collision construction,
-`TextureBuild` owns texture post-load, `TerrainBuild` owns Terrain derived-data
+`TextureBuild` owns texture post-load and synchronous Texture2D production,
+`TerrainBuild` owns Terrain derived-data
 loading, and `SkeletalBuild` owns skeletal/animation derived-data loading.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an

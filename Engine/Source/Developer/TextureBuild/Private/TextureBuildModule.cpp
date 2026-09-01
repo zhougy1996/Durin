@@ -1,6 +1,7 @@
 #include "Modules/ModuleManager.h"
-#include "Texture/Texture2DCompilationDomain.h"
 #include "Texture/Texture2DPostLoad.h"
+#include "Texture/Texture2DDerivedData.h"
+#include "Texture/Texture2DBuildProvider.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureCubeBuildOperations.h"
@@ -10,6 +11,27 @@
 
 namespace Durin
 {
+	class FTexture2DBuildProvider final : public ITexture2DBuildProvider
+	{
+	public:
+		auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor override
+		{
+			return {
+				.ProducerIdentity = "Durin.TextureBuild.Texture2D",
+				.SchemaVersion = Texture2DBuilderVersion};
+		}
+
+		auto Build(
+			FTexture2DBuildRequest Request,
+			FTexture2DBuildProduct& OutProduct,
+			std::string& OutError,
+			const FTexture2DBuildExecutionControl* ExecutionControl) -> bool override
+		{
+			return BuildTexture2D(
+				std::move(Request), OutProduct, OutError, ExecutionControl);
+		}
+	};
+
 	class FTexture2DPostLoadFeature final : public ITexture2DPostLoadFeature
 	{
 	public:
@@ -110,33 +132,26 @@ namespace Durin
 				IVolumeTexturePostLoadFeature>(VolumeTexturePostLoadFeature);
 			TextureCubeRegistration = FModuleStartup::RegisterFeature<
 				ITextureCubePostLoadFeature>(TextureCubePostLoadFeature);
-			TextureCubeRegistration = FModuleStartup::RegisterFeature<
-				ITextureCubePostLoadFeature>(TextureCubePostLoadFeature);
+			Texture2DBuildProviderRegistration = FModuleStartup::RegisterFeature<
+				ITexture2DBuildProvider>(Texture2DBuildProvider);
 			require(Texture2DRegistration.IsValid());
 			require(VolumeTextureRegistration.IsValid());
 			require(TextureCubeRegistration.IsValid());
-			require(TextureCubeRegistration.IsValid());
-			AssetCompilingCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration("Engine.AssetCompilingManager");
-			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
-			require(BuildOperations.IsValid());
+			require(Texture2DBuildProviderRegistration.IsValid());
+			BuildFunctionCallbackRegistration =
+				FModuleStartup::CreateOwnedCallbackRegistration("DerivedDataCache.BuildFunctions");
 			std::string Error;
 			checkf(InitializeTextureBuildFunctions(
-				AssetCompilingCallbackRegistration.GetGate(), &Error),
+				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
-			FTexture2DCompilationDomainConfig Config;
-			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
-			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
-			checkf(AssetPrivate::InitializeTexture2DCompilationDomain(
-				AssetCompilingCallbackRegistration.GetGate(), Config),
-				"TextureBuild could not register its compilation domain.");
 		}
 
 	private:
-		FModuleOwnedCallbackRegistration AssetCompilingCallbackRegistration;
-		FAsyncOperationGroup BuildOperations;
+		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
 		FTexture2DPostLoadFeature Texture2DPostLoadFeature;
 		FModularFeatureRegistration Texture2DRegistration;
+		FTexture2DBuildProvider Texture2DBuildProvider;
+		FModularFeatureRegistration Texture2DBuildProviderRegistration;
 		FVolumeTexturePostLoadFeature VolumeTexturePostLoadFeature;
 		FModularFeatureRegistration VolumeTextureRegistration;
 		FTextureCubePostLoadFeature TextureCubePostLoadFeature;
@@ -144,7 +159,6 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			AssetPrivate::ShutdownTexture2DCompilationDomain();
 			ShutdownTextureBuildFunctions();
 		}
 	};

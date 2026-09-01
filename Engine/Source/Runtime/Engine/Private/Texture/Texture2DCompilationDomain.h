@@ -26,17 +26,21 @@ namespace Durin
 		FTextureSourceData SourceData;
 		FXxHash128 SourceHash;
 		FTexture2DBuildSettingsSnapshot Settings;
-		uint64 Generation = 0;
+		FObjectHandle Owner;
+		uint64 RequestSerial = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
 	};
 
 	struct FTexture2DCompilationWorkResult
 	{
 		uint64 RequestId = 0;
-		uint64 Generation = 0;
+		FObjectHandle Owner;
+		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		FXxHash128 SourceHash;
 		FTexture2DBuildSettingsSnapshot Settings;
@@ -46,6 +50,7 @@ namespace Durin
 		std::string PersistenceDiagnostic;
 		std::string Error;
 		FTexture2DCompilationMetrics Metrics;
+		FTexture2DBuildInputIdentity InputIdentity;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 	};
@@ -55,8 +60,6 @@ namespace Durin
 		uint32 MaxWorkers = 2;
 		uint32 InteractiveBurstLimit = 4;
 		uint64 InFlightByteBudget = 1024ull * 1024ull * 1024ull;
-		FTaskCancellationToken OwnerCancellationToken;
-		FTaskScopeToken OwnerTaskScope;
 	};
 
 	using FTexture2DCompilationWorkCompletion =
@@ -93,6 +96,7 @@ namespace Durin
 			FTexture2DCompilationCompletion Completion) -> bool;
 		auto GetDiagnostic(const DTexture2D& Texture) const
 			-> FTexture2DCompilationDiagnostic;
+		auto GetManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
 		auto HasPending(const DTexture2D& Texture) const -> bool;
 		auto Wait(DTexture2D& Texture, double TimeoutSeconds) -> bool;
 		auto SetPhaseHookForTests(
@@ -109,6 +113,7 @@ namespace Durin
 		auto GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic;
 		auto GetQueuedWorkCount() const -> uint32;
 		auto GetRunningWorkCount() const -> uint32;
+		auto GetWorkManagerDiagnostics() const -> FTexture2DCompilationManagerDiagnostics;
 		auto PumpWorkCompletions(uint32 MaximumCount) -> uint32;
 		auto WaitForWork(uint64 RequestId, double TimeoutSeconds) -> bool;
 		auto StartWorkAdmission() -> bool;
@@ -125,10 +130,6 @@ namespace Durin
 
 namespace Durin::AssetPrivate
 {
-	TEXTUREBUILD_API auto InitializeTexture2DCompilationDomain(
-		FModuleOwnedCallbackGate OwnerGate,
-		const FTexture2DCompilationDomainConfig& Config = {}) -> bool;
-	TEXTUREBUILD_API auto ShutdownTexture2DCompilationDomain() -> void;
-	TEXTUREBUILD_API auto SetTexture2DCompilationPhaseHookForTests(
-		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
+	auto CreateTexture2DCompilationDomain() -> std::shared_ptr<IAssetCompilationDomain>;
+	auto ReleaseTexture2DCompilationDomain() -> void;
 }

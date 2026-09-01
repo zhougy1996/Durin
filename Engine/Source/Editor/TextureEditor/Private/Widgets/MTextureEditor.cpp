@@ -430,9 +430,9 @@ namespace Durin::Editor::Texture
 			ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
 		ImGui::TextColored(PhaseColor, "%s", DescribeBuildPhase(Diagnostic.Phase));
 		ImGui::TextDisabled(
-			"Request %llu  Generation %llu",
+			"Request %llu  Request Serial %llu",
 			static_cast<unsigned long long>(Diagnostic.RequestId),
-			static_cast<unsigned long long>(Diagnostic.Generation));
+			static_cast<unsigned long long>(Diagnostic.RequestSerial));
 		if (Diagnostic.QueuedNanoseconds > 0)
 			ImGui::Text("Queue: %.2f ms", Diagnostic.QueuedNanoseconds / 1'000'000.0);
 		if (Diagnostic.WorkerNanoseconds > 0)

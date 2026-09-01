@@ -136,6 +136,7 @@ namespace Durin
 	};
 
 	class DTexture2D;
+	class FTexture2DCompilationDomain;
 
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
@@ -221,6 +222,7 @@ namespace Durin
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
+		friend class FTexture2DCompilationDomain;
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
@@ -312,6 +314,12 @@ protected:
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
 
 		std::string LastBuildError;
+
+		// Process-local object compilation identity. This serial is independent of
+		// deterministic build/DDC identity and is never serialized.
+		uint64 CompilationRequestSerial = 0;
+		uint64 CompilationLastRequestId = 0;
+		bool bCompilationLastRequestFailed = false;
 
 	};
 }

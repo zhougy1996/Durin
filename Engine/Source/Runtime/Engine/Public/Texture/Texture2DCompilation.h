@@ -1,8 +1,7 @@
 #pragma once
 
-#include "TextureBuildAPI.h"
 #include "Texture/Texture2DCompilationTypes.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildProvider.h"
 
 namespace Durin
 {
@@ -29,6 +28,13 @@ namespace Durin
 	// Accepted requests invoke their completion exactly once on the GameThread.
 	using FTexture2DCompilationCompletion = std::function<void(FTexture2DCompilationResult)>;
 
+	struct FTexture2DPublicationContext
+	{
+		bool bMarkPackageDirty = true;
+		bool bReportLoadMutation = false;
+		bool bSourceDecoderInvoked = true;
+	};
+
 	struct FTexture2DCompilationRequest
 	{
 		// Detached worker input and derived-data policy.
@@ -38,15 +44,28 @@ namespace Durin
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 	};
 
-	TEXTUREBUILD_API auto SubmitTexture2DCompilation(
+	ENGINE_API auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
 		std::string& OutError,
 		FTexture2DCompilationCompletion Completion = {}) -> bool;
-	TEXTUREBUILD_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
+	ENGINE_API auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic;
-	TEXTUREBUILD_API auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool;
-	TEXTUREBUILD_API auto WaitForTexture2DCompilation(
+	ENGINE_API auto GetTexture2DCompilationManagerDiagnostics()
+		-> FTexture2DCompilationManagerDiagnostics;
+	ENGINE_API auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool;
+	ENGINE_API auto WaitForTexture2DCompilation(
 		DTexture2D& Texture,
 		double TimeoutSeconds = 300.0) -> bool;
+	ENGINE_API auto PublishTexture2DProduct(
+		DTexture2D& Texture,
+		FTexture2DBuildProduct Product,
+		const FTexture2DPublicationContext& Context,
+		std::string& OutError) -> bool;
+}
+
+namespace Durin::AssetPrivate
+{
+	ENGINE_API auto SetTexture2DCompilationPhaseHookForTests(
+		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 }

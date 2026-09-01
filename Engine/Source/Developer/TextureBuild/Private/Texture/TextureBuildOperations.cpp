@@ -35,6 +35,12 @@ namespace Durin
 			OutError = "Texture2D build settings are invalid.";
 			return false;
 		}
+		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+			|| Request.TargetProfile != ECookTargetProfile::Game)
+		{
+			OutError = "Texture2D build target is unsupported.";
+			return false;
+		}
 
 		const bool bSRGB = Settings.bSRGB.value_or(
 			TextureBuilder::GetDefaultSRGB(Settings.Usage));
@@ -47,8 +53,8 @@ namespace Durin
 			.AlphaMipMode = Settings.AlphaMipMode,
 			.MaximumResolution = Settings.MaxResolution,
 			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-			.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game};
+			.TargetPlatform = Request.TargetPlatform,
+			.TargetProfile = Request.TargetProfile};
 		const FByteArray KeyBytes = BuildTexture2DDerivedDataKeyBytes(KeyInput);
 		const std::string Key = BuildTexture2DDerivedDataKey(KeyInput);
 		FBuildDefinition Definition;
@@ -99,39 +105,6 @@ namespace Durin
 			.bSRGB = bSRGB};
 		OutError.clear();
 		return true;
-	}
-
-	auto PublishTexture2DProduct(
-		DTexture2D& Texture,
-		FTexture2DBuildProduct Product,
-		const FTexture2DPublicationContext& Context,
-		std::string& OutError) -> bool
-	{
-		if (!Texture.GetPackage())
-		{
-			OutError = "Texture2D product publication requires a package.";
-			return false;
-		}
-		if (!Product.SourceData.IsValid() || !Product.PlatformData.IsValid()
-			|| Product.DerivedDataKey.empty())
-		{
-			OutError = "Texture2D product publication requires a complete detached product.";
-			return false;
-		}
-		return Texture.PublishImportedState({
-			.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData)),
-			.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData)),
-			.DerivedDataKey = std::move(Product.DerivedDataKey),
-			.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
-			.Usage = Product.Settings.Usage,
-			.bSRGB = Product.bSRGB,
-			.MaxResolution = Product.Settings.MaxResolution,
-			.CompressionQuality = Product.Settings.CompressionQuality,
-			.AlphaMipMode = Product.Settings.AlphaMipMode,
-			.AlphaCoverageThreshold = Product.Settings.AlphaCoverageThreshold,
-			.bMarkPackageDirty = Context.bMarkPackageDirty,
-			.bReportLoadMutation = Context.bReportLoadMutation,
-			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked}, OutError);
 	}
 
 	auto BuildTexture2DInto(

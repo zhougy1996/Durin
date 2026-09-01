@@ -4,6 +4,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Threading/RunnableThread.h"
+#include "Texture/Texture2DCompilationDomain.h"
 
 #include <algorithm>
 #include <limits>
@@ -608,21 +609,32 @@ namespace Durin
 		auto& Aggregate = FAssetCompilingManager::Get();
 		std::string Error;
 		if (!Aggregate.Start(&Error)) return false;
-		auto Registration = Aggregate.RegisterBuiltInDomain(
+		auto MaterialRegistration = Aggregate.RegisterBuiltInDomain(
 			CreateMaterialCompilationDomain(), &Error);
-		if (!Registration.IsValid())
+		if (!MaterialRegistration.IsValid())
 		{
 			DURIN_ERROR("Material compilation domain failed to register: {}", Error);
 			Aggregate.Shutdown();
 			return false;
 		}
+		auto TextureRegistration = Aggregate.RegisterBuiltInDomain(
+			AssetPrivate::CreateTexture2DCompilationDomain(), &Error);
+		if (!TextureRegistration.IsValid())
+		{
+			DURIN_ERROR("Texture2D compilation domain failed to register: {}", Error);
+			Aggregate.Shutdown();
+			AssetPrivate::ReleaseTexture2DCompilationDomain();
+			return false;
+		}
 		// The aggregate owns built-in lifetime; disarm the scoped token.
-		Registration.Generation = 0;
+		MaterialRegistration.Generation = 0;
+		TextureRegistration.Generation = 0;
 		return true;
 	}
 
 	auto ShutdownAssetCompilingManager() -> void
 	{
 		FAssetCompilingManager::Get().Shutdown();
+		AssetPrivate::ReleaseTexture2DCompilationDomain();
 	}
 }

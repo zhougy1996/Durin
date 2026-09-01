@@ -4,6 +4,8 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestSupport.h"
+#include "Texture/Texture2DBuildProvider.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
@@ -11,6 +13,185 @@
 #include "Texture/VolumeTextureBuilder.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
+
+namespace
+{
+	class FTestTexture2DBuildProvider final : public Durin::ITexture2DBuildProvider
+	{
+	public:
+		auto GetDescriptor() const -> Durin::FTexture2DBuildProviderDescriptor override
+		{
+			return {.ProducerIdentity = "Tests.Texture2D", .SchemaVersion = 7};
+		}
+
+		auto Build(
+			Durin::FTexture2DBuildRequest Request,
+			Durin::FTexture2DBuildProduct& OutProduct,
+			std::string& OutError,
+			const Durin::FTexture2DBuildExecutionControl*) -> bool override
+		{
+			OutProduct.SourceData = std::move(Request.SourceData);
+			OutProduct.SourceContentHashLow = Request.SourceContentHashLow;
+			OutProduct.SourceContentHashHigh = Request.SourceContentHashHigh;
+			OutProduct.Settings = Request.Settings;
+			OutProduct.DerivedDataKey = "test-value";
+			OutError.clear();
+			return true;
+		}
+	};
+}
+
+TEST(FTexture2DBuildProviderTests, RejectsAmbiguityAndKeepsProductsValueOwned)
+{
+	Durin::FModuleTestOwner Owner("Texture2DBuildProviderContract");
+	FTestTexture2DBuildProvider Provider;
+	auto Registration = Owner.RegisterFeature(Provider);
+	ASSERT_TRUE(Registration.IsValid());
+
+	Durin::FTexture2DBuildRequest Request;
+	Request.SourceData.Width = 1;
+	Request.SourceData.Height = 1;
+	Request.SourceData.SourceChannelCount = 4;
+	Request.SourceData.Format = Durin::ETextureSourceFormat::RGBA8;
+	Request.SourceData.Pixels.resize(4);
+	Request.SourceContentHashLow = 11;
+	Request.SourceContentHashHigh = 17;
+	const auto Ambiguous = Durin::FModularFeatureRegistry::Get().InvokeSingle<
+		Durin::ITexture2DBuildProvider>([&](Durin::ITexture2DBuildProvider& Feature) {
+			return Feature.GetDescriptor();
+		});
+	EXPECT_EQ(Ambiguous.Status, Durin::EFeatureInvokeStatus::Ambiguous);
+	ASSERT_TRUE(Owner.BeginRetirement().Succeeded());
+
+	Durin::FTexture2DBuildProduct Product;
+	Durin::FTexture2DBuildInputIdentity Identity;
+	std::string Error;
+	ASSERT_TRUE(Durin::InvokeTexture2DBuildProvider(
+		std::move(Request), Product, Identity, Error)) << Error;
+	EXPECT_EQ(Product.SourceData.Pixels.size(), 4u);
+	EXPECT_TRUE(Identity.Provider.IsValid());
+	EXPECT_EQ(Identity.SourceContentHashLow, 11u);
+}
+
+TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	constexpr uint32 RequestCount = 300;
+	uint32 CompletionCount = 0;
+	for (uint32 Index = 0; Index < RequestCount; ++Index)
+	{
+		auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+			nullptr, Durin::FName(std::format("TextureCompileLifetime{}", Index)));
+		ASSERT_NE(Texture, nullptr);
+		Durin::FTextureSourceData Source;
+		Source.Width = 1;
+		Source.Height = 1;
+		Source.SourceChannelCount = 4;
+		Source.Format = Durin::ETextureSourceFormat::RGBA8;
+		Source.Pixels.resize(4);
+		std::string Error;
+		ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Texture, {
+			.Build = {
+				.SourceData = std::move(Source),
+				.SourceContentHashLow = Index + 1,
+				.SourceContentHashHigh = RequestCount + Index + 1,
+				.Settings = {.Usage = static_cast<Durin::ETextureUsage>(255)}},
+			.Priority = Durin::ETexture2DCompilationPriority::Background}, Error,
+			[&](Durin::FTexture2DCompilationResult Result) {
+				++CompletionCount;
+				EXPECT_EQ(Result.Status, Durin::ETexture2DCompilationStatus::Failed);
+			})) << Error;
+	}
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	const Durin::FTexture2DCompilationManagerDiagnostics Diagnostics =
+		Durin::GetTexture2DCompilationManagerDiagnostics();
+	EXPECT_EQ(CompletionCount, RequestCount);
+	EXPECT_EQ(Diagnostics.ActiveRecordCount, 0u);
+	EXPECT_EQ(Diagnostics.QueuedWorkCount, 0u);
+	EXPECT_EQ(Diagnostics.RunningWorkCount, 0u);
+	EXPECT_EQ(Diagnostics.PendingCompletionCount, 0u);
+	EXPECT_LE(Diagnostics.RetainedWorkCount, 256u);
+	EXPECT_EQ(Diagnostics.InFlightEstimatedBytes, 0u);
+}
+
+TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	bool bEntered = false;
+	bool bRelease = false;
+	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests(
+		[&](uint64, Durin::ETexture2DCompilationPhase Phase) {
+			if (Phase != Durin::ETexture2DCompilationPhase::Preparing) return;
+			std::unique_lock Lock(Mutex);
+			if (bEntered) return;
+			bEntered = true;
+			Condition.notify_all();
+			Condition.wait(Lock, [&] { return bRelease; });
+		});
+
+	auto MakeRequest = [](uint64 Hash) {
+		Durin::FTextureSourceData Source;
+		Source.Width = 1;
+		Source.Height = 1;
+		Source.SourceChannelCount = 4;
+		Source.Format = Durin::ETextureSourceFormat::RGBA8;
+		Source.Pixels.resize(4);
+		return Durin::FTexture2DCompilationRequest{
+			.Build = {
+				.SourceData = std::move(Source),
+				.SourceContentHashLow = Hash,
+				.SourceContentHashHigh = Hash + 1,
+				.Settings = {.Usage = static_cast<Durin::ETextureUsage>(255)}},
+			.Priority = Durin::ETexture2DCompilationPriority::Interactive};
+	};
+
+	auto* First = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, Durin::FName("ReusedTextureCompileTarget"));
+	ASSERT_NE(First, nullptr);
+	const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
+	std::optional<Durin::FTexture2DCompilationResult> FirstResult;
+	std::string Error;
+	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(
+		*First, MakeRequest(41), Error,
+		[&](Durin::FTexture2DCompilationResult Result) {
+			FirstResult = std::move(Result);
+		})) << Error;
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Condition.wait_for(
+			Lock, std::chrono::seconds(5), [&] { return bEntered; }));
+	}
+	Durin::MarkAsGarbage(First);
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
+
+	Durin::AssetPrivate::SetTexture2DCompilationPhaseHookForTests({});
+	auto* Replacement = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, Durin::FName("ReusedTextureCompileTarget"));
+	ASSERT_NE(Replacement, nullptr);
+	EXPECT_NE(Durin::MakeObjectHandle(Replacement), FirstHandle);
+	std::optional<Durin::FTexture2DCompilationResult> ReplacementResult;
+	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(
+		*Replacement, MakeRequest(73), Error,
+		[&](Durin::FTexture2DCompilationResult Result) {
+			ReplacementResult = std::move(Result);
+		})) << Error;
+	{
+		std::lock_guard Lock(Mutex);
+		bRelease = true;
+		Condition.notify_all();
+	}
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	ASSERT_TRUE(FirstResult.has_value());
+	EXPECT_EQ(FirstResult->Status, Durin::ETexture2DCompilationStatus::Failed);
+	ASSERT_TRUE(ReplacementResult.has_value());
+	EXPECT_EQ(ReplacementResult->Status, Durin::ETexture2DCompilationStatus::Failed);
+	EXPECT_EQ(Durin::GetTexture2DCompilationManagerDiagnostics().ActiveRecordCount, 0u);
+}
 
 TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 {

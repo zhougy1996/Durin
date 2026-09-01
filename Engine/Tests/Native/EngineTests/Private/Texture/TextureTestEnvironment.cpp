@@ -19,7 +19,20 @@ namespace
 		auto TearDown() -> void override
 		{
 			Durin::Editor::Texture::UnregisterTexture2DPropertyEditing();
+			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+			const Durin::FTexture2DCompilationManagerDiagnostics BeforeShutdown =
+				Durin::GetTexture2DCompilationManagerDiagnostics();
+			EXPECT_EQ(BeforeShutdown.ActiveRecordCount, 0u);
+			EXPECT_EQ(BeforeShutdown.QueuedWorkCount, 0u);
+			EXPECT_EQ(BeforeShutdown.RunningWorkCount, 0u);
+			EXPECT_EQ(BeforeShutdown.PendingCompletionCount, 0u);
+			EXPECT_EQ(BeforeShutdown.InFlightEstimatedBytes, 0u);
 			Durin::ShutdownAssetCompilingManager();
+			const Durin::FTexture2DCompilationManagerDiagnostics AfterShutdown =
+				Durin::GetTexture2DCompilationManagerDiagnostics();
+			EXPECT_EQ(AfterShutdown.ActiveRecordCount, 0u);
+			EXPECT_EQ(AfterShutdown.RetainedWorkCount, 0u);
+			EXPECT_EQ(AfterShutdown.PendingCompletionCount, 0u);
 		}
 	};
 

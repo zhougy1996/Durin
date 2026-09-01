@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TextureBuildAPI.h"
+#include "EngineAPI.h"
 
 namespace Durin
 {
@@ -43,7 +43,8 @@ namespace Durin
 	struct FTexture2DCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
-		uint64 Generation = 0;
+		// Latest-wins serial owned by the live Texture2D object; unrelated to DDC identity.
+		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		std::string DerivedDataKey;
 		std::string Message;
@@ -52,5 +53,15 @@ namespace Durin
 		uint64 WorkerNanoseconds = 0;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
+	};
+
+	struct FTexture2DCompilationManagerDiagnostics
+	{
+		uint64 ActiveRecordCount = 0;
+		uint64 RetainedWorkCount = 0;
+		uint64 InFlightEstimatedBytes = 0;
+		uint32 QueuedWorkCount = 0;
+		uint32 RunningWorkCount = 0;
+		uint32 PendingCompletionCount = 0;
 	};
 }
