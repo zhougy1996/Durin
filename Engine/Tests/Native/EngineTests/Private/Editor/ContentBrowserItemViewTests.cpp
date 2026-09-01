@@ -116,23 +116,23 @@ namespace Durin::Editor::ContentBrowser::Private
 				FaceFiles, CubePath.ToString());
 		ASSERT_TRUE(Imported) << Imported.Message;
 		const std::filesystem::path PackagePath = Root / "Content/Sky.dasset";
-		ASSERT_TRUE(Asset::UnloadPackage(CubePath));
-		ASSERT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
+		ASSERT_TRUE(UnloadPackage(CubePath));
+		ASSERT_EQ(FindResidentPackage(CubePath), nullptr);
 
 		ContentBrowserItemView::FTextureCubeDetailsCache Cache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
 			Cache.Get(PackagePath.generic_string(),
-				Asset::GetAssetCatalogRevision());
+				GetAssetCatalogRevision());
 		EXPECT_TRUE(Details.bAvailable);
 		EXPECT_EQ(Details.SourceLayout, "Six Faces");
 		EXPECT_EQ(Details.Source, "6 of 6 face sources");
 		EXPECT_NE(Details.SourceSize, "-");
 		EXPECT_EQ(Details.Dimensions, "-");
 		EXPECT_FALSE(Details.BuildDiagnostic.empty());
-		EXPECT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
+		EXPECT_EQ(FindResidentPackage(CubePath), nullptr);
 		Cache.Get(PackagePath.generic_string(),
-			Asset::GetAssetCatalogRevision());
-		EXPECT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
+			GetAssetCatalogRevision());
+		EXPECT_EQ(FindResidentPackage(CubePath), nullptr);
 	}
 
 	TEST(FContentBrowserItemViewTests, InvalidatesTextureCubeDetailsCache)

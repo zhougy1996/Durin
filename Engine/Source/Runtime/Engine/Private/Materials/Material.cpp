@@ -376,7 +376,7 @@ namespace Durin
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
 		if (!AcceptedCompiledProgram
-			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedProgramData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
@@ -397,7 +397,7 @@ namespace Durin
 		{
 			return false;
 		}
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{

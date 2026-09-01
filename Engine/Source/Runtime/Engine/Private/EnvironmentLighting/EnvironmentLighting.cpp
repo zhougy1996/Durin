@@ -251,7 +251,7 @@ namespace Durin
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
 		FByteArray PayloadBytes;
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
 				|| CookedPlatformData.GetMetadata().LogicalSize == 0)
@@ -270,7 +270,7 @@ namespace Durin
 		}
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes,
-			Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			GetAssetRuntimeConfiguration().RequiresCookedPayload()
 				? EArchivePurpose::CookedPayload : EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(PayloadAr);
 		if (PayloadAr.HasError())
@@ -283,7 +283,7 @@ namespace Durin
 	auto DEnvironmentLighting::GetData() const
 		-> const std::shared_ptr<const FEnvironmentLightingData>&
 	{
-		if (!Data && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!Data && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			std::span<const std::byte> Bytes;
@@ -311,8 +311,8 @@ namespace Durin
 				"EnvironmentLighting cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* FieldValue = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!Data || !Data->IsValid())
@@ -326,7 +326,7 @@ namespace Durin
 			const_cast<FEnvironmentLightingData&>(*Data).Serialize(Writer);
 			std::string Error;
 			if (Writer.HasError()
-				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
@@ -336,17 +336,17 @@ namespace Durin
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DEnvironmentLighting"),
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
 	auto DEnvironmentLighting::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 		{
 			return Fail("Environment lighting supports only the Win64 game cook target.", &OutError);
 		}

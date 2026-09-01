@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/MutationTypes.h"
@@ -12,7 +12,7 @@ namespace Durin
 	class DClass;
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetDeleteContribution
 	{
@@ -75,27 +75,26 @@ namespace Durin::Asset
 		bool bLoaded = false;
 	};
 
-	struct FAssetDeletionPhysicalTransition
+	struct FAssetDeletionCommit
 	{
-		std::function<FAssetResult()> Stage;
-		std::function<FAssetResult()> Restore;
-		std::function<bool()> IsRecoveryRequired;
+		std::function<FAssetResult()> Delete;
 	};
 
-	class FAssetDeletionTransaction
+	class FAssetDeletionJob
 	{
 	public:
+		FAssetDeletionJob() = default;
+		FAssetDeletionJob(const FAssetDeletionJob&) = delete;
+		auto operator=(const FAssetDeletionJob&) -> FAssetDeletionJob& = delete;
+		FAssetDeletionJob(FAssetDeletionJob&&) noexcept = default;
+		auto operator=(FAssetDeletionJob&&) noexcept
+			-> FAssetDeletionJob& = default;
 		ENGINE_API auto GetRegistryRevision() const -> uint64;
 		ENGINE_API auto GetEntries() const
 			-> std::span<const FAssetDeletionBatchEntry>;
 		ENGINE_API auto GetWarnings() const
 			-> std::span<const FAssetDeletionBatchWarning>;
-		ENGINE_API auto GetState() const -> EAssetMutationTransactionState;
-		ENGINE_API auto Commit(const FAssetDeletionPhysicalTransition& Transition)
-			-> FAssetResult;
-		ENGINE_API auto Undo(const FAssetDeletionPhysicalTransition& Transition)
-			-> FAssetResult;
-		ENGINE_API auto Redo(const FAssetDeletionPhysicalTransition& Transition)
+		ENGINE_API auto Delete(const FAssetDeletionCommit& Commit)
 			-> FAssetResult;
 
 	private:
@@ -145,10 +144,10 @@ namespace Durin::Asset
 		const FPackagePath& Path,
 		FAssetDeleteAnalysis& OutAnalysis
 	) -> FAssetResult;
-	ENGINE_API auto PrepareAssetDeletionTransaction(
+	ENGINE_API auto PrepareAssetDeletionJob(
 		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionTransaction& OutTransaction,
+		FAssetDeletionJob& OutJob,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers
 	) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

@@ -48,10 +48,10 @@ namespace
 	auto PrepareCanonicalResaveAsset(
 		const Durin::FPackagePath& Path, Durin::DObject* Asset
 	)
-		-> Durin::Asset::FAssetResult
+		-> Durin::FAssetResult
 	{
 		if (GCancelled.load(std::memory_order_relaxed))
-			return {Durin::Asset::EAssetError::ShuttingDown, "Canonical resave was cancelled before asset compilation completed."};
+			return {Durin::EAssetError::ShuttingDown, "Canonical resave was cancelled before asset compilation completed."};
 		(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
 		return Durin::ValidateAssetSaveReadiness(Asset);
 	}
@@ -338,7 +338,7 @@ namespace
 
 	struct FQualificationDescriptor
 	{
-		Durin::Asset::FEditorBulkDataStorageDescriptor Descriptor;
+		Durin::FEditorBulkDataStorageDescriptor Descriptor;
 		std::filesystem::path CompanionPath;
 		bool bReachable = true;
 		std::string Diagnostic;
@@ -347,12 +347,12 @@ namespace
 	};
 
 	auto SerializeStorageQualificationInventory(
-		std::span<const Durin::Asset::FAssetPackageCompatibilityProbeInput> Inputs
+		std::span<const Durin::FAssetPackageCompatibilityProbeInput> Inputs
 	)
 		-> std::string
 	{
 		using namespace Durin;
-		using namespace Durin::Asset;
+		using namespace Durin;
 		struct FPackage
 		{
 			const FAssetPackageCompatibilityProbeInput* Input = nullptr;
@@ -502,11 +502,11 @@ namespace
 	}
 
 	auto SerializeIdentityAudit(
-		std::span<const Durin::Asset::FAssetPackageCompatibilityProbeInput> Inputs
+		std::span<const Durin::FAssetPackageCompatibilityProbeInput> Inputs
 	) -> std::string
 	{
 		using namespace Durin;
-		using namespace Durin::Asset;
+		using namespace Durin;
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
@@ -570,7 +570,7 @@ namespace
 	}
 
 	auto MatchesVirtualPrefix(
-		const Durin::Asset::FAssetPackageCompatibilityRecord& Record,
+		const Durin::FAssetPackageCompatibilityRecord& Record,
 		std::string_view Prefix
 	) -> bool
 	{
@@ -581,8 +581,8 @@ namespace
 
 	auto MakeCanonicalResaveSelection(
 		const FOptions& Options,
-		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records,
-		Durin::Asset::FAssetCanonicalResaveSelection& OutSelection,
+		std::span<const Durin::FAssetPackageCompatibilityRecord> Records,
+		Durin::FAssetCanonicalResaveSelection& OutSelection,
 		std::string& OutError
 	) -> int
 	{
@@ -625,12 +625,12 @@ namespace
 
 	auto RunCanonicalResave(
 		const FOptions& Options,
-		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records,
-		const Durin::Asset::FReflectionCompatibilityCatalog& Catalog
+		std::span<const Durin::FAssetPackageCompatibilityRecord> Records,
+		const Durin::FReflectionCompatibilityCatalog& Catalog
 	) -> int
 	{
 		std::string Error;
-		Durin::Asset::FAssetCanonicalResaveSelection Selection;
+		Durin::FAssetCanonicalResaveSelection Selection;
 		if (const int Result = MakeCanonicalResaveSelection(
 				Options, Records, Selection, Error
 			))
@@ -638,14 +638,14 @@ namespace
 			std::cerr << "Error: " << Error << '\n';
 			return Result;
 		}
-		const auto Plan = Durin::Asset::PlanAssetCanonicalResaves(
+		const auto Plan = Durin::PlanAssetCanonicalResaves(
 			Records, Selection, [] { return GCancelled.load(std::memory_order_relaxed); }
 		);
-		if (Plan.Status == Durin::Asset::EAssetCanonicalResavePlanStatus::Cancelled)
+		if (Plan.Status == Durin::EAssetCanonicalResavePlanStatus::Cancelled)
 			return 130;
 		if (Options.bApply)
 		{
-			auto Applied = Durin::Asset::ApplyAssetCanonicalResaves(
+			auto Applied = Durin::ApplyAssetCanonicalResaves(
 				Plan, Catalog,
 				{.PrepareLoadedAsset = PrepareCanonicalResaveAsset},
 				[] { return GCancelled.load(std::memory_order_relaxed); }
@@ -654,23 +654,23 @@ namespace
 				std::cout << "canonical-resave apply: " << Applied.ChangedPaths.size()
 						  << " package(s) resaved; " << Applied.Diagnostic << '\n';
 			else
-				std::cout << Durin::Asset::SerializeAssetCanonicalResaveApplyReport(Applied)
+				std::cout << Durin::SerializeAssetCanonicalResaveApplyReport(Applied)
 						  << '\n';
 			std::cout.flush();
-			if (Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Cancelled)
+			if (Applied.Status == Durin::EAssetCanonicalResaveApplyStatus::Cancelled)
 				return 130;
-			return Applied.Status == Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded ? 0 : 1;
+			return Applied.Status == Durin::EAssetCanonicalResaveApplyStatus::Succeeded ? 0 : 1;
 		}
 		if (Options.Format == EOutputFormat::Human)
 		{
-			const auto Ready = std::ranges::count(Plan.Packages, Durin::Asset::EAssetCanonicalResavePackageStatus::Ready, &Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
-			const auto Blocked = std::ranges::count(Plan.Packages, Durin::Asset::EAssetCanonicalResavePackageStatus::Blocked, &Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
-			const auto Skipped = std::ranges::count(Plan.Packages, Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped, &Durin::Asset::FAssetCanonicalResavePackagePlan::Status);
+			const auto Ready = std::ranges::count(Plan.Packages, Durin::EAssetCanonicalResavePackageStatus::Ready, &Durin::FAssetCanonicalResavePackagePlan::Status);
+			const auto Blocked = std::ranges::count(Plan.Packages, Durin::EAssetCanonicalResavePackageStatus::Blocked, &Durin::FAssetCanonicalResavePackagePlan::Status);
+			const auto Skipped = std::ranges::count(Plan.Packages, Durin::EAssetCanonicalResavePackageStatus::Skipped, &Durin::FAssetCanonicalResavePackagePlan::Status);
 			std::cout << "canonical-resave plan: " << Ready << " ready, "
 					  << Blocked << " blocked, " << Skipped << " skipped, "
 					  << Plan.Packages.size() << " selected\n";
 			for (const auto& Package : Plan.Packages)
-				if (Package.Status == Durin::Asset::EAssetCanonicalResavePackageStatus::Blocked)
+				if (Package.Status == Durin::EAssetCanonicalResavePackageStatus::Blocked)
 				{
 					std::cout << "  " << Package.PackagePath.ToString() << '\n';
 					for (const std::string& Diagnostic : Package.Diagnostics)
@@ -678,15 +678,15 @@ namespace
 				}
 		}
 		else
-			std::cout << Durin::Asset::SerializeAssetCanonicalResavePlanReport(Plan) << '\n';
+			std::cout << Durin::SerializeAssetCanonicalResavePlanReport(Plan) << '\n';
 		return 0;
 	}
 
 	auto PrintCompatibilityCheck(
-		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records
+		std::span<const Durin::FAssetPackageCompatibilityRecord> Records
 	) -> void
 	{
-		using namespace Durin::Asset;
+		using namespace Durin;
 		const auto Compatible = std::ranges::count(Records, EAssetPackageCompatibility::Compatible, &FAssetPackageCompatibilityRecord::Compatibility);
 		const auto Incompatible = std::ranges::count(Records, EAssetPackageCompatibility::Incompatible, &FAssetPackageCompatibilityRecord::Compatibility);
 		const auto Unsupported = std::ranges::count(Records, EAssetPackageCompatibility::Unsupported, &FAssetPackageCompatibilityRecord::Compatibility);
@@ -718,12 +718,12 @@ namespace
 	}
 
 	auto RegisterCookContributors(
-		std::vector<Durin::Asset::FCookContributorHandle>& OutHandles,
+		std::vector<Durin::FCookContributorHandle>& OutHandles,
 		std::string& OutError
 	) -> bool
 	{
 		using namespace Durin;
-		using namespace Durin::Asset;
+		using namespace Durin;
 		OutHandles.clear();
 		const FCookContributorHandle Generic = RegisterCookContributor(
 			DObject::StaticClass(), {"generic-package", 1, 1,
@@ -750,11 +750,11 @@ namespace
 		return false;
 	}
 
-	auto SerializeCookRunResult(const Durin::Asset::FCookRunResult& Result)
+	auto SerializeCookRunResult(const Durin::FCookRunResult& Result)
 		-> std::string
 	{
 		using namespace Durin;
-		using namespace Durin::Asset;
+		using namespace Durin;
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
@@ -790,7 +790,7 @@ namespace
 	auto RunCook(const FOptions& Options) -> int
 	{
 		using namespace Durin;
-		using namespace Durin::Asset;
+		using namespace Durin;
 		std::vector<FPackagePath> Roots;
 		for (const std::string& Value : Options.CookRoots)
 		{
@@ -953,14 +953,14 @@ int main(int ArgC, char** ArgV)
 #endif
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
-	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
-		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
-	Durin::Asset::FAssetPackageDiscoverySnapshot Snapshot =
-		Durin::Asset::CaptureMountedAssetPackageSnapshot(
+	const Durin::FReflectionCompatibilityCatalog Catalog =
+		Durin::FReflectionCompatibilityCatalog::Capture();
+	Durin::FAssetPackageDiscoverySnapshot Snapshot =
+		Durin::CaptureMountedAssetPackageSnapshot(
 			[] { return GCancelled.load(std::memory_order_relaxed); }
 		);
-	if (Snapshot.Status == Durin::Asset::EAssetPackageSnapshotStatus::Cancelled) return 130;
-	if (Snapshot.Status == Durin::Asset::EAssetPackageSnapshotStatus::Failed)
+	if (Snapshot.Status == Durin::EAssetPackageSnapshotStatus::Cancelled) return 130;
+	if (Snapshot.Status == Durin::EAssetPackageSnapshotStatus::Failed)
 	{
 		std::cerr << "Error: " << Snapshot.Error << '\n';
 		return 1;
@@ -977,9 +977,9 @@ int main(int ArgC, char** ArgV)
 	}
 	if (Options.Operation == EOperation::Resave && Options.bApply)
 	{
-		const Durin::Asset::FAssetCatalogRefreshResult Refresh =
-			Durin::Asset::RefreshAssetRegistry(
-				Durin::Asset::EAssetRegistryScanMode::FullValidation
+		const Durin::FAssetCatalogRefreshResult Refresh =
+			Durin::RefreshAssetRegistry(
+				Durin::EAssetRegistryScanMode::FullValidation
 			);
 		if (!Refresh || !Refresh.bPublished)
 		{
@@ -991,15 +991,15 @@ int main(int ArgC, char** ArgV)
 		for (auto& Input : Snapshot.Packages)
 			Input.bIncludeNestedMigrationEvidence = true;
 
-	auto Audit = Durin::Asset::RunAssetCompatibilityAudit(
+	auto Audit = Durin::RunAssetCompatibilityAudit(
 		Snapshot.Packages, Catalog,
 		[] { return GCancelled.load(std::memory_order_relaxed); });
-	if (Audit.Status == Durin::Asset::EAssetCompatibilityAuditStatus::Cancelled) return 130;
+	if (Audit.Status == Durin::EAssetCompatibilityAuditStatus::Cancelled) return 130;
 	auto& Records = Audit.Records;
 	if (Options.Operation == EOperation::Check)
 	{
 		if (Options.Format == EOutputFormat::Json)
-			std::cout << Durin::Asset::SerializeAssetCompatibilityReport(Records) << '\n';
+			std::cout << Durin::SerializeAssetCompatibilityReport(Records) << '\n';
 		else
 			PrintCompatibilityCheck(Records);
 		return 0;

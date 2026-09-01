@@ -52,7 +52,7 @@ namespace Durin::Editor
 
 		auto AddReference(
 			std::unordered_map<std::string, std::vector<FSourceReference>>& References,
-			const Asset::FAssetData& Data,
+			const FAssetData& Data,
 			std::string_view SourcePath) -> void
 		{
 			if (SourcePath.empty()) return;
@@ -62,12 +62,12 @@ namespace Durin::Editor
 		}
 
 		auto InspectSourceFields(
-			const Asset::FAssetData& Data,
+			const FAssetData& Data,
 			std::unordered_map<std::string, std::vector<FSourceReference>>& References)
 			-> bool
 		{
-			Asset::FAssetPackageInspection Inspection;
-			if (!Asset::InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
+			FAssetPackageInspection Inspection;
+			if (!InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
 			FAssetImportInfo ImportInfo;
 			std::string ImportInfoError;
 			if (InspectAssetImportInfo(
@@ -89,8 +89,8 @@ namespace Durin::Editor
 			Private::FSourceReferenceSnapshot Snapshot;
 			Snapshot.Generation = Generation;
 			Snapshot.MaximumPackageInspections = MaximumPackageInspections;
-			const Asset::FAssetCatalogSnapshot Catalog =
-				Asset::CaptureAssetCatalogSnapshot();
+			const FAssetCatalogSnapshot Catalog =
+				CaptureAssetCatalogSnapshot();
 			Snapshot.RegistryRevision = Catalog.Revision;
 			for (const auto& [Path, Asset] : Catalog.Assets)
 			{
@@ -136,7 +136,7 @@ namespace Durin::Editor
 		PublishCompletedBuild(Service);
 		RequestedGeneration = Service.Generation;
 		RequestedMaximumPackageInspections = MaximumPackageInspections;
-		const uint64 CatalogRevision = Asset::GetAssetCatalogRevision();
+		const uint64 CatalogRevision = GetAssetCatalogRevision();
 		if (Service.Published
 			&& Service.Published->Generation == Service.Generation
 			&& Service.Published->RegistryRevision == CatalogRevision
@@ -173,7 +173,7 @@ namespace Durin::Editor
 			Generation = Service.Generation;
 			RequestedGeneration = Generation;
 			RequestedMaximumPackageInspections = MaximumPackageInspections;
-			const uint64 CatalogRevision = Asset::GetAssetCatalogRevision();
+			const uint64 CatalogRevision = GetAssetCatalogRevision();
 			if (Service.Published
 				&& Service.Published->Generation == Generation
 				&& Service.Published->RegistryRevision == CatalogRevision
@@ -222,7 +222,7 @@ namespace Durin::Editor
 		return Snapshot
 			&& Snapshot->Generation == RequestedGeneration
 			&& Snapshot->MaximumPackageInspections == RequestedMaximumPackageInspections
-			&& Snapshot->RegistryRevision == Asset::GetAssetCatalogRevision();
+			&& Snapshot->RegistryRevision == GetAssetCatalogRevision();
 	}
 
 	auto FSourceReferenceIndex::GetRegistryRevision() const -> uint64

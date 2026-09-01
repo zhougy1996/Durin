@@ -4,7 +4,7 @@
 #include "Asset/PackageResource.h"
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint64 MaximumBulkDataBytes = 1024ull * 1024ull * 1024ull;
 
@@ -20,7 +20,7 @@ namespace Durin::Asset
 		FPackageResourceRange Range;
 	};
 
-	namespace Private { struct FBulkDataState; }
+	namespace AssetPrivate { struct FBulkDataState; }
 
 	// Owns a lock-checked runtime allocation or a lazy package-resource range.
 	class FBulkData
@@ -57,9 +57,9 @@ namespace Durin::Asset
 			FArchive& Ar, FArchiveBulkDataParameters Parameters = {}) -> void;
 
 	private:
-		explicit FBulkData(std::shared_ptr<Private::FBulkDataState> InState)
+		explicit FBulkData(std::shared_ptr<AssetPrivate::FBulkDataState> InState)
 			: State(std::move(InState)) {}
 
-		std::shared_ptr<Private::FBulkDataState> State;
+		std::shared_ptr<AssetPrivate::FBulkDataState> State;
 	};
 }

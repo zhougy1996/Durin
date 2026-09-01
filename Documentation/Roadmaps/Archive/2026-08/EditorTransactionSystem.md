@@ -16,7 +16,7 @@ history, executable property and custom records, package checkpoints,
 mounted-content revisions, deferred barriers, and application events.
 
 `DEditorEngine::Trans` is the only editor-session history. Every workspace,
-Activity History surface, property edit, asset mutation, graph edit, Level
+Activity History surface, property edit, graph edit, and Level
 mutation, placement, attachment, and gizmo command routes through
 `DTransBuffer`; the legacy manager, ID bridges, and transaction-specific roots
 are absent. P2 is complete through the
@@ -45,8 +45,9 @@ use case that clears the roadmap's entry gate:
 The decision is defer-with-entry-gate, not a prohibition. A future concrete
 use case must start a separate roadmap and define durable identity, schema
 evolution, security and authority, bounded storage, and replay/conflict policy
-before implementation. The transient Undo buffer and independent asset
-recovery journal remain the selected architecture.
+before implementation. The transient Undo buffer and independent forward asset
+job journal remain the selected architecture. Destructive asset deletion retains
+no local recovery record and is restored through version control.
 
 ## Outcome
 
@@ -87,7 +88,7 @@ changes coexist in one `FTransaction`; neither is a second history stack.
 - Make GC reference enumeration, not manual rooting, the normal retention path
   for committed transaction history. Native temporary owners use
   `TStrongObjectPtr`; manual root flags are not the transaction ownership model.
-- Preserve command/custom-change support for filesystem mutations, async
+- Preserve command/custom-change support for non-asset filesystem mutations, async
   operations, graph edits, object creation and deletion, and other behavior
   that cannot be represented safely as a reflected property snapshot.
 - Keep `FAssetMutationJournal` independent. Undo/Redo is editor-session history;
@@ -198,9 +199,9 @@ snapshot.
   the owning module lease. Prefer data-driven shared changes where practical and
   drain remaining module-owned records during retirement.
 - Transaction byte accounting, not only entry count, bounds retained history.
-- Asset mutation Undo/Redo continues to honor `RecoveryRequired`; editor history
-  never conceals or retries a recovery-required filesystem transaction as an
-  ordinary object restore.
+- Authored relocation, Fix Up, and destructive deletion never enter editor
+  history. `RecoveryRequired` and projection-pending outcomes remain visible to
+  their owning asset jobs rather than being concealed as object restores.
 
 ## Validation Strategy
 

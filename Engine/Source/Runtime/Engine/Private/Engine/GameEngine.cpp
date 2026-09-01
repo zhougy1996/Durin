@@ -71,9 +71,9 @@ namespace Durin
 				if (FPackagePath::TryCreate(
 						Settings.DefaultLevel, PackagePath, &PathError))
 				{
-					Asset::FAssetResult Result =
-						Asset::ResolveLevelPackage(PackagePath, LevelPath);
-					if (Result) Result = Asset::LoadObject(LevelPath, Level);
+					FAssetResult Result =
+						ResolveLevelPackage(PackagePath, LevelPath);
+					if (Result) Result = LoadObject(LevelPath, Level);
 					if (Result && GetWorld()->SetCurrentLevel(Level))
 					{
 						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DObject/AssetPath.h"
-#include "Editor/Transaction.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "ContentBrowserAPI.h"
@@ -116,7 +115,6 @@ namespace Durin::Editor::ContentBrowser
 	struct FConstructionServices
 	{
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
-		std::function<bool(std::unique_ptr<ITransactionCustomChange>)> ExecuteTransaction;
 		std::function<uint64()> GetMountedContentMutationRevision;
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;

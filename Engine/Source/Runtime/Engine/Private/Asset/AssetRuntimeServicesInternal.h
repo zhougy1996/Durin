@@ -4,7 +4,7 @@
 #include "Asset/Load.h"
 #include "AssetPublicationCoordinatorInternal.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Owns load transactions and coordinates package construction and residency.
 	class FAssetLoadService
@@ -117,10 +117,10 @@ namespace Durin::Asset
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetResult;
 		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetResult;
-		auto PrepareAssetRelocationTransaction(
+		auto PrepareAssetRelocationJob(
 			std::span<const FAssetRelocationMapping> Mappings,
-			FAssetMutationSummary& OutSummary,
-			FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+			FAssetRelocationSummary& OutSummary,
+			FAssetMutationJob& OutJob) -> FAssetResult;
 		auto PrepareAssetRelocationState(
 			std::span<const FAssetRelocationMapping> Mappings,
 			std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult;
@@ -128,13 +128,11 @@ namespace Durin::Asset
 			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
 		auto ApplyAssetRelocation(
 			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
-		auto RestoreAssetRelocation(
-			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
-		auto PrepareRedirectorFixupTransaction(
+		auto PrepareRedirectorFixupJob(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
 			FAssetRedirectorFixupSummary& OutSummary,
-			FAssetMutationTransaction& OutTransaction) -> FAssetResult;
+			FAssetMutationJob& OutJob) -> FAssetResult;
 		auto PrepareRedirectorFixupState(
 			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
@@ -146,17 +144,16 @@ namespace Durin::Asset
 		auto AnalyzeAssetDeletion(
 			const FPackagePath& Path,
 			FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
-		auto PrepareAssetDeletionTransaction(
+		auto PrepareAssetDeletionJob(
 			std::span<const FPackagePath> Paths,
 			std::span<const std::filesystem::path> PhysicalRoots,
-			FAssetDeletionTransaction& OutTransaction,
+			FAssetDeletionJob& OutJob,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		auto ValidateAssetDeletionTransaction(
-			const FAssetDeletionTransaction& Transaction,
+		auto ValidateAssetDeletionJob(
+			const FAssetDeletionJob& Job,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		auto UnloadAssetDeletionTransaction(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
-		auto RemoveAssetDeletionRegistryProjection(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
-		auto RestoreAssetDeletionRegistryProjection(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
+		auto UnloadAssetDeletionJob(const FAssetDeletionJob& Job) -> FAssetResult;
+		auto RemoveAssetDeletionRegistryProjection(const FAssetDeletionJob& Job) -> FAssetResult;
 		auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult;
 
 	private:

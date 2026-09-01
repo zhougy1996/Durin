@@ -2,7 +2,7 @@
 
 #include "DObject/DObjectGlobals.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	// Byte-tool scalar payloads are copied at their reflected element width without semantic decoding.
 	inline constexpr auto IsByteToolRawScalarKind(DurinCodeGen::EPropertyGenFlags Kind) -> bool

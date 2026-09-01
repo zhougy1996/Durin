@@ -4,7 +4,7 @@
 #include "Texture/Texture2DCompilationTypes.h"
 #include "Texture/TextureBuildOperations.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Identifies the terminal outcome of one accepted object-level compilation.
 	enum class ETexture2DCompilationStatus : uint8

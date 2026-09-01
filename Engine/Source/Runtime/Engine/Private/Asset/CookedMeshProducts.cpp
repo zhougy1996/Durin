@@ -8,7 +8,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto Fail(
+		auto CookedMeshProductFail(
 			FCookedMeshProductError& OutError,
 			ECookedMeshProductFailure Category,
 			std::string Message) -> bool
@@ -23,7 +23,7 @@ namespace Durin
 			FCookedMeshProductError& OutError) -> bool
 		{
 			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
-				return Fail(OutError, ECookedMeshProductFailure::Metadata,
+				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Metadata,
 					"Cached static-mesh material slot count does not match asset metadata.");
 			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
 			{
@@ -56,25 +56,25 @@ namespace Durin
 		if (CollisionMode != EBodySetupCollisionSourceMode::None)
 		{
 			if (CollisionBytes.empty())
-				return Fail(OutError, ECookedMeshProductFailure::Schema,
+				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 					"Cooked static-mesh collision payload is missing.");
 			FStaticMeshCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
 				CollisionBytes, EArchivePurpose::CookedPayload);
 			CollisionPayload.Serialize(CollisionAr, EStaticMeshTargetPlatform::Win64);
 			if (CollisionAr.HasError() || !RequireArchiveEnd(CollisionAr))
-				return Fail(OutError, ECookedMeshProductFailure::Schema,
+				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 					std::string(CollisionAr.GetError()));
 			if (CollisionPayload.SourceMode != CollisionMode
 				|| CollisionPayload.QueryPolicy != CollisionPolicy)
 			{
-				return Fail(OutError, ECookedMeshProductFailure::Metadata,
+				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Metadata,
 					"DCOL policy does not match its cooked BodySetup metadata.");
 			}
 			FCollisionGeometryRef Geometry;
 			std::string Error;
 			if (!MakeStaticMeshCollisionGeometry(CollisionPayload, Geometry, Error))
-				return Fail(OutError, ECookedMeshProductFailure::Construction,
+				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Construction,
 					std::move(Error));
 			if (CollisionMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 				Candidate.SimpleCollision = std::move(Geometry);
@@ -88,14 +88,14 @@ namespace Durin
 		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload);
 		Payload.Serialize(PayloadAr, EStaticMeshTargetPlatform::Win64);
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
-			return Fail(OutError, ECookedMeshProductFailure::Schema,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 				std::string(PayloadAr.GetError()));
 		if (Payload.MaterialSlotCount != MaterialSlots.size())
-			return Fail(OutError, ECookedMeshProductFailure::Metadata,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Metadata,
 				"Static-mesh payload material slot count does not match package metadata.");
 		std::string Error;
 		if (!MakeStaticMeshRenderData(Payload, Candidate.RenderData, Error))
-			return Fail(OutError, ECookedMeshProductFailure::Construction,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Construction,
 				std::move(Error));
 		if (!RestoreStaticMeshRuntimeMetadata(
 			MaterialSlots, *Candidate.RenderData, OutError)) return false;
@@ -121,14 +121,14 @@ namespace Durin
 			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
-			return Fail(OutError, ECookedMeshProductFailure::Schema,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 				std::string(Ar.GetError()));
 		if (Payload.Positions.size() != ExpectedSummary.VertexCount
 			|| Payload.Indices.size() != ExpectedSummary.IndexCount
 			|| Payload.Sections.size() != ExpectedSummary.SectionCount
 			|| FSkeletalMeshBounds::FromBox(Payload.LocalBounds) != ExpectedSummary.LocalBounds)
 		{
-			return Fail(OutError, ECookedMeshProductFailure::Metadata,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Metadata,
 				"Skeletal-mesh payload does not match authored summary.");
 		}
 		FSkeletalMeshCookedProduct Candidate;
@@ -136,7 +136,7 @@ namespace Durin
 		if (!BuildSkeletalMeshRenderData(Payload, SkeletonBones,
 			MeshNodeBindTransform, MaterialSlots, Candidate.RenderData, Error))
 		{
-			return Fail(OutError, ECookedMeshProductFailure::Construction,
+			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Construction,
 				std::move(Error));
 		}
 		Candidate.Payload = std::make_shared<const FSkeletalMeshPayloadData>(

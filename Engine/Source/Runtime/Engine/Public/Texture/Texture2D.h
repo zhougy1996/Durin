@@ -78,7 +78,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Pixels;
+		FEditorBulkData Pixels;
 
 		DPROPERTY()
 		uint32 Width = 0;
@@ -118,8 +118,8 @@ namespace Durin
 	// Supplies the stable target identity carried by a serialized texture platform value.
 	struct FTexturePlatformSerializationContext
 	{
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 	};
 
 	// Owns the pixel format and complete mip chain consumed by the render resource.
@@ -209,7 +209,7 @@ namespace Durin
 		ENGINE_API auto GetPlatformData() const -> const FTexturePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
@@ -221,10 +221,10 @@ namespace Durin
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -303,7 +303,7 @@ protected:
 		// separate lets platform builds replace format/mips without mutating edit data.
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;

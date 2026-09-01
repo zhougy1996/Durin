@@ -2,7 +2,7 @@
 
 #include "Asset/Testing.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	// Holds the provider gate for the complete load-and-contribute call so a
 	// module-owned relocator cannot disappear while relocation is being prepared.

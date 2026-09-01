@@ -2,7 +2,7 @@
 #include "AssetRegistry/Scan.h"
 #include "AssetRegistry/Publication.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto GetAssetPublicationCoordinator() -> FAssetPublicationCoordinator&
 	{

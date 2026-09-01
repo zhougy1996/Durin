@@ -14,7 +14,7 @@
 
 namespace
 {
-	namespace Asset = Durin::Asset;
+	using namespace Durin;
 	namespace Package = Durin::ObjectPackage;
 
 	auto MakeRegistryFixture(
@@ -71,8 +71,8 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	Durin::FPackagePath PackagePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/RegistryFixture", PackagePath));
-	Asset::FAssetPackageHeader Header;
-	const Asset::FAssetRegistryResult Result = Asset::ReadAssetPackageHeaderBytes(
+	FAssetPackageHeader Header;
+	const FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
 	ASSERT_TRUE(Result) << Result.Message;
@@ -83,7 +83,7 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetClassName,
 		"Example::RegistryAsset");
 	EXPECT_EQ(Header.AssetClassName, "Example::RegistryAsset");
-	EXPECT_EQ(Header.EntryKind, Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Header.EntryKind, EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Header.ObjectCount, 1u);
 	EXPECT_EQ(Header.Dependencies, (std::vector<Durin::FPackagePath>{
 		Path("/Game/HardA"), Path("/Game/HardB")}));
@@ -109,10 +109,10 @@ TEST(FPackageRegistryContractTests, V9ProjectionRequiresIdentityAndExactBulkExte
 	Durin::FPackagePath Wrong;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/RegistryFixture", Correct));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Wrong", Wrong));
-	Asset::FAssetPackageHeader Header;
-	EXPECT_FALSE(Asset::ReadAssetPackageHeaderBytes(
+	FAssetPackageHeader Header;
+	EXPECT_FALSE(ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 1, Correct, Header));
-	EXPECT_FALSE(Asset::ReadAssetPackageHeaderBytes(
+	EXPECT_FALSE(ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 0, Wrong, Header));
 }
 
@@ -130,10 +130,10 @@ TEST(FPackageRegistryContractTests, ProductionProjectionRejectsRetiredV7)
 	ASSERT_TRUE(Durin::EncodeBinaryEnvelopePreamble(Preamble, Retired));
 	ASSERT_TRUE(Durin::FinalizeBinaryEnvelopeHeader(Retired, Retired.size(),
 		{16ull * 1024ull * 1024ull, 1024ull * 1024ull * 1024ull}));
-	Asset::FAssetPackageHeader Header;
-	const Asset::FAssetRegistryResult Result = Asset::ReadAssetPackageHeaderBytes(
+	FAssetPackageHeader Header;
+	const FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 		Retired, Retired.size(), 0, Path("/Game/Retired"), Header);
-	EXPECT_EQ(Result.Error, Asset::EAssetRegistryError::UnsupportedVersion);
+	EXPECT_EQ(Result.Error, EAssetRegistryError::UnsupportedVersion);
 	EXPECT_EQ(Header.FormatVersion, 0u);
 }
 
@@ -176,8 +176,8 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		Bulk, ContentRoot / "Owner.dbulk"));
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	const Asset::FAssetCatalogRefreshResult Cold = Asset::RefreshAssetRegistry(
-		Asset::EAssetRegistryScanMode::FullValidation);
+	const FAssetCatalogRefreshResult Cold = RefreshAssetRegistry(
+		EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : Cold.Errors.front().Message);
 	EXPECT_EQ(Cold.CatalogStats.Enumerated, 1u);
 	EXPECT_EQ(Cold.CatalogStats.Reparsed, 1u);
@@ -189,14 +189,14 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		CacheRoot / "AssetRegistry" / "References.bin"));
 
 	const Durin::FPackagePath Owner = Path("/P3/Owner");
-	const Asset::FAssetCatalogEntry Data = Asset::FindAssetExact(Owner);
+	const FAssetCatalogEntry Data = FindAssetExact(Owner);
 	ASSERT_TRUE(Data);
 	ASSERT_EQ(Data->TopLevelAssets.size(), 2u);
 	EXPECT_EQ(Data->TopLevelAssets.front().AssetPath.ToString(),
 		"/P3/Owner.RegistryFixture");
 	EXPECT_EQ(Data->TopLevelAssets.back().AssetPath, SecondaryPath);
-	const Asset::FTopLevelAssetCatalogEntry Secondary =
-		Asset::FindTopLevelAssetExact(SecondaryPath);
+	const FTopLevelAssetCatalogEntry Secondary =
+		FindTopLevelAssetExact(SecondaryPath);
 	ASSERT_TRUE(Secondary);
 	EXPECT_EQ(Secondary->AssetClassName, "Example::SecondaryAsset");
 	ASSERT_TRUE(Secondary.Package.has_value());
@@ -207,34 +207,34 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		Path("/P3/SoftA"), Path("/P3/SoftB")}));
 	EXPECT_EQ(Data->SearchableNames,
 		(std::vector<std::string>{"Tag.A", "Tag.Z"}));
-	const Asset::FAssetReferenceIndex ColdIndex =
-		Asset::CaptureAssetReferenceIndex();
+	const FAssetReferenceIndex ColdIndex =
+		CaptureAssetReferenceIndex();
 	ASSERT_TRUE(ColdIndex.IsComplete());
 	EXPECT_EQ(ColdIndex.GetEdges().size(), 4u);
-	const std::vector<Asset::FAssetPackageReferenceEdge> ColdEdges(
+	const std::vector<FAssetPackageReferenceEdge> ColdEdges(
 		ColdIndex.GetEdges().begin(), ColdIndex.GetEdges().end());
 	EXPECT_EQ(ColdIndex.FindTargets(Owner), (std::vector<Durin::FPackagePath>{
 		Path("/P3/HardA"), Path("/P3/HardB"),
 		Path("/P3/SoftA"), Path("/P3/SoftB")}));
 
-	const Asset::FAssetCatalogRefreshResult Warm = Asset::RefreshAssetRegistry();
+	const FAssetCatalogRefreshResult Warm = RefreshAssetRegistry();
 	ASSERT_TRUE(Warm);
 	EXPECT_EQ(Warm.CatalogStats.Reused, 1u);
 	EXPECT_EQ(Warm.CatalogStats.Reparsed, 0u);
 	EXPECT_EQ(Warm.CatalogStats.HeaderReadAttempts, 0u);
-	const Asset::FAssetReferenceIndex WarmIndex = Asset::CaptureAssetReferenceIndex();
+	const FAssetReferenceIndex WarmIndex = CaptureAssetReferenceIndex();
 	const auto WarmEdges = WarmIndex.GetEdges();
-	EXPECT_EQ((std::vector<Asset::FAssetPackageReferenceEdge>(
+	EXPECT_EQ((std::vector<FAssetPackageReferenceEdge>(
 		WarmEdges.begin(), WarmEdges.end())), ColdEdges);
 
-	const Asset::FAssetCatalogRefreshResult Full = Asset::RefreshAssetRegistry(
-		Asset::EAssetRegistryScanMode::FullValidation);
+	const FAssetCatalogRefreshResult Full = RefreshAssetRegistry(
+		EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Full);
 	EXPECT_EQ(Full.CatalogStats.Reparsed, 1u);
 	EXPECT_EQ(Full.CatalogStats.HeaderFileBytesRead, HeaderBytes);
-	const Asset::FAssetReferenceIndex FullIndex = Asset::CaptureAssetReferenceIndex();
+	const FAssetReferenceIndex FullIndex = CaptureAssetReferenceIndex();
 	const auto FullEdges = FullIndex.GetEdges();
-	EXPECT_EQ((std::vector<Asset::FAssetPackageReferenceEdge>(
+	EXPECT_EQ((std::vector<FAssetPackageReferenceEdge>(
 		FullEdges.begin(), FullEdges.end())), ColdEdges);
 
 	const std::filesystem::path CacheFile =
@@ -246,12 +246,12 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	std::memcpy(CorruptCache.data() + sizeof(uint32), &UnknownSchema,
 		sizeof(UnknownSchema));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CorruptCache, CacheFile));
-	const Asset::FAssetCatalogRefreshResult Recovered = Asset::RefreshAssetRegistry();
+	const FAssetCatalogRefreshResult Recovered = RefreshAssetRegistry();
 	ASSERT_TRUE(Recovered);
 	EXPECT_EQ(Recovered.CatalogStats.Reparsed, 1u);
 	EXPECT_FALSE(Recovered.CatalogCacheWarning.empty());
-	const Asset::FAssetReferenceIndex RecoveredIndex =
-		Asset::CaptureAssetReferenceIndex();
-	EXPECT_EQ((std::vector<Asset::FAssetPackageReferenceEdge>(
+	const FAssetReferenceIndex RecoveredIndex =
+		CaptureAssetReferenceIndex();
+	EXPECT_EQ((std::vector<FAssetPackageReferenceEdge>(
 		RecoveredIndex.GetEdges().begin(), RecoveredIndex.GetEdges().end())), ColdEdges);
 }

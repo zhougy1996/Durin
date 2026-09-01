@@ -5,7 +5,7 @@
 namespace
 {
 	auto HasDependency(
-		const Durin::Asset::FAssetData& Asset,
+		const Durin::FAssetData& Asset,
 		std::string_view Dependency
 	) -> bool
 	{
@@ -63,12 +63,12 @@ TEST(FAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyInputs)
 	ASSERT_TRUE(Durin::Tests::MakeThumbnailFixturePath(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath, StaticMeshPath));
 
-	const Durin::Asset::FAssetCatalogEntry MaterialData =
-		Durin::Asset::FindAssetExact(MaterialPath);
-	const Durin::Asset::FAssetCatalogEntry InstanceData =
-		Durin::Asset::FindAssetExact(InstancePath);
-	const Durin::Asset::FAssetCatalogEntry StaticMeshData =
-		Durin::Asset::FindAssetExact(StaticMeshPath);
+	const Durin::FAssetCatalogEntry MaterialData =
+		Durin::FindAssetExact(MaterialPath);
+	const Durin::FAssetCatalogEntry InstanceData =
+		Durin::FindAssetExact(InstancePath);
+	const Durin::FAssetCatalogEntry StaticMeshData =
+		Durin::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 	ASSERT_NE(StaticMeshData, nullptr);

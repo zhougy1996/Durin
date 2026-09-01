@@ -2,7 +2,7 @@
 
 #include "AssetRuntimeServicesInternal.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Owns the Engine Asset subsystem's private services and shared lifecycle.
 	class FAssetRuntimeState

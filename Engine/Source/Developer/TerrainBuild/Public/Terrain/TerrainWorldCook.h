@@ -4,7 +4,7 @@
 #include "Asset/Cook.h"
 #include "Serialization/SharedByteBuffer.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FTerrainRegionKey
 	{
@@ -41,8 +41,8 @@ namespace Durin::Asset
 	{
 		FTerrainWorldId WorldId;
 		uint16 SchemaVersion = TerrainWorldSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Win64;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Game;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		std::vector<FTerrainManifestRegion> Regions;
 	};
 
@@ -54,8 +54,8 @@ namespace Durin::Asset
 		std::vector<FTerrainTileGeneration> Generations;
 		std::vector<FTerrainRegionKey> InstalledRegions;
 		FByteArray PackageTemplateBytes;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Win64;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Game;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 	};
 
 	struct FTerrainCookedProductHandle
@@ -76,26 +76,26 @@ namespace Durin::Asset
 		const FTerrainWorldManifest& Manifest, FByteArray& OutBytes, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto DecodeTerrainWorldManifest(
-		std::span<const std::byte> Bytes, const FTerrainWorldId& ExpectedWorld, Asset::ECookTargetPlatform ExpectedPlatform, Asset::ECookTargetProfile ExpectedProfile, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError
+		std::span<const std::byte> Bytes, const FTerrainWorldId& ExpectedWorld, ECookTargetPlatform ExpectedPlatform, ECookTargetProfile ExpectedProfile, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto ContributeTerrainWorldToCook(
-		const FTerrainWorldCookRequest& Request, Asset::FCookContext& Cook, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError
+		const FTerrainWorldCookRequest& Request, FCookContext& Cook, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto CookTerrainWorld(
 		const FTerrainWorldCookRequest& Request, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto LoadCookedTerrainWorldManifest(
-		const Asset::FAssetRuntimeConfiguration& RuntimeConfiguration,
+		const FAssetRuntimeConfiguration& RuntimeConfiguration,
 		std::string_view VirtualWorldRoot,
 		const FTerrainWorldId& WorldId,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		std::shared_ptr<const FTerrainWorldManifest>& OutManifest,
 		ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto LoadCookedTerrainProduct(
-		const Asset::FAssetRuntimeConfiguration& RuntimeConfiguration,
+		const FAssetRuntimeConfiguration& RuntimeConfiguration,
 		const std::shared_ptr<const FTerrainWorldManifest>& Manifest,
 		const FTerrainTileKey& Tile,
 		const FGuid& GenerationId,
@@ -104,4 +104,4 @@ namespace Durin::Asset
 		ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError
 	) -> bool;
-} // namespace Durin::Asset
+} // namespace Durin

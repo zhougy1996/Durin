@@ -147,7 +147,7 @@ The importer:
 - binds material/texture and skeletal relationships in dependency order;
 - saves the complete output package set atomically.
 
-Scene deliberately calls the Engine `Asset::CreateAsset` materialization
+Scene deliberately calls the Engine `CreateAsset` materialization
 seam for its private candidate packages. It does not call single-object
 `IAssetTools`: doing so would assign independent acceptance semantics before
 the complete dependency-ordered peer set is bound, validated, and ready for
@@ -220,7 +220,7 @@ nor DDC fallback.
 ## Compatibility Boundary
 
 The supported authored baseline is the repository-owned asset corpus. Old
-standalone first-import result wrappers and direct `Asset::CreateAsset` family
+standalone first-import result wrappers and direct `CreateAsset` family
 entrypoints have no production compatibility route. Current
 standalone family import data is schema 2 and is read and written only through
 concrete family schemas. Scene outputs are ordinary independently rebuildable

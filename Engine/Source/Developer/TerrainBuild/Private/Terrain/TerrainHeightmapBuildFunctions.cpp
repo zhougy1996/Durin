@@ -4,7 +4,7 @@
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	const FBuildFunctionName TerrainHeightmapFunctionName =
 		FBuildFunctionName::FromString("Durin.GeometryBuild.TerrainHeightmap");
@@ -63,7 +63,7 @@ namespace Durin::Asset::Private
 			FByteArray Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTerrainHeightmapPayload&>(Payload).Serialize(
-				Ar, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
+				Ar, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 			if (Ar.HasError())
 			{
 				OutError = Ar.GetFailure()->Message;
@@ -187,8 +187,8 @@ namespace Durin::Asset::Private
 		}
 		auto Candidate = std::make_shared<FTerrainHeightmapPayload>();
 		FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		Candidate->Serialize(Ar, Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game);
+		Candidate->Serialize(Ar, ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !Candidate->IsValid())
 		{
 			OutError = Ar.GetFailure() ? Ar.GetFailure()->Message

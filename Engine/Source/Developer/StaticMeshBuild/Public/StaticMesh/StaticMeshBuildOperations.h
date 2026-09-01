@@ -5,7 +5,7 @@
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Immutable GameThread capture consumed by pure StaticMesh recipe work.
 	struct FStaticMeshReconciliationSnapshot

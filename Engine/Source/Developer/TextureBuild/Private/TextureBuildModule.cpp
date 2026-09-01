@@ -21,15 +21,15 @@ namespace Durin
 				return false;
 			}
 			std::string Key;
-			if (!Asset::MakeTexture2DDerivedDataKey(Texture, Key, OutError)) return false;
+			if (!MakeTexture2DDerivedDataKey(Texture, Key, OutError)) return false;
 			std::unique_ptr<FTexturePlatformData> Cached;
 			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::Missing;
 			std::string Message;
-			if (Asset::LoadTexture2DDerivedData(Key, Cached, Status, Message))
+			if (LoadTexture2DDerivedData(Key, Cached, Status, Message))
 				return Texture.PublishDerivedDataLoad(
 					std::move(Cached), std::move(Key), OutError);
-			Asset::FTexture2DBuildProduct Product;
-			if (!Asset::BuildTexture2D({
+			FTexture2DBuildProduct Product;
+			if (!BuildTexture2D({
 					.SourceData = Texture.GetImportedData().ToSourceData(),
 					.Settings = {
 						.Usage = Texture.GetUsage(),
@@ -38,7 +38,7 @@ namespace Durin
 						.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
 						.MaxResolution = Texture.GetMaxResolution(),
 						.bSRGB = Texture.IsSRGB()}}, Product, OutError)) return false;
-			return Asset::PublishTexture2DProduct(Texture, std::move(Product), {
+			return PublishTexture2DProduct(Texture, std::move(Product), {
 				.bMarkPackageDirty = false,
 				.bReportLoadMutation = false,
 				.bSourceDecoderInvoked = false}, OutError);
@@ -50,20 +50,20 @@ namespace Durin
 	public:
 		auto PostLoadUncooked(DVolumeTexture& Texture, std::string& OutError) -> bool override
 		{
-			const std::string Key = Asset::MakeVolumeTextureDerivedDataKey(
+			const std::string Key = MakeVolumeTextureDerivedDataKey(
 				Texture, OutError);
 			if (Key.empty()) return false;
 			std::unique_ptr<FVolumeTexturePlatformData> Cached;
 			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
 			std::string Message;
-			if (Asset::LoadVolumeTextureDerivedData(
+			if (LoadVolumeTextureDerivedData(
 				Key, Cached, Status, Message))
 				return Texture.PublishDerivedDataLoad(
 					std::move(Cached), Key, OutError);
-			Asset::FVolumeTextureBuildProduct Product;
-			if (!Asset::BuildVolumeTexture(Texture.GetSourceData(),
+			FVolumeTextureBuildProduct Product;
+			if (!BuildVolumeTexture(Texture.GetSourceData(),
 				Texture.GetBuildSettings(), Product, OutError)) return false;
-			return Asset::PublishVolumeTextureProduct(
+			return PublishVolumeTextureProduct(
 				Texture, std::move(Product), OutError);
 		}
 	};
@@ -78,16 +78,16 @@ namespace Durin
 				OutError = "TextureCube canonical imported data is missing or invalid.";
 				return false;
 			}
-			std::string Key = Asset::MakeTextureCubeDerivedDataKey(Texture, OutError);
+			std::string Key = MakeTextureCubeDerivedDataKey(Texture, OutError);
 			if (Key.empty()) return false;
 			std::unique_ptr<FTextureCubePlatformData> Cached;
 			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::Missing;
 			std::string Message;
-			if (Asset::LoadTextureCubeDerivedData(Key, Cached, Status, Message))
+			if (LoadTextureCubeDerivedData(Key, Cached, Status, Message))
 				return Texture.PublishDerivedDataLoad(
 					std::move(Cached), std::move(Key), OutError);
-			Asset::FTextureCubeBuildProduct Product;
-			if (!Asset::BuildTextureCubeFaces(
+			FTextureCubeBuildProduct Product;
+			if (!BuildTextureCubeFaces(
 				Texture.GetImportedData().ToSourceData(), {},
 				{.bSRGB = Texture.IsSRGB()}, Product, OutError)) return false;
 			Product.SourceLayout = Texture.GetSourceLayout();
@@ -95,7 +95,7 @@ namespace Durin
 			Product.SourceHeight = Texture.GetOriginalSourceHeight();
 			Product.PanoramaFaceDimension = Texture.GetPanoramaFaceDimension();
 			Product.PanoramaExposureEV = Texture.GetPanoramaExposureEV();
-			return Asset::PublishTextureCubeProduct(Texture, std::move(Product), {}, OutError);
+			return PublishTextureCubeProduct(Texture, std::move(Product), {}, OutError);
 		}
 	};
 
@@ -121,13 +121,13 @@ namespace Durin
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
 			std::string Error;
-			checkf(Asset::InitializeTextureBuildFunctions(
+			checkf(InitializeTextureBuildFunctions(
 				AssetCompilingCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
-			Asset::FTexture2DCompilationDomainConfig Config;
+			FTexture2DCompilationDomainConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
-			checkf(Asset::Private::InitializeTexture2DCompilationDomain(
+			checkf(AssetPrivate::InitializeTexture2DCompilationDomain(
 				AssetCompilingCallbackRegistration.GetGate(), Config),
 				"TextureBuild could not register its compilation domain.");
 		}
@@ -144,8 +144,8 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Private::ShutdownTexture2DCompilationDomain();
-			Asset::ShutdownTextureBuildFunctions();
+			AssetPrivate::ShutdownTexture2DCompilationDomain();
+			ShutdownTextureBuildFunctions();
 		}
 	};
 

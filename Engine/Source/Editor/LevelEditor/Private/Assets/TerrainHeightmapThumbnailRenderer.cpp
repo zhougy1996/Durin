@@ -10,7 +10,7 @@ namespace Durin::Editor::Level
 	{
 		constexpr uint32 GeneratorSchemaVersion = 1;
 
-		auto MakeFingerprint(const Asset::FAssetData& Data,
+		auto MakeFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
@@ -96,16 +96,16 @@ namespace Durin::Editor::Level
 			OutError = "The Terrain thumbnail renderer received the wrong asset class.";
 			return false;
 		}
-		const Asset::FAssetCatalogEntry Entry =
-			Asset::FindAssetExact(Request.Asset.PackagePath);
-		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
+		const FAssetCatalogEntry Entry =
+			FindAssetExact(Request.Asset.PackagePath);
+		const FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (!Data || MakeFingerprint(*Data, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = "Terrain thumbnail registry data is missing or changed.";
 			return false;
 		}
 		DObject* Loaded = nullptr;
-		const Asset::FAssetResult LoadResult = Asset::LoadObject(Request.Asset.AssetPath, Loaded);
+		const FAssetResult LoadResult = LoadObject(Request.Asset.AssetPath, Loaded);
 		auto* Heightmap = LoadResult ? Cast<DTerrainHeightmap>(Loaded) : nullptr;
 		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap ? Heightmap->GetPayload() : nullptr;
 		if (!Heightmap || Heightmap->GetStatus() != ETerrainHeightmapStatus::Ready || !Payload)

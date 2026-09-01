@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/Relocation.h"
@@ -12,7 +12,7 @@ namespace Durin
 	class DObject;
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetReferenceStoreOccurrence
 	{
@@ -123,4 +123,4 @@ namespace Durin::Asset
 	ENGINE_API auto UnregisterAssetMoveObserver(
 		FAssetMoveObserverHandle Handle
 	) -> void;
-} // namespace Durin::Asset
+} // namespace Durin

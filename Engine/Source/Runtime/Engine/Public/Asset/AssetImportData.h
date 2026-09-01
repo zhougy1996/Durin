@@ -112,7 +112,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto InspectAssetImportInfo(
-		const Asset::FAssetPackageInspection& Inspection,
+		const FAssetPackageInspection& Inspection,
 		FAssetImportInfo& OutInfo,
 		std::string& OutError) -> bool;
 }

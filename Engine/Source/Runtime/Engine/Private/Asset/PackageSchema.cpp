@@ -6,7 +6,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Misc/FileHelper.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -208,11 +208,11 @@ namespace Durin::Asset
 	{
 		FPackageSchemaReadStats LocalStats;
 		FPackageSchemaReadStats& Stats = OutStats ? *OutStats : LocalStats;
-		Private::FBorrowedFileAssetPackageByteSource FileSource(Handle);
-		Private::FCountingAssetPackageByteSource Source(FileSource, Stats);
-		const Private::FAssetPackageCodec* Codec = nullptr;
+		AssetPrivate::FBorrowedFileAssetPackageByteSource FileSource(Handle);
+		AssetPrivate::FCountingAssetPackageByteSource Source(FileSource, Stats);
+		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		uint32 FormatVersion = 0;
-		FAssetResult Result = Private::ResolveAssetPackageReader(Source, Codec,
+		FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Source, Codec,
 			&FormatVersion, IsCancellationRequested);
 		if (!Result) return Result;
 		Result = Codec->InspectSchema(Source, PackagePath, Catalog, OutInspection,

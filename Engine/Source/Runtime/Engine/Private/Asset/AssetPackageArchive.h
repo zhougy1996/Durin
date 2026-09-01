@@ -1,11 +1,11 @@
 #pragma once
 
 #include "AssetRegistry/Catalog.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	struct FAuthoredPackageFieldRecord
 	{

@@ -1,11 +1,11 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Object.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	ENGINE_API auto CreateAsset(
 		const FTopLevelAssetPath& Path,
@@ -45,4 +45,4 @@ namespace Durin::Asset
 	}
 
 	ENGINE_API auto SavePackage(DPackage* Package) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

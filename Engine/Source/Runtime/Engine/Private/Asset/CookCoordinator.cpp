@@ -14,7 +14,7 @@
 #include "Misc/Project.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -30,7 +30,7 @@ namespace Durin::Asset
 			return {Error, std::move(Message)};
 		}
 
-		auto Fail(std::string Message, std::string* OutError) -> bool
+		auto CookFail(std::string Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
 			return false;
@@ -162,7 +162,7 @@ namespace Durin::Asset
 			FXxHash128 SourceDigest;
 			std::error_code ErrorCode;
 			if (!FFileHelper::HashFileXx128(Data.PhysicalPath, SourceDigest, ErrorCode))
-				return Fail(std::format("CookFingerprintReadFailed: {} ({})", Data.PackagePath.ToString(), ErrorCode.message()), &OutError);
+				return CookFail(std::format("CookFingerprintReadFailed: {} ({})", Data.PackagePath.ToString(), ErrorCode.message()), &OutError);
 			FXxHash128Builder Builder;
 			constexpr uint32 FingerprintVersion = 1;
 			Builder.UpdateValue(FingerprintVersion);
@@ -189,13 +189,13 @@ namespace Durin::Asset
 				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
 					Edge.TargetPath
 				);
-				if (!Resolution) return Fail(std::format("CookFingerprintReferenceResolutionFailed: {}", Edge.TargetPath.ToString()), &OutError);
+				if (!Resolution) return CookFail(std::format("CookFingerprintReferenceResolutionFailed: {}", Edge.TargetPath.ToString()), &OutError);
 				Facts.push_back({Resolution.FinalPath, {}, "package dependency", Edge.Kind});
 			}
 			for (const FPackagePath& Dependency : Data.Dependencies)
 			{
 				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
-				if (!Resolution) return Fail(std::format("CookFingerprintDependencyResolutionFailed: {}", Dependency.ToString()), &OutError);
+				if (!Resolution) return CookFail(std::format("CookFingerprintDependencyResolutionFailed: {}", Dependency.ToString()), &OutError);
 				Facts.push_back({Resolution.FinalPath, {}, "package dependency", EAssetReferenceKind::HardObject});
 			}
 			std::ranges::sort(Facts, [](const FReferenceFact& Left, const FReferenceFact& Right) {
@@ -264,7 +264,7 @@ namespace Durin::Asset
 				const auto CommitStart = std::chrono::steady_clock::now();
 				if (Root.empty() || !Root.is_absolute()
 					|| State.TargetPlatform != Platform || State.TargetProfile != Profile)
-					return Fail("CookOutputStoreInvalidRequest: output root or target is invalid.", &OutError);
+					return CookFail("CookOutputStoreInvalidRequest: output root or target is invalid.", &OutError);
 				for (size_t Index = 0; Index < Plans.size(); ++Index)
 				{
 					const FCookSavePlan& Plan = Plans[Index];
@@ -279,28 +279,28 @@ namespace Durin::Asset
 							Root, Plan.VirtualPath, PackagePath, &OutError
 						)
 						|| (Index && !(Plans[Index - 1].VirtualPath < Plan.VirtualPath)))
-						return Fail(OutError.empty() ? "CookOutputStoreInvalidPlan: save plans are invalid, duplicated, or unsorted." : OutError, &OutError);
+						return CookFail(OutError.empty() ? "CookOutputStoreInvalidPlan: save plans are invalid, duplicated, or unsorted." : OutError, &OutError);
 					if (Plan.bOpaqueRawSegment)
 					{
 						if (Plan.BulkSummary.Extent != Plan.SegmentFileSize
 							|| Plan.BulkSummary.Digest != Plan.SegmentDigest)
-							return Fail("CookOutputStoreInvalidOpaqueSegment", &OutError);
+							return CookFail("CookOutputStoreInvalidOpaqueSegment", &OutError);
 						continue;
 					}
 					FPackagePath VirtualPath;
 					if (!FPackagePath::TryCreate(Plan.VirtualPath, VirtualPath)
 						&& !FPackagePath::TryCreateProjectContent(
 							Plan.VirtualPath, VirtualPath))
-						return Fail("CookOutputStoreInvalidPackageIdentity", &OutError);
+						return CookFail("CookOutputStoreInvalidPackageIdentity", &OutError);
 					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
 						Plan.PackageBytes, VirtualPath, Plan.BulkBytes);
 					if (!PackageValidation)
-						return Fail(std::format("CookOutputStoreInvalidPackage: {}: {}", Plan.VirtualPath, PackageValidation.Message), &OutError);
+						return CookFail(std::format("CookOutputStoreInvalidPackage: {}: {}", Plan.VirtualPath, PackageValidation.Message), &OutError);
 					if (Plan.SegmentFileSize == 0) continue;
 					if (Plan.bRawBulkSegment
 						&& (Plan.BulkSummary.Extent != Plan.SegmentFileSize
 							|| Plan.BulkSummary.Digest != Plan.SegmentDigest))
-						return Fail("CookOutputStoreInvalidRawBulkClosure", &OutError);
+						return CookFail("CookOutputStoreInvalidRawBulkClosure", &OutError);
 				}
 				for (size_t Index = 0; Index < AuxiliaryOutputs.size(); ++Index)
 				{
@@ -313,16 +313,16 @@ namespace Durin::Asset
 						|| Output.Bytes.empty()
 						|| FXxHash128::HashBuffer(Output.Bytes) != Output.Digest
 						|| (Index && !(AuxiliaryOutputs[Index - 1].RelativePath < Output.RelativePath)))
-						return Fail("CookOutputStoreInvalidAuxiliaryOutput", &OutError);
+						return CookFail("CookOutputStoreInvalidAuxiliaryOutput", &OutError);
 				}
 				std::error_code ErrorCode;
 				std::filesystem::create_directories(Root, ErrorCode);
-				if (ErrorCode) return Fail(std::format("CookOutputStoreCreateRootFailed: {}", ErrorCode.message()), &OutError);
+				if (ErrorCode) return CookFail(std::format("CookOutputStoreCreateRootFailed: {}", ErrorCode.message()), &OutError);
 
 				const std::filesystem::path LockPath = Root / ".durin-cook-writer";
 				if ((ShouldFail && ShouldFail(ECookOperationStage::WriterLock, 0, OutError))
 					|| !std::filesystem::create_directory(LockPath, ErrorCode))
-					return Fail(OutError.empty() ? "CookCompetingWriter: the output root already has a writer." : OutError, &OutError);
+					return CookFail(OutError.empty() ? "CookCompetingWriter: the output root already has a writer." : OutError, &OutError);
 				struct FLockCleanup
 				{
 					std::filesystem::path Path;
@@ -338,7 +338,7 @@ namespace Durin::Asset
 				const std::filesystem::path StagedRoot = TransactionRoot / "staged";
 				const std::filesystem::path BackupRoot = TransactionRoot / "backup";
 				std::filesystem::create_directories(StagedRoot, ErrorCode);
-				if (ErrorCode) return Fail("CookTransactionCreateFailed: could not create staging root.", &OutError);
+				if (ErrorCode) return CookFail("CookTransactionCreateFailed: could not create staging root.", &OutError);
 				struct FTransactionCleanup
 				{
 					std::filesystem::path Path;
@@ -387,16 +387,16 @@ namespace Durin::Asset
 				auto StageBytes = [&](std::string_view Relative,
 									  std::span<const std::byte> Bytes, ECookOperationStage Stage,
 									  size_t Index) -> bool {
-					if (IsCancelled(Cancellation)) return Fail("CookCancelledDuringStaging", &OutError);
+					if (IsCancelled(Cancellation)) return CookFail("CookCancelledDuringStaging", &OutError);
 					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
 					const std::filesystem::path Staged = StagedRoot / Relative;
 					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
 					if (ErrorCode || !FFileHelper::SaveArrayToFile(Bytes, Staged))
-						return Fail(std::format("CookStageWriteFailed: {}", Relative), &OutError);
+						return CookFail(std::format("CookStageWriteFailed: {}", Relative), &OutError);
 					FByteArray Validation;
 					if (!FFileHelper::LoadFileToArray(Validation, Staged)
 						|| !std::ranges::equal(Validation, Bytes))
-						return Fail(std::format("CookStageValidationFailed: {}", Relative), &OutError);
+						return CookFail(std::format("CookStageValidationFailed: {}", Relative), &OutError);
 					return true;
 				};
 
@@ -444,23 +444,23 @@ namespace Durin::Asset
 				auto CommitFile = [&](std::string_view Relative,
 									  ECookOperationStage Stage, size_t Index) -> bool {
 					if (IsCancelled(Cancellation))
-						return Fail("CookCancelledDuringCommit", &OutError);
+						return CookFail("CookCancelledDuringCommit", &OutError);
 					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
 					const std::filesystem::path Destination = Root / Relative;
 					const std::filesystem::path Staged = StagedRoot / Relative;
 					const std::filesystem::path Backup = BackupRoot / Relative;
 					std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-					if (ErrorCode) return Fail("CookCommitCreateDirectoryFailed", &OutError);
+					if (ErrorCode) return CookFail("CookCommitCreateDirectoryFailed", &OutError);
 					const bool bExists = std::filesystem::exists(Destination, ErrorCode) && !ErrorCode;
 					if (bExists)
 					{
 						std::filesystem::create_directories(Backup.parent_path(), ErrorCode);
 						std::filesystem::rename(Destination, Backup, ErrorCode);
-						if (ErrorCode) return Fail(std::format("CookCommitBackupFailed: {}", Relative), &OutError);
+						if (ErrorCode) return CookFail(std::format("CookCommitBackupFailed: {}", Relative), &OutError);
 					}
 					Committed.push_back({Destination, Backup, bExists});
 					std::filesystem::rename(Staged, Destination, ErrorCode);
-					if (ErrorCode) return Fail(std::format("CookCommitReplaceFailed: {}", Relative), &OutError);
+					if (ErrorCode) return CookFail(std::format("CookCommitReplaceFailed: {}", Relative), &OutError);
 					return true;
 				};
 
@@ -567,7 +567,7 @@ namespace Durin::Asset
 		if (State.TargetPlatform == ECookTargetPlatform::Invalid
 			|| State.TargetProfile == ECookTargetProfile::Invalid
 			|| State.Entries.size() > MaximumCookStateEntries)
-			return Fail("Cook state header is invalid.", OutError);
+			return CookFail("Cook state header is invalid.", OutError);
 		std::vector<const FCookStateEntry*> Entries;
 		Entries.reserve(State.Entries.size());
 		for (const FCookStateEntry& Entry : State.Entries)
@@ -575,7 +575,7 @@ namespace Durin::Asset
 		std::ranges::sort(Entries, {}, &FCookStateEntry::VirtualPackagePath);
 		for (size_t Index = 1; Index < Entries.size(); ++Index)
 			if (Entries[Index - 1]->VirtualPackagePath == Entries[Index]->VirtualPackagePath)
-				return Fail("Cook state contains a duplicate package path.", OutError);
+				return CookFail("Cook state contains a duplicate package path.", OutError);
 		FBinaryWriter Writer({MaximumCookStateBytes, 4096});
 		Writer.WriteU32(CookStateMagic);
 		Writer.WriteU32(CookStateVersion);
@@ -588,7 +588,7 @@ namespace Durin::Asset
 			if (!AppendString(Writer, Entry->VirtualPackagePath)
 				|| !AppendString(Writer, Entry->Contributor)
 				|| !AppendString(Writer, Entry->BuildProvenance))
-				return Fail("Cook state string is invalid or exceeds its bound.", OutError);
+				return CookFail("Cook state string is invalid or exceeds its bound.", OutError);
 			Writer.WriteHash128(Entry->InputFingerprint);
 			Writer.WriteHash128(Entry->PackageDigest);
 			Writer.WriteHash128(Entry->SegmentDigest);
@@ -599,7 +599,7 @@ namespace Durin::Asset
 			Writer.WriteU8(Entry->SegmentFlags);
 		}
 		if (Writer.HasError())
-			return Fail("Cook state exceeds its byte bound.", OutError);
+			return CookFail("Cook state exceeds its byte bound.", OutError);
 		OutBytes = Writer.TakeBytes();
 		if (OutError) OutError->clear();
 		return true;
@@ -609,7 +609,7 @@ namespace Durin::Asset
 	{
 		OutState = {};
 		if (Bytes.size() > MaximumCookStateBytes)
-			return Fail("Cook state exceeds its byte bound.", OutError);
+			return CookFail("Cook state exceeds its byte bound.", OutError);
 		FStateReader Reader(Bytes);
 		uint32 Magic = 0, Version = 0, Platform = 0, Profile = 0, Count = 0, Reserved = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || !Reader.Read(Platform)
@@ -618,7 +618,7 @@ namespace Durin::Asset
 			|| Count > MaximumCookStateEntries
 			|| Platform == static_cast<uint32>(ECookTargetPlatform::Invalid)
 			|| Profile == static_cast<uint32>(ECookTargetProfile::Invalid))
-			return Fail("Cook state header is unsupported or corrupt.", OutError);
+			return CookFail("Cook state header is unsupported or corrupt.", OutError);
 		FCookState Candidate{
 			static_cast<ECookTargetPlatform>(Platform),
 			static_cast<ECookTargetProfile>(Profile)
@@ -642,10 +642,10 @@ namespace Durin::Asset
 				|| !Reader.Read(Entry.SegmentFlags)
 				|| (Index && !(Candidate.Entries.back().VirtualPackagePath < Entry.VirtualPackagePath)) || Entry.PackageSize == 0
 				|| (Entry.SegmentFlags & ~(CookStateSegmentRawFieldProjection | CookStateSegmentOpaque)) != 0)
-				return Fail("Cook state entry is corrupt or noncanonical.", OutError);
+				return CookFail("Cook state entry is corrupt or noncanonical.", OutError);
 			Candidate.Entries.push_back(std::move(Entry));
 		}
-		if (!Reader.IsAtEnd()) return Fail("Cook state has trailing bytes.", OutError);
+		if (!Reader.IsAtEnd()) return CookFail("Cook state has trailing bytes.", OutError);
 		OutState = std::move(Candidate);
 		if (OutError) OutError->clear();
 		return true;
@@ -907,4 +907,4 @@ namespace Durin::Asset
 		}
 		return Finish(ECookRunStatus::Succeeded, "succeeded", "Cook published a validated manifest-last output generation.");
 	}
-} // namespace Durin::Asset
+} // namespace Durin

@@ -254,7 +254,7 @@ namespace Durin
 		-> FStaticMeshImportedData
 	{
 		FStaticMeshImportedData Result;
-		const Asset::FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
+		const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
 		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != StaticMeshImportedDataSchemaVersion
 			|| !Payload || Bytes.empty()
@@ -387,8 +387,8 @@ namespace Durin
 		if (!Initial.HasCpuData()
 			&& Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
 		{
-			if (Asset::FCookedMeshLoadManager* Manager =
-				Asset::GetCookedMeshLoadManager();
+			if (FCookedMeshLoadManager* Manager =
+				GetCookedMeshLoadManager();
 				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
 			{
 				Manager->Finish(MakeObjectHandle(this));
@@ -397,7 +397,7 @@ namespace Durin
 		}
 		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
 			!= ECookedMeshCpuPhase::Failed
-			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedRenderData.GetMetadata().LogicalSize != 0)
 		{
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
@@ -428,8 +428,8 @@ namespace Durin
 		if (LoadPhase == ECookedMeshCpuPhase::Failed
 			|| LoadPhase == ECookedMeshCpuPhase::Cancelled)
 		{
-			if (Asset::FCookedMeshLoadManager* Manager =
-				Asset::GetCookedMeshLoadManager())
+			if (FCookedMeshLoadManager* Manager =
+				GetCookedMeshLoadManager())
 				Manager->Cancel(MakeObjectHandle(this));
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
 			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
@@ -815,7 +815,7 @@ namespace Durin
 
 	auto DStaticMesh::BeginDestroy() -> void
 	{
-		if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
 			Manager->Cancel(MakeObjectHandle(this));
 		const EStaticMeshRenderResourceState State =
 			LoadRenderResourceState();
@@ -900,11 +900,11 @@ namespace Durin
 		if (bSlotMetadataChanged)
 		{
 			MarkPackageDirty();
-			Asset::ReportAssetLoadMutation(
+			ReportAssetLoadMutation(
 				this,
 				"Engine.StaticMesh.MaterialSlotsV1",
 				"Static mesh material-slot identity metadata was upgraded.",
-				Asset::EAssetLoadMutationKind::Upgrade);
+				EAssetLoadMutationKind::Upgrade);
 		}
 		return true;
 	}

@@ -3,7 +3,7 @@
 #include "EngineAPI.h"
 #include "DObject/PackageFormat.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = ObjectPackage::DastV9FormatVersion;
 

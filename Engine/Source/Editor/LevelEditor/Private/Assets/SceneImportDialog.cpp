@@ -157,7 +157,7 @@ namespace Durin::Editor::Level
 		}
 		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 		for (const AssetForge::FImportOutputSummary& Output : Result.Outputs)
-			Asset::UnloadPackage(Output.AssetPath);
+			UnloadPackage(Output.AssetPath);
 		return true;
 	}
 

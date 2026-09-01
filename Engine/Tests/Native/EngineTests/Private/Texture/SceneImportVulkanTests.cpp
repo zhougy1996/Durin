@@ -110,7 +110,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	Durin::FObjectPath SpherePath;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
 		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
@@ -158,14 +158,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	// Replace catalog paths captured from the default mounts before mutating test assets.
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	const Durin::FPackagePath StandardPath =
 		MakeAssetPath(Durin::AssetForge::Builtins::ImportedSurfaceMaterialPackagePath);
 	std::string MaterialError;
 	ASSERT_NE(Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(MaterialError), nullptr)
 		<< MaterialError;
-	const Durin::Asset::FAssetCatalogEntry StandardMaterialEntry =
-		Durin::Asset::FindAssetExact(StandardPath);
+	const Durin::FAssetCatalogEntry StandardMaterialEntry =
+		Durin::FindAssetExact(StandardPath);
 	ASSERT_TRUE(StandardMaterialEntry);
 	ASSERT_EQ(
 		std::filesystem::path(StandardMaterialEntry->PhysicalPath).lexically_normal(),
@@ -207,16 +207,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
 	Durin::DMaterialInstance* LiveMaterial = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LiveMaterial));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LiveMaterial));
 	ASSERT_NE(LiveMaterial, nullptr);
 	Durin::DTexture2D* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), LiveTexture));
 	ASSERT_NE(LiveTexture, nullptr);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
+	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::UnloadPackage(StandardPath));
 
 	const Durin::FPackagePath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
@@ -574,8 +574,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		InitialRenderResourceCount);
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
-	const Durin::Asset::FAssetResult ReloadMeshResult =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), ReloadedMesh);
+	const Durin::FAssetResult ReloadMeshResult =
+		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), ReloadedMesh);
 	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
 	ASSERT_FALSE(ReloadedMesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FMeshMaterialSlotDefinition* Slot =
@@ -764,17 +764,17 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::MarkAsGarbage(FailedResourceMaterial);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
+	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::UnloadPackage(StandardPath));
+	ASSERT_TRUE(Durin::UnloadPackage(LODContractPath));
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(MeshPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(MaterialPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(TexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StandardPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LODContractPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(MeshPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(MaterialPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(TexturePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(StandardPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(LODContractPath));
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

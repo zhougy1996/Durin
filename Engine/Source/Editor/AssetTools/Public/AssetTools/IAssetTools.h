@@ -80,14 +80,14 @@ namespace Durin
 		// Persists loaded dirty packages or executes canonical resave policy.
 		virtual auto SaveAssets(const FAssetSaveRequest& Request)
 			-> FAssetOperationResult = 0;
-		// Commits one opaque relocation transaction into global editor history.
+		// Executes one forward-recoverable authored relocation job.
 		virtual auto RelocateAssets(const FAssetRelocationRequest& Request)
 			-> FAssetOperationResult = 0;
-		// Rewrites redirect references through one reversible Engine transaction.
+		// Executes or resumes a redirect-reference canonicalization job.
 		virtual auto FixUpRedirectors(
 			const FAssetRedirectorFixupRequest& Request)
 			-> FAssetOperationResult = 0;
-		// Captures asset safety and the opaque transaction without staging bytes.
+		// Captures asset safety and the opaque irreversible operation without staging bytes.
 		virtual auto PrepareDeletion(
 			const FAssetDeletionRequest& Request,
 			FAssetDeletionOperation& OutOperation)

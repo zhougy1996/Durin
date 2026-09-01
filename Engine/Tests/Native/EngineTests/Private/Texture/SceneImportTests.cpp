@@ -107,7 +107,7 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		EXPECT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
+		EXPECT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		EXPECT_NE(Object, nullptr);
 	}
 }
@@ -125,7 +125,7 @@ TEST(FSceneImportTests, AssetForgePublishesSkeletalDependencyGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
+		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		Skeletons += Durin::Cast<Durin::DSkeleton>(Object) != nullptr;
 		SkeletalMeshes += Durin::Cast<Durin::DSkeletalMesh>(Object) != nullptr;
 		Animations += Durin::Cast<Durin::DAnimationClip>(Object) != nullptr;
@@ -143,7 +143,7 @@ TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
 		Fixture.Source, Fixture.DestinationDirectory,
 		Durin::FStaticMeshImportSettings::MakeDurin(), Result, [] { return true; }));
 	EXPECT_FALSE(Result);
-	EXPECT_FALSE(Durin::Asset::FindAssetExact(
+	EXPECT_FALSE(Durin::FindAssetExact(
 		MakeAssetPath("/SceneImportTests/SceneImport/Scheduled/StaticMeshes/Scheduled")));
 }
 

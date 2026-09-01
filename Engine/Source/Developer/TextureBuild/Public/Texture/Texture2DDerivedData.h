@@ -4,7 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 Texture2DBuilderVersion = 2;
 
@@ -19,8 +19,8 @@ namespace Durin::Asset
 		float AlphaCoverageThreshold = 0.5f;
 		uint32 BuilderVersion = Texture2DBuilderVersion;
 		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 
 		TEXTUREBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};

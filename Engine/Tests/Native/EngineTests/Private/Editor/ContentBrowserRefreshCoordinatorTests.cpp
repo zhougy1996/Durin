@@ -81,7 +81,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	uint64 RegistryRevision = 11;
 	const auto Reconcile = [&] {
 		++ScanCount;
-		return Durin::Asset::FAssetResult{};
+		return Durin::FAssetResult{};
 	};
 	const auto Refresh = [&] { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -106,7 +106,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::Asset::FAssetResult{};
+		return Durin::FAssetResult{};
 	};
 	const auto Refresh = [&] { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -142,7 +142,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		++RegistryRevision;
-		return Durin::Asset::FAssetResult{};
+		return Durin::FAssetResult{};
 	};
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
@@ -168,10 +168,10 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::Asset::FAssetResult{
-				Durin::Asset::EAssetError::IoError, "forced scan failure"};
+			return Durin::FAssetResult{
+				Durin::EAssetError::IoError, "forced scan failure"};
 		++RegistryRevision;
-		return Durin::Asset::FAssetResult{};
+		return Durin::FAssetResult{};
 	};
 	const auto Refresh = [&] { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
@@ -208,9 +208,9 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	const auto Reconcile = [&] {
 		++ScanCount;
 		if (bFail)
-			return Durin::Asset::FAssetResult{
-				Durin::Asset::EAssetError::IoError, "forced scan failure"};
-		return Durin::Asset::FAssetResult{};
+			return Durin::FAssetResult{
+				Durin::EAssetError::IoError, "forced scan failure"};
+		return Durin::FAssetResult{};
 	};
 	const auto Refresh = [&] { ++RefreshCount; };
 	const auto GetRegistryRevision = [] { return uint64{40}; };

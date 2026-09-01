@@ -452,7 +452,7 @@ namespace Durin
 
 	auto DTerrainHeightmap::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
 			{
@@ -482,7 +482,7 @@ namespace Durin
 	auto DTerrainHeightmap::GetPayload() const
 		-> std::shared_ptr<const FTerrainHeightmapPayload>
 	{
-		if (!Payload && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!Payload && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
@@ -500,8 +500,8 @@ namespace Durin
 				"TerrainHeightmap cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* FieldValue = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!Payload || !Payload->IsValid())
@@ -513,11 +513,11 @@ namespace Durin
 			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
-				Writer, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game);
+				Writer, ECookTargetPlatform::Win64,
+				ECookTargetProfile::Game);
 			std::string Error;
 			if (Writer.HasError()
-				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
@@ -527,7 +527,7 @@ namespace Durin
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DTerrainHeightmap"),
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
@@ -544,8 +544,8 @@ namespace Durin
 			return FailCooked(OutError);
 		auto MutableCandidate = std::make_shared<FTerrainHeightmapPayload>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
-		MutableCandidate->Serialize(PayloadAr, Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game);
+		MutableCandidate->Serialize(PayloadAr, ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game);
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
 			const std::string Error(PayloadAr.GetError());
@@ -569,12 +569,12 @@ namespace Durin
 	}
 
 	auto DTerrainHeightmap::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 		{
 			OutError = std::format(
 				"Terrain heightmap '{}' is not ready for a Win64 game cook.", GetObjectPath());

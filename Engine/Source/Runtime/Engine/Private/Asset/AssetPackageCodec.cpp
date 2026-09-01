@@ -5,7 +5,7 @@
 #include "AssetPackageV9Codec.h"
 #include "Serialization/BinaryEnvelope.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
@@ -214,11 +214,11 @@ namespace Durin::Asset::Private
 	}
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto ValidateAssetPackageVersionPolicy(std::string& OutError) -> bool
 	{
-		return Private::ValidateAssetPackageCodecPolicy(OutError);
+		return AssetPrivate::ValidateAssetPackageCodecPolicy(OutError);
 	}
 
 	auto GetAssetPackageReaderPolicyIdentity() -> uint32

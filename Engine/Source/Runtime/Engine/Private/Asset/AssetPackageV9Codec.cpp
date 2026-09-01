@@ -13,7 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset::Private::DastV9
+namespace Durin::AssetPrivate::DastV9
 {
 	namespace
 	{
@@ -53,7 +53,7 @@ namespace Durin::Asset::Private::DastV9
 				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
 			const uint64 PhysicalBulkBytes = Context.bResourceBackedBulk
 				? Context.PhysicalBulkBytes : Context.BulkBytes.size();
-			return Private::ToAssetResult(ReadAssetPackageHeaderBytes(
+			return AssetPrivate::ToAssetResult(ReadAssetPackageHeaderBytes(
 				Context.PackageBytes, PhysicalBytes, PhysicalBulkBytes,
 				Context.PackagePath, OutHeader));
 		}
@@ -850,7 +850,7 @@ namespace Durin::Asset::Private::DastV9
 			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
 		{
 			constexpr std::string_view RedirectorClass =
-				"Durin::Asset::DAssetRedirector";
+				"Durin::DAssetRedirector";
 			if (Mappings.empty())
 				return Error(EAssetError::InvalidPath,
 					"Redirector creation requires at least one exact asset mapping.");

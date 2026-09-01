@@ -103,7 +103,7 @@ namespace Durin::Editor::MainFrame
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const Asset::FAssetResult Loaded = Asset::LoadObject(OutPath, OutObject);
+			const FAssetResult Loaded = LoadObject(OutPath, OutObject);
 			if (!Loaded || !OutObject)
 			{
 				OutError = Loaded ? "The selected asset could not be loaded." : Loaded.Message;
@@ -391,10 +391,6 @@ namespace Durin::Editor::MainFrame
 							return Context.WorkspaceManager->OpenAsset(
 								Path, AssetClassName);
 						},
-						.ExecuteTransaction = [](std::unique_ptr<Editor::ITransactionCustomChange> Transaction) {
-							return GEditor && GEditor->GetTransactor()->Execute(
-								std::move(Transaction));
-						},
 						.GetMountedContentMutationRevision = [] {
 							return GEditor
 								? GEditor->GetTransactor()
@@ -409,8 +405,7 @@ namespace Durin::Editor::MainFrame
 						.MoveAssets = [](
 							std::span<const ContentBrowser::FAssetMove> Moves) {
 							return GEditor
-								? ContentBrowser::ExecuteAssetMoves(
-									*GEditor->GetTransactor(), Moves)
+								? ContentBrowser::ExecuteAssetMoves(Moves)
 								: ContentBrowser::FActionResult{
 									false, "The editor transactor is unavailable."};
 						},
@@ -421,8 +416,7 @@ namespace Durin::Editor::MainFrame
 									false, "The editor transactor is unavailable."};
 							const FAssetOperationResult Result =
 								IAssetTools::Get().FixUpRedirectors({
-									.Redirectors = {Redirectors.begin(), Redirectors.end()},
-									.Transactions = GEditor->GetTransactor()});
+									.Redirectors = {Redirectors.begin(), Redirectors.end()}});
 							return ContentBrowser::FActionResult{
 								static_cast<bool>(Result), Result.Message};
 						},
@@ -430,7 +424,7 @@ namespace Durin::Editor::MainFrame
 							FObjectPath Path;
 							if (!FObjectPath::TryCreate(AssetPath, Path))
 								return ContentBrowser::FReimportAvailability{};
-							DPackage* ExistingPackage = Asset::FindResidentPackage(
+							DPackage* ExistingPackage = FindResidentPackage(
 								Path.GetPackagePath());
 							DObject* Object = nullptr;
 							std::string Error;
@@ -439,7 +433,7 @@ namespace Durin::Editor::MainFrame
 							const FReimportCapabilities Capabilities =
 								FReimportManager::GetCapabilities(*Object);
 							if (!ExistingPackage)
-								(void)Asset::UnloadPackage(Path.GetPackagePath());
+								(void)UnloadPackage(Path.GetPackagePath());
 							return ContentBrowser::FReimportAvailability{
 								Capabilities.bCanReimport,
 								Capabilities.bCanReimportFromFile};

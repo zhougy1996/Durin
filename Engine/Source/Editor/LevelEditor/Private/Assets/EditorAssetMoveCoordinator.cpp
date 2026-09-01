@@ -3,7 +3,6 @@
 #include "DObject/Package.h"
 
 #include "AssetTools/IAssetTools.h"
-#include "Editor/Transaction.h"
 #include "Engine/Level.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Workspace/LevelEditorContext.h"
@@ -15,23 +14,21 @@ namespace Durin::Editor::Level
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		::Durin::DTransactor& InTransactions,
 		FModuleOwnedCallbackGate OwnerGate
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
 		, SceneViewportPanel(InSceneViewportPanel)
-		, Transactions(InTransactions)
 	{
-		ObserverHandle = Asset::RegisterAssetMoveObserver(this, std::move(OwnerGate));
+		ObserverHandle = RegisterAssetMoveObserver(this, std::move(OwnerGate));
 	}
 
 	FEditorAssetMoveCoordinator::~FEditorAssetMoveCoordinator()
 	{
-		Asset::UnregisterAssetMoveObserver(ObserverHandle);
+		UnregisterAssetMoveObserver(ObserverHandle);
 	}
 
-	auto FEditorAssetMoveCoordinator::MoveAssets(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult
+	auto FEditorAssetMoveCoordinator::MoveAssets(std::span<const FEditorAssetMove> Moves) -> FAssetResult
 	{
 		if (Moves.empty()) return {};
 		if (Context.Level && Context.Level->GetPackage())
@@ -43,18 +40,18 @@ namespace Durin::Editor::Level
 
 		std::vector<FAssetRelocation> Mappings;
 		Mappings.reserve(Moves.size());
-		for (const Asset::FAssetRelocationMapping& Move : Moves)
+		for (const FAssetRelocationMapping& Move : Moves)
 			Mappings.push_back({Move.SourcePath, Move.DestinationPath});
 		const FAssetOperationResult Result = IAssetTools::Get().RelocateAssets({
-			.Mappings = std::move(Mappings), .Transactions = &Transactions});
-		return Result ? Asset::FAssetResult{}
-			: Asset::FAssetResult{Asset::EAssetError::IoError, Result.Message};
+			.Mappings = std::move(Mappings)});
+		return Result ? FAssetResult{}
+			: FAssetResult{EAssetError::IoError, Result.Message};
 	}
 
 	auto FEditorAssetMoveCoordinator::OnAssetsRelocated(
-		std::span<const Asset::FAssetRelocationMapping> Mappings) -> void
+		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
-		for (const Asset::FAssetRelocationMapping& Mapping : Mappings)
+		for (const FAssetRelocationMapping& Mapping : Mappings)
 			SessionSettings.MoveViewportState(
 				Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
 		if (!Mappings.empty() && !SessionSettings.Save(&SceneViewportPanel))

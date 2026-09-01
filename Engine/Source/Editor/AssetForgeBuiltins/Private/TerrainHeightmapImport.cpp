@@ -19,7 +19,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		constexpr std::string_view Png16DecoderId = "DurinImage.Png16";
@@ -78,7 +78,7 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildFromFilename(DTerrainHeightmap& Heightmap,
 			std::string Filename, ESourceHintBase HintBase,
 			std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			const FAssetBundleSaveOptions* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
 			std::filesystem::path OwningPackagePath;
@@ -111,7 +111,7 @@ namespace Durin::AssetForge::Builtins
 			const FTerrainHeightmapSourceData ImportState = SourceData;
 			const std::shared_ptr<const FTerrainHeightmapPayload> Existing = Heightmap.GetPayload();
 			const bool bSamplesChanged = !Existing || Existing->Samples != SourceData.Samples;
-			if (!Asset::BuildTerrainHeightmapInto(Heightmap, {
+			if (!BuildTerrainHeightmapInto(Heightmap, {
 					.Samples = std::move(SourceData.Samples),
 					.Width = SourceData.Width, .Height = SourceData.Height,
 					.SourceContentHashLow = Snapshot.ContentHash.HashLow,
@@ -130,7 +130,7 @@ namespace Durin::AssetForge::Builtins
 					Snapshot, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Heightmap.GetPackage();
-			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+			const FAssetResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
 			if (Saved) return true;
 			OutError = Saved.Message;
@@ -339,7 +339,7 @@ namespace Durin::AssetForge::Builtins
 	auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const DAssetImportData* ImportData = Heightmap.GetAssetImportData();
 		const FSourceFile* Source = ImportData
@@ -355,7 +355,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ReimportTerrainHeightmapFromFile(DTerrainHeightmap& Heightmap,
 		std::string_view FilePath, std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const std::filesystem::path Requested =
 			std::filesystem::absolute(FilePath).lexically_normal();

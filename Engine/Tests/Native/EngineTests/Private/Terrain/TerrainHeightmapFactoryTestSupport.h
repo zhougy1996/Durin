@@ -28,7 +28,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Heightmap = Cast<DTerrainHeightmap>(Imported.Asset);
 		if (!Imported || !Heightmap)
 			return {false, Imported.Message, Heightmap};
-		const Asset::FAssetResult Saved = Asset::SavePackage(Imported.Package);
+		const FAssetResult Saved = SavePackage(Imported.Package);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTerrainHeightmap>{true, {}, Heightmap}
 			: Durin::Testing::TFactoryImportResult<Durin::DTerrainHeightmap>{false, Saved.Message, Heightmap};

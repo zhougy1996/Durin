@@ -17,14 +17,14 @@ namespace Durin
 			DSkeletalMesh& Mesh,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::RebuildSkeletalMeshFromImportedData(Mesh, OutMessage);
+			return RebuildSkeletalMeshFromImportedData(Mesh, OutMessage);
 		}
 
 		auto PostLoadUncooked(
 			DAnimationClip& Clip,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::RebuildAnimationClipFromImportedData(Clip, OutMessage);
+			return RebuildAnimationClipFromImportedData(Clip, OutMessage);
 		}
 
 		auto StartupModule() -> void override
@@ -33,7 +33,7 @@ namespace Durin
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration(
 					"SkeletalBuild.BuildFunctions");
-			checkf(Asset::InitializeSkeletalBuildFunctions(
+			checkf(InitializeSkeletalBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"SkeletalBuild could not register its build functions: {}", Error);
 			SkeletalFeatureRegistration =
@@ -44,7 +44,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::ShutdownSkeletalBuildFunctions();
+			ShutdownSkeletalBuildFunctions();
 		}
 	};
 

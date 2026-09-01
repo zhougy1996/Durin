@@ -121,7 +121,7 @@ TEST(FSingleAssetImportTests, FailedFamilyFactoriesDiscardTheirFormalPackages)
 	{
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(PathText, Path));
-		EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
+		EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 	}
 }
 

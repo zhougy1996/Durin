@@ -3,7 +3,7 @@
 #include "DerivedDataCache/DerivedDataBuildFunction.h"
 #include "Terrain/TerrainWorldTile.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	using namespace ::Durin::DerivedData;
 

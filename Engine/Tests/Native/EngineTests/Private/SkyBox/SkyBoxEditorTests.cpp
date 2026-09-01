@@ -30,7 +30,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/EditorWorkflowLevel", LevelPath));
 
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(LevelPath, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 	Durin::Tests::FTestTransactorOwner Transactions;
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
@@ -54,13 +54,13 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(35.0, Durin::FVectorConstants::Up);
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
 	const Durin::FGuid SavedSceneId = Component->GetSkyBoxSceneId();
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(LoadedLevel->FindActorByName("Sky"));
 	ASSERT_NE(LoadedActor, nullptr);
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
@@ -109,12 +109,12 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::CollectGarbage();
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		LevelPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LevelPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(LevelPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
 	Durin::ShutdownRenderingThread();
 }
 
@@ -148,7 +148,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowLevel", LevelPath));
 
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(LevelPath, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
 	ASSERT_NE(Actor, nullptr);
 	Durin::Tests::FTestTransactorOwner Transactions;
@@ -163,13 +163,13 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 
 	Durin::DLevel* LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), LoadedLevel));
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(
 		LoadedLevel->FindActorByName("PanoramaSky"));
 	ASSERT_NE(LoadedActor, nullptr);
@@ -198,9 +198,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	Durin::CollectGarbage();
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(LevelPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
+	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(LevelPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
 	Durin::ShutdownRenderingThread();
 }

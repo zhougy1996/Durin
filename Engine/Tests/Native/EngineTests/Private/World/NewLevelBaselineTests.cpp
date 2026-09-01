@@ -111,7 +111,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	std::vector<Durin::FMountPoint> MountDefinitions(
 		Durin::FMountPaths::GetRegisteredMountPoints().begin(),
 		Durin::FMountPaths::GetRegisteredMountPoints().end());
@@ -128,14 +128,14 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::FPackagePath MeshPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", MeshPath));
 	Durin::DStaticMesh* Mesh = nullptr;
-	const Durin::Asset::FAssetResult MeshLoad = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh);
+	const Durin::FAssetResult MeshLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh);
 	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
 
 	Durin::FPackagePath LevelPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/LevelReconstruction/Reconstruction", LevelPath));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(LevelPath, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(LevelPath, Level));
 
 	Durin::ADirectionalLightActor* Light =
 		Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
@@ -170,23 +170,23 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	ASSERT_TRUE(MeshActor->SetActorTransform(MeshTransform));
 	MeshActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	Durin::Asset::FAssetPackageInspection Inspection;
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
+	Durin::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::InspectAssetPackage(
 		(Root / "Reconstruction.dasset").generic_string(), Inspection));
 	ASSERT_EQ(Inspection.Header.Dependencies.size(), 1u);
 	EXPECT_EQ(Inspection.Header.Dependencies.front(), MeshPath);
 
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
+	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::UnloadPackage(MeshPath));
+	EXPECT_EQ(Durin::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
-	const Durin::Asset::FAssetResult LevelLoad = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), Loaded);
+	const Durin::FAssetResult LevelLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), Loaded);
 	ASSERT_TRUE(LevelLoad) << LevelLoad.Message;
-	EXPECT_NE(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
+	EXPECT_NE(Durin::FindResidentPackage(MeshPath), nullptr);
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	EXPECT_TRUE(Durin::UnloadPackage(LevelPath));
+	EXPECT_TRUE(Durin::UnloadPackage(MeshPath));
 }

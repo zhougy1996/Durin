@@ -64,7 +64,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		std::cerr << "Failed to mount Engine Content: " << Error << '\n';
 		return 1;
 	}
-	Durin::Asset::InitializeAssetManager();
+	Durin::InitializeAssetManager();
 
 	std::cout << "Generating default studio environment...\n";
 	Durin::FEnvironmentLightingData Data =
@@ -94,8 +94,8 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		return 1;
 	}
 	Durin::DEnvironmentLighting* Asset = nullptr;
-	const Durin::Asset::FAssetResult CreateResult =
-		Durin::Asset::CreateAsset(TopLevelAssetPath, Asset);
+	const Durin::FAssetResult CreateResult =
+		Durin::CreateAsset(TopLevelAssetPath, Asset);
 	if (!CreateResult)
 	{
 		std::cerr << "Failed to create environment-lighting asset: "
@@ -111,7 +111,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		std::cerr << "Failed to write environment-lighting payload: " << FileError.ToString() << '\n';
 		return 1;
 	}
-	const Durin::Asset::FAssetResult SaveResult = Durin::Asset::SavePackage(Asset->GetPackage());
+	const Durin::FAssetResult SaveResult = Durin::SavePackage(Asset->GetPackage());
 	if (!SaveResult)
 	{
 		std::cerr << "Failed to save environment-lighting asset: "

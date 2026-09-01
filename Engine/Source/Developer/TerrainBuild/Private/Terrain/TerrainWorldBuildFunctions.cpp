@@ -2,7 +2,7 @@
 
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{

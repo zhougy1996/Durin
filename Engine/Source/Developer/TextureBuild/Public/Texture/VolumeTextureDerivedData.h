@@ -5,7 +5,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Canonical inputs that determine one volume texture derived-data identity.
 	struct FVolumeTextureBuildKeyInput
@@ -17,8 +17,8 @@ namespace Durin::Asset
 		FVolumeTextureBuildSettings Settings;
 		uint32 BuilderVersion = VolumeTextureBuilderVersion;
 		uint32 SourcePayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 
 		TEXTUREBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};

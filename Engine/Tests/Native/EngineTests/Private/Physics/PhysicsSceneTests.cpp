@@ -1127,14 +1127,14 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
-	Durin::Asset::FStaticMeshImportedData Imported;
+	Durin::FStaticMeshImportedData Imported;
 	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
-	Durin::Asset::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
+	Durin::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
 	ImportedMesh.Name = "Tetrahedron";
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
-	ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
+	ASSERT_TRUE(Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
 		*Mesh, Imported, "Scene collision fixture", Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;

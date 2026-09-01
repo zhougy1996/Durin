@@ -54,7 +54,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::ADirectionalLightActor* Light = Level->SpawnActor<Durin::ADirectionalLightActor>("ColoredLight");
 	ASSERT_NE(Light, nullptr);
 	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
@@ -62,10 +62,10 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	*ColorProperty->ContainerPtrToValuePtr<Durin::FLinearColor>(Light->GetLightComponent()) = Durin::FLinearColor(0.1f, 0.35f, 0.8f, 1.0f);
 	Light->GetLightComponent()->SetCastShadows(false);
 
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	Durin::DLevel* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	auto* LoadedLight = dynamic_cast<Durin::ADirectionalLightActor*>(Loaded->FindActorByName("ColoredLight"));
 	ASSERT_NE(LoadedLight, nullptr);
@@ -74,7 +74,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	EXPECT_NEAR(SceneData.Color.g, 0.35f, 1.e-6f);
 	EXPECT_NEAR(SceneData.Color.b, 0.8f, 1.e-6f);
 	EXPECT_FALSE(SceneData.bCastShadows);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 
 TEST(FLocalLightTests, PointAndSpotActorsNormalizeAuthoredValues)
@@ -185,7 +185,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SceneComponentTests/EqualTransformSetters", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
 	Durin::DSceneComponent* RootComponent = Actor->GetRootComponent();
@@ -199,7 +199,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	RootComponent->SetWorldTransform(RootComponent->GetWorldTransform());
 
 	EXPECT_EQ(Package->GetEditRevision(), Revision);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::UnloadPackage(Package, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)

@@ -19,7 +19,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
@@ -45,7 +45,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedImage&& Image)
-			-> Asset::TextureCubeBuilder::FTexturePanoramaImage
+			-> TextureCubeBuilder::FTexturePanoramaImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
@@ -53,7 +53,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedFloatImage&& Image)
-			-> Asset::TextureCubeBuilder::FTexturePanoramaFloatImage
+			-> TextureCubeBuilder::FTexturePanoramaFloatImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height};
@@ -108,11 +108,11 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto SaveImportedCube(DTextureCube& Texture, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
 			if (!SaveOptions) return true;
 			DPackage* Package = Texture.GetPackage();
-			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+			const FAssetResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
 			if (Saved) return true;
 			OutError = Saved.Message;
@@ -121,7 +121,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto RebuildPanorama(DTextureCube& Texture, std::string_view FilePath,
 			const FTextureCubePanoramaImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
 			FCapturedCubeSource Source;
 			if (!CaptureCubeSource(Texture, FilePath, Source, OutError)
@@ -135,7 +135,7 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			if (!std::visit([&](auto&& Decoded) {
-					return Asset::BuildTextureCubePanoramaInto(Texture, std::move(Decoded),
+					return BuildTextureCubePanoramaInto(Texture, std::move(Decoded),
 						Source.Snapshot.ContentHash, Settings, OutError);
 				}, std::move(Panorama))
 				|| !PublishCubeImportData(Texture, std::span(&Source, 1),
@@ -146,7 +146,7 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildFaces(DTextureCube& Texture,
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+			const FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
 			std::array<FCapturedCubeSource, TextureCubeFaceCount> Sources;
 			std::array<std::span<const std::byte>, TextureCubeFaceCount> Encoded;
@@ -166,14 +166,14 @@ namespace Durin::AssetForge::Builtins
 			}
 			FTextureCubeSourceData SourceData;
 			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError)
-				|| !Asset::BuildTextureCubeFacesInto(
+				|| !BuildTextureCubeFacesInto(
 					Texture, std::move(SourceData), Hashes, Settings, OutError)
 				|| !PublishCubeImportData(Texture, Sources,
 					ETextureCubeSourceLayout::SixFaces, OutError)) return false;
 			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
-		auto MakeValidation(const Asset::FTextureCubeBuildProduct& Product, bool bHDR)
+		auto MakeValidation(const FTextureCubeBuildProduct& Product, bool bHDR)
 			-> FTextureCubeImportValidation
 		{
 			return {.bValid = true, .SourceLayout = Product.SourceLayout,
@@ -368,14 +368,14 @@ namespace Durin::AssetForge::Builtins
 		{
 			Image::FDecodedFloatImage Panorama;
 			if (!Image::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError,
-				{.MaximumDecodedPixels = Asset::TextureCubeBuilder::MaximumPanoramaPixels}))
+				{.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels}))
 				return false;
 			OutSource = NormalizePanorama(std::move(Panorama));
 			return true;
 		}
 		Image::FDecodedImage Panorama;
 		if (!Image::DecodeImageFromMemory(EncodedBytes, Panorama, OutError,
-			{.MaximumDecodedPixels = Asset::TextureCubeBuilder::MaximumPanoramaPixels}))
+			{.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels}))
 			return false;
 		OutSource = NormalizePanorama(std::move(Panorama));
 		return true;
@@ -422,8 +422,8 @@ namespace Durin::AssetForge::Builtins
 		}
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
 			return {false, std::move(Error)};
-		Asset::FTextureCubeBuildProduct Product;
-		if (!Asset::BuildTextureCubeFaces(
+		FTextureCubeBuildProduct Product;
+		if (!BuildTextureCubeFaces(
 			std::move(SourceData), Hashes, Settings, Product, Error))
 			return {false, std::move(Error)};
 		return MakeValidation(Product, false);
@@ -441,14 +441,14 @@ namespace Durin::AssetForge::Builtins
 			return {false, "Panorama source is unavailable."};
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
 		std::string Error;
-		Asset::FTextureCubeBuildProduct Product;
+		FTextureCubeBuildProduct Product;
 		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
 		FTextureCubePanoramaSourceData Panorama;
 		if (!TranslateTextureCubePanoramaSource(Bytes,
 			std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
 			|| !std::visit([&](auto&& Source) {
-				return Asset::BuildTextureCubePanorama(
+				return BuildTextureCubePanorama(
 					std::move(Source), Hash, Settings, Product, Error);
 			}, std::move(Panorama))) return {false, std::move(Error)};
 		return MakeValidation(Product, bHDR);
@@ -468,7 +468,7 @@ namespace Durin::AssetForge::Builtins
 		std::string SourcePath;
 		if (!Source || !ResolveSourceHint(Source->HintBase, Source->Hint,
 			OwningPackagePath.generic_string(), SourcePath, OutError)) return false;
-		const Asset::FAssetBundleSaveOptions SaveOptions;
+		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
 	}
 
@@ -485,7 +485,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		const std::filesystem::path SourcePath =
 			std::filesystem::absolute(PanoramaFile).lexically_normal();
-		const Asset::FAssetBundleSaveOptions SaveOptions;
+		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildPanorama(Texture, SourcePath.generic_string(),
 			Settings, OutError, &SaveOptions);
 	}
@@ -511,7 +511,7 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 		}
-		const Asset::FAssetBundleSaveOptions SaveOptions;
+		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
 	}
 
@@ -530,7 +530,7 @@ namespace Durin::AssetForge::Builtins
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			Sources[Index] = std::filesystem::absolute(FaceFiles[Index])
 				.lexically_normal().generic_string();
-		const Asset::FAssetBundleSaveOptions SaveOptions;
+		const FAssetBundleSaveOptions SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
 	}
 }

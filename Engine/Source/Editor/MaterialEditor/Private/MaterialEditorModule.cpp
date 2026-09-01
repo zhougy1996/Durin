@@ -34,12 +34,12 @@ namespace Durin
 					? std::string(BaseName)
 					: std::format("{}{}", BaseName, Suffix + 1);
 				if (!FPackagePath::TryCreate(Directory + Name, Path)
-					|| Asset::FindAssetExact(Path)
-					|| Asset::FindResidentPackage(Path)) continue;
+					|| FindAssetExact(Path)
+					|| FindResidentPackage(Path)) continue;
 				FTopLevelAssetPath AssetPath;
 				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
 				TMaterial* Material = nullptr;
-				Asset::FAssetResult Result = Asset::CreateAsset(AssetPath, Material);
+				FAssetResult Result = CreateAsset(AssetPath, Material);
 				if (!Result || !Material)
 				{
 					OutError = Result ? "Could not create the material asset." : Result.Message;
@@ -49,14 +49,14 @@ namespace Durin
 				{
 					if (!PrepareNewMaterialForEditing(*Material, OutError))
 					{
-						Asset::UnloadPackage(Path);
+						UnloadPackage(Path);
 						return false;
 					}
 				}
-				Result = Asset::SavePackage(Material->GetPackage());
+				Result = SavePackage(Material->GetPackage());
 				if (!Result)
 				{
-					Asset::UnloadPackage(Path);
+					UnloadPackage(Path);
 					OutError = Result.Message;
 					return false;
 				}

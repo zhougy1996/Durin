@@ -11,7 +11,7 @@
 
 namespace
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 
 	auto MakeAssetData(const Durin::FPackagePath& Path,
 		std::vector<Durin::FPackagePath> Hard = {},
@@ -238,7 +238,7 @@ namespace
 		Publication.Assets.insert_or_assign(SourcePath,
 			MakeAssetData(SourcePath, {TargetPath}, {SoftPath}));
 		FAssetData Redirect = MakeAssetData(RedirectPath, {TargetPath});
-		Redirect.AssetClassName = "Durin::Asset::DAssetRedirector";
+		Redirect.AssetClassName = "Durin::DAssetRedirector";
 		Redirect.EntryKind = EAssetRegistryEntryKind::Redirector;
 		Redirect.RedirectDestination = TargetPath;
 		Publication.Assets.insert_or_assign(RedirectPath, std::move(Redirect));

@@ -8,7 +8,7 @@
 #include "Asset/Testing.h"
 #undef DURIN_ENGINE_ASSET_INTERNAL
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetRelocationState;
 	struct FAssetRedirectorFixupState;
@@ -34,8 +34,9 @@ namespace Durin::Asset
 	{
 	public:
 		auto CapturePreparedState() const -> FAssetPublicationState;
-		auto PublishPreparedState(uint64 ExpectedRevision,
-			FAssetPublicationState State) -> FAssetResult;
+		auto PublishDelta(FAssetRegistryDelta Delta) -> FAssetResult;
+		auto ReconcileProjection(std::span<const FPackagePath> Paths)
+			-> FAssetResult;
 		auto PublishAssetMetadata(FAssetData Data) -> FAssetResult;
 		auto PublishAssetMetadataBatch(std::vector<FAssetData> Assets) -> FAssetResult;
 

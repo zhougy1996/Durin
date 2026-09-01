@@ -26,7 +26,7 @@ namespace Durin::Editor::Material
 
 	// Hosts one material document with preview and parameter editing state.
 	class MMaterialEditor final : public ::Durin::Editor::IWorkspace,
-		public Asset::IAssetMoveObserver
+		public IAssetMoveObserver
 	{
 	public:
 		explicit MMaterialEditor(
@@ -83,7 +83,7 @@ namespace Durin::Editor::Material
 		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 		auto OnAssetsRelocated(
-			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
+			std::span<const FAssetRelocationMapping> Mappings) -> void override;
 		auto GetOrCreateCanvas(const ::Durin::Editor::FDocumentTab& Document)
 			-> FMaterialGraphCanvas&;
 		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
@@ -103,6 +103,6 @@ namespace Durin::Editor::Material
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
 		bool bGraphMaximized = false;
-		Asset::FAssetMoveObserverHandle MoveObserverHandle = 0;
+		FAssetMoveObserverHandle MoveObserverHandle = 0;
 	};
 }

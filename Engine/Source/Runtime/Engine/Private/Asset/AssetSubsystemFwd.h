@@ -6,7 +6,7 @@ namespace Durin
 	class FPackagePath;
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FPackageSchemaReadStats;
 	struct FAssetBundleSaveOptions;

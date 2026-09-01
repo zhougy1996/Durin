@@ -18,7 +18,7 @@ namespace Durin
 	namespace
 	{
 		struct FStaticMeshManagerProduct final
-			: Asset::ICookedMeshDetachedProduct
+			: ICookedMeshDetachedProduct
 		{
 			FStaticMeshCookedProduct Product;
 		};
@@ -26,8 +26,8 @@ namespace Durin
 		auto BuildStaticCookedMetadataIdentity(const DStaticMesh& Mesh) -> uint64
 		{
 			FXxHash64Builder Builder;
-			auto AddBulk = [&Builder](const Asset::FBulkData& Bulk) {
-				const Asset::FBulkDataMetadata Metadata = Bulk.GetMetadata();
+			auto AddBulk = [&Builder](const FBulkData& Bulk) {
+				const FBulkDataMetadata Metadata = Bulk.GetMetadata();
 				Builder.UpdateValue(Metadata.LogicalSize);
 				Builder.UpdateValue(Metadata.Range.SegmentOffset);
 				Builder.UpdateValue(Metadata.Range.StoredSize);
@@ -83,10 +83,10 @@ namespace Durin
 				"StaticMesh cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData RenderProjection;
-		Asset::FBulkData CollisionProjection;
-		Asset::FBulkData* RenderField = &CookedRenderData;
-		Asset::FBulkData* CollisionField = &CookedCollisionData;
+		FBulkData RenderProjection;
+		FBulkData CollisionProjection;
+		FBulkData* RenderField = &CookedRenderData;
+		FBulkData* CollisionField = &CookedCollisionData;
 		if (Ar.IsSaving())
 		{
 			if (!RenderData)
@@ -107,7 +107,7 @@ namespace Durin
 			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload);
 			Payload.Serialize(RenderWriter, EStaticMeshTargetPlatform::Win64);
 			if (RenderWriter.HasError()
-				|| !Asset::FBulkData::TryCreateDetached(RenderBytes, RenderProjection, &Error))
+				|| !FBulkData::TryCreateDetached(RenderBytes, RenderProjection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
 					? RenderWriter.GetFailure()->Message : std::move(Error));
@@ -144,7 +144,7 @@ namespace Durin
 				FCanonicalMemoryWriter CollisionWriter(
 					CollisionBytes, EArchivePurpose::CookedPayload);
 				CollisionPayload.Serialize(CollisionWriter, EStaticMeshTargetPlatform::Win64);
-				if (CollisionWriter.HasError() || !Asset::FBulkData::TryCreateDetached(
+				if (CollisionWriter.HasError() || !FBulkData::TryCreateDetached(
 					CollisionBytes, CollisionProjection, &Error))
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
@@ -157,13 +157,13 @@ namespace Durin
 		{
 			auto Field = EnterArchiveField(Ar, {FName("Durin::DStaticMesh"),
 				FName("CollisionData"), FArchiveLogicalTypeDescriptor::BulkData()});
-			CollisionField->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			CollisionField->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 				.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 		}
 		{
 			auto Field = EnterArchiveField(Ar, {FName("Durin::DStaticMesh"),
 				FName("RenderData"), FArchiveLogicalTypeDescriptor::BulkData()});
-			RenderField->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			RenderField->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 				.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 		}
 	}
@@ -171,7 +171,7 @@ namespace Durin
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
 	{
 		DerivedDataDiagnostic = {};
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedRenderData.GetMetadata().LogicalSize == 0)
 			{
@@ -286,10 +286,10 @@ namespace Durin
 
 	auto DStaticMesh::SubmitCookedRenderDataRequest() -> bool
 	{
-		Asset::FCookedMeshLoadManager* Manager =
-			Asset::GetCookedMeshLoadManager();
+		FCookedMeshLoadManager* Manager =
+			GetCookedMeshLoadManager();
 		if (!Manager || RenderData
-			|| !Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			|| !GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			|| CookedRenderData.GetMetadata().LogicalSize == 0)
 		{
 			return false;
@@ -310,10 +310,10 @@ namespace Durin
 		const uint64 MetadataIdentity = BuildStaticCookedMetadataIdentity(*this);
 		std::vector<FMeshMaterialSlotDefinition> SlotSnapshot = MaterialSlots;
 
-		Asset::FCookedMeshLoadRequest Request{
+		FCookedMeshLoadRequest Request{
 			.Identity = {
 				.Owner = MakeObjectHandle(this),
-				.Family = Asset::ECookedMeshFamily::StaticMesh,
+				.Family = ECookedMeshFamily::StaticMesh,
 				.LoadGeneration = Generation,
 				.ResourceRevision = ResourceRevision,
 				.MetadataIdentity = MetadataIdentity},
@@ -322,7 +322,7 @@ namespace Durin
 				CollisionPolicy, bRequiresCollision](
 				std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken& Cancellation)
-				-> Asset::FCookedMeshWorkerResult {
+				-> FCookedMeshWorkerResult {
 				if (Cancellation.IsCancellationRequested()) return {};
 				if (Buffers.size() != (bRequiresCollision ? 2u : 1u))
 					return {.Message = "StaticMesh cooked field count is invalid."};
@@ -347,7 +347,7 @@ namespace Durin
 					.RetainedBytes = std::max<uint64>(RetainedBytes, 1)};
 			},
 			.IsCurrent = [](const DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity& Identity) {
+				const FCookedMeshLoadIdentity& Identity) {
 				const auto* Mesh = Cast<DStaticMesh>(&Owner);
 				return Mesh
 					&& Mesh->CookedLoadGeneration.load(std::memory_order_acquire)
@@ -358,8 +358,8 @@ namespace Durin
 						== Identity.MetadataIdentity;
 			},
 			.Publish = [](DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity&,
-				std::unique_ptr<Asset::ICookedMeshDetachedProduct> BaseProduct,
+				const FCookedMeshLoadIdentity&,
+				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct,
 				std::string& OutError) {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				auto* Typed = dynamic_cast<FStaticMeshManagerProduct*>(
@@ -401,13 +401,13 @@ namespace Durin
 				return true;
 			},
 			.OnTerminal = [](DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity&,
-				Asset::ECookedMeshTerminalState Terminal,
+				const FCookedMeshLoadIdentity&,
+				ECookedMeshTerminalState Terminal,
 				std::string_view Message) {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				if (!Mesh) return;
-				const bool bFailed = Terminal == Asset::ECookedMeshTerminalState::Failed
-					|| Terminal == Asset::ECookedMeshTerminalState::Rejected;
+				const bool bFailed = Terminal == ECookedMeshTerminalState::Failed
+					|| Terminal == ECookedMeshTerminalState::Rejected;
 				Mesh->CookedLoadPhase.store(bFailed
 					? ECookedMeshCpuPhase::Failed
 					: ECookedMeshCpuPhase::Cancelled, std::memory_order_release);
@@ -427,12 +427,12 @@ namespace Durin
 	}
 
 	auto DStaticMesh::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 		{
 			OutError = std::format(
 				"Static mesh '{}' supports only the Win64 game cook target.", GetObjectPath());

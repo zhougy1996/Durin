@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto LoadPackage(
 		const FPackagePath& Path,
@@ -76,25 +76,23 @@ namespace Durin::Asset
 		return FAssetRuntimeState::Get().GetMutationCoordinator().SavePackage(Package);
 	}
 
-	auto PrepareAssetRelocationTransaction(
+	auto PrepareAssetRelocationJob(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetMutationSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction) -> FAssetResult
+		FAssetRelocationSummary& OutSummary,
+		FAssetMutationJob& OutJob) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareAssetRelocationTransaction(
-			Mappings, OutSummary, OutTransaction);
+			.PrepareAssetRelocationJob(Mappings, OutSummary, OutJob);
 	}
 
-	auto PrepareRedirectorFixupTransaction(
+	auto PrepareRedirectorFixupJob(
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction) -> FAssetResult
+		FAssetMutationJob& OutJob) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareRedirectorFixupTransaction(
-			Redirectors, Mode, OutSummary, OutTransaction);
+			.PrepareRedirectorFixupJob(Redirectors, Mode, OutSummary, OutJob);
 	}
 
 	auto AnalyzeAssetDeletion(
@@ -105,15 +103,15 @@ namespace Durin::Asset
 			.AnalyzeAssetDeletion(Path, OutAnalysis);
 	}
 
-	auto PrepareAssetDeletionTransaction(
+	auto PrepareAssetDeletionJob(
 		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionTransaction& OutTransaction,
+		FAssetDeletionJob& OutJob,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareAssetDeletionTransaction(
-			Paths, PhysicalRoots, OutTransaction, OutBlockers);
+			.PrepareAssetDeletionJob(
+			Paths, PhysicalRoots, OutJob, OutBlockers);
 	}
 
 	auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult

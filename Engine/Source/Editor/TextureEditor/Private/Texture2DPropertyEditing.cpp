@@ -17,7 +17,7 @@ namespace Durin::Editor::Texture
 		FPropertyEditExtensionHandle GTexture2DPropertyEditExtension = 0;
 
 		auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
-			-> Asset::FTexture2DBuildSettings
+			-> FTexture2DBuildSettings
 		{
 			return {
 				.Usage = Texture.GetUsage(),
@@ -37,7 +37,7 @@ namespace Durin::Editor::Texture
 			if (!Texture || !Proposal.MemberProperty
 				|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
 
-			Asset::FTexture2DBuildSettings Settings =
+			FTexture2DBuildSettings Settings =
 				MakeTexture2DBuildSettings(*Texture);
 			const FName PropertyName = Proposal.MemberProperty->NamePrivate;
 			if (PropertyName == FName("Usage"))
@@ -50,7 +50,7 @@ namespace Durin::Editor::Texture
 				Settings.Usage = static_cast<ETextureUsage>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
 						Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
-				Settings.bSRGB = Asset::TextureBuilder::GetDefaultSRGB(Settings.Usage);
+				Settings.bSRGB = TextureBuilder::GetDefaultSRGB(Settings.Usage);
 			}
 			else if (PropertyName == FName("bSRGB"))
 			{
@@ -107,10 +107,10 @@ namespace Durin::Editor::Texture
 			}
 			else return true;
 
-			if (!Asset::TextureBuilder::IsValidUsage(Settings.Usage)
-				|| !Asset::TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
-				|| !Asset::TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
-				|| !Asset::TextureBuilder::IsValidAlphaCoverageThreshold(
+			if (!TextureBuilder::IsValidUsage(Settings.Usage)
+				|| !TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
+				|| !TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
+				|| !TextureBuilder::IsValidAlphaCoverageThreshold(
 					Settings.AlphaCoverageThreshold))
 			{
 				OutError = "Texture2D property proposal contains invalid build settings.";
@@ -124,7 +124,7 @@ namespace Durin::Editor::Texture
 					return false;
 				}
 				const FXxHash128 Identity = Texture->GetImportedDataIdentity();
-				return Asset::BuildTexture2DInto(*Texture, {
+				return BuildTexture2DInto(*Texture, {
 					.SourceData = Texture->GetImportedData().ToSourceData(),
 					.SourceContentHashLow = Identity.HashLow,
 					.SourceContentHashHigh = Identity.HashHigh,
@@ -152,8 +152,8 @@ namespace Durin::Editor::Texture
 						*LiveTexture,
 						Settings,
 						Error,
-						Asset::ETexture2DCompilationPriority::Interactive,
-						[DeferredCompletion](Asset::FTexture2DCompilationResult Result) {
+						ETexture2DCompilationPriority::Interactive,
+						[DeferredCompletion](FTexture2DCompilationResult Result) {
 							(*DeferredCompletion)(
 								Result.Succeeded(), std::move(Result.Diagnostic));
 						}))

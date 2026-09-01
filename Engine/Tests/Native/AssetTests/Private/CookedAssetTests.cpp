@@ -31,7 +31,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset;
+	using namespace Durin;
 
 	template<typename T>
 	concept HasPublicAddToCook = requires(

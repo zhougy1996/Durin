@@ -51,31 +51,31 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_TRUE(Imported) << Imported.Message;
 
 	const std::filesystem::path CookRoot = Root / "Cooked";
-	Durin::Asset::FCookContext Cook(
-		CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	Durin::FCookContext Cook(
+		CookRoot, Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Imported.Asset, "/Game/Height", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Height", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	Durin::Asset::ShutdownAssetManager();
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	Durin::Testing::RemoveTestWorkDirectory(Root / "DDC");
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "AbsentDDC").generic_string());
-	auto RuntimeConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration));
-	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration)));
+	ASSERT_TRUE(Durin::InitializeAssetManager(std::move(RuntimeConfiguration)));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DTerrainHeightmap* Cooked = nullptr;
-	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Cooked);
+	const Durin::FAssetResult Loaded = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Cooked);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPayload(), nullptr);

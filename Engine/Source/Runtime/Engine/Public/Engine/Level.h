@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "DObject/AssetPath.h"
 #include "EngineAPI.h"
 #include "DObject/WeakObjectPtr.h"
@@ -132,13 +132,10 @@ namespace Durin
 		friend class FTickRegistry;
 	};
 
-	namespace Asset
-	{
-		// Resolves a package-valued level setting to its unique top-level Level.
-		// Package redirects are followed, and failure leaves OutLevelPath unchanged.
-		ENGINE_API auto ResolveLevelPackage(
-			const FPackagePath& PackagePath,
-			FObjectPath& OutLevelPath
-		) -> FAssetResult;
-	}
+	// Resolves a package-valued level setting to its unique top-level Level.
+	// Package redirects are followed, and failure leaves OutLevelPath unchanged.
+	ENGINE_API auto ResolveLevelPackage(
+		const FPackagePath& PackagePath,
+		FObjectPath& OutLevelPath
+	) -> FAssetResult;
 }

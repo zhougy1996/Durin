@@ -11,7 +11,7 @@ namespace Durin::Editor::Texture
 		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 2;
 		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
 
-		auto MakeFingerprint(const Asset::FAssetData& Data,
+		auto MakeFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
@@ -107,7 +107,7 @@ namespace Durin::Editor::Texture
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Loaded);
+				const FAssetResult Result = LoadObject(AssetPath, Loaded);
 				TextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
 				if (!Result || TextureCube == nullptr)
 				{
@@ -220,9 +220,9 @@ namespace Durin::Editor::Texture
 			OutError = "The TextureCube thumbnail renderer received the wrong asset class.";
 			return false;
 		}
-		const Asset::FAssetCatalogEntry Entry =
-			Asset::FindAssetExact(Request.Asset.PackagePath);
-		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
+		const FAssetCatalogEntry Entry =
+			FindAssetExact(Request.Asset.PackagePath);
+		const FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (Data == nullptr)
 		{
 			OutError = std::format(

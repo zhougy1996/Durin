@@ -36,7 +36,7 @@ The current system supports:
 - generated property metadata for reflected `DPROPERTY()` fields
 - primitive, `std::byte`, `std::string`, enum, struct, object-pointer, fixed C
   array, `std::vector`, and `std::unordered_map` property nodes
-- a distinct UE-style `Asset::FEditorBulkData` property node with opaque atomic
+- a distinct UE-style `FEditorBulkData` property node with opaque atomic
   serialization and identity callbacks (not an Array or Blob alias)
 - nested container property metadata, with recursive array/map inner property trees
 - runtime `DObject::IsA` and `Cast<T>` based on the `DClass` hierarchy

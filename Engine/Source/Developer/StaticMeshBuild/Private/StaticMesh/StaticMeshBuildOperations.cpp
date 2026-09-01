@@ -10,7 +10,7 @@
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -579,17 +579,17 @@ namespace Durin::Asset
 			return false;
 		}
 		FBuildValue CandidateValue;
-		if (!Private::EncodeStaticMeshRenderData(*Product.RenderData, CandidateValue, OutError))
+		if (!AssetPrivate::EncodeStaticMeshRenderData(*Product.RenderData, CandidateValue, OutError))
 		{
 			Product.FailureStage = EStaticMeshBuildFailureStage::DerivedDataWrite;
 			return false;
 		}
 		const FByteArray KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionName, std::string(Private::StaticMeshValueName));
+		FBuildDefinitionBuilder Builder(AssetPrivate::StaticMeshFunctionName, std::string(AssetPrivate::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
-			.AddInput(FBuildValue::FromOwned(std::string(Private::StaticMeshInputName),
+			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::StaticMeshInputName),
 				FByteArray(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
 		if (!Builder.Build(Definition, &OutError))
 		{
@@ -608,7 +608,7 @@ namespace Durin::Asset
 			return false;
 		}
 		std::unique_ptr<FStaticMeshRenderData> SelectedRenderData;
-		if (!Private::DecodeStaticMeshRenderData(Output.Value, SelectedRenderData, OutError)
+		if (!AssetPrivate::DecodeStaticMeshRenderData(Output.Value, SelectedRenderData, OutError)
 			|| !RestoreRuntimeMetadata(Product.MaterialSlots, *SelectedRenderData, OutError))
 		{
 			Product.FailureStage = EStaticMeshBuildFailureStage::RenderConversion;
@@ -653,8 +653,8 @@ namespace Durin::Asset
 
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::StaticMeshFunctionName,
-			std::string(Private::StaticMeshValueName));
+			AssetPrivate::StaticMeshFunctionName,
+			std::string(AssetPrivate::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 			.AddTargetFact("Platform", "Win64");
 		if (!Builder.Build(Definition, &OutError)) return false;
@@ -667,7 +667,7 @@ namespace Durin::Asset
 			return false;
 		}
 		auto RenderData = std::unique_ptr<FStaticMeshRenderData>();
-		if (!Private::DecodeStaticMeshRenderData(
+		if (!AssetPrivate::DecodeStaticMeshRenderData(
 			Output.Value, RenderData, OutError)
 			|| !RestoreRuntimeMetadata(
 				Reconciliation.MaterialSlots, *RenderData, OutError))
@@ -724,7 +724,7 @@ namespace Durin::Asset
 			OutError = "StaticMesh LOD 0 collision source is empty or malformed.";
 			return false;
 		}
-		const FXxHash128 GeometryHash = Private::BuildCollisionGeometryHash(Positions, Indices);
+		const FXxHash128 GeometryHash = AssetPrivate::BuildCollisionGeometryHash(Positions, Indices);
 		const FStaticMeshCollisionBuildKeyInput KeyInput{
 			.GeometryHash = GeometryHash,
 			.SourceMode = Mode,
@@ -739,13 +739,13 @@ namespace Durin::Asset
 			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::StaticMeshCollisionFunctionName, std::string(Private::CollisionValueName));
+			AssetPrivate::StaticMeshCollisionFunctionName, std::string(AssetPrivate::CollisionValueName));
 		Builder.SetKey(FBuildKey::FromString(OutProduct.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Mode", std::to_string(static_cast<uint32>(Mode)))
 			.AddTargetFact("Policy", std::to_string(static_cast<uint32>(Policy)))
-			.AddInput(FBuildValue::FromOwned(std::string(Private::CollisionInputName),
-				Private::EncodeStaticMeshCollisionInput(Positions, Indices, Mode, Policy)));
+			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::CollisionInputName),
+				AssetPrivate::EncodeStaticMeshCollisionInput(Positions, Indices, Mode, Policy)));
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
@@ -756,7 +756,7 @@ namespace Durin::Asset
 			return false;
 		}
 		FCollisionGeometryRef Geometry;
-		if (!Private::DecodeStaticMeshCollisionValue(Output.Value, Mode, Policy, Geometry, OutError)) return false;
+		if (!AssetPrivate::DecodeStaticMeshCollisionValue(Output.Value, Mode, Policy, Geometry, OutError)) return false;
 		if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 			OutProduct.Simple = Geometry;
 		else OutProduct.Complex = Geometry;

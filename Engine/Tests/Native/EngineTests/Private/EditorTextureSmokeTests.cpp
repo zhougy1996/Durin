@@ -111,37 +111,37 @@ namespace Durin
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorMixedV4/Textures/BaseColor", TexturePath));
 		DMaterial* Material = nullptr;
-		ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(MaterialPath, Material));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		Material->SetTextureParameterValue(
 			MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
-		ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+		ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
-		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
-		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
+		ASSERT_TRUE(UnloadPackage(MaterialPath));
+		ASSERT_TRUE(UnloadPackage(MeshPath));
+		ASSERT_TRUE(UnloadPackage(TexturePath));
 		for (const FPackagePath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
-			const Asset::FAssetCatalogEntry Data =
-				Asset::FindAssetExact(Path);
+			const FAssetCatalogEntry Data =
+				FindAssetExact(Path);
 			ASSERT_NE(Data, nullptr);
 			EXPECT_EQ(Data->FormatVersion,
-				Asset::OrdinaryAssetPackageWriterVersion);
+				OrdinaryAssetPackageWriterVersion);
 		}
 
 			auto LoadRenderableGraph = [&]() {
 			DStaticMesh* Mesh = nullptr;
 			DMaterial* LoadedMaterial = nullptr;
 			DTexture2D* Texture = nullptr;
-			Asset::FAssetLoadReport MeshReport;
-			Asset::FAssetLoadReport MaterialReport;
-			Asset::FAssetLoadReport TextureReport;
-			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), Texture, &TextureReport));
+			FAssetLoadReport MeshReport;
+			FAssetLoadReport MaterialReport;
+			FAssetLoadReport TextureReport;
+			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), Texture, &TextureReport));
 			if (Texture)
-				EXPECT_TRUE(Asset::WaitForTexture2DCompilation(*Texture, 10.0));
-			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedMaterial,
+				EXPECT_TRUE(WaitForTexture2DCompilation(*Texture, 10.0));
+			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedMaterial,
 				&MaterialReport));
-			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh, &MeshReport));
+			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh, &MeshReport));
 			if (LoadedMaterial)
 			{
 				RequestMaterialRecompile(*LoadedMaterial);
@@ -196,9 +196,9 @@ namespace Durin
 		ASSERT_NE(LoadedMaterial, nullptr);
 		ASSERT_NE(LoadedTexture, nullptr);
 		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
-		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
-		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
-		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
+		ASSERT_TRUE(UnloadPackage(MaterialPath));
+		ASSERT_TRUE(UnloadPackage(MeshPath));
+		ASSERT_TRUE(UnloadPackage(TexturePath));
 
 		std::tie(LoadedMesh, LoadedMaterial, LoadedTexture) =
 			LoadRenderableGraph();
@@ -207,7 +207,7 @@ namespace Durin
 		ASSERT_NE(LoadedTexture, nullptr);
 		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
 		const std::string MaterialFile =
-			Asset::FindAssetExact(MaterialPath)->PhysicalPath;
+			FindAssetExact(MaterialPath)->PhysicalPath;
 		Durin::FByteArray BeforeSave;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
@@ -234,8 +234,8 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			AfterSave, MaterialFile));
 		EXPECT_EQ(AfterSave, BeforeSave);
-		EXPECT_EQ(Asset::FindAssetExact(MaterialPath)
-			->FormatVersion, Asset::OrdinaryAssetPackageWriterVersion);
+		EXPECT_EQ(FindAssetExact(MaterialPath)
+			->FormatVersion, OrdinaryAssetPackageWriterVersion);
 
 		MaterialWorkspace.reset();
 		MaterialEditorHarness.Shutdown();
@@ -265,7 +265,7 @@ namespace Durin
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
 		EXPECT_EQ(TextureImport.Asset->GetSourceData()->Pixels.size(), 8u);
-		ASSERT_TRUE(Asset::WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
+		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
@@ -275,7 +275,7 @@ namespace Durin
 		FPackagePath MaterialPath;
 		ASSERT_TRUE(FPackagePath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
-		ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(MaterialPath, Material));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		FMaterialProgramValidationResult ProgramValidation;
 		ASSERT_TRUE(Material->SetMaterialProgram(
 			MakeCanonicalMaterialProgram(), ProgramValidation));
@@ -336,8 +336,8 @@ namespace Durin
 		std::string RebuildError;
 		ASSERT_TRUE(AssetForge::Builtins::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
-		ASSERT_TRUE(Asset::WaitForTexture2DCompilation(*TextureImport.Asset, 10.0))
-			<< Asset::GetTexture2DCompilationDiagnostic(*TextureImport.Asset).Message;
+		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0))
+			<< GetTexture2DCompilationDiagnostic(*TextureImport.Asset).Message;
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),
@@ -382,16 +382,16 @@ namespace Durin
 			});
 		CommandStartedFuture.wait();
 		PrimitiveProxy.reset();
-		const Asset::FAssetResult MaterialUnload =
-			Asset::UnloadPackage(Material->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		const FAssetResult MaterialUnload =
+			UnloadPackage(Material->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		MarkObjectHierarchyAsGarbage(Actor);
 		CollectGarbage();
-		const Asset::FAssetResult MeshUnload =
-			Asset::UnloadPackage(MeshPath);
-		const Asset::FAssetResult TextureUnload =
-			Asset::UnloadPackage(
+		const FAssetResult MeshUnload =
+			UnloadPackage(MeshPath);
+		const FAssetResult TextureUnload =
+			UnloadPackage(
 				TexturePath,
-				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+				EAssetPackageUnloadPolicy::DiscardUnsaved);
 		AllowCommandCompletion->set_value();
 		FlushRenderingCommands();
 		EXPECT_TRUE(MaterialUnload) << MaterialUnload.Message;
@@ -458,7 +458,7 @@ namespace Durin
 		FPackagePath TexturePath;
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/TextureOwnershipSmoke/Texture", TexturePath));
-		const Asset::FAssetResult Unload = Asset::UnloadPackage(TexturePath);
+		const FAssetResult Unload = UnloadPackage(TexturePath);
 		AllowCommandCompletion->set_value();
 		FlushRenderingCommands();
 		EXPECT_TRUE(Unload) << Unload.Message;

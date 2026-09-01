@@ -5,7 +5,7 @@
 
 namespace Durin::AssetForge::Builtins::Private
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	auto ImportAssimpImage(
 		const aiScene& Scene,
 		const std::filesystem::path& RootPath,

@@ -11,7 +11,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	auto IsSceneSurfaceImageEncodingSupported(EImportedImageEncoding Encoding) -> bool
 	{
 		switch (Encoding)

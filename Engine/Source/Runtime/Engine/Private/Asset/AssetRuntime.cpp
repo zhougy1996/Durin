@@ -27,22 +27,21 @@
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	using Private::FAssetReferenceStoreRegistry;
-	using Private::GetAssetReferenceStoreRegistry;
-	using Private::EAssetMutationState;
-	using Private::FAssetMutationJournal;
-	using Private::FAssetMutationJournalEntry;
-	using Private::FingerprintRelocationFile;
-	using Private::LoadRelocationBytes;
-	using Private::MakePackageFingerprint;
-	using Private::NormalizePhysicalPath;
-	using Private::PublishRelocationFile;
-	using Private::RebuildReferenceProjectionForPublishedEntries;
-	using Private::SaveRelocationBytes;
-	using Private::WriteMutationJournalState;
-	using Private::AssetReferenceLess;
+	using AssetPrivate::FAssetReferenceStoreRegistry;
+	using AssetPrivate::GetAssetReferenceStoreRegistry;
+	using AssetPrivate::EAssetMutationState;
+	using AssetPrivate::FAssetMutationJournal;
+	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FingerprintRelocationFile;
+	using AssetPrivate::LoadRelocationBytes;
+	using AssetPrivate::MakePackageFingerprint;
+	using AssetPrivate::NormalizePhysicalPath;
+	using AssetPrivate::PublishRelocationFile;
+	using AssetPrivate::SaveRelocationBytes;
+	using AssetPrivate::WriteMutationJournalState;
+	using AssetPrivate::AssetReferenceLess;
 
 	namespace
 	{
@@ -313,7 +312,7 @@ namespace Durin::Asset
 			|| RedirectorPath == DestinationPath)
 			return Error(EAssetError::InvalidPath,
 				"Redirector source and destination paths must be valid and distinct.");
-		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(DestinationPath);
+		const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(DestinationPath);
 		if (!Resolution)
 		{
 			switch (Resolution.State)
@@ -388,7 +387,7 @@ namespace Durin::Asset
 			OutPackage = Resident;
 			return {};
 		}
-		const FAssetCatalogEntry Entry = Durin::Asset::FindAssetExact(Path);
+		const FAssetCatalogEntry Entry = Durin::FindAssetExact(Path);
 		if (!Entry)
 			return Error(EAssetError::NotFound, std::format(
 				"Package {} is not present in the registry.", Path.ToString()));
@@ -422,7 +421,7 @@ namespace Durin::Asset
 		if (!bAcceptingRequests)
 			return Finish(Error(EAssetError::ShuttingDown,
 				"Object loading is closed while the asset manager is shutting down."));
-		const FObjectPathResolveResult Resolution = Durin::Asset::ResolveObjectPath(
+		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{
@@ -560,33 +559,33 @@ namespace Durin::Asset
 		if (BulkError && BulkError != std::errc::no_such_file_or_directory)
 			return Error(EAssetError::IoError,
 				std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
-		const Private::FAssetPackageReadContext HeaderContext{
+		const AssetPrivate::FAssetPackageReadContext HeaderContext{
 			.PackageBytes = Bytes, .PackagePath = Path,
 			.PhysicalPackageBytes = Bytes.size(),
 			.PhysicalBulkBytes = PhysicalBulkBytes,
 			.bResourceBackedBulk = true,
 			.bCooked = RuntimeConfiguration.IsCooked()};
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(
+		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(
 				Bytes, Codec); !Result)
 			return Result;
 		{
 			FAssetPackageHeader Header;
 			FAssetResult Result = Codec->ReadHeader(HeaderContext, Header);
 			if (!Result) return Result;
-			const Private::FAssetPackageReadContext ReadContext{
+			const AssetPrivate::FAssetPackageReadContext ReadContext{
 				.PackageBytes = Bytes, .PackagePath = Path,
 				.PhysicalPackageBytes = Bytes.size(),
 				.PhysicalBulkBytes = PhysicalBulkBytes,
 				.bResourceBackedBulk = true,
 				.bCooked = RuntimeConfiguration.IsCooked()};
-			const Private::FMutationPackageMetadata HeaderMetadata{
+			const AssetPrivate::FMutationPackageMetadata HeaderMetadata{
 				.FormatVersion = Header.FormatVersion,
 				.AssetClassName = Header.AssetClassName,
 				.EntryKind = Header.EntryKind,
 				.RedirectDestination = Header.RedirectDestination,
 				.Dependencies = Header.Dependencies};
-			Result = Private::ValidateMutationPackageMetadata(
+			Result = AssetPrivate::ValidateMutationPackageMetadata(
 				HeaderMetadata, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
@@ -677,7 +676,7 @@ namespace Durin::Asset
 			if (!Data) continue;
 			for (const FPackagePath& Dependency : Data->Dependencies)
 			{
-				const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
+				const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
 				if (Resolution && Resolution.FinalPath == Path) return true;
 			}
 		}
@@ -748,7 +747,7 @@ namespace Durin::Asset
 				if (!Data) continue;
 				for (const FPackagePath& Dependency : Data->Dependencies)
 				{
-					const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
+					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
 					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
 				}
 			}
@@ -834,7 +833,7 @@ namespace Durin::Asset
 		}
 
 		const FObjectPath& Path = Reference.GetPath();
-		const FObjectPathResolveResult Resolution = Durin::Asset::ResolveObjectPath(
+		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{

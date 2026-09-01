@@ -43,9 +43,9 @@ namespace Durin::Sandbox
 		FObjectPath MeshPath;
 		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
 		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult LoadResult = bValidMeshPath
-			? Asset::LoadObject(MeshPath, Mesh)
-			: Asset::FAssetResult{Asset::EAssetError::InvalidPath, "The configured graybox mesh path is invalid."};
+		const FAssetResult LoadResult = bValidMeshPath
+			? LoadObject(MeshPath, Mesh)
+			: FAssetResult{EAssetError::InvalidPath, "The configured graybox mesh path is invalid."};
 		if (LoadResult && Mesh)
 		{
 			VisualComponent->SetStaticMesh(Mesh);

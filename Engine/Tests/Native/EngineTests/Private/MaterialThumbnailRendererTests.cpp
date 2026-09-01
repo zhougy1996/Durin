@@ -34,7 +34,7 @@ namespace
 	}
 
 	auto MakeRequest(
-		const Durin::Asset::FAssetData& Data,
+		const Durin::FAssetData& Data,
 		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
@@ -51,7 +51,7 @@ namespace
 
 	auto CaptureKey(
 		Durin::Editor::Material::DMaterialThumbnailRenderer& Renderer,
-		const Durin::Asset::FAssetData& Data,
+		const Durin::FAssetData& Data,
 		Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> std::string
 	{
@@ -141,10 +141,10 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
-	const Durin::Asset::FAssetCatalogEntry MaterialData =
-		Durin::Asset::FindAssetExact(MaterialPath);
-	const Durin::Asset::FAssetCatalogEntry InstanceData =
-		Durin::Asset::FindAssetExact(InstancePath);
+	const Durin::FAssetCatalogEntry MaterialData =
+		Durin::FindAssetExact(MaterialPath);
+	const Durin::FAssetCatalogEntry InstanceData =
+		Durin::FindAssetExact(InstancePath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
@@ -280,8 +280,8 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::InvalidMaterialInstancePath,
 		InvalidPath));
-	const Durin::Asset::FAssetCatalogEntry Data =
-		Durin::Asset::FindAssetExact(InvalidPath);
+	const Durin::FAssetCatalogEntry Data =
+		Durin::FindAssetExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::DThumbnailManager ThumbnailManager;
@@ -314,18 +314,18 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 
 	Durin::FPackagePath MaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/ImportedSurface",
 		MaterialPath));
-	const Durin::Asset::FAssetCatalogEntry MaterialData =
-		Durin::Asset::FindAssetExact(MaterialPath);
+	const Durin::FAssetCatalogEntry MaterialData =
+		Durin::FindAssetExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
-	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
+	const Durin::FAssetResult LoadResult =
+		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);
@@ -365,17 +365,17 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 
 	Durin::FPackagePath MaterialPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/ImportedSurface", MaterialPath));
-	const Durin::Asset::FAssetCatalogEntry MaterialData =
-		Durin::Asset::FindAssetExact(MaterialPath);
+	const Durin::FAssetCatalogEntry MaterialData =
+		Durin::FindAssetExact(MaterialPath);
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
-	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
+	const Durin::FAssetResult LoadResult =
+		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);

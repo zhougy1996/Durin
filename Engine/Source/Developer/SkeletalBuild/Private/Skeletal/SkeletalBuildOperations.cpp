@@ -4,7 +4,7 @@
 #include "SkeletalBuildFunctionRegistry.h"
 #include "Skeletal/SkeletalBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -16,10 +16,10 @@ namespace Durin::Asset
 			T& OutPayload, std::string& OutError) -> bool
 		{
 			if constexpr (std::same_as<T, FSkeletalMeshPayloadData>)
-				return Private::DecodeSkeletalMeshPayload(
+				return AssetPrivate::DecodeSkeletalMeshPayload(
 					Value, Key, Context, OutPayload, OutError);
 			else
-				return Private::DecodeAnimationClipPayload(
+				return AssetPrivate::DecodeAnimationClipPayload(
 					Value, Key, Context, OutPayload, OutError);
 		}
 
@@ -33,7 +33,7 @@ namespace Durin::Asset
 		{
 			if (!EnsureSkeletalBuildFunctions(&OutError)) return false;
 			FBuildDefinition Definition;
-			FBuildDefinitionBuilder Builder(FunctionName, std::string(Private::SkeletalValueName));
+			FBuildDefinitionBuilder Builder(FunctionName, std::string(AssetPrivate::SkeletalValueName));
 			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 				.AddTargetFact("Platform", "Win64").AddTargetFact("Profile", "Game")
 				.AddTargetFact("SkeletonBoneCount", std::to_string(Context.SkeletonBoneCount))
@@ -75,7 +75,7 @@ namespace Durin::Asset
 		FByteArray Bytes;
 		FSkeletalMeshPayloadData& Payload =
 			const_cast<FSkeletalMeshPayloadData&>(*Request.Payload);
-		if (!Private::EncodeSkeletalMeshPayload(Payload, Context, Bytes, OutError)) return false;
+		if (!AssetPrivate::EncodeSkeletalMeshPayload(Payload, Context, Bytes, OutError)) return false;
 		Request.KeyInput.PayloadInputFingerprint =
 			Request.KeyInput.ImportedDataIdentity.IsZero()
 				? FXxHash128::HashBuffer(Bytes)
@@ -85,7 +85,7 @@ namespace Durin::Asset
 		const FByteArray KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FSkeletalMeshPayloadData SelectedPayload;
-		if (!ExecuteSkeletalSession(Private::SkeletalMeshFunctionName, Private::SkeletalMeshInputName,
+		if (!ExecuteSkeletalSession(AssetPrivate::SkeletalMeshFunctionName, AssetPrivate::SkeletalMeshInputName,
 			Key, KeyBytes, Bytes, Context, Request.SkeletonCompatibilityIdentity,
 			false, Output, SelectedPayload, OutError)) return false;
 		OutProduct = {
@@ -123,7 +123,7 @@ namespace Durin::Asset
 		FByteArray Bytes;
 		FAnimationClipPayloadData& Payload =
 			const_cast<FAnimationClipPayloadData&>(*Request.Payload);
-		if (!Private::EncodeAnimationClipPayload(Payload, Context, Bytes, OutError)) return false;
+		if (!AssetPrivate::EncodeAnimationClipPayload(Payload, Context, Bytes, OutError)) return false;
 		Request.KeyInput.PayloadInputFingerprint =
 			Request.KeyInput.ImportedDataIdentity.IsZero()
 				? FXxHash128::HashBuffer(Bytes)
@@ -133,7 +133,7 @@ namespace Durin::Asset
 		const FByteArray KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FAnimationClipPayloadData SelectedPayload;
-		if (!ExecuteSkeletalSession(Private::AnimationClipFunctionName, Private::AnimationClipInputName,
+		if (!ExecuteSkeletalSession(AssetPrivate::AnimationClipFunctionName, AssetPrivate::AnimationClipInputName,
 			Key, KeyBytes, Bytes, Context, Request.SkeletonCompatibilityIdentity,
 			false, Output, SelectedPayload, OutError)) return false;
 		OutProduct = {
@@ -189,8 +189,8 @@ namespace Durin::Asset
 		FBuildOutput CachedOutput;
 		FSkeletalMeshPayloadData CachedPayload;
 		if (ExecuteSkeletalSession(
-			Private::SkeletalMeshFunctionName,
-			Private::SkeletalMeshInputName, CachedKey, KeyBytes, {}, Context,
+			AssetPrivate::SkeletalMeshFunctionName,
+			AssetPrivate::SkeletalMeshInputName, CachedKey, KeyBytes, {}, Context,
 			Mesh.GetSkeletonCompatibilityIdentity(), false,
 			CachedOutput, CachedPayload, OutError))
 		{
@@ -272,8 +272,8 @@ namespace Durin::Asset
 		FBuildOutput CachedOutput;
 		FAnimationClipPayloadData CachedPayload;
 		if (ExecuteSkeletalSession(
-			Private::AnimationClipFunctionName,
-			Private::AnimationClipInputName, CachedKey, KeyBytes, {}, Context,
+			AssetPrivate::AnimationClipFunctionName,
+			AssetPrivate::AnimationClipInputName, CachedKey, KeyBytes, {}, Context,
 			Clip.GetSkeletonCompatibilityIdentity(), false,
 			CachedOutput, CachedPayload, OutError))
 		{

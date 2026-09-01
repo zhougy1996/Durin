@@ -1,12 +1,12 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/MutationExtensions.h"
 #include "Asset/References.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetRedirectorFixupMapping
 	{
@@ -52,10 +52,10 @@ namespace Durin::Asset
 #endif
 	};
 
-	ENGINE_API auto PrepareRedirectorFixupTransaction(
+	ENGINE_API auto PrepareRedirectorFixupJob(
 		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction
+		FAssetMutationJob& OutJob
 	) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

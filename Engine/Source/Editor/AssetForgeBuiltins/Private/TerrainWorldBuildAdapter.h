@@ -6,8 +6,8 @@ namespace Durin::AssetForge::Builtins
 {
 	struct FTerrainWorldBuildDiagnostics
 	{
-		Asset::ETerrainWorldOutcome Outcome =
-			Asset::ETerrainWorldOutcome::Unavailable;
+		ETerrainWorldOutcome Outcome =
+			ETerrainWorldOutcome::Unavailable;
 		uint64 NormalizeNanoseconds = 0;
 		uint64 BuildNanoseconds = 0;
 		uint64 PublishNanoseconds = 0;
@@ -18,15 +18,15 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	inline auto BuildAndPublishTerrainWorldTile(
-		const Asset::FTerrainWorldDefinition& Definition,
+		const FTerrainWorldDefinition& Definition,
 		int64 TileX, int64 TileY,
-		const Asset::FTerrainComposedTileValues& ComposedValues,
+		const FTerrainComposedTileValues& ComposedValues,
 		const FGuid& GenerationId,
-		Asset::FTerrainTileGenerationPublisher& Publisher,
+		FTerrainTileGenerationPublisher& Publisher,
 		FTerrainWorldBuildDiagnostics& OutDiagnostics,
 		std::string& OutError) -> bool
 	{
-		using namespace Asset;
+		using namespace Durin;
 		OutDiagnostics = {};
 		const uint64 RequestId = Publisher.BeginRequest();
 		const auto NormalizeStart = std::chrono::steady_clock::now();

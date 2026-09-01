@@ -2,7 +2,7 @@
 
 #include "AssetMutationJournalInternal.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	struct FByteReader;
 	struct FMutationPackageMetadata
@@ -15,14 +15,6 @@ namespace Durin::Asset::Private
 		std::vector<FPackagePath> SoftDependencies;
 	};
 
-	// Rebuilds only the reference-index slice affected by published mutation
-	// participants. AssetReference.cpp owns serialization traversal.
-	auto RebuildReferenceProjectionForPublishedEntries(
-		std::span<const FAssetMutationJournalEntry> Entries,
-		const std::unordered_map<FPackagePath, FAssetData>& Assets,
-		std::vector<FAssetReferenceEdge>& Edges,
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint>& Fingerprints)
-		-> FAssetResult;
 	auto RewritePackageReferencesForMutation(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,

@@ -114,7 +114,7 @@ namespace Durin
 
 	auto DVolumeTexture::GetPlatformData() const -> const FVolumeTexturePlatformData*
 	{
-		if (!PlatformData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!PlatformData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
@@ -132,8 +132,8 @@ namespace Durin
 				"VolumeTexture cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* Value = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* Value = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!PlatformData || !PlatformData->IsValid())
@@ -145,10 +145,10 @@ namespace Durin
 			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game});
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game});
 			std::string Error;
-			if (Writer.HasError() || !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			if (Writer.HasError() || !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
 					? std::string(Writer.GetError()) : std::move(Error));
@@ -175,7 +175,7 @@ namespace Durin
 
 	auto DVolumeTexture::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
 			{
@@ -211,8 +211,8 @@ namespace Durin
 			return FailCooked(OutError);
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
-		Candidate->Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+		Candidate->Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 		{
 			CookedPlatformData.UnlockReadOnly();
@@ -230,11 +230,11 @@ namespace Durin
 		return true;
 	}
 
-	auto DVolumeTexture::ContributeToCook(Asset::FCookContext& Context,
+	auto DVolumeTexture::ContributeToCook(FCookContext& Context,
 		std::string_view VirtualPackagePath, std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 		{
 			OutError = "Volume textures support only the Win64 game cook target.";
 			return false;

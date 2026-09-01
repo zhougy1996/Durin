@@ -5,7 +5,7 @@
 #include "Misc/Guid.h"
 #include "Serialization/SharedByteBuffer.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Selects whether authored payload bytes accompany their descriptor in DAST or a local companion.
 	enum class EEditorBulkDataStorageKind : uint8 { Inline, External };

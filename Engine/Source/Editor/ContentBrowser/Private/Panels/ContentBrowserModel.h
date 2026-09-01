@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "AssetRegistry/Catalog.h"
 
 #include <filesystem>
@@ -119,7 +119,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		};
 
 		auto RefreshMountSnapshot() -> void;
-		auto RescanRegistry() -> Asset::FAssetResult;
+		auto RescanRegistry() -> FAssetResult;
 		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
@@ -189,7 +189,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		struct FIndexedAsset
 		{
 			const FPackagePath* Path = nullptr;
-			const Asset::FAssetData* Data = nullptr;
+			const FAssetData* Data = nullptr;
 		};
 
 		auto QueryEntryStatus(
@@ -200,7 +200,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::error_code& Error) const -> std::filesystem::file_status;
 		auto IsDirectoryAvailable(const std::filesystem::path& Path) const -> bool;
 		auto RefreshAssetDirectoryIndex() -> void;
-		auto AppendAssetItem(const FPackagePath& Path, const Asset::FAssetData& Data)
+		auto AppendAssetItem(const FPackagePath& Path, const FAssetData& Data)
 			-> void;
 		auto AddEnumerationDiagnostic(
 			EEnumerationDiagnosticKind Kind,
@@ -213,7 +213,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::vector<FMountSnapshot> MountSnapshot;
 		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
-		Asset::FAssetCatalogSnapshot AssetCatalogSnapshot;
+		FAssetCatalogSnapshot AssetCatalogSnapshot;
 		std::unordered_map<std::string, std::vector<FIndexedAsset>> AssetDirectoryIndex;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;

@@ -1,8 +1,8 @@
 #include "AssetMutationRegistryInternal.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto GetAssetReferenceStoreRegistry() -> FAssetReferenceStoreRegistry&
 		{
@@ -78,13 +78,13 @@ namespace Durin::Asset
 		auto Call = OwnerGate.TryEnter();
 		if (OwnerGate.IsValid() && !Call) return 0;
 		if (!Store) return 0;
-		auto& Registry = Private::GetAssetReferenceStoreRegistry();
+		auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
 		const FAssetReferenceStoreHandle Handle = Registry.NextHandle++;
 		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
 		if (OwnerGate.IsValid() && !Resource) return 0;
 		Registry.Stores.emplace(
 			Handle,
-			Private::FAssetReferenceStoreRegistry::FEntry{
+			AssetPrivate::FAssetReferenceStoreRegistry::FEntry{
 				std::move(Resource), Store, std::move(OwnerGate)});
 		++Registry.Revision;
 		return Handle;
@@ -93,7 +93,7 @@ namespace Durin::Asset
 	auto UnregisterAssetReferenceStore(FAssetReferenceStoreHandle Handle) -> void
 	{
 		if (Handle == 0) return;
-		auto& Registry = Private::GetAssetReferenceStoreRegistry();
+		auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
 		if (Registry.Stores.erase(Handle) != 0) ++Registry.Revision;
 	}
 }

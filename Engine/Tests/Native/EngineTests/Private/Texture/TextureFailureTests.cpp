@@ -199,7 +199,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
-	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
 }
 
 TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
@@ -209,7 +209,7 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/FailureTestMissing", AssetPath));
 	Durin::DTexture2D* Texture = nullptr;
-	Durin::Asset::FAssetResult CreateResult = Durin::Asset::CreatePackageLeafAssetForTesting(AssetPath, Texture);
+	Durin::FAssetResult CreateResult = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
 	ASSERT_TRUE(CreateResult) << CreateResult.Message;
 	ASSERT_NE(Texture, nullptr);
 	// At creation time, the build has not run.
@@ -220,7 +220,7 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::BuildFailure);
 	EXPECT_FALSE(Texture->GetLastBuildError().empty());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Texture->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::UnloadPackage(Texture->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
@@ -241,8 +241,8 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureFailureTests/Ready", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
@@ -305,9 +305,9 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(Texture->GetLastBuildError().empty());
 
-	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
@@ -358,14 +358,14 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 		"/TextureImportTests/AsyncUnload", AssetPath));
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
 		*Texture, Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision + 1);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		LastGood.Mips.front().Pixels);
 
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
@@ -403,7 +403,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*Texture, {},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	ASSERT_NE(Texture->GetAssetImportData(), nullptr);
 	ImportedSource = Texture->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -428,6 +428,6 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }

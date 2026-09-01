@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto FTerrainHeightmapBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
@@ -20,9 +20,9 @@ namespace Durin::Asset
 				"Terrain heightmap derived-data key requires an explicit decoder profile.");
 			return;
 		}
-		if (TargetPlatform != Asset::ECookTargetPlatform::Win64
-			|| (TargetProfile != Asset::ECookTargetProfile::Game
-				&& TargetProfile != Asset::ECookTargetProfile::EditorValidation))
+		if (TargetPlatform != ECookTargetPlatform::Win64
+			|| (TargetProfile != ECookTargetProfile::Game
+				&& TargetProfile != ECookTargetProfile::EditorValidation))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
 				"Terrain heightmap derived-data target is unsupported.");

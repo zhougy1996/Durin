@@ -4,9 +4,9 @@
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	namespace Private
+	namespace AssetPrivate
 	{
 		class FAssetRegistryState;
 	}
@@ -53,7 +53,7 @@ namespace Durin::Asset
 		std::vector<FAssetRegistryResult> Errors;
 		bool bComplete = true;
 
-		friend class Private::FAssetRegistryState;
+		friend class AssetPrivate::FAssetRegistryState;
 	};
 
 	struct FAssetRegistrySnapshot

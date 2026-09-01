@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
@@ -17,9 +17,9 @@ namespace Durin::Asset
 			|| Height > MaximumVolumeTextureDimension
 			|| Depth > MaximumVolumeTextureDimension
 			|| SourcePayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
-			|| TargetPlatform != Asset::ECookTargetPlatform::Win64
-			|| (TargetProfile != Asset::ECookTargetProfile::Game
-				&& TargetProfile != Asset::ECookTargetProfile::EditorValidation))
+			|| TargetPlatform != ECookTargetPlatform::Win64
+			|| (TargetProfile != ECookTargetProfile::Game
+				&& TargetProfile != ECookTargetProfile::EditorValidation))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
 				"Volume texture derived-data key input is invalid.");

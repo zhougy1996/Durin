@@ -195,12 +195,12 @@ namespace Durin
 	}
 
 	auto DSkeleton::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 			return Fail(std::format(
 				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!GetPackage() || !Validate(OutError)) return false;

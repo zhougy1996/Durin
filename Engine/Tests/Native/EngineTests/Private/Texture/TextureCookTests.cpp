@@ -110,17 +110,17 @@ namespace
 
 	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
-		Durin::Asset::ShutdownAssetManager();
+		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
 		if (CookRoot.empty())
 		{
-			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			ASSERT_TRUE(Durin::InitializeAssetManager());
 			return;
 		}
-		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
+		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -150,31 +150,31 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 			Source.generic_string(), AssetPath.GetView());
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_TRUE(Imported.Asset->GetImportedData().IsValid());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(std::filesystem::remove(Source));
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot / "Textures");
 
 	Durin::DTexture2D* Loaded = nullptr;
-	const Durin::Asset::FAssetResult Load =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
+	const Durin::FAssetResult Load =
+		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetDerivedDataDiagnostic().Status,
 		Durin::ETextureDerivedDataStatus::Rebuilt);
 	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
-	Durin::Asset::FCookContext Cook(
+	Durin::FCookContext Cook(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Loaded, "/Game/ColdTexture", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dasset"));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dbulk"));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
@@ -213,31 +213,31 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		*ImportedSource;
 	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
 
-	Durin::Asset::FCookContext First(
+	Durin::FCookContext First(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
 	EXPECT_EQ(
 		Import.Asset->GetDerivedDataDiagnostic().bSourceDecoderInvoked,
 		DiagnosticBeforeCook.bSourceDecoderInvoked);
 
-	Durin::Asset::FCookContext Second(
+	Durin::FCookContext Second(
 		SecondCookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
-	Durin::Asset::FCookContext Diagnostic(
+	Durin::FCookContext Diagnostic(
 		DiagnosticCookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game,
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game,
 		true);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Diagnostic, Error)) << Error;
 	ASSERT_TRUE(Diagnostic.Publish(&Error)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
@@ -276,8 +276,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FCanonicalMemoryReader PayloadAr(
 		FirstBulk, Durin::EArchivePurpose::CookedPayload);
 	DecodedPlatformData.Serialize(PayloadAr, {
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game});
 	ASSERT_FALSE(PayloadAr.HasError()) << PayloadAr.GetError();
 	ASSERT_TRUE(Durin::RequireArchiveEnd(PayloadAr));
 	ExpectPlatformDataEqual(DecodedPlatformData, ExpectedPlatformData);
@@ -299,12 +299,12 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	RestartAssetManager(CookRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
-	const Durin::Asset::FAssetCatalogEntry CookedAssetData =
-		Durin::Asset::FindAssetExact(CookedPath);
+	const Durin::FAssetCatalogEntry CookedAssetData =
+		Durin::FindAssetExact(CookedPath);
 	ASSERT_NE(CookedAssetData, nullptr);
 	ASSERT_EQ(CookedAssetData->TopLevelAssets.size(), 1u);
 	const Durin::FTopLevelAssetPath CookedAssetPath =
@@ -324,8 +324,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
 	Durin::DTexture2D* CookedTexture = nullptr;
-	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadObject(CookedAssetPath, CookedTexture);
+	const Durin::FAssetResult LoadResult =
+		Durin::LoadObject(CookedAssetPath, CookedTexture);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(CookedTexture, nullptr);
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
@@ -472,7 +472,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;
 	RestartAssetManager();
 	struct FRetireCookedTextureResource
@@ -492,27 +492,27 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	RestartAssetManager(CookRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	const Durin::Asset::FAssetCatalogRefreshResult MissingBulkRefresh =
-		Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	const Durin::FAssetCatalogRefreshResult MissingBulkRefresh =
+		Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation);
 	EXPECT_FALSE(MissingBulkRefresh);
 	EXPECT_TRUE(std::ranges::any_of(
 		MissingBulkRefresh.Errors,
-		[](const Durin::Asset::FAssetRegistryResult& Result) {
+		[](const Durin::FAssetRegistryResult& Result) {
 			return Result.Message.find("bulk binding") != std::string::npos;
 		}));
 
 	RestartAssetManager(CorruptRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CorruptRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	const Durin::Asset::FAssetResult CorruptBulkLoad =
-		Durin::Asset::LoadObject(CookedAssetPath, CookedTexture);
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
+	const Durin::FAssetResult CorruptBulkLoad =
+		Durin::LoadObject(CookedAssetPath, CookedTexture);
 	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);
 	EXPECT_NE(CorruptBulkLoad.Message.find("bulk segment"), std::string::npos)
 		<< CorruptBulkLoad.Message;
-	Durin::Asset::ShutdownAssetManager();
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 }

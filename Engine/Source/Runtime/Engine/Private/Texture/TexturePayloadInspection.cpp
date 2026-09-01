@@ -50,33 +50,33 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto ReadScalar(const Asset::FAssetPackageInspection& Package,
+		auto ReadScalar(const FAssetPackageInspection& Package,
 			std::string_view Name, T& OutValue) -> bool
 		{
-			const Asset::FAssetPackageField* Field = Package.FindField(Name);
+			const FAssetPackageField* Field = Package.FindField(Name);
 			return Field && Field->TryReadScalar(OutValue);
 		}
 
-		auto FindField(const std::vector<Asset::FAssetPackageField>& Fields,
-			std::string_view Name) -> const Asset::FAssetPackageField*
+		auto FindField(const std::vector<FAssetPackageField>& Fields,
+			std::string_view Name) -> const FAssetPackageField*
 		{
 			const auto It = std::ranges::find(Fields, Name,
-				&Asset::FAssetPackageField::Name);
+				&FAssetPackageField::Name);
 			return It == Fields.end() ? nullptr : &*It;
 		}
 
 		template<typename T>
-		auto ReadScalar(const std::vector<Asset::FAssetPackageField>& Fields,
+		auto ReadScalar(const std::vector<FAssetPackageField>& Fields,
 			std::string_view Name, T& OutValue) -> bool
 		{
-			const Asset::FAssetPackageField* Field = FindField(Fields, Name);
+			const FAssetPackageField* Field = FindField(Fields, Name);
 			return Field && Field->TryReadScalar(OutValue);
 		}
 
-		auto MakeCookedFieldEntry(std::string Domain, const Asset::FBulkData& Field)
+		auto MakeCookedFieldEntry(std::string Domain, const FBulkData& Field)
 			-> FTexturePayloadInspectionEntry
 		{
-			const Asset::FBulkDataMetadata Metadata = Field.GetMetadata();
+			const FBulkDataMetadata Metadata = Field.GetMetadata();
 			const bool bPresent = Metadata.LogicalSize != 0;
 			return {
 				.Domain = std::move(Domain),
@@ -88,7 +88,7 @@ namespace Durin
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.LogicalByteCount = Metadata.LogicalSize,
 				.StoredByteCount = Metadata.Range.StoredSize,
-				.Placement = Field.GetState() == Asset::EBulkDataState::Attached
+				.Placement = Field.GetState() == EBulkDataState::Attached
 					? "PackageBulkRange" : "CookProjection",
 				.Diagnostic = bPresent
 					? "Cooked TXPL is stored as a package BulkData field."
@@ -96,10 +96,10 @@ namespace Durin
 		}
 
 		auto MakeInspectedCookedFieldEntry(
-			std::string Domain, const Asset::FAssetPackageField* Field)
+			std::string Domain, const FAssetPackageField* Field)
 			-> FTexturePayloadInspectionEntry
 		{
-			Asset::FEditorBulkDataStorageDescriptor Descriptor;
+			FEditorBulkDataStorageDescriptor Descriptor;
 			const bool bPresent = Field
 				&& Field->TryReadBulkDataStorageDescriptor(Descriptor);
 			return {
@@ -114,7 +114,7 @@ namespace Durin
 				.StoredByteCount = bPresent ? Descriptor.StoredByteCount : 0,
 				.PayloadId = bPresent ? Descriptor.PayloadId : FGuid{},
 				.Placement = bPresent
-					? (Descriptor.StorageKind == Asset::EEditorBulkDataStorageKind::External
+					? (Descriptor.StorageKind == EEditorBulkDataStorageKind::External
 						? "PackageBulkRange" : "PackageInlineBulk")
 					: "PackageBulkField",
 				.Diagnostic = bPresent
@@ -158,7 +158,7 @@ namespace Durin
 		}
 	}
 
-	auto InspectTexturePayloadPackage(const Asset::FAssetPackageInspection& Package,
+	auto InspectTexturePayloadPackage(const FAssetPackageInspection& Package,
 		FTexturePayloadInspection& OutInspection, std::string* OutError) -> bool
 	{
 		OutInspection = {.bConstructFree = true};
@@ -209,8 +209,8 @@ namespace Durin
 		}
 		else if (Package.Header.AssetClassName == VolumeClass)
 		{
-			const Asset::FAssetPackageField* SourceField = Package.FindField("SourceData");
-			std::vector<Asset::FAssetPackageField> SourceFields;
+			const FAssetPackageField* SourceField = Package.FindField("SourceData");
+			std::vector<FAssetPackageField> SourceFields;
 			const bool bReadable = SourceField
 				&& SourceField->TryInspectStructFields(SourceFields);
 			uint32 Width = 0, Height = 0, Depth = 0, SchemaVersion = 0;
@@ -221,8 +221,8 @@ namespace Durin
 				ReadScalar(SourceFields, "Depth", Depth);
 				ReadScalar(SourceFields, "PayloadSchemaVersion", SchemaVersion);
 			}
-			Asset::FEditorBulkDataStorageDescriptor Descriptor;
-			const Asset::FAssetPackageField* VoxelsField = FindField(SourceFields, "Voxels");
+			FEditorBulkDataStorageDescriptor Descriptor;
+			const FAssetPackageField* VoxelsField = FindField(SourceFields, "Voxels");
 			const bool bHasDescriptor = VoxelsField
 				&& VoxelsField->TryReadEditorBulkDataStorageDescriptor(Descriptor);
 			ETexturePayloadState SourceState = bHasDescriptor
@@ -235,7 +235,7 @@ namespace Durin
 				: "Editor source metadata or storage descriptor is malformed.";
 			std::string Placement = "EditorPackageInline";
 			if (bHasDescriptor
-				&& Descriptor.StorageKind == Asset::EEditorBulkDataStorageKind::External)
+				&& Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
@@ -243,7 +243,7 @@ namespace Durin
 				std::string StorageError;
 				std::vector<std::filesystem::path> CompanionPaths;
 				if (Package.PhysicalPath.empty()
-					|| !Asset::InspectEditorBulkDataCompanionPaths(
+					|| !InspectEditorBulkDataCompanionPaths(
 						Package.PhysicalPath, Package, CompanionPaths, &StorageError)
 					|| CompanionPaths.empty()
 					|| (CompanionPath = CompanionPaths.front()).empty()
@@ -277,7 +277,7 @@ namespace Durin
 			std::vector<std::filesystem::path> Orphans;
 			std::string OrphanError;
 			if (!Package.PhysicalPath.empty()
-				&& Asset::InspectOrphanedEditorBulkDataCompanionPaths(
+				&& InspectOrphanedEditorBulkDataCompanionPaths(
 					Package.PhysicalPath, Package, Orphans, &OrphanError)
 				&& !Orphans.empty())
 				OutInspection.Entries.push_back({
@@ -342,7 +342,7 @@ namespace Durin
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
-			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			Cooked.State = ETexturePayloadState::Missing;
 			Cooked.Repair = ETexturePayloadRepairAction::Recook;
@@ -407,7 +407,7 @@ namespace Durin
 		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
 			"VolumeTexture", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
-			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			Cooked.State = ETexturePayloadState::Missing;
 			Cooked.Repair = ETexturePayloadRepairAction::Recook;

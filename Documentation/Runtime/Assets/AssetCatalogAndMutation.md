@@ -1,6 +1,6 @@
 # Asset Catalog And Mutation
 
-Summary: Define mounted package discovery, immutable catalog and reference projections, and transactional asset relocation, deletion, and path fix-up.
+Summary: Define mounted package discovery, rebuildable catalog/reference projections, forward-only asset jobs, and irreversible deletion.
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
@@ -30,9 +30,10 @@ header fallback.
 Schema, package-format, serialization, mount-manifest, or snapshot corruption
 causes a nonfatal rebuild. Full validation bypasses fingerprint reuse but keeps
 the same front-matter boundary; it does not read export/value payloads.
-Successful mutation prepares a complete
-replacement in Engine and publishes it through AssetRegistry with an expected
-prior revision. Public callers receive
+Engine publishes path-scoped `FAssetRegistryDelta` Add, Replace, Remove, and
+reference-invalidation sets against an expected revision. Final metadata and
+reference facts are derived at this boundary from committed package artifacts;
+affected paths may be fenced while a failed projection is reconciled. Public callers receive
 owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
 never pointers into mutable storage.
 
@@ -46,13 +47,19 @@ Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
 discovery values and immutable queries, `AssetRegistry/References.h` owns the
 reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
 lifecycle, `Asset/Load.h` owns runtime resolution and residency,
-`Asset/Mutation.h` owns asset-mutation transactions, and `Asset/Testing.h` owns
+`Asset/Mutation.h` owns forward-only asset jobs, and `Asset/Testing.h` owns
 Engine's deterministic failure seams.
 Runtime and offline consumers include these capability headers directly; the
 former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
 aggregate entry points are defined by
 [Asset Packages](AssetPackages.md#public-capability-boundary). There is no
 public mutable catalog manager.
+
+AssetRegistry and Engine asset APIs live directly in the `Durin` namespace.
+Their domain is expressed by names such as `FAssetResult`, `FindAssetExact`,
+`RefreshAssetRegistry`, `LoadObject`, and `SavePackage`; there is no redundant
+public `Durin::Asset` namespace. File-private and cross-file implementation
+details use `Durin::AssetPrivate` when they require a shared internal scope.
 
 ## Result And Diagnostic Boundary
 
@@ -119,59 +126,69 @@ AssetRegistry owns persistent package discovery, bounded header projection,
 immutable package metadata and dependency snapshots, their revisions, and the
 single rebuildable registry cache. Engine owns package bytes and writing, exact
 on-demand package inspection, object
-construction and residency, Cook, graph copying, publication preparation, and
-opaque mutation transactions.
-`IAssetTools` owns reusable editor acceptance, typed terminal and persistence
-results, history retention, cleanup, and one completion publication. Editor
-hosts own UI and presentation; ContentBrowser additionally owns recursive
-ordinary-file planning and physical stage/restore for mixed deletion.
-Successful transaction Execute, Undo, and Redo each advance DurinEd's
-mounted-content mutation revision exactly once; rejected or compensated
-attempts publish none.
+construction and residency, Cook, graph copying, bounded artifact publication,
+and forward-only mutation jobs.
+`IAssetTools` owns reusable editor acceptance, typed terminal/persistence
+results, and one completion publication. Editor hosts own UI and presentation;
+ContentBrowser additionally owns recursive ordinary-file planning and permanent
+physical deletion for mixed selections. Successful authored operations advance
+DurinEd's mounted-content mutation revision exactly once and never enter the
+global object-edit Undo/Redo history.
 
-## Relocation Transactions
+## Relocation Jobs
 
-Relocation is atomic and batched even for one mapping. Preparation captures the
-catalog revision, exact participant fingerprints, resident state, generated
-redirectors, and owned payload moves behind an opaque transaction. `Commit`,
-`Undo`, and `Redo` revalidate and journal the operation; callers cannot publish
-individual phases.
+Relocation is batched even for one mapping. Preparation captures the catalog
+revision, exact participant fingerprints, resident finalizers, destination
+artifacts, source redirectors, and owned payload moves behind an opaque job.
+`ResumeForward` is the only execution direction. It publishes destinations and
+owned payloads before source redirectors, persists progress at each boundary,
+and is idempotent across ordinary retry.
 
 Moving package `A -> B` retains one redirect record for each moved top-level
-asset and preserves every asset name and descendant suffix. A later move
-retargets upstream exact aliases directly to the final object path; reclaiming
-an alias requires exact proof that it denotes the same real asset. Relocation
-does not invent a package-leaf asset selection.
+asset and preserves every asset name and descendant suffix. Relocation does not
+compress unrelated upstream aliases; canonicalization belongs exclusively to
+Fix Up. Reclaiming a destination alias requires exact proof that it resolves to
+the selected real source.
 
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
 v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
-Directory bind a nonempty external segment. Relocation, duplication, deletion,
-Undo, Redo, and recovery journal that companion with the `.dasset`. Atomic
+Directory bind a nonempty external segment. Relocation, duplication, Save, and
+forward recovery publish that companion with the `.dasset`. Atomic
 temporaries and `.durin-backup` files are recovery state and never mutation
 participants.
 
-Stale tokens, read-only participants, collisions, staging failures, and
-publication failures either leave authority unchanged or compensate in reverse
-order. Failed compensation retains a recovery-required journal beneath affected
-content mounts. The journal records staged paths, pre/post fingerprints,
-publication order, and completed/compensated state.
+Stale jobs, read-only participants, collisions, and preparation failures leave
+authority unchanged. After the first authoritative publication, failures retain
+durable forward progress; `RecoveryRequired` is reserved for uncertain authored
+artifacts or independent stores. Registry-only lag returns
+`ContentCommittedProjectionPending`, fences affected paths, and never rolls back
+valid package bytes.
+
+`FAssetResult` carries mutation disposition separately from its diagnostic error
+code. Forward-pending, projection-pending, and recovery-required results are
+therefore consumed structurally rather than inferred from message text. Durable
+jobs also return their operation id, desired direction, and recovery location
+when those values exist; diagnostic messages remain presentation data.
 
 ## Deletion And Fix-Up
 
 Deletion never rewrites persistent paths. Preparation evaluates the selected
 target, complete direct/upstream alias closure, unified reference projection,
 registered external stores, residency, and exact files. Alias-only deletion,
-broken aliases, and incomplete alias closure are blocked. Soft and external
-references warn that authored paths will dangle. Commit, Undo, and Redo retain
-enough exact metadata to restore redirectors and catalog state.
+broken aliases, incomplete alias closure, dirty/loading packages, unsafe paths,
+and changed fingerprints are blocked. After confirmation, maximal roots are
+permanently removed and no Engine recovery copy, Undo record, Restore command,
+or reverse callback is retained. Recovery belongs to version control. A partial
+I/O failure remains forward-only and fences stale Registry paths for retry.
 
-Fix Up is the only path-canonicalizing asset-mutation transaction. It rewrites
+Fix Up is the only path-canonicalizing asset-mutation job. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens
 package-level candidates to verify that no exact incoming occurrence remains,
 and may then delete proven aliases. Exact occurrences remain transient Engine
-tooling data throughout the transaction.
-Dirty, incompatible, read-only, incomplete, stale, or failed participants leave
-valid redirectors in place and restore published changes.
+tooling data throughout the job.
+Dirty, incompatible, read-only, incomplete, or stale participants block before
+mutation. Later participant failures retain verified rewrites and valid
+redirectors; a later invocation resumes remaining forward work.
 
 Owned-payload relocators, deletion companions, persistent external reference
 stores, and committed-only observers register through scoped handles that retain

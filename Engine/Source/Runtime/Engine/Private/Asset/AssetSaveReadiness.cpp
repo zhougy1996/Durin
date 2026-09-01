@@ -5,10 +5,10 @@
 namespace Durin
 {
 	auto ValidateAssetSaveReadiness(const DObject* Asset)
-		-> Asset::FAssetResult
+		-> FAssetResult
 	{
 		if (!Asset)
-			return {Asset::EAssetError::InvalidObjectGraph,
+			return {EAssetError::InvalidObjectGraph,
 				"Asset save-readiness requires an exact loaded asset."};
 
 		const auto Invoked = FModularFeatureRegistry::Get().InvokeAll<
@@ -16,18 +16,18 @@ namespace Durin
 			[&](IAssetSaveReadinessFeature& Feature) {
 				return Feature.Validate(*Asset);
 			});
-		std::optional<Asset::FAssetResult> Handled;
+		std::optional<FAssetResult> Handled;
 		for (const auto& Invocation : Invoked.Invocations)
 		{
 			if (Invocation.Status != EFeatureInvokeStatus::Invoked || !Invocation.Value)
-				return {Asset::EAssetError::StaleData,
+				return {EAssetError::StaleData,
 					"An asset save-readiness provider failed."};
 			if (!Invocation.Value->bHandled) continue;
 			if (Handled)
-				return {Asset::EAssetError::StaleData,
+				return {EAssetError::StaleData,
 					"Asset save-readiness ownership is ambiguous."};
 			Handled = Invocation.Value->Result;
 		}
-		return Handled.value_or(Asset::FAssetResult{});
+		return Handled.value_or(FAssetResult{});
 	}
 }

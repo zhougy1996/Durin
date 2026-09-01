@@ -23,7 +23,7 @@ namespace Durin
 		1024ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
 
-	namespace Asset { class FStaticMeshBuildOperations; }
+	class FStaticMeshBuildOperations;
 	class DBodySetup;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
@@ -118,7 +118,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Geometry;
+		FEditorBulkData Geometry;
 
 		DPROPERTY()
 		uint32 MaterialSlotCount = 0;
@@ -247,14 +247,14 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
 		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
-		auto GetCookedRenderData() const -> const Asset::FBulkData& { return CookedRenderData; }
-		auto GetCookedCollisionData() const -> const Asset::FBulkData& { return CookedCollisionData; }
+		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
+		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -370,8 +370,8 @@ namespace Durin
 		TObjectPtr<DBodySetup> BodySetup;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		Asset::FBulkData CookedRenderData;
-		Asset::FBulkData CookedCollisionData;
+		FBulkData CookedRenderData;
+		FBulkData CookedCollisionData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
 		FRenderCommandFence ReleaseResourcesFence;
 		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(
@@ -380,7 +380,7 @@ namespace Durin
 		std::atomic<uint64> CookedLoadGeneration{1};
 
 		friend class FStaticMeshImportedStateExchange;
-		friend class Asset::FStaticMeshBuildOperations;
+		friend class FStaticMeshBuildOperations;
 	};
 
 	class ENGINE_API FStaticMeshImportedStateExchange
@@ -406,13 +406,4 @@ namespace Durin
 		friend class DStaticMesh;
 	};
 
-}
-
-namespace Durin::Asset
-{
-	inline constexpr uint32 MaximumStaticMeshImportedUVChannels =
-		::Durin::MaximumStaticMeshImportedUVChannels;
-	using FStaticMeshImportedMaterialSlot = ::Durin::FStaticMeshImportedMaterialSlot;
-	using FStaticMeshImportedMesh = ::Durin::FStaticMeshImportedMesh;
-	using FStaticMeshImportedData = ::Durin::FStaticMeshImportedData;
 }

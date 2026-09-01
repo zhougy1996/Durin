@@ -421,7 +421,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineMeshActorEditing/Transactions", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
 	Actor->SetPathMesh(Durin::DStaticMesh::CreateDebugTriangle(Level));
@@ -470,7 +470,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
 	EXPECT_TRUE(Error.empty());
 	Transactions->Reset();
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Level->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
@@ -487,7 +487,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineV2Tests/RoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::AActor* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Path"));
 	ASSERT_NE(Spline, nullptr);
@@ -502,11 +502,11 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	Spline->SetClosedLoop(true);
 	const double SavedLength = Spline->GetLocalSplineLength();
 	const Durin::FGuid SavedId = Spline->GetSplinePoint(1)->Id;
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
 
 	Durin::DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Durin::Cast<Durin::DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedSpline = LoadedLevel->FindActorByName("SplineActor")->FindComponentByClass<Durin::DSplineComponent>();
@@ -516,5 +516,5 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	EXPECT_NEAR(LoadedSpline->GetLocalSplineLength(), SavedLength, 1.e-8);
 	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->Id, SavedId);
 	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->TangentMode, Durin::ESplineTangentMode::AutomaticClamped);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }

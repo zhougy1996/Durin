@@ -7,7 +7,7 @@
 
 namespace Durin::AssetForge::Builtins::Private
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	constexpr float TransformDeterminantTolerance = 1.0e-8f;
 
 	auto ToAssimpMatrix(const FMatrix4f& Matrix) -> aiMatrix4x4

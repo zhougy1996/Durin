@@ -17,8 +17,8 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ViewportTests/NavigationDirty", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
 
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
@@ -30,7 +30,7 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	Input.MouseDelta = {20.0f, -10.0f};
 	Client.Update(Level, nullptr, Input);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 
 TEST(FBoxTests, AccumulatesFinitePointsAndResets)

@@ -18,7 +18,7 @@ namespace Durin::Editor
 		struct FNotice
 		{
 			uint64 Serial = 0;
-			std::optional<Asset::FAssetPackageCompatibilityRecord> Record;
+			std::optional<FAssetPackageCompatibilityRecord> Record;
 		};
 
 		struct FTerminalSummary
@@ -29,8 +29,8 @@ namespace Durin::Editor
 			std::string Failure;
 		};
 
-		auto MakeNotCheckedRecord(const Asset::FAssetData& Data)
-			-> Asset::FAssetPackageCompatibilityRecord
+		auto MakeNotCheckedRecord(const FAssetData& Data)
+			-> FAssetPackageCompatibilityRecord
 		{
 			return {
 				.PackagePath = Data.PackagePath,
@@ -39,15 +39,15 @@ namespace Durin::Editor
 					.FileSize = Data.FileSize,
 					.LastWriteTimeTicks = Data.LastWriteTimeTicks,
 				},
-				.Inspection = Asset::EAssetCompatibilityInspection::NotChecked,
-				.Compatibility = Asset::EAssetPackageCompatibility::Unsupported,
-				.Freshness = Asset::EAssetCompatibilityFreshness::Current,
+				.Inspection = EAssetCompatibilityInspection::NotChecked,
+				.Compatibility = EAssetPackageCompatibility::Unsupported,
+				.Freshness = EAssetCompatibilityFreshness::Current,
 			};
 		}
 	}
 
 	auto MatchesAssetCompatibilityAuditFilter(
-		const Asset::FAssetPackageCompatibilityRecord& Record,
+		const FAssetPackageCompatibilityRecord& Record,
 		EAssetCompatibilityAuditFilter Filter) -> bool
 	{
 		switch (Filter)
@@ -55,22 +55,22 @@ namespace Durin::Editor
 		case EAssetCompatibilityAuditFilter::All: return true;
 		case EAssetCompatibilityAuditFilter::Issues: return !Record.Findings.empty();
 		case EAssetCompatibilityAuditFilter::Incompatible:
-			return Record.Compatibility == Asset::EAssetPackageCompatibility::Incompatible;
+			return Record.Compatibility == EAssetPackageCompatibility::Incompatible;
 		case EAssetCompatibilityAuditFilter::Unsupported:
-			return Record.Compatibility == Asset::EAssetPackageCompatibility::Unsupported
-				&& Record.Inspection != Asset::EAssetCompatibilityInspection::NotChecked;
+			return Record.Compatibility == EAssetPackageCompatibility::Unsupported
+				&& Record.Inspection != EAssetCompatibilityInspection::NotChecked;
 		case EAssetCompatibilityAuditFilter::Failed:
-			return Record.Inspection == Asset::EAssetCompatibilityInspection::Failed;
+			return Record.Inspection == EAssetCompatibilityInspection::Failed;
 		case EAssetCompatibilityAuditFilter::Stale:
-			return Record.Freshness == Asset::EAssetCompatibilityFreshness::Stale;
+			return Record.Freshness == EAssetCompatibilityFreshness::Stale;
 		case EAssetCompatibilityAuditFilter::NotChecked:
-			return Record.Inspection == Asset::EAssetCompatibilityInspection::NotChecked;
+			return Record.Inspection == EAssetCompatibilityInspection::NotChecked;
 		}
 		return true;
 	}
 
 	auto MatchesAssetCompatibilityAuditSearch(
-		const Asset::FAssetPackageCompatibilityRecord& Record,
+		const FAssetPackageCompatibilityRecord& Record,
 		std::string_view SearchText) -> bool
 	{
 		const std::string LowerSearch = LowerCopy(SearchText);
@@ -78,7 +78,7 @@ namespace Durin::Editor
 		if (ContainsSearch(Record.PackagePath.GetView(), LowerSearch)
 			|| ContainsSearch(Record.PhysicalPath, LowerSearch)) return true;
 		for (const auto& Finding : Record.Findings)
-			if (ContainsSearch(Asset::AssetCompatibilityFindingCodeName(Finding.Code), LowerSearch)
+			if (ContainsSearch(AssetCompatibilityFindingCodeName(Finding.Code), LowerSearch)
 				|| ContainsSearch(Finding.ObjectPath, LowerSearch)
 				|| ContainsSearch(Finding.ClassIdentity, LowerSearch)
 				|| ContainsSearch(Finding.DeclaringType, LowerSearch)
@@ -100,50 +100,50 @@ namespace Durin::Editor
 	}
 
 	auto CountAssetCompatibilityAuditRecords(
-		std::span<const Asset::FAssetPackageCompatibilityRecord> Records)
+		std::span<const FAssetPackageCompatibilityRecord> Records)
 		-> FAssetCompatibilityAuditCounts
 	{
 		FAssetCompatibilityAuditCounts Counts;
 		for (const auto& Record : Records)
 		{
-			Counts.Compatible += Record.Inspection == Asset::EAssetCompatibilityInspection::Ready
-				&& Record.Compatibility == Asset::EAssetPackageCompatibility::Compatible;
-			Counts.Incompatible += Record.Compatibility == Asset::EAssetPackageCompatibility::Incompatible;
-			Counts.Unsupported += Record.Inspection != Asset::EAssetCompatibilityInspection::NotChecked
-				&& Record.Compatibility == Asset::EAssetPackageCompatibility::Unsupported;
-			Counts.Failed += Record.Inspection == Asset::EAssetCompatibilityInspection::Failed;
-			Counts.Stale += Record.Freshness == Asset::EAssetCompatibilityFreshness::Stale;
-			Counts.NotChecked += Record.Inspection == Asset::EAssetCompatibilityInspection::NotChecked;
+			Counts.Compatible += Record.Inspection == EAssetCompatibilityInspection::Ready
+				&& Record.Compatibility == EAssetPackageCompatibility::Compatible;
+			Counts.Incompatible += Record.Compatibility == EAssetPackageCompatibility::Incompatible;
+			Counts.Unsupported += Record.Inspection != EAssetCompatibilityInspection::NotChecked
+				&& Record.Compatibility == EAssetPackageCompatibility::Unsupported;
+			Counts.Failed += Record.Inspection == EAssetCompatibilityInspection::Failed;
+			Counts.Stale += Record.Freshness == EAssetCompatibilityFreshness::Stale;
+			Counts.NotChecked += Record.Inspection == EAssetCompatibilityInspection::NotChecked;
 		}
 		return Counts;
 	}
 
 	auto FormatAssetCompatibilityAuditDiagnostics(
-		const Asset::FAssetPackageCompatibilityRecord& Record) -> std::string
+		const FAssetPackageCompatibilityRecord& Record) -> std::string
 	{
-		auto Inspection = [](Asset::EAssetCompatibilityInspection Value) -> std::string_view {
+		auto Inspection = [](EAssetCompatibilityInspection Value) -> std::string_view {
 			switch (Value)
 			{
-			case Asset::EAssetCompatibilityInspection::NotChecked: return "Not checked";
-			case Asset::EAssetCompatibilityInspection::Ready: return "Ready";
-			case Asset::EAssetCompatibilityInspection::Failed: return "Failed";
+			case EAssetCompatibilityInspection::NotChecked: return "Not checked";
+			case EAssetCompatibilityInspection::Ready: return "Ready";
+			case EAssetCompatibilityInspection::Failed: return "Failed";
 			}
 			return "Unknown";
 		};
-		auto Compatibility = [](Asset::EAssetPackageCompatibility Value) -> std::string_view {
+		auto Compatibility = [](EAssetPackageCompatibility Value) -> std::string_view {
 			switch (Value)
 			{
-			case Asset::EAssetPackageCompatibility::Compatible: return "Compatible";
-			case Asset::EAssetPackageCompatibility::Incompatible: return "Incompatible";
-			case Asset::EAssetPackageCompatibility::Unsupported: return "Unsupported";
+			case EAssetPackageCompatibility::Compatible: return "Compatible";
+			case EAssetPackageCompatibility::Incompatible: return "Incompatible";
+			case EAssetPackageCompatibility::Unsupported: return "Unsupported";
 			}
 			return "Unknown";
 		};
 		std::string Text = std::format("{}: {} / {} / {}", Record.PackagePath.ToString(),
 			Inspection(Record.Inspection), Compatibility(Record.Compatibility),
-			Record.Freshness == Asset::EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
+			Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
 		for (const auto& Finding : Record.Findings)
-			Text += std::format("\n[{}] {}", Asset::AssetCompatibilityFindingCodeName(Finding.Code), Finding.Diagnostic);
+			Text += std::format("\n[{}] {}", AssetCompatibilityFindingCodeName(Finding.Code), Finding.Diagnostic);
 		for (const auto& Evidence : Record.CanonicalizationEvidence)
 			Text += std::format("\n[CanonicalResaveRecommended] {}: {} -> {}",
 				Evidence.LogicalPath, Evidence.StoredIdentity, Evidence.CurrentIdentity);
@@ -154,7 +154,7 @@ namespace Durin::Editor
 	}
 
 	auto FormatAssetCompatibilityAuditReport(
-		std::span<const Asset::FAssetPackageCompatibilityRecord> Records) -> std::string
+		std::span<const FAssetPackageCompatibilityRecord> Records) -> std::string
 	{
 		std::string Report;
 		for (const auto& Record : Records)
@@ -184,10 +184,10 @@ namespace Durin::Editor
 		PublicationLifetime->Model = this;
 		if (!Probe)
 		{
-			Probe = [](const Asset::FAssetPackageCompatibilityProbeInput& Input,
-				const Asset::FReflectionCompatibilityCatalog& Catalog,
-				const Asset::FAssetCompatibilityCancellationCheck& IsCancelled) {
-				return Asset::ProbeAssetPackageCompatibility(Input, Catalog, IsCancelled);
+			Probe = [](const FAssetPackageCompatibilityProbeInput& Input,
+				const FReflectionCompatibilityCatalog& Catalog,
+				const FAssetCompatibilityCancellationCheck& IsCancelled) {
+				return ProbeAssetPackageCompatibility(Input, Catalog, IsCancelled);
 			};
 		}
 	}
@@ -200,13 +200,13 @@ namespace Durin::Editor
 
 	auto FAssetCompatibilityAuditModel::RunCurrentProjectAudit() -> bool
 	{
-		return RunAudit(Asset::CaptureAssetCatalogSnapshot().Assets,
-			Asset::FReflectionCompatibilityCatalog::Capture());
+		return RunAudit(CaptureAssetCatalogSnapshot().Assets,
+			FReflectionCompatibilityCatalog::Capture());
 	}
 
 	auto FAssetCompatibilityAuditModel::RunAudit(
-		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets,
-		Asset::FReflectionCompatibilityCatalog Catalog) -> bool
+		const std::unordered_map<FPackagePath, FAssetData>& Assets,
+		FReflectionCompatibilityCatalog Catalog) -> bool
 	{
 		if (!bAdmissionOpen) return false;
 		CancelAndDrain();
@@ -215,7 +215,7 @@ namespace Durin::Editor
 		Generation.Advance();
 		Progress = {.Completed = 0, .Total = Assets.size()};
 		Records.clear();
-		std::vector<Asset::FAssetPackageCompatibilityProbeInput> Inputs;
+		std::vector<FAssetPackageCompatibilityProbeInput> Inputs;
 		Inputs.reserve(Assets.size());
 		for (const auto& [Path, Data] : Assets)
 		{
@@ -249,16 +249,16 @@ namespace Durin::Editor
 				uint64 ProcessedPackageCount = 0;
 				try
 				{
-					const auto Result = Asset::RunAssetCompatibilityAudit(
+					const auto Result = RunAssetCompatibilityAudit(
 						Inputs, Catalog,
 						[&Token] { return Token.IsCancellationRequested(); },
-						[&](const Asset::FAssetPackageCompatibilityRecord& Record,
+						[&](const FAssetPackageCompatibilityRecord& Record,
 							uint64 Completed, uint64) {
 							ProcessedPackageCount = Completed;
 							Queue({.Serial = Serial, .Record = Record});
 						},
 						WorkerProbe);
-					if (Result.Status == Asset::EAssetCompatibilityAuditStatus::Cancelled)
+					if (Result.Status == EAssetCompatibilityAuditStatus::Cancelled)
 						return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
 							.State = EAssetCompatibilityAuditState::Cancelled};
 					return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
@@ -385,13 +385,13 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::ReconcileAssetCatalog(
-		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
 	{
 		Reconcile(Assets);
 	}
 
 	auto FAssetCompatibilityAuditModel::Tick(
-		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
 	{
 		Tick();
 		ReconcileAssetCatalog(Assets);
@@ -443,7 +443,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::Reconcile(
-		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, FAssetData>& Assets) -> void
 	{
 		bool bPresentationChanged = std::erase_if(
 			Records, [&](const auto& Entry) { return !Assets.contains(Entry.first); }) != 0;
@@ -457,7 +457,7 @@ namespace Durin::Editor
 				continue;
 			}
 			auto& Record = It->second;
-			if (Record.Inspection == Asset::EAssetCompatibilityInspection::NotChecked)
+			if (Record.Inspection == EAssetCompatibilityInspection::NotChecked)
 			{
 				if (Record.PhysicalPath != Data.PhysicalPath
 					|| Record.Fingerprint.FileSize != Data.FileSize
@@ -468,10 +468,10 @@ namespace Durin::Editor
 				}
 				continue;
 			}
-			const auto Freshness = Asset::IsAssetPackageCompatibilityRecordCurrent(
+			const auto Freshness = IsAssetPackageCompatibilityRecordCurrent(
 				Record, Data.FileSize, Data.LastWriteTimeTicks)
-				? Asset::EAssetCompatibilityFreshness::Current
-				: Asset::EAssetCompatibilityFreshness::Stale;
+				? EAssetCompatibilityFreshness::Current
+				: EAssetCompatibilityFreshness::Stale;
 			if (Record.Freshness != Freshness)
 			{
 				Record.Freshness = Freshness;
@@ -482,7 +482,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::GetPresentationRecords() const
-		-> const std::vector<Asset::FAssetPackageCompatibilityRecord>&
+		-> const std::vector<FAssetPackageCompatibilityRecord>&
 	{
 		if (CachedPresentationRevision != PresentationRevision)
 		{
@@ -503,7 +503,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::FindRecord(const FPackagePath& Path) const
-		-> const Asset::FAssetPackageCompatibilityRecord*
+		-> const FAssetPackageCompatibilityRecord*
 	{
 		const auto It = Records.find(Path);
 		return It == Records.end() ? nullptr : &It->second;

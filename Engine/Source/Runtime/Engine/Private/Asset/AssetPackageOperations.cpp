@@ -31,7 +31,7 @@
 #include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -159,20 +159,18 @@ namespace Durin::Asset
 		return true;
 	}
 
-	using Private::FAssetReferenceStoreRegistry;
-	using Private::GetAssetReferenceStoreRegistry;
-	using Private::EAssetMutationState;
-	using Private::FAssetMutationJournal;
-	using Private::FAssetMutationJournalEntry;
-	using Private::FingerprintRelocationFile;
-	using Private::LoadRelocationBytes;
-	using Private::MakePackageFingerprint;
-	using Private::NormalizePhysicalPath;
-	using Private::PublishRelocationFile;
-	using Private::RebuildReferenceProjectionForPublishedEntries;
-	using Private::SaveRelocationBytes;
-	using Private::WriteMutationJournalState;
-	using Private::AssetReferenceLess;
+	using AssetPrivate::FAssetReferenceStoreRegistry;
+	using AssetPrivate::GetAssetReferenceStoreRegistry;
+	using AssetPrivate::EAssetMutationState;
+	using AssetPrivate::FAssetMutationJournal;
+	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FingerprintRelocationFile;
+	using AssetPrivate::LoadRelocationBytes;
+	using AssetPrivate::MakePackageFingerprint;
+	using AssetPrivate::NormalizePhysicalPath;
+	using AssetPrivate::PublishRelocationFile;
+	using AssetPrivate::SaveRelocationBytes;
+	using AssetPrivate::WriteMutationJournalState;
 
 	namespace
 	{
@@ -221,13 +219,13 @@ namespace Durin::Asset
 			return {EAssetError::CorruptFile,
 				"Asset resolution returned an unknown state."};
 		}
-		using Private::MaximumPackageStringBytes;
-		using Private::FByteReader;
-		using Private::FByteWriter;
-		using Private::GetSerializedTypeSignature;
-		using Private::IsSerializedTypeSignatureCompatible;
+		using AssetPrivate::MaximumPackageStringBytes;
+		using AssetPrivate::FByteReader;
+		using AssetPrivate::FByteWriter;
+		using AssetPrivate::GetSerializedTypeSignature;
+		using AssetPrivate::IsSerializedTypeSignatureCompatible;
 		constexpr uint32 MaximumRedirectDepth = 32;
-		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
+		constexpr std::string_view RedirectorClassName = "Durin::DAssetRedirector";
 
 		struct FFileByteReader
 		{
@@ -332,8 +330,8 @@ namespace Durin::Asset
 			std::span<const std::byte> BulkBytes, const FPackagePath& PackagePath)
 			-> FAssetResult
 		{
-			const Private::FAssetPackageCodec* Codec = nullptr;
-			if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 				return Result;
 			return Codec->Validate({.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()});
@@ -622,7 +620,7 @@ namespace Durin::Asset
 			uint32 SourceVersion = ObjectPackage::DastV9FormatVersion) -> FAssetResult
 		{
 			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
-			if (Private::IsByteToolRawScalarKind(Kind))
+			if (AssetPrivate::IsByteToolRawScalarKind(Kind))
 				return Reader.ReadBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize()) ? FAssetResult{} : Error(EAssetError::CorruptFile, "Truncated property payload.");
 			switch (Kind)
 			{
@@ -950,15 +948,15 @@ namespace Durin::Asset
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
-			const Private::FAssetPackageCodec* Codec =
-				Private::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
+			const AssetPrivate::FAssetPackageCodec* Codec =
+				AssetPrivate::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
 			if (!Codec)
 				return Error(EAssetError::UnsupportedVersion,
 					"The ordinary asset package writer is unavailable.");
 			FAssetPackageSerializationOptions EffectiveOptions = Options;
 			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
 			if (OutFile) EffectiveOptions.EditorBulkDataStoragePayloads = &BulkPayloads;
-			Private::FAssetPackageEncodedClosure Closure;
+			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->Write(
 				Package, Closure, EDefaultDeltaMode::NoDelta, EffectiveOptions);
 			if (!Result) return Result;
@@ -969,7 +967,7 @@ namespace Durin::Asset
 			{
 				OutFile->BulkBytes = Closure.BulkBytes;
 				FAssetPackageHeader Header;
-				const Private::FAssetPackageReadContext Context{
+				const AssetPrivate::FAssetPackageReadContext Context{
 					.PackageBytes = Closure.PackageBytes,
 					.BulkBytes = Closure.BulkBytes,
 					.PackagePath = PackagePath,
@@ -996,7 +994,7 @@ namespace Durin::Asset
 			const FAssetPublicationCoordinator& Registry,
 			const FPackagePath& Path) -> FAssetResult
 		{
-			const FAssetCatalogEntry Existing = Durin::Asset::FindAssetExact(Path);
+			const FAssetCatalogEntry Existing = Durin::FindAssetExact(Path);
 			if (!Existing || ObjectPackage::IsSupportedPackageReaderVersion(Existing->FormatVersion))
 				return {};
 			return Error(
@@ -1009,7 +1007,7 @@ namespace Durin::Asset
 		}
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto ValidateMutationPackageMetadata(
 			const FMutationPackageMetadata& Metadata,
@@ -1107,6 +1105,12 @@ namespace Durin::Asset
 		if (Options.RootPackage
 			&& std::ranges::find(Packages, Options.RootPackage) == Packages.end())
 			return Error(EAssetError::InvalidPackageType, "The root package is not part of the asset bundle.");
+		const FAssetRegistryPublication InitialProjection =
+			CaptureAssetRegistryPublication();
+		if (!InitialProjection.bReferenceIndexComplete
+			|| !InitialProjection.ReferenceErrors.empty())
+			return Error(EAssetError::StaleData,
+				"Asset bundle save requires a complete initial Registry projection.");
 
 		std::vector<FStagedPackage> StagedPackages;
 		StagedPackages.reserve(Packages.size());
@@ -1332,12 +1336,9 @@ namespace Durin::Asset
 						: std::move(CompanionError));
 			}
 		}
-		if (Options.ShouldFail
-			&& Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, StagedPackages.size()))
-		{
-			RollbackPublication();
-			return Error(EAssetError::IoError, "Injected asset-bundle registry publication failure.");
-		}
+		const bool bInjectRegistryFailure = Options.ShouldFail
+			&& Options.ShouldFail(
+				EAssetBundleSavePhase::PublishRegistry, StagedPackages.size());
 
 		std::vector<FAssetData> PublishedMetadata;
 		PublishedMetadata.reserve(StagedPackages.size());
@@ -1362,12 +1363,21 @@ namespace Durin::Asset
 				.LastWriteTimeTicks = FileTime::ToStableTicks(
 					Staged.PublishedLastWriteTime)});
 		}
-		if (FAssetResult RegistryResult = Registry.PublishAssetMetadataBatch(
-			std::move(PublishedMetadata)); !RegistryResult)
+		FAssetRegistryDelta Delta{
+			.ExpectedRevision = InitialProjection.ExpectedRevision};
+		for (FAssetData& Data : PublishedMetadata)
 		{
-			RollbackPublication();
-			return RegistryResult;
+			const FPackagePath Path = Data.PackagePath;
+			if (InitialProjection.Assets.contains(Path))
+				Delta.Replaces.push_back(std::move(Data));
+			else
+				Delta.Adds.push_back(std::move(Data));
+			Delta.ReferenceInvalidations.push_back(Path);
 		}
+		FAssetResult RegistryResult = bInjectRegistryFailure
+			? Error(EAssetError::StaleData,
+				"Injected asset-bundle Registry publication failure.")
+			: Registry.PublishDelta(std::move(Delta));
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
@@ -1379,6 +1389,20 @@ namespace Durin::Asset
 			CommitEditorBulkDataCompanion(Staged.CompanionTransaction);
 			CleanupStaleEditorBulkDataCompanions(
 				Staged.Destination, Staged.PublishedCompanion);
+		}
+		if (!RegistryResult)
+		{
+			std::vector<FPackagePath> FencedPaths;
+			FencedPaths.reserve(StagedPackages.size());
+			for (const FStagedPackage& Staged : StagedPackages)
+				FencedPaths.push_back(Staged.Path);
+			FenceAssetRegistryProjection(FencedPaths);
+			return {
+				.Error = EAssetError::StaleData,
+				.Message = std::format(
+					"ContentCommittedProjectionPending: authored package closure committed; Registry reconcile is required. {}",
+					RegistryResult.Message),
+				.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending};
 		}
 		return {};
 	}
@@ -1393,7 +1417,7 @@ namespace Durin::Asset
 	{
 		if (!Path.IsValid())
 			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
-		if (Durin::Asset::FindAssetExact(Path) || FindResidentPackage(Path))
+		if (Durin::FindAssetExact(Path) || FindResidentPackage(Path))
 			return Error(EAssetError::AlreadyExists,
 				"The asset admission path is already occupied.");
 		const std::string PhysicalPath = GetPhysicalPath(Path);
@@ -1403,7 +1427,7 @@ namespace Durin::Asset
 		FAssetPackageHeader Header;
 		if (FAssetRegistryResult Result = ReadAssetPackageHeader(
 			PhysicalPath, Path, Header); !Result)
-			return Private::ToAssetResult(std::move(Result));
+			return AssetPrivate::ToAssetResult(std::move(Result));
 		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
@@ -1609,8 +1633,8 @@ namespace Durin::Asset
 			OutInspection = {};
 			FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
 			if (!Result) return Result;
-			const Private::FAssetPackageCodec* Codec = nullptr;
-			if (Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+			if (Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 				return Result;
 			if (!PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
@@ -1618,7 +1642,7 @@ namespace Durin::Asset
 			FByteArray BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
-			const Private::FAssetPackageReadContext Context{
+			const AssetPrivate::FAssetPackageReadContext Context{
 				.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()};
 			FAssetPackageInspection Inspection;
@@ -1673,8 +1697,8 @@ namespace Durin::Asset
 	{
 		OutBytes.clear();
 		OutBulkBytes.clear();
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
@@ -1683,11 +1707,11 @@ namespace Durin::Asset
 		FByteArray RelocatedBulkBytes;
 		if (SourcePackagePath != OutputPackagePath)
 		{
-			const Private::FAssetPackageReadContext SourceContext{
+			const AssetPrivate::FAssetPackageReadContext SourceContext{
 				.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = SourcePackagePath,
 				.PhysicalPackageBytes = Bytes.size()};
-			Private::FAssetPackageEncodedClosure Relocated;
+			AssetPrivate::FAssetPackageEncodedClosure Relocated;
 			FAssetResult RelocateResult = Codec->Relocate(
 				SourceContext, OutputPackagePath, Relocated);
 			if (!RelocateResult) return RelocateResult;
@@ -1696,7 +1720,7 @@ namespace Durin::Asset
 			Bytes = RelocatedBytes;
 			BulkBytes = RelocatedBulkBytes;
 		}
-		const Private::FAssetPackageReadContext Context{
+		const AssetPrivate::FAssetPackageReadContext Context{
 			.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 			.PackagePath = OutputPackagePath, .PhysicalPackageBytes = Bytes.size()};
 		FAssetPackageHeader Header;
@@ -1721,7 +1745,7 @@ namespace Durin::Asset
 						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
 						Route, ExpectedClassName));
 			}
-			const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
+			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(
 				Path, {.ExpectedClass = ExpectedClass});
 			if (!Resolution)
 			{
@@ -1762,7 +1786,7 @@ namespace Durin::Asset
 			OutBulkBytes.assign(BulkBytes.begin(), BulkBytes.end());
 			return {};
 		}
-		Result = Private::RewritePackageReferencesForMutation(
+		Result = AssetPrivate::RewritePackageReferencesForMutation(
 			Bytes, BulkBytes, OutputPackagePath, Mappings,
 			std::numeric_limits<uint64>::max(), OutBytes);
 		if (Result) OutBulkBytes.assign(BulkBytes.begin(), BulkBytes.end());
@@ -1772,171 +1796,8 @@ namespace Durin::Asset
 
 	auto FAssetMutationCoordinator::SavePackage(DPackage* Package) -> FAssetResult
 	{
-		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
-		if (!Package || !Package->IsAssetPackage())
-			return Error(EAssetError::InvalidPackageType,
-				"Only asset packages can be saved as asset files.");
-		FPackagePath Path;
-		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path))
-			return Error(EAssetError::InvalidPath, "Package path is invalid.");
-		FAssetResult WriteAdmission = ValidatePackageWriteAdmission(Path);
-		if (!WriteAdmission) return WriteAdmission;
-		FAssetResult VersionResult = ValidateSaveVersion(Registry, Path);
-		if (!VersionResult) return VersionResult;
-		const std::filesystem::path Destination(GetPhysicalPath(Path));
-		FPackageFile File;
-		FByteArray Bytes;
-		FAssetPackageSerializationOptions Serialization;
-		FAssetResult SerializationResult = BuildPackageBytes(
-			Package, Bytes, &File, Serialization);
-		if (!SerializationResult) return SerializationResult;
-		std::string CompanionStateError;
-		if (!PrepareEditorBulkDataCompanionState(Destination, CompanionStateError))
-			return Error(EAssetError::IoError, std::move(CompanionStateError));
-		FByteArray PriorPackageBytes;
-		std::error_code PackageErrorCode;
-		const bool bHadPriorPackage =
-			std::filesystem::is_regular_file(Destination, PackageErrorCode);
-		if (PackageErrorCode && !IsMissingPathError(PackageErrorCode))
-			return Error(EAssetError::IoError, std::format(
-				"Failed to inspect package destination {}: {}",
-				Destination.generic_string(), PackageErrorCode.message()));
-		if (bHadPriorPackage
-			&& !FFileHelper::LoadFileToArray(PriorPackageBytes, Destination))
-			return Error(EAssetError::IoError, "Prior package is unreadable.");
-		FFileHelper::FAtomicFileError PublicationError;
-		std::filesystem::path PublishedCompanion;
-		FEditorBulkDataCompanionTransaction CompanionTransaction;
-		if (!File.BulkBytes.empty())
-		{
-			FByteArray CompanionBytes;
-			FPackageBulkSegmentSummary SegmentSummary;
-			std::string CompanionError;
-			CompanionBytes = File.BulkBytes;
-			SegmentSummary = {CompanionBytes.size(),
-				FXxHash128::HashBuffer(CompanionBytes)};
-			PublishedCompanion = Destination;
-			PublishedCompanion.replace_extension(".dbulk");
-			if (!PublishEditorBulkDataCompanion(
-					Destination, SegmentSummary.Digest, SegmentSummary.Extent, CompanionBytes,
-					CompanionTransaction, CompanionError))
-				return Error(EAssetError::IoError, std::move(CompanionError));
-		}
-		if (!FFileHelper::SaveArrayToFileAtomically(
-			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
-			Destination,
-			&PublicationError
-		))
-		{
-			std::string RollbackError;
-			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
-			return Error(EAssetError::IoError, PublicationError.ToString());
-		}
-		std::string CompanionVerificationError;
-		if (!VerifyEditorBulkDataCompanion(
-				CompanionTransaction, CompanionVerificationError))
-		{
-			if (bHadPriorPackage)
-				FFileHelper::SaveArrayToFileAtomically(
-					PriorPackageBytes, Destination, nullptr);
-			else
-				std::filesystem::remove(Destination, PackageErrorCode);
-			std::string RollbackError;
-			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
-			return Error(EAssetError::CorruptFile,
-				CompanionVerificationError.empty()
-					? "Published authored bulk companion failed verification."
-					: std::move(CompanionVerificationError));
-		}
-		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
-		FAssetResult RegistryResult = Registry.PublishAssetMetadata(FAssetData{
-			.PackagePath = Path,
-			.PhysicalPath = Destination.generic_string(),
-			.TopLevelAssets = File.TopLevelAssets,
-			.AssetClassName = File.AssetClassName,
-			.EntryKind = File.EntryKind,
-			.RedirectDestination = File.RedirectDestination,
-			.FormatVersion = File.FormatVersion,
-			.Dependencies = File.Dependencies,
-			.SoftDependencies = File.SoftDependencies,
-			.SearchableNames = File.SearchableNames,
-			.ObjectCount = File.ObjectCount,
-			.BulkSegmentExtent = File.BulkSegmentExtent,
-			.BulkSegmentDigest = File.BulkSegmentDigest,
-			.FileSize = std::filesystem::file_size(Destination),
-			.LastWriteTime = LastWriteTime,
-			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
-		if (!RegistryResult)
-		{
-			if (bHadPriorPackage)
-				FFileHelper::SaveArrayToFileAtomically(
-					PriorPackageBytes, Destination, nullptr);
-			else
-				std::filesystem::remove(Destination, PackageErrorCode);
-			std::string RollbackError;
-			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
-			return RegistryResult;
-		}
-		Package->ClearDirty();
-		if (FindResidentPackage(Path) == Package)
-			Package->MarkAsPublished();
-		CommitEditorBulkDataCompanion(CompanionTransaction);
-		CleanupStaleEditorBulkDataCompanions(Destination, PublishedCompanion);
-		return {};
+		const std::array<DPackage*, 1> Packages{Package};
+		return SavePackagesAtomically(Packages, {.RootPackage = Package});
 	}
-
-	namespace
-	{
-		auto RebuildReferenceProjectionForPublishedEntriesImpl(
-			std::span<const FAssetMutationJournalEntry> Entries,
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
-			std::vector<FAssetReferenceEdge>& Edges,
-			std::unordered_map<FPackagePath, FAssetPackageFingerprint>& Fingerprints)
-			-> FAssetResult
-		{
-			for (const FAssetMutationJournalEntry& Entry : Entries)
-			{
-				if (!Entry.RegistryPath.IsValid()) continue;
-				std::erase_if(Edges, [&](const FAssetReferenceEdge& Edge) {
-					return Edge.SourcePackage == Entry.RegistryPath;
-				});
-				Fingerprints.erase(Entry.RegistryPath);
-				const auto Data = Assets.find(Entry.RegistryPath);
-				if (Data == Assets.end()) continue;
-				FAssetPackageInspection Inspection;
-				FAssetResult Result = InspectAssetPackage(
-					Data->second.PhysicalPath, Inspection);
-				if (!Result) return Result;
-				std::vector<FAssetReferenceEdge> SourceEdges;
-				Result = ExtractAssetReferences(
-					Entry.RegistryPath, Inspection, SourceEdges);
-				if (!Result) return Result;
-				Edges.insert(Edges.end(),
-					std::make_move_iterator(SourceEdges.begin()),
-					std::make_move_iterator(SourceEdges.end()));
-				Fingerprints.insert_or_assign(
-					Entry.RegistryPath, Inspection.Fingerprint);
-			}
-			std::ranges::sort(Edges, &AssetReferenceLess);
-			return {};
-		}
-	}
-
-	namespace Private
-	{
-		auto RebuildReferenceProjectionForPublishedEntries(
-			std::span<const FAssetMutationJournalEntry> Entries,
-			const std::unordered_map<FPackagePath, FAssetData>& Assets,
-			std::vector<FAssetReferenceEdge>& Edges,
-			std::unordered_map<FPackagePath, FAssetPackageFingerprint>& Fingerprints)
-			-> FAssetResult
-		{
-			return RebuildReferenceProjectionForPublishedEntriesImpl(
-				Entries, Assets, Edges, Fingerprints);
-		}
-	}
-
-
 
 }

@@ -4,13 +4,13 @@
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/DObjectGlobals.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	ENGINE_API auto ValidateAssetPackageBytes(
 		std::span<const std::byte> Bytes,
@@ -116,4 +116,4 @@ namespace Durin::Asset
 		const FPackagePath& PackagePath,
 		FAssetPackageInspection& OutInspection
 	) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

@@ -82,8 +82,8 @@ namespace Durin
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
 			FMaterialStaticProperties& StaticProperties,
-			Asset::ECookTargetPlatform& TargetPlatform,
-			Asset::ECookTargetProfile& TargetProfile) -> void
+			ECookTargetPlatform& TargetPlatform,
+			ECookTargetProfile& TargetProfile) -> void
 		{
 			uint32 Magic = MaterialCookedProgramMagic;
 			uint32 SchemaVersion = MaterialCookedProgramPayloadSchemaVersion;
@@ -168,8 +168,8 @@ namespace Durin
 	auto EncodeMaterialCookedProgram(
 		const FMaterialCompilerResult& Program,
 		const FMaterialStaticProperties& StaticProperties,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -199,8 +199,8 @@ namespace Durin
 
 	auto DecodeMaterialCookedProgram(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,
 		std::shared_ptr<const FMaterialCompilerResult>& OutProgram,
 		std::string& OutError) -> bool
@@ -209,8 +209,8 @@ namespace Durin
 			return Fail("Material cooked program byte extent is invalid.", &OutError);
 		FMaterialCompilerResult Candidate;
 		FMaterialStaticProperties CandidateProperties;
-		Asset::ECookTargetPlatform Platform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile Profile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, CandidateProperties, Platform, Profile);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))

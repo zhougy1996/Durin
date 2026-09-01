@@ -1,10 +1,10 @@
 #include "Asset/PackageBulkData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
-		auto Fail(std::string Message, std::string* OutError) -> bool
+		auto PackageBulkDataFail(std::string Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
 			return false;
@@ -22,13 +22,13 @@ namespace Durin::Asset
 		std::string* OutError) -> bool
 	{
 		if (Summary.Flags != 0)
-			return Fail("Package bulk segment uses unsupported flags.", OutError);
+			return PackageBulkDataFail("Package bulk segment uses unsupported flags.", OutError);
 		if (Summary.Extent > PackageBulkDataMaximumSegmentBytes)
-			return Fail("Package bulk segment exceeds the 1 GiB limit.", OutError);
+			return PackageBulkDataFail("Package bulk segment exceeds the 1 GiB limit.", OutError);
 		if ((Summary.Extent == 0) != Summary.Digest.IsZero())
-			return Fail("Package bulk segment extent and digest presence disagree.", OutError);
+			return PackageBulkDataFail("Package bulk segment extent and digest presence disagree.", OutError);
 		if (Entries.size() > PackageBulkDataMaximumFieldCount)
-			return Fail("Package bulk field count exceeds 65,536.", OutError);
+			return PackageBulkDataFail("Package bulk field count exceeds 65,536.", OutError);
 
 		uint64 PreviousExternalEnd = 0;
 		bool bSawExternal = false;
@@ -36,21 +36,21 @@ namespace Durin::Asset
 		{
 			const FPackageBulkDataEntry& Entry = Entries[Index];
 			if (Entry.FieldIndex != Index + 1)
-				return Fail("Package bulk field indexes are not canonical.", OutError);
+				return PackageBulkDataFail("Package bulk field indexes are not canonical.", OutError);
 			if (Entry.StorageFlags != 0 || Entry.StoredSize != Entry.LogicalSize)
-				return Fail("Package bulk field uses unsupported storage metadata.", OutError);
+				return PackageBulkDataFail("Package bulk field uses unsupported storage metadata.", OutError);
 			if (Entry.ContentId.IsZero())
-				return Fail("Package bulk field has no content identity.", OutError);
+				return PackageBulkDataFail("Package bulk field has no content identity.", OutError);
 
 			if (Entry.Placement == EPackageBulkDataPlacement::Inline)
 			{
 				if (Entry.SegmentOffset != 0 || Entry.Alignment != 1
 					|| Entry.StoredSize > EditorBulkDataExternalThreshold)
-					return Fail("Inline package bulk field metadata is noncanonical.", OutError);
+					return PackageBulkDataFail("Inline package bulk field metadata is noncanonical.", OutError);
 				continue;
 			}
 			if (Entry.Placement != EPackageBulkDataPlacement::External)
-				return Fail("Package bulk field uses an unsupported placement.", OutError);
+				return PackageBulkDataFail("Package bulk field uses an unsupported placement.", OutError);
 			const uint64 ExpectedOffset = (PreviousExternalEnd + Entry.Alignment - 1)
 				& ~static_cast<uint64>(Entry.Alignment - 1);
 			if (Entry.StoredSize <= EditorBulkDataExternalThreshold
@@ -58,15 +58,15 @@ namespace Durin::Asset
 				|| !IsPowerOfTwo(Entry.Alignment)
 				|| Entry.SegmentOffset % Entry.Alignment != 0
 				|| Entry.SegmentOffset != ExpectedOffset)
-				return Fail("External package bulk field metadata is noncanonical.", OutError);
+				return PackageBulkDataFail("External package bulk field metadata is noncanonical.", OutError);
 			if (Entry.SegmentOffset > Summary.Extent
 				|| Entry.StoredSize > Summary.Extent - Entry.SegmentOffset)
-				return Fail("External package bulk field range exceeds the segment.", OutError);
+				return PackageBulkDataFail("External package bulk field range exceeds the segment.", OutError);
 			PreviousExternalEnd = Entry.SegmentOffset + Entry.StoredSize;
 			bSawExternal = true;
 		}
 		if (bSawExternal ? PreviousExternalEnd != Summary.Extent : Summary.Extent != 0)
-			return Fail("Package bulk segment extent is not the final declared payload byte.", OutError);
+			return PackageBulkDataFail("Package bulk segment extent is not the final declared payload byte.", OutError);
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -79,9 +79,9 @@ namespace Durin::Asset
 	{
 		if (!ValidatePackageBulkDataMetadata(Summary, Entries, OutError)) return false;
 		if (Segment.size() != Summary.Extent)
-			return Fail("Package bulk segment extent does not match its bytes.", OutError);
+			return PackageBulkDataFail("Package bulk segment extent does not match its bytes.", OutError);
 		if (Summary.Extent != 0 && FXxHash128::HashBuffer(Segment) != Summary.Digest)
-			return Fail("Package bulk segment digest does not match its bytes.", OutError);
+			return PackageBulkDataFail("Package bulk segment digest does not match its bytes.", OutError);
 
 		uint64 Cursor = 0;
 		for (const FPackageBulkDataEntry& Entry : Entries)
@@ -89,11 +89,11 @@ namespace Durin::Asset
 			if (Entry.Placement != EPackageBulkDataPlacement::External) continue;
 			for (; Cursor < Entry.SegmentOffset; ++Cursor)
 				if (Segment[static_cast<size_t>(Cursor)] != std::byte{0})
-					return Fail("Package bulk segment contains nonzero alignment padding.", OutError);
+					return PackageBulkDataFail("Package bulk segment contains nonzero alignment padding.", OutError);
 			if (FXxHash128::HashBuffer(Segment.subspan(
 					static_cast<size_t>(Entry.SegmentOffset),
 					static_cast<size_t>(Entry.StoredSize))) != Entry.ContentId)
-				return Fail("Package bulk field digest does not match its directory entry.", OutError);
+				return PackageBulkDataFail("Package bulk field digest does not match its directory entry.", OutError);
 			Cursor = Entry.SegmentOffset + Entry.StoredSize;
 		}
 		if (OutError) OutError->clear();

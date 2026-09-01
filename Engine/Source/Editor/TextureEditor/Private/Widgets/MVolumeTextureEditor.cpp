@@ -83,7 +83,7 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadObject(Path, Texture);
+		const FAssetResult Result = LoadObject(Path, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a VolumeTexture." : Result.Message);

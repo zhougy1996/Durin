@@ -6,16 +6,20 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
+	enum class EAssetMutationJournalKind : uint8
+	{
+		Relocation,
+		RedirectorFixup,
+	};
+
 	enum class EAssetMutationState : uint8
 	{
 		Planned,
 		Prepared,
 		Publishing,
 		Committed,
-		Compensating,
-		Restored,
 		RecoveryRequired,
 	};
 
@@ -60,7 +64,6 @@ namespace Durin::Asset::Private
 		bool bPreExists = false;
 		bool bPostExists = false;
 		bool bCompleted = false;
-		bool bCompensated = false;
 		std::filesystem::path StagedPrePath;
 		std::filesystem::path StagedPostPath;
 		FXxHash128 StagedPreHash;
@@ -69,8 +72,8 @@ namespace Durin::Asset::Private
 		FAssetPackageFingerprint ExpectedPostFingerprint;
 	};
 
-	// Retains every byte image required to compensate, undo, or redo one
-	// authored mutation. Recovery-required roots deliberately outlive tokens.
+	// Retains materialized inputs and durable forward progress for one authored
+	// mutation. Recovery-required roots deliberately outlive tokens.
 	struct FAssetMutationJournal
 	{
 		std::string OperationId;
@@ -91,7 +94,7 @@ namespace Durin::Asset::Private
 
 	auto InitializeMutationJournal(
 		FAssetMutationJournal& Journal,
-		EAssetMutationOperationKind OperationKind) -> void;
+		EAssetMutationJournalKind OperationKind) -> void;
 	// On success, publishes one complete entry or reuses an equivalent entry;
 	// on failure, leaves no partial entry or unowned staging root.
 	auto StageMutationJournalEntry(
@@ -124,7 +127,6 @@ namespace Durin::Asset::Private
 		EAssetMutationState State) -> FAssetResult;
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool;
-	auto PublishRelocationFile(
-		const FAssetMutationJournalEntry& Entry,
-		bool bForward) -> FAssetResult;
+	auto PublishRelocationFile(const FAssetMutationJournalEntry& Entry)
+		-> FAssetResult;
 }

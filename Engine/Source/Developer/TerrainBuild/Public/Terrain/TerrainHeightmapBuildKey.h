@@ -5,7 +5,7 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FTerrainHeightmapBuildKeyInput
 	{
@@ -16,8 +16,8 @@ namespace Durin::Asset
 		uint32 SourceProfileVersion = 0;
 		uint32 BuilderVersion = TerrainHeightmapBuilderVersion;
 		uint32 PayloadSchemaVersion = TerrainHeightmapPayloadSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 
 		TERRAINBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};

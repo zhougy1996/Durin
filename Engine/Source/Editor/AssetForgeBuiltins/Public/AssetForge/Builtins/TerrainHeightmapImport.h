@@ -39,10 +39,10 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+		const FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmapFromFile(
 		DTerrainHeightmap& Heightmap,
 		std::string_view FilePath,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+		const FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 }

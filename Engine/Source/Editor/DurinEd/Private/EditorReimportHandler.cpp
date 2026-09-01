@@ -76,9 +76,9 @@ namespace Durin
 				if (Result.Succeeded() && Options.bSave)
 				{
 					DPackage* Package = Object.GetPackage();
-					const Asset::FAssetResult Saved = Package
-						? Asset::SavePackage(Package)
-						: Asset::FAssetResult{Asset::EAssetError::InvalidPath,
+					const FAssetResult Saved = Package
+						? SavePackage(Package)
+						: FAssetResult{EAssetError::InvalidPath,
 							"Only packaged assets can be persisted after reimport."};
 					if (!Saved)
 						Result = {EReimportStatus::PersistenceFailure, Saved.Message};

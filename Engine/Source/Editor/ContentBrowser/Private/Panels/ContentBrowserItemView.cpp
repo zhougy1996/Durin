@@ -24,11 +24,11 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 	{
 		template<typename T>
 		auto ReadScalar(
-			const Asset::FAssetPackageInspection& Inspection,
+			const FAssetPackageInspection& Inspection,
 			std::string_view Name,
 			T& OutValue) -> bool
 		{
-			const Asset::FAssetPackageField* Field = Inspection.FindField(Name);
+			const FAssetPackageField* Field = Inspection.FindField(Name);
 			return Field && Field->TryReadScalar(OutValue);
 		}
 
@@ -96,9 +96,9 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		-> FTextureCubeDetailsSnapshot
 	{
 		FTextureCubeDetailsSnapshot Snapshot;
-		Asset::FAssetPackageInspection Inspection;
-		const Asset::FAssetResult Result =
-			Asset::InspectAssetPackage(PhysicalPath, Inspection);
+		FAssetPackageInspection Inspection;
+		const FAssetResult Result =
+			InspectAssetPackage(PhysicalPath, Inspection);
 		if (!Result)
 		{
 			Snapshot.BuildDiagnostic = Result.Message.empty()
@@ -167,8 +167,8 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Snapshot.InputRange = Extension == ".hdr" ? "Radiance HDR" : "LDR";
 		}
 
-		Asset::FEditorBulkDataStorageDescriptor CookedPayload;
-		const Asset::FAssetPackageField* CookedField =
+		FEditorBulkDataStorageDescriptor CookedPayload;
+		const FAssetPackageField* CookedField =
 			Inspection.FindField("PlatformData");
 		if (CookedField
 			&& CookedField->TryReadBulkDataStorageDescriptor(CookedPayload)

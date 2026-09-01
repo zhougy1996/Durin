@@ -7,7 +7,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
@@ -25,16 +25,14 @@ namespace Durin::Asset::Private
 		}
 
 		auto GetMutationOperationType(
-			EAssetMutationOperationKind OperationKind) -> std::string_view
+			EAssetMutationJournalKind OperationKind) -> std::string_view
 		{
 			switch (OperationKind)
 			{
-			case EAssetMutationOperationKind::Relocation:
+			case EAssetMutationJournalKind::Relocation:
 				return "relocation";
-			case EAssetMutationOperationKind::RedirectorFixup:
+			case EAssetMutationJournalKind::RedirectorFixup:
 				return "fixup";
-			case EAssetMutationOperationKind::Deletion:
-				return "deletion";
 			}
 			return "unknown";
 		}
@@ -61,7 +59,8 @@ namespace Durin::Asset::Private
 
 	FAssetMutationJournal::~FAssetMutationJournal()
 	{
-		if (IsMutationJournalRecoveryRequired(*this)) return;
+		if (State == EAssetMutationState::Publishing
+			|| State == EAssetMutationState::RecoveryRequired) return;
 		const std::string ExpectedOwner =
 			MakeMutationJournalOwnerMarker(OperationId);
 		for (const std::filesystem::path& Root : Roots)
@@ -120,7 +119,7 @@ namespace Durin::Asset::Private
 
 	auto InitializeMutationJournal(
 		FAssetMutationJournal& Journal,
-		EAssetMutationOperationKind OperationKind) -> void
+		EAssetMutationJournalKind OperationKind) -> void
 	{
 		Journal.OperationId = MakeMutationOperationId();
 		Journal.OperationType = GetMutationOperationType(OperationKind);
@@ -376,8 +375,7 @@ namespace Durin::Asset::Private
 				"entry.{}.post_fingerprint={}:{}:{}\n"
 				"entry.{}.staged_pre_hash={}\n"
 				"entry.{}.staged_post_hash={}\n"
-				"entry.{}.completed={}\n"
-				"entry.{}.compensated={}\n",
+				"entry.{}.completed={}\n",
 				Index, static_cast<uint32>(Entry.Role),
 				Index, Entry.PublicationOrder,
 				Index, Entry.RegistryPath.ToString(),
@@ -395,8 +393,7 @@ namespace Durin::Asset::Private
 				Entry.ExpectedPostFingerprint.ContentHash.ToString(),
 				Index, Entry.StagedPreHash.ToString(),
 				Index, Entry.StagedPostHash.ToString(),
-				Index, Entry.bCompleted,
-				Index, Entry.bCompensated);
+				Index, Entry.bCompleted);
 		}
 		const auto Bytes = std::as_bytes(std::span(Text));
 		for (const std::filesystem::path& Root : Journal.Roots)
@@ -446,21 +443,14 @@ namespace Durin::Asset::Private
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool
 	{
-		return Journal.State == EAssetMutationState::Publishing
-			|| Journal.State == EAssetMutationState::Compensating
-			|| Journal.State == EAssetMutationState::RecoveryRequired;
+		return Journal.State == EAssetMutationState::RecoveryRequired;
 	}
 
 
 	auto PublishRelocationFile(
-		const FAssetMutationJournalEntry& Entry,
-		bool bForward) -> FAssetResult
+		const FAssetMutationJournalEntry& Entry) -> FAssetResult
 	{
-		const bool bExists = bForward
-			? Entry.bPostExists : Entry.bPreExists;
-		const std::filesystem::path& Staged = bForward
-			? Entry.StagedPostPath : Entry.StagedPrePath;
-		if (!bExists)
+		if (!Entry.bPostExists)
 		{
 			std::error_code RemoveError;
 			if (!std::filesystem::remove(Entry.PhysicalPath, RemoveError)
@@ -472,7 +462,7 @@ namespace Durin::Asset::Private
 			return {};
 		}
 		FByteArray Bytes;
-		FAssetResult Result = LoadRelocationBytes(Staged, Bytes);
+		FAssetResult Result = LoadRelocationBytes(Entry.StagedPostPath, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;
 		std::filesystem::create_directories(

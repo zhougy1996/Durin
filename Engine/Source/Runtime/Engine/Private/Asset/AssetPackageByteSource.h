@@ -3,7 +3,7 @@
 #include "Asset/PackageSchema.h"
 #include "Misc/FileHelper.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	class IAssetPackageByteSource
 	{

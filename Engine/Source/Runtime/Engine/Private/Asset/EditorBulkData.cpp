@@ -1,8 +1,8 @@
 #include "Asset/EditorBulkData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	namespace Private
+	namespace AssetPrivate
 	{
 		// Publishes authored identity, size, and exactly one immutable source as one state.
 		struct FEditorBulkDataState
@@ -16,7 +16,7 @@ namespace Durin::Asset
 
 	namespace
 	{
-		using FState = Private::FEditorBulkDataState;
+		using FState = AssetPrivate::FEditorBulkDataState;
 
 		auto MakeEmptyState() -> std::shared_ptr<const FState>
 		{

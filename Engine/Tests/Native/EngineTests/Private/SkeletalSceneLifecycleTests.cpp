@@ -45,7 +45,7 @@ namespace
 
 	auto ShutdownAssetManager() -> void
 	{
-		Durin::Asset::ShutdownAssetManager();
+		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
 	}
 
@@ -53,13 +53,13 @@ namespace
 	{
 		if (CookRoot.empty())
 		{
-			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			ASSERT_TRUE(Durin::InitializeAssetManager());
 			return;
 		}
-		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
+		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
 	}
 
 	using FCookTree = std::vector<std::pair<std::string, Durin::FByteArray>>;
@@ -84,13 +84,13 @@ namespace
 	}
 
 	auto AddPackageOnly(
-		Durin::Asset::FCookContext& Context,
+		Durin::FCookContext& Context,
 		Durin::DObject& Object,
 		std::string& OutError) -> bool
 	{
 		Durin::FByteArray Bytes;
-		const Durin::Asset::FAssetResult Serialized =
-			Durin::Asset::SerializeAssetPackageBytes(Object.GetPackage(), Bytes);
+		const Durin::FAssetResult Serialized =
+			Durin::SerializeAssetPackageBytes(Object.GetPackage(), Bytes);
 		if (!Serialized)
 		{
 			OutError = Serialized.Message;
@@ -115,7 +115,7 @@ namespace
 		for (const auto& Mapping : Result.Outputs)
 		{
 			Durin::DObject* Object = nullptr;
-			if (!Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Mapping.AssetPath), Object) || !Object) continue;
+			if (!Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Mapping.AssetPath), Object) || !Object) continue;
 			if (auto* Value = Durin::Cast<Durin::DSkeleton>(Object)) Outputs.Skeletons.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DSkeletalMesh>(Object)) Outputs.SkeletalMeshes.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DAnimationClip>(Object)) Outputs.AnimationClips.push_back(Value);
@@ -178,8 +178,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		ASSERT_TRUE(Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		Durin::DMaterial* StandardMaterial =
@@ -215,8 +215,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			{
 				const Durin::FPackagePath MeshPath =
 					MakeAssetPath(Mesh->GetPackage()->GetPackagePath());
-				const Durin::Asset::FAssetCatalogEntry MeshData =
-					Durin::Asset::FindAssetExact(MeshPath);
+				const Durin::FAssetCatalogEntry MeshData =
+					Durin::FindAssetExact(MeshPath);
 				ASSERT_NE(MeshData, nullptr);
 				Durin::Editor::SkeletalMesh::DSkeletalMeshThumbnailRenderer Renderer;
 				Durin::Editor::FAssetThumbnailGenerationRequest ThumbnailRequest;
@@ -282,10 +282,10 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		}
 
 		auto Cook = [&](const std::filesystem::path& CookRoot) -> bool {
-			Durin::Asset::FCookContext Context(
-				CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
-				Durin::Asset::ECookTargetProfile::Game);
-			if (!Durin::Asset::ContributeEngineCookAsset(
+			Durin::FCookContext Context(
+				CookRoot, Durin::ECookTargetPlatform::Win64,
+				Durin::ECookTargetProfile::Game);
+			if (!Durin::ContributeEngineCookAsset(
 				*StandardMaterial, StandardMaterial->GetPackage()->GetPackagePath(),
 				Context, Error))
 				return false;
@@ -294,15 +294,15 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				for (Durin::DMaterialInstance* Material : Result.Materials)
 					if (!AddPackageOnly(Context, *Material, Error)) return false;
 				for (Durin::DSkeleton* Skeleton : Result.Skeletons)
-					if (!Durin::Asset::ContributeEngineCookAsset(
+					if (!Durin::ContributeEngineCookAsset(
 						*Skeleton, Skeleton->GetPackage()->GetPackagePath(),
 						Context, Error)) return false;
 				for (Durin::DSkeletalMesh* Mesh : Result.SkeletalMeshes)
-					if (!Durin::Asset::ContributeEngineCookAsset(
+					if (!Durin::ContributeEngineCookAsset(
 						*Mesh, Mesh->GetPackage()->GetPackagePath(), Context, Error))
 						return false;
 				for (Durin::DAnimationClip* Clip : Result.AnimationClips)
-					if (!Durin::Asset::ContributeEngineCookAsset(
+					if (!Durin::ContributeEngineCookAsset(
 						*Clip, Clip->GetPackage()->GetPackagePath(), Context, Error))
 						return false;
 			}
@@ -355,15 +355,15 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		ASSERT_TRUE(Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation));
 		std::vector<Durin::DSkeletalMesh*> RuntimeMeshes;
 		RuntimeMeshes.reserve(MeshPaths.size());
 		for (size_t Index = 0; Index < MeshPaths.size(); ++Index)
 		{
 			Durin::DSkeletalMesh* Mesh = nullptr;
-			const Durin::Asset::FAssetResult LoadMeshResult =
-				Durin::Asset::LoadObject(
+			const Durin::FAssetResult LoadMeshResult =
+				Durin::LoadObject(
 					Durin::Testing::MakePackageLeafAssetObjectPathForTests(
 						MeshPaths[Index]), Mesh);
 			ASSERT_TRUE(LoadMeshResult) << LoadMeshResult.Message;
@@ -387,7 +387,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		for (size_t Index = 0; Index < ClipPaths.size(); ++Index)
 		{
 			Durin::DAnimationClip* Clip = nullptr;
-			ASSERT_TRUE(Durin::Asset::LoadObject(
+			ASSERT_TRUE(Durin::LoadObject(
 				Durin::Testing::MakePackageLeafAssetObjectPathForTests(
 					ClipPaths[Index]), Clip));
 			ASSERT_NE(Clip, nullptr);

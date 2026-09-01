@@ -1,64 +1,26 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	enum class EAssetMutationOperationKind : uint8
-	{
-		Relocation,
-		RedirectorFixup,
-		Deletion,
-	};
-
-	enum class EAssetMutationTransactionState : uint8
+	enum class EAssetMutationJobState : uint8
 	{
 		Empty,
 		Prepared,
-		Committed,
-		Undone,
+		Completed,
 		RecoveryRequired,
-	};
-
-	class FAssetMutationSummary
-	{
-	public:
-		FAssetMutationSummary() = default;
-		FAssetMutationSummary(
-			EAssetMutationOperationKind InOperationKind,
-			uint64 InRegistryRevision,
-			std::vector<FPackagePath> InScope
-		)
-			: OperationKind(InOperationKind)
-			, RegistryRevision(InRegistryRevision)
-			, Scope(std::move(InScope))
-		{
-		}
-
-		auto GetOperationKind() const -> EAssetMutationOperationKind
-		{
-			return OperationKind;
-		}
-		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
-		auto GetScope() const -> std::span<const FPackagePath> { return Scope; }
-
-	private:
-		EAssetMutationOperationKind OperationKind =
-			EAssetMutationOperationKind::Relocation;
-		uint64 RegistryRevision = 0;
-		std::vector<FPackagePath> Scope;
 	};
 
 	struct FAssetMutationResultDetails
 	{
 		FAssetResult Result;
-		EAssetMutationTransactionState State =
-			EAssetMutationTransactionState::Empty;
+		EAssetMutationJobState State = EAssetMutationJobState::Empty;
 		uint64 RegistryRevision = 0;
-		bool bStateRestored = false;
+		bool bForwardResumable = false;
 		bool bRecoveryRequired = false;
 		std::vector<FPackagePath> RewrittenPaths;
 		std::vector<FPackagePath> RetainedPaths;
@@ -67,16 +29,13 @@ namespace Durin::Asset
 		std::vector<FPackagePath> FailedPaths;
 	};
 
-	class FAssetMutationTransaction
+	class FAssetMutationJob
 	{
 	public:
-		ENGINE_API auto GetSummary() const -> const FAssetMutationSummary&;
-		ENGINE_API auto GetState() const -> EAssetMutationTransactionState;
+		ENGINE_API auto GetState() const -> EAssetMutationJobState;
 		ENGINE_API auto GetLastResultDetails() const
 			-> FAssetMutationResultDetails;
-		ENGINE_API auto Commit() -> FAssetResult;
-		ENGINE_API auto Undo() -> FAssetResult;
-		ENGINE_API auto Redo() -> FAssetResult;
+		ENGINE_API auto ResumeForward() -> FAssetResult;
 
 	private:
 		struct FState;
@@ -86,4 +45,4 @@ namespace Durin::Asset
 		friend class FAssetMutationCoordinator;
 #endif
 	};
-} // namespace Durin::Asset
+} // namespace Durin

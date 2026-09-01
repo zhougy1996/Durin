@@ -7,20 +7,41 @@
 #include "DObject/Class.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	using Private::FMutationPackageMetadata;
-	using Private::GetAssetReferenceStoreRegistry;
-	using Private::ValidateMutationPackageMetadata;
+	using AssetPrivate::FMutationPackageMetadata;
+	using AssetPrivate::GetAssetReferenceStoreRegistry;
+	using AssetPrivate::ValidateMutationPackageMetadata;
 
 	namespace
 	{
 		constexpr size_t MaximumReferencesPerSnapshot = 1000000;
 		constexpr uint32 MaximumRedirectDepth = 64;
 		constexpr std::string_view RedirectorClassName =
-			"Durin::Asset::DAssetRedirector";
+			"Durin::DAssetRedirector";
+
+		auto ResolveAuthoredPackagePath(const FPackagePath& Path) -> std::string
+		{
+			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+				Path.GetView(), EMountPathExistence::AllowMissing);
+			return Resolved
+				? Resolved.PhysicalPath.generic_string() + ".dasset"
+				: std::string{};
+		}
+
+		auto ProjectTopLevelAssets(const FAssetPackageHeader& Header)
+			-> std::vector<FTopLevelAssetData>
+		{
+			std::vector<FTopLevelAssetData> Result;
+			Result.reserve(Header.TopLevelAssets.size());
+			for (const FAssetPackageTopLevelAssetHeader& Asset : Header.TopLevelAssets)
+				Result.push_back({Asset.AssetPath, Asset.AssetClassName,
+					Asset.RedirectDestination});
+			return Result;
+		}
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
 		{
@@ -317,24 +338,76 @@ namespace Durin::Asset
 				return Error(EAssetError::InvalidPath, "Asset metadata batch contains an invalid or duplicate package path.");
 			Paths.push_back(Data.PackagePath);
 		}
+		FAssetRegistryDelta Delta{.ExpectedRevision = ExpectedRevision};
 		for (FAssetData& Data : Assets)
 		{
 			const FPackagePath Path = Data.PackagePath;
-			Publication.Assets.insert_or_assign(Path, std::move(Data));
-			Publication.ReferenceFingerprints.erase(Path);
-			std::erase_if(Publication.ReferenceEdges, [&](const FAssetPackageReferenceEdge& Edge) {
-				return Edge.SourcePackage == Path;
-			});
+			if (Publication.Assets.contains(Path))
+				Delta.Replaces.push_back(std::move(Data));
+			else
+				Delta.Adds.push_back(std::move(Data));
+			Delta.ReferenceInvalidations.push_back(Path);
 		}
+		return PublishDelta(std::move(Delta));
+	}
 
-		FAssetResult ProjectionResult = BuildAssetPackageReferenceProjection(
-			Publication.Assets, Publication.ReferenceEdges,
-			Publication.ReferenceFingerprints);
-		if (!ProjectionResult) return ProjectionResult;
-		Publication.ReferenceErrors.clear();
-		Publication.bReferenceIndexComplete =
-			Publication.ReferenceFingerprints.size() == Publication.Assets.size();
-		return PublishPreparedState(ExpectedRevision, {.Assets = std::move(Publication.Assets), .ReferenceEdges = std::move(Publication.ReferenceEdges), .ReferenceFingerprints = std::move(Publication.ReferenceFingerprints), .ReferenceErrors = std::move(Publication.ReferenceErrors), .bReferenceIndexComplete = Publication.bReferenceIndexComplete});
+	auto FAssetPublicationCoordinator::PublishDelta(FAssetRegistryDelta Delta)
+		-> FAssetResult
+	{
+		return AssetPrivate::ToAssetResult(PublishAssetRegistryDelta(std::move(Delta)));
+	}
+
+	auto FAssetPublicationCoordinator::ReconcileProjection(
+		std::span<const FPackagePath> Paths) -> FAssetResult
+	{
+		if (Paths.empty()) return {};
+		FAssetRegistryPublication Current = CaptureAssetRegistryPublication();
+		FAssetRegistryDelta Delta{.ExpectedRevision = Current.ExpectedRevision};
+		std::unordered_set<FPackagePath> Seen;
+		for (const FPackagePath& Path : Paths)
+		{
+			if (!Path.IsValid() || !Seen.insert(Path).second)
+				return Error(EAssetError::InvalidPath,
+					"Projection reconcile contains an invalid or duplicate path.");
+			const std::string PhysicalPath = ResolveAuthoredPackagePath(Path);
+			std::error_code Ec;
+			if (PhysicalPath.empty() || !std::filesystem::is_regular_file(PhysicalPath, Ec))
+			{
+				if (Current.Assets.contains(Path)) Delta.Removes.push_back(Path);
+				continue;
+			}
+			FAssetPackageHeader Header;
+			if (FAssetRegistryResult HeaderResult = ReadAssetPackageHeader(
+				PhysicalPath, Path, Header); !HeaderResult)
+				return AssetPrivate::ToAssetResult(std::move(HeaderResult));
+			const auto WriteTime = std::filesystem::last_write_time(PhysicalPath, Ec);
+			if (Ec) return Error(EAssetError::IoError,
+				"Projection reconcile could not read a package timestamp.");
+			const uintmax_t FileSize = std::filesystem::file_size(PhysicalPath, Ec);
+			if (Ec) return Error(EAssetError::IoError,
+				"Projection reconcile could not read a package size.");
+			FAssetData Data{
+				.PackagePath = Path,
+				.PhysicalPath = PhysicalPath,
+				.TopLevelAssets = ProjectTopLevelAssets(Header),
+				.AssetClassName = Header.AssetClassName,
+				.EntryKind = Header.EntryKind,
+				.RedirectDestination = Header.RedirectDestination,
+				.FormatVersion = Header.FormatVersion,
+				.Dependencies = Header.Dependencies,
+				.SoftDependencies = Header.SoftDependencies,
+				.SearchableNames = Header.SearchableNames,
+				.ObjectCount = Header.ObjectCount,
+				.BulkSegmentExtent = Header.BulkSegmentExtent,
+				.BulkSegmentDigest = Header.BulkSegmentDigest,
+				.FileSize = FileSize,
+				.LastWriteTime = WriteTime,
+				.LastWriteTimeTicks = FileTime::ToStableTicks(WriteTime)};
+			if (Current.Assets.contains(Path)) Delta.Replaces.push_back(std::move(Data));
+			else Delta.Adds.push_back(std::move(Data));
+			Delta.ReferenceInvalidations.push_back(Path);
+		}
+		return PublishDelta(std::move(Delta));
 	}
 
 	auto FAssetPublicationCoordinator::CapturePreparedState() const
@@ -350,16 +423,4 @@ namespace Durin::Asset
 		};
 	}
 
-	auto FAssetPublicationCoordinator::PublishPreparedState(uint64 ExpectedRevision, FAssetPublicationState State) -> FAssetResult
-	{
-		if (GetAssetCatalogRevision() != ExpectedRevision)
-			return Error(EAssetError::StaleData, std::format("Asset registry publication expected revision {} but current revision is {}.", ExpectedRevision, GetAssetCatalogRevision()));
-		return Private::ToAssetResult(PublishAssetRegistryPublication({
-			.ExpectedRevision = ExpectedRevision,
-			.Assets = std::move(State.Assets),
-			.ReferenceEdges = std::move(State.ReferenceEdges),
-			.ReferenceFingerprints = std::move(State.ReferenceFingerprints),
-			.ReferenceErrors = std::move(State.ReferenceErrors),
-			.bReferenceIndexComplete = State.bReferenceIndexComplete}));
-	}
-} // namespace Durin::Asset
+} // namespace Durin

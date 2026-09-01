@@ -3,13 +3,13 @@
 #include "DObject/Class.h"
 #include "DObject/SoftObjectPtr.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
 		constexpr uint32 MaximumRedirectDepth = 64;
 		constexpr std::string_view RedirectorClassName =
-			"Durin::Asset::DAssetRedirector";
+			"Durin::DAssetRedirector";
 
 		auto ResolveAssetPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
@@ -108,7 +108,7 @@ namespace Durin::Asset
 				Destination.GetAssetPath(), Components, OutPath);
 		}
 
-		auto ResolveObjectPathInCatalog(
+		auto ResolveAssetObjectPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			uint64 Revision,
 			const FObjectPath& Path,
@@ -309,10 +309,14 @@ namespace Durin::Asset
 		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
+		if (AssetPrivate::GetAssetRegistryState().IsFenced(Path))
+			return {.State = EAssetPathResolveState::NotFound,
+				.CatalogRevision = Revision, .RequestedPath = Path,
+				.FinalPath = Path};
 		return ResolveAssetPathInCatalog(Catalog.Assets, Revision, Path, Options);
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 	FAssetRegistryState::FAssetRegistryState() = default;
 
@@ -343,6 +347,10 @@ namespace Durin::Asset
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
+		if (ProjectionFences.contains(Path))
+			return {.State = EAssetPathResolveState::NotFound,
+				.CatalogRevision = Revision, .RequestedPath = Path,
+				.FinalPath = Path};
 		return ResolveAssetPathInCatalog(Assets, Revision, Path, Options);
 	}
 
@@ -473,6 +481,34 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetRegistryState::Fence(std::span<const FPackagePath> Paths) -> void
+	{
+		std::unique_lock Lock(Mutex);
+		ProjectionFences.insert(Paths.begin(), Paths.end());
+	}
+
+	auto FAssetRegistryState::ClearFence(std::span<const FPackagePath> Paths) -> void
+	{
+		std::unique_lock Lock(Mutex);
+		for (const FPackagePath& Path : Paths) ProjectionFences.erase(Path);
+	}
+
+	auto FAssetRegistryState::IsFenced(const FPackagePath& Path) const -> bool
+	{
+		std::shared_lock Lock(Mutex);
+		return ProjectionFences.contains(Path);
+	}
+
+	auto FAssetRegistryState::CaptureFences() const -> std::vector<FPackagePath>
+	{
+		std::shared_lock Lock(Mutex);
+		std::vector<FPackagePath> Result(ProjectionFences.begin(), ProjectionFences.end());
+		std::ranges::sort(Result, [](const FPackagePath& Left, const FPackagePath& Right) {
+			return Left.GetView() < Right.GetView();
+		});
+		return Result;
+	}
+
 	auto GetAssetRegistryState() -> FAssetRegistryState&
 	{
 		static FAssetRegistryState State;
@@ -482,75 +518,175 @@ namespace Durin::Asset
 
 	auto FindAssetExact(const FPackagePath& Path) -> FAssetCatalogEntry
 	{
-		return Private::GetAssetRegistryState().FindAssetExact(Path);
+		return AssetPrivate::GetAssetRegistryState().FindAssetExact(Path);
 	}
 
 	auto FindTopLevelAssetExact(
 		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry
 	{
-		return Private::GetAssetRegistryState().FindTopLevelAssetExact(Path);
+		return AssetPrivate::GetAssetRegistryState().FindTopLevelAssetExact(Path);
 	}
 
 	auto ResolveAssetPath(const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 	{
-		return Private::GetAssetRegistryState().ResolveAssetPath(Path, Options);
+		return AssetPrivate::GetAssetRegistryState().ResolveAssetPath(Path, Options);
 	}
 
-	auto ResolveObjectPath(const FObjectPath& Path,
+	auto ResolveAssetObjectPath(const FObjectPath& Path,
 		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
 	{
 		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
-		return ResolveObjectPathInCatalog(
+		return ResolveAssetObjectPathInCatalog(
 			Snapshot.Assets, Snapshot.Revision, Path, Options);
 	}
 
 	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot
 	{
-		return Private::GetAssetRegistryState().CaptureCatalog();
+		return AssetPrivate::GetAssetRegistryState().CaptureCatalog();
 	}
 
 	auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot
 	{
-		return Private::GetAssetRegistryState().CaptureDependencyClosure(Root);
+		return AssetPrivate::GetAssetRegistryState().CaptureDependencyClosure(Root);
 	}
 
 	auto GetAssetCatalogRevision() -> uint64
 	{
-		return Private::GetAssetRegistryState().GetRevision();
+		return AssetPrivate::GetAssetRegistryState().GetRevision();
 	}
 
 	auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex
 	{
-		return Private::GetAssetRegistryState().CaptureReferences();
+		return AssetPrivate::GetAssetRegistryState().CaptureReferences();
 	}
 
 	auto CaptureAssetRegistrySnapshot() -> FAssetRegistrySnapshot
 	{
-		return Private::GetAssetRegistryState().CaptureSnapshot();
+		return AssetPrivate::GetAssetRegistryState().CaptureSnapshot();
 	}
 
 	auto CaptureAssetRegistryPublication() -> FAssetRegistryPublication
 	{
-		return Private::GetAssetRegistryState().CapturePublication();
+		return AssetPrivate::GetAssetRegistryState().CapturePublication();
 	}
 
 	auto PublishAssetRegistryPublication(
 		FAssetRegistryPublication Publication) -> FAssetRegistryResult
 	{
-		FAssetRegistryResult Result = Private::GetAssetRegistryState().Publish(
+		FAssetRegistryResult Result = AssetPrivate::GetAssetRegistryState().Publish(
 			std::move(Publication));
 		if (Result)
 		{
-			Private::MarkAssetRegistryCachesDirty();
+			AssetPrivate::MarkAssetRegistryCachesDirty();
 			InvalidateSoftObjectCaches();
 		}
 		return Result;
 	}
 
+	auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta)
+		-> FAssetRegistryResult
+	{
+		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
+		if (Publication.ExpectedRevision != Delta.ExpectedRevision)
+			return {EAssetRegistryError::StaleData, std::format(
+				"Asset registry delta expected revision {} but current revision is {}.",
+				Delta.ExpectedRevision, Publication.ExpectedRevision)};
+		std::unordered_set<FPackagePath> Touched;
+		auto Touch = [&](const FPackagePath& Path) -> bool {
+			return Path.IsValid() && Touched.insert(Path).second;
+		};
+		for (FAssetData& Data : Delta.Adds)
+		{
+			if (!Touch(Data.PackagePath) || Publication.Assets.contains(Data.PackagePath))
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Add path is invalid, duplicated, or occupied."};
+			Publication.Assets.emplace(Data.PackagePath, std::move(Data));
+		}
+		for (FAssetData& Data : Delta.Replaces)
+		{
+			if (!Touch(Data.PackagePath) || !Publication.Assets.contains(Data.PackagePath))
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Replace path is invalid, duplicated, or missing."};
+			Publication.Assets.insert_or_assign(Data.PackagePath, std::move(Data));
+		}
+		for (const FPackagePath& Path : Delta.Removes)
+		{
+			if (!Touch(Path) || Publication.Assets.erase(Path) != 1)
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Remove path is invalid, duplicated, or missing."};
+		}
+		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
+			if (!Path.IsValid())
+				return {EAssetRegistryError::CorruptFile,
+					"Asset registry delta contains an invalid reference-invalidation path."};
+
+		Publication.ReferenceEdges.clear();
+		Publication.ReferenceFingerprints.clear();
+		for (const auto& [Path, Data] : Publication.Assets)
+		{
+			const FAssetPackageFingerprint Fingerprint{
+				.FileSize = Data.FileSize,
+				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
+				.ReaderVersion = Data.FormatVersion};
+			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
+			auto AddEdge = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
+				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
+					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
+			};
+			for (const FPackagePath& Target : Data.Dependencies)
+				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
+					|| Target != Data.RedirectDestination)
+					AddEdge(EAssetReferenceKind::HardObject, Target);
+			for (const FPackagePath& Target : Data.SoftDependencies)
+				AddEdge(EAssetReferenceKind::SoftObject, Target);
+			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+				AddEdge(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+		}
+		std::ranges::sort(Publication.ReferenceEdges,
+			[](const FAssetPackageReferenceEdge& Left,
+				const FAssetPackageReferenceEdge& Right) {
+				return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+					< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
+			});
+		Publication.ReferenceEdges.erase(std::unique(Publication.ReferenceEdges.begin(),
+			Publication.ReferenceEdges.end()), Publication.ReferenceEdges.end());
+		Publication.ReferenceErrors.clear();
+		Publication.bReferenceIndexComplete = true;
+		FAssetRegistryResult Result = PublishAssetRegistryPublication(std::move(Publication));
+		if (Result)
+		{
+			std::vector<FPackagePath> Paths(Touched.begin(), Touched.end());
+			Paths.insert(Paths.end(), Delta.ReferenceInvalidations.begin(),
+				Delta.ReferenceInvalidations.end());
+			ClearAssetRegistryProjectionFence(Paths);
+		}
+		return Result;
+	}
+
+	auto FenceAssetRegistryProjection(std::span<const FPackagePath> Paths) -> void
+	{
+		AssetPrivate::GetAssetRegistryState().Fence(Paths);
+	}
+
+	auto ClearAssetRegistryProjectionFence(std::span<const FPackagePath> Paths) -> void
+	{
+		AssetPrivate::GetAssetRegistryState().ClearFence(Paths);
+	}
+
+	auto IsAssetRegistryProjectionFenced(const FPackagePath& Path) -> bool
+	{
+		return AssetPrivate::GetAssetRegistryState().IsFenced(Path);
+	}
+
+	auto CaptureAssetRegistryProjectionFences() -> std::vector<FPackagePath>
+	{
+		return AssetPrivate::GetAssetRegistryState().CaptureFences();
+	}
+
 	auto FindRedirectorsTo(const FPackagePath& Destination) -> std::vector<FPackagePath>
 	{
-		return Private::GetAssetRegistryState().FindRedirectorsTo(Destination);
+		return AssetPrivate::GetAssetRegistryState().FindRedirectorsTo(Destination);
 	}
 }

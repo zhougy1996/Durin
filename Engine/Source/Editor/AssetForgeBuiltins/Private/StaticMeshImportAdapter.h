@@ -7,9 +7,9 @@ namespace Durin::AssetForge::Builtins
 {
 	inline auto MakeStaticMeshImportedData(
 		const FImportedSceneData& Scene)
-		-> Asset::FStaticMeshImportedData
+		-> FStaticMeshImportedData
 	{
-		Asset::FStaticMeshImportedData Result;
+		FStaticMeshImportedData Result;
 		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
 		for (const FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{
@@ -21,13 +21,13 @@ namespace Durin::AssetForge::Builtins
 		Result.Meshes.reserve(Scene.Meshes.size());
 		for (const FImportedMeshData& Mesh : Scene.Meshes)
 		{
-			Asset::FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
+			FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
 			Output.Name = Mesh.Name;
 			Output.Positions.assign(Mesh.Positions.begin(), Mesh.Positions.end());
 			Output.Normals.assign(Mesh.Normals.begin(), Mesh.Normals.end());
 			Output.Tangents.assign(Mesh.Tangents.begin(), Mesh.Tangents.end());
 			for (uint32 Channel = 0;
-				Channel < Asset::MaximumStaticMeshImportedUVChannels;
+				Channel < MaximumStaticMeshImportedUVChannels;
 				++Channel)
 			{
 				Output.UVChannels[Channel].assign(

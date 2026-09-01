@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	auto FTexture2DBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{

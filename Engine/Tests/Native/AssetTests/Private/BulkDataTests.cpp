@@ -11,7 +11,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset;
+	using namespace Durin;
 
 	auto MakeBytes(std::initializer_list<uint8> Values) -> Durin::FByteArray
 	{

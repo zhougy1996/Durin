@@ -6,7 +6,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	auto CaptureEncodedSource(
 		std::string Filename,
 		const std::filesystem::path& PhysicalPath,

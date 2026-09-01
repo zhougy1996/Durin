@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/Load.h"
@@ -11,7 +11,7 @@ namespace Durin
 	namespace FFileHelper { class IFileHandle; }
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class EPackageSchemaIssueCode : uint8
 	{

@@ -3,7 +3,7 @@
 #include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -16,7 +16,7 @@ namespace Durin::Asset
 			uint64 DecodedSize = 0;
 		};
 
-		auto Fail(
+		auto ChunkedPayloadFail(
 			EChunkedPayloadFailure Failure,
 			EChunkedPayloadFailureKind Kind = EChunkedPayloadFailureKind::Corrupt)
 			-> FChunkedPayloadResult
@@ -63,14 +63,14 @@ namespace Durin::Asset
 	{
 		if (!IsFormatValid(Format) || Chunks.size() < Format.RequiredChunkCount
 			|| Chunks.size() > Format.MaximumChunkCount)
-			return Fail(EChunkedPayloadFailure::InvalidArgument);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidArgument);
 
 		uint64 DirectoryBytes = 0, DirectoryEnd = 0;
 		if (!BulkContainer::TryMultiply(
 			Chunks.size(), ChunkedPayloadEntrySize, Format.MaximumBytes, DirectoryBytes)
 			|| !BulkContainer::TryAdd(
 				ChunkedPayloadHeaderSize, DirectoryBytes, Format.MaximumBytes, DirectoryEnd))
-			return Fail(EChunkedPayloadFailure::InvalidChunkCount);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkCount);
 
 		std::vector<BulkContainer::FLayoutItem> Items;
 		Items.reserve(Chunks.size());
@@ -78,7 +78,7 @@ namespace Durin::Asset
 		for (const FChunkedPayloadInput& Chunk : Chunks)
 		{
 			if (Chunk.Type == 0 || Chunk.DecodedSize > Format.MaximumBytes - TotalDecodedSize)
-				return Fail(EChunkedPayloadFailure::InvalidChunkSize);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkSize);
 			Items.push_back({Chunk.Bytes.size(), Format.Alignment});
 			TotalDecodedSize += Chunk.DecodedSize;
 		}
@@ -91,7 +91,7 @@ namespace Durin::Asset
 		uint64 StoredSize = 0;
 		if (!BulkContainer::TryBuildLayout(
 			DirectoryEnd, Items, LayoutPolicy, Ranges, StoredSize))
-			return Fail(EChunkedPayloadFailure::InvalidChunkLayout);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkLayout);
 
 		HeaderWords[Format.HeaderSizeWordIndex] = ChunkedPayloadHeaderSize;
 		HeaderWords[Format.ChunkCountWordIndex] = static_cast<uint32>(Chunks.size());
@@ -103,23 +103,23 @@ namespace Durin::Asset
 			if (!Body.Write(Chunk.Type) || !Body.Write(Chunk.Flags)
 				|| !Body.Write(Range.Offset) || !Body.Write(Range.Size)
 				|| !Body.Write(Chunk.DecodedSize))
-				return Fail(EChunkedPayloadFailure::InvalidStoredSize);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidStoredSize);
 		}
 		for (size_t Index = 0; Index < Chunks.size(); ++Index)
 		{
 			if (!Body.PadTo(Ranges[Index].Offset - ChunkedPayloadHeaderSize)
 				|| !Body.Write(Chunks[Index].Bytes))
-				return Fail(EChunkedPayloadFailure::InvalidStoredSize);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidStoredSize);
 		}
 
 		BulkContainer::FBoundedWriter Writer(Format.MaximumBytes);
 		for (uint32 Word : HeaderWords)
-			if (!Writer.Write(Word)) return Fail(EChunkedPayloadFailure::InvalidStoredSize);
+			if (!Writer.Write(Word)) return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidStoredSize);
 		if (!Writer.Write(static_cast<uint64>(ChunkedPayloadHeaderSize))
 			|| !Writer.Write(TotalDecodedSize) || !Writer.Write(StoredSize)
 			|| !Writer.Write(FXxHash64::HashBuffer(Body.View()).HashValue)
 			|| !Writer.Write(Body.View()) || !Writer.TryTake(OutBytes))
-			return Fail(EChunkedPayloadFailure::InvalidStoredSize);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidStoredSize);
 		return {};
 	}
 
@@ -128,36 +128,36 @@ namespace Durin::Asset
 		const FChunkedPayloadFormat& Format,
 		FDecodedChunkedPayload& OutPayload) -> FChunkedPayloadResult
 	{
-		if (!IsFormatValid(Format)) return Fail(EChunkedPayloadFailure::InvalidArgument);
+		if (!IsFormatValid(Format)) return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidArgument);
 		if (Bytes.size() < ChunkedPayloadHeaderSize)
-			return Fail(EChunkedPayloadFailure::TruncatedHeader);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::TruncatedHeader);
 
 		BulkContainer::FBoundedReader Reader(Bytes, Format.MaximumBytes);
 		FDecodedChunkedPayload Candidate;
 		uint64 TableOffset = 0, TotalDecodedSize = 0, StoredSize = 0, StoredHash = 0;
 		if (!ReadHeader(Reader, Candidate.HeaderWords, TableOffset,
 			TotalDecodedSize, StoredSize, StoredHash))
-			return Fail(EChunkedPayloadFailure::TruncatedHeader);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::TruncatedHeader);
 		const uint32 ChunkCount = Candidate.HeaderWords[Format.ChunkCountWordIndex];
 		if (Candidate.HeaderWords[Format.HeaderSizeWordIndex] != ChunkedPayloadHeaderSize
 			|| TableOffset != ChunkedPayloadHeaderSize)
-			return Fail(EChunkedPayloadFailure::InvalidHeader);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidHeader);
 		if (ChunkCount < Format.RequiredChunkCount || ChunkCount > Format.MaximumChunkCount)
-			return Fail(EChunkedPayloadFailure::InvalidChunkCount);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkCount);
 		if (!Reader.IsValid() || StoredSize != Bytes.size() || StoredSize > Format.MaximumBytes
 			|| TotalDecodedSize > Format.MaximumBytes)
-			return Fail(EChunkedPayloadFailure::InvalidStoredSize);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidStoredSize);
 		if (FXxHash64::HashBuffer(Bytes.subspan(ChunkedPayloadHeaderSize)).HashValue != StoredHash)
-			return Fail(EChunkedPayloadFailure::ChecksumMismatch);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::ChecksumMismatch);
 
 		uint64 TableBytes = 0, TableEnd = 0;
 		if (!BulkContainer::TryMultiply(
 			ChunkCount, ChunkedPayloadEntrySize, StoredSize, TableBytes)
 			|| !BulkContainer::TryAdd(TableOffset, TableBytes, StoredSize, TableEnd))
-			return Fail(EChunkedPayloadFailure::TableOutOfRange);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::TableOutOfRange);
 		std::span<const std::byte> Table;
 		if (!BulkContainer::TryProjectRange(Bytes, TableOffset, TableBytes, Table))
-			return Fail(EChunkedPayloadFailure::TableOutOfRange);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::TableOutOfRange);
 
 		BulkContainer::FBoundedReader TableReader(Table, TableBytes);
 		std::vector<FChunkRecord> Records(ChunkCount);
@@ -173,22 +173,22 @@ namespace Durin::Asset
 			if (!TableReader.Read(Chunk.Type) || !TableReader.Read(Chunk.Flags)
 				|| !TableReader.Read(Chunk.Offset) || !TableReader.Read(Chunk.StoredSize)
 				|| !TableReader.Read(Chunk.DecodedSize))
-				return Fail(EChunkedPayloadFailure::TableOutOfRange);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::TableOutOfRange);
 			if (Chunk.Type == 0 || (Format.RequireUniqueChunkTypes && !Types.insert(Chunk.Type).second))
-				return Fail(EChunkedPayloadFailure::DuplicateChunkType);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::DuplicateChunkType);
 			if ((Chunk.Flags & ~Format.KnownChunkFlags) != 0)
-				return Fail(EChunkedPayloadFailure::UnsupportedChunkFlags,
+				return ChunkedPayloadFail(EChunkedPayloadFailure::UnsupportedChunkFlags,
 					EChunkedPayloadFailureKind::Incompatible);
 			const uint32 Compression = Format.CompressionMask == 0 ? 0
 				: (Chunk.Flags & Format.CompressionMask) >> Format.CompressionShift;
 			if (Compression > Format.MaximumCompressionMethod)
-				return Fail(EChunkedPayloadFailure::UnsupportedCompression,
+				return ChunkedPayloadFail(EChunkedPayloadFailure::UnsupportedCompression,
 					EChunkedPayloadFailureKind::Incompatible);
 			if (Chunk.DecodedSize > Format.MaximumBytes - DecodedSum
 				|| (Compression == 0 && Chunk.StoredSize != Chunk.DecodedSize))
-				return Fail(EChunkedPayloadFailure::InvalidChunkSize);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkSize);
 			if (Chunk.Offset % Format.Alignment != 0)
-				return Fail(EChunkedPayloadFailure::InvalidChunkLayout);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkLayout);
 			if (Compression != 0)
 			{
 				HasCompressedChunk = true;
@@ -196,7 +196,7 @@ namespace Durin::Asset
 					|| Chunk.DecodedSize / Chunk.StoredSize > Format.MaximumCompressionRatio
 					|| (Chunk.DecodedSize / Chunk.StoredSize == Format.MaximumCompressionRatio
 						&& Chunk.DecodedSize % Chunk.StoredSize != 0))
-					return Fail(EChunkedPayloadFailure::CompressionRatioExceeded);
+					return ChunkedPayloadFail(EChunkedPayloadFailure::CompressionRatioExceeded);
 			}
 			DecodedSum += Chunk.DecodedSize;
 			Ranges.push_back({Chunk.Offset, Chunk.StoredSize, Format.Alignment});
@@ -207,11 +207,11 @@ namespace Durin::Asset
 				if ((Chunk.Flags & Format.RequiredChunkFlag) == 0
 					|| RequiredIndices[RequiredIndex] >= 0
 					|| (Format.RequireNonemptyRequiredChunks && Chunk.StoredSize == 0))
-					return Fail(EChunkedPayloadFailure::MissingRequiredChunk);
+					return ChunkedPayloadFail(EChunkedPayloadFailure::MissingRequiredChunk);
 				RequiredIndices[RequiredIndex] = static_cast<int32>(Index);
 			}
 			else if ((Chunk.Flags & Format.RequiredChunkFlag) != 0)
-				return Fail(EChunkedPayloadFailure::UnknownRequiredChunk,
+				return ChunkedPayloadFail(EChunkedPayloadFailure::UnknownRequiredChunk,
 					EChunkedPayloadFailureKind::Incompatible);
 		}
 
@@ -227,21 +227,21 @@ namespace Durin::Asset
 		{
 			if (LayoutFailure.Category == BulkContainer::EFailure::NonzeroPadding
 				|| LayoutFailure.Category == BulkContainer::EFailure::TrailingNonzeroPadding)
-				return Fail(EChunkedPayloadFailure::NonzeroPadding);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::NonzeroPadding);
 			if (LayoutFailure.Category == BulkContainer::EFailure::TrailingBytes)
-				return Fail(EChunkedPayloadFailure::TrailingData);
-			return Fail(EChunkedPayloadFailure::InvalidChunkLayout);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::TrailingData);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkLayout);
 		}
 		if (DecodedSum != TotalDecodedSize)
-			return Fail(EChunkedPayloadFailure::DecodedSizeMismatch);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::DecodedSizeMismatch);
 		if (std::ranges::any_of(RequiredIndices, [](int32 Index) { return Index < 0; }))
-			return Fail(EChunkedPayloadFailure::MissingRequiredChunk);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::MissingRequiredChunk);
 		if (Format.GlobalFlagsWordIndex < 8
 			&& HasCompressedChunk != ((Candidate.HeaderWords[Format.GlobalFlagsWordIndex]
 				& Format.GlobalCompressedFlag) != 0))
-			return Fail(EChunkedPayloadFailure::CompressionFlagsMismatch);
+			return ChunkedPayloadFail(EChunkedPayloadFailure::CompressionFlagsMismatch);
 		if (HasCompressedChunk)
-			return Fail(EChunkedPayloadFailure::CompressionUnavailable,
+			return ChunkedPayloadFail(EChunkedPayloadFailure::CompressionUnavailable,
 				EChunkedPayloadFailureKind::Incompatible);
 
 		Candidate.Chunks.reserve(Records.size());
@@ -249,7 +249,7 @@ namespace Durin::Asset
 		{
 			std::span<const std::byte> ChunkBytes;
 			if (!BulkContainer::TryProjectRange(Bytes, Chunk.Offset, Chunk.StoredSize, ChunkBytes))
-				return Fail(EChunkedPayloadFailure::InvalidChunkLayout);
+				return ChunkedPayloadFail(EChunkedPayloadFailure::InvalidChunkLayout);
 			Candidate.Chunks.push_back({Chunk.Type, Chunk.Flags, ChunkBytes, Chunk.DecodedSize});
 		}
 		Candidate.RequiredChunks.reserve(RequiredIndices.size());

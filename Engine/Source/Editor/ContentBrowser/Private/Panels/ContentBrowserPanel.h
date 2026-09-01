@@ -27,11 +27,9 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
-		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+		using FMoveAssets = std::function<FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FFixUpAssets =
-			std::function<Asset::FAssetResult(std::span<const FPackagePath>)>;
-		using FExecuteTransaction =
-			std::function<bool(std::unique_ptr<::Durin::Editor::ITransactionCustomChange>)>;
+			std::function<FAssetResult(std::span<const FPackagePath>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FQueryReimport = std::function<
@@ -45,7 +43,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			FOpenAsset InOpenAsset,
 			FMoveAssets InMoveAssets,
 			FFixUpAssets InFixUpRedirectors,
-			FExecuteTransaction InExecuteTransaction,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
 			FQueryReimport InQueryReimport,
@@ -132,7 +129,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		::Durin::Editor::ContentBrowser::FPresentationSettings PresentationSettings;
 		::Durin::Editor::ContentBrowser::FSavePresentationSettings SavePresentationSettings;
 		FOpenAsset OpenAsset;
-		FExecuteTransaction ExecuteTransaction;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
 		FQueryReimport QueryReimport;

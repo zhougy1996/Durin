@@ -10,8 +10,8 @@ namespace Durin::Editor
 	{
 		auto QueryAssetDestinationOccupancy(const FPackagePath& AssetPath) -> FAssetDestinationOccupancy
 		{
-			const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(AssetPath);
-			DPackage* ResidentPackage = Asset::FindResidentPackage(AssetPath);
+			const FAssetCatalogEntry Entry = FindAssetExact(AssetPath);
+			DPackage* ResidentPackage = FindResidentPackage(AssetPath);
 			return {
 				.bRegistryAssetExists = Entry.Succeeded(),
 				.bResidentPackageExists = ResidentPackage != nullptr,
@@ -19,7 +19,7 @@ namespace Durin::Editor
 					ResidentPackage && ResidentPackage->IsNewlyCreated(),
 				.OccupantKind = !Entry
 					? EAssetDestinationOccupantKind::None
-					: Entry->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+					: Entry->EntryKind == EAssetRegistryEntryKind::Redirector
 						? EAssetDestinationOccupantKind::Redirector
 						: EAssetDestinationOccupantKind::Asset,
 				.RedirectDestination = Entry

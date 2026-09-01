@@ -163,9 +163,9 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
-		Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	const Durin::FAssetCatalogRefreshResult Refresh =
+		Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "Asset catalog refresh failed without a diagnostic."
 		: Refresh.Errors.front().Message);
@@ -221,7 +221,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	Durin::FPackagePath DefaultPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, DefaultPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultPath));
+	ASSERT_TRUE(Durin::UnloadPackage(DefaultPath));
 	Durin::CollectGarbage();
 	WaitForRenderingThread();
 	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
@@ -235,7 +235,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 	if (Durin::FPackagePath::TryCreate(
 			Durin::DefaultMaterialPackagePath, DefaultPath))
 	{
-		Durin::Asset::UnloadPackage(DefaultPath);
+		Durin::UnloadPackage(DefaultPath);
 	}
 	Durin::CollectGarbage();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
@@ -250,8 +250,8 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 			.bContentWritable = false}};
 	Durin::Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	EXPECT_FALSE(Durin::InitializeDefaultMaterialService());
 	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
 	EXPECT_EQ(
@@ -270,13 +270,13 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	Durin::Asset::FAssetResult Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
+	Durin::FAssetResult Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
@@ -284,25 +284,25 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
-	Durin::Asset::FCookContext Cook(
+	Durin::FCookContext Cook(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
-	Durin::Asset::ShutdownAssetManager();
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	auto RuntimeConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-	Result = Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
+	Result = Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration);
 	ASSERT_TRUE(Result) << Result.Message;
-	Result = Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration));
+	Result = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Result) << Result.Message;
 	{
 	const std::array CookMountDefinitions{
@@ -314,15 +314,15 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::Testing::FScopedMountRegistryFixture CookMounts(
 		CookMountDefinitions);
 	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
-	Durin::Asset::FAssetPackageInspection Inspection;
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+	Durin::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::InspectAssetPackage(
 		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
 		Inspection));
 	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
-	Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Cooked);
+	Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Cooked);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
@@ -333,11 +333,11 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	}
 
-	Durin::Asset::ShutdownAssetManager();
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 }
 
 TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)

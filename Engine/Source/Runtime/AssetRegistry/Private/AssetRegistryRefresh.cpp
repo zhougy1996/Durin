@@ -3,7 +3,7 @@
 #include "AssetRegistryStateInternal.h"
 #include "AssetRegistryScanInternal.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -39,10 +39,10 @@ namespace Durin::Asset
 		-> FAssetCatalogRefreshResult
 	{
 		const auto Started = std::chrono::steady_clock::now();
-		const uint64 PriorRevision = Private::GetAssetRegistryState().GetRevision();
-		Private::FAssetRegistryScanCandidate Candidate;
-		Private::ScanMountedAssetMetadata(Mode, Candidate);
-		const std::vector<std::string> MountManifest = Private::GetMountManifest();
+		const uint64 PriorRevision = AssetPrivate::GetAssetRegistryState().GetRevision();
+		AssetPrivate::FAssetRegistryScanCandidate Candidate;
+		AssetPrivate::ScanMountedAssetMetadata(Mode, Candidate);
+		const std::vector<std::string> MountManifest = AssetPrivate::GetMountManifest();
 
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> Fingerprints;
@@ -115,11 +115,14 @@ namespace Durin::Asset
 			Refresh.Errors.push_back(std::move(PublishResult));
 			return Refresh;
 		}
+		const std::vector<FPackagePath> ReconciledFences =
+			CaptureAssetRegistryProjectionFences();
+		ClearAssetRegistryProjectionFence(ReconciledFences);
 		Refresh.bPublished = true;
 		Refresh.bRetainedPriorRevision = false;
 		Refresh.ResultingRevision = GetAssetCatalogRevision();
 		const uint64 PublishedRevision = Refresh.ResultingRevision;
-		Refresh.bCatalogCacheDirty = !Private::WriteRegistryCache(
+		Refresh.bCatalogCacheDirty = !AssetPrivate::WriteRegistryCache(
 			MountManifest, std::move(Candidate.CacheEntries),
 			Refresh.CatalogCacheWarning);
 		{
@@ -138,7 +141,7 @@ namespace Durin::Asset
 		return Refresh;
 	}
 
-	auto Private::MarkAssetRegistryCachesDirty() -> void
+	auto AssetPrivate::MarkAssetRegistryCachesDirty() -> void
 	{
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
@@ -150,14 +153,14 @@ namespace Durin::Asset
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
 		const FAssetRegistryPublication Publication =
-			Private::GetAssetRegistryState().CapturePublication();
+			AssetPrivate::GetAssetRegistryState().CapturePublication();
 		if (Operational.bCatalogDirty)
 		{
-			std::vector<Private::FRegistryCacheEntry> Entries;
+			std::vector<AssetPrivate::FRegistryCacheEntry> Entries;
 			std::string Warning;
-			if (Private::BuildRegistryCacheEntries(Publication.Assets, Entries, Warning)
-				&& Private::WriteRegistryCache(
-					Private::GetMountManifest(), std::move(Entries), Warning))
+			if (AssetPrivate::BuildRegistryCacheEntries(Publication.Assets, Entries, Warning)
+				&& AssetPrivate::WriteRegistryCache(
+					AssetPrivate::GetMountManifest(), std::move(Entries), Warning))
 			{
 				Operational.bCatalogDirty = false;
 				Operational.CatalogWarning.clear();

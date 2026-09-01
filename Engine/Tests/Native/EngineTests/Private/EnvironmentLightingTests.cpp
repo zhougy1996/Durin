@@ -119,7 +119,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/EnvironmentLightingCook/StudioEnvironment", AssetPath));
 	Durin::DEnvironmentLighting* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(AssetPath, Asset));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Asset));
 	ASSERT_NE(Asset, nullptr);
 
 	Durin::FByteArray SourceBytes;
@@ -133,19 +133,19 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 		&FileError)) << FileError.ToString();
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
-	Durin::Asset::FCookContext Context(
+	Durin::FCookContext Context(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Asset, "/Game/StudioEnvironment", Context, Error)) << Error;
 	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
-	Durin::Asset::FAssetPackageInspection Inspection;
+	Durin::FAssetPackageInspection Inspection;
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 		"/Game/StudioEnvironment", CookedPath));
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+	ASSERT_TRUE(Durin::InspectAssetPackage(
 		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(),
 		CookedPath, Inspection));
 	EXPECT_NE(Inspection.FindField("PlatformData"), nullptr);

@@ -3,7 +3,7 @@
 #include "AssetMaintenanceAPI.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 AssetCanonicalResaveReportSchemaVersion = 3;
 	inline constexpr size_t MaximumCanonicalResaveBatchPackages = 32;

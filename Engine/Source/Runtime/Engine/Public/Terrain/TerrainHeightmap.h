@@ -62,7 +62,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Samples;
+		FEditorBulkData Samples;
 
 		DPROPERTY()
 		uint32 Width = 0;
@@ -113,8 +113,8 @@ namespace Durin
 
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			Asset::ECookTargetPlatform TargetPlatform,
-			Asset::ECookTargetProfile TargetProfile) -> void;
+			ECookTargetPlatform TargetPlatform,
+			ECookTargetProfile TargetProfile) -> void;
 
 		// Checks bounded container and hierarchy layout without rebuilding canonical data.
 		ENGINE_API auto HasValidLayout() const -> bool;
@@ -171,7 +171,7 @@ namespace Durin
 			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetDerivedDataLoadGeneration() const -> uint64 { return DerivedDataLoadGeneration; }
 		ENGINE_API auto BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
@@ -199,10 +199,10 @@ namespace Durin
 		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
 		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -250,7 +250,7 @@ namespace Durin
 		DPROPERTY()
 		uint64 RetainedBytes = 0;
 
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 
 		DPROPERTY(Transient)
 		ETerrainHeightmapStatus Status = ETerrainHeightmapStatus::Unavailable;

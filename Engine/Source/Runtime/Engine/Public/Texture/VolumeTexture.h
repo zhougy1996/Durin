@@ -57,7 +57,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Voxels;
+		FEditorBulkData Voxels;
 
 		DPROPERTY()
 		uint32 Width = 0;
@@ -148,7 +148,7 @@ namespace Durin
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		ENGINE_API auto GetPlatformData() const -> const FVolumeTexturePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic&
@@ -158,9 +158,9 @@ namespace Durin
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
-		ENGINE_API auto ContributeToCook(Asset::FCookContext& Context,
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+		ENGINE_API auto ContributeToCook(FCookContext& Context,
 			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
 	public:
 		ENGINE_API auto PublishBuiltData(FVolumeTextureSourceData InSourceData,
@@ -195,7 +195,7 @@ namespace Durin
 		FVolumeTextureBuildSettings BuildSettings;
 
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;

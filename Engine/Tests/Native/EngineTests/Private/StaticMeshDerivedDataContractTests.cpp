@@ -6,9 +6,9 @@
 
 namespace
 {
-	auto MakeKeyInput() -> Durin::Asset::FStaticMeshBuildKeyInput
+	auto MakeKeyInput() -> Durin::FStaticMeshBuildKeyInput
 	{
-		Durin::Asset::FStaticMeshBuildKeyInput Input;
+		Durin::FStaticMeshBuildKeyInput Input;
 		Input.ImportedDataHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
@@ -19,7 +19,7 @@ namespace
 		return Input;
 	}
 
-	auto MakeCollisionKeyInput() -> Durin::Asset::FStaticMeshCollisionBuildKeyInput
+	auto MakeCollisionKeyInput() -> Durin::FStaticMeshCollisionBuildKeyInput
 	{
 		return {
 			.GeometryHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
@@ -32,13 +32,13 @@ namespace
 
 TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic)
 {
-	const Durin::Asset::FStaticMeshBuildKeyInput Input = MakeKeyInput();
+	const Durin::FStaticMeshBuildKeyInput Input = MakeKeyInput();
 	std::string Error;
 	const Durin::FByteArray First =
-		Durin::Asset::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
+		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	const Durin::FByteArray Second =
-		Durin::Asset::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
+		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const Durin::FByteArray Expected = [] {
 		const uint8 Values[]{
 		0x04, 0x00, 0x00, 0x00,
@@ -55,21 +55,21 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::Asset::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
+	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 {
-	const Durin::Asset::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
+	const Durin::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
 	std::string Error;
 	const std::string BaselineKey =
-		Durin::Asset::BuildStaticMeshDerivedDataKey(Baseline, Error);
+		Durin::BuildStaticMeshDerivedDataKey(Baseline, Error);
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
-		Durin::Asset::FStaticMeshBuildKeyInput Changed = Baseline;
+		Durin::FStaticMeshBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		EXPECT_NE(Durin::Asset::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
+		EXPECT_NE(Durin::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
 	};
 
 	ExpectChanged([](auto& Value) { ++Value.ImportedDataHash.HashLow; });
@@ -81,11 +81,11 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 
 TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAndRecipe)
 {
-	const Durin::Asset::FStaticMeshCollisionBuildKeyInput Baseline =
+	const Durin::FStaticMeshCollisionBuildKeyInput Baseline =
 		MakeCollisionKeyInput();
 	std::string Error;
 	const Durin::FByteArray Bytes =
-		Durin::Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
+		Durin::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	const Durin::FByteArray Expected = [] {
 		const uint8 Values[]{
@@ -102,14 +102,14 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	}();
 	EXPECT_EQ(Bytes, Expected);
 	const std::string BaselineKey =
-		Durin::Asset::BuildStaticMeshCollisionDerivedDataKey(Baseline, Error);
+		Durin::BuildStaticMeshCollisionDerivedDataKey(Baseline, Error);
 	EXPECT_EQ(BaselineKey.size(), 32u);
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
-		Durin::Asset::FStaticMeshCollisionBuildKeyInput Changed = Baseline;
+		Durin::FStaticMeshCollisionBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		EXPECT_NE(Durin::Asset::BuildStaticMeshCollisionDerivedDataKey(Changed, Error),
+		EXPECT_NE(Durin::BuildStaticMeshCollisionDerivedDataKey(Changed, Error),
 			BaselineKey);
 	};
 	ExpectChanged([](auto& Value) { ++Value.GeometryHash.HashLow; });

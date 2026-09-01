@@ -5,7 +5,7 @@
 
 #include "Redirector.gen.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Persists an old package identity as one hard reference to its canonical asset.
 	DCLASS()

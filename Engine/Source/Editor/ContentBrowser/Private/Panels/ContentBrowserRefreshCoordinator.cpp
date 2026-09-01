@@ -35,7 +35,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 AssetRegistryRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> Asset::FAssetResult
+		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
 	{
 		const bool bPanelMountedContentChanged =
 			MountedContentRevision != ObservedMountedContentRevision;
@@ -46,7 +46,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			&& *ReconciliationState->FailedRevision == MountedContentRevision;
 		if (bReconciliationRequired && !bFailedRevisionSuppressed)
 		{
-			const Asset::FAssetResult Result = ReconcileMountedContent();
+			const FAssetResult Result = ReconcileMountedContent();
 			if (!Result)
 			{
 				ReconciliationState->FailedRevision = MountedContentRevision;
@@ -76,9 +76,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 MountedContentRevision,
 		const FReconcileMountedContent& ReconcileMountedContent,
 		const FRefreshPublishedContent& RefreshPublishedContent,
-		const FGetRegistryRevision& GetRegistryRevision) -> Asset::FAssetResult
+		const FGetRegistryRevision& GetRegistryRevision) -> FAssetResult
 	{
-		const Asset::FAssetResult Result = ReconcileMountedContent();
+		const FAssetResult Result = ReconcileMountedContent();
 		if (!Result)
 		{
 			ReconciliationState->FailedRevision = MountedContentRevision;

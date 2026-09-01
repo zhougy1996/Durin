@@ -6,7 +6,7 @@
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetPackageTopLevelAssetHeader
 	{

@@ -13,7 +13,7 @@
 #include "DObject/Package.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
@@ -26,7 +26,7 @@ namespace Durin::Asset::Private
 			auto Reset() -> void { *this = {}; }
 		};
 
-		auto Fail(FLinkerApplyDiagnostic& Diagnostic, EAssetError Error,
+		auto LinkerApplyFail(FLinkerApplyDiagnostic& Diagnostic, EAssetError Error,
 			std::string_view Message, uint64 Offset = 0, std::string Path = {}) -> bool
 		{
 			(void)Offset;
@@ -146,12 +146,12 @@ namespace Durin::Asset::Private
 		}
 
 		template<typename T>
-		auto WriteInteger(Private::FByteWriter& Writer, uint64 Value) -> void
+		auto WriteInteger(AssetPrivate::FByteWriter& Writer, uint64 Value) -> void
 		{
 			Writer.Write(static_cast<T>(Value));
 		}
 
-		auto WriteProjectedField(Private::FByteWriter& Writer, std::string_view Owner,
+		auto WriteProjectedField(AssetPrivate::FByteWriter& Writer, std::string_view Owner,
 			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
 			std::string Signature, FByteArray Payload) -> void
 		{
@@ -163,11 +163,11 @@ namespace Durin::Asset::Private
 			FByteWriter& Writer, FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
 			const std::string Owner(IntrinsicName(Layout));
-			if (Owner.empty()) return Fail(Diagnostic, EAssetError::CorruptFile, "Intrinsic layout is invalid.");
+			if (Owner.empty()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Intrinsic layout is invalid.");
 			Writer.WriteString(Owner);
 			if (Layout == 5)
 			{
-				if (Components.size() != 10) return Fail(Diagnostic, EAssetError::CorruptFile, "Transform component count is invalid.");
+				if (Components.size() != 10) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Transform component count is invalid.");
 				Writer.Write(uint64(3));
 				for (const auto [Name, ChildLayout, Offset, Count] : {
 					std::tuple<std::string_view, uint64, size_t, size_t>{"Rotation", 4, 0, 4},
@@ -183,7 +183,7 @@ namespace Durin::Asset::Private
 			const std::array<std::string_view, 4> Lower = {"x", "y", "z", "w"};
 			const std::array<std::string_view, 4> Color = {"R", "G", "B", "A"};
 			const uint64 Count = Layout == 1 ? 2 : Layout == 2 ? 3 : 4;
-			if (Components.size() != Count) return Fail(Diagnostic, EAssetError::CorruptFile, "Intrinsic component count is invalid.");
+			if (Components.size() != Count) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Intrinsic component count is invalid.");
 			Writer.Write(Count);
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
@@ -262,7 +262,7 @@ namespace Durin::Asset::Private
 				case 2: WriteInteger<uint16>(Writer, Bits); return true;
 				case 4: WriteInteger<uint32>(Writer, Bits); return true;
 				case 8: Writer.Write(Bits); return true;
-				default: return Fail(Diagnostic, EAssetError::CorruptFile, "Enum storage width is invalid.", 0, std::move(Path));
+				default: return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Enum storage width is invalid.", 0, std::move(Path));
 				}
 			}
 			case K::Intrinsic:
@@ -272,13 +272,13 @@ namespace Durin::Asset::Private
 				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Type.Children.size() != Value.Elements.size())
-					return Fail(Diagnostic, EAssetError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
+					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
 				Writer.WriteString(Type.QualifiedName); Writer.Write(uint64(Value.Elements.size()));
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
 						&ObjectPackage::FSerializedField::Name);
-					if (It == Schema->Fields.end()) return Fail(Diagnostic, EAssetError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
+					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
 					const auto& ChildType = Type.Children[Index];
 					FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
@@ -292,7 +292,7 @@ namespace Durin::Asset::Private
 			}
 			case K::FixedArray: case K::Array:
 			{
-				if (Type.Children.size() != 1) return Fail(Diagnostic, EAssetError::CorruptFile, "Array element type is invalid.", 0, std::move(Path));
+				if (Type.Children.size() != 1) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Array element type is invalid.", 0, std::move(Path));
 				if (Type.Kind == K::Array) Writer.Write(uint64(Value.Elements.size()));
 				for (const auto& Item : Value.Elements)
 					if (!EncodeLoadArchiveValue(Type.Children[0], Item, Linker, Writer,
@@ -302,7 +302,7 @@ namespace Durin::Asset::Private
 			case K::Map:
 			{
 				if (Type.Children.size() != 2 || Value.Elements.size() % 2 != 0)
-					return Fail(Diagnostic, EAssetError::CorruptFile, "Map projection is invalid.", 0, std::move(Path));
+					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Map projection is invalid.", 0, std::move(Path));
 				Writer.Write(uint64(Value.Elements.size() / 2));
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 					if (!EncodeLoadArchiveValue(Type.Children[0], Value.Elements[Index], Linker, Writer,
@@ -321,7 +321,7 @@ namespace Durin::Asset::Private
 				{
 					const ObjectPackage::FPackageImport* Import = nullptr;
 					if (!Linker.TryGetImport(Value.Reference, Import) || !Import)
-						return Fail(Diagnostic, EAssetError::CorruptFile, "Hard-reference import is invalid.", 0, std::move(Path));
+						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Hard-reference import is invalid.", 0, std::move(Path));
 					Writer.Write(uint8{2}); Writer.WriteString(Import->ObjectPath.ToString());
 				}
 				return true;
@@ -334,7 +334,7 @@ namespace Durin::Asset::Private
 			case K::BulkData:
 				Writer.WriteBytes(MakeBulkDescriptor(Value, ++BulkFieldIndex)); return true;
 			}
-			return Fail(Diagnostic, EAssetError::CorruptFile, "Unsupported load value.", 0, std::move(Path));
+			return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Unsupported load value.", 0, std::move(Path));
 		}
 
 		auto ShouldFail(const FLinkerLoadOptions& Options, ELinkerLoadPhase Phase, uint64 Index) -> bool
@@ -397,12 +397,12 @@ namespace Durin::Asset::Private
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Value.Provenances.size() != Value.Elements.size()
 					|| Type.Children.size() != Value.Elements.size())
-					return Fail(Diagnostic, EAssetError::CorruptFile, "Struct ledger projection is invalid.");
+					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger projection is invalid.");
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
 						&ObjectPackage::FSerializedField::Name);
-					if (It == Schema->Fields.end()) return Fail(Diagnostic, EAssetError::CorruptFile, "Struct ledger field is missing.");
+					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger field is missing.");
 					const auto& ChildType = Type.Children[Index];
 					const auto Provenance = Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
@@ -447,7 +447,7 @@ namespace Durin::Asset::Private
 					std::string Error;
 					if (!ObjectPackage::BuildCanonicalMapKeyToken(
 						Type.Children[0], Value.Elements[Index], Token, &Error))
-						return Fail(Diagnostic, EAssetError::CorruptFile, Error);
+						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, Error);
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedLedger(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
 						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
@@ -650,7 +650,7 @@ namespace Durin::Asset::Private
 					|| LinkerCustomVersion(Linker, Deprecation->CustomVersionGuid)
 						>= Deprecation->DeprecatedBefore
 					|| Property->GetKind() != Kind
-					|| Private::GetSerializedTypeSignature(Property) != Signature) return;
+					|| AssetPrivate::GetSerializedTypeSignature(Property) != Signature) return;
 				if (Match) bAmbiguous = true;
 				else Match = Property;
 			}, false);
@@ -733,14 +733,14 @@ namespace Durin::Asset::Private
 				std::string Path;
 				if (!ObjectPackage::FPackageIndex::TryExport(Index, PackageIndex)
 					|| !Linker.TryResolvePath(PackageIndex, Path))
-					return Fail(Diagnostic, EAssetError::InvalidObjectGraph,
+					return LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 						"An export path cannot be resolved.");
 				auto& Export = Linker.Exports[Index];
 				uint64 OuterId = 0;
 				if (!Export.Outer.IsNull())
 				{
 					if (!Export.Outer.IsExport() || Export.Outer.GetTableIndex() >= Index)
-						return Fail(Diagnostic, EAssetError::InvalidObjectGraph,
+						return LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 							"Export Outer topology is not constructible in table order.", 0, Path);
 					OuterId = static_cast<uint64>(Export.Outer.GetTableIndex() + 1);
 				}
@@ -764,18 +764,18 @@ namespace Durin::Asset::Private
 		};
 		if (!PackagePath.IsValid())
 		{
-			Fail(Diagnostic, EAssetError::InvalidPath, "Live linker application requires a validated package path.");
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidPath, "Live linker application requires a validated package path.");
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
 		if (Linker.Summary.PackagePath != PackagePath)
 		{
-			Fail(Diagnostic, EAssetError::InvalidPath,
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidPath,
 				"Linker package identity does not match the requested package path.");
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
 		if (FindPackage(PackagePath.GetView()))
 		{
-			Fail(Diagnostic, EAssetError::AlreadyExists,
+			LinkerApplyFail(Diagnostic, EAssetError::AlreadyExists,
 				"A package with the requested path is already live.");
 			return Finish({EAssetError::AlreadyExists, Diagnostic.Message});
 		}
@@ -784,7 +784,7 @@ namespace Durin::Asset::Private
 		std::string CanonicalizationError;
 		if (!CanonicalizeSerializedReflectionNames(Linker, &CanonicalizationError))
 		{
-			Fail(Diagnostic, EAssetError::CorruptFile, CanonicalizationError);
+			LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, CanonicalizationError);
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 		}
 		std::vector<FExportView> Exports;
@@ -795,7 +795,7 @@ namespace Durin::Asset::Private
 			DClass* Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
 			if (!Class)
 			{
-				Fail(Diagnostic, EAssetError::UnknownClass,
+				LinkerApplyFail(Diagnostic, EAssetError::UnknownClass,
 					"Serialized class is unavailable.", 0, Object.Path);
 				return Finish({EAssetError::UnknownClass, Diagnostic.Message});
 			}
@@ -807,7 +807,7 @@ namespace Durin::Asset::Private
 					: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
 				if (!Schema || Field == Schema->Fields.end() || Field->Type != Property.Type)
 				{
-					Fail(Diagnostic, EAssetError::CorruptFile,
+					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
 						"A linker property is absent from its declared schema.", 0, Object.Path);
 					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
@@ -834,7 +834,7 @@ namespace Durin::Asset::Private
 					|| bCookedNativeCandidate;
 				if (!bCompatible)
 				{
-					Fail(Diagnostic, EAssetError::UnsupportedProperty,
+					LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
 						std::format("Serialized field {}::{} is incompatible with the live schema.",
 							Schema->QualifiedName, Field->Name), 0, Object.Path);
 					return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
@@ -843,7 +843,7 @@ namespace Durin::Asset::Private
 		}
 		if (Exports.empty())
 		{
-			Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Package has no object exports.");
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Package has no object exports.");
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 
@@ -853,7 +853,7 @@ namespace Durin::Asset::Private
 			EObjectFlags::Standalone);
 		if (!Package)
 		{
-			Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Could not allocate the package skeleton.");
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Could not allocate the package skeleton.");
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 		Package->InitializeAssetPackage(PackagePath);
@@ -871,14 +871,14 @@ namespace Durin::Asset::Private
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::CreateSkeleton, Index))
 			{
-				Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected skeleton creation failure."); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected skeleton creation failure."); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
 			const FExportView& Descriptor = Exports[Index];
 			DClass* Class = FindClassByQualifiedName(FName(Descriptor.Export->ClassName));
 			if (!Class || !Class->ClassConstructor)
 			{
-				Fail(Diagnostic, EAssetError::UnknownClass, "Serialized class is unavailable.", 0, Descriptor.Path); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::UnknownClass, "Serialized class is unavailable.", 0, Descriptor.Path); Rollback();
 				return Finish({EAssetError::UnknownClass, Diagnostic.Message});
 			}
 			DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)
@@ -887,7 +887,7 @@ namespace Durin::Asset::Private
 			DObject* Object = FindExistingInner(Outer, Descriptor.Export->ObjectName, Class, bTypeMismatch);
 			if (bTypeMismatch)
 			{
-				Fail(Diagnostic, EAssetError::TypeMismatch, "Existing default inner has a different class.", 0, Descriptor.Path); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::TypeMismatch, "Existing default inner has a different class.", 0, Descriptor.Path); Rollback();
 				return Finish({EAssetError::TypeMismatch, Diagnostic.Message});
 			}
 			if (!Object)
@@ -901,7 +901,7 @@ namespace Durin::Asset::Private
 			}
 			if (!Object)
 			{
-				Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Object construction failed.", 0, Descriptor.Path); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Object construction failed.", 0, Descriptor.Path); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
 			Objects[Index] = Object;
@@ -911,7 +911,7 @@ namespace Durin::Asset::Private
 			FAssetResult PublishResult = Options.OnSkeletonReady(Package);
 			if (!PublishResult)
 			{
-				Fail(Diagnostic, EAssetError::InvalidObjectGraph,
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 					PublishResult.Message.empty() ? "Could not publish the package skeleton."
 						: PublishResult.Message);
 				Rollback();
@@ -924,14 +924,14 @@ namespace Durin::Asset::Private
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
 			{
-				Fail(Diagnostic, EAssetError::MissingDependency, "Injected dependency failure."); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, "Injected dependency failure."); Rollback();
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
 			const FPackagePath& Path = Linker.Summary.HardPackageDependencies[Index];
 			DPackage* Dependency = nullptr; FAssetResult Result = LoadPackage(Path, Dependency);
 			if (!Result)
 			{
-				Fail(Diagnostic, EAssetError::MissingDependency, Result.Message); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, Result.Message); Rollback();
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
 		}
@@ -957,7 +957,7 @@ namespace Durin::Asset::Private
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
 			{
-				Fail(Diagnostic, EAssetError::CorruptFile, "Injected value application failure."); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected value application failure."); Rollback();
 				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 			}
 			std::vector<FAuthoredPackageFieldRecord> Fields;
@@ -983,7 +983,7 @@ namespace Durin::Asset::Private
 				PackagePath, Options.SourceFormatVersion, CustomVersions, LoadContext);
 			if (!Result)
 			{
-				Fail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path); Rollback();
 				return Finish(Result);
 			}
 			if (Options.bCooked) continue;
@@ -998,12 +998,12 @@ namespace Durin::Asset::Private
 					: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
 				if (!Schema || Field == Schema->Fields.end())
 				{
-					Fail(Diagnostic, EAssetError::CorruptFile, "A linker property lost its schema binding."); Rollback();
+					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "A linker property lost its schema binding."); Rollback();
 					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
 				if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, PropertyIndex + 1))
 				{
-					Fail(Diagnostic, EAssetError::CorruptFile, "Injected ledger restoration failure."); Rollback();
+					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected ledger restoration failure."); Rollback();
 					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
 				const auto Provenance = Property.Provenance == ObjectPackage::EPropertyProvenance::Forced
@@ -1049,7 +1049,7 @@ namespace Durin::Asset::Private
 			FAuthoredOverrideDiagnostic LedgerDiagnostic;
 			if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
 			{
-				Fail(Diagnostic, EAssetError::CorruptFile,
+				LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
 					"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath); Rollback();
 				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 			}
@@ -1061,13 +1061,13 @@ namespace Durin::Asset::Private
 			const size_t Index = Reverse - 1;
 			if (ShouldFail(Options, ELinkerLoadPhase::PostLoad, Index))
 			{
-				Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected PostLoad failure."); Rollback();
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected PostLoad failure."); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
 			std::string Error;
 			if (!Objects[Index]->PostLoad(Error))
 			{
-				Fail(Diagnostic, EAssetError::InvalidObjectGraph,
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
 					Error.empty() ? "Object PostLoad failed." : Error, 0, Exports[Index].Path); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
@@ -1075,7 +1075,7 @@ namespace Durin::Asset::Private
 		}
 		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
 		{
-			Fail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected graph publication failure."); Rollback();
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected graph publication failure."); Rollback();
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 		OutPackage = Package;

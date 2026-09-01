@@ -3,7 +3,7 @@
 #include "Misc/Guid.h"
 #include "Templates/CheckedArithmetic.h"
 
-namespace Durin::Asset::BulkContainer
+namespace Durin::BulkContainer
 {
 	using Durin::IsPowerOfTwo;
 	using Durin::TryAdd;

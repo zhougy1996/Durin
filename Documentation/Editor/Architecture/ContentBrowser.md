@@ -1,6 +1,6 @@
 # Content Browser
 
-Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
+Summary: Define asset presentation, operations, thumbnails, forward-only mutation jobs, and permanent deletion in the Content Browser.
 
 Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, AssetRegistry, Engine, TextureEditor, StaticMeshEditor, LevelEditor
 
@@ -174,19 +174,18 @@ completeness. Referencer navigation reveals the selected owner. Selection,
 folder, and project-wide Fix Up commands call the shared AssetTools operation;
 an empty virtual directory never falls through to project-wide scope. Failed
 analysis/publication retains every alias and reports the blocking participant.
-AssetTools prepares and commits the opaque Engine transaction and retains it in
-global editor history; ContentBrowser cannot invoke package/store rewrite,
-alias deletion, verification, or compensation phases separately.
+AssetTools prepares and resumes the opaque Engine job without adding editor
+history; ContentBrowser cannot invoke package/store rewrite, alias deletion,
+verification, or recovery phases separately.
 
 Create, import/reimport, duplicate, rename, move, and folder relocation
 through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
 
-Asset and folder moves retain one opaque Engine mutation transaction in the
-global editor history. AssetTools prepares and commits it once; the editor
-history calls only `Undo` and `Redo`, never Engine revalidation, publication,
-restore, or compensation phases directly.
+Asset and folder moves use one opaque forward-only Engine mutation job.
+AssetTools calls `ResumeForward`; authored relocation never enters global
+object-edit Undo/Redo history.
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning
@@ -203,7 +202,7 @@ catalog.
 
 ## Recursive Deletion
 
-Folder and mixed-item deletion is one recursive, reversible editor transaction.
+Folder and mixed-item deletion is one recursive, irreversible command.
 Preflight reads the physical filesystem beneath normalized selected roots rather
 than the filtered Content Browser projection. It deduplicates selected
 descendants beneath selected ancestors and classifies every entry as a folder,
@@ -212,17 +211,19 @@ registered package, ordinary file, or asset-managed companion. An unregistered
 ordinary file or silently omitted.
 
 Preflight produces one immutable deletion plan shared by the confirmation modal
-and transaction. The plan contains the registry revision, deterministic
+and command. The plan contains the registry revision, deterministic
 physical fingerprints, sorted entries, and the minimal set of maximal roots to
-move. File fingerprints include a bounded-memory streamed 128-bit byte identity;
+remove. Its destructive AssetTools operation is move-only, so copying a plan
+cannot create another handle to the same deletion job. File fingerprints include
+a bounded-memory streamed 128-bit byte identity;
 directory identities deterministically aggregate their sorted descendants.
-Confirmation and transaction transitions revalidate those identities. If
+Confirmation and execution revalidate those identities. If
 filesystem or registry state changed, the modal replaces the stale plan,
 displays the updated scope, and requires a second confirmation.
 
 The complete operation is blocked before mutation when any target is outside a
-single writable authoring mount, is the mount root, requires cross-volume
-staging, traverses a reparse point, violates source-control policy, or cannot be
+single writable authoring mount, is the mount root, traverses a reparse point,
+violates source-control policy, or cannot be
 inspected. AssetTools deletion preflight over Engine safety mechanisms also
 blocks loading or dirty packages,
 references from outside the deletion set, and ambiguous or externally owned
@@ -234,39 +235,28 @@ Deletion never rewrites soft or external-store paths, but it reports them as
 explicit dangling-reference warnings and revalidates the warning snapshot.
 Alias-only deletion, broken aliases, and target selections missing any
 direct/upstream alias are blocked. A target may be deleted only with its complete
-alias closure and explicit confirmation; the transaction captures exact
-redirector entries and files so Undo/Redo restores their metadata byte-for-byte.
+alias closure and explicit confirmation.
 
-### Transaction and Recovery
+### Permanent deletion boundary
 
-The first deletion executes through the global editor transactor, so
-notification actions, the Edit menu, and keyboard Undo/Redo operate on the same
-history entry. The Content Browser transaction is the sole owner of physical
-staging. It renames maximal roots into a collision-safe, marked operation
-directory under `Saved/ContentBrowserUndo` on the same volume and supplies only
-that reversible stage/restore transition to the opaque deletion operation
-retained by AssetTools. Engine orders revalidation, package unload, catalog
-removal/restoration, and compensation around that transition; the editor cannot
-sequence those phases and Engine never stages the bytes a second time. Undo
-restores persisted content and catalog visibility without restoring package
-residency.
+The confirmation dialog states that Delete permanently removes local content,
+cannot be undone, and must be restored through version control. ContentBrowser
+revalidates every confirmed byte identity and rejects new descendants before it
+calls AssetTools. Engine then revalidates Registry/reference safety, unloads
+eligible resident packages, and invokes one destructive maximal-root callback.
+No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
+automatic retention policy exists.
 
-Each transition revalidates its inputs: Execute checks the captured plan, Undo
-requires every original destination to be free, and Redo requires unchanged
-staged fingerprints plus current Engine safety. A conflict performs no
-mutation and leaves the transaction at its current history head. A later edit
-after Undo invalidates Redo through the normal shared history rules.
+If deletion stops after removing an earlier root, it does not recreate that
+root. The result is forward-pending, affected Registry paths are fenced against
+stale resolution, and the same operation can retry remaining content. Mutation
+disposition is structured state rather than an English diagnostic prefix. A Registry
+failure after physical removal is `ContentCommittedProjectionPending`; manual
+or automatic Registry reconciliation converges from mounted authored files.
 
-Mutation steps are journaled and compensated in reverse order on ordinary
-failure. If compensation also fails, the transaction enters recovery-required
-state, reports both original and staged paths, does not enter or advance
-history, and retains its marked operation directory. Otherwise, staged data is
-owned for exactly the lifetime of the reachable history entry and cleanup
-validates the exact marked, unmounted root without traversing reparse points.
-
-Successful relocation and Delete transitions declare that they mutate mounted
-content discovery. Execute, Undo, and Redo therefore advance the transactor's
-monotonic mounted-content mutation revision. Direct Content Browser
+Successful relocation and Delete declare that they mutate mounted content
+discovery and advance the monotonic mounted-content mutation revision once.
+Direct Content Browser
 filesystem operations and import completion publish the same invalidation
 explicitly. Ordinary object, component, reflected-property, Spline, and
 transform-gizmo transactions never publish it; their package revision and dirty
@@ -290,7 +280,7 @@ suppressed on later frames to avoid a scan loop; manual Refresh or a later
 mounted-content revision retries it. Snapshot refresh happens only after a
 successful reconciliation. Surviving directories and selections are preserved;
 if the current directory was deleted, the panel navigates to its nearest
-surviving parent. Panels and transaction objects do not retain one another, and
+surviving parent. Panels and mutation jobs do not retain one another, and
 unrelated global history commands do not steal Content Browser focus.
 
 ## Related Documentation

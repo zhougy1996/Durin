@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
@@ -10,7 +10,7 @@
 #include "Hash/XxHash.h"
 #include "Modules/ModularFeature.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FAssetPackageSerializationOptions;
 	enum class ECookManifestEntryKind : uint8
@@ -325,4 +325,4 @@ namespace Durin::Asset
 	public:
 		ENGINE_API auto Run(const FCookRequest& Request, FCookRunResult& OutResult, ICookOutputStore* OutputStore = nullptr, FCookFailureInjection ShouldFail = {}) -> bool;
 	};
-} // namespace Durin::Asset
+} // namespace Durin

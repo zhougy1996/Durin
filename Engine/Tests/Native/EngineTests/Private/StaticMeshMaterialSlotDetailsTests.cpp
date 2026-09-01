@@ -178,7 +178,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotDetails/DirtyComponent", Path));
 	Durin::DStaticMeshComponent* Component = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Component));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Component));
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "DirtySlotMaterial");
 	Component->SetStaticMesh(Mesh);
@@ -208,6 +208,6 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Component->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::UnloadPackage(Component->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	Durin::CollectGarbage();
 }

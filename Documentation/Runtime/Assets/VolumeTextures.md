@@ -87,7 +87,7 @@ Engine-to-TextureBuild dependency direction.
 
 ## Authored source bulk data
 
-Normalized source voxels use `Asset::FEditorBulkData` with stable storage
+Normalized source voxels use `FEditorBulkData` with stable storage
 payload id words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`. Source payload
 schema version 1, dimensions, portable voxel format, and import provenance are
 ordinary reflected VolumeTexture fields. Old packages that predate the schema

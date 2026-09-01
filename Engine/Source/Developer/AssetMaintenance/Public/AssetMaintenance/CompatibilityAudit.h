@@ -3,7 +3,7 @@
 #include "AssetMaintenanceAPI.h"
 #include "Asset/PackageSchema.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 3;
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
@@ -11,7 +11,7 @@
 #include "DObject/SoftObjectPtr.h"
 #include "Misc/Guid.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class ESoftObjectNullPolicy : uint8
 	{
@@ -269,4 +269,4 @@ namespace Durin::Asset
 		-> FAssetResult;
 	ENGINE_API auto GetAssetRuntimeConfiguration()
 		-> const FAssetRuntimeConfiguration&;
-} // namespace Durin::Asset
+} // namespace Durin

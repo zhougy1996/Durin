@@ -2,7 +2,7 @@
 
 #include "DObject/Object.h"
 #include "Threading/RunnableThread.h"
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

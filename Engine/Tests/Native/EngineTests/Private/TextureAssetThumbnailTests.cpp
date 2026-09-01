@@ -30,7 +30,7 @@ namespace
 		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
 	}
 
-	auto MakeRequest(const Durin::Asset::FAssetData& Data)
+	auto MakeRequest(const Durin::FAssetData& Data)
 		-> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
@@ -89,8 +89,8 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererGeneratesCanonicalSquarePixel
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
 		TexturePath));
-	const Durin::Asset::FAssetCatalogEntry Data =
-		Durin::Asset::FindAssetExact(TexturePath);
+	const Durin::FAssetCatalogEntry Data =
+		Durin::FindAssetExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureThumbnailRenderer Renderer;
@@ -267,8 +267,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::Asset::FAssetCatalogEntry Data =
-		Durin::Asset::FindAssetExact(CubePath);
+	const Durin::FAssetCatalogEntry Data =
+		Durin::FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureCubeThumbnailRenderer Renderer;
@@ -316,8 +316,8 @@ TEST(FTextureCubeThumbnailRendererTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::Asset::FAssetCatalogEntry Data =
-		Durin::Asset::FindAssetExact(CubePath);
+	const Durin::FAssetCatalogEntry Data =
+		Durin::FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::DTextureCubeThumbnailRenderer Renderer;

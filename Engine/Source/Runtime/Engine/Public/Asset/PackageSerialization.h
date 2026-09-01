@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"
@@ -9,7 +9,7 @@
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace SaveOverridePrivate
 	{
@@ -208,4 +208,4 @@ namespace Durin::Asset
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

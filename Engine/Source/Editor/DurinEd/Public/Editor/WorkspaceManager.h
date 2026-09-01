@@ -54,7 +54,7 @@ namespace Durin::Editor
 	};
 
 	// Owns workspace registrations, open documents, and active-host transitions.
-	class FWorkspaceManager final : private Asset::IAssetMoveObserver
+	class FWorkspaceManager final : private IAssetMoveObserver
 	{
 	public:
 		DURINED_API FWorkspaceManager();
@@ -96,13 +96,13 @@ namespace Durin::Editor
 
 	private:
 		auto OnAssetsRelocated(
-			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
+			std::span<const FAssetRelocationMapping> Mappings) -> void override;
 		auto FindDocument(FDocumentId DocumentId) -> FDocumentTab*;
 		auto FindDocument(const FWorkspaceTypeId& WorkspaceType, std::string_view DocumentKey) -> FDocumentTab*;
 		auto RequestDeactivateActiveDocument(FDocumentId NextDocumentId = {}) -> bool;
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 
 		std::shared_ptr<Detail::FWorkspaceRegistryState> State;
-		Asset::FAssetMoveObserverHandle AssetMoveObserverHandle = 0;
+		FAssetMoveObserverHandle AssetMoveObserverHandle = 0;
 	};
 }

@@ -4,7 +4,7 @@
 #include "Asset/Mutation.h"
 #undef DURIN_ENGINE_ASSET_INTERNAL
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	// Owns process-local persistent-reference providers and advances its revision
 	// whenever provider availability changes.

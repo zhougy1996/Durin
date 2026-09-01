@@ -1,12 +1,12 @@
 #pragma once
 
 #include "AssetSubsystemFwd.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "DObject/PackageFormat.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	enum class ELinkerLoadPhase : uint8
 	{

@@ -260,10 +260,13 @@ explicit. Owned per-save overrides may omit objects/properties or supply copied
 replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
 
-An ordinary save validates the complete new v9 closure, stages main and bulk
-bytes, publishes them as one recoverable unit, updates Registry state, then
-clears Dirty/NewlyCreated. Existing non-v9 input is unsupported. Failure
-restores the prior physical closure, catalog, residency, and dirty state.
+An ordinary save is a one-package invocation of `SavePackagesAtomically`. It
+validates the complete new v9 closure, publishes owned payloads before the main
+image that binds them, verifies the stable closure, clears Dirty/NewlyCreated,
+then publishes a revisioned Registry delta. Failure before authored commit
+restores the prior closure and leaves the package retryably Dirty. Registry
+failure after authored commit keeps valid bytes, fences the affected path, and
+returns `ContentCommittedProjectionPending` for reconciliation.
 
 Load resolves v9 policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
@@ -292,17 +295,19 @@ files. Texture and other asset-family inspectors add semantic interpretation
 outside this package boundary.
 
 Registry refresh uses only package-level front matter. Relocation, redirector
-fix-up, deletion, compatibility maintenance, and Cook first select candidate
+Fix Up, deletion, compatibility maintenance, and Cook first select candidate
 packages from those package edges, then open only the candidates that need an
 exact occurrence or rewrite. Rewrites operate on detached v9 linkers, preserve
 untouched values, rebuild Registry metadata, validate the exact output closure,
-and enter the shared atomic transaction. No persistent occurrence route,
+and enter bounded artifact publication. No persistent occurrence route,
 display path, or legacy value cache exists.
 
 Package relocation rewrites only the package component and preserves top-level
-asset names and subobject suffixes. Asset rename is a separate exact operation.
-Deletion uses package-level hard blockers
-and exact companion ownership. Cook carries identity plus exact main/bulk bytes
+asset names and subobject suffixes. It publishes forward, destination first and
+source redirector last; upstream alias compression belongs to Fix Up. Asset
+rename is a separate exact operation. Deletion uses package-level hard blockers
+and exact companion ownership, then permanently removes the revalidated closure
+without a local recovery copy; version control owns restoration. Cook carries identity plus exact main/bulk bytes
 through canonicalization, reachability, pruning, publication, and runtime
 admission; it never manufactures a legacy raw-segment metadata grammar.
 

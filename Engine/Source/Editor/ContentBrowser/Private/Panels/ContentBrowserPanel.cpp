@@ -56,7 +56,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		FOpenAsset InOpenAsset,
 		FMoveAssets InMoveAssets,
 		FFixUpAssets InFixUpRedirectors,
-		FExecuteTransaction InExecuteTransaction,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
 		FQueryReimport InQueryReimport,
@@ -67,7 +66,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		: PresentationSettings(std::move(InSettings))
 		, SavePresentationSettings(std::move(InSaveSettings))
 		, OpenAsset(std::move(InOpenAsset))
-		, ExecuteTransaction(std::move(InExecuteTransaction))
 		, GetMountedContentMutationRevision(
 			std::move(InGetMountedContentMutationRevision))
 		, NotifyMountedContentMutation(InNotifyMountedContentMutation)
@@ -77,7 +75,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
 				: uint64{0},
-			Asset::GetAssetCatalogRevision(),
+			GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model()
 		, Operations(Model, std::move(InMoveAssets), {},
@@ -183,17 +181,17 @@ namespace Durin::Editor::ContentBrowser::Private
 			const uint64 MountedContentRevision = GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
 				: RefreshCoordinator.GetObservedMountedContentRevision();
-			const Asset::FAssetResult Result =
+			const FAssetResult Result =
 				RefreshCoordinator.ReconcileExplicitly(
 					MountedContentRevision,
 					[this] { return Model.RescanRegistry(); },
 					[this] { RefreshPublishedContent(); },
-					[] { return Asset::GetAssetCatalogRevision(); });
+					[] { return GetAssetCatalogRevision(); });
 			if (!Result) SetError(Result.Message);
 			return;
 		}
 		RefreshCoordinator.RefreshRegistryView(
-			Asset::GetAssetCatalogRevision(),
+			GetAssetCatalogRevision(),
 			[this] { RefreshPublishedContent(); });
 	}
 
@@ -305,8 +303,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				SetError("The redirector path is invalid.");
 				return;
 			}
-			const Asset::FObjectPathResolveResult Resolution =
-				Asset::ResolveObjectPath(Path);
+			const FObjectPathResolveResult Resolution =
+				ResolveAssetObjectPath(Path);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| !OpenAsset
 				|| !OpenAsset(
@@ -416,8 +414,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
-		const Asset::FTopLevelAssetCatalogEntry Entry =
-			Asset::FindTopLevelAssetExact(SourcePath);
+		const FTopLevelAssetCatalogEntry Entry =
+			FindTopLevelAssetExact(SourcePath);
 		return Entry && !Entry->IsRedirector();
 	}
 
@@ -481,7 +479,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			Redirectors.push_back(Item.PackagePath);
 		}
-		const Asset::FAssetResult Result =
+		const FAssetResult Result =
 			Operations.FixUpRedirectors(Redirectors);
 		if (!Result)
 		{
@@ -493,7 +491,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::FixUpFolder(
 		std::string_view VirtualDirectory) -> void
 	{
-		const Asset::FAssetResult Result =
+		const FAssetResult Result =
 			Operations.FixUpRedirectorsInFolder(VirtualDirectory);
 		if (!Result)
 		{
@@ -504,7 +502,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::FixUpProject() -> void
 	{
-		const Asset::FAssetResult Result = Operations.FixUpAllRedirectors();
+		const FAssetResult Result = Operations.FixUpAllRedirectors();
 		if (!Result)
 		{
 			SetError(Result.Message);
@@ -555,9 +553,9 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
-		if (!PendingDeletionPlan || !ExecuteTransaction)
+		if (!PendingDeletionPlan)
 		{
-			SetError("Content deletion is unavailable because editor history is not active.");
+			SetError("Content deletion is unavailable.");
 			return;
 		}
 		if (!Operations.IsDeletionPlanCurrent(*PendingDeletionPlan))
@@ -569,9 +567,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (!PendingDeletionPlan->CanExecute()) return;
 
-		if (!ExecuteTransaction(
-				std::make_unique<FContentDeletionTransaction>(PendingDeletionPlan)))
+		FContentDeletionOperation Deletion(PendingDeletionPlan);
+		if (!Deletion.Execute())
+		{
+			SetError(Deletion.GetDetails());
 			return;
+		}
 		Selection.clear();
 		SelectionAnchor.clear();
 		PendingDeletionPlan.reset();
@@ -584,12 +585,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		const uint64 MountedContentRevision = GetMountedContentMutationRevision
 			? GetMountedContentMutationRevision()
 			: RefreshCoordinator.GetObservedMountedContentRevision();
-		const Asset::FAssetResult Result = RefreshCoordinator.Synchronize(
+		const FAssetResult Result = RefreshCoordinator.Synchronize(
 			MountedContentRevision,
-			Asset::GetAssetCatalogRevision(),
+			GetAssetCatalogRevision(),
 			[this] { return Model.RescanRegistry(); },
 			[this] { RefreshPublishedContent(); },
-			[] { return Asset::GetAssetCatalogRevision(); });
+			[] { return GetAssetCatalogRevision(); });
 		if (!Result) SetError(Result.Message);
 	}
 

@@ -5,7 +5,7 @@
 #include "DObject/Class.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -79,7 +79,7 @@ namespace Durin::Asset
 
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto InspectAssetCompanionFilesForDeletion(
 			const FAssetData& Data,

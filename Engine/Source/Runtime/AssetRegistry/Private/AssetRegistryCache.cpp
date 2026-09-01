@@ -6,7 +6,7 @@
 #include "Misc/MountPaths.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
@@ -15,7 +15,7 @@ namespace Durin::Asset::Private
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 		constexpr std::string_view RedirectorClassName =
-			"Durin::Asset::DAssetRedirector";
+			"Durin::DAssetRedirector";
 
 		auto IsValidRegistryCacheHeader(
 			const FRegistryCacheEntry& Entry) -> bool

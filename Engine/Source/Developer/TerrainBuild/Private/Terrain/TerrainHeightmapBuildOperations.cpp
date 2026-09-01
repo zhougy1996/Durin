@@ -16,7 +16,7 @@ namespace Durin
 	};
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -40,13 +40,13 @@ namespace Durin::Asset
 			.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.SourceFormat = ETerrainHeightmapSourceFormat::Raw16,
 			.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game};
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game};
 		const FByteArray KeyBytes = BuildTerrainHeightmapDerivedDataKeyBytes(KeyInput, OutError);
 		std::string Key = KeyBytes.empty() ? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
 		if (Key.empty()) return false;
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionName, std::string(Private::TerrainHeightmapValueName));
+		FBuildDefinitionBuilder Builder(AssetPrivate::TerrainHeightmapFunctionName, std::string(AssetPrivate::TerrainHeightmapValueName));
 		FTerrainHeightmapBuildRequest CanonicalRequest = Request;
 		CanonicalRequest.DecoderId = "canonical-u16";
 		CanonicalRequest.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion;
@@ -63,8 +63,8 @@ namespace Durin::Asset
 			.AddTargetFact("SourceProfile", std::to_string(
 				CanonicalRequest.SourceProfileVersion))
 			.AddTargetFact("ImportedSchema", std::to_string(TerrainHeightmapImportedDataSchemaVersion))
-			.AddInput(FBuildValue::FromOwned(std::string(Private::TerrainHeightmapInputName),
-				Private::EncodeTerrainHeightmapLocalInput(CanonicalRequest)));
+			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::TerrainHeightmapInputName),
+				AssetPrivate::EncodeTerrainHeightmapLocalInput(CanonicalRequest)));
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildCancellationToken Cancellation(Request.ShouldCancel);
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
@@ -74,7 +74,7 @@ namespace Durin::Asset
 			Request.ShouldCancel ? &Cancellation : nullptr);
 		if (!Output.Succeeded()) { OutError = Output.Diagnostic; return false; }
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-		if (!Private::DecodeTerrainHeightmapPayload(Output.Value, Payload, OutError)) return false;
+		if (!AssetPrivate::DecodeTerrainHeightmapPayload(Output.Value, Payload, OutError)) return false;
 		OutProduct = {
 			.Payload = std::move(Payload),
 			.DerivedDataKey = std::move(Key),
@@ -140,8 +140,8 @@ namespace Durin::Asset
 			.DecoderVersion = Source.DecoderVersion,
 			.SourceFormat = Source.SourceFormat,
 			.SourceProfileVersion = Source.SourceProfileVersion,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game}, OutError);
 	}
 
 	auto MakeTerrainHeightmapDerivedDataKey(
@@ -159,8 +159,8 @@ namespace Durin::Asset
 			.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.SourceFormat = ETerrainHeightmapSourceFormat::Raw16,
 			.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game}, OutError);
 	}
 
 	auto LoadTerrainHeightmapDerivedData(
@@ -176,7 +176,7 @@ namespace Durin::Asset
 			return false;
 		}
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionName, std::string(Private::TerrainHeightmapValueName));
+		FBuildDefinitionBuilder Builder(AssetPrivate::TerrainHeightmapFunctionName, std::string(AssetPrivate::TerrainHeightmapValueName));
 		Builder.SetKey(FBuildKey::FromString(Key)).AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game");
 		if (!Builder.Build(Definition, &OutError))
@@ -196,7 +196,7 @@ namespace Durin::Asset
 			return false;
 		}
 		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
-		if (!Private::DecodeTerrainHeightmapPayload(Output.Value, Candidate, OutError))
+		if (!AssetPrivate::DecodeTerrainHeightmapPayload(Output.Value, Candidate, OutError))
 		{
 			if (Diagnostics) *Diagnostics = Result;
 			return false;

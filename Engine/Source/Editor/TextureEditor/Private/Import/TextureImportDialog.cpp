@@ -491,7 +491,7 @@ namespace Durin::Editor::Texture
 					: Saved.Message);
 				return false;
 			}
-			Asset::UnloadPackage(AssetPath);
+			UnloadPackage(AssetPath);
 			return true;
 		}
 
@@ -521,7 +521,7 @@ namespace Durin::Editor::Texture
 				: Saved.Message);
 			return false;
 		}
-		Asset::UnloadPackage(AssetPath);
+		UnloadPackage(AssetPath);
 		return true;
 	}
 

@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 ChunkedPayloadHeaderSize = 64;
 	inline constexpr uint32 ChunkedPayloadEntrySize = 32;

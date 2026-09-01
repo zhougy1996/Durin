@@ -11,7 +11,7 @@ namespace Durin::Editor::SkeletalMesh
 {
 	namespace
 	{
-		auto MakeFingerprint(const Asset::FAssetData& Data,
+		auto MakeFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
@@ -39,7 +39,7 @@ namespace Durin::Editor::SkeletalMesh
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadObject(Input.AssetPath, Loaded);
+				const FAssetResult Result = LoadObject(Input.AssetPath, Loaded);
 				Mesh = Result ? Cast<DSkeletalMesh>(Loaded) : nullptr;
 				if (!Result || !Mesh || Mesh->GetClass() != DSkeletalMesh::StaticClass())
 					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
@@ -176,9 +176,9 @@ namespace Durin::Editor::SkeletalMesh
 		{
 			OutError = "The skeletal thumbnail renderer received the wrong asset class."; return false;
 		}
-		const Asset::FAssetCatalogSnapshot Catalog =
-			Asset::CaptureAssetCatalogSnapshot();
-		const Asset::FAssetData* Root = Catalog.FindExact(Request.Asset.PackagePath);
+		const FAssetCatalogSnapshot Catalog =
+			CaptureAssetCatalogSnapshot();
+		const FAssetData* Root = Catalog.FindExact(Request.Asset.PackagePath);
 		if (!Root || MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = "Skeletal thumbnail registry data is missing or changed."; return false;

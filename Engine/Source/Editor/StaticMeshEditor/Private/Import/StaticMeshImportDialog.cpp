@@ -224,7 +224,7 @@ namespace Durin::Editor::StaticMesh
 				: Saved.Message);
 			return false;
 		}
-		Asset::UnloadPackage(AssetPath);
+		UnloadPackage(AssetPath);
 		return true;
 	}
 

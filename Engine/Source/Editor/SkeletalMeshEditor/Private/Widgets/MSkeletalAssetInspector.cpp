@@ -60,7 +60,7 @@ namespace Durin::Editor::SkeletalMesh
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DObject* Asset = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Asset);
+		const FAssetResult Result = LoadObject(AssetPath, Asset);
 		if (!Result || !Asset || (Asset->GetClass() != DSkeleton::StaticClass()
 			&& Asset->GetClass() != DSkeletalMesh::StaticClass()
 			&& Asset->GetClass() != DAnimationClip::StaticClass()))
@@ -142,7 +142,7 @@ namespace Durin::Editor::SkeletalMesh
 						{
 							FObjectPath PeerPath; DObject* Peer = nullptr;
 							if (FObjectPath::TryCreate(State.PreviewPeerPaths[static_cast<size_t>(Index)], PeerPath)
-								&& Asset::LoadObject(PeerPath, Peer))
+								&& LoadObject(PeerPath, Peer))
 							{
 								State.SelectedPreviewPeer = Index;
 								State.PreviewPeer = Peer;

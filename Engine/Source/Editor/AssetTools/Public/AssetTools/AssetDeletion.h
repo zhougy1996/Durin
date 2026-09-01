@@ -2,9 +2,9 @@
 
 #include "AssetTools/AssetOperation.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	struct FAssetDeletionPhysicalTransition;
+	struct FAssetDeletionCommit;
 }
 
 namespace Durin
@@ -47,15 +47,15 @@ namespace Durin
 		std::vector<std::filesystem::path> PhysicalRoots;
 	};
 
-	// Owns one opaque Engine deletion transaction while exposing immutable editor data.
+	// Owns one opaque irreversible Engine deletion job while exposing immutable editor data.
 	class FAssetDeletionOperation
 	{
 	public:
 		ASSETTOOLS_API FAssetDeletionOperation();
 		ASSETTOOLS_API ~FAssetDeletionOperation();
-		FAssetDeletionOperation(const FAssetDeletionOperation&) = default;
+		FAssetDeletionOperation(const FAssetDeletionOperation&) = delete;
 		auto operator=(const FAssetDeletionOperation&)
-			-> FAssetDeletionOperation& = default;
+			-> FAssetDeletionOperation& = delete;
 		ASSETTOOLS_API FAssetDeletionOperation(FAssetDeletionOperation&&) noexcept;
 		ASSETTOOLS_API auto operator=(FAssetDeletionOperation&&) noexcept
 			-> FAssetDeletionOperation&;
@@ -72,14 +72,8 @@ namespace Durin
 		{
 			return Blockers;
 		}
-		ASSETTOOLS_API auto Commit(
-			const Asset::FAssetDeletionPhysicalTransition& Transition)
-			-> FAssetOperationResult;
-		ASSETTOOLS_API auto Undo(
-			const Asset::FAssetDeletionPhysicalTransition& Transition)
-			-> FAssetOperationResult;
-		ASSETTOOLS_API auto Redo(
-			const Asset::FAssetDeletionPhysicalTransition& Transition)
+		ASSETTOOLS_API auto Delete(
+			const FAssetDeletionCommit& Commit)
 			-> FAssetOperationResult;
 
 	private:

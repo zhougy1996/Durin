@@ -9,11 +9,11 @@ namespace Durin
 {
 	namespace
 	{
-		auto IsSupportedTarget(Asset::ECookTargetPlatform Platform, Asset::ECookTargetProfile Profile) -> bool
+		auto IsSupportedTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
-			return Platform == Asset::ECookTargetPlatform::Win64
-				&& (Profile == Asset::ECookTargetProfile::Game
-					|| Profile == Asset::ECookTargetProfile::EditorValidation);
+			return Platform == ECookTargetPlatform::Win64
+				&& (Profile == ECookTargetProfile::Game
+					|| Profile == ECookTargetProfile::EditorValidation);
 		}
 
 		auto ToStablePixelFormat(EPixelFormat Format, ETextureStablePixelFormat& OutFormat) -> bool
@@ -86,8 +86,8 @@ namespace Durin
 
 	auto BuildTexture2DSerializedValue(
 		const FTexturePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -127,8 +127,8 @@ namespace Durin
 
 	auto ParseTexture2DSerializedValue(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FTexturePlatformData& OutPlatformData) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {
@@ -215,8 +215,8 @@ namespace Durin
 
 	auto BuildTextureCubeSerializedValue(
 		const FTextureCubePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -260,8 +260,8 @@ namespace Durin
 
 	auto ParseTextureCubeSerializedValue(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FTextureCubePlatformData& OutPlatformData) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {

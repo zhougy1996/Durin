@@ -10,7 +10,7 @@ namespace Durin
 	class DClass;
 }
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class EAssetRegistryEntryKind : uint8
 	{
@@ -215,7 +215,7 @@ namespace Durin::Asset
 	ASSETREGISTRY_API auto ResolveAssetPath(
 		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
-	ASSETREGISTRY_API auto ResolveObjectPath(
+	ASSETREGISTRY_API auto ResolveAssetObjectPath(
 		const FObjectPath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FObjectPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;

@@ -3,7 +3,7 @@
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -33,8 +33,8 @@ namespace Durin::Asset
 		if (bAcquiredHeightmap)
 		{
 			GTerrainHeightmapRegistration = RegisterBuildFunction(
-				Private::TerrainHeightmapFunctionName,
-				Private::CreateTerrainHeightmapBuildFunction(), Gate, OutError);
+				AssetPrivate::TerrainHeightmapFunctionName,
+				AssetPrivate::CreateTerrainHeightmapBuildFunction(), Gate, OutError);
 			if (!GTerrainHeightmapRegistration.IsValid()) return false;
 		}
 		for (uint8 Value = 1; Value <= 5; ++Value)
@@ -43,8 +43,8 @@ namespace Durin::Asset
 			if (!AcquiredTerrainWorld[Index]) continue;
 			const auto ProductClass = static_cast<ETerrainTileProductClass>(Value);
 			GTerrainWorldRegistrations[Index] = RegisterBuildFunction(
-				Private::GetTerrainWorldBuildFunctionName(ProductClass),
-				Private::CreateTerrainWorldBuildFunction(ProductClass), Gate, OutError);
+				AssetPrivate::GetTerrainWorldBuildFunctionName(ProductClass),
+				AssetPrivate::CreateTerrainWorldBuildFunction(ProductClass), Gate, OutError);
 			if (!GTerrainWorldRegistrations[Index].IsValid())
 			{
 				RollBack();

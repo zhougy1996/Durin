@@ -16,11 +16,11 @@
 #include "DObject/SoftObjectPtr.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
+		constexpr std::string_view RedirectorClassName = "Durin::DAssetRedirector";
 
 		enum class ENodeKind : uint8 { Field, Fixed, Array, MapKey, MapValue };
 
@@ -1900,7 +1900,7 @@ namespace Durin::Asset::Private
 	}
 }
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
 		const FAssetPackageSerializationOptions& InputOptions,
@@ -1947,7 +1947,7 @@ namespace Durin::Asset::Private
 
 		std::vector<DObject*> FrozenObjects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
-			Private::GatherObjects(Asset, FrozenObjects);
+			AssetPrivate::GatherObjects(Asset, FrozenObjects);
 		if (Options.SaveOverrides)
 		{
 			for (const FObjectSaveOverride& Override : Options.SaveOverrides->GetObjects())
@@ -1972,19 +1972,19 @@ namespace Durin::Asset::Private
 		}
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
-			if (!Private::IsObjectOmitted(Object, Options.SaveOverrides.get()))
+			if (!AssetPrivate::IsObjectOmitted(Object, Options.SaveOverrides.get()))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
-		Private::FCapturedPackage Discovery;
-		FAssetResult Result = Private::CapturePackage(
+		AssetPrivate::FCapturedPackage Discovery;
+		FAssetResult Result = AssetPrivate::CapturePackage(
 			Objects, ObjectIds, Options, false,
 			OrdinaryAssetPackageWriterVersion, {}, Discovery);
 		if (!Result)
 		{
 			Diagnostic = {{}, Result.Message}; return Finish(Result);
 		}
-		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects))
+		if (!AssetPrivate::HasFrozenPackageGraph(Package, FrozenObjects))
 		{
 			Diagnostic = {{}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
@@ -1992,7 +1992,7 @@ namespace Durin::Asset::Private
 		if (Options.Domain == EAssetPackageSaveDomain::Cooked
 			&& !Options.bRetainEditorOnlyData)
 		{
-			if (!Private::PruneUnreachableCookedObjects(Discovery, Objects))
+			if (!AssetPrivate::PruneUnreachableCookedObjects(Discovery, Objects))
 			{
 				Diagnostic = {{},
 					"Cooked object reachability discovery produced an invalid graph."};
@@ -2001,7 +2001,7 @@ namespace Durin::Asset::Private
 			ObjectIds.clear();
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
 				ObjectIds.emplace(Objects[Index], Index + 1);
-			Result = Private::CapturePackage(
+			Result = AssetPrivate::CapturePackage(
 				Objects, ObjectIds, Options, false,
 				OrdinaryAssetPackageWriterVersion, {}, Discovery);
 			if (!Result)
@@ -2010,7 +2010,7 @@ namespace Durin::Asset::Private
 				return Finish(Result);
 			}
 		}
-		const FXxHash128 ContainerHash = Private::ComputeContainerHash(Discovery.BulkPayloads);
+		const FXxHash128 ContainerHash = AssetPrivate::ComputeContainerHash(Discovery.BulkPayloads);
 		if (!Discovery.BulkPayloads.empty()
 			&& std::ranges::any_of(Discovery.BulkPayloads, [](const FEditorBulkDataStoragePayload& Payload) {
 				return Payload.Descriptor.LogicalByteCount > EditorBulkDataExternalThreshold;
@@ -2020,8 +2020,8 @@ namespace Durin::Asset::Private
 				"Authored bulk container identity could not be computed."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		Private::FCapturedPackage Captured;
-		Result = Private::CapturePackage(
+		AssetPrivate::FCapturedPackage Captured;
+		Result = AssetPrivate::CapturePackage(
 			Objects, ObjectIds, Options, true,
 			OrdinaryAssetPackageWriterVersion, ContainerHash, Captured);
 		if (!Result)
@@ -2043,14 +2043,14 @@ namespace Durin::Asset::Private
 			for (const FEditorBulkDataStoragePayload& Payload : Captured.BulkPayloads)
 				Options.EditorBulkDataStoragePayloads->push_back(Payload);
 		}
-		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects)
-			|| !Private::EqualManifest(Discovery, Captured))
+		if (!AssetPrivate::HasFrozenPackageGraph(Package, FrozenObjects)
+			|| !AssetPrivate::EqualManifest(Discovery, Captured))
 		{
 			Diagnostic = {{}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 
-		Private::FAuthoredPackageSummary Summary;
+		AssetPrivate::FAuthoredPackageSummary Summary;
 		DObject* FirstAsset = Package->GetTopLevelAssets().front();
 		Summary.AssetClassName = FirstAsset->GetClass()->GetQualifiedName().ToString();
 		Summary.Dependencies = Captured.Dependencies;
@@ -2135,8 +2135,8 @@ namespace Durin::Asset::Private
 		});
 		std::vector<ObjectPackage::FCustomVersion> CustomVersions;
 		std::string LinkerError;
-		if (!Private::GatherDeprecationCustomVersions(Objects, CustomVersions, LinkerError)
-			|| !Private::BuildLinkerTables(Captured, Summary, PackagePath, Objects,
+		if (!AssetPrivate::GatherDeprecationCustomVersions(Objects, CustomVersions, LinkerError)
+			|| !AssetPrivate::BuildLinkerTables(Captured, Summary, PackagePath, Objects,
 				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError))
 		{
 			Diagnostic.Message = std::move(LinkerError);

@@ -237,8 +237,8 @@ namespace Durin::Editor::MainFrame
 					return FConsoleCommandResult::Failure(
 						"The editor transactor is unavailable.");
 				std::vector<FPackagePath> Redirectors;
-				for (const auto& [Path, Data] : Asset::CaptureAssetCatalogSnapshot().Assets)
-					if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
+				for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
+					if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
 						Redirectors.push_back(Path);
 				std::ranges::sort(Redirectors,
 					[](const FPackagePath& Left, const FPackagePath& Right) {
@@ -247,8 +247,7 @@ namespace Durin::Editor::MainFrame
 				const bool bDelete = Args.empty() || Args[0] == "rewrite-and-delete";
 				const FAssetOperationResult Result = IAssetTools::Get().FixUpRedirectors({
 					.Redirectors = Redirectors,
-					.bDeleteRedirectors = bDelete,
-					.Transactions = GEditor->GetTransactor()});
+					.bDeleteRedirectors = bDelete});
 				return Result ? FConsoleCommandResult::Success(std::format(
 					"Fixed up {} redirector(s) in {} mode.", Redirectors.size(),
 					bDelete ? "rewrite-and-delete" : "rewrite-only"))

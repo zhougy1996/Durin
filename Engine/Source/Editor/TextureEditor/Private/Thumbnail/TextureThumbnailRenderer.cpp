@@ -26,8 +26,8 @@ namespace Durin::Editor::Texture
 			OutError = "The Texture2D thumbnail renderer received the wrong asset class.";
 			return false;
 		}
-		const Asset::FTopLevelAssetCatalogEntry Entry =
-			Asset::FindTopLevelAssetExact(Request.Asset.AssetPath);
+		const FTopLevelAssetCatalogEntry Entry =
+			FindTopLevelAssetExact(Request.Asset.AssetPath);
 		if (!Entry || Entry->AssetClassName != Request.Asset.AssetClassName
 			|| Entry.Package->FormatVersion != Request.Asset.PackageFormatVersion
 			|| static_cast<uint64>(Entry.Package->FileSize) != Request.Asset.FileSize
@@ -37,7 +37,7 @@ namespace Durin::Editor::Texture
 			return false;
 		}
 		DObject* Loaded = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadObject(Request.Asset.AssetPath, Loaded);
+		const FAssetResult Load = LoadObject(Request.Asset.AssetPath, Loaded);
 		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
 		const FTextureSourceData* Source = Texture ? Texture->GetSourceData() : nullptr;
 		if (!Texture || !Source || !Source->IsValid())

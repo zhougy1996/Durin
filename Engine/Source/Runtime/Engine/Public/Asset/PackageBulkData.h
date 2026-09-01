@@ -3,7 +3,7 @@
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint64 PackageBulkDataMaximumSegmentBytes = 1024ull * 1024ull * 1024ull;
 	inline constexpr uint64 PackageBulkDataMaximumFieldCount = 65'536;

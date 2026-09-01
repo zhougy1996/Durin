@@ -45,15 +45,15 @@ namespace
 {
 	auto RelocateAssetForTest(
 		const Durin::FPackagePath& Source,
-		const Durin::FPackagePath& Destination) -> Durin::Asset::FAssetResult
+		const Durin::FPackagePath& Destination) -> Durin::FAssetResult
 	{
-		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
-		Durin::Asset::FAssetMutationSummary Summary;
-		Durin::Asset::FAssetMutationTransaction Transaction;
-		Durin::Asset::FAssetResult Result =
-			Durin::Asset::PrepareAssetRelocationTransaction(
+		const Durin::FAssetRelocationMapping Mapping{Source, Destination};
+		Durin::FAssetRelocationSummary Summary;
+		Durin::FAssetMutationJob Transaction;
+		Durin::FAssetResult Result =
+			Durin::PrepareAssetRelocationJob(
 				std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.Commit();
+		if (Result) Result = Transaction.ResumeForward();
 		return Result;
 	}
 
@@ -196,17 +196,17 @@ namespace
 
 	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
-		Durin::Asset::ShutdownAssetManager();
+		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
 		if (CookRoot.empty())
 		{
-			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			ASSERT_TRUE(Durin::InitializeAssetManager());
 			return;
 		}
-		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
+		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -244,9 +244,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Convention", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
@@ -254,17 +254,17 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[0]), Faces[0]);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::Asset::LoadObject(
+	ASSERT_TRUE(Durin::LoadObject(
 		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			RenamedPath, AssetPath.GetPackageName()), Loaded));
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[5]), Faces[5]);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
+	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	for (const std::string& Face : Faces)
 		EXPECT_TRUE(std::filesystem::is_regular_file(Face));
@@ -317,8 +317,8 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	{
 		Durin::FPackagePath AssetPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/TextureCubeTests/{}", AssetName), AssetPath));
-		EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
-		EXPECT_EQ(Durin::Asset::FindResidentPackage(AssetPath), nullptr);
+		EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+		EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Nonsquare_px.tga"));
@@ -343,8 +343,8 @@ TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Transparent", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Transparent_nz.tga"));
 }
 
@@ -421,8 +421,8 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 		Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeY)]);
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/MissingAfterImport", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
@@ -456,9 +456,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Panorama", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
@@ -467,16 +467,16 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Loaded->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			ExpectedPlatform.Faces[FaceIndex].Mips[0].Pixels);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::Asset::LoadObject(
+	ASSERT_TRUE(Durin::LoadObject(
 		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			RenamedPath, AssetPath.GetPackageName()), Loaded));
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
+	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Panorama));
 }
@@ -484,7 +484,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 {
 	InitializeCubeMount();
-	Durin::Asset::TextureCubeBuilder::FTexturePanoramaImage Panorama{
+	Durin::TextureCubeBuilder::FTexturePanoramaImage Panorama{
 		.Pixels = Durin::FByteArray(4u * 2u * 4u, std::byte{127}),
 		.Width = 4,
 		.Height = 2,
@@ -492,16 +492,16 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	const Durin::FXxHash128 SourceHash{
 		.HashLow = 0x32f0551922ffbe31ull,
 		.HashHigh = 0x7c01c243d75dba09ull};
-	const Durin::Asset::FTextureCubePanoramaBuildSettings Settings{
+	const Durin::FTextureCubePanoramaBuildSettings Settings{
 		.FaceDimension = 2};
-	Durin::Asset::FTextureCubeBuildProduct Initial;
+	Durin::FTextureCubeBuildProduct Initial;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::BuildTextureCubePanorama(
+	ASSERT_TRUE(Durin::BuildTextureCubePanorama(
 		Panorama, SourceHash, Settings, Initial, Error)) << Error;
 	ASSERT_NE(Initial.PlatformData, nullptr);
 
-	Durin::Asset::FTextureCubeBuildProduct Cached;
-	ASSERT_TRUE(Durin::Asset::BuildTextureCubePanorama(
+	Durin::FTextureCubeBuildProduct Cached;
+	ASSERT_TRUE(Durin::BuildTextureCubePanorama(
 		Panorama, SourceHash, Settings, Cached, Error)) << Error;
 	EXPECT_TRUE(Cached.bLoadedFromDerivedDataCache);
 	EXPECT_TRUE(Cached.SourceData.Faces[0].IsValid());
@@ -509,8 +509,8 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	EXPECT_TRUE(Cached.PlatformData->IsValid());
 
 	Panorama.Pixels.clear();
-	Durin::Asset::FTextureCubeBuildProduct Invalid;
-	EXPECT_FALSE(Durin::Asset::BuildTextureCubePanorama(
+	Durin::FTextureCubeBuildProduct Invalid;
+	EXPECT_FALSE(Durin::BuildTextureCubePanorama(
 		std::move(Panorama), SourceHash, Settings, Invalid, Error));
 	EXPECT_NE(Error.find("pixel storage"), std::string::npos);
 }
@@ -559,8 +559,8 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/InvalidPanorama", AssetPath));
-	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.hdr"));
 }
@@ -615,16 +615,16 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ReimportPanorama", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSource)
@@ -660,8 +660,8 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 		std::filesystem::copy_options::overwrite_existing);
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/MissingPanorama", AssetPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
 TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
@@ -680,16 +680,16 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::Testing::RemoveTestWorkDirectory(FirstRoot);
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	std::string Error;
-	Durin::Asset::FCookContext First(
-		FirstRoot, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	Durin::FCookContext First(
+		FirstRoot, Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedCube", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
-	Durin::Asset::FCookContext Second(
-		SecondRoot, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	Durin::FCookContext Second(
+		SecondRoot, Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedCube", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
@@ -702,11 +702,11 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	EXPECT_EQ(FirstPackage, SecondPackage);
 	EXPECT_FALSE(std::filesystem::exists(FirstRoot / "Game/CookedCube.dbulk"));
 	EXPECT_FALSE(std::filesystem::exists(SecondRoot / "Game/CookedCube.dbulk"));
-	Durin::Asset::FAssetPackageInspection CookedInspection;
+	Durin::FAssetPackageInspection CookedInspection;
 	Durin::FPackagePath CookedInspectionPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 		"/Game/CookedCube", CookedInspectionPath));
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+	ASSERT_TRUE(Durin::InspectAssetPackage(
 		(FirstRoot / "Game/CookedCube.dasset").generic_string(),
 		CookedInspectionPath, CookedInspection));
 	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
@@ -721,21 +721,21 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	}
 	Durin::FPackagePath AuthoredPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AuthoredPath));
+	ASSERT_TRUE(Durin::UnloadPackage(AuthoredPath));
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	RestartAssetManager(FirstRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
-	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
-		Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	const Durin::FAssetCatalogRefreshResult Refresh =
+		Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "asset catalog refresh failed without a diagnostic"
 		: Refresh.Errors.front().Message);
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const Durin::Asset::FAssetResult Load = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
+	const Durin::FAssetResult Load = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPlatformData(), nullptr);
@@ -747,6 +747,6 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	RestartAssetManager();
 }

@@ -8,15 +8,15 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	using Private::AssetReferenceLess;
-	using Private::DecodeReferenceByteToolValue;
-	using Private::FByteReader;
-	using Private::FByteWriter;
-	using Private::GetSerializedTypeSignature;
-	using Private::IsSerializedTypeSignatureCompatible;
-	using Private::MaximumPackageStringBytes;
+	using AssetPrivate::AssetReferenceLess;
+	using AssetPrivate::DecodeReferenceByteToolValue;
+	using AssetPrivate::FByteReader;
+	using AssetPrivate::FByteWriter;
+	using AssetPrivate::GetSerializedTypeSignature;
+	using AssetPrivate::IsSerializedTypeSignatureCompatible;
+	using AssetPrivate::MaximumPackageStringBytes;
 
 	namespace
 	{
@@ -860,13 +860,13 @@ namespace Durin::Asset
 		uint64 ExpectedRewriteCount,
 		FByteArray& OutBytes) -> FAssetResult
 	{
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
 				"Reference rewrite requires package mutation capability.");
-		Private::FAssetPackageEncodedClosure Closure;
+		AssetPrivate::FAssetPackageEncodedClosure Closure;
 		FAssetResult Result = Codec->RewriteReferences(
 			{.PackageBytes = Bytes, .BulkBytes = BulkBytes,
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()},
@@ -885,8 +885,8 @@ namespace Durin::Asset
 		const FPackagePath& PackagePath,
 		FPackageFile& OutFile) -> FAssetResult
 	{
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
 		FAssetPackageHeader Header;
 		if (FAssetResult Result = Codec->ReadHeader(
@@ -906,7 +906,7 @@ namespace Durin::Asset
 
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto RewritePackageReferencesForMutation(
 			std::span<const std::byte> Bytes,

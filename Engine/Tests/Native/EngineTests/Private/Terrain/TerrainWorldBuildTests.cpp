@@ -15,7 +15,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset;
+	using namespace Durin;
 
 	auto Id(uint32 Value) -> FGuid
 	{
@@ -91,10 +91,10 @@ namespace
 		FPackagePath Path;
 		requiref(FPackagePath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
 		DObject* Object = nullptr;
-		const Asset::FAssetResult Created = Asset::CreatePackageLeafAssetForTesting(Path, Object);
+		const FAssetResult Created = CreatePackageLeafAssetForTesting(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
 		Durin::FByteArray Bytes;
-		const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
+		const FAssetResult Serialized = SerializeAssetPackageBytes(
 			Object->GetPackage(), Bytes
 		);
 		requiref(Serialized, "{}", Serialized.Message);
@@ -483,17 +483,17 @@ TEST(FTerrainWorldBuildTests, ManifestRoundTripsSignedRegionsAndRejectsLegacyOrC
 	Durin::FByteArray Bytes;
 	ASSERT_TRUE(EncodeTerrainWorldManifest(Manifest, Bytes, Outcome, Error)) << Error;
 	FTerrainWorldManifest Decoded;
-	ASSERT_TRUE(DecodeTerrainWorldManifest(Bytes, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error)) << Error;
+	ASSERT_TRUE(DecodeTerrainWorldManifest(Bytes, Manifest.WorldId, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Decoded, Outcome, Error)) << Error;
 	ASSERT_EQ(Decoded.Regions.size(), 2u);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionX, -2);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionY, 3);
 	Durin::FByteArray Invalid = Bytes;
 	Invalid[0] = static_cast<std::byte>('D');
-	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Decoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::UnsupportedLegacySchema);
 	Invalid = Bytes;
 	Invalid.back() ^= std::byte{1};
-	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Decoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 }
 
@@ -534,7 +534,7 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cooked");
 	FTerrainWorldManifest CookedManifest;
 	const FTerrainWorldCookRequest CookRequest{CookRoot, "/Game/TerrainWorld", {Id(1)}, {First, Second}, {Installed}, MakePackageTemplate()};
-	Asset::FCookContext Cook(CookRoot, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
+	FCookContext Cook(CookRoot, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeTerrainWorldToCook(
 		CookRequest, Cook, CookedManifest, Outcome, Error
 	)) << Error;
@@ -549,10 +549,10 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	EXPECT_TRUE(CookedManifest.Regions[0].bInstalled);
 	EXPECT_FALSE(CookedManifest.Regions[1].bInstalled);
 
-	Asset::FAssetRuntimeConfiguration Runtime = Asset::FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(Asset::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
+	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
 	std::shared_ptr<const FTerrainWorldManifest> LoadedManifest;
-	ASSERT_TRUE(LoadCookedTerrainWorldManifest(Runtime, "/Game/TerrainWorld", {Id(1)}, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, LoadedManifest, Outcome, Error)) << Error;
+	ASSERT_TRUE(LoadCookedTerrainWorldManifest(Runtime, "/Game/TerrainWorld", {Id(1)}, ECookTargetPlatform::Win64, ECookTargetProfile::Game, LoadedManifest, Outcome, Error)) << Error;
 	FTerrainCookedProductHandle Height;
 	ASSERT_TRUE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9), ETerrainTileProductClass::Height, Height, Outcome, Error)) << Error;
 	EXPECT_EQ(Durin::FByteArray(Height.GetBytes().begin(), Height.GetBytes().end()), First.Products[1].Bytes);
@@ -562,9 +562,9 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 
 	const FTerrainManifestRegion& InstalledRecord = LoadedManifest->Regions[0];
 	std::filesystem::path RegionPackage;
-	ASSERT_TRUE(Asset::ResolveCookedPackagePath(CookRoot, InstalledRecord.VirtualPackagePath, RegionPackage, &Error)) << Error;
+	ASSERT_TRUE(ResolveCookedPackagePath(CookRoot, InstalledRecord.VirtualPackagePath, RegionPackage, &Error)) << Error;
 	std::filesystem::path RegionBulk;
-	ASSERT_TRUE(Asset::ResolveCookedCompanionPath(CookRoot, RegionPackage, RegionBulk, &Error)) << Error;
+	ASSERT_TRUE(ResolveCookedCompanionPath(CookRoot, RegionPackage, RegionBulk, &Error)) << Error;
 	Durin::FByteArray Corrupt;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, RegionBulk));
 	Corrupt.back() ^= std::byte{1};

@@ -8,7 +8,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		auto MakeTemplatePresentation(const FMaterialProgram& Program)
@@ -46,7 +46,7 @@ namespace Durin::AssetForge::Builtins
 		if (!FPackagePath::TryCreate(
 			ImportedSurfaceMaterialPackagePath, MaterialPath, &OutError)) return nullptr;
 
-		DPackage* LoadedPackage = Asset::FindResidentPackage(MaterialPath);
+		DPackage* LoadedPackage = FindResidentPackage(MaterialPath);
 		if (LoadedPackage)
 		{
 			DObject* TopLevel = LoadedPackage->FindTopLevelAsset(
@@ -69,14 +69,14 @@ namespace Durin::AssetForge::Builtins
 			return Loaded;
 		}
 
-		if (Asset::FindAssetExact(MaterialPath))
+		if (FindAssetExact(MaterialPath))
 		{
 			FObjectPath MaterialObjectPath;
 			if (!FObjectPath::TryCreate(
 				ImportedSurfaceMaterialObjectPath, MaterialObjectPath, &OutError))
 				return nullptr;
 			DMaterial* Loaded = nullptr;
-			const Asset::FAssetResult LoadResult = Asset::LoadObject(
+			const FAssetResult LoadResult = LoadObject(
 				MaterialObjectPath, Loaded);
 			if (!LoadResult)
 			{
@@ -88,21 +88,21 @@ namespace Durin::AssetForge::Builtins
 			if (!ValidateCanonicalMaterialParameterDefinitions(
 				Loaded->GetParameterDefinitions(), OutError))
 			{
-				Asset::UnloadPackage(MaterialPath);
+				UnloadPackage(MaterialPath);
 				return nullptr;
 			}
 			if (!EnsureTemplateProgram(*Loaded, true, OutError))
 			{
-				Asset::UnloadPackage(MaterialPath);
+				UnloadPackage(MaterialPath);
 				return nullptr;
 			}
 			if (Loaded->GetPackage()->IsDirty())
 			{
-				const Asset::FAssetResult SaveResult = Asset::SavePackage(Loaded->GetPackage());
+				const FAssetResult SaveResult = SavePackage(Loaded->GetPackage());
 				if (!SaveResult)
 				{
 					OutError = SaveResult.Message;
-					Asset::UnloadPackage(MaterialPath);
+					UnloadPackage(MaterialPath);
 					return nullptr;
 				}
 			}
@@ -118,8 +118,8 @@ namespace Durin::AssetForge::Builtins
 			OutError = "The imported-surface material asset path is invalid.";
 			return nullptr;
 		}
-		const Asset::FAssetResult CreateResult =
-			Asset::CreateAsset(MaterialAssetPath, Created);
+		const FAssetResult CreateResult =
+			CreateAsset(MaterialAssetPath, Created);
 		if (!CreateResult)
 		{
 			OutError = std::format(
@@ -130,7 +130,7 @@ namespace Durin::AssetForge::Builtins
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 			Created->GetParameterDefinitions(), OutError))
 		{
-			Asset::UnloadPackage(Created->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			UnloadPackage(Created->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		FMaterialProgramValidationResult ProgramValidation;
@@ -140,25 +140,25 @@ namespace Durin::AssetForge::Builtins
 			OutError = ProgramValidation.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."
 				: ProgramValidation.Diagnostics.front().Message;
-			Asset::UnloadPackage(Created->GetPackage(),
-				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			UnloadPackage(Created->GetPackage(),
+				Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		if (!Created->SetMaterialGraphPresentation(
 			MakeTemplatePresentation(*Created->GetMaterialProgram())))
 		{
 			OutError = "Failed to initialize the standard imported-surface material graph presentation.";
-			Asset::UnloadPackage(Created->GetPackage(),
-				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			UnloadPackage(Created->GetPackage(),
+				Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
-		const Asset::FAssetResult SaveResult = Asset::SavePackage(Created->GetPackage());
+		const FAssetResult SaveResult = SavePackage(Created->GetPackage());
 		if (!SaveResult)
 		{
 			OutError = std::format(
 				"Failed to save standard imported-surface material: {}",
 				SaveResult.Message);
-			Asset::UnloadPackage(Created->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			UnloadPackage(Created->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		OutError.clear();

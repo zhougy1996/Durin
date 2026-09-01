@@ -15,12 +15,12 @@ namespace Durin
 			return false;
 		}
 
-		auto IsVolumeTargetSupported(Asset::ECookTargetPlatform Platform,
-			Asset::ECookTargetProfile Profile) -> bool
+		auto IsVolumeTargetSupported(ECookTargetPlatform Platform,
+			ECookTargetProfile Profile) -> bool
 		{
-			return Platform == Asset::ECookTargetPlatform::Win64
-				&& (Profile == Asset::ECookTargetProfile::Game
-					|| Profile == Asset::ECookTargetProfile::EditorValidation);
+			return Platform == ECookTargetPlatform::Win64
+				&& (Profile == ECookTargetProfile::Game
+					|| Profile == ECookTargetProfile::EditorValidation);
 		}
 
 		auto ToVolumeStableFormat(EPixelFormat Format,
@@ -53,8 +53,8 @@ namespace Durin
 
 	auto BuildVolumeTextureSerializedValue(
 		const FVolumeTexturePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -95,8 +95,8 @@ namespace Durin
 
 	auto ParseVolumeTextureSerializedValue(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {

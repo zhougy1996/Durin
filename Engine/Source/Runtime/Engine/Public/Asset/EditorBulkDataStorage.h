@@ -4,7 +4,7 @@
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/PackageInspection.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Internal sibling retained only until the package/segment closure commits.
 	inline constexpr std::string_view EditorBulkDataCompanionBackupSuffix =

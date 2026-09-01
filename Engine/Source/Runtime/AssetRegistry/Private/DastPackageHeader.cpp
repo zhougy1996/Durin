@@ -6,7 +6,7 @@
 
 #include <fstream>
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

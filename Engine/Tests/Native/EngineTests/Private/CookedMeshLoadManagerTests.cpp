@@ -13,7 +13,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset;
+	using namespace Durin;
 
 	class FControlledPackageResource final : public FPackageResource
 	{

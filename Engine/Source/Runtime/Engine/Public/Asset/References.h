@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "AssetRegistry/References.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/PackageInspection.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class EAssetReferenceRouteKind : uint8
 	{
@@ -61,4 +61,4 @@ namespace Durin::Asset
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult;
-} // namespace Durin::Asset
+} // namespace Durin

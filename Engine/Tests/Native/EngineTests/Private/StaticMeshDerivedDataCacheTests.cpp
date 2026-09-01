@@ -121,17 +121,17 @@ namespace
 
 	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
-		Durin::Asset::ShutdownAssetManager();
+		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
 		if (CookRoot.empty())
 		{
-			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			ASSERT_TRUE(Durin::InitializeAssetManager());
 			return;
 		}
-		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
+		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -144,10 +144,10 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	ASSERT_EQ(ImportedKey.size(), 32u);
 	const std::filesystem::path ObjectPath = GetObjectPath(Fixture, ImportedKey);
 	ASSERT_TRUE(std::filesystem::is_regular_file(ObjectPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(Fixture.AssetPath));
 	ASSERT_TRUE(std::filesystem::remove(ObjectPath));
 
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	EXPECT_EQ(
 		Fixture.Mesh->GetDerivedDataDiagnostic().Status,
@@ -156,19 +156,19 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Key, ImportedKey);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(std::filesystem::is_regular_file(ObjectPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		Fixture.AssetPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 
 	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().Status
 		== Durin::EStaticMeshDerivedDataStatus::Hit
 		|| Fixture.Mesh->GetDerivedDataDiagnostic().Status
 		== Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(Fixture.AssetPath));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministically)
@@ -204,9 +204,9 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_NE(Fixture.Mesh->GetDerivedDataDiagnostic().Key, SourceChangedKey);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		Fixture.AssetPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailurePreservesLiveData)
@@ -216,7 +216,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const std::string Key = Fixture.Mesh->GetDerivedDataDiagnostic().Key;
 	const std::filesystem::path ObjectPath = GetObjectPath(Fixture, Key);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(Fixture.AssetPath));
 	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), ObjectPath));
 	const std::filesystem::path PackagePath = Fixture.Root / "Content" / "Mesh.dasset";
@@ -227,7 +227,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 		std::filesystem::file_time_type::clock::now() - std::chrono::hours(24);
 	std::filesystem::last_write_time(PackagePath, PackageTimeBeforeRecovery);
 
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Fixture.AssetPath), Fixture.Mesh));
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FStaticMeshRenderData* CompleteRenderData = Fixture.Mesh->GetRenderData();
@@ -252,9 +252,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		Fixture.AssetPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAndRequiredAtRuntime)
@@ -277,10 +277,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionSecond");
 	for (const std::filesystem::path& Root : {CookRoot, SecondCookRoot})
 	{
-		Durin::Asset::FCookContext Context(
-			Root, Durin::Asset::ECookTargetPlatform::Win64,
-			Durin::Asset::ECookTargetProfile::Game);
-		ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::FCookContext Context(
+			Root, Durin::ECookTargetPlatform::Win64,
+			Durin::ECookTargetProfile::Game);
+		ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 			*Fixture.Mesh, "/Game/CookedCollisionMesh", Context, Error)) << Error;
 		ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	}
@@ -296,11 +296,11 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	{
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
-		Durin::Asset::FAssetPackageInspection Inspection;
+		Durin::FAssetPackageInspection Inspection;
 		Durin::FPackagePath CookedPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 			"/Game/CookedCollisionMesh", CookedPath));
-		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		ASSERT_TRUE(Durin::InspectAssetPackage(
 			(CookRoot / "Game/CookedCollisionMesh.dasset").generic_string(),
 			CookedPath, Inspection));
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
@@ -310,13 +310,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		RestartAssetManager(CookRoot);
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		ASSERT_TRUE(Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation));
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCollisionMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
-		const Durin::Asset::FAssetResult Loaded =
-			Durin::Asset::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		const Durin::FAssetResult Loaded =
+			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
 		const Durin::FCookedMeshBlockingResult LoadResult =
@@ -329,7 +329,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_EQ(Geometry.GetTriangleCount(), AuthoredTriangles);
 		EXPECT_EQ(Geometry.GetNodeCount(), AuthoredNodes);
 		EXPECT_EQ(Geometry.GetRetainedBytes(), AuthoredBytes);
-		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+		ASSERT_TRUE(Durin::UnloadPackage(Path));
 		RestartAssetManager();
 		return;
 	}
@@ -342,20 +342,20 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookSecond");
-	Durin::Asset::FCookContext First(
+	Durin::FCookContext First(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Fixture.Mesh, "/Game/CookedMesh", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
 
-	Durin::Asset::FCookContext Second(
+	Durin::FCookContext Second(
 		SecondCookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Fixture.Mesh, "/Game/CookedMesh", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 	Durin::FByteArray FirstPackage;
@@ -372,11 +372,11 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	{
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedMesh.dbulk"));
-		Durin::Asset::FAssetPackageInspection Inspection;
+		Durin::FAssetPackageInspection Inspection;
 		Durin::FPackagePath CookedPath;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 			"/Game/CookedMesh", CookedPath));
-		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		ASSERT_TRUE(Durin::InspectAssetPackage(
 			(CookRoot / "Game/CookedMesh.dasset").generic_string(),
 			CookedPath, Inspection));
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
@@ -385,13 +385,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		RestartAssetManager(CookRoot);
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		ASSERT_TRUE(Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation));
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
-		const Durin::Asset::FAssetResult Loaded =
-			Durin::Asset::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		const Durin::FAssetResult Loaded =
+			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
 		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
@@ -402,26 +402,26 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		FirstConsumer->SetStaticMesh(CookedMesh);
 		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
 			Durin::ECookedMeshCpuPhase::Unloaded);
-		ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 		FirstConsumer->RegisterComponent();
 		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
 			Durin::ECookedMeshCpuPhase::IoQueued);
 		EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
-		Durin::Asset::ShutdownCookedMeshLoadManager();
+		Durin::ShutdownCookedMeshLoadManager();
 		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
 			Durin::ECookedMeshCpuPhase::Cancelled);
 		EXPECT_NE(CookedMesh->GetDerivedDataDiagnostic().Message.find("cancel"),
 			std::string::npos);
-		ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 		const Durin::FCookedMeshBlockingResult RetryResult =
 			CookedMesh->RetryRenderDataAndResourcesBlocking();
 		ASSERT_TRUE(RetryResult) << RetryResult.Message;
 		auto FirstProxy = FirstConsumer->CreateSceneProxy();
 		const Durin::FCookedMeshLoadStatus RecoveredStatus =
 			CookedMesh->RequestRenderDataAndResources();
-		const Durin::Asset::FCookedMeshLoadDiagnostics RecoveredDiagnostics =
-			Durin::Asset::GetCookedMeshLoadManager()->GetDiagnostics();
-		if (!FirstProxy) Durin::Asset::ShutdownCookedMeshLoadManager();
+		const Durin::FCookedMeshLoadDiagnostics RecoveredDiagnostics =
+			Durin::GetCookedMeshLoadManager()->GetDiagnostics();
+		if (!FirstProxy) Durin::ShutdownCookedMeshLoadManager();
 		ASSERT_NE(FirstProxy, nullptr)
 			<< "cpu_phase=" << static_cast<uint32>(RecoveredStatus.CpuPhase)
 			<< " failed=" << RecoveredDiagnostics.FailedCount
@@ -435,10 +435,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 			nullptr, Durin::FName("CookedSplineMeshConsumer"));
 		SplineConsumer->SetStaticMesh(CookedMesh);
 		ASSERT_NE(SplineConsumer->CreateSceneProxy(), nullptr);
-		Durin::Asset::ShutdownCookedMeshLoadManager();
+		Durin::ShutdownCookedMeshLoadManager();
 		EXPECT_EQ(CookedMesh->GetAssetImportData(), nullptr);
 		EXPECT_NE(CookedMesh->GetCookedRenderData().GetMetadata().LogicalSize, 0u);
-		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+		ASSERT_TRUE(Durin::UnloadPackage(Path));
 		RestartAssetManager();
 		return;
 	}

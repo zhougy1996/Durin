@@ -1,8 +1,8 @@
 #include "Asset/BulkData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	namespace Private
+	namespace AssetPrivate
 	{
 		struct FBulkDataState
 		{
@@ -16,15 +16,15 @@ namespace Durin::Asset
 
 	namespace
 	{
-		auto Fail(std::string Message, std::string* OutError) -> bool
+		auto BulkDataFail(std::string Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = std::move(Message);
 			return false;
 		}
 
-		auto NewEmptyState() -> std::shared_ptr<Private::FBulkDataState>
+		auto NewEmptyState() -> std::shared_ptr<AssetPrivate::FBulkDataState>
 		{
-			return std::make_shared<Private::FBulkDataState>();
+			return std::make_shared<AssetPrivate::FBulkDataState>();
 		}
 
 		auto ValidateMetadata(const FBulkDataMetadata& Metadata, std::string* OutError) -> bool
@@ -33,13 +33,13 @@ namespace Durin::Asset
 				|| Metadata.LogicalSize > MaximumBulkDataBytes
 				|| !ValidatePackageResourceRange(
 					Metadata.Range, MaximumBulkDataBytes, OutError))
-				return Fail("Bulk data package metadata is invalid or unsupported.", OutError);
+				return BulkDataFail("Bulk data package metadata is invalid or unsupported.", OutError);
 			if (OutError) OutError->clear();
 			return true;
 		}
 
-		auto Snapshot(const std::shared_ptr<Private::FBulkDataState>& Source)
-			-> std::shared_ptr<Private::FBulkDataState>
+		auto Snapshot(const std::shared_ptr<AssetPrivate::FBulkDataState>& Source)
+			-> std::shared_ptr<AssetPrivate::FBulkDataState>
 		{
 			auto Result = NewEmptyState();
 			std::lock_guard Lock(Source->Mutex);
@@ -84,7 +84,7 @@ namespace Durin::Asset
 		std::span<const std::byte> Bytes, FBulkData& OutValue, std::string* OutError) -> bool
 	{
 		if (Bytes.size() > MaximumBulkDataBytes)
-			return Fail("Detached bulk data exceeds the 1 GiB limit.", OutError);
+			return BulkDataFail("Detached bulk data exceeds the 1 GiB limit.", OutError);
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
 		Candidate->Metadata.Range.StoredSize = Bytes.size();
@@ -142,7 +142,7 @@ namespace Durin::Asset
 			{
 				State->State = Result.Status == EPackageResourceReadStatus::Retired
 					? EBulkDataState::Retired : EBulkDataState::Failed;
-				return Fail(Result.Message.empty() ? "Bulk data range load failed." : Result.Message, OutError);
+				return BulkDataFail(Result.Message.empty() ? "Bulk data range load failed." : Result.Message, OutError);
 			}
 			State->Allocation = std::make_shared<FByteArray>(
 				Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
@@ -151,7 +151,7 @@ namespace Durin::Asset
 		if (State->State != EBulkDataState::Resident
 			&& State->State != EBulkDataState::ReadLocked
 			&& State->State != EBulkDataState::Detached)
-			return Fail("Bulk data cannot acquire a read lock in its current state.", OutError);
+			return BulkDataFail("Bulk data cannot acquire a read lock in its current state.", OutError);
 		++State->ReadLocks;
 		State->State = EBulkDataState::ReadLocked;
 		OutBytes = *State->Allocation;
@@ -163,7 +163,7 @@ namespace Durin::Asset
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::ReadLocked || State->ReadLocks == 0)
-			return Fail("Bulk data has no matching read lock.", OutError);
+			return BulkDataFail("Bulk data has no matching read lock.", OutError);
 		if (--State->ReadLocks == 0)
 			State->State = State->Metadata.Range.Resource
 				? EBulkDataState::Resident : EBulkDataState::Detached;
@@ -176,7 +176,7 @@ namespace Durin::Asset
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::Detached && State->State != EBulkDataState::Empty)
-			return Fail("Bulk data write locks require detached storage.", OutError);
+			return BulkDataFail("Bulk data write locks require detached storage.", OutError);
 		if (!State->Allocation) State->Allocation = std::make_shared<FByteArray>();
 		else if (State->Allocation.use_count() != 1)
 			State->Allocation = std::make_shared<FByteArray>(*State->Allocation);
@@ -192,9 +192,9 @@ namespace Durin::Asset
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::WriteLocked)
-			return Fail("Bulk data resize requires a write lock.", OutError);
+			return BulkDataFail("Bulk data resize requires a write lock.", OutError);
 		if (Size > MaximumBulkDataBytes || Size > std::numeric_limits<size_t>::max())
-			return Fail("Bulk data resize exceeds the 1 GiB limit.", OutError);
+			return BulkDataFail("Bulk data resize exceeds the 1 GiB limit.", OutError);
 		State->Allocation->resize(static_cast<size_t>(Size));
 		State->Metadata.LogicalSize = Size;
 		State->Metadata.Range.StoredSize = Size;
@@ -207,7 +207,7 @@ namespace Durin::Asset
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::WriteLocked)
-			return Fail("Bulk data has no matching write lock.", OutError);
+			return BulkDataFail("Bulk data has no matching write lock.", OutError);
 		State->State = EBulkDataState::Detached;
 		if (OutError) OutError->clear();
 		return true;
@@ -217,7 +217,7 @@ namespace Durin::Asset
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::Resident || !State->Metadata.Range.Resource)
-			return Fail("Only unlocked resource-backed bulk data can unload.", OutError);
+			return BulkDataFail("Only unlocked resource-backed bulk data can unload.", OutError);
 		State->Allocation.reset();
 		State->State = State->Metadata.Range.Resource->IsRetired()
 			? EBulkDataState::Retired : EBulkDataState::Attached;

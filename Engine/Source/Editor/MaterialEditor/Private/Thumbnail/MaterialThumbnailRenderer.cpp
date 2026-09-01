@@ -34,7 +34,7 @@ namespace Durin::Editor::Material
 			FTopLevelAssetPath AssetPath;
 		};
 
-		auto MakeFingerprint(const Asset::FAssetData& Data,
+		auto MakeFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
@@ -187,7 +187,7 @@ namespace Durin::Editor::Material
 			{
 				std::string SphereError;
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Loaded);
+				const FAssetResult Result = LoadObject(AssetPath, Loaded);
 				Material = Result ? Cast<DMaterialInterface>(Loaded) : nullptr;
 				if (!Result || Material == nullptr
 					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)
@@ -399,8 +399,8 @@ namespace Durin::Editor::Material
 			return false;
 		}
 
-		const Asset::FAssetDependencyClosureSnapshot Closure =
-			Asset::CaptureAssetDependencyClosure(Request.Asset.PackagePath);
+		const FAssetDependencyClosureSnapshot Closure =
+			CaptureAssetDependencyClosure(Request.Asset.PackagePath);
 		if (!Closure)
 		{
 			OutError = Closure.Result.Message.empty()
@@ -411,7 +411,7 @@ namespace Durin::Editor::Material
 		}
 		const auto RootIt = std::ranges::find_if(
 			Closure.Assets,
-			[&Request](const Asset::FAssetData& Data) {
+			[&Request](const FAssetData& Data) {
 				return Data.PackagePath == Request.Asset.PackagePath;
 			});
 		if (RootIt == Closure.Assets.end())
@@ -419,7 +419,7 @@ namespace Durin::Editor::Material
 			OutError = "The material dependency closure omitted its root asset.";
 			return false;
 		}
-		const Asset::FAssetData* Root = &*RootIt;
+		const FAssetData* Root = &*RootIt;
 		if (MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = std::format(
@@ -429,7 +429,7 @@ namespace Durin::Editor::Material
 		}
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
-		for (const Asset::FAssetData& Data : Closure.Assets)
+		for (const FAssetData& Data : Closure.Assets)
 			if (Data.PackagePath != Request.Asset.PackagePath)
 				Dependencies.push_back(MakeFingerprint(Data));
 

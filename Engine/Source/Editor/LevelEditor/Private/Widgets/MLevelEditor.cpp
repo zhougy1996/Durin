@@ -100,8 +100,8 @@ namespace Durin::Editor::Level
 			return false;
 		};
 		Context->OpenAsset = [this](const FPackagePath& Path, std::string& Error) {
-			const Asset::FAssetPathResolveResult Resolution =
-				Asset::ResolveAssetPath(Path);
+			const FAssetPathResolveResult Resolution =
+				ResolveAssetPath(Path);
 			if (Resolution && Resolution.FinalAssetData
 				&& WorkspaceManager.OpenAsset(
 					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
@@ -146,7 +146,6 @@ namespace Durin::Editor::Level
 			*Context,
 			SessionSettings,
 			*SceneViewportPanel,
-			*GEditor->GetTransactor(),
 			OwnerGate
 		);
 
@@ -269,8 +268,8 @@ namespace Durin::Editor::Level
 				return false;
 			}
 			FObjectPath LevelPath;
-			const Asset::FAssetResult ResolveResult =
-				Asset::ResolveLevelPackage(PackagePath, LevelPath);
+			const FAssetResult ResolveResult =
+				ResolveLevelPackage(PackagePath, LevelPath);
 			if (!ResolveResult)
 			{
 				DURIN_WARN("Project default level '{}' is invalid: {}",
@@ -299,9 +298,9 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		FObjectPath ResolvedLevelPath;
-		const Asset::FAssetResult Resolution = DefaultLevel.IsNull()
-			? Asset::FAssetResult{}
-			: Asset::ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
+		const FAssetResult Resolution = DefaultLevel.IsNull()
+			? FAssetResult{}
+			: ResolveLevelPackage(DefaultLevelPath, ResolvedLevelPath);
 		if (!Resolution
 			|| (!DefaultLevel.IsNull()
 				&& ResolvedLevelPath != DefaultLevel.GetPath()))
@@ -326,7 +325,7 @@ namespace Durin::Editor::Level
 		const FPackagePath& Path) -> void
 	{
 		FObjectPath LevelPath;
-		if (!Asset::ResolveLevelPackage(Path, LevelPath)) return;
+		if (!ResolveLevelPackage(Path, LevelPath)) return;
 		const bool bPendingMatchesSaved = PendingDefaultLevel == DefaultLevel;
 		DefaultLevel.SetPath(LevelPath);
 		if (bPendingMatchesSaved)
@@ -651,8 +650,8 @@ namespace Durin::Editor::Level
 								SelectionPath, AssetPath, &OutError))
 							return false;
 						FObjectPath LevelPath;
-						const Asset::FAssetResult Resolution =
-							Asset::ResolveLevelPackage(
+						const FAssetResult Resolution =
+							ResolveLevelPackage(
 								AssetPath.GetPackagePath(), LevelPath);
 						if (!Resolution)
 						{

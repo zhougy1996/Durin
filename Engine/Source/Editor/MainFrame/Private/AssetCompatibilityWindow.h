@@ -36,7 +36,7 @@ namespace Durin::Editor::MainFrame
 		auto RefreshCatalog() -> void;
 		auto RunAudit() -> void;
 		auto PreviewCanonicalResave(
-			Asset::FAssetCanonicalResaveSelection Selection,
+			FAssetCanonicalResaveSelection Selection,
 			std::string Scope) -> void;
 		auto BeginCanonicalResave() -> void;
 		auto TickCanonicalResave() -> void;
@@ -59,10 +59,10 @@ namespace Durin::Editor::MainFrame
 		std::string MaintenanceMessage;
 		bool bCanonicalDebtOnly = false;
 		bool bCachedCanonicalDebtOnly = false;
-		std::optional<Asset::FAssetCanonicalResavePlan> PreviewMaintenancePlan;
-		std::optional<Asset::FAssetCanonicalResaveSelection> PreviewMaintenanceSelection;
+		std::optional<FAssetCanonicalResavePlan> PreviewMaintenancePlan;
+		std::optional<FAssetCanonicalResaveSelection> PreviewMaintenanceSelection;
 		std::string PreviewMaintenanceScope;
-		std::optional<Asset::FAssetCanonicalResavePlan> PendingMaintenancePlan;
+		std::optional<FAssetCanonicalResavePlan> PendingMaintenancePlan;
 		size_t MaintenanceCompleted = 0;
 		bool bCancelMaintenance = false;
 	};

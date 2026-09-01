@@ -3,7 +3,6 @@
 #include "Asset/Deletion.h"
 #include "AssetTools/AssetDeletion.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
-#include "Editor/Transaction.h"
 #include "Panels/ContentBrowserModel.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -18,7 +17,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		OutsideMount,
 		ReadOnlyMount,
 		SourceControlRestricted,
-		CrossVolumeStaging,
 		ReparsePoint,
 		UnknownPackage,
 		ExternalReference,
@@ -87,12 +85,11 @@ namespace Durin::Editor::ContentBrowser::Private
 	};
 
 	// The operation layer publishes this value only as shared_ptr<const ...>; the
-	// confirmation modal and transaction therefore observe the same immutable scope.
+	// confirmation modal and destructive operation therefore observe the same immutable scope.
 	struct FContentDeletionPlan
 	{
 		uint64 RegistryRevision = 0;
 		std::string DisplayName;
-		std::string StagingVolumeRoot;
 		FContentDeletionSummary Summary;
 		std::vector<FContentDeletionRoot> MaximalRoots;
 		std::vector<FContentDeletionFingerprint> Entries;
@@ -105,117 +102,36 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	using FContentDeletionPlanPtr = std::shared_ptr<const FContentDeletionPlan>;
 
-	// Applying/Restoring are transient. Any failed compensation transitions to
-	// RecoveryRequired and deliberately retains the owned staging directory.
-	enum class EContentDeletionTransactionState : uint8
+	// Narrow injection seam for deterministic destructive-deletion failure tests.
+	struct FContentDeletionHooks
 	{
-		Restored,
-		Applying,
-		Applied,
-		Restoring,
-		RecoveryRequired,
+		std::function<std::error_code(const std::filesystem::path&)> RemoveAll;
 	};
 
-	enum class EContentDeletionJournalOperation : uint8
-	{
-		MoveToStaging,
-		MoveToOriginal,
-	};
-
-	struct FContentDeletionJournalEntry
-	{
-		EContentDeletionJournalOperation Operation =
-			EContentDeletionJournalOperation::MoveToStaging;
-		std::string OriginalPath;
-		std::string StagedPath;
-		bool bCompleted = false;
-		bool bCompensated = false;
-	};
-
-	enum class EContentDeletionMovePhase : uint8
-	{
-		Apply,
-		Undo,
-		CompensateApply,
-		CompensateUndo,
-	};
-
-	// Narrow injection seams keep failure tests deterministic without weakening the
-	// production ownership and path checks.
-	struct FContentDeletionTransactionHooks
-	{
-		std::function<std::error_code(
-			const std::filesystem::path&,
-			const std::filesystem::path&,
-			EContentDeletionMovePhase)> Rename;
-	};
-
-	class FContentDeletionTransaction final : public ::Durin::Editor::ITransactionCustomChange
+	class FContentDeletionOperation final
 	{
 	public:
-		explicit FContentDeletionTransaction(
+		explicit FContentDeletionOperation(
 			FContentDeletionPlanPtr InPlan,
-			FContentDeletionTransactionHooks InHooks = {});
-		~FContentDeletionTransaction() override;
+			FContentDeletionHooks InHooks = {});
 
-		auto GetDescription() const -> std::string_view override;
-		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const
-			-> std::string override;
-		auto MutatesMountedContent() const -> bool override { return true; }
-		auto GetOwningModule() const -> std::string_view override { return "ContentBrowser"; }
-		auto Undo() -> bool override;
-		auto Redo() -> bool override;
-		auto GetState() const -> EContentDeletionTransactionState { return State; }
-		auto GetStagingRoot() const -> const std::filesystem::path&
-		{
-			return StagingRoot;
-		}
-		auto GetJournal() const -> std::span<const FContentDeletionJournalEntry>
-		{
-			return Journal;
-		}
+		auto Execute() -> bool;
+		auto GetDetails() const -> const std::string& { return Details; }
 
 	private:
-		struct FMove
-		{
-			std::filesystem::path Original;
-			std::filesystem::path Staged;
-		};
-
-		auto EnsureStagingRoot() -> bool;
-		auto ValidatePhysicalState(bool bApplied) -> bool;
-		auto ValidateOriginalDestinations() -> bool;
-		auto MovePath(
-			const std::filesystem::path& Source,
-			const std::filesystem::path& Destination,
-			EContentDeletionMovePhase Phase) -> bool;
-		auto CompensateMoves(
-			size_t Count,
-			bool bBackToOriginal,
-			EContentDeletionMovePhase Phase) -> bool;
-		auto StagePhysicalDeletion() -> Asset::FAssetResult;
-		auto RestorePhysicalDeletion() -> Asset::FAssetResult;
-		auto MakePhysicalTransition() -> Asset::FAssetDeletionPhysicalTransition;
-		auto CleanupOwnedStagingRoot() -> void;
+		auto ValidatePhysicalState() -> bool;
+		auto DeletePhysicalRoots() -> FAssetResult;
 		auto Fail(std::string Message) -> bool;
 
 		FContentDeletionPlanPtr Plan;
-		FContentDeletionTransactionHooks Hooks;
-		std::string Description;
+		FContentDeletionHooks Hooks;
 		std::string Details;
-		std::filesystem::path StagingRoot;
-		std::filesystem::path MarkerPath;
-		std::vector<FMove> Moves;
-		std::vector<FContentDeletionJournalEntry> Journal;
-		EContentDeletionTransactionState State =
-			EContentDeletionTransactionState::Restored;
-		bool bCommittedOnce = false;
 	};
 
 	// Reports the post-operation focus requested by a successful content mutation.
 	struct FContentBrowserOperationResult
 	{
-		Asset::FAssetResult Status;
+		FAssetResult Status;
 		std::string FocusPhysicalPath;
 		std::string RevealAssetPath;
 		std::string OpenAssetClassName;
@@ -229,9 +145,9 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 	public:
 		using FMoveAssets =
-			std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+			std::function<FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FFixUpAssets =
-			std::function<Asset::FAssetResult(std::span<const FPackagePath>)>;
+			std::function<FAssetResult(std::span<const FPackagePath>)>;
 		using FRemoveDirectory = std::function<bool(
 			const std::filesystem::path&, std::error_code&)>;
 
@@ -253,12 +169,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			-> FContentBrowserOperationResult;
 		auto CreateFolder(std::string_view PhysicalDirectory)
 			-> FContentBrowserOperationResult;
-		auto Move(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult;
+		auto Move(std::span<const FEditorAssetMove> Moves) -> FAssetResult;
 		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
-			-> Asset::FAssetResult;
+			-> FAssetResult;
 		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors)
-			-> Asset::FAssetResult;
-		auto FixUpAllRedirectors() -> Asset::FAssetResult;
+			-> FAssetResult;
+		auto FixUpAllRedirectors() -> FAssetResult;
 
 		auto BuildDeletionPlan(
 			std::span<const FContentBrowserItem> Items,
@@ -274,7 +190,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const FContentBrowserItem& Item,
 			std::string_view NewName,
 			std::string& OutWarning)
-			-> Asset::FAssetResult;
+			-> FAssetResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FPackagePath>;
 

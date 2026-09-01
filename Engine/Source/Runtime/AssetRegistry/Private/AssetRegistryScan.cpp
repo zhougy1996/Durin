@@ -4,12 +4,12 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	namespace
 	{
 		constexpr std::string_view RedirectorClassName =
-			"Durin::Asset::DAssetRedirector";
+			"Durin::DAssetRedirector";
 
 		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
 		{

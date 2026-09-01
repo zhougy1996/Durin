@@ -87,8 +87,7 @@ _PROPERTY_KIND_BY_TYPE = {
     "Durin::FGuid": "Guid",
     "std::byte": "Byte",
     "FEditorBulkData": "BulkData",
-    "Asset::FEditorBulkData": "BulkData",
-    "Durin::Asset::FEditorBulkData": "BulkData",
+    "Durin::FEditorBulkData": "BulkData",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {

@@ -2,7 +2,7 @@
 
 #include "AssetRegistry/Publication.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	class FAssetRegistryState
 	{
@@ -24,12 +24,17 @@ namespace Durin::Asset::Private
 		auto CapturePublication() const -> FAssetRegistryPublication;
 		auto GetRevision() const -> uint64;
 		auto Publish(FAssetRegistryPublication Publication) -> FAssetRegistryResult;
+		auto Fence(std::span<const FPackagePath> Paths) -> void;
+		auto ClearFence(std::span<const FPackagePath> Paths) -> void;
+		auto IsFenced(const FPackagePath& Path) const -> bool;
+		auto CaptureFences() const -> std::vector<FPackagePath>;
 
 	private:
 		mutable std::shared_mutex Mutex;
 		uint64 Revision = 1;
 		std::unordered_map<FPackagePath, FAssetData> Assets;
 		FAssetReferenceIndex References;
+		std::unordered_set<FPackagePath> ProjectionFences;
 	};
 
 	auto GetAssetRegistryState() -> FAssetRegistryState&;

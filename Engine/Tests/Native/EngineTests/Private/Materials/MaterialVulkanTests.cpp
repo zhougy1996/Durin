@@ -102,7 +102,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	ASSERT_TRUE(MaterialInstanceRenderer) << StaticMeshRendererError;
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	const std::filesystem::path TextureMount =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan";
 	const std::filesystem::path TextureSource =
@@ -294,9 +294,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*DataTextureResult.Asset, Durin::ETextureUsage::DataMask, Error)) << Error;
-		ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(
+		ASSERT_TRUE(Durin::WaitForTexture2DCompilation(
 			*DataTextureResult.Asset, 10.0))
-			<< Durin::Asset::GetTexture2DCompilationDiagnostic(*DataTextureResult.Asset).Message;
+			<< Durin::GetTexture2DCompilationDiagnostic(*DataTextureResult.Asset).Message;
 		ASSERT_NE(DataTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(DataTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(
@@ -311,9 +311,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*NormalTextureResult.Asset, Durin::ETextureUsage::Normal, Error)) << Error;
-		ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(
+		ASSERT_TRUE(Durin::WaitForTexture2DCompilation(
 			*NormalTextureResult.Asset, 10.0))
-			<< Durin::Asset::GetTexture2DCompilationDiagnostic(*NormalTextureResult.Asset).Message;
+			<< Durin::GetTexture2DCompilationDiagnostic(*NormalTextureResult.Asset).Message;
 		ASSERT_NE(NormalTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(NormalTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(
@@ -369,15 +369,15 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/SM_ThumbnailPreview", StaticMeshFixturePath));
 		Durin::DStaticMesh* StaticMeshFixture = nullptr;
-		ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(
 			StaticMeshFixturePath, StaticMeshFixture)) << Error;
 		ASSERT_NE(StaticMeshFixture, nullptr);
-		Durin::Asset::FStaticMeshImportedData ImportedMesh;
+		Durin::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		Durin::Asset::FStaticMeshImportedMesh& ImportedSection =
+		Durin::FStaticMeshImportedMesh& ImportedSection =
 			ImportedMesh.Meshes.emplace_back();
 		ImportedSection.Name = "ThumbnailTetrahedron";
 		ImportedSection.Positions = {
@@ -391,7 +391,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			1, 2, 3,
 			2, 0, 3};
 		ImportedSection.SourceMaterialIndex = 0;
-		ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
+		ASSERT_TRUE(Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*StaticMeshFixture, ImportedMesh,
 			"StaticMesh thumbnail preview test fixture",
 			Error)) << Error;
@@ -454,21 +454,21 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			"/MaterialThumbnailVulkan/M_StaticMeshThumbnail",
 			StaticMeshMaterialPath));
 		Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
-		ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(
+		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(
 			StaticMeshMaterialPath,
 			StaticMeshAssetMaterial));
 		ASSERT_NE(StaticMeshAssetMaterial, nullptr);
 		ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
-		ASSERT_TRUE(Durin::Asset::SavePackage(StaticMeshAssetMaterial->GetPackage()));
+		ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
 		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
 			0, StaticMeshAssetMaterial, Error)) << Error;
-		ASSERT_TRUE(Durin::Asset::SavePackage(StaticMeshFixture->GetPackage()));
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		const Durin::Asset::FAssetCatalogEntry StaticMeshAssetData =
-			Durin::Asset::FindAssetExact(StaticMeshFixturePath);
+		ASSERT_TRUE(Durin::SavePackage(StaticMeshFixture->GetPackage()));
+		ASSERT_TRUE(Durin::RefreshAssetRegistry(
+			Durin::EAssetRegistryScanMode::FullValidation));
+		const Durin::FAssetCatalogEntry StaticMeshAssetData =
+			Durin::FindAssetExact(StaticMeshFixturePath);
 		ASSERT_NE(StaticMeshAssetData, nullptr);
 		const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
 			.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
@@ -1130,18 +1130,18 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
 	ASSERT_NE(CaptureSphere, nullptr);
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CaptureTexturePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(CaptureTexturePath));
+	ASSERT_TRUE(Durin::UnloadPackage(
 		DataTexturePath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(DataTexturePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(DataTexturePath));
+	ASSERT_TRUE(Durin::UnloadPackage(
 		NormalTexturePath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(NormalTexturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CaptureCubePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StaticMeshFixturePath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(StaticMeshMaterialPath));
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(NormalTexturePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(CaptureCubePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(StaticMeshFixturePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(StaticMeshMaterialPath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);
 	Durin::MarkAsGarbage(InheritedInstance);
@@ -1152,7 +1152,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::MarkAsGarbage(LowRoughnessMaterial);
 	Durin::MarkAsGarbage(LowRoughnessMesh);
 	PreloadedSphere = {};
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath.GetPackagePath()));
+	ASSERT_TRUE(Durin::UnloadPackage(SpherePath.GetPackagePath()));
 	Durin::CollectGarbage();
 	struct FRetireThumbnailCubeResource
 	{

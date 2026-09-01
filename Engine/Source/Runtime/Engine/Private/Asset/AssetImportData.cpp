@@ -312,22 +312,22 @@ namespace Durin
 	}
 
 	auto InspectAssetImportInfo(
-		const Asset::FAssetPackageInspection& Inspection,
+		const FAssetPackageInspection& Inspection,
 		FAssetImportInfo& OutInfo,
 		std::string& OutError) -> bool
 	{
-		const Asset::FAssetPackageField* ImportDataField =
+		const FAssetPackageField* ImportDataField =
 			Inspection.FindField("AssetImportData");
-		Asset::FAssetPackageObjectReference Reference;
+		FAssetPackageObjectReference Reference;
 		if (!ImportDataField || !ImportDataField->TryReadObjectReference(Reference)
-			|| Reference.Kind != Asset::EAssetPackageObjectReferenceKind::Internal)
+			|| Reference.Kind != EAssetPackageObjectReferenceKind::Internal)
 		{
 			OutError = "The package main object has no valid internal AssetImportData reference.";
 			return false;
 		}
-		const Asset::FAssetPackageObjectInspection* ImportDataObject =
+		const FAssetPackageObjectInspection* ImportDataObject =
 			Inspection.FindObject(Reference.ObjectId);
-		const Asset::FAssetPackageField* SourceDataField = ImportDataObject
+		const FAssetPackageField* SourceDataField = ImportDataObject
 			? ImportDataObject->FindField("SourceData") : nullptr;
 		FAssetImportInfo Info;
 		if (!SourceDataField

@@ -3,7 +3,7 @@
 #include "Math/Color.h"
 #include "RHIResources.h"
 
-namespace Durin::Asset::TextureCubeBuilder
+namespace Durin::TextureCubeBuilder
 {
 	namespace
 	{

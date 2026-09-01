@@ -192,18 +192,18 @@ namespace Durin::Editor
 	FWorkspaceManager::FWorkspaceManager()
 		: State(std::make_shared<Detail::FWorkspaceRegistryState>())
 	{
-		AssetMoveObserverHandle = Asset::RegisterAssetMoveObserver(this);
+		AssetMoveObserverHandle = RegisterAssetMoveObserver(this);
 	}
 
 	FWorkspaceManager::~FWorkspaceManager()
 	{
-		Asset::UnregisterAssetMoveObserver(AssetMoveObserverHandle);
+		UnregisterAssetMoveObserver(AssetMoveObserverHandle);
 	}
 
 	auto FWorkspaceManager::OnAssetsRelocated(
-		std::span<const Asset::FAssetRelocationMapping> Mappings) -> void
+		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
-		for (const Asset::FAssetRelocationMapping& Mapping : Mappings)
+		for (const FAssetRelocationMapping& Mapping : Mappings)
 			RemapResourceId(
 				Mapping.SourcePath.ToString(), Mapping.DestinationPath.ToString());
 	}

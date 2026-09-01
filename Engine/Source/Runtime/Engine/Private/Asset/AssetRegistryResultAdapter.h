@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "AssetRegistry/RegistryResult.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	inline auto ToAssetResult(FAssetRegistryResult Result) -> FAssetResult
 	{

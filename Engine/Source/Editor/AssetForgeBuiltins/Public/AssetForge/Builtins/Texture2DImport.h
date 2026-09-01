@@ -19,22 +19,22 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ReimportTexture2D(
 		DTexture2D& Texture,
 		std::string& OutError,
-		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
+		FTexture2DCompilationCompletion Completion = {}) -> bool;
 	// Selects and captures a new source, then atomically publishes canonical
 	// imported data and the new hint only after the detached build succeeds.
 	ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError,
-		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
+		FTexture2DCompilationCompletion Completion = {}) -> bool;
 	// Rebuilds one packaged texture from its resident canonical imported data.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromImportedData(
 		DTexture2D& Texture,
-		const Asset::FTexture2DBuildSettings& Settings,
+		const FTexture2DBuildSettings& Settings,
 		std::string& OutError,
-		Asset::ETexture2DCompilationPriority Priority =
-			Asset::ETexture2DCompilationPriority::Interactive,
-		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
+		ETexture2DCompilationPriority Priority =
+			ETexture2DCompilationPriority::Interactive,
+		FTexture2DCompilationCompletion Completion = {}) -> bool;
 	ASSETFORGEBUILTINS_API auto SetTexture2DUsage(
 		DTexture2D& Texture, ETextureUsage Usage, std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SetTexture2DSRGB(

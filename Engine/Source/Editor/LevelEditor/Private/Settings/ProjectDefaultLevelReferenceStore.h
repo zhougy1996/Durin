@@ -12,7 +12,7 @@ namespace Durin::Editor::Level
 
 	// Owns the project YAML default-level occurrence for redirector Fix Up.
 	class FProjectDefaultLevelReferenceStore final
-		: public Asset::IAssetReferenceStore
+		: public IAssetReferenceStore
 	{
 	public:
 		using FPathChanged = std::function<void(const FPackagePath&)>;
@@ -23,13 +23,13 @@ namespace Durin::Editor::Level
 			FProjectResolver InProjectResolver = {});
 
 		auto CaptureSnapshot(
-			Asset::FAssetReferenceStoreSnapshot& OutSnapshot)
-			-> Asset::FAssetResult override;
+			FAssetReferenceStoreSnapshot& OutSnapshot)
+			-> FAssetResult override;
 		auto PrepareRewrite(
-			std::span<const Asset::FAssetReferenceRewrite> Rewrites,
+			std::span<const FAssetReferenceRewrite> Rewrites,
 			std::string_view ExpectedFingerprint,
-			Asset::FAssetReferenceStoreRewriteContribution& OutContribution)
-			-> Asset::FAssetResult override;
+			FAssetReferenceStoreRewriteContribution& OutContribution)
+			-> FAssetResult override;
 
 	private:
 		FPathChanged PathChanged;

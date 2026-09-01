@@ -3,7 +3,7 @@
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistryCacheInternal.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	struct FAssetRegistryScanCandidate
 	{

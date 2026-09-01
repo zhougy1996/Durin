@@ -56,8 +56,8 @@ namespace
 		Durin::FCanonicalMemoryWriter Ar(
 			OutBytes, Durin::EArchivePurpose::DerivedDataPayload);
 		const_cast<Durin::FTexturePlatformData&>(PlatformData).Serialize(Ar, {
-			.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+			.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+			.TargetProfile = Durin::ECookTargetProfile::Game});
 		OutError = Ar.GetError();
 		return !Ar.HasError();
 	}
@@ -71,8 +71,8 @@ namespace
 		Durin::FCanonicalMemoryReader Ar(
 			Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(Ar, {
-			.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+			.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+			.TargetProfile = Durin::ECookTargetProfile::Game});
 		if (!Ar.HasError()) Durin::RequireArchiveEnd(Ar);
 		if (Ar.HasError())
 		{
@@ -90,7 +90,7 @@ namespace
 
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
-	Durin::Asset::FTexture2DBuildKeyInput Input{
+	Durin::FTexture2DBuildKeyInput Input{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.Usage = Durin::ETextureUsage::Color,
 		.bSRGB = true,
@@ -98,15 +98,15 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.AlphaMipMode = Durin::ETextureAlphaMipMode::Average,
 		.MaximumResolution = 2048,
 		.AlphaCoverageThreshold = 0.5f,
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game};
 	const std::string Baseline =
-		Durin::Asset::BuildTexture2DDerivedDataKey(Input);
+		Durin::BuildTexture2DDerivedDataKey(Input);
 	EXPECT_EQ(Baseline, "5b1aa80fd0348f7d01d88e7c7687f39e");
 	EXPECT_EQ(Baseline.size(), 32u);
 
-	auto ExpectChange = [&Baseline](const Durin::Asset::FTexture2DBuildKeyInput& Changed) {
-		EXPECT_NE(Durin::Asset::BuildTexture2DDerivedDataKey(
+	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
+		EXPECT_NE(Durin::BuildTexture2DDerivedDataKey(
 			Changed), Baseline);
 	};
 	auto Changed = Input;
@@ -137,7 +137,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	++Changed.PayloadSchemaVersion;
 	ExpectChange(Changed);
 	Changed = Input;
-	Changed.TargetProfile = Durin::Asset::ECookTargetProfile::EditorValidation;
+	Changed.TargetProfile = Durin::ECookTargetProfile::EditorValidation;
 	ExpectChange(Changed);
 }
 
@@ -190,16 +190,16 @@ TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Expected.Serialize(Writer, {
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game});
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 
 	Durin::FTexturePlatformData Actual;
 	Durin::FCanonicalMemoryReader Reader(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Actual.Serialize(Reader, {
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game});
 	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
 	EXPECT_TRUE(Durin::RequireArchiveEnd(Reader));
 	ExpectPlatformDataEqual(Actual, Expected);
@@ -215,7 +215,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	Durin::FTexturePlatformData* ExistingAddress = Existing.get();
 
 	auto WrongProfile = Bytes;
-	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
+	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::ECookTargetProfile::EditorValidation));
 	Durin::FDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Incompatible);
@@ -251,16 +251,16 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 
 TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 {
-	Durin::Asset::FTextureCubeBuildKeyInput Input{
-		.SourceLayout = Durin::Asset::ETextureCubeBuildSourceLayout::SixFaces,
+	Durin::FTextureCubeBuildKeyInput Input{
+		.SourceLayout = Durin::ETextureCubeBuildSourceLayout::SixFaces,
 		.bSRGB = true,
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game};
 	for (size_t Index = 0; Index < Input.FaceContentHashes.size(); ++Index)
 		Input.FaceContentHashes[Index] = {Index + 1, Index + 101};
 	std::string Baseline;
 	std::string Error;
-	Baseline = Durin::Asset::BuildTextureCubeDerivedDataKey(Input, Error);
+	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
 	EXPECT_EQ(Baseline, "9b662f5ddca0399ae3bf02bda265d860");
 	EXPECT_EQ(Baseline.size(), 32u);
@@ -268,42 +268,42 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	auto Changed = Input;
 	std::swap(Changed.FaceContentHashes[0], Changed.FaceContentHashes[1]);
 	std::string Key;
-	Key = Durin::Asset::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	Changed.bSRGB = false;
-	Key = Durin::Asset::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	++Changed.ProjectionVersion;
-	Key = Durin::Asset::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 
 	Changed = {};
-	Changed.SourceLayout = Durin::Asset::ETextureCubeBuildSourceLayout::EquirectangularPanorama;
+	Changed.SourceLayout = Durin::ETextureCubeBuildSourceLayout::EquirectangularPanorama;
 	Changed.PanoramaContentHash = {7, 11};
 	Changed.FaceDimension = 512;
 	Changed.ExposureEV = 1.0f;
-	Changed.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
-	Changed.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
-	Baseline = Durin::Asset::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Changed.TargetPlatform = Durin::ECookTargetPlatform::Win64;
+	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
+	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
-	Key = Durin::Asset::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
+	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = 2.0f;
-	Key = Durin::Asset::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
+	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = -0.0f;
-	EXPECT_TRUE(Durin::Asset::BuildTextureCubeDerivedDataKey(
+	EXPECT_TRUE(Durin::BuildTextureCubeDerivedDataKey(
 		ChangedPanorama, Error).empty());
 }
 
@@ -313,8 +313,8 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	Durin::FByteArray First;
 	Durin::FByteArray Second;
 	const Durin::FTexturePlatformSerializationContext Context{
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game};
 	Durin::FCanonicalMemoryWriter FirstWriter(
 		First, Durin::EArchivePurpose::DerivedDataPayload);
 	const_cast<Durin::FTextureCubePlatformData&>(Expected).Serialize(FirstWriter, Context);

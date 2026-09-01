@@ -8,7 +8,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuilder.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	const FBuildFunctionName Texture2DFunctionName =
 		FBuildFunctionName::FromString("Durin.TextureBuild.Texture2D");
@@ -159,8 +159,8 @@ namespace Durin::Asset::Private
 			FByteArray Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTextureCubePlatformData&>(PlatformData).Serialize(Ar, {
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game});
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game});
 			if (Ar.HasError())
 			{
 				OutError = Ar.GetFailure()->Message;
@@ -217,8 +217,8 @@ namespace Durin::Asset::Private
 				FByteArray Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
-					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-					.TargetProfile = Asset::ECookTargetProfile::Game});
+					.TargetPlatform = ECookTargetPlatform::Win64,
+					.TargetProfile = ECookTargetProfile::Game});
 				if (Ar.HasError())
 				{
 					OutError = Ar.GetError();
@@ -360,8 +360,8 @@ namespace Durin::Asset::Private
 				FByteArray Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
-					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-					.TargetProfile = Asset::ECookTargetProfile::Game});
+					.TargetPlatform = ECookTargetPlatform::Win64,
+					.TargetProfile = ECookTargetProfile::Game});
 				if (Ar.HasError())
 				{
 					OutError = Ar.GetFailure()->Message;
@@ -400,8 +400,8 @@ namespace Durin::Asset::Private
 		FTexturePlatformData& OutData, std::string& OutError) -> bool
 	{
 		FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		OutData.Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+		OutData.Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		if (!Ar.HasError() && RequireArchiveEnd(Ar) && OutData.IsValid()) return true;
 		OutError = Ar.GetError().empty() ? "Texture2D payload is invalid." : Ar.GetError();
 		return false;
@@ -434,8 +434,8 @@ namespace Durin::Asset::Private
 		}
 		FTextureCubePlatformData Candidate;
 		FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		Candidate.Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+		Candidate.Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !Candidate.IsValid())
 		{
 			OutError = Ar.GetFailure() ? Ar.GetFailure()->Message
@@ -472,8 +472,8 @@ namespace Durin::Asset::Private
 		}
 		FVolumeTexturePlatformData Candidate;
 		FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		Candidate.Serialize(Ar, {.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+		Candidate.Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !Candidate.IsValid())
 		{
 			OutError = Ar.GetFailure() ? Ar.GetFailure()->Message

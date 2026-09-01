@@ -3,7 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset::VolumeTextureBuilder
+namespace Durin::VolumeTextureBuilder
 {
 	// Deterministically builds a complete three-axis box-filtered mip chain.
 	TEXTUREBUILD_API auto BuildMipChain(

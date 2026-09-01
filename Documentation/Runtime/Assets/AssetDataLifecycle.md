@@ -127,7 +127,7 @@ domain and payload policy. There is no mutable process-wide package-load mode.
 
 Package creation, publication, load, unload, and residency transitions are
 defined by [Asset Packages](AssetPackages.md#runtime-lifetime). Catalog
-admission and refresh plus relocation, deletion, and Fix Up transactions are
+admission and refresh plus relocation/Fix Up jobs and destructive deletion are
 defined by [Asset Catalog And Mutation](AssetCatalogAndMutation.md). This
 document uses those boundaries only to select authored versus cooked payload
 policy.
@@ -561,8 +561,9 @@ source-range reads. A miss obtains and owns exactly one immutable payload
 snapshot before worker execution.
 
 DAST v9 plus its exact optional raw `.dbulk` segment is the sole supported
-authored package closure. Canonical resave republishes that closure
-transactionally and rolls back storage and catalog authority on failure. Exact
+authored package closure. Canonical resave republishes that closure through the
+same bounded artifact publisher as ordinary Save. Projection failure after
+content commit is reconciled from authored files and does not roll them back. Exact
 state, wire, and resource rules are defined by
 [Package Bulk Data](BulkData.md).
 

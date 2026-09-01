@@ -7,7 +7,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -123,9 +123,9 @@ namespace Durin::Asset
 				))
 				return true;
 			const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
-			if (!Durin::Asset::FindAssetExact(RequestedPath)) return true;
+			if (!Durin::FindAssetExact(RequestedPath)) return true;
 			const FAssetPathResolveResult Resolution =
-				Durin::Asset::ResolveAssetPath(RequestedPath);
+				Durin::ResolveAssetPath(RequestedPath);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| Resolution.FinalAssetData->EntryKind
 					   != EAssetRegistryEntryKind::Asset)
@@ -620,4 +620,4 @@ namespace Durin::Asset
 			OutError->clear();
 		return bPublished;
 	}
-} // namespace Durin::Asset
+} // namespace Durin

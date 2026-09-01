@@ -2,7 +2,7 @@
 
 #include "Texture/TextureBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -24,8 +24,8 @@ namespace Durin::Asset
 		if (bAcquiredTexture2D)
 		{
 			GTexture2DRegistration = RegisterBuildFunction(
-				Private::Texture2DFunctionName,
-				Private::CreateTexture2DBuildFunction(), Gate, OutError);
+				AssetPrivate::Texture2DFunctionName,
+				AssetPrivate::CreateTexture2DBuildFunction(), Gate, OutError);
 			if (!GTexture2DRegistration.IsValid()) return false;
 		}
 
@@ -33,8 +33,8 @@ namespace Durin::Asset
 		if (bAcquiredTextureCube)
 		{
 			GTextureCubeRegistration = RegisterBuildFunction(
-				Private::TextureCubeFunctionName,
-				Private::CreateTextureCubeBuildFunction(), Gate, OutError);
+				AssetPrivate::TextureCubeFunctionName,
+				AssetPrivate::CreateTextureCubeBuildFunction(), Gate, OutError);
 			if (!GTextureCubeRegistration.IsValid())
 			{
 				if (bAcquiredTexture2D) GTexture2DRegistration.Reset();
@@ -44,8 +44,8 @@ namespace Durin::Asset
 		if (!GVolumeTextureRegistration.IsValid())
 		{
 			GVolumeTextureRegistration = RegisterBuildFunction(
-				Private::VolumeTextureFunctionName,
-				Private::CreateVolumeTextureBuildFunction(), std::move(Gate), OutError);
+				AssetPrivate::VolumeTextureFunctionName,
+				AssetPrivate::CreateVolumeTextureBuildFunction(), std::move(Gate), OutError);
 			if (!GVolumeTextureRegistration.IsValid())
 			{
 				if (bAcquiredTextureCube) GTextureCubeRegistration.Reset();

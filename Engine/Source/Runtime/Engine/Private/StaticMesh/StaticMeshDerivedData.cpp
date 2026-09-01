@@ -374,10 +374,10 @@ namespace Durin
 			return true;
 		}
 
-		auto GetStaticMeshChunkedPayloadFormat() -> Asset::FChunkedPayloadFormat
+		auto GetStaticMeshChunkedPayloadFormat() -> FChunkedPayloadFormat
 		{
-			static_assert(StaticMeshPayloadHeaderSize == Asset::ChunkedPayloadHeaderSize);
-			static_assert(StaticMeshPayloadChunkEntrySize == Asset::ChunkedPayloadEntrySize);
+			static_assert(StaticMeshPayloadHeaderSize == ChunkedPayloadHeaderSize);
+			static_assert(StaticMeshPayloadChunkEntrySize == ChunkedPayloadEntrySize);
 			return {
 				.HeaderSizeWordIndex = 5,
 				.ChunkCountWordIndex = 6,
@@ -385,8 +385,8 @@ namespace Durin
 				.GlobalCompressedFlag = StaticMeshPayloadFlagCompressed,
 				.RequiredChunkCount = StaticMeshPayloadRequiredChunkCount,
 				.MaximumChunkCount = MaximumStaticMeshPayloadChunks,
-				.RequiredChunkFlag = Asset::ChunkedPayloadRequiredFlag,
-				.KnownChunkFlags = Asset::ChunkedPayloadRequiredFlag | StaticMeshChunkCompressionMask,
+				.RequiredChunkFlag = ChunkedPayloadRequiredFlag,
+				.KnownChunkFlags = ChunkedPayloadRequiredFlag | StaticMeshChunkCompressionMask,
 				.CompressionMask = StaticMeshChunkCompressionMask,
 				.CompressionShift = 8,
 				.MaximumCompressionMethod = StaticMeshChunkCompressionZstandard,
@@ -397,13 +397,13 @@ namespace Durin
 		}
 
 		auto FailChunkedPayload(
-			const Asset::FChunkedPayloadResult& Result,
+			const FChunkedPayloadResult& Result,
 			std::string& OutError,
 			EDecodeError* OutCode = nullptr) -> bool
 		{
-			if (OutCode && Result.Kind == Asset::EChunkedPayloadFailureKind::Incompatible)
+			if (OutCode && Result.Kind == EChunkedPayloadFailureKind::Incompatible)
 				*OutCode = EDecodeError::Incompatible;
-			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"), &OutError);
+			return Fail(DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"), &OutError);
 		}
 	}
 
@@ -419,15 +419,15 @@ namespace Durin
 		if (!ValidatePayload(Payload, OutError)) return false;
 
 		const auto ChunkBytes = BuildPayloadChunks(Payload);
-		std::array<Asset::FChunkedPayloadInput, StaticMeshPayloadRequiredChunkCount> Chunks;
+		std::array<FChunkedPayloadInput, StaticMeshPayloadRequiredChunkCount> Chunks;
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
 			Chunks[Index] = {
 				.Type = Index + 1,
-				.Flags = Asset::ChunkedPayloadRequiredFlag,
+				.Flags = ChunkedPayloadRequiredFlag,
 				.Bytes = ChunkBytes[Index],
 				.DecodedSize = ChunkBytes[Index].size()};
 
-		const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
+		const FChunkedPayloadResult Result = EncodeChunkedPayload(
 			{0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
 				static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize,
 				StaticMeshPayloadRequiredChunkCount, 0},
@@ -476,8 +476,8 @@ namespace Durin
 		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail("Static-mesh payload target platform does not match.", &OutError);
 		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || Reserved != 0)
 			return Fail("Static-mesh payload header contains invalid flags, sizes, or reserved values.", &OutError);
-		Asset::FDecodedChunkedPayload Container;
-		const Asset::FChunkedPayloadResult ContainerResult = Asset::DecodeChunkedPayload(
+		FDecodedChunkedPayload Container;
+		const FChunkedPayloadResult ContainerResult = DecodeChunkedPayload(
 			Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
 		if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
 		std::array<std::span<const std::byte>, StaticMeshPayloadRequiredChunkCount> RequiredChunks;

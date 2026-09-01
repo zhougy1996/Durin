@@ -1,6 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
-#include "AssetMutationTransactionInternal.h"
+#include "AssetMutationJobInternal.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -16,28 +16,28 @@
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	using Private::EAssetMutationState;
-	using Private::EMutationJournalDuplicatePolicy;
-	using Private::EAssetMutationPublicationRole;
-	using Private::FAssetMutationJournal;
-	using Private::FAssetMutationJournalEntry;
-	using Private::FingerprintRelocationFile;
-	using Private::InitializeMutationJournal;
-	using Private::IsMutationJournalRecoveryRequired;
-	using Private::LoadRelocationBytes;
-	using Private::NormalizePhysicalPath;
-	using Private::PublishRelocationFile;
-	using Private::RebuildReferenceProjectionForPublishedEntries;
-	using Private::StageMutationJournalEntry;
-	using Private::TransitionMutationJournalState;
-	using Private::WriteMutationJournalState;
+	using AssetPrivate::EAssetMutationState;
+	using AssetPrivate::EAssetMutationJournalKind;
+	using AssetPrivate::EMutationJournalDuplicatePolicy;
+	using AssetPrivate::EAssetMutationPublicationRole;
+	using AssetPrivate::FAssetMutationJournal;
+	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FingerprintRelocationFile;
+	using AssetPrivate::InitializeMutationJournal;
+	using AssetPrivate::IsMutationJournalRecoveryRequired;
+	using AssetPrivate::LoadRelocationBytes;
+	using AssetPrivate::NormalizePhysicalPath;
+	using AssetPrivate::PublishRelocationFile;
+	using AssetPrivate::StageMutationJournalEntry;
+	using AssetPrivate::TransitionMutationJournalState;
+	using AssetPrivate::WriteMutationJournalState;
 
 	namespace
 	{
 		constexpr std::string_view RedirectorClassName =
-			"Durin::Asset::DAssetRedirector";
+			"Durin::DAssetRedirector";
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
 		{
@@ -83,14 +83,14 @@ namespace Durin::Asset
 			const FPackagePath& DestinationPath,
 			FByteArray& OutBytes) -> FAssetResult
 		{
-			const Private::FAssetPackageCodec* Codec = nullptr;
-			if (FAssetResult Result = Private::ResolveAssetPackageReader(
+			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(
 				SourceBytes, Codec); !Result)
 				return Result;
 			if (!Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
 					"Relocation requires package mutation capability.");
-			Private::FAssetPackageEncodedClosure Closure;
+			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			if (FAssetResult Result = Codec->Relocate(
 				{.PackageBytes = SourceBytes,
 					.BulkBytes = SourceBulkBytes,
@@ -110,16 +110,16 @@ namespace Durin::Asset
 
 		auto BuildRedirectorPackageBytes(
 			const FPackagePath& SourcePath,
-			std::span<const Private::FAssetRedirectorWriteMapping> Mappings,
+			std::span<const AssetPrivate::FAssetRedirectorWriteMapping> Mappings,
 			uint32 FormatVersion,
 			FByteArray& OutBytes) -> FAssetResult
 		{
-			const Private::FAssetPackageCodec* Codec =
-				Private::FindAssetPackageWriter(FormatVersion);
+			const AssetPrivate::FAssetPackageCodec* Codec =
+				AssetPrivate::FindAssetPackageWriter(FormatVersion);
 			if (!Codec || !Codec->bCanMutate)
 				return Error(EAssetError::UnsupportedVersion,
 					"Redirector creation requires package mutation capability.");
-			Private::FAssetPackageEncodedClosure Closure;
+			AssetPrivate::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->WriteRedirector(
 				SourcePath, Mappings, Closure);
 			if (!Result) return Result;
@@ -136,13 +136,9 @@ namespace Durin::Asset
 		FAssetMutationJournal Journal;
 		std::vector<FLoadedRelocationState> LoadedPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
-		std::unordered_map<FPackagePath, FAssetData> PreAssets;
-		std::unordered_map<FPackagePath, FAssetData> PostAssets;
-		std::unordered_map<FPackagePath, FAssetData> ExpectedAssets;
-		std::vector<FAssetReferenceEdge> PreReferenceEdges;
-		std::vector<FAssetReferenceEdge> PostReferenceEdges;
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PreReferenceFingerprints;
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PostReferenceFingerprints;
+		size_t FinalizedLoadedCount = 0;
+		size_t FinalizedPayloadCount = 0;
+		bool bProjectionPublished = false;
 	};
 
 	auto FAssetMutationCoordinator::PrepareAssetRelocationState(
@@ -174,28 +170,8 @@ namespace Durin::Asset
 				const FAssetRelocationMapping& B) {
 				return A.SourcePath.GetView() < B.SourcePath.GetView();
 			});
-		State->PreAssets = Prepared.Assets;
-		State->PostAssets = State->PreAssets;
-		State->ExpectedAssets = State->PreAssets;
-		for (const auto& [Path, Data] : Prepared.Assets)
-		{
-			FAssetPackageInspection Inspection;
-			FAssetResult InspectionResult = InspectAssetPackage(
-				Data.PhysicalPath, Path, Inspection);
-			if (!InspectionResult) return InspectionResult;
-			std::vector<FAssetReferenceEdge> References;
-			InspectionResult = ExtractAssetReferences(Path, Inspection, References);
-			if (!InspectionResult) return InspectionResult;
-			State->PreReferenceEdges.insert(State->PreReferenceEdges.end(),
-				std::make_move_iterator(References.begin()),
-				std::make_move_iterator(References.end()));
-		}
-		std::ranges::sort(State->PreReferenceEdges, &Private::AssetReferenceLess);
-		State->PostReferenceEdges = State->PreReferenceEdges;
-		State->PreReferenceFingerprints = Prepared.ReferenceFingerprints;
-		State->PostReferenceFingerprints = State->PreReferenceFingerprints;
 		InitializeMutationJournal(
-			State->Journal, EAssetMutationOperationKind::Relocation);
+			State->Journal, EAssetMutationJournalKind::Relocation);
 
 		std::unordered_set<FPackagePath> Sources;
 		std::unordered_set<FPackagePath> Destinations;
@@ -204,7 +180,7 @@ namespace Durin::Asset
 			EAssetMutationPublicationRole Role,
 			std::optional<FByteArray> PreBytes,
 			std::optional<FByteArray> PostBytes) -> FAssetResult {
-			if (Private::ConsumeAssetRelocationFailure(
+			if (AssetPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
 				return Error(EAssetError::IoError,
 					"Injected relocation output-preparation failure.");
@@ -270,7 +246,7 @@ namespace Durin::Asset
 						"Asset {} already exists.",
 						Mapping.DestinationPath.ToString()));
 				const FAssetPathResolveResult DestinationResolution =
-					Durin::Asset::ResolveAssetPath(Mapping.DestinationPath);
+					Durin::ResolveAssetPath(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
 					return Error(EAssetError::AlreadyExists, std::format(
@@ -316,7 +292,7 @@ namespace Durin::Asset
 				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
 			FByteArray SourceRedirectorBytes;
-			std::vector<Private::FAssetRedirectorWriteMapping> RedirectMappings;
+			std::vector<AssetPrivate::FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
 			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
 			{
@@ -385,112 +361,10 @@ namespace Durin::Asset
 				if (!Result) return Result;
 			}
 
-			FAssetData MovedData = *SourceData;
-			MovedData.PackagePath = Mapping.DestinationPath;
-			MovedData.PhysicalPath = DestinationFile.generic_string();
-			for (FTopLevelAssetData& Asset : MovedData.TopLevelAssets)
-			{
-				FTopLevelAssetPath Rebased;
-				if (!FTopLevelAssetPath::TryCreate(
-						Mapping.DestinationPath, Asset.AssetPath.GetAssetName(), Rebased))
-					return Error(EAssetError::InvalidPath,
-						"Relocation could not rebase a top-level asset identity.");
-				Asset.AssetPath = std::move(Rebased);
-			}
-			State->PostAssets.erase(Mapping.SourcePath);
-			State->PostAssets.erase(Mapping.DestinationPath);
-			State->PostAssets.emplace(Mapping.DestinationPath,
-				std::move(MovedData));
-			std::vector<FTopLevelAssetData> RedirectAssets;
-			RedirectAssets.reserve(RedirectMappings.size());
-			for (const Private::FAssetRedirectorWriteMapping& Redirect : RedirectMappings)
-				RedirectAssets.push_back({
-					.AssetPath = Redirect.Source,
-					.AssetClassName = std::string(RedirectorClassName),
-					.RedirectDestination = Redirect.Destination});
-			State->PostAssets.emplace(Mapping.SourcePath, FAssetData{
-				.PackagePath = Mapping.SourcePath,
-				.PhysicalPath = SourceFile.generic_string(),
-				.TopLevelAssets = std::move(RedirectAssets),
-				.AssetClassName = std::string(RedirectorClassName),
-				.EntryKind = EAssetRegistryEntryKind::Redirector,
-				.RedirectDestination = Mapping.DestinationPath,
-				.FormatVersion = SourceData->FormatVersion,
-				.Dependencies = {Mapping.DestinationPath},
-				.ObjectCount = 1});
-
-			for (const auto& [AliasPath, AliasData] : State->PreAssets)
-			{
-				if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector
-					|| AliasPath == Mapping.DestinationPath)
-					continue;
-				const FAssetPathResolveResult AliasResolution =
-					Durin::Asset::ResolveAssetPath(AliasPath);
-				if (!AliasResolution
-					|| AliasResolution.FinalPath != Mapping.SourcePath)
-					continue;
-				if (FindResidentPackage(AliasPath))
-					return Error(EAssetError::InUse,
-						"A loaded upstream redirector cannot be retargeted.");
-				FByteArray AliasPreBytes;
-				Result = LoadRelocationBytes(
-					AliasData.PhysicalPath, AliasPreBytes);
-				if (!Result) return Result;
-				FByteArray AliasPostBytes;
-				std::vector<Private::FAssetRedirectorWriteMapping> AliasMappings;
-				AliasMappings.reserve(AliasData.TopLevelAssets.size());
-				for (const FTopLevelAssetData& AliasAsset : AliasData.TopLevelAssets)
-				{
-					FTopLevelAssetPath DestinationAsset;
-					FObjectPath DestinationObject;
-					const std::string_view AssetName = AliasAsset.RedirectDestination.IsValid()
-						? AliasAsset.RedirectDestination.GetAssetPath().GetAssetName()
-						: AliasAsset.AssetPath.GetAssetName();
-					if (!FTopLevelAssetPath::TryCreate(
-							Mapping.DestinationPath, AssetName, DestinationAsset)
-						|| !FObjectPath::TryCreate(DestinationAsset,
-							std::span<const std::string>{}, DestinationObject))
-						return Error(EAssetError::InvalidPath,
-							"Relocation could not retarget an upstream exact redirector.");
-					AliasMappings.push_back({AliasAsset.AssetPath, std::move(DestinationObject)});
-				}
-				Result = BuildRedirectorPackageBytes(
-					AliasPath, AliasMappings,
-					AliasData.FormatVersion, AliasPostBytes);
-				if (!Result) return Result;
-				Result = AddFileEntry(
-					AliasData.PhysicalPath,
-					AliasPath,
-					EAssetMutationPublicationRole::Redirector,
-					std::move(AliasPreBytes),
-					std::move(AliasPostBytes));
-				if (!Result) return Result;
-				FAssetData& PostAlias = State->PostAssets.at(AliasPath);
-				PostAlias.RedirectDestination = Mapping.DestinationPath;
-				PostAlias.Dependencies = {Mapping.DestinationPath};
-				for (size_t Index = 0;
-					Index < PostAlias.TopLevelAssets.size() && Index < AliasMappings.size();
-					++Index)
-					PostAlias.TopLevelAssets[Index].RedirectDestination =
-						AliasMappings[Index].Destination;
-			}
-
-			for (FAssetReferenceEdge& Reference : State->PostReferenceEdges)
-				if (Reference.SourcePackage == Mapping.SourcePath)
-					Reference.SourcePackage = Mapping.DestinationPath;
-			if (auto ReferenceSource = State->PostReferenceFingerprints.find(
-					Mapping.SourcePath);
-				ReferenceSource != State->PostReferenceFingerprints.end())
-			{
-				State->PostReferenceFingerprints.insert_or_assign(
-					Mapping.DestinationPath, ReferenceSource->second);
-				State->PostReferenceFingerprints.erase(ReferenceSource);
-			}
-
 			DClass* AssetClass = FindClassByQualifiedName(
 				FName(SourceData->AssetClassName));
-			Private::FAssetOwnedPayloadRelocatorInvocation RelocatorInvocation;
-			Result = Private::AcquireAssetOwnedPayloadRelocator(
+			AssetPrivate::FAssetOwnedPayloadRelocatorInvocation RelocatorInvocation;
+			Result = AssetPrivate::AcquireAssetOwnedPayloadRelocator(
 				AssetClass, RelocatorInvocation);
 			if (!Result) return Result;
 			if (RelocatorInvocation.Relocator)
@@ -565,13 +439,13 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::PrepareAssetRelocationTransaction(
+	auto FAssetMutationCoordinator::PrepareAssetRelocationJob(
 		std::span<const FAssetRelocationMapping> Mappings,
-		FAssetMutationSummary& OutSummary,
-		FAssetMutationTransaction& OutTransaction) -> FAssetResult
+		FAssetRelocationSummary& OutSummary,
+		FAssetMutationJob& OutJob) -> FAssetResult
 	{
 		OutSummary = {};
-		OutTransaction = {};
+		OutJob = {};
 		std::shared_ptr<FAssetRelocationState> Relocation;
 		FAssetResult Result = PrepareAssetRelocationState(Mappings, Relocation);
 		if (!Result) return Result;
@@ -583,27 +457,21 @@ namespace Durin::Asset
 			Scope.push_back(Mapping.SourcePath);
 			Scope.push_back(Mapping.DestinationPath);
 		}
-		OutSummary = FAssetMutationSummary(
-			EAssetMutationOperationKind::Relocation,
+		OutSummary = FAssetRelocationSummary(
 			Relocation->ExpectedRegistryRevision,
 			std::move(Scope));
-		auto TransactionState = std::make_shared<FAssetMutationTransaction::FState>();
-		TransactionState->Summary = OutSummary;
-		TransactionState->CommitOperation = [Relocation] {
+		auto JobState = std::make_shared<FAssetMutationJob::FState>();
+		JobState->ResumeOperation = [Relocation] {
 			return FAssetRuntimeState::Get().GetMutationCoordinator().ApplyAssetRelocation(Relocation);
 		};
-		TransactionState->UndoOperation = [Relocation] {
-			return FAssetRuntimeState::Get().GetMutationCoordinator().RestoreAssetRelocation(Relocation);
-		};
-		TransactionState->RedoOperation = TransactionState->CommitOperation;
-		TransactionState->IsRecoveryRequired = [Relocation] {
+		JobState->IsRecoveryRequired = [Relocation] {
 			return IsMutationJournalRecoveryRequired(Relocation->Journal);
 		};
-		TransactionState->LastResult.State =
-			EAssetMutationTransactionState::Prepared;
-		TransactionState->LastResult.RegistryRevision =
+		JobState->LastResult.State =
+			EAssetMutationJobState::Prepared;
+		JobState->LastResult.RegistryRevision =
 			GetAssetCatalogRevision();
-		OutTransaction.State = std::move(TransactionState);
+		OutJob.State = std::move(JobState);
 		return {};
 	}
 
@@ -613,24 +481,33 @@ namespace Durin::Asset
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
 			return Error(EAssetError::StaleData,
-				"The relocation transaction state is empty.");
+				"The relocation job state is empty.");
 		const auto& State = *Relocation;
 		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
-			return Error(EAssetError::IoError,
-				"AssetMutationRecoveryRequired: the relocation journal requires recovery.");
+			return {
+				.Error = EAssetError::IoError,
+				.Message = "AssetMutationRecoveryRequired: the relocation journal requires recovery.",
+				.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.OperationId = State.Journal.OperationId,
+				.DesiredDirection = "Forward",
+				.FailedParticipant = "MutationJournal",
+				.RecoveryLocation = State.Journal.LocatorPath};
 		if (State.Journal.State != EAssetMutationState::Prepared
 			&& State.Journal.State != EAssetMutationState::Committed
-			&& State.Journal.State != EAssetMutationState::Restored)
+			&& State.Journal.State != EAssetMutationState::Publishing)
 			return Error(EAssetError::StaleData,
 				"The relocation token is not in a revalidatable state.");
-		if (GetAssetCatalogRevision() != State.ExpectedRegistryRevision
-			|| CaptureAssetCatalogSnapshot().Assets != State.ExpectedAssets)
+		if (!State.bProjectionPublished
+			&& GetAssetCatalogRevision() != State.ExpectedRegistryRevision)
 			return Error(EAssetError::StaleData,
 				"The asset registry changed after relocation analysis.");
-		const bool bExpectPost =
+		const bool bExpectAllPost =
 			State.Journal.State == EAssetMutationState::Committed;
 		for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
 		{
+			const bool bExpectPost = bExpectAllPost
+				|| (State.Journal.State == EAssetMutationState::Publishing
+					&& Entry.bCompleted);
 			const bool bExpectedExists = bExpectPost
 				? Entry.bPostExists : Entry.bPreExists;
 			std::error_code ExistsError;
@@ -669,9 +546,13 @@ namespace Durin::Asset
 						"A staged relocation output changed.");
 			}
 		}
-		for (const FLoadedRelocationState& Loaded : State.LoadedPackages)
+		for (size_t Index = 0; Index < State.LoadedPackages.size(); ++Index)
 		{
-			const FPackagePath& ExpectedPath = bExpectPost
+			const FLoadedRelocationState& Loaded = State.LoadedPackages[Index];
+			const bool bLoadedPost = bExpectAllPost
+				|| (State.Journal.State == EAssetMutationState::Publishing
+					&& Index < State.FinalizedLoadedCount);
+			const FPackagePath& ExpectedPath = bLoadedPost
 				? Loaded.Mapping.DestinationPath
 				: Loaded.Mapping.SourcePath;
 			if (FindResidentPackage(ExpectedPath) != Loaded.Package)
@@ -705,15 +586,15 @@ namespace Durin::Asset
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
 			return Error(EAssetError::StaleData,
-				"The relocation transaction state is empty.");
+				"The relocation job state is empty.");
 		auto& State = *Relocation;
 		if (State.Journal.State != EAssetMutationState::Prepared
-			&& State.Journal.State != EAssetMutationState::Restored)
+			&& State.Journal.State != EAssetMutationState::Publishing)
 			return Error(EAssetError::StaleData,
-				"Only a prepared or restored relocation can be applied.");
+				"Only a prepared or publishing relocation can resume forward.");
 		FAssetResult Result = RevalidateAssetRelocation(Relocation);
 		if (!Result) return Result;
-		if (Private::ConsumeAssetRelocationFailure(
+		if (AssetPrivate::ConsumeAssetRelocationFailure(
 				EAssetRelocationFailurePoint::StageOriginal))
 			return Error(EAssetError::IoError,
 				"Injected relocation original-staging failure.");
@@ -725,326 +606,121 @@ namespace Durin::Asset
 			return State.Journal.Entries[A].Role
 				< State.Journal.Entries[B].Role;
 		});
+		const bool bResuming = State.Journal.State == EAssetMutationState::Publishing;
 		for (size_t OrderIndex = 0; OrderIndex < Order.size(); ++OrderIndex)
 		{
 			FAssetMutationJournalEntry& Entry =
 				State.Journal.Entries[Order[OrderIndex]];
 			Entry.PublicationOrder = static_cast<uint64>(OrderIndex);
-			Entry.bCompleted = false;
-			Entry.bCompensated = false;
+			if (!bResuming)
+			{
+				Entry.bCompleted = false;
+			}
 		}
-		Result = TransitionMutationJournalState(
-			State.Journal, EAssetMutationState::Publishing);
-		if (!Result) return Result;
-		std::vector<size_t> Published;
-		size_t RelocatedLoadedCount = 0;
-		size_t AppliedPayloadCount = 0;
-		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
+		if (!bResuming)
+		{
+			Result = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::Publishing);
+			if (!Result) return Result;
+		}
+		auto EnterRecovery = [&](std::string FailedParticipant,
+			std::string Message) -> FAssetResult {
 			FAssetResult JournalResult = TransitionMutationJournalState(
 				State.Journal, EAssetMutationState::RecoveryRequired);
-			if (!JournalResult)
-				return Error(EAssetError::IoError, std::format(
-					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
-					Message, JournalResult.Message));
-			return Error(EAssetError::IoError,
-				std::format("AssetMutationRecoveryRequired: {}", Message));
+			return {
+				.Error = EAssetError::IoError,
+				.Message = !JournalResult
+					? std::format(
+						"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
+						Message, JournalResult.Message)
+					: std::format("AssetMutationRecoveryRequired: {}", Message),
+				.Disposition = EAssetResultDisposition::RecoveryRequired,
+				.OperationId = State.Journal.OperationId,
+				.DesiredDirection = "Forward",
+				.FailedParticipant = std::move(FailedParticipant),
+				.RecoveryLocation = State.Journal.LocatorPath};
 		};
-		auto Compensate = [&](FAssetResult Failure) -> FAssetResult {
-			FAssetResult JournalResult = TransitionMutationJournalState(
-				State.Journal, EAssetMutationState::Compensating);
-			if (!JournalResult)
-				return Error(EAssetError::IoError, std::format(
-					"AssetMutationRecoveryRequired: compensation did not start because its journal state could not be persisted: {}",
-					JournalResult.Message));
-			for (size_t Count = AppliedPayloadCount; Count > 0; --Count)
-				if (State.OwnedPayloads[Count - 1].Restore)
-					State.OwnedPayloads[Count - 1].Restore();
-			for (size_t Count = RelocatedLoadedCount; Count > 0; --Count)
+		auto ForwardPending = [&](std::string Message) -> FAssetResult {
+			std::vector<FPackagePath> Paths;
+			for (const FAssetRelocationMapping& Mapping : State.Mappings)
 			{
-				if (Private::ConsumeAssetRelocationFailure(
-						EAssetRelocationFailurePoint::CompensateLoadedPackage))
-					return EnterRecovery(
-						"loaded-package compensation was interrupted.");
-				FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
-				if (!Loaded.Package->RelocateAssetPackage(
-						Loaded.Mapping.SourcePath))
-					return EnterRecovery(
-						"a loaded package path could not be restored.");
-				Loaded.Package->Rename(FName(Loaded.PrePackageName));
-				Loaded.Package->ClearDirty();
+				Paths.push_back(Mapping.SourcePath);
+				Paths.push_back(Mapping.DestinationPath);
 			}
-			for (auto It = Published.rbegin(); It != Published.rend(); ++It)
-			{
-				if (Private::ConsumeAssetRelocationFailure(
-						EAssetRelocationFailurePoint::CompensateFile))
-					return EnterRecovery(
-						"file compensation was interrupted.");
-				FAssetResult RestoreResult = PublishRelocationFile(
-					State.Journal.Entries[*It], false);
-				if (!RestoreResult)
-					return EnterRecovery(RestoreResult.Message);
-				State.Journal.Entries[*It].bCompensated = true;
-				JournalResult = WriteMutationJournalState(State.Journal);
-				if (!JournalResult) return EnterRecovery(JournalResult.Message);
-			}
-			for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
-			{
-				if (!Entry.bPreExists) continue;
-				FAssetResult FingerprintResult = FingerprintRelocationFile(
-					Entry.PhysicalPath, Entry.ExpectedPreFingerprint);
-				if (!FingerprintResult)
-					return EnterRecovery(FingerprintResult.Message);
-			}
-			JournalResult = TransitionMutationJournalState(
-				State.Journal, EAssetMutationState::Prepared);
-			if (!JournalResult)
-				return Error(EAssetError::IoError, std::format(
-					"AssetMutationRecoveryRequired: compensation completed but the restored journal state could not be persisted: {}",
-					JournalResult.Message));
-			return Failure;
+			FenceAssetRegistryProjection(Paths);
+			return {
+				.Error = EAssetError::IoError,
+				.Message = std::format(
+					"AssetMutationForwardResumable: operation {} will resume forward. {}",
+					State.Journal.OperationId, Message),
+				.Disposition = EAssetResultDisposition::ForwardPending,
+				.OperationId = State.Journal.OperationId,
+				.DesiredDirection = "Forward",
+				.RecoveryLocation = State.Journal.LocatorPath};
 		};
 
 		for (size_t Index : Order)
 		{
 			FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
-			if (Private::ConsumeAssetRelocationFailure(
+			if (Entry.bCompleted) continue;
+			if (AssetPrivate::ConsumeAssetRelocationFailure(
 					FailurePointForRole(Entry.Role)))
-				return Compensate(Error(EAssetError::IoError,
-					"Injected relocation publication failure."));
-			Result = PublishRelocationFile(Entry, true);
-			if (!Result) return Compensate(std::move(Result));
-			Published.push_back(Index);
-			Entry.bCompleted = true;
-			Result = WriteMutationJournalState(State.Journal);
-			if (!Result) return Compensate(std::move(Result));
-		}
-
-		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
-		{
-			if (Private::ConsumeAssetRelocationFailure(
-					EAssetRelocationFailurePoint::UpdateLoadedPackage))
-				return Compensate(Error(EAssetError::IoError,
-					"Injected loaded-package relocation failure."));
-			if (!Loaded.Package->RelocateAssetPackage(
-					Loaded.Mapping.DestinationPath))
-				return Compensate(Error(EAssetError::AlreadyExists,
-					"A loaded relocation destination became occupied."));
-			Loaded.Package->Rename(FName(
-				Loaded.Mapping.DestinationPath.GetAssetName()));
-			Loaded.Package->ClearDirty();
-			++RelocatedLoadedCount;
-		}
-		for (FAssetOwnedPayloadRelocation& Payload : State.OwnedPayloads)
-		{
-			if (Payload.Apply) Payload.Apply();
-			++AppliedPayloadCount;
-		}
-		if (Private::ConsumeAssetRelocationFailure(
-				EAssetRelocationFailurePoint::PublishRegistry))
-			return Compensate(Error(EAssetError::IoError,
-				"Injected relocation registry-publication failure."));
-
-		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
-		{
+				return ForwardPending("Injected relocation publication failure.");
+			Result = PublishRelocationFile(Entry);
+			if (!Result) return ForwardPending(Result.Message);
 			if (Entry.bPostExists)
 			{
 				Result = FingerprintRelocationFile(
 					Entry.PhysicalPath, Entry.ExpectedPostFingerprint);
-				if (!Result) return Compensate(std::move(Result));
+				if (!Result) return EnterRecovery(
+					"ArtifactFingerprint", Result.Message);
 			}
-			if (!Entry.RegistryPath.IsValid()) continue;
-			auto Data = State.PostAssets.find(Entry.RegistryPath);
-			if (Data == State.PostAssets.end()) continue;
-			std::error_code MetadataError;
-			Data->second.FileSize = std::filesystem::file_size(
-				Entry.PhysicalPath, MetadataError);
-			Data->second.LastWriteTime = std::filesystem::last_write_time(
-				Entry.PhysicalPath, MetadataError);
-			if (MetadataError)
-				return Compensate(Error(EAssetError::IoError,
-					"Could not read relocated package metadata."));
-			Data->second.LastWriteTimeTicks =
-				FileTime::ToStableTicks(
-					Data->second.LastWriteTime);
+			Entry.bCompleted = true;
+			Result = WriteMutationJournalState(State.Journal);
+			if (!Result) return EnterRecovery("MutationJournal", Result.Message);
 		}
+
+		for (; State.FinalizedLoadedCount < State.LoadedPackages.size();
+			++State.FinalizedLoadedCount)
+		{
+			FLoadedRelocationState& Loaded =
+				State.LoadedPackages[State.FinalizedLoadedCount];
+			if (AssetPrivate::ConsumeAssetRelocationFailure(
+					EAssetRelocationFailurePoint::UpdateLoadedPackage))
+				return ForwardPending("Injected loaded-package relocation failure.");
+			if (!Loaded.Package->RelocateAssetPackage(
+					Loaded.Mapping.DestinationPath))
+				return ForwardPending("A loaded relocation destination became occupied.");
+			Loaded.Package->Rename(FName(
+				Loaded.Mapping.DestinationPath.GetAssetName()));
+			Loaded.Package->ClearDirty();
+		}
+		for (; State.FinalizedPayloadCount < State.OwnedPayloads.size();
+			++State.FinalizedPayloadCount)
+		{
+			FAssetOwnedPayloadRelocation& Payload =
+				State.OwnedPayloads[State.FinalizedPayloadCount];
+			if (Payload.Apply) Payload.Apply();
+		}
+		if (AssetPrivate::ConsumeAssetRelocationFailure(
+				EAssetRelocationFailurePoint::PublishRegistry))
+			return ForwardPending("Injected relocation Registry-publication failure.");
+
+		std::vector<FPackagePath> Paths;
 		for (const FAssetRelocationMapping& Mapping : State.Mappings)
 		{
-			const FAssetMutationJournalEntry* DestinationEntry = nullptr;
-			for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
-				if (Entry.RegistryPath == Mapping.DestinationPath)
-				{
-					DestinationEntry = &Entry;
-					break;
-				}
-			if (!DestinationEntry) continue;
-			for (FAssetReferenceEdge& Reference : State.PostReferenceEdges)
-				if (Reference.SourcePackage == Mapping.DestinationPath)
-					Reference.SourceFingerprint =
-						DestinationEntry->ExpectedPostFingerprint;
-			if (State.PostReferenceFingerprints.contains(Mapping.DestinationPath))
-				State.PostReferenceFingerprints.insert_or_assign(
-					Mapping.DestinationPath,
-					DestinationEntry->ExpectedPostFingerprint);
+			Paths.push_back(Mapping.SourcePath);
+			Paths.push_back(Mapping.DestinationPath);
 		}
-		Result = RebuildReferenceProjectionForPublishedEntries(
-			State.Journal.Entries, State.PostAssets,
-			State.PostReferenceEdges, State.PostReferenceFingerprints);
-		if (!Result) return Compensate(std::move(Result));
-
-		const FAssetPublicationState Current = Registry.CapturePreparedState();
-		std::vector<FAssetPackageReferenceEdge> PackageEdges;
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PackageFingerprints;
-		Result = BuildAssetPackageReferenceProjection(
-			State.PostAssets, PackageEdges, PackageFingerprints);
-		if (!Result) return Compensate(std::move(Result));
-		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
-			.Assets = State.PostAssets,
-			.ReferenceEdges = std::move(PackageEdges),
-			.ReferenceFingerprints = std::move(PackageFingerprints),
-			.ReferenceErrors = Current.ReferenceErrors,
-			.bReferenceIndexComplete = Current.ReferenceErrors.empty()});
-		if (!Result) return Compensate(std::move(Result));
+		Result = Registry.ReconcileProjection(Paths);
+		if (!Result) return ForwardPending(Result.Message);
+		State.bProjectionPublished = true;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
-		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
 		Result = TransitionMutationJournalState(
 			State.Journal, EAssetMutationState::Committed);
 		if (!Result) return Result;
-		Private::NotifyAssetMoveObservers(State.Mappings);
+		AssetPrivate::NotifyAssetMoveObservers(State.Mappings);
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::RestoreAssetRelocation(
-		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
-	{
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (!Relocation)
-			return Error(EAssetError::StaleData,
-				"The relocation transaction state is empty.");
-		auto& State = *Relocation;
-		if (State.Journal.State != EAssetMutationState::Committed)
-			return Error(EAssetError::StaleData,
-				"Only a committed relocation can be restored.");
-		FAssetResult Result = RevalidateAssetRelocation(Relocation);
-		if (!Result) return Result;
-
-		Result = TransitionMutationJournalState(
-			State.Journal, EAssetMutationState::Publishing);
-		if (!Result) return Result;
-		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
-			FAssetResult JournalResult = TransitionMutationJournalState(
-				State.Journal, EAssetMutationState::RecoveryRequired);
-			if (!JournalResult)
-				return Error(EAssetError::IoError, std::format(
-					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
-					Message, JournalResult.Message));
-			return Error(EAssetError::IoError,
-				std::format("AssetMutationRecoveryRequired: {}", Message));
-		};
-		std::vector<size_t> RestoredFiles;
-		for (size_t Count = State.Journal.Entries.size(); Count > 0; --Count)
-		{
-			const size_t Index = Count - 1;
-			Result = PublishRelocationFile(
-				State.Journal.Entries[Index], false);
-			if (!Result)
-				return EnterRecovery(Result.Message);
-			RestoredFiles.push_back(Index);
-			State.Journal.Entries[Index].bCompensated = true;
-			Result = WriteMutationJournalState(State.Journal);
-			if (!Result) return EnterRecovery(Result.Message);
-		}
-		for (size_t Count = State.OwnedPayloads.size(); Count > 0; --Count)
-			if (State.OwnedPayloads[Count - 1].Restore)
-				State.OwnedPayloads[Count - 1].Restore();
-		for (size_t Count = State.LoadedPackages.size(); Count > 0; --Count)
-		{
-			FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
-			if (!Loaded.Package->RelocateAssetPackage(
-					Loaded.Mapping.SourcePath))
-				return EnterRecovery(
-					"a loaded package could not be restored.");
-			Loaded.Package->Rename(FName(Loaded.PrePackageName));
-			Loaded.Package->ClearDirty();
-		}
-
-		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
-		{
-			if (Entry.bPreExists)
-			{
-				Result = FingerprintRelocationFile(
-					Entry.PhysicalPath, Entry.ExpectedPreFingerprint);
-				if (!Result)
-					return EnterRecovery(
-						"restored package metadata is unavailable.");
-			}
-			if (!Entry.RegistryPath.IsValid()) continue;
-			auto Data = State.PreAssets.find(Entry.RegistryPath);
-			if (Data == State.PreAssets.end()) continue;
-			std::error_code MetadataError;
-			Data->second.FileSize = std::filesystem::file_size(
-				Entry.PhysicalPath, MetadataError);
-			Data->second.LastWriteTime = std::filesystem::last_write_time(
-				Entry.PhysicalPath, MetadataError);
-			if (MetadataError)
-				return EnterRecovery(
-					"restored package metadata is unavailable.");
-			Data->second.LastWriteTimeTicks =
-				FileTime::ToStableTicks(
-					Data->second.LastWriteTime);
-		}
-		for (const FAssetRelocationMapping& Mapping : State.Mappings)
-		{
-			const FAssetMutationJournalEntry* SourceEntry = nullptr;
-			for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
-				if (Entry.RegistryPath == Mapping.SourcePath)
-				{
-					SourceEntry = &Entry;
-					break;
-				}
-			if (!SourceEntry) continue;
-			for (FAssetReferenceEdge& Reference : State.PreReferenceEdges)
-				if (Reference.SourcePackage == Mapping.SourcePath)
-					Reference.SourceFingerprint =
-						SourceEntry->ExpectedPreFingerprint;
-			if (State.PreReferenceFingerprints.contains(Mapping.SourcePath))
-				State.PreReferenceFingerprints.insert_or_assign(
-					Mapping.SourcePath,
-					SourceEntry->ExpectedPreFingerprint);
-		}
-		FAssetResult ProjectionResult = RebuildReferenceProjectionForPublishedEntries(
-			State.Journal.Entries, State.PreAssets,
-			State.PreReferenceEdges, State.PreReferenceFingerprints);
-		if (!ProjectionResult)
-			return EnterRecovery(std::format(
-				"restored reference projection failed: {}",
-				ProjectionResult.Message));
-
-		const FAssetPublicationState Current = Registry.CapturePreparedState();
-		std::vector<FAssetPackageReferenceEdge> PackageEdges;
-		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PackageFingerprints;
-		Result = BuildAssetPackageReferenceProjection(
-			State.PreAssets, PackageEdges, PackageFingerprints);
-		if (!Result) return EnterRecovery(std::format(
-			"restored package projection failed: {}", Result.Message));
-		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
-			.Assets = State.PreAssets,
-			.ReferenceEdges = std::move(PackageEdges),
-			.ReferenceFingerprints = std::move(PackageFingerprints),
-			.ReferenceErrors = Current.ReferenceErrors,
-			.bReferenceIndexComplete = Current.ReferenceErrors.empty()});
-		if (!Result) return Result;
-		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
-		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
-		Result = TransitionMutationJournalState(
-			State.Journal, EAssetMutationState::Restored);
-		if (!Result) return Result;
-		std::vector<FAssetRelocationMapping> Inverse;
-		Inverse.reserve(State.Mappings.size());
-		for (const FAssetRelocationMapping& Mapping : State.Mappings)
-			Inverse.push_back({
-				.SourcePath = Mapping.DestinationPath,
-				.DestinationPath = Mapping.SourcePath});
-		Private::NotifyAssetMoveObservers(Inverse);
-		return {};
-	}
 }

@@ -7,7 +7,7 @@
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureCubeDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -47,16 +47,16 @@ namespace Durin::Asset
 			if (OutKey.empty()) return false;
 			FBuildDefinition Definition;
 			FBuildDefinitionBuilder Builder(
-				Private::TextureCubeFunctionName,
-				std::string(Private::TextureCubeValueName));
+				AssetPrivate::TextureCubeFunctionName,
+				std::string(AssetPrivate::TextureCubeValueName));
 			Builder.SetKey(FBuildKey::FromString(OutKey), KeyBytes)
 				.AddTargetFact("Platform", "Win64")
 				.AddTargetFact("Profile", "Game")
 				.AddTargetFact("SRGB", KeyInput.bSRGB ? "1" : "0")
 				.AddTargetFact("Dimension", std::to_string(SourceData.Faces[0].Width))
 				.AddInput(FBuildValue::FromOwned(
-					std::string(Private::TextureCubeInputName),
-					Private::EncodeTextureCubeLocalInput(SourceData)));
+					std::string(AssetPrivate::TextureCubeInputName),
+					AssetPrivate::EncodeTextureCubeLocalInput(SourceData)));
 			if (!Builder.Build(Definition, &OutError)) return false;
 			const FBuildOutput Output = FBuildSession().Build(Definition, {
 				.bQueryCache = bQueryCache, .bAllowLocalBuild = true,
@@ -67,7 +67,7 @@ namespace Durin::Asset
 				return false;
 			}
 			auto Candidate = std::make_unique<FTextureCubePlatformData>();
-			if (!Private::DecodeTextureCubePlatformValue(
+			if (!AssetPrivate::DecodeTextureCubePlatformValue(
 				Output.Value, *Candidate, OutError)) return false;
 			OutPlatformData = std::move(Candidate);
 			OutCacheHit = Output.Status == EBuildStatus::CacheHit;
@@ -97,8 +97,8 @@ namespace Durin::Asset
 				.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
 					CanonicalHash, CanonicalHash, CanonicalHash},
 				.bSRGB = true,
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game};
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game};
 			std::string Key;
 			std::unique_ptr<FTextureCubePlatformData> PlatformData;
 			bool bCacheHit = false;
@@ -153,8 +153,8 @@ namespace Durin::Asset
 			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
 				CanonicalHash, CanonicalHash, CanonicalHash},
 			.bSRGB = Texture.IsSRGB(),
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game};
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game};
 		return BuildTextureCubeDerivedDataKey(Input, OutError);
 	}
 
@@ -173,8 +173,8 @@ namespace Durin::Asset
 		}
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::TextureCubeFunctionName,
-			std::string(Private::TextureCubeValueName));
+			AssetPrivate::TextureCubeFunctionName,
+			std::string(AssetPrivate::TextureCubeValueName));
 		Builder.SetKey(FBuildKey::FromString(Key))
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game");
@@ -195,7 +195,7 @@ namespace Durin::Asset
 			return false;
 		}
 		auto Candidate = std::make_unique<FTextureCubePlatformData>();
-		if (!Private::DecodeTextureCubePlatformValue(
+		if (!AssetPrivate::DecodeTextureCubePlatformValue(
 			Output.Value, *Candidate, OutMessage))
 		{
 			OutStatus = ETextureDerivedDataStatus::Corrupt;
@@ -242,8 +242,8 @@ namespace Durin::Asset
 			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
 				CanonicalHash, CanonicalHash, CanonicalHash},
 			.bSRGB = Settings.bSRGB,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game};
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game};
 		std::string Key;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		bool bCacheHit = false;

@@ -19,7 +19,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		auto ResolveOwningPackagePhysicalPath(const DVolumeTexture& Texture,
@@ -344,7 +344,7 @@ namespace Durin::AssetForge::Builtins
 			std::string Filename, ESourceHintBase HintBase,
 			const FVolumeTextureImportSettings& Settings,
 			std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			const FAssetBundleSaveOptions* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
 			std::filesystem::path OwningPackagePath;
@@ -375,14 +375,14 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureSourceData SourceData;
 			if (!TranslateVolumeTextureAtlasSource(
 				Captured, Settings, SourceData, OutError)) return false;
-			if (!Asset::BuildVolumeTextureInto(Texture, std::move(SourceData),
+			if (!BuildVolumeTextureInto(Texture, std::move(SourceData),
 				{.OutputFormat = Settings.GetOutputFormat()}, OutError)
 				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase,
 					PhysicalPath,
 					Snapshot, Settings, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Texture.GetPackage();
-			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+			const FAssetResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
 			if (Saved) return true;
 			OutError = Saved.Message;
@@ -498,7 +498,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ReimportVolumeTexture(DVolumeTexture& Texture, std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());
@@ -522,7 +522,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ReimportVolumeTextureFromFile(DVolumeTexture& Texture,
 		std::string_view FilePath, std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 			Texture.GetAssetImportData());

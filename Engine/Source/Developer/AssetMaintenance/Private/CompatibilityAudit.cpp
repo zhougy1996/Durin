@@ -7,7 +7,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

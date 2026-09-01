@@ -39,7 +39,7 @@ namespace
 				EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
 			return false;
 		return std::visit([&](const auto& Source) {
-			return Durin::Asset::TextureCubeBuilder::ProjectEquirectangularTextureCube(
+			return Durin::TextureCubeBuilder::ProjectEquirectangularTextureCube(
 				Source, {Settings.FaceDimension, Settings.ExposureEV}, OutSource, OutError);
 		}, Panorama);
 	}
@@ -50,7 +50,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	std::vector<Durin::FMountPoint> MountDefinitions(
 		Durin::FMountPaths::GetRegisteredMountPoints().begin(),
 		Durin::FMountPaths::GetRegisteredMountPoints().end()
@@ -596,7 +596,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FPackagePath CubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
-		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
+		EXPECT_TRUE(Durin::DeleteAssetForTesting(CubePath));
 	}
 	else
 	{
@@ -605,7 +605,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FPackagePath HdrCubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
 	{
-		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(HdrCubePath));
+		EXPECT_TRUE(Durin::DeleteAssetForTesting(HdrCubePath));
 	}
 	else
 	{

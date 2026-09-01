@@ -26,7 +26,7 @@ namespace Durin
 	namespace
 	{
 		struct FSkeletalMeshManagerProduct final
-			: Asset::ICookedMeshDetachedProduct
+			: ICookedMeshDetachedProduct
 		{
 			FSkeletalMeshCookedProduct Product;
 		};
@@ -34,7 +34,7 @@ namespace Durin
 		auto BuildSkeletalCookedMetadataIdentity(const DSkeletalMesh& Mesh) -> uint64
 		{
 			FXxHash64Builder Builder;
-			const Asset::FBulkDataMetadata Metadata =
+			const FBulkDataMetadata Metadata =
 				Mesh.GetCookedPlatformData().GetMetadata();
 			Builder.UpdateValue(Metadata.LogicalSize);
 			Builder.UpdateValue(Metadata.Range.SegmentOffset);
@@ -291,7 +291,7 @@ namespace Durin
 		std::string& OutError) const -> FSkeletalMeshPayloadData
 	{
 		FSkeletalMeshPayloadData Result;
-		const Asset::FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
+		const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
 		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != SkeletalMeshImportedDataSchemaVersion
 			|| !Payload || Bytes.empty()
@@ -392,7 +392,7 @@ namespace Durin
 		FCookedMeshLoadStatus Initial = RequestRenderDataAndResources();
 		if (!Initial.HasCpuData() && Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
 		{
-			if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager();
+			if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager();
 				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
 			{
 				Manager->Finish(MakeObjectHandle(this));
@@ -401,7 +401,7 @@ namespace Durin
 		}
 		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
 			!= ECookedMeshCpuPhase::Failed
-			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
@@ -433,7 +433,7 @@ namespace Durin
 		if (Phase == ECookedMeshCpuPhase::Failed
 			|| Phase == ECookedMeshCpuPhase::Cancelled)
 		{
-			if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+			if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
 				Manager->Cancel(MakeObjectHandle(this));
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
 			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
@@ -640,7 +640,7 @@ namespace Durin
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
 		const bool bRequireSourceIndices =
-			Asset::GetAssetRuntimeConfiguration().AllowsSourceFallback();
+			GetAssetRuntimeConfiguration().AllowsSourceFallback();
 		for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| (bRequireSourceIndices
@@ -673,7 +673,7 @@ namespace Durin
 			OutError = std::format("{}: {}", GetName(), OutError);
 			return false;
 		}
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
 				return Fail(std::format(
@@ -701,8 +701,8 @@ namespace Durin
 				"SkeletalMesh cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* FieldValue = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!PayloadData || !Skeleton)
@@ -720,7 +720,7 @@ namespace Durin
 				.TargetProfile = ESkeletalPayloadTargetProfile::Game});
 			std::string Error;
 			if (Writer.HasError()
-				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
@@ -730,7 +730,7 @@ namespace Durin
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DSkeletalMesh"),
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
@@ -774,9 +774,9 @@ namespace Durin
 
 	auto DSkeletalMesh::SubmitCookedRenderDataRequest() -> bool
 	{
-		Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager();
+		FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager();
 		if (!Manager || RenderData
-			|| !Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			|| !GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			|| CookedPlatformData.GetMetadata().LogicalSize == 0 || !Skeleton)
 			return false;
 
@@ -789,10 +789,10 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> SlotSnapshot = MaterialSlots;
 		FSkeletalMeshSummary SummarySnapshot = Summary;
 
-		Asset::FCookedMeshLoadRequest Request{
+		FCookedMeshLoadRequest Request{
 			.Identity = {
 				.Owner = MakeObjectHandle(this),
-				.Family = Asset::ECookedMeshFamily::SkeletalMesh,
+				.Family = ECookedMeshFamily::SkeletalMesh,
 				.LoadGeneration = Generation,
 				.ResourceRevision = ResourceRevision,
 				.MetadataIdentity = MetadataIdentity},
@@ -801,7 +801,7 @@ namespace Durin
 				Slots = std::move(SlotSnapshot), SummarySnapshot](
 				std::span<const FSharedByteBuffer> Buffers,
 				const FTaskCancellationToken& Cancellation)
-				-> Asset::FCookedMeshWorkerResult {
+				-> FCookedMeshWorkerResult {
 				if (Cancellation.IsCancellationRequested()) return {};
 				if (Buffers.size() != 1)
 					return {.Message = "SkeletalMesh cooked field count is invalid."};
@@ -814,7 +814,7 @@ namespace Durin
 					.RetainedBytes = std::max<uint64>(Buffers[0].GetSize(), 1)};
 			},
 			.IsCurrent = [](const DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity& Identity) {
+				const FCookedMeshLoadIdentity& Identity) {
 				const auto* Mesh = Cast<DSkeletalMesh>(&Owner);
 				return Mesh
 					&& Mesh->CookedLoadGeneration.load(std::memory_order_acquire)
@@ -825,8 +825,8 @@ namespace Durin
 						== Identity.MetadataIdentity;
 			},
 			.Publish = [](DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity&,
-				std::unique_ptr<Asset::ICookedMeshDetachedProduct> BaseProduct,
+				const FCookedMeshLoadIdentity&,
+				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct,
 				std::string& OutError) {
 				auto* Mesh = Cast<DSkeletalMesh>(&Owner);
 				auto* Typed = dynamic_cast<FSkeletalMeshManagerProduct*>(BaseProduct.get());
@@ -853,13 +853,13 @@ namespace Durin
 				return true;
 			},
 			.OnTerminal = [](DObject& Owner,
-				const Asset::FCookedMeshLoadIdentity&,
-				Asset::ECookedMeshTerminalState Terminal,
+				const FCookedMeshLoadIdentity&,
+				ECookedMeshTerminalState Terminal,
 				std::string_view Message) {
 				auto* Mesh = Cast<DSkeletalMesh>(&Owner);
 				if (!Mesh) return;
-				const bool bFailed = Terminal == Asset::ECookedMeshTerminalState::Failed
-					|| Terminal == Asset::ECookedMeshTerminalState::Rejected;
+				const bool bFailed = Terminal == ECookedMeshTerminalState::Failed
+					|| Terminal == ECookedMeshTerminalState::Rejected;
 				Mesh->CookedLoadPhase.store(bFailed
 					? ECookedMeshCpuPhase::Failed : ECookedMeshCpuPhase::Cancelled,
 					std::memory_order_release);
@@ -874,12 +874,12 @@ namespace Durin
 	}
 
 	auto DSkeletalMesh::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 			return Fail(std::format(
 				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;
@@ -1003,7 +1003,7 @@ namespace Durin
 
 	auto DSkeletalMesh::BeginDestroy() -> void
 	{
-		if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+		if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager())
 			Manager->Cancel(MakeObjectHandle(this));
 		const ERenderResourceState State = RenderResourceState.load(std::memory_order_acquire);
 		const bool bHasQueuedWork = State != ERenderResourceState::Uninitialized

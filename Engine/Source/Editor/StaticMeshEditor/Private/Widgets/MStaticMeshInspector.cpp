@@ -110,7 +110,7 @@ namespace Durin::Editor::StaticMesh
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Mesh);
+		const FAssetResult Result = LoadObject(AssetPath, Mesh);
 		if (!Result || !Mesh)
 		{
 			ErrorMessage = Result ? "The selected asset is not a StaticMesh." : Result.Message;

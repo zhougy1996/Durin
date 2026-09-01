@@ -4,7 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class ETextureCubeBuildSourceLayout : uint32
 	{
@@ -23,8 +23,8 @@ namespace Durin::Asset
 		uint32 BuilderVersion = TextureCubeBuilderVersion;
 		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
 		uint32 ProjectionVersion = TextureCubeProjectionVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 
 		TEXTUREBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};

@@ -100,7 +100,7 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildFromFilename(DStaticMesh& Mesh, std::string Filename,
 			ESourceHintBase HintBase,
 			const FStaticMeshImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			const FAssetBundleSaveOptions* SaveOptions,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
 			if (!Settings.IsValid(&OutError)) return false;
@@ -149,20 +149,20 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			FStaticMeshBuildProduct Product;
-			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
-				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+			if (!FStaticMeshBuildOperations::BuildImportedProduct(
+				FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 				MakeStaticMeshImportedData(Scene), Filename, Product, OutError))
 				return false;
 			Product.bSourceImporterInvoked = true;
 			DStaticMeshImportData* ImportData = nullptr;
 			if (!PrepareImportData(Mesh, Filename, HintBase, PhysicalPath, Snapshot,
 				Settings, ImportData, OutError)
-				|| !Asset::FStaticMeshBuildOperations::PublishImportedProduct(
+				|| !FStaticMeshBuildOperations::PublishImportedProduct(
 					Mesh, std::move(Product), OutError)
 				|| !Mesh.PublishAssetImportData(*ImportData, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Mesh.GetPackage();
-			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+			const FAssetResult Saved = SavePackagesAtomically(
 				std::span<DPackage* const>(&Package, 1), *SaveOptions);
 			if (Saved) return true;
 			OutError = Saved.Message;
@@ -275,7 +275,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ReimportStaticMesh(DStaticMesh& Mesh, std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());
@@ -298,7 +298,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ReimportStaticMeshFromFile(DStaticMesh& Mesh, std::string_view FilePath,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+		const FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
 			Mesh.GetAssetImportData());

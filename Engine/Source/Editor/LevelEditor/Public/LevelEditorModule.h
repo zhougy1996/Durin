@@ -11,7 +11,7 @@ namespace Durin
 	class FPackagePath;
 }
 
-namespace Durin::Asset { class IAssetReferenceStore; }
+namespace Durin { class IAssetReferenceStore; }
 
 namespace Durin::Editor
 {
@@ -50,7 +50,7 @@ namespace Durin
 		std::vector<Editor::Level::FLevelEditorCustomizationHandle> CustomizationHandles;
 		Editor::Level::FLevelViewportEditModeHandle SplineEditModeHandle;
 		std::weak_ptr<Editor::Level::MLevelEditor> LevelEditorWorkspace;
-		std::unique_ptr<::Durin::Asset::IAssetReferenceStore>
+		std::unique_ptr<::Durin::IAssetReferenceStore>
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
 		uint64 GrayboxBuildStartupCommandHandle = 0;

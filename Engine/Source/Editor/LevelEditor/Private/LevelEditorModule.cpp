@@ -52,21 +52,21 @@ namespace Durin
 				const std::string Name = Suffix == 0
 					? "NewLevel" : std::format("NewLevel{}", Suffix + 1);
 				if (!FPackagePath::TryCreate(Directory + Name, Path)
-					|| Asset::FindAssetExact(Path)
-					|| Asset::FindResidentPackage(Path)) continue;
+					|| FindAssetExact(Path)
+					|| FindResidentPackage(Path)) continue;
 				FTopLevelAssetPath AssetPath;
 				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
 				DLevel* Level = nullptr;
-				Asset::FAssetResult Result = Asset::CreateAsset(AssetPath, Level);
+				FAssetResult Result = CreateAsset(AssetPath, Level);
 				if (!Result || !Level)
 				{
 					OutError = Result ? "Could not create the level asset." : Result.Message;
 					return false;
 				}
-				Result = Asset::SavePackage(Level->GetPackage());
+				Result = SavePackage(Level->GetPackage());
 				if (!Result)
 				{
-					Asset::UnloadPackage(Path);
+					UnloadPackage(Path);
 					OutError = Result.Message;
 					return false;
 				}
@@ -110,7 +110,7 @@ namespace Durin
 						Workspace->ApplyFixedUpDefaultLevelPath(Path);
 				});
 		ProjectDefaultLevelReferenceStoreHandle =
-			Asset::RegisterAssetReferenceStore(
+			RegisterAssetReferenceStore(
 				ProjectDefaultLevelReferenceStore.get(),
 				EditorExtensionCallbacks.GetGate());
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
@@ -146,7 +146,7 @@ namespace Durin
 				"LevelEditor cannot retire while one of its custom changes is active");
 		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);
 		GrayboxBuildStartupCommandHandle = 0;
-		Asset::UnregisterAssetReferenceStore(
+		UnregisterAssetReferenceStore(
 			ProjectDefaultLevelReferenceStoreHandle);
 		ProjectDefaultLevelReferenceStoreHandle = 0;
 		ProjectDefaultLevelReferenceStore.reset();

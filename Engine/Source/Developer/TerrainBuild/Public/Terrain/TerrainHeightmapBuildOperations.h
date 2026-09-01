@@ -3,7 +3,7 @@
 #include "TerrainBuildAPI.h"
 #include "Terrain/TerrainHeightmap.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FTerrainHeightmapBuildRequest
 	{

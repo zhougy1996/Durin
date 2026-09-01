@@ -69,7 +69,7 @@ namespace Durin
 	// Reads reflected package fields only. It never constructs an asset object,
 	// opens a source file/DDC record, or mutates package/companion state.
 	ENGINE_API auto InspectTexturePayloadPackage(
-		const Asset::FAssetPackageInspection& Package,
+		const FAssetPackageInspection& Package,
 		FTexturePayloadInspection& OutInspection,
 		std::string* OutError = nullptr) -> bool;
 

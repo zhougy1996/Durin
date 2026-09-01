@@ -86,7 +86,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Tracks;
+		FEditorBulkData Tracks;
 
 		DPROPERTY()
 		uint32 SchemaVersion = AnimationClipImportedDataSchemaVersion;
@@ -141,7 +141,7 @@ namespace Durin
 		auto GetClipName() const -> FName { return ClipName; }
 		auto GetSummary() const -> const FAnimationClipSummary& { return Summary; }
 		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData>;
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FAnimationClipImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
@@ -157,10 +157,10 @@ namespace Durin
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -185,7 +185,7 @@ namespace Durin
 		DPROPERTY()
 		FAnimationClipSummary Summary;
 
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;

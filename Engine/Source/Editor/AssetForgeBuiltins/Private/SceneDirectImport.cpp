@@ -39,8 +39,8 @@ namespace Durin::AssetForge::Builtins
 			FPackagePath AssetPath;
 			FStaticMeshBuildProduct StaticMesh;
 			FSceneTextureBuildProduct Texture;
-			Asset::FSkeletalMeshBuildProduct SkeletalMesh;
-			Asset::FAnimationClipBuildProduct Animation;
+			FSkeletalMeshBuildProduct SkeletalMesh;
+			FAnimationClipBuildProduct Animation;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
 		};
@@ -143,7 +143,7 @@ namespace Durin::AssetForge::Builtins
 				Output.Package = nullptr;
 			}
 			for (auto It = Paths.rbegin(); It != Paths.rend(); ++It)
-				(void)Asset::UnloadPackage(*It, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+				(void)UnloadPackage(*It, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		}
 
 		// Scene deliberately materializes each private candidate through Engine Asset:
@@ -151,7 +151,7 @@ namespace Durin::AssetForge::Builtins
 		// is dependency-bound, validated, and ready for one atomic bundle save.
 		auto CreateCandidate(FPreparedSceneOutput& Output, std::string& OutError) -> bool
 		{
-			Asset::FAssetResult Created;
+			FAssetResult Created;
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(
 				Output.AssetPath, Output.AssetPath.GetPackageName(), AssetPath))
@@ -163,37 +163,37 @@ namespace Durin::AssetForge::Builtins
 			if (Kind == ESceneOutputKind::StaticMesh)
 			{
 				DStaticMesh* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::MaterialInstance)
 			{
 				DMaterialInstance* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Skeleton)
 			{
 				DSkeleton* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::SkeletalMesh)
 			{
 				DSkeletalMesh* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::AnimationClip)
 			{
 				DAnimationClip* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Texture2D)
 			{
 				DTexture2D* Value = nullptr;
-				Created = Asset::CreateAsset(AssetPath, Value);
+				Created = CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			if (!Created || !Output.Candidate)
@@ -306,7 +306,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
+				if (!FStaticMeshBuildOperations::BuildImportedProduct(
 					{.StableObjectPath = Output.AssetPath.ToString()},
 					MakeStaticMeshImportedData(Data.Scene),
 					Root->Filename, Output.StaticMesh, Error))
@@ -330,8 +330,8 @@ namespace Durin::AssetForge::Builtins
 					static_cast<uint32>(Imported.MaterialSlots.size()), Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				Asset::FSkeletalMeshBuildKeyInput Key;
-				static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
+				FSkeletalMeshBuildKeyInput Key;
+				static_cast<FSkeletalBuildKeyFields&>(Key) = {
 					.ProviderIdentity = "CanonicalSkeletalMesh",
 					.ProviderVersion = SkeletalMeshImportedDataSchemaVersion,
 					.ImportedDataIdentity = Canonical.GetIdentity(),
@@ -339,7 +339,7 @@ namespace Durin::AssetForge::Builtins
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-				if (!Asset::BuildSkeletalMeshProduct({
+				if (!BuildSkeletalMeshProduct({
 					.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
@@ -365,8 +365,8 @@ namespace Durin::AssetForge::Builtins
 					static_cast<uint32>(Skeleton.Bones.size()), Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				Asset::FAnimationClipBuildKeyInput Key;
-				static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
+				FAnimationClipBuildKeyInput Key;
+				static_cast<FSkeletalBuildKeyFields&>(Key) = {
 					.ProviderIdentity = "CanonicalAnimationClip",
 					.ProviderVersion = AnimationClipImportedDataSchemaVersion,
 					.ImportedDataIdentity = Canonical.GetIdentity(),
@@ -374,7 +374,7 @@ namespace Durin::AssetForge::Builtins
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-				if (!Asset::BuildAnimationClipProduct({
+				if (!BuildAnimationClipProduct({
 					.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.ClipName = FName(Imported.SuggestedName), .Payload = Imported.Payload,
@@ -389,8 +389,8 @@ namespace Durin::AssetForge::Builtins
 				"scene-publication", "Scene import was canceled before publication.");
 		std::lock_guard PublicationLock(GetScenePublicationMutex());
 		for (const FPreparedSceneOutput& Output : Prepared)
-			if (Asset::FindAssetExact(Output.AssetPath)
-				|| Asset::FindResidentPackage(Output.AssetPath))
+			if (FindAssetExact(Output.AssetPath)
+				|| FindResidentPackage(Output.AssetPath))
 				return AddError(OutResult, EImportDiagnosticCategory::Collision,
 					"scene-publication", std::format(
 						"Scene output '{}' already exists.", Output.AssetPath.ToString()),
@@ -445,7 +445,7 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
-				if (!Asset::PublishTexture2DProduct(*Cast<DTexture2D>(Output.Candidate),
+				if (!PublishTexture2DProduct(*Cast<DTexture2D>(Output.Candidate),
 					std::move(Output.Texture.Product), {}, Error))
 				{
 					Abandon(Prepared);
@@ -475,7 +475,7 @@ namespace Durin::AssetForge::Builtins
 				}
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
-				&& !Asset::FStaticMeshBuildOperations::PublishImportedProduct(
+				&& !FStaticMeshBuildOperations::PublishImportedProduct(
 					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMesh), Error))
 			{
 				Abandon(Prepared);
@@ -513,7 +513,7 @@ namespace Durin::AssetForge::Builtins
 				if (Imported == Data.Scene.Materials.end()
 					|| !FObjectPath::TryCreate(
 						ImportedSurfaceMaterialObjectPath, StandardPath, &Error)
-					|| !Asset::LoadObject(StandardPath, Standard) || !Standard)
+					|| !LoadObject(StandardPath, Standard) || !Standard)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
@@ -656,9 +656,9 @@ namespace Durin::AssetForge::Builtins
 		std::vector<DPackage*> Packages;
 		Packages.reserve(Prepared.size());
 		for (const FPreparedSceneOutput& Output : Prepared) Packages.push_back(Output.Package);
-		Asset::FAssetBundleSaveOptions SaveOptions;
+		FAssetBundleSaveOptions SaveOptions;
 		if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
-		const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(Packages, SaveOptions);
+		const FAssetResult Saved = SavePackagesAtomically(Packages, SaveOptions);
 		OutResult.bSucceeded = true;
 		OutResult.bPersisted = Saved.Succeeded();
 		if (!Saved)

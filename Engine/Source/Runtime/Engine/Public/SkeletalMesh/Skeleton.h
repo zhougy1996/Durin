@@ -73,10 +73,10 @@ namespace Durin
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:

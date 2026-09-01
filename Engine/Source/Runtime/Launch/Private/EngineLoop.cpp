@@ -405,7 +405,7 @@ namespace Durin
 			Diagnostics.BeforeAssetServiceShutdown();
 			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		}
-		Asset::ShutdownCookedMeshLoadManager();
+		ShutdownCookedMeshLoadManager();
 		if (GEngine) GEngine->PrepareForShutdown();
 		if (bGameThreadDeferredExecutorStarted)
 		{
@@ -435,7 +435,7 @@ namespace Durin
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
 				SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
 			}
-			Asset::ShutdownAssetManager();
+			ShutdownAssetManager();
 			ReleaseClassDefaultObjects();
 			if (bWasRunning)
 				AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ClassDefaultsReleased);

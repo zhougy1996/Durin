@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 #include "Modules/ModularFeature.h"
 
 namespace Durin
@@ -12,7 +12,7 @@ namespace Durin
 	struct FAssetSaveReadinessFeatureResult
 	{
 		bool bHandled = false;
-		Asset::FAssetResult Result;
+		FAssetResult Result;
 	};
 
 	// Lets asset-family modules validate family-specific transient state before a save.
@@ -27,5 +27,5 @@ namespace Durin
 
 	// Rejects missing assets, ambiguous providers, and handled assets that are not ready.
 	ENGINE_API auto ValidateAssetSaveReadiness(const DObject* Asset)
-		-> Asset::FAssetResult;
+		-> FAssetResult;
 }

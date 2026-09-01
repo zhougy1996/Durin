@@ -7,7 +7,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DPostLoad.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FTexture2DCompilationDomain::FCompilationState
 	{
@@ -407,7 +407,7 @@ namespace Durin::Asset
 			&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto InitializeTexture2DCompilationDomain(
 			FModuleOwnedCallbackGate OwnerGate,

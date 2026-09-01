@@ -110,22 +110,22 @@ namespace Durin::Editor::Level
 
 		auto CleanupCandidate(const FPackagePath& Path) -> bool
 		{
-			if (DPackage* Resident = Asset::FindResidentPackage(Path))
-				(void)Asset::UnloadPackage(
+			if (DPackage* Resident = FindResidentPackage(Path))
+				(void)UnloadPackage(
 					Resident,
-					Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			if (Asset::FindAssetExact(Path))
+					EAssetPackageUnloadPolicy::DiscardUnsaved);
+			if (FindAssetExact(Path))
 			{
-				Asset::FAssetDeletionTransaction Transaction;
-				std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
-				Asset::FAssetResult Result = Asset::PrepareAssetDeletionTransaction(
+				FAssetDeletionJob Transaction;
+				std::vector<FAssetDeletionBatchBlocker> Blockers;
+				FAssetResult Result = PrepareAssetDeletionJob(
 					std::span{&Path, 1}, {}, Transaction, Blockers);
 				if (!Result || !Blockers.empty()) return false;
 
 				std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Moves;
 				const uint64 OperationId = static_cast<uint64>(
 					std::chrono::steady_clock::now().time_since_epoch().count());
-				for (const Asset::FAssetDeletionBatchEntry& Entry :
+				for (const FAssetDeletionBatchEntry& Entry :
 					 Transaction.GetEntries())
 				{
 					std::vector<std::filesystem::path> Files{
@@ -142,7 +142,7 @@ namespace Durin::Editor::Level
 					}
 				}
 
-				auto MoveAll = [&Moves](bool bStage) -> Asset::FAssetResult {
+				auto MoveAll = [&Moves](bool bStage) -> FAssetResult {
 					size_t Moved = 0;
 					for (; Moved < Moves.size(); ++Moved)
 					{
@@ -163,17 +163,16 @@ namespace Durin::Editor::Level
 								bStage ? RollbackOriginal : RollbackStaged,
 								RollbackError);
 							if (RollbackError)
-								return {Asset::EAssetError::IoError, std::format(
+								return {EAssetError::IoError, std::format(
 									"Candidate cleanup rollback failed: {}", RollbackError.message())};
 						}
-						return {Asset::EAssetError::IoError, std::format(
+						return {EAssetError::IoError, std::format(
 							"Candidate cleanup staging failed: {}", Error.message())};
 					}
 					return {};
 				};
-				Result = Transaction.Commit({
-					.Stage = [&] { return MoveAll(true); },
-					.Restore = [&] { return MoveAll(false); },
+				Result = Transaction.Delete({
+					.Delete = [&] { return MoveAll(true); },
 				});
 				if (!Result) return false;
 				for (const auto& [Original, Staged] : Moves)
@@ -301,8 +300,8 @@ namespace Durin::Editor::Level
 			DURIN_ERROR("graybox-build: output must be a valid path in the current project mount.");
 			return 2;
 		}
-		if (Asset::FindAssetExact(OutputPath)
-			|| Asset::FindResidentPackage(OutputPath))
+		if (FindAssetExact(OutputPath)
+			|| FindResidentPackage(OutputPath))
 		{
 			DURIN_ERROR("graybox-build: output '{}' already exists; replacement is not supported.", OutputText);
 			return 3;
@@ -311,7 +310,7 @@ namespace Durin::Editor::Level
 		FObjectPath BoxPath;
 		check(FObjectPath::TryCreate(BoxObjectPath, BoxPath));
 		DStaticMesh* Box = nullptr;
-		const Asset::FAssetResult BoxResult = Asset::LoadObject(BoxPath, Box);
+		const FAssetResult BoxResult = LoadObject(BoxPath, Box);
 		if (!BoxResult || !Box)
 		{
 			DURIN_ERROR("graybox-build: could not load {}: {}", BoxObjectPath, BoxResult.Message);
@@ -336,8 +335,8 @@ namespace Durin::Editor::Level
 				"{}__GrayboxBuildCandidate_{}_{}", Directory,
 				FPlatformProcess::CurrentProcessId(), Attempt);
 			if (FPackagePath::TryCreate(Text, CandidatePath)
-				&& !Asset::FindAssetExact(CandidatePath)
-				&& !Asset::FindResidentPackage(CandidatePath))
+				&& !FindAssetExact(CandidatePath)
+				&& !FindResidentPackage(CandidatePath))
 			{
 				bCandidatePathFound = true;
 				break;
@@ -357,8 +356,8 @@ namespace Durin::Editor::Level
 			DURIN_ERROR("graybox-build: temporary top-level asset path is invalid.");
 			return 4;
 		}
-		Asset::FAssetResult Result =
-			Asset::CreateAsset(CandidateAssetPath, Candidate);
+		FAssetResult Result =
+			CreateAsset(CandidateAssetPath, Candidate);
 		if (!Result || !Candidate)
 		{
 			DURIN_ERROR("graybox-build: could not create candidate: {}", Result.Message);
@@ -396,27 +395,27 @@ namespace Durin::Editor::Level
 			|| !PlayerStart->SetActorTransform(Layout.PlayerStartTransform)
 			|| !Light->SetActorTransform(Layout.DirectionalLightTransform))
 			return FailCandidate(5, "could not create the baseline gameplay Actors.");
-		Result = Asset::SavePackage(Candidate->GetPackage());
+		Result = SavePackage(Candidate->GetPackage());
 		if (!Result) return FailCandidate(6, Result.Message);
 		FObjectPath CandidateObjectPath;
 		if (!FObjectPath::TryCreate(Candidate->GetObjectPath(), CandidateObjectPath))
 			return FailCandidate(6, "the saved level returned an invalid object path.");
-		Result = Asset::UnloadPackage(CandidatePath);
+		Result = UnloadPackage(CandidatePath);
 		if (!Result) return FailCandidate(6, Result.Message);
 		Candidate = nullptr;
-		Result = Asset::LoadObject(CandidateObjectPath, Candidate);
+		Result = LoadObject(CandidateObjectPath, Candidate);
 		if (!Result || !Candidate || !VerifyArena(*Candidate, *Box, Layout, Error))
 			return FailCandidate(7, Error.empty() ? Result.Message : Error);
-		Result = Asset::UnloadPackage(CandidatePath);
+		Result = UnloadPackage(CandidatePath);
 		if (!Result) return FailCandidate(6, Result.Message);
 		Candidate = nullptr;
 
-		Asset::FAssetMutationSummary Summary;
-		Asset::FAssetMutationTransaction Transaction;
-		const Asset::FAssetRelocationMapping Mapping{CandidatePath, OutputPath};
-		Result = Asset::PrepareAssetRelocationTransaction(
-			std::span{&Mapping, 1}, Summary, Transaction);
-		if (Result) Result = Transaction.Commit();
+		FAssetRelocationSummary Summary;
+		FAssetMutationJob Job;
+		const FAssetRelocationMapping Mapping{CandidatePath, OutputPath};
+		Result = PrepareAssetRelocationJob(
+			std::span{&Mapping, 1}, Summary, Job);
+		if (Result) Result = Job.ResumeForward();
 		if (!Result) return FailCandidate(6, Result.Message);
 
 		DLevel* Published = nullptr;
@@ -429,21 +428,20 @@ namespace Durin::Editor::Level
 				PublishedAssetPath, std::span<const std::string>{},
 				PublishedObjectPath))
 			return FailCandidate(7, "could not build the relocated level object path.");
-		Result = Asset::LoadObject(PublishedObjectPath, Published);
+		Result = LoadObject(PublishedObjectPath, Published);
 		if (!Result || !Published || !VerifyArena(*Published, *Box, Layout, Error))
 		{
-			if (DPackage* Resident = Asset::FindResidentPackage(OutputPath))
-				(void)Asset::UnloadPackage(
+			if (DPackage* Resident = FindResidentPackage(OutputPath))
+				(void)UnloadPackage(
 					Resident,
-					Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			const Asset::FAssetResult Restore = Transaction.Undo();
+					EAssetPackageUnloadPolicy::DiscardUnsaved);
 			CleanupCandidate(CandidatePath);
-			DURIN_ERROR("graybox-build: published verification failed: {}{}",
-				Error.empty() ? Result.Message : Error,
-				Restore ? "" : std::format("; restore failed: {}", Restore.Message));
+			DURIN_ERROR("graybox-build: published verification failed after the "
+				"forward-only relocation committed: {}",
+				Error.empty() ? Result.Message : Error);
 			return 7;
 		}
-		Asset::UnloadPackage(OutputPath);
+		UnloadPackage(OutputPath);
 		DURIN_INFO("graybox-build: created open{} arena '{}' with {} Box Actors.",
 			Params.bCeiling ? "-ceiling" : "-air", OutputText, Layout.Pieces.size());
 		return 0;

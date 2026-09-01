@@ -63,23 +63,23 @@ namespace Durin::Editor::ContentBrowser::Private
 				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
 		}
 
-		auto ResolveStateLabel(Asset::EAssetPathResolveState State)
+		auto ResolveStateLabel(EAssetPathResolveState State)
 			-> std::string_view
 		{
 			switch (State)
 			{
-			case Asset::EAssetPathResolveState::Resolved: return "Resolved";
-			case Asset::EAssetPathResolveState::NotFound: return "Not found";
-			case Asset::EAssetPathResolveState::MissingRedirectTarget:
+			case EAssetPathResolveState::Resolved: return "Resolved";
+			case EAssetPathResolveState::NotFound: return "Not found";
+			case EAssetPathResolveState::MissingRedirectTarget:
 				return "Missing target";
-			case Asset::EAssetPathResolveState::RedirectCycle: return "Cycle";
-			case Asset::EAssetPathResolveState::RedirectDepthExceeded:
+			case EAssetPathResolveState::RedirectCycle: return "Cycle";
+			case EAssetPathResolveState::RedirectDepthExceeded:
 				return "Depth exceeded";
-			case Asset::EAssetPathResolveState::UnknownTargetClass:
+			case EAssetPathResolveState::UnknownTargetClass:
 				return "Unknown target class";
-			case Asset::EAssetPathResolveState::RedirectTypeMismatch:
+			case EAssetPathResolveState::RedirectTypeMismatch:
 				return "Type mismatch";
-			case Asset::EAssetPathResolveState::CorruptRedirector:
+			case EAssetPathResolveState::CorruptRedirector:
 				return "Corrupt redirector";
 			}
 			return "Unknown";
@@ -510,7 +510,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return;
 		TextureCubeDetailsSnapshot = &TextureCubeDetailsCache.Get(
 			It->PhysicalPath,
-			Asset::GetAssetCatalogRevision());
+			GetAssetCatalogRevision());
 	}
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
@@ -541,25 +541,25 @@ namespace Durin::Editor::ContentBrowser::Private
 				const FPackagePath& Path = Item.PackagePath;
 				if (Path.IsValid())
 				{
-					if (const Asset::FAssetCatalogEntry Data =
-						Asset::FindAssetExact(Path))
+					if (const FAssetCatalogEntry Data =
+						FindAssetExact(Path))
 					{
 						Row("Hard dependencies", std::format("{}", Data->Dependencies.size()));
 						Row("Soft dependencies", std::format("{}", Data->SoftDependencies.size()));
-						const Asset::FAssetReferenceIndex ReferenceIndex =
-							Asset::CaptureAssetReferenceIndex();
+						const FAssetReferenceIndex ReferenceIndex =
+							CaptureAssetReferenceIndex();
 						size_t HardReferencers = 0;
 						size_t SoftReferencers = 0;
 						size_t RedirectReferencers = 0;
-						for (const Asset::FAssetPackageReferenceEdge& Edge :
+						for (const FAssetPackageReferenceEdge& Edge :
 							 ReferenceIndex.FindReferencers(Path))
 							switch (Edge.Kind)
 							{
-							case Asset::EAssetReferenceKind::HardObject:
+							case EAssetReferenceKind::HardObject:
 								++HardReferencers; break;
-							case Asset::EAssetReferenceKind::SoftObject:
+							case EAssetReferenceKind::SoftObject:
 								++SoftReferencers; break;
-							case Asset::EAssetReferenceKind::Redirect:
+							case EAssetReferenceKind::Redirect:
 								++RedirectReferencers; break;
 							}
 						Row("Hard refs", std::format("{}", HardReferencers));
@@ -576,8 +576,8 @@ namespace Durin::Editor::ContentBrowser::Private
 							Row("Destination", Item.RedirectDestination.ToString());
 							FObjectPath ObjectPath;
 							FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
-							const Asset::FObjectPathResolveResult Resolution =
-								Asset::ResolveObjectPath(ObjectPath);
+							const FObjectPathResolveResult Resolution =
+								ResolveAssetObjectPath(ObjectPath);
 							Row("State", ResolveStateLabel(Resolution.State));
 							Row("Final", Resolution.FinalPath.IsValid()
 								? Resolution.FinalPath.ToString()
@@ -875,7 +875,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const FPackagePath& PackagePath = Item.PackagePath;
 			if (PackagePath.IsValid())
 			{
-				DPackage* LoadedPackage = Asset::FindResidentPackage(PackagePath);
+				DPackage* LoadedPackage = FindResidentPackage(PackagePath);
 				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
 				ImGui::BeginDisabled(!bAllowAssetMutation);
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
@@ -960,8 +960,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Path.IsValid())
 			{
 				std::vector<FPackagePath> Referencers;
-				for (const Asset::FAssetPackageReferenceEdge& Edge :
-					 Asset::CaptureAssetReferenceIndex().FindReferencers(Path))
+				for (const FAssetPackageReferenceEdge& Edge :
+					 CaptureAssetReferenceIndex().FindReferencers(Path))
 					if (std::ranges::find(Referencers, Edge.SourcePackage)
 						== Referencers.end())
 						Referencers.push_back(Edge.SourcePackage);
@@ -1196,7 +1196,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					const FEditorAssetMove Move{OldPath, NewPath};
 					QueueContentAction([this, Move] {
-						const Asset::FAssetResult Result = Operations.Move(std::span{&Move, 1});
+						const FAssetResult Result = Operations.Move(std::span{&Move, 1});
 						if (!Result)
 							SetError(Result.Message);
 						else
@@ -1310,7 +1310,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					static_cast<unsigned long long>(Plan->Summary.FolderCount),
 					Plan->Summary.FolderCount == 1 ? "" : "s");
 				ImGui::TextDisabled(
-					"The operation is reversible from Edit > Undo or the notification action.");
+					"This permanently deletes local content and cannot be undone. Restore through version control if needed.");
 				if (bDeletionPlanRefreshed)
 				{
 					ImGui::Spacing();

@@ -88,18 +88,18 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 	}
 
-	auto FContentBrowserModel::RescanRegistry() -> Asset::FAssetResult
+	auto FContentBrowserModel::RescanRegistry() -> FAssetResult
 	{
-		const Asset::FAssetCatalogRefreshResult Refresh =
-			Asset::RefreshAssetRegistry(
-				Asset::EAssetRegistryScanMode::Incremental);
+		const FAssetCatalogRefreshResult Refresh =
+			RefreshAssetRegistry(
+				EAssetRegistryScanMode::Incremental);
 		if (Refresh) return {};
 		return Refresh.Errors.empty()
-			? Asset::FAssetResult{
-				Asset::EAssetError::IoError,
+			? FAssetResult{
+				EAssetError::IoError,
 				"Asset catalog refresh was incomplete."}
-			: Asset::FAssetResult{
-				Asset::EAssetError::IoError, Refresh.Errors.front().Message};
+			: FAssetResult{
+				EAssetError::IoError, Refresh.Errors.front().Message};
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(
@@ -206,8 +206,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		FTopLevelAssetPath Path;
 		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
-		const Asset::FTopLevelAssetCatalogEntry Entry =
-			Asset::FindTopLevelAssetExact(Path);
+		const FTopLevelAssetCatalogEntry Entry =
+			FindTopLevelAssetExact(Path);
 		if (!Entry) return {};
 		if (Entry.Asset->IsRedirector())
 			bShowRedirectors = true;
@@ -389,10 +389,10 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshAssetDirectoryIndex() -> void
 	{
-		const uint64 Revision = Asset::GetAssetCatalogRevision();
+		const uint64 Revision = GetAssetCatalogRevision();
 		if (AssetCatalogSnapshot.Revision == Revision) return;
 
-		AssetCatalogSnapshot = Asset::CaptureAssetCatalogSnapshot();
+		AssetCatalogSnapshot = CaptureAssetCatalogSnapshot();
 		AssetDirectoryIndex.clear();
 		for (const auto& [Path, Data] : AssetCatalogSnapshot.Assets)
 		{
@@ -406,9 +406,9 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::AppendAssetItem(
 		const FPackagePath& Path,
-		const Asset::FAssetData& Data) -> void
+		const FAssetData& Data) -> void
 	{
-		for (const Asset::FTopLevelAssetData& AssetData : Data.TopLevelAssets)
+		for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
 		{
 			FContentBrowserItem Item{
 				AssetData.IsRedirector()

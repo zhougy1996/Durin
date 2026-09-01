@@ -14,7 +14,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Texture = Cast<DTextureCube>(Imported.Asset);
 		if (!Imported || !Texture)
 			return {false, Imported.Message, Texture};
-		const Asset::FAssetResult Saved = Asset::SavePackage(Imported.Package);
+		const FAssetResult Saved = SavePackage(Imported.Package);
 		return Saved
 			? Durin::Testing::TFactoryImportResult<Durin::DTextureCube>{true, {}, Texture}
 			: Durin::Testing::TFactoryImportResult<Durin::DTextureCube>{false, Saved.Message, Texture};

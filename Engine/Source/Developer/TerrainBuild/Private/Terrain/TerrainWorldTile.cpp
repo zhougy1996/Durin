@@ -5,7 +5,7 @@
 #include "TerrainBuildFunctionRegistry.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -17,7 +17,7 @@ namespace Durin::Asset
 		constexpr uint64 MaximumCellsPerAxis = 1ull << 31;
 		constexpr uint64 HeaderBytes = 108;
 
-		auto Fail(ETerrainWorldOutcome Outcome, std::string Message,
+		auto TerrainWorldFail(ETerrainWorldOutcome Outcome, std::string Message,
 			ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
 		{
 			OutOutcome = Outcome;
@@ -376,7 +376,7 @@ namespace Durin::Asset
 			ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
 		{
 			if (!Candidate.Tile.WorldId.IsValid() || !Candidate.GenerationId.IsValid())
-				return Fail(ETerrainWorldOutcome::PublicationFailed,
+				return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 					"Terrain tile generation identity is incomplete.", OutOutcome, OutError);
 			std::array<FXxHash128, 5> Hashes{};
 			for (uint8 Value = 1; Value <= 5; ++Value)
@@ -388,7 +388,7 @@ namespace Durin::Asset
 				if (Product.ProductClass != Class || Product.Tile != Candidate.Tile
 					|| Product.GenerationId != Candidate.GenerationId
 					|| !DecodeTerrainTileProduct(Product.Bytes, Class, Decoded, OutOutcome, OutError))
-					return Fail(ETerrainWorldOutcome::PublicationFailed,
+					return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 						"Terrain tile generation contains an invalid or mismatched product.", OutOutcome, OutError);
 				Hashes[Index] = Decoded.BodyHash;
 			}
@@ -399,7 +399,7 @@ namespace Durin::Asset
 				|| Collision.Dependencies != std::vector{Hashes[ProductIndex(ETerrainTileProductClass::Height)]}
 				|| Query.Dependencies != std::vector{Hashes[ProductIndex(ETerrainTileProductClass::Height)],
 					Hashes[ProductIndex(ETerrainTileProductClass::Coverage)]})
-				return Fail(ETerrainWorldOutcome::MissingDependency,
+				return TerrainWorldFail(ETerrainWorldOutcome::MissingDependency,
 					"Terrain tile generation product dependencies are incomplete.", OutOutcome, OutError);
 			return true;
 		}
@@ -445,25 +445,25 @@ namespace Durin::Asset
 			|| Definition.TargetPlatform == ECookTargetPlatform::Invalid
 			|| Definition.TargetProfile == ECookTargetProfile::Invalid
 			|| Definition.RegionTileDimension != 8)
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain World definition has an invalid identity, extent, coordinate, policy, target, or region value.",
 				OutOutcome, OutError);
 		if (Definition.Layers.size() > TerrainWorldMaximumLayers
 			|| Definition.Sources.size() > TerrainWorldMaximumSources)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain World definition exceeds a layer or source count ceiling.", OutOutcome, OutError);
 		for (int64 Coordinate : {Definition.SampleExtent.Min.X, Definition.SampleExtent.Min.Y,
 			Definition.SampleExtent.Max.X, Definition.SampleExtent.Max.Y})
 			if (std::abs(static_cast<long double>(Coordinate)
 				* Definition.Coordinates.SampleSpacingMeters) > MaximumLatticeContributionMeters)
-				return Fail(ETerrainWorldOutcome::Overflow,
+				return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 					"Terrain World definition lattice contribution exceeds 2^40 meters.", OutOutcome, OutError);
 		std::unordered_set<FGuid> LayerIds;
 		std::unordered_set<std::string> LayerNames;
 		for (const FTerrainLayerDefinition& Layer : Definition.Layers)
 			if (!Layer.LayerId.IsValid() || Layer.DisplayName.empty()
 				|| !LayerIds.insert(Layer.LayerId).second || !LayerNames.insert(Layer.DisplayName).second)
-				return Fail(ETerrainWorldOutcome::InvalidDefinition,
+				return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 					"Terrain World layers require unique nonzero identities and display names.", OutOutcome, OutError);
 		FGuid PreviousSource;
 		for (const FTerrainCompositionSource& Source : Definition.Sources)
@@ -478,7 +478,7 @@ namespace Durin::Asset
 				|| Source.AffectedProductMask == 0
 				|| (Source.AffectedProductMask & ~(TerrainSourceAffectsHeight | TerrainSourceAffectsCoverage)) != 0
 				|| (PreviousSource.IsValid() && !GuidLess(PreviousSource, Source.SourceId)))
-				return Fail(ETerrainWorldOutcome::InvalidDefinition,
+				return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 					"Terrain World sources are invalid, duplicated, or not canonically ordered.", OutOutcome, OutError);
 			PreviousSource = Source.SourceId;
 		}
@@ -496,13 +496,13 @@ namespace Durin::Asset
 			|| Tile.TileX < std::numeric_limits<int64>::min() / TerrainWorldTileCells
 			|| Tile.TileY > std::numeric_limits<int64>::max() / TerrainWorldTileCells
 			|| Tile.TileY < std::numeric_limits<int64>::min() / TerrainWorldTileCells)
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain tile rectangle cannot be represented.", OutOutcome, OutError);
 		const int64 MinX = Tile.TileX * TerrainWorldTileCells;
 		const int64 MinY = Tile.TileY * TerrainWorldTileCells;
 		if (MinX > std::numeric_limits<int64>::max() - TerrainWorldTileCells
 			|| MinY > std::numeric_limits<int64>::max() - TerrainWorldTileCells)
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain tile rectangle cannot be represented.", OutOutcome, OutError);
 		OutExtent = {{MinX, MinY}, {MinX + TerrainWorldTileCells, MinY + TerrainWorldTileCells}};
 		OutOutcome = ETerrainWorldOutcome::Ready;
@@ -518,11 +518,11 @@ namespace Durin::Asset
 		uint64 CellsX = 0, CellsY = 0;
 		if (!WorldId.IsValid() || !CheckedAxisCells(Extent.Min.X, Extent.Max.X, CellsX)
 			|| !CheckedAxisCells(Extent.Min.Y, Extent.Max.Y, CellsY))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain sample lookup extent is invalid.", OutOutcome, OutError);
 		if (Sample.X < Extent.Min.X || Sample.X > Extent.Max.X
 			|| Sample.Y < Extent.Min.Y || Sample.Y > Extent.Max.Y)
-			return Fail(ETerrainWorldOutcome::Unavailable,
+			return TerrainWorldFail(ETerrainWorldOutcome::Unavailable,
 				"Terrain sample is outside the inclusive world extent.", OutOutcome, OutError);
 		FTerrainGlobalSample Lookup = Sample;
 		if (Lookup.X == Extent.Max.X) --Lookup.X;
@@ -530,7 +530,7 @@ namespace Durin::Asset
 		int64 TileX = 0, TileY = 0, LocalX = 0, LocalY = 0;
 		if (!TerrainFloorDiv(Lookup.X, 256, TileX) || !TerrainFloorDiv(Lookup.Y, 256, TileY)
 			|| !TerrainFloorMod(Lookup.X, 256, LocalX) || !TerrainFloorMod(Lookup.Y, 256, LocalY))
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain sample address arithmetic overflowed.", OutOutcome, OutError);
 		if (Sample.X == Extent.Max.X) ++LocalX;
 		if (Sample.Y == Extent.Max.Y) ++LocalY;
@@ -548,19 +548,19 @@ namespace Durin::Asset
 		if (!IsFinite(Coordinates.OriginX) || !IsFinite(Coordinates.OriginY)
 			|| !IsFinite(Coordinates.OriginZ) || !IsFinite(Coordinates.HeightDatumMeters)
 			|| !IsCanonicalPositive(Coordinates.SampleSpacingMeters))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain coordinate values are invalid.", OutOutcome, OutError);
 		const long double ContributionX = static_cast<long double>(Sample.X) * Coordinates.SampleSpacingMeters;
 		const long double ContributionY = static_cast<long double>(Sample.Y) * Coordinates.SampleSpacingMeters;
 		if (std::abs(ContributionX) > MaximumLatticeContributionMeters
 			|| std::abs(ContributionY) > MaximumLatticeContributionMeters)
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain lattice contribution exceeds 2^40 meters.", OutOutcome, OutError);
 		OutPosition = {Coordinates.OriginX + static_cast<double>(ContributionX),
 			Coordinates.OriginY + static_cast<double>(ContributionY),
 			Coordinates.OriginZ + Coordinates.HeightDatumMeters + static_cast<double>(Height) * 0.25};
 		if (!std::ranges::all_of(OutPosition, IsFinite))
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain world position is not finite.", OutOutcome, OutError);
 		OutOutcome = ETerrainWorldOutcome::Ready;
 		OutError.clear();
@@ -571,7 +571,7 @@ namespace Durin::Asset
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
 	{
 		if (Height < -32768 || Height > 32767)
-			return Fail(ETerrainWorldOutcome::Overflow,
+			return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 				"Terrain height is outside the schema-1 signed quantum envelope.",
 				OutOutcome, OutError);
 		OutHeight = static_cast<int16>(Height);
@@ -597,22 +597,22 @@ namespace Durin::Asset
 			|| !CheckedAxisCells(Input.WorldExtent.Min.X, Input.WorldExtent.Max.X, CellsX)
 			|| !CheckedAxisCells(Input.WorldExtent.Min.Y, Input.WorldExtent.Max.Y, CellsY)
 			|| !GetTerrainTileSampleExtent(Input.Tile, TileExtent, OutOutcome, OutError))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Normalized Terrain tile identity, schema, policy, target, or extent is invalid.", OutOutcome, OutError);
 		for (int64 Coordinate : {Input.WorldExtent.Min.X, Input.WorldExtent.Min.Y,
 			Input.WorldExtent.Max.X, Input.WorldExtent.Max.Y})
 			if (std::abs(static_cast<long double>(Coordinate)
 				* Input.Coordinates.SampleSpacingMeters) > MaximumLatticeContributionMeters)
-				return Fail(ETerrainWorldOutcome::Overflow,
+				return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 					"Normalized Terrain tile lattice contribution exceeds 2^40 meters.", OutOutcome, OutError);
 		if (TileExtent.Max.X < Input.WorldExtent.Min.X || TileExtent.Min.X > Input.WorldExtent.Max.X
 			|| TileExtent.Max.Y < Input.WorldExtent.Min.Y || TileExtent.Min.Y > Input.WorldExtent.Max.Y)
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Normalized Terrain tile does not intersect its world.", OutOutcome, OutError);
 		if ((Input.HeightHalo.empty() || Input.CoverageHalo.empty())
 			&& (TileExtent.Min.X > Input.WorldExtent.Min.X || TileExtent.Max.X < Input.WorldExtent.Max.X
 				|| TileExtent.Min.Y > Input.WorldExtent.Min.Y || TileExtent.Max.Y < Input.WorldExtent.Max.Y))
-			return Fail(ETerrainWorldOutcome::MissingDependency,
+			return TerrainWorldFail(ETerrainWorldOutcome::MissingDependency,
 				"Normalized Terrain tile requires a one-sample halo away from every world edge.",
 				OutOutcome, OutError);
 		if (Input.Sources.size() > TerrainWorldMaximumTileSources
@@ -621,7 +621,7 @@ namespace Durin::Asset
 			|| Input.Coverage.size() != TerrainWorldSampleCount
 			|| (!Input.HeightHalo.empty() && Input.HeightHalo.size() != 259u * 259u)
 			|| (!Input.CoverageHalo.empty() && Input.CoverageHalo.size() != 259u * 259u))
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Normalized Terrain tile exceeds a count bound or has an invalid sample array.", OutOutcome, OutError);
 		FGuid PreviousSource;
 		for (const FTerrainCompositionSource& Source : Input.Sources)
@@ -630,14 +630,14 @@ namespace Durin::Asset
 				|| (PreviousSource.IsValid() && !GuidLess(PreviousSource, Source.SourceId))
 				|| Source.AffectedProductMask == 0
 				|| (Source.AffectedProductMask & ~(TerrainSourceAffectsHeight | TerrainSourceAffectsCoverage)) != 0)
-				return Fail(ETerrainWorldOutcome::InvalidDefinition,
+				return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 					"Normalized Terrain sources are invalid or not canonically ordered.", OutOutcome, OutError);
 			PreviousSource = Source.SourceId;
 		}
 		if (!std::ranges::is_sorted(Input.LayerIds, GuidLess)
 			|| std::adjacent_find(Input.LayerIds.begin(), Input.LayerIds.end()) != Input.LayerIds.end()
 			|| std::ranges::any_of(Input.LayerIds, [](const FGuid& Id) { return !Id.IsValid(); }))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Normalized Terrain layers are invalid, duplicated, or not canonically ordered.", OutOutcome, OutError);
 		auto ValidateCoverageSamples = [&](std::span<const FTerrainCoverageSample> Samples) -> bool
 		{
@@ -645,7 +645,7 @@ namespace Durin::Asset
 			{
 				uint32 Sum = 0;
 				if (Sample.LayerCount == 0 || Sample.LayerCount > TerrainWorldMaximumActiveLayers)
-					return Fail(ETerrainWorldOutcome::InvalidDefinition,
+					return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 						"Terrain coverage active layer count is invalid.", OutOutcome, OutError);
 				FGuid Previous;
 				for (uint8 Index = 0; Index < Sample.LayerCount; ++Index)
@@ -654,13 +654,13 @@ namespace Durin::Asset
 					if (Weight.Weight == 0
 						|| std::ranges::find(Input.LayerIds, Weight.LayerId) == Input.LayerIds.end()
 						|| (Previous.IsValid() && !GuidLess(Previous, Weight.LayerId)))
-						return Fail(ETerrainWorldOutcome::InvalidDefinition,
+						return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 							"Terrain coverage weights are invalid or not canonically ordered.", OutOutcome, OutError);
 					Previous = Weight.LayerId;
 					Sum += Weight.Weight;
 				}
 				if (Sum != 255)
-					return Fail(ETerrainWorldOutcome::InvalidDefinition,
+					return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 						"Terrain coverage weights must sum exactly to 255.", OutOutcome, OutError);
 			}
 			return true;
@@ -676,13 +676,13 @@ namespace Durin::Asset
 			int64 ExpectedX = 0, ExpectedY = 0;
 			if (!CheckedAdd(Input.Tile.TileX, Offsets[Index].first, ExpectedX)
 				|| !CheckedAdd(Input.Tile.TileY, Offsets[Index].second, ExpectedY))
-				return Fail(ETerrainWorldOutcome::Overflow,
+				return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 					"Terrain neighbor coordinate overflowed.", OutOutcome, OutError);
 			if (Neighbor.Tile.WorldId != Input.Tile.WorldId
 				|| Neighbor.Tile.SchemeVersion != Input.Tile.SchemeVersion
 				|| Neighbor.Tile.TileX != ExpectedX || Neighbor.Tile.TileY != ExpectedY
 				|| Neighbor.HeightEdgeHash.IsZero() || Neighbor.CoverageEdgeHash.IsZero())
-				return Fail(ETerrainWorldOutcome::BorderMismatch,
+				return TerrainWorldFail(ETerrainWorldOutcome::BorderMismatch,
 					"Terrain neighbor evidence is missing, unordered, or identifies the wrong neighbor.", OutOutcome, OutError);
 			FBinaryWriter HeightWriter;
 			FBinaryWriter CoverageWriter;
@@ -701,7 +701,7 @@ namespace Durin::Asset
 						X, DeltaY < 0 ? 0 : 256);
 			if (FXxHash128::HashBuffer(HeightWriter.GetBytes()) != Neighbor.HeightEdgeHash
 				|| FXxHash128::HashBuffer(CoverageWriter.GetBytes()) != Neighbor.CoverageEdgeHash)
-				return Fail(ETerrainWorldOutcome::BorderMismatch,
+				return TerrainWorldFail(ETerrainWorldOutcome::BorderMismatch,
 					"Terrain neighbor evidence does not match the tile's canonical border.", OutOutcome, OutError);
 		}
 		OutOutcome = ETerrainWorldOutcome::Ready;
@@ -717,7 +717,7 @@ namespace Durin::Asset
 		OutInput = {};
 		if (!ValidateTerrainWorldDefinition(Definition, OutOutcome, OutError)) return false;
 		if (ComposedValues.ShouldCancel && ComposedValues.ShouldCancel())
-			return Fail(ETerrainWorldOutcome::Cancelled,
+			return TerrainWorldFail(ETerrainWorldOutcome::Cancelled,
 				"Terrain tile normalization was cancelled.", OutOutcome, OutError);
 		FTerrainNormalizedTileInput Candidate;
 		Candidate.Tile = {Definition.WorldId, TileX, TileY, Definition.TileSchemeVersion};
@@ -743,7 +743,7 @@ namespace Durin::Asset
 				|| Source.AffectedSamples.Min.Y > TileExtent.Max.Y) continue;
 			Candidate.Sources.push_back(Source);
 			if (Candidate.Sources.size() > TerrainWorldMaximumTileSources)
-				return Fail(ETerrainWorldOutcome::BudgetRejected,
+				return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 					"More than 64 authored sources overlap one Terrain tile.", OutOutcome, OutError);
 		}
 		for (const FTerrainCoverageSample& Sample : Candidate.Coverage)
@@ -758,7 +758,7 @@ namespace Durin::Asset
 		for (const FGuid& LayerId : Candidate.LayerIds)
 			if (std::ranges::find(Definition.Layers, LayerId,
 				&FTerrainLayerDefinition::LayerId) == Definition.Layers.end())
-				return Fail(ETerrainWorldOutcome::InvalidDefinition,
+				return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 					"Composed Terrain coverage references a layer outside the authored definition.",
 					OutOutcome, OutError);
 		for (FTerrainCoverageSample& Sample : Candidate.Coverage)
@@ -772,13 +772,13 @@ namespace Durin::Asset
 					return GuidLess(A.LayerId, B.LayerId);
 				});
 		if (Candidate.LayerIds.size() > TerrainWorldMaximumTileLayers)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"More than 16 logical layers overlap one Terrain tile.", OutOutcome, OutError);
 		if (!ValidateTerrainNormalizedTileInput(Candidate, OutOutcome, OutError)) return false;
 		const uint64 TaskCeiling = Definition.ProductProfile == 1
 			? 512ull * 1024ull * 1024ull : 768ull * 1024ull * 1024ull;
 		if (EstimateTerrainTileBuildBytes(Candidate) > TaskCeiling)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile normalization exceeds its profile task ceiling.", OutOutcome, OutError);
 		OutInput = std::move(Candidate);
 		OutOutcome = ETerrainWorldOutcome::Ready;
@@ -795,10 +795,10 @@ namespace Durin::Asset
 		OutInput = {};
 		if (!ValidateTerrainWorldDefinition(Definition, OutOutcome, OutError)) return false;
 		if (Contributions.size() > TerrainWorldMaximumTileSources)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile composition exceeds 64 source contributions.", OutOutcome, OutError);
 		if (Definition.Layers.empty())
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain tile composition requires at least one logical layer.", OutOutcome, OutError);
 		FTerrainTileKey Tile{Definition.WorldId, TileX, TileY, Definition.TileSchemeVersion};
 		FTerrainSampleExtent TileExtent;
@@ -833,7 +833,7 @@ namespace Durin::Asset
 				|| Source.AffectedSamples.Max.Y < TileExtent.Min.Y
 				|| Source.AffectedSamples.Min.Y > TileExtent.Max.Y) continue;
 			if (ContributionIndex >= Contributions.size())
-				return Fail(ETerrainWorldOutcome::MissingDependency,
+				return TerrainWorldFail(ETerrainWorldOutcome::MissingDependency,
 					"Terrain tile source contribution is missing.", OutOutcome, OutError);
 			const FTerrainTileSourceContribution& Contribution = Contributions[ContributionIndex++];
 			if (Contribution.SourceId != Source.SourceId || Contribution.ContentHash != Source.ContentHash
@@ -843,18 +843,18 @@ namespace Durin::Asset
 					!= !Contribution.Heights.empty())
 				|| (((Source.AffectedProductMask & TerrainSourceAffectsCoverage) != 0)
 					!= !Contribution.Coverage.empty()))
-				return Fail(ETerrainWorldOutcome::MissingDependency,
+				return TerrainWorldFail(ETerrainWorldOutcome::MissingDependency,
 					"Terrain tile source contribution identity or sample count is invalid.", OutOutcome, OutError);
 			if (!Contribution.Coverage.empty()
 				&& (Source.BlendOperation != static_cast<uint8>(ETerrainCompositionBlendOperation::Replace)
 					|| Source.Strength != 255))
-				return Fail(ETerrainWorldOutcome::InvalidDefinition,
+				return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 					"Schema-1 coverage composition requires full-strength ordered Replace.", OutOutcome, OutError);
 			for (uint32 Y = 0; Y <= 256; ++Y)
 				for (uint32 X = 0; X <= 256; ++X)
 				{
 					if (ShouldCancel && ShouldCancel())
-						return Fail(ETerrainWorldOutcome::Cancelled,
+						return TerrainWorldFail(ETerrainWorldOutcome::Cancelled,
 							"Terrain tile composition was cancelled.", OutOutcome, OutError);
 					const int64 GlobalX = TileExtent.Min.X + X;
 					const int64 GlobalY = TileExtent.Min.Y + Y;
@@ -883,7 +883,7 @@ namespace Durin::Asset
 							break;
 						}
 						if (Composed < -32768 || Composed > 32767)
-							return Fail(ETerrainWorldOutcome::Overflow,
+							return TerrainWorldFail(ETerrainWorldOutcome::Overflow,
 								"Terrain height composition exceeded the schema-1 envelope.", OutOutcome, OutError);
 						Values.Heights[Offset] = static_cast<int16>(Composed);
 					}
@@ -891,7 +891,7 @@ namespace Durin::Asset
 				}
 		}
 		if (ContributionIndex != Contributions.size())
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain tile source contributions contain an unordered or non-overlapping extra value.",
 				OutOutcome, OutError);
 		return NormalizeTerrainTileInput(Definition, TileX, TileY, Values,
@@ -933,7 +933,7 @@ namespace Durin::Asset
 			|| !ResolveDelta(Tile.Tile.TileX, Neighbor.Tile.TileX, DeltaX)
 			|| !ResolveDelta(Tile.Tile.TileY, Neighbor.Tile.TileY, DeltaY)
 			|| (DeltaX == 0 && DeltaY == 0))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain neighbor is not one of the ordered eight adjacent tiles.", OutOutcome, OutError);
 		FBinaryWriter HeightWriter;
 		FBinaryWriter CoverageWriter;
@@ -950,21 +950,21 @@ namespace Durin::Asset
 		{
 			if (!Compare(DeltaX < 0 ? 0 : 256, DeltaY < 0 ? 0 : 256,
 				DeltaX < 0 ? 256 : 0, DeltaY < 0 ? 256 : 0))
-				return Fail(ETerrainWorldOutcome::BorderMismatch,
+				return TerrainWorldFail(ETerrainWorldOutcome::BorderMismatch,
 					"Terrain diagonal neighbor corner does not match bit-identically.", OutOutcome, OutError);
 		}
 		else if (DeltaX != 0)
 		{
 			for (uint32 Y = 0; Y <= 256; ++Y)
 				if (!Compare(DeltaX < 0 ? 0 : 256, Y, DeltaX < 0 ? 256 : 0, Y))
-					return Fail(ETerrainWorldOutcome::BorderMismatch,
+					return TerrainWorldFail(ETerrainWorldOutcome::BorderMismatch,
 						"Terrain east/west neighbor edge does not match bit-identically.", OutOutcome, OutError);
 		}
 		else
 		{
 			for (uint32 X = 0; X <= 256; ++X)
 				if (!Compare(X, DeltaY < 0 ? 0 : 256, X, DeltaY < 0 ? 256 : 0))
-					return Fail(ETerrainWorldOutcome::BorderMismatch,
+					return TerrainWorldFail(ETerrainWorldOutcome::BorderMismatch,
 						"Terrain north/south neighbor edge does not match bit-identically.", OutOutcome, OutError);
 		}
 		OutEvidence = {true, Neighbor.Tile, FXxHash128::HashBuffer(HeightWriter.GetBytes()),
@@ -1034,17 +1034,17 @@ namespace Durin::Asset
 		OutBytes.clear();
 		if (!IsValidProductClass(ProductClass) || !Tile.WorldId.IsValid()
 			|| Tile.SchemeVersion != TerrainWorldTileSchemeVersion || !GenerationId.IsValid())
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain tile product identity is invalid.", OutOutcome, OutError);
 		if (Dependencies.size() > TerrainWorldMaximumDependencies)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile product dependency count exceeds its ceiling.", OutOutcome, OutError);
 		const uint64 TotalBytes = HeaderBytes + Dependencies.size() * 16ull + Body.size();
 		if (TotalBytes > ProductCeiling(ProductClass))
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile product exceeds its class byte ceiling.", OutOutcome, OutError);
-		if (!Private::ValidateTerrainWorldProductBody(ProductClass, Body, OutError))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+		if (!AssetPrivate::ValidateTerrainWorldProductBody(ProductClass, Body, OutError))
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Terrain tile product body is structurally invalid: " + OutError,
 				OutOutcome, OutError);
 		const FXxHash128 BodyHash = FXxHash128::HashBuffer(Body);
@@ -1065,7 +1065,7 @@ namespace Durin::Asset
 		for (const FXxHash128& Dependency : Dependencies) WriteHash(Writer, Dependency);
 		Writer.WriteBytes(Body);
 		if (Writer.GetBytes().size() != TotalBytes)
-			return Fail(ETerrainWorldOutcome::PublicationFailed,
+			return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 				"Terrain tile product header size is inconsistent.", OutOutcome, OutError);
 		OutBytes = Writer.TakeBytes();
 		OutOutcome = ETerrainWorldOutcome::Ready;
@@ -1079,29 +1079,29 @@ namespace Durin::Asset
 	{
 		OutProduct = {};
 		if (!IsValidProductClass(ExpectedClass))
-			return Fail(ETerrainWorldOutcome::InvalidDefinition,
+			return TerrainWorldFail(ETerrainWorldOutcome::InvalidDefinition,
 				"Expected Terrain tile product class is invalid.", OutOutcome, OutError);
 		if (Bytes.size() < 8)
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
 		uint32 Magic = 0;
 		uint16 Version = 0, EncodedClass = 0;
 		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Version)
 			|| !ReadLittleEndianAt(Bytes, 6, EncodedClass))
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
 		if (Magic != ProductEnvelopeMagic)
-			return Fail(ETerrainWorldOutcome::UnsupportedLegacySchema,
+			return TerrainWorldFail(ETerrainWorldOutcome::UnsupportedLegacySchema,
 				std::format("Terrain tile product magic {:#x} does not match the unified TWPD envelope; legacy Terrain values are never decoded.",
 					Magic), OutOutcome, OutError);
 		if (Version != TerrainWorldSchemaVersion)
-			return Fail(ETerrainWorldOutcome::Incompatible,
+			return TerrainWorldFail(ETerrainWorldOutcome::Incompatible,
 				"Terrain tile product schema version is incompatible.", OutOutcome, OutError);
 		if (EncodedClass != static_cast<uint16>(ExpectedClass))
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product class does not match the requested product.", OutOutcome, OutError);
 		if (Bytes.size() > ProductCeiling(ExpectedClass) || Bytes.size() < HeaderBytes)
-			return Fail(ETerrainWorldOutcome::BudgetRejected,
+			return TerrainWorldFail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile product byte count is outside its class bound.", OutOutcome, OutError);
 		FBinaryReader Reader(Bytes);
 		uint32 HeaderMagic = 0, Required = 0, Optional = 0, DependencyCount = 0, Reserved32 = 0;
@@ -1115,29 +1115,29 @@ namespace Durin::Asset
 			|| !Reader.ReadU64(LogicalBytes) || !Reader.ReadU64(StoredBytes)
 			|| !ReadHash(Reader, Candidate.BodyHash) || !Reader.ReadU32(DependencyCount)
 			|| !Reader.ReadU32(Reserved32))
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
 		if (HeaderMagic != Magic || HeaderVersion != Version || HeaderClass != EncodedClass
 			|| Required != RequiredFlags || Optional != 0 || TileReserved != 0 || Reserved32 != 0
 			|| !Candidate.Tile.WorldId.IsValid() || Candidate.Tile.SchemeVersion != TerrainWorldTileSchemeVersion
 			|| !Candidate.GenerationId.IsValid() || DependencyCount > TerrainWorldMaximumDependencies
 			|| LogicalBytes != StoredBytes || StoredBytes != Reader.GetRemainingBytes() - DependencyCount * 16ull)
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header fields are invalid.", OutOutcome, OutError);
 		Candidate.Dependencies.resize(DependencyCount);
 		for (FXxHash128& Dependency : Candidate.Dependencies)
 			if (!ReadHash(Reader, Dependency) || Dependency.IsZero())
-				return Fail(ETerrainWorldOutcome::MissingDependency,
+				return TerrainWorldFail(ETerrainWorldOutcome::MissingDependency,
 					"Terrain tile product dependency is missing or invalid.", OutOutcome, OutError);
 		std::span<const std::byte> Body;
 		if (!Reader.ReadRegion(Body, StoredBytes, ProductCeiling(ExpectedClass)) || !Reader.IsAtEnd())
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product body is truncated or has trailing bytes.", OutOutcome, OutError);
 		if (FXxHash128::HashBuffer(Body) != Candidate.BodyHash)
-			return Fail(ETerrainWorldOutcome::Corrupt,
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product body checksum is invalid.", OutOutcome, OutError);
-		if (!Private::ValidateTerrainWorldProductBody(ExpectedClass, Body, OutError))
-			return Fail(ETerrainWorldOutcome::Corrupt,
+		if (!AssetPrivate::ValidateTerrainWorldProductBody(ExpectedClass, Body, OutError))
+			return TerrainWorldFail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product body is structurally invalid: " + OutError,
 				OutOutcome, OutError);
 		Candidate.ProductClass = ExpectedClass;
@@ -1155,11 +1155,11 @@ namespace Durin::Asset
 		if (!GenerationId.IsValid() || !ValidateTerrainNormalizedTileInput(Input, OutOutcome, OutError))
 			return false;
 		if (!EnsureTerrainBuildFunctions(&OutError))
-			return Fail(ETerrainWorldOutcome::PublicationFailed,
+			return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 				"Terrain World build functions could not be registered: " + OutError,
 				OutOutcome, OutError);
 		if (Input.ShouldCancel && Input.ShouldCancel())
-			return Fail(ETerrainWorldOutcome::Cancelled,
+			return TerrainWorldFail(ETerrainWorldOutcome::Cancelled,
 				"Terrain tile generation was cancelled.", OutOutcome, OutError);
 		FTerrainTileGeneration Candidate{Input.Tile, GenerationId};
 		std::array<FByteArray, 5> Bodies;
@@ -1175,24 +1175,24 @@ namespace Durin::Asset
 		for (uint8 Value = 1; Value <= 5; ++Value)
 		{
 			if (Input.ShouldCancel && Input.ShouldCancel())
-				return Fail(ETerrainWorldOutcome::Cancelled,
+				return TerrainWorldFail(ETerrainWorldOutcome::Cancelled,
 					"Terrain tile generation was cancelled.", OutOutcome, OutError);
 			const auto Class = static_cast<ETerrainTileProductClass>(Value);
 			const std::string DerivedDataKey = MakeTerrainTileBuildKeyUnchecked(Input, Class, OutError);
 			if (DerivedDataKey.empty())
-				return Fail(ETerrainWorldOutcome::PublicationFailed,
+				return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 					"Terrain tile product build key could not be created.", OutOutcome, OutError);
 			FBuildDefinition Definition;
-			FBuildDefinitionBuilder Builder(Private::GetTerrainWorldBuildFunctionName(Class),
-				std::string(Private::GetTerrainWorldBuildValueName(Class)));
+			FBuildDefinitionBuilder Builder(AssetPrivate::GetTerrainWorldBuildFunctionName(Class),
+				std::string(AssetPrivate::GetTerrainWorldBuildValueName(Class)));
 			Builder.SetKey(FBuildKey::FromString(DerivedDataKey))
 				.AddTargetFact("TerrainProductClass", std::to_string(Value))
 				.AddTargetFact("Platform", std::to_string(static_cast<uint32>(Input.TargetPlatform)))
 				.AddTargetFact("Profile", std::to_string(static_cast<uint32>(Input.TargetProfile)))
-				.AddInput(FBuildValue::FromOwned(std::string(Private::TerrainWorldProductInputName),
+				.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::TerrainWorldProductInputName),
 					Bodies[ProductIndex(Class)]));
 			if (!Builder.Build(Definition, &OutError))
-				return Fail(ETerrainWorldOutcome::PublicationFailed,
+				return TerrainWorldFail(ETerrainWorldOutcome::PublicationFailed,
 					"Terrain tile product build definition is invalid: " + OutError,
 					OutOutcome, OutError);
 			const FBuildCancellationToken Cancellation(Input.ShouldCancel);
@@ -1206,7 +1206,7 @@ namespace Durin::Asset
 			{
 				const ETerrainWorldOutcome Outcome = Output.Status == EBuildStatus::Canceled
 					? ETerrainWorldOutcome::Cancelled : ETerrainWorldOutcome::PublicationFailed;
-				return Fail(Outcome, Output.Diagnostic, OutOutcome, OutError);
+				return TerrainWorldFail(Outcome, Output.Diagnostic, OutOutcome, OutError);
 			}
 			std::vector<FXxHash128> Dependencies;
 			if (Class == ETerrainTileProductClass::Metadata
@@ -1249,7 +1249,7 @@ namespace Durin::Asset
 		if (!ValidateGeneration(Candidate, OutOutcome, OutError)) return false;
 		std::lock_guard Lock(Mutex);
 		if (RequestId == 0 || RequestId != LatestRequestId)
-			return Fail(ETerrainWorldOutcome::Superseded,
+			return TerrainWorldFail(ETerrainWorldOutcome::Superseded,
 				"Terrain tile generation publication was superseded.", OutOutcome, OutError);
 		Current = std::make_shared<const FTerrainTileGeneration>(std::move(Candidate));
 		OutOutcome = ETerrainWorldOutcome::Ready;

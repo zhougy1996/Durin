@@ -17,16 +17,16 @@ namespace Durin
 	ENGINE_API auto EncodeMaterialCookedProgram(
 		const FMaterialCompilerResult& Program,
 		const FMaterialStaticProperties& StaticProperties,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 
 	// Validates a complete bounded target payload before publishing an immutable program.
 	ENGINE_API auto DecodeMaterialCookedProgram(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,
 		std::shared_ptr<const FMaterialCompilerResult>& OutProgram,
 		std::string& OutError) -> bool;

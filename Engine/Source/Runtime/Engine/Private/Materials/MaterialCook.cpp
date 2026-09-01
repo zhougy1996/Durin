@@ -24,8 +24,8 @@ namespace Durin
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
 		if (!DecodeMaterialCookedProgram(
 			Bytes,
-			Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game,
+			ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game,
 			PayloadProperties, ProgramCandidate, OutError))
 		{
 			CookedProgramData.UnlockReadOnly();
@@ -75,8 +75,8 @@ namespace Durin
 				"Material cooked program data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* FieldValue = &CookedProgramData;
+		FBulkData Projection;
+		FBulkData* FieldValue = &CookedProgramData;
 		if (Ar.IsSaving())
 		{
 			if (!AcceptedCompiledProgram)
@@ -89,9 +89,9 @@ namespace Durin
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
 					*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,
-					Asset::ECookTargetPlatform::Win64,
-					Asset::ECookTargetProfile::Game, Bytes, Error)
-				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+					ECookTargetPlatform::Win64,
+					ECookTargetProfile::Game, Bytes, Error)
+				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
 				return;
@@ -100,17 +100,17 @@ namespace Durin
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterial"),
 			FName("ProgramData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
 	auto DMaterial::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 			return Fail(std::format(
 				"Material '{}' supports only the Win64 game cook target.",
 				GetObjectPath()), &OutError);

@@ -22,10 +22,10 @@ namespace Durin
 				OutError = "Terrain heightmap canonical imported data is missing or invalid.";
 				return false;
 			}
-			std::string Key = Asset::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
+			std::string Key = MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
 			if (Key.empty()) return false;
 			std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-			if (Asset::LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
+			if (LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
 			{
 				Heightmap.PublishDerivedDataLoadResult(std::move(Payload),
 					std::move(Key), "Loaded terrain heightmap payload from DDC.",
@@ -33,8 +33,8 @@ namespace Durin
 				OutError.clear();
 				return true;
 			}
-			Asset::FTerrainHeightmapBuildProduct Product;
-			if (!Asset::BuildTerrainHeightmap({
+			FTerrainHeightmapBuildProduct Product;
+			if (!BuildTerrainHeightmap({
 				.Samples = Heightmap.GetImportedData().GetSamples(),
 				.Width = Heightmap.GetImportedData().Width,
 				.Height = Heightmap.GetImportedData().Height,
@@ -67,7 +67,7 @@ namespace Durin
 			std::string Error;
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration("TerrainBuild.BuildFunctions");
-			checkf(Asset::InitializeTerrainBuildFunctions(
+			checkf(InitializeTerrainBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"TerrainBuild could not register its build functions: {}", Error);
 			DerivedDataLoadRegistration = FModuleStartup::RegisterFeature<
@@ -78,7 +78,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::ShutdownTerrainBuildFunctions();
+			ShutdownTerrainBuildFunctions();
 		}
 	};
 

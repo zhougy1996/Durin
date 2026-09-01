@@ -8,7 +8,6 @@
 #include "DObject/Package.h"
 #include "Factories/Factory.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Transaction.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -83,8 +82,8 @@ namespace Durin
 			if (!Package || !Package->IsAssetPackage()) return false;
 			FPackagePath Path;
 			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return false;
-			return Asset::UnloadPackage(
-				Package, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved).Succeeded();
+			return UnloadPackage(
+				Package, EAssetPackageUnloadPolicy::DiscardUnsaved).Succeeded();
 		}
 
 		auto DuplicateAsset(const FAssetDuplicateRequest& Request)
@@ -135,7 +134,7 @@ namespace Durin
 				return MakeRejectedAssetOperation(
 					Kind, "The requested asset class cannot be constructed.");
 			if (FindPackage(AssetPath.GetPackagePath().GetView())
-				|| Asset::FindTopLevelAssetExact(AssetPath))
+				|| FindTopLevelAssetExact(AssetPath))
 				return MakeRejectedAssetOperation(Kind, std::format(
 					"Asset {} already exists.", AssetPath.ToString()));
 			if (bFromFile && Filename.empty())

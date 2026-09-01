@@ -5,7 +5,7 @@
 
 namespace Durin::AssetForge::Builtins::Private
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	constexpr uint32 GlbMagic = 0x46546C67;
 	constexpr uint32 GlbJsonChunk = 0x4E4F534A;
 	constexpr uint32 GlbBinaryChunk = 0x004E4942;

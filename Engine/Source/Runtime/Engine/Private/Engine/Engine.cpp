@@ -124,22 +124,22 @@ namespace Durin
 
 	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
 	{
-		if (!Asset::InitializeCookedMeshLoadManager())
+		if (!InitializeCookedMeshLoadManager())
 			return FEngineInitializationResult::Failure(
 				"Cooked mesh load manager could not start.");
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
-			const Asset::FAssetCatalogRefreshResult Refresh =
-				Asset::RefreshAssetRegistry(
-					Asset::EAssetRegistryScanMode::Incremental
+			const FAssetCatalogRefreshResult Refresh =
+				RefreshAssetRegistry(
+					EAssetRegistryScanMode::Incremental
 				);
 			if (!Refresh)
 			{
 				DURIN_ERROR(
 					"Asset catalog refresh retained revision {} with {} error(s).",
 					Refresh.ResultingRevision, Refresh.Errors.size());
-				for (const Asset::FAssetRegistryResult& Error : Refresh.Errors)
+				for (const FAssetRegistryResult& Error : Refresh.Errors)
 				{
 					DURIN_ERROR("Asset catalog refresh error: {}", Error.Message);
 				}
@@ -205,7 +205,7 @@ namespace Durin
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		(void)bIdleMode;
-		Asset::PumpCookedMeshLoadManager();
+		PumpCookedMeshLoadManager();
 		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
 		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();

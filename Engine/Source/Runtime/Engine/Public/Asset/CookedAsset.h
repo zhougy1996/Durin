@@ -1,9 +1,9 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class ECookTargetPlatform : uint32
 	{
@@ -85,4 +85,4 @@ namespace Durin::Asset
 		std::string* OutError = nullptr
 	) -> bool;
 
-} // namespace Durin::Asset
+} // namespace Durin

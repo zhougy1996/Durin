@@ -2,17 +2,17 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
 		auto IsSupportedTarget(
-			Asset::ECookTargetPlatform Platform,
-			Asset::ECookTargetProfile Profile) -> bool
+			ECookTargetPlatform Platform,
+			ECookTargetProfile Profile) -> bool
 		{
-			return Platform == Asset::ECookTargetPlatform::Win64
-				&& (Profile == Asset::ECookTargetProfile::Game
-					|| Profile == Asset::ECookTargetProfile::EditorValidation);
+			return Platform == ECookTargetPlatform::Win64
+				&& (Profile == ECookTargetProfile::Game
+					|| Profile == ECookTargetProfile::EditorValidation);
 		}
 	}
 

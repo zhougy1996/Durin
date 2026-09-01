@@ -341,7 +341,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 	InitializeDObjectSystem();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
@@ -379,7 +379,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	FRenderSceneHarness Harness;
 	auto* Shared = MakeExpandedMaterial(nullptr, "SharedSlotMaterial");
 	auto* Override = MakeExpandedMaterial(nullptr, "OverrideSlotMaterial");
@@ -575,7 +575,7 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	InitializeDObjectSystem();
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	for (const std::string_view PathText : {
 		"/Engine/Models/Sphere.Sphere",
 		"/Engine/Models/Box.Box"})
@@ -613,7 +613,7 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	FMaterialPreviewHarness Harness;
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 
 	constexpr uint64 FirstPreviewId = 987654321;
 	constexpr uint64 SecondPreviewId = 987654322;

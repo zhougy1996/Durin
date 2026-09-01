@@ -2,7 +2,7 @@
 
 #include "Skeletal/SkeletalBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -27,15 +27,15 @@ namespace Durin::Asset
 		if (bAcquiredSkeletalMesh)
 		{
 			GSkeletalMeshRegistration = RegisterBuildFunction(
-				Private::SkeletalMeshFunctionName,
-				Private::CreateSkeletalMeshBuildFunction(), Gate, OutError);
+				AssetPrivate::SkeletalMeshFunctionName,
+				AssetPrivate::CreateSkeletalMeshBuildFunction(), Gate, OutError);
 			if (!GSkeletalMeshRegistration.IsValid()) return false;
 		}
 		if (bAcquiredAnimationClip)
 		{
 			GAnimationClipRegistration = RegisterBuildFunction(
-				Private::AnimationClipFunctionName,
-				Private::CreateAnimationClipBuildFunction(), Gate, OutError);
+				AssetPrivate::AnimationClipFunctionName,
+				AssetPrivate::CreateAnimationClipBuildFunction(), Gate, OutError);
 			if (!GAnimationClipRegistration.IsValid())
 			{
 				RollBack();

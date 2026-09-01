@@ -7,12 +7,12 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset::BulkContainer;
+	using namespace Durin::BulkContainer;
 }
 
 namespace
 {
-	auto MakeChunkedPayloadFormat() -> Durin::Asset::FChunkedPayloadFormat
+	auto MakeChunkedPayloadFormat() -> Durin::FChunkedPayloadFormat
 	{
 		return {
 			.HeaderSizeWordIndex = 5,
@@ -21,8 +21,8 @@ namespace
 			.GlobalCompressedFlag = 1,
 			.RequiredChunkCount = 2,
 			.MaximumChunkCount = 4,
-			.RequiredChunkFlag = Durin::Asset::ChunkedPayloadRequiredFlag,
-			.KnownChunkFlags = Durin::Asset::ChunkedPayloadRequiredFlag | 0x0000ff00,
+			.RequiredChunkFlag = Durin::ChunkedPayloadRequiredFlag,
+			.KnownChunkFlags = Durin::ChunkedPayloadRequiredFlag | 0x0000ff00,
 			.CompressionMask = 0x0000ff00,
 			.CompressionShift = 8,
 			.MaximumCompressionMethod = 1,
@@ -212,7 +212,7 @@ TEST(FBulkContainerLayoutTests, ReportsLimitAndTrailingPaddingFailuresPrecisely)
 
 TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterministically)
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	const std::array<std::byte, 3> First{std::byte{1}, std::byte{2}, std::byte{3}};
 	const std::array<std::byte, 3> Second{std::byte{4}, std::byte{5}, std::byte{6}};
 	const std::array<std::byte, 2> Optional{std::byte{7}, std::byte{8}};
@@ -237,7 +237,7 @@ TEST(FChunkedPayloadCodecTests, RoundTripsRequiredAndUnknownOptionalChunksDeterm
 
 TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCompatibility)
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	const std::array<std::byte, 3> First{std::byte{1}, std::byte{2}, std::byte{3}};
 	const std::array<std::byte, 3> Second{std::byte{4}, std::byte{5}, std::byte{6}};
 	const std::array Chunks{
@@ -279,7 +279,7 @@ TEST(FChunkedPayloadCodecTests, RejectsPaddingDuplicateRequiredAndCompressionCom
 
 TEST(FChunkedPayloadCodecTests, DoesNotPublishFailedEncodeOrDecodeCandidates)
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	const std::array<std::byte, 900> Oversized{};
 	const std::array Chunks{
 		FChunkedPayloadInput{1, ChunkedPayloadRequiredFlag, Oversized, Oversized.size()},

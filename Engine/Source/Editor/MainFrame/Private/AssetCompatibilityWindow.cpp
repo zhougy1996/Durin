@@ -9,24 +9,24 @@ namespace Durin::Editor::MainFrame
 {
 	namespace
 	{
-		auto InspectionName(Asset::EAssetCompatibilityInspection Value) -> const char*
+		auto InspectionName(EAssetCompatibilityInspection Value) -> const char*
 		{
 			switch (Value)
 			{
-			case Asset::EAssetCompatibilityInspection::NotChecked: return "Not checked";
-			case Asset::EAssetCompatibilityInspection::Ready: return "Ready";
-			case Asset::EAssetCompatibilityInspection::Failed: return "Failed";
+			case EAssetCompatibilityInspection::NotChecked: return "Not checked";
+			case EAssetCompatibilityInspection::Ready: return "Ready";
+			case EAssetCompatibilityInspection::Failed: return "Failed";
 			}
 			return "Unknown";
 		}
 
-		auto CompatibilityName(Asset::EAssetPackageCompatibility Value) -> const char*
+		auto CompatibilityName(EAssetPackageCompatibility Value) -> const char*
 		{
 			switch (Value)
 			{
-			case Asset::EAssetPackageCompatibility::Compatible: return "Compatible";
-			case Asset::EAssetPackageCompatibility::Incompatible: return "Incompatible";
-			case Asset::EAssetPackageCompatibility::Unsupported: return "Unsupported";
+			case EAssetPackageCompatibility::Compatible: return "Compatible";
+			case EAssetPackageCompatibility::Incompatible: return "Incompatible";
+			case EAssetPackageCompatibility::Unsupported: return "Unsupported";
 			}
 			return "Unknown";
 		}
@@ -57,31 +57,31 @@ namespace Durin::Editor::MainFrame
 			return "Unknown";
 		}
 
-		auto CanonicalResaveStatusName(Asset::EAssetCanonicalResavePackageStatus Value) -> const char*
+		auto CanonicalResaveStatusName(EAssetCanonicalResavePackageStatus Value) -> const char*
 		{
 			switch (Value)
 			{
-			case Asset::EAssetCanonicalResavePackageStatus::Skipped: return "Skipped";
-			case Asset::EAssetCanonicalResavePackageStatus::Ready: return "Ready";
-			case Asset::EAssetCanonicalResavePackageStatus::Resaved: return "Resaved";
-			case Asset::EAssetCanonicalResavePackageStatus::Blocked: return "Blocked";
-			case Asset::EAssetCanonicalResavePackageStatus::Failed: return "Failed";
-			case Asset::EAssetCanonicalResavePackageStatus::Cancelled: return "Cancelled";
-			case Asset::EAssetCanonicalResavePackageStatus::Stale: return "Stale";
+			case EAssetCanonicalResavePackageStatus::Skipped: return "Skipped";
+			case EAssetCanonicalResavePackageStatus::Ready: return "Ready";
+			case EAssetCanonicalResavePackageStatus::Resaved: return "Resaved";
+			case EAssetCanonicalResavePackageStatus::Blocked: return "Blocked";
+			case EAssetCanonicalResavePackageStatus::Failed: return "Failed";
+			case EAssetCanonicalResavePackageStatus::Cancelled: return "Cancelled";
+			case EAssetCanonicalResavePackageStatus::Stale: return "Stale";
 			}
 			return "Unknown";
 		}
 
 		auto CountCanonicalResaveStatus(
-			const Asset::FAssetCanonicalResavePlan& Plan,
-			Asset::EAssetCanonicalResavePackageStatus Status) -> size_t
+			const FAssetCanonicalResavePlan& Plan,
+			EAssetCanonicalResavePackageStatus Status) -> size_t
 		{
 			return static_cast<size_t>(std::ranges::count(
-				Plan.Packages, Status, &Asset::FAssetCanonicalResavePackagePlan::Status));
+				Plan.Packages, Status, &FAssetCanonicalResavePackagePlan::Status));
 		}
 
 		auto IsCanonicalResaveRecommended(
-			const Asset::FAssetPackageCompatibilityRecord& Record) -> bool
+			const FAssetPackageCompatibilityRecord& Record) -> bool
 		{
 			return !Record.CanonicalizationEvidence.empty()
 				|| !Record.DeprecatedRouteEvidence.empty();
@@ -100,10 +100,10 @@ namespace Durin::Editor::MainFrame
 
 		// Comparison only: this does not scan the registry or touch package bytes.
 		Audit.Tick();
-		const uint64 CatalogRevision = Asset::GetAssetCatalogRevision();
+		const uint64 CatalogRevision = GetAssetCatalogRevision();
 		if (!ReconciledCatalogRevision || *ReconciledCatalogRevision != CatalogRevision)
 		{
-			const Asset::FAssetCatalogSnapshot Snapshot = Asset::CaptureAssetCatalogSnapshot();
+			const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
 			Audit.ReconcileAssetCatalog(Snapshot.Assets);
 			ReconciledCatalogRevision = Snapshot.Revision;
 		}
@@ -166,7 +166,7 @@ namespace Durin::Editor::MainFrame
 		if (PendingMaintenancePlan)
 		{
 			const size_t Total = CountCanonicalResaveStatus(*PendingMaintenancePlan,
-				Asset::EAssetCanonicalResavePackageStatus::Ready) + MaintenanceCompleted;
+				EAssetCanonicalResavePackageStatus::Ready) + MaintenanceCompleted;
 			ImGui::Text("Canonical resave progress: %zu / %zu", MaintenanceCompleted, Total);
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Cancel Canonical Resave")) bCancelMaintenance = true;
@@ -248,7 +248,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::BeginDisabled(!bCanPlanMaintenance || SelectedPackages.empty());
 		if (ImGui::Button("Preview Selected Resaves"))
 		{
-			Asset::FAssetCanonicalResaveSelection Selection;
+			FAssetCanonicalResaveSelection Selection;
 			Selection.Packages.assign(SelectedPackages.begin(), SelectedPackages.end());
 			PreviewCanonicalResave(std::move(Selection),
 				std::format("{} selected package(s)", SelectedPackages.size()));
@@ -259,7 +259,7 @@ namespace Durin::Editor::MainFrame
 		if (ImGui::Button(std::format(
 			"Preview Filtered Recommended ({})", FilteredCanonicalDebt).c_str()))
 		{
-			Asset::FAssetCanonicalResaveSelection Selection;
+			FAssetCanonicalResaveSelection Selection;
 			for (const size_t Index : FilteredRecordIndices)
 				if (IsCanonicalResaveRecommended(Records[Index]))
 					Selection.Packages.push_back(Records[Index].PackagePath);
@@ -270,7 +270,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::BeginDisabled(!bCanPlanMaintenance || CanonicalDebt == 0);
 		if (ImGui::Button("Preview All Recommended"))
 		{
-			Asset::FAssetCanonicalResaveSelection Selection;
+			FAssetCanonicalResaveSelection Selection;
 			for (const auto& Record : Records)
 				if (IsCanonicalResaveRecommended(Record)) Selection.Packages.push_back(Record.PackagePath);
 			PreviewCanonicalResave(std::move(Selection), "all project recommendations");
@@ -323,7 +323,7 @@ namespace Durin::Editor::MainFrame
 					ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(InspectionName(Record.Inspection));
 					ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(CompatibilityName(Record.Compatibility));
 					ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(
-						Record.Freshness == Asset::EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
+						Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
 					ImGui::TableSetColumnIndex(5); ImGui::Text("%zu + %zu resave", Record.Findings.size(),
 						Record.CanonicalizationEvidence.size() + Record.DeprecatedRouteEvidence.size());
 					ImGui::PopID();
@@ -362,7 +362,7 @@ namespace Durin::Editor::MainFrame
 			ImGui::BeginDisabled(!bCanPlanMaintenance);
 			if (ImGui::SmallButton("Preview Package Resave"))
 			{
-				Asset::FAssetCanonicalResaveSelection Selection{.Packages = {Record->PackagePath}};
+				FAssetCanonicalResaveSelection Selection{.Packages = {Record->PackagePath}};
 				PreviewCanonicalResave(std::move(Selection), Record->PackagePath.ToString());
 			}
 			ImGui::SameLine();
@@ -376,7 +376,7 @@ namespace Durin::Editor::MainFrame
 					if (IsCanonicalResaveRecommended(Candidate)
 						&& (Folder == "/" || Candidate.PackagePath.GetView().starts_with(Folder + "/")))
 						Packages.push_back(Candidate.PackagePath);
-				Asset::FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
+				FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
 				PreviewCanonicalResave(std::move(Selection), std::format("folder {}", Folder));
 			}
 			if (Mount)
@@ -389,20 +389,20 @@ namespace Durin::Editor::MainFrame
 						if (IsCanonicalResaveRecommended(Candidate)
 							&& Candidate.PackagePath.GetView().starts_with(Mount.Mount->VirtualRoot))
 							Packages.push_back(Candidate.PackagePath);
-					Asset::FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
+					FAssetCanonicalResaveSelection Selection{.Packages = std::move(Packages)};
 					PreviewCanonicalResave(std::move(Selection),
 						std::format("mount {}", Mount.Mount->VirtualRoot));
 				}
 			}
 			ImGui::EndDisabled();
 		}
-		if (Record->Freshness == Asset::EAssetCompatibilityFreshness::Stale)
+		if (Record->Freshness == EAssetCompatibilityFreshness::Stale)
 			ImGui::TextDisabled("This result is stale because the package fingerprint changed. Run the audit again.");
 		ImGui::BeginChild("CompatibilityFindingDetails", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
 		if (Record->Findings.empty()) ImGui::TextDisabled("No compatibility findings.");
 		for (const auto& Finding : Record->Findings)
 		{
-			ImGui::SeparatorText(Asset::AssetCompatibilityFindingCodeName(Finding.Code).data());
+			ImGui::SeparatorText(AssetCompatibilityFindingCodeName(Finding.Code).data());
 			if (!Finding.ObjectPath.empty()) ImGui::Text("Object: %s", Finding.ObjectPath.c_str());
 			if (!Finding.FieldName.empty()) ImGui::Text("Field: %s::%s", Finding.DeclaringType.c_str(), Finding.FieldName.c_str());
 			ImGui::TextWrapped("%s", Finding.Diagnostic.c_str());
@@ -428,12 +428,12 @@ namespace Durin::Editor::MainFrame
 		if (!PreviewMaintenancePlan) return;
 		const auto& Plan = *PreviewMaintenancePlan;
 		const size_t ReadyCount = CountCanonicalResaveStatus(
-			Plan, Asset::EAssetCanonicalResavePackageStatus::Ready);
+			Plan, EAssetCanonicalResavePackageStatus::Ready);
 		const size_t BlockedCount = CountCanonicalResaveStatus(
-			Plan, Asset::EAssetCanonicalResavePackageStatus::Blocked);
+			Plan, EAssetCanonicalResavePackageStatus::Blocked);
 		const size_t SkippedCount = CountCanonicalResaveStatus(
-			Plan, Asset::EAssetCanonicalResavePackageStatus::Skipped);
-		const bool bPlanStale = Plan.RegistryRevision != Asset::GetAssetCatalogRevision();
+			Plan, EAssetCanonicalResavePackageStatus::Skipped);
+		const bool bPlanStale = Plan.RegistryRevision != GetAssetCatalogRevision();
 
 		ImGui::SeparatorText("Canonical Resave Plan");
 		ImGui::Text("Scope: %s", PreviewMaintenanceScope.c_str());
@@ -478,7 +478,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::SameLine();
 		if (ImGui::Button("Copy Plan Report"))
 		{
-			const std::string Report = Asset::SerializeAssetCanonicalResavePlanReport(Plan);
+			const std::string Report = SerializeAssetCanonicalResavePlanReport(Plan);
 			ImGui::SetClipboardText(Report.c_str());
 		}
 		ImGui::SameLine();
@@ -503,15 +503,15 @@ namespace Durin::Editor::MainFrame
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
 		const size_t ReadyCount = PreviewMaintenancePlan
 			? CountCanonicalResaveStatus(*PreviewMaintenancePlan,
-				Asset::EAssetCanonicalResavePackageStatus::Ready)
+				EAssetCanonicalResavePackageStatus::Ready)
 			: 0;
 		ImGui::Text("Apply canonical resave to %zu package(s)?", ReadyCount);
 		ImGui::TextWrapped("This writes authored package files. Check out the listed files in source control "
 			"and review their diffs after completion.");
 		const bool bCanApply = PreviewMaintenancePlan && ReadyCount != 0
-			&& PreviewMaintenancePlan->RegistryRevision == Asset::GetAssetCatalogRevision()
+			&& PreviewMaintenancePlan->RegistryRevision == GetAssetCatalogRevision()
 			&& CountCanonicalResaveStatus(*PreviewMaintenancePlan,
-				Asset::EAssetCanonicalResavePackageStatus::Blocked) == 0;
+				EAssetCanonicalResavePackageStatus::Blocked) == 0;
 		ImGui::BeginDisabled(!bCanApply);
 		if (ImGui::Button("Apply"))
 		{
@@ -527,7 +527,7 @@ namespace Durin::Editor::MainFrame
 	auto FAssetCompatibilityWindow::CopyFilteredReport() const -> void
 	{
 		const auto& Records = Audit.GetPresentationRecords();
-		std::vector<Asset::FAssetPackageCompatibilityRecord> FilteredRecords;
+		std::vector<FAssetPackageCompatibilityRecord> FilteredRecords;
 		FilteredRecords.reserve(FilteredRecordIndices.size());
 		for (const size_t Index : FilteredRecordIndices) FilteredRecords.push_back(Records[Index]);
 		const std::string Report = Editor::FormatAssetCompatibilityAuditReport(FilteredRecords);
@@ -536,7 +536,7 @@ namespace Durin::Editor::MainFrame
 
 	auto FAssetCompatibilityWindow::RefreshCatalog() -> void
 	{
-		const Asset::FAssetCatalogRefreshResult Result = Asset::RefreshAssetRegistry();
+		const FAssetCatalogRefreshResult Result = RefreshAssetRegistry();
 		if (!Result)
 		{
 			WindowMessage = Result.Errors.empty()
@@ -544,7 +544,7 @@ namespace Durin::Editor::MainFrame
 				: Result.Errors.front().Message;
 			return;
 		}
-		const Asset::FAssetCatalogSnapshot Snapshot = Asset::CaptureAssetCatalogSnapshot();
+		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
 		Audit.ReconcileAssetCatalog(Snapshot.Assets);
 		ReconciledCatalogRevision = Snapshot.Revision;
 		WindowMessage = std::format("Catalog refreshed: {} assets reparsed, {} reused.",
@@ -564,14 +564,14 @@ namespace Durin::Editor::MainFrame
 	}
 
 	auto FAssetCompatibilityWindow::PreviewCanonicalResave(
-		Asset::FAssetCanonicalResaveSelection Selection,
+		FAssetCanonicalResaveSelection Selection,
 		std::string Scope) -> void
 	{
 		if (PendingMaintenancePlan
 			|| Audit.GetState() != Editor::EAssetCompatibilityAuditState::Completed) return;
 		PreviewMaintenanceSelection = Selection;
 		PreviewMaintenanceScope = std::move(Scope);
-		PreviewMaintenancePlan = Asset::PlanAssetCanonicalResaves(
+		PreviewMaintenancePlan = PlanAssetCanonicalResaves(
 			Audit.GetPresentationRecords(), Selection);
 		MaintenanceMessage.clear();
 	}
@@ -579,13 +579,13 @@ namespace Durin::Editor::MainFrame
 	auto FAssetCompatibilityWindow::BeginCanonicalResave() -> void
 	{
 		if (!PreviewMaintenancePlan) return;
-		if (PreviewMaintenancePlan->RegistryRevision != Asset::GetAssetCatalogRevision())
+		if (PreviewMaintenancePlan->RegistryRevision != GetAssetCatalogRevision())
 		{
 			MaintenanceMessage = "The asset catalog changed after planning. Re-plan before applying.";
 			return;
 		}
 		if (CountCanonicalResaveStatus(*PreviewMaintenancePlan,
-			Asset::EAssetCanonicalResavePackageStatus::Blocked) != 0) return;
+			EAssetCanonicalResavePackageStatus::Blocked) != 0) return;
 		PendingMaintenancePlan = std::move(PreviewMaintenancePlan);
 		MaintenanceCompleted = 0;
 		bCancelMaintenance = false;
@@ -610,8 +610,8 @@ namespace Durin::Editor::MainFrame
 		}
 		auto Ready = std::ranges::find(
 			PendingMaintenancePlan->Packages,
-			Asset::EAssetCanonicalResavePackageStatus::Ready,
-			&Asset::FAssetCanonicalResavePackagePlan::Status);
+			EAssetCanonicalResavePackageStatus::Ready,
+			&FAssetCanonicalResavePackagePlan::Status);
 		if (Ready == PendingMaintenancePlan->Packages.end())
 		{
 			MaintenanceMessage = std::format(
@@ -622,18 +622,18 @@ namespace Durin::Editor::MainFrame
 			SelectedPath = {};
 			return;
 		}
-		Asset::FAssetCanonicalResavePlan Unit;
-		Unit.RegistryRevision = Asset::GetAssetCatalogRevision();
+		FAssetCanonicalResavePlan Unit;
+		Unit.RegistryRevision = GetAssetCatalogRevision();
 		Unit.Packages.push_back(*Ready);
-		const Asset::FReflectionCompatibilityCatalog Catalog =
-			Asset::FReflectionCompatibilityCatalog::Capture();
-		const auto Applied = Asset::ApplyAssetCanonicalResaves(std::move(Unit), Catalog);
+		const FReflectionCompatibilityCatalog Catalog =
+			FReflectionCompatibilityCatalog::Capture();
+		const auto Applied = ApplyAssetCanonicalResaves(std::move(Unit), Catalog);
 		*Ready = Applied.Plan.Packages.front();
-		if (Applied.Status != Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
+		if (Applied.Status != EAssetCanonicalResaveApplyStatus::Succeeded)
 		{
 			MaintenanceMessage = std::format(
 				"Canonical resave stopped after {} completed package(s).\n{}",
-				MaintenanceCompleted, Asset::SerializeAssetCanonicalResaveApplyReport(Applied));
+				MaintenanceCompleted, SerializeAssetCanonicalResaveApplyReport(Applied));
 			PendingMaintenancePlan.reset();
 			bCancelMaintenance = false;
 			(void)Audit.RunCurrentProjectAudit();

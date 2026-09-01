@@ -961,7 +961,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
-	const Asset::FStaticMeshCollisionBuildKeyInput KeyInput{
+	const FStaticMeshCollisionBuildKeyInput KeyInput{
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
 		.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
@@ -969,11 +969,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 	std::string Error;
 	const Durin::FByteArray KeyBytes =
-		Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
+		BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 38u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "01a75c9d6203686e307cc52a38543a74");
-	EXPECT_EQ(Asset::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
+	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
 		"01a75c9d6203686e307cc52a38543a74");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();

@@ -131,8 +131,8 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
-	const Asset::FAssetCatalogRefreshResult Refresh =
-		Asset::RefreshAssetRegistry(Asset::EAssetRegistryScanMode::FullValidation);
+	const FAssetCatalogRefreshResult Refresh =
+		RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "Asset catalog refresh failed without a diagnostic."
 		: Refresh.Errors.front().Message);
@@ -144,7 +144,7 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
-		const Asset::FAssetResult Loaded = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
+		const FAssetResult Loaded = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
 		ASSERT_NE(Material, nullptr);
 		const FMaterialGraphPresentation& Presentation =
@@ -154,7 +154,7 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 		EXPECT_TRUE(Presentation.bHasMaterialOutputPosition);
 		const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
 		EXPECT_EQ(View.Nodes.size(), Material->GetMaterialProgram()->Nodes.size());
-		ASSERT_TRUE(Asset::UnloadPackage(Path));
+		ASSERT_TRUE(UnloadPackage(Path));
 	}
 	CollectGarbage();
 }

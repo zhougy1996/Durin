@@ -23,7 +23,7 @@ namespace Durin
 			FStaticMeshCollisionBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			return Asset::FStaticMeshBuildOperations::BuildCollisionProduct(
+			return FStaticMeshBuildOperations::BuildCollisionProduct(
 				RenderData, Mode, Policy, OutProduct, OutError);
 		}
 
@@ -36,13 +36,13 @@ namespace Durin
 				OutError = "StaticMesh canonical imported geometry is missing or invalid.";
 				return false;
 			}
-			const Asset::FStaticMeshReconciliationSnapshot Reconciliation =
-				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh);
+			const FStaticMeshReconciliationSnapshot Reconciliation =
+				FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh);
 			FStaticMeshBuildProduct Product;
-			if (Asset::FStaticMeshBuildOperations::TryLoadImportedProduct(
+			if (FStaticMeshBuildOperations::TryLoadImportedProduct(
 				Reconciliation, Mesh.GetImportedData(), Product, OutError))
 			{
-				if (!Asset::FStaticMeshBuildOperations::PublishImportedProduct(
+				if (!FStaticMeshBuildOperations::PublishImportedProduct(
 					Mesh, std::move(Product), OutError)) return false;
 				OutDiagnostic = Mesh.GetDerivedDataDiagnostic();
 				return true;
@@ -50,13 +50,13 @@ namespace Durin
 			if (!OutError.empty()) return false;
 			FStaticMeshImportedData Decoded = Mesh.GetImportedData().Decode(OutError);
 			if (!OutError.empty()) return false;
-			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
+			if (!FStaticMeshBuildOperations::BuildImportedProduct(
 				Reconciliation,
 				Decoded, "canonical imported geometry", Product, OutError)) return false;
 			Product.bMarkPackageDirty = false;
 			Product.bContainsImportedData = false;
 			Product.bSourceImporterInvoked = false;
-			if (!Asset::FStaticMeshBuildOperations::PublishImportedProduct(
+			if (!FStaticMeshBuildOperations::PublishImportedProduct(
 				Mesh, std::move(Product), OutError)) return false;
 			OutDiagnostic = Mesh.GetDerivedDataDiagnostic();
 			return true;
@@ -68,7 +68,7 @@ namespace Durin
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration(
 					"StaticMeshBuild.BuildFunctions");
-			checkf(Asset::InitializeStaticMeshBuildFunctions(
+			checkf(InitializeStaticMeshBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"StaticMeshBuild could not register its build functions: {}", Error);
 			CollisionFeatureRegistration =
@@ -83,7 +83,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::ShutdownStaticMeshBuildFunctions();
+			ShutdownStaticMeshBuildFunctions();
 		}
 	};
 

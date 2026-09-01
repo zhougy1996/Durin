@@ -2,7 +2,7 @@
 
 #include "TextureBuildAPI.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Identifies the externally visible phase of one object-level Texture2D compilation.
 	enum class ETexture2DCompilationPhase : uint8

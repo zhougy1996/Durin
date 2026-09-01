@@ -4,7 +4,7 @@
 
 namespace Durin::AssetForge::Builtins::Private
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		thread_local const std::function<bool()>* GSceneImportCancellation = nullptr;

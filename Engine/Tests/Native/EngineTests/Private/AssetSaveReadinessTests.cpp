@@ -10,7 +10,7 @@ namespace
 	{
 	public:
 		bool bHandles = true;
-		Durin::Asset::FAssetResult Result;
+		Durin::FAssetResult Result;
 
 		auto Validate(const Durin::DObject&) const
 			-> Durin::FAssetSaveReadinessFeatureResult override
@@ -23,7 +23,7 @@ namespace
 TEST(AssetSaveReadinessTests, RejectsMissingAsset)
 {
 	const auto Result = Durin::ValidateAssetSaveReadiness(nullptr);
-	EXPECT_EQ(Durin::Asset::EAssetError::InvalidObjectGraph, Result.Error);
+	EXPECT_EQ(Durin::EAssetError::InvalidObjectGraph, Result.Error);
 }
 
 TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
@@ -33,14 +33,14 @@ TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
 	Ignored.bHandles = false;
 	FReadinessFeature Rejected;
 	Rejected.Result = {
-		Durin::Asset::EAssetError::StaleData, "Asset family is not ready."};
+		Durin::EAssetError::StaleData, "Asset family is not ready."};
 	Durin::FModuleTestOwner IgnoredOwner("ReadinessIgnored");
 	Durin::FModuleTestOwner RejectedOwner("ReadinessRejected");
 	auto IgnoredRegistration = IgnoredOwner.RegisterFeature(Ignored);
 	auto RejectedRegistration = RejectedOwner.RegisterFeature(Rejected);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
-	EXPECT_EQ(Durin::Asset::EAssetError::StaleData, Result.Error);
+	EXPECT_EQ(Durin::EAssetError::StaleData, Result.Error);
 	EXPECT_EQ("Asset family is not ready.", Result.Message);
 }
 
@@ -55,6 +55,6 @@ TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
 	auto SecondRegistration = SecondOwner.RegisterFeature(Second);
 
 	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
-	EXPECT_EQ(Durin::Asset::EAssetError::StaleData, Result.Error);
+	EXPECT_EQ(Durin::EAssetError::StaleData, Result.Error);
 	EXPECT_NE(std::string::npos, Result.Message.find("ambiguous"));
 }

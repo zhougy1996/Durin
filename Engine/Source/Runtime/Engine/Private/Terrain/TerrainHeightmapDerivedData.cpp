@@ -11,20 +11,20 @@ namespace Durin
 	namespace
 	{
 		auto IsSupportedTarget(
-			Asset::ECookTargetPlatform Platform,
-			Asset::ECookTargetProfile Profile) -> bool
+			ECookTargetPlatform Platform,
+			ECookTargetProfile Profile) -> bool
 		{
-			return Platform == Asset::ECookTargetPlatform::Win64
-				&& (Profile == Asset::ECookTargetProfile::Game
-					|| Profile == Asset::ECookTargetProfile::EditorValidation);
+			return Platform == ECookTargetPlatform::Win64
+				&& (Profile == ECookTargetProfile::Game
+					|| Profile == ECookTargetProfile::EditorValidation);
 		}
 
 	}
 
 	auto BuildTerrainHeightmapSerializedValue(
 		const FTerrainHeightmapPayload& Payload,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile,
 		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
@@ -102,8 +102,8 @@ namespace Durin
 
 	auto ParseTerrainHeightmapSerializedValue(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FTerrainHeightmapPayload& OutPayload) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {
@@ -210,8 +210,8 @@ namespace Durin
 
 	auto FTerrainHeightmapPayload::Serialize(
 		FArchive& Ar,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile) -> void
+		ECookTargetPlatform TargetPlatform,
+		ECookTargetProfile TargetProfile) -> void
 	{
 		SerializeBoundedArchivePayload(
 			Ar,

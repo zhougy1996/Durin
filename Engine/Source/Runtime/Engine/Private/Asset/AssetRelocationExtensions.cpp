@@ -2,7 +2,7 @@
 
 #include "DObject/Class.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -132,7 +132,7 @@ namespace Durin::Asset
 			Point, std::max(Occurrence, 1u));
 	}
 
-	namespace Private
+	namespace AssetPrivate
 	{
 		auto AcquireAssetOwnedPayloadRelocator(
 			DClass* AssetClass,

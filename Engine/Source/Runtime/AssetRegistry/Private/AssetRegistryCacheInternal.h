@@ -2,7 +2,7 @@
 
 #include "AssetRegistry/References.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	struct FRegistryCacheEntry
 	{

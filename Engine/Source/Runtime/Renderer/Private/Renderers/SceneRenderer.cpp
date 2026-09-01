@@ -43,14 +43,14 @@ namespace Durin
 		FObjectPath EnvironmentPath;
 		DEnvironmentLighting* EnvironmentAsset = nullptr;
 		std::string PathError;
-		Asset::FAssetResult EnvironmentResult =
+		FAssetResult EnvironmentResult =
 			FObjectPath::TryCreate(
 				"/Engine/Renderer/DefaultStudioEnvironment.DefaultStudioEnvironment",
 				EnvironmentPath,
 				&PathError
 			) ?
-				Asset::LoadObject(EnvironmentPath, EnvironmentAsset) :
-				Asset::FAssetResult{Asset::EAssetError::InvalidPath, std::move(PathError)};
+				LoadObject(EnvironmentPath, EnvironmentAsset) :
+				FAssetResult{EAssetError::InvalidPath, std::move(PathError)};
 		if (EnvironmentResult && EnvironmentAsset != nullptr)
 		{
 			EnvironmentLighting.Initialize(EnvironmentAsset->GetData());

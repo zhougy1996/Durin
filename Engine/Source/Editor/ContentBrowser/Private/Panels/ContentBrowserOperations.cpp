@@ -24,7 +24,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		constexpr uint64 FnvPrime = 1099511628211ull;
 		using ContentBrowserFilesystem::NormalizePath;
 
-		auto Failure(Asset::EAssetError Error, std::string Message)
+		auto Failure(EAssetError Error, std::string Message)
 			-> FContentBrowserOperationResult
 		{
 			return {{Error, std::move(Message)}};
@@ -147,18 +147,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			return true;
 		}
 
-		auto IsSameVolume(
-			const std::filesystem::path& A,
-			const std::filesystem::path& B) -> bool
-		{
-#ifdef _WIN32
-			return StringUtils::FoldAscii(A.root_name().generic_string())
-				== StringUtils::FoldAscii(B.root_name().generic_string());
-#else
-			return A.root_name() == B.root_name();
-#endif
-		}
-
 		auto AreSamePath(std::string_view A, std::string_view B) -> bool
 		{
 			std::filesystem::path Relative;
@@ -194,12 +182,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (NewName.empty() || NewName == "." || NewName == ".."
 			|| NewName.find_first_of("/\\:*") != std::string_view::npos)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"The new name is empty or contains invalid path characters.");
 
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"Redirectors cannot be renamed or moved directly. Fix Up the redirector or move its final asset.");
 
 		if (Item.Kind == EContentBrowserItemKind::Asset)
@@ -213,11 +201,11 @@ namespace Durin::Editor::ContentBrowser::Private
 					OldPackagePath.substr(0, Slash + 1) + std::string(NewName),
 					NewPath))
 				return Failure(
-					Asset::EAssetError::InvalidPath,
+					EAssetError::InvalidPath,
 					"The resulting asset path is invalid.");
 
 			const FEditorAssetMove Move{OldPath, NewPath};
-			const Asset::FAssetResult Result =
+			const FAssetResult Result =
 				MoveAssets(std::span{&Move, 1});
 			if (!Result) return {Result};
 			FContentBrowserOperationResult Outcome;
@@ -229,7 +217,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
 			std::string Warning;
-			const Asset::FAssetResult Result = RenameFolder(Item, NewName, Warning);
+			const FAssetResult Result = RenameFolder(Item, NewName, Warning);
 			if (!Result) return {Result};
 			FContentBrowserOperationResult Outcome;
 			Outcome.FocusPhysicalPath = NormalizePath(
@@ -239,22 +227,22 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Outcome;
 		}
 
-		Asset::FAssetCompanionOwnership Ownership;
-		const Asset::FAssetResult OwnershipResult =
-			Asset::QueryAssetCompanionOwnership(Item.PhysicalPath, Ownership);
+		FAssetCompanionOwnership Ownership;
+		const FAssetResult OwnershipResult =
+			QueryAssetCompanionOwnership(Item.PhysicalPath, Ownership);
 		if (!OwnershipResult)
 			return Failure(
 				OwnershipResult.Error,
 				std::format(
 					"Could not determine whether this file is asset-managed: {}",
 					OwnershipResult.Message));
-		if (Ownership.State == Asset::EAssetCompanionOwnershipState::Ambiguous)
+		if (Ownership.State == EAssetCompanionOwnershipState::Ambiguous)
 			return Failure(
-				Asset::EAssetError::InUse,
+				EAssetError::InUse,
 				"This file is claimed by multiple assets. Resolve companion ownership before renaming it.");
-		if (Ownership.State == Asset::EAssetCompanionOwnershipState::Owned)
+		if (Ownership.State == EAssetCompanionOwnershipState::Owned)
 			return Failure(
-				Asset::EAssetError::InUse,
+				EAssetError::InUse,
 				std::format(
 					"This file is managed by {}. Rename or move the owning asset instead.",
 					Ownership.Owners.front().ToString()));
@@ -270,28 +258,28 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!SourceMount || !DestinationMount
 			|| SourceMount.Mount != DestinationMount.Mount)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"File renames must stay inside the same automatically scanned content mount.");
 		if (!SourceMount.Mount->bContentWritable)
 			return Failure(
-				Asset::EAssetError::ReadOnlyMode,
+				EAssetError::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before renaming the file.");
 		const ContentBrowserFilesystem::FPathProbe DestinationProbe =
 			ContentBrowserFilesystem::Probe(Destination);
 		if (DestinationProbe.Error)
 			return Failure(
-				Asset::EAssetError::IoError,
+				EAssetError::IoError,
 				std::format("Could not inspect the rename destination: {}", DestinationProbe.Error.message()));
 		if (DestinationProbe.Exists())
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"An item with that name already exists.");
 
 		std::error_code Ec;
 		std::filesystem::rename(Item.PhysicalPath, Destination, Ec);
 		if (Ec)
 			return Failure(
-				Asset::EAssetError::IoError,
+				EAssetError::IoError,
 				std::format("Rename failed: {}", Ec.message()));
 		FContentBrowserOperationResult Outcome;
 		Outcome.FocusPhysicalPath = NormalizePath(Destination.generic_string());
@@ -303,21 +291,21 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (Item.Kind != EContentBrowserItemKind::Asset)
 			return Failure(
-				Asset::EAssetError::InvalidPackageType,
+				EAssetError::InvalidPackageType,
 				"Only real assets can be duplicated.");
 		FTopLevelAssetPath SourcePath;
 		if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath))
-			return Failure(Asset::EAssetError::InvalidPath,
+			return Failure(EAssetError::InvalidPath,
 				"The source top-level asset path is invalid.");
 		if (!SourcePath.IsValid())
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"The source asset path is invalid.");
 		const std::string SourcePackagePath = SourcePath.GetPackagePath().ToString();
 		const size_t Slash = SourcePackagePath.find_last_of('/');
 		if (Slash == std::string::npos)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"The source asset has no valid destination directory.");
 		return Duplicate(SourcePath, SourcePackagePath.substr(0, Slash + 1));
 	}
@@ -329,15 +317,15 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (!SourcePath.IsValid() || DestinationDirectory.empty())
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"Asset paste requires a valid source and destination folder.");
 		std::string Directory(DestinationDirectory);
 		if (!Directory.ends_with('/')) Directory.push_back('/');
-		const Asset::FTopLevelAssetCatalogEntry SourceData =
-			Asset::FindTopLevelAssetExact(SourcePath);
+		const FTopLevelAssetCatalogEntry SourceData =
+			FindTopLevelAssetExact(SourcePath);
 		if (!SourceData || SourceData->IsRedirector())
 			return Failure(
-				Asset::EAssetError::NotFound,
+				EAssetError::NotFound,
 				"The copied source is no longer an available real asset.");
 		const std::string DestinationDirectoryPhysical =
 			Model.VirtualToPhysical(Directory);
@@ -345,11 +333,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			Model.ResolveMountPath(DestinationDirectoryPhysical);
 		if (!Mount)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"The paste destination is outside an automatically scanned content mount.");
 		if (!Mount.Mount->bContentWritable)
 			return Failure(
-				Asset::EAssetError::ReadOnlyMode,
+				EAssetError::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset.");
 
 		const FAssetOperationResult Result = IAssetTools::Get().DuplicateAsset({
@@ -362,7 +350,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (NotifyMountedContentMutation) NotifyMountedContentMutation();
 			}});
 		if (!Result)
-			return Failure(Asset::EAssetError::IoError, Result.Message);
+			return Failure(EAssetError::IoError, Result.Message);
 
 		FContentBrowserOperationResult Outcome;
 		Outcome.FocusPhysicalPath = Result.PhysicalPath;
@@ -374,7 +362,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserOperations::RenameFolder(
 		const FContentBrowserItem& Item,
 		std::string_view NewName,
-		std::string& OutWarning) -> Asset::FAssetResult
+		std::string& OutWarning) -> FAssetResult
 	{
 		const std::filesystem::path OldFolder(Item.PhysicalPath);
 		const std::filesystem::path NewFolder =
@@ -385,21 +373,21 @@ namespace Durin::Editor::ContentBrowser::Private
 			Model.ResolveMountPath(NewFolder.generic_string());
 		if (!OldMount || !NewMount || OldMount.Mount != NewMount.Mount)
 			return {
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"Folder moves must stay inside the same automatically scanned content mount."};
 		if (!OldMount.Mount->bContentWritable)
 			return {
-				Asset::EAssetError::ReadOnlyMode,
+				EAssetError::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before renaming the folder."};
 		const ContentBrowserFilesystem::FPathProbe NewFolderProbe =
 			ContentBrowserFilesystem::Probe(NewFolder);
 		if (NewFolderProbe.Error)
 			return {
-				Asset::EAssetError::IoError,
+				EAssetError::IoError,
 				std::format("Could not inspect the folder rename destination: {}", NewFolderProbe.Error.message())};
 		if (NewFolderProbe.Exists())
 			return {
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"A folder with that name already exists."};
 
 		const std::string OldVirtual =
@@ -407,20 +395,20 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string NewVirtual =
 			Model.PhysicalToVirtualDirectory(NewFolder.generic_string());
 		if (OldVirtual.empty() || NewVirtual.empty())
-			return {Asset::EAssetError::InvalidPath, "The folder path is invalid."};
+			return {EAssetError::InvalidPath, "The folder path is invalid."};
 
 		std::vector<FEditorAssetMove> Moves;
 		std::unordered_set<std::string> ManagedFiles;
 		std::vector<std::filesystem::path> RelativeDirectories;
 		for (const auto& [Path, Data]
-			: Asset::CaptureAssetCatalogSnapshot().Assets)
+			: CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (!FPaths::IsLexicalDescendantPath(
 					NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true))
 				continue;
 			if (!Path.GetView().starts_with(OldVirtual))
 				return {
-					Asset::EAssetError::InvalidPath,
+					EAssetError::InvalidPath,
 					"An asset inside the folder has an inconsistent virtual path."};
 
 			FPackagePath NewPath;
@@ -429,22 +417,22 @@ namespace Durin::Editor::ContentBrowser::Private
 						+ std::string(Path.GetView().substr(OldVirtual.size())),
 					NewPath))
 				return {
-					Asset::EAssetError::InvalidPath,
+					EAssetError::InvalidPath,
 					"The destination contains an invalid asset path."};
-			if (const Asset::FAssetCatalogEntry Existing =
-					Asset::FindAssetExact(NewPath))
+			if (const FAssetCatalogEntry Existing =
+					FindAssetExact(NewPath))
 				return {
-					Asset::EAssetError::AlreadyExists,
-					Existing->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+					EAssetError::AlreadyExists,
+					Existing->EntryKind == EAssetRegistryEntryKind::Redirector
 						? std::format(
 							"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another folder name.",
 							NewPath.ToString(), Existing->RedirectDestination.ToString())
 						: std::format(
 							"Asset {} already exists. Choose another folder name or remove the existing asset.",
 							NewPath.ToString())};
-			if (Asset::FindResidentPackage(NewPath))
+			if (FindResidentPackage(NewPath))
 				return {
-					Asset::EAssetError::AlreadyExists,
+					EAssetError::AlreadyExists,
 					std::format(
 						"A loaded package already uses {}. Close it or choose another folder name.",
 						NewPath.ToString())};
@@ -470,9 +458,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::string PhysicalPath =
 					NormalizePath(It->path().generic_string());
 				if (ManagedFiles.contains(PhysicalPath)) continue;
-				Asset::FAssetCompanionOwnership Ownership;
-				const Asset::FAssetResult OwnershipResult =
-					Asset::QueryAssetCompanionOwnership(PhysicalPath, Ownership);
+				FAssetCompanionOwnership Ownership;
+				const FAssetResult OwnershipResult =
+					QueryAssetCompanionOwnership(PhysicalPath, Ownership);
 				if (!OwnershipResult)
 					return {
 						OwnershipResult.Error,
@@ -481,19 +469,19 @@ namespace Durin::Editor::ContentBrowser::Private
 							It->path().filename().generic_string(),
 							OwnershipResult.Message)};
 				if (Ownership.State
-					== Asset::EAssetCompanionOwnershipState::Ambiguous)
+					== EAssetCompanionOwnershipState::Ambiguous)
 					return {
-						Asset::EAssetError::InUse,
+						EAssetError::InUse,
 						std::format(
 							"Folder file {} is claimed by multiple assets.",
 							It->path().filename().generic_string())};
-				if (Ownership.State == Asset::EAssetCompanionOwnershipState::Owned)
+				if (Ownership.State == EAssetCompanionOwnershipState::Owned)
 				{
 					ManagedFiles.insert(PhysicalPath);
 					continue;
 				}
 				return {
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					std::format(
 						"Folder contains an unmanaged file: {}. Move it separately before renaming the folder.",
 						It->path().filename().generic_string())};
@@ -501,17 +489,17 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Ec)
 			return {
-				Asset::EAssetError::IoError,
+				EAssetError::IoError,
 				std::format("Could not inspect folder contents: {}", Ec.message())};
 
 		if (Moves.empty())
 		{
 			std::filesystem::rename(OldFolder, NewFolder, Ec);
 			return Ec
-				? Asset::FAssetResult{
-					  Asset::EAssetError::IoError,
+				? FAssetResult{
+					  EAssetError::IoError,
 					  std::format("Folder rename failed: {}", Ec.message())}
-				: Asset::FAssetResult{};
+				: FAssetResult{};
 		}
 
 		std::vector<std::filesystem::path> CreatedDirectories;
@@ -522,7 +510,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const ContentBrowserFilesystem::FPathProbe DestinationDirectoryProbe =
 				ContentBrowserFilesystem::Probe(DestinationDirectory);
 			if (DestinationDirectoryProbe.Error)
-				return {Asset::EAssetError::IoError, std::format(
+				return {EAssetError::IoError, std::format(
 					"Could not inspect an empty destination directory: {}",
 					DestinationDirectoryProbe.Error.message())};
 			const bool bExisted = DestinationDirectoryProbe.Exists();
@@ -539,12 +527,12 @@ namespace Durin::Editor::ContentBrowser::Private
 				std::error_code RemoveError;
 				std::filesystem::remove(*It, RemoveError);
 			}
-			return {Asset::EAssetError::IoError, std::format(
+			return {EAssetError::IoError, std::format(
 				"Could not prepare an empty destination directory: {}",
 				Ec.message())};
 		}
 
-		const Asset::FAssetResult MoveResult = MoveAssets(Moves);
+		const FAssetResult MoveResult = MoveAssets(Moves);
 		if (!MoveResult)
 		{
 			for (auto It = CreatedDirectories.rbegin();
@@ -621,11 +609,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			Model.ResolveMountPath(NormalizedDirectory);
 		if (!DirectoryMount)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"Folders can only be created inside an automatically scanned content mount.");
 		if (!DirectoryMount.Mount->bContentWritable)
 			return Failure(
-				Asset::EAssetError::ReadOnlyMode,
+				EAssetError::ReadOnlyMode,
 				"This content mount is read-only. Choose a writable mount before creating a folder.");
 
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
@@ -639,31 +627,31 @@ namespace Durin::Editor::ContentBrowser::Private
 				ContentBrowserFilesystem::Probe(Path);
 			if (CandidateProbe.Error)
 				return Failure(
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					std::format("Could not inspect a folder candidate: {}", CandidateProbe.Error.message()));
 			if (CandidateProbe.Exists()) continue;
 			const FContentBrowserModel::FMountPath DestinationMount =
 				Model.ResolveMountPath(Path.generic_string());
 			if (!DestinationMount || DestinationMount.Mount != DirectoryMount.Mount)
 				return Failure(
-					Asset::EAssetError::InvalidPath,
+					EAssetError::InvalidPath,
 					"The new folder would be outside its automatically scanned content mount.");
 			std::error_code Ec;
 			if (!std::filesystem::create_directory(Path, Ec) || Ec)
 				return Failure(
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					std::format("Could not create folder: {}", Ec.message()));
 			FContentBrowserOperationResult Outcome;
 			Outcome.FocusPhysicalPath = NormalizePath(Path.generic_string());
 			return Outcome;
 		}
 		return Failure(
-			Asset::EAssetError::AlreadyExists,
+			EAssetError::AlreadyExists,
 			"Could not find a unique folder name in this directory.");
 	}
 
 	auto FContentBrowserOperations::Move(std::span<const FEditorAssetMove> Moves)
-		-> Asset::FAssetResult
+		-> FAssetResult
 	{
 		return MoveAssets(Moves);
 	}
@@ -675,9 +663,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
 		std::vector<FPackagePath> Redirectors;
 		for (const auto& [Path, Data]
-			: Asset::CaptureAssetCatalogSnapshot().Assets)
+			: CaptureAssetCatalogSnapshot().Assets)
 		{
-			if (Data.EntryKind != Asset::EAssetRegistryEntryKind::Redirector)
+			if (Data.EntryKind != EAssetRegistryEntryKind::Redirector)
 				continue;
 			if (!Prefix.empty() && !Path.GetView().starts_with(Prefix)) continue;
 			Redirectors.push_back(Path);
@@ -691,33 +679,33 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserOperations::FixUpRedirectorsInFolder(
-		std::string_view VirtualDirectory) -> Asset::FAssetResult
+		std::string_view VirtualDirectory) -> FAssetResult
 	{
 		if (VirtualDirectory.empty())
 			return {
-				Asset::EAssetError::InvalidPath,
+				EAssetError::InvalidPath,
 				"Fix Up in Folder requires a mounted virtual directory."};
 		const std::vector<FPackagePath> Redirectors =
 			CollectRedirectors(VirtualDirectory);
 		if (Redirectors.empty()) return {};
-		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
-			Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
+		return FixUpAssets ? FixUpAssets(Redirectors) : FAssetResult{
+			EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::FixUpRedirectors(
-		std::span<const FPackagePath> Redirectors) -> Asset::FAssetResult
+		std::span<const FPackagePath> Redirectors) -> FAssetResult
 	{
-		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
-			Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
+		return FixUpAssets ? FixUpAssets(Redirectors) : FAssetResult{
+			EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::FixUpAllRedirectors()
-		-> Asset::FAssetResult
+		-> FAssetResult
 	{
 		const std::vector<FPackagePath> Redirectors = CollectRedirectors("/");
-		return Redirectors.empty() ? Asset::FAssetResult{}
-			: FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
-				Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
+		return Redirectors.empty() ? FAssetResult{}
+			: FixUpAssets ? FixUpAssets(Redirectors) : FAssetResult{
+				EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::BuildDeletionPlan(
@@ -726,10 +714,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		-> FContentDeletionPlanPtr
 	{
 		auto Plan = std::make_shared<FContentDeletionPlan>();
-		Plan->RegistryRevision = Asset::GetAssetCatalogRevision();
-		Plan->StagingVolumeRoot = NormalizePath(
-			(std::filesystem::path(FPaths::ProjectDir())
-				/ "Saved/ContentBrowserUndo").generic_string());
+		Plan->RegistryRevision = GetAssetCatalogRevision();
 
 		auto AddBlocker = [&](EContentDeletionBlocker Kind,
 			std::string DisplayName,
@@ -791,13 +776,6 @@ namespace Durin::Editor::ContentBrowser::Private
 					PhysicalPath,
 					{},
 					"The selected mount is not content-writable.");
-			if (!IsSameVolume(PhysicalPath, Plan->StagingVolumeRoot))
-				AddBlocker(
-					EContentDeletionBlocker::CrossVolumeStaging,
-					Item.Name,
-					PhysicalPath,
-					{},
-					"The selected root cannot be renamed into the Undo staging volume.");
 			SelectedRoots.push_back({&Item, PhysicalPath, Mount});
 		}
 
@@ -840,9 +818,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		else
 			Plan->DisplayName = std::format("{} Items", MaximalRoots.size());
 
-		const Asset::FAssetCatalogSnapshot Catalog =
-			Asset::CaptureAssetCatalogSnapshot();
-		std::unordered_map<std::string, const Asset::FAssetData*> AssetsByPhysicalPath;
+		const FAssetCatalogSnapshot Catalog =
+			CaptureAssetCatalogSnapshot();
+		std::unordered_map<std::string, const FAssetData*> AssetsByPhysicalPath;
 		for (const auto& [Path, Data] : Catalog.Assets)
 			AssetsByPhysicalPath.emplace(NormalizePath(Data.PhysicalPath), &Data);
 		std::vector<FPackagePath> AssetPaths;
@@ -1093,16 +1071,6 @@ namespace Durin::Editor::ContentBrowser::Private
 					"The asset companion's content mount is not content-writable.");
 				bCompanionRootSafe = false;
 			}
-			if (!IsSameVolume(CompanionPath, Plan->StagingVolumeRoot))
-			{
-				AddBlocker(
-					EContentDeletionBlocker::CrossVolumeStaging,
-					std::filesystem::path(CompanionPath).filename().generic_string(),
-					CompanionPath,
-					{},
-					"The asset companion cannot be renamed into the Undo staging volume.");
-				bCompanionRootSafe = false;
-			}
 			std::filesystem::path ReparsePoint;
 			const bool bReparse = FindReparsePointInPath(
 				CompanionMount->PhysicalRoot, CompanionPath, ReparsePoint, Ec);
@@ -1288,7 +1256,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FContentDeletionPlan& Plan) const -> bool
 	{
 		if (!Plan.CanExecute()
-			|| Plan.RegistryRevision != Asset::GetAssetCatalogRevision())
+			|| Plan.RegistryRevision != GetAssetCatalogRevision())
 			return false;
 		std::vector<FContentBrowserItem> Items;
 		std::unordered_set<std::string> Selection;

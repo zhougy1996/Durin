@@ -176,7 +176,7 @@ namespace Durin::Editor::Level
 				: Saved.Message);
 			return false;
 		}
-		Asset::UnloadPackage(AssetPath);
+		UnloadPackage(AssetPath);
 		return true;
 	}
 

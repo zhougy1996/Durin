@@ -9,7 +9,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -47,18 +47,18 @@ namespace Durin::Asset
 			.AlphaMipMode = Settings.AlphaMipMode,
 			.MaximumResolution = Settings.MaxResolution,
 			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game};
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game};
 		const FByteArray KeyBytes = BuildTexture2DDerivedDataKeyBytes(KeyInput);
 		const std::string Key = BuildTexture2DDerivedDataKey(KeyInput);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder DefinitionBuilder(
-			Private::Texture2DFunctionName, std::string(Private::Texture2DValueName));
+			AssetPrivate::Texture2DFunctionName, std::string(AssetPrivate::Texture2DValueName));
 		DefinitionBuilder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game")
-			.AddInput(FBuildValue::FromOwned(std::string(Private::Texture2DInputName),
-				Private::EncodeTexture2DLocalInput(Request, bSRGB)));
+			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::Texture2DInputName),
+				AssetPrivate::EncodeTexture2DLocalInput(Request, bSRGB)));
 		if (!DefinitionBuilder.Build(Definition, &OutError)) return false;
 		const FBuildCancellationToken Cancellation(
 			ExecutionControl ? ExecutionControl->ShouldCancel : std::function<bool()>{});
@@ -82,7 +82,7 @@ namespace Durin::Asset
 			return false;
 		}
 		FTexturePlatformData PlatformData;
-		if (!Private::DecodeTexture2DPlatformValue(Output.Value, PlatformData, OutError))
+		if (!AssetPrivate::DecodeTexture2DPlatformValue(Output.Value, PlatformData, OutError))
 			return false;
 		if (ExecutionControl && ExecutionControl->Metrics)
 			ExecutionControl->Metrics->PeakIntermediateBytes = std::max<uint64>(
@@ -165,8 +165,8 @@ namespace Durin::Asset
 			.AlphaMipMode = Texture.GetAlphaMipMode(),
 			.MaximumResolution = Texture.GetMaxResolution(),
 			.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		OutError.clear();
 		return true;
 	}
@@ -186,7 +186,7 @@ namespace Durin::Asset
 		}
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::Texture2DFunctionName, std::string(Private::Texture2DValueName));
+			AssetPrivate::Texture2DFunctionName, std::string(AssetPrivate::Texture2DValueName));
 		Builder.SetKey(FBuildKey::FromString(Key))
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game");
@@ -207,7 +207,7 @@ namespace Durin::Asset
 			return false;
 		}
 		auto Candidate = std::make_unique<FTexturePlatformData>();
-		if (!Private::DecodeTexture2DPlatformValue(Output.Value, *Candidate, OutMessage))
+		if (!AssetPrivate::DecodeTexture2DPlatformValue(Output.Value, *Candidate, OutMessage))
 		{
 			OutStatus = ETextureDerivedDataStatus::Corrupt;
 			return false;

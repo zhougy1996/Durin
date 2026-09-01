@@ -52,36 +52,31 @@ namespace
 				std::make_unique<Testing::FScopedMountRegistryFixture>(
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
-			Asset::ShutdownAssetManager();
+			ShutdownAssetManager();
 			CollectGarbage();
-			ASSERT_TRUE(Asset::InitializeAssetManager());
+			ASSERT_TRUE(InitializeAssetManager());
 		}
 
 		static void TearDownTestSuite()
 		{
-			Asset::ShutdownAssetManager();
+			ShutdownAssetManager();
 			CollectGarbage();
-			ASSERT_TRUE(Asset::InitializeAssetManager());
+			ASSERT_TRUE(InitializeAssetManager());
 		}
 
 		std::filesystem::path Root;
 		std::unique_ptr<Testing::FScopedMountRegistryFixture> Registry;
 	};
 
-	auto BuildTransactionPlan(
+	auto BuildDeletionPlan(
 		FContentBrowserOperations& Operations,
-		std::span<const FContentBrowserItem> Items,
-		const std::filesystem::path& StagingRoot)
+		std::span<const FContentBrowserItem> Items)
 		-> FContentDeletionPlanPtr
 	{
 		std::unordered_set<std::string> Selection;
 		for (const FContentBrowserItem& Item : Items)
 			Selection.insert(Item.StableId());
-		const FContentDeletionPlanPtr Analyzed =
-			Operations.BuildDeletionPlan(Items, Selection);
-		auto Mutable = std::make_shared<FContentDeletionPlan>(*Analyzed);
-		Mutable->StagingVolumeRoot = StagingRoot.generic_string();
-		return Mutable;
+		return Operations.BuildDeletionPlan(Items, Selection);
 	}
 
 	class FNoOpEditorTransaction final : public Durin::Editor::ITransactionCustomChange
@@ -217,8 +212,8 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
 	ASSERT_TRUE(Imported) << Imported.Message;
 	DStaticMesh* StaticMesh = Imported.Asset;
-	const Asset::FAssetCatalogEntry AssetData =
-		Asset::FindAssetExact(AssetPath);
+	const FAssetCatalogEntry AssetData =
+		FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
 	std::string RegistrationError;
 	auto ThumbnailRegistration =
@@ -244,7 +239,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	EXPECT_EQ(It->ThumbnailPackageFormatVersion, AssetData->FormatVersion);
 	EXPECT_EQ(It->ThumbnailLastWriteTimeTicks, AssetData->LastWriteTimeTicks);
 
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDirectory)
@@ -282,7 +277,7 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserOperationResult CreateExcluded =
@@ -336,36 +331,30 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 	EXPECT_EQ(Model.GetMounts()[1].VirtualRoot, "/Engine/");
 }
 
-TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
+TEST_F(FContentBrowserModelTests, RelocationDoesNotEnterEditorUndoHistory)
 {
 	InitializeDObjectSystem();
 	FPackagePath SourcePath;
 	FPackagePath DestinationPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/TransactionalSource", SourcePath));
+		"/ContentBrowserTests/ForwardJobSource", SourcePath));
 	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/Folder/TransactionalDestination",
+		"/ContentBrowserTests/Folder/ForwardJobDestination",
 		DestinationPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
 	const FAssetRelocation Mapping{
 		SourcePath, DestinationPath};
 	Durin::Tests::FTestTransactorOwner Transactions;
 	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
-		.Mappings = {Mapping}, .Transactions = Transactions.Get()}));
-	EXPECT_EQ(Transactions->GetUndoDescription(), "Move Asset");
-	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
+		.Mappings = {Mapping}}));
+	EXPECT_TRUE(Transactions->GetUndoDescription().empty());
+	EXPECT_EQ(ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
 
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Asset::FindAssetExact(SourcePath)->EntryKind,
-		Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Asset::FindAssetExact(DestinationPath), nullptr);
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
-		DestinationPath);
+	EXPECT_FALSE(Transactions->Undo());
 	Transactions->Reset();
 }
 
@@ -401,8 +390,8 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/RevealTarget", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
@@ -421,7 +410,7 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 		[&](const FContentBrowserItem& Item) {
 			return Item.StableId() == Revealed;
 		}));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, RevealPhysicalItemPublishesNewFolderHiddenByFilters)
@@ -434,7 +423,7 @@ TEST_F(FContentBrowserModelTests, RevealPhysicalItemPublishesNewFolderHiddenByFi
 
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserOperationResult CreateResult =
@@ -745,7 +734,7 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 				.VirtualPath = "/ContentBrowserTests/OldStone.OldStone",
 				.PackagePath = RedirectorPackagePath,
 				.PhysicalPath = RootPath + "/OldStone.dasset",
-				.AssetClassName = "Durin::Asset::DAssetRedirector",
+				.AssetClassName = "Durin::DAssetRedirector",
 				.RedirectDestination = Destination},
 		});
 
@@ -805,7 +794,7 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 
@@ -859,11 +848,11 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/Original", PastedPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
 	FMaterialStaticProperties Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = true;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	{
 		std::ofstream Occupied(Root / "Content/Original_Copy.dasset");
 		Occupied << "unregistered collision";
@@ -873,7 +862,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
@@ -894,7 +883,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 		std::filesystem::absolute(Root / "Content/Original_Copy2.dasset")
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
-	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath), Duplicate));
+	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath), Duplicate));
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_NE(Duplicate, Material);
 	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
@@ -907,12 +896,12 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	EXPECT_EQ(PastedResult.RevealAssetPath,
 		Testing::MakePackageLeafTopLevelAssetPathForTests(PastedPath).ToString());
 	DMaterial* Pasted = nullptr;
-	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath), Pasted));
+	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath), Pasted));
 	ASSERT_NE(Pasted, nullptr);
 	EXPECT_EQ(Pasted->GetStaticProperties(), Properties);
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(PastedPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(DuplicatePath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(SourcePath));
+	ASSERT_TRUE(DeleteAssetForTesting(PastedPath));
+	ASSERT_TRUE(DeleteAssetForTesting(DuplicatePath));
+	ASSERT_TRUE(DeleteAssetForTesting(SourcePath));
 }
 
 TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
@@ -922,23 +911,23 @@ TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Independent", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const std::filesystem::path FilePath = Root / "Content/Independent.txt";
 	{
 		std::ofstream File(FilePath);
 		File << "ordinary";
 	}
-	Asset::FAssetCompanionOwnership Ownership;
-	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(FilePath, Ownership));
+	FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(QueryAssetCompanionOwnership(FilePath, Ownership));
 	EXPECT_EQ(
 		Ownership.State,
-		Asset::EAssetCompanionOwnershipState::Unclaimed);
+		EAssetCompanionOwnershipState::Unclaimed);
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem FileItem{
@@ -950,7 +939,7 @@ TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 		Operations.Rename(FileItem, "Renamed.txt");
 	ASSERT_TRUE(Result) << Result.Status.Message;
 	EXPECT_TRUE(std::filesystem::exists(Root / "Content/Renamed.txt"));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMoveWarnsOnCleanup)
@@ -962,8 +951,8 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/OwnedFolder/Owned", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const std::filesystem::path Companion = Folder / "Owned.meta";
 	{
 		std::ofstream File(Companion);
@@ -971,15 +960,15 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	}
 	struct FContributorReset
 	{
-		Asset::FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+		FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	};
-	const Asset::FAssetDeleteContributorHandle Contributor =
-	Asset::RegisterAssetDeleteContributor(
+	const FAssetDeleteContributorHandle Contributor =
+	RegisterAssetDeleteContributor(
 		DMaterial::StaticClass(),
-		[AssetPath, Companion](const Asset::FAssetData& Data,
-			const Asset::FAssetPackageInspection&,
-			Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+		[AssetPath, Companion](const FAssetData& Data,
+			const FAssetPackageInspection&,
+			FAssetDeleteContribution& Contribution) -> FAssetResult {
 			if (Data.PackagePath == AssetPath)
 				Contribution.Files.push_back(Companion);
 			return {};
@@ -987,16 +976,16 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 
-	Asset::FAssetCompanionOwnership Ownership;
-	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(Companion, Ownership));
-	ASSERT_EQ(Ownership.State, Asset::EAssetCompanionOwnershipState::Owned);
+	FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(QueryAssetCompanionOwnership(Companion, Ownership));
+	ASSERT_EQ(Ownership.State, EAssetCompanionOwnershipState::Owned);
 	ASSERT_EQ(Ownership.Owners.size(), 1);
 	EXPECT_EQ(Ownership.Owners.front(), AssetPath);
 	bool bMoveCalled = false;
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [&](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [&](std::span<const FEditorAssetMove>) -> FAssetResult {
 			bMoveCalled = true;
 			return {};
 		});
@@ -1023,7 +1012,7 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	EXPECT_TRUE(FolderResult.Warning.find("source folder")
 		!= std::string::npos);
 	EXPECT_TRUE(std::filesystem::exists(Folder));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCleanupFailure)
@@ -1038,23 +1027,23 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CleanupDestination/Asset", DestinationPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
-	Asset::FAssetMutationTransaction MoveTransaction;
+	FAssetMutationJob MoveJob;
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[&](std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult {
-			std::vector<Asset::FAssetRelocationMapping> Mappings;
+		[&](std::span<const FEditorAssetMove> Moves) -> FAssetResult {
+			std::vector<FAssetRelocationMapping> Mappings;
 			Mappings.reserve(Moves.size());
 			for (const FEditorAssetMove& Move : Moves)
 				Mappings.push_back({Move.OldPath, Move.NewPath});
-			Asset::FAssetMutationSummary Summary;
-			Asset::FAssetResult Result = Asset::PrepareAssetRelocationTransaction(
-				Mappings, Summary, MoveTransaction);
-			return Result ? MoveTransaction.Commit() : Result;
+			FAssetRelocationSummary Summary;
+			FAssetResult Result = PrepareAssetRelocationJob(
+				Mappings, Summary, MoveJob);
+			return Result ? MoveJob.ResumeForward() : Result;
 		},
 		[](const std::filesystem::path&, std::error_code& Error) {
 			Error = std::make_error_code(std::errc::permission_denied);
@@ -1074,9 +1063,7 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	EXPECT_EQ(Result.FocusPhysicalPath,
 		std::filesystem::absolute(Root / "Content/CleanupDestination")
 			.lexically_normal().generic_string());
-	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath, DestinationPath);
-	ASSERT_TRUE(MoveTransaction.Undo());
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(SourcePath));
+	EXPECT_EQ(ResolveAssetPath(SourcePath).FinalPath, DestinationPath);
 }
 
 TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
@@ -1104,14 +1091,14 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 
 	const FContentBrowserOperationResult CreateResult =
 		Operations.CreateFolder((Root / "Content").generic_string());
 	EXPECT_FALSE(CreateResult);
-	EXPECT_EQ(CreateResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_EQ(CreateResult.Status.Error, EAssetError::ReadOnlyMode);
 	EXPECT_TRUE(CreateResult.Status.Message.find("read-only") != std::string::npos);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/New Folder"));
 
@@ -1123,7 +1110,7 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 	const FContentBrowserOperationResult FileResult =
 		Operations.Rename(FileItem, "renamed.txt");
 	EXPECT_FALSE(FileResult) << FileResult.Status.Message;
-	EXPECT_EQ(FileResult.Status.Error, Asset::EAssetError::ReadOnlyMode)
+	EXPECT_EQ(FileResult.Status.Error, EAssetError::ReadOnlyMode)
 		<< FileResult.Status.Message;
 	EXPECT_TRUE(std::filesystem::exists(File));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/renamed.txt"));
@@ -1135,7 +1122,7 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 	const FContentBrowserOperationResult FolderResult =
 		Operations.Rename(FolderItem, "RenamedFolder");
 	EXPECT_FALSE(FolderResult);
-	EXPECT_EQ(FolderResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_EQ(FolderResult.Status.Error, EAssetError::ReadOnlyMode);
 	EXPECT_TRUE(std::filesystem::is_directory(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content/RenamedFolder"));
 }
@@ -1153,7 +1140,7 @@ TEST_F(FContentBrowserModelTests, AllowsOrdinaryMutationsInWritableAutoScanMount
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 
@@ -1187,9 +1174,9 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	FContentBrowserModel Model;
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {
-				Asset::EAssetError::IoError,
+				EAssetError::IoError,
 				"Injected move failure."};
 		});
 	const FContentBrowserItem AssetItem{
@@ -1246,7 +1233,7 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 		(Root / "Content").generic_string()).size();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 
@@ -1286,7 +1273,7 @@ TEST_F(FContentBrowserModelTests, BuildsRecursiveFilterIndependentDeletionPlan)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem RootItem{
@@ -1341,7 +1328,7 @@ TEST_F(FContentBrowserModelTests, BlocksUnknownPackagesWithoutOmittingThem)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem FolderItem{
@@ -1385,7 +1372,7 @@ TEST(FContentDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Folder{
@@ -1428,39 +1415,39 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisExcludesInternalReferences)
 	DMaterial* Base = nullptr;
 	DMaterialInstance* Internal = nullptr;
 	DMaterialInstance* External = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(InternalPath, Internal));
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(ExternalPath, External));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BasePath, Base));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(InternalPath, Internal));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ExternalPath, External));
 	ASSERT_TRUE(Internal->SetParent(Base));
 	ASSERT_TRUE(External->SetParent(Base));
-	ASSERT_TRUE(Asset::SavePackage(Base->GetPackage()));
-	ASSERT_TRUE(Asset::SavePackage(Internal->GetPackage()));
-	ASSERT_TRUE(Asset::SavePackage(External->GetPackage()));
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
+	ASSERT_TRUE(SavePackage(Internal->GetPackage()));
+	ASSERT_TRUE(SavePackage(External->GetPackage()));
 
-	Asset::FAssetDeletionTransaction Transaction;
-	std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
+	FAssetDeletionJob Job;
+	std::vector<FAssetDeletionBatchBlocker> Blockers;
 	const std::array PartialPaths{BasePath, InternalPath};
-	ASSERT_TRUE(Asset::PrepareAssetDeletionTransaction(
-		PartialPaths, {}, Transaction, Blockers));
+	ASSERT_TRUE(PrepareAssetDeletionJob(
+		PartialPaths, {}, Job, Blockers));
 	EXPECT_TRUE(std::ranges::any_of(
 		Blockers,
-		[&](const Asset::FAssetDeletionBatchBlocker& Blocker) {
+		[&](const FAssetDeletionBatchBlocker& Blocker) {
 			return Blocker.AssetPath == BasePath
 				&& Blocker.RelatedAssetPath == ExternalPath;
 		}));
 
 	const std::array CompletePaths{BasePath, InternalPath, ExternalPath};
-	ASSERT_TRUE(Asset::PrepareAssetDeletionTransaction(
-		CompletePaths, {}, Transaction, Blockers));
+	ASSERT_TRUE(PrepareAssetDeletionJob(
+		CompletePaths, {}, Job, Blockers));
 	EXPECT_TRUE(Blockers.empty());
-	EXPECT_EQ(Transaction.GetEntries().size(), 3);
+	EXPECT_EQ(Job.GetEntries().size(), 3);
 
-	ASSERT_TRUE(Asset::UnloadPackage(ExternalPath));
-	ASSERT_TRUE(Asset::UnloadPackage(InternalPath));
-	ASSERT_TRUE(Asset::UnloadPackage(BasePath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(ExternalPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(InternalPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(BasePath));
+	ASSERT_TRUE(UnloadPackage(ExternalPath));
+	ASSERT_TRUE(UnloadPackage(InternalPath));
+	ASSERT_TRUE(UnloadPackage(BasePath));
+	ASSERT_TRUE(DeleteAssetForTesting(ExternalPath));
+	ASSERT_TRUE(DeleteAssetForTesting(InternalPath));
+	ASSERT_TRUE(DeleteAssetForTesting(BasePath));
 }
 
 TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership)
@@ -1474,15 +1461,15 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 	}
 	struct FContributorReset
 	{
-		Asset::FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+		FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	};
-	const Asset::FAssetDeleteContributorHandle Contributor =
-	Asset::RegisterAssetDeleteContributor(
+	const FAssetDeleteContributorHandle Contributor =
+	RegisterAssetDeleteContributor(
 		DMaterial::StaticClass(),
-		[SharedCompanion](const Asset::FAssetData& Data,
-			const Asset::FAssetPackageInspection&,
-			Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+		[SharedCompanion](const FAssetData& Data,
+			const FAssetPackageInspection&,
+			FAssetDeleteContribution& Contribution) -> FAssetResult {
 			if (Data.PackagePath.GetView().starts_with(
 					"/ContentBrowserTests/Companion"))
 				Contribution.Files.push_back(SharedCompanion);
@@ -1499,34 +1486,34 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 		"/ContentBrowserTests/CompanionSecond", SecondPath));
 	DMaterial* First = nullptr;
 	DMaterial* Second = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(FirstPath, First));
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SecondPath, Second));
-	ASSERT_TRUE(Asset::SavePackage(First->GetPackage()));
-	ASSERT_TRUE(Asset::SavePackage(Second->GetPackage()));
-	Asset::FAssetCompanionOwnership Ownership;
-	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+	FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(QueryAssetCompanionOwnership(
 		SharedCompanion, Ownership));
 	EXPECT_EQ(
 		Ownership.State,
-		Asset::EAssetCompanionOwnershipState::Ambiguous);
+		EAssetCompanionOwnershipState::Ambiguous);
 	EXPECT_EQ(Ownership.Owners.size(), 2);
 
-	Asset::FAssetDeletionTransaction Transaction;
-	std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
+	FAssetDeletionJob Job;
+	std::vector<FAssetDeletionBatchBlocker> Blockers;
 	const std::array Paths{FirstPath, SecondPath};
-	ASSERT_TRUE(Asset::PrepareAssetDeletionTransaction(
-		Paths, {}, Transaction, Blockers));
+	ASSERT_TRUE(PrepareAssetDeletionJob(
+		Paths, {}, Job, Blockers));
 	EXPECT_TRUE(std::ranges::any_of(
 		Blockers,
-		[](const Asset::FAssetDeletionBatchBlocker& Blocker) {
+		[](const FAssetDeletionBatchBlocker& Blocker) {
 			return Blocker.Kind
-				== Asset::EAssetDeletionBatchBlocker::CompanionOwnershipConflict;
+				== EAssetDeletionBatchBlocker::CompanionOwnershipConflict;
 		}));
 
-	ASSERT_TRUE(Asset::UnloadPackage(SecondPath));
-	ASSERT_TRUE(Asset::UnloadPackage(FirstPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(SecondPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(FirstPath));
+	ASSERT_TRUE(UnloadPackage(SecondPath));
+	ASSERT_TRUE(UnloadPackage(FirstPath));
+	ASSERT_TRUE(DeleteAssetForTesting(SecondPath));
+	ASSERT_TRUE(DeleteAssetForTesting(FirstPath));
 }
 
 TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
@@ -1539,29 +1526,28 @@ TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/RevalidateExternal", ExternalPath));
 	DMaterial* Base = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
-	ASSERT_TRUE(Asset::SavePackage(Base->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BasePath, Base));
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
 
-	Asset::FAssetDeletionTransaction Transaction;
-	std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;
-	ASSERT_TRUE(Asset::PrepareAssetDeletionTransaction(
-		std::span{&BasePath, 1}, {}, Transaction, Blockers));
+	FAssetDeletionJob Job;
+	std::vector<FAssetDeletionBatchBlocker> Blockers;
+	ASSERT_TRUE(PrepareAssetDeletionJob(
+		std::span{&BasePath, 1}, {}, Job, Blockers));
 	ASSERT_TRUE(Blockers.empty());
 
 	DMaterialInstance* External = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(ExternalPath, External));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ExternalPath, External));
 	ASSERT_TRUE(External->SetParent(Base));
-	ASSERT_TRUE(Asset::SavePackage(External->GetPackage()));
-	const Asset::FAssetResult Commit = Transaction.Commit({
-		.Stage = [] { return Asset::FAssetResult{}; },
-		.Restore = [] { return Asset::FAssetResult{}; },
+	ASSERT_TRUE(SavePackage(External->GetPackage()));
+	const FAssetResult Commit = Job.Delete({
+		.Delete = [] { return FAssetResult{}; },
 	});
-	EXPECT_EQ(Commit.Error, Asset::EAssetError::InUse);
+	EXPECT_EQ(Commit.Error, EAssetError::InUse);
 
-	ASSERT_TRUE(Asset::UnloadPackage(ExternalPath));
-	ASSERT_TRUE(Asset::UnloadPackage(BasePath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(ExternalPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(BasePath));
+	ASSERT_TRUE(UnloadPackage(ExternalPath));
+	ASSERT_TRUE(UnloadPackage(BasePath));
+	ASSERT_TRUE(DeleteAssetForTesting(ExternalPath));
+	ASSERT_TRUE(DeleteAssetForTesting(BasePath));
 }
 
 TEST_F(FContentBrowserModelTests, BlocksDirectoryReparseTraversal)
@@ -1579,7 +1565,7 @@ TEST_F(FContentBrowserModelTests, BlocksDirectoryReparseTraversal)
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
 		Model,
-		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		[](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem FolderItem{
@@ -1596,37 +1582,30 @@ TEST_F(FContentBrowserModelTests, BlocksDirectoryReparseTraversal)
 		}));
 }
 
-TEST_F(FContentBrowserModelTests, EmptyFolderDeletionRoundTripsThroughHistory)
+TEST_F(FContentBrowserModelTests, EmptyFolderDeletionIsPermanent)
 {
 	const std::filesystem::path Folder = Root / "Content/EmptyFolder";
 	std::filesystem::create_directories(Folder);
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "EmptyFolder",
 		.PhysicalPath = Folder.generic_string()};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
 	ASSERT_TRUE(Plan->CanExecute());
 	EXPECT_EQ(Plan->Summary.FolderCount, 1);
 	EXPECT_EQ(Plan->Summary.AssetCount, 0);
 	EXPECT_EQ(Plan->Summary.FileCount, 0);
 
-	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FContentDeletionTransaction>(Plan)));
+	FContentDeletionOperation Deletion(Plan);
+	ASSERT_TRUE(Deletion.Execute());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(std::filesystem::is_directory(Folder));
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_FALSE(std::filesystem::exists(Folder));
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(std::filesystem::is_directory(Folder));
 }
 
 TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
@@ -1643,18 +1622,18 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 
 	struct FContributorReset
 	{
-		Asset::FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+		FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	};
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/UnsafeCompanion/Material", AssetPath));
-	const Asset::FAssetDeleteContributorHandle Contributor =
-		Asset::RegisterAssetDeleteContributor(
+	const FAssetDeleteContributorHandle Contributor =
+		RegisterAssetDeleteContributor(
 			DMaterial::StaticClass(),
-			[AssetPath, OutsideFile](const Asset::FAssetData& Data,
-				const Asset::FAssetPackageInspection&,
-				Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+			[AssetPath, OutsideFile](const FAssetData& Data,
+				const FAssetPackageInspection&,
+				FAssetDeleteContribution& Contribution) -> FAssetResult {
 				if (Data.PackagePath == AssetPath)
 					Contribution.Files.push_back(OutsideFile);
 				return {};
@@ -1662,13 +1641,13 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
@@ -1697,8 +1676,8 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 		}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(OutsideFile));
 
-	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(UnloadPackage(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
@@ -1719,18 +1698,18 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 
 	struct FContributorReset
 	{
-		Asset::FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+		FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	};
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/ReparseCompanion/Material", AssetPath));
-	const Asset::FAssetDeleteContributorHandle Contributor =
-		Asset::RegisterAssetDeleteContributor(
+	const FAssetDeleteContributorHandle Contributor =
+		RegisterAssetDeleteContributor(
 			DMaterial::StaticClass(),
-			[AssetPath, Companion](const Asset::FAssetData& Data,
-				const Asset::FAssetPackageInspection&,
-				Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+			[AssetPath, Companion](const FAssetData& Data,
+				const FAssetPackageInspection&,
+				FAssetDeleteContribution& Contribution) -> FAssetResult {
 				if (Data.PackagePath == AssetPath)
 					Contribution.Files.push_back(Companion);
 				return {};
@@ -1738,13 +1717,13 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
@@ -1763,11 +1742,11 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 		}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
 
-	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(UnloadPackage(AssetPath));
+	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
 }
 
-TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneTransaction)
+TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionDeleteTogether)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Folder = Root / "Content/Mixed";
@@ -1784,18 +1763,18 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 
 	struct FContributorReset
 	{
-		Asset::FAssetDeleteContributorHandle Handle = 0;
-		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+		FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { UnregisterAssetDeleteContributor(Handle); }
 	};
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Mixed/Nested/Material", AssetPath));
-	const Asset::FAssetDeleteContributorHandle Contributor =
-	Asset::RegisterAssetDeleteContributor(
+	const FAssetDeleteContributorHandle Contributor =
+	RegisterAssetDeleteContributor(
 		DMaterial::StaticClass(),
-		[AssetPath, Companion](const Asset::FAssetData& Data,
-			const Asset::FAssetPackageInspection&,
-			Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+		[AssetPath, Companion](const FAssetData& Data,
+			const FAssetPackageInspection&,
+			FAssetDeleteContribution& Contribution) -> FAssetResult {
 			if (Data.PackagePath == AssetPath)
 				Contribution.Files.push_back(Companion);
 			return {};
@@ -1803,21 +1782,21 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "Mixed",
 		.PhysicalPath = Folder.generic_string()};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
 	ASSERT_TRUE(Plan->CanExecute());
 	EXPECT_EQ(Plan->Summary.AssetCount, 1);
 	EXPECT_EQ(Plan->Summary.FileCount, 1);
@@ -1825,86 +1804,49 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 	EXPECT_EQ(Plan->Summary.FolderCount, 2);
 	ASSERT_EQ(Plan->MaximalRoots.size(), 2);
 
-	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FContentDeletionTransaction>(Plan)));
+	FContentDeletionOperation Deletion(Plan);
+	ASSERT_TRUE(Deletion.Execute());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
-	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_TRUE(std::filesystem::is_regular_file(OrdinaryFile));
-	EXPECT_TRUE(std::filesystem::is_regular_file(Companion));
-	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
-	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_FALSE(std::filesystem::exists(Folder));
-	EXPECT_FALSE(std::filesystem::exists(Companion));
-	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	EXPECT_EQ(FindAssetExact(AssetPath), nullptr);
 }
 
-TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutResidency)
+TEST_F(FContentBrowserModelTests, DestructiveDeletionRemovesRegistryAndResidency)
 {
 	InitializeDObjectSystem();
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/TransactionalMaterial", AssetPath));
+		"/ContentBrowserTests/DestructiveMaterial", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(AssetPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
 	const std::filesystem::path PackagePath =
-		Asset::FindAssetExact(AssetPath)->PhysicalPath;
+		FindAssetExact(AssetPath)->PhysicalPath;
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,
-		.Name = "TransactionalMaterial",
+		.Name = "DestructiveMaterial",
 		.VirtualPath = AssetPath.ToString(),
 		.PhysicalPath = PackagePath.generic_string(),
 		.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString()};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
 	ASSERT_TRUE(Plan->CanExecute());
 
-	Durin::Tests::FTestTransactorOwner Transactions;
-	const uint64 InitialContentRevision =
-		Transactions->GetMountedContentMutationRevision();
-	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
-	FContentDeletionTransaction* TransactionView = Transaction.get();
-	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
+	FContentDeletionOperation Deletion(Plan);
+	ASSERT_TRUE(Deletion.Execute());
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
-	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
-	EXPECT_EQ(TransactionView->GetState(), EContentDeletionTransactionState::Applied);
-
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
-	EXPECT_TRUE(std::filesystem::is_regular_file(PackagePath));
-	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
-	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 3);
-	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 4);
-	const std::filesystem::path StagingRoot = TransactionView->GetStagingRoot();
-	Transactions->Reset();
-	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+	EXPECT_EQ(FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(FindResidentPackage(AssetPath), nullptr);
 }
 
-TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestoresExactAlias)
+TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndIsPermanent)
 {
 	InitializeDObjectSystem();
 	FPackagePath OldPath;
@@ -1914,19 +1856,19 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/DeleteRedirectFinal", FinalPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(OldPath, Material));
-	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
-	const Asset::FAssetRelocationMapping Mapping{OldPath, FinalPath};
-	Asset::FAssetMutationSummary Summary;
-	Asset::FAssetMutationTransaction Relocation;
-	ASSERT_TRUE(Asset::PrepareAssetRelocationTransaction(
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OldPath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	const FAssetRelocationMapping Mapping{OldPath, FinalPath};
+	FAssetRelocationSummary Summary;
+	FAssetMutationJob Relocation;
+	ASSERT_TRUE(PrepareAssetRelocationJob(
 		std::span{&Mapping, 1}, Summary, Relocation));
-	ASSERT_TRUE(Relocation.Commit());
+	ASSERT_TRUE(Relocation.ResumeForward());
 
-	Asset::FAssetCatalogEntry AliasData =
-		Asset::FindAssetExact(OldPath);
-	Asset::FAssetCatalogEntry FinalData =
-		Asset::FindAssetExact(FinalPath);
+	FAssetCatalogEntry AliasData =
+		FindAssetExact(OldPath);
+	FAssetCatalogEntry FinalData =
+		FindAssetExact(FinalPath);
 	ASSERT_NE(AliasData, nullptr);
 	ASSERT_NE(FinalData, nullptr);
 	const FContentBrowserItem AliasItem{
@@ -1949,7 +1891,7 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentDeletionPlanPtr AliasOnly = Operations.BuildDeletionPlan(
@@ -1970,8 +1912,8 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 		}));
 
 	const std::array Items{AliasItem, FinalItem};
-	const FContentDeletionPlanPtr Complete = BuildTransactionPlan(
-		Operations, Items, Root / "UndoRedirector");
+	const FContentDeletionPlanPtr Complete = BuildDeletionPlan(
+		Operations, Items);
 	ASSERT_TRUE(Complete->CanExecute());
 	EXPECT_TRUE(std::ranges::any_of(
 		Complete->Warnings, [](const FContentDeletionWarning& Warning) {
@@ -1979,27 +1921,13 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 				!= std::string::npos;
 		}));
 
-	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->Execute(
-		std::make_unique<FContentDeletionTransaction>(Complete)));
-	EXPECT_EQ(Asset::FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Asset::FindAssetExact(FinalPath), nullptr);
-	ASSERT_TRUE(Transactions->Undo());
-	AliasData = Asset::FindAssetExact(OldPath);
-	FinalData = Asset::FindAssetExact(FinalPath);
-	ASSERT_NE(AliasData, nullptr);
-	ASSERT_NE(FinalData, nullptr);
-	EXPECT_EQ(AliasData->EntryKind,
-		Asset::EAssetRegistryEntryKind::Redirector);
-	EXPECT_EQ(AliasData->RedirectDestination, FinalPath);
-	EXPECT_EQ(FinalData->EntryKind, Asset::EAssetRegistryEntryKind::Asset);
-	ASSERT_TRUE(Transactions->Redo());
-	ASSERT_TRUE(Transactions->Undo());
-	ASSERT_TRUE(Transactions->Redo());
-	Transactions->Reset();
+	FContentDeletionOperation Deletion(Complete);
+	ASSERT_TRUE(Deletion.Execute());
+	EXPECT_EQ(FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(FindAssetExact(FinalPath), nullptr);
 }
 
-TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModificationConflicts)
+TEST_F(FContentBrowserModelTests, DestructiveDeletionRevalidatesConfirmedBytes)
 {
 	const std::filesystem::path Folder = Root / "Content/ConflictFolder";
 	const std::filesystem::path SourceFile = Folder / "source.txt";
@@ -2012,43 +1940,23 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModifi
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "ConflictFolder",
 		.PhysicalPath = Folder.generic_string()};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
-	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
-	FContentDeletionTransaction* View = Transaction.get();
-	Durin::Tests::FTestTransactorOwner Transactions;
-	const uint64 InitialContentRevision =
-		Transactions->GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
-
-	std::filesystem::create_directories(Folder);
-	EXPECT_FALSE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
-	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
-	std::error_code Ec;
-	std::filesystem::remove(Folder, Ec);
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
 	{
 		std::ofstream File(SourceFile, std::ios::trunc);
 		File << "change";
 	}
 	std::filesystem::last_write_time(SourceFile, ConfirmedWriteTime);
-	EXPECT_FALSE(Transactions->Redo());
-	EXPECT_EQ(
-		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
-	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Restored);
+	FContentDeletionOperation Deletion(Plan);
+	EXPECT_FALSE(Deletion.Execute());
+	EXPECT_TRUE(std::filesystem::exists(SourceFile));
 }
 
 TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreservingRewrite)
@@ -2062,7 +1970,7 @@ TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreserving
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
@@ -2070,8 +1978,8 @@ TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreserving
 		.Name = "rewrite.txt",
 		.PhysicalPath = FilePath.generic_string(),
 		.Extension = ".txt"};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
 	ASSERT_TRUE(Plan->CanExecute());
 	{
 		std::ofstream File(FilePath, std::ios::trunc);
@@ -2079,12 +1987,12 @@ TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreserving
 	}
 	std::filesystem::last_write_time(FilePath, ConfirmedWriteTime);
 	EXPECT_FALSE(Operations.IsDeletionPlanCurrent(*Plan));
-	FContentDeletionTransaction Transaction(Plan);
-	EXPECT_FALSE(Transaction.Redo());
+	FContentDeletionOperation Deletion(Plan);
+	EXPECT_FALSE(Deletion.Execute());
 	EXPECT_TRUE(std::filesystem::exists(FilePath));
 }
 
-TEST_F(FContentBrowserModelTests, DeletionUndoRejectsChangedStagedBytes)
+TEST_F(FContentBrowserModelTests, DeletionRejectsNewUnconfirmedDescendant)
 {
 	const std::filesystem::path Folder = Root / "Content/StagedRewrite";
 	const std::filesystem::path SourceFile = Folder / "source.txt";
@@ -2096,38 +2004,27 @@ TEST_F(FContentBrowserModelTests, DeletionUndoRejectsChangedStagedBytes)
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Folder,
 		.Name = "StagedRewrite",
 		.PhysicalPath = Folder.generic_string()};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
-	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
-	FContentDeletionTransaction* View = Transaction.get();
-	Durin::Tests::FTestTransactorOwner Transactions;
-	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
-	const std::filesystem::path StagedFile =
-		View->GetStagingRoot() / "entry-0000/source.txt";
-	const auto ConfirmedWriteTime = std::filesystem::last_write_time(StagedFile);
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
+	const std::filesystem::path Unexpected = Folder / "unexpected.txt";
 	{
-		std::ofstream File(StagedFile, std::ios::trunc);
-		File << "change";
+		std::ofstream File(Unexpected);
+		File << "new";
 	}
-	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
-	EXPECT_FALSE(Transactions->Undo());
-	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
-	{
-		std::ofstream File(StagedFile, std::ios::trunc);
-		File << "source";
-	}
-	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
-	EXPECT_TRUE(Transactions->Undo());
+	FContentDeletionOperation Deletion(Plan);
+	EXPECT_FALSE(Deletion.Execute());
+	EXPECT_TRUE(std::filesystem::exists(SourceFile));
+	EXPECT_TRUE(std::filesystem::exists(Unexpected));
 }
 
-TEST_F(FContentBrowserModelTests, DeletionTransactionCompensatesAndRetainsFailedRecovery)
+TEST_F(FContentBrowserModelTests, DestructiveDeletionFailureContinuesForward)
 {
 	const std::array Paths{
 		Root / "Content/first.txt", Root / "Content/second.txt"};
@@ -2139,7 +2036,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionCompensatesAndRetainsFailed
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const std::array Items{
@@ -2149,57 +2046,29 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionCompensatesAndRetainsFailed
 		FContentBrowserItem{.Kind = EContentBrowserItemKind::File,
 			.Name = "second.txt", .PhysicalPath = Paths[1].generic_string(),
 			.Extension = ".txt"}};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, Items, Root / "Undo");
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, Items);
 
-	FContentDeletionTransactionHooks OrdinaryHooks;
-	OrdinaryHooks.Rename = [](const std::filesystem::path& Source,
-		const std::filesystem::path& Destination,
-		EContentDeletionMovePhase Phase) -> std::error_code {
-		if (Phase == EContentDeletionMovePhase::Apply
-			&& Source.filename() == "second.txt")
+	FContentDeletionHooks Hooks;
+	bool bFailSecondRoot = true;
+	Hooks.RemoveAll = [&bFailSecondRoot](
+		const std::filesystem::path& Path) -> std::error_code {
+		if (Path.filename() == "second.txt" && std::exchange(bFailSecondRoot, false))
 			return std::make_error_code(std::errc::io_error);
-		std::error_code Ec;
-		std::filesystem::rename(Source, Destination, Ec);
-		return Ec;
+		std::error_code Error;
+		Durin::Testing::RemoveTestWorkDirectory(Path, Error);
+		return Error;
 	};
-	{
-		auto Transaction = std::make_unique<FContentDeletionTransaction>(
-			Plan, OrdinaryHooks);
-		EXPECT_FALSE(Transaction->Redo());
-		EXPECT_EQ(Transaction->GetState(), EContentDeletionTransactionState::Restored);
-		EXPECT_TRUE(std::filesystem::exists(Paths[0]));
-		EXPECT_TRUE(std::filesystem::exists(Paths[1]));
-	}
-
-	FContentDeletionTransactionHooks RecoveryHooks;
-	RecoveryHooks.Rename = [](const std::filesystem::path& Source,
-		const std::filesystem::path& Destination,
-		EContentDeletionMovePhase Phase) -> std::error_code {
-		if ((Phase == EContentDeletionMovePhase::Apply
-				&& Source.filename() == "second.txt")
-			|| Phase == EContentDeletionMovePhase::CompensateApply)
-			return std::make_error_code(std::errc::io_error);
-		std::error_code Ec;
-		std::filesystem::rename(Source, Destination, Ec);
-		return Ec;
-	};
-	std::filesystem::path RecoveryRoot;
-	{
-		auto Transaction = std::make_unique<FContentDeletionTransaction>(
-			Plan, RecoveryHooks);
-		EXPECT_FALSE(Transaction->Redo());
-		EXPECT_EQ(Transaction->GetState(), EContentDeletionTransactionState::RecoveryRequired);
-		RecoveryRoot = Transaction->GetStagingRoot();
-		EXPECT_TRUE(Transaction->GetDetails(Durin::Editor::ETransactionOperation::Execute).find(
-			RecoveryRoot.generic_string()) != std::string::npos);
-	}
-	EXPECT_TRUE(std::filesystem::is_directory(RecoveryRoot));
-	std::error_code Ec;
-	Durin::Testing::RemoveTestWorkDirectory(RecoveryRoot, Ec);
+	FContentDeletionOperation Deletion(Plan, Hooks);
+	EXPECT_FALSE(Deletion.Execute());
+	EXPECT_FALSE(std::filesystem::exists(Paths[0]));
+	EXPECT_TRUE(std::filesystem::exists(Paths[1]));
+	EXPECT_TRUE(Deletion.GetDetails().find("irreversible") != std::string::npos);
+	EXPECT_TRUE(Deletion.Execute()) << Deletion.GetDetails();
+	EXPECT_FALSE(std::filesystem::exists(Paths[1]));
 }
 
-TEST_F(FContentBrowserModelTests, EvictionCleansOwnedDeletionStaging)
+TEST_F(FContentBrowserModelTests, CompletedDeletionLeavesNoRecoveryArtifact)
 {
 	const std::filesystem::path FilePath = Root / "Content/evicted.txt";
 	{
@@ -2209,7 +2078,7 @@ TEST_F(FContentBrowserModelTests, EvictionCleansOwnedDeletionStaging)
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
-		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+		Model, [](std::span<const FEditorAssetMove>) -> FAssetResult {
 			return {};
 		});
 	const FContentBrowserItem Item{
@@ -2217,15 +2086,10 @@ TEST_F(FContentBrowserModelTests, EvictionCleansOwnedDeletionStaging)
 		.Name = "evicted.txt",
 		.PhysicalPath = FilePath.generic_string(),
 		.Extension = ".txt"};
-	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
-		Operations, std::span{&Item, 1}, Root / "Undo");
-	Durin::Tests::FTestTransactorOwner Transactions;
-	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
-	FContentDeletionTransaction* View = Transaction.get();
-	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
-	const std::filesystem::path StagingRoot = View->GetStagingRoot();
-	for (size_t Index = 0; Index < 256; ++Index)
-		ASSERT_TRUE(Transactions->Execute(
-			std::make_unique<FNoOpEditorTransaction>()));
-	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
+	const FContentDeletionPlanPtr Plan = BuildDeletionPlan(
+		Operations, std::span{&Item, 1});
+	FContentDeletionOperation Deletion(Plan);
+	ASSERT_TRUE(Deletion.Execute());
+	EXPECT_FALSE(std::filesystem::exists(FilePath));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Undo"));
 }

@@ -4,7 +4,7 @@
 
 namespace Durin::AssetForge::Builtins::Private
 {
-	using namespace Durin::Asset;
+	using namespace Durin;
 	namespace
 	{
 		constexpr uint32 GltfUnsignedByte = 5121;

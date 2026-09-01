@@ -2,7 +2,7 @@
 
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{
@@ -27,15 +27,15 @@ namespace Durin::Asset
 		if (bAcquiredRender)
 		{
 			GStaticMeshRegistration = RegisterBuildFunction(
-				Private::StaticMeshFunctionName,
-				Private::CreateStaticMeshBuildFunction(), Gate, OutError);
+				AssetPrivate::StaticMeshFunctionName,
+				AssetPrivate::CreateStaticMeshBuildFunction(), Gate, OutError);
 			if (!GStaticMeshRegistration.IsValid()) return false;
 		}
 		if (bAcquiredCollision)
 		{
 			GStaticMeshCollisionRegistration = RegisterBuildFunction(
-				Private::StaticMeshCollisionFunctionName,
-				Private::CreateStaticMeshCollisionBuildFunction(), Gate, OutError);
+				AssetPrivate::StaticMeshCollisionFunctionName,
+				AssetPrivate::CreateStaticMeshCollisionBuildFunction(), Gate, OutError);
 			if (!GStaticMeshCollisionRegistration.IsValid())
 			{
 				RollBack();

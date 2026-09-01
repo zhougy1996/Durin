@@ -25,6 +25,8 @@ namespace Durin
 	{
 		Rejected,
 		Completed,
+		ForwardPending,
+		ContentCommittedProjectionPending,
 		RecoveryRequired,
 	};
 
@@ -35,13 +37,6 @@ namespace Durin
 		Dirty,
 		Persisted,
 		PartiallyPersisted,
-	};
-
-	enum class EAssetOperationPhase : uint8
-	{
-		Execute,
-		Undo,
-		Redo,
 	};
 
 	struct FAssetOperationWarning
@@ -63,11 +58,16 @@ namespace Durin
 		DObject* Asset = nullptr;
 		DPackage* Package = nullptr;
 		std::string PhysicalPath;
+		std::string OperationId;
+		std::string DesiredDirection;
+		std::string FailedParticipant;
+		std::filesystem::path RecoveryLocation;
 		bool bPublished = false;
 
 		auto Succeeded() const -> bool
 		{
-			return State == EAssetOperationTerminalState::Completed;
+			return State == EAssetOperationTerminalState::Completed
+				|| State == EAssetOperationTerminalState::ContentCommittedProjectionPending;
 		}
 		explicit operator bool() const { return Succeeded(); }
 	};
@@ -75,7 +75,6 @@ namespace Durin
 	struct FAssetOperationNotification
 	{
 		EAssetOperationKind Kind = EAssetOperationKind::Create;
-		EAssetOperationPhase Phase = EAssetOperationPhase::Execute;
 		EAssetOperationPersistenceState Persistence =
 			EAssetOperationPersistenceState::NotApplicable;
 		std::vector<FPackagePath> AffectedAssets;

@@ -2,7 +2,7 @@
 
 #include "AssetRegistry/PackageHeader.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	// Rebuilds catalog and reference projections from mounted packages, publishes
 	// the complete pair against the captured revision, and refreshes both caches.

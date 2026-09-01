@@ -5,7 +5,7 @@
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

@@ -322,10 +322,10 @@ namespace Durin::Tests
 				OutError = "The cached StaticMesh fixture path is invalid.";
 				return false;
 			}
-			if (Asset::FindResidentPackage(StaticMeshPath) == nullptr)
+			if (FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
+				const FAssetResult Result = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
@@ -379,7 +379,7 @@ namespace Durin::Tests
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
 
-		Asset::FAssetResult Result = Asset::CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
+		FAssetResult Result = CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
 		if (!Result) return Fail(Result.Message);
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!OutFixtures.Material->SetMaterialProgram(
@@ -396,10 +396,10 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material fixture values.");
 		}
-		Result = Asset::SavePackage(OutFixtures.Material->GetPackage());
+		Result = SavePackage(OutFixtures.Material->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
+		Result = CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
 		if (!Result) return Fail(Result.Message);
 		if (!OutFixtures.MaterialInstance->SetParent(OutFixtures.Material)
 			|| !OutFixtures.MaterialInstance->SetVectorParameterValue(
@@ -411,17 +411,17 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material-instance fixture values.");
 		}
-		Result = Asset::SavePackage(OutFixtures.MaterialInstance->GetPackage());
+		Result = SavePackage(OutFixtures.MaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
+		Result = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Result) return Fail(Result.Message);
-		Asset::FStaticMeshImportedData ImportedMesh;
+		FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		Asset::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
 		Mesh.Name = "ThumbnailTetrahedron";
 		Mesh.Positions = {
 			FVector3f(-0.6f, -0.5f, -0.4f),
@@ -434,7 +434,7 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!FStaticMeshBuildOperations::BuildAndPublishImported(
 				*OutFixtures.StaticMesh, ImportedMesh,
 				"Rendered thumbnail StaticMesh fixture",
 				OutError)
@@ -443,12 +443,12 @@ namespace Durin::Tests
 		{
 			return false;
 		}
-		Result = Asset::SavePackage(OutFixtures.StaticMesh->GetPackage());
+		Result = SavePackage(OutFixtures.StaticMesh->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
+		Result = CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
 		if (!Result) return Fail(Result.Message);
-		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
+		Result = SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
 		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = AssetForge::Builtins::ImportTextureCubeFacesForTest(

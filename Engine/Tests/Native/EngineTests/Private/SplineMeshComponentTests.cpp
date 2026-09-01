@@ -40,10 +40,10 @@ namespace
 		-> DStaticMesh*
 	{
 		auto* Mesh = NewObject<DStaticMesh>(Outer, FName(Name));
-		Asset::FStaticMeshImportedData Imported;
+		FStaticMeshImportedData Imported;
 		Imported.MaterialSlots.push_back({
 			.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
-		Asset::FStaticMeshImportedMesh& Section = Imported.Meshes.emplace_back();
+		FStaticMeshImportedMesh& Section = Imported.Meshes.emplace_back();
 		Section.Name = "Triangle";
 		Section.Positions = {
 			FVector3f(-0.5f, -0.5f, 0.0f),
@@ -52,7 +52,7 @@ namespace
 		Section.Indices = {0, 1, 2};
 		Section.SourceMaterialIndex = 0;
 		std::string Error;
-		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!FStaticMeshBuildOperations::BuildAndPublishImported(
 			*Mesh, Imported,
 			"SplineMesh authored triangle fixture", Error))
 		{
@@ -102,13 +102,13 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	InitializeDObjectSystem();
 	Testing::FScopedMountRegistryFixture MountRegistry;
 	FMountPaths::InitDefaultMountPoints();
-	ASSERT_TRUE(Asset::RefreshAssetRegistry());
+	ASSERT_TRUE(RefreshAssetRegistry());
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const Asset::FAssetResult LoadResult = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
+	const FAssetResult LoadResult = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -121,8 +121,8 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	EXPECT_EQ(LongitudinalSections.size(), 17u);
 	EXPECT_FLOAT_EQ(*LongitudinalSections.begin(), -0.75f);
 	EXPECT_FLOAT_EQ(*LongitudinalSections.rbegin(), 0.75f);
-	EXPECT_TRUE(Asset::UnloadPackage(
-		Path, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(UnloadPackage(
+		Path, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
@@ -355,7 +355,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<AActor>("SplineMeshActor");
 	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(
 		DSplineMeshComponent::StaticClass(), FName("SplineMesh")));
@@ -366,11 +366,11 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	Params.EndRollRadians = 0.75;
 	Params.EndScale = {2.0, 0.5};
 	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
-	ASSERT_TRUE(Asset::SavePackage(Level->GetPackage()));
-	ASSERT_TRUE(Asset::UnloadPackage(Path));
+	ASSERT_TRUE(SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
 
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* Loaded = LoadedLevel->FindActorByName("SplineMeshActor")
@@ -383,7 +383,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(State && State->IsValid()) << (State ? State->Diagnostic : "missing state");
 	EXPECT_EQ(State->Params, Loaded->GetSplineMeshParams());
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);
-	EXPECT_TRUE(Asset::UnloadPackage(Path));
+	EXPECT_TRUE(UnloadPackage(Path));
 }
 
 TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
@@ -399,7 +399,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
 	DLevel* Level = nullptr;
-	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
 	auto* InitialMesh = CreateAuthoredDebugTriangle(Level, "InitialStaticMesh");
@@ -479,18 +479,18 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	for (DActorComponent* Segment : DuplicateSegments)
 		EXPECT_EQ(Segment->GetCreationMethod(), EComponentCreationMethod::Generated);
 	Level->GetPackage()->MarkDirty();
-	const Asset::FAssetResult SaveResult = Asset::SavePackage(Level->GetPackage());
+	const FAssetResult SaveResult = SavePackage(Level->GetPackage());
 	EXPECT_TRUE(SaveResult) << SaveResult.Message;
-	EXPECT_TRUE(Asset::UnloadPackage(Path));
+	EXPECT_TRUE(UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
+	ASSERT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedActor = Cast<ASplineMeshActor>(LoadedLevel->FindActorByName("SplineMeshActor"));
 	ASSERT_NE(LoadedActor, nullptr);
 	EXPECT_EQ(LoadedActor->GetSplineComponent()->GetNumSplinePoints(), 3u);
 	EXPECT_EQ(LoadedActor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
-	EXPECT_TRUE(Asset::UnloadPackage(Path));
+	EXPECT_TRUE(UnloadPackage(Path));
 }
 
 TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership)

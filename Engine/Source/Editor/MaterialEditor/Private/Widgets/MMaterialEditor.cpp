@@ -295,13 +295,13 @@ namespace Durin::Editor::Material
 		, SessionSettings(std::make_unique<FMaterialEditorSessionSettings>())
 	{
 		SessionSettings->Load();
-		MoveObserverHandle = Asset::RegisterAssetMoveObserver(
+		MoveObserverHandle = RegisterAssetMoveObserver(
 			this, std::move(OwnerGate));
 	}
 
 	MMaterialEditor::~MMaterialEditor()
 	{
-		Asset::UnregisterAssetMoveObserver(MoveObserverHandle);
+		UnregisterAssetMoveObserver(MoveObserverHandle);
 		FinishActivePropertyEdit(true);
 		SessionSettings->Save();
 		MaterialPreviews.clear();
@@ -325,7 +325,7 @@ namespace Durin::Editor::Material
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Material);
+		const FAssetResult Result = LoadObject(AssetPath, Material);
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
@@ -1161,7 +1161,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto MMaterialEditor::OnAssetsRelocated(
-		std::span<const Asset::FAssetRelocationMapping> Mappings) -> void
+		std::span<const FAssetRelocationMapping> Mappings) -> void
 	{
 		struct FMove
 		{
@@ -1170,7 +1170,7 @@ namespace Durin::Editor::Material
 			TObjectPtr<DMaterialInterface> Material;
 		};
 		std::vector<FMove> Moves;
-		for (const Asset::FAssetRelocationMapping& Mapping : Mappings)
+		for (const FAssetRelocationMapping& Mapping : Mappings)
 		{
 			const std::string Source = Mapping.SourcePath.ToString();
 			const auto It = OpenMaterials.find(Source);

@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

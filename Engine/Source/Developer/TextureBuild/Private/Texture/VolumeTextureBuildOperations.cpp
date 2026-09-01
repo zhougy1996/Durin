@@ -6,7 +6,7 @@
 #include "Texture/TextureBuildFunctions.h"
 #include "Texture/VolumeTextureDerivedData.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	using namespace ::Durin::DerivedData;
 
@@ -19,8 +19,8 @@ namespace Durin::Asset
 				.Width = Source.Width, .Height = Source.Height, .Depth = Source.Depth,
 				.Settings = Settings,
 				.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game};
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game};
 		}
 
 		auto MakeDefinition(std::string_view Key,
@@ -29,15 +29,15 @@ namespace Durin::Asset
 			const FVolumeTextureBuildSettings* Settings,
 			FBuildDefinition& OutDefinition, std::string& OutError) -> bool
 		{
-			FBuildDefinitionBuilder Builder(Private::VolumeTextureFunctionName,
-				std::string(Private::VolumeTextureValueName));
+			FBuildDefinitionBuilder Builder(AssetPrivate::VolumeTextureFunctionName,
+				std::string(AssetPrivate::VolumeTextureValueName));
 			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 				.AddTargetFact("Platform", "Win64")
 				.AddTargetFact("Profile", "Game");
 			if (Source && Settings)
 				Builder.AddInput(FBuildValue::FromOwned(
-					std::string(Private::VolumeTextureInputName),
-					Private::EncodeVolumeTextureLocalInput(*Source, *Settings)));
+					std::string(AssetPrivate::VolumeTextureInputName),
+					AssetPrivate::EncodeVolumeTextureLocalInput(*Source, *Settings)));
 			return Builder.Build(OutDefinition, &OutError);
 		}
 	}
@@ -71,7 +71,7 @@ namespace Durin::Asset
 			return false;
 		}
 		auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
-		if (!Private::DecodeVolumeTexturePlatformValue(
+		if (!AssetPrivate::DecodeVolumeTexturePlatformValue(
 			Output.Value, *PlatformData, OutError)) return false;
 		OutProduct = {.SourceData = std::move(SourceData), .Settings = Settings,
 			.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
@@ -143,7 +143,7 @@ namespace Durin::Asset
 			return false;
 		}
 		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
-		if (!Private::DecodeVolumeTexturePlatformValue(
+		if (!AssetPrivate::DecodeVolumeTexturePlatformValue(
 			Output.Value, *Candidate, OutMessage))
 		{
 			OutStatus = ETextureDerivedDataStatus::Corrupt;

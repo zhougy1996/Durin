@@ -16,7 +16,7 @@ namespace Durin::Editor::StaticMesh
 		constexpr double MinimumNearClipDistance = 1.0e-6;
 		constexpr double ClipPaddingFraction = 0.05;
 
-		auto MakeStaticMeshThumbnailFingerprint(const Asset::FAssetData& Data,
+		auto MakeStaticMeshThumbnailFingerprint(const FAssetData& Data,
 			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
@@ -66,7 +66,7 @@ namespace Durin::Editor::StaticMesh
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadObject(Input.AssetPath, Loaded);
+				const FAssetResult Result = LoadObject(Input.AssetPath, Loaded);
 				StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || StaticMesh == nullptr
 					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())
@@ -318,9 +318,9 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 
-		const Asset::FAssetCatalogSnapshot Catalog =
-			Asset::CaptureAssetCatalogSnapshot();
-		const Asset::FAssetData* Root =
+		const FAssetCatalogSnapshot Catalog =
+			CaptureAssetCatalogSnapshot();
+		const FAssetData* Root =
 			Catalog.FindExact(Request.Asset.PackagePath);
 		if (Root == nullptr)
 		{

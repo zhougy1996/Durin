@@ -6,7 +6,7 @@
 #include "Threading/Task.h"
 #include "Texture/Texture2DCompilation.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	struct FTexture2DBuildSettingsSnapshot
 	{
@@ -123,7 +123,7 @@ namespace Durin::Asset
 	};
 }
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	TEXTUREBUILD_API auto InitializeTexture2DCompilationDomain(
 		FModuleOwnedCallbackGate OwnerGate,

@@ -7,8 +7,8 @@ namespace Durin::TexturePayloadContainer
 	struct FDescriptor
 	{
 		uint32 ProducerVersion = 0;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		ETexturePayloadDimension Dimension = static_cast<ETexturePayloadDimension>(0);
 		ETextureStablePixelFormat StableFormat = static_cast<ETextureStablePixelFormat>(0);
 		uint32 SliceCount = 0;
@@ -47,8 +47,8 @@ namespace Durin::TexturePayloadContainer
 
 	auto Parse(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FDecodedContainer& OutContainer) -> FDecodeResult;
 
 	inline auto GetData(std::span<const std::byte> Bytes, const FRecord& Record)

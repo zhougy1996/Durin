@@ -163,8 +163,8 @@ namespace Durin
 				"TextureCube cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* Value = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* Value = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!PlatformData || !PlatformData->IsValid())
@@ -176,10 +176,10 @@ namespace Durin
 			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game});
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game});
 			std::string Error;
-			if (Writer.HasError() || !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			if (Writer.HasError() || !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
 					? Writer.GetFailure()->Message : std::move(Error));
@@ -219,7 +219,7 @@ namespace Durin
 
 	auto DTextureCube::GetPlatformData() const -> const FTextureCubePlatformData*
 	{
-		if (!PlatformData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!PlatformData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
@@ -251,7 +251,7 @@ namespace Durin
 
 	auto DTextureCube::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
 			{
@@ -293,8 +293,8 @@ namespace Durin
 		auto CandidatePlatformData = std::make_unique<FTextureCubePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
 		CandidatePlatformData->Serialize(PayloadAr, {
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
+			.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
 			CookedPlatformData.UnlockReadOnly();
@@ -317,12 +317,12 @@ namespace Durin
 	}
 
 	auto DTextureCube::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 		{
 			OutError = std::format(
 				"TextureCube '{}' supports only the Win64 game cook target.", GetObjectPath());

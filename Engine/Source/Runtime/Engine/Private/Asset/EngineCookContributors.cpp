@@ -12,7 +12,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	namespace
 	{

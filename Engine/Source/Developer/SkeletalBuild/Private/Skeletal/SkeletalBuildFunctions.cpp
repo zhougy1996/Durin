@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	const FBuildFunctionName SkeletalMeshFunctionName =
 		FBuildFunctionName::FromString("Durin.GeometryBuild.SkeletalMesh");

@@ -25,8 +25,8 @@ namespace Durin::Editor::Level
 			bool bFileExists = false;
 		};
 
-		auto StoreError(Asset::EAssetError Error, std::string Message)
-			-> Asset::FAssetResult
+		auto StoreError(EAssetError Error, std::string Message)
+			-> FAssetResult
 		{
 			return {Error, std::move(Message)};
 		}
@@ -48,7 +48,7 @@ namespace Durin::Editor::Level
 		auto CaptureProjectDefaultLevel(
 			const FProjectDefaultLevelReferenceStore::FProjectResolver&
 				ProjectResolver,
-			FCapturedProjectDefaultLevel& OutState) -> Asset::FAssetResult
+			FCapturedProjectDefaultLevel& OutState) -> FAssetResult
 		{
 			OutState = {};
 			const FProjectInfo* Project = ProjectResolver
@@ -65,7 +65,7 @@ namespace Durin::Editor::Level
 				OutState.SettingsFile, ExistsError);
 			if (ExistsError)
 				return StoreError(
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					std::format("Could not inspect project settings: {}",
 						ExistsError.message()));
 			if (!OutState.bFileExists)
@@ -77,21 +77,21 @@ namespace Durin::Editor::Level
 			if (!FFileHelper::LoadFileToArray(
 					OutState.Bytes, OutState.SettingsFile))
 				return StoreError(
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					"Could not read project settings for redirector Fix Up.");
 			FProjectGameSettings Settings;
 			const FProjectGameSettingsResult SettingsResult =
 				FProjectGameSettingsStore(OutState.SettingsFile).Load(Settings);
 			if (!SettingsResult)
 				return StoreError(
-					Asset::EAssetError::CorruptFile,
+					EAssetError::CorruptFile,
 					SettingsResult.Message);
 			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
 				if (!FPackagePath::TryCreate(Settings.DefaultLevel, OutState.Path, &PathError))
 					return StoreError(
-						Asset::EAssetError::InvalidPath,
+						EAssetError::InvalidPath,
 						std::format("Project default level is invalid: {}",
 							PathError));
 			}
@@ -102,7 +102,7 @@ namespace Durin::Editor::Level
 
 		auto SaveSettingsBytes(
 			const std::filesystem::path& SettingsFile,
-			std::span<const std::byte> Bytes) -> Asset::FAssetResult
+			std::span<const std::byte> Bytes) -> FAssetResult
 		{
 			FFileHelper::FAtomicFileError PublicationError;
 			if (Bytes.empty() || !FFileHelper::SaveArrayToFileAtomically(
@@ -111,7 +111,7 @@ namespace Durin::Editor::Level
 						Bytes.size()},
 					SettingsFile, &PublicationError))
 				return StoreError(
-					Asset::EAssetError::IoError,
+					EAssetError::IoError,
 					Bytes.empty()
 						? "Project settings serialized to empty bytes."
 						: PublicationError.ToString());
@@ -130,11 +130,11 @@ namespace Durin::Editor::Level
 	}
 
 	auto FProjectDefaultLevelReferenceStore::CaptureSnapshot(
-		Asset::FAssetReferenceStoreSnapshot& OutSnapshot)
-		-> Asset::FAssetResult
+		FAssetReferenceStoreSnapshot& OutSnapshot)
+		-> FAssetResult
 	{
 		FCapturedProjectDefaultLevel State;
-		Asset::FAssetResult Result = CaptureProjectDefaultLevel(
+		FAssetResult Result = CaptureProjectDefaultLevel(
 			ProjectResolver, State);
 		if (!Result) return Result;
 		OutSnapshot = {
@@ -153,14 +153,14 @@ namespace Durin::Editor::Level
 	}
 
 	auto FProjectDefaultLevelReferenceStore::PrepareRewrite(
-		std::span<const Asset::FAssetReferenceRewrite> Rewrites,
+		std::span<const FAssetReferenceRewrite> Rewrites,
 		std::string_view ExpectedFingerprint,
-		Asset::FAssetReferenceStoreRewriteContribution& OutContribution)
-		-> Asset::FAssetResult
+		FAssetReferenceStoreRewriteContribution& OutContribution)
+		-> FAssetResult
 	{
 		OutContribution = {};
 		FCapturedProjectDefaultLevel PreState;
-		Asset::FAssetResult Result = CaptureProjectDefaultLevel(
+		FAssetResult Result = CaptureProjectDefaultLevel(
 			ProjectResolver, PreState);
 		if (!Result) return Result;
 		if (ExpectedFingerprint != PreState.Fingerprint
@@ -169,7 +169,7 @@ namespace Durin::Editor::Level
 			|| Rewrites.front().SourcePath != PreState.Path
 			|| !Rewrites.front().DestinationPath.IsValid())
 			return StoreError(
-				Asset::EAssetError::StaleData,
+				EAssetError::StaleData,
 				"Project default-level settings changed before Fix Up preparation.");
 
 		std::error_code StatusError;
@@ -181,7 +181,7 @@ namespace Durin::Editor::Level
 		if (StatusError || (Permissions & WritePermissions)
 			== std::filesystem::perms::none)
 			return StoreError(
-				Asset::EAssetError::ReadOnlyMode,
+				EAssetError::ReadOnlyMode,
 				"Project settings are read-only and cannot be fixed up.");
 
 		FByteArray UpdatedBytes;
@@ -190,7 +190,7 @@ namespace Durin::Editor::Level
 				Rewrites.front().DestinationPath.ToString(), UpdatedBytes);
 		if (!UpdateResult)
 			return StoreError(
-				Asset::EAssetError::CorruptFile,
+				EAssetError::CorruptFile,
 				UpdateResult.Message);
 		auto PostBytes = std::make_shared<FByteArray>(
 			std::move(UpdatedBytes));
@@ -210,40 +210,40 @@ namespace Durin::Editor::Level
 			.Rewrites = {Rewrites.front()},
 			.Revalidate = [SettingsFile, PreFingerprint, PrePath, ResolveProject] {
 				FCapturedProjectDefaultLevel Current;
-				Asset::FAssetResult CurrentResult =
+				FAssetResult CurrentResult =
 					CaptureProjectDefaultLevel(ResolveProject, Current);
 				if (!CurrentResult) return CurrentResult;
 				return Current.SettingsFile == SettingsFile
 					&& Current.Fingerprint == PreFingerprint
 					&& Current.Path == PrePath
-					? Asset::FAssetResult{}
+					? FAssetResult{}
 					: StoreError(
-						Asset::EAssetError::StaleData,
+						EAssetError::StaleData,
 						"Project settings changed after Fix Up analysis.");
 			},
 			.Apply = [SettingsFile, PostBytes, PostPath, NotifyPathChanged] {
-				Asset::FAssetResult SaveResult = SaveSettingsBytes(
+				FAssetResult SaveResult = SaveSettingsBytes(
 					SettingsFile, *PostBytes);
 				if (SaveResult && NotifyPathChanged) NotifyPathChanged(PostPath);
 				return SaveResult;
 			},
 			.Restore = [SettingsFile, PreBytes, PrePath, NotifyPathChanged] {
-				Asset::FAssetResult SaveResult = SaveSettingsBytes(
+				FAssetResult SaveResult = SaveSettingsBytes(
 					SettingsFile, *PreBytes);
 				if (SaveResult && NotifyPathChanged) NotifyPathChanged(PrePath);
 				return SaveResult;
 			},
 			.Verify = [SettingsFile, PostFingerprint, PostPath, ResolveProject] {
 				FCapturedProjectDefaultLevel Current;
-				Asset::FAssetResult CurrentResult =
+				FAssetResult CurrentResult =
 					CaptureProjectDefaultLevel(ResolveProject, Current);
 				if (!CurrentResult) return CurrentResult;
 				return Current.SettingsFile == SettingsFile
 					&& Current.Fingerprint == PostFingerprint
 					&& Current.Path == PostPath
-					? Asset::FAssetResult{}
+					? FAssetResult{}
 					: StoreError(
-						Asset::EAssetError::StaleData,
+						EAssetError::StaleData,
 						"Project settings did not retain the Fix Up rewrite.");
 			}};
 		return {};

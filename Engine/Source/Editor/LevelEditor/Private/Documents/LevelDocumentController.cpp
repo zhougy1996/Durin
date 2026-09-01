@@ -65,8 +65,8 @@ namespace Durin::Editor::Level
 	{
 		FObjectPath AssetPath;
 		if (!FObjectPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
-		const Asset::FObjectPathResolveResult Resolution =
-			Asset::ResolveObjectPath(
+		const FObjectPathResolveResult Resolution =
+			ResolveAssetObjectPath(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!Resolution)
 			return ELevelDocumentOpenResult::Rejected;
@@ -159,15 +159,15 @@ namespace Durin::Editor::Level
 			return true;
 		if (ClearError) ClearError();
 		const FPackagePath& Path = DefaultLevel.GetPath().GetPackagePath();
-		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
-			Asset::CapturePackageLoadSnapshot();
+		const FAssetPackageLoadSnapshot LoadSnapshot =
+			CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
-		Asset::FAssetResult Result;
+		FAssetResult Result;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
-			Result = Asset::LoadSoftObject(
-				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject);
+			Result = LoadSoftObject(
+				DefaultLevel, Level, ESoftObjectNullPolicy::Reject);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
@@ -184,8 +184,8 @@ namespace Durin::Editor::Level
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
 		if (!bActivated)
 		{
-			const Asset::FAssetResult ReleaseResult =
-				Asset::ReleasePackagesLoadedSince(LoadSnapshot);
+			const FAssetResult ReleaseResult =
+				ReleasePackagesLoadedSince(LoadSnapshot);
 			if (!ReleaseResult)
 				DURIN_WARN(
 					"Failed to release packages after default-level activation failed: {}",
@@ -205,11 +205,11 @@ namespace Durin::Editor::Level
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
-			Asset::CapturePackageLoadSnapshot();
+		const FAssetPackageLoadSnapshot LoadSnapshot =
+			CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
-		Asset::FAssetResult Result;
-		Result = Asset::LoadObject(Path, Level);
+		FAssetResult Result;
+		Result = LoadObject(Path, Level);
 		if (!Result)
 		{
 			SetError(Result.Message);
@@ -217,8 +217,8 @@ namespace Durin::Editor::Level
 		}
 		if (!ActivateLevel(Level))
 		{
-			const Asset::FAssetResult ReleaseResult =
-				Asset::ReleasePackagesLoadedSince(LoadSnapshot);
+			const FAssetResult ReleaseResult =
+				ReleasePackagesLoadedSince(LoadSnapshot);
 			if (!ReleaseResult)
 				DURIN_WARN("Failed to release packages after level activation failed: {}", ReleaseResult.Message);
 			return ELevelDocumentOpenResult::Rejected;
@@ -243,7 +243,7 @@ namespace Durin::Editor::Level
 		}
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
-		Asset::FAssetResult Result = Asset::SavePackage(Context.Level->GetPackage());
+		FAssetResult Result = SavePackage(Context.Level->GetPackage());
 		FLevelDocumentRevisionState::CompleteSave(
 			GetLevelTransactions(), *Context.Level->GetPackage(), static_cast<bool>(Result)
 		);
@@ -303,7 +303,7 @@ namespace Durin::Editor::Level
 			const FName OldObjectName = Context.Level->GetFName();
 			const bool bWasDirty = Package->IsDirty();
 			Context.Level->Rename(FName(NewName));
-			const Asset::FAssetResult SaveResult = Asset::SavePackage(Package);
+			const FAssetResult SaveResult = SavePackage(Package);
 			FLevelDocumentRevisionState::CompleteSave(
 				GetLevelTransactions(), *Package, static_cast<bool>(SaveResult)
 			);
@@ -318,7 +318,7 @@ namespace Durin::Editor::Level
 		}
 
 		const FEditorAssetMove Move{OldPath, NewPath};
-		const Asset::FAssetResult MoveResult =
+		const FAssetResult MoveResult =
 			AssetMoveCoordinator.MoveAssets(std::span{&Move, 1});
 		FLevelDocumentRevisionState::CompleteSave(
 			GetLevelTransactions(), *Package, static_cast<bool>(MoveResult)
@@ -355,8 +355,8 @@ namespace Durin::Editor::Level
 			FPackagePath PreviousPath;
 			if (FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PreviousPath))
 			{
-				Asset::FAssetResult Result = Asset::UnloadPackage(PreviousPath);
-				if (!Result && Result.Error != Asset::EAssetError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);
+				FAssetResult Result = UnloadPackage(PreviousPath);
+				if (!Result && Result.Error != EAssetError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);
 			}
 		}
 		return true;

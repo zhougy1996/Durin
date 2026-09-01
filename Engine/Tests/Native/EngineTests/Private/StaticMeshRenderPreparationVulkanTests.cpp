@@ -264,12 +264,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			.bContentWritable = false}};
 	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
-	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+	ASSERT_TRUE(Durin::InitializeAssetManager());
 	Durin::FPackagePath AuthoredPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/CookedStaticMeshRenderPreparation/Mesh", AuthoredPath));
 	Durin::DStaticMesh* AuthoredMesh = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	Durin::DStaticMesh* Candidate = Durin::DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Candidate, nullptr);
@@ -278,37 +278,37 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::MarkAsGarbage(Candidate);
 	Durin::CollectGarbage();
 
-	Durin::Asset::FCookContext CookContext(
+	Durin::FCookContext CookContext(
 		CookRoot,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*AuthoredMesh, "/Game/CookedMesh", CookContext, Error)) << Error;
 	ASSERT_TRUE(CookContext.Publish(&Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+	ASSERT_TRUE(Durin::UnloadPackage(
 		AuthoredPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	Durin::Asset::ShutdownAssetManager();
+		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 
 	auto CookedConfiguration =
-		Durin::Asset::FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		Durin::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, CookedConfiguration));
-	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(
+	ASSERT_TRUE(Durin::InitializeAssetManager(
 		std::move(CookedConfiguration)));
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult Loaded =
-		Durin::Asset::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+	const Durin::FAssetResult Loaded =
+		Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 			CookedPath, AuthoredPath.GetPackageName()), CookedMesh);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
-	ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -329,7 +329,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	while (!LoadStatus.HasCpuData()
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
-		Durin::Asset::PumpCookedMeshLoadManager();
+		Durin::PumpCookedMeshLoadManager();
 		std::this_thread::yield();
 		LoadStatus = CookedMesh->RequestRenderDataAndResources();
 	}
@@ -370,13 +370,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Component->UnregisterComponent();
 	Component->SetStaticMesh(nullptr);
 	Durin::MarkAsGarbage(Component);
-	Durin::Asset::ShutdownCookedMeshLoadManager();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	Durin::ShutdownCookedMeshLoadManager();
+	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
-	Durin::Asset::ShutdownAssetManager();
+	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 }

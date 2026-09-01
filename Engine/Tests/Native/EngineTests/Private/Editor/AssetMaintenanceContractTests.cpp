@@ -23,14 +23,14 @@ namespace
 		return Path;
 	}
 
-	auto MakeProbeResult(const Durin::Asset::FAssetPackageCompatibilityProbeInput& Input)
-		-> Durin::Asset::FAssetPackageCompatibilityProbeResult
+	auto MakeProbeResult(const Durin::FAssetPackageCompatibilityProbeInput& Input)
+		-> Durin::FAssetPackageCompatibilityProbeResult
 	{
-		return {.Record = Durin::Asset::FAssetPackageCompatibilityRecord{
+		return {.Record = Durin::FAssetPackageCompatibilityRecord{
 			.PackagePath = Input.PackagePath,
 			.PhysicalPath = Input.PhysicalPath,
-			.Inspection = Durin::Asset::EAssetCompatibilityInspection::Ready,
-			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Compatible}};
+			.Inspection = Durin::EAssetCompatibilityInspection::Ready,
+			.Compatibility = Durin::EAssetPackageCompatibility::Compatible}};
 	}
 
 	class FAssetMaintenanceContractTests : public testing::Test
@@ -54,15 +54,15 @@ namespace
 TEST_F(FAssetMaintenanceContractTests, BatchAuditSortsInputsAndStreamsDeterministicProgress)
 {
 	const std::array Inputs{
-		Durin::Asset::FAssetPackageCompatibilityProbeInput{
+		Durin::FAssetPackageCompatibilityProbeInput{
 			.PackagePath = MakePath("/Maintenance/B"), .PhysicalPath = "B.dasset"},
-		Durin::Asset::FAssetPackageCompatibilityProbeInput{
+		Durin::FAssetPackageCompatibilityProbeInput{
 			.PackagePath = MakePath("/Maintenance/A"), .PhysicalPath = "A.dasset"}};
 	std::vector<std::string> Published;
 	std::vector<uint64> Progress;
-	const auto Result = Durin::Asset::RunAssetCompatibilityAudit(
+	const auto Result = Durin::RunAssetCompatibilityAudit(
 		Inputs, {}, {},
-		[&](const Durin::Asset::FAssetPackageCompatibilityRecord& Record,
+		[&](const Durin::FAssetPackageCompatibilityRecord& Record,
 			uint64 Completed, uint64 Total) {
 			Published.push_back(Record.PackagePath.ToString());
 			Progress.push_back(Completed);
@@ -72,7 +72,7 @@ TEST_F(FAssetMaintenanceContractTests, BatchAuditSortsInputsAndStreamsDeterminis
 			return MakeProbeResult(Input);
 		});
 
-	EXPECT_EQ(Result.Status, Durin::Asset::EAssetCompatibilityAuditStatus::Completed);
+	EXPECT_EQ(Result.Status, Durin::EAssetCompatibilityAuditStatus::Completed);
 	ASSERT_EQ(Result.Records.size(), 2u);
 	EXPECT_EQ(Result.Records[0].PackagePath.ToString(), "/Maintenance/A");
 	EXPECT_EQ(Result.Records[1].PackagePath.ToString(), "/Maintenance/B");
@@ -83,18 +83,18 @@ TEST_F(FAssetMaintenanceContractTests, BatchAuditSortsInputsAndStreamsDeterminis
 TEST_F(FAssetMaintenanceContractTests, BatchAuditCancelsBeforeAdmittingTheNextPackage)
 {
 	const std::array Inputs{
-		Durin::Asset::FAssetPackageCompatibilityProbeInput{
+		Durin::FAssetPackageCompatibilityProbeInput{
 			.PackagePath = MakePath("/Maintenance/A"), .PhysicalPath = "A.dasset"},
-		Durin::Asset::FAssetPackageCompatibilityProbeInput{
+		Durin::FAssetPackageCompatibilityProbeInput{
 			.PackagePath = MakePath("/Maintenance/B"), .PhysicalPath = "B.dasset"}};
 	uint32 CancellationChecks = 0;
-	const auto Result = Durin::Asset::RunAssetCompatibilityAudit(
+	const auto Result = Durin::RunAssetCompatibilityAudit(
 		Inputs, {}, [&] { return ++CancellationChecks > 1; }, {},
 		[](const auto& Input, const auto&, const auto&) {
 			return MakeProbeResult(Input);
 		});
 
-	EXPECT_EQ(Result.Status, Durin::Asset::EAssetCompatibilityAuditStatus::Cancelled);
+	EXPECT_EQ(Result.Status, Durin::EAssetCompatibilityAuditStatus::Cancelled);
 	ASSERT_EQ(Result.Records.size(), 1u);
 	EXPECT_EQ(Result.Records.front().PackagePath.ToString(), "/Maintenance/A");
 }
@@ -102,15 +102,15 @@ TEST_F(FAssetMaintenanceContractTests, BatchAuditCancelsBeforeAdmittingTheNextPa
 TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPathOrder)
 {
 	const std::array Records{
-		Durin::Asset::FAssetPackageCompatibilityRecord{
+		Durin::FAssetPackageCompatibilityRecord{
 			.PackagePath = MakePath("/Maintenance/B"), .PhysicalPath = "B.dasset",
-			.Inspection = Durin::Asset::EAssetCompatibilityInspection::Ready,
-			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Compatible},
-		Durin::Asset::FAssetPackageCompatibilityRecord{
+			.Inspection = Durin::EAssetCompatibilityInspection::Ready,
+			.Compatibility = Durin::EAssetPackageCompatibility::Compatible},
+		Durin::FAssetPackageCompatibilityRecord{
 			.PackagePath = MakePath("/Maintenance/A"), .PhysicalPath = "A.dasset",
-			.Inspection = Durin::Asset::EAssetCompatibilityInspection::Ready,
-			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Incompatible}};
-	const std::string Report = Durin::Asset::SerializeAssetCompatibilityReport(Records);
+			.Inspection = Durin::EAssetCompatibilityInspection::Ready,
+			.Compatibility = Durin::EAssetPackageCompatibility::Incompatible}};
+	const std::string Report = Durin::SerializeAssetCompatibilityReport(Records);
 
 	Durin::FJsonDocument Document;
 	ASSERT_TRUE(Document.Parse(Report));
@@ -125,14 +125,14 @@ TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPa
 TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlCharacters)
 {
 	const std::string ControlCharacters = std::string("before\b\f") + '\x01' + "after";
-	Durin::Asset::FAssetPackageCompatibilityRecord CompatibilityRecord{
+	Durin::FAssetPackageCompatibilityRecord CompatibilityRecord{
 		.PackagePath = MakePath("/Maintenance/Compatibility"),
 		.PhysicalPath = ControlCharacters};
 	CompatibilityRecord.Findings.push_back({.Diagnostic = ControlCharacters});
 
 	Durin::FJsonDocument CompatibilityDocument;
 	ASSERT_TRUE(CompatibilityDocument.Parse(
-		Durin::Asset::SerializeAssetCompatibilityReport(
+		Durin::SerializeAssetCompatibilityReport(
 			std::array{CompatibilityRecord})));
 	const Durin::FJsonNodeView CompatibilityPackage =
 		CompatibilityDocument.GetRootView().GetView("packages").GetView(0);
@@ -140,7 +140,7 @@ TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlChar
 	EXPECT_EQ(CompatibilityPackage.GetView("findings").GetView(0)
 		.GetView("diagnostic").GetString(), ControlCharacters);
 
-	Durin::Asset::FAssetCanonicalResaveApplyResult ApplyResult;
+	Durin::FAssetCanonicalResaveApplyResult ApplyResult;
 	ApplyResult.Diagnostic = ControlCharacters;
 	ApplyResult.Plan.Packages.push_back({
 		.PackagePath = MakePath("/Maintenance/Canonical"),
@@ -148,7 +148,7 @@ TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlChar
 		.Diagnostics = {ControlCharacters}});
 	Durin::FJsonDocument CanonicalDocument;
 	ASSERT_TRUE(CanonicalDocument.Parse(
-		Durin::Asset::SerializeAssetCanonicalResaveApplyReport(ApplyResult)));
+		Durin::SerializeAssetCanonicalResaveApplyReport(ApplyResult)));
 	const Durin::FJsonNodeView CanonicalRoot = CanonicalDocument.GetRootView();
 	EXPECT_EQ(CanonicalRoot.GetView("diagnostic").GetString(), ControlCharacters);
 	const Durin::FJsonNodeView CanonicalPackage =

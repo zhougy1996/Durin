@@ -3,10 +3,10 @@
 #include "DObject/AssetPath.h"
 #include "DObject/WeakObjectPtr.h"
 
-namespace Durin
-{
-	class DClass;
-	namespace Asset { class FAssetLoadService; }
+	namespace Durin
+	{
+		class DClass;
+		class FAssetLoadService;
 
 	enum class ESoftObjectPtrState : uint8 { Null, Pending, Valid, Stale };
 	COREDOBJECT_API auto GetSoftObjectCacheEpoch() -> uint64;
@@ -43,7 +43,7 @@ namespace Durin
 		FObjectPath AuthoredPath;
 		FWeakObjectPtr WeakObject;
 		uint64 CacheEpoch = 0;
-		friend class Asset::FAssetLoadService;
+		friend class FAssetLoadService;
 	};
 
 	template<typename T>

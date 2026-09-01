@@ -40,7 +40,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Pixels;
+		FEditorBulkData Pixels;
 
 		DPROPERTY()
 		uint32 FaceDimension = 0;
@@ -105,7 +105,7 @@ namespace Durin
 		ENGINE_API auto GetPlatformData() const -> const FTextureCubePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
@@ -114,10 +114,10 @@ namespace Durin
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -178,7 +178,7 @@ namespace Durin
 
 		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;

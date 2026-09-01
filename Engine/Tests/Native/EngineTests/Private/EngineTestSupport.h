@@ -37,27 +37,27 @@ inline auto GetEngineTestModuleCallbackGate() -> Durin::FModuleOwnedCallbackGate
 // avoiding an editor filesystem transaction in focused runtime suites.
 inline auto DeleteAssetClosureForTest(
 	std::initializer_list<Durin::FPackagePath> Paths)
-	-> Durin::Asset::FAssetResult
+	-> Durin::FAssetResult
 {
 	const std::vector<Durin::FPackagePath> DeletionPaths(Paths);
-	Durin::Asset::FAssetDeletionTransaction Transaction;
-	std::vector<Durin::Asset::FAssetDeletionBatchBlocker> Blockers;
-	Durin::Asset::FAssetResult Result =
-		Durin::Asset::PrepareAssetDeletionTransaction(
+	Durin::FAssetDeletionJob Transaction;
+	std::vector<Durin::FAssetDeletionBatchBlocker> Blockers;
+	Durin::FAssetResult Result =
+		Durin::PrepareAssetDeletionJob(
 			DeletionPaths, {}, Transaction, Blockers);
 	if (!Result) return Result;
 	if (!Blockers.empty())
 		return {
-			Durin::Asset::EAssetError::InUse,
+			Durin::EAssetError::InUse,
 			Blockers.front().Details};
-	const auto RemoveFiles = [&]() -> Durin::Asset::FAssetResult {
-	for (const Durin::Asset::FAssetDeletionBatchEntry& Entry : Transaction.GetEntries())
+	const auto RemoveFiles = [&]() -> Durin::FAssetResult {
+	for (const Durin::FAssetDeletionBatchEntry& Entry : Transaction.GetEntries())
 	{
 		std::error_code Error;
 		if (!std::filesystem::remove(Entry.RegistryEntry.PhysicalPath, Error)
 			|| Error)
 			return {
-				Durin::Asset::EAssetError::IoError,
+				Durin::EAssetError::IoError,
 				std::format(
 					"Could not remove test asset {}: {}",
 					Entry.RegistryEntry.PackagePath.ToString(),
@@ -67,7 +67,7 @@ inline auto DeleteAssetClosureForTest(
 			Error.clear();
 			if (!std::filesystem::remove(Companion, Error) || Error)
 				return {
-					Durin::Asset::EAssetError::IoError,
+					Durin::EAssetError::IoError,
 					std::format(
 						"Could not remove test companion {}: {}",
 						Companion.generic_string(), Error.message())};
@@ -75,10 +75,7 @@ inline auto DeleteAssetClosureForTest(
 	}
 	return {};
 	};
-	return Transaction.Commit({
-		.Stage = RemoveFiles,
-		.Restore = [] { return Durin::Asset::FAssetResult{
-			Durin::Asset::EAssetError::IoError,
-			"Irreversible test cleanup cannot be restored."}; },
+	return Transaction.Delete({
+		.Delete = RemoveFiles,
 	});
 }

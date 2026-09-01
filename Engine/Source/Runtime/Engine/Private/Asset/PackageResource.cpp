@@ -3,9 +3,9 @@
 #include "Misc/FileHelper.h"
 #include "Threading/Task.h"
 
-namespace Durin::Asset
+namespace Durin
 {
-	namespace Private
+	namespace AssetPrivate
 	{
 		struct FPackageResourceRequestState
 		{
@@ -269,7 +269,7 @@ namespace Durin::Asset
 	auto FPackageResourceRequest::Completed(FPackageResourceReadResult InResult)
 		-> FPackageResourceRequest
 	{
-		auto State = std::make_shared<Private::FPackageResourceRequestState>();
+		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>();
 		State->Complete(std::move(InResult));
 		return FPackageResourceRequest(std::move(State));
 	}
@@ -279,7 +279,7 @@ namespace Durin::Asset
 		std::function<FPackageResourceReadResult(FPackageResourceReadResult)> Function)
 		-> FPackageResourceRequest
 	{
-		auto State = std::make_shared<Private::FPackageResourceRequestState>(true);
+		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
 		FTaskHandle InputTask;
 		if (Input.State)
 		{
@@ -323,7 +323,7 @@ namespace Durin::Asset
 			return FPackageResourceRequest::Completed(Result(
 				EPackageResourceReadStatus::InvalidRange, "Package resource range is invalid."));
 
-		auto State = std::make_shared<Private::FPackageResourceRequestState>(true);
+		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
@@ -361,7 +361,7 @@ namespace Durin::Asset
 
 	auto FPackageResource::Retire() -> void
 	{
-		std::vector<std::shared_ptr<Private::FPackageResourceRequestState>> Active;
+		std::vector<std::shared_ptr<AssetPrivate::FPackageResourceRequestState>> Active;
 		{
 			std::lock_guard Lock(Mutex);
 			bRetired = true;

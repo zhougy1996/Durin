@@ -4,14 +4,14 @@
 #include "Asset/PackageResource.h"
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint32 EditorBulkDataContentIdVersion = 1;
 	inline constexpr uint64 MaximumAuthoredBulkBytes = 1024ull * 1024ull * 1024ull;
 
 	using FEditorBulkDataSource = FPackageResourceRange;
 
-	namespace Private { struct FEditorBulkDataState; }
+	namespace AssetPrivate { struct FEditorBulkDataState; }
 
 	// Owns authored content identity and an immutable memory or package-resource snapshot.
 	class FEditorBulkData
@@ -47,6 +47,6 @@ namespace Durin::Asset
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;
 
 	private:
-		std::shared_ptr<const Private::FEditorBulkDataState> State;
+		std::shared_ptr<const AssetPrivate::FEditorBulkDataState> State;
 	};
 }

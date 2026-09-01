@@ -4,7 +4,7 @@
 #include "Asset/PackageBulkData.h"
 #include "Serialization/SharedByteBuffer.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	enum class EPackageResourceReadStatus : uint8
 	{
@@ -38,7 +38,7 @@ namespace Durin::Asset
 		uint64 RequestedBytes = 0;
 	};
 
-	namespace Private { struct FPackageResourceRequestState; }
+	namespace AssetPrivate { struct FPackageResourceRequestState; }
 
 	// Owns one exactly-once package range result and an advisory cancellation request.
 	class FPackageResourceRequest
@@ -59,10 +59,10 @@ namespace Durin::Asset
 
 	private:
 		explicit FPackageResourceRequest(
-			std::shared_ptr<Private::FPackageResourceRequestState> InState)
+			std::shared_ptr<AssetPrivate::FPackageResourceRequestState> InState)
 			: State(std::move(InState)) {}
 
-		std::shared_ptr<Private::FPackageResourceRequestState> State;
+		std::shared_ptr<AssetPrivate::FPackageResourceRequestState> State;
 
 		friend class FPackageResource;
 	};
@@ -97,7 +97,7 @@ namespace Durin::Asset
 		mutable std::mutex Mutex;
 		bool bRetired = false;
 		FPackageResourceReadStats ReadStats;
-		std::vector<std::weak_ptr<Private::FPackageResourceRequestState>> Requests;
+		std::vector<std::weak_ptr<AssetPrivate::FPackageResourceRequestState>> Requests;
 	};
 
 	using FPackageResourceHandle = std::shared_ptr<FPackageResource>;

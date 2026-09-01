@@ -9,12 +9,12 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ReimportStaticMesh(
 		DStaticMesh& Mesh,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+		const FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 	ASSETFORGEBUILTINS_API auto ReimportStaticMeshFromFile(
 		DStaticMesh& Mesh,
 		std::string_view FilePath,
 		std::string& OutError,
-		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+		const FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 	ASSETFORGEBUILTINS_API auto CreateTransientStaticMeshFromFile(
 		std::string_view FilePath,
 		DObject* Outer,

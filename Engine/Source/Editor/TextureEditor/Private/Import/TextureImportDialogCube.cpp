@@ -378,7 +378,7 @@ namespace Durin::Editor::Texture
 				: Saved.Message);
 			return false;
 		}
-		(void)Asset::UnloadPackage(AssetPath);
+		(void)UnloadPackage(AssetPath);
 		return true;
 	}
 

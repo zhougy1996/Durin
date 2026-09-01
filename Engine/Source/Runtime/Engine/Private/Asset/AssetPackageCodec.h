@@ -3,14 +3,14 @@
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
 #include "Asset/PackageSchema.h"
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 namespace Durin
 {
 	enum class EDefaultDeltaMode : uint8;
 }
 
-namespace Durin::Asset::Private
+namespace Durin::AssetPrivate
 {
 	class IAssetPackageByteSource;
 

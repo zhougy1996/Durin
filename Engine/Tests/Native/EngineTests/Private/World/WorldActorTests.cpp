@@ -205,7 +205,7 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/NativeConstructionTests/Dirty", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	auto TestClass = MakeNativeConstructionTestClass();
 	auto* Actor = static_cast<FNativeConstructionTestActor*>(Level->SpawnActor(
 		TestClass.get(), "Constructed"));
@@ -217,7 +217,7 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_EQ(Level->GetPackage()->GetEditRevision(), Revision);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Level->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FWorldTests, SkeletalMeshActorOwnsDefaultRootComponent)
@@ -487,7 +487,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/LevelTests/TransformRoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::ACameraActor* ParentActor = Level->SpawnActor<Durin::ACameraActor>("ParentCamera");
 	Durin::ACameraActor* ChildActor = Level->SpawnActor<Durin::ACameraActor>("ChildCamera");
 	Durin::DActorComponent* ExtraComponent = ChildActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ExtraScene");
@@ -507,12 +507,12 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ParentActor->GetCameraComponent()->SetFarClip(2500.0f);
 	ParentActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Custom, 2.39f);
 
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
 
 	Durin::DLevel* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetActors().size(), 2u);
 	auto* LoadedParent = dynamic_cast<Durin::ACameraActor*>(Loaded->FindActorByName("ParentCamera"));
@@ -545,7 +545,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Loaded->GetWorld(), nullptr);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 
 TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)

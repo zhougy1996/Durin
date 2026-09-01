@@ -631,8 +631,8 @@ TEST(FMaterialProgramNormalizationTests,
 	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
 	Durin::FByteArray CookedBytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
 	std::cout << "[StandardSurfaceBaseline] authored_nodes="
 		<< Input.Program.Nodes.size() << " ir_nodes=" << Normalized.IR.Nodes.size()
 		<< " canonical_bytes=" << Normalized.CanonicalBytes.size()
@@ -877,8 +877,8 @@ TEST(FMaterialProgramCompilerTests,
 	}
 	Durin::FByteArray CookedBytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
 	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());
 	RecordProperty("DependencyCount", Compiled.Dependencies.size());
 	RecordProperty("SpirvBytes", SpirvBytes);

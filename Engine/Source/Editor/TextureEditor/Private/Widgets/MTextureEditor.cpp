@@ -38,18 +38,18 @@ namespace Durin::Editor::Texture
 			return std::format("{} x {}", Width, Height);
 		}
 
-		auto DescribeBuildPhase(Asset::ETexture2DCompilationPhase Phase) -> const char*
+		auto DescribeBuildPhase(ETexture2DCompilationPhase Phase) -> const char*
 		{
 			switch (Phase)
 			{
-			case Asset::ETexture2DCompilationPhase::Queued: return "Queued";
-			case Asset::ETexture2DCompilationPhase::Preparing: return "Preparing";
-			case Asset::ETexture2DCompilationPhase::Building: return "Building";
-			case Asset::ETexture2DCompilationPhase::Persisting: return "Persisting";
-			case Asset::ETexture2DCompilationPhase::UploadPending: return "Upload Pending";
-			case Asset::ETexture2DCompilationPhase::Ready: return "Ready";
-			case Asset::ETexture2DCompilationPhase::Failed: return "Failed";
-			case Asset::ETexture2DCompilationPhase::Cancelled: return "Cancelled";
+			case ETexture2DCompilationPhase::Queued: return "Queued";
+			case ETexture2DCompilationPhase::Preparing: return "Preparing";
+			case ETexture2DCompilationPhase::Building: return "Building";
+			case ETexture2DCompilationPhase::Persisting: return "Persisting";
+			case ETexture2DCompilationPhase::UploadPending: return "Upload Pending";
+			case ETexture2DCompilationPhase::Ready: return "Ready";
+			case ETexture2DCompilationPhase::Failed: return "Failed";
+			case ETexture2DCompilationPhase::Cancelled: return "Cancelled";
 			default: return "Not Submitted";
 			}
 		}
@@ -169,7 +169,7 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Texture);
+		const FAssetResult Result = LoadObject(AssetPath, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
@@ -305,7 +305,7 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::SaveTexture(DTexture2D* Texture) -> bool
 	{
 		return Documents.Save(Texture, [this, Texture] {
-			if (!Asset::HasPendingTexture2DCompilation(*Texture)) return true;
+			if (!HasPendingTexture2DCompilation(*Texture)) return true;
 			SetError(
 				"This texture has an uncommitted asynchronous build. "
 				"Choose Wait for Build to commit it, or Cancel Build to save the last successful state.");
@@ -413,14 +413,14 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawBuildReadiness(DTexture2D* Texture) -> void
 	{
-		const Asset::FTexture2DCompilationDiagnostic Diagnostic =
-			Asset::GetTexture2DCompilationDiagnostic(*Texture);
-		if (Diagnostic.Phase == Asset::ETexture2DCompilationPhase::None
-			|| Diagnostic.Phase == Asset::ETexture2DCompilationPhase::Ready) return;
-		const bool bPending = Asset::HasPendingTexture2DCompilation(*Texture);
-		const ImVec4 PhaseColor = Diagnostic.Phase == Asset::ETexture2DCompilationPhase::Failed
+		const FTexture2DCompilationDiagnostic Diagnostic =
+			GetTexture2DCompilationDiagnostic(*Texture);
+		if (Diagnostic.Phase == ETexture2DCompilationPhase::None
+			|| Diagnostic.Phase == ETexture2DCompilationPhase::Ready) return;
+		const bool bPending = HasPendingTexture2DCompilation(*Texture);
+		const ImVec4 PhaseColor = Diagnostic.Phase == ETexture2DCompilationPhase::Failed
 			? ImVec4(1.0f, 0.42f, 0.32f, 1.0f)
-			: Diagnostic.Phase == Asset::ETexture2DCompilationPhase::Cancelled
+			: Diagnostic.Phase == ETexture2DCompilationPhase::Cancelled
 				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
 				: ImVec4(0.42f, 0.72f, 1.0f, 1.0f);
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.11f, 0.16f, 0.65f));
@@ -445,8 +445,8 @@ namespace Durin::Editor::Texture
 			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
 		if (!Diagnostic.Message.empty())
 			ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
-		if (Diagnostic.Phase == Asset::ETexture2DCompilationPhase::Failed
-			&& Diagnostic.FailurePhase != Asset::ETexture2DCompilationPhase::None)
+		if (Diagnostic.Phase == ETexture2DCompilationPhase::Failed
+			&& Diagnostic.FailurePhase != ETexture2DCompilationPhase::None)
 			ImGui::TextDisabled(
 				"Failure stage: %s", DescribeBuildPhase(Diagnostic.FailurePhase));
 		if (bPending)
@@ -456,7 +456,7 @@ namespace Durin::Editor::Texture
 			ImGui::SameLine();
 			if (ImGui::Button("Wait for Build"))
 			{
-				if (!Asset::WaitForTexture2DCompilation(*Texture))
+				if (!WaitForTexture2DCompilation(*Texture))
 					SetError(Texture->GetLastBuildError().empty()
 						? "The texture build did not complete." : Texture->GetLastBuildError());
 			}

@@ -211,22 +211,22 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Cube", CubePath));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Actor", ActorPath));
 	Durin::ASkyBoxActor* Actor = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(ActorPath, Actor));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ActorPath, Actor));
 	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Actor->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Actor->GetPackage()));
 
-	const Durin::Asset::FAssetCatalogEntry ActorData = Durin::Asset::FindAssetExact(ActorPath);
+	const Durin::FAssetCatalogEntry ActorData = Durin::FindAssetExact(ActorPath);
 	ASSERT_NE(ActorData, nullptr);
 	EXPECT_NE(std::ranges::find(ActorData->Dependencies, CubePath), ActorData->Dependencies.end());
 
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(ActorPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::UnloadPackage(ActorPath));
+	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
 	Durin::ASkyBoxActor* LoadedActor = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), LoadedActor));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), LoadedActor));
 	ASSERT_NE(LoadedActor, nullptr);
 	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");
 
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(ActorPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(ActorPath));
+	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
 }

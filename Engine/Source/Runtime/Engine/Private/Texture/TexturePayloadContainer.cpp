@@ -102,8 +102,8 @@ namespace Durin::TexturePayloadContainer
 
 	auto Parse(
 		std::span<const std::byte> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
 		FDecodedContainer& OutContainer) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {
@@ -159,8 +159,8 @@ namespace Durin::TexturePayloadContainer
 		FDecodedContainer Candidate;
 		Candidate.Descriptor = {
 			.ProducerVersion = Producer,
-			.TargetPlatform = static_cast<Asset::ECookTargetPlatform>(Platform),
-			.TargetProfile = static_cast<Asset::ECookTargetProfile>(Profile),
+			.TargetPlatform = static_cast<ECookTargetPlatform>(Platform),
+			.TargetProfile = static_cast<ECookTargetProfile>(Profile),
 			.Dimension = static_cast<ETexturePayloadDimension>(Dimension),
 			.StableFormat = static_cast<ETextureStablePixelFormat>(StableFormat),
 			.SliceCount = SliceCount,

@@ -58,7 +58,7 @@ namespace Durin::Editor::AssetPicker
 		auto GetPickerCache() -> FAssetPickerCache&
 		{
 			static FAssetPickerCache Cache;
-			const uint64 RegistryRevision = Asset::GetAssetCatalogRevision();
+			const uint64 RegistryRevision = GetAssetCatalogRevision();
 			if (Cache.RegistryRevision != RegistryRevision)
 			{
 				Cache.RegistryRevision = RegistryRevision;
@@ -74,12 +74,12 @@ namespace Durin::Editor::AssetPicker
 			if (!bInserted) return Iterator->second;
 
 			std::vector<FTopLevelAssetPath>& Paths = Iterator->second;
-			const Asset::FAssetCatalogSnapshot Snapshot =
-				Asset::CaptureAssetCatalogSnapshot();
+			const FAssetCatalogSnapshot Snapshot =
+				CaptureAssetCatalogSnapshot();
 			Paths.reserve(Snapshot.Assets.size());
 			for (const auto& [PackagePath, Data] : Snapshot.Assets)
 			{
-				for (const Asset::FTopLevelAssetData& AssetData : Data.TopLevelAssets)
+				for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
 				{
 					if (AssetData.IsRedirector()) continue;
 					const std::string Path = AssetData.AssetPath.ToString();
@@ -312,7 +312,7 @@ namespace Durin::Editor::AssetPicker
 						continue;
 					}
 					DObject* LoadedAsset = nullptr;
-					const Asset::FAssetResult LoadResult = Asset::LoadObject(Path, LoadedAsset);
+					const FAssetResult LoadResult = LoadObject(Path, LoadedAsset);
 					if (!LoadResult || !LoadedAsset)
 					{
 						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
@@ -376,7 +376,7 @@ namespace Durin::Editor::AssetPicker
 					else
 					{
 						DObject* LoadedAsset = nullptr;
-						const Asset::FAssetResult LoadResult = Asset::LoadObject(DroppedPath, LoadedAsset);
+						const FAssetResult LoadResult = LoadObject(DroppedPath, LoadedAsset);
 						if (!LoadResult || !LoadedAsset)
 							PickerResult.Error = LoadResult
 								? "The dropped asset could not be loaded."

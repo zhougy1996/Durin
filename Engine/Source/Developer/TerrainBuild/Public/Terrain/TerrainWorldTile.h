@@ -5,7 +5,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	inline constexpr uint16 TerrainWorldSchemaVersion = 1;
 	inline constexpr uint32 TerrainWorldBuilderVersion = 1;

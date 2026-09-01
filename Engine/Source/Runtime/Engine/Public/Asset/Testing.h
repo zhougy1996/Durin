@@ -1,12 +1,12 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "Asset/AssetDefinitions.h"
 
 #include "EngineAPI.h"
 #include "Asset/Mutation.h"
 #include "Asset/Redirector.h"
 
-namespace Durin::Asset
+namespace Durin
 {
 	ENGINE_API auto CreateAssetRedirectorForTesting(
 		const FPackagePath& RedirectorPath,
@@ -26,8 +26,6 @@ namespace Durin::Asset
 		Verify,
 		DeleteRedirector,
 		PublishRegistry,
-		CompensatePackage,
-		CompensateStore
 	};
 
 	ENGINE_API auto SetAssetRedirectorFixupFailurePointForTesting(
@@ -45,8 +43,6 @@ namespace Durin::Asset
 		PublishRedirector,
 		UpdateLoadedPackage,
 		PublishRegistry,
-		CompensateFile,
-		CompensateLoadedPackage,
 	};
 
 	ENGINE_API auto SetAssetRelocationFailurePointForTesting(
@@ -56,4 +52,4 @@ namespace Durin::Asset
 	ENGINE_API auto FlushAssetCatalogSnapshotForTesting() -> void;
 	ENGINE_API auto IsAssetCatalogSnapshotDirtyForTesting() -> bool;
 	ENGINE_API auto GetAssetCatalogCacheWarningForTesting() -> std::string;
-} // namespace Durin::Asset
+} // namespace Durin

@@ -41,10 +41,10 @@ namespace Durin
 
 		auto GetSkeletalChunkedPayloadFormat(
 			uint32 RequiredChunkCount,
-			uint64 MaximumBytes) -> Asset::FChunkedPayloadFormat
+			uint64 MaximumBytes) -> FChunkedPayloadFormat
 		{
-			static_assert(SkeletalPayloadHeaderSize == Asset::ChunkedPayloadHeaderSize);
-			static_assert(SkeletalPayloadChunkEntrySize == Asset::ChunkedPayloadEntrySize);
+			static_assert(SkeletalPayloadHeaderSize == ChunkedPayloadHeaderSize);
+			static_assert(SkeletalPayloadChunkEntrySize == ChunkedPayloadEntrySize);
 			return {
 				.HeaderSizeWordIndex = 6,
 				.ChunkCountWordIndex = 7,
@@ -59,13 +59,13 @@ namespace Durin
 		}
 
 		auto FailChunkedPayload(
-			const Asset::FChunkedPayloadResult& Result,
+			const FChunkedPayloadResult& Result,
 			std::string& OutError,
 			EDecodeError* OutCode = nullptr) -> bool
 		{
-			if (OutCode && Result.Kind == Asset::EChunkedPayloadFailureKind::Incompatible)
+			if (OutCode && Result.Kind == EChunkedPayloadFailureKind::Incompatible)
 				*OutCode = EDecodeError::Incompatible;
-			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Skeletal payload"), &OutError);
+			return Fail(DescribeChunkedPayloadFailure(Result.Failure, "Skeletal payload"), &OutError);
 		}
 
 		auto WritePayloadString(FWriter& Writer, std::string_view Value) -> void
@@ -156,7 +156,7 @@ namespace Durin
 			if (ChunkBytes.empty() || ChunkBytes.size() > MaximumSkeletalPayloadChunks)
 				return Fail("Skeletal payload chunk count is invalid.", &OutError);
 
-			std::vector<Asset::FChunkedPayloadInput> Chunks;
+			std::vector<FChunkedPayloadInput> Chunks;
 			Chunks.reserve(ChunkBytes.size());
 			for (const FChunkBytes& Chunk : ChunkBytes)
 				Chunks.push_back({
@@ -165,7 +165,7 @@ namespace Durin
 					.Bytes = Chunk.Bytes,
 					.DecodedSize = Chunk.Bytes.size()});
 
-			const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
+			const FChunkedPayloadResult Result = EncodeChunkedPayload(
 				{0, SchemaVersion, ProducerVersion, static_cast<uint32>(TargetPlatform),
 					static_cast<uint32>(TargetProfile), 0, SkeletalPayloadHeaderSize,
 					static_cast<uint32>(Chunks.size())},
@@ -220,8 +220,8 @@ namespace Durin
 			if (Flags != 0)
 				return Fail("Skeletal payload header fields are invalid.", &OutError);
 
-			Asset::FDecodedChunkedPayload Container;
-			const Asset::FChunkedPayloadResult ContainerResult = Asset::DecodeChunkedPayload(
+			FDecodedChunkedPayload Container;
+			const FChunkedPayloadResult ContainerResult = DecodeChunkedPayload(
 				Bytes, GetSkeletalChunkedPayloadFormat(RequiredChunkCount, MaximumBytes), Container);
 			if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
 			OutRequiredChunks = std::move(Container.RequiredChunks);

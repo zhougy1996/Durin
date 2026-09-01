@@ -334,12 +334,12 @@ namespace Durin::Editor
 		if (Reference->IsNull()) return ViewState;
 		ViewState.Path = Reference->GetPath();
 
-		const Asset::FSoftObjectResolveResult Resolve = Asset::ResolveSoftObject(
-			*Reference, Property->GetExpectedClass(), Asset::ESoftObjectNullPolicy::Reject);
+		const FSoftObjectResolveResult Resolve = ResolveSoftObject(
+			*Reference, Property->GetExpectedClass(), ESoftObjectNullPolicy::Reject);
 		if (!Resolve)
 		{
-			ViewState.State = Resolve.Result.Error == Asset::EAssetError::TypeMismatch
-				|| Resolve.Result.Error == Asset::EAssetError::UnknownClass
+			ViewState.State = Resolve.Result.Error == EAssetError::TypeMismatch
+				|| Resolve.Result.Error == EAssetError::UnknownClass
 				? ESoftObjectViewState::TypeMismatch
 				: ESoftObjectViewState::Missing;
 			ViewState.Message = Resolve.Result.Message;
@@ -355,7 +355,7 @@ namespace Durin::Editor
 				ViewState.Path.ToString(), ViewState.ResolvedPath.ToString());
 			return ViewState;
 		}
-		if (Resolve.State == Asset::ESoftObjectResolveState::Loaded)
+		if (Resolve.State == ESoftObjectResolveState::Loaded)
 		{
 			ViewState.State = ESoftObjectViewState::Loaded;
 			ViewState.LoadedObject = Resolve.Object;
@@ -386,8 +386,8 @@ namespace Durin::Editor
 			if (OutError) *OutError = "Soft object property has no typed value accessor.";
 			return false;
 		}
-		const Asset::FAssetResult Result = Asset::LoadSoftObject(
-			*Reference, Property->GetExpectedClass(), OutObject, Asset::ESoftObjectNullPolicy::Reject);
+		const FAssetResult Result = LoadSoftObject(
+			*Reference, Property->GetExpectedClass(), OutObject, ESoftObjectNullPolicy::Reject);
 		if (!Result)
 		{
 			if (OutError) *OutError = Result.Message;
@@ -809,7 +809,7 @@ namespace Durin::Editor
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 		{
-			const auto& Value = *static_cast<const Asset::FEditorBulkData*>(
+			const auto& Value = *static_cast<const FEditorBulkData*>(
 				Property->GetValuePtr(Container, ArrayIndex));
 			ImGui::TextDisabled("%s", std::format(
 				"{} bytes, {}, content {}",
@@ -856,7 +856,7 @@ namespace Durin::Editor
 			FPackagePath CurrentAssetPath;
 			const bool bHasCurrentAsset = Current && Current->GetPackage()
 				&& FPackagePath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
-				&& Asset::FindAssetExact(CurrentAssetPath);
+				&& FindAssetExact(CurrentAssetPath);
 			const FAssetPickerAction RevealAction{
 				.Icon = Icons::Crosshairs,
 				.ButtonId = "RevealObject",
@@ -905,7 +905,7 @@ namespace Durin::Editor
 				|| (ViewState.State == ESoftObjectViewState::Redirected
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
-				&& Asset::FindTopLevelAssetExact(ViewState.Path.GetAssetPath())
+				&& FindTopLevelAssetExact(ViewState.Path.GetAssetPath())
 				&& Context.RevealAsset;
 
 			const FAssetPickerAction LoadAction{

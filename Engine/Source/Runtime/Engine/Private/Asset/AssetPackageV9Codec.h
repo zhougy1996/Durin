@@ -2,7 +2,7 @@
 
 #include "AssetPackageCodec.h"
 
-namespace Durin::Asset::Private::DastV9
+namespace Durin::AssetPrivate::DastV9
 {
 	ENGINE_API auto GetCodec() -> const FAssetPackageCodec&;
 }

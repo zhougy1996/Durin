@@ -95,7 +95,7 @@ namespace
 			MountRegistry = std::make_unique<
 				Durin::Testing::FScopedMountRegistryFixture>();
 			ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
-			ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+			ASSERT_TRUE(Durin::RefreshAssetRegistry());
 		}
 
 		auto TearDown() -> void override

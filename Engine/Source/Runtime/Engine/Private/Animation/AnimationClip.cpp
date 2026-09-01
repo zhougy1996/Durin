@@ -160,7 +160,7 @@ namespace Durin
 		std::string& OutError) const -> FAnimationClipPayloadData
 	{
 		FAnimationClipPayloadData Result;
-		const Asset::FPackageResourceReadResult Payload = Tracks.GetPayload().Wait();
+		const FPackageResourceReadResult Payload = Tracks.GetPayload().Wait();
 		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != AnimationClipImportedDataSchemaVersion
 			|| !Payload || Bytes.empty()
@@ -210,7 +210,7 @@ namespace Durin
 	auto DAnimationClip::GetPayloadData() const
 		-> std::shared_ptr<const FAnimationClipPayloadData>
 	{
-		if (!PayloadData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		if (!PayloadData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
@@ -305,7 +305,7 @@ namespace Durin
 			return false;
 		}
 		if (PayloadData) return true;
-		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
 				return Fail(std::format(
@@ -330,8 +330,8 @@ namespace Durin
 				"AnimationClip cooked platform data requires the Win64 Game target.");
 			return;
 		}
-		Asset::FBulkData Projection;
-		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		FBulkData Projection;
+		FBulkData* FieldValue = &CookedPlatformData;
 		if (Ar.IsSaving())
 		{
 			if (!PayloadData || !Skeleton)
@@ -348,7 +348,7 @@ namespace Durin
 				.TargetProfile = ESkeletalPayloadTargetProfile::Game});
 			std::string Error;
 			if (Writer.HasError()
-				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
@@ -358,7 +358,7 @@ namespace Durin
 		}
 		auto Field = EnterArchiveField(Ar, {FName("Durin::DAnimationClip"),
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
@@ -404,12 +404,12 @@ namespace Durin
 	}
 
 	auto DAnimationClip::ContributeToCook(
-		Asset::FCookContext& Context,
+		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
 	{
-		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
 			return Fail(std::format(
 				"AnimationClip '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;

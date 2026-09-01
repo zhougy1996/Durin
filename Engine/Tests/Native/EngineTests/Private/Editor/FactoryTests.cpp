@@ -352,7 +352,7 @@ TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Message, "test factory failure");
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
 TEST(DFactoryTests, WrongOuterIsRejectedAndPackageIsDiscarded)
@@ -367,7 +367,7 @@ TEST(DFactoryTests, WrongOuterIsRejectedAndPackageIsDiscarded)
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
 TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
@@ -382,7 +382,7 @@ TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 }
 
 TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
@@ -399,7 +399,7 @@ TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
 	EXPECT_TRUE(Result.Package->IsNewlyCreated());
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Result.Package);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Result.Package);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), Result.Package);
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result.Package));
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
@@ -421,8 +421,8 @@ TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	ASSERT_TRUE(Result);
-	EXPECT_FALSE(Durin::Asset::SavePackage(Result.Package));
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Result.Package);
+	EXPECT_FALSE(Durin::SavePackage(Result.Package));
+	EXPECT_EQ(Durin::FindResidentPackage(Path), Result.Package);
 	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result.Package));
 }
 
@@ -438,17 +438,17 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	ASSERT_TRUE(Result);
 	EXPECT_TRUE(Result.Package->IsNewlyCreated());
-	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Package));
+	ASSERT_TRUE(Durin::SavePackage(Result.Package));
 	EXPECT_FALSE(Result.Package->IsNewlyCreated());
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Result.Package);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_EQ(Durin::FindResidentPackage(Path), Result.Package);
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	Durin::DObject* Reloaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded));
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded));
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Reloaded->GetPackage());
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Reloaded->GetPackage());
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_EQ(Durin::FindResidentPackage(Path), Reloaded->GetPackage());
+	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
 
 TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
@@ -500,8 +500,8 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 	EXPECT_EQ(DuplicateNotifications, 1);
 	EXPECT_EQ(Duplicated.Persistence,
 		Durin::EAssetOperationPersistenceState::Persisted);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Duplicated.AffectedAssets.front()));
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+	EXPECT_TRUE(Durin::UnloadPackage(Duplicated.AffectedAssets.front()));
+	EXPECT_TRUE(Durin::UnloadPackage(SourcePath));
 }
 
 TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
@@ -515,7 +515,7 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 	const Durin::FAssetToolsResult Created = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		SourcePath, DFactoryAssetForTest::StaticClass(), Factory);
 	ASSERT_TRUE(Created);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Created.Package));
+	ASSERT_TRUE(Durin::SavePackage(Created.Package));
 
 	const std::filesystem::path InvalidRoot =
 		Durin::Testing::GetTestWorkDirectory() / "AssetToolsDuplicateSaveFailure";
@@ -543,7 +543,7 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 	Durin::FPackagePath DestinationPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsDuplicateSaveFailure/DuplicateCleanupSource", DestinationPath));
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(DestinationPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(SourcePath), Created.Package);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+	EXPECT_EQ(Durin::FindResidentPackage(DestinationPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(SourcePath), Created.Package);
+	EXPECT_TRUE(Durin::UnloadPackage(SourcePath));
 }

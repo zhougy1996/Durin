@@ -164,7 +164,7 @@ namespace Durin
 		GENERATED_BODY()
 
 		DPROPERTY()
-		Asset::FEditorBulkData Geometry;
+		FEditorBulkData Geometry;
 
 		DPROPERTY()
 		uint32 SchemaVersion = SkeletalMeshImportedDataSchemaVersion;
@@ -233,7 +233,7 @@ namespace Durin
 			-> const FMeshMaterialSlotDefinition*;
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
 		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData>;
-		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FSkeletalMeshImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
@@ -261,10 +261,10 @@ namespace Durin
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 	private:
-		friend auto Asset::ContributeEngineCookAsset(
-			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(
-			Asset::FCookContext& Context,
+			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
@@ -295,7 +295,7 @@ namespace Durin
 		DPROPERTY()
 		FSkeletalMeshSummary Summary;
 
-		Asset::FBulkData CookedPlatformData;
+		FBulkData CookedPlatformData;
 
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;
