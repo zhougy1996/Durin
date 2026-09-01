@@ -4125,6 +4125,48 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 	RunCase("ReadOnly", true);
 }
 
+TEST(FPackageAssetTests, RelocationDoesNotInspectUnrelatedReferencerBytes)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/DeferredFixupTarget", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/DeferredFixupTargetMoved", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/DeferredFixupOwner", OwnerPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OldPath, Target));
+	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
+	DSoftPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	Owner->Direct.SetPath(MakeFormerMainObjectPath(OldPath));
+	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
+
+	const std::filesystem::path OwnerFile =
+		Durin::Testing::GetTestWorkDirectory() / "Assets"
+		/ "DeferredFixupOwner.dasset";
+	Durin::FByteArray OwnerBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(OwnerBytes, OwnerFile));
+	const std::array CorruptBytes{std::byte{0x7f}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(
+		CorruptBytes, OwnerFile));
+
+	const Durin::FAssetResult Result =
+		RelocateAssetForTest(OldPath, NewPath);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(
+		OwnerBytes, OwnerFile));
+	EXPECT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Durin::FindAssetExact(OldPath)->EntryKind,
+		Durin::EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(Durin::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
+		(std::vector<Durin::FPackagePath>{OldPath}));
+}
+
 TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 {
 	InitializeAssetTests();

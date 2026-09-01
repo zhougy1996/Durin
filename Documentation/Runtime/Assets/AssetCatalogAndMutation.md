@@ -142,7 +142,9 @@ revision, exact participant fingerprints, resident finalizers, destination
 artifacts, source redirectors, and owned payload moves behind an opaque job.
 `ResumeForward` is the only execution direction. It publishes destinations and
 owned payloads before source redirectors, persists progress at each boundary,
-and is idempotent across ordinary retry.
+and is idempotent across ordinary retry. Relocation neither opens nor rewrites
+unrelated referencer packages: their authored paths continue to target the
+source alias until an explicit Fix Up operation canonicalizes those paths.
 
 Moving package `A -> B` retains one redirect record for each moved top-level
 asset and preserves every asset name and descendant suffix. Relocation does not
