@@ -1,4 +1,5 @@
 #include "Asset/AssetOperations.h"
+#include "AssetRegistry/Catalog.h"
 #include "VulkanEngineTestSupport.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
@@ -300,6 +301,14 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::FPackagePath CookedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
+	const Durin::Asset::FAssetCatalogEntry CookedAssetData =
+		Durin::Asset::FindAssetExact(CookedPath);
+	ASSERT_NE(CookedAssetData, nullptr);
+	ASSERT_EQ(CookedAssetData->TopLevelAssets.size(), 1u);
+	const Durin::FTopLevelAssetPath CookedAssetPath =
+		CookedAssetData->TopLevelAssets.front().AssetPath;
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -314,11 +323,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
-	Durin::FPackagePath CookedPath;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), CookedTexture);
+		Durin::Asset::LoadObject(CookedAssetPath, CookedTexture);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(CookedTexture, nullptr);
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
@@ -485,30 +492,27 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	RestartAssetManager(CookRoot);
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	const Durin::Asset::FAssetCatalogRefreshResult MissingBulkRefresh =
+		Durin::Asset::RefreshAssetRegistry(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	EXPECT_FALSE(MissingBulkRefresh);
+	EXPECT_TRUE(std::ranges::any_of(
+		MissingBulkRefresh.Errors,
+		[](const Durin::Asset::FAssetRegistryResult& Result) {
+			return Result.Message.find("bulk binding") != std::string::npos;
+		}));
+
+	RestartAssetManager(CorruptRoot);
+	Durin::Testing::RegisterMountPointForTests(
+		"/Game/", (CorruptRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	const Durin::Asset::FAssetResult MissingBulk =
-		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), CookedTexture);
-	EXPECT_FALSE(MissingBulk);
+	const Durin::Asset::FAssetResult CorruptBulkLoad =
+		Durin::Asset::LoadObject(CookedAssetPath, CookedTexture);
+	EXPECT_FALSE(CorruptBulkLoad);
 	EXPECT_EQ(CookedTexture, nullptr);
-	EXPECT_NE(MissingBulk.Message.find("bulk segment"), std::string::npos);
-
-	auto ExpectCookedFailure = [](const std::filesystem::path& FailureRoot,
-								   std::string_view ExpectedText) {
-		RestartAssetManager(FailureRoot);
-		Durin::Testing::RegisterMountPointForTests(
-			"/Game/", (FailureRoot / "Game").generic_string() + "/");
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		Durin::FPackagePath Path;
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", Path));
-		Durin::DTexture2D* Texture = nullptr;
-		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Texture);
-		EXPECT_FALSE(Result);
-		EXPECT_EQ(Texture, nullptr);
-		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
-	};
-	ExpectCookedFailure(CorruptRoot, "bulk segment");
+	EXPECT_NE(CorruptBulkLoad.Message.find("bulk segment"), std::string::npos)
+		<< CorruptBulkLoad.Message;
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
 }
