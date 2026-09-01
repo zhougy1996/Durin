@@ -5,6 +5,16 @@
 
 namespace Durin
 {
+	class FLightSceneInfo;
+
+	// Carries stable light identity across the complete proxy-construction boundary.
+	struct FLightSceneProxyDesc
+	{
+		FLightSceneId Id = InvalidLightSceneId;
+
+		auto IsValid() const -> bool { return Id != InvalidLightSceneId; }
+	};
+
 	// Captures the renderer-facing directional-light state without retaining a component.
 	struct FDirectionalLightSceneData
 	{
@@ -45,18 +55,43 @@ namespace Durin
 	};
 
 	// Owns a detached renderer-facing light value and exposes its explicit family.
-	class FLightSceneProxy : public TSceneProxyPublication<FLightSceneId>
+	class FLightSceneProxy
 	{
 	public:
+		explicit FLightSceneProxy(FLightSceneProxyDesc InDesc)
+			: Desc(std::move(InDesc)) {}
 		ENGINE_API virtual ~FLightSceneProxy() = default;
+		auto GetDesc() const -> const FLightSceneProxyDesc& { return Desc; }
 		virtual auto GetKind() const -> ELightSceneProxyKind = 0;
+
+	private:
+		auto AttachToSceneInfo(FLightSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == nullptr && InSceneInfo != nullptr);
+			SceneInfo = InSceneInfo;
+		}
+		auto DetachFromSceneInfo(FLightSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == InSceneInfo);
+			SceneInfo = nullptr;
+		}
+
+		FLightSceneProxyDesc Desc;
+		FLightSceneInfo* SceneInfo = nullptr;
+
+		friend class FLightSceneInfo;
 	};
 
 	class FDirectionalLightSceneProxy final : public FLightSceneProxy
 	{
 	public:
-		explicit FDirectionalLightSceneProxy(FDirectionalLightSceneData InData)
-			: Data(std::move(InData)) {}
+		FDirectionalLightSceneProxy(FLightSceneProxyDesc InDesc,
+			FDirectionalLightSceneData InData)
+			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
+		FDirectionalLightSceneProxy(FLightSceneId Id,
+			FDirectionalLightSceneData InData)
+			: FDirectionalLightSceneProxy(
+				FLightSceneProxyDesc{Id}, std::move(InData)) {}
 
 		auto GetKind() const -> ELightSceneProxyKind override
 		{
@@ -71,8 +106,12 @@ namespace Durin
 	class FPointLightSceneProxy final : public FLightSceneProxy
 	{
 	public:
-		explicit FPointLightSceneProxy(FPointLightSceneData InData)
-			: Data(std::move(InData)) {}
+		FPointLightSceneProxy(FLightSceneProxyDesc InDesc,
+			FPointLightSceneData InData)
+			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
+		FPointLightSceneProxy(FLightSceneId Id, FPointLightSceneData InData)
+			: FPointLightSceneProxy(
+				FLightSceneProxyDesc{Id}, std::move(InData)) {}
 
 		auto GetKind() const -> ELightSceneProxyKind override
 		{
@@ -87,8 +126,12 @@ namespace Durin
 	class FSpotLightSceneProxy final : public FLightSceneProxy
 	{
 	public:
-		explicit FSpotLightSceneProxy(FSpotLightSceneData InData)
-			: Data(std::move(InData)) {}
+		FSpotLightSceneProxy(FLightSceneProxyDesc InDesc,
+			FSpotLightSceneData InData)
+			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
+		FSpotLightSceneProxy(FLightSceneId Id, FSpotLightSceneData InData)
+			: FSpotLightSceneProxy(
+				FLightSceneProxyDesc{Id}, std::move(InData)) {}
 
 		auto GetKind() const -> ELightSceneProxyKind override
 		{

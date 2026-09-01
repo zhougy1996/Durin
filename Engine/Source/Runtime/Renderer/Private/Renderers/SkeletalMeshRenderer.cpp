@@ -2,6 +2,7 @@
 #include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
 #include "Renderers/MeshRendererShared.h"
+#include "SceneInfo.h"
 
 namespace Durin
 {

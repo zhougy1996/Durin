@@ -86,6 +86,13 @@ namespace Durin
 				RenderCommandTag::GetName(), std::move(Lambda));
 		}
 
+		template<typename LambdaType>
+		static auto TryEnqueueNamed(
+			const char* Name, LambdaType&& Lambda) -> bool
+		{
+			return Instance.TryEnqueueImpl(Name, std::move(Lambda));
+		}
+
 		static auto Launch() -> bool
 		{
 			return Instance.LaunchImpl();
@@ -163,6 +170,19 @@ namespace Durin
 			std::move(Lambda));
 	}
 
+	template<typename LambdaType>
+	auto TryEnqueueRenderCommand(
+		const char* Name, LambdaType&& Lambda) -> bool
+	{
+		if (IsInRenderingThread())
+		{
+			Lambda(GetImmediateCommandList_ForRenderCommand());
+			return true;
+		}
+		return FRenderThreadCommandPipe::TryEnqueueNamed(
+			Name, std::move(Lambda));
+	}
+
 	template<typename RenderCommandTag, typename LambdaType>
 	void EnqueueRenderCommand(LambdaType& Lambda)
 	{
@@ -178,6 +198,5 @@ namespace Durin
 #define ENQUEUE_RENDER_COMMAND(Name) \
 	DECLARE_RENDER_COMMAND_TAG(DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__)), Name) \
 	EnqueueRenderCommand<DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__))>
-
 
 } // namespace Durin

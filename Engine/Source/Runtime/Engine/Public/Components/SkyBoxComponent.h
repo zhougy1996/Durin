@@ -19,6 +19,7 @@ namespace Durin
 namespace Durin
 {
 	class DTextureCube;
+	class FSkyBoxSceneProxy;
 
 	// Publishes a persistent cube-texture reference and rotation-only sky snapshot.
 	DCLASS()
@@ -48,7 +49,10 @@ namespace Durin
 		ENGINE_API auto OnUpdateTransform() -> void override;
 
 	private:
-		auto MarkSkyBoxRenderStateDirty() -> void;
+		auto EnsureSkyBoxInstanceId() -> uint64;
+		auto CreateRenderState() -> void;
+		auto DestroyRenderState() -> void;
+		auto MarkRenderStateDirty() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DTextureCube> TextureCube;
@@ -65,5 +69,7 @@ namespace Durin
 
 		// Nonserialized identity separates duplicates that intentionally share persistent state.
 		uint64 SkyBoxInstanceId = 0;
+		// Non-owning token used only to retire the exact published proxy.
+		FSkyBoxSceneProxy* SceneProxy = nullptr;
 	};
 }

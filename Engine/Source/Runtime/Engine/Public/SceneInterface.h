@@ -46,20 +46,19 @@ namespace Durin
 			FPrimitiveSceneId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData) -> void = 0;
 
-		virtual auto AddOrReplaceLight(
-			FLightSceneId LightId,
-			std::unique_ptr<FLightSceneProxy> Proxy) -> void = 0;
-		virtual auto RemoveLight(FLightSceneId LightId) -> void = 0;
+		// Add consumes Proxy in every case and returns true only when the render
+		// command executed immediately or was admitted to the FIFO queue.
+		virtual auto AddLight(std::unique_ptr<FLightSceneProxy> Proxy) -> bool = 0;
+		virtual auto RemoveLight(FLightSceneProxy* Proxy) -> void = 0;
 
-		virtual auto AddOrReplaceSkyBox(
-			FSkyBoxSceneId SkyBoxId,
-			std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void = 0;
-		virtual auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void = 0;
+		// Components retain Proxy.get() only as an opaque removal token after a
+		// successful Add; they must never dereference a published proxy.
+		virtual auto AddSkyBox(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool = 0;
+		virtual auto RemoveSkyBox(FSkyBoxSceneProxy* Proxy) -> void = 0;
 
-		virtual auto AddOrReplaceVolumetricCloud(
-			FVolumetricCloudSceneId CloudId,
-			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void = 0;
+		virtual auto AddVolumetricCloud(
+			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> bool = 0;
 		virtual auto RemoveVolumetricCloud(
-			FVolumetricCloudSceneId CloudId) -> void = 0;
+			FVolumetricCloudSceneProxy* Proxy) -> void = 0;
 	};
 }

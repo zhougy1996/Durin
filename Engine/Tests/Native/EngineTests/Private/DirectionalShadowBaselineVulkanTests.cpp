@@ -3,6 +3,8 @@
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
+#include "LightSceneTestSupport.h"
+#include "LightSceneTestSupport.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
@@ -938,7 +940,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		Directional.Color = {1.0f, 1.0f, 1.0f};
 		Directional.Intensity = 3.0f;
 		Directional.bCastShadows = Fixture.bCastShadows;
-		Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+		PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+			Scene, Durin::FLightSceneId(100), Directional);
 		Durin::FlushRenderingCommands();
 
 		auto Pixels = std::make_shared<Durin::FByteArray>();
@@ -1248,9 +1251,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(
-		Durin::FLightSceneId(100),
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	struct FProfile
@@ -1440,7 +1442,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	auto RenderCapture = [&](bool bEnableContactShadows,
@@ -1603,7 +1606,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// Disable the forward shadow for this A/B slice, then restore it before the
 	// contact/shadow assertions below.
 	Directional.bCastShadows = false;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray ForwardOnlyOutput;
 	Durin::FByteArray ForwardOnlyHDR;
@@ -1806,7 +1811,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	// Stage 3 consumes the same selected shadow map, comparison sampler, and
@@ -1881,7 +1888,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		ExpectDeferredParity(Forward, Deferred, Surface);
 	};
 
-	Scene.RemoveLight(Durin::FLightSceneId(100));
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = nullptr;
 	Durin::FlushRenderingCommands();
 	auto PureLit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72}, Durin::EMaterialShadingModel::Lit);
 	SetFixtureMaterial(PureLit);
@@ -1911,7 +1919,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_NE(EmissiveOnlyDeferred, NoLightDeferred);
 
 	Directional.bCastShadows = false;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	SetFixtureMaterial(PureLit);
 	Durin::FByteArray DirectionalOnlyForward;
 	Durin::FByteArray DirectionalOnlyDeferred;
@@ -1919,13 +1928,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	CaptureDeferredTerm(DirectionalOnlyForward, DirectionalOnlyDeferred, DirectionalOnlySurface);
 	EXPECT_NE(DirectionalOnlyDeferred, NoLightDeferred);
 
-	Scene.RemoveLight(Durin::FLightSceneId(100));
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = nullptr;
 	Durin::FPointLightSceneData Point;
 	Point.Position = {-0.35, 0.15, 1.0};
 	Point.Color = {1.0f, 0.15f, 0.05f};
 	Point.Intensity = 5.0f;
 	Point.Range = 6.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(200), std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	auto* PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(200), Point);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray PointOnlyForward;
 	Durin::FByteArray PointOnlyDeferred;
@@ -1933,7 +1944,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	CaptureDeferredTerm(PointOnlyForward, PointOnlyDeferred, PointOnlySurface);
 	EXPECT_NE(PointOnlyDeferred, NoLightDeferred);
 
-	Scene.RemoveLight(Durin::FLightSceneId(200));
+	Scene.RemoveLight(PointToken);
+	PointToken = nullptr;
 	Durin::FSpotLightSceneData Spot;
 	Spot.Position = {0.35, 0.15, 1.0};
 	Spot.Direction = {0.0, 0.0, -1.0};
@@ -1942,7 +1954,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Spot.Range = 8.0f;
 	Spot.InnerConeAngle = 25.0f;
 	Spot.OuterConeAngle = 40.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(201), std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
+	auto* SpotToken = PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(201), Spot);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray SpotOnlyForward;
 	Durin::FByteArray SpotOnlyDeferred;
@@ -1951,13 +1964,15 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_NE(SpotOnlyDeferred, NoLightDeferred);
 	EXPECT_NE(SpotOnlyDeferred, PointOnlyDeferred);
 
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(200), std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(200), Point);
 	auto PointTwo = Point;
 	PointTwo.Position = {-0.1, -0.45, 0.8};
 	PointTwo.Color = {0.1f, 1.0f, 0.2f};
 	PointTwo.Intensity = 3.0f;
 	PointTwo.Range = 4.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(202), std::make_unique<Durin::FPointLightSceneProxy>(PointTwo));
+	auto* PointTwoToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(202), PointTwo);
 	auto SpotTwo = Spot;
 	SpotTwo.Position = {0.45, -0.35, 1.1};
 	SpotTwo.Direction = {0.1, 0.2, -1.0};
@@ -1966,10 +1981,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	SpotTwo.Range = 7.0f;
 	SpotTwo.InnerConeAngle = 20.0f;
 	SpotTwo.OuterConeAngle = 45.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(203), std::make_unique<Durin::FSpotLightSceneProxy>(SpotTwo));
+	auto* SpotTwoToken = PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(203), SpotTwo);
 	auto OverflowPoint = Point;
 	OverflowPoint.Color = {1.0f, 0.0f, 1.0f};
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(204), std::make_unique<Durin::FPointLightSceneProxy>(OverflowPoint));
+	auto* OverflowPointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(204), OverflowPoint);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray FourLocalForward;
 	Durin::FByteArray FourLocalDeferred;
@@ -1983,7 +2000,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	auto InvalidPoint = Point;
 	InvalidPoint.Range = 0.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(199), std::make_unique<Durin::FPointLightSceneProxy>(InvalidPoint));
+	auto* InvalidPointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(199), InvalidPoint);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray InvalidLocalForward;
 	Durin::FByteArray InvalidLocalDeferred;
@@ -2010,11 +2028,14 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// isolated local component is exactly the final deferred result.
 	EXPECT_EQ(LocalDiagnosticHDR, InvalidLocalDeferred);
 
-	for (const uint64 Id : {199u, 200u, 201u, 202u, 203u, 204u})
-		Scene.RemoveLight(Durin::FLightSceneId(Id));
+	for (Durin::FLightSceneProxy* Token : {
+		InvalidPointToken, PointToken, SpotToken, PointTwoToken,
+		SpotTwoToken, OverflowPointToken})
+		Scene.RemoveLight(Token);
 
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	SetFixtureMaterial(Opaque);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray ContactForwardOutput;
@@ -2327,10 +2348,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			.Scale = {0.82, 0.82, 1.0}, .RotationYDegrees = 65.0})
 	);
 	Directional.Direction = {-0.55, 0.0, 0.835};
-	Scene.AddOrReplaceLight(
-		Durin::FLightSceneId(100),
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional)
-	);
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	// The same shallow receiver must retain a visible contact contribution from

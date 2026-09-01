@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	class FVolumetricCloudSceneInfo;
+
 	// Captures one immutable global-cloud candidate without retaining reflected objects.
 	struct FVolumetricCloudSceneData
 	{
@@ -73,20 +75,48 @@ namespace Durin
 	[[nodiscard]] ENGINE_API auto IsVolumetricCloudCandidateEligible(
 		const FVolumetricCloudSceneData& Data) -> bool;
 
+	// Contains every renderer-facing cloud value and its feature-specific history identity.
+	struct FVolumetricCloudSceneProxyDesc
+	{
+		FGuid PersistentId;
+		std::string SelectionKey;
+		FVolumetricCloudSceneId RuntimeId = InvalidVolumetricCloudSceneId;
+		uint64 HistoryKey = 0;
+		FVolumetricCloudSceneData Data;
+
+		auto IsValid() const -> bool
+		{
+			return PersistentId.IsValid()
+				&& RuntimeId != InvalidVolumetricCloudSceneId
+				&& HistoryKey != 0;
+		}
+	};
+
 	class FVolumetricCloudSceneProxy final
-		: public TSceneProxyPublication<FVolumetricCloudSceneId>
 	{
 	public:
-		FVolumetricCloudSceneProxy(
-			FSceneCandidateIdentity InIdentity,
-			FVolumetricCloudSceneData InData)
-			: Identity(std::move(InIdentity)), Data(std::move(InData)) {}
+		explicit FVolumetricCloudSceneProxy(
+			FVolumetricCloudSceneProxyDesc InDesc)
+			: Desc(std::move(InDesc)) {}
 
-		auto GetIdentity() const -> const FSceneCandidateIdentity& { return Identity; }
-		auto GetData() const -> const FVolumetricCloudSceneData& { return Data; }
+		auto GetDesc() const -> const FVolumetricCloudSceneProxyDesc& { return Desc; }
+		auto GetData() const -> const FVolumetricCloudSceneData& { return Desc.Data; }
 
 	private:
-		FSceneCandidateIdentity Identity;
-		FVolumetricCloudSceneData Data;
+		auto AttachToSceneInfo(FVolumetricCloudSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == nullptr && InSceneInfo != nullptr);
+			SceneInfo = InSceneInfo;
+		}
+		auto DetachFromSceneInfo(FVolumetricCloudSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == InSceneInfo);
+			SceneInfo = nullptr;
+		}
+
+		FVolumetricCloudSceneProxyDesc Desc;
+		FVolumetricCloudSceneInfo* SceneInfo = nullptr;
+
+		friend class FVolumetricCloudSceneInfo;
 	};
 }

@@ -77,9 +77,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.Identity.PersistentId, SavedSceneId);
+	EXPECT_EQ(Observation.Active.Desc.PersistentId, SavedSceneId);
 	EXPECT_EQ(
-		Observation.Active.Data.TextureReference,
+		Observation.Active.Desc.Data.TextureReference,
 		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
 	auto* IgnoredActor = LoadedLevel->SpawnActor<Durin::ASkyBoxActor>("IgnoredSky");
@@ -188,7 +188,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(
-		Observation.Active.Data.TextureReference,
+		Observation.Active.Desc.Data.TextureReference,
 		LoadedCube->GetTextureReferenceRHI());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));

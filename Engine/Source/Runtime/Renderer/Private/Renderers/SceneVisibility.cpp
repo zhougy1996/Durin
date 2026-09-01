@@ -4,6 +4,7 @@
 
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Scene.h"
+#include "SceneInfo.h"
 
 namespace Durin
 {

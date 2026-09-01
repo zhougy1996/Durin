@@ -9,6 +9,7 @@ namespace Durin
 {
 	class DTexture2D;
 	class DVolumeTexture;
+	class FVolumetricCloudSceneProxy;
 
 	DCLASS(DisplayName = "Volumetric Cloud Component")
 	// Publishes one revisioned immutable global-cloud candidate.
@@ -66,7 +67,10 @@ namespace Durin
 			float InLightExtinction, float InAmbient) -> void;
 
 	private:
-		auto MarkVolumetricCloudRenderStateDirty() -> void;
+		auto EnsureVolumetricCloudInstanceId() -> uint64;
+		auto CreateRenderState() -> void;
+		auto DestroyRenderState() -> void;
+		auto MarkRenderStateDirty() -> void;
 
 		DPROPERTY(Edit, Category = "Activation", ToolTip = "Enables this global cloud candidate.")
 		bool bEnabled = true;
@@ -111,5 +115,7 @@ namespace Durin
 		DPROPERTY()
 		FGuid VolumetricCloudSceneId;
 		uint64 VolumetricCloudInstanceId = 0;
+		// Non-owning token used only to retire the exact published proxy.
+		FVolumetricCloudSceneProxy* SceneProxy = nullptr;
 	};
 }

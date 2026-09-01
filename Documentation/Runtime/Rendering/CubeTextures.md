@@ -4,6 +4,8 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
+Last reviewed: 2026-09-01
+
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
 
@@ -318,8 +320,9 @@ source pixel.
   pointer participates in package dependency tracking, serialization, and GC.
 - Translation and scale remain ordinary authored transform data but do not
   enter the sky snapshot. Only the component's world rotation is published.
-- Registration, visibility, rotation, texture, Tint, and Intensity changes
-  enqueue revisioned snapshot replacement or removal through `FSceneInterface`.
+- Registration, visibility, rotation, texture, Tint, and Intensity changes use
+  the shared create, destroy, and dirty render-state hooks. Dirty state submits
+  exact old-proxy removal before adding one newly constructed complete Desc.
 - `FScene` owns snapshots only on the rendering thread. A snapshot contains no
   reflected object pointer or concrete render-resource owner; it retains a
   counted stable `FRHITextureReferenceRef`.
@@ -337,9 +340,10 @@ source pixel.
 - Multiple visible sky components are retained so editor diagnostics can report
   the conflict. The active entry is selected by serialized scene GUID, then
   stable object path for duplicated GUIDs, independent of registration order.
-- Per-instance revision tombstones prevent an older queued replacement or
-  removal from overriding newer state. Runtime instance IDs also keep duplicated
-  components with the same serialized GUID as distinct scene entries.
+- Pointer-keyed membership and FIFO Remove-then-Add rebuilds keep ownership
+  independent of candidate selection. Runtime instance IDs keep duplicated
+  components with the same serialized GUID as distinct scene entries and provide
+  the final deterministic tie-break.
 
 ## Sky Rendering
 

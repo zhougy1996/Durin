@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	class FSkyBoxSceneInfo;
+
 	// Captures sky state without retaining or reading reflected objects on the render thread.
 	struct FSkyBoxSceneData
 	{
@@ -15,20 +17,44 @@ namespace Durin
 		float Intensity = 1.0f;
 	};
 
+	// Contains every renderer-facing sky value before ownership crosses threads.
+	struct FSkyBoxSceneProxyDesc
+	{
+		FGuid PersistentId;
+		std::string SelectionKey;
+		FSkyBoxSceneId RuntimeId = InvalidSkyBoxSceneId;
+		FSkyBoxSceneData Data;
+
+		auto IsValid() const -> bool
+		{
+			return PersistentId.IsValid() && RuntimeId != InvalidSkyBoxSceneId;
+		}
+	};
+
 	class FSkyBoxSceneProxy final
-		: public TSceneProxyPublication<FSkyBoxSceneId>
 	{
 	public:
-		FSkyBoxSceneProxy(
-			FSceneCandidateIdentity InIdentity,
-			FSkyBoxSceneData InData)
-			: Identity(std::move(InIdentity)), Data(std::move(InData)) {}
+		explicit FSkyBoxSceneProxy(FSkyBoxSceneProxyDesc InDesc)
+			: Desc(std::move(InDesc)) {}
 
-		auto GetIdentity() const -> const FSceneCandidateIdentity& { return Identity; }
-		auto GetData() const -> const FSkyBoxSceneData& { return Data; }
+		auto GetDesc() const -> const FSkyBoxSceneProxyDesc& { return Desc; }
+		auto GetData() const -> const FSkyBoxSceneData& { return Desc.Data; }
 
 	private:
-		FSceneCandidateIdentity Identity;
-		FSkyBoxSceneData Data;
+		auto AttachToSceneInfo(FSkyBoxSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == nullptr && InSceneInfo != nullptr);
+			SceneInfo = InSceneInfo;
+		}
+		auto DetachFromSceneInfo(FSkyBoxSceneInfo* InSceneInfo) -> void
+		{
+			check(SceneInfo == InSceneInfo);
+			SceneInfo = nullptr;
+		}
+
+		FSkyBoxSceneProxyDesc Desc;
+		FSkyBoxSceneInfo* SceneInfo = nullptr;
+
+		friend class FSkyBoxSceneInfo;
 	};
 }

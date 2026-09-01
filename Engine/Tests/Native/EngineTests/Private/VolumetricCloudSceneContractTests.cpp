@@ -59,7 +59,9 @@ namespace
 	struct FCloudCandidate
 	{
 		Durin::FVolumetricCloudSceneId SceneId;
-		Durin::FSceneCandidateIdentity Identity;
+		uint64 HistoryKey = 0;
+		Durin::FGuid PersistentId;
+		std::string SelectionKey;
 		Durin::FVolumetricCloudSceneData Data;
 
 		operator Durin::FVolumetricCloudSceneData() &&
@@ -90,19 +92,28 @@ namespace
 		return *Result;
 	}
 
-	auto Publish(Durin::FScene& Scene, FCloudCandidate Candidate) -> void
+	auto Publish(Durin::FScene& Scene, FCloudCandidate Candidate)
+		-> Durin::FVolumetricCloudSceneProxy*
 	{
-		Scene.AddOrReplaceVolumetricCloud(Candidate.SceneId,
-			std::make_unique<Durin::FVolumetricCloudSceneProxy>(
-				std::move(Candidate.Identity), std::move(Candidate.Data)));
+		auto Proxy = std::make_unique<Durin::FVolumetricCloudSceneProxy>(
+			Durin::FVolumetricCloudSceneProxyDesc{
+				.PersistentId = Candidate.PersistentId,
+				.SelectionKey = std::move(Candidate.SelectionKey),
+				.RuntimeId = Candidate.SceneId,
+				.HistoryKey = Candidate.HistoryKey,
+				.Data = std::move(Candidate.Data)});
+		Durin::FVolumetricCloudSceneProxy* Token = Proxy.get();
+		return Scene.AddVolumetricCloud(std::move(Proxy)) ? Token : nullptr;
 	}
 
-	auto MakeCandidate(uint64 InstanceId, uint64, int32 Priority,
+	auto MakeCandidate(uint64 InstanceId, uint64 HistoryKey, int32 Priority,
 		Durin::FGuid PersistentId, std::string SelectionKey) -> FCloudCandidate
 	{
 		FCloudCandidate Candidate;
 		Candidate.SceneId = Durin::FVolumetricCloudSceneId(InstanceId);
-		Candidate.Identity = {PersistentId, std::move(SelectionKey)};
+		Candidate.HistoryKey = HistoryKey;
+		Candidate.PersistentId = PersistentId;
+		Candidate.SelectionKey = std::move(SelectionKey);
 		Candidate.Data.Priority = Priority;
 		Candidate.Data.bEligible = true;
 		return Candidate;
@@ -291,32 +302,38 @@ TEST(FVolumetricCloudSceneContractTests, SceneSelectsPriorityAndStableIdentityAc
 	Durin::FScenePtr Owner = Factory.CreateScene();
 	auto& Scene = static_cast<Durin::FScene&>(*Owner);
 
-	Publish(Scene, MakeCandidate(3, 1, 2, Durin::FGuid(3, 0, 0, 0), "C"));
-	Publish(Scene, MakeCandidate(2, 1, 5, Durin::FGuid(2, 0, 0, 0), "B"));
-	Publish(Scene, MakeCandidate(1, 1, 5, Durin::FGuid(1, 0, 0, 0), "A"));
+	auto* Token3 = Publish(Scene,
+		MakeCandidate(3, 1, 2, Durin::FGuid(3, 0, 0, 0), "C"));
+	auto* Token2 = Publish(Scene,
+		MakeCandidate(2, 1, 5, Durin::FGuid(2, 0, 0, 0), "B"));
+	auto* Token1 = Publish(Scene,
+		MakeCandidate(1, 1, 5, Durin::FGuid(1, 0, 0, 0), "A"));
 	auto Observation = ObserveClouds(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 3u);
-	EXPECT_EQ(Observation.Active.Metadata.SceneId,
+	EXPECT_EQ(Observation.Active.Desc.RuntimeId,
 		Durin::FVolumetricCloudSceneId(1));
-	const uint64 FirstActiveRevision = Observation.Active.Metadata.Revision;
+	const uint64 FirstHistoryKey = Observation.Active.Desc.HistoryKey;
 
-	Publish(Scene, MakeCandidate(1, 2, 5, Durin::FGuid(1, 0, 0, 0), "A2"));
+	Scene.RemoveVolumetricCloud(Token1);
+	Token1 = Publish(Scene,
+		MakeCandidate(1, 2, 5, Durin::FGuid(1, 0, 0, 0), "A2"));
 	Observation = ObserveClouds(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_GT(Observation.Active.Metadata.Revision, FirstActiveRevision);
-	EXPECT_EQ(Observation.Active.Identity.SelectionKey, "A2");
+	EXPECT_GT(Observation.Active.Desc.HistoryKey, FirstHistoryKey);
+	EXPECT_EQ(Observation.Active.Desc.SelectionKey, "A2");
 
 	auto Ineligible = MakeCandidate(1, 3, 5, Durin::FGuid(1, 0, 0, 0), "A3");
 	Ineligible.Data.bEligible = false;
-	Publish(Scene, std::move(Ineligible));
+	Scene.RemoveVolumetricCloud(Token1);
+	Token1 = Publish(Scene, std::move(Ineligible));
 	Observation = ObserveClouds(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Active.Metadata.SceneId,
+	EXPECT_EQ(Observation.Active.Desc.RuntimeId,
 		Durin::FVolumetricCloudSceneId(2));
-	Scene.RemoveVolumetricCloud(Durin::FVolumetricCloudSceneId(1));
-	Scene.RemoveVolumetricCloud(Durin::FVolumetricCloudSceneId(2));
-	Scene.RemoveVolumetricCloud(Durin::FVolumetricCloudSceneId(3));
+	Scene.RemoveVolumetricCloud(Token1);
+	Scene.RemoveVolumetricCloud(Token2);
+	Scene.RemoveVolumetricCloud(Token3);
 	EXPECT_FALSE(ObserveClouds(Scene).bHasActive);
 
 	Owner.reset();
@@ -342,7 +359,7 @@ TEST(FVolumetricCloudSceneContractTests,
 		1, 1, 0, Durin::FGuid(1, 0, 0, 0), "DeferredReadyCloud");
 	Candidate.Data.BaseDensityTexture = BaseReference.GetTextureReferenceRHI();
 	Candidate.Data.DetailDensityTexture = DetailReference.GetTextureReferenceRHI();
-	Publish(Scene, std::move(Candidate));
+	auto* Token = Publish(Scene, std::move(Candidate));
 	EXPECT_FALSE(ObserveClouds(Scene).bHasActive);
 
 	Durin::FTextureRHIRef BaseTexture(new FDeferredReadyCloudTexture());
@@ -357,10 +374,10 @@ TEST(FVolumetricCloudSceneContractTests,
 
 	const FCloudObservation Observation = ObserveClouds(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Active.Metadata.SceneId,
+	EXPECT_EQ(Observation.Active.Desc.RuntimeId,
 		Durin::FVolumetricCloudSceneId(1));
 
-	Scene.RemoveVolumetricCloud(Durin::FVolumetricCloudSceneId(1));
+	Scene.RemoveVolumetricCloud(Token);
 	BaseReference.BeginRelease_GameThread();
 	DetailReference.BeginRelease_GameThread();
 	Owner.reset();

@@ -20,30 +20,32 @@ namespace Durin
 	auto DDirectionalLightComponent::SetIntensity(float InIntensity) -> void
 	{
 		Intensity = NormalizeLightIntensity(InIntensity);
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::SetAmbientIntensity(float InIntensity) -> void
 	{
 		AmbientIntensity = FMath::Max(0.0f, InIntensity);
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::SetRimLightIntensity(float InIntensity) -> void
 	{
 		RimLightIntensity = FMath::Max(0.0f, InIntensity);
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::SetCastShadows(bool bInCastShadows) -> void
 	{
 		bCastShadows = bInCastShadows;
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
-	auto DDirectionalLightComponent::CreateSceneProxy() const
+	auto DDirectionalLightComponent::CreateSceneProxy(
+		FLightSceneProxyDesc Desc) const
 		-> std::unique_ptr<FLightSceneProxy>
 	{
-		return std::make_unique<FDirectionalLightSceneProxy>(GetSceneData());
+		return std::make_unique<FDirectionalLightSceneProxy>(
+			std::move(Desc), GetSceneData());
 	}
 }

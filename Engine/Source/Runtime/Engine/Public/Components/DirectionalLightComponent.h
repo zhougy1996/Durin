@@ -21,7 +21,8 @@ namespace Durin
 		ENGINE_API auto SetCastShadows(bool bInCastShadows) -> void;
 
 	protected:
-		auto CreateSceneProxy() const -> std::unique_ptr<FLightSceneProxy> override;
+		auto CreateSceneProxy(FLightSceneProxyDesc Desc) const
+			-> std::unique_ptr<FLightSceneProxy> override;
 
 	private:
 		DPROPERTY(Edit, MetaData="HideAlpha")

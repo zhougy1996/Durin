@@ -21,13 +21,12 @@ component, actor, reflected asset, or other game-thread object.
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
 
 A component constructs a complete proxy candidate from copied values and
-retained renderer-facing resources on the game thread. `FSceneInterface` accepts unique
-ownership and a family-specific `TSceneId`. The render-command pipe transfers
-that candidate to the rendering thread. `FScene` assigns one typed
-`TSceneProxyMetadata` value containing the runtime Scene ID and a monotonically
-increasing publication revision before enqueue. The family registry creates the
-paired SceneInfo and becomes the only owner and mutator of the attached entry.
-Null or invalid candidates publish nothing and cannot replace a complete entry.
+retained renderer-facing resources on the game thread. For Light, SkyBox, and
+VolumetricCloud, `FSceneInterface::Add*` consumes unique ownership while the
+component retains only `Proxy.get()` as an opaque removal token after successful
+command admission. The render-command pipe temporarily carries shared ownership
+because its callable is copyable; after attachment the paired SceneInfo is the
+only authoritative owner. Null or invalid candidates publish nothing.
 
 Removal erases every typed membership reference before destroying the
 SceneInfo and proxy on the rendering thread. Scene release clears typed views
@@ -53,32 +52,31 @@ copied parameters and local/world bounds. Stale updates and updates after
 retirement are ignored without reading the component.
 
 `FLightSceneInfo` owns explicit family, conservative local influence bounds,
-and typed membership. The proxy metadata owns the light identity and revision;
+and typed membership. `FLightSceneProxyDesc` copies the stable light identity;
 directional, point, and spot proxies own copied family values.
 `DLightComponent` centralizes registration,
 visibility, transform, authored-property, and retirement publication; the
 renderer never calls a component getter. Bounded per-view selection and the
 shared GPU contract are defined by [Forward Lighting](ForwardLighting.md).
 
-`FSkyBoxSceneInfo` owns typed membership. `FSkyBoxSceneProxy` owns publication
-metadata, persistent candidate identity, the selection-key tie-break, retained
-texture reference, rotation, tint, and intensity. Active selection is the
-minimum `(persistent identity, selection key, runtime identity)` tuple.
+`FSkyBoxSceneInfo` owns typed membership. `FSkyBoxSceneProxyDesc` owns persistent
+candidate identity, the selection-key tie-break, runtime diagnostic identity,
+retained texture reference, rotation, tint, and intensity. Active selection is
+the minimum `(persistent identity, selection key, runtime identity)` tuple.
 
 ## Ordering and Typed Access
 
 Ordinary scene mutation has one game-thread producer and uses FIFO
-render-command order. `FScene` nevertheless assigns every Light, SkyBox, and
-VolumetricCloud add, replacement, and removal one monotonically increasing
-publication revision. Each registry retains the last revision for an identity,
-including a removal tombstone, and rejects any non-newer operation. This keeps
-the publication boundary explicit if command production later gains an
-independently ordered source. Owner-specific material and resource revisions
-remain at their actual asynchronous boundaries.
+render-command order. Light, SkyBox, and VolumetricCloud registries key
+membership by the exact proxy pointer. Rebuild submits Remove for the old token
+before Add for the newly constructed proxy, so immediate Add/Remove and repeated
+dirty rebuilds need no tombstone or universal publication revision. Work that
+has an independently ordered boundary retains a feature-specific generation;
+the cloud proxy carries a unique immutable history key for temporal invalidation.
 
 `FScene` composes `FLightSceneRegistry`, `FSkyBoxSceneRegistry`, and
-`FVolumetricCloudSceneRegistry`; each registry owns its family map, revision
-tombstones, indexes, and active-candidate policy. Primitive membership remains
+`FVolumetricCloudSceneRegistry`; each registry owns its pointer-keyed family map,
+indexes, and active-candidate policy. Primitive membership remains
 directly owned while its registry extraction is deferred. Attach, replacement,
 detach, and release update ownership and every relevant view in one render
 command. Feature renderers iterate only their typed
@@ -127,12 +125,15 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 
 ## Failure and Thread Contracts
 
-- Invalid identities, null proxies, and non-finite primitive transforms are
-  rejected before enqueue and leave existing membership unchanged.
+- Invalid Desc values, null proxies, and non-finite primitive transforms are
+  rejected before enqueue. Add consumes its `unique_ptr` in every case and
+  returns true only when execution is immediate or FIFO admission succeeds.
+- Components clear their non-owning token immediately after submitting Remove
+  and never dereference a proxy after successful Add.
 - Render-thread queries and SceneInfo mutation assert rendering-thread ownership.
 - Typed SceneInfo access asserts that the explicit primitive kind matches the
   requested proxy family.
-- Replacement detaches the prior typed entry before publishing the new entry;
+- Rebuild detaches the exact prior typed entry before publishing the new entry;
   removal and release leave no typed pointer after ownership is destroyed.
 - Scene mutation adds no waits or second task system. Existing targeted
   resource and asset-release fences retain their lifetime ownership.

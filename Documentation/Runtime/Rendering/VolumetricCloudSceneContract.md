@@ -42,25 +42,27 @@ The render-thread registry selects eligible candidates by:
 3. component object path ascending; and
 4. runtime instance ID ascending.
 
-`FScene` assigns every complete publication or removal a monotonically
-increasing revision and binds it to the proxy metadata before enqueue.
-`FVolumetricCloudSceneRegistry` accepts only an operation newer than the last
-revision for that runtime identity and retains removal tombstones. Disabled,
-hidden, invalid, or missing-input state publishes an ineligible replacement and
-allows the next candidate to take over. Scene release clears entries,
-tombstones, and counted references on the render thread.
+Each rebuilt proxy receives a cloud-specific nonzero history key, independent
+of registry ownership. `FVolumetricCloudSceneRegistry` keys membership by the
+exact proxy pointer; the component submits old-token removal before adding the
+new complete Desc. Disabled, hidden, invalid, or missing-input state publishes
+an ineligible rebuilt candidate and allows the next candidate to take over.
+Scene release clears entries and counted references on the render thread.
 
 ## Thread and ownership boundary
 
 `FVolumetricCloudSceneData` contains physical values plus three
-`FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxy` separately owns
-the immutable data, deterministic candidate identity, and typed publication
-metadata; `FVolumetricCloudSceneInfo` owns the proxy. No actor,
+`FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxyDesc` owns the
+immutable data, persistent identity, selection key, runtime diagnostic identity,
+and history key; `FVolumetricCloudSceneInfo` owns the proxy after render-thread
+attachment. The component retains only the non-owning proxy token needed for
+exact removal. No actor,
 component, reflected object, mutable container, raw backend handle, render
 target, shader, history, or pipeline crosses from Engine-authored state to the
 render thread.
 
-During view preparation Renderer copies the selected snapshot, resolves base
+During view preparation Renderer copies the selected Desc, combines its history
+key with the selected lighting key, resolves base
 and detail as `Texture3D` and weather as `Texture2D`, derives the to-light vector
 and radiance from the selected directional light, and supplies its own density
 sampler and scene depth. The remaining authored values map field-for-field into
@@ -71,7 +73,7 @@ counts and transmittance cutoff.
 
 `VolumetricCloudSceneContractTests` covers defaults, clamping, identity,
 serialization, registration, deterministic selection, ineligible fallback,
-ordered replacement, removal, and exact parameter translation without GPU
+ordered rebuild, exact-pointer removal, history invalidation, and exact parameter translation without GPU
 initialization. `VolumetricCloudSceneVulkanTests` drives the production scene
 path from a real actor and volume assets through offscreen, Present, resize,
 invalid-input, compute, and fragment routes in inline and threaded execution.

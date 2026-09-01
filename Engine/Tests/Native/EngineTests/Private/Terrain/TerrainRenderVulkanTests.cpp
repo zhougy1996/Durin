@@ -3,6 +3,7 @@
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
+#include "LightSceneTestSupport.h"
 #include "Rendering/TerrainSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
@@ -440,8 +441,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {-1.0, 0.0, -1.0};
 	Directional.Intensity = 1.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(10),
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(10), Directional);
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
@@ -482,7 +483,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	EXPECT_EQ(GTelemetry.DirectionalShadow.ShadowPreparedTerrainCasters, 6u);
 	EXPECT_EQ(GTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 6u);
 
-	Scene.RemoveLight(Durin::FLightSceneId(10));
+	Scene.RemoveLight(DirectionalToken);
 	std::vector<uint16> MaskSamples(7u * 7u, 65535);
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> MaskPayload;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(

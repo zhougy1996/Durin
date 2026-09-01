@@ -16,6 +16,7 @@
 #include "Renderers/DirectionalShadowView.h"
 #include "SceneViewProjection.h"
 #include "RenderingThread.h"
+#include "SceneInfo.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"

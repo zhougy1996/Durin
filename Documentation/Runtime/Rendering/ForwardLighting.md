@@ -1,5 +1,11 @@
 # Forward Lighting
 
+Summary: Define scene-light ownership, deterministic view selection, and the shared forward/deferred lighting ABI.
+
+Modules: Engine, Renderer
+
+Last reviewed: 2026-09-01
+
 Directional direct lighting may be attenuated by the selected view-local
 shadow described in [Directional Shadows](DirectionalShadows.md). The shadow
 record is part of the fixed reflected lighting ABI; all other lighting terms
@@ -31,18 +37,19 @@ authoritative production ordering and failure contract.
 ## Scene ownership
 
 Directional, point, and spot lights cross the game/render boundary as detached
-`FLightSceneProxy` values. `FSceneInterface::AddOrReplaceLight` transfers one complete
-candidate under a stable `FLightSceneId`; `RemoveLight` removes any family under
-that identity. `FScene` assigns publication metadata before enqueue, and
-`FLightSceneRegistry` owns the identity map, revision tombstones, and
-authoritative directional, point, and spot `FLightSceneInfo` views. Replacement
-detaches the old typed membership before attaching the new one, including a
-same-ID family change.
+`FLightSceneProxy` values. `FLightSceneProxyDesc` copies the stable
+`FLightSceneId` before `FSceneInterface::AddLight` transfers unique ownership.
+The component retains only the raw proxy token needed by `RemoveLight` and never
+reads the proxy after Add. `FLightSceneRegistry` keys ownership by that exact
+pointer and owns authoritative directional, point, and spot `FLightSceneInfo`
+views. A rebuild submits removal of the old proxy before adding the new proxy,
+so a family change cannot leave stale typed membership.
 
 `DLightComponent` owns identity, registration, hidden-owner, transform,
-property-change, and retirement publication. Directional, point, and spot
-components copy their family data into concrete proxies. Published values never
-retain actors, components, reflected assets, or editor objects.
+property-change, and retirement publication through the shared create, destroy,
+and dirty render-state hooks. Directional, point, and spot components copy their
+family data into concrete proxies. Published values never retain actors,
+components, reflected assets, or editor objects.
 
 ## Authored values and bounds
 

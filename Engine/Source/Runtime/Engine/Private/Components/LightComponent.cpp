@@ -21,24 +21,24 @@ namespace Durin
 	{
 		Super::OnRegister();
 		EnsureLightSceneId();
-		MarkLightRenderStateDirty();
+		CreateRenderState();
 	}
 
 	auto DLightComponent::OnUnregister() -> void
 	{
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveLight(LightSceneId);
+		DestroyRenderState();
 		Super::OnUnregister();
 	}
 
 	auto DLightComponent::OnOwnerVisibilityChanged() -> void
 	{
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DLightComponent::OnUpdateTransform() -> void
 	{
 		Super::OnUpdateTransform();
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DLightComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
@@ -46,7 +46,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
 			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DLightComponent::NormalizeLightColor(const FLinearColor& Color) -> FVector3f
@@ -69,17 +69,32 @@ namespace Durin
 		return LightSceneId;
 	}
 
-	auto DLightComponent::MarkLightRenderStateDirty() -> void
+	auto DLightComponent::CreateRenderState() -> void
 	{
-		if (!IsRegistered()) return;
+		if (!IsRegistered() || SceneProxy != nullptr) return;
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
-		const FLightSceneId SceneId = EnsureLightSceneId();
 		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
-		{
-			Scene->RemoveLight(SceneId);
 			return;
-		}
-		Scene->AddOrReplaceLight(SceneId, CreateSceneProxy());
+		std::unique_ptr<FLightSceneProxy> Proxy = CreateSceneProxy(
+			FLightSceneProxyDesc{EnsureLightSceneId()});
+		if (Proxy == nullptr) return;
+		FLightSceneProxy* Token = Proxy.get();
+		if (Scene->AddLight(std::move(Proxy))) SceneProxy = Token;
+	}
+
+	auto DLightComponent::DestroyRenderState() -> void
+	{
+		FLightSceneProxy* Token = SceneProxy;
+		SceneProxy = nullptr;
+		if (Token == nullptr) return;
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveLight(Token);
+	}
+
+	auto DLightComponent::MarkRenderStateDirty() -> void
+	{
+		if (!IsRegistered()) return;
+		DestroyRenderState();
+		CreateRenderState();
 	}
 }

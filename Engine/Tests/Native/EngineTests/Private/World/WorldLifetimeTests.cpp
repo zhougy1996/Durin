@@ -48,34 +48,55 @@ namespace
 		{
 		}
 
-		auto AddOrReplaceLight(Durin::FLightSceneId, std::unique_ptr<Durin::FLightSceneProxy>) -> void override
+		auto AddLight(std::unique_ptr<Durin::FLightSceneProxy> Proxy) -> bool override
+		{
+			if (Proxy == nullptr) return false;
+			Durin::FLightSceneProxy* Token = Proxy.get();
+			LastAddedLight = Token;
+			++AddLightCount;
+			Lights.emplace(Token, std::move(Proxy));
+			return true;
+		}
+
+		auto RemoveLight(Durin::FLightSceneProxy* Proxy) -> void override
+		{
+			LastRemovedLight = Proxy;
+			++RemoveLightCount;
+			if (const auto Found = Lights.find(Proxy); Found != Lights.end())
+			{
+				RetiredLights.push_back(std::move(Found->second));
+				Lights.erase(Found);
+			}
+		}
+
+		auto AddSkyBox(std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> bool override
+		{
+			return false;
+		}
+
+		auto RemoveSkyBox(Durin::FSkyBoxSceneProxy*) -> void override
 		{
 		}
 
-		auto RemoveLight(Durin::FLightSceneId) -> void override
+		auto AddVolumetricCloud(
+			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> bool override
 		{
-		}
-
-		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneId, std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> void override
-		{
-		}
-
-		auto RemoveSkyBox(Durin::FSkyBoxSceneId) -> void override
-		{
-		}
-
-		auto AddOrReplaceVolumetricCloud(
-			Durin::FVolumetricCloudSceneId,
-			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> void override
-		{
+			return false;
 		}
 
 		auto RemoveVolumetricCloud(
-			Durin::FVolumetricCloudSceneId) -> void override
+			Durin::FVolumetricCloudSceneProxy*) -> void override
 		{
 		}
 
 		uint32 RemovePrimitiveCount = 0;
+		uint32 AddLightCount = 0;
+		uint32 RemoveLightCount = 0;
+		Durin::FLightSceneProxy* LastAddedLight = nullptr;
+		Durin::FLightSceneProxy* LastRemovedLight = nullptr;
+		std::unordered_map<Durin::FLightSceneProxy*,
+			std::unique_ptr<Durin::FLightSceneProxy>> Lights;
+		std::vector<std::unique_ptr<Durin::FLightSceneProxy>> RetiredLights;
 	};
 }
 
@@ -161,6 +182,43 @@ TEST(FWorldTests, DetachingPendingKillLevelUnregistersComponents)
 
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_EQ(Scene.RemovePrimitiveCount, 1u);
+	World->SetRenderScene(nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
+{
+	Durin::DWorld* World = CreateWorld();
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("LifecycleLight");
+	ASSERT_NE(Light, nullptr);
+	auto* Component = Light->GetLightComponent();
+	ASSERT_NE(Component, nullptr);
+	ASSERT_EQ(Scene.AddLightCount, 1u);
+	Durin::FLightSceneProxy* FirstToken = Scene.LastAddedLight;
+
+	Component->SetIntensity(2.0f);
+	EXPECT_EQ(Scene.RemoveLightCount, 1u);
+	EXPECT_EQ(Scene.LastRemovedLight, FirstToken);
+	EXPECT_EQ(Scene.AddLightCount, 2u);
+	Durin::FLightSceneProxy* RebuiltToken = Scene.LastAddedLight;
+	EXPECT_NE(RebuiltToken, FirstToken);
+
+	Light->SetHidden(true);
+	EXPECT_EQ(Scene.RemoveLightCount, 2u);
+	EXPECT_EQ(Scene.LastRemovedLight, RebuiltToken);
+	EXPECT_TRUE(Scene.Lights.empty());
+
+	Light->SetHidden(false);
+	EXPECT_EQ(Scene.AddLightCount, 3u);
+	Durin::FLightSceneProxy* VisibleToken = Scene.LastAddedLight;
+	Component->UnregisterComponent();
+	EXPECT_EQ(Scene.RemoveLightCount, 3u);
+	EXPECT_EQ(Scene.LastRemovedLight, VisibleToken);
+	EXPECT_TRUE(Scene.Lights.empty());
+
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

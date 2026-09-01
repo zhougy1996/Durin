@@ -4,6 +4,8 @@
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Catalog.h"
 #include "EngineTestSupport.h"
+#include "LightSceneTestSupport.h"
+#include "LightSceneTestSupport.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -599,13 +601,15 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Durin::FPointLightSceneData PointA;
 	PointA.Position = {-1.5, -0.75, 2.0};
 	PointA.Color = {1.0f, 0.15f, 0.05f};
 	PointA.Intensity = 5.0f;
 	PointA.Range = 6.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(20), std::make_unique<Durin::FPointLightSceneProxy>(PointA));
+	PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(20), PointA);
 	Durin::FSpotLightSceneData SpotA;
 	SpotA.Position = {1.5, -0.75, 3.0};
 	SpotA.Direction = {-0.15, 0.1, -1.0};
@@ -614,13 +618,15 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	SpotA.Range = 8.0f;
 	SpotA.InnerConeAngle = 25.0f;
 	SpotA.OuterConeAngle = 40.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(21), std::make_unique<Durin::FSpotLightSceneProxy>(SpotA));
+	PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(21), SpotA);
 	auto PointB = PointA;
 	PointB.Position = {-0.5, 1.25, 1.5};
 	PointB.Color = {0.1f, 1.0f, 0.2f};
 	PointB.Intensity = 3.0f;
 	PointB.Range = 4.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(22), std::make_unique<Durin::FPointLightSceneProxy>(PointB));
+	PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(22), PointB);
 	auto SpotB = SpotA;
 	SpotB.Position = {1.25, 1.25, 2.5};
 	SpotB.Direction = {0.1, -0.2, -1.0};
@@ -629,7 +635,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	SpotB.Range = 7.0f;
 	SpotB.InnerConeAngle = 20.0f;
 	SpotB.OuterConeAngle = 45.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(23), std::make_unique<Durin::FSpotLightSceneProxy>(SpotB));
+	PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(23), SpotB);
 	Durin::FlushRenderingCommands();
 
 	auto* SpecularAAMaterialObject = MakeMaterial(
@@ -651,10 +658,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	SpecularAADirectional.Direction = {0.25, 0.0, -1.0};
 	SpecularAADirectional.Color = {1.0f, 1.0f, 1.0f};
 	SpecularAADirectional.Intensity = 6.0f;
-	SpecularAAScene.AddOrReplaceLight(
-		Durin::FLightSceneId(201),
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(
-			SpecularAADirectional));
+	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		SpecularAAScene, Durin::FLightSceneId(201), SpecularAADirectional);
 	Durin::FlushRenderingCommands();
 	auto CaptureSpecularAASurface = [&Renderer, &SpecularAAScene](
 		bool bEnableSpecularAA, Durin::FByteArray& Pixels) {
@@ -2054,7 +2059,9 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(3), Translate(-0.9, 0.1));
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(4), Translate(0.1, 0.1));
 	Directional.Intensity = 4.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Scene.RemoveLight(DirectionalToken);
+	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), {0.2, 0.55, 0.8}));
 	Durin::FlushRenderingCommands();

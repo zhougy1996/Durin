@@ -2,6 +2,8 @@
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
+#include "EngineTestSupport.h"
+#include "LightSceneTestSupport.h"
 #include "CoreGlobals.h"
 #include "Client/SceneViewport.h"
 #include "HAL/PlatformLTS.h"
@@ -16,6 +18,7 @@
 #include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "SceneInfo.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SurfaceMaterial.h"
@@ -257,6 +260,15 @@ concept CHasPublicQualificationSwitches = requires(T Value) {
 
 template <typename T>
 concept CHasPreparedView = requires(T Value) { Value.PreparedView; };
+
+template <typename T>
+concept CHasGenericSceneProxyMetadata = requires(const T& Value) {
+	Value.GetMetadata();
+};
+
+static_assert(!CHasGenericSceneProxyMetadata<Durin::FLightSceneProxy>);
+static_assert(!CHasGenericSceneProxyMetadata<Durin::FSkyBoxSceneProxy>);
+static_assert(!CHasGenericSceneProxyMetadata<Durin::FVolumetricCloudSceneProxy>);
 
 template <typename TContributor, typename TInputs>
 concept CAcceptsContributorInputs = requires(
@@ -717,6 +729,23 @@ namespace
 	{
 		bool bPresent = false;
 		Durin::FDirectionalLightSceneData Data;
+	};
+
+	class FRejectedLightSceneProxy final : public Durin::FLightSceneProxy
+	{
+	public:
+		FRejectedLightSceneProxy(
+			Durin::FLightSceneProxyDesc Desc, bool& InDestroyed)
+			: FLightSceneProxy(std::move(Desc)), Destroyed(&InDestroyed) {}
+		~FRejectedLightSceneProxy() override { *Destroyed = true; }
+
+		auto GetKind() const -> Durin::ELightSceneProxyKind override
+		{
+			return Durin::ELightSceneProxyKind::Directional;
+		}
+
+	private:
+		bool* Destroyed = nullptr;
 	};
 
 	auto ObserveLight(Durin::FScene& Scene) -> FObservedLight
@@ -1878,16 +1907,17 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 
 }
 
-TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesFifoReplacement)
+TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesFifoRetirement)
 {
 	FRenderingThreadScope RenderingThread;
 	Durin::FScene Scene;
 	const Durin::FLightSceneId Id(7);
+	Durin::FLightSceneProxy* FirstToken = nullptr;
 	{
 		Durin::FDirectionalLightSceneData Data;
 		Data.Intensity = 2.0f;
-		Scene.AddOrReplaceLight(Id,
-			std::make_unique<Durin::FDirectionalLightSceneProxy>(Data));
+		FirstToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+			Scene, Id, Data);
 	}
 	Durin::FlushRenderingCommands();
 	FObservedLight Observed = ObserveLight(Scene);
@@ -1896,18 +1926,31 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 
 	Durin::FDirectionalLightSceneData Replacement;
 	Replacement.Intensity = 5.0f;
-	Scene.AddOrReplaceLight(Id,
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Replacement));
-	Scene.RemoveLight(Id);
+	Scene.RemoveLight(FirstToken);
+	auto* ReplacementToken =
+		PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+			Scene, Id, Replacement);
+	Scene.RemoveLight(ReplacementToken);
 	Durin::FlushRenderingCommands();
 	EXPECT_FALSE(ObserveLight(Scene).bPresent);
 
-	Scene.AddOrReplaceLight(Id,
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Replacement));
+	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Id, Replacement);
 	Durin::FlushRenderingCommands();
 	Observed = ObserveLight(Scene);
 	ASSERT_TRUE(Observed.bPresent);
 	EXPECT_EQ(Observed.Data.Intensity, 5.0f);
+}
+
+TEST(FRendererSceneContractTests, RejectedLightAdmissionConsumesAndDestroysProxy)
+{
+	ASSERT_EQ(Durin::GetRenderCommandAdmissionState(),
+		Durin::ERenderCommandAdmissionState::Stopped);
+	Durin::FScene Scene;
+	bool bDestroyed = false;
+	EXPECT_FALSE(Scene.AddLight(std::make_unique<FRejectedLightSceneProxy>(
+		Durin::FLightSceneProxyDesc{Durin::FLightSceneId(91)}, bDestroyed)));
+	EXPECT_TRUE(bDestroyed);
 }
 
 TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
@@ -1916,12 +1959,13 @@ TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
 	Durin::FScene Scene;
 	Durin::FPointLightSceneData Point;
 	Point.Intensity = 1.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(77),
-		std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	auto* PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(77), Point);
 	Durin::FSpotLightSceneData Spot;
 	Spot.Intensity = 1.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(77),
-		std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
+	Scene.RemoveLight(PointToken);
+	PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(77), Spot);
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(Scene.GetPointLightSceneInfos().empty());
 	ASSERT_EQ(Scene.GetSpotLightSceneInfos().size(), 1u);
@@ -1936,8 +1980,8 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	{
 		Durin::FDirectionalLightSceneData Data;
 		Data.Intensity = 1.0f;
-		Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
-			std::make_unique<Durin::FDirectionalLightSceneProxy>(Data));
+		PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+			Scene, Durin::FLightSceneId(Id), Data);
 	}
 	for (uint64 Id = 10; Id > 0; --Id)
 	{
@@ -1946,16 +1990,16 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 			Durin::FPointLightSceneData Data;
 			Data.Intensity = 1.0f;
 			Data.Range = 5.0f;
-			Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
-				std::make_unique<Durin::FPointLightSceneProxy>(Data));
+			PublishLightForTest<Durin::FPointLightSceneProxy>(
+				Scene, Durin::FLightSceneId(Id), Data);
 		}
 		else
 		{
 			Durin::FSpotLightSceneData Data;
 			Data.Intensity = 1.0f;
 			Data.Range = 5.0f;
-			Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
-				std::make_unique<Durin::FSpotLightSceneProxy>(Data));
+			PublishLightForTest<Durin::FSpotLightSceneProxy>(
+				Scene, Durin::FLightSceneId(Id), Data);
 		}
 	}
 	Durin::FlushRenderingCommands();
@@ -2000,8 +2044,8 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 		Data.Position = Position;
 		Data.Intensity = 1.0f;
 		Data.Range = 1.0f;
-		Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
-			std::make_unique<Durin::FPointLightSceneProxy>(Data));
+		PublishLightForTest<Durin::FPointLightSceneProxy>(
+			Scene, Durin::FLightSceneId(Id), Data);
 	};
 	AddPoint(1, {3.0, 0.0, 0.0});
 	AddPoint(2, {3.0, 20.0, 0.0});

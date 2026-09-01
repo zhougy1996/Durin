@@ -2,6 +2,7 @@
 #include "VulkanEngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "DynamicRHI.h"
+#include "LightSceneTestSupport.h"
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
@@ -632,13 +633,15 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Directional.Direction = {0.0, 0.0, -1.0};
 	Directional.Color = {1.0f, 0.1f, 0.1f};
 	Directional.Intensity = 2.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(10), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(10), Directional);
 	Durin::FPointLightSceneData Point;
 	Point.Position = {0.5, 0.5, 1.0};
 	Point.Color = {0.1f, 1.0f, 0.1f};
 	Point.Intensity = 2.0f;
 	Point.Range = 5.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(11), std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	auto* PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
+		Scene, Durin::FLightSceneId(11), Point);
 	Durin::FSpotLightSceneData Spot;
 	Spot.Position = {0.5, 0.5, 1.0};
 	Spot.Direction = {0.0, 0.0, -1.0};
@@ -647,7 +650,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Spot.Range = 5.0f;
 	Spot.InnerConeAngle = 30.0f;
 	Spot.OuterConeAngle = 45.0f;
-	Scene.AddOrReplaceLight(Durin::FLightSceneId(12), std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
+	auto* SpotToken = PublishLightForTest<Durin::FSpotLightSceneProxy>(
+		Scene, Durin::FLightSceneId(12), Spot);
 	Durin::FlushRenderingCommands();
 	const auto MixedLightReadback = RenderLitReadback("MixedLightSkeletalColor");
 	EXPECT_EQ(ZeroLightReadback->size(), MixedLightReadback->size());
@@ -705,8 +709,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Durin::FlushRenderingCommands();
 	if (std::getenv("DURIN_RUN_LIGHTING_PROFILE") != nullptr)
 	{
-		Scene.RemoveLight(Durin::FLightSceneId(11));
-		Scene.RemoveLight(Durin::FLightSceneId(12));
+		Scene.RemoveLight(PointToken);
+		Scene.RemoveLight(SpotToken);
 		Scene.UpdatePrimitiveTransform(
 			Durin::FPrimitiveSceneId(1),
 			Durin::Math::TranslationMatrix(Durin::FVector3(-1.0, -1.0, 0.0))
@@ -793,7 +797,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 									   static_cast<int64>(Id) - 24
 								   )
 								   * 0.1;
-				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id), std::make_unique<Durin::FPointLightSceneProxy>(Data));
+				PublishLightForTest<Durin::FPointLightSceneProxy>(
+					Scene, Durin::FLightSceneId(Id), Data);
 			}
 			else
 			{
@@ -802,7 +807,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 									   static_cast<int64>(Id) - 24
 								   )
 								   * 0.1;
-				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id), std::make_unique<Durin::FSpotLightSceneProxy>(Data));
+				PublishLightForTest<Durin::FSpotLightSceneProxy>(
+					Scene, Durin::FLightSceneId(Id), Data);
 			}
 		}
 		Durin::FlushRenderingCommands();
@@ -824,7 +830,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 									 const char* TargetName
 								 ) {
 			Directional.bCastShadows = bEnabled;
-			Scene.AddOrReplaceLight(Durin::FLightSceneId(10), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+			Scene.RemoveLight(DirectionalToken);
+			DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+				Scene, Durin::FLightSceneId(10), Directional);
 			Durin::FlushRenderingCommands();
 			std::vector<Durin::FGPUTimingQueryRHIRef> SceneQueries;
 			std::vector<Durin::FGPUTimingQueryRHIRef> ShadowQueries;

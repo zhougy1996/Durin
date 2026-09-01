@@ -31,13 +31,13 @@ namespace Durin
 	auto DSpotLightComponent::SetIntensity(float InIntensity) -> void
 	{
 		Intensity = NormalizeLightIntensity(InIntensity);
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DSpotLightComponent::SetRange(float InRange) -> void
 	{
 		Range = std::isfinite(InRange) && InRange > 0.0f ? InRange : 1.0f;
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DSpotLightComponent::SetConeAngles(
@@ -46,12 +46,13 @@ namespace Durin
 		OuterConeAngle = NormalizeConeAngle(InOuterDegrees);
 		InnerConeAngle = std::min(
 			NormalizeConeAngle(InInnerDegrees), OuterConeAngle);
-		MarkLightRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
-	auto DSpotLightComponent::CreateSceneProxy() const
+	auto DSpotLightComponent::CreateSceneProxy(FLightSceneProxyDesc Desc) const
 		-> std::unique_ptr<FLightSceneProxy>
 	{
-		return std::make_unique<FSpotLightSceneProxy>(GetSceneData());
+		return std::make_unique<FSpotLightSceneProxy>(
+			std::move(Desc), GetSceneData());
 	}
 }

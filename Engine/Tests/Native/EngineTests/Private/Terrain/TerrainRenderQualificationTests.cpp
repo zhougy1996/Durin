@@ -1,6 +1,7 @@
 #include "CoreGlobals.h"
 #include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
+#include "LightSceneTestSupport.h"
 #include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
@@ -299,9 +300,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
-	Scene.AddOrReplaceLight(
-		Durin::FLightSceneId(100),
-		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
+		Scene, Durin::FLightSceneId(100), Directional);
 	Scene.UpdatePrimitiveTransform(
 		Durin::FPrimitiveSceneId(91),
 		Durin::Math::TranslationMatrix(Durin::FVector3(24.0, 0.0, 0.0)));

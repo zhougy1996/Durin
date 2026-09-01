@@ -15,6 +15,7 @@
 #include "DObject/PackageFormat.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
+#include "SceneInfo.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"

@@ -20,6 +20,7 @@ namespace Durin
 namespace Durin
 {
 	class FLightSceneProxy;
+	struct FLightSceneProxyDesc;
 
 	// Owns stable light identity and the shared game-to-render publication lifecycle.
 	DCLASS(Abstract)
@@ -38,12 +39,17 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API static auto NormalizeLightColor(const FLinearColor& Color) -> FVector3f;
 		ENGINE_API static auto NormalizeLightIntensity(float Intensity) -> float;
-		virtual auto CreateSceneProxy() const -> std::unique_ptr<FLightSceneProxy> = 0;
-		auto MarkLightRenderStateDirty() -> void;
+		virtual auto CreateSceneProxy(FLightSceneProxyDesc Desc) const
+			-> std::unique_ptr<FLightSceneProxy> = 0;
+		auto CreateRenderState() -> void;
+		auto DestroyRenderState() -> void;
+		auto MarkRenderStateDirty() -> void;
 
 	private:
 		auto EnsureLightSceneId() -> FLightSceneId;
 
 		FLightSceneId LightSceneId;
+		// Non-owning token used only to retire the exact published proxy.
+		FLightSceneProxy* SceneProxy = nullptr;
 	};
 }

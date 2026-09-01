@@ -15,6 +15,7 @@ namespace Durin
 	namespace
 	{
 		std::atomic<uint64> GNextVolumetricCloudInstanceId = 1;
+		std::atomic<uint64> GNextVolumetricCloudHistoryKey = 1;
 
 		template<typename T>
 		auto ClampFinite(T Value, T Minimum, T Maximum, T& Out) -> bool
@@ -69,20 +70,19 @@ namespace Durin
 		Super::OnRegister();
 		if (!VolumetricCloudSceneId.IsValid())
 			VolumetricCloudSceneId = FGuid::NewGuid();
-		MarkVolumetricCloudRenderStateDirty();
+		EnsureVolumetricCloudInstanceId();
+		CreateRenderState();
 	}
 
 	auto DVolumetricCloudComponent::OnUnregister() -> void
 	{
-		if (FSceneInterface* Scene = GetRenderScene())
-			Scene->RemoveVolumetricCloud(
-				FVolumetricCloudSceneId(VolumetricCloudInstanceId));
+		DestroyRenderState();
 		Super::OnUnregister();
 	}
 
 	auto DVolumetricCloudComponent::OnOwnerVisibilityChanged() -> void
 	{
-		MarkVolumetricCloudRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::RefreshEligibilityDiagnostic() -> void
@@ -176,38 +176,38 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
 			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
-		MarkVolumetricCloudRenderStateDirty();
+		MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetEnabled(bool bInEnabled) -> void
 	{
 		if (bEnabled == bInEnabled) return;
-		bEnabled = bInEnabled; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		bEnabled = bInEnabled; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetPriority(int32 InPriority) -> void
 	{
 		const int32 Value = std::clamp(InPriority, -1000, 1000);
 		if (Priority == Value) return;
-		Priority = Value; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		Priority = Value; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetBaseDensityTexture(DVolumeTexture* Texture) -> void
 	{
 		if (BaseDensityTexture.Get() == Texture) return;
-		BaseDensityTexture = Texture; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		BaseDensityTexture = Texture; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetDetailDensityTexture(DVolumeTexture* Texture) -> void
 	{
 		if (DetailDensityTexture.Get() == Texture) return;
-		DetailDensityTexture = Texture; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		DetailDensityTexture = Texture; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetWeatherTexture(DTexture2D* Texture) -> void
 	{
 		if (WeatherTexture.Get() == Texture) return;
-		WeatherTexture = Texture; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		WeatherTexture = Texture; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetLayer(double InMinimumZ, double InMaximumZ,
@@ -220,7 +220,7 @@ namespace Durin
 		if (MinimumZ == NewMinimum && MaximumZ == NewMaximum
 			&& MaximumDistance == NewDistance) return;
 		MinimumZ = NewMinimum; MaximumZ = NewMaximum; MaximumDistance = NewDistance;
-		MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetDensityMapping(
@@ -240,7 +240,7 @@ namespace Durin
 			&& WeatherOffset == NewWeatherOffset) return;
 		BaseFrequency = NewBase; DetailFrequency = NewDetail; WindOffset = NewWind;
 		WeatherFrequency = NewWeatherFrequency; WeatherOffset = NewWeatherOffset;
-		MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
 	auto DVolumetricCloudComponent::SetOpticalProperties(float InCoverage,
@@ -259,15 +259,23 @@ namespace Durin
 			&& Ambient == NewAmbient) return;
 		Coverage = NewCoverage; DetailErosion = NewErosion;
 		Extinction = NewExtinction; LightExtinction = NewLightExtinction;
-		Ambient = NewAmbient; MarkPackageDirty(); MarkVolumetricCloudRenderStateDirty();
+		Ambient = NewAmbient; MarkPackageDirty(); MarkRenderStateDirty();
 	}
 
-	auto DVolumetricCloudComponent::MarkVolumetricCloudRenderStateDirty() -> void
+	auto DVolumetricCloudComponent::EnsureVolumetricCloudInstanceId() -> uint64
+	{
+		if (VolumetricCloudInstanceId == 0)
+			VolumetricCloudInstanceId = GNextVolumetricCloudInstanceId.fetch_add(
+				1, std::memory_order_relaxed);
+		return VolumetricCloudInstanceId;
+	}
+
+	auto DVolumetricCloudComponent::CreateRenderState() -> void
 	{
 		RefreshEligibilityDiagnostic();
-		if (!IsRegistered()) return;
+		if (!IsRegistered() || SceneProxy != nullptr) return;
 		FSceneInterface* Scene = GetRenderScene();
-		if (Scene == nullptr || VolumetricCloudInstanceId == 0) return;
+		if (Scene == nullptr) return;
 		FVolumetricCloudSceneData Data;
 		Data.Priority = Priority;
 		const AActor* Owner = GetOwner();
@@ -293,10 +301,33 @@ namespace Durin
 			.bDetailDensityTextureAssigned = DetailDensityTexture.Get() != nullptr,
 			.bDetailDensityTextureReady = DetailDensityTexture.Get() != nullptr}).bEligible
 			&& VolumetricCloudSceneId.IsValid();
-		Scene->AddOrReplaceVolumetricCloud(
-			FVolumetricCloudSceneId(VolumetricCloudInstanceId),
-			std::make_unique<FVolumetricCloudSceneProxy>(
-				FSceneCandidateIdentity{VolumetricCloudSceneId, GetObjectPath()},
-				std::move(Data)));
+		auto Proxy = std::make_unique<FVolumetricCloudSceneProxy>(
+			FVolumetricCloudSceneProxyDesc{
+				.PersistentId = VolumetricCloudSceneId,
+				.SelectionKey = GetObjectPath(),
+				.RuntimeId = FVolumetricCloudSceneId(
+					EnsureVolumetricCloudInstanceId()),
+				.HistoryKey = GNextVolumetricCloudHistoryKey.fetch_add(
+					1, std::memory_order_relaxed),
+				.Data = std::move(Data)});
+		FVolumetricCloudSceneProxy* Token = Proxy.get();
+		if (Scene->AddVolumetricCloud(std::move(Proxy))) SceneProxy = Token;
+	}
+
+	auto DVolumetricCloudComponent::DestroyRenderState() -> void
+	{
+		FVolumetricCloudSceneProxy* Token = SceneProxy;
+		SceneProxy = nullptr;
+		if (Token == nullptr) return;
+		if (FSceneInterface* Scene = GetRenderScene())
+			Scene->RemoveVolumetricCloud(Token);
+	}
+
+	auto DVolumetricCloudComponent::MarkRenderStateDirty() -> void
+	{
+		RefreshEligibilityDiagnostic();
+		if (!IsRegistered()) return;
+		DestroyRenderState();
+		CreateRenderState();
 	}
 }

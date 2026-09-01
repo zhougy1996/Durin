@@ -12,6 +12,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Scene.h"
+#include "SceneInfo.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -386,28 +387,25 @@ namespace Durin
 			if (Scene->GetActiveVolumetricCloud_RenderThread(Cloud))
 			{
 				PreparedView.VolumetricCloud.emplace();
-				PreparedView.VolumetricCloud->HistoryKey =
-					GetTypeHash(Cloud.Identity.PersistentId)
-					^ (Cloud.Metadata.SceneId.Value + 0x9e3779b97f4a7c15ull
-						+ (Cloud.Metadata.Revision << 6)
-						+ (Cloud.Metadata.Revision >> 2));
+				PreparedView.VolumetricCloud->HistoryKey = Cloud.Desc.HistoryKey;
 				PreparedView.VolumetricCloud->HistoryKey ^=
 					CalculateVolumetricCloudLightingKey(PreparedView.Lighting.Lights);
 				PreparedView.VolumetricCloud->Parameters =
-					BuildVolumetricCloudParameters(Cloud.Data, PreparedView.Lighting.Lights);
+					BuildVolumetricCloudParameters(
+						Cloud.Desc.Data, PreparedView.Lighting.Lights);
 				auto ResolveDimension = [](const FRHITextureReferenceRef& Reference,
 										   ETextureDimension Dimension) -> FRHITexture* {
 					FRHITexture* Texture = Reference != nullptr ? Reference->GetReferencedTexture_RenderThread() : nullptr;
 					return Texture != nullptr && Texture->GetDimension() == Dimension ? Texture : nullptr;
 				};
 				PreparedView.VolumetricCloud->Textures.BaseDensity = ResolveDimension(
-					Cloud.Data.BaseDensityTexture, ETextureDimension::Texture3D
+					Cloud.Desc.Data.BaseDensityTexture, ETextureDimension::Texture3D
 				);
 				PreparedView.VolumetricCloud->Textures.DetailDensity = ResolveDimension(
-					Cloud.Data.DetailDensityTexture, ETextureDimension::Texture3D
+					Cloud.Desc.Data.DetailDensityTexture, ETextureDimension::Texture3D
 				);
 				PreparedView.VolumetricCloud->Textures.Weather = ResolveDimension(
-					Cloud.Data.WeatherTexture, ETextureDimension::Texture2D
+					Cloud.Desc.Data.WeatherTexture, ETextureDimension::Texture2D
 				);
 			}
 		}

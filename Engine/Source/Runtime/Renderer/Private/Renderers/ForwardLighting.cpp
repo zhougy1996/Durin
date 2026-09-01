@@ -6,6 +6,7 @@
 
 #include "Math/Operations.h"
 #include "Scene.h"
+#include "SceneInfo.h"
 #include "SceneView.h"
 
 namespace Durin
