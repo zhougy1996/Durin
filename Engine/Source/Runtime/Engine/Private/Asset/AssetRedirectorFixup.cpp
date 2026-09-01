@@ -521,6 +521,11 @@ namespace Durin
 				== State->Stores[Index].Snapshot.ProviderId)
 				return Error(EAssetError::AlreadyExists,
 					"Asset reference store provider ids must be unique.");
+		for (const FFixupStoreState& Store : State->Stores)
+		{
+			if (Store.Contribution.Rewrites.empty()) continue;
+			State->Journal.ExternalParticipants.push_back({.ProviderId = Store.Snapshot.ProviderId, .ExpectedFingerprint = Store.Snapshot.Fingerprint, .Rewrites = Store.Contribution.Rewrites});
+		}
 		std::ranges::sort(State->StoreOccurrences,
 			[](const FAssetReferenceStoreOccurrence& Left,
 				const FAssetReferenceStoreOccurrence& Right) {
@@ -856,6 +861,23 @@ namespace Durin
 				if (FindFixupDestination(Occurrence.TargetPath, State.Mappings))
 					return ForwardPending(
 						"Fix Up verification found a remaining external occurrence.");
+			if (!Store.Contribution.Rewrites.empty())
+			{
+				auto Participant = std::ranges::find(
+					State.Journal.ExternalParticipants,
+					Store.Snapshot.ProviderId,
+					&AssetPrivate::FAssetMutationExternalParticipant::ProviderId
+				);
+				if (Participant == State.Journal.ExternalParticipants.end())
+					return EnterRecovery(
+						"MutationJournal",
+						"The Fix Up journal lost an external participant descriptor."
+					);
+				Participant->bCompleted = true;
+				Result = WriteMutationJournalState(State.Journal);
+				if (!Result)
+					return EnterRecovery("MutationJournal", Result.Message);
+			}
 		}
 
 		if (State.Mode == EAssetRedirectorFixupMode::RewriteAndDelete)

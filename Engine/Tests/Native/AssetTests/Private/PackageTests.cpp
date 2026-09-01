@@ -1434,8 +1434,13 @@ namespace
 		}();
 		(void)Initialized;
 
+		const std::filesystem::path RecoveryRoot =
+			Durin::Testing::GetTestWorkDirectory()
+			/ "AssetMutationRecovery";
+		Durin::SetAssetMutationRecoveryDirectoryForTesting(RecoveryRoot);
 		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
+		Durin::Testing::RemoveTestWorkDirectory(RecoveryRoot);
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "Assets";
 		Durin::Testing::RemoveTestWorkDirectory(Root);
@@ -1450,6 +1455,9 @@ namespace
 			Durin::EAssetRelocationFailurePoint::None);
 		Durin::SetAssetRedirectorFixupFailurePointForTesting(
 			Durin::EAssetRedirectorFixupFailurePoint::None);
+		Durin::SetAssetMutationRecoveryFailurePointForTesting(
+			Durin::EAssetMutationRecoveryFailurePoint::None
+		);
 		Durin::InitializeAssetManager();
 		if (!Durin::RefreshAssetRegistry(
 			Durin::EAssetRegistryScanMode::FullValidation))
@@ -4217,6 +4225,129 @@ TEST(FPackageAssetTests, RelocationDoesNotPublishWhenJournalStateCannotPersist)
 	ASSERT_TRUE(std::filesystem::remove(OperationRoot / "journal", ErrorCode));
 	ASSERT_FALSE(ErrorCode);
 	Job = {};
+}
+
+TEST(FPackageAssetTests, RelocationRecoveryReplaysAcrossRepeatedRestartInterruptions)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/RestartRelocationSource", SourcePath
+	));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/RestartRelocationDestination", DestinationPath
+	));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
+	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
+
+	const Durin::FAssetRelocationMapping Mapping{
+		SourcePath, DestinationPath
+	};
+	Durin::FAssetRelocationSummary Summary;
+	Durin::FAssetMutationJob Job;
+	ASSERT_TRUE(Durin::PrepareAssetRelocationJob(
+		std::span{&Mapping, 1}, Summary, Job
+	));
+	Durin::SetAssetRelocationFailurePointForTesting(
+		Durin::EAssetRelocationFailurePoint::PublishRedirector
+	);
+	const Durin::FAssetResult Interrupted = Job.ResumeForward();
+	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_TRUE(std::filesystem::is_regular_file(
+		Interrupted.RecoveryLocation
+	));
+	Job = {};
+	ASSERT_TRUE(std::filesystem::is_regular_file(
+		Interrupted.RecoveryLocation
+	));
+
+	Durin::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	Durin::SetAssetMutationRecoveryFailurePointForTesting(
+		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
+	);
+	const Durin::FAssetResult FirstRestart = Durin::InitializeAssetManager();
+	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending)
+		<< FirstRestart.Message;
+
+	Durin::SetAssetMutationRecoveryFailurePointForTesting(
+		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
+	);
+	const Durin::FAssetResult SecondRestart = Durin::InitializeAssetManager();
+	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+
+	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_NE(Durin::FindAssetExact(SourcePath), nullptr);
+	EXPECT_EQ(Durin::FindAssetExact(SourcePath)->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
+	EXPECT_NE(Durin::FindAssetExact(DestinationPath), nullptr);
+	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, DestinationPath}));
+}
+
+TEST(FPackageAssetTests, FixupRecoveryReacquiresExternalProviderAcrossRepeatedInterruptions)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/RestartFixupSource", SourcePath
+	));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/TestAssets/RestartFixupDestination", DestinationPath
+	));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SourcePath, Asset));
+	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(RelocateAssetForTest(SourcePath, DestinationPath));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation
+	));
+
+	FMemoryAssetReferenceStore Store(SourcePath);
+	FScopedReferenceStoreRegistration StoreRegistration(&Store);
+	Durin::FAssetRedirectorFixupSummary Summary;
+	Durin::FAssetMutationJob Job;
+	ASSERT_TRUE(Durin::PrepareRedirectorFixupJob(
+		std::span{&SourcePath, 1},
+		Durin::EAssetRedirectorFixupMode::RewriteAndDelete,
+		Summary, Job
+	));
+	Durin::SetAssetRedirectorFixupFailurePointForTesting(
+		Durin::EAssetRedirectorFixupFailurePoint::ApplyStore
+	);
+	const Durin::FAssetResult Interrupted = Job.ResumeForward();
+	ASSERT_EQ(Interrupted.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+	ASSERT_TRUE(std::filesystem::is_regular_file(
+		Interrupted.RecoveryLocation
+	));
+	Job = {};
+	ASSERT_TRUE(std::filesystem::is_regular_file(
+		Interrupted.RecoveryLocation
+	));
+
+	Durin::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	Durin::SetAssetMutationRecoveryFailurePointForTesting(
+		Durin::EAssetMutationRecoveryFailurePoint::AfterParticipantPublication
+	);
+	const Durin::FAssetResult FirstRestart = Durin::InitializeAssetManager();
+	ASSERT_EQ(FirstRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending)
+		<< FirstRestart.Message;
+	EXPECT_EQ(Store.Path, DestinationPath);
+
+	Durin::SetAssetMutationRecoveryFailurePointForTesting(
+		Durin::EAssetMutationRecoveryFailurePoint::AfterProgressPersistence
+	);
+	const Durin::FAssetResult SecondRestart = Durin::InitializeAssetManager();
+	ASSERT_EQ(SecondRestart.Disposition, Durin::EAssetResultDisposition::ForwardPending);
+
+	ASSERT_TRUE(Durin::InitializeAssetManager());
+	EXPECT_EQ(Store.Path, DestinationPath);
+	EXPECT_EQ(Durin::FindAssetExact(SourcePath), nullptr);
+	EXPECT_NE(Durin::FindAssetExact(DestinationPath), nullptr);
+	StoreRegistration.Reset();
+	ASSERT_TRUE(DeleteAssetClosureForTest({DestinationPath}));
 }
 
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)

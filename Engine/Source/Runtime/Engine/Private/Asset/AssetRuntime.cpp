@@ -29,19 +29,20 @@
 
 namespace Durin
 {
-	using AssetPrivate::FAssetReferenceStoreRegistry;
-	using AssetPrivate::GetAssetReferenceStoreRegistry;
+	using AssetPrivate::AssetReferenceLess;
 	using AssetPrivate::EAssetMutationState;
 	using AssetPrivate::FAssetMutationJournal;
 	using AssetPrivate::FAssetMutationJournalEntry;
+	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::FingerprintRelocationFile;
+	using AssetPrivate::GetAssetReferenceStoreRegistry;
 	using AssetPrivate::LoadRelocationBytes;
 	using AssetPrivate::MakePackageFingerprint;
 	using AssetPrivate::NormalizePhysicalPath;
 	using AssetPrivate::PublishRelocationFile;
+	using AssetPrivate::RecoverPendingMutationJournals;
 	using AssetPrivate::SaveRelocationBytes;
 	using AssetPrivate::WriteMutationJournalState;
-	using AssetPrivate::AssetReferenceLess;
 
 	namespace
 	{
@@ -800,6 +801,13 @@ namespace Durin
 		check(GetResidentAssetPackages().empty());
 		check(Loader.IsIdle());
 		RuntimeConfiguration = std::move(Configuration);
+		if (!RuntimeConfiguration.IsCooked())
+		{
+			FAssetResult RecoveryResult = RecoverPendingMutationJournals(
+				GetAssetPublicationCoordinator()
+			);
+			if (!RecoveryResult) return RecoveryResult;
+		}
 		bAcceptingRequests = true;
 		return {};
 	}

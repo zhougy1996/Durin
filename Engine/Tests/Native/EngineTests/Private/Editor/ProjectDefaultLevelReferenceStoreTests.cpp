@@ -97,6 +97,10 @@ namespace
 	{
 		Durin::ShutdownAssetManager();
 		Durin::CollectGarbage();
+		const std::filesystem::path RecoveryRoot =
+			Scenario.Root / "AssetMutationRecovery";
+		Durin::Testing::RemoveTestWorkDirectory(RecoveryRoot);
+		Durin::SetAssetMutationRecoveryDirectoryForTesting(RecoveryRoot);
 		Durin::InitializeAssetManager();
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			(Scenario.Root / "DerivedDataCache").generic_string());

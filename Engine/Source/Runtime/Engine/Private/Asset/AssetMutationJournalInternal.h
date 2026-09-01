@@ -6,6 +6,11 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 
+namespace Durin
+{
+	class FAssetPublicationCoordinator;
+}
+
 namespace Durin::AssetPrivate
 {
 	enum class EAssetMutationJournalKind : uint8
@@ -72,6 +77,14 @@ namespace Durin::AssetPrivate
 		FAssetPackageFingerprint ExpectedPostFingerprint;
 	};
 
+	struct FAssetMutationExternalParticipant
+	{
+		std::string ProviderId;
+		std::string ExpectedFingerprint;
+		std::vector<FAssetReferenceRewrite> Rewrites;
+		bool bCompleted = false;
+	};
+
 	// Retains materialized inputs and durable forward progress for one authored
 	// mutation. Recovery-required roots deliberately outlive tokens.
 	struct FAssetMutationJournal
@@ -81,6 +94,7 @@ namespace Durin::AssetPrivate
 		std::vector<std::filesystem::path> Roots;
 		std::filesystem::path LocatorPath;
 		std::vector<FAssetMutationJournalEntry> Entries;
+		std::vector<FAssetMutationExternalParticipant> ExternalParticipants;
 		// Transient normalized-path index; recovery records remain Entries-based.
 		std::unordered_map<std::string, size_t> EntryIndices;
 		EAssetMutationState State = EAssetMutationState::Planned;
@@ -127,6 +141,9 @@ namespace Durin::AssetPrivate
 		EAssetMutationState State) -> FAssetResult;
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool;
+	auto RecoverPendingMutationJournals(
+		FAssetPublicationCoordinator& Registry
+	) -> FAssetResult;
 	auto PublishRelocationFile(const FAssetMutationJournalEntry& Entry)
 		-> FAssetResult;
 }

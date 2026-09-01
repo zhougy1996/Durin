@@ -4,8 +4,8 @@ Summary: Replace global compensating asset transactions with bounded artifact pu
 
 Last reviewed: 2026-09-01
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-01
 
 ## Current Status
 
@@ -40,9 +40,25 @@ construction are module-owned implementations rather than public inline helpers.
 The redundant public `Durin::Asset` namespace is also removed: AssetRegistry and
 Engine asset contracts now follow the repository convention of domain-prefixed
 symbols directly under `Durin`, while shared internals use `Durin::AssetPrivate`.
-Stage 7 retains two
-explicit qualification items: reconstructing jobs from durable records after
-process restart at every transition, and a complete before/after project Cook.
+
+Stage 7 is complete. Authored runtime initialization now reconstructs relocation
+and Fix Up jobs from versioned recovery locators and replicated journals before
+accepting requests. Recovery verifies already-published artifacts, replays only
+pending forward participants, reacquires external reference stores by provider
+identity, and reconciles the Registry only after authoritative convergence.
+`RelocationRecoveryReplaysAcrossRepeatedRestartInterruptions` and
+`FixupRecoveryReacquiresExternalProviderAcrossRepeatedInterruptions` interrupt
+recovery once after participant publication and again after durable progress
+persistence; a third initialization converges without duplicate work.
+
+Final validation passed `AssetPackageTests` (95/95),
+`AssetReferenceStoreTests` (10/10), and the repository-selected `test affected`
+set of 45 native targets. Complete no-incremental project Cooks before and after
+the cutover each published 11 files. Their `CookManifest.bin` and all ten
+package/bulk outputs were byte-identical; the manifest SHA-256 was
+`0F0AD2BD27392B439337CC0F04E1073B33B9A6550BA42CFFD1368A9A056A0A4A`.
+Only `CookState.bin` reflected the expected rebuilt-versus-DDC-hit run state,
+and neither Cook created or consumed an authored mutation recovery locator.
 
 ## Goal
 
@@ -345,9 +361,9 @@ Depends on all prior stages.
 - [x] Run the complete failure matrix for Save, relocation, Fix Up, Delete,
   projection reconcile, startup recovery, and shutdown/module
   retirement.
-- [ ] Add restart fixtures at every durable progress transition and prove that
+- [x] Add restart fixtures at every durable progress transition and prove that
   replay is idempotent across a second interruption.
-- [ ] Verify a complete project Cook before and after the refactor produces the
+- [x] Verify a complete project Cook before and after the refactor produces the
   same manifest semantics and never enters authored recovery state.
 - [x] Verify ordinary Load, unload, object/property Undo/Redo, Dirty package
   prompts, mounted-content revision acknowledgement, and manual Registry refresh

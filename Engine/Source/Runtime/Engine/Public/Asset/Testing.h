@@ -49,6 +49,22 @@ namespace Durin
 		EAssetRelocationFailurePoint Point,
 		uint32 Occurrence = 1
 	) -> void;
+
+	enum class EAssetMutationRecoveryFailurePoint : uint8
+	{
+		None,
+		AfterParticipantPublication,
+		AfterProgressPersistence,
+		BeforeProjectionReconcile,
+	};
+
+	ENGINE_API auto SetAssetMutationRecoveryFailurePointForTesting(
+		EAssetMutationRecoveryFailurePoint Point,
+		uint32 Occurrence = 1
+	) -> void;
+	ENGINE_API auto SetAssetMutationRecoveryDirectoryForTesting(
+		std::filesystem::path Directory
+	) -> void;
 	ENGINE_API auto FlushAssetCatalogSnapshotForTesting() -> void;
 	ENGINE_API auto IsAssetCatalogSnapshotDirtyForTesting() -> bool;
 	ENGINE_API auto GetAssetCatalogCacheWarningForTesting() -> std::string;

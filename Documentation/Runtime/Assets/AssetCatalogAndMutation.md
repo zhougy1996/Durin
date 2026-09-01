@@ -164,6 +164,19 @@ artifacts or independent stores. Registry-only lag returns
 `ContentCommittedProjectionPending`, fences affected paths, and never rolls back
 valid package bytes.
 
+Authored runtime initialization scans `Saved/AssetMutationRecovery` before it
+accepts requests. Each owned locator resolves replicated versioned journals
+beside the affected content mounts. Recovery verifies every completed artifact,
+recognizes publication that became visible before its progress write, and
+continues remaining package and payload participants in their recorded forward
+order. Fix Up journals also persist provider ids, stable rewrite ids, and source
+and destination paths; restart reacquires the owner-gated provider, recognizes
+already-applied rewrites, and replays only pending occurrences before deleting
+redirectors. Projection reconciliation and journal cleanup happen only after all
+authoritative participants converge. Missing providers remain forward-pending;
+unsafe paths, divergent replicas, or bytes matching neither recorded image
+require explicit recovery instead of automatic publication.
+
 `FAssetResult` carries mutation disposition separately from its diagnostic error
 code. Forward-pending, projection-pending, and recovery-required results are
 therefore consumed structurally rather than inferred from message text. Durable
