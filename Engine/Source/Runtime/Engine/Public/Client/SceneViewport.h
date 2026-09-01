@@ -15,7 +15,7 @@ namespace Durin
 {
 	class FViewportClient;
 	class IRendererModule;
-	class IScene;
+	class FSceneInterface;
 	class MWindow;
 
 	// Identifies the latest complete render result published for one scene viewport.
@@ -47,7 +47,7 @@ namespace Durin
 
 		ENGINE_API static auto CreateOffscreen(
 			FViewportClient* InViewportClient,
-			IScene* InRenderScene = nullptr) -> std::shared_ptr<FSceneViewport>;
+			FSceneInterface* InRenderScene = nullptr) -> std::shared_ptr<FSceneViewport>;
 
 		~FSceneViewport() override = default;
 
@@ -85,7 +85,7 @@ namespace Durin
 			-> FSceneViewportRenderGraphSnapshot;
 
 		// Auxiliary editor viewports may render an isolated scene instead of leaking preview primitives into the level.
-		ENGINE_API auto GetRenderScene() const -> IScene* { return RenderScene; }
+		ENGINE_API auto GetRenderScene() const -> FSceneInterface* { return RenderScene; }
 
 	private:
 		enum class EOutputPolicy
@@ -95,7 +95,7 @@ namespace Durin
 		};
 
 		FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MWindow>& InWindow);
-		FSceneViewport(FViewportClient* InViewportClient, IScene* InRenderScene);
+		FSceneViewport(FViewportClient* InViewportClient, FSceneInterface* InRenderScene);
 
 		static auto SanitizeDisplayExtent(const FVector2f& DesiredSize) -> FVector2f;
 
@@ -103,7 +103,7 @@ namespace Durin
 		std::weak_ptr<MWindow> Window;
 		FVector2f OffscreenExtent = {640.0f, 360.0f};
 		FTextureRHIRef RenderTargetRHI;
-		IScene* RenderScene = nullptr;
+		FSceneInterface* RenderScene = nullptr;
 		FSceneViewStateOwner ViewStateOwner;
 		mutable bool bHistoryResetRequested = true;
 		mutable std::mutex StatisticsMutex;

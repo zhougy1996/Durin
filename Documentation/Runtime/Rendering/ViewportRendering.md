@@ -45,7 +45,7 @@ that policy and never branches on it.
 ### Renderer Ownership and Scene Vocabulary
 
 `World` is Durin's high-level owner of actors, levels, components, and game
-logic. The renderer-facing representation of that world remains `IScene` in
+logic. The renderer-facing representation of that world remains `FSceneInterface` in
 public contracts and `FScene` in the Renderer implementation. `FScene` owns
 render-thread SceneInfo/SceneProxy pairs and authoritative typed views for
 primitives, directional lights, and SkyBoxes; it is not a second gameplay
@@ -104,7 +104,7 @@ the normal pipelined end-of-frame synchronization.
 `FSceneViewport` exposes unambiguous Engine-owned factories:
 
 - `CreateWindowBacked(FViewportClient*, std::shared_ptr<MWindow>)` creates a native-window viewport.
-- `CreateOffscreen(FViewportClient*, IScene*)` creates an optional isolated-scene offscreen viewport.
+- `CreateOffscreen(FViewportClient*, FSceneInterface*)` creates an optional isolated-scene offscreen viewport.
 
 ## Scene View Settings
 
@@ -118,7 +118,7 @@ The renderer consumes only that immutable per-view snapshot. Settings are
 grouped by feature ownership (`Mode`, `PostProcess`, `Terrain`,
 `DirectionalShadow`, and `AmbientOcclusion`) while the outer value remains the
 single submission snapshot. Two viewports may therefore render the same
-`IScene` with independent Lit/Unlit,
+`FSceneInterface` with independent Lit/Unlit,
 Solid/Wireframe, FXAA, and Off/HalfResolution/FullResolution GTAO choices, and
 a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU

@@ -5,7 +5,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Engine/Level.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Materials/MaterialInterface.h"
 #include "Spline/SplineMeshDeformer.h"
 #include "StaticMesh/StaticMesh.h"
@@ -315,7 +315,7 @@ namespace Durin
 	auto DSplineMeshComponent::PushDynamicDataToScene() -> void
 	{
 		if (!IsRegistered()) return;
-		IScene* Scene = GetRenderScene();
+		FSceneInterface* Scene = GetRenderScene();
 		const auto State = GetDerivedState();
 		if (!Scene || !State || !State->IsValid()) return;
 		Scene->UpdateSplineMeshDynamicData(GetPrimitiveSceneId(), FSplineMeshRenderDynamicData{

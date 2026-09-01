@@ -2,8 +2,9 @@
 
 #include "RendererAPI.h"
 
-#include "IScene.h"
 #include "Math/Box.h"
+#include "Rendering/LightSceneProxy.h"
+#include "SceneTypes.h"
 #include "SceneView.h"
 
 #include <array>

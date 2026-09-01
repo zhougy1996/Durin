@@ -28,7 +28,7 @@ namespace Durin
 			-> FRendererResourceInvalidationSnapshot;
 		RENDERER_API auto RenderView(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
+			FSceneInterface* Scene,
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,

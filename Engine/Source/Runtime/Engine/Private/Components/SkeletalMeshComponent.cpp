@@ -4,7 +4,7 @@
 #include "Components/ComponentMaterialOverride.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Materials/MaterialInterface.h"
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -176,7 +176,7 @@ namespace Durin
 		if (!Pose || Pose->Revision == LastPublishedPoseRevision) return;
 		if (IsRegistered())
 		{
-			if (IScene* Scene = GetRenderScene())
+			if (FSceneInterface* Scene = GetRenderScene())
 				Scene->UpdateSkeletalMeshDynamicData(GetPrimitiveSceneId(), Pose);
 #if DURIN_WITH_EDITOR
 			NotifyEditorPickingMutation();

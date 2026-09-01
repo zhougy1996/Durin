@@ -6,7 +6,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "IRendererModule.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "RenderingThread.h"
 
 namespace Durin::Editor

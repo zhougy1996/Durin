@@ -3,6 +3,7 @@
 #include "Rendering/LightSceneProxy.h"
 #include "RHIResources.h"
 #include "RendererAPI.h"
+#include "SceneTypes.h"
 
 #include <array>
 #include <vector>

@@ -56,7 +56,7 @@ namespace Durin
 	class FEngineInputEventHandler;
 	class FGenericWindow;
 	class DWorld;
-	class IScene;
+	class FSceneInterface;
 	struct FSceneView;
 
 	// Coordinates the active world, scene viewports, input state, and renderer module.
@@ -86,7 +86,7 @@ namespace Durin
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;
 
-		auto GetMainScene() const -> IScene* { return MainScene.get(); }
+		auto GetMainScene() const -> FSceneInterface* { return MainScene.get(); }
 		auto GetMainSceneViewport() const -> const std::shared_ptr<FSceneViewport>& { return MainSceneViewport; }
 		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
 		ENGINE_API auto GetActiveCameraComponent() const -> DCameraComponent*;

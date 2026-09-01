@@ -8,7 +8,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHITexture;
-	class IScene;
+	class FSceneInterface;
 	struct FRDGCapture;
 
 	// Reports whether one render-thread view submission produced a complete output.
@@ -32,7 +32,7 @@ namespace Durin
 		// A non-null capture output requests one owning graph snapshot for this view.
 		virtual auto RenderView(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
+			FSceneInterface* Scene,
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,

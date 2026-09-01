@@ -4,7 +4,7 @@
 #include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 
 namespace Durin
 {
@@ -274,7 +274,7 @@ namespace Durin
 	auto DPrimitiveComponent::DestroyRenderState() -> void
 	{
 		if (!IsRegistered()) return;
-		if (IScene* Scene = GetRenderScene()) Scene->RemovePrimitive(PrimitiveSceneId);
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemovePrimitive(PrimitiveSceneId);
 	}
 
 	auto DPrimitiveComponent::RecreateRenderState() -> void
@@ -291,7 +291,7 @@ namespace Durin
 			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
 			NotifyEditorPickingMutation();
 #endif
-		IScene* Scene = GetRenderScene();
+		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();

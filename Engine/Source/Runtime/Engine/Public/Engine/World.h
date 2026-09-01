@@ -14,7 +14,7 @@ namespace Durin
 	class APawn;
 	class AGameMode;
 	class APlayerController;
-	class IScene;
+	class FSceneInterface;
 	class FGameInputState;
 
 	// Distinguishes editor, play-session, and standalone game world behavior.
@@ -135,7 +135,7 @@ namespace Durin
 		ENGINE_API auto Tick(const FWorldTickContext& Context) -> void;
 		ENGINE_API auto EndPlay() -> void;
 		ENGINE_API auto RestartPlayer(const FPlayerRestartRequest& Request = {}) -> FPlayerRestartResult;
-		ENGINE_API auto SetRenderScene(IScene* InRenderScene) -> void;
+		ENGINE_API auto SetRenderScene(FSceneInterface* InRenderScene) -> void;
 		auto HasBegunPlay() const -> bool { return PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing; }
 		auto IsEndingPlay() const -> bool { return PlayState == EWorldPlayState::EndingPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
@@ -145,7 +145,7 @@ namespace Durin
 		auto SetPhysicsSimulationEnabled(bool bEnabled) -> void { bPhysicsSimulationEnabled = bEnabled; }
 		auto GetWorldType() const -> EWorldType { return WorldType; }
 		auto SetWorldType(EWorldType InType) -> void { WorldType = InType; }
-		auto GetRenderScene() const -> IScene* { return RenderScene; }
+		auto GetRenderScene() const -> FSceneInterface* { return RenderScene; }
 		// A world is valid without an active level. Editor and runtime callers must handle nullptr.
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
 		ENGINE_API auto GetGameMode() const -> AGameMode*;
@@ -207,7 +207,7 @@ namespace Durin
 
 		// Owned by the world host (DEngine or an editor preview scene). Components
 		// retain this endpoint only for the duration of one registration.
-		IScene* RenderScene = nullptr;
+		FSceneInterface* RenderScene = nullptr;
 		EWorldType WorldType = EWorldType::Game;
 		EWorldPlayState PlayState = EWorldPlayState::Stopped;
 		bool bPaused = false;

@@ -18,7 +18,7 @@ namespace Durin
 
 	auto FSceneViewport::CreateOffscreen(
 		FViewportClient* InViewportClient,
-		IScene* InRenderScene) -> std::shared_ptr<FSceneViewport>
+		FSceneInterface* InRenderScene) -> std::shared_ptr<FSceneViewport>
 	{
 		return std::shared_ptr<FSceneViewport>(new FSceneViewport(InViewportClient, InRenderScene));
 	}
@@ -30,7 +30,7 @@ namespace Durin
 	{
 	}
 
-	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, IScene* InRenderScene)
+	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, FSceneInterface* InRenderScene)
 		: FViewport(InViewportClient)
 		, OutputPolicy(EOutputPolicy::Offscreen)
 		, RenderScene(InRenderScene)

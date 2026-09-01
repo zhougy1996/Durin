@@ -1,10 +1,41 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "IScene.h"
 
 namespace Durin
 {
+	// Captures the renderer-facing directional-light state without retaining a component.
+	struct FDirectionalLightSceneData
+	{
+		FVector3 Direction{-0.5, -0.5, -1.0};
+		FVector3f Color{1.0f, 1.0f, 1.0f};
+		float Intensity = 0.0f;
+		float AmbientIntensity = 0.0f;
+		float RimLightIntensity = 0.0f;
+		bool bCastShadows = true;
+	};
+
+	// Captures renderer-facing point-light state in world space.
+	struct FPointLightSceneData
+	{
+		FVector3 Position{0.0};
+		FVector3f Color{1.0f};
+		float Intensity = 0.0f;
+		float Range = 1.0f;
+	};
+
+	// Captures renderer-facing spot-light state in world space and degrees.
+	struct FSpotLightSceneData
+	{
+		FVector3 Position{0.0};
+		FVector3 Direction{1.0, 0.0, 0.0};
+		FVector3f Color{1.0f};
+		float Intensity = 0.0f;
+		float Range = 1.0f;
+		float InnerConeAngle = 0.0f;
+		float OuterConeAngle = 45.0f;
+	};
+
 	enum class ELightSceneProxyKind : uint8
 	{
 		Directional,

@@ -6,7 +6,7 @@
 
 namespace
 {
-	class FWorldSceneLifecycleTestScene final : public Durin::IScene
+	class FWorldSceneLifecycleTestScene final : public Durin::FSceneInterface
 	{
 	public:
 		auto AddOrReplacePrimitive(
@@ -64,16 +64,6 @@ namespace
 		{
 		}
 
-		auto GetActiveSkyBox_RenderThread(Durin::FSkyBoxSceneData&) const -> bool override
-		{
-			return false;
-		}
-
-		auto GetSkyBoxCount_RenderThread() const -> size_t override
-		{
-			return 0;
-		}
-
 		auto AddOrReplaceVolumetricCloud(
 			Durin::FVolumetricCloudSceneId,
 			uint64,
@@ -84,17 +74,6 @@ namespace
 		auto RemoveVolumetricCloud(
 			Durin::FVolumetricCloudSceneId, uint64) -> void override
 		{
-		}
-
-		auto GetActiveVolumetricCloud_RenderThread(
-			Durin::FVolumetricCloudSceneData&) const -> bool override
-		{
-			return false;
-		}
-
-		auto GetVolumetricCloudCount_RenderThread() const -> size_t override
-		{
-			return 0;
 		}
 
 		uint32 RemovePrimitiveCount = 0;

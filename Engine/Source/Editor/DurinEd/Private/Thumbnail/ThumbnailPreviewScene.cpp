@@ -6,7 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "IRendererModule.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Math/Operations.h"
 #include "Preview/PreviewScene.h"
 #include "RHICommandList.h"
@@ -380,7 +380,7 @@ namespace Durin::Editor
 
 		std::shared_ptr Capture = Impl->Capture;
 		IRendererModule* Renderer = GEngine->GetRendererModule();
-		IScene* Scene = Impl->PreviewScene->GetRenderScene();
+		FSceneInterface* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		const FSceneView View = Impl->View;
 		const FSceneViewRenderOptions Options{

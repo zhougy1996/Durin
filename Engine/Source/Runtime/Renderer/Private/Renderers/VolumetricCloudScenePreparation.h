@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IScene.h"
+#include "Rendering/VolumetricCloudSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/VolumetricCloudSpatialRenderer.h"
 

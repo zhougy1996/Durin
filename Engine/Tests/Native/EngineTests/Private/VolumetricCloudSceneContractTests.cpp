@@ -62,8 +62,10 @@ namespace
 		~FDeferredReadyCloudTexture() override = default;
 	};
 
-	auto ObserveClouds(const Durin::IScene& Scene) -> FCloudObservation
+	auto ObserveClouds(const Durin::FSceneInterface& SceneInterface)
+		-> FCloudObservation
 	{
+		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
 		auto Result = std::make_shared<FCloudObservation>();
 		Durin::EnqueueRenderCommand<FObserveVolumetricCloud>(
 			[&Scene, Result](Durin::FRHICommandListImmediate&) {

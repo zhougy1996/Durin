@@ -84,8 +84,10 @@ namespace
 		auto ResetTestScene() -> void { MainScene.reset(); }
 	};
 
-	auto ObserveSkyBoxes(const Durin::IScene& Scene) -> FSkyBoxObservation
+	auto ObserveSkyBoxes(const Durin::FSceneInterface& SceneInterface)
+		-> FSkyBoxObservation
 	{
+		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
 		auto Result = std::make_shared<FSkyBoxObservation>();
 		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&Scene, Result](Durin::FRHICommandListImmediate&) {
 			Result->bHasActive = Scene.GetActiveSkyBox_RenderThread(Result->Active);

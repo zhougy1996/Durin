@@ -8,7 +8,7 @@ namespace Durin
 {
 	class DLevel;
 	class DWorld;
-	class IScene;
+	class FSceneInterface;
 }
 
 namespace Durin::Editor
@@ -25,7 +25,7 @@ namespace Durin::Editor
 
 		auto IsAvailable() const -> bool { return Error.empty() && RenderScene != nullptr && World != nullptr; }
 		auto GetDiagnostic() const -> const std::string& { return Error; }
-		auto GetRenderScene() const -> IScene* { return RenderScene.get(); }
+		auto GetRenderScene() const -> FSceneInterface* { return RenderScene.get(); }
 		auto GetWorld() const -> DWorld* { return World.Get(); }
 		auto GetLevel() const -> DLevel* { return Level.Get(); }
 

@@ -115,7 +115,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DWorld::SetRenderScene(IScene* InRenderScene) -> void
+	auto DWorld::SetRenderScene(FSceneInterface* InRenderScene) -> void
 	{
 		if (RenderScene == InRenderScene) return;
 		std::vector<TObjectPtr<DActorComponent>> RegisteredComponents;

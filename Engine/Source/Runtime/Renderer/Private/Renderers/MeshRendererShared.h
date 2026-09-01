@@ -17,7 +17,6 @@
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
-#include "IScene.h"
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"

@@ -1,7 +1,6 @@
 #include "Components/DirectionalLightComponent.h"
 
 #include "Rendering/LightSceneProxy.h"
-#include "IScene.h"
 #include "Math/Operations.h"
 
 namespace Durin

@@ -4,11 +4,11 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-09-01
 
 Durin represents each renderable world resident with an Engine-facing
 SceneProxy and a Renderer-owned SceneInfo. Components publish detached
-candidates through `IScene`; rendering never retains or reads the originating
+candidates through `FSceneInterface`; rendering never retains or reads the originating
 component, actor, reflected asset, or other game-thread object.
 
 ## Ownership Model
@@ -18,9 +18,10 @@ component, actor, reflected asset, or other game-thread object.
 | Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SkeletalMesh/SplineMesh typed views |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
+| Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
 
 A component constructs a complete proxy candidate from copied values and
-retained renderer-facing resources on the game thread. `IScene` accepts unique
+retained renderer-facing resources on the game thread. `FSceneInterface` accepts unique
 ownership and a family-specific `TSceneId`. The render-command pipe transfers
 that candidate to the rendering thread, where `FScene` creates the paired
 SceneInfo and becomes the only owner and mutator of the attached entry. Null or
@@ -76,7 +77,9 @@ views for StaticMesh, SkeletalMesh, SplineMesh, directional light, and SkyBox.
 Attach, replacement, detach, and release update ownership and every relevant
 view in one render command. Feature renderers iterate only their typed
 SceneInfo view; they do not scan a shared primitive array or use RTTI to
-rediscover proxy families. SplineMesh visibility and preparation counters
+rediscover proxy families. Render-thread selection, counts, and SceneInfo
+access remain concrete `FScene` operations and are not part of the publication
+interface. SplineMesh visibility and preparation counters
 separate visible, prepared, rejected, section/triangle, accepted dynamic-update,
 and retained-deformation values and conserve candidates against outcomes.
 Material binding updates dispatch through the base
@@ -113,7 +116,7 @@ registration generation, family, visibility, and finite transformed bounds.
 The observer owns no LevelEditor types, does not retain reflected objects, and
 is removed when its owner detaches. Callbacks may not re-enter primitive
 mutation; this is an unrecoverable callback contract. Consumers recover from
-any non-consecutive externally supplied revision with a complete snapshot. This seam is separate from `IScene` and
+any non-consecutive externally supplied revision with a complete snapshot. This seam is separate from `FSceneInterface` and
 does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 
 ## Failure and Thread Contracts

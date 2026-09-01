@@ -1,8 +1,9 @@
 #pragma once
 
-#include "SceneView.h"
-#include "IScene.h"
 #include "RendererAPI.h"
+
+#include "Rendering/SkyBoxSceneProxy.h"
+#include "SceneView.h"
 
 namespace Durin::SkyBoxRendering
 {

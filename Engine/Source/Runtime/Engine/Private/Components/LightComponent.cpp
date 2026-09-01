@@ -1,7 +1,7 @@
 #include "Components/LightComponent.h"
 
 #include "Engine/Actor.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Math/Operations.h"
 #include "Rendering/LightSceneProxy.h"
 
@@ -26,7 +26,7 @@ namespace Durin
 
 	auto DLightComponent::OnUnregister() -> void
 	{
-		if (IScene* Scene = GetRenderScene()) Scene->RemoveLight(LightSceneId);
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveLight(LightSceneId);
 		Super::OnUnregister();
 	}
 
@@ -72,7 +72,7 @@ namespace Durin
 	auto DLightComponent::MarkLightRenderStateDirty() -> void
 	{
 		if (!IsRegistered()) return;
-		IScene* Scene = GetRenderScene();
+		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 		const FLightSceneId SceneId = EnsureLightSceneId();
 		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())

@@ -10,8 +10,8 @@
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "IRendererModule.h"
+#include "Rendering/SkyBoxSceneProxy.h"
 #include "Renderers/ForwardLighting.h"
-#include "IScene.h"
 #include "SceneView.h"
 
 #include <algorithm>

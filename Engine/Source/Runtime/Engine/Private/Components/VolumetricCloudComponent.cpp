@@ -3,7 +3,7 @@
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
 
@@ -74,7 +74,7 @@ namespace Durin
 
 	auto DVolumetricCloudComponent::OnUnregister() -> void
 	{
-		if (IScene* Scene = GetRenderScene(); PublicationRevision != 0 && Scene)
+		if (FSceneInterface* Scene = GetRenderScene(); PublicationRevision != 0 && Scene)
 			Scene->RemoveVolumetricCloud(
 				FVolumetricCloudSceneId(VolumetricCloudInstanceId), PublicationRevision);
 		Super::OnUnregister();
@@ -266,7 +266,7 @@ namespace Durin
 	{
 		RefreshEligibilityDiagnostic();
 		if (!IsRegistered()) return;
-		IScene* Scene = GetRenderScene();
+		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr || VolumetricCloudInstanceId == 0) return;
 		FVolumetricCloudSceneData Data;
 		Data.PersistentId = VolumetricCloudSceneId;

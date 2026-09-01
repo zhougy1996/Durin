@@ -1,6 +1,8 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
+
+#include "Rendering/LightSceneProxy.h"
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 

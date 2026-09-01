@@ -23,7 +23,7 @@
 #include "Window/GenericWindow.h"
 
 #include "DynamicRHI.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 
@@ -235,7 +235,7 @@ namespace Durin
 			if (RenderTargetRHI == nullptr) return;
 			const bool bCaptureRenderGraph =
 				SceneViewport->ConsumeRenderGraphCaptureRequest();
-			IScene* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
+			FSceneInterface* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
 				[RenderTargetRHI, View, Scene, SceneViewport,
 				 RendererModule = RendererModule,

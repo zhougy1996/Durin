@@ -3,7 +3,7 @@
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Rendering/SkyBoxSceneProxy.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -31,7 +31,7 @@ namespace Durin
 
 	auto DSkyBoxComponent::OnUnregister() -> void
 	{
-		if (IScene* Scene = GetRenderScene())
+		if (FSceneInterface* Scene = GetRenderScene())
 			Scene->RemoveSkyBox(FSkyBoxSceneId(SkyBoxInstanceId));
 		Super::OnUnregister();
 	}
@@ -96,7 +96,7 @@ namespace Durin
 	auto DSkyBoxComponent::MarkSkyBoxRenderStateDirty() -> void
 	{
 		if (!IsRegistered()) return;
-		IScene* Scene = GetRenderScene();
+		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
 		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())

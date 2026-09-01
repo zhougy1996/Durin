@@ -2,6 +2,8 @@
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
 
+#include "Rendering/LightSceneProxy.h"
+
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 

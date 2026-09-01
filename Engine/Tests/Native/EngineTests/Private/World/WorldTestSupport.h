@@ -39,7 +39,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 #include "Math/Color.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"

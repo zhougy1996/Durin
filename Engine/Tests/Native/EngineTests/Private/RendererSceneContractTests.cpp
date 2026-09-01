@@ -680,7 +680,7 @@ namespace
 		auto InvalidateAllViewStates() -> void override {}
 		auto RenderView(
 			Durin::FRHICommandListImmediate&,
-			Durin::IScene*,
+			Durin::FSceneInterface*,
 			const Durin::FSceneView&,
 			Durin::FRHITexture*,
 			bool,

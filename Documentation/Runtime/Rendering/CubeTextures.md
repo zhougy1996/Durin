@@ -319,7 +319,7 @@ source pixel.
 - Translation and scale remain ordinary authored transform data but do not
   enter the sky snapshot. Only the component's world rotation is published.
 - Registration, visibility, rotation, texture, Tint, and Intensity changes
-  enqueue revisioned snapshot replacement or removal through `IScene`.
+  enqueue revisioned snapshot replacement or removal through `FSceneInterface`.
 - `FScene` owns snapshots only on the rendering thread. A snapshot contains no
   reflected object pointer or concrete render-resource owner; it retains a
   counted stable `FRHITextureReferenceRef`.
@@ -376,7 +376,7 @@ in [Texture Cube Workflow](../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
 - `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
-- `Engine/Source/Runtime/Engine/Public/IScene.h`
+- `Engine/Source/Runtime/Engine/Public/SceneInterface.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
 - `Engine/Shaders/Slang/SkyBox.slang`

@@ -53,7 +53,7 @@ namespace Durin
 				Operation, FSceneViewStateIdAccess::GetValue(Id));
 		}
 
-		auto DestroyScene(IScene* Scene) -> void
+		auto DestroyScene(FSceneInterface* Scene) -> void
 		{
 			check(Scene != nullptr);
 			checkf(IsInGameThread() || IsInRenderingThread(),
@@ -226,7 +226,7 @@ namespace Durin
 
 	auto FRendererModule::RenderView(
 		FRHICommandListImmediate& CommandList,
-		IScene* Scene,
+		FSceneInterface* Scene,
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,

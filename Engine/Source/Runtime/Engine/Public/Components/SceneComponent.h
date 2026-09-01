@@ -8,7 +8,7 @@
 namespace Durin
 {
 	class DLevel;
-	class IScene;
+	class FSceneInterface;
 
 	// Selects which transform is preserved or snapped while attaching a component.
 	enum class EAttachmentTransformRule : uint8
@@ -75,7 +75,7 @@ namespace Durin
 
 protected:
 		ENGINE_API virtual auto OnUpdateTransform() -> void;
-		auto GetRenderScene() const -> IScene* { return RenderScene; }
+		auto GetRenderScene() const -> FSceneInterface* { return RenderScene; }
 
 private:
 		// Authored transform relative to AttachParent, or world-relative when unattached.
@@ -95,7 +95,7 @@ private:
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DSceneComponent>> AttachChildren;
 
-		IScene* RenderScene = nullptr;
+		FSceneInterface* RenderScene = nullptr;
 
 		friend class DLevel;
 	};

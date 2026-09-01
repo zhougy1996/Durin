@@ -6,7 +6,7 @@
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
-#include "IScene.h"
+#include "SceneInterface.h"
 
 namespace Durin
 {
@@ -120,7 +120,7 @@ namespace Durin
 		std::shared_ptr<FVolumetricCloudSceneProxy> Proxy;
 	};
 
-	class FScene : public IScene
+	class FScene : public FSceneInterface
 	{
 	public:
 		RENDERER_API ~FScene() override;
@@ -139,17 +139,19 @@ namespace Durin
 		RENDERER_API auto RemoveLight(FLightSceneId LightId) -> void override;
 		RENDERER_API auto AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void override;
 		RENDERER_API auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void override;
-		RENDERER_API auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool override;
-		RENDERER_API auto GetSkyBoxCount_RenderThread() const -> size_t override;
 		RENDERER_API auto AddOrReplaceVolumetricCloud(
 			FVolumetricCloudSceneId CloudId, uint64 PublicationRevision,
 			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void override;
 		RENDERER_API auto RemoveVolumetricCloud(
 			FVolumetricCloudSceneId CloudId,
 			uint64 ExpectedRevision) -> void override;
+
+		RENDERER_API auto GetActiveSkyBox_RenderThread(
+			FSkyBoxSceneData& OutSkyBox) const -> bool;
+		RENDERER_API auto GetSkyBoxCount_RenderThread() const -> size_t;
 		RENDERER_API auto GetActiveVolumetricCloud_RenderThread(
-			FVolumetricCloudSceneData& OutCloud) const -> bool override;
-		RENDERER_API auto GetVolumetricCloudCount_RenderThread() const -> size_t override;
+			FVolumetricCloudSceneData& OutCloud) const -> bool;
+		RENDERER_API auto GetVolumetricCloudCount_RenderThread() const -> size_t;
 
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
