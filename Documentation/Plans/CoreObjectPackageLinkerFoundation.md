@@ -235,9 +235,9 @@ a permanent wrapper around `FDecodedPackage`.
 ## Related Code and Documentation
 
 - [CoreDObject module](../../Engine/Source/Runtime/CoreDObject)
-- [AssetRegistry object-stream API](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/ObjectStream.h)
-- [AssetRegistry object-stream reader](../../Engine/Source/Runtime/AssetRegistry/Private/AssetObjectStreamReader.cpp)
-- [Engine package object-stream reader](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamReader.cpp)
+- AssetRegistry object-stream API (retired by the single-package-IR cutover)
+- AssetRegistry object-stream reader (retired by the single-package-IR cutover)
+- [Engine direct linker application](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
 - [Asset reference records](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/References.h)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Serialization](../Runtime/Core/Serialization.md)

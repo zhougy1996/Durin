@@ -1,7 +1,7 @@
 #include "AssetPackageArchive.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
-#include "Asset/PackageObjectStreamWriter.h"
+#include "AssetPackageLinker.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageValueCodec.h"
@@ -1340,106 +1340,185 @@ namespace Durin::Asset::Private
 			return Writer.HasError() ? FXxHash128{} : FXxHash128::HashBuffer(Bytes);
 		}
 
-		auto AdaptObjectStreamType(const FArchiveLogicalTypeDescriptor& Input,
-			PackageObjectStream::FTypePtr& OutType, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
+		auto FindLinkerSchema(std::span<const ObjectPackage::FSerializedSchema> Schemas,
+			std::string_view Name) -> const ObjectPackage::FSerializedSchema*
+		{
+			const auto It = std::ranges::find(Schemas, Name,
+				&ObjectPackage::FSerializedSchema::QualifiedName);
+			return It == Schemas.end() ? nullptr : &*It;
+		}
+
+		auto AdaptLinkerType(const FArchiveLogicalTypeDescriptor& Input,
+			ObjectPackage::FSerializedType& OutType, std::string& OutError) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
-			using O = PackageObjectStream::ETypeOpcode;
+			using O = ObjectPackage::EValueKind;
+			ObjectPackage::FSerializedType Type;
 			switch (Input.Kind)
 			{
 			case K::Scalar:
-				if (Input.bFloating) OutType = PackageObjectStream::MakeType(Input.BitWidth == 32 ? O::F32 : O::F64);
-				else if (Input.bSigned) OutType = PackageObjectStream::MakeType(Input.BitWidth == 8 ? O::I8 : Input.BitWidth == 16 ? O::I16 : Input.BitWidth == 32 ? O::I32 : O::I64);
-				else OutType = PackageObjectStream::MakeType(Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64);
-				return true;
+				if (Input.bFloating) Type.Kind = Input.BitWidth == 32 ? O::F32 : O::F64;
+				else if (Input.bSigned) Type.Kind = Input.BitWidth == 8 ? O::I8
+					: Input.BitWidth == 16 ? O::I16 : Input.BitWidth == 32 ? O::I32 : O::I64;
+				else Type.Kind = Input.BitWidth == 8 ? O::U8
+					: Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64;
+				break;
 			case K::Enum:
-				// Authored Archive enum signatures freeze storage width but not signedness;
-				// the object-stream bridge therefore uses the unsigned opcode.
-				OutType = PackageObjectStream::MakeType(O::Enum, Input.QualifiedType.ToString(), uint8(
-					Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16
-						: Input.BitWidth == 32 ? O::U32 : O::U64));
-				return true;
-			case K::String: OutType = PackageObjectStream::MakeType(O::String); return true;
-			case K::Name: OutType = PackageObjectStream::MakeType(O::Name); return true;
-			case K::Guid: OutType = PackageObjectStream::MakeType(O::Guid); return true;
-			case K::Bytes: OutType = PackageObjectStream::MakeType(O::Bytes); return true;
-			case K::BulkData: OutType = PackageObjectStream::MakeType(O::BulkData); return true;
-			case K::Object: OutType = PackageObjectStream::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
-			case K::SoftObject: OutType = PackageObjectStream::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
-			case K::WeakObject: break;
-			case K::Struct: OutType = PackageObjectStream::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
+				Type.Kind = O::Enum;
+				Type.QualifiedName = Input.QualifiedType.ToString();
+				Type.Parameter = static_cast<uint64>(Input.BitWidth == 8 ? O::U8
+					: Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64);
+				break;
+			case K::String: Type.Kind = O::String; break;
+			case K::Name: Type.Kind = O::Name; break;
+			case K::Guid: Type.Kind = O::Guid; break;
+			case K::Bytes: Type.Kind = O::Bytes; break;
+			case K::BulkData: Type.Kind = O::BulkData; break;
+			case K::Object:
+				Type.Kind = O::HardReference; Type.QualifiedName = Input.QualifiedType.ToString(); break;
+			case K::SoftObject:
+				Type.Kind = O::SoftReference; Type.QualifiedName = Input.QualifiedType.ToString(); break;
+			case K::WeakObject:
+				OutError = "Archive weak-object values cannot be represented by the package linker.";
+				return false;
+			case K::Struct:
+				Type.Kind = O::Struct;
+				Type.QualifiedName = Input.QualifiedType.ToString();
+				break;
 			case K::Array: case K::FixedArray:
 			{
-				PackageObjectStream::FTypePtr Element;
-				if (!Input.ElementType || !AdaptObjectStreamType(*Input.ElementType, Element, Diagnostic)) break;
-				OutType = PackageObjectStream::MakeType(Input.Kind == K::Array ? O::Array : O::FixedArray,
-					{}, Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0, {Element});
+				ObjectPackage::FSerializedType Element;
+				if (!Input.ElementType || !AdaptLinkerType(*Input.ElementType, Element, OutError)) break;
+				Type.Kind = Input.Kind == K::Array ? O::Array : O::FixedArray;
+				Type.Parameter = Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0;
+				Type.Children.push_back(std::move(Element));
+				OutType = std::move(Type);
 				return true;
 			}
 			case K::Map:
 			{
-				PackageObjectStream::FTypePtr Key, Value;
-				if (!Input.KeyType || !Input.ValueType || !AdaptObjectStreamType(*Input.KeyType, Key, Diagnostic)
-					|| !AdaptObjectStreamType(*Input.ValueType, Value, Diagnostic)) break;
-				OutType = PackageObjectStream::MakeType(O::Map, {}, 0, {Key, Value}); return true;
+				ObjectPackage::FSerializedType Key, Value;
+				if (!Input.KeyType || !Input.ValueType
+					|| !AdaptLinkerType(*Input.KeyType, Key, OutError)
+					|| !AdaptLinkerType(*Input.ValueType, Value, OutError)) break;
+				Type.Kind = O::Map;
+				Type.Children = {std::move(Key), std::move(Value)};
+				OutType = std::move(Type);
+				return true;
 			}
 			}
-			Diagnostic = {PackageObjectStream::EWriterFailure::UnsupportedType, {}, "Archive logical type cannot be represented by the package object stream."};
-			return false;
-		}
-
-		auto AreObjectStreamTypesEquivalent(const PackageObjectStream::FTypeDescriptor& Left,
-			const PackageObjectStream::FTypeDescriptor& Right) -> bool
-		{
-			if (Left.Opcode != Right.Opcode || Left.QualifiedName != Right.QualifiedName
-				|| Left.Parameter != Right.Parameter || Left.Children.size() != Right.Children.size()
-				|| Left.bHasDeterministicStructOperations != Right.bHasDeterministicStructOperations
-				|| Left.bHasCustomSerializer != Right.bHasCustomSerializer) return false;
-			for (size_t Index = 0; Index < Left.Children.size(); ++Index)
-				if (!Left.Children[Index] || !Right.Children[Index]
-					|| !AreObjectStreamTypesEquivalent(*Left.Children[Index], *Right.Children[Index])) return false;
+			OutType = std::move(Type);
 			return true;
 		}
 
-		auto DiscoverObjectStreamField(const FCapturedNode& Node, PackageObjectStream::FPackageInput& Input,
-			PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
+		auto DiscoverLinkerField(const FCapturedNode& Node,
+			ObjectPackage::FLinkerTables& Linker, std::string& OutError) -> bool
 		{
 			if (Node.Kind != ENodeKind::Field)
 			{
-				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "A discovered field node has the wrong event kind."};
+				OutError = "A discovered field node has the wrong event kind.";
 				return false;
 			}
-			PackageObjectStream::FTypePtr Type;
-			if (!AdaptObjectStreamType(Node.Field.LogicalType, Type, Diagnostic)) return false;
-			if (Node.ReflectedProperty
-				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
-				Type = PackageObjectStream::MakeType(PackageObjectStream::ETypeOpcode::Bool);
-			const std::string SchemaName = Node.Field.DeclaringType.ToString();
-			const std::string FieldName = Node.Field.Name.ToString();
-			auto Schema = std::ranges::find(Input.Schemas, SchemaName, &PackageObjectStream::FSchemaDescriptor::QualifiedName);
-			if (Schema == Input.Schemas.end())
-			{
-				Input.Schemas.push_back({SchemaName, {}});
-				Schema = std::prev(Input.Schemas.end());
-			}
-			auto Existing = std::ranges::find(Schema->Fields, FieldName, &PackageObjectStream::FFieldDescriptor::Name);
-			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
-			else if (!Existing->Type || !AreObjectStreamTypesEquivalent(*Existing->Type, *Type))
-			{
-				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch,
-					SchemaName + "::" + FieldName,
-					"Repeated field discovery changed its logical type."};
-				return false;
-			}
-			Input.Types.push_back(std::move(Type));
 			std::function<bool(const FCapturedNode&)> DiscoverChildren = [&](const FCapturedNode& Child) {
-				if (Child.Kind == ENodeKind::Field) return DiscoverObjectStreamField(Child, Input, Diagnostic);
+				if (Child.Kind == ENodeKind::Field) return DiscoverLinkerField(Child, Linker, OutError);
 				for (const FCapturedNode& Nested : Child.Children)
 					if (!DiscoverChildren(Nested)) return false;
 				return true;
 			};
 			for (const FCapturedNode& Child : Node.Children)
 				if (!DiscoverChildren(Child)) return false;
+
+			ObjectPackage::FSerializedType Type;
+			if (!AdaptLinkerType(Node.Field.LogicalType, Type, OutError)) return false;
+			if (Node.ReflectedProperty
+				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
+				Type = {.Kind = ObjectPackage::EValueKind::Bool};
+			const std::string SchemaName = Node.Field.DeclaringType.ToString();
+			const std::string FieldName = Node.Field.Name.ToString();
+			auto Schema = std::ranges::find(Linker.Schemas, SchemaName,
+				&ObjectPackage::FSerializedSchema::QualifiedName);
+			if (Schema == Linker.Schemas.end())
+			{
+				Linker.Schemas.push_back({SchemaName, {}});
+				Schema = std::prev(Linker.Schemas.end());
+			}
+			auto Existing = std::ranges::find(Schema->Fields, FieldName,
+				&ObjectPackage::FSerializedField::Name);
+			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
+			else if (Existing->Type != Type)
+			{
+				OutError = std::format("Repeated field discovery changed the logical type of {}::{}.",
+					SchemaName, FieldName);
+				return false;
+			}
+			Linker.Types.push_back(std::move(Type));
+			return true;
+		}
+
+		auto ExpandLinkerType(const ObjectPackage::FSerializedType& Input,
+			std::span<const ObjectPackage::FSerializedSchema> Schemas,
+			ObjectPackage::FSerializedType& OutType, std::string& OutError,
+			uint32 Depth = 0) -> bool
+		{
+			if (Depth > ObjectPackage::DastV8MaximumValueDepth)
+			{
+				OutError = "Live reflected type exceeds the package nesting limit.";
+				return false;
+			}
+			ObjectPackage::FSerializedType Type{
+				.Kind = Input.Kind,
+				.QualifiedName = Input.QualifiedName,
+				.Parameter = Input.Parameter};
+			if (Input.Kind == ObjectPackage::EValueKind::Struct)
+			{
+				if (const auto* Schema = FindLinkerSchema(Schemas, Input.QualifiedName))
+					for (const auto& Field : Schema->Fields)
+					{
+						ObjectPackage::FSerializedType Child;
+						if (!ExpandLinkerType(Field.Type, Schemas, Child, OutError, Depth + 1))
+							return false;
+						Type.Children.push_back(std::move(Child));
+					}
+			}
+			else for (const auto& InputChild : Input.Children)
+			{
+				ObjectPackage::FSerializedType Child;
+				if (!ExpandLinkerType(InputChild, Schemas, Child, OutError, Depth + 1))
+					return false;
+				Type.Children.push_back(std::move(Child));
+			}
+			OutType = std::move(Type);
+			return true;
+		}
+
+		auto FinalizeLinkerTypes(ObjectPackage::FLinkerTables& Linker,
+			std::string& OutError) -> bool
+		{
+			const std::vector<ObjectPackage::FSerializedSchema> ShallowSchemas = Linker.Schemas;
+			std::vector<ObjectPackage::FSerializedSchema> Schemas;
+			Schemas.reserve(ShallowSchemas.size());
+			for (const auto& InputSchema : ShallowSchemas)
+			{
+				ObjectPackage::FSerializedSchema Schema{.QualifiedName = InputSchema.QualifiedName};
+				Schema.Fields.reserve(InputSchema.Fields.size());
+				for (const auto& InputField : InputSchema.Fields)
+				{
+					ObjectPackage::FSerializedType Type;
+					if (!ExpandLinkerType(InputField.Type, ShallowSchemas, Type, OutError)) return false;
+					Schema.Fields.push_back({InputField.Name, std::move(Type), InputField.AuthoredFlags});
+				}
+				Schemas.push_back(std::move(Schema));
+			}
+			std::vector<ObjectPackage::FSerializedType> Types;
+			Types.reserve(Linker.Types.size());
+			for (const auto& InputType : Linker.Types)
+			{
+				ObjectPackage::FSerializedType Type;
+				if (!ExpandLinkerType(InputType, ShallowSchemas, Type, OutError)) return false;
+				Types.push_back(std::move(Type));
+			}
+			Linker.Schemas = std::move(Schemas);
+			Linker.Types = std::move(Types);
 			return true;
 		}
 
@@ -1468,14 +1547,14 @@ namespace Durin::Asset::Private
 			return It == Fields->end() ? nullptr : &*It;
 		}
 
-		auto MaterializeObjectStreamValue(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
+		auto MaterializeLinkerValue(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
 			const FCapturedPackage& Package, std::span<const uint64> InternalReferenceIds,
-			PackageObjectStream::FPackageInput& Input, PackageObjectStream::FValue& Out,
-			PackageObjectStream::FWriterDiagnostic& Diagnostic, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
+			ObjectPackage::FLinkerTables& Linker, ObjectPackage::FSerializedValue& Out,
+			std::string& OutError, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
 		{
 			using K = FArchiveLogicalTypeDescriptor::EKind;
 			auto Invalid = [&]() {
-				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Captured Archive events do not match their frozen logical type."}; return false;
+				OutError = "Captured Archive events do not match their frozen logical type."; return false;
 			};
 			if (Type.Kind == K::FixedArray || Type.Kind == K::Array || Type.Kind == K::Map)
 			{
@@ -1490,10 +1569,10 @@ namespace Durin::Asset::Private
 				{
 					const auto* ChildType = Type.Kind == K::Map ? (Index % 2 == 0 ? Type.KeyType.get() : Type.ValueType.get()) : Type.ElementType.get();
 					if (!ChildType) return Invalid();
-					PackageObjectStream::FValue Child;
+					ObjectPackage::FSerializedValue Child;
 					const FDefaultDeltaNode* ChildDelta = DeltaNode && Index < DeltaNode->Elements.size() ? DeltaNode->Elements[Index].get() : nullptr;
-					if (!MaterializeObjectStreamValue(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
-						Input, Child, Diagnostic, ChildDelta)) return false;
+					if (!MaterializeLinkerValue(Node.Children[Index], *ChildType, Package, InternalReferenceIds,
+						Linker, Child, OutError, ChildDelta)) return false;
 					Out.Elements.push_back(std::move(Child));
 				}
 				return true;
@@ -1506,12 +1585,14 @@ namespace Durin::Asset::Private
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
 					if (DeltaNode && !DeltaField) return Invalid();
 					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
-					PackageObjectStream::FValue Child;
-					if (!MaterializeObjectStreamValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
-						Input, Child, Diagnostic,
+					ObjectPackage::FSerializedValue Child;
+					if (!MaterializeLinkerValue(ChildNode, ChildNode.Field.LogicalType, Package, InternalReferenceIds,
+						Linker, Child, OutError,
 						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
 					Out.FieldNames.push_back(ChildNode.Field.Name.ToString());
-					Out.Provenances.push_back(DeltaField ? DeltaField->Provenance : EDefaultDeltaProvenance::Explicit);
+					Out.Provenances.push_back(DeltaField && DeltaField->Provenance == EDefaultDeltaProvenance::Forced
+						? ObjectPackage::EPropertyProvenance::Forced
+						: ObjectPackage::EPropertyProvenance::Explicit);
 					Out.Elements.push_back(std::move(Child));
 				}
 				return true;
@@ -1545,7 +1626,7 @@ namespace Durin::Asset::Private
 				break;
 			case K::String: case K::Name:
 				if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
-				if (Type.Kind == K::Name && !Out.Text.empty()) Input.AdditionalNames.push_back(Out.Text);
+				if (Type.Kind == K::Name && !Out.Text.empty()) Linker.Names.push_back(Out.Text);
 				break;
 			case K::Guid:
 				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.A) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.B)
@@ -1557,41 +1638,57 @@ namespace Durin::Asset::Private
 				if (!Node.bDetachedBulk || Node.BulkElementSize == 0
 					|| Node.BulkAlignment == 0 || Node.BulkStorage > 1) return Invalid();
 				Out.Bytes = Node.BulkBytes;
-				Out.BulkElementSize = Node.BulkElementSize;
+				Out.BulkElementSize = static_cast<uint32>(Node.BulkElementSize);
 				Out.BulkAlignment = Node.BulkAlignment;
-				Out.BulkStorage = Node.BulkStorage;
-				Out.bDetachedBulk = true;
+				Out.BulkStorage = Node.BulkStorage == 0
+					? ObjectPackage::EBulkStorageKind::Inline
+					: ObjectPackage::EBulkStorageKind::External;
 				Offset = Node.Raw.size();
 				break;
 			case K::Object:
-				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 2) return Invalid();
-				if (Out.ReferenceTag == 1)
+			{
+				uint8 ReferenceTag = 0;
+				if (!ReadCaptured(std::span(Node.Raw), Offset, ReferenceTag) || ReferenceTag > 2) return Invalid();
+				if (ReferenceTag == 1)
 				{
 					uint64 CapturedId = 0;
 					if (!ReadCaptured(std::span(Node.Raw), Offset, CapturedId) || CapturedId == 0
 						|| CapturedId > InternalReferenceIds.size()) return Invalid();
-					Out.ReferenceId = InternalReferenceIds[CapturedId - 1];
+					if (!ObjectPackage::FPackageIndex::TryExport(
+						InternalReferenceIds[CapturedId - 1] - 1, Out.Reference)) return Invalid();
 				}
-				if (Out.ReferenceTag == 2)
+				if (ReferenceTag == 2)
 				{
 					std::string Path; if (!ReadCapturedString(Node.Raw, Offset, Path)) return Invalid();
 					const auto It = std::ranges::find_if(Package.HardReferenceTargets,
 						[&](const FObjectPath& Value) { return Value.ToString() == Path; });
 					if (It == Package.HardReferenceTargets.end()) return Invalid();
-					Out.ReferenceId = uint64(std::distance(Package.HardReferenceTargets.begin(), It) + 1);
+					if (!ObjectPackage::FPackageIndex::TryImport(
+						std::distance(Package.HardReferenceTargets.begin(), It), Out.Reference)) return Invalid();
 				}
 				break;
+			}
 			case K::SoftObject:
-				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 1) return Invalid();
-				if (Out.ReferenceTag == 1) { if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid(); Input.AdditionalNames.push_back(Out.Text); }
+			{
+				uint8 ReferenceTag = 0;
+				if (!ReadCaptured(std::span(Node.Raw), Offset, ReferenceTag) || ReferenceTag > 1) return Invalid();
+				if (ReferenceTag == 1)
+				{
+					if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
+					FObjectPath Path;
+					if (!FObjectPath::TryCreate(Out.Text, Path)) return Invalid();
+					Linker.Names.push_back(Out.Text);
+					Linker.Summary.SoftPackageDependencies.push_back(Path.GetPackagePath());
+				}
 				break;
+			}
 			default: return Invalid();
 			}
 			return Offset == Node.Raw.size() || Invalid();
 		}
 
 		auto GatherDeprecationCustomVersions(std::span<DObject* const> Objects,
-			PackageObjectStream::FPackageInput& Input, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
+			std::vector<ObjectPackage::FCustomVersion>& OutVersions, std::string& OutError) -> bool
 		{
 			std::unordered_map<FGuid, int32> Versions;
 			std::unordered_set<const DStructBase*> Visited;
@@ -1602,9 +1699,9 @@ namespace Durin::Asset::Private
 						Deprecation->CustomVersionGuid, Deprecation->LatestVersion);
 					if (!bInserted && It->second != Deprecation->LatestVersion)
 					{
-						Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch,
-							ReflectedStructIdentity(Struct),
-							"One custom-version GUID declares inconsistent latest versions."};
+						OutError = std::format(
+							"One custom-version GUID declares inconsistent latest versions for {}.",
+							ReflectedStructIdentity(Struct));
 						return false;
 					}
 				}
@@ -1615,86 +1712,159 @@ namespace Durin::Asset::Private
 			for (const auto& [Guid, Version] : Versions)
 			{
 				const uint32 Value = static_cast<uint32>(Version);
-				Input.CustomVersions.push_back({Guid, Value, Value, Value, true, true});
+				OutVersions.push_back({Guid, Value, Value, Value, true, true});
 			}
 			return true;
 		}
 
-		auto BuildObjectStreamInput(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
+		auto BuildLinkerTables(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
+			const FPackagePath& PackagePath,
 			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
-			std::span<const PackageObjectStream::FCustomVersion> CustomVersions,
-			PackageObjectStream::FPackageInput& Out, PackageObjectStream::FWriterDiagnostic& Diagnostic) -> bool
+			std::span<const ObjectPackage::FCustomVersion> CustomVersions,
+			std::span<DObject* const> TopLevelAssets,
+			ObjectPackage::FLinkerTables& Out, std::string& OutError) -> bool
 		{
-			PackageObjectStream::FPackageInput Input;
-			Input.AssetClass = Summary.AssetClassName;
-			Input.EntryKind = Summary.EntryKind;
-			Input.RedirectDestination = Summary.RedirectDestination.ToString();
-			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
+			ObjectPackage::FLinkerTables Linker;
+			Linker.Summary.PackagePath = PackagePath;
+			Linker.Summary.HardPackageDependencies = Summary.Dependencies;
 			for (const FObjectPath& Target : Captured.HardReferenceTargets)
-				Input.HardReferenceTargets.push_back(Target.ToString());
-			Input.CustomVersions.assign(CustomVersions.begin(), CustomVersions.end());
+				Linker.Imports.push_back({.ObjectPath = Target});
+			Linker.CustomVersions.assign(CustomVersions.begin(), CustomVersions.end());
 			std::vector<std::string> Paths(Captured.Objects.size());
 			for (const auto& Object : Captured.Objects)
 			{
 				if (Object.Id == 0 || Object.Id > Captured.Objects.size() || Object.OuterId >= Object.Id)
 				{
-					Diagnostic = {PackageObjectStream::EWriterFailure::InvalidTopology, {}, "Captured object ids are not topological."}; return false;
+					OutError = "Captured object ids are not topological."; return false;
 				}
 				const std::string OuterPath = Object.OuterId == 0 ? std::string{} : Paths[Object.OuterId - 1];
 				const std::string Path = OuterPath.empty() ? Object.ObjectName : OuterPath + "/" + Object.ObjectName;
 				Paths[Object.Id - 1] = Path;
-				Input.Objects.push_back({Path, OuterPath, Object.ClassName, Object.ObjectName});
-				for (const auto& Field : Object.Fields) if (!DiscoverObjectStreamField(Field, Input, Diagnostic)) return false;
+				for (const auto& Field : Object.Fields)
+					if (!DiscoverLinkerField(Field, Linker, OutError)) return false;
 			}
+			if (!FinalizeLinkerTypes(Linker, OutError)) return false;
 			if (Objects.size() != Captured.Objects.size() || DeltaPlan.Objects.size() != Captured.Objects.size())
 			{
-				Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan object graph differs from Archive discovery."}; return false;
+				OutError = "Delta plan object graph differs from Archive discovery."; return false;
 			}
 			std::unordered_map<const DObject*, const FDefaultDeltaObjectPlan*> DeltaObjects;
 			for (const FDefaultDeltaObjectPlan& DeltaObject : DeltaPlan.Objects)
 			{
 				if (!DeltaObject.Object || !DeltaObjects.emplace(DeltaObject.Object, &DeltaObject).second)
 				{
-					Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan contains an invalid or duplicate object."}; return false;
+					OutError = "Delta plan contains an invalid or duplicate object."; return false;
 				}
 			}
-			std::vector<size_t> CanonicalOrder(Input.Objects.size());
+			std::vector<size_t> CanonicalOrder(Captured.Objects.size());
 			for (size_t Index = 0; Index < CanonicalOrder.size(); ++Index) CanonicalOrder[Index] = Index;
 			std::ranges::sort(CanonicalOrder, [&](size_t LeftIndex, size_t RightIndex) {
-				const auto& Left = Input.Objects[LeftIndex];
-				const auto& Right = Input.Objects[RightIndex];
-				if (Left.OuterPath.empty() != Right.OuterPath.empty()) return Left.OuterPath.empty();
-				if (Left.OuterPath != Right.OuterPath) return Left.OuterPath < Right.OuterPath;
+				const auto& Left = Captured.Objects[LeftIndex];
+				const auto& Right = Captured.Objects[RightIndex];
+				const std::string_view LeftOuter = Left.OuterId == 0 ? std::string_view{} : Paths[Left.OuterId - 1];
+				const std::string_view RightOuter = Right.OuterId == 0 ? std::string_view{} : Paths[Right.OuterId - 1];
+				if (LeftOuter.empty() != RightOuter.empty()) return LeftOuter.empty();
+				if (LeftOuter != RightOuter) return LeftOuter < RightOuter;
 				if (Left.ClassName != Right.ClassName) return Left.ClassName < Right.ClassName;
 				return Left.ObjectName < Right.ObjectName;
 			});
-			std::vector<uint64> InternalReferenceIds(Input.Objects.size());
+			std::vector<uint64> InternalReferenceIds(Captured.Objects.size());
 			for (size_t CanonicalIndex = 0; CanonicalIndex < CanonicalOrder.size(); ++CanonicalIndex)
 				InternalReferenceIds[CanonicalOrder[CanonicalIndex]] = CanonicalIndex + 1;
-			for (size_t ObjectIndex = 0; ObjectIndex < Captured.Objects.size(); ++ObjectIndex)
+			for (size_t CanonicalIndex = 0; CanonicalIndex < CanonicalOrder.size(); ++CanonicalIndex)
 			{
-				const auto& Object = Captured.Objects[ObjectIndex];
-				const auto DeltaIt = DeltaObjects.find(Objects[ObjectIndex]);
+				const size_t SourceIndex = CanonicalOrder[CanonicalIndex];
+				const auto& Object = Captured.Objects[SourceIndex];
+				ObjectPackage::FPackageIndex Outer;
+				if (Object.OuterId != 0 && !ObjectPackage::FPackageIndex::TryExport(
+					InternalReferenceIds[Object.OuterId - 1] - 1, Outer))
+				{
+					OutError = "Captured object has invalid Outer topology."; return false;
+				}
+				Linker.Exports.push_back({.ObjectName = Object.ObjectName,
+					.ClassName = Object.ClassName, .Outer = Outer});
+			}
+
+			for (DObject* Asset : TopLevelAssets)
+			{
+				const auto Source = std::ranges::find(Objects, Asset);
+				if (!Asset || Source == Objects.end())
+				{
+					OutError = "A top-level asset is absent from the captured export topology.";
+					return false;
+				}
+				const size_t SourceIndex = static_cast<size_t>(std::distance(Objects.begin(), Source));
+				ObjectPackage::FPackageIndex Export;
+				FTopLevelAssetPath AssetPath;
+				FObjectPath RedirectDestination;
+				if (!ObjectPackage::FPackageIndex::TryExport(
+						InternalReferenceIds[SourceIndex] - 1, Export)
+					|| !FTopLevelAssetPath::TryCreate(PackagePath, Asset->GetName(), AssetPath))
+				{
+					OutError = "A top-level asset has invalid linker identity."; return false;
+				}
+				if (auto* Redirector = Cast<DAssetRedirector>(Asset))
+				{
+					DObject* Destination = Redirector->GetDestinationObject();
+					if (!Destination || Destination == Asset
+						|| !FObjectPath::TryCreate(Destination->GetObjectPath(), RedirectDestination))
+					{
+						OutError = "A top-level redirector destination is invalid."; return false;
+					}
+				}
+				Linker.Summary.TopLevelAssets.push_back({.Export = Export,
+					.AssetPath = std::move(AssetPath),
+					.ClassName = Asset->GetClass()->GetQualifiedName().ToString(),
+					.RedirectDestination = std::move(RedirectDestination)});
+			}
+			std::ranges::sort(Linker.Summary.TopLevelAssets,
+				[](const auto& Left, const auto& Right) { return Left.AssetPath < Right.AssetPath; });
+
+			for (size_t CanonicalIndex = 0; CanonicalIndex < CanonicalOrder.size(); ++CanonicalIndex)
+			{
+				const size_t SourceIndex = CanonicalOrder[CanonicalIndex];
+				const auto& Object = Captured.Objects[SourceIndex];
+				const auto DeltaIt = DeltaObjects.find(Objects[SourceIndex]);
 				if (DeltaIt == DeltaObjects.end())
 				{
-					Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, Paths[Object.Id - 1], "Delta plan object graph differs from Archive discovery."}; return false;
+					OutError = std::format("Delta plan object graph differs at {}.", Paths[Object.Id - 1]);
+					return false;
 				}
 				const FDefaultDeltaObjectPlan& DeltaObject = *DeltaIt->second;
-				PackageObjectStream::FObjectValueInput Values{.ObjectPath = Paths[Object.Id - 1]};
 				for (const auto& Field : Object.Fields)
 				{
 					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
-					if (!DeltaField) { Diagnostic = {PackageObjectStream::EWriterFailure::ManifestMismatch, {}, "Delta plan is missing an Archive field."}; return false; }
+					if (!DeltaField) { OutError = "Delta plan is missing an Archive field."; return false; }
 					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
-					PackageObjectStream::FValue Value;
-					if (!MaterializeObjectStreamValue(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
-						Input, Value, Diagnostic,
+					const std::string SchemaName = Field.Field.DeclaringType.ToString();
+					const std::string FieldName = Field.Field.Name.ToString();
+					const auto* Schema = FindLinkerSchema(Linker.Schemas, SchemaName);
+					const auto SchemaField = Schema ? std::ranges::find(
+						Schema->Fields, FieldName, &ObjectPackage::FSerializedField::Name)
+						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
+					if (!Schema || SchemaField == Schema->Fields.end())
+					{
+						OutError = "A captured field is absent from its linker schema."; return false;
+					}
+					ObjectPackage::FSerializedValue Value;
+					if (!MaterializeLinkerValue(Field, Field.Field.LogicalType, Captured, InternalReferenceIds,
+						Linker, Value, OutError,
 						DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
-					Values.KnownOverrides.push_back({Field.Field.DeclaringType.ToString(), Field.Field.Name.ToString(), DeltaField->Provenance, std::move(Value)});
+					Linker.Exports[CanonicalIndex].Properties.push_back({
+						.DeclaringType = SchemaName,
+						.FieldName = FieldName,
+						.Type = SchemaField->Type,
+						.Provenance = DeltaField->Provenance == EDefaultDeltaProvenance::Forced
+							? ObjectPackage::EPropertyProvenance::Forced
+							: ObjectPackage::EPropertyProvenance::Explicit,
+						.Value = std::move(Value)});
 				}
-				Input.ObjectValues.push_back(std::move(Values));
 			}
-			Out = std::move(Input); return true;
+			std::ranges::sort(Linker.Summary.SoftPackageDependencies);
+			Linker.Summary.SoftPackageDependencies.erase(std::ranges::unique(
+				Linker.Summary.SoftPackageDependencies).begin(),
+				Linker.Summary.SoftPackageDependencies.end());
+			Out = std::move(Linker); return true;
 		}
 
 	}
@@ -1730,91 +1900,101 @@ namespace Durin::Asset::Private
 	}
 }
 
-namespace Durin::Asset::PackageObjectStream
+namespace Durin::Asset::Private
 {
-	auto CaptureAssetPackage(DPackage* Package, FPackageInput& OutInput,
-		const FAssetPackageWriteOptions& Options, FWriterDiagnostic* OutDiagnostic) -> FAssetResult
+	auto CaptureLivePackageLinker(DPackage* Package, EDefaultDeltaMode DeltaMode,
+		const FAssetPackageSerializationOptions& InputOptions,
+		ObjectPackage::FLinkerTables& OutLinker, std::string* OutError) -> FAssetResult
 	{
-		FWriterDiagnostic Diagnostic;
+		std::vector<FEditorBulkDataStoragePayload> Payloads;
+		FAssetPackageSerializationOptions Options = InputOptions;
+		Options.EditorBulkDataStoragePayloads = &Payloads;
+		struct FCaptureDiagnostic
+		{
+			std::string LogicalPath;
+			std::string Message;
+			auto Reset() -> void { *this = {}; }
+		} Diagnostic;
 		auto Finish = [&](FAssetResult Result) {
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			if (OutError)
+				*OutError = Result ? std::string{} : Diagnostic.Message;
 			return Result;
 		};
 		if (Package && !Package->IsAssetPackage())
 		{
-			Diagnostic = {EWriterFailure::InvalidInput, {}, "Only asset packages can be serialized."};
+			Diagnostic = {{}, "Only asset packages can be serialized."};
 			return Finish({EAssetError::InvalidPackageType, Diagnostic.Message});
 		}
 		if (!Package || Package->GetTopLevelAssets().empty())
 		{
-			Diagnostic = {EWriterFailure::InvalidTopology, {}, "Package has no top-level assets."};
+			Diagnostic = {{}, "Package has no top-level assets."};
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
-		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
-			&& (Options.Serialization.TargetPlatform == ECookTargetPlatform::Invalid
-				|| Options.Serialization.TargetProfile == ECookTargetProfile::Invalid))
+		if (Options.Domain == EAssetPackageSaveDomain::Cooked
+			&& (Options.TargetPlatform == ECookTargetPlatform::Invalid
+				|| Options.TargetProfile == ECookTargetProfile::Invalid))
 		{
-			Diagnostic = {EWriterFailure::InvalidInput, {},
+			Diagnostic = {{},
 				"Cooked package serialization requires an explicit target platform and profile."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 		FPackagePath PackagePath;
 		if (!FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
 		{
-			Diagnostic = {EWriterFailure::InvalidInput, {}, "Package has an invalid asset path."};
+			Diagnostic = {{}, "Package has an invalid asset path."};
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
 
 		std::vector<DObject*> FrozenObjects;
 		for (DObject* Asset : Package->GetTopLevelAssets())
 			Private::GatherObjects(Asset, FrozenObjects);
-		if (Options.Serialization.SaveOverrides)
+		if (Options.SaveOverrides)
 		{
-			for (const FObjectSaveOverride& Override : Options.Serialization.SaveOverrides->GetObjects())
+			for (const FObjectSaveOverride& Override : Options.SaveOverrides->GetObjects())
 			{
 				if (!Override.Object
 					|| std::ranges::find(FrozenObjects, Override.Object) == FrozenObjects.end())
 				{
-					Diagnostic = {EWriterFailure::InvalidInput, {},
+					Diagnostic = {{},
 						"A save override targets an object outside the frozen package graph."};
 					return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 				}
 			}
 			for (DObject* Asset : Package->GetTopLevelAssets())
 				if (const FObjectSaveOverride* RootOverride =
-					Options.Serialization.SaveOverrides->FindObject(*Asset);
+					Options.SaveOverrides->FindObject(*Asset);
 					RootOverride && RootOverride->bOmitObject)
 				{
-					Diagnostic = {EWriterFailure::InvalidInput, {},
+					Diagnostic = {{},
 						"A top-level asset cannot be omitted from its own package save."};
 					return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 				}
 		}
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
-			if (!Private::IsObjectOmitted(Object, Options.Serialization.SaveOverrides.get()))
+			if (!Private::IsObjectOmitted(Object, Options.SaveOverrides.get()))
 				Objects.push_back(Object);
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		Private::FCapturedPackage Discovery;
 		FAssetResult Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, false,
+			Objects, ObjectIds, Options, false,
 			OrdinaryAssetPackageWriterVersion, {}, Discovery);
 		if (!Result)
 		{
-			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
+			Diagnostic = {{}, Result.Message}; return Finish(Result);
 		}
 		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects))
 		{
-			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
+			Diagnostic = {{}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
-			&& !Options.Serialization.bRetainEditorOnlyData)
+		if (Options.Domain == EAssetPackageSaveDomain::Cooked
+			&& !Options.bRetainEditorOnlyData)
 		{
 			if (!Private::PruneUnreachableCookedObjects(Discovery, Objects))
 			{
-				Diagnostic = {EWriterFailure::InvalidTopology, {},
+				Diagnostic = {{},
 					"Cooked object reachability discovery produced an invalid graph."};
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
@@ -1822,11 +2002,11 @@ namespace Durin::Asset::PackageObjectStream
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
 				ObjectIds.emplace(Objects[Index], Index + 1);
 			Result = Private::CapturePackage(
-				Objects, ObjectIds, Options.Serialization, false,
+				Objects, ObjectIds, Options, false,
 				OrdinaryAssetPackageWriterVersion, {}, Discovery);
 			if (!Result)
 			{
-				Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message};
+				Diagnostic = {{}, Result.Message};
 				return Finish(Result);
 			}
 		}
@@ -1836,37 +2016,37 @@ namespace Durin::Asset::PackageObjectStream
 				return Payload.Descriptor.LogicalByteCount > EditorBulkDataExternalThreshold;
 			}) && ContainerHash.IsZero())
 		{
-			Diagnostic = {EWriterFailure::ArchiveFailure, {},
+			Diagnostic = {{},
 				"Authored bulk container identity could not be computed."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 		Private::FCapturedPackage Captured;
 		Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, true,
+			Objects, ObjectIds, Options, true,
 			OrdinaryAssetPackageWriterVersion, ContainerHash, Captured);
 		if (!Result)
 		{
-			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
+			Diagnostic = {{}, Result.Message}; return Finish(Result);
 		}
-		if (!Options.Serialization.EditorBulkDataStoragePayloads
+		if (!Options.EditorBulkDataStoragePayloads
 			&& std::ranges::any_of(Captured.BulkPayloads, [](const FEditorBulkDataStoragePayload& Payload) {
 				return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
 			}))
 		{
-			Diagnostic = {EWriterFailure::ArchiveFailure, {},
+			Diagnostic = {{},
 				"External authored bulk data requires a package publication payload collector."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		if (Options.Serialization.EditorBulkDataStoragePayloads)
+		if (Options.EditorBulkDataStoragePayloads)
 		{
-			Options.Serialization.EditorBulkDataStoragePayloads->clear();
+			Options.EditorBulkDataStoragePayloads->clear();
 			for (const FEditorBulkDataStoragePayload& Payload : Captured.BulkPayloads)
-				Options.Serialization.EditorBulkDataStoragePayloads->push_back(Payload);
+				Options.EditorBulkDataStoragePayloads->push_back(Payload);
 		}
 		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects)
 			|| !Private::EqualManifest(Discovery, Captured))
 		{
-			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
+			Diagnostic = {{}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 
@@ -1883,25 +2063,25 @@ namespace Durin::Asset::PackageObjectStream
 					DestinationPackage->GetPackagePath(), Summary.RedirectDestination)
 				|| Destination == FirstAsset)
 			{
-				Diagnostic = {EWriterFailure::InvalidInput, {}, "Redirector destination is invalid."};
+				Diagnostic = {{}, "Redirector destination is invalid."};
 				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 			}
 		}
 
 		FDefaultDeltaPlan DeltaPlan;
 		FDefaultDeltaDiagnostic DeltaDiagnostic;
-		const EDefaultDeltaMode DeltaMode =
-			Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
-				|| (Options.Serialization.SaveOverrides && !Options.Serialization.SaveOverrides->IsEmpty())
-			? EDefaultDeltaMode::NoDelta : Options.DeltaMode;
+		const EDefaultDeltaMode EffectiveDeltaMode =
+			Options.Domain == EAssetPackageSaveDomain::Cooked
+				|| (Options.SaveOverrides && !Options.SaveOverrides->IsEmpty())
+			? EDefaultDeltaMode::NoDelta : DeltaMode;
 		FArchiveState DeltaContext;
-		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked)
+		if (Options.Domain == EAssetPackageSaveDomain::Cooked)
 		{
 			DeltaContext.bPersistent = true;
 			DeltaContext.bCooking = true;
-			DeltaContext.bFilterEditorOnly = !Options.Serialization.bRetainEditorOnlyData;
+			DeltaContext.bFilterEditorOnly = !Options.bRetainEditorOnlyData;
 			DeltaContext.Target.Platform = "Win64";
-			DeltaContext.Target.Profile = Options.Serialization.TargetProfile == ECookTargetProfile::Game
+			DeltaContext.Target.Profile = Options.TargetProfile == ECookTargetProfile::Game
 				? "Game" : "EditorValidation";
 		}
 		bool bDeltaBuilt = true;
@@ -1909,7 +2089,7 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			FDefaultDeltaPlan AssetPlan;
 			if (!BuildDefaultDeltaPlan(
-				Asset, DeltaMode, AssetPlan, &DeltaDiagnostic, DeltaContext))
+				Asset, EffectiveDeltaMode, AssetPlan, &DeltaDiagnostic, DeltaContext))
 			{
 				bDeltaBuilt = false;
 				break;
@@ -1946,42 +2126,22 @@ namespace Durin::Asset::PackageObjectStream
 				Message += std::format(", observed={}, limit={}",
 					DeltaDiagnostic.ObservedValue, DeltaDiagnostic.ApplicableLimit);
 			Message += ".";
-			Diagnostic = {EWriterFailure::DeltaPlanFailure, DeltaDiagnostic.LogicalPath,
+			Diagnostic = {DeltaDiagnostic.LogicalPath,
 				std::move(Message)};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 		std::erase_if(DeltaPlan.Objects, [&](const FDefaultDeltaObjectPlan& ObjectPlan) {
 			return std::ranges::find(Objects, ObjectPlan.Object) == Objects.end();
 		});
-		FPackageInput SchemaMetadata;
-		if (!Private::GatherDeprecationCustomVersions(Objects, SchemaMetadata, Diagnostic))
-			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-		FPackageInput Input;
-		if (!Private::BuildObjectStreamInput(
-			Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
-			Input, Diagnostic))
-			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-		for (DObject* Asset : Package->GetTopLevelAssets())
+		std::vector<ObjectPackage::FCustomVersion> CustomVersions;
+		std::string LinkerError;
+		if (!Private::GatherDeprecationCustomVersions(Objects, CustomVersions, LinkerError)
+			|| !Private::BuildLinkerTables(Captured, Summary, PackagePath, Objects,
+				DeltaPlan, CustomVersions, Package->GetTopLevelAssets(), OutLinker, LinkerError))
 		{
-			PackageObjectStream::FTopLevelAssetInput Top{
-				.ObjectName = Asset->GetName(),
-				.ClassName = Asset->GetClass()->GetQualifiedName().ToString()};
-			if (auto* Redirector = Cast<DAssetRedirector>(Asset))
-			{
-				DObject* Destination = Redirector->GetDestinationObject();
-				FObjectPath DestinationPath;
-				if (!Destination || Destination == Asset
-					|| !FObjectPath::TryCreate(Destination->GetObjectPath(), DestinationPath))
-				{
-					Diagnostic = {EWriterFailure::InvalidInput, {},
-						"A top-level redirector destination is invalid."};
-					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-				Top.RedirectDestination = DestinationPath.ToString();
-			}
-			Input.TopLevelAssets.push_back(std::move(Top));
+			Diagnostic.Message = std::move(LinkerError);
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		OutInput = std::move(Input);
 		Diagnostic.Reset();
 		return Finish({});
 	}

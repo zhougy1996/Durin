@@ -159,8 +159,6 @@ namespace
 		return ObjectPath;
 	}
 
-	static_assert(Durin::ObjectPackage::DastObjectStreamVersion ==
-		5u);
 	static_assert(Durin::Asset::OrdinaryAssetPackageWriterVersion ==
 		Durin::ObjectPackage::DastV9FormatVersion);
 	static_assert(Durin::ObjectPackage::SupportedPackageReaderVersions ==
@@ -4953,7 +4951,7 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_TRUE(FloatMatrixStruct->HasCompleteAuthoredFields());
 }
 
-TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageObjectStream)
+TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageLinker)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath Path;

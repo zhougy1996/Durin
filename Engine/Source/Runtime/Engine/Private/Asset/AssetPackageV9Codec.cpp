@@ -1,6 +1,6 @@
 #include "AssetPackageV9Codec.h"
 #include "AssetPackageByteSource.h"
-#include "AssetPackageLinkerAdapter.h"
+#include "AssetPackageLinker.h"
 #include "AssetRegistryResultAdapter.h"
 
 #include "Asset/PackageInspection.h"
@@ -621,7 +621,7 @@ namespace Durin::Asset::Private::DastV9
 		{
 			ObjectPackage::FLinkerTables Linker;
 			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
-			return ApplyLivePackageLinker(Linker, Context.PackagePath, OutPackage,
+			return ApplyLivePackageLinker(std::move(Linker), Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback,
 					.SourceFormatVersion = ObjectPackage::DastV9FormatVersion,

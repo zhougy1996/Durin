@@ -8,11 +8,6 @@
 
 namespace Durin::Asset
 {
-	namespace PackageObjectStream
-	{
-		ENGINE_API auto ResetAssetPackageReencodeCountForTesting() -> void;
-		ENGINE_API auto GetAssetPackageReencodeCountForTesting() -> uint64;
-	} // namespace PackageObjectStream
 	ENGINE_API auto CreateAssetRedirectorForTesting(
 		const FPackagePath& RedirectorPath,
 		const FPackagePath& DestinationPath,

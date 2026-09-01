@@ -4,31 +4,39 @@ Summary: Remove the production PackageObjectStream model and make CoreDObject li
 
 Last reviewed: 2026-09-01
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-01
 
 ## Current Status
 
-The lasting package contracts already select the intended ownership: Engine
-captures and applies live object graphs through CoreDObject-owned
-`ObjectPackage::FLinkerTables`, CoreDObject alone encodes and decodes DAST v9,
-and AssetRegistry publishes only bounded Registry/catalog/dependency
-projections. The implementation has regressed from that contract.
+The cutover is complete. Engine now captures live `DPackage` graphs directly
+into CoreDObject-owned `ObjectPackage::FLinkerTables` and applies validated
+linker tables directly to unpublished object graphs. CoreDObject remains the
+sole owner of DAST v9 encoding/decoding, while AssetRegistry exposes only
+Registry, catalog, scan/cache, and dependency projections.
 
-The production DAST v9 save path currently captures a `DPackage` into
-`PackageObjectStream::FPackageInput`, converts that complete model into
-`FLinkerTables`, and then calls the CoreDObject writer. The load path performs
-the reverse conversion from `FLinkerTables` through `FPackageInput` and
-`FDecodedPackage` before constructing live objects. AssetRegistry still exports
-the object-stream type, schema, value, reader, and writer model even though its
-legacy object-stream byte codec has no production caller outside that bridge.
+The production `PackageObjectStream` DTO, its AssetRegistry reader/writer and
+canonical-map-key codec, the Engine bidirectional linker adapter, and the
+independent wire/reference-model tests were deleted. Runtime and native-test
+source-absence checks find no retired package-object-stream vocabulary.
 
-The ten directly implicated Runtime files contain approximately 6,100 physical
-lines. Not all of those lines are removable because Engine's Archive capture,
-live schema binding, unpublished graph construction, rollback, and publication
-logic remain necessary, but the duplicated package model, two complete value
-translations, legacy wire codec, and their reference-model tests are expected
-to produce a net deletion of several thousand lines.
+The directly replaced Runtime surface comprised 6,394 physical lines; its
+linker-native replacement totals 3,283 lines, a net Runtime reduction of 3,111
+lines. Removing the
+independent object-stream test model and registrations reduces tests/build
+declarations by another 3,338 net lines, for a total net reduction of 6,449
+lines. Line count is evidence of duplicate-model removal, not a correctness
+gate.
+
+Qualification passed on 2026-09-01: `asset-package`, `reflection`, and
+`asset-cook` bounded domains; the repository's affected-test selection against
+`dev`; and the complete configured target graph. The affected gate exposed and
+then verified the fix for order-dependent Struct schema discovery when an empty
+container instance preceded a populated instance. Canonical writer/reader,
+Registry front matter, BulkData, Cook, mutation, dependency, and rollback
+coverage all run through the direct linker path. Runtime/test source-absence
+checks confirm that no retired vocabulary, filenames, compatibility switch, or
+test-private historical fixture remains.
 
 ## Goal
 
@@ -116,21 +124,21 @@ vocabulary, or acquire a codec or reference model.
 
 ### Stage 0: Freeze linker-native behavior and deletion inventory
 
-- [ ] Record every Runtime and native-test consumer of
+- [x] Record every Runtime and native-test consumer of
   `PackageObjectStream`, `AssetRegistry/ObjectStream.h`,
   `FPackageInput`, `FDecodedPackage`, `CaptureLivePackageLinker`, and
   `ApplyLivePackageLinker`; classify each as direct-linker migration, deletion,
   or test-only fixture.
-- [ ] Add or move focused behavior coverage onto `FLinkerTables` before
+- [x] Add or move focused behavior coverage onto `FLinkerTables` before
   changing production call sites. Cover multi-export/Outer topology, internal
   and imported hard references, soft references, Struct/Array/Map values,
   default-delta provenance, custom-version/deprecated routes, cooked filtering,
   save overrides, inline/external BulkData, injected load failures, and atomic
   rollback.
-- [ ] Preserve exact DAST v9 byte fixtures and write-read-write identity in
+- [x] Preserve exact DAST v9 byte fixtures and write-read-write identity in
   CoreDObject package writer/reader tests; do not use the legacy object-stream
   writer as an oracle.
-- [ ] Establish source-absence checks for the retired vocabulary and capture a
+- [x] Establish source-absence checks for the retired vocabulary and capture a
   before-change source/test line baseline for the final deletion report.
 
 Completion condition: linker-native tests cover every behavior that justifies
@@ -139,21 +147,21 @@ an explicit disposition without introducing a second reference model.
 
 ### Stage 1: Capture live graphs directly into linker tables
 
-- [ ] Replace `AdaptObjectStreamType`, object-stream schema discovery, and
+- [x] Replace `AdaptObjectStreamType`, object-stream schema discovery, and
   object-stream value materialization with direct construction of
   `FSerializedType`, `FSerializedSchema`, `FPackageImport`, `FPackageExport`,
   `FPropertyTag`, and `FSerializedValue` values.
-- [ ] Preserve the existing two-pass Archive discovery/emission checks, frozen
+- [x] Preserve the existing two-pass Archive discovery/emission checks, frozen
   object topology, canonical object ordering, default-delta planning, cooked
   reachability pruning, save overrides, custom versions, dependency capture,
   and detached BulkData without exposing the phase-local capture buffer.
-- [ ] Build top-level asset records and hard/soft package dependencies directly
+- [x] Build top-level asset records and hard/soft package dependencies directly
   in `FPackageSummary`; resolve internal and external hard references directly
   to checked `FPackageIndex` values.
-- [ ] Make the DAST v9 save and mutation paths call the direct linker capture
+- [x] Make the DAST v9 save and mutation paths call the direct linker capture
   capability, then `ObjectPackage::WritePackageV9`, with no intermediate
   object-stream diagnostic or value conversion.
-- [ ] Delete the Engine `PackageObjectStream` capture API and writer header once
+- [x] Delete the Engine `PackageObjectStream` capture API and writer header once
   the direct path passes its focused tests.
 
 Completion condition: every production save/cook/mutation capture produces
@@ -163,21 +171,21 @@ no Engine capture code constructs `FPackageInput`, `FTypeDescriptor`, or
 
 ### Stage 2: Apply linker tables directly to unpublished object graphs
 
-- [ ] Replace loader helpers over `FDecodedPackage`, decoded table ids, and
+- [x] Replace loader helpers over `FDecodedPackage`, decoded table ids, and
   object-stream opcodes with helpers over `FLinkerTables`, checked
   `FPackageIndex`, `FSerializedType`, `FPropertyTag`, and `FSerializedValue`.
-- [ ] Resolve reflection aliases, classes, declaring schemas, fields, and
+- [x] Resolve reflection aliases, classes, declaring schemas, fields, and
   deprecated routes into a private non-owning binding plan; keep the validated
   linker values authoritative and unmodified.
-- [ ] Construct all package/export skeletons before resolving references, apply
+- [x] Construct all package/export skeletons before resolving references, apply
   tagged values through the existing authored-load Archive contract, restore
   authored override ledgers, run `PostLoad`, and publish only after the complete
   graph succeeds.
-- [ ] Preserve dependency-cycle admission, injected failure phases, rollback of
+- [x] Preserve dependency-cycle admission, injected failure phases, rollback of
   skeleton publication and packages loaded since the operation snapshot, load
   reports, canonicalization evidence, cooked target state, and unknown-class or
   type-mismatch failures.
-- [ ] Replace `PackageObjectStream::FLiveLoadOptions` and
+- [x] Replace `PackageObjectStream::FLiveLoadOptions` and
   `FLoadedAssetPackage` with narrowly named Engine-private linker-application
   state; remove the object-stream testing counter and namespace from Engine's
   public testing header.
@@ -189,20 +197,20 @@ graph.
 
 ### Stage 3: Remove the duplicate model and restore the AssetRegistry boundary
 
-- [ ] Delete the bidirectional `PackageObjectStream <-> FLinkerTables` adapter
+- [x] Delete the bidirectional `PackageObjectStream <-> FLinkerTables` adapter
   and both conversion directions in one change after Stages 1 and 2 are live.
-- [ ] Remove `AssetRegistry/ObjectStream.h`, the AssetRegistry object-stream
+- [x] Remove `AssetRegistry/ObjectStream.h`, the AssetRegistry object-stream
   reader/writer and canonical-map-key adapter, and any object-stream-only module
   dependencies or exported symbols.
-- [ ] Remove the Engine object-stream reader/writer private headers and rename
+- [x] Remove the Engine object-stream reader/writer private headers and rename
   surviving capture/application sources and symbols around linker ownership.
-- [ ] Delete `DastObjectStreamVersion`, re-encode counters, legacy failure
+- [x] Delete `DastObjectStreamVersion`, re-encode counters, legacy failure
   enums, section-directory types, and other constants or test seams whose only
   owner was the retired codec.
-- [ ] Delete the object-stream wire-contract and independent reference-model
+- [x] Delete the object-stream wire-contract and independent reference-model
   suites. Port only behavior that is not already proven by linker, DAST v9, or
   asset-package tests, using linker-native fixtures.
-- [ ] Confirm AssetRegistry public headers expose only Registry projection,
+- [x] Confirm AssetRegistry public headers expose only Registry projection,
   catalog, references, scan/cache, and result values; no object property value,
   schema, package writer, full-package reader, or canonical Map-key API remains.
 
@@ -214,22 +222,22 @@ package paths cross the Engine/CoreDObject boundary exactly once through
 
 ### Stage 4: Qualify the single-IR cutover and publish evidence
 
-- [ ] Run the focused `PackageLinkerContractTests`,
+- [x] Run the focused `PackageLinkerContractTests`,
   `PackageWriterContractTests`, `PackageRegistryContractTests`,
   `AssetPackageTests`, and `AssetBulkContainerTests` selections while iterating,
   following the repository testing workflow.
-- [ ] Run the bounded `asset-package` and `asset-cook` domain coverage needed by
+- [x] Run the bounded `asset-package` and `asset-cook` domain coverage needed by
   save, load, Cook, mutation, Registry, and BulkData callers, followed by the
   standard affected-test handoff gate.
-- [ ] Build the complete configured target graph because a public Runtime header
+- [x] Build the complete configured target graph because a public Runtime header
   and exported AssetRegistry/Engine symbols are removed.
-- [ ] Verify canonical v9 main/bulk byte identity, maintained-corpus load and
+- [x] Verify canonical v9 main/bulk byte identity, maintained-corpus load and
   resave, metadata-only inspection, front-matter Registry scan boundaries,
   exact mutation, dependency cycles, and failure rollback.
-- [ ] Run source-absence checks across Runtime and tests; if a private historical
+- [x] Run source-absence checks across Runtime and tests; if a private historical
   fixture remains, prove its files live only under `Engine/Tests` and no Runtime
   target includes or links it.
-- [ ] Update this plan's status and evidence, update lasting package/serialization
+- [x] Update this plan's status and evidence, update lasting package/serialization
   documentation only where implementation names changed, and report before/after
   production and test line counts without making line count a correctness gate.
 
@@ -254,10 +262,9 @@ the implemented code; and the repository has one format-neutral package IR.
 
 - [CoreDObject package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
 - [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [AssetRegistry object-stream API to retire](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/ObjectStream.h)
-- [Engine linker bridge to retire](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerAdapter.cpp)
-- [Engine Archive capture implementation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamArchiveAdapter.cpp)
-- [Engine live graph application implementation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamReader.cpp)
+- [Engine-private linker boundary](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinker.h)
+- [Engine direct linker capture](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerCapture.cpp)
+- [Engine direct linker application](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
 - [Engine DAST v9 integration](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV9Codec.cpp)
 
 ## Related Documentation

@@ -180,7 +180,7 @@ modules compile, no Engine runtime ran, and P2 has frozen bytes to read.
 
 - [CoreDObject package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
 - [Core binary envelope](../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
-- [Temporary v7 writer](../../Engine/Source/Runtime/AssetRegistry/Private/AssetObjectStreamWriter.cpp)
+- Temporary v7 writer (retired by the single-package-IR cutover)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Serialization](../Runtime/Core/Serialization.md)
 - [Code Modules](../Workspace/CodeModules.md)
