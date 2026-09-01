@@ -56,7 +56,7 @@ namespace
 		{
 		}
 
-		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneId, Durin::FGuid, std::string, std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> void override
+		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneId, std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> void override
 		{
 		}
 
@@ -66,13 +66,12 @@ namespace
 
 		auto AddOrReplaceVolumetricCloud(
 			Durin::FVolumetricCloudSceneId,
-			uint64,
 			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> void override
 		{
 		}
 
 		auto RemoveVolumetricCloud(
-			Durin::FVolumetricCloudSceneId, uint64) -> void override
+			Durin::FVolumetricCloudSceneId) -> void override
 		{
 		}
 

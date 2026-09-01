@@ -2,16 +2,13 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
+#include "SceneTypes.h"
 
 namespace Durin
 {
 	// Captures one immutable global-cloud candidate without retaining reflected objects.
 	struct FVolumetricCloudSceneData
 	{
-		FGuid PersistentId;
-		std::string SelectionKey;
-		uint64 InstanceId = 0;
-		uint64 PublicationRevision = 0;
 		int32 Priority = 0;
 		bool bEnabled = true;
 		bool bEligible = false;
@@ -77,14 +74,19 @@ namespace Durin
 		const FVolumetricCloudSceneData& Data) -> bool;
 
 	class FVolumetricCloudSceneProxy final
+		: public TSceneProxyPublication<FVolumetricCloudSceneId>
 	{
 	public:
-		explicit FVolumetricCloudSceneProxy(FVolumetricCloudSceneData InData)
-			: Data(std::move(InData)) {}
+		FVolumetricCloudSceneProxy(
+			FSceneCandidateIdentity InIdentity,
+			FVolumetricCloudSceneData InData)
+			: Identity(std::move(InIdentity)), Data(std::move(InData)) {}
 
+		auto GetIdentity() const -> const FSceneCandidateIdentity& { return Identity; }
 		auto GetData() const -> const FVolumetricCloudSceneData& { return Data; }
 
 	private:
+		FSceneCandidateIdentity Identity;
 		FVolumetricCloudSceneData Data;
 	};
 }

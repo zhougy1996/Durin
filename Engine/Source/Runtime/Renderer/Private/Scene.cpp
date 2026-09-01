@@ -1,4 +1,5 @@
 #include "Scene.h"
+#include "SceneRegistry.h"
 
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -29,6 +30,18 @@ namespace Durin
 		}
 	}
 
+	FScene::FScene()
+		: Lights(std::make_unique<FLightSceneRegistry>())
+		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
+		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())
+	{
+	}
+
+	auto FScene::AllocatePublicationRevision() -> uint64
+	{
+		return NextPublicationRevision.fetch_add(1, std::memory_order_relaxed);
+	}
+
 	FScene::~FScene()
 	{
 		if (IsInRenderingThread()) return;
@@ -51,9 +64,9 @@ namespace Durin
 		Fence.Wait();
 	}
 
-	FLightSceneInfo::FLightSceneInfo(FScene& InScene, FLightSceneId InId,
+	FLightSceneInfo::FLightSceneInfo(FScene& InScene,
 		std::shared_ptr<FLightSceneProxy> InProxy)
-		: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)), Kind(Proxy->GetKind())
+		: Scene(&InScene), Proxy(std::move(InProxy)), Kind(Proxy->GetKind())
 	{
 		FVector3 Position(0.0);
 		double Range = 0.0;
@@ -276,178 +289,276 @@ namespace Durin
 		CheckRenderingThread();
 		PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear();
 		TerrainSceneInfos.clear(); SplineMeshSceneInfos.clear(); PrimitiveInfosById.clear();
-		DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
-		SpotLightSceneInfos.clear(); LightInfosById.clear();
-		SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
-		VolumetricCloudSceneInfos.clear(); VolumetricCloudInfosById.clear();
+		Lights->Clear();
+		SkyBoxes->Clear();
+		VolumetricClouds->Clear();
 	}
 
-	auto FScene::AttachLight(FLightSceneInfo& Info) -> void
+	auto FLightSceneRegistry::Accept(
+		FLightSceneId SceneId, uint64 Revision) -> bool
+	{
+		if (SceneId == InvalidLightSceneId || Revision == 0) return false;
+		const auto Found = LastSeenRevisions.find(SceneId);
+		if (Found != LastSeenRevisions.end() && Found->second >= Revision) return false;
+		LastSeenRevisions.insert_or_assign(SceneId, Revision);
+		return true;
+	}
+
+	auto FLightSceneRegistry::Attach(FLightSceneInfo& Info) -> void
 	{
 		switch (Info.GetKind())
 		{
 		case ELightSceneProxyKind::Directional:
-			DirectionalLightSceneInfos.push_back(&Info);
+			Directional.push_back(&Info);
 			break;
 		case ELightSceneProxyKind::Point:
-			PointLightSceneInfos.push_back(&Info);
+			Point.push_back(&Info);
 			break;
 		case ELightSceneProxyKind::Spot:
-			SpotLightSceneInfos.push_back(&Info);
+			Spot.push_back(&Info);
 			break;
 		}
 	}
 
-	auto FScene::DetachLight(FLightSceneInfo& Info) -> void
+	auto FLightSceneRegistry::Detach(FLightSceneInfo& Info) -> void
 	{
 		switch (Info.GetKind())
 		{
-		case ELightSceneProxyKind::Directional:
-			std::erase(DirectionalLightSceneInfos, &Info);
-			break;
-		case ELightSceneProxyKind::Point:
-			std::erase(PointLightSceneInfos, &Info);
-			break;
-		case ELightSceneProxyKind::Spot:
-			std::erase(SpotLightSceneInfos, &Info);
-			break;
+		case ELightSceneProxyKind::Directional: std::erase(Directional, &Info); break;
+		case ELightSceneProxyKind::Point: std::erase(Point, &Info); break;
+		case ELightSceneProxyKind::Spot: std::erase(Spot, &Info); break;
 		}
 	}
 
-	auto FScene::AddOrReplaceLight(FLightSceneId LightId, std::unique_ptr<FLightSceneProxy> Proxy) -> void
+	auto FLightSceneRegistry::AddOrReplace(
+		FScene& Scene, std::shared_ptr<FLightSceneProxy> Proxy) -> void
+	{
+		const auto Metadata = Proxy->GetMetadata();
+		if (!Accept(Metadata.SceneId, Metadata.Revision)) return;
+		if (const auto Found = InfosById.find(Metadata.SceneId);
+			Found != InfosById.end())
+		{
+			Detach(*Found->second);
+			InfosById.erase(Found);
+		}
+		auto Info = std::make_unique<FLightSceneInfo>(Scene, std::move(Proxy));
+		Attach(*Info);
+		InfosById.emplace(Metadata.SceneId, std::move(Info));
+	}
+
+	auto FLightSceneRegistry::Remove(
+		FLightSceneId SceneId, uint64 Revision) -> void
+	{
+		if (!Accept(SceneId, Revision)) return;
+		const auto Found = InfosById.find(SceneId);
+		if (Found == InfosById.end()) return;
+		Detach(*Found->second);
+		InfosById.erase(Found);
+	}
+
+	auto FLightSceneRegistry::Clear() -> void
+	{
+		Directional.clear(); Point.clear(); Spot.clear(); InfosById.clear();
+		LastSeenRevisions.clear();
+	}
+
+	auto FScene::AddOrReplaceLight(FLightSceneId LightId,
+		std::unique_ptr<FLightSceneProxy> Proxy) -> void
 	{
 		if (LightId == InvalidLightSceneId || Proxy == nullptr) return;
+		const uint64 Revision = AllocatePublicationRevision();
+		check(Proxy->BindPublication({LightId, Revision}));
 		std::shared_ptr<FLightSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplaceLight)([this, LightId, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			if (const auto Found = LightInfosById.find(LightId); Found != LightInfosById.end())
-			{
-				DetachLight(*Found->second);
-				LightInfosById.erase(Found);
-			}
-			auto Info = std::make_unique<FLightSceneInfo>(*this, LightId, SharedProxy);
-			AttachLight(*Info);
-			LightInfosById.emplace(LightId, std::move(Info));
-		});
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceLight)(
+			[this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				Lights->AddOrReplace(*this, SharedProxy);
+			});
 	}
 
 	auto FScene::RemoveLight(FLightSceneId LightId) -> void
 	{
 		if (LightId == InvalidLightSceneId) return;
-		ENQUEUE_RENDER_COMMAND(RemoveLight)([this, LightId](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			const auto Found = LightInfosById.find(LightId);
-			if (Found == LightInfosById.end()) return;
-			DetachLight(*Found->second);
-			LightInfosById.erase(Found);
-		});
+		const uint64 Revision = AllocatePublicationRevision();
+		ENQUEUE_RENDER_COMMAND(RemoveLight)(
+			[this, LightId, Revision](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				Lights->Remove(LightId, Revision);
+			});
 	}
 
-	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void
+	auto FScene::GetDirectionalLightSceneInfos() const
+		-> const std::vector<FLightSceneInfo*>&
 	{
-		if (SkyBoxId == InvalidSkyBoxSceneId || !PersistentId.IsValid() || Proxy == nullptr) return;
+		return Lights->GetDirectional();
+	}
+
+	auto FScene::GetPointLightSceneInfos() const
+		-> const std::vector<FLightSceneInfo*>&
+	{
+		return Lights->GetPoint();
+	}
+
+	auto FScene::GetSpotLightSceneInfos() const
+		-> const std::vector<FLightSceneInfo*>&
+	{
+		return Lights->GetSpot();
+	}
+
+	auto FSkyBoxSceneRegistry::Accept(
+		FSkyBoxSceneId SceneId, uint64 Revision) -> bool
+	{
+		if (SceneId == InvalidSkyBoxSceneId || Revision == 0) return false;
+		const auto Found = LastSeenRevisions.find(SceneId);
+		if (Found != LastSeenRevisions.end() && Found->second >= Revision) return false;
+		LastSeenRevisions.insert_or_assign(SceneId, Revision);
+		return true;
+	}
+
+	auto FSkyBoxSceneRegistry::AddOrReplace(
+		FScene& Scene, std::shared_ptr<FSkyBoxSceneProxy> Proxy) -> void
+	{
+		const auto Metadata = Proxy->GetMetadata();
+		if (!Proxy->GetIdentity().IsValid()
+			|| !Accept(Metadata.SceneId, Metadata.Revision)) return;
+		if (const auto Found = InfosById.find(Metadata.SceneId);
+			Found != InfosById.end())
+		{
+			std::erase(SceneInfos, Found->second.get());
+			InfosById.erase(Found);
+		}
+		auto Info = std::make_unique<FSkyBoxSceneInfo>(Scene, std::move(Proxy));
+		SceneInfos.push_back(Info.get());
+		InfosById.emplace(Metadata.SceneId, std::move(Info));
+	}
+
+	auto FSkyBoxSceneRegistry::Remove(
+		FSkyBoxSceneId SceneId, uint64 Revision) -> void
+	{
+		if (!Accept(SceneId, Revision)) return;
+		const auto Found = InfosById.find(SceneId);
+		if (Found == InfosById.end()) return;
+		std::erase(SceneInfos, Found->second.get());
+		InfosById.erase(Found);
+	}
+
+	auto FSkyBoxSceneRegistry::Clear() -> void
+	{
+		SceneInfos.clear(); InfosById.clear(); LastSeenRevisions.clear();
+	}
+
+	auto FSkyBoxSceneRegistry::GetActive() const -> const FSkyBoxSceneInfo*
+	{
+		if (SceneInfos.empty()) return nullptr;
+		return *std::ranges::min_element(SceneInfos,
+			[](const FSkyBoxSceneInfo* A, const FSkyBoxSceneInfo* B) {
+				const auto& AIdentity = A->GetProxy().GetIdentity();
+				const auto& BIdentity = B->GetProxy().GetIdentity();
+				return std::tuple(AIdentity.PersistentId, AIdentity.SelectionKey,
+					A->GetId())
+					< std::tuple(BIdentity.PersistentId, BIdentity.SelectionKey,
+						B->GetId());
+			});
+	}
+
+	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId,
+		std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void
+	{
+		if (SkyBoxId == InvalidSkyBoxSceneId || Proxy == nullptr
+			|| !Proxy->GetIdentity().IsValid()) return;
+		const uint64 Revision = AllocatePublicationRevision();
+		check(Proxy->BindPublication({SkyBoxId, Revision}));
 		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplaceSkyBox)([this, SkyBoxId, PersistentId, SelectionKey = std::move(SelectionKey), SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) mutable {
-			CheckRenderingThread();
-			if (const auto Found = SkyBoxInfosById.find(SkyBoxId); Found != SkyBoxInfosById.end())
-			{
-				std::erase(SkyBoxSceneInfos, Found->second.get());
-				SkyBoxInfosById.erase(Found);
-			}
-			auto Info = std::make_unique<FSkyBoxSceneInfo>(*this, SkyBoxId, PersistentId, std::move(SelectionKey), SharedProxy);
-			SkyBoxSceneInfos.push_back(Info.get());
-			SkyBoxInfosById.emplace(SkyBoxId, std::move(Info));
-		});
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceSkyBox)(
+			[this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				SkyBoxes->AddOrReplace(*this, SharedProxy);
+			});
 	}
 
 	auto FScene::RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void
 	{
 		if (SkyBoxId == InvalidSkyBoxSceneId) return;
-		ENQUEUE_RENDER_COMMAND(RemoveSkyBox)([this, SkyBoxId](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			const auto Found = SkyBoxInfosById.find(SkyBoxId);
-			if (Found == SkyBoxInfosById.end()) return;
-			std::erase(SkyBoxSceneInfos, Found->second.get());
-			SkyBoxInfosById.erase(Found);
-		});
+		const uint64 Revision = AllocatePublicationRevision();
+		ENQUEUE_RENDER_COMMAND(RemoveSkyBox)(
+			[this, SkyBoxId, Revision](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				SkyBoxes->Remove(SkyBoxId, Revision);
+			});
 	}
 
-	auto FScene::GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*
+	auto FScene::GetActiveSkyBoxSceneInfo_RenderThread() const
+		-> const FSkyBoxSceneInfo*
 	{
 		CheckRenderingThread();
-		if (SkyBoxSceneInfos.empty()) return nullptr;
-		return *std::ranges::min_element(SkyBoxSceneInfos, [](const FSkyBoxSceneInfo* A, const FSkyBoxSceneInfo* B) {
-			return std::tuple(A->GetPersistentId(), A->GetSelectionKey(), A->GetId())
-				< std::tuple(B->GetPersistentId(), B->GetSelectionKey(), B->GetId());
-		});
+		return SkyBoxes->GetActive();
 	}
 
-	auto FScene::GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool
+	auto FScene::GetActiveSkyBox_RenderThread(
+		FSkyBoxSceneSnapshot& OutSkyBox) const -> bool
 	{
 		const FSkyBoxSceneInfo* Info = GetActiveSkyBoxSceneInfo_RenderThread();
 		if (Info == nullptr) return false;
-		OutSkyBox = Info->GetProxy().GetData();
-		OutSkyBox.SceneId = Info->GetPersistentId();
-		OutSkyBox.SelectionKey = Info->GetSelectionKey();
-		OutSkyBox.InstanceId = Info->GetId().Value;
+		OutSkyBox.Metadata = Info->GetProxy().GetMetadata();
+		OutSkyBox.Identity = Info->GetProxy().GetIdentity();
+		OutSkyBox.Data = Info->GetProxy().GetData();
 		return true;
 	}
 
 	auto FScene::GetSkyBoxCount_RenderThread() const -> size_t
 	{
 		CheckRenderingThread();
-		return SkyBoxSceneInfos.size();
+		return SkyBoxes->Num();
 	}
 
-	auto FScene::AddOrReplaceVolumetricCloud(
-		FVolumetricCloudSceneId CloudId, uint64 PublicationRevision,
-		std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
+	auto FVolumetricCloudSceneRegistry::Accept(
+		FVolumetricCloudSceneId SceneId, uint64 Revision) -> bool
 	{
-		if (CloudId == InvalidVolumetricCloudSceneId || PublicationRevision == 0
-			|| Proxy == nullptr) return;
-		const FVolumetricCloudSceneData& Data = Proxy->GetData();
-		if (!Data.PersistentId.IsValid() || Data.InstanceId != CloudId.Value
-			|| Data.PublicationRevision != PublicationRevision) return;
-		std::shared_ptr<FVolumetricCloudSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplaceVolumetricCloud)(
-			[this, CloudId, PublicationRevision,
-				SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
-				CheckRenderingThread();
-				if (const auto Found = VolumetricCloudInfosById.find(CloudId);
-					Found != VolumetricCloudInfosById.end())
-				{
-					if (Found->second->GetRevision() >= PublicationRevision) return;
-					std::erase(VolumetricCloudSceneInfos, Found->second.get());
-					VolumetricCloudInfosById.erase(Found);
-				}
-				auto Info = std::make_unique<FVolumetricCloudSceneInfo>(
-					*this, CloudId, SharedProxy);
-				VolumetricCloudSceneInfos.push_back(Info.get());
-				VolumetricCloudInfosById.emplace(CloudId, std::move(Info));
-			});
+		if (SceneId == InvalidVolumetricCloudSceneId || Revision == 0) return false;
+		const auto Found = LastSeenRevisions.find(SceneId);
+		if (Found != LastSeenRevisions.end() && Found->second >= Revision) return false;
+		LastSeenRevisions.insert_or_assign(SceneId, Revision);
+		return true;
 	}
 
-	auto FScene::RemoveVolumetricCloud(
-		FVolumetricCloudSceneId CloudId, uint64 ExpectedRevision) -> void
+	auto FVolumetricCloudSceneRegistry::AddOrReplace(
+		FScene& Scene, std::shared_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
 	{
-		if (CloudId == InvalidVolumetricCloudSceneId || ExpectedRevision == 0) return;
-		ENQUEUE_RENDER_COMMAND(RemoveVolumetricCloud)(
-			[this, CloudId, ExpectedRevision](FRHICommandListImmediate&) {
-				CheckRenderingThread();
-				const auto Found = VolumetricCloudInfosById.find(CloudId);
-				if (Found == VolumetricCloudInfosById.end()
-					|| Found->second->GetRevision() != ExpectedRevision) return;
-				std::erase(VolumetricCloudSceneInfos, Found->second.get());
-				VolumetricCloudInfosById.erase(Found);
-			});
+		const auto Metadata = Proxy->GetMetadata();
+		if (!Proxy->GetIdentity().IsValid()
+			|| !Accept(Metadata.SceneId, Metadata.Revision)) return;
+		if (const auto Found = InfosById.find(Metadata.SceneId);
+			Found != InfosById.end())
+		{
+			std::erase(SceneInfos, Found->second.get());
+			InfosById.erase(Found);
+		}
+		auto Info = std::make_unique<FVolumetricCloudSceneInfo>(Scene,
+			std::move(Proxy));
+		SceneInfos.push_back(Info.get());
+		InfosById.emplace(Metadata.SceneId, std::move(Info));
 	}
 
-	auto FScene::GetActiveVolumetricCloudSceneInfo_RenderThread() const
+	auto FVolumetricCloudSceneRegistry::Remove(
+		FVolumetricCloudSceneId SceneId, uint64 Revision) -> void
+	{
+		if (!Accept(SceneId, Revision)) return;
+		const auto Found = InfosById.find(SceneId);
+		if (Found == InfosById.end()) return;
+		std::erase(SceneInfos, Found->second.get());
+		InfosById.erase(Found);
+	}
+
+	auto FVolumetricCloudSceneRegistry::Clear() -> void
+	{
+		SceneInfos.clear(); InfosById.clear(); LastSeenRevisions.clear();
+	}
+
+	auto FVolumetricCloudSceneRegistry::GetActive() const
 		-> const FVolumetricCloudSceneInfo*
 	{
-		CheckRenderingThread();
 		FVolumetricCloudSceneInfo* Active = nullptr;
-		for (FVolumetricCloudSceneInfo* Candidate : VolumetricCloudSceneInfos)
+		for (FVolumetricCloudSceneInfo* Candidate : SceneInfos)
 		{
 			const FVolumetricCloudSceneData& Data = Candidate->GetProxy().GetData();
 			if (!Data.bEligible
@@ -462,29 +573,71 @@ namespace Durin
 				continue;
 			}
 			const FVolumetricCloudSceneData& ActiveData = Active->GetProxy().GetData();
+			const FSceneCandidateIdentity& Identity =
+				Candidate->GetProxy().GetIdentity();
+			const FSceneCandidateIdentity& ActiveIdentity =
+				Active->GetProxy().GetIdentity();
 			if (Data.Priority > ActiveData.Priority
 				|| (Data.Priority == ActiveData.Priority
-					&& std::tuple(Data.PersistentId, Data.SelectionKey, Data.InstanceId)
-					< std::tuple(ActiveData.PersistentId, ActiveData.SelectionKey,
-						ActiveData.InstanceId)))
+					&& std::tuple(Identity.PersistentId, Identity.SelectionKey,
+						Candidate->GetId())
+					< std::tuple(ActiveIdentity.PersistentId,
+						ActiveIdentity.SelectionKey, Active->GetId())))
 				Active = Candidate;
 		}
 		return Active;
 	}
 
+	auto FScene::AddOrReplaceVolumetricCloud(
+		FVolumetricCloudSceneId CloudId,
+		std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
+	{
+		if (CloudId == InvalidVolumetricCloudSceneId || Proxy == nullptr
+			|| !Proxy->GetIdentity().IsValid()) return;
+		const uint64 Revision = AllocatePublicationRevision();
+		check(Proxy->BindPublication({CloudId, Revision}));
+		std::shared_ptr<FVolumetricCloudSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceVolumetricCloud)(
+			[this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				VolumetricClouds->AddOrReplace(*this, SharedProxy);
+			});
+	}
+
+	auto FScene::RemoveVolumetricCloud(
+		FVolumetricCloudSceneId CloudId) -> void
+	{
+		if (CloudId == InvalidVolumetricCloudSceneId) return;
+		const uint64 Revision = AllocatePublicationRevision();
+		ENQUEUE_RENDER_COMMAND(RemoveVolumetricCloud)(
+			[this, CloudId, Revision](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				VolumetricClouds->Remove(CloudId, Revision);
+			});
+	}
+
+	auto FScene::GetActiveVolumetricCloudSceneInfo_RenderThread() const
+		-> const FVolumetricCloudSceneInfo*
+	{
+		CheckRenderingThread();
+		return VolumetricClouds->GetActive();
+	}
+
 	auto FScene::GetActiveVolumetricCloud_RenderThread(
-		FVolumetricCloudSceneData& OutCloud) const -> bool
+		FVolumetricCloudSceneSnapshot& OutCloud) const -> bool
 	{
 		const FVolumetricCloudSceneInfo* Info =
 			GetActiveVolumetricCloudSceneInfo_RenderThread();
 		if (Info == nullptr) return false;
-		OutCloud = Info->GetProxy().GetData();
+		OutCloud.Metadata = Info->GetProxy().GetMetadata();
+		OutCloud.Identity = Info->GetProxy().GetIdentity();
+		OutCloud.Data = Info->GetProxy().GetData();
 		return true;
 	}
 
 	auto FScene::GetVolumetricCloudCount_RenderThread() const -> size_t
 	{
 		CheckRenderingThread();
-		return VolumetricCloudSceneInfos.size();
+		return VolumetricClouds->Num();
 	}
 }

@@ -32,44 +32,40 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 	const Durin::FGuid LargerId(2, 0, 0, 0);
 
 	Durin::FSkyBoxSceneData Larger;
-	Larger.SceneId = LargerId;
-	Larger.InstanceId = 2;
-	Larger.SelectionKey = "Larger";
 	Larger.Intensity = 2.0f;
-	PublishSkyBox(Scene, Larger);
-	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(Larger.InstanceId));
-	PublishSkyBox(Scene, Larger);
+	PublishSkyBox(Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
+	const uint64 FirstLargerRevision =
+		ObserveSkyBoxes(Scene).Active.Metadata.Revision;
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(2));
+	PublishSkyBox(Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
+	EXPECT_GT(ObserveSkyBoxes(Scene).Active.Metadata.Revision,
+		FirstLargerRevision);
 
 	Durin::FSkyBoxSceneData Smaller;
-	Smaller.SceneId = SmallerId;
-	Smaller.InstanceId = 1;
-	Smaller.SelectionKey = "Smaller";
 	Smaller.Intensity = 4.0f;
-	PublishSkyBox(Scene, Smaller);
+	PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1), {SmallerId, "Smaller"}, Smaller);
 
 	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 2u);
-	EXPECT_EQ(Observation.Active.SceneId, SmallerId);
-	EXPECT_EQ(Observation.Active.Intensity, 4.0f);
+	EXPECT_EQ(Observation.Active.Identity.PersistentId, SmallerId);
+	EXPECT_EQ(Observation.Active.Data.Intensity, 4.0f);
 
 	Durin::FSkyBoxSceneData DuplicateGuid = Smaller;
-	DuplicateGuid.InstanceId = 3;
-	DuplicateGuid.SelectionKey = "A";
 	DuplicateGuid.Intensity = 6.0f;
-	PublishSkyBox(Scene, DuplicateGuid);
+	PublishSkyBox(Scene, Durin::FSkyBoxSceneId(3), {SmallerId, "A"}, DuplicateGuid);
 	Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 3u);
-	EXPECT_EQ(Observation.Active.InstanceId, DuplicateGuid.InstanceId);
-	EXPECT_EQ(Observation.Active.Intensity, 6.0f);
-	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(DuplicateGuid.InstanceId));
+	EXPECT_EQ(Observation.Active.Metadata.SceneId, Durin::FSkyBoxSceneId(3));
+	EXPECT_EQ(Observation.Active.Data.Intensity, 6.0f);
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(3));
 
-	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(Smaller.InstanceId));
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(1));
 	Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.SceneId, LargerId);
+	EXPECT_EQ(Observation.Active.Identity.PersistentId, LargerId);
 
 	SceneOwner.reset();
 	Durin::FlushRenderingCommands();
@@ -135,7 +131,8 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.SceneId, Component->GetSkyBoxSceneId());
+	EXPECT_EQ(Observation.Active.Identity.PersistentId,
+		Component->GetSkyBoxSceneId());
 
 	const Durin::FQuat Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 		45.0, Durin::FVectorConstants::Up);
@@ -146,10 +143,10 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(
-		Observation.Active.TextureReference, Cube->GetTextureReferenceRHI());
-	EXPECT_EQ(Observation.Active.Rotation, Rotation);
-	EXPECT_EQ(Observation.Active.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
-	EXPECT_EQ(Observation.Active.Intensity, 3.0f);
+		Observation.Active.Data.TextureReference, Cube->GetTextureReferenceRHI());
+	EXPECT_EQ(Observation.Active.Data.Rotation, Rotation);
+	EXPECT_EQ(Observation.Active.Data.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
+	EXPECT_EQ(Observation.Active.Data.Intensity, 3.0f);
 
 	Actor->SetHidden(true);
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);

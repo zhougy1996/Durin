@@ -53,17 +53,13 @@ namespace Durin
 
 		virtual auto AddOrReplaceSkyBox(
 			FSkyBoxSceneId SkyBoxId,
-			FGuid PersistentId,
-			std::string SelectionKey,
 			std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void = 0;
 		virtual auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void = 0;
 
 		virtual auto AddOrReplaceVolumetricCloud(
 			FVolumetricCloudSceneId CloudId,
-			uint64 PublicationRevision,
 			std::unique_ptr<FVolumetricCloudSceneProxy> Proxy) -> void = 0;
 		virtual auto RemoveVolumetricCloud(
-			FVolumetricCloudSceneId CloudId,
-			uint64 ExpectedRevision) -> void = 0;
+			FVolumetricCloudSceneId CloudId) -> void = 0;
 	};
 }

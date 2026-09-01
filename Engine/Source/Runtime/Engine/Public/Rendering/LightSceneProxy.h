@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "SceneTypes.h"
 
 namespace Durin
 {
@@ -44,7 +45,7 @@ namespace Durin
 	};
 
 	// Owns a detached renderer-facing light value and exposes its explicit family.
-	class FLightSceneProxy
+	class FLightSceneProxy : public TSceneProxyPublication<FLightSceneId>
 	{
 	public:
 		ENGINE_API virtual ~FLightSceneProxy() = default;

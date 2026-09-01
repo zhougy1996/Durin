@@ -74,9 +74,9 @@ namespace Durin
 
 	auto DVolumetricCloudComponent::OnUnregister() -> void
 	{
-		if (FSceneInterface* Scene = GetRenderScene(); PublicationRevision != 0 && Scene)
+		if (FSceneInterface* Scene = GetRenderScene())
 			Scene->RemoveVolumetricCloud(
-				FVolumetricCloudSceneId(VolumetricCloudInstanceId), PublicationRevision);
+				FVolumetricCloudSceneId(VolumetricCloudInstanceId));
 		Super::OnUnregister();
 	}
 
@@ -269,10 +269,6 @@ namespace Durin
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr || VolumetricCloudInstanceId == 0) return;
 		FVolumetricCloudSceneData Data;
-		Data.PersistentId = VolumetricCloudSceneId;
-		Data.SelectionKey = GetObjectPath();
-		Data.InstanceId = VolumetricCloudInstanceId;
-		Data.PublicationRevision = ++PublicationRevision;
 		Data.Priority = Priority;
 		const AActor* Owner = GetOwner();
 		Data.bEnabled = bEnabled;
@@ -296,10 +292,11 @@ namespace Durin
 			.bBaseDensityTextureReady = BaseDensityTexture.Get() != nullptr,
 			.bDetailDensityTextureAssigned = DetailDensityTexture.Get() != nullptr,
 			.bDetailDensityTextureReady = DetailDensityTexture.Get() != nullptr}).bEligible
-			&& Data.PersistentId.IsValid() && Data.InstanceId != 0
-			&& Data.PublicationRevision != 0;
+			&& VolumetricCloudSceneId.IsValid();
 		Scene->AddOrReplaceVolumetricCloud(
-			FVolumetricCloudSceneId(VolumetricCloudInstanceId), PublicationRevision,
-			std::make_unique<FVolumetricCloudSceneProxy>(std::move(Data)));
+			FVolumetricCloudSceneId(VolumetricCloudInstanceId),
+			std::make_unique<FVolumetricCloudSceneProxy>(
+				FSceneCandidateIdentity{VolumetricCloudSceneId, GetObjectPath()},
+				std::move(Data)));
 	}
 }

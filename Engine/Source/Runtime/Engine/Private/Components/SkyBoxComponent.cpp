@@ -113,8 +113,8 @@ namespace Durin
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
 		Scene->AddOrReplaceSkyBox(
 			FSkyBoxSceneId(SkyBoxInstanceId),
-			SkyBoxSceneId,
-			GetObjectPath(),
-			std::make_unique<FSkyBoxSceneProxy>(std::move(Data)));
+			std::make_unique<FSkyBoxSceneProxy>(
+				FSceneCandidateIdentity{SkyBoxSceneId, GetObjectPath()},
+				std::move(Data)));
 	}
 }

@@ -123,9 +123,7 @@ namespace Durin
 	auto IsVolumetricCloudCandidateEligible(
 		const FVolumetricCloudSceneData& Data) -> bool
 	{
-		return Data.PersistentId.IsValid()
-			&& Data.InstanceId != 0 && Data.PublicationRevision != 0
-			&& DiagnoseVolumetricCloudEligibility(Data, {
+		return DiagnoseVolumetricCloudEligibility(Data, {
 				.bBaseDensityTextureAssigned = Data.BaseDensityTexture != nullptr,
 				.bBaseDensityTextureReady = Data.BaseDensityTexture != nullptr,
 				.bDetailDensityTextureAssigned = Data.DetailDensityTexture != nullptr,

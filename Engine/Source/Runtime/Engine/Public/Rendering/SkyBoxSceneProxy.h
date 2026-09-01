@@ -2,15 +2,13 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
+#include "SceneTypes.h"
 
 namespace Durin
 {
 	// Captures sky state without retaining or reading reflected objects on the render thread.
 	struct FSkyBoxSceneData
 	{
-		FGuid SceneId;
-		std::string SelectionKey;
-		uint64 InstanceId = 0;
 		FRHITextureReferenceRef TextureReference;
 		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
 		FVector3f Tint{1.0f, 1.0f, 1.0f};
@@ -18,14 +16,19 @@ namespace Durin
 	};
 
 	class FSkyBoxSceneProxy final
+		: public TSceneProxyPublication<FSkyBoxSceneId>
 	{
 	public:
-		explicit FSkyBoxSceneProxy(FSkyBoxSceneData InData)
-			: Data(std::move(InData)) {}
+		FSkyBoxSceneProxy(
+			FSceneCandidateIdentity InIdentity,
+			FSkyBoxSceneData InData)
+			: Identity(std::move(InIdentity)), Data(std::move(InData)) {}
 
+		auto GetIdentity() const -> const FSceneCandidateIdentity& { return Identity; }
 		auto GetData() const -> const FSkyBoxSceneData& { return Data; }
 
 	private:
+		FSceneCandidateIdentity Identity;
 		FSkyBoxSceneData Data;
 	};
 }

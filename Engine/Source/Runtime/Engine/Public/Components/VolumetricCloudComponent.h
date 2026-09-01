@@ -47,7 +47,6 @@ namespace Durin
 		auto GetAmbient() const -> float { return Ambient; }
 		auto GetVolumetricCloudSceneId() const -> const FGuid& { return VolumetricCloudSceneId; }
 		auto GetVolumetricCloudInstanceId() const -> uint64 { return VolumetricCloudInstanceId; }
-		auto GetPublicationRevision() const -> uint64 { return PublicationRevision; }
 		auto GetEligibilityStatus() const -> const std::string& { return EligibilityStatus; }
 		ENGINE_API auto RefreshEligibilityDiagnostic() -> void;
 
@@ -112,6 +111,5 @@ namespace Durin
 		DPROPERTY()
 		FGuid VolumetricCloudSceneId;
 		uint64 VolumetricCloudInstanceId = 0;
-		uint64 PublicationRevision = 0;
 	};
 }

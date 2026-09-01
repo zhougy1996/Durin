@@ -4,7 +4,7 @@ Summary: Defines reflected global-cloud authoring, deterministic scene selection
 
 Modules: Engine, Renderer
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-09-01
 
 ## Authoring boundary
 
@@ -42,18 +42,20 @@ The render-thread registry selects eligible candidates by:
 3. component object path ascending; and
 4. runtime instance ID ascending.
 
-Every complete publication increments a component revision. Add/replace accepts
-only a revision newer than the stored entry; removal requires an exact revision
-match. Duplicate and stale commands are no-ops, so an old unregister cannot
-remove a newer replacement. Disabled, hidden, invalid, or missing-input state
-publishes an ineligible replacement and allows the next candidate to take over.
-Scene release clears all entries and counted references on the render thread.
+`FScene` assigns every complete publication or removal a monotonically
+increasing revision and binds it to the proxy metadata before enqueue.
+`FVolumetricCloudSceneRegistry` accepts only an operation newer than the last
+revision for that runtime identity and retains removal tombstones. Disabled,
+hidden, invalid, or missing-input state publishes an ineligible replacement and
+allows the next candidate to take over. Scene release clears entries,
+tombstones, and counted references on the render thread.
 
 ## Thread and ownership boundary
 
-`FVolumetricCloudSceneData` contains plain selection and physical values plus
-three `FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxy` owns one
-immutable value and `FVolumetricCloudSceneInfo` owns the proxy. No actor,
+`FVolumetricCloudSceneData` contains physical values plus three
+`FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxy` separately owns
+the immutable data, deterministic candidate identity, and typed publication
+metadata; `FVolumetricCloudSceneInfo` owns the proxy. No actor,
 component, reflected object, mutable container, raw backend handle, render
 target, shader, history, or pipeline crosses from Engine-authored state to the
 render thread.
@@ -69,7 +71,7 @@ counts and transmittance cutoff.
 
 `VolumetricCloudSceneContractTests` covers defaults, clamping, identity,
 serialization, registration, deterministic selection, ineligible fallback,
-stale mutation rejection, removal, and exact parameter translation without GPU
+ordered replacement, removal, and exact parameter translation without GPU
 initialization. `VolumetricCloudSceneVulkanTests` drives the production scene
 path from a real actor and volume assets through offscreen, Present, resize,
 invalid-input, compute, and fragment routes in inline and threaded execution.

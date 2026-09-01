@@ -33,9 +33,11 @@ authoritative production ordering and failure contract.
 Directional, point, and spot lights cross the game/render boundary as detached
 `FLightSceneProxy` values. `FSceneInterface::AddOrReplaceLight` transfers one complete
 candidate under a stable `FLightSceneId`; `RemoveLight` removes any family under
-that identity. `FScene` owns one identity map and authoritative directional,
-point, and spot `FLightSceneInfo` views. Replacement detaches the old typed
-membership before attaching the new one, including a same-ID family change.
+that identity. `FScene` assigns publication metadata before enqueue, and
+`FLightSceneRegistry` owns the identity map, revision tombstones, and
+authoritative directional, point, and spot `FLightSceneInfo` views. Replacement
+detaches the old typed membership before attaching the new one, including a
+same-ID family change.
 
 `DLightComponent` owns identity, registration, hidden-owner, transform,
 property-change, and retirement publication. Directional, point, and spot

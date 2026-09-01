@@ -44,13 +44,15 @@
 
 namespace
 {
-	auto PublishSkyBox(Durin::FScene& Scene, Durin::FSkyBoxSceneData Data) -> void
+	auto PublishSkyBox(
+		Durin::FScene& Scene,
+		Durin::FSkyBoxSceneId SceneId,
+		Durin::FSceneCandidateIdentity Identity,
+		Durin::FSkyBoxSceneData Data) -> void
 	{
-		const Durin::FSkyBoxSceneId Id(Data.InstanceId);
-		const Durin::FGuid PersistentId = Data.SceneId;
-		std::string SelectionKey = Data.SelectionKey;
-		Scene.AddOrReplaceSkyBox(Id, PersistentId, std::move(SelectionKey),
-			std::make_unique<Durin::FSkyBoxSceneProxy>(std::move(Data)));
+		Scene.AddOrReplaceSkyBox(SceneId,
+			std::make_unique<Durin::FSkyBoxSceneProxy>(
+				std::move(Identity), std::move(Data)));
 	}
 
 	struct FObserveSkyBoxCommand
@@ -61,7 +63,7 @@ namespace
 	struct FSkyBoxObservation
 	{
 		bool bHasActive = false;
-		Durin::FSkyBoxSceneData Active;
+		Durin::FSkyBoxSceneSnapshot Active;
 		size_t Count = 0;
 	};
 
