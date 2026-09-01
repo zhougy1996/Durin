@@ -9,18 +9,45 @@ namespace
 	class FWorldSceneLifecycleTestScene final : public Durin::FSceneInterface
 	{
 	public:
-		auto AddOrReplacePrimitive(
-			Durin::FPrimitiveSceneId,
-			std::unique_ptr<Durin::FPrimitiveSceneProxy>,
-			const Durin::FMatrix&,
-			bool) -> void override
-		{
-		}
-
-		auto RemovePrimitive(Durin::FPrimitiveSceneId) -> void override
+		auto Release() -> void override {}
+		auto AddPrimitive(Durin::DPrimitiveComponent*) -> void override {}
+		auto RemovePrimitive(Durin::DPrimitiveComponent*) -> void override
 		{
 			++RemovePrimitiveCount;
 		}
+
+		auto AddLight(Durin::DLightComponent* Light) -> void override
+		{
+			if (const Durin::AActor* Owner = Light->GetOwner();
+				Owner && Owner->IsHidden()) return;
+			auto TokenStorage = std::make_unique<uint8>(0);
+			LastAddedLight = reinterpret_cast<Durin::FLightSceneProxy*>(
+				TokenStorage.get()
+			);
+			++AddLightCount;
+			Lights.emplace(Light, std::move(TokenStorage));
+		}
+
+		auto RemoveLight(Durin::DLightComponent* Light) -> void override
+		{
+			const auto Found = Lights.find(Light);
+			if (Found == Lights.end()) return;
+			LastRemovedLight = reinterpret_cast<Durin::FLightSceneProxy*>(
+				Found->second.get()
+			);
+			++RemoveLightCount;
+			RetiredLights.push_back(std::move(Found->second));
+			Lights.erase(Found);
+		}
+
+		auto AddSkyBox(Durin::DSkyBoxComponent*) -> void override {}
+		auto RemoveSkyBox(Durin::DSkyBoxComponent*) -> void override {}
+		auto AddVolumetricCloud(
+			Durin::DVolumetricCloudComponent*
+		) -> void override {}
+		auto RemoveVolumetricCloud(
+			Durin::DVolumetricCloudComponent*
+		) -> void override {}
 
 		auto UpdatePrimitiveTransform(Durin::FPrimitiveSceneId, const Durin::FMatrix&) -> void override
 		{
@@ -32,60 +59,22 @@ namespace
 
 		auto UpdatePrimitiveMaterialBinding(
 			Durin::FPrimitiveSceneId,
-			const Durin::FMaterialRenderProxyBindingUpdate&) -> void override
+			const Durin::FMaterialRenderProxyBindingUpdate&
+		) -> void override
 		{
 		}
 
 		auto UpdateSkeletalMeshDynamicData(
 			Durin::FPrimitiveSceneId,
-			std::shared_ptr<const Durin::FSkeletalPosePalette>) -> void override
+			std::shared_ptr<const Durin::FSkeletalPosePalette>
+		) -> void override
 		{
 		}
 
 		auto UpdateSplineMeshDynamicData(
 			Durin::FPrimitiveSceneId,
-			Durin::FSplineMeshRenderDynamicData) -> void override
-		{
-		}
-
-		auto AddLight(std::unique_ptr<Durin::FLightSceneProxy> Proxy) -> bool override
-		{
-			if (Proxy == nullptr) return false;
-			Durin::FLightSceneProxy* Token = Proxy.get();
-			LastAddedLight = Token;
-			++AddLightCount;
-			Lights.emplace(Token, std::move(Proxy));
-			return true;
-		}
-
-		auto RemoveLight(Durin::FLightSceneProxy* Proxy) -> void override
-		{
-			LastRemovedLight = Proxy;
-			++RemoveLightCount;
-			if (const auto Found = Lights.find(Proxy); Found != Lights.end())
-			{
-				RetiredLights.push_back(std::move(Found->second));
-				Lights.erase(Found);
-			}
-		}
-
-		auto AddSkyBox(std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> bool override
-		{
-			return false;
-		}
-
-		auto RemoveSkyBox(Durin::FSkyBoxSceneProxy*) -> void override
-		{
-		}
-
-		auto AddVolumetricCloud(
-			std::unique_ptr<Durin::FVolumetricCloudSceneProxy>) -> bool override
-		{
-			return false;
-		}
-
-		auto RemoveVolumetricCloud(
-			Durin::FVolumetricCloudSceneProxy*) -> void override
+			Durin::FSplineMeshRenderDynamicData
+		) -> void override
 		{
 		}
 
@@ -94,11 +83,10 @@ namespace
 		uint32 RemoveLightCount = 0;
 		Durin::FLightSceneProxy* LastAddedLight = nullptr;
 		Durin::FLightSceneProxy* LastRemovedLight = nullptr;
-		std::unordered_map<Durin::FLightSceneProxy*,
-			std::unique_ptr<Durin::FLightSceneProxy>> Lights;
-		std::vector<std::unique_ptr<Durin::FLightSceneProxy>> RetiredLights;
+		std::unordered_map<Durin::DLightComponent*, std::unique_ptr<uint8>> Lights;
+		std::vector<std::unique_ptr<uint8>> RetiredLights;
 	};
-}
+} // namespace
 
 TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
 {

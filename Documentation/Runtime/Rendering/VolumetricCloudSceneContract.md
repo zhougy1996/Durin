@@ -44,10 +44,15 @@ The render-thread registry selects eligible candidates by:
 
 Each rebuilt proxy receives a cloud-specific nonzero history key, independent
 of registry ownership. `FVolumetricCloudSceneRegistry` keys membership by the
-exact proxy pointer; the component submits old-token removal before adding the
-new complete Desc. Disabled, hidden, invalid, or missing-input state publishes
-an ineligible rebuilt candidate and allows the next candidate to take over.
-Scene release clears entries and counted references on the render thread.
+exact proxy pointer. Component render-state hooks call only
+`FSceneInterface::RemoveVolumetricCloud(this)` followed by
+`AddVolumetricCloud(this)`; Renderer-private `FScene` constructs the detached
+complete Desc and commits the raw removal token only after command admission
+succeeds.
+Disabled, hidden, invalid, or missing-input state publishes an ineligible
+rebuilt candidate and allows the next candidate to take over. Explicit Scene
+release clears entries and counted references on the render thread before
+deferred Scene deletion.
 
 ## Thread and ownership boundary
 

@@ -28,7 +28,7 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "SceneViewProjection.h"
 #include "Terrain/TerrainHeightmap.h"
 #include <vulkan/vulkan.hpp>
@@ -590,16 +590,18 @@ namespace Durin
 				{0.0, 0.0, 0.0}, {TerrainExtent, TerrainExtent, 0.0}
 			)
 		};
-		FScene Scene;
-		Scene.AddOrReplacePrimitive(
+		FSceneTestOwner SceneOwner;
+		FScene& Scene = *SceneOwner;
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 			FPrimitiveSceneId(1),
 			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
 			Math::TranslationMatrix(FVector3{
 				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.0
 			})
 		);
-		FScene OccluderScene;
-		OccluderScene.AddOrReplacePrimitive(
+		FSceneTestOwner OccluderSceneOwner;
+		FScene& OccluderScene = *OccluderSceneOwner;
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OccluderScene,
 			FPrimitiveSceneId(2),
 			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
 			Math::TranslationMatrix(FVector3{
@@ -652,6 +654,8 @@ namespace Durin
 				false, true);
 		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);
 
+		OccluderSceneOwner.Reset();
+		SceneOwner.Reset();
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);

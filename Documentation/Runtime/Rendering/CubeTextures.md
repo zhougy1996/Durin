@@ -321,8 +321,11 @@ source pixel.
 - Translation and scale remain ordinary authored transform data but do not
   enter the sky snapshot. Only the component's world rotation is published.
 - Registration, visibility, rotation, texture, Tint, and Intensity changes use
-  the shared create, destroy, and dirty render-state hooks. Dirty state submits
-  exact old-proxy removal before adding one newly constructed complete Desc.
+  the shared create, destroy, and dirty render-state hooks. Those hooks call
+  only component-level `FSceneInterface::AddSkyBox(this)` and
+  `RemoveSkyBox(this)`; Renderer-private `FScene` builds the complete proxy
+  synchronously. Dirty state submits exact old-proxy removal before adding one
+  newly constructed complete Desc.
 - `FScene` owns snapshots only on the rendering thread. A snapshot contains no
   reflected object pointer or concrete render-resource owner; it retains a
   counted stable `FRHITextureReferenceRef`.

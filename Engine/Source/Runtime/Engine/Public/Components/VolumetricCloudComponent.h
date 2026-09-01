@@ -67,6 +67,8 @@ namespace Durin
 			float InLightExtinction, float InAmbient) -> void;
 
 	private:
+		ENGINE_API auto CreateSceneProxy()
+			-> std::unique_ptr<FVolumetricCloudSceneProxy>;
 		auto EnsureVolumetricCloudInstanceId() -> uint64;
 		auto CreateRenderState() -> void;
 		auto DestroyRenderState() -> void;
@@ -117,5 +119,7 @@ namespace Durin
 		uint64 VolumetricCloudInstanceId = 0;
 		// Non-owning token used only to retire the exact published proxy.
 		FVolumetricCloudSceneProxy* SceneProxy = nullptr;
+
+		friend class FScene;
 	};
 }

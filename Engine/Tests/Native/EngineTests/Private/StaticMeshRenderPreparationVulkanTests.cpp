@@ -24,7 +24,7 @@
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -341,9 +341,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	auto QueuedProxy = Component->CreateSceneProxy();
 	ASSERT_NE(QueuedProxy, nullptr);
 
-	Durin::FScene Scene;
+	Durin::FSceneTestOwner SceneOwner;
+
+	Durin::FScene& Scene = *SceneOwner;
 	const Durin::FPrimitiveSceneId PrimitiveId(211);
-	Scene.AddOrReplacePrimitive(
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 		PrimitiveId, std::move(QueuedProxy), Durin::FMatrix(1.0));
 	RenderThreadBlocker.Release();
 	Durin::FlushRenderingCommands();
@@ -364,7 +366,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			EXPECT_EQ(Prepared.RejectedPrimitives, 0u);
 		});
 	Durin::FlushRenderingCommands();
-	Scene.RemovePrimitive(PrimitiveId);
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, PrimitiveId);
 	Durin::FlushRenderingCommands();
 
 	Component->UnregisterComponent();
@@ -374,6 +376,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
+	SceneOwner.Reset();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 	Durin::ShutdownAssetManager();
@@ -401,7 +404,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		Durin::EMaterialBlendMode::Opaque, true);
 	auto Masked = MakeMaterial(Durin::EMaterialBlendMode::Masked, true);
 	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent);
-	Durin::FScene Scene;
+	Durin::FSceneTestOwner SceneOwner;
+	Durin::FScene& Scene = *SceneOwner;
 	auto Summary = std::make_shared<FPreparationSummary>();
 	Durin::EnqueueRenderCommand<FInitializePreparedStaticMeshResourcesCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
@@ -433,7 +437,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	SplineDynamic.Params.EndTangent = {80.0, 0.0, 10.0};
 	SplineDynamic.Params.SourceForwardMin = -1.0;
 	SplineDynamic.Params.SourceForwardMax = 1.0;
-	SplineScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(72),
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SplineScene, Durin::FPrimitiveSceneId(72),
 		std::make_unique<Durin::FSplineMeshSceneProxy>(RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque},
 			1, SplineDynamic), Durin::FMatrix(1.0));
@@ -453,10 +457,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Durin::EVertexDeformationDomain::Spline);
 		});
 	Durin::FlushRenderingCommands();
-	SplineSceneOwner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(SplineSceneOwner);
 	Durin::FlushRenderingCommands();
 	const Durin::FPrimitiveSceneId Id(71);
-	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::Math::ScaleMatrix(Durin::FVector3(-1.0, 1.0, 1.0)));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::Math::ScaleMatrix(Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
 
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
@@ -522,15 +526,16 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		Section.LocalBounds = Durin::FBox(
 			Durin::FVector3(-1.0), Durin::FVector3(1.0));
 	}
-	Durin::FScene OrderingScene;
-	OrderingScene.AddOrReplacePrimitive(
+	Durin::FSceneTestOwner OrderingSceneOwner;
+	Durin::FScene& OrderingScene = *OrderingSceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OrderingScene,
 		Durin::FPrimitiveSceneId(90),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
 			1),
 		Durin::Math::TranslationMatrix(Durin::FVector3(0.0, 0.0, 20.0)));
-	OrderingScene.AddOrReplacePrimitive(
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OrderingScene,
 		Durin::FPrimitiveSceneId(80),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			RenderData.get(),
@@ -584,13 +589,15 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	OrderingScene.RemovePrimitive(Durin::FPrimitiveSceneId(80));
-	OrderingScene.RemovePrimitive(Durin::FPrimitiveSceneId(90));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveSceneId(80));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveSceneId(90));
 	Durin::FlushRenderingCommands();
 
-	Durin::FScene GroupingScene;
+	Durin::FSceneTestOwner GroupingSceneOwner;
+
+	Durin::FScene& GroupingScene = *GroupingSceneOwner;
 	auto AddGroupingPrimitive = [&](uint64 PrimitiveId) {
-		GroupingScene.AddOrReplacePrimitive(
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(GroupingScene,
 			Durin::FPrimitiveSceneId(PrimitiveId),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				RenderData.get(),
@@ -651,7 +658,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	GroupingScene.RemovePrimitive(Durin::FPrimitiveSceneId(100));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(100));
 	Durin::FlushRenderingCommands();
 	AddGroupingPrimitive(100);
 	Durin::FlushRenderingCommands();
@@ -674,12 +681,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	GroupingScene.RemovePrimitive(Durin::FPrimitiveSceneId(100));
-	GroupingScene.RemovePrimitive(Durin::FPrimitiveSceneId(200));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(100));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(200));
 	Durin::FlushRenderingCommands();
 
-	Durin::FScene MultiLODScene;
-	MultiLODScene.AddOrReplacePrimitive(
+	Durin::FSceneTestOwner MultiLODSceneOwner;
+
+	Durin::FScene& MultiLODScene = *MultiLODSceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(MultiLODScene,
 		Durin::FPrimitiveSceneId(101),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
@@ -829,7 +838,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	MultiLODScene.AddOrReplacePrimitive(
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(MultiLODScene,
 		Durin::FPrimitiveSceneId(101),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
@@ -863,17 +872,19 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	MultiLODScene.RemovePrimitive(Durin::FPrimitiveSceneId(101));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(MultiLODScene, Durin::FPrimitiveSceneId(101));
 	Durin::FlushRenderingCommands();
 
-	Durin::FScene DegenerateTransformScene;
-	DegenerateTransformScene.AddOrReplacePrimitive(
+	Durin::FSceneTestOwner DegenerateTransformSceneOwner;
+
+	Durin::FScene& DegenerateTransformScene = *DegenerateTransformSceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(DegenerateTransformScene,
 		Durin::FPrimitiveSceneId(102),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 2),
 		Durin::Math::ScaleMatrix(Durin::FVector3(0.0, 1.0, 1.0)));
-	DegenerateTransformScene.AddOrReplacePrimitive(
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(DegenerateTransformScene,
 		Durin::FPrimitiveSceneId(103),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
@@ -893,11 +904,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Prepared.RejectedPrimitives, 2u);
 		});
 	Durin::FlushRenderingCommands();
-	DegenerateTransformScene.RemovePrimitive(Durin::FPrimitiveSceneId(102));
-	DegenerateTransformScene.RemovePrimitive(Durin::FPrimitiveSceneId(103));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveSceneId(102));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveSceneId(103));
 	Durin::FlushRenderingCommands();
 
-	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 2), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 2), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
@@ -912,7 +923,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	);
 	Durin::FlushRenderingCommands();
 
-	Scene.RemovePrimitive(Id);
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Id);
 	Durin::FlushRenderingCommands();
 	EXPECT_TRUE(Scene.GetStaticMeshSceneInfos().empty());
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
@@ -930,6 +941,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
+	DegenerateTransformSceneOwner.Reset();
+	MultiLODSceneOwner.Reset();
+	GroupingSceneOwner.Reset();
+	OrderingSceneOwner.Reset();
+	SceneOwner.Reset();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 }

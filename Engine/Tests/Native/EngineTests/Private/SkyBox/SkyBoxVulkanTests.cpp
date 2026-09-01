@@ -444,14 +444,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::FSkyBoxSceneData RotatedSky;
 			RotatedSky.TextureReference = CubeReference;
 			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
-			Scene.RemoveSkyBox(SkyBoxToken);
+			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
 				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
 			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
 			RotatedSky.TextureReference = HdrCubeReference;
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			Scene.RemoveSkyBox(SkyBoxToken);
+			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
 				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
 			Durin::FSceneViewRenderOptions OverrideOptions;
@@ -490,7 +490,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			}
 
 			RotatedSky.TextureReference = CubeReference;
-			Scene.RemoveSkyBox(SkyBoxToken);
+			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
 				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
@@ -502,7 +502,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					Result->StatefulLetterboxedNoConsumer)) return;
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			Scene.RemoveSkyBox(SkyBoxToken);
+			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
 			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
 				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
 			const Durin::FSceneView HybridSkyView =
@@ -525,7 +525,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			OccluderTransform = glm::rotate(
 				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right
 			);
-			Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1), std::move(*OcclusionProxy), OccluderTransform);
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::move(*OcclusionProxy), OccluderTransform);
 			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
 		}
 	);
@@ -591,7 +591,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
 	}
 
-	SceneOwner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
 	Durin::FPackagePath CubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))

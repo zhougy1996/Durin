@@ -450,5 +450,5 @@ durable descriptors rather than retaining the original C++ state object.
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Editor Transaction System Roadmap](../Roadmaps/EditorTransactionSystem.md)
+- [Editor Transaction System Roadmap](../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)
 - [Content Version Control](../Development/VersionControl/ContentVersionControl.md)

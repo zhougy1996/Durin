@@ -98,5 +98,6 @@ private:
 		FSceneInterface* RenderScene = nullptr;
 
 		friend class DLevel;
+		friend class FScene;
 	};
 }

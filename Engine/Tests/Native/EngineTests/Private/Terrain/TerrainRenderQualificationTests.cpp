@@ -16,7 +16,7 @@
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "RenderingThread.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "SceneView.h"
 #include "Terrain/TerrainHeightmap.h"
 
@@ -100,13 +100,14 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 				{(X + 64) / 1024.0, (Y + 64) / 1024.0, 0.25});
 			MaximumPatches.push_back(std::move(Patch));
 		}
-	Durin::FScene Scene;
+	Durin::FSceneTestOwner SceneOwner;
+	Durin::FScene& Scene = *SceneOwner;
 	auto MaximumProxy = std::make_unique<Durin::FTerrainSceneProxy>(MaximumPayload, 2,
 			1.0 / 1024.0, 1.0 / 1024.0, 0.5, 0.0,
 			std::move(MaximumPatches), Durin::FBox({0.0, 0.0, 0.25}, {1.0, 1.0, 0.25}),
 			Material, 1);
 	EXPECT_LE(MaximumProxy->GetLODMetadataBytes(), 64u * 1024u);
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 		std::move(MaximumProxy), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 
@@ -422,9 +423,10 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 		<< ",patch_classifications="
 		<< ThreeCascades.Telemetry.DirectionalShadow.ShadowTerrainPatchClassificationTests << "\n";
 
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();
 	TimingQueries.clear();
+	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();

@@ -49,6 +49,7 @@ namespace Durin
 		ENGINE_API auto OnUpdateTransform() -> void override;
 
 	private:
+		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FSkyBoxSceneProxy>;
 		auto EnsureSkyBoxInstanceId() -> uint64;
 		auto CreateRenderState() -> void;
 		auto DestroyRenderState() -> void;
@@ -71,5 +72,7 @@ namespace Durin
 		uint64 SkyBoxInstanceId = 0;
 		// Non-owning token used only to retire the exact published proxy.
 		FSkyBoxSceneProxy* SceneProxy = nullptr;
+
+		friend class FScene;
 	};
 }

@@ -14,7 +14,7 @@
 #include "RenderResource.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
 #include "RenderingThread.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 
 #include <gtest/gtest.h>
 
@@ -32,7 +32,7 @@ namespace
 			MainScene = std::move(Scene);
 			return static_cast<Durin::FScene*>(MainScene.get());
 		}
-		auto ResetScene() -> void { MainScene.reset(); }
+		auto ResetScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 	};
 	struct FObserveVolumetricCloud
 	{
@@ -103,7 +103,7 @@ namespace
 				.HistoryKey = Candidate.HistoryKey,
 				.Data = std::move(Candidate.Data)});
 		Durin::FVolumetricCloudSceneProxy* Token = Proxy.get();
-		return Scene.AddVolumetricCloud(std::move(Proxy)) ? Token : nullptr;
+		return Durin::FSceneInterfaceTestAccess::TryAddVolumetricCloudProxy(Scene, std::move(Proxy)) ? Token : nullptr;
 	}
 
 	auto MakeCandidate(uint64 InstanceId, uint64 HistoryKey, int32 Priority,
@@ -315,7 +315,7 @@ TEST(FVolumetricCloudSceneContractTests, SceneSelectsPriorityAndStableIdentityAc
 		Durin::FVolumetricCloudSceneId(1));
 	const uint64 FirstHistoryKey = Observation.Active.Desc.HistoryKey;
 
-	Scene.RemoveVolumetricCloud(Token1);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token1);
 	Token1 = Publish(Scene,
 		MakeCandidate(1, 2, 5, Durin::FGuid(1, 0, 0, 0), "A2"));
 	Observation = ObserveClouds(Scene);
@@ -325,18 +325,18 @@ TEST(FVolumetricCloudSceneContractTests, SceneSelectsPriorityAndStableIdentityAc
 
 	auto Ineligible = MakeCandidate(1, 3, 5, Durin::FGuid(1, 0, 0, 0), "A3");
 	Ineligible.Data.bEligible = false;
-	Scene.RemoveVolumetricCloud(Token1);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token1);
 	Token1 = Publish(Scene, std::move(Ineligible));
 	Observation = ObserveClouds(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Active.Desc.RuntimeId,
 		Durin::FVolumetricCloudSceneId(2));
-	Scene.RemoveVolumetricCloud(Token1);
-	Scene.RemoveVolumetricCloud(Token2);
-	Scene.RemoveVolumetricCloud(Token3);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token1);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token2);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token3);
 	EXPECT_FALSE(ObserveClouds(Scene).bHasActive);
 
-	Owner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(Owner);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 }
@@ -377,10 +377,10 @@ TEST(FVolumetricCloudSceneContractTests,
 	EXPECT_EQ(Observation.Active.Desc.RuntimeId,
 		Durin::FVolumetricCloudSceneId(1));
 
-	Scene.RemoveVolumetricCloud(Token);
+	Durin::FSceneInterfaceTestAccess::TryRemoveVolumetricCloudProxy(Scene, Token);
 	BaseReference.BeginRelease_GameThread();
 	DetailReference.BeginRelease_GameThread();
-	Owner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(Owner);
 	Durin::FlushRenderingCommands();
 	BaseTexture = nullptr;
 	DetailTexture = nullptr;

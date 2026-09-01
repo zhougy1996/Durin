@@ -19,7 +19,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/DirectionalShadowRenderer.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "Spline/SplineMeshDeformer.h"
@@ -472,8 +472,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Pose->SkeletonCompatibilityIdentity = "VulkanSkeletalMesh";
 	Pose->Matrices = {Durin::FMatrix4f(1.0f), Durin::FMatrix4f(1.0f)};
 	Pose->LocalBounds = Complete->LocalBounds;
-	Durin::FScene Scene;
-	Scene.AddOrReplacePrimitive(
+	Durin::FSceneTestOwner SceneOwner;
+	Durin::FScene& Scene = *SceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 		Durin::FPrimitiveSceneId(1),
 		std::make_unique<Durin::FSkeletalMeshSceneProxy>(
 			Complete.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent},
@@ -679,7 +680,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FPrimitiveSceneId(1),
 		Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0))
 	);
-	Scene.AddOrReplacePrimitive(
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 		Durin::FPrimitiveSceneId(2),
 		std::make_unique<Durin::FSkeletalMeshSceneProxy>(
 			Complete.get(),
@@ -702,15 +703,15 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastTelemetry.SkeletalMesh.UploadedSkeletalPalettes, 2u);
 	EXPECT_EQ(GLastTelemetry.SkeletalMesh.RequestedSkeletalPaletteUploads, 3u);
 	EXPECT_EQ(GLastTelemetry.SkeletalMesh.ReusedSkeletalPalettes, 1u);
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
 	Scene.UpdatePrimitiveTransform(
 		Durin::FPrimitiveSceneId(1), Durin::FMatrix(1.0)
 	);
 	Durin::FlushRenderingCommands();
 	if (std::getenv("DURIN_RUN_LIGHTING_PROFILE") != nullptr)
 	{
-		Scene.RemoveLight(PointToken);
-		Scene.RemoveLight(SpotToken);
+		Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, PointToken);
+		Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, SpotToken);
 		Scene.UpdatePrimitiveTransform(
 			Durin::FPrimitiveSceneId(1),
 			Durin::Math::TranslationMatrix(Durin::FVector3(-1.0, -1.0, 0.0))
@@ -830,7 +831,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 									 const char* TargetName
 								 ) {
 			Directional.bCastShadows = bEnabled;
-			Scene.RemoveLight(DirectionalToken);
+			Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 			DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
 				Scene, Durin::FLightSceneId(10), Directional);
 			Durin::FlushRenderingCommands();
@@ -1077,7 +1078,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(AuxiliaryReadback->size(), 48u * 27u * 4u);
 	EXPECT_NE(AuxiliaryReadback->size(), TranslatedReadback->size());
 
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(1));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1));
 	Durin::FSplineMeshRenderDynamicData SplineData{
 		.Params = {}, .LocalBounds = Durin::FBox({-1.0, -1.0, -0.1}, {1.0, 1.0, 0.1}), .Revision = 1
 	};
@@ -1086,7 +1087,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	SplineData.Params.EndTangent = {0.0, 1.5, 0.0};
 	SplineData.Params.SourceForwardMin = -0.8;
 	SplineData.Params.SourceForwardMax = 0.8;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	auto SplineReadback = std::make_shared<Durin::FByteArray>();
 	std::array<Durin::FByteArray, 4> SplineGBufferPixels;
@@ -1161,7 +1162,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FlushRenderingCommands();
 		return Result;
 	};
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	const auto UnlitForwardReadback = CaptureSplineParity("UnlitSplineForwardColor");
 	const auto UnlitGBufferReadback = CaptureSplineParity(
@@ -1172,7 +1173,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshRejectedDraws, 0u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSkippedDraws, 2u);
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	auto CpuSplineSource = MakeSplineSourceRenderData();
 	{
@@ -1209,11 +1210,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(CpuSplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(CpuSplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	const auto CpuCurvedReadback = CaptureSplineParity("CpuCurvedSplineMeshColor");
 	EXPECT_EQ(*SplineReadback, *CpuCurvedReadback);
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	auto IdentityData = SplineData;
 	IdentityData.Revision = 2;
@@ -1225,7 +1226,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Durin::FlushRenderingCommands();
 	const auto IdentitySplineReadback = CaptureSplineParity("IdentitySplineMeshColor");
 	EXPECT_EQ(GLastTelemetry.SplineMesh.AcceptedSplineMeshDynamicUpdates, 1u);
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	const auto StaticParityReadback = CaptureSplineParity("StaticMeshParityColor");
 	EXPECT_EQ(*IdentitySplineReadback, *StaticParityReadback);
@@ -1249,7 +1250,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				   * Durin::Math::ScaleMatrix(Durin::FVector3(0.18, 0.18, 1.0));
 		};
 		for (uint32 Index = 0; Index < 32; ++Index)
-			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FStaticMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), SegmentTransform(Index));
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(ProfileScene, Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FStaticMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), SegmentTransform(Index));
 		Durin::FlushRenderingCommands();
 		auto ProfileP95 = [&](const char* TargetName) {
 			constexpr uint32 WarmupFrames = 10;
@@ -1312,14 +1313,14 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		RoadSpline.Params.SourceForwardMin = 0.0;
 		RoadSpline.Params.SourceForwardMax = 1.0;
 		for (uint32 Index = 0; Index < 32; ++Index)
-			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FSplineMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1, RoadSpline), SegmentTransform(Index));
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(ProfileScene, Durin::FPrimitiveSceneId(100 + Index), std::make_unique<Durin::FSplineMeshSceneProxy>(RoadSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1, RoadSpline), SegmentTransform(Index));
 		Durin::FlushRenderingCommands();
 		const uint64 SplineP95 = ProfileP95("SplineRoadProfile");
 		const uint64 Delta = SplineP95 > StaticP95 ? SplineP95 - StaticP95 : 0;
 		std::cout << "Spline profile: static_p95=" << StaticP95
 				  << " ns, spline_p95=" << SplineP95 << " ns, delta=" << Delta << " ns\n";
 		EXPECT_LE(Delta, 350'000u);
-		ProfileSceneOwner.reset();
+		Durin::FSceneInterfaceTestAccess::ReleaseScene(ProfileSceneOwner);
 		Durin::FlushRenderingCommands();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&RoadSource](Durin::FRHICommandListImmediate&) { RoadSource->ReleaseResources(); }
@@ -1327,7 +1328,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FlushRenderingCommands();
 	}
 
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Complete, &SplineSource, &CpuSplineSource](Durin::FRHICommandListImmediate&) {
@@ -1337,6 +1338,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		}
 	);
 	Durin::FlushRenderingCommands();
+	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();

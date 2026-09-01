@@ -34,7 +34,8 @@ namespace Durin
 				if (GNextViewStateId.compare_exchange_weak(
 						Current, Current + 1,
 						std::memory_order_relaxed,
-						std::memory_order_relaxed))
+						std::memory_order_relaxed
+					))
 					return Current;
 			}
 			return 0;
@@ -42,7 +43,8 @@ namespace Durin
 
 		auto ReportRejectedViewStateOperation(
 			std::string_view Operation,
-			FSceneViewStateId Id) -> void
+			FSceneViewStateId Id
+		) -> void
 		{
 			static uint32 DiagnosticCount = 0;
 			if (DiagnosticCount >= 16)
@@ -50,21 +52,11 @@ namespace Durin
 			++DiagnosticCount;
 			DURIN_WARN(
 				"Renderer ignored {} for stale view-state identity {}.",
-				Operation, FSceneViewStateIdAccess::GetValue(Id));
+				Operation, FSceneViewStateIdAccess::GetValue(Id)
+			);
 		}
 
-		auto DestroyScene(FSceneInterface* Scene) -> void
-		{
-			check(Scene != nullptr);
-			checkf(IsInGameThread() || IsInRenderingThread(),
-				"Renderer scenes must be destroyed from the game or rendering thread.");
-			ENQUEUE_RENDER_COMMAND(DestroyScene)(
-				[Scene](FRHICommandListImmediate&) {
-					check(IsInRenderingThread());
-					delete Scene;
-				});
-		}
-	}
+	} // namespace
 
 	FRendererModule::FRendererModule() = default;
 
@@ -78,17 +70,21 @@ namespace Durin
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
 		SetActiveDefaultTextureResources(
-			&SceneRenderer->GetDefaultTextures());
+			&SceneRenderer->GetDefaultTextures()
+		);
 		const bool bCommandsRegistered =
 			SceneRenderer->Start(
-				FConsoleCommandRegistry::Get(), ConsoleCallbacks.GetGate());
+				FConsoleCommandRegistry::Get(), ConsoleCallbacks.GetGate()
+			);
 		checkf(
 			bCommandsRegistered,
-			"Failed to register renderer resource invalidation commands");
+			"Failed to register renderer resource invalidation commands"
+		);
 		if (!bCommandsRegistered)
 		{
 			DURIN_ERROR(
-				"Failed to register renderer resource invalidation commands");
+				"Failed to register renderer resource invalidation commands"
+			);
 		}
 		if (GDynamicRHI != nullptr)
 		{
@@ -96,15 +92,19 @@ namespace Durin
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
 				[Renderer](FRHICommandListImmediate& CommandList) {
 					Renderer->InitializeStartupResources_RenderThread(
-						CommandList);
-				});
+						CommandList
+					);
+				}
+			);
 		}
 	}
 
 	auto FRendererModule::ShutdownModule() -> void
 	{
+		requiref(FScene::GetActiveSceneCount() == 0, "Renderer shutdown requires every scene owner to call Release first.");
 		if (SceneRenderer == nullptr)
 		{
+			requiref(FScene::GetAllocatedSceneCount() == 0, "Renderer shutdown found scenes that were not deleted after Release.");
 			return;
 		}
 		SceneRenderer->Stop();
@@ -114,29 +114,33 @@ namespace Durin
 			[Renderer, &LeakedViewStateCount](FRHICommandListImmediate&) {
 				LeakedViewStateCount = Renderer->ReleaseViewStates_RenderThread();
 				Renderer->ReleaseResources_RenderThread();
-			});
+			}
+		);
 		FlushRenderingCommands();
+		requiref(FScene::GetAllocatedSceneCount() == 0, "Renderer shutdown found scenes that were not deleted after Release.");
 		{
 			std::scoped_lock Lock(GViewStateRouteMutex);
-			std::erase_if(GViewStateRoutes,
-				[this](const auto& Entry) {
-					return Entry.second.Module == this;
-				});
+			std::erase_if(GViewStateRoutes, [this](const auto& Entry) {
+				return Entry.second.Module == this;
+			});
 		}
 		if (LeakedViewStateCount != 0)
 			DURIN_WARN(
 				"Renderer shutdown released {} leaked persistent view state(s).",
-				LeakedViewStateCount);
+				LeakedViewStateCount
+			);
 		SetActiveDefaultTextureResources(nullptr);
 		SceneRenderer.reset();
 	}
 
 	auto FRendererModule::RequestResourceInvalidation(
-		ERendererResourceInvalidationCause Cause) -> FConsoleCommandResult
+		ERendererResourceInvalidationCause Cause
+	) -> FConsoleCommandResult
 	{
 		if (SceneRenderer == nullptr)
 			return FConsoleCommandResult::Failure(
-				"Renderer resource invalidation is not available.");
+				"Renderer resource invalidation is not available."
+			);
 		return SceneRenderer->GetResourceCoordinator().Request(Cause);
 	}
 
@@ -150,7 +154,7 @@ namespace Durin
 	auto FRendererModule::CreateScene() -> FScenePtr
 	{
 		check(IsInGameThread());
-		return FScenePtr(new FScene(), FSceneDeleter(&DestroyScene));
+		return FScenePtr(new FScene(), FSceneDeleter(&FScene::DestroyScene));
 	}
 
 	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner
@@ -169,7 +173,9 @@ namespace Durin
 		{
 			std::scoped_lock Lock(GViewStateRouteMutex);
 			const bool bInserted = GViewStateRoutes.emplace(
-				Value, FViewStateRoute{this, Renderer}).second;
+													   Value, FViewStateRoute{this, Renderer}
+			)
+									   .second;
 			check(bInserted);
 			if (!bInserted)
 				return {};
@@ -178,7 +184,8 @@ namespace Durin
 			[Renderer, Id](FRHICommandListImmediate&) {
 				const bool bAdded = Renderer->AddViewState_RenderThread(Id);
 				checkf(bAdded, "Renderer view-state IDs must be unique.");
-			});
+			}
+		);
 		return FSceneViewStateOwner(Id, &FRendererModule::ReleaseViewState);
 	}
 
@@ -188,7 +195,8 @@ namespace Durin
 		{
 			std::scoped_lock Lock(GViewStateRouteMutex);
 			const auto Iterator = GViewStateRoutes.find(
-				FSceneViewStateIdAccess::GetValue(Id));
+				FSceneViewStateIdAccess::GetValue(Id)
+			);
 			if (Iterator == GViewStateRoutes.end())
 				return;
 			Renderer = Iterator->second.Renderer;
@@ -198,7 +206,8 @@ namespace Durin
 			[Renderer, Id](FRHICommandListImmediate&) {
 				if (!Renderer->RemoveViewState_RenderThread(Id))
 					ReportRejectedViewStateOperation("removal", Id);
-			});
+			}
+		);
 	}
 
 	auto FRendererModule::InvalidateViewState(FSceneViewStateId Id) -> void
@@ -210,7 +219,8 @@ namespace Durin
 			[Renderer, Id](FRHICommandListImmediate&) {
 				if (!Renderer->InvalidateViewState_RenderThread(Id))
 					ReportRejectedViewStateOperation("invalidation", Id);
-			});
+			}
+		);
 	}
 
 	auto FRendererModule::InvalidateAllViewStates() -> void
@@ -221,7 +231,8 @@ namespace Durin
 		ENQUEUE_RENDER_COMMAND(InvalidateAllSceneViewStates)(
 			[Renderer](FRHICommandListImmediate&) {
 				Renderer->InvalidateAllViewStates_RenderThread();
-			});
+			}
+		);
 	}
 
 	auto FRendererModule::RenderView(
@@ -232,7 +243,8 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
+		FRDGCapture* OutRenderGraphCapture
+	) -> ERenderViewResult
 	{
 		if (OutStatistics != nullptr) *OutStatistics = {};
 		if (OutRenderGraphCapture != nullptr)
@@ -247,7 +259,8 @@ namespace Durin
 			bPresentOutput,
 			Options,
 			OutStatistics,
-			OutRenderGraphCapture);
+			OutRenderGraphCapture
+		);
 		if (OutStatistics != nullptr)
 		{
 			if (Result == ERenderViewResult::Success)

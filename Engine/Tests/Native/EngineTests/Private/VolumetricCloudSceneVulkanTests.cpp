@@ -24,7 +24,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "SceneViewProjection.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "Texture/VolumeTexture.h"
 #include "Window/GenericWindow.h"
 #include "Window/GenericWindowDefinition.h"
@@ -49,7 +49,7 @@ namespace Durin
 				MainScene = std::move(Scene);
 				return static_cast<FScene*>(MainScene.get());
 			}
-			auto ResetScene() -> void { MainScene.reset(); }
+			auto ResetScene() -> void { FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 		};
 
 		FViewRenderTelemetry GSceneCloudTelemetry;

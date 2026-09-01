@@ -6,10 +6,12 @@ Modules: Engine, RenderCore, Renderer
 
 Last reviewed: 2026-09-01
 
-Durin represents each renderable world resident with an Engine-facing
-SceneProxy and a Renderer-owned SceneInfo. Components publish detached
-candidates through `FSceneInterface`; rendering never retains or reads the originating
-component, actor, reflected asset, or other game-thread object.
+Durin represents each renderable world resident with an Engine-created
+SceneProxy and a Renderer-owned SceneInfo. Components call only the public
+component-level `FSceneInterface::Add*`/`Remove*` operations; rendering never
+retains or reads the originating component, actor, reflected asset, or other
+game-thread object. The concrete `FScene` declaration and its proxy-mutation
+seam are Renderer-private.
 
 ## Ownership Model
 
@@ -20,13 +22,17 @@ component, actor, reflected asset, or other game-thread object.
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
 
-A component constructs a complete proxy candidate from copied values and
-retained renderer-facing resources on the game thread. For Light, SkyBox, and
-VolumetricCloud, `FSceneInterface::Add*` consumes unique ownership while the
-component retains only `Proxy.get()` as an opaque removal token after successful
-command admission. The render-command pipe temporarily carries shared ownership
-because its callable is copyable; after attachment the paired SceneInfo is the
-only authoritative owner. Null or invalid candidates publish nothing.
+The public virtual interface carries only component pointers and returns
+`void`. Renderer-private `FScene` validates the registered component and owning
+Scene synchronously on the game thread, invokes the component's private proxy
+builder through friendship, and passes only detached copied state to its own
+private admission helpers. For Light, SkyBox, and VolumetricCloud the component
+retains only `Proxy.get()` as an opaque removal token after successful command
+admission. Primitive retains its stable Scene ID and a publication flag. The
+render-command pipe temporarily carries shared ownership because its callable
+is copyable; after attachment the paired SceneInfo is the only authoritative
+owner. A null proxy caused by hidden state or an unsupported render
+representation is a legal no-publication result.
 
 Removal erases every typed membership reference before destroying the
 SceneInfo and proxy on the rendering thread. Scene release clears typed views
@@ -74,12 +80,13 @@ dirty rebuilds need no tombstone or universal publication revision. Work that
 has an independently ordered boundary retains a feature-specific generation;
 the cloud proxy carries a unique immutable history key for temporal invalidation.
 
-`FScene` composes `FLightSceneRegistry`, `FSkyBoxSceneRegistry`, and
+Renderer-private `FScene` composes `FLightSceneRegistry`, `FSkyBoxSceneRegistry`, and
 `FVolumetricCloudSceneRegistry`; each registry owns its pointer-keyed family map,
-indexes, and active-candidate policy. Primitive membership remains
-directly owned while its registry extraction is deferred. Attach, replacement,
-detach, and release update ownership and every relevant view in one render
-command. Feature renderers iterate only their typed
+indexes, and active-candidate policy. Primitive membership remains directly
+owned and keyed by Scene ID while its registry extraction is deferred. A
+Primitive proxy rebuild submits Remove-old and Add-new; duplicate membership is
+a contract violation rather than an implicit replacement. Attach, detach, and
+release update ownership and every relevant view in one render command. Feature renderers iterate only their typed
 SceneInfo view; they do not scan a shared primitive array or use RTTI to
 rediscover proxy families. Render-thread selection, counts, and SceneInfo
 access remain concrete `FScene` operations and are not part of the publication
@@ -126,10 +133,13 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 ## Failure and Thread Contracts
 
 - Invalid Desc values, null proxies, and non-finite primitive transforms are
-  rejected before enqueue. Add consumes its `unique_ptr` in every case and
-  returns true only when execution is immediate or FIFO admission succeeds.
-- Components clear their non-owning token immediately after submitting Remove
-  and never dereference a proxy after successful Add.
+  rejected before enqueue. Private `FScene::TryAdd/Remove*Proxy` helpers consume
+  an Add `unique_ptr` in every case and report admission only inside concrete
+  Scene lifecycle methods; ordinary callers receive `void` and an admission
+  failure triggers `requiref`.
+- Components assign their token/publication flag only after successful Add
+  admission and clear it only after successful Remove admission. They never
+  dereference an accepted proxy token.
 - Render-thread queries and SceneInfo mutation assert rendering-thread ownership.
 - Typed SceneInfo access asserts that the explicit primitive kind matches the
   requested proxy family.
@@ -137,6 +147,13 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
   removal and release leave no typed pointer after ownership is destroyed.
 - Scene mutation adds no waits or second task system. Existing targeted
   resource and asset-release fences retain their lifetime ownership.
+- `FScene` follows `Active -> Releasing -> Released`. `Release()` is a required,
+  one-shot game-thread operation that queues Registry clearing. `FScenePtr`
+  deletion is queued behind that command, occurs only on the render thread,
+  and requires empty Registries. Engine and preview owners first detach their
+  World/components, then call `Release()`, then reset the pointer. Renderer
+  shutdown rejects active owners and verifies that all allocated scenes have
+  been deleted after its final flush.
 
 ## Related Documentation
 

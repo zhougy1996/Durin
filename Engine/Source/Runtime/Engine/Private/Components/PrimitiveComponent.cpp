@@ -23,7 +23,10 @@ namespace Durin
 		Super::OnRegister();
 		++PhysicsRegistrationGeneration;
 		EnsurePrimitiveSceneId();
-		MarkRenderStateDirty();
+		CreateRenderState();
+#if DURIN_WITH_EDITOR
+		NotifyEditorPickingMutation();
+#endif
 		ApplyPhysicsStateCreationPolicy();
 	}
 
@@ -69,7 +72,8 @@ namespace Durin
 	}
 
 	auto DPrimitiveComponent::SetCollisionResponseToChannel(
-		ECollisionChannel Channel, ECollisionResponse Response) -> void
+		ECollisionChannel Channel, ECollisionResponse Response
+	) -> void
 	{
 		BodyInstance.Responses.SetResponse(Channel, Response);
 		BodyInstance.ProfileName = FName();
@@ -90,7 +94,8 @@ namespace Durin
 	}
 
 	auto DPrimitiveComponent::BuildCollisionGeometry(
-		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
+		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform
+	) const -> bool
 	{
 		FCollisionShape Shape;
 		if (!BuildCollisionShape(Shape, OutWorldTransform)) return false;
@@ -108,7 +113,7 @@ namespace Durin
 				break;
 			case ECollisionShapeType::Capsule:
 				bSameShape = Existing->Shape.GetCapsuleRadius() == Shape.GetCapsuleRadius()
-					&& Existing->Shape.GetCapsuleHalfHeight() == Shape.GetCapsuleHalfHeight();
+							 && Existing->Shape.GetCapsuleHalfHeight() == Shape.GetCapsuleHalfHeight();
 				break;
 			}
 		}
@@ -127,15 +132,14 @@ namespace Durin
 		if (!World || !BuildCollisionGeometry(Geometry, Transform)) return;
 		const FPhysicsBodyDesc Desc = MakePhysicsBodyDesc(Geometry, Transform);
 		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
-		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid()
-			? GetCollisionStateRevision() : 0;
+		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid() ? GetCollisionStateRevision() : 0;
 	}
 
 	auto DPrimitiveComponent::RequestPhysicsStateCreation(bool) -> bool
 	{
 		RecreatePhysicsState();
 		return BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision
-			|| BodyInstance.ActorHandle.IsValid();
+			   || BodyInstance.ActorHandle.IsValid();
 	}
 
 	auto DPrimitiveComponent::GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy
@@ -196,7 +200,8 @@ namespace Durin
 
 	auto DPrimitiveComponent::MakePhysicsBodyDesc(
 		const FCollisionGeometryRef& Geometry,
-		const FTransform& Transform) const -> FPhysicsBodyDesc
+		const FTransform& Transform
+	) const -> FPhysicsBodyDesc
 	{
 		FPhysicsBodyDesc Desc;
 		Desc.Geometry = Geometry;
@@ -241,7 +246,7 @@ namespace Durin
 		}
 		if (Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
 		const bool bProfileNameChanged = Event.LeafProperty
-			&& Event.LeafProperty->NamePrivate == FName("ProfileName");
+										 && Event.LeafProperty->NamePrivate == FName("ProfileName");
 		if (bProfileNameChanged && !BodyInstance.ProfileName.IsNone())
 		{
 			CollisionProfile::FProfile Profile;
@@ -271,15 +276,23 @@ namespace Durin
 		return GetComponentToWorldMatrix();
 	}
 
+	auto DPrimitiveComponent::CreateRenderState() -> void
+	{
+		if (!IsRegistered()) return;
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->AddPrimitive(this);
+	}
+
 	auto DPrimitiveComponent::DestroyRenderState() -> void
 	{
 		if (!IsRegistered()) return;
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemovePrimitive(PrimitiveSceneId);
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemovePrimitive(this);
 	}
 
 	auto DPrimitiveComponent::RecreateRenderState() -> void
 	{
-		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Proxy);
+		if (!IsRegistered()) return;
+		DestroyRenderState();
+		CreateRenderState();
 	}
 
 	auto DPrimitiveComponent::MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags) -> void
@@ -293,24 +306,16 @@ namespace Durin
 #endif
 		FSceneInterface* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
+		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
+		{
+			RecreateRenderState();
+			return;
+		}
+		if (!bSceneProxyPublished) return;
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();
 		const AActor* Owner = GetOwner();
 		const bool bPrimitiveVisible = bVisible && (Owner == nullptr || !Owner->IsHidden());
-		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
-		{
-			std::unique_ptr<FPrimitiveSceneProxy> Proxy = CreateSceneProxy();
-			if (Proxy != nullptr)
-			{
-				Scene->AddOrReplacePrimitive(
-					SceneId, std::move(Proxy), GetRenderMatrix(), bPrimitiveVisible);
-			}
-			else
-			{
-				Scene->RemovePrimitive(SceneId);
-			}
-			return;
-		}
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
 		{
 			Scene->UpdatePrimitiveVisibility(SceneId, bPrimitiveVisible);
@@ -331,7 +336,8 @@ namespace Durin
 	}
 
 	auto DPrimitiveComponent::BuildMaterialRenderProxyBindingUpdate(
-		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
+		FMaterialRenderProxyBindingUpdate& OutUpdate
+	) -> bool
 	{
 		return false;
 	}
@@ -354,7 +360,8 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 	auto DPrimitiveComponent::GetEditorPickingLocalBounds(
-		FBox&, EEditorPickingPrimitiveFamily&) const -> bool
+		FBox&, EEditorPickingPrimitiveFamily&
+	) const -> bool
 	{
 		return false;
 	}
@@ -366,4 +373,4 @@ namespace Durin
 			Level->NotifyEditorPickingPrimitiveChanged(this, bRetired);
 	}
 #endif
-}
+} // namespace Durin

@@ -18,7 +18,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "RenderingThread.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "SceneView.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainTopology.h"
@@ -161,8 +161,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 		.OriginX = 0, .OriginY = 0, .CellCountX = 2, .CellCountY = 2,
 		.LODSteps = {1, 2}, .LODErrors = {0.0, 0.0},
 		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.5})};
-	Durin::FScene Scene;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+	Durin::FSceneTestOwner SceneOwner;
+	Durin::FScene& Scene = *SceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 		std::make_unique<Durin::FTerrainSceneProxy>(Payload, 1, 0.5, 0.5,
 			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch},
 			Patch.LocalBounds, Material, 1),
@@ -292,8 +293,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 
 	// Closing and reopening the same immutable generation in one renderer lifetime
 	// must not repeat height, topology, shader, or pipeline creation.
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 		std::make_unique<Durin::FTerrainSceneProxy>(Payload, 1, 0.5, 0.5,
 			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch},
 			Patch.LocalBounds, Material, 1),
@@ -367,7 +368,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	EXPECT_EQ(GTelemetry.Terrain.TerrainSuccessfulDraws, 1u);
 
 	const Durin::FVector3 LargeWorldOrigin{10000000.25, -10000000.5, 0.0};
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 		std::make_unique<Durin::FTerrainSceneProxy>(Payload, 1, 0.5, 0.5,
 			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch},
 			Patch.LocalBounds, Material, 1),
@@ -433,7 +434,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	East.LocalBounds = Durin::FBox({0.5, 0.0, 0.5}, {1.0, 1.0, 0.5});
 	Durin::FMatrix MixedTransform(1.0);
 	MixedTransform[3][0] = 5.0;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 		std::make_unique<Durin::FTerrainSceneProxy>(MixedPayload, 2, 0.25, 0.5,
 			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{West, East},
 			Durin::FBox({0.0, 0.0, 0.5}, {1.0, 1.0, 0.5}), Material, 1),
@@ -483,7 +484,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	EXPECT_EQ(GTelemetry.DirectionalShadow.ShadowPreparedTerrainCasters, 6u);
 	EXPECT_EQ(GTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 6u);
 
-	Scene.RemoveLight(DirectionalToken);
+	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	std::vector<uint16> MaskSamples(7u * 7u, 65535);
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> MaskPayload;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(
@@ -520,7 +521,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 					{(GridX + 1) / 3.0, (GridY + 1) / 3.0, 0.5});
 				MaskPatches.push_back(std::move(MaskPatch));
 			}
-		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91),
 			std::make_unique<Durin::FTerrainSceneProxy>(MaskPayload, 10 + Mask,
 				1.0 / 6.0, 1.0 / 6.0, 0.5, 0.0, std::move(MaskPatches),
 				Durin::FBox({0.0, 0.0, 0.5}, {1.0, 1.0, 0.5}), Material, 1),
@@ -599,8 +600,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();
+	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();

@@ -46,10 +46,12 @@ namespace Durin
 		auto MarkRenderStateDirty() -> void;
 
 	private:
-		auto EnsureLightSceneId() -> FLightSceneId;
+		ENGINE_API auto EnsureLightSceneId() -> FLightSceneId;
 
 		FLightSceneId LightSceneId;
 		// Non-owning token used only to retire the exact published proxy.
 		FLightSceneProxy* SceneProxy = nullptr;
+
+		friend class FScene;
 	};
 }

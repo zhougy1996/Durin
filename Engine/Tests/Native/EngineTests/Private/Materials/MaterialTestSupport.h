@@ -35,7 +35,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
@@ -220,7 +220,7 @@ namespace
 			return Result;
 		}
 
-		auto ResetTestScene() -> void { MainScene.reset(); }
+		auto ResetTestScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 		auto SetTestRendererModule(Durin::IRendererModule* InRendererModule) -> void { RendererModule = InRendererModule; }
 	};
 

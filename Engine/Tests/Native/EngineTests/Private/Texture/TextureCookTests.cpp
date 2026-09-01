@@ -25,7 +25,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RenderingThread.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -423,7 +423,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 				return;
 			}
 
-			Scene.AddOrReplacePrimitive(
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 				Durin::FPrimitiveSceneId(1), std::move(*SampleProxy), Durin::FMatrix(1.0));
 			Durin::FRHITextureCreateDesc ColorDesc =
 				Durin::FRHITextureCreateDesc::Create2D(
@@ -466,7 +466,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		EXPECT_GT(std::to_integer<uint8>(UploadResult->SamplePixels[Center + 2]), 180u);
 	}
 
-	SceneOwner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(SampleComponent);
 	Durin::MarkAsGarbage(SampleMesh);

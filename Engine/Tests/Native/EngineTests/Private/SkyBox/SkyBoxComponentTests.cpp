@@ -35,7 +35,7 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 	Larger.Intensity = 2.0f;
 	auto* LargerToken = PublishSkyBox(
 		Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
-	Scene.RemoveSkyBox(LargerToken);
+	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, LargerToken);
 	auto* ReplacementToken = PublishSkyBox(
 		Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
 	EXPECT_NE(ReplacementToken, LargerToken);
@@ -62,15 +62,15 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 	EXPECT_EQ(Observation.Count, 3u);
 	EXPECT_EQ(Observation.Active.Desc.RuntimeId, Durin::FSkyBoxSceneId(3));
 	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 6.0f);
-	Scene.RemoveSkyBox(DuplicateToken);
+	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, DuplicateToken);
 
-	Scene.RemoveSkyBox(SmallerToken);
+	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SmallerToken);
 	Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_EQ(Observation.Active.Desc.PersistentId, LargerId);
 
-	SceneOwner.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 }
@@ -191,7 +191,7 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
 	World->SetRenderScene(nullptr);
 
-	AuxiliaryScene.reset();
+	Durin::FSceneInterfaceTestAccess::ReleaseScene(AuxiliaryScene);
 	Engine.ResetTestScene();
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);

@@ -87,19 +87,23 @@ namespace Durin
 #endif
 
 	private:
+		auto CreateRenderState() -> void;
 		auto MakePhysicsBodyDesc(
 			const FCollisionGeometryRef& Geometry,
 			const FTransform& Transform) const -> FPhysicsBodyDesc;
-		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
+		ENGINE_API auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
 		auto UpdatePhysicsState() -> void;
 		auto ApplyPhysicsStateCreationPolicy() -> void;
 
 		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
+		bool bSceneProxyPublished = false;
 		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Edit)
 		bool bVisible = true;
 		DPROPERTY(Edit)
 		FBodyInstance BodyInstance;
+
+		friend class FScene;
 	};
 }

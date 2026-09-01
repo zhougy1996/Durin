@@ -16,9 +16,7 @@ namespace Durin
 	DSkyBoxComponent::DSkyBoxComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, SkyBoxSceneId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? FGuid{} : FGuid::NewGuid())
-		, SkyBoxInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
-			? 0
-			: GNextSkyBoxInstanceId.fetch_add(1, std::memory_order_relaxed))
+		, SkyBoxInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? 0 : GNextSkyBoxInstanceId.fetch_add(1, std::memory_order_relaxed))
 	{
 	}
 
@@ -47,7 +45,8 @@ namespace Durin
 		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Intensity")
 			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
 		float* DraftIntensity = Proposal.DraftRootProperty->ContainerPtrToValuePtr<float>(
-			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex
+		);
 		*DraftIntensity = FMath::Max(0.0f, *DraftIntensity);
 		return true;
 	}
@@ -55,8 +54,7 @@ namespace Durin
 	auto DSkyBoxComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
-			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit)) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("TextureCube") || Name == FName("Tint") || Name == FName("Intensity"))
 			MarkRenderStateDirty();
@@ -97,41 +95,40 @@ namespace Durin
 	{
 		if (SkyBoxInstanceId == 0)
 			SkyBoxInstanceId = GNextSkyBoxInstanceId.fetch_add(
-				1, std::memory_order_relaxed);
+				1, std::memory_order_relaxed
+			);
 		return SkyBoxInstanceId;
 	}
 
 	auto DSkyBoxComponent::CreateRenderState() -> void
 	{
-		if (!IsRegistered() || SceneProxy != nullptr) return;
-		FSceneInterface* Scene = GetRenderScene();
-		if (Scene == nullptr) return;
+		if (!IsRegistered()) return;
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->AddSkyBox(this);
+	}
 
-		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
-			return;
-
+	auto DSkyBoxComponent::CreateSceneProxy() -> std::unique_ptr<FSkyBoxSceneProxy>
+	{
+		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden()) return nullptr;
 		FSkyBoxSceneData Data;
 		Data.Rotation = GetWorldRotation();
 		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
 		Data.Intensity = FMath::Max(0.0f, Intensity);
 		if (DTextureCube* Cube = TextureCube.Get())
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
-		auto Proxy = std::make_unique<FSkyBoxSceneProxy>(
+		return std::make_unique<FSkyBoxSceneProxy>(
 			FSkyBoxSceneProxyDesc{
 				.PersistentId = SkyBoxSceneId,
 				.SelectionKey = GetObjectPath(),
 				.RuntimeId = FSkyBoxSceneId(EnsureSkyBoxInstanceId()),
-				.Data = std::move(Data)});
-		FSkyBoxSceneProxy* Token = Proxy.get();
-		if (Scene->AddSkyBox(std::move(Proxy))) SceneProxy = Token;
+				.Data = std::move(Data)
+			}
+		);
 	}
 
 	auto DSkyBoxComponent::DestroyRenderState() -> void
 	{
-		FSkyBoxSceneProxy* Token = SceneProxy;
-		SceneProxy = nullptr;
-		if (Token == nullptr) return;
-		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveSkyBox(Token);
+		if (!IsRegistered()) return;
+		if (FSceneInterface* Scene = GetRenderScene()) Scene->RemoveSkyBox(this);
 	}
 
 	auto DSkyBoxComponent::MarkRenderStateDirty() -> void
@@ -140,4 +137,4 @@ namespace Durin
 		DestroyRenderState();
 		CreateRenderState();
 	}
-}
+} // namespace Durin

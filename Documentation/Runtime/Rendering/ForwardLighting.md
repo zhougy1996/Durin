@@ -37,12 +37,14 @@ authoritative production ordering and failure contract.
 ## Scene ownership
 
 Directional, point, and spot lights cross the game/render boundary as detached
-`FLightSceneProxy` values. `FLightSceneProxyDesc` copies the stable
-`FLightSceneId` before `FSceneInterface::AddLight` transfers unique ownership.
-The component retains only the raw proxy token needed by `RemoveLight` and never
-reads the proxy after Add. `FLightSceneRegistry` keys ownership by that exact
+`FLightSceneProxy` values. `DLightComponent` calls the component-level
+`FSceneInterface::AddLight(this)`; Renderer-private `FScene` copies the stable
+`FLightSceneId`, constructs the family proxy synchronously, and sends only that
+proxy to its command queue. The component retains the raw proxy token only after
+internal command admission succeeds, uses `RemoveLight(this)` for retirement,
+and never reads the token. `FLightSceneRegistry` keys ownership by that exact
 pointer and owns authoritative directional, point, and spot `FLightSceneInfo`
-views. A rebuild submits removal of the old proxy before adding the new proxy,
+views. A rebuild admits removal of the old proxy before adding the new proxy,
 so a family change cannot leave stale typed membership.
 
 `DLightComponent` owns identity, registration, hidden-owner, transform,

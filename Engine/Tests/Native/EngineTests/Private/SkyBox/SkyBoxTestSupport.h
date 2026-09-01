@@ -27,7 +27,7 @@
 #include "Renderers/DisplayMapping.h"
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "RenderingThread.h"
 #include "SkyBoxDetails.h"
 #include "SkyBoxRendering.h"
@@ -63,7 +63,7 @@ namespace
 				.RuntimeId = SceneId,
 				.Data = std::move(Data)});
 		Durin::FSkyBoxSceneProxy* Token = Proxy.get();
-		return Scene.AddSkyBox(std::move(Proxy)) ? Token : nullptr;
+		return Durin::FSceneInterfaceTestAccess::TryAddSkyBoxProxy(Scene, std::move(Proxy)) ? Token : nullptr;
 	}
 
 	struct FObserveSkyBoxCommand
@@ -94,7 +94,7 @@ namespace
 			return Result;
 		}
 
-		auto ResetTestScene() -> void { MainScene.reset(); }
+		auto ResetTestScene() -> void { Durin::FSceneInterfaceTestAccess::ReleaseScene(MainScene); }
 	};
 
 	auto ObserveSkyBoxes(const Durin::FSceneInterface& SceneInterface)

@@ -34,7 +34,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "RenderingThread.h"
-#include "Scene.h"
+#include "SceneTestAccess.h"
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -564,11 +564,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	auto Material = MaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
 
-	Durin::FScene Scene;
+	Durin::FSceneTestOwner SceneOwner;
+
+	Durin::FScene& Scene = *SceneOwner;
 	auto Translate = [](double X, double Y) {
 		return Durin::Math::TranslationMatrix(Durin::FVector3{X, Y, 0.0});
 	};
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), Translate(-1.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), Translate(-1.0, -1.0));
 	Durin::FSplineMeshRenderDynamicData SplineData{
 		.Params = {},
 		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}),
@@ -579,13 +581,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	SplineData.Params.EndTangent = {1.0, 0.0, 0.0};
 	SplineData.Params.SourceForwardMin = 0.0;
 	SplineData.Params.SourceForwardMax = 1.0;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, SplineData), Translate(0.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, SplineData), Translate(0.0, -1.0));
 	auto Pose = std::make_shared<Durin::FSkeletalPosePalette>();
 	Pose->Revision = 1;
 	Pose->SkeletonCompatibilityIdentity = "GBufferQualification";
 	Pose->Matrices = {Durin::FMatrix4f(1.0f)};
 	Pose->LocalBounds = SkeletalQuad->LocalBounds;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FSkeletalMeshSceneProxy>(SkeletalQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, Pose), Translate(-1.0, 0.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FSkeletalMeshSceneProxy>(SkeletalQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, Pose), Translate(-1.0, 0.0));
 	const std::array<uint16, 4> Heights{};
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> HeightPayload;
 	std::string Error;
@@ -595,7 +597,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Durin::FTerrainPatchDescriptor Patch{
 		.OriginX = 0, .OriginY = 0, .CellCountX = 1, .CellCountY = 1, .LODSteps = {1}, .LODErrors = {0.0}, .LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0})
 	};
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(4), std::make_unique<Durin::FTerrainSceneProxy>(HeightPayload, 1, 1.0, 1.0, 0.0, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1), Durin::FMatrix(1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(4), std::make_unique<Durin::FTerrainSceneProxy>(HeightPayload, 1, 1.0, 1.0, 0.0, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1), Durin::FMatrix(1.0));
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.35, 0.2, -1.0};
 	Directional.Color = {1.0f, 1.0f, 1.0f};
@@ -647,8 +649,10 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		SpecularAAMaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
 
-	Durin::FScene SpecularAAScene;
-	SpecularAAScene.AddOrReplacePrimitive(
+	Durin::FSceneTestOwner SpecularAASceneOwner;
+
+	Durin::FScene& SpecularAAScene = *SpecularAASceneOwner;
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SpecularAAScene,
 		Durin::FPrimitiveSceneId(200),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			SpecularAAQuad.get(),
@@ -1304,7 +1308,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	);
 	RaisedTransform = Durin::Math::Scale(
 		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
 	Durin::FlushRenderingCommands();
 	Durin::FByteArray RaisedContactVisibility;
 	Durin::FByteArray RaisedContactFilteredVisibility;
@@ -1333,7 +1337,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	}
 	EXPECT_GT(FilteredOccludedPixels, 0u);
 	EXPECT_LT(FilteredOccludedPixels, CaptureWidth * CaptureHeight);
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(7));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(7));
 	Durin::FlushRenderingCommands();
 
 	auto* UnlitMaterialObject = MakeMaterial(
@@ -1350,8 +1354,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	auto TranslucentMaterial =
 		TranslucentMaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}, 1), Translate(-0.55, -0.45));
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}, 1), Translate(-0.35, -0.25));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}, 1), Translate(-0.55, -0.45));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}, 1), Translate(-0.35, -0.25));
 	Durin::FlushRenderingCommands();
 
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionGBufferQueries;
@@ -2059,7 +2063,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(3), Translate(-0.9, 0.1));
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(4), Translate(0.1, 0.1));
 	Directional.Intensity = 4.0f;
-	Scene.RemoveLight(DirectionalToken);
+	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
 		Scene, Durin::FLightSceneId(100), Directional);
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
@@ -2095,13 +2099,13 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	GBufferQueries.clear();
 	DeferredQueries.clear();
 
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(1));
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(3));
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(4));
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(5));
-	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(6));
-	SpecularAAScene.RemovePrimitive(Durin::FPrimitiveSceneId(200));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(4));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(5));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(6));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveSceneId(200));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 		[&](Durin::FRHICommandListImmediate&) {
@@ -2111,6 +2115,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		}
 	);
 	Durin::FlushRenderingCommands();
+	SpecularAASceneOwner.Reset();
+	SceneOwner.Reset();
 	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();

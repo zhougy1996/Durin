@@ -177,6 +177,7 @@ namespace Durin
 		SetWorld(nullptr);
 		if (MainScene != nullptr)
 		{
+			MainScene->Release();
 			MainScene.reset();
 		}
 		ShutdownDefaultMaterialService();
