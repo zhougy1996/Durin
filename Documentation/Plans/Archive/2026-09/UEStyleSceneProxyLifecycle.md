@@ -4,7 +4,7 @@ Summary: Replace generic scene-publication metadata with UE-style Component-to-P
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -247,14 +247,14 @@ tree contains no transitional lifecycle path.
 
 ## Related Code and Contracts
 
-- [`SceneInterface.h`](../../Engine/Source/Runtime/Engine/Public/SceneInterface.h)
-- [`SceneTypes.h`](../../Engine/Source/Runtime/Engine/Public/SceneTypes.h)
-- [`Scene.h`](../../Engine/Source/Runtime/Renderer/Public/Scene.h)
-- [`Scene.cpp`](../../Engine/Source/Runtime/Renderer/Private/Scene.cpp)
-- [`SceneRegistry.h`](../../Engine/Source/Runtime/Renderer/Private/SceneRegistry.h)
-- [`VolumetricCloudComponent.cpp`](../../Engine/Source/Runtime/Engine/Private/Components/VolumetricCloudComponent.cpp)
-- [`SkyBoxComponent.cpp`](../../Engine/Source/Runtime/Engine/Private/Components/SkyBoxComponent.cpp)
-- [`LightComponent.cpp`](../../Engine/Source/Runtime/Engine/Private/Components/LightComponent.cpp)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Volumetric Cloud Scene Contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [`SceneInterface.h`](../../../../Engine/Source/Runtime/Engine/Public/SceneInterface.h)
+- [`SceneTypes.h`](../../../../Engine/Source/Runtime/Engine/Public/SceneTypes.h)
+- [`Scene.h`](../../../../Engine/Source/Runtime/Renderer/Public/Scene.h)
+- [`Scene.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/Scene.cpp)
+- [`SceneRegistry.h`](../../../../Engine/Source/Runtime/Renderer/Private/SceneRegistry.h)
+- [`VolumetricCloudComponent.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Components/VolumetricCloudComponent.cpp)
+- [`SkyBoxComponent.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Components/SkyBoxComponent.cpp)
+- [`LightComponent.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Components/LightComponent.cpp)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Volumetric Cloud Scene Contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)

@@ -4,7 +4,7 @@ Summary: Remove the production PackageObjectStream model and make CoreDObject li
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -260,19 +260,19 @@ the implemented code; and the repository has one format-neutral package IR.
 
 ## Related Code
 
-- [CoreDObject package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
-- [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [Engine-private linker boundary](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinker.h)
-- [Engine direct linker capture](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerCapture.cpp)
-- [Engine direct linker application](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
-- [Engine DAST v9 integration](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV9Codec.cpp)
+- [CoreDObject package linker](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
+- [CoreDObject package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [Engine-private linker boundary](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinker.h)
+- [Engine direct linker capture](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerCapture.cpp)
+- [Engine direct linker application](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp)
+- [Engine DAST v9 integration](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV9Codec.cpp)
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Core Object Package Linker roadmap](../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
-- [Core Object Package Linker Foundation plan](Archive/2026-08/CoreObjectPackageLinkerFoundation.md)
-- [Build and Run workflow](../Agents/BuildAndRun.md)
-- [Testing workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Core Object Package Linker roadmap](../../../Roadmaps/Archive/2026-08/CoreObjectPackageLinker.md)
+- [Core Object Package Linker Foundation plan](../2026-08/CoreObjectPackageLinkerFoundation.md)
+- [Build and Run workflow](../../../Agents/BuildAndRun.md)
+- [Testing workflow](../../../Agents/Testing.md)

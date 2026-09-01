@@ -4,7 +4,7 @@ Summary: Replace the AssetRegistry-owned catch-all asset result with Core diagno
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -84,8 +84,8 @@ packages, Cook, editor workflows, and downstream runtime consumers.
 
 ## Related Code
 
-- [`Core public headers`](../../Engine/Source/Runtime/Core/Public)
-- [`CoreDObject package format`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [`AssetRegistry public headers`](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry)
-- [`Engine asset public headers`](../../Engine/Source/Runtime/Engine/Public/Asset)
-- [`Asset catalog and mutation contract`](../Runtime/Assets/AssetCatalogAndMutation.md)
+- [`Core public headers`](../../../../Engine/Source/Runtime/Core/Public)
+- [`CoreDObject package format`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [`AssetRegistry public headers`](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry)
+- [`Engine asset public headers`](../../../../Engine/Source/Runtime/Engine/Public/Asset)
+- [`Asset catalog and mutation contract`](../../../Runtime/Assets/AssetCatalogAndMutation.md)

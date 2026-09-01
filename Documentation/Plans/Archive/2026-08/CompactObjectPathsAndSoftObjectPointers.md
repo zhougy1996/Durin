@@ -19,7 +19,7 @@ Case-insensitive identity, first-spelling display, strict interned-name bounds,
 deterministic ordering, allocation-free subobject iteration, exact cache
 population, and the four cache states have focused contract coverage.
 
-The parent [Package And Object Path Identity](../../PackageAndObjectPathIdentity.md)
+The parent [Package And Object Path Identity](../2026-09/PackageAndObjectPathIdentity.md)
 plan supplied the bounded DAST v8-to-v9 migration required to clear the final
 qualification gate. All 25 maintained packages now use DAST v9,
 `asset check --baseline` accepts the complete corpus, the broad native
@@ -274,7 +274,7 @@ unblocked.
 
 ## Related Documentation
 
-- [Package And Object Path Identity](../../PackageAndObjectPathIdentity.md)
+- [Package And Object Path Identity](../2026-09/PackageAndObjectPathIdentity.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
 - [Reflection System](../../../Runtime/Core/ReflectionSystem.md)

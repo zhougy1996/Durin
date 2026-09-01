@@ -4,7 +4,7 @@ Summary: Separate package, top-level asset, and subobject identities and support
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -401,21 +401,21 @@ and the plan contains an evidence-backed handoff.
 
 ## Related Documentation
 
-- [Compact Object Paths And Soft Object Pointers](Archive/2026-08/CompactObjectPathsAndSoftObjectPointers.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Compact Object Paths And Soft Object Pointers](../2026-08/CompactObjectPathsAndSoftObjectPointers.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [Asset path](../../Engine/Source/Runtime/CoreDObject/Public/DObject/AssetPath.h)
-- [Soft object path](../../Engine/Source/Runtime/CoreDObject/Public/DObject/SoftObjectPtr.h)
-- [Object identity](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h)
-- [Package linker](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
-- [Package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
-- [Asset Registry catalog](../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/Catalog.h)
-- [Asset operations](../../Engine/Source/Runtime/Engine/Public/Asset/AssetOperations.h)
-- [AssetMaintenance module](../../Engine/Source/Developer/AssetMaintenance/AssetMaintenance.dmodule)
+- [Asset path](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/AssetPath.h)
+- [Soft object path](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/SoftObjectPtr.h)
+- [Object identity](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h)
+- [Package linker](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageLinker.h)
+- [Package format](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
+- [Asset Registry catalog](../../../../Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/Catalog.h)
+- [Asset operations](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetOperations.h)
+- [AssetMaintenance module](../../../../Engine/Source/Developer/AssetMaintenance/AssetMaintenance.dmodule)
