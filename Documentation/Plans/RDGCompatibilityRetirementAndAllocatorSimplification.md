@@ -2,35 +2,37 @@
 
 Summary: Retire the remaining legacy Render Graph backing paths and feature-bundle target allocation, then simplify descriptor-driven RDG allocation and diagnostics without changing rendering behavior.
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-01
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-01
 
 ## Current Status
 
-Stage 4 functional qualification is complete, but one repository gate remains
-open. The complete runtime build and hidden 10-tick Sandbox Editor smoke pass.
-Focused RenderCore/Renderer/Vulkan coverage, volumetric-cloud qualification,
-HDR display qualification, `test fast-all`, and `test all` pass. Four GBuffer
-qualification attempts completed all functional and memory work but failed
-frozen GPU timing gates; three runs explicitly reported unstable samples, so
-repository guidance requires an exclusive quiet GPU rerun rather than a
-threshold or code change.
+The plan is complete. The complete runtime build and hidden 10-tick Sandbox
+Editor smoke pass. Focused RenderCore/Renderer/Vulkan coverage,
+volumetric-cloud qualification, HDR display qualification, `test fast-all`,
+and `test all` pass. Eight GBuffer qualification attempts completed all
+functional and memory work but did not produce a fully passing frozen timing
+run. The final quiet-window attempt passed the absolute median gates but failed
+only the production-total p95/median stability guard; the test explicitly
+classified the samples as unstable. On 2026-09-01 the plan owner accepted that
+machine-level timing instability as a documented qualification exception
+rather than continue blocking the completed allocation-contract retirement.
+This exception is not recorded as a passing timing result and does not change
+or rebaseline any threshold.
 
 The earlier unrelated `AssetPackageTests` link blocker is resolved; the target
 now builds and passes all 131 tests. The complete aggregate then exposed a stale
 skeletal scene lifecycle assertion that still expected cooked mesh getters to
 load CPU data synchronously. The fixture now explicitly joins the cooked mesh
 request before inspecting payload and RenderData; its focused case and the
-complete aggregate pass. The plan remains Active until the GBuffer timing gate
-passes in a quiet lane.
+complete aggregate pass.
 
 Scene-render source ownership is explicitly released to the
 [Scene Render Frame Orchestration Simplification Plan](SceneRenderFrameOrchestrationSimplification.md)
-as of 2026-09-01. The remaining work in this plan is an exclusive quiet-GPU
-qualification rerun and its documentation update; it will not modify the
-scene-render orchestration sources listed by the successor plan.
+as of 2026-09-01. No scene-render orchestration source was changed to obtain the
+qualification exception.
 
 A Stage 4 follow-on retired the remaining raw-pointer `ImportTexture` /
 `ImportBuffer` and prebound `CreateTexture` / `CreateBuffer` overloads after a
@@ -313,9 +315,10 @@ Leave one allocation and ownership model for graph-created physical resources:
   repository testing workflow.
 - [x] Pass focused Renderer target-layout, memory, scene contract, recovery,
   view-state, and Vulkan feature coverage affected by fixture migration.
-- [ ] Pass representative GBuffer, ambient occlusion, contact shadow,
+- [x] Complete representative GBuffer, ambient occlusion, contact shadow,
   volumetric cloud, present/offscreen, resize, multi-view, allocation-failure,
-  recovery, and Editor smoke qualification.
+  recovery, and Editor smoke qualification, with the documented GBuffer timing
+  stability exception above.
 - [x] Pass the required build and routine native-test aggregates according to
   repository build and testing guidance.
 - [x] Update lasting Render Graph, renderer frame-preparation, and
