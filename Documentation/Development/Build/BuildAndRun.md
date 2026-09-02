@@ -495,7 +495,6 @@ command:
 .\DevTool.bat asset resave /Game/Characters
 .\DevTool.bat asset resave /Game/Characters --apply
 .\DevTool.bat asset resave --all --apply
-.\DevTool.bat asset storage
 ```
 
 Pass `--project <descriptor>` only to override the configured default. `check`
@@ -503,8 +502,7 @@ never writes and reports schema, canonicalization, and corruption findings.
 `resave` accepts one or more virtual scopes, each matching both an exact package
 and descendants, or the mutually exclusive `--all`. It is a preview unless
 `--apply` is explicit. Human output is the default; `--json` selects stable
-machine-readable output. `storage` writes its detailed qualification artifacts
-below `Saved/AuthoredPackageStorageQualification`.
+machine-readable output.
 
 `DurinAssetTool` is the lower-level host and uses the same compact grammar:
 
@@ -514,6 +512,10 @@ DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]
 DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]
 DurinAssetTool storage-inventory --project=<project.dproject>
 ```
+
+`storage-inventory` is a low-level DAST v9 diagnostic that emits the current
+package and `.dbulk` inventory. It does not select or qualify a future storage
+format.
 
 Package compatibility semantics are defined by [Asset
 Packages](../../Runtime/Assets/AssetPackages.md); the user-facing rewrite

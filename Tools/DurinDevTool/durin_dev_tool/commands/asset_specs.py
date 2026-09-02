@@ -7,7 +7,6 @@ from .specification import CommandSpec, argument
 
 
 HANDLER = "durin_dev_tool.asset:run"
-STORAGE_HANDLER = "durin_dev_tool.storage_qualification:run"
 
 PROJECT_ARGUMENT = argument(
     "--project",
@@ -64,23 +63,6 @@ COMMAND_SPEC = CommandSpec(
                     "--apply",
                     action="store_true",
                     help="write the previewed resaves",
-                ),
-                JSON_ARGUMENT,
-            ),
-        ),
-        CommandSpec(
-            "storage",
-            "measure authored package storage",
-            STORAGE_HANDLER,
-            required_modules=("rich", "jsonschema"),
-            arguments=CONTEXT_ARGUMENTS
-            + (
-                PROJECT_ARGUMENT,
-                argument(
-                    "--output",
-                    dest="output_path",
-                    type=Path,
-                    default=Path("Saved/AuthoredPackageStorageQualification/latest"),
                 ),
                 JSON_ARGUMENT,
             ),

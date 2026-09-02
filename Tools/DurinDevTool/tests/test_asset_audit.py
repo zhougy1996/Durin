@@ -1,7 +1,6 @@
 
 import io
 import json
-import subprocess
 from dataclasses import replace
 from pathlib import Path
 from unittest import mock
@@ -13,7 +12,6 @@ DEV_TOOL_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool import asset
-from durin_dev_tool import storage_qualification
 from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
@@ -181,8 +179,9 @@ def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
     _, option_namespace = registry.parse(["asset", "--json"])
     assert option_namespace.asset_command == "check"
     assert option_namespace.format_name == "json"
-    with pytest.raises(DevToolError, match="invalid choice"):
-        registry.parse(["asset", "audit"])
+    for removed_command in ("audit", "storage"):
+        with pytest.raises(DevToolError, match="invalid choice"):
+            registry.parse(["asset", removed_command])
 
 
 def test_selected_asset_command_grammar_is_frozen() -> None:
@@ -202,13 +201,6 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     assert resave_namespace.asset_command == "resave"
     assert resave_namespace.scopes == ["/Game/Characters", "/Engine/Materials"]
     assert resave_namespace.apply
-
-    _, storage_namespace = registry.parse(
-        ["asset", "storage", "--project", "Sandbox/Sandbox.dproject"]
-    )
-    assert storage_namespace.output_path == Path(
-        "Saved/AuthoredPackageStorageQualification/latest"
-    )
 
 
 def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
@@ -315,155 +307,6 @@ def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> No
                 command_runner=lambda *_args, **_kwargs: pytest.fail("invalid selection must not launch"),
             )
 
-
-def test_storage_qualification_protocol_and_decision_match_current_v6_baseline() -> None:
-    protocol = json.loads(storage_qualification.PROTOCOL_PATH.read_text(encoding="utf-8"))
-    assert protocol["schemaVersion"] == 3
-    assert {workload["kind"] for workload in protocol["workloads"]} == {
-        "tracked", "synthetic", "future-consumer"
-    }
-    assert {candidate["id"] for candidate in protocol["candidates"]} == {
-        "retain-dast6-dabk1", "next-dast-companion-index",
-        "content-addressed-companion", "package-local-payload",
-        "in-place-tail-or-append",
-    }
-    corpus = {
-        "reachableExternalBytes": 2_359_616,
-        "payloadCount": 2,
-        "warmInspectionP95Milliseconds": 10.0,
-    }
-    git_baseline = {
-        "files": [{
-            "path": "Example.dabulk", "workingTreeBytes": 2_359_616,
-            "history": {"monthlyTouchRate": 1.0},
-        }]
-    }
-    publication = {"samples": [{"warmP95Milliseconds": 10.0}]}
-    decision = storage_qualification._decision(
-        protocol, corpus, git_baseline, publication
-    )
-    assert decision["result"] == "Retain"
-    assert not any(decision["pressureGates"].values())
-
-    corpus["warmInspectionP95Milliseconds"] = 75.0
-    diagnostic = storage_qualification._decision(
-        protocol, corpus, git_baseline, publication
-    )
-    assert diagnostic["result"] == "Retain"
-    assert diagnostic["performanceDiagnosticOnly"]
-    assert not diagnostic["pressureGates"]["inspectionP95"]
-
-    broken_corpus = {
-        **corpus,
-        "corruptPackageCount": 1,
-        "missingExternalPayloadCount": 1,
-    }
-    rejected = storage_qualification._decision(
-        protocol, broken_corpus, git_baseline, publication
-    )
-    assert rejected["result"] == "Defer"
-    assert rejected["integrityGates"]["corruptPackages"]
-    assert rejected["integrityGates"]["missingExternalPayloads"]
-    assert "Mandatory corpus or durability gates failed" in rejected["rationale"]
-
-
-def test_storage_qualification_uses_supplied_repository_context(tmp_path: Path) -> None:
-    repository = REPOSITORY.at_root(tmp_path)
-    namespace = type("Namespace", (), {
-        "output_path": Path("Saved/AuthoredPackageStorageQualification/context-test"),
-        "format_name": "json",
-    })()
-    corpus = {"packageCount": 0, "payloadCount": 0, "reachableExternalBytes": 0}
-    with mock.patch.object(
-        RepositoryContext,
-        "load",
-        side_effect=AssertionError("repository context was rediscovered"),
-    ), mock.patch.object(
-        storage_qualification, "_native_inventory", return_value={"packages": []}
-    ) as inventory, mock.patch.object(
-        storage_qualification, "_summarize_inventory", return_value=corpus
-    ), mock.patch.object(
-        storage_qualification, "_collect_git_baseline", return_value={}
-    ), mock.patch.object(
-        storage_qualification, "_source_control_experiment", return_value={}
-    ), mock.patch.object(
-        storage_qualification, "_synthetic_model", return_value={}
-    ), mock.patch.object(
-        storage_qualification, "_publication_benchmark", return_value={}
-    ), mock.patch.object(
-        storage_qualification, "_decision", return_value={"result": "Retain"}
-    ), mock.patch.object(
-        storage_qualification, "_environment", return_value={}
-    ):
-        assert storage_qualification.run(
-            namespace,
-            repository_root=REPOSITORY_ROOT,
-            repository_context=repository,
-            stdout=io.StringIO(),
-            stderr=io.StringIO(),
-        ) == 0
-    assert inventory.call_args.args[1] is repository
-
-
-def test_storage_qualification_inventory_summary_distinguishes_hash_candidates_from_exact_duplicates() -> None:
-    descriptor = {
-        "payloadId": "A", "logicalBytes": 4, "storedBytes": 4,
-        "contentHash": "HASH", "storage": "External", "reachable": True,
-        "exactDuplicateGroup": 1,
-    }
-    inventory = {
-        "packages": [
-            {
-                "inspection": "Ready", "fileBytesRead": 10,
-                "inspectionNanoseconds": [2_000_000, 1_000_000],
-                "descriptors": [descriptor],
-            },
-            {
-                "inspection": "Ready", "fileBytesRead": 20,
-                "inspectionNanoseconds": [2_000_000, 1_500_000],
-                "descriptors": [{**descriptor, "payloadId": "B"}],
-            },
-        ]
-    }
-    summary = storage_qualification._summarize_inventory(inventory)
-    assert summary["duplicatePayloadIds"] == []
-    assert summary["duplicateContentCandidateHashes"] == ["HASH"]
-    assert summary["exactDuplicateExternalPayloadCount"] == 2
-    assert summary["inspectionBytesRead"] == 30
-    assert summary["duplicatePayloadIdsWithinPackage"] == []
-    assert summary["orphanCompanionCount"] == 0
-
-
-def test_storage_qualification_failure_model_rejects_unproven_in_place_protocols() -> None:
-    results = {
-        item["candidate"]: item["result"]
-        for item in storage_qualification._failure_model()
-    }
-    assert results["complete-file-atomic-replacement"] == "Pass"
-    assert results["companion-first-publication"] == "Pass"
-    assert results["in-place-tail-rewrite"] == "Fail"
-    assert results["append-generation"] == "Fail"
-
-
-def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> None:
-    def git(*arguments: str) -> None:
-        subprocess.run(
-            ["git", *arguments], cwd=tmp_path, check=True, capture_output=True, text=True
-        )
-
-    git("init", "--quiet")
-    git("config", "user.email", "qualification@durin.invalid")
-    git("config", "user.name", "Durin Qualification")
-    old_path = tmp_path / "Old.dasset"
-    old_path.write_bytes(b"asset bytes")
-    git("add", "Old.dasset")
-    git("commit", "--quiet", "-m", "baseline")
-    git("mv", "Old.dasset", "Renamed.dasset")
-    git("commit", "--quiet", "-m", "rename")
-
-    history = storage_qualification._history_for_path(tmp_path, "Renamed.dasset")
-    assert history["commitTouches"] == 2
-    assert history["uniqueMainGitBlobs"] == 1
 
 def test_json_schema_names_and_order_are_preserved(tmp_path: Path) -> None:
     result, output, _ = run_handler(

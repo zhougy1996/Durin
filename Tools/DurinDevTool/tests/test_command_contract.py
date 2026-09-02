@@ -42,7 +42,6 @@ COMMAND_CASES = (
     (("cook",), "cook --output Saved/Cooked --target win64 --target-profile game"),
     (("asset", "check"), "asset check --json"),
     (("asset", "resave"), "asset resave /Game/Characters --apply"),
-    (("asset", "storage"), "asset storage"),
     (
         ("scene", "graybox-build"),
         "scene graybox-build --project Sandbox/Sandbox.dproject --output /Game/Test",
@@ -98,7 +97,6 @@ EXPECTED_COMMAND_PATHS = {
     ("asset",),
     ("asset", "check"),
     ("asset", "resave"),
-    ("asset", "storage"),
     ("scene",),
     ("scene", "graybox-build"),
     ("create",),
@@ -171,7 +169,6 @@ class TestCommandGrammarContract:
                     "import durin_dev_tool.commands.scene_specs; "
                     "import durin_dev_tool.commands.worktree_specs; "
                     "assert 'durin_dev_tool.asset' not in sys.modules; "
-                    "assert 'durin_dev_tool.storage_qualification' not in sys.modules; "
                     "assert 'durin_dev_tool.bootstrap.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.build.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.cook' not in sys.modules; "
@@ -222,7 +219,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "bb6ef00140b2b4f4c86b2843d13cee5706537e2ceca6514c4819c49e87edbb3a"
+            "c54d01af8b9f1d75197a25b7d1caaf9949b6b455a6d3d0ca236f2e7421107a7f"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "7d44e1043a23fa443bb05186e4aefdf451b537dcfd8fb6b4439f1aab24dd4f83"
