@@ -167,7 +167,6 @@ durin_add_engine_functional_test(LevelMutationTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
 		${_durin_level_editor_private}/Operations/TerrainPlacement.cpp
-		${_durin_level_editor_private}/Operations/GrayboxSceneBuild.cpp
 		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
 	LIBRARIES DurinEd
 )

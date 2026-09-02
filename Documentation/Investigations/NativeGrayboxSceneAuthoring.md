@@ -1,21 +1,20 @@
 # Native Graybox Scene Authoring Expansion Investigation
 
 Summary: Determine the user workflows, ownership model, identity, persistence,
-and publication boundaries required before extending the existing StaticMesh
-authoring service and create-only graybox command into a broader scene-authoring
-solution.
+and publication boundaries required before introducing automated graybox or
+scene authoring beyond the existing editor placement tools.
 
 **Status:** Deferred pending a concrete end-to-end authoring workflow and a
 replacement architecture that can extend beyond name-managed StaticMesh Actors.
 
-**Last reviewed:** 2026-08-12
+**Last reviewed:** 2026-09-02
 
 ## Verified Current Behavior
 
-Durin already supports two repository-native authoring boundaries delivered by
+Durin supports one repository-native structural authoring boundary delivered by
 the former Native Graybox Scene Authoring plan.
 
-At revision `4d5b123c`, `FStaticMeshLevelAuthoringService` became the reusable
+At revision `4d5b123c`, the StaticMesh Level mutation service became the reusable
 LevelEditor boundary for bounded create, update, rename, and remove batches over
 ordinary unattached `AStaticMeshActor` graphs. Planning is mutation-free and
 stale-aware; execution uses one structural transaction with rollback, Undo/Redo
@@ -24,32 +23,21 @@ no-op suppression. The Scene Viewport and relevant World Outliner paths use the
 service. Focused tests cover atomic batches, failed live steps, document and
 read-only transitions, unsupported graphs, saved state, and history behavior.
 
-At revision `a89f7087`, `DevTool scene graybox-build` added a narrower create-only
-workflow. A bounded hidden DurinEditor process builds an open Box arena in an
-unpublished candidate Level, saves and reloads it, verifies its Actors, and
-publishes it through Engine relocation only when the requested output path
-is absent. It refuses replacement and concurrent project editing. The
-qualified Sandbox smoke covered persistence, occupied-output refusal, ownership
-conflict, deterministic rerun refusal, cleanup, asset compatibility, and process
-shutdown.
-
-These shipped contracts are documented by Static Mesh Level Mutations and the
-Create-Only Graybox Build guide. They remain supported independently of any
-future generalized scene-authoring design.
+The former create-only arena command was removed because its fixed layout did
+not justify a dedicated hidden-Editor publication workflow at the engine's
+current stage. Its removal did not change the interactive StaticMesh mutation
+boundary or the general asset save, load, deletion, and relocation facilities.
 
 The earlier `ThirdPersonTest` bootstrap at revision `f12c9113` used a temporary
-one-use executable. That target was removed after generation. The permanent
-service and create-only command eliminate the need to repeat that technique for
-their supported cases, but they do not provide incremental regeneration of an
-existing Level.
+one-use executable. That target was removed after generation and is not a model
+for a permanent scene-authoring workflow.
 
 ## Observable Impact
 
-There is no known correctness defect in the delivered StaticMesh mutation or
-create-only graybox paths. Users can place and transactionally edit supported
-StaticMesh Actors through ordinary LevelEditor surfaces, and automation can
-create one new open Box arena without generating a temporary build target or
-editing package bytes.
+There is no known correctness defect in the delivered StaticMesh mutation path.
+Users can place and transactionally edit supported StaticMesh Actors through
+ordinary LevelEditor surfaces. There is intentionally no dedicated automated
+graybox Level generator.
 
 The unresolved problem is product and architecture scope. The former plan
 combined a dedicated Graybox panel, a triangular-prism asset, presets, a YAML
@@ -90,27 +78,26 @@ ordinary placement improvements, reusable Level fragments, prefabs, procedural
 tools, or another editor-native composition model. Without that evidence, the
 panel and recipe are features in search of a stable ownership boundary.
 
-### P2: Safe replacement and automation stop at an empty output path
+### P2: Safe automated publication has no selected contract
 
-The qualified command publishes only to an absent path. Updating an occupied
-Level requires a recoverable contract spanning live registry state, dirty
-documents, candidate publication, save and audit failure, cancellation, crash,
-and process exit. Reusing the create-only relocation path does not by itself
-make destructive replacement safe.
+Creating or updating a Level through automation requires a recoverable contract
+spanning live registry state, dirty documents, candidate publication, save and
+audit failure, cancellation, crash, and process exit. The general asset
+relocation path does not by itself define that product-level contract.
 
 ### P2: Geometry and gameplay expectations are not one concern
 
-The delivered arena is visual Box geometry. Triangular prisms, CSG or editable
-topology, snapping, materials, grouping, collision, walkable slopes, character
-steps, and camera obstruction have different runtime and editor owners. A
-single graybox plan should not silently treat those as one feature boundary.
+Primitive geometry, CSG or editable topology, snapping, materials, grouping,
+collision, walkable slopes, character steps, and camera obstruction have
+different runtime and editor owners. A single graybox plan should not silently
+treat those as one feature boundary.
 
 ## Candidate Directions
 
-Treat `FStaticMeshLevelAuthoringService` as a proven narrow substrate rather
-than the architecture of a generalized authoring system. Preserve
-`graybox-build` as a create-only utility while gathering concrete workflows
-that the existing LevelEditor cannot express economically.
+Treat the StaticMesh Level mutation service as a proven narrow substrate rather
+than the architecture of a generalized authoring system. Keep automated scene
+generation out of the product until concrete workflows establish a broader
+ownership and publication model.
 
 When evidence justifies new work, compare at least these models before selecting
 an implementation plan:
@@ -134,8 +121,8 @@ This is a candidate direction, not an adopted architecture.
 
 Create a new implementation plan only when all of the following are available:
 
-- at least one concrete Level-authoring workflow that the current placement and
-  create-only command cannot satisfy;
+- at least one concrete Level-authoring workflow that current editor placement
+  cannot satisfy economically;
 - representative content covering the required Actor/component and attachment
   shapes;
 - an explicit decision about whether generated source or the edited Level owns
@@ -162,13 +149,12 @@ not sufficient triggers without those inputs.
   custom mesh generation, materials, collision, snapping, or gameplay
   qualification belongs in the same first slice.
 - No end-to-end evidence establishes a stable machine-readable preview/apply
-  contract or a need for one beyond the existing create-only command.
+  contract or a current need for one.
 
 ## Related Documentation
 
 - [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
 - [Static Mesh Level Mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
-- [Create-Only Graybox Build](../Editor/Guides/GrayboxBuild.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
 - [Level System](../Runtime/World/LevelSystem.md)
@@ -176,11 +162,8 @@ not sufficient triggers without those inputs.
 
 ## Related Code
 
-- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Private/Authoring/StaticMeshLevelAuthoring.cpp`
-- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Private/Authoring/GrayboxSceneAuthoring.cpp`
-- `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelAuthoringTests.cpp`
+- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelMutations.h`
+- `Engine/Source/Editor/LevelEditor/Private/Operations/StaticMeshLevelMutations.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelMutationTests.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/WorldOutlinerPanel.cpp`
-- `Tools/DurinDevTool/durin_dev_tool/scene.py`

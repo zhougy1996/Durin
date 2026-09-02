@@ -33,8 +33,6 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "TerrainHeightmapThumbnailRenderer.h"
 #include "Thumbnail/ThumbnailManager.h"
-#include "GrayboxSceneBuild.h"
-#include "Misc/StartupCommand.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin
@@ -133,11 +131,6 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization(), ExtensionGate));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization(), ExtensionGate));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
-		GrayboxBuildStartupCommandHandle = RegisterStartupCommandHandler(
-			"graybox-build", RunGrayboxBuildStartupCommand,
-			EditorExtensionCallbacks.GetGate());
-		checkf(GrayboxBuildStartupCommandHandle != 0,
-			"LevelEditor graybox-build startup command must register exactly once");
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
@@ -147,8 +140,6 @@ namespace Durin
 			checkf(GEditor->GetTransactor()
 				->DiscardCustomChangesByModule("LevelEditor"),
 				"LevelEditor cannot retire while one of its custom changes is active");
-		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);
-		GrayboxBuildStartupCommandHandle = 0;
 		UnregisterAssetReferenceStore(
 			ProjectDefaultLevelReferenceStoreHandle);
 		ProjectDefaultLevelReferenceStoreHandle = 0;

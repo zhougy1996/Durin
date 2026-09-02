@@ -9,10 +9,9 @@
   an offline source-art and packing pipeline needs a larger scheduled icon set
   or an explicit visual-design requirement before implementation is justified.
 - [Native graybox scene authoring expansion](NativeGrayboxSceneAuthoring.md) —
-  the transaction-backed StaticMesh authoring service and create-only arena
-  command are qualified, but a broader solution needs concrete workflows and a
-  replacement model for object scope, persistent identity, edited-source
-  ownership, and occupied-Level publication before implementation is planned.
+  automated scene generation remains intentionally absent until concrete
+  workflows establish object scope, persistent identity, edited-source
+  ownership, and safe Level publication semantics.
 - [DurinDevTool Windows lock recovery boundary](DurinDevToolWindowsLockRecovery.md) —
   Windows ACL recovery currently leaks Windows-only guidance through the
   cross-platform lock-opening path and lacks an automated live-lock integration

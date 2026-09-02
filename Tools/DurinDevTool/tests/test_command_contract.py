@@ -43,10 +43,6 @@ COMMAND_CASES = (
     (("asset", "check"), "asset check --json"),
     (("asset", "resave"), "asset resave /Game/Characters --apply"),
     (
-        ("scene", "graybox-build"),
-        "scene graybox-build --project Sandbox/Sandbox.dproject --output /Game/Test",
-    ),
-    (
         ("create", "module"),
         "create module Sample --project Sandbox/Sandbox.dproject",
     ),
@@ -97,8 +93,6 @@ EXPECTED_COMMAND_PATHS = {
     ("asset",),
     ("asset", "check"),
     ("asset", "resave"),
-    ("scene",),
-    ("scene", "graybox-build"),
     ("create",),
     ("create", "module"),
     ("create", "project"),
@@ -166,14 +160,12 @@ class TestCommandGrammarContract:
                     "import durin_dev_tool.commands.build_specs; "
                     "import durin_dev_tool.commands.cook_specs; "
                     "import durin_dev_tool.commands.documentation_specs; "
-                    "import durin_dev_tool.commands.scene_specs; "
                     "import durin_dev_tool.commands.worktree_specs; "
                     "assert 'durin_dev_tool.asset' not in sys.modules; "
                     "assert 'durin_dev_tool.bootstrap.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.build.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.cook' not in sys.modules; "
                     "assert 'durin_dev_tool.documentation.handler' not in sys.modules; "
-                    "assert 'durin_dev_tool.scene' not in sys.modules; "
                     "assert 'durin_dev_tool.worktree.handler' not in sys.modules"
                 ),
             ],
@@ -219,10 +211,10 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "c54d01af8b9f1d75197a25b7d1caaf9949b6b455a6d3d0ca236f2e7421107a7f"
+            "3c47102d30701e1ba3342bbe8ab96bf7bdfd3df9eb204d034885dd6aedd2f455"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
-            "7d44e1043a23fa443bb05186e4aefdf451b537dcfd8fb6b4439f1aab24dd4f83"
+            "a98689f409f11da4e1c1b1c19c4cfb9be852baebb8e9f3ffb3c7f1181e62341a"
         )
 
 
