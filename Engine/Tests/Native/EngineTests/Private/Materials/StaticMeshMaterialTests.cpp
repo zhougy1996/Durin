@@ -693,7 +693,7 @@ TEST(FMaterialProgramPackageTests,
 	Durin::CollectGarbage();
 }
 
-TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
+TEST(FStaticMeshMaterialTests, RemovedLegacyParameterMapsAreDiscardedWithoutRevivingOverrides)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
@@ -735,8 +735,12 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
 	const Durin::FAssetResult Load =
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
-	EXPECT_EQ(Load.Error, Durin::EAssetError::UnsupportedProperty);
-	EXPECT_EQ(LoadedInstance, nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(InstancePath), nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(BasePath), nullptr);
+	ASSERT_TRUE(Load) << Load.Message;
+	ASSERT_NE(LoadedInstance, nullptr);
+	ASSERT_NE(LoadedInstance->GetParent(), nullptr);
+	EXPECT_TRUE(LoadedInstance->GetParameterOverrides().empty());
+	EXPECT_TRUE(LoadedInstance->GetPackage()->IsCanonicalResaveRecommended());
+	EXPECT_TRUE(LoadedInstance->GetParent()->GetPackage()->IsCanonicalResaveRecommended());
+	EXPECT_FALSE(LoadedInstance->GetPackage()->IsDirty());
+	EXPECT_FALSE(LoadedInstance->GetParent()->GetPackage()->IsDirty());
 }

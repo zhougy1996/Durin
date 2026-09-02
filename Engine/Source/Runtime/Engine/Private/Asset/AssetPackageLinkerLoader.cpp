@@ -43,6 +43,21 @@ namespace Durin::AssetPrivate
 			return It == Linker.Schemas.end() ? nullptr : &*It;
 		}
 
+		// Only an absent field on a known declaring type is disposable. A current
+		// property or any explicit historical route still owns type compatibility.
+		auto IsRemovedField(std::string_view DeclaringType, std::string_view Name) -> bool
+		{
+			DStructBase* Owner = FindClassByQualifiedName(FName(DeclaringType));
+			if (!Owner) Owner = FindStructByQualifiedName(FName(DeclaringType));
+			if (!Owner || Owner->FindPropertyByName(FName(Name), false)) return false;
+			bool bHistoricalName = false;
+			Owner->ForEachProperty([&](FProperty* Property) {
+				if (const auto* Route = Property->GetDeprecation())
+					bHistoricalName |= Route->HistoricalName.ToString() == Name;
+			}, false);
+			return !bHistoricalName;
+		}
+
 		auto TypeKind(const ObjectPackage::FSerializedType& Input)
 			-> DurinCodeGen::EPropertyGenFlags
 		{
@@ -232,7 +247,7 @@ namespace Durin::AssetPrivate
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker, FByteWriter& Writer,
 			uint64& BulkFieldIndex, FLinkerApplyDiagnostic& Diagnostic,
-			std::string Path) -> bool
+			std::string Path, bool bDiscardRemovedFields) -> bool
 		{
 			using K = ObjectPackage::EValueKind;
 			switch (Type.Kind)
@@ -273,17 +288,21 @@ namespace Durin::AssetPrivate
 				if (!Schema || Value.FieldNames.size() != Value.Elements.size()
 					|| Type.Children.size() != Value.Elements.size())
 					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct load projection is invalid.", 0, std::move(Path));
-				Writer.WriteString(Type.QualifiedName); Writer.Write(uint64(Value.Elements.size()));
+				uint64 FieldCount = 0;
+				for (const auto& Name : Value.FieldNames)
+					if (!bDiscardRemovedFields || !IsRemovedField(Schema->QualifiedName, Name)) ++FieldCount;
+				Writer.WriteString(Type.QualifiedName); Writer.Write(FieldCount);
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
 						&ObjectPackage::FSerializedField::Name);
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field is absent from its schema.", 0, std::move(Path));
+					if (bDiscardRemovedFields && IsRemovedField(Schema->QualifiedName, It->Name)) continue;
 					const auto& ChildType = Type.Children[Index];
 					FByteWriter Payload;
 					if (!EncodeLoadArchiveValue(ChildType, Value.Elements[Index], Linker, Payload,
 						BulkFieldIndex, Diagnostic,
-						std::format("{}::{}", Schema->QualifiedName, It->Name))) return false;
+						std::format("{}::{}", Schema->QualifiedName, It->Name), bDiscardRemovedFields)) return false;
 					Writer.WriteString(Schema->QualifiedName); Writer.WriteString(It->Name);
 					Writer.Write(uint8(TypeKind(ChildType))); Writer.WriteString(TypeSignature(ChildType));
 					Writer.Write(uint64(Payload.Bytes.size())); Writer.WriteBytes(Payload.Bytes);
@@ -296,7 +315,7 @@ namespace Durin::AssetPrivate
 				if (Type.Kind == K::Array) Writer.Write(uint64(Value.Elements.size()));
 				for (const auto& Item : Value.Elements)
 					if (!EncodeLoadArchiveValue(Type.Children[0], Item, Linker, Writer,
-						BulkFieldIndex, Diagnostic, Path)) return false;
+						BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)) return false;
 				return true;
 			}
 			case K::Map:
@@ -306,9 +325,9 @@ namespace Durin::AssetPrivate
 				Writer.Write(uint64(Value.Elements.size() / 2));
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 					if (!EncodeLoadArchiveValue(Type.Children[0], Value.Elements[Index], Linker, Writer,
-						BulkFieldIndex, Diagnostic, Path)
+						BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)
 						|| !EncodeLoadArchiveValue(Type.Children[1], Value.Elements[Index + 1], Linker, Writer,
-							BulkFieldIndex, Diagnostic, Path)) return false;
+							BulkFieldIndex, Diagnostic, Path, bDiscardRemovedFields)) return false;
 				return true;
 			}
 			case K::HardReference:
@@ -379,6 +398,7 @@ namespace Durin::AssetPrivate
 					const auto It = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
 						&ObjectPackage::FSerializedField::Name);
 					if (It == Schema->Fields.end()) return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct ledger field is missing.");
+					if (IsRemovedField(Schema->QualifiedName, It->Name)) continue;
 					const auto& ChildType = Type.Children[Index];
 					const auto Provenance = Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
@@ -615,6 +635,61 @@ namespace Durin::AssetPrivate
 			return bAmbiguous ? nullptr : Match;
 		}
 
+		auto GatherLiveValueDependencies(const ObjectPackage::FSerializedType& Type,
+			const ObjectPackage::FSerializedValue& Value, const ObjectPackage::FLinkerTables& Linker,
+			std::vector<FPackagePath>& Dependencies, uint64& DiscardedFields,
+			FLinkerApplyDiagnostic& Diagnostic) -> bool
+		{
+			using K = ObjectPackage::EValueKind;
+			if (Type.Kind == K::Struct)
+			{
+				const auto* Schema = FindSchema(Linker, Type.QualifiedName);
+				DStruct* Owner = FindStructByQualifiedName(FName(Type.QualifiedName));
+				if (!Schema || !Owner || Value.FieldNames.size() != Value.Elements.size()
+					|| Type.Children.size() != Value.Elements.size())
+					return LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
+						"Serialized struct is unavailable or has an invalid schema.");
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					const auto Field = std::ranges::find(Schema->Fields, Value.FieldNames[Index],
+						&ObjectPackage::FSerializedField::Name);
+					if (Field == Schema->Fields.end())
+						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Struct field has no schema.");
+					if (IsRemovedField(Schema->QualifiedName, Field->Name)) { ++DiscardedFields; continue; }
+					const auto& ChildType = Type.Children[Index];
+					FProperty* Expected = Owner->FindPropertyByName(FName(Field->Name), false);
+					if (!(Expected && !Expected->IsDeprecated() && Expected->GetKind() == TypeKind(ChildType)
+						&& GetSerializedTypeSignature(Expected) == TypeSignature(ChildType))
+						&& !FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType))
+						return LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
+							std::format("Serialized struct field {}::{} is incompatible with the live schema.",
+								Schema->QualifiedName, Field->Name));
+					if (!GatherLiveValueDependencies(ChildType, Value.Elements[Index], Linker,
+						Dependencies, DiscardedFields, Diagnostic)) return false;
+				}
+			}
+			else if ((Type.Kind == K::Array || Type.Kind == K::FixedArray) && Type.Children.size() == 1)
+			{
+				for (const auto& Element : Value.Elements)
+					if (!GatherLiveValueDependencies(Type.Children[0], Element, Linker,
+						Dependencies, DiscardedFields, Diagnostic)) return false;
+			}
+			else if (Type.Kind == K::Map && Type.Children.size() == 2)
+			{
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					if (!GatherLiveValueDependencies(Type.Children[Index % 2], Value.Elements[Index], Linker,
+						Dependencies, DiscardedFields, Diagnostic)) return false;
+			}
+			else if (Type.Kind == K::HardReference && Value.Reference.IsImport())
+			{
+				const ObjectPackage::FPackageImport* Import = nullptr;
+				if (!Linker.TryGetImport(Value.Reference, Import) || !Import)
+					return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Hard-reference import is invalid.");
+				Dependencies.push_back(Import->ObjectPath.GetPackagePath());
+			}
+			return true;
+		}
+
 		auto GatherNestedDeprecatedRouteEvidence(
 			const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
@@ -632,7 +707,7 @@ namespace Durin::AssetPrivate
 				{
 					const auto Field = std::ranges::find(
 						Schema->Fields, Value.FieldNames[Index], &ObjectPackage::FSerializedField::Name);
-					if (Field == Schema->Fields.end()) continue;
+					if (Field == Schema->Fields.end() || IsRemovedField(Schema->QualifiedName, Field->Name)) continue;
 					const auto& ChildType = Type.Children[Index];
 					FProperty* LiveRoute =
 						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType);
@@ -737,6 +812,8 @@ namespace Durin::AssetPrivate
 		std::vector<FExportView> Exports;
 		if (!BuildExportViews(Linker, Exports, Diagnostic))
 			return Finish({Diagnostic.Error, Diagnostic.Message});
+		uint64 DiscardedFields = 0;
+		std::vector<FPackagePath> LiveDependencies;
 		for (const FExportView& Object : Exports)
 		{
 			DClass* Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
@@ -768,6 +845,12 @@ namespace Durin::AssetPrivate
 					}
 				FProperty* Expected = bDeclaringClassMatches
 					? DeclaringClass->FindPropertyByName(FName(Field->Name), false) : nullptr;
+				if (!Options.bCooked && bDeclaringClassMatches
+					&& IsRemovedField(Schema->QualifiedName, Field->Name))
+				{
+					++DiscardedFields;
+					continue;
+				}
 				const bool bCurrentCompatible = Expected
 					&& !Expected->GetDeprecation()
 					&& Expected->GetKind() == TypeKind(Property.Type)
@@ -786,8 +869,13 @@ namespace Durin::AssetPrivate
 							Schema->QualifiedName, Field->Name), 0, Object.Path);
 					return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 				}
+				if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
+					Linker, LiveDependencies, DiscardedFields, Diagnostic))
+					return Finish({Diagnostic.Error, Diagnostic.Message});
 			}
 		}
+		std::ranges::sort(LiveDependencies);
+		LiveDependencies.erase(std::ranges::unique(LiveDependencies).begin(), LiveDependencies.end());
 		if (Exports.empty())
 		{
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Package has no object exports.");
@@ -867,14 +955,15 @@ namespace Durin::AssetPrivate
 			bSkeletonPublished = true;
 		}
 
-		for (size_t Index = 0; Index < Linker.Summary.HardPackageDependencies.size(); ++Index)
+		const auto& Dependencies = Options.bCooked ? Linker.Summary.HardPackageDependencies : LiveDependencies;
+		for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
 			{
 				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, "Injected dependency failure."); Rollback();
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
-			const FPackagePath& Path = Linker.Summary.HardPackageDependencies[Index];
+			const FPackagePath& Path = Dependencies[Index];
 			DPackage* Dependency = nullptr; FAssetResult Result = LoadPackage(Path, Dependency);
 			if (!Result)
 			{
@@ -894,12 +983,16 @@ namespace Durin::AssetPrivate
 		FAssetLoadReport Report = OutReport ? *OutReport : FAssetLoadReport{};
 		Report.PackagePath = PackagePath;
 		Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
+		Report.DiscardedFieldCount = DiscardedFields;
 		uint64 BulkFieldIndex = 0;
 		for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
 			for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+			{
+				if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
 				GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
 					PackagePath, Exports[ObjectIndex].Path,
 					Report.DeprecatedRouteEvidence);
+			}
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
@@ -911,10 +1004,11 @@ namespace Durin::AssetPrivate
 			std::vector<const ObjectPackage::FPropertyTag*> KnownProperties;
 			for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 			{
+				if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
 				FByteWriter Payload;
 				if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
 					BulkFieldIndex, Diagnostic,
-					std::format("{}::{}", Property.DeclaringType, Property.FieldName)))
+					std::format("{}::{}", Property.DeclaringType, Property.FieldName), !Options.bCooked))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
@@ -1015,7 +1109,7 @@ namespace Durin::AssetPrivate
 		}
 		OutPackage = Package;
 		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()
-			|| !Report.DeprecatedRouteEvidence.empty());
+			|| !Report.DeprecatedRouteEvidence.empty() || Report.DiscardedFieldCount != 0);
 		if (OutReport) *OutReport = std::move(Report);
 		Diagnostic.Reset(); return Finish({});
 	}

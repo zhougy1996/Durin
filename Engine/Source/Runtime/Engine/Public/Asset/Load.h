@@ -119,6 +119,8 @@ namespace Durin
 		std::vector<FAssetLoadMutation> Mutations;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
 		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
+		// Removed authored fields skipped in memory; source bytes change only on save.
+		uint64 DiscardedFieldCount = 0;
 
 		ENGINE_API auto HasNonUpgradeMutations() const -> bool;
 	};

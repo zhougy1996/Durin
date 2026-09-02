@@ -1634,7 +1634,292 @@ namespace
 		-> void;
 	auto RunRedirectorFixupPublicationFailuresResumeForwardTest()
 		-> void;
+
+	auto RewriteSchemaTestPackage(const Durin::FPackagePath& Path,
+		const std::function<void(Durin::ObjectPackage::FLinkerTables&)>& Edit) -> void
+	{
+		using namespace Durin;
+		const auto File = FindAssetExact(Path);
+		ASSERT_TRUE(File);
+		FByteArray Main, Bulk;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Main, File->PhysicalPath));
+		std::filesystem::path BulkPath(File->PhysicalPath);
+		BulkPath.replace_extension(".dbulk");
+		if (std::filesystem::exists(BulkPath)) ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
+		ObjectPackage::FLinkerTables Linker;
+		ObjectPackage::FPackageReaderDiagnostic ReadDiagnostic;
+		ASSERT_TRUE(ObjectPackage::ReadPackageV9(Main, Bulk, Path, Linker, &ReadDiagnostic)) << ReadDiagnostic.Message;
+		Edit(Linker);
+		ObjectPackage::FPackageWriterDiagnostic WriteDiagnostic;
+		ASSERT_TRUE(ObjectPackage::WritePackageV9(Linker, Main, Bulk, &WriteDiagnostic)) << WriteDiagnostic.Message;
+		WriteTestBytes(File->PhysicalPath, Main);
+		if (!Bulk.empty()) WriteTestBytes(BulkPath, Bulk);
+	}
+
+	auto RenameSchemaTestField(Durin::ObjectPackage::FLinkerTables& Linker,
+		std::string_view Owner, std::string_view OldName, std::string_view NewName) -> void
+	{
+		using namespace Durin::ObjectPackage;
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == Owner)
+				for (auto& Field : Schema.Fields)
+					if (Field.Name == OldName) Field.Name = NewName;
+		const auto RenameValue = [&](auto&& Self, const FSerializedType& Type, FSerializedValue& Value) -> void {
+			if (Type.Kind == EValueKind::Struct)
+			{
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+				{
+					if (Type.QualifiedName == Owner && Value.FieldNames[Index] == OldName)
+						Value.FieldNames[Index] = NewName;
+					Self(Self, Type.Children[Index], Value.Elements[Index]);
+				}
+			}
+			else if (Type.Kind == EValueKind::Array || Type.Kind == EValueKind::FixedArray)
+				for (auto& Element : Value.Elements) Self(Self, Type.Children[0], Element);
+			else if (Type.Kind == EValueKind::Map)
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					Self(Self, Type.Children[Index % 2], Value.Elements[Index]);
+		};
+		for (auto& Export : Linker.Exports)
+			for (auto& Property : Export.Properties)
+			{
+				if (Property.DeclaringType == Owner && Property.FieldName == OldName) Property.FieldName = NewName;
+				RenameValue(RenameValue, Property.Type, Property.Value);
+			}
+	}
 } // namespace
+
+TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSourceUntilSave)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path, TargetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/RemovedFields", Path));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ObsoleteDependency", TargetPath));
+	DPackageAssetForTest* Source = nullptr;
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Value = 71;
+	Source->Label = "preserved";
+	Source->ExternalReference = Target;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		RenameSchemaTestField(Linker, "Tests::DPackageAssetForTest", "Value", "RetiredValue");
+		RenameSchemaTestField(Linker, "Tests::DPackageAssetForTest", "ExternalReference", "RetiredReference");
+	}));
+	const auto SourceFile = FindAssetExact(Path)->PhysicalPath;
+	const auto TargetFile = FindAssetExact(TargetPath)->PhysicalPath;
+	FByteArray Before, After;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, SourceFile));
+	ShutdownAssetManagerForRestart();
+	ASSERT_TRUE(std::filesystem::remove(TargetFile));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	DPackage* Loaded = nullptr;
+	FAssetLoadReport Report;
+	const auto Result = LoadPackage(Path, Loaded, &Report);
+	ASSERT_TRUE(Result) << Result.Message;
+	auto* Asset = Cast<DPackageAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+	ASSERT_NE(Asset, nullptr);
+	EXPECT_EQ(Asset->Value, 0);
+	EXPECT_EQ(Asset->Label, "preserved");
+	EXPECT_EQ(Asset->ExternalReference.Get(), nullptr);
+	EXPECT_EQ(Report.DiscardedFieldCount, 2u);
+	EXPECT_FALSE(Loaded->IsDirty());
+	EXPECT_TRUE(Loaded->IsCanonicalResaveRecommended());
+	EXPECT_EQ(FindPackage(TargetPath.GetView()), nullptr);
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, SourceFile));
+	EXPECT_EQ(Before, After);
+	FPackageSchemaInspection Inspection;
+	AssetPrivate::FMemoryAssetPackageByteSource ByteSource(Before);
+	ASSERT_TRUE(AssetPrivate::DastV9::GetCodec().InspectSchema(ByteSource, Path,
+		FReflectionSchemaCatalog::Capture(), Inspection, nullptr, false, {}));
+	EXPECT_EQ(Inspection.Status, EPackageSchemaStatus::Compatible);
+	EXPECT_EQ(std::ranges::count(Inspection.Issues, EPackageSchemaIssueCode::UnknownField,
+		&FPackageSchemaIssue::Code), 2);
+	ASSERT_TRUE(SavePackage(Loaded));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(After, SourceFile));
+	EXPECT_NE(Before, After);
+	ShutdownAssetManagerForRestart();
+	Report = {};
+	ASSERT_TRUE(LoadPackage(Path, Loaded, &Report));
+	EXPECT_EQ(Report.DiscardedFieldCount, 0u);
+	EXPECT_FALSE(Loaded->IsCanonicalResaveRecommended());
+}
+
+TEST(FPackageAssetTests, RemovedNestedFieldsInStructArraysAreOmittedFromAuthoredIntent)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	(void)DContainerMigrationAssetForTest::StaticClass();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/RemovedNestedFields", Path));
+	DContainerMigrationAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Values = {{11.0f, 0}, {22.0f, 0}};
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		RenameSchemaTestField(Linker, "Tests::FMigratingValue", "Value", "RetiredValue");
+	}));
+	ShutdownAssetManagerForRestart();
+	DPackage* Loaded = nullptr;
+	FAssetLoadReport Report;
+	const auto Result = LoadPackage(Path, Loaded, &Report);
+	ASSERT_TRUE(Result) << Result.Message;
+	auto* Asset = Cast<DContainerMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+	ASSERT_NE(Asset, nullptr);
+	ASSERT_EQ(Asset->Values.size(), 2u);
+	EXPECT_EQ(Asset->Values[0].Value, 0.0f);
+	EXPECT_EQ(Asset->Values[1].Value, 0.0f);
+	EXPECT_EQ(Report.DiscardedFieldCount, 2u);
+	ASSERT_TRUE(SavePackage(Loaded));
+	ShutdownAssetManagerForRestart();
+	Report = {};
+	ASSERT_TRUE(LoadPackage(Path, Loaded, &Report));
+	EXPECT_EQ(Report.DiscardedFieldCount, 0u);
+}
+
+TEST(FPackageAssetTests, CurrentFieldTypeMismatchIsNotDiscarded)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ChangedFieldType", Path));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Value = 13;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == "Tests::DPackageAssetForTest")
+				for (auto& Field : Schema.Fields)
+					if (Field.Name == "Value") Field.Type = {.Kind = ObjectPackage::EValueKind::F32};
+		for (auto& Export : Linker.Exports)
+			for (auto& Property : Export.Properties)
+				if (Property.FieldName == "Value")
+				{
+					Property.Type = {.Kind = ObjectPackage::EValueKind::F32};
+					Property.Value = {.FloatingBits = std::bit_cast<uint32>(13.0f)};
+				}
+	}));
+	ShutdownAssetManagerForRestart();
+	DPackage* Loaded = nullptr;
+	EXPECT_EQ(LoadPackage(Path, Loaded).Error, EAssetError::UnsupportedProperty);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
+}
+
+TEST(FPackageAssetTests, HistoricalRoutesStillConvertAndRejectIncompatibleStoredTypes)
+{
+	using namespace Durin;
+	for (const bool bWrongType : {false, true})
+	{
+		InitializeAssetTests();
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/HistoricalRoute", Path));
+		DSchemaMigrationAssetForTest* Source = nullptr;
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+		Source->Anchor = 19;
+		ASSERT_TRUE(SavePackage(Source->GetPackage()));
+		ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [&](auto& Linker) {
+			const ObjectPackage::FSerializedType Type{.Kind = bWrongType
+				? ObjectPackage::EValueKind::String : ObjectPackage::EValueKind::I32};
+			ObjectPackage::FSerializedValue Value;
+			if (bWrongType) Value.Text = "invalid";
+			else Value.Signed = 7;
+			for (auto& Schema : Linker.Schemas)
+				if (Schema.QualifiedName == "Tests::DSchemaMigrationAssetForTest")
+					Schema.Fields.push_back({"Left", Type, 0});
+			Linker.Exports.front().Properties.push_back({
+				.DeclaringType = "Tests::DSchemaMigrationAssetForTest", .FieldName = "Left",
+				.Type = Type, .Value = Value});
+		}));
+		ShutdownAssetManagerForRestart();
+		DPackage* Loaded = nullptr;
+		FAssetLoadReport Report;
+		const auto Result = LoadPackage(Path, Loaded, &Report);
+		if (bWrongType)
+		{
+			EXPECT_EQ(Result.Error, EAssetError::UnsupportedProperty);
+			EXPECT_EQ(Loaded, nullptr);
+			continue;
+		}
+		ASSERT_TRUE(Result) << Result.Message;
+		auto* Asset = Cast<DSchemaMigrationAssetForTest>(Loaded->FindTopLevelAsset(FName(Path.GetAssetName())));
+		ASSERT_NE(Asset, nullptr);
+		EXPECT_EQ(Asset->Anchor, 19);
+		EXPECT_EQ(Asset->Merged, 7);
+		EXPECT_EQ(Report.DiscardedFieldCount, 0u);
+		ASSERT_EQ(Report.DeprecatedRouteEvidence.size(), 1u);
+		EXPECT_EQ(Report.DeprecatedRouteEvidence.front().DeprecatedPropertyName, "Left_DEPRECATED");
+	}
+}
+
+TEST(FPackageAssetTests, CurrentNestedFieldTypeMismatchIsNotDiscarded)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	(void)DContainerMigrationAssetForTest::StaticClass();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ChangedNestedType", Path));
+	DContainerMigrationAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Values = {{11.0f, 0}, {22.0f, 0}};
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		const ObjectPackage::FSerializedType Type{.Kind = ObjectPackage::EValueKind::String};
+		for (auto& Schema : Linker.Schemas)
+			if (Schema.QualifiedName == "Tests::FMigratingValue")
+				for (auto& Field : Schema.Fields)
+					if (Field.Name == "Value") Field.Type = Type;
+		for (auto& Property : Linker.Exports.front().Properties)
+			if (Property.FieldName == "Values")
+			{
+				ASSERT_EQ(Property.Type.Children.size(), 1u);
+				ASSERT_EQ(Property.Type.Children[0].Children.size(), 1u);
+				Property.Type.Children[0].Children[0] = Type;
+				for (auto& Element : Property.Value.Elements)
+					Element.Elements[0] = {.Text = "invalid"};
+				for (auto& Schema : Linker.Schemas)
+					if (Schema.QualifiedName == Property.DeclaringType)
+						for (auto& Field : Schema.Fields)
+							if (Field.Name == Property.FieldName) Field.Type = Property.Type;
+			}
+	}));
+	ShutdownAssetManagerForRestart();
+	DPackage* Loaded = nullptr;
+	EXPECT_EQ(LoadPackage(Path, Loaded).Error, EAssetError::UnsupportedProperty);
+	EXPECT_EQ(Loaded, nullptr);
+}
+
+TEST(FPackageAssetTests, RemovedFieldsDoNotRelaxWireOrCookedConsumptionValidation)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/RemovedFieldValidation", Path));
+	DPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Source));
+	Source->Value = 8;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	ASSERT_NO_FATAL_FAILURE(RewriteSchemaTestPackage(Path, [](auto& Linker) {
+		RenameSchemaTestField(Linker, "Tests::DPackageAssetForTest", "Value", "RetiredValue");
+	}));
+	FByteArray Bytes;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, FindAssetExact(Path)->PhysicalPath));
+	ShutdownAssetManagerForRestart();
+	const auto& Codec = AssetPrivate::DastV9::GetCodec();
+	DPackage* Loaded = nullptr;
+	const AssetPrivate::FAssetPackageReadContext Cooked{.PackageBytes = Bytes,
+		.PackagePath = Path, .PhysicalPackageBytes = Bytes.size(), .bCooked = true};
+	EXPECT_FALSE(Codec.Load(Cooked, Loaded, nullptr, {}, {}));
+	EXPECT_EQ(Loaded, nullptr);
+	Bytes.back() ^= std::byte{1};
+	const auto Result = Codec.Load({Bytes, {}, Path, Bytes.size()}, Loaded, nullptr, {}, {});
+	EXPECT_EQ(Result.Error, EAssetError::CorruptFile);
+	EXPECT_EQ(Loaded, nullptr);
+}
 
 TEST(FPackageAssetTests, EngineAssetErrorsExposeStructuredDiagnostics)
 {

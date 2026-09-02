@@ -57,21 +57,44 @@ macOS smoke follow-up (explicitly requested by the user):
   executable (`Build/.agent-state/logs/20260903-034719-104679-56912-DurinEditor.log`).
 - Sandbox initialized macOS services and Vulkan on Apple M4 and loaded all
   three recipe modules, but failed before entering the tick loop: the default
-  Level contains serialized `DSkyBoxComponent::SkyBoxSceneId`, incompatible
+  Level contained serialized `DSkyBoxComponent::SkyBoxSceneId`, incompatible
   with the live schema. It exited with code 1
   (`Build/.agent-state/logs/20260903-034658-009767-56894-DurinEditor.log`).
   Existing assets were not modified. The field was removed by `703928944`,
   but `Sandbox/Content/Levels/GrayboxStage15.dasset` still contains it; the
-  loader rejects fields without a current compatible property or deprecated
-  route. This is not a passed project-loading smoke. Asset migration or an
-  explicit deprecated-field route requires a separate repair decision.
+  loader at that checkpoint rejected fields without a current compatible
+  property or deprecated route. This was not a passed project-loading smoke.
+
+User-selected smoke repair (2026-09-03): automatically discard removed authored
+fields on known declaring types, including nested values, without loading
+dependencies referenced only by those fields. Preserve explicit deprecated
+routes and strict current-field type, unknown-class, wire-corruption, and
+cooked-native checks. Reading does not rewrite assets; explicit save removes
+discarded fields. The repair is implemented: six added package regressions and
+the updated legacy-material contract pass in all 34 affected native targets
+(`Build/.agent-state/logs/20260903-040121-953201-58616-ctest.log`). The complete
+Editor build passed
+(`Build/.agent-state/logs/20260903-040134-977036-59243-cmake.log`).
+
+- Sandbox now loads its default Level and completes Editor initialization;
+  the removed-field failure is resolved without rewriting the tracked asset.
+  The subsequent viewport texture creation triggers the RHI open-buffer-lock
+  assertion, exiting with signal status -5 before 60 ticks
+  (`Build/.agent-state/logs/20260903-040207-855102-59316-DurinEditor.log`).
+  The crash stack is `FSceneViewport::UpdateRHIViewport` -> `RHICreateTexture`
+  -> `ExecuteFallibleSynchronousOperation`. This is a distinct outstanding
+  rendering failure, not a passed end-to-end smoke.
+- Project Browser was rerun with the updated executable and again completed
+  60 ticks and normal shutdown, exit code 0
+  (`Build/.agent-state/logs/20260903-040248-024689-59364-DurinEditor.log`).
 
 Pending acceptance:
 
 - Build and inspect the existing `Win64-Debug-DurinGame` closure/deployment,
   proving no asset DDC or provider dependency in Game.
-- Resolve the Sandbox schema mismatch and pass project-loading startup/shutdown
-  smoke; the basic Project Browser smoke is now qualified on macOS.
+- Diagnose/repair the Sandbox viewport RHI open-buffer-lock assertion and pass
+  project-loading startup/shutdown smoke; the basic Project Browser smoke is
+  qualified on macOS and removed authored fields no longer block Level load.
 - Run `SkeletalMeshRenderResourcesVulkanTests` qualification.
   Local GPU qualification compiled but failed at Vulkan initialization because
   Metal was unavailable and instance extension dependencies were reported
@@ -551,8 +574,10 @@ Dependencies: Stage 5 complete.
 - [x] Run focused family/DDC tests, final affected tests, default Editor build,
   and native Cook/source-free runtime contracts.
 - [x] Pass macOS Project Browser startup/shutdown smoke (60 ticks, exit code 0).
+- [x] Implement the user-selected removed-authored-field discard policy and
+  qualify package/type/deprecation/cooked boundaries plus affected tests.
 - [ ] Complete the user-selected Windows Game build/deployment closure,
-  project-loading Editor smoke (Sandbox schema mismatch remains), and real
+  project-loading Editor smoke (Sandbox viewport RHI assertion remains), and real
   skeletal Vulkan qualification.
 - [x] Update lasting architecture/module/family documentation and validate
   changed/all documentation, all plans, and all roadmaps.

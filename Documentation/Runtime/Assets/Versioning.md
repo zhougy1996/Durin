@@ -51,6 +51,13 @@ type signature; semantic conversion belongs to `PostLoad` or
 schema shape has different meanings across package generations, but that
 version contract is not encoded in `DPROPERTY(Deprecated)`.
 
+Authored fields removed from a still-known declaring type are automatically
+discarded on load and omitted on the next explicit save. This applies through
+nested structs and containers but not to unavailable classes, malformed wire
+values, or incompatible current/historical field types. Keep an explicit
+deprecated route when old values still need semantic conversion rather than
+discarding. Cooked native serializer fields remain strict.
+
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version

@@ -579,12 +579,27 @@ namespace Durin::AssetPrivate::DastV9
 				{
 					const auto Kind = PropertyKind(Property.Type.Kind);
 					const std::string Signature = TypeSignature(Property.Type);
+					const auto* Alias = Catalog.FindSerializedPropertyAlias(Property.DeclaringType, Property.FieldName);
+					const std::string& FieldName = Alias ? Alias->CurrentName : Property.FieldName;
 					const auto* Expected = Catalog.FindField(
-						*Class, Property.DeclaringType, Property.FieldName);
+						*Class, Property.DeclaringType, FieldName);
+					const bool bKnownOwner = std::ranges::binary_search(Class->Ancestry, Property.DeclaringType);
+					if (bKnownOwner)
+						if (const auto* Route = Catalog.FindDeprecatedPropertyRoute(Property.DeclaringType, FieldName, Kind, Signature))
+						{
+							Record.DeprecatedRouteEvidence.push_back({Path, ObjectPath, Property.DeclaringType,
+								Property.FieldName, Route->DeprecatedPropertyName});
+							continue;
+						}
+					const bool bKnownHistoricalName = std::ranges::any_of(Catalog.GetDeprecatedPropertyRoutes(),
+						[&](const auto& Route) { return Route.DeclaringType == Property.DeclaringType
+							&& (Route.StoredName == FieldName || Route.DeprecatedPropertyName == FieldName); });
+					const bool bRemoved = !Expected && !bKnownHistoricalName
+						&& !Alias && bKnownOwner;
 					if (!Expected || Expected->Kind != Kind
 						|| Expected->TypeSignature != Signature)
 					{
-						if (Record.Status == EPackageSchemaStatus::Compatible)
+						if (!bRemoved && Record.Status == EPackageSchemaStatus::Compatible)
 							Record.Status = EPackageSchemaStatus::Incompatible;
 						Record.Issues.push_back({
 							.Code = Expected
@@ -601,6 +616,7 @@ namespace Durin::AssetPrivate::DastV9
 							.ExpectedTypeSignature = Expected ? Expected->TypeSignature : std::string{},
 							.Diagnostic = Expected
 								? "Serialized field signature differs from the current reflection catalog."
+								: bRemoved ? "Removed authored field will be discarded on load and omitted on save."
 								: "Serialized field is not present in the current reflection catalog."});
 					}
 				}

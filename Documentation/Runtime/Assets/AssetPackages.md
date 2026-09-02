@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v9 packages, runtime residency, l
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -282,7 +282,11 @@ graph and releases dependencies admitted by the attempt.
 
 Internal references use export indices. Cross-package hard imports target an
 exact top-level asset; cycles work because skeletons exist before values are
-applied. Missing fields keep constructor defaults. Unknown classes/fields,
+applied. Missing fields keep constructor defaults. Authored fields absent from
+a known declaring type are discarded, including fields in nested structs and
+containers; dependencies referenced only by discarded fields are not loaded.
+A current property or explicit historical route is never treated as removed
+when its type is incompatible. Unknown classes or declaring types,
 incompatible recursive types, duplicate Map keys, malformed references,
 callback rejection, or unavailable operations fail the complete load rather
 than partially publishing state.
@@ -315,9 +319,20 @@ admission; it never manufactures a legacy raw-segment metadata grammar.
 
 ## Compatibility And Canonical Resave
 
-Ordinary load queries current classes and properties and fails before skeleton
-publication on an unknown class/field or incompatible recursive type. It does
-not create a maintenance report or retain unknown live payloads.
+Ordinary authored load queries current classes and properties, skips removed
+fields, and fails on unknown classes/declaring types or incompatible retained
+fields. Explicit deprecated routes take precedence over automatic discard.
+Wire validation still checks the entire package before applying this policy;
+malformed bytes are not excused by an unknown field name. Cooked native fields
+retain their exact serializer-consumption contract and are not auto-discarded.
+
+Discarded fields are omitted from live values and authored override ledgers.
+`FAssetLoadReport::DiscardedFieldCount` reports the number of skipped field
+occurrences, and the package recommends canonical resave without becoming
+Dirty. Loading does not rewrite source bytes; the next explicit save emits only
+the current schema. Construct-free inspection retains an informational
+`UnknownField` finding for removed authored fields without marking the package
+incompatible. It does not instantiate objects or discard bytes on disk.
 
 The read-only `AssetMaintenance` compatibility probe freezes registered schema
 identity, invokes Runtime's construct-free v9 schema inspection, and reports
