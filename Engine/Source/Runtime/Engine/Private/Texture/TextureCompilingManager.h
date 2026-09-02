@@ -56,7 +56,7 @@ namespace Durin
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 	};
 
-	struct FTexture2DCompilationDomainConfig
+	struct FTextureCompilingManagerConfig
 	{
 		uint32 MaxWorkers = 2;
 		uint32 InteractiveBurstLimit = 4;
@@ -66,19 +66,18 @@ namespace Durin
 	using FTexture2DCompilationWorkCompletion =
 		std::function<void(FTexture2DCompilationWorkResult&&)>;
 
-	// Owns the complete Texture2D compilation domain: typed asset state, bounded
+	// Owns typed Texture2D compilation state, bounded
 	// worker admission, cancellation, completion pumping, and result application.
-	class FTexture2DCompilationDomain final : public IAssetCompilationDomain
+	class FTextureCompilingManager final : public IAssetCompilingManager
 	{
 	public:
-		explicit FTexture2DCompilationDomain(
-			const FTexture2DCompilationDomainConfig& Config = {});
-		~FTexture2DCompilationDomain() override;
-		FTexture2DCompilationDomain(const FTexture2DCompilationDomain&) = delete;
-		auto operator=(const FTexture2DCompilationDomain&)
-			-> FTexture2DCompilationDomain& = delete;
+		explicit FTextureCompilingManager(
+			const FTextureCompilingManagerConfig& Config = {});
+		~FTextureCompilingManager() override;
+		FTextureCompilingManager(const FTextureCompilingManager&) = delete;
+		auto operator=(const FTextureCompilingManager&)
+			-> FTextureCompilingManager& = delete;
 
-		auto GetDomainName() const -> FName override;
 		auto Start(std::string* OutError) -> bool override;
 		auto StopAdmission() -> void override;
 		auto GetNumRemainingAssets() const -> uint64 override;
@@ -131,6 +130,5 @@ namespace Durin
 
 namespace Durin::AssetPrivate
 {
-	auto CreateTexture2DCompilationDomain() -> std::shared_ptr<IAssetCompilationDomain>;
-	auto ReleaseTexture2DCompilationDomain() -> void;
+	auto CreateTextureCompilingManager() -> std::shared_ptr<IAssetCompilingManager>;
 }

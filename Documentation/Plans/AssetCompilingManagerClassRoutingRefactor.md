@@ -4,12 +4,12 @@ Summary: Replace asset-compilation domains with Engine-owned typed compiling man
 
 Last reviewed: 2026-09-02
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-02
 
 ## Current Status
 
-The target architecture is selected and implementation has not started:
+The class-routing architecture is implemented and validated:
 
 - `FAssetCompilingManager` remains the process aggregate for frame pumping,
   selected-object finish and cancellation, aggregate progress, successful
@@ -26,6 +26,10 @@ The target architecture is selected and implementation has not started:
 - TextureBuild remains a synchronous value-only recipe provider. This refactor
   does not move task ownership, DDC orchestration, live-object access, or
   result publication into TextureBuild.
+- `AssetCompilingManagerTests` and the complete `test affected` selection pass
+  on `MacOS-arm64-Debug-DurinEditor`; the same preset's full `all` target builds.
+- Engine retains only its existing optional `DerivedDataCache` edge and no
+  `TextureBuild` dependency, so runtime/game module selection remains unchanged.
 
 ## Goal
 
@@ -199,18 +203,18 @@ request value may escape the synchronous provider invocation.
 
 Dependencies: none.
 
-- [ ] Inventory every production and test use of `IAssetCompilationDomain`,
+- [x] Inventory every production and test use of `IAssetCompilationDomain`,
   registration, dependency declarations, domain lookup, domain diagnostics,
   and post-compile domain identity.
-- [ ] Confirm that no production compiler declares a dependency and no
+- [x] Confirm that no production compiler declares a dependency and no
   production external module registers a compilation domain; record any
   exception before removing the graph.
-- [ ] Freeze existing Material and Texture2D pending-count, bounded-pump,
+- [x] Freeze existing Material and Texture2D pending-count, bounded-pump,
   finish-selected, cancellation, finish-all, success-event, startup, and
   shutdown behavior with focused tests.
-- [ ] Add or identify test object subclasses needed to prove exact-class,
+- [x] Add or identify test object subclasses needed to prove exact-class,
   superclass fallback, derived override, and unregistered-class behavior.
-- [ ] Record the current runtime/game and editor/developer module closures so
+- [x] Record the current runtime/game and editor/developer module closures so
   the refactor cannot introduce a TextureBuild or DerivedDataCache dependency
   into runtime/game configurations.
 
@@ -224,18 +228,18 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Replace the domain interface and registration vocabulary with the narrow
+- [x] Replace the domain interface and registration vocabulary with the narrow
   `IAssetCompilingManager` contract and compiler registration descriptor.
-- [ ] Split internal compiler lifecycle entries from `DClass*` routes, with
+- [x] Split internal compiler lifecycle entries from `DClass*` routes, with
   atomic validation, generation-safe removal, and one lifecycle per compiler.
-- [ ] Implement exact-class then nearest-superclass resolution and batch
+- [x] Implement exact-class then nearest-superclass resolution and batch
   selected objects by resolved compiler.
-- [ ] Preserve bounded process fairness, deadline handling, result coalescing,
+- [x] Preserve bounded process fairness, deadline handling, result coalescing,
   callback-gate entry, post-compile dispatch outside locks, and terminal
   shutdown behavior over unique compiler snapshots.
-- [ ] Remove dependency collection, missing-dependency diagnostics, cycle
+- [x] Remove dependency collection, missing-dependency diagnostics, cycle
   checks, dependency levels, and topological ordering.
-- [ ] Rewrite aggregate tests for duplicate classes, duplicate names,
+- [x] Rewrite aggregate tests for duplicate classes, duplicate names,
   superclass fallback, derived override, unregistered objects, multi-class
   deduplication, registration rollback, and module retirement.
 
@@ -249,20 +253,20 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Rename the Texture2D domain implementation, configuration, private files,
+- [x] Rename the Texture2D domain implementation, configuration, private files,
   forward declarations, friend declarations, factories, and diagnostics to
   the Texture compiling-manager model without renaming public family-specific
   request/result types.
-- [ ] Register `DTexture2D::StaticClass()` with compiler identity
+- [x] Register `DTexture2D::StaticClass()` with compiler identity
   `Durin.Texture`; do not register `DTexture`, `DTextureCube`, or
   `DVolumeTexture` speculatively.
-- [ ] Replace the global domain lookup/factory path with one aggregate-owned,
+- [x] Replace the global domain lookup/factory path with one aggregate-owned,
   private typed manager access path used by submit, wait, cancel, and
   diagnostic operations.
-- [ ] Preserve worker detachment, request-serial latest-wins admission,
+- [x] Preserve worker detachment, request-serial latest-wins admission,
   completion ordering, exactly-once terminal callbacks, bounded retained
   diagnostics, and shutdown quiescence.
-- [ ] Prove unchanged cold build, warm DDC hit, failure, cancellation,
+- [x] Prove unchanged cold build, warm DDC hit, failure, cancellation,
   supersession, provider unavailable/ambiguous, object destruction, and
   TextureBuild unload/reload behavior.
 
@@ -276,15 +280,15 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 1.
 
-- [ ] Rename the private Material domain to `FMaterialCompilingManager` and
+- [x] Rename the private Material domain to `FMaterialCompilingManager` and
   register `DMaterial::StaticClass()` with compiler identity
   `Durin.Material`.
-- [ ] Replace `FindDomain` and `dynamic_cast` state recovery with the private
+- [x] Replace `FindDomain` and `dynamic_cast` state recovery with the private
   typed Material-manager access path.
-- [ ] Preserve shared-program single-flight, consumer accounting, authored and
+- [x] Preserve shared-program single-flight, consumer accounting, authored and
   dependency freshness, cancellation, reload requests, last-known-good
   behavior, cooked-program rules, and Renderer publication.
-- [ ] Prove Material subclasses route through the registered base class and an
+- [x] Prove Material subclasses route through the registered base class and an
   unrelated object never enters Material finish or cancellation code.
 
 #### Acceptance Gate
@@ -296,20 +300,20 @@ Dependencies: Stage 1.
 
 Dependencies: Stages 2 and 3.
 
-- [ ] Remove `FindDomain`, old registration handles, domain factories, domain
+- [x] Remove `FindDomain`, old registration handles, domain factories, domain
   globals, dependency helpers, compatibility aliases, obsolete tests, and all
   remaining production references to compilation domains.
-- [ ] Rename aggregate diagnostics and post-compile fields, then update every
+- [x] Rename aggregate diagnostics and post-compile fields, then update every
   listener and test to use compiler identity.
-- [ ] Update the authoritative Asset Compilation contract and directly related
+- [x] Update the authoritative Asset Compilation contract and directly related
   runtime-lifecycle text to describe class routing and typed managers; keep
   completed historical plans unchanged except for required link maintenance.
-- [ ] Run focused aggregate, Texture, Material, cook, and affected rendering
+- [x] Run focused aggregate, Texture, Material, cook, and affected rendering
   tests according to the repository testing workflow.
-- [ ] Build affected Engine, Launch, editor/developer, and runtime/game closures
+- [x] Build affected Engine, Launch, editor/developer, and runtime/game closures
   according to the repository build workflow, confirming runtime/game still
   excludes TextureBuild and DerivedDataCache.
-- [ ] Search production sources and current documentation for obsolete
+- [x] Search production sources and current documentation for obsolete
   `IAssetCompilationDomain`, `CompilationDomain`, `RegisterDomain`,
   `FindDomain`, domain dependency, and `DomainName` usage.
 
@@ -351,8 +355,8 @@ Dependencies: Stages 2 and 3.
 - `Engine/Source/Runtime/Engine/Public/Asset/AssetCompilingManager.h`
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2DCompilation.h`
-- `Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilationDomain.h`
-- `Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilationDomain.cpp`
+- `Engine/Source/Runtime/Engine/Private/Texture/TextureCompilingManager.h`
+- `Engine/Source/Runtime/Engine/Private/Texture/TextureCompilingManager.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DBuildProvider.cpp`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp`

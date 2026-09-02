@@ -5,11 +5,11 @@
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
-#include "Texture/Texture2DCompilationDomain.h"
+#include "Texture/TextureCompilingManager.h"
 
 namespace Durin
 {
-	struct FTexture2DCompilationDomain::FCompilationState
+	struct FTextureCompilingManager::FCompilationState
 	{
 		struct FObjectHandleHash
 		{
@@ -49,8 +49,8 @@ namespace Durin
 
 	namespace
 	{
-		std::mutex GTexture2DCompilationDomainMutex;
-		std::shared_ptr<FTexture2DCompilationDomain> GTexture2DCompilationDomain;
+		std::mutex GTextureCompilingManagerMutex;
+		std::weak_ptr<FTextureCompilingManager> GTextureCompilingManager;
 		auto ApplyTexture2DBuildResult(DTexture2D& Texture,
 			FTextureSourceData SourceData,
 			const FTexture2DBuildSettings& Settings,
@@ -58,10 +58,10 @@ namespace Durin
 			const FTexture2DResultApplicationContext& Context,
 			std::string& OutError) -> bool;
 
-		auto GetTexture2DCompilationDomain() -> std::shared_ptr<FTexture2DCompilationDomain>
+		auto GetTextureCompilingManager() -> std::shared_ptr<FTextureCompilingManager>
 		{
-			std::lock_guard Lock(GTexture2DCompilationDomainMutex);
-			return GTexture2DCompilationDomain;
+			std::lock_guard Lock(GTextureCompilingManagerMutex);
+			return GTextureCompilingManager.lock();
 		}
 
 		auto AppendProcessResult(
@@ -87,12 +87,7 @@ namespace Durin
 		}
 	}
 
-	auto FTexture2DCompilationDomain::GetDomainName() const -> FName
-	{
-		return FName("Durin.TextureCompilation");
-	}
-
-	auto FTexture2DCompilationDomain::Start(std::string* OutError) -> bool
+	auto FTextureCompilingManager::Start(std::string* OutError) -> bool
 	{
 		if (!CompilationState) CompilationState = std::make_shared<FCompilationState>();
 		if (StartWorkAdmission())
@@ -104,19 +99,19 @@ namespace Durin
 		return false;
 	}
 
-	auto FTexture2DCompilationDomain::StopAdmission() -> void
+	auto FTextureCompilingManager::StopAdmission() -> void
 	{
 		StopWorkAdmission();
 	}
 
-		auto FTexture2DCompilationDomain::GetNumRemainingAssets() const -> uint64
+	auto FTextureCompilingManager::GetNumRemainingAssets() const -> uint64
 	{
 		if (!CompilationState) return 0;
 		std::lock_guard Lock(CompilationState->Mutex);
 		return static_cast<uint64>(CompilationState->Assets.size());
 	}
 
-	auto FTexture2DCompilationDomain::ApplyCompletion(
+	auto FTextureCompilingManager::ApplyCompletion(
 		FTexture2DCompilationWorkResult&& Result) -> void
 	{
 		CheckGameThread();
@@ -200,7 +195,7 @@ namespace Durin
 		if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded});
 	}
 
-	auto FTexture2DCompilationDomain::PumpCompletions(uint32 MaximumCount)
+	auto FTextureCompilingManager::PumpCompletions(uint32 MaximumCount)
 		-> FAssetCompileProcessResult
 	{
 		FAssetCompileProcessResult Result;
@@ -212,13 +207,13 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTexture2DCompilationDomain::ProcessAsyncTasks(
+	auto FTextureCompilingManager::ProcessAsyncTasks(
 		const FAssetCompileProcessParams& Params) -> FAssetCompileProcessResult
 	{
 		return PumpCompletions(Params.MaximumCompletions);
 	}
 
-	auto FTexture2DCompilationDomain::FinishCompilationForObjects(
+	auto FTextureCompilingManager::FinishCompilationForObjects(
 		std::span<DObject* const> Objects) -> FAssetCompileProcessResult
 	{
 		FAssetCompileProcessResult Aggregate;
@@ -243,14 +238,14 @@ namespace Durin
 		return Aggregate;
 	}
 
-	auto FTexture2DCompilationDomain::MarkCompilationAsCanceled(
+	auto FTextureCompilingManager::MarkCompilationAsCanceled(
 		std::span<DObject* const> Objects) -> void
 	{
 		for (DObject* Object : Objects)
 			if (auto* Texture = Cast<DTexture2D>(Object); IsValid(Texture)) Cancel(*Texture);
 	}
 
-	auto FTexture2DCompilationDomain::FinishAllCompilation()
+	auto FTextureCompilingManager::FinishAllCompilation()
 		-> FAssetCompileProcessResult
 	{
 		FAssetCompileProcessResult Aggregate;
@@ -268,12 +263,12 @@ namespace Durin
 		return Aggregate;
 	}
 
-	auto FTexture2DCompilationDomain::Shutdown() -> void
+	auto FTextureCompilingManager::Shutdown() -> void
 	{
 		ShutdownWorkQueue();
 	}
 
-	auto FTexture2DCompilationDomain::Submit(
+	auto FTextureCompilingManager::Submit(
 		DTexture2D& Texture,
 		FTexture2DCompilationRequest Request,
 		std::string& OutError,
@@ -287,12 +282,12 @@ namespace Durin
 		}
 		if (!FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
-			OutError = "The Texture2D compilation domain is unavailable.";
+			OutError = "The Texture compiling manager is unavailable.";
 			return false;
 		}
 		if (!CompilationState)
 		{
-			OutError = "The Texture2D compilation domain has not started.";
+			OutError = "The Texture compiling manager has not started.";
 			return false;
 		}
 
@@ -371,7 +366,7 @@ namespace Durin
 			if (SupersededCompletion) SupersededCompletion({
 				.Status = ETexture2DCompilationStatus::Superseded,
 				.Diagnostic = "The Texture2D compilation was superseded by a newer request."});
-			OutError = "The Texture2D compilation domain rejected the request.";
+			OutError = "The Texture compiling manager rejected the request.";
 			return false;
 		}
 		{
@@ -391,7 +386,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FTexture2DCompilationDomain::GetDiagnostic(const DTexture2D& Texture) const
+	auto FTextureCompilingManager::GetDiagnostic(const DTexture2D& Texture) const
 		-> FTexture2DCompilationDiagnostic
 	{
 		if (!CompilationState) return {};
@@ -407,7 +402,7 @@ namespace Durin
 		return RequestId != 0 ? GetWorkDiagnostic(RequestId) : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto FTexture2DCompilationDomain::GetManagerDiagnostics() const
+	auto FTextureCompilingManager::GetManagerDiagnostics() const
 		-> FTexture2DCompilationManagerDiagnostics
 	{
 		FTexture2DCompilationManagerDiagnostics Result = GetWorkManagerDiagnostics();
@@ -417,7 +412,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTexture2DCompilationDomain::HasPending(const DTexture2D& Texture) const -> bool
+	auto FTextureCompilingManager::HasPending(const DTexture2D& Texture) const -> bool
 	{
 		if (!CompilationState) return false;
 		std::lock_guard Lock(CompilationState->Mutex);
@@ -427,7 +422,7 @@ namespace Durin
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
-	auto FTexture2DCompilationDomain::Cancel(DTexture2D& Texture) -> bool
+	auto FTextureCompilingManager::Cancel(DTexture2D& Texture) -> bool
 	{
 		if (!CompilationState) return false;
 		uint64 RequestId = 0;
@@ -440,7 +435,7 @@ namespace Durin
 		return RequestId != 0 && CancelWork(RequestId);
 	}
 
-	auto FTexture2DCompilationDomain::Wait(
+	auto FTextureCompilingManager::Wait(
 		DTexture2D& Texture, double TimeoutSeconds) -> bool
 	{
 		if (!CompilationState) return false;
@@ -462,27 +457,21 @@ namespace Durin
 
 	namespace AssetPrivate
 	{
-		auto CreateTexture2DCompilationDomain() -> std::shared_ptr<IAssetCompilationDomain>
+		auto CreateTextureCompilingManager() -> std::shared_ptr<IAssetCompilingManager>
 		{
 			CheckGameThread();
-			std::lock_guard Lock(GTexture2DCompilationDomainMutex);
-			if (!GTexture2DCompilationDomain)
-				GTexture2DCompilationDomain = std::make_shared<FTexture2DCompilationDomain>();
-			return GTexture2DCompilationDomain;
-		}
-
-		auto ReleaseTexture2DCompilationDomain() -> void
-		{
-			CheckGameThread();
-			std::lock_guard Lock(GTexture2DCompilationDomainMutex);
-			GTexture2DCompilationDomain.reset();
+			std::lock_guard Lock(GTextureCompilingManagerMutex);
+			if (const auto Existing = GTextureCompilingManager.lock()) return Existing;
+			auto Manager = std::make_shared<FTextureCompilingManager>();
+			GTextureCompilingManager = Manager;
+			return Manager;
 		}
 
 		auto SetTexture2DCompilationPhaseHookForTests(
 			std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void
 		{
-			if (const auto Domain = GetTexture2DCompilationDomain())
-				Domain->SetPhaseHookForTests(std::move(Hook));
+			if (const auto Manager = GetTextureCompilingManager())
+				Manager->SetPhaseHookForTests(std::move(Hook));
 		}
 	}
 
@@ -549,43 +538,43 @@ namespace Durin
 		std::string& OutError,
 		FTexture2DCompilationCompletion Completion) -> bool
 	{
-		const auto Domain = GetTexture2DCompilationDomain();
-		if (!Domain)
+		const auto Manager = GetTextureCompilingManager();
+		if (!Manager)
 		{
-			OutError = "The Texture2D compilation domain is unavailable.";
+			OutError = "The Texture compiling manager is unavailable.";
 			return false;
 		}
-		return Domain->Submit(
+		return Manager->Submit(
 			Texture, std::move(Request), OutError, std::move(Completion));
 	}
 
 	auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DCompilationDiagnostic
 	{
-		const auto Domain = GetTexture2DCompilationDomain();
-		return Domain ? Domain->GetDiagnostic(Texture) : FTexture2DCompilationDiagnostic{};
+		const auto Manager = GetTextureCompilingManager();
+		return Manager ? Manager->GetDiagnostic(Texture) : FTexture2DCompilationDiagnostic{};
 	}
 
 	auto GetTexture2DCompilationManagerDiagnostics()
 		-> FTexture2DCompilationManagerDiagnostics
 	{
-		const auto Domain = GetTexture2DCompilationDomain();
-		return Domain ? Domain->GetManagerDiagnostics()
+		const auto Manager = GetTextureCompilingManager();
+		return Manager ? Manager->GetManagerDiagnostics()
 			: FTexture2DCompilationManagerDiagnostics{};
 	}
 
 	auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool
 	{
-		const auto Domain = GetTexture2DCompilationDomain();
-		return Domain && Domain->HasPending(Texture);
+		const auto Manager = GetTextureCompilingManager();
+		return Manager && Manager->HasPending(Texture);
 	}
 
 	auto WaitForTexture2DCompilation(
 		DTexture2D& Texture, double TimeoutSeconds) -> bool
 	{
-		const auto Domain = GetTexture2DCompilationDomain();
-		if (!Domain)
+		const auto Manager = GetTextureCompilingManager();
+		if (!Manager)
 			return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
-		return Domain->Wait(Texture, TimeoutSeconds);
+		return Manager->Wait(Texture, TimeoutSeconds);
 	}
 }

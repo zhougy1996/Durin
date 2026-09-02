@@ -4,7 +4,11 @@
 #include "DObject/DObjectGlobals.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Texture/Texture.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
 
 namespace
 {
@@ -13,28 +17,25 @@ namespace
 	struct FSyntheticState
 	{
 		std::vector<std::string>* Calls = nullptr;
-		DObject* OwnedObject = nullptr;
+		std::vector<DObject*> LastObjects;
 		uint64 Remaining = 0;
 		uint32 AvailableCompletions = 0;
+		uint32 StartCount = 0;
+		uint32 ProcessCount = 0;
+		uint32 FinishAllCount = 0;
+		uint32 ShutdownCount = 0;
 		bool bCanceled = false;
-		bool bShutdown = false;
 	};
 
-	class FSyntheticDomain final : public IAssetCompilationDomain
+	class FSyntheticManager final : public IAssetCompilingManager
 	{
 	public:
-		FSyntheticDomain(std::string InName, std::vector<FName> InDependencies,
-			std::shared_ptr<FSyntheticState> InState)
-			: Name(std::move(InName)), Dependencies(std::move(InDependencies)),
-			  State(std::move(InState)) {}
+		FSyntheticManager(std::string InName, std::shared_ptr<FSyntheticState> InState)
+			: Name(std::move(InName)), State(std::move(InState)) {}
 
-		auto GetDomainName() const -> FName override { return FName(Name); }
-		auto GetDependencies() const -> std::vector<FName> override
-		{
-			return Dependencies;
-		}
 		auto Start(std::string*) -> bool override
 		{
+			++State->StartCount;
 			Record("start");
 			return true;
 		}
@@ -43,37 +44,33 @@ namespace
 		auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 			-> FAssetCompileProcessResult override
 		{
+			++State->ProcessCount;
 			Record("process");
 			const uint32 Count = std::min(Params.MaximumCompletions,
 				State->AvailableCompletions);
 			State->AvailableCompletions -= Count;
 			State->Remaining -= std::min<uint64>(State->Remaining, Count);
-			FAssetCompileProcessResult Result{.ProcessedCompletionCount = Count};
-			if (Count != 0 && State->OwnedObject)
-				Result.SuccessfullyCompiledAssets.emplace_back(State->OwnedObject);
-			return Result;
+			return {.ProcessedCompletionCount = Count};
 		}
 		auto FinishCompilationForObjects(std::span<DObject* const> Objects)
 			-> FAssetCompileProcessResult override
 		{
 			Record("finish-selected");
-			if (!State->OwnedObject || std::ranges::find(Objects, State->OwnedObject) == Objects.end())
-				return {};
-			const uint32 Count = State->AvailableCompletions;
-			State->AvailableCompletions = 0;
-			State->Remaining = 0;
-			FAssetCompileProcessResult Result{.ProcessedCompletionCount = Count};
-			if (Count != 0) Result.SuccessfullyCompiledAssets.emplace_back(State->OwnedObject);
+			State->LastObjects.assign(Objects.begin(), Objects.end());
+			FAssetCompileProcessResult Result;
+			for (DObject* Object : Objects)
+				Result.SuccessfullyCompiledAssets.emplace_back(Object);
 			return Result;
 		}
 		auto MarkCompilationAsCanceled(std::span<DObject* const> Objects) -> void override
 		{
 			Record("cancel");
-			State->bCanceled = State->OwnedObject
-				&& std::ranges::find(Objects, State->OwnedObject) != Objects.end();
+			State->LastObjects.assign(Objects.begin(), Objects.end());
+			State->bCanceled = !Objects.empty();
 		}
 		auto FinishAllCompilation() -> FAssetCompileProcessResult override
 		{
+			++State->FinishAllCount;
 			Record("finish-all");
 			const uint32 Count = State->AvailableCompletions;
 			State->AvailableCompletions = 0;
@@ -82,8 +79,8 @@ namespace
 		}
 		auto Shutdown() -> void override
 		{
+			++State->ShutdownCount;
 			Record("shutdown");
-			State->bShutdown = true;
 		}
 
 	private:
@@ -93,12 +90,11 @@ namespace
 		}
 
 		std::string Name;
-		std::vector<FName> Dependencies;
 		std::shared_ptr<FSyntheticState> State;
 	};
 }
 
-TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetime)
+TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLifecycle)
 {
 	InitializeDObjectSystem();
 	auto& Aggregate = FAssetCompilingManager::Get();
@@ -108,84 +104,90 @@ TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetim
 	auto GateRegistration = Owner.CreateOwnedCallbackRegistration(
 		"Engine.AssetCompilingManager.Tests");
 	std::vector<std::string> Calls;
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "AssetCompileAggregateMaterial");
-	auto PrerequisiteState = std::make_shared<FSyntheticState>();
-	PrerequisiteState->Calls = &Calls;
-	PrerequisiteState->Remaining = 2;
-	PrerequisiteState->AvailableCompletions = 2;
-	auto DependentState = std::make_shared<FSyntheticState>();
-	DependentState->Calls = &Calls;
-	DependentState->OwnedObject = Material;
-	DependentState->Remaining = 2;
-	DependentState->AvailableCompletions = 2;
-	auto Prerequisite = Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.Prerequisite",
-			std::vector<FName>{}, PrerequisiteState),
-		GateRegistration.GetGate(), &Error);
-	ASSERT_TRUE(Prerequisite.IsValid()) << Error;
-	auto Dependent = Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.Dependent",
-			std::vector<FName>{FName("Durin.Tests.Prerequisite")}, DependentState),
-		GateRegistration.GetGate(), &Error);
-	ASSERT_TRUE(Dependent.IsValid()) << Error;
-	EXPECT_FALSE(Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.Dependent",
-			std::vector<FName>{}, std::make_shared<FSyntheticState>()),
+	DMaterial* FirstMaterial = NewObject<DMaterial>(nullptr, "FirstRoutedMaterial");
+	DMaterial* SecondMaterial = NewObject<DMaterial>(nullptr, "SecondRoutedMaterial");
+	DTexture2D* Texture = NewObject<DTexture2D>(nullptr, "DerivedRoutedTexture");
+	DTextureCube* TextureCube = NewObject<DTextureCube>(nullptr, "FallbackRoutedTexture");
+	DMaterialInstance* Unregistered =
+		NewObject<DMaterialInstance>(nullptr, "UnregisteredMaterialInstance");
+
+	auto BaseState = std::make_shared<FSyntheticState>();
+	BaseState->Calls = &Calls;
+	BaseState->Remaining = 2;
+	BaseState->AvailableCompletions = 2;
+	auto DerivedState = std::make_shared<FSyntheticState>();
+	DerivedState->Calls = &Calls;
+	DerivedState->Remaining = 2;
+	DerivedState->AvailableCompletions = 2;
+	auto BaseManager = std::make_shared<FSyntheticManager>("base", BaseState);
+	auto DerivedManager = std::make_shared<FSyntheticManager>("derived", DerivedState);
+
+	auto Base = Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Base"),
+		.AssetClasses = {DMaterial::StaticClass(), DTexture::StaticClass()},
+		.Manager = BaseManager}, GateRegistration.GetGate(), &Error);
+	ASSERT_TRUE(Base.IsValid()) << Error;
+	auto Derived = Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Derived"),
+		.AssetClasses = {DTexture2D::StaticClass()},
+		.Manager = DerivedManager}, GateRegistration.GetGate(), &Error);
+	ASSERT_TRUE(Derived.IsValid()) << Error;
+	EXPECT_EQ(BaseState->StartCount, 1u);
+	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
+
+	EXPECT_FALSE(Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Base"),
+		.AssetClasses = {DTexture2D::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>(
+			"duplicate-name", std::make_shared<FSyntheticState>())},
+		GateRegistration.GetGate(), &Error).IsValid());
+	EXPECT_FALSE(Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Conflict"),
+		.AssetClasses = {DMaterial::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>(
+			"duplicate-class", std::make_shared<FSyntheticState>())},
 		GateRegistration.GetGate(), &Error).IsValid());
 
 	uint32 EventCount = 0;
 	const FDelegateHandle EventHandle = Aggregate.OnAssetPostCompile().AddLambda(
 		[&](const FAssetPostCompileData& Data) {
 			++EventCount;
-			EXPECT_EQ(Data.DomainName, FName("Durin.Tests.Dependent"));
-			EXPECT_EQ(Data.Assets.size(), 1u);
-			EXPECT_EQ(Aggregate.GetDiagnostics().DomainCount, 2u);
+			EXPECT_TRUE(Data.CompilerName == FName("Durin.Tests.Base")
+				|| Data.CompilerName == FName("Durin.Tests.Derived"));
 		});
-	Calls.clear();
-	const FAssetCompileProcessResult Frame = Aggregate.ProcessAsyncTasks(
-		{.MaximumCompletions = 2});
-	EXPECT_EQ(Frame.ProcessedCompletionCount, 2u);
-	ASSERT_GE(Calls.size(), 2u);
-	EXPECT_EQ(Calls[0], "process:Durin.Tests.Prerequisite");
-	EXPECT_EQ(Calls[1], "process:Durin.Tests.Dependent");
-	EXPECT_EQ(EventCount, 1u);
-	EXPECT_EQ(Aggregate.GetNumRemainingAssets(), 2u);
-
-	DObject* Selected = Material;
-	Aggregate.MarkCompilationAsCanceled(std::span<DObject* const>(&Selected, 1));
-	EXPECT_TRUE(DependentState->bCanceled);
-	EXPECT_GT(DependentState->Remaining, 0u);
-	const auto Finished = Aggregate.FinishCompilationForObjects(
-		std::span<DObject* const>(&Selected, 1));
-	EXPECT_EQ(Finished.SuccessfullyCompiledAssets.size(), 1u);
-	EXPECT_EQ(DependentState->Remaining, 0u);
+	DObject* Objects[] = {
+		FirstMaterial, Texture, TextureCube, Unregistered, SecondMaterial, nullptr};
+	const auto Finished = Aggregate.FinishCompilationForObjects(Objects);
+	EXPECT_EQ(Finished.SuccessfullyCompiledAssets.size(), 4u);
+	ASSERT_EQ(BaseState->LastObjects.size(), 3u);
+	EXPECT_EQ(BaseState->LastObjects[0], FirstMaterial);
+	EXPECT_EQ(BaseState->LastObjects[1], TextureCube);
+	EXPECT_EQ(BaseState->LastObjects[2], SecondMaterial);
+	ASSERT_EQ(DerivedState->LastObjects.size(), 1u);
+	EXPECT_EQ(DerivedState->LastObjects[0], Texture);
 	EXPECT_EQ(EventCount, 2u);
+
+	Aggregate.MarkCompilationAsCanceled(Objects);
+	EXPECT_TRUE(BaseState->bCanceled);
+	EXPECT_TRUE(DerivedState->bCanceled);
+	const auto Frame = Aggregate.ProcessAsyncTasks({.MaximumCompletions = 2});
+	EXPECT_EQ(Frame.ProcessedCompletionCount, 2u);
+	EXPECT_GE(BaseState->ProcessCount, 1u);
+	EXPECT_GE(DerivedState->ProcessCount, 1u);
 	Aggregate.OnAssetPostCompile().Remove(EventHandle);
 
-	Dependent.Reset();
-	Prerequisite.Reset();
-	EXPECT_TRUE(DependentState->bShutdown);
-	EXPECT_TRUE(PrerequisiteState->bShutdown);
-
-	auto FirstCycle = Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.CycleA",
-			std::vector<FName>{FName("Durin.Tests.CycleB")},
-			std::make_shared<FSyntheticState>()),
-		GateRegistration.GetGate(), &Error);
-	ASSERT_TRUE(FirstCycle.IsValid()) << Error;
-	EXPECT_FALSE(Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.CycleB",
-			std::vector<FName>{FName("Durin.Tests.CycleA")},
-			std::make_shared<FSyntheticState>()),
-		GateRegistration.GetGate(), &Error).IsValid());
-	EXPECT_EQ(Aggregate.GetDiagnostics().DomainCount, 1u);
-	FirstCycle.Reset();
+	Derived.Reset();
+	Base.Reset();
+	EXPECT_EQ(BaseState->FinishAllCount, 1u);
+	EXPECT_EQ(BaseState->ShutdownCount, 1u);
+	EXPECT_EQ(DerivedState->FinishAllCount, 1u);
+	EXPECT_EQ(DerivedState->ShutdownCount, 1u);
 
 	auto RetiredState = std::make_shared<FSyntheticState>();
-	RetiredState->AvailableCompletions = 1;
-	auto Retired = Aggregate.RegisterDomain(
-		std::make_shared<FSyntheticDomain>("Durin.Tests.Retired",
-			std::vector<FName>{}, RetiredState),
+	auto Retired = Aggregate.RegisterCompiler({
+		.Name = FName("Durin.Tests.Retired"),
+		.AssetClasses = {DMaterial::StaticClass()},
+		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)},
 		GateRegistration.GetGate(), &Error);
 	ASSERT_TRUE(Retired.IsValid()) << Error;
 	GateRegistration.Retire();

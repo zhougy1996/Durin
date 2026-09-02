@@ -646,15 +646,11 @@ namespace Durin
 			return Processed;
 		}
 
-		class FMaterialCompilationDomain final : public IAssetCompilationDomain
+		class FMaterialCompilingManager final : public IAssetCompilingManager
 		{
 		public:
 			auto GetState() -> FMaterialCompilationState& { return State; }
 			auto GetState() const -> const FMaterialCompilationState& { return State; }
-			auto GetDomainName() const -> FName override
-			{
-				return FName("Durin.MaterialCompilation");
-			}
 			auto Start(std::string* OutError) -> bool override
 			{
 				if (State.Initialize())
@@ -734,11 +730,13 @@ namespace Durin
 			FMaterialCompilationState State;
 		};
 
-		auto GetMaterialCompilationDomain() -> FMaterialCompilationDomain*
+		std::mutex GMaterialCompilingManagerMutex;
+		std::weak_ptr<FMaterialCompilingManager> GMaterialCompilingManager;
+
+		auto GetMaterialCompilingManager() -> std::shared_ptr<FMaterialCompilingManager>
 		{
-			const auto Domain = FAssetCompilingManager::Get().FindDomain(
-				FName("Durin.MaterialCompilation"));
-			return dynamic_cast<FMaterialCompilationDomain*>(Domain.get());
+			std::lock_guard Lock(GMaterialCompilingManagerMutex);
+			return GMaterialCompilingManager.lock();
 		}
 	}
 
@@ -750,9 +748,9 @@ namespace Durin
 			bool bForceRecompile) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
+			const auto Manager = GetMaterialCompilingManager();
 			FMaterialCompilationState* Compilation =
-				Domain ? &Domain->GetState() : nullptr;
+				Manager ? &Manager->GetState() : nullptr;
 			// Construction precedes DObject handle registration. In a running engine,
 			// defer that bootstrap request to PostLoad, an authored edit, or an
 			// explicit request instead of performing expensive work on GameThread.
@@ -944,15 +942,15 @@ namespace Durin
 
 	auto IsMaterialCompilationAcceptingRequests() -> bool
 	{
-		const FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
-		return Domain && Domain->GetState().IsAccepting();
+		const auto Manager = GetMaterialCompilingManager();
+		return Manager && Manager->GetState().IsAccepting();
 	}
 
 	auto GetMaterialCompilationDiagnostics()
 		-> FMaterialCompilationDiagnostics
 	{
-		const FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
-		return Domain ? Domain->GetState().GetDiagnostics()
+		const auto Manager = GetMaterialCompilingManager();
+		return Manager ? Manager->GetState().GetDiagnostics()
 			: FMaterialCompilationDiagnostics{};
 	}
 
@@ -977,17 +975,21 @@ namespace Durin
 		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
-			const bool bCanceled = Domain
-				&& Domain->GetState().CancelOwner(MakeObjectHandle(&Material));
+			const auto Manager = GetMaterialCompilingManager();
+			const bool bCanceled = Manager
+				&& Manager->GetState().CancelOwner(MakeObjectHandle(&Material));
 			if (bCanceled)
 				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
 			return bCanceled;
 		}
 	}
 
-	auto CreateMaterialCompilationDomain() -> std::shared_ptr<IAssetCompilationDomain>
+	auto CreateMaterialCompilingManager() -> std::shared_ptr<IAssetCompilingManager>
 	{
-		return std::make_shared<FMaterialCompilationDomain>();
+		std::lock_guard Lock(GMaterialCompilingManagerMutex);
+		if (const auto Existing = GMaterialCompilingManager.lock()) return Existing;
+		auto Manager = std::make_shared<FMaterialCompilingManager>();
+		GMaterialCompilingManager = Manager;
+		return Manager;
 	}
 }

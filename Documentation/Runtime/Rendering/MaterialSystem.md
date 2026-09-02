@@ -158,14 +158,14 @@ retains no publishable partial stage set.
 
 ## Compile Lifecycle and Cooked Programs
 
-Engine registers `Durin.MaterialCompilation` as the built-in domain of its
+Engine registers `DMaterial` to the built-in `Durin.Material` typed manager of its
 [asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
 startup and shutdown. GameThread snapshots a base material into a value-owned request,
 normalizes it to obtain the M5 program identity, and submits the expensive
 compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
 only synchronous compatibility path is process bootstrap or tooling without an
-active compilation domain; construction in a running engine does not compile
+active compiling manager; construction in a running engine does not compile
 before its object handle exists. `PostLoad`, authored edits, reload, and the
 explicit editor action use the asynchronous owner.
 
@@ -180,7 +180,7 @@ admission atomically replaces the complete three-stage result and proxy state;
 failure, cancellation, supersession, rejection, deletion, or shutdown cannot
 replace it. A material with no accepted result uses ErrorMaterial.
 
-The material compilation domain admits at most 64 distinct flights and 256 consumers. Requests are
+The Material compiling manager admits at most 64 distinct flights and 256 consumers. Requests are
 bounded to 2 MiB, results to 8 MiB, diagnostics to the M5 64-record/512-byte
 limits, and in-process retained results to 128 identities and 256 MiB FIFO.
 Equal identities share one flight and retained immutable result while keeping
@@ -194,7 +194,7 @@ RenderCore remains the sole persistent DDC owner for SPIR-V, reflection, and
 dependency manifests. M6 adds no second editor material DDC because the
 material result would duplicate those artifacts and the retained M5 IR/source
 does not justify another disk owner. Cache outcomes exposed by the material
-domain are therefore retained-result hit, shared in-flight work, compiled, or
+manager are therefore retained-result hit, shared in-flight work, compiled, or
 forced; corrupt RenderCore artifacts retain their existing cache-miss/repair
 semantics.
 

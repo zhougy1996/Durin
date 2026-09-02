@@ -143,7 +143,7 @@ namespace Durin
 	};
 
 	class DTexture2D;
-	class FTexture2DCompilationDomain;
+	class FTextureCompilingManager;
 
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
@@ -230,7 +230,7 @@ namespace Durin
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
-		friend class FTexture2DCompilationDomain;
+		friend class FTextureCompilingManager;
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(

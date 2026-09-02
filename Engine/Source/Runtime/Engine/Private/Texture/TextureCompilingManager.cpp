@@ -1,4 +1,4 @@
-#include "Texture/Texture2DCompilationDomain.h"
+#include "Texture/TextureCompilingManager.h"
 
 #include "Texture/Texture2DBuildProvider.h"
 
@@ -51,8 +51,8 @@ namespace Durin
 
 	}
 
-	struct FTexture2DCompilationDomain::FQueueState final
-		: public std::enable_shared_from_this<FTexture2DCompilationDomain::FQueueState>
+	struct FTextureCompilingManager::FQueueState final
+		: public std::enable_shared_from_this<FTextureCompilingManager::FQueueState>
 	{
 		struct FJob
 		{
@@ -76,7 +76,7 @@ namespace Durin
 			FTexture2DCompilationWorkResult Result;
 		};
 
-		explicit FQueueState(FTexture2DCompilationDomainConfig InConfig)
+		explicit FQueueState(FTextureCompilingManagerConfig InConfig)
 			: Config(InConfig)
 		{
 			Config.MaxWorkers = std::max(Config.MaxWorkers, 1u);
@@ -523,7 +523,7 @@ namespace Durin
 			Pump(std::numeric_limits<uint32>::max());
 		}
 
-		FTexture2DCompilationDomainConfig Config;
+		FTextureCompilingManagerConfig Config;
 		FTaskScope Scope;
 		FTaskAttribution Attribution;
 		mutable std::mutex Mutex;
@@ -542,30 +542,30 @@ namespace Durin
 		std::function<void(uint64, ETexture2DCompilationPhase)> PhaseHookForTests;
 	};
 
-	FTexture2DCompilationDomain::FTexture2DCompilationDomain(
-		const FTexture2DCompilationDomainConfig& Config)
+	FTextureCompilingManager::FTextureCompilingManager(
+		const FTextureCompilingManagerConfig& Config)
 		: QueueState(std::make_shared<FQueueState>(Config))
 	{
 	}
 
-	FTexture2DCompilationDomain::~FTexture2DCompilationDomain()
+	FTextureCompilingManager::~FTextureCompilingManager()
 	{
 		Shutdown();
 	}
 
-	auto FTexture2DCompilationDomain::SubmitWork(
+	auto FTextureCompilingManager::SubmitWork(
 		FTexture2DCompilationWork Request,
 		FTexture2DCompilationWorkCompletion Completion) -> uint64
 	{
 		return QueueState ? QueueState->Submit(std::move(Request), std::move(Completion)) : 0;
 	}
 
-	auto FTexture2DCompilationDomain::CancelWork(uint64 RequestId) -> bool
+	auto FTextureCompilingManager::CancelWork(uint64 RequestId) -> bool
 	{
 		return QueueState && QueueState->Cancel(RequestId);
 	}
 
-	auto FTexture2DCompilationDomain::GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic
+	auto FTextureCompilingManager::GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic
 	{
 		if (!QueueState) return {};
 		std::shared_ptr<FQueueState::FJob> Job;
@@ -588,21 +588,21 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTexture2DCompilationDomain::GetQueuedWorkCount() const -> uint32
+	auto FTextureCompilingManager::GetQueuedWorkCount() const -> uint32
 	{
 		if (!QueueState) return 0;
 		std::lock_guard Lock(QueueState->Mutex);
 		return static_cast<uint32>(QueueState->InteractiveQueue.size() + QueueState->BackgroundQueue.size());
 	}
 
-	auto FTexture2DCompilationDomain::GetRunningWorkCount() const -> uint32
+	auto FTextureCompilingManager::GetRunningWorkCount() const -> uint32
 	{
 		if (!QueueState) return 0;
 		std::lock_guard Lock(QueueState->Mutex);
 		return QueueState->RunningCount;
 	}
 
-	auto FTexture2DCompilationDomain::GetWorkManagerDiagnostics() const
+	auto FTextureCompilingManager::GetWorkManagerDiagnostics() const
 		-> FTexture2DCompilationManagerDiagnostics
 	{
 		FTexture2DCompilationManagerDiagnostics Result;
@@ -617,7 +617,7 @@ namespace Durin
 		return Result;
 	}
 
-	auto FTexture2DCompilationDomain::SetPhaseHookForTests(
+	auto FTextureCompilingManager::SetPhaseHookForTests(
 		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void
 	{
 		if (!QueueState) return;
@@ -625,28 +625,28 @@ namespace Durin
 		QueueState->PhaseHookForTests = std::move(Hook);
 	}
 
-	auto FTexture2DCompilationDomain::PumpWorkCompletions(uint32 MaximumCount) -> uint32
+	auto FTextureCompilingManager::PumpWorkCompletions(uint32 MaximumCount) -> uint32
 	{
 		return QueueState ? QueueState->Pump(MaximumCount) : 0;
 	}
 
-	auto FTexture2DCompilationDomain::StartWorkAdmission() -> bool
+	auto FTextureCompilingManager::StartWorkAdmission() -> bool
 	{
 		return QueueState && QueueState->Start();
 	}
 
-	auto FTexture2DCompilationDomain::StopWorkAdmission() -> void
+	auto FTextureCompilingManager::StopWorkAdmission() -> void
 	{
 		if (QueueState) QueueState->StopAdmission();
 	}
 
-	auto FTexture2DCompilationDomain::WaitForWork(
+	auto FTextureCompilingManager::WaitForWork(
 		uint64 RequestId, double TimeoutSeconds) -> bool
 	{
 		return QueueState && QueueState->WaitForRequest(RequestId, TimeoutSeconds);
 	}
 
-	auto FTexture2DCompilationDomain::ShutdownWorkQueue() -> void
+	auto FTextureCompilingManager::ShutdownWorkQueue() -> void
 	{
 		if (QueueState) QueueState->Shutdown();
 	}

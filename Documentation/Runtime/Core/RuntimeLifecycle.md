@@ -10,7 +10,8 @@ This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
 
 Engine starts its object-aware asset-compilation aggregate after the task
-system. Material and Texture2D compilation are built-in runtime domains;
+system. Material and Texture2D use built-in typed compiling managers routed from
+their reflected asset classes;
 editor and headless authoring roots may add TextureBuild's typed synchronous
 Texture2D, VolumeTexture, and TextureCube providers without transferring task,
 PostLoad, object, or publication ownership. Launch
@@ -263,8 +264,8 @@ shutdown order directly:
 | Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
-| Stop asset compilation | Close every compile domain, finish accepted object publication in reverse dependency order, and release provider values before Core task admission closes. |
-| Stop CPU work | After CPU producers close domain admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |
+| Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
+| Stop CPU work | After CPU producers close work admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
@@ -283,9 +284,9 @@ references:
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
 
-CPU-work owners close their domain admission and publication before the process
+CPU-work owners close their work admission and publication before the process
 task-system boundary. A task scope is a safety mechanism, not a replacement for
-domain mailbox, provider, cache, object, render, or RHI ownership. The
+manager mailbox, provider, cache, object, render, or RHI ownership. The
 [CPU Task System](TaskSystem.md) defines scope closure, `Drain`/`Cancel`
 behavior, continuation dispatch, pumping, waits, and diagnostics; this document
 defines only where that process-level boundary occurs.

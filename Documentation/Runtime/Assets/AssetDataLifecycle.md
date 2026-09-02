@@ -76,19 +76,19 @@ Engine alone combines retained Texture inputs with derived provider values and
 applies results to live Texture objects. Shader and other unrelated DDC paths remain
 direct family clients.
 
-Engine's object-aware compilation aggregate owns asynchronous domain
+Engine's object-aware compilation aggregate owns asynchronous compiler and class-route
 registration, frame pumping, selected-object finish/cancel, aggregate progress,
-successful post-compile notification, and shutdown placement. Concrete domains
+successful post-compile notification, and shutdown placement. Concrete managers
 retain typed scheduling and result application; TextureBuild retains neither DDC
 nor payload validation. DerivedDataCache build
 function registration still uses a module callback gate for bounded synchronous
-calls but does not become a compilation domain. See
+calls but does not become an asset compiler. See
 [Asset Compilation](AssetCompilation.md).
 
 Accepted asynchronous Texture2D requests use Engine's terminal
 `FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
 including cancellation and supersession. `DTexture2D` owns a process-local
-request serial; the Engine family domain owns generation-safe object handles,
+request serial; the Engine Texture manager owns generation-safe object handles,
 workers, typed completion application, and the GameThread completion pump. Deterministic
 build/provider identity, DDC identity, CPU payload readiness, and GPU resource
 readiness remain separate. Editor-side commit and recovery sequencing is separately defined by
@@ -102,7 +102,7 @@ RGBA8 pixels. Build is the detached
 observes an asset object. Compilation schedules that build for a specific
 `DTexture2D`, applies cancellation and supersession, and publishes the product
 on GameThread. Authored describes authoritative persisted package state; it is
-not the name of the compilation domain or one of its requests.
+not the name of the compiling manager or one of its requests.
 
 ## Storage Classes
 
