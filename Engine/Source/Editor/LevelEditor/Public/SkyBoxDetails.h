@@ -12,16 +12,15 @@ namespace Durin::Editor::Level
 {
 	class IObjectDetailsCustomization;
 
-	// Describes one visible registered skybox and whether scene ordering selects it.
+	// Describes one visible registered skybox in an invalid multi-skybox level.
 	struct FSkyBoxConflictEntry
 	{
 		DSkyBoxComponent* Component = nullptr;
 		std::string ActorName;
 		std::string ObjectPath;
-		bool bActive = false;
 	};
 
-	// Mirrors scene skybox ordering for nonblocking editor conflict diagnostics.
+	// Reports an invalid multi-skybox level without assigning an active candidate.
 	class FSkyBoxConflictModel
 	{
 	public:
@@ -29,8 +28,6 @@ namespace Durin::Editor::Level
 
 		auto HasConflict() const -> bool { return Entries.size() > 1; }
 		auto GetEntries() const -> std::span<const FSkyBoxConflictEntry> { return Entries; }
-		auto GetActive() const -> const FSkyBoxConflictEntry* { return Entries.empty() ? nullptr : &Entries.front(); }
-
 	private:
 		std::vector<FSkyBoxConflictEntry> Entries;
 	};

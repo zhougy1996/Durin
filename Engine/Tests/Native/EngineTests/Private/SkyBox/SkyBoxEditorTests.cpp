@@ -7,7 +7,7 @@
 #include "Math/Operations.h"
 #include "SkyBoxPlacement.h"
 
-TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConflicts)
+TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 {
 	InitializeSkyBoxAssetMount();
 	Durin::InitRenderingThread();
@@ -53,7 +53,6 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::FTransform Transform = Actor->GetActorTransform();
 	Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(35.0, Durin::FVectorConstants::Up);
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
-	const Durin::FGuid SavedSceneId = Component->GetSkyBoxSceneId();
 	ASSERT_TRUE(Durin::SavePackage(Level->GetPackage()));
 	Transactions->Reset();
 	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
@@ -66,7 +65,6 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
 	ASSERT_NE(LoadedComponent->GetTextureCube(), nullptr);
-	EXPECT_EQ(LoadedComponent->GetSkyBoxSceneId(), SavedSceneId);
 	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
 	EXPECT_FLOAT_EQ(LoadedComponent->GetIntensity(), 2.5f);
 	EXPECT_EQ(LoadedComponent->GetWorldRotation(), Transform.Rotation);
@@ -77,30 +75,17 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.Desc.PersistentId, SavedSceneId);
 	EXPECT_EQ(
 		Observation.Active.Desc.Data.TextureReference,
 		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
-	auto* IgnoredActor = LoadedLevel->SpawnActor<Durin::ASkyBoxActor>("IgnoredSky");
-	ASSERT_NE(IgnoredActor, nullptr);
-	Durin::Editor::Level::FSkyBoxConflictModel ConflictModel(LoadedLevel);
-	ASSERT_TRUE(ConflictModel.HasConflict());
-	const Durin::Editor::Level::FSkyBoxPlacementResult ConflictPlacement =
+	const Durin::Editor::Level::FSkyBoxPlacementResult ExistingPlacement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*LoadedLevel, LoadedComponent->GetTextureCube(), "RejectedSky", nullptr);
-	EXPECT_FALSE(ConflictPlacement);
+	EXPECT_TRUE(ExistingPlacement);
+	EXPECT_EQ(ExistingPlacement.Actor, LoadedActor);
+	EXPECT_FALSE(ExistingPlacement.bChanged);
 	EXPECT_EQ(LoadedLevel->FindActorByName("RejectedSky"), nullptr);
-	ASSERT_EQ(ConflictModel.GetEntries().size(), 2u);
-	ASSERT_NE(ConflictModel.GetActive(), nullptr);
-	const auto ExpectedActive = std::min(
-		std::tuple(LoadedComponent->GetSkyBoxSceneId(), LoadedComponent->GetObjectPath(), LoadedComponent->GetSkyBoxInstanceId()),
-		std::tuple(IgnoredActor->GetSkyBoxComponent()->GetSkyBoxSceneId(),
-			IgnoredActor->GetSkyBoxComponent()->GetObjectPath(),
-			IgnoredActor->GetSkyBoxComponent()->GetSkyBoxInstanceId()));
-	EXPECT_EQ(ConflictModel.GetActive()->Component->GetSkyBoxSceneId(), std::get<0>(ExpectedActive));
-	IgnoredActor->SetHidden(true);
-	EXPECT_FALSE(Durin::Editor::Level::FSkyBoxConflictModel(LoadedLevel).HasConflict());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 	World->SetRenderScene(nullptr);

@@ -174,9 +174,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 	Durin::FSkyBoxSceneData SkyBox;
 	SkyBox.TextureReference = CubeReference;
-	Durin::FSkyBoxSceneProxy* SkyBoxToken = PublishSkyBox(
-		Scene, Durin::FSkyBoxSceneId(1),
-		{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, SkyBox);
+	Durin::FSkyBoxSceneProxy* SkyBoxToken = PublishSkyBox(Scene, SkyBox);
 
 	struct FEndSkyBoxValidationSetupFrame
 	{
@@ -447,15 +445,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			RotatedSky.TextureReference = CubeReference;
 			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
 			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
-				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
+			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
 			RotatedSky.TextureReference = HdrCubeReference;
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
-				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
+			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 			Durin::FSceneViewRenderOptions OverrideOptions;
 			OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
 				.TextureReference = CubeReference
@@ -493,8 +489,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 			RotatedSky.TextureReference = CubeReference;
 			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
-				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
+			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 			LetterboxView.AspectRatioConstraint = 0.5f;
 			if (!Render(LetterboxView, Result->Letterboxed)) return;
@@ -505,8 +500,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyBoxToken);
-			SkyBoxToken = PublishSkyBox(Scene, Durin::FSkyBoxSceneId(1),
-				{Durin::FGuid(1, 0, 0, 0), "VulkanSky"}, RotatedSky);
+			SkyBoxToken = PublishSkyBox(Scene, RotatedSky);
 			const Durin::FSceneView HybridSkyView =
 				MakePrincipalAxisView(Directions[4], {}, 17, 17);
 			if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;

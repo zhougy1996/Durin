@@ -33,12 +33,6 @@ namespace Durin::Editor::Level
 					if (Component) Candidates.push_back({Component, Actor});
 				}
 			}
-			std::ranges::sort(Candidates, [](const FSkyBoxCandidate& A, const FSkyBoxCandidate& B) {
-				return std::tuple(A.Component->GetSkyBoxSceneId(), A.Component->GetObjectPath(),
-					A.Component->GetSkyBoxInstanceId())
-					< std::tuple(B.Component->GetSkyBoxSceneId(), B.Component->GetObjectPath(),
-						B.Component->GetSkyBoxInstanceId());
-			});
 			return Candidates;
 		}
 

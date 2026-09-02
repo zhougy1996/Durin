@@ -89,10 +89,6 @@ namespace Durin
 			std::shared_ptr<FSkyBoxSceneProxy> InProxy);
 		RENDERER_API ~FSkyBoxSceneInfo();
 
-		auto GetId() const -> FSkyBoxSceneId
-		{
-			return Proxy->GetDesc().RuntimeId;
-		}
 		auto GetProxy() const -> const FSkyBoxSceneProxy& { return *Proxy; }
 
 	private:

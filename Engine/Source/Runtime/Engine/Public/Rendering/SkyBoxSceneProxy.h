@@ -20,15 +20,7 @@ namespace Durin
 	// Contains every renderer-facing sky value before ownership crosses threads.
 	struct FSkyBoxSceneProxyDesc
 	{
-		FGuid PersistentId;
-		std::string SelectionKey;
-		FSkyBoxSceneId RuntimeId = InvalidSkyBoxSceneId;
 		FSkyBoxSceneData Data;
-
-		auto IsValid() const -> bool
-		{
-			return PersistentId.IsValid() && RuntimeId != InvalidSkyBoxSceneId;
-		}
 	};
 
 	class FSkyBoxSceneProxy final

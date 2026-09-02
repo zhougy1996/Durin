@@ -38,9 +38,6 @@ namespace Durin
 		auto GetTextureCube() const -> DTextureCube* { return TextureCube.Get(); }
 		auto GetTint() const -> const FLinearColor& { return Tint; }
 		auto GetIntensity() const -> float { return Intensity; }
-		auto GetSkyBoxSceneId() const -> const FGuid& { return SkyBoxSceneId; }
-		auto GetSkyBoxInstanceId() const -> uint64 { return SkyBoxInstanceId; }
-
 		ENGINE_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
 		ENGINE_API auto SetTint(const FLinearColor& InTint) -> void;
 		ENGINE_API auto SetIntensity(float InIntensity) -> void;
@@ -50,7 +47,6 @@ namespace Durin
 
 	private:
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FSkyBoxSceneProxy>;
-		auto EnsureSkyBoxInstanceId() -> uint64;
 		auto CreateRenderState() -> void;
 		auto DestroyRenderState() -> void;
 		auto MarkRenderStateDirty() -> void;
@@ -64,12 +60,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		float Intensity = 1.0f;
 
-		// Serialized identity makes active selection independent of registration order.
-		DPROPERTY()
-		FGuid SkyBoxSceneId;
-
-		// Nonserialized identity separates duplicates that intentionally share persistent state.
-		uint64 SkyBoxInstanceId = 0;
 		// Non-owning token used only to retire the exact published proxy.
 		FSkyBoxSceneProxy* SceneProxy = nullptr;
 

@@ -18,22 +18,19 @@ namespace Durin::Editor::Level
 				FObjectPropertyViewBuilder& Builder) -> void override
 			{
 				if (!Cast<DSkyBoxComponent>(Object) || !Context.Level) return;
-				Builder.AddCustomRow("Sky Box Conflict Active Ignored",
+				Builder.AddCustomRow("Sky Box Conflict",
 					[Level = Context.Level](::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext&) {
 						const FSkyBoxConflictModel Model(Level);
 						if (!Model.HasConflict()) return false;
 
 						MonaImGui::PropertyEdit::BeginRow("Sky Box Conflict", true);
-						const FSkyBoxConflictEntry* Active = Model.GetActive();
 						ImGui::PushStyleColor(ImGuiCol_Text,
 							MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
-						ImGui::TextWrapped("Multiple visible sky boxes are registered. Active: %s",
-							Active ? Active->ActorName.c_str() : "<none>");
+						ImGui::TextWrapped("Multiple visible sky boxes are registered; a scene accepts only one.");
 						ImGui::PopStyleColor();
 						for (const FSkyBoxConflictEntry& Entry : Model.GetEntries())
 						{
-							if (Entry.bActive) continue;
-							ImGui::TextDisabled("Ignored: %s (%s)",
+							ImGui::TextDisabled("Conflicting: %s (%s)",
 								Entry.ActorName.c_str(), Entry.ObjectPath.c_str());
 						}
 						MonaImGui::PropertyEdit::EndRow(true);
@@ -62,12 +59,6 @@ namespace Durin::Editor::Level
 				if (Component && Component->IsRegistered()) Candidates.push_back({Component, Actor});
 			}
 		}
-		std::ranges::sort(Candidates, [](const FCandidate& A, const FCandidate& B) {
-			return std::tuple(A.Component->GetSkyBoxSceneId(), A.Component->GetObjectPath(),
-				A.Component->GetSkyBoxInstanceId())
-				< std::tuple(B.Component->GetSkyBoxSceneId(), B.Component->GetObjectPath(),
-					B.Component->GetSkyBoxInstanceId());
-		});
 		Entries.reserve(Candidates.size());
 		for (size_t Index = 0; Index < Candidates.size(); ++Index)
 		{
@@ -75,7 +66,6 @@ namespace Durin::Editor::Level
 				.Component = Candidates[Index].Component,
 				.ActorName = Candidates[Index].Actor->GetName(),
 				.ObjectPath = Candidates[Index].Component->GetObjectPath(),
-				.bActive = Index == 0,
 			});
 		}
 	}

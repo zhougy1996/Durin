@@ -170,6 +170,7 @@ namespace Durin
 		requiref(IsInGameThread(), "FScene::Release must execute on the game thread.");
 		ELifecycleState Expected = ELifecycleState::Active;
 		requiref(LifecycleState.compare_exchange_strong(Expected, ELifecycleState::Releasing, std::memory_order_acq_rel), "FScene::Release is a single-use operation.");
+		PublishedSkyBoxProxy = nullptr;
 		const bool bAccepted = TryEnqueueRenderCommand("ReleaseScene", [this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			Clear_RenderThread();
@@ -592,62 +593,53 @@ namespace Durin
 		FScene& Scene, std::shared_ptr<FSkyBoxSceneProxy> Proxy
 	) -> void
 	{
-		check(Proxy != nullptr && Proxy->GetDesc().IsValid());
-		FSkyBoxSceneProxy* RawProxy = Proxy.get();
-		check(!InfosByProxy.contains(RawProxy));
-		auto Info = std::make_unique<FSkyBoxSceneInfo>(Scene, std::move(Proxy));
-		FSkyBoxSceneInfo* RawInfo = Info.get();
-		const auto [It, bInserted] = InfosByProxy.emplace(RawProxy, std::move(Info));
-		check(bInserted);
-		SceneInfos.push_back(RawInfo);
+		check(Proxy != nullptr && SceneInfo == nullptr);
+		SceneInfo = std::make_unique<FSkyBoxSceneInfo>(Scene, std::move(Proxy));
 	}
 
 	auto FSkyBoxSceneRegistry::Remove(FSkyBoxSceneProxy* Proxy) -> void
 	{
 		if (Proxy == nullptr) return;
-		const auto Found = InfosByProxy.find(Proxy);
-		checkf(Found != InfosByProxy.end(), "Attempted to remove an unknown sky-box scene proxy.");
-		if (Found == InfosByProxy.end()) return;
-		std::erase(SceneInfos, Found->second.get());
-		InfosByProxy.erase(Found);
+		checkf(SceneInfo && &SceneInfo->GetProxy() == Proxy,
+			"Attempted to remove an unknown sky-box scene proxy.");
+		if (!SceneInfo || &SceneInfo->GetProxy() != Proxy) return;
+		SceneInfo.reset();
 	}
 
 	auto FSkyBoxSceneRegistry::Clear() -> void
 	{
-		SceneInfos.clear();
-		InfosByProxy.clear();
+		SceneInfo.reset();
 	}
 
 	auto FSkyBoxSceneRegistry::GetActive() const -> const FSkyBoxSceneInfo*
 	{
-		if (SceneInfos.empty()) return nullptr;
-		return *std::ranges::min_element(SceneInfos, [](const FSkyBoxSceneInfo* A, const FSkyBoxSceneInfo* B) {
-			const auto& ADesc = A->GetProxy().GetDesc();
-			const auto& BDesc = B->GetProxy().GetDesc();
-			return std::tuple(ADesc.PersistentId, ADesc.SelectionKey, ADesc.RuntimeId)
-				   < std::tuple(BDesc.PersistentId, BDesc.SelectionKey, BDesc.RuntimeId);
-		});
+		return SceneInfo.get();
 	}
 
 	auto FScene::TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| Proxy == nullptr || !Proxy->GetDesc().IsValid()) return false;
+			|| Proxy == nullptr || PublishedSkyBoxProxy != nullptr) return false;
+		FSkyBoxSceneProxy* Token = Proxy.get();
 		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
-		return TryEnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+		const bool bAccepted = TryEnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			SkyBoxes->Add(*this, SharedProxy);
 		});
+		if (bAccepted) PublishedSkyBoxProxy = Token;
+		return bAccepted;
 	}
 
 	auto FScene::TryRemoveSkyBoxProxy(FSkyBoxSceneProxy* Proxy) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| Proxy == nullptr) return false;
-		return TryEnqueueRenderCommand("RemoveSkyBox", [this, Proxy](FRHICommandListImmediate&) {
+			|| Proxy == nullptr || Proxy != PublishedSkyBoxProxy) return false;
+		const bool bAccepted = TryEnqueueRenderCommand("RemoveSkyBox", [this, Proxy](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			SkyBoxes->Remove(Proxy);
 		});
+		if (bAccepted) PublishedSkyBoxProxy = nullptr;
+		return bAccepted;
 	}
 
 	auto FScene::GetActiveSkyBoxSceneInfo_RenderThread() const

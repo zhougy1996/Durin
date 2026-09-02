@@ -36,7 +36,7 @@ namespace Durin
 		std::vector<FLightSceneInfo*> Spot;
 	};
 
-	// Owns sky-box candidates and their deterministic active-candidate policy.
+	// Owns the scene's sole sky-box publication.
 	class FSkyBoxSceneRegistry final
 	{
 	public:
@@ -44,11 +44,10 @@ namespace Durin
 		auto Remove(FSkyBoxSceneProxy* Proxy) -> void;
 		auto Clear() -> void;
 		auto GetActive() const -> const FSkyBoxSceneInfo*;
-		auto Num() const -> size_t { return SceneInfos.size(); }
+		auto Num() const -> size_t { return SceneInfo ? 1 : 0; }
 
 	private:
-		std::unordered_map<FSkyBoxSceneProxy*, std::unique_ptr<FSkyBoxSceneInfo>> InfosByProxy;
-		std::vector<FSkyBoxSceneInfo*> SceneInfos;
+		std::unique_ptr<FSkyBoxSceneInfo> SceneInfo;
 	};
 
 	// Owns global cloud candidates and resolves the active eligible publication.

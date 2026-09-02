@@ -4,71 +4,32 @@
 #include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Math/Operations.h"
 
-TEST(FSkyBoxTests, ClassDefaultSkipsRuntimeIdentityAllocation)
-{
-	InitializeDObjectSystem();
-	const auto* DefaultComponent = static_cast<const Durin::DSkyBoxComponent*>(
-		Durin::DSkyBoxComponent::StaticClass()->GetDefaultObject());
-	ASSERT_NE(DefaultComponent, nullptr);
-	EXPECT_FALSE(DefaultComponent->GetSkyBoxSceneId().IsValid());
-	EXPECT_EQ(DefaultComponent->GetSkyBoxInstanceId(), 0u);
-
-	auto* Component = Durin::NewObject<Durin::DSkyBoxComponent>(nullptr, "RuntimeIdentitySkyBox");
-	ASSERT_NE(Component, nullptr);
-	EXPECT_TRUE(Component->GetSkyBoxSceneId().IsValid());
-	EXPECT_NE(Component->GetSkyBoxInstanceId(), 0u);
-	Durin::MarkAsGarbage(Component);
-	Durin::CollectGarbage();
-}
-
-TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
+TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
 	Durin::FRendererModule SceneFactory;
 	Durin::FScenePtr SceneOwner = SceneFactory.CreateScene();
 	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
-	const Durin::FGuid SmallerId(1, 0, 0, 0);
-	const Durin::FGuid LargerId(2, 0, 0, 0);
-
-	Durin::FSkyBoxSceneData Larger;
-	Larger.Intensity = 2.0f;
-	auto* LargerToken = PublishSkyBox(
-		Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
-	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, LargerToken);
-	auto* ReplacementToken = PublishSkyBox(
-		Scene, Durin::FSkyBoxSceneId(2), {LargerId, "Larger"}, Larger);
-	EXPECT_NE(ReplacementToken, LargerToken);
-	LargerToken = ReplacementToken;
+	Durin::FSkyBoxSceneData Sky;
+	Sky.Intensity = 2.0f;
+	auto* SkyToken = PublishSkyBox(Scene, Sky);
+	ASSERT_NE(SkyToken, nullptr);
+	EXPECT_EQ(PublishSkyBox(Scene, Sky), nullptr);
 	EXPECT_EQ(ObserveSkyBoxes(Scene).Count, 1u);
 
-	Durin::FSkyBoxSceneData Smaller;
-	Smaller.Intensity = 4.0f;
-	auto* SmallerToken = PublishSkyBox(
-		Scene, Durin::FSkyBoxSceneId(1), {SmallerId, "Smaller"}, Smaller);
+	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyToken);
+	Sky.Intensity = 4.0f;
+	auto* ReplacementToken = PublishSkyBox(
+		Scene, Sky);
+	ASSERT_NE(ReplacementToken, nullptr);
+	EXPECT_NE(ReplacementToken, SkyToken);
 
 	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Count, 2u);
-	EXPECT_EQ(Observation.Active.Desc.PersistentId, SmallerId);
-	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 4.0f);
-
-	Durin::FSkyBoxSceneData DuplicateGuid = Smaller;
-	DuplicateGuid.Intensity = 6.0f;
-	auto* DuplicateToken = PublishSkyBox(
-		Scene, Durin::FSkyBoxSceneId(3), {SmallerId, "A"}, DuplicateGuid);
-	Observation = ObserveSkyBoxes(Scene);
-	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Count, 3u);
-	EXPECT_EQ(Observation.Active.Desc.RuntimeId, Durin::FSkyBoxSceneId(3));
-	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 6.0f);
-	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, DuplicateToken);
-
-	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SmallerToken);
-	Observation = ObserveSkyBoxes(Scene);
-	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.Desc.PersistentId, LargerId);
+	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 4.0f);
+	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, ReplacementToken);
 
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
@@ -82,8 +43,6 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
 	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "ReferencedCube");
 	ASSERT_NE(Component, nullptr);
-	ASSERT_TRUE(Component->GetSkyBoxSceneId().IsValid());
-	const Durin::FGuid OriginalSceneId = Component->GetSkyBoxSceneId();
 
 	Component->SetTextureCube(Cube);
 	Component->SetTint(Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f));
@@ -103,8 +62,6 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
 	EXPECT_EQ(LoadedComponent->GetTextureCube(), nullptr);
-	EXPECT_EQ(LoadedComponent->GetSkyBoxSceneId(), OriginalSceneId);
-	EXPECT_NE(LoadedComponent->GetSkyBoxInstanceId(), Component->GetSkyBoxInstanceId());
 	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
 	EXPECT_EQ(LoadedComponent->GetIntensity(), 0.0f);
 
@@ -134,8 +91,6 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.Desc.PersistentId,
-		Component->GetSkyBoxSceneId());
 
 	const Durin::FQuat Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
 		45.0, Durin::FVectorConstants::Up);

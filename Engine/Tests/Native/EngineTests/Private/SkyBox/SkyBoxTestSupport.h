@@ -43,23 +43,12 @@
 
 namespace
 {
-	struct FSkyBoxTestIdentity
-	{
-		Durin::FGuid PersistentId;
-		std::string SelectionKey;
-	};
-
 	auto PublishSkyBox(
 		Durin::FScene& Scene,
-		Durin::FSkyBoxSceneId SceneId,
-		FSkyBoxTestIdentity Identity,
 		Durin::FSkyBoxSceneData Data) -> Durin::FSkyBoxSceneProxy*
 	{
 		auto Proxy = std::make_unique<Durin::FSkyBoxSceneProxy>(
 			Durin::FSkyBoxSceneProxyDesc{
-				.PersistentId = Identity.PersistentId,
-				.SelectionKey = std::move(Identity.SelectionKey),
-				.RuntimeId = SceneId,
 				.Data = std::move(Data)});
 		Durin::FSkyBoxSceneProxy* Token = Proxy.get();
 		return Durin::FSceneInterfaceTestAccess::TryAddSkyBoxProxy(Scene, std::move(Proxy)) ? Token : nullptr;

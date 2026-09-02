@@ -8,23 +8,14 @@
 
 namespace Durin
 {
-	namespace
-	{
-		std::atomic<uint64> GNextSkyBoxInstanceId = 1;
-	}
-
 	DSkyBoxComponent::DSkyBoxComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, SkyBoxSceneId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? FGuid{} : FGuid::NewGuid())
-		, SkyBoxInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? 0 : GNextSkyBoxInstanceId.fetch_add(1, std::memory_order_relaxed))
 	{
 	}
 
 	auto DSkyBoxComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
-		if (!SkyBoxSceneId.IsValid()) SkyBoxSceneId = FGuid::NewGuid();
-		EnsureSkyBoxInstanceId();
 		CreateRenderState();
 	}
 
@@ -91,15 +82,6 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DSkyBoxComponent::EnsureSkyBoxInstanceId() -> uint64
-	{
-		if (SkyBoxInstanceId == 0)
-			SkyBoxInstanceId = GNextSkyBoxInstanceId.fetch_add(
-				1, std::memory_order_relaxed
-			);
-		return SkyBoxInstanceId;
-	}
-
 	auto DSkyBoxComponent::CreateRenderState() -> void
 	{
 		if (!IsRegistered()) return;
@@ -117,9 +99,6 @@ namespace Durin
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
 		return std::make_unique<FSkyBoxSceneProxy>(
 			FSkyBoxSceneProxyDesc{
-				.PersistentId = SkyBoxSceneId,
-				.SelectionKey = GetObjectPath(),
-				.RuntimeId = FSkyBoxSceneId(EnsureSkyBoxInstanceId()),
 				.Data = std::move(Data)
 			}
 		);

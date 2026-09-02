@@ -65,10 +65,10 @@ visibility, transform, authored-property, and retirement publication; the
 renderer never calls a component getter. Bounded per-view selection and the
 shared GPU contract are defined by [Forward Lighting](ForwardLighting.md).
 
-`FSkyBoxSceneInfo` owns typed membership. `FSkyBoxSceneProxyDesc` owns persistent
-candidate identity, the selection-key tie-break, runtime diagnostic identity,
-retained texture reference, rotation, tint, and intensity. Active selection is
-the minimum `(persistent identity, selection key, runtime identity)` tuple.
+`FSkyBoxSceneInfo` owns the scene's sole SkyBox membership.
+`FSkyBoxSceneProxyDesc` owns the retained texture reference, rotation, tint,
+and intensity. A scene rejects a second SkyBox publication until the current
+one is removed.
 
 ## Ordering and Typed Access
 

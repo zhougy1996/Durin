@@ -122,6 +122,7 @@ namespace Durin
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;
 		std::unique_ptr<FVolumetricCloudSceneRegistry> VolumetricClouds;
+		FSkyBoxSceneProxy* PublishedSkyBoxProxy = nullptr;
 		std::atomic<ELifecycleState> LifecycleState{ELifecycleState::Active};
 
 		friend class FRendererModule;
