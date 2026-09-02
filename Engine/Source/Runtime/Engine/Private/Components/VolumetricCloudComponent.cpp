@@ -14,7 +14,6 @@ namespace Durin
 {
 	namespace
 	{
-		std::atomic<uint64> GNextVolumetricCloudInstanceId = 1;
 		std::atomic<uint64> GNextVolumetricCloudHistoryKey = 1;
 
 		template<typename T>
@@ -57,7 +56,6 @@ namespace Durin
 	)
 		: Super(ObjectInitializer)
 		, VolumetricCloudSceneId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? FGuid{} : FGuid::NewGuid())
-		, VolumetricCloudInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? 0 : GNextVolumetricCloudInstanceId.fetch_add(1, std::memory_order_relaxed))
 	{
 		RefreshEligibilityDiagnostic();
 	}
@@ -67,7 +65,6 @@ namespace Durin
 		Super::OnRegister();
 		if (!VolumetricCloudSceneId.IsValid())
 			VolumetricCloudSceneId = FGuid::NewGuid();
-		EnsureVolumetricCloudInstanceId();
 		CreateRenderState();
 	}
 
@@ -279,15 +276,6 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DVolumetricCloudComponent::EnsureVolumetricCloudInstanceId() -> uint64
-	{
-		if (VolumetricCloudInstanceId == 0)
-			VolumetricCloudInstanceId = GNextVolumetricCloudInstanceId.fetch_add(
-				1, std::memory_order_relaxed
-			);
-		return VolumetricCloudInstanceId;
-	}
-
 	auto DVolumetricCloudComponent::CreateRenderState() -> void
 	{
 		RefreshEligibilityDiagnostic();
@@ -324,9 +312,6 @@ namespace Durin
 			FVolumetricCloudSceneProxyDesc{
 				.PersistentId = VolumetricCloudSceneId,
 				.SelectionKey = GetObjectPath(),
-				.RuntimeId = FVolumetricCloudSceneId(
-					EnsureVolumetricCloudInstanceId()
-				),
 				.HistoryKey = GNextVolumetricCloudHistoryKey.fetch_add(
 					1, std::memory_order_relaxed
 				),

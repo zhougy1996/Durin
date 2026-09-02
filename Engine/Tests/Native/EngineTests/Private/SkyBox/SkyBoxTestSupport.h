@@ -28,7 +28,6 @@
 #include "RHICommandList.h"
 #include "SceneTestAccess.h"
 #include "RenderingThread.h"
-#include "SkyBoxDetails.h"
 #include "SkyBoxRendering.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
@@ -48,8 +47,7 @@ namespace
 		Durin::FSkyBoxSceneData Data) -> Durin::FSkyBoxSceneProxy*
 	{
 		auto Proxy = std::make_unique<Durin::FSkyBoxSceneProxy>(
-			Durin::FSkyBoxSceneProxyDesc{
-				.Data = std::move(Data)});
+			std::move(Data));
 		Durin::FSkyBoxSceneProxy* Token = Proxy.get();
 		return Durin::FSceneInterfaceTestAccess::TryAddSkyBoxProxy(Scene, std::move(Proxy)) ? Token : nullptr;
 	}
@@ -61,8 +59,8 @@ namespace
 
 	struct FSkyBoxObservation
 	{
-		bool bHasActive = false;
-		Durin::FSkyBoxSceneSnapshot Active;
+		bool bHasSkyBox = false;
+		Durin::FSkyBoxSceneData Data;
 		size_t Count = 0;
 	};
 
@@ -91,7 +89,7 @@ namespace
 		const auto& Scene = static_cast<const Durin::FScene&>(SceneInterface);
 		auto Result = std::make_shared<FSkyBoxObservation>();
 		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&Scene, Result](Durin::FRHICommandListImmediate&) {
-			Result->bHasActive = Scene.GetActiveSkyBox_RenderThread(Result->Active);
+			Result->bHasSkyBox = Scene.GetSkyBox_RenderThread(Result->Data);
 			Result->Count = Scene.GetSkyBoxCount_RenderThread();
 		});
 		Durin::FlushRenderingCommands();

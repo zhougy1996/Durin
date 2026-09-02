@@ -4,10 +4,10 @@ Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, 
 
 Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
-Durin represents each renderable world resident with an Engine-created
-SceneProxy and a Renderer-owned SceneInfo. Components call only the public
+Durin represents renderable world residents with Engine-created SceneProxy
+values and Renderer-owned scene entries. Components call only the public
 component-level `FSceneInterface::Add*`/`Remove*` operations; rendering never
 retains or reads the originating component, actor, reflected asset, or other
 game-thread object. The concrete `FScene` declaration and its proxy-mutation
@@ -19,7 +19,7 @@ seam are Renderer-private.
 | --- | --- | --- |
 | Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SkeletalMesh/SplineMesh typed views |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
-| SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
+| SkyBox | `FSkyBoxSceneProxy` | Sole retained proxy |
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
 
 The public virtual interface carries only component pointers and returns
@@ -30,7 +30,7 @@ private admission helpers. For Light, SkyBox, and VolumetricCloud the component
 retains only `Proxy.get()` as an opaque removal token after successful command
 admission. Primitive retains its stable Scene ID and a publication flag. The
 render-command pipe temporarily carries shared ownership because its callable
-is copyable; after attachment the paired SceneInfo is the only authoritative
+is copyable; after attachment the registry entry is the only authoritative
 owner. A null proxy caused by hidden state or an unsupported render
 representation is a legal no-publication result.
 
@@ -45,7 +45,7 @@ material proxies and SkyBox texture references remain counted references.
 
 ## Proxy and SceneInfo Responsibilities
 
-`FPrimitiveSceneInfo` owns stable identity, owning scene, primitive kind,
+`FPrimitiveSceneInfo` owns stable identity, primitive kind,
 visibility, transform, local bounds, derived world bounds, and typed-list
 membership. StaticMesh, SkeletalMesh, and SplineMesh proxies own
 family-specific render data and bindings. World bounds are rebuilt from the eight local AABB
@@ -65,24 +65,24 @@ visibility, transform, authored-property, and retirement publication; the
 renderer never calls a component getter. Bounded per-view selection and the
 shared GPU contract are defined by [Forward Lighting](ForwardLighting.md).
 
-`FSkyBoxSceneInfo` owns the scene's sole SkyBox membership.
-`FSkyBoxSceneProxyDesc` owns the retained texture reference, rotation, tint,
-and intensity. A scene rejects a second SkyBox publication until the current
-one is removed.
+`FSkyBoxSceneProxy` directly owns the retained texture reference, rotation,
+tint, and intensity. A scene retains at most one SkyBox proxy and rejects a
+second publication until the current one is removed.
 
 ## Ordering and Typed Access
 
 Ordinary scene mutation has one game-thread producer and uses FIFO
-render-command order. Light, SkyBox, and VolumetricCloud registries key
-membership by the exact proxy pointer. Rebuild submits Remove for the old token
+render-command order. Light and VolumetricCloud registries key membership by
+the exact proxy pointer; the SkyBox registry retains its sole proxy directly.
+Rebuild submits Remove for the old token
 before Add for the newly constructed proxy, so immediate Add/Remove and repeated
 dirty rebuilds need no tombstone or universal publication revision. Work that
 has an independently ordered boundary retains a feature-specific generation;
 the cloud proxy carries a unique immutable history key for temporal invalidation.
 
 Renderer-private `FScene` composes `FLightSceneRegistry`, `FSkyBoxSceneRegistry`, and
-`FVolumetricCloudSceneRegistry`; each registry owns its pointer-keyed family map,
-indexes, and active-candidate policy. Primitive membership remains directly
+`FVolumetricCloudSceneRegistry`; they own the family-specific membership,
+indexes, and candidate policy. Primitive membership remains directly
 owned and keyed by Scene ID while its registry extraction is deferred. A
 Primitive proxy rebuild submits Remove-old and Add-new; duplicate membership is
 a contract violation rather than an implicit replacement. Attach, detach, and

@@ -13,7 +13,6 @@ namespace Durin
 	class FScene;
 	class FPrimitiveSceneInfo;
 	class FLightSceneInfo;
-	class FSkyBoxSceneInfo;
 	class FVolumetricCloudSceneInfo;
 	class FLightSceneRegistry;
 	class FSkyBoxSceneRegistry;
@@ -23,11 +22,6 @@ namespace Durin
 	class FStaticMeshSceneProxy;
 	class FTerrainSceneProxy;
 	struct FSplineMeshRenderDynamicData;
-
-	struct FSkyBoxSceneSnapshot
-	{
-		FSkyBoxSceneProxyDesc Desc;
-	};
 
 	struct FVolumetricCloudSceneSnapshot
 	{
@@ -61,9 +55,8 @@ namespace Durin
 			FPrimitiveSceneId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
 		) -> void override;
-		RENDERER_API auto GetActiveSkyBox_RenderThread(
-			FSkyBoxSceneSnapshot& OutSkyBox
-		) const -> bool;
+		RENDERER_API auto GetSkyBox_RenderThread(
+			FSkyBoxSceneData& OutSkyBox) const -> bool;
 		RENDERER_API auto GetSkyBoxCount_RenderThread() const -> size_t;
 		RENDERER_API auto GetActiveVolumetricCloud_RenderThread(
 			FVolumetricCloudSceneSnapshot& OutCloud
@@ -78,7 +71,8 @@ namespace Durin
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
-		RENDERER_API auto GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*;
+		RENDERER_API auto GetSkyBoxProxy_RenderThread() const
+			-> const FSkyBoxSceneProxy*;
 		RENDERER_API auto GetActiveVolumetricCloudSceneInfo_RenderThread() const
 			-> const FVolumetricCloudSceneInfo*;
 

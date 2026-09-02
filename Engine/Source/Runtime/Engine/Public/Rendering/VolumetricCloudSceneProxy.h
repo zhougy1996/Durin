@@ -2,7 +2,6 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
-#include "SceneTypes.h"
 
 namespace Durin
 {
@@ -80,14 +79,12 @@ namespace Durin
 	{
 		FGuid PersistentId;
 		std::string SelectionKey;
-		FVolumetricCloudSceneId RuntimeId = InvalidVolumetricCloudSceneId;
 		uint64 HistoryKey = 0;
 		FVolumetricCloudSceneData Data;
 
 		auto IsValid() const -> bool
 		{
 			return PersistentId.IsValid()
-				&& RuntimeId != InvalidVolumetricCloudSceneId
 				&& HistoryKey != 0;
 		}
 	};

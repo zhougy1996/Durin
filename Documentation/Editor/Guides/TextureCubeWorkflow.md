@@ -38,8 +38,9 @@ duplicating, or deleting the asset never mutates those source files.
 Create a `Sky Box Actor` and assign a compatible TextureCube to its component.
 Tint, nonnegative intensity, and rotation use ordinary reflected property
 editing. Preview edits update the scene; committed edits dirty the level
-package. When multiple visible sky boxes exist, the component details identify
-the active actor and list ignored actors without blocking editing.
+package. Dropping another TextureCube replaces the existing Sky Box texture.
+A level with multiple visible Sky Box actors is invalid and must be reduced to
+one before placement can continue.
 
 Face orientation, panorama projection, build, and rendering contracts are
 defined by [Cube Textures](../../Runtime/Rendering/CubeTextures.md).

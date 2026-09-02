@@ -15,13 +15,10 @@ namespace Durin
 
 	struct FPrimitiveSceneIdTag;
 	struct FLightSceneIdTag;
-	struct FVolumetricCloudSceneIdTag;
 	using FPrimitiveSceneId = TSceneId<FPrimitiveSceneIdTag>;
 	using FLightSceneId = TSceneId<FLightSceneIdTag>;
-	using FVolumetricCloudSceneId = TSceneId<FVolumetricCloudSceneIdTag>;
 	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId;
 	inline constexpr FLightSceneId InvalidLightSceneId;
-	inline constexpr FVolumetricCloudSceneId InvalidVolumetricCloudSceneId;
 
 	// Hashes every typed scene identity by its runtime value.
 	struct FSceneIdHash

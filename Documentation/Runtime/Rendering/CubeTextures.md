@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -391,4 +391,3 @@ in [Texture Cube Workflow](../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
 - `Engine/Shaders/Slang/SkyBox.slang`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Customizations/SkyBoxDetails.cpp`

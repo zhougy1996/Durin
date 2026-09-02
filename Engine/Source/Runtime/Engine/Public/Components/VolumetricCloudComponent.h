@@ -47,7 +47,6 @@ namespace Durin
 		auto GetLightExtinction() const -> float { return LightExtinction; }
 		auto GetAmbient() const -> float { return Ambient; }
 		auto GetVolumetricCloudSceneId() const -> const FGuid& { return VolumetricCloudSceneId; }
-		auto GetVolumetricCloudInstanceId() const -> uint64 { return VolumetricCloudInstanceId; }
 		auto GetEligibilityStatus() const -> const std::string& { return EligibilityStatus; }
 		ENGINE_API auto RefreshEligibilityDiagnostic() -> void;
 
@@ -69,7 +68,6 @@ namespace Durin
 	private:
 		ENGINE_API auto CreateSceneProxy()
 			-> std::unique_ptr<FVolumetricCloudSceneProxy>;
-		auto EnsureVolumetricCloudInstanceId() -> uint64;
 		auto CreateRenderState() -> void;
 		auto DestroyRenderState() -> void;
 		auto MarkRenderStateDirty() -> void;
@@ -116,7 +114,6 @@ namespace Durin
 
 		DPROPERTY()
 		FGuid VolumetricCloudSceneId;
-		uint64 VolumetricCloudInstanceId = 0;
 		// Non-owning token used only to retire the exact published proxy.
 		FVolumetricCloudSceneProxy* SceneProxy = nullptr;
 

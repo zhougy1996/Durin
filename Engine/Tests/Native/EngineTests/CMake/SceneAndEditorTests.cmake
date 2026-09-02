@@ -48,7 +48,6 @@ durin_add_engine_functional_test(SkyBoxTests
 		Private/SkyBox/SkyBoxEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
-		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetTools StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data

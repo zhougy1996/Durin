@@ -32,10 +32,8 @@ namespace Durin::Editor::Level
 			if (!B) return true;
 			if (A->GetPriority() != B->GetPriority())
 				return A->GetPriority() > B->GetPriority();
-			return std::tuple(A->GetVolumetricCloudSceneId(), A->GetObjectPath(),
-				A->GetVolumetricCloudInstanceId())
-				< std::tuple(B->GetVolumetricCloudSceneId(), B->GetObjectPath(),
-					B->GetVolumetricCloudInstanceId());
+			return std::pair(A->GetVolumetricCloudSceneId(), A->GetObjectPath())
+				< std::pair(B->GetVolumetricCloudSceneId(), B->GetObjectPath());
 		}
 
 		auto FindActive(DLevel* Level) -> DVolumetricCloudComponent*

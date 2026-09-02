@@ -51,12 +51,12 @@ namespace Durin
 			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
 				*Scene, RenderView, Telemetry.View
 			);
-			const FSkyBoxSceneInfo* SkyBoxInfo =
-				Scene->GetActiveSkyBoxSceneInfo_RenderThread();
-			if (!PreparedView.Environment && SkyBoxInfo != nullptr)
+			const FSkyBoxSceneProxy* SkyBox =
+				Scene->GetSkyBoxProxy_RenderThread();
+			if (!PreparedView.Environment && SkyBox != nullptr)
 			{
 				PreparedView.Environment = FPreparedEnvironment{
-					.SkyBox = SkyBoxInfo->GetProxy().GetData()};
+					.SkyBox = SkyBox->GetData()};
 			}
 			PreparedView.Lighting.Lights = PrepareLightView_RenderThread(
 				*Scene, RenderView, Telemetry.View

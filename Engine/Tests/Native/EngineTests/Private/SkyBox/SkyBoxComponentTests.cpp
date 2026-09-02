@@ -26,9 +26,9 @@ TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
 	EXPECT_NE(ReplacementToken, SkyToken);
 
 	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
-	ASSERT_TRUE(Observation.bHasActive);
+	ASSERT_TRUE(Observation.bHasSkyBox);
 	EXPECT_EQ(Observation.Count, 1u);
-	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 4.0f);
+	EXPECT_EQ(Observation.Data.Intensity, 4.0f);
 	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, ReplacementToken);
 
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
@@ -89,7 +89,7 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 
 	Component->RegisterComponent();
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasActive);
+	ASSERT_TRUE(Observation.bHasSkyBox);
 	EXPECT_EQ(Observation.Count, 1u);
 
 	const Durin::FQuat Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
@@ -99,19 +99,19 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Component->SetIntensity(3.0f);
 	Component->SetWorldRotation(Rotation);
 	Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasActive);
+	ASSERT_TRUE(Observation.bHasSkyBox);
 	EXPECT_EQ(
-		Observation.Active.Desc.Data.TextureReference, Cube->GetTextureReferenceRHI());
-	EXPECT_EQ(Observation.Active.Desc.Data.Rotation, Rotation);
-	EXPECT_EQ(Observation.Active.Desc.Data.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
-	EXPECT_EQ(Observation.Active.Desc.Data.Intensity, 3.0f);
+		Observation.Data.TextureReference, Cube->GetTextureReferenceRHI());
+	EXPECT_EQ(Observation.Data.Rotation, Rotation);
+	EXPECT_EQ(Observation.Data.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
+	EXPECT_EQ(Observation.Data.Intensity, 3.0f);
 
 	Actor->SetHidden(true);
-	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);
+	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
 	Actor->SetHidden(false);
-	EXPECT_TRUE(ObserveSkyBoxes(*Scene).bHasActive);
+	EXPECT_TRUE(ObserveSkyBoxes(*Scene).bHasSkyBox);
 	Component->UnregisterComponent();
-	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);
+	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasSkyBox);
 
 	Engine.SetWorld(nullptr);
 	Engine.ResetTestScene();
@@ -138,12 +138,12 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	ASSERT_TRUE(World->SetCurrentLevel(
 		Durin::NewObject<Durin::DLevel>(World, "AuxiliarySkyBoxLevel")));
 	ASSERT_NE(World->SpawnActor<Durin::ASkyBoxActor>("AuxiliarySkyBox"), nullptr);
-	EXPECT_FALSE(ObserveSkyBoxes(*MainScene).bHasActive);
-	EXPECT_TRUE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
+	EXPECT_FALSE(ObserveSkyBoxes(*MainScene).bHasSkyBox);
+	EXPECT_TRUE(ObserveSkyBoxes(*AuxiliaryScene).bHasSkyBox);
 
 	Durin::GEngine = nullptr;
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
-	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
+	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasSkyBox);
 	World->SetRenderScene(nullptr);
 
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(AuxiliaryScene);

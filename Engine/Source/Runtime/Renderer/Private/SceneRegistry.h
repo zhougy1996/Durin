@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Scene.h"
 #include "SceneInfo.h"
+#include "Rendering/SkyBoxSceneProxy.h"
 
 namespace Durin
 {
@@ -9,7 +9,7 @@ namespace Durin
 	class FLightSceneRegistry final
 	{
 	public:
-		auto Add(FScene& Scene, std::shared_ptr<FLightSceneProxy> Proxy) -> void;
+		auto Add(std::shared_ptr<FLightSceneProxy> Proxy) -> void;
 		auto Remove(FLightSceneProxy* Proxy) -> void;
 		auto Clear() -> void;
 		auto Num() const -> size_t { return InfosByProxy.size(); }
@@ -40,21 +40,21 @@ namespace Durin
 	class FSkyBoxSceneRegistry final
 	{
 	public:
-		auto Add(FScene& Scene, std::shared_ptr<FSkyBoxSceneProxy> Proxy) -> void;
+		auto Add(std::shared_ptr<FSkyBoxSceneProxy> InProxy) -> void;
 		auto Remove(FSkyBoxSceneProxy* Proxy) -> void;
 		auto Clear() -> void;
-		auto GetActive() const -> const FSkyBoxSceneInfo*;
-		auto Num() const -> size_t { return SceneInfo ? 1 : 0; }
+		auto Get() const -> const FSkyBoxSceneProxy* { return Proxy.get(); }
+		auto Num() const -> size_t { return Proxy ? 1 : 0; }
 
 	private:
-		std::unique_ptr<FSkyBoxSceneInfo> SceneInfo;
+		std::shared_ptr<FSkyBoxSceneProxy> Proxy;
 	};
 
 	// Owns global cloud candidates and resolves the active eligible publication.
 	class FVolumetricCloudSceneRegistry final
 	{
 	public:
-		auto Add(FScene& Scene, std::shared_ptr<FVolumetricCloudSceneProxy> Proxy) -> void;
+		auto Add(std::shared_ptr<FVolumetricCloudSceneProxy> Proxy) -> void;
 		auto Remove(FVolumetricCloudSceneProxy* Proxy) -> void;
 		auto Clear() -> void;
 		auto GetActive() const -> const FVolumetricCloudSceneInfo*;

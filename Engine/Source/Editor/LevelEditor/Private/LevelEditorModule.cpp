@@ -25,9 +25,7 @@
 #include "Customizations/SplineEditorCustomizations.h"
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/SkyBoxComponent.h"
 #include "Components/TerrainComponent.h"
-#include "SkyBoxDetails.h"
 #include "TerrainDetails.h"
 #include "VolumetricCloudDetails.h"
 #include "Components/VolumetricCloudComponent.h"
@@ -127,7 +125,6 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization(), ExtensionGate));
 		SplineEditModeHandle = RegisterSplineViewportEditMode(ExtensionGate);
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization(), ExtensionGate));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization(), ExtensionGate));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization(), ExtensionGate));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");

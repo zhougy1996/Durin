@@ -203,9 +203,8 @@ namespace Durin
 		return GAllocatedSceneCount.load(std::memory_order_acquire);
 	}
 
-	FLightSceneInfo::FLightSceneInfo(FScene& InScene, std::shared_ptr<FLightSceneProxy> InProxy)
-		: Scene(&InScene)
-		, Proxy(std::move(InProxy))
+	FLightSceneInfo::FLightSceneInfo(std::shared_ptr<FLightSceneProxy> InProxy)
+		: Proxy(std::move(InProxy))
 		, Kind(Proxy->GetKind())
 	{
 		Proxy->AttachToSceneInfo(this);
@@ -235,21 +234,9 @@ namespace Durin
 		Proxy->DetachFromSceneInfo(this);
 	}
 
-	FSkyBoxSceneInfo::FSkyBoxSceneInfo(FScene& InScene, std::shared_ptr<FSkyBoxSceneProxy> InProxy)
-		: Scene(&InScene)
-		, Proxy(std::move(InProxy))
-	{
-		Proxy->AttachToSceneInfo(this);
-	}
-
-	FSkyBoxSceneInfo::~FSkyBoxSceneInfo()
-	{
-		Proxy->DetachFromSceneInfo(this);
-	}
-
-	FVolumetricCloudSceneInfo::FVolumetricCloudSceneInfo(FScene& InScene, std::shared_ptr<FVolumetricCloudSceneProxy> InProxy)
-		: Scene(&InScene)
-		, Proxy(std::move(InProxy))
+	FVolumetricCloudSceneInfo::FVolumetricCloudSceneInfo(
+		std::shared_ptr<FVolumetricCloudSceneProxy> InProxy)
+		: Proxy(std::move(InProxy))
 	{
 		Proxy->AttachToSceneInfo(this);
 	}
@@ -278,9 +265,10 @@ namespace Durin
 		return static_cast<const FSpotLightSceneProxy&>(*Proxy);
 	}
 
-	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FScene& InScene, FPrimitiveSceneId InId, std::shared_ptr<FPrimitiveSceneProxy> InProxy, const FMatrix& InTransform)
-		: Scene(&InScene)
-		, Id(InId)
+	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FPrimitiveSceneId InId,
+		std::shared_ptr<FPrimitiveSceneProxy> InProxy,
+		const FMatrix& InTransform)
+		: Id(InId)
 		, Proxy(std::move(InProxy))
 		, Kind(Proxy->GetKind())
 		, Transform(InTransform)
@@ -367,7 +355,7 @@ namespace Durin
 		return TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			checkf(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
-			auto Info = std::make_unique<FPrimitiveSceneInfo>(*this, PrimitiveId, SharedProxy, Transform);
+		auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
 			Info->SetVisible(bVisible);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);
@@ -518,14 +506,12 @@ namespace Durin
 		}
 	}
 
-	auto FLightSceneRegistry::Add(
-		FScene& Scene, std::shared_ptr<FLightSceneProxy> Proxy
-	) -> void
+	auto FLightSceneRegistry::Add(std::shared_ptr<FLightSceneProxy> Proxy) -> void
 	{
 		check(Proxy != nullptr && Proxy->GetDesc().IsValid());
 		FLightSceneProxy* RawProxy = Proxy.get();
 		check(!InfosByProxy.contains(RawProxy));
-		auto Info = std::make_unique<FLightSceneInfo>(Scene, std::move(Proxy));
+		auto Info = std::make_unique<FLightSceneInfo>(std::move(Proxy));
 		FLightSceneInfo* RawInfo = Info.get();
 		const auto [It, bInserted] = InfosByProxy.emplace(RawProxy, std::move(Info));
 		check(bInserted);
@@ -557,7 +543,7 @@ namespace Durin
 		std::shared_ptr<FLightSceneProxy> SharedProxy(std::move(Proxy));
 		return TryEnqueueRenderCommand("AddLight", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			Lights->Add(*this, SharedProxy);
+			Lights->Add(SharedProxy);
 		});
 	}
 
@@ -590,30 +576,24 @@ namespace Durin
 	}
 
 	auto FSkyBoxSceneRegistry::Add(
-		FScene& Scene, std::shared_ptr<FSkyBoxSceneProxy> Proxy
-	) -> void
+		std::shared_ptr<FSkyBoxSceneProxy> InProxy) -> void
 	{
-		check(Proxy != nullptr && SceneInfo == nullptr);
-		SceneInfo = std::make_unique<FSkyBoxSceneInfo>(Scene, std::move(Proxy));
+		check(InProxy != nullptr && Proxy == nullptr);
+		Proxy = std::move(InProxy);
 	}
 
 	auto FSkyBoxSceneRegistry::Remove(FSkyBoxSceneProxy* Proxy) -> void
 	{
 		if (Proxy == nullptr) return;
-		checkf(SceneInfo && &SceneInfo->GetProxy() == Proxy,
+		checkf(this->Proxy && this->Proxy.get() == Proxy,
 			"Attempted to remove an unknown sky-box scene proxy.");
-		if (!SceneInfo || &SceneInfo->GetProxy() != Proxy) return;
-		SceneInfo.reset();
+		if (!this->Proxy || this->Proxy.get() != Proxy) return;
+		this->Proxy.reset();
 	}
 
 	auto FSkyBoxSceneRegistry::Clear() -> void
 	{
-		SceneInfo.reset();
-	}
-
-	auto FSkyBoxSceneRegistry::GetActive() const -> const FSkyBoxSceneInfo*
-	{
-		return SceneInfo.get();
+		Proxy.reset();
 	}
 
 	auto FScene::TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool
@@ -624,7 +604,7 @@ namespace Durin
 		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
 		const bool bAccepted = TryEnqueueRenderCommand("AddSkyBox", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			SkyBoxes->Add(*this, SharedProxy);
+			SkyBoxes->Add(SharedProxy);
 		});
 		if (bAccepted) PublishedSkyBoxProxy = Token;
 		return bAccepted;
@@ -642,20 +622,18 @@ namespace Durin
 		return bAccepted;
 	}
 
-	auto FScene::GetActiveSkyBoxSceneInfo_RenderThread() const
-		-> const FSkyBoxSceneInfo*
+	auto FScene::GetSkyBoxProxy_RenderThread() const
+		-> const FSkyBoxSceneProxy*
 	{
 		CheckRenderingThread();
-		return SkyBoxes->GetActive();
+		return SkyBoxes->Get();
 	}
 
-	auto FScene::GetActiveSkyBox_RenderThread(
-		FSkyBoxSceneSnapshot& OutSkyBox
-	) const -> bool
+	auto FScene::GetSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool
 	{
-		const FSkyBoxSceneInfo* Info = GetActiveSkyBoxSceneInfo_RenderThread();
-		if (Info == nullptr) return false;
-		OutSkyBox.Desc = Info->GetProxy().GetDesc();
+		const FSkyBoxSceneProxy* Proxy = GetSkyBoxProxy_RenderThread();
+		if (Proxy == nullptr) return false;
+		OutSkyBox = Proxy->GetData();
 		return true;
 	}
 
@@ -666,13 +644,12 @@ namespace Durin
 	}
 
 	auto FVolumetricCloudSceneRegistry::Add(
-		FScene& Scene, std::shared_ptr<FVolumetricCloudSceneProxy> Proxy
-	) -> void
+		std::shared_ptr<FVolumetricCloudSceneProxy> Proxy) -> void
 	{
 		check(Proxy != nullptr && Proxy->GetDesc().IsValid());
 		FVolumetricCloudSceneProxy* RawProxy = Proxy.get();
 		check(!InfosByProxy.contains(RawProxy));
-		auto Info = std::make_unique<FVolumetricCloudSceneInfo>(Scene, std::move(Proxy));
+		auto Info = std::make_unique<FVolumetricCloudSceneInfo>(std::move(Proxy));
 		FVolumetricCloudSceneInfo* RawInfo = Info.get();
 		const auto [It, bInserted] = InfosByProxy.emplace(RawProxy, std::move(Info));
 		check(bInserted);
@@ -722,8 +699,8 @@ namespace Durin
 				Active->GetProxy().GetDesc();
 			if (Data.Priority > ActiveData.Priority
 				|| (Data.Priority == ActiveData.Priority
-					&& std::tuple(Desc.PersistentId, Desc.SelectionKey, Desc.RuntimeId)
-						   < std::tuple(ActiveDesc.PersistentId, ActiveDesc.SelectionKey, ActiveDesc.RuntimeId)))
+					&& std::pair(Desc.PersistentId, Desc.SelectionKey)
+						   < std::pair(ActiveDesc.PersistentId, ActiveDesc.SelectionKey)))
 				Active = Candidate;
 		}
 		return Active;
@@ -738,7 +715,7 @@ namespace Durin
 		std::shared_ptr<FVolumetricCloudSceneProxy> SharedProxy(std::move(Proxy));
 		return TryEnqueueRenderCommand("AddVolumetricCloud", [this, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			VolumetricClouds->Add(*this, SharedProxy);
+			VolumetricClouds->Add(SharedProxy);
 		});
 	}
 

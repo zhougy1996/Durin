@@ -4,12 +4,10 @@
 
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
-#include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
 
 namespace Durin
 {
-	class FScene;
 	class FSkeletalMeshSceneProxy;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
@@ -22,7 +20,6 @@ namespace Durin
 	{
 	public:
 		RENDERER_API FPrimitiveSceneInfo(
-			FScene& InScene,
 			FPrimitiveSceneId InId,
 			std::shared_ptr<FPrimitiveSceneProxy> InProxy,
 			const FMatrix& InTransform);
@@ -48,7 +45,6 @@ namespace Durin
 			FSplineMeshRenderDynamicData DynamicData) -> bool;
 
 	private:
-		FScene* Scene = nullptr;
 		FPrimitiveSceneId Id = InvalidPrimitiveSceneId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;
@@ -62,7 +58,7 @@ namespace Durin
 	class FLightSceneInfo final
 	{
 	public:
-		RENDERER_API FLightSceneInfo(FScene& InScene,
+		RENDERER_API explicit FLightSceneInfo(
 			std::shared_ptr<FLightSceneProxy> InProxy);
 		RENDERER_API ~FLightSceneInfo();
 
@@ -75,43 +71,22 @@ namespace Durin
 		RENDERER_API auto GetSpotProxy() const -> const FSpotLightSceneProxy&;
 
 	private:
-		FScene* Scene = nullptr;
 		std::shared_ptr<FLightSceneProxy> Proxy;
 		ELightSceneProxyKind Kind = ELightSceneProxyKind::Directional;
 		FBox InfluenceBounds;
-	};
-
-	// Owns one attached sky candidate and its proxy-to-scene association.
-	class FSkyBoxSceneInfo final
-	{
-	public:
-		RENDERER_API FSkyBoxSceneInfo(FScene& InScene,
-			std::shared_ptr<FSkyBoxSceneProxy> InProxy);
-		RENDERER_API ~FSkyBoxSceneInfo();
-
-		auto GetProxy() const -> const FSkyBoxSceneProxy& { return *Proxy; }
-
-	private:
-		FScene* Scene = nullptr;
-		std::shared_ptr<FSkyBoxSceneProxy> Proxy;
 	};
 
 	// Owns one attached cloud candidate and its proxy-to-scene association.
 	class FVolumetricCloudSceneInfo final
 	{
 	public:
-		RENDERER_API FVolumetricCloudSceneInfo(FScene& InScene,
+		RENDERER_API explicit FVolumetricCloudSceneInfo(
 			std::shared_ptr<FVolumetricCloudSceneProxy> InProxy);
 		RENDERER_API ~FVolumetricCloudSceneInfo();
 
-		auto GetId() const -> FVolumetricCloudSceneId
-		{
-			return Proxy->GetDesc().RuntimeId;
-		}
 		auto GetProxy() const -> const FVolumetricCloudSceneProxy& { return *Proxy; }
 
 	private:
-		FScene* Scene = nullptr;
 		std::shared_ptr<FVolumetricCloudSceneProxy> Proxy;
 	};
 }

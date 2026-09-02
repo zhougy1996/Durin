@@ -4,7 +4,7 @@ Summary: Defines reflected global-cloud authoring, deterministic scene selection
 
 Modules: Engine, Renderer
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
 ## Authoring boundary
 
@@ -31,16 +31,14 @@ authored properties.
 
 ## Identity, selection, and mutation
 
-Each component serializes a persistent `FGuid` and allocates a nonserialized
-runtime instance ID. Class defaults allocate neither. Duplication preserves the
-persistent ID but receives a new instance ID.
+Each component serializes a persistent `FGuid`. Class defaults allocate none,
+and duplication preserves the persistent ID.
 
 The render-thread registry selects eligible candidates by:
 
 1. priority descending;
 2. persistent GUID ascending;
-3. component object path ascending; and
-4. runtime instance ID ascending.
+3. component object path ascending.
 
 Each rebuilt proxy receives a cloud-specific nonzero history key, independent
 of registry ownership. `FVolumetricCloudSceneRegistry` keys membership by the
@@ -58,8 +56,8 @@ deferred Scene deletion.
 
 `FVolumetricCloudSceneData` contains physical values plus three
 `FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxyDesc` owns the
-immutable data, persistent identity, selection key, runtime diagnostic identity,
-and history key; `FVolumetricCloudSceneInfo` owns the proxy after render-thread
+immutable data, persistent identity, selection key, and history key;
+`FVolumetricCloudSceneInfo` owns the proxy after render-thread
 attachment. The component retains only the non-owning proxy token needed for
 exact removal. No actor,
 component, reflected object, mutable container, raw backend handle, render

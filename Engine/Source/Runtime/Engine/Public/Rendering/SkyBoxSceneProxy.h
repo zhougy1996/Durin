@@ -2,12 +2,9 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
-#include "SceneTypes.h"
 
 namespace Durin
 {
-	class FSkyBoxSceneInfo;
-
 	// Captures sky state without retaining or reading reflected objects on the render thread.
 	struct FSkyBoxSceneData
 	{
@@ -17,36 +14,15 @@ namespace Durin
 		float Intensity = 1.0f;
 	};
 
-	// Contains every renderer-facing sky value before ownership crosses threads.
-	struct FSkyBoxSceneProxyDesc
-	{
-		FSkyBoxSceneData Data;
-	};
-
 	class FSkyBoxSceneProxy final
 	{
 	public:
-		explicit FSkyBoxSceneProxy(FSkyBoxSceneProxyDesc InDesc)
-			: Desc(std::move(InDesc)) {}
+		explicit FSkyBoxSceneProxy(FSkyBoxSceneData InData)
+			: Data(std::move(InData)) {}
 
-		auto GetDesc() const -> const FSkyBoxSceneProxyDesc& { return Desc; }
-		auto GetData() const -> const FSkyBoxSceneData& { return Desc.Data; }
+		auto GetData() const -> const FSkyBoxSceneData& { return Data; }
 
 	private:
-		auto AttachToSceneInfo(FSkyBoxSceneInfo* InSceneInfo) -> void
-		{
-			check(SceneInfo == nullptr && InSceneInfo != nullptr);
-			SceneInfo = InSceneInfo;
-		}
-		auto DetachFromSceneInfo(FSkyBoxSceneInfo* InSceneInfo) -> void
-		{
-			check(SceneInfo == InSceneInfo);
-			SceneInfo = nullptr;
-		}
-
-		FSkyBoxSceneProxyDesc Desc;
-		FSkyBoxSceneInfo* SceneInfo = nullptr;
-
-		friend class FSkyBoxSceneInfo;
+		FSkyBoxSceneData Data;
 	};
 }

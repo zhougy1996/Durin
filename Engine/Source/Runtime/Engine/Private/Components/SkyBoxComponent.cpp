@@ -97,11 +97,7 @@ namespace Durin
 		Data.Intensity = FMath::Max(0.0f, Intensity);
 		if (DTextureCube* Cube = TextureCube.Get())
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
-		return std::make_unique<FSkyBoxSceneProxy>(
-			FSkyBoxSceneProxyDesc{
-				.Data = std::move(Data)
-			}
-		);
+		return std::make_unique<FSkyBoxSceneProxy>(std::move(Data));
 	}
 
 	auto DSkyBoxComponent::DestroyRenderState() -> void

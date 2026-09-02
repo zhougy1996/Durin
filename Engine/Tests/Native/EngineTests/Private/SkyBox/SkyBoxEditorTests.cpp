@@ -73,10 +73,10 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasActive);
+	ASSERT_TRUE(Observation.bHasSkyBox);
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_EQ(
-		Observation.Active.Desc.Data.TextureReference,
+		Observation.Data.TextureReference,
 		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
 	const Durin::Editor::Level::FSkyBoxPlacementResult ExistingPlacement =
@@ -171,9 +171,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
-	ASSERT_TRUE(Observation.bHasActive);
+	ASSERT_TRUE(Observation.bHasSkyBox);
 	EXPECT_EQ(
-		Observation.Active.Desc.Data.TextureReference,
+		Observation.Data.TextureReference,
 		LoadedCube->GetTextureReferenceRHI());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
