@@ -4,7 +4,7 @@ Summary: Make component-level void Add/Remove operations the only public scene l
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -150,8 +150,8 @@ proxy APIs or ordinary lifecycle flushes.
 
 ## Related Code and Contracts
 
-- [`SceneInterface.h`](../../Engine/Source/Runtime/Engine/Public/SceneInterface.h)
-- [`SceneOwnership.h`](../../Engine/Source/Runtime/RenderCore/Public/SceneOwnership.h)
-- [`Scene.cpp`](../../Engine/Source/Runtime/Renderer/Private/Scene.cpp)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Completed Proxy Lifecycle Plan](Archive/2026-09/UEStyleSceneProxyLifecycle.md)
+- [`SceneInterface.h`](../../../../Engine/Source/Runtime/Engine/Public/SceneInterface.h)
+- [`SceneOwnership.h`](../../../../Engine/Source/Runtime/RenderCore/Public/SceneOwnership.h)
+- [`Scene.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/Scene.cpp)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Completed Proxy Lifecycle Plan](UEStyleSceneProxyLifecycle.md)

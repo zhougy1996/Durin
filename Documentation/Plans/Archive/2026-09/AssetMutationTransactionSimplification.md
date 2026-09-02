@@ -4,7 +4,7 @@ Summary: Replace global compensating asset transactions with bounded artifact pu
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -417,8 +417,8 @@ global transaction semantics.
 ## Validation Strategy
 
 Use the smallest focused native targets selected through the
-[Agent Testing Workflow](../Agents/Testing.md), then apply the build coverage
-required by the [Agent Build And Run Workflow](../Agents/BuildAndRun.md).
+[Agent Testing Workflow](../../../Agents/Testing.md), then apply the build coverage
+required by the [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md).
 Expected focused coverage includes `AssetTests`, `AssetRegistryTests`, and
 `EngineTests`; exact registered targets must be confirmed when each stage is
 implemented.
@@ -431,24 +431,24 @@ durable descriptors rather than retaining the original C++ state object.
 
 ## Related Code
 
-- [Asset mutation public types](../../Engine/Source/Runtime/Engine/Public/Asset/MutationTypes.h)
-- [Asset mutation job](../../Engine/Source/Runtime/Engine/Private/Asset/AssetMutationJob.cpp)
-- [Asset mutation journal](../../Engine/Source/Runtime/Engine/Private/Asset/AssetMutationJournal.cpp)
-- [Asset publication coordinator](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPublicationCoordinator.cpp)
-- [Package Save operations](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp)
-- [Asset relocation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetRelocation.cpp)
-- [Redirector Fix Up](../../Engine/Source/Runtime/Engine/Private/Asset/AssetRedirectorFixup.cpp)
-- [Asset deletion](../../Engine/Source/Runtime/Engine/Private/Asset/AssetDeletion.cpp)
-- [Cook coordinator](../../Engine/Source/Runtime/Engine/Private/Asset/CookCoordinator.cpp)
-- [AssetTools operations](../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
-- [Content Browser destructive deletion](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentDeletionOperation.cpp)
-- [Content Browser operations](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.cpp)
+- [Asset mutation public types](../../../../Engine/Source/Runtime/Engine/Public/Asset/MutationTypes.h)
+- [Asset mutation job](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetMutationJob.cpp)
+- [Asset mutation journal](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetMutationJournal.cpp)
+- [Asset publication coordinator](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPublicationCoordinator.cpp)
+- [Package Save operations](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageOperations.cpp)
+- [Asset relocation](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetRelocation.cpp)
+- [Redirector Fix Up](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetRedirectorFixup.cpp)
+- [Asset deletion](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetDeletion.cpp)
+- [Cook coordinator](../../../../Engine/Source/Runtime/Engine/Private/Asset/CookCoordinator.cpp)
+- [AssetTools operations](../../../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
+- [Content Browser destructive deletion](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentDeletionOperation.cpp)
+- [Content Browser operations](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.cpp)
 
 ## Related Documentation
 
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Editor Transaction System Roadmap](../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Editor Transaction System Roadmap](../../../Roadmaps/Archive/2026-08/EditorTransactionSystem.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)

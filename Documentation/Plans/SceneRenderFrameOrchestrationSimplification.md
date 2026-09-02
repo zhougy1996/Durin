@@ -67,7 +67,7 @@ mapping, and final transaction publication directly; the executor object and
 one-shot callback are removed. The focused scene contract target continues to
 pass all 40 tests with the pipeline/context type boundary asserted. Stage 0
 previously froze the migration inventory and baseline contract. The active
-[RDG Compatibility Retirement and Allocator Simplification Plan](RDGCompatibilityRetirementAndAllocatorSimplification.md)
+[RDG Compatibility Retirement and Allocator Simplification Plan](Archive/2026-09/RDGCompatibilityRetirementAndAllocatorSimplification.md)
 has explicitly released ownership of the scene-render orchestration sources;
 its only remaining work is an exclusive quiet-GPU qualification rerun and a
 documentation-only status update. Its RDG parameter, allocation, capture,
@@ -449,7 +449,7 @@ continue to observe actual command-recording results.
 - [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
 - [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
 - [Volumetric Cloud Spatial Rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [RDG Compatibility Retirement and Allocator Simplification Plan](RDGCompatibilityRetirementAndAllocatorSimplification.md)
+- [RDG Compatibility Retirement and Allocator Simplification Plan](Archive/2026-09/RDGCompatibilityRetirementAndAllocatorSimplification.md)
 
 ## Related Code
 

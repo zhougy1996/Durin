@@ -4,7 +4,7 @@ Summary: Move Texture2D asynchronous compilation orchestration into Engine while
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -48,7 +48,7 @@ The selected direction follows the useful Unreal Engine ownership split without 
 - TextureBuild owns the texture build implementation, DDC interaction, codecs, and deterministic producer identity.
 - A synchronous, value-only provider contract connects the Engine-owned worker to TextureBuild while a module invocation gate protects the entire call.
 
-The long-lived [Asset Compilation](../Runtime/Assets/AssetCompilation.md) contract now records the smallest proven reuse boundary and explicitly rejects collapsing orthogonal asset states.
+The long-lived [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md) contract now records the smallest proven reuse boundary and explicitly rejects collapsing orthogonal asset states.
 
 ## Goal
 
@@ -252,7 +252,7 @@ Stage completion condition: reuse decisions are evidence-based, and this plan do
 
 ## Validation and Handoff
 
-Each implementation stage must be independently buildable, testable, reviewable, and revertible. Use the repository's [Build and Run guide](../Agents/BuildAndRun.md) and [Testing guide](../Agents/Testing.md) rather than copying command details into this plan.
+Each implementation stage must be independently buildable, testable, reviewable, and revertible. Use the repository's [Build and Run guide](../../../Agents/BuildAndRun.md) and [Testing guide](../../../Agents/Testing.md) rather than copying command details into this plan.
 
 At each stage:
 
@@ -264,13 +264,13 @@ At each stage:
 
 ## Related Documentation and Code
 
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Engine Asset Compiling Manager](../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
-- [Texture2D Asset Type](../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
-- [Texture2D Post-Load Provider Contract](../../Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h)
-- [TextureBuild Module Lifecycle](../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
-- [Texture2D Compilation Manager](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp)
-- [TextureBuild Tests](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Engine Asset Compiling Manager](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
+- [Texture2D Asset Type](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
+- [Texture2D Post-Load Provider Contract](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h)
+- [TextureBuild Module Lifecycle](../../../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
+- [Texture2D Compilation Manager](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp)
+- [TextureBuild Tests](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)

@@ -467,7 +467,7 @@ selected dependency optimization.
 
 ## Related Documentation
 
-- [UE-Style Asset Compilation Ownership Plan](UEStyleAssetCompilationOwnership.md)
+- [UE-Style Asset Compilation Ownership Plan](Archive/2026-09/UEStyleAssetCompilationOwnership.md)
 - [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)

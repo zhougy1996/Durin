@@ -4,7 +4,7 @@ Summary: Retire the remaining legacy Render Graph backing paths and feature-bund
 
 Last reviewed: 2026-09-01
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-01
 
 ## Current Status
@@ -30,7 +30,7 @@ request before inspecting payload and RenderData; its focused case and the
 complete aggregate pass.
 
 Scene-render source ownership is explicitly released to the
-[Scene Render Frame Orchestration Simplification Plan](SceneRenderFrameOrchestrationSimplification.md)
+[Scene Render Frame Orchestration Simplification Plan](../../SceneRenderFrameOrchestrationSimplification.md)
 as of 2026-09-01. No scene-render orchestration source was changed to obtain the
 qualification exception.
 
@@ -352,10 +352,10 @@ Leave one allocation and ownership model for graph-created physical resources:
 
 ## Related Documentation
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [RDG Resource Allocation and Extraction Plan](Archive/2026-08/RDGResourceAllocationAndExtraction.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [RDG Resource Allocation and Extraction Plan](../2026-08/RDGResourceAllocationAndExtraction.md)
 
 ## Related Code
 
