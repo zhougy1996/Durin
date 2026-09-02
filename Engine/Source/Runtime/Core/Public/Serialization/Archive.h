@@ -199,6 +199,10 @@ namespace Durin
 			return (State.Capabilities & Capability) == Capability;
 		}
 		auto GetVersionContext() const -> const FArchiveVersionContext& { return Versions; }
+		virtual auto GetLoadedDeprecatedProperties(FName) const -> std::span<const FName>
+		{
+			return {};
+		}
 		auto GetFailure() const -> const FArchiveFailure* { return Failure ? &*Failure : nullptr; }
 		auto HasError() const -> bool { return Failure != nullptr; }
 		CORE_API auto GetError() const -> std::string_view;

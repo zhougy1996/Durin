@@ -74,14 +74,14 @@ def _validate_property_payload(payload: str, line: int, column: int) -> None:
     for raw_entry in _macro_arguments(payload, location):
         key, separator, raw_value = raw_entry.strip().partition("=")
         key = key.strip()
-        if key not in {"LegacyNames", "CustomVersion", "DeprecatedBefore", "DeprecatedName", "MigratesTo"}:
+        if key != "LegacyNames":
             continue
         if not separator:
             raise ValueError(f"{location}: {key} requires a value")
         if key in seen_keys:
             raise ValueError(f"{location}: duplicate {key} metadata")
         seen_keys.add(key)
-        if key in {"LegacyNames", "MigratesTo"}:
+        if key == "LegacyNames":
             _property_name_list(raw_value, key, location)
 
 

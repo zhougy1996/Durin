@@ -23,11 +23,7 @@ namespace Durin
 
 	struct FPropertyDeprecation
 	{
-		FGuid CustomVersionGuid;
-		int32 DeprecatedBefore = 0;
-		int32 LatestVersion = 0;
 		FName HistoricalName;
-		std::vector<FName> MigrationTargets;
 	};
 
 	class FDefaultObjectGraphMap;
@@ -64,7 +60,7 @@ namespace Durin
 		COREDOBJECT_API auto SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void;
 		auto IsDeprecated() const -> bool { return Deprecation.has_value(); }
 		auto GetDeprecation() const -> const FPropertyDeprecation* { return Deprecation ? &*Deprecation : nullptr; }
-		COREDOBJECT_API auto SetDeprecation(const FPropertyDeprecationParams* InDeprecation) -> void;
+		COREDOBJECT_API auto InitializeDeprecation() -> void;
 		auto MatchesSerializedName(FName InName) const -> bool
 		{
 			return NamePrivate == InName || std::ranges::find(LegacyNames, InName) != LegacyNames.end();

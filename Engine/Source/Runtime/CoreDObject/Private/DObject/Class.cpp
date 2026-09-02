@@ -210,12 +210,6 @@ namespace Durin
 				check(Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated));
 				check(HistoricalNames.emplace(Deprecation->HistoricalName).second
 					&& "Deprecated historical routes must be unique within their declaring type.");
-				for (FName TargetName : Deprecation->MigrationTargets)
-				{
-					FProperty* Target = FindPropertyByName(TargetName, false);
-					check(Target && !Target->IsDeprecated()
-						&& "Deprecated migration targets must name current properties on the same type.");
-				}
 			},
 			false
 		);

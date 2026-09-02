@@ -66,12 +66,7 @@ namespace Durin
 					.DeprecatedPropertyName = Property->NamePrivate.ToString(),
 					.StoredName = Deprecation->HistoricalName.ToString(),
 					.Kind = Property->GetKind(),
-					.TypeSignature = SerializedTypeSignature(Property),
-					.CustomVersionGuid = Deprecation->CustomVersionGuid,
-					.DeprecatedBefore = Deprecation->DeprecatedBefore,
-					.LatestVersion = Deprecation->LatestVersion};
-				for (FName Target : Deprecation->MigrationTargets)
-					Route.MigrationTargets.push_back(Target.ToString());
+					.TypeSignature = SerializedTypeSignature(Property)};
 				Result.DeprecatedPropertyRoutes.push_back(std::move(Route));
 			}
 			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
@@ -142,19 +137,17 @@ namespace Durin
 
 	auto FReflectionSchemaCatalog::FindDeprecatedPropertyRoute(
 		std::string_view DeclaringType, std::string_view StoredName,
-		DurinCodeGen::EPropertyGenFlags Kind, std::string_view TypeSignature,
-		std::span<const std::pair<FGuid, int32>> CustomVersions) const
+		DurinCodeGen::EPropertyGenFlags Kind, std::string_view TypeSignature) const
 		-> const FReflectionDeprecatedPropertyRoute*
 	{
+		if (const FReflectionSchemaClass* Class = FindClass(DeclaringType))
+			if (const FReflectionSchemaField* Field = FindField(*Class, DeclaringType, StoredName);
+				Field && Field->Kind == Kind && Field->TypeSignature == TypeSignature) return nullptr;
 		const FReflectionDeprecatedPropertyRoute* Match = nullptr;
 		for (const FReflectionDeprecatedPropertyRoute& Route : DeprecatedPropertyRoutes)
 		{
 			if (Route.DeclaringType != DeclaringType || Route.StoredName != StoredName
 				|| Route.Kind != Kind || Route.TypeSignature != TypeSignature) continue;
-			const auto Version = std::ranges::find_if(CustomVersions,
-				[&](const auto& Pair) { return Pair.first == Route.CustomVersionGuid; });
-			const int32 SourceVersion = Version == CustomVersions.end() ? -1 : Version->second;
-			if (SourceVersion >= Route.DeprecatedBefore) continue;
 			if (Match) return nullptr;
 			Match = &Route;
 		}

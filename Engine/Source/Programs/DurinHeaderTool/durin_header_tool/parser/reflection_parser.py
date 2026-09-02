@@ -154,7 +154,6 @@ def _validate_property_legacy_names(
 
 
 def _validate_property_deprecations(owner_name: str, properties: list[ReflectedPropertyInfo]) -> None:
-    current = {prop.name: prop for prop in properties}
     routes: set[str] = set()
     for prop in properties:
         route = prop.deprecation
@@ -165,16 +164,6 @@ def _validate_property_deprecations(owner_name: str, properties: list[ReflectedP
                 f"reflected type '{owner_name}' has duplicate deprecated route '{route.historical_name}'"
             )
         routes.add(route.historical_name)
-        for target in route.migrates_to:
-            target_prop = current.get(target)
-            if not target_prop:
-                raise ValueError(
-                    f"reflected type '{owner_name}' deprecated property '{prop.name}' targets missing property '{target}'"
-                )
-            if target_prop.deprecation:
-                raise ValueError(
-                    f"reflected type '{owner_name}' deprecated property '{prop.name}' targets deprecated property '{target}'"
-                )
 
 
 def parse_reflection_header(

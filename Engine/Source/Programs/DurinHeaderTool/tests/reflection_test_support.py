@@ -101,12 +101,6 @@ namespace Fixture
 {
     using FFloatVector = std::vector<float>;
 
-    struct FFixtureVersion
-    {
-        inline static constexpr Durin::FGuid Guid{};
-        enum Type { Initial = 0, FloatValue = 1, LatestVersion = FloatValue };
-    };
-
     DENUM(DisplayName = "Fixture Mode", LegacyNames = "Legacy::EFixtureMode")
     enum class EFixtureMode : int
     {
@@ -133,7 +127,7 @@ namespace Fixture
         DPROPERTY(EditorOnly)
         int32 EditorDiagnostic = 0;
 
-        DPROPERTY(Deprecated, CustomVersion = FFixtureVersion, DeprecatedBefore = FFixtureVersion::FloatValue, MigratesTo = "Value")
+        DPROPERTY(Deprecated)
         int32 Value_DEPRECATED = 0;
 
         DPROPERTY(LegacyNames = "OldRenamedValue;OlderRenamedValue")

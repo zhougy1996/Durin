@@ -6055,28 +6055,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_DEATH(
 			([] {
 				EnsureDObjectInitialized();
-				static constexpr Durin::FGuid Guid{1, 2, 3, 4};
-				static const char* const Targets[] = {"Current"};
-				static const Durin::FPropertyDeprecationParams Deprecation{
-					Guid, 1, 1, "Historical", Targets, std::size(Targets)};
-				auto Params = Durin::DurinCodeGen::WithDeprecation(
-					Durin::DurinCodeGen::FInt32PropertyParams{
-						"Historical", Durin::EPropertyFlags::Deprecated, 1, 0},
-					&Deprecation);
-				ConstructInvalidStructProperty(Params);
-			}()),
-			"PropertyRegistration.InvalidDeprecation"
-		);
-		EXPECT_DEATH(
-			([] {
-				EnsureDObjectInitialized();
-				static const char* const Targets[] = {"Current"};
-				static const Durin::FPropertyDeprecationParams Deprecation{
-					{}, 1, 1, "Historical", Targets, std::size(Targets)};
-				auto Params = Durin::DurinCodeGen::WithDeprecation(
-					Durin::DurinCodeGen::FInt32PropertyParams{
-						"Historical_DEPRECATED", Durin::EPropertyFlags::Deprecated, 1, 0},
-					&Deprecation);
+				Durin::DurinCodeGen::FInt32PropertyParams Params{
+					"Historical", Durin::EPropertyFlags::Deprecated, 1, 0};
 				ConstructInvalidStructProperty(Params);
 			}()),
 			"PropertyRegistration.InvalidDeprecation"
@@ -6085,7 +6065,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			([] {
 				EnsureDObjectInitialized();
 				Durin::DurinCodeGen::FInt32PropertyParams Params{
-					"Historical_DEPRECATED", Durin::EPropertyFlags::Deprecated, 1, 0};
+					"Historical_DEPRECATED",
+					Durin::EPropertyFlags::Deprecated | Durin::EPropertyFlags::Transient, 1, 0};
 				ConstructInvalidStructProperty(Params);
 			}()),
 			"PropertyRegistration.InvalidDeprecation"

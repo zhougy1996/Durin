@@ -4,7 +4,7 @@ Summary: Define reflected type registration, generated metadata, properties, and
 
 Modules: CoreDObject
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-09-03
 
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
@@ -746,63 +746,49 @@ current name and an alias that resolve to the same property, the schema is
 rejected as ambiguous rather than applying two values in record order. Moving a
 field between declaring types is not covered by property aliases.
 
-## Versioned Deprecated Properties
+## Deprecated Properties
 
 Use a deprecated property when a stored field cannot be handled by a
 `LegacyNames` rename because its logical type or meaning changed:
 
 ```cpp
-struct FExampleVersion
-{
-    inline static constexpr FGuid Guid{0x12345678, 0x90abcdef, 0x12345678, 0x90abcdef};
-    enum Type : int32
-    {
-        BeforeCustomVersionWasAdded = -1,
-        ConvertedDistance = 1,
-        LatestVersion = ConvertedDistance,
-    };
-};
-
 DPROPERTY()
 float Distance = 0.0f;
 
-DPROPERTY(Deprecated,
-    CustomVersion = FExampleVersion,
-    DeprecatedBefore = FExampleVersion::ConvertedDistance,
-    MigratesTo = "Distance")
+DPROPERTY(Deprecated)
 int32 Distance_DEPRECATED = 0;
 ```
 
 `Deprecated` is explicit; the `_DEPRECATED` suffix alone has no special
 behavior. An explicitly deprecated field must use that suffix, cannot be
-`Edit` or `Transient`, and must provide `CustomVersion`, the exclusive
-`DeprecatedBefore` bound, and one or more semicolon-separated current
-`MigratesTo` properties. `DeprecatedName = "..."` is optional; otherwise the
-historical stored name is the member name without `_DEPRECATED`.
+`Edit` or `Transient`. The historical stored name is inferred by removing the
+suffix; deprecated-property annotations do not accept migration targets,
+custom-version domains, or version bounds.
 
-The custom-version domain supplies a nonzero `Guid` and `LatestVersion`.
-Generated reflection stores the GUID and integer bounds directly; there is no
-name-to-GUID runtime registry. A missing package tag is
-`BeforeCustomVersionWasAdded` (`-1`). Current saves automatically emit the
-domain's `LatestVersion`; a source value at or above `DeprecatedBefore` cannot
-use the old route, and a value newer than `LatestVersion` is rejected.
-
-Routing is exact on declaring type, historical name, logical type signature,
-and version range. It happens before a reused current name is considered, so an
-old integer `Distance` can load into `Distance_DEPRECATED` while the current
-float `Distance` remains untouched. Class conversion runs in `PostLoad` before
-package publication. Reflected structs receive the same custom-version context
-in `PostDeserialize` while still in detached storage. Any rejection rolls back
+Routing is exact on declaring type, inferred historical name, and logical type
+signature. It happens before a reused current name is considered, so an old
+integer `Distance` loads into `Distance_DEPRECATED` while the current float
+`Distance` remains untouched. The owning class performs semantic conversion in
+`PostLoad`; reflected structs do so in `PostDeserialize`. Those callbacks can
+use `WasDeprecatedPropertyLoaded` to distinguish a consumed old route from an
+unloaded deprecated member holding its C++ default. Any rejection rolls back
 the complete load.
+
+If the stored and current fields have the same name and logical type, keep one
+current property and perform any version-dependent in-place conversion in the
+owning callback. A deprecated route is for a historical schema shape that can
+be distinguished by reflection, not for every semantic version change.
 
 Deprecated fields are load-only: current Archive saves, default deltas,
 canonical schemas, Details panels, and current authored ledgers exclude them.
-`MigratesTo` transfers historical explicit/forced authored intent to current
-paths; splits copy it to every target and merges retain the strongest
-provenance. Compatibility and canonical-resave reports expose each consumed
-route as remaining migration debt. A route should be removed only after the
-supported content baseline contains no matching evidence and the normal
-compatibility-policy gate has approved retirement.
+Migration code owns both value conversion and any authored-intent transfer. It
+can call `SetAuthoredOverride` for each current path whose explicit or forced
+state must survive the resave; splits, merges, and conditional targets therefore
+remain ordinary migration logic rather than reflection metadata. Compatibility
+and canonical-resave reports expose each consumed route as remaining migration
+debt. A route should be removed only after the supported content baseline
+contains no matching evidence and the normal compatibility-policy gate has
+approved retirement.
 
 ## Container Properties
 

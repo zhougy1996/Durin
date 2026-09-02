@@ -101,10 +101,6 @@ namespace Durin
 		std::string DeclaringType;
 		std::string StoredFieldName;
 		std::string DeprecatedPropertyName;
-		std::vector<std::string> MigrationTargets;
-		FGuid CustomVersionGuid;
-		int32 SourceVersion = -1;
-		int32 DeprecatedBefore = 0;
 
 		auto operator==(const FAssetDeprecatedRouteEvidence&) const -> bool = default;
 	};

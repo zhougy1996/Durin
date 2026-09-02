@@ -344,49 +344,22 @@ def _deprecation_from_annotation(
 ) -> ReflectedPropertyDeprecationInfo | None:
     entries = _annotation_entries(annotation)
     b_deprecated = any(entry.strip() == "Deprecated" for entry in entries)
-    values: dict[str, str] = {}
+    removed_keys = {"CustomVersion", "DeprecatedBefore", "DeprecatedName", "MigratesTo"}
     for raw_entry in entries:
-        key, separator, raw_value = raw_entry.strip().partition("=")
-        key = key.strip()
-        if key not in {"CustomVersion", "DeprecatedBefore", "DeprecatedName", "MigratesTo"}:
-            continue
-        if key in values:
-            raise ValueError(f"[DHT-DEPR001] {location}: duplicate deprecation key '{key}'")
-        if not separator:
-            raise ValueError(f"[DHT-DEPR001] {location}: {key} requires a value")
-        values[key] = raw_value.strip()
+        key = raw_entry.strip().partition("=")[0].strip()
+        if key in removed_keys:
+            raise ValueError(
+                f"[DHT-DEPR005] {location}: Deprecated does not accept migration metadata; "
+                "perform migration in PostLoad or PostDeserialize"
+            )
     if not b_deprecated:
-        if values:
-            raise ValueError(f"[DHT-DEPR002] {location}: deprecation keys require the Deprecated specifier")
         return None
     if not prop.name.endswith("_DEPRECATED"):
         raise ValueError(f"[DHT-DEPR003] {location}: Deprecated property names must end in _DEPRECATED")
     if "Durin::EPropertyFlags::Edit" in prop.flags or "Durin::EPropertyFlags::Transient" in prop.flags:
         raise ValueError(f"[DHT-DEPR004] {location}: Deprecated cannot be combined with Edit or Transient")
-    missing = [key for key in ("CustomVersion", "DeprecatedBefore", "MigratesTo") if key not in values]
-    if missing:
-        raise ValueError(f"[DHT-DEPR005] {location}: Deprecated requires {', '.join(missing)}")
-    custom_version_type = values["CustomVersion"]
-    deprecated_before = values["DeprecatedBefore"]
-    expression = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
-    if not re.fullmatch(expression, custom_version_type):
-        raise ValueError(f"[DHT-DEPR006] {location}: CustomVersion requires a qualified C++ type")
-    if not re.fullmatch(expression, deprecated_before):
-        raise ValueError(f"[DHT-DEPR006] {location}: DeprecatedBefore requires a qualified C++ constant")
     historical_name = prop.name.removesuffix("_DEPRECATED")
-    if "DeprecatedName" in values:
-        historical_name = _quoted_annotation_value(values["DeprecatedName"], "DeprecatedName", location)
-        if not re.fullmatch(r"[A-Za-z_]\w*", historical_name):
-            raise ValueError(f"[DHT-DEPR007] {location}: DeprecatedName requires an unqualified C++ identifier")
-    targets = _quoted_annotation_value(values["MigratesTo"], "MigratesTo", location).split(";")
-    targets = [target.strip() for target in targets]
-    if not targets or any(not re.fullmatch(r"[A-Za-z_]\w*", target) for target in targets):
-        raise ValueError(f"[DHT-DEPR008] {location}: MigratesTo requires quoted unqualified property names")
-    if len(set(targets)) != len(targets):
-        raise ValueError(f"[DHT-DEPR008] {location}: MigratesTo contains duplicate targets")
-    return ReflectedPropertyDeprecationInfo(
-        custom_version_type, deprecated_before, historical_name, targets
-    )
+    return ReflectedPropertyDeprecationInfo(historical_name)
 
 
 def _apply_property_annotation(

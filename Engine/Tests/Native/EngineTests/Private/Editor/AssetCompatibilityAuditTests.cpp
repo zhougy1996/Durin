@@ -379,8 +379,7 @@ TEST_F(FAssetCompatibilityAuditTests, SearchAndReportIncludeFindingsAndCanonical
 		.ObjectPath = "Root.Material",
 		.DeclaringType = "Game::DSearchable",
 		.StoredFieldName = "OldRoughness",
-		.DeprecatedPropertyName = "Roughness_DEPRECATED",
-		.MigrationTargets = {"Roughness"}});
+		.DeprecatedPropertyName = "Roughness_DEPRECATED"});
 
 	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "searchablepackage"));
 	EXPECT_TRUE(Durin::Editor::MatchesAssetCompatibilityAuditSearch(Record, "legacyfield"));

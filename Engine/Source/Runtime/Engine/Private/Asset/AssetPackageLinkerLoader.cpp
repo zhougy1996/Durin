@@ -360,34 +360,10 @@ namespace Durin::AssetPrivate
 			const ObjectPackage::FSerializedField& Field,
 			const ObjectPackage::FSerializedType& Type) -> FProperty*;
 
-		auto MergeDuplicateAuthoredOverrideEntries(
-			std::vector<FAuthoredOverrideEntry>& Entries) -> void
-		{
-			std::ranges::sort(Entries, [](const FAuthoredOverrideEntry& Left,
-				const FAuthoredOverrideEntry& Right) {
-				return CompareAuthoredOverridePaths(Left.Path, Right.Path) < 0;
-			});
-			size_t OutputCount = 0;
-			for (size_t Index = 0; Index < Entries.size(); ++Index)
-			{
-				if (OutputCount != 0 && CompareAuthoredOverridePaths(
-						Entries[OutputCount - 1].Path, Entries[Index].Path) == 0)
-				{
-					if (Entries[Index].Provenance == EAuthoredOverrideProvenance::Forced)
-						Entries[OutputCount - 1].Provenance = EAuthoredOverrideProvenance::Forced;
-					continue;
-				}
-				if (OutputCount != Index) Entries[OutputCount] = std::move(Entries[Index]);
-				++OutputCount;
-			}
-			Entries.resize(OutputCount);
-		}
-
 		auto RestoreNestedLedger(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker, FAuthoredOverridePath& Path,
 			std::vector<FAuthoredOverrideEntry>& Entries,
-			bool& bUsedDeprecatedRoute,
 			FLinkerApplyDiagnostic& Diagnostic) -> bool
 		{
 			using K = ObjectPackage::EValueKind;
@@ -406,22 +382,11 @@ namespace Durin::AssetPrivate
 					const auto& ChildType = Type.Children[Index];
 					const auto Provenance = Value.Provenances[Index] == ObjectPackage::EPropertyProvenance::Forced
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
-					if (FProperty* Route = FindLinkerDeprecatedRoute(Linker, *Schema, *It, ChildType))
-					{
-						bUsedDeprecatedRoute = true;
-						for (FName Target : Route->GetDeprecation()->MigrationTargets)
-						{
-							Path.push_back(FAuthoredOverridePathToken::Field(
-								FName(Schema->QualifiedName), Target));
-							Entries.push_back({Path, Provenance});
-							Path.pop_back();
-						}
-						continue;
-					}
+					if (FindLinkerDeprecatedRoute(Linker, *Schema, *It, ChildType)) continue;
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
 					Entries.push_back({Path, Provenance});
 					if (!RestoreNestedLedger(ChildType, Value.Elements[Index], Linker, Path,
-						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
+						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -434,7 +399,7 @@ namespace Durin::AssetPrivate
 						? FAuthoredOverridePathToken::FixedArrayElement(Index)
 						: FAuthoredOverridePathToken::ArrayElement(Index));
 					if (!RestoreNestedLedger(Type.Children[0], Value.Elements[Index], Linker, Path,
-						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
+						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -450,7 +415,7 @@ namespace Durin::AssetPrivate
 						return LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, Error);
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedLedger(Type.Children[1], Value.Elements[Index + 1], Linker, Path,
-						Entries, bUsedDeprecatedRoute, Diagnostic)) return false;
+						Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -623,14 +588,6 @@ namespace Durin::AssetPrivate
 			return true;
 		}
 
-		auto LinkerCustomVersion(const ObjectPackage::FLinkerTables& Linker,
-			const FGuid& Guid) -> int32
-		{
-			const auto It = std::ranges::find(Linker.CustomVersions, Guid,
-				&ObjectPackage::FCustomVersion::Guid);
-			return It == Linker.CustomVersions.end() ? -1 : static_cast<int32>(It->Value);
-		}
-
 		auto FindLinkerDeprecatedRoute(const ObjectPackage::FLinkerTables& Linker,
 			const ObjectPackage::FSerializedSchema& Schema,
 			const ObjectPackage::FSerializedField& Field,
@@ -641,14 +598,15 @@ namespace Durin::AssetPrivate
 			if (!Owner) return nullptr;
 			const DurinCodeGen::EPropertyGenFlags Kind = TypeKind(Type);
 			const std::string Signature = TypeSignature(Type);
+			if (FProperty* Current = Owner->FindPropertyByName(FName(Field.Name), false);
+				Current && !Current->IsDeprecated() && Current->GetKind() == Kind
+				&& AssetPrivate::GetSerializedTypeSignature(Current) == Signature) return nullptr;
 			FProperty* Match = nullptr;
 			bool bAmbiguous = false;
 			Owner->ForEachProperty([&](FProperty* Property) {
 				if (bAmbiguous || !Property) return;
 				const FPropertyDeprecation* Deprecation = Property->GetDeprecation();
 				if (!Deprecation || Deprecation->HistoricalName.ToString() != Field.Name
-					|| LinkerCustomVersion(Linker, Deprecation->CustomVersionGuid)
-						>= Deprecation->DeprecatedBefore
 					|| Property->GetKind() != Kind
 					|| AssetPrivate::GetSerializedTypeSignature(Property) != Signature) return;
 				if (Match) bAmbiguous = true;
@@ -661,7 +619,7 @@ namespace Durin::AssetPrivate
 			const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker,
-			std::span<const std::pair<FGuid, int32>> Versions, const FPackagePath& PackagePath,
+			const FPackagePath& PackagePath,
 			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
 		{
 			using K = ObjectPackage::EValueKind;
@@ -680,24 +638,13 @@ namespace Durin::AssetPrivate
 						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, ChildType);
 					if (LiveRoute)
 					{
-						const FPropertyDeprecation* Deprecation = LiveRoute->GetDeprecation();
-						const FGuid VersionGuid = Deprecation->CustomVersionGuid;
-						const auto Version = std::ranges::find_if(Versions,
-							[&](const auto& Pair) { return Pair.first == VersionGuid; });
-						std::vector<std::string> MigrationTargets;
-						for (FName Target : Deprecation->MigrationTargets)
-							MigrationTargets.push_back(Target.ToString());
 						Out.push_back({
 							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
 							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Name,
-							.DeprecatedPropertyName = LiveRoute->NamePrivate.ToString(),
-							.MigrationTargets = std::move(MigrationTargets),
-							.CustomVersionGuid = VersionGuid,
-							.SourceVersion = Version == Versions.end() ? -1 : Version->second,
-							.DeprecatedBefore = Deprecation->DeprecatedBefore});
+							.DeprecatedPropertyName = LiveRoute->NamePrivate.ToString()});
 					}
 					else GatherNestedDeprecatedRouteEvidence(ChildType, Value.Elements[Index],
-						Linker, Versions, PackagePath, ObjectPath, Out);
+						Linker, PackagePath, ObjectPath, Out);
 				}
 			}
 			else if ((Type.Kind == K::FixedArray || Type.Kind == K::Array)
@@ -705,13 +652,13 @@ namespace Durin::AssetPrivate
 			{
 				for (const auto& Element : Value.Elements)
 					GatherNestedDeprecatedRouteEvidence(Type.Children[0], Element, Linker,
-						Versions, PackagePath, ObjectPath, Out);
+						PackagePath, ObjectPath, Out);
 			}
 			else if (Type.Kind == K::Map && Type.Children.size() == 2)
 			{
 				for (size_t Index = 1; Index < Value.Elements.size(); Index += 2)
 					GatherNestedDeprecatedRouteEvidence(Type.Children[1], Value.Elements[Index], Linker,
-						Versions, PackagePath, ObjectPath, Out);
+						PackagePath, ObjectPath, Out);
 			}
 		}
 
@@ -951,7 +898,7 @@ namespace Durin::AssetPrivate
 		for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
 			for (const auto& Property : Exports[ObjectIndex].Export->Properties)
 				GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
-					LoadedCustomVersions, PackagePath, Exports[ObjectIndex].Path,
+					PackagePath, Exports[ObjectIndex].Path,
 					Report.DeprecatedRouteEvidence);
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 		{
@@ -988,7 +935,7 @@ namespace Durin::AssetPrivate
 			}
 			if (Options.bCooked) continue;
 			std::vector<FAuthoredOverrideEntry> LedgerEntries;
-			bool bUsedDeprecatedRoute = false;
+			std::vector<FName> LoadedDeprecatedProperties;
 			for (size_t PropertyIndex = 0; PropertyIndex < KnownProperties.size(); ++PropertyIndex)
 			{
 				const auto& Property = *KnownProperties[PropertyIndex];
@@ -1013,23 +960,13 @@ namespace Durin::AssetPrivate
 					FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
 				if (DeprecatedRoute)
 				{
-					bUsedDeprecatedRoute = true;
-					const FPropertyDeprecation* Deprecation = DeprecatedRoute->GetDeprecation();
+					LoadedDeprecatedProperties.push_back(DeprecatedRoute->NamePrivate);
 					FAssetDeprecatedRouteEvidence Evidence{
 						.PackagePath = PackagePath,
 						.ObjectPath = Exports[ObjectIndex].Path,
 						.DeclaringType = Schema->QualifiedName,
 						.StoredFieldName = Field->Name,
-						.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString(),
-						.CustomVersionGuid = Deprecation->CustomVersionGuid,
-						.SourceVersion = LinkerCustomVersion(Linker, Deprecation->CustomVersionGuid),
-						.DeprecatedBefore = Deprecation->DeprecatedBefore};
-					for (FName Target : Deprecation->MigrationTargets)
-					{
-						LedgerEntries.push_back({FAuthoredOverridePath{FAuthoredOverridePathToken::Field(
-							FName(Schema->QualifiedName), Target)}, Provenance});
-						Evidence.MigrationTargets.push_back(Target.ToString());
-					}
+						.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString()};
 					Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
 					continue;
 				}
@@ -1037,15 +974,12 @@ namespace Durin::AssetPrivate
 					FName(Schema->QualifiedName), FName(Field->Name))};
 				LedgerEntries.push_back({Path, Provenance});
 				if (!RestoreNestedLedger(Property.Type, Property.Value, Linker, Path,
-					LedgerEntries, bUsedDeprecatedRoute, Diagnostic))
+					LedgerEntries, Diagnostic))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
 			}
-			// Deprecated routes may converge on the same current field. Ordinary
-			// packages retain the linear append path and skip this normalization.
-			if (bUsedDeprecatedRoute)
-				MergeDuplicateAuthoredOverrideEntries(LedgerEntries);
+			Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
 			FAuthoredOverrideDiagnostic LedgerDiagnostic;
 			if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
 			{
@@ -1072,6 +1006,7 @@ namespace Durin::AssetPrivate
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
 			Objects[Index]->ClearLoadedCustomVersions();
+			Objects[Index]->ClearLoadedDeprecatedProperties();
 		}
 		if (ShouldFail(Options, ELinkerLoadPhase::Publish, 0))
 		{

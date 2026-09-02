@@ -584,12 +584,6 @@ namespace Durin
 				Node.SetChildValue("declaringType", Evidence.DeclaringType);
 				Node.SetChildValue("storedFieldName", Evidence.StoredFieldName);
 				Node.SetChildValue("deprecatedPropertyName", Evidence.DeprecatedPropertyName);
-				Node.SetChildValue("customVersionGuid", Evidence.CustomVersionGuid.ToString());
-				Node.SetChildValue("sourceVersion", Evidence.SourceVersion);
-				Node.SetChildValue("deprecatedBefore", Evidence.DeprecatedBefore);
-				FJsonNodeRef MigrationTargets = Node.AddArray("migrationTargets");
-				for (const auto& Target : Evidence.MigrationTargets)
-					MigrationTargets.AppendValue(Target);
 			}
 		}
 		return Document.ToString();

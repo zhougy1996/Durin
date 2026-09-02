@@ -65,10 +65,6 @@ namespace Durin
 		std::string StoredName;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
-		FGuid CustomVersionGuid;
-		int32 DeprecatedBefore = 0;
-		int32 LatestVersion = 0;
-		std::vector<std::string> MigrationTargets;
 		auto operator==(const FReflectionDeprecatedPropertyRoute&) const -> bool = default;
 	};
 
@@ -91,8 +87,7 @@ namespace Durin
 			{ return SerializedPropertyAliases; }
 		ENGINE_API auto FindDeprecatedPropertyRoute(std::string_view DeclaringType,
 			std::string_view StoredName, DurinCodeGen::EPropertyGenFlags Kind,
-			std::string_view TypeSignature,
-			std::span<const std::pair<FGuid, int32>> CustomVersions) const
+			std::string_view TypeSignature) const
 			-> const FReflectionDeprecatedPropertyRoute*;
 		auto GetDeprecatedPropertyRoutes() const -> std::span<const FReflectionDeprecatedPropertyRoute>
 			{ return DeprecatedPropertyRoutes; }

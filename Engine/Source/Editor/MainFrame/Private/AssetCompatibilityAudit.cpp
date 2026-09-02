@@ -92,10 +92,7 @@ namespace Durin::Editor
 			if (ContainsSearch(Evidence.ObjectPath, LowerSearch)
 				|| ContainsSearch(Evidence.DeclaringType, LowerSearch)
 				|| ContainsSearch(Evidence.StoredFieldName, LowerSearch)
-				|| ContainsSearch(Evidence.DeprecatedPropertyName, LowerSearch)
-				|| std::ranges::any_of(Evidence.MigrationTargets, [&](const std::string& Target) {
-					return ContainsSearch(Target, LowerSearch);
-				})) return true;
+				|| ContainsSearch(Evidence.DeprecatedPropertyName, LowerSearch)) return true;
 		return false;
 	}
 

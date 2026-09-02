@@ -291,23 +291,13 @@ namespace Durin
 			}
 		}
 
-		auto ValidateDeprecationRegistration(const FProperty* Property,
-			const FPropertyDeprecationParams* Deprecation) -> bool
+		auto ValidateDeprecationRegistration(const FProperty* Property) -> bool
 		{
-			if (!Deprecation)
-				return !Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated);
-			if (!Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated)
-				|| Property->HasAnyPropertyFlags(EPropertyFlags::Edit | EPropertyFlags::Transient)
-				|| !Deprecation->CustomVersionGuid.IsValid()
-				|| Deprecation->DeprecatedBefore <= 0
-				|| Deprecation->LatestVersion < Deprecation->DeprecatedBefore
-				|| !Deprecation->HistoricalName || Deprecation->HistoricalName[0] == '\0'
-				|| !Deprecation->MigrationTargets || Deprecation->NumMigrationTargets == 0) return false;
+			if (!Property->HasAnyPropertyFlags(EPropertyFlags::Deprecated)) return true;
+			if (Property->HasAnyPropertyFlags(EPropertyFlags::Edit | EPropertyFlags::Transient)) return false;
 			const std::string Name = Property->NamePrivate.ToString();
-			if (!Name.ends_with("_DEPRECATED")) return false;
-			for (size_t Index = 0; Index < Deprecation->NumMigrationTargets; ++Index)
-				if (!Deprecation->MigrationTargets[Index] || Deprecation->MigrationTargets[Index][0] == '\0') return false;
-			return true;
+			return Name.size() > std::string_view("_DEPRECATED").size()
+				&& Name.ends_with("_DEPRECATED");
 		}
 
 		auto ConstructGeneratedProperty(
@@ -687,7 +677,7 @@ namespace Durin
 				delete Property;
 				return nullptr;
 			}
-			if (!ValidateDeprecationRegistration(Property, PropertyParams->Deprecation))
+			if (!ValidateDeprecationRegistration(Property))
 			{
 				checkf(false, "PropertyRegistration.InvalidDeprecation owner '{}' property '{}'.",
 					GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
@@ -696,7 +686,7 @@ namespace Durin
 			}
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
 			Property->SetTypedMetadata(PropertyParams->TypedMetadata);
-			Property->SetDeprecation(PropertyParams->Deprecation);
+			Property->InitializeDeprecation();
 			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array)
 			{
 				const FArrayOps& Ops = static_cast<FArrayProperty*>(Property)->GetOps();

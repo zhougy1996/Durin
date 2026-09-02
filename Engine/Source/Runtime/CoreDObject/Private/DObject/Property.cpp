@@ -9,20 +9,13 @@
 
 namespace Durin
 {
-	auto FProperty::SetDeprecation(const FPropertyDeprecationParams* InDeprecation) -> void
+	auto FProperty::InitializeDeprecation() -> void
 	{
 		Deprecation.reset();
-		if (!InDeprecation) return;
-		FPropertyDeprecation Value{
-			.CustomVersionGuid = InDeprecation->CustomVersionGuid,
-			.DeprecatedBefore = InDeprecation->DeprecatedBefore,
-			.LatestVersion = InDeprecation->LatestVersion,
-			.HistoricalName = FName(InDeprecation->HistoricalName),
-		};
-		Value.MigrationTargets.reserve(InDeprecation->NumMigrationTargets);
-		for (size_t Index = 0; Index < InDeprecation->NumMigrationTargets; ++Index)
-			Value.MigrationTargets.emplace_back(InDeprecation->MigrationTargets[Index]);
-		Deprecation = std::move(Value);
+		if (!HasAnyPropertyFlags(EPropertyFlags::Deprecated)) return;
+		std::string HistoricalName = NamePrivate.ToString();
+		HistoricalName.resize(HistoricalName.size() - std::string_view("_DEPRECATED").size());
+		Deprecation = FPropertyDeprecation{.HistoricalName = FName(HistoricalName)};
 	}
 
 	auto FProperty::SetTypedMetadata(const FPropertyMetadataParams* InMetadata) -> void

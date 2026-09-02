@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "namespace-scoped-v2"
-TOOL_VERSION = "22"
+TOOL_VERSION = "23"
 
 
 @dataclass(frozen=True, order=True)
@@ -195,10 +195,7 @@ class ReflectedPropertyMetadataInfo:
 
 @dataclass
 class ReflectedPropertyDeprecationInfo:
-    custom_version_type: str
-    deprecated_before: str
     historical_name: str
-    migrates_to: list[str] = field(default_factory=list)
 
 
 @dataclass

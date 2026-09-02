@@ -64,18 +64,6 @@ namespace AssetStructTest
 		int32 Value = 0;
 	};
 
-	struct FStructMigrationVersion
-	{
-		inline static constexpr Durin::FGuid Guid{
-			0x51aa15c4, 0x14df423f, 0x81dc1a82, 0x638fc15e};
-		enum Type : int32
-		{
-			BeforeCustomVersionWasAdded = -1,
-			Changed = 1,
-			LatestVersion = Changed,
-		};
-	};
-
 	struct FMigratingValue
 	{
 		float Value = 0.0f;
@@ -135,11 +123,7 @@ namespace Durin
 			++AssetStructTest::MigrationPostDeserializeCount;
 			if (AssetStructTest::RejectMigrationPostDeserialize)
 				return Context.Fail("Injected migrating struct rejection.");
-			const FArchiveCustomVersion* Version = Context.VersionContext
-				? Context.VersionContext->FindCustom(AssetStructTest::FStructMigrationVersion::Guid)
-				: nullptr;
-			if ((!Version ? AssetStructTest::FStructMigrationVersion::BeforeCustomVersionWasAdded
-				: Version->Version) < AssetStructTest::FStructMigrationVersion::Changed)
+			if (Context.WasDeprecatedPropertyLoaded(FName("Value_DEPRECATED")))
 				Value.Value = static_cast<float>(Value.Value_DEPRECATED) * 10.0f;
 			return true;
 		}
@@ -693,19 +677,6 @@ namespace
 		Durin::FEditorBulkData Payload;
 	};
 
-	struct FSchemaMigrationVersion
-	{
-		inline static constexpr Durin::FGuid Guid{
-			0x78d61a4e, 0x29554b39, 0x93bbf092, 0x9c8eb965};
-		enum Type : int32
-		{
-			BeforeCustomVersionWasAdded = -1,
-			Initial = 0,
-			Changed = 1,
-			LatestVersion = Changed,
-		};
-	};
-
 	bool GRejectSchemaMigrationPostLoad = false;
 
 	auto GetMigratingValueStructNoRegister() -> Durin::DStruct*
@@ -721,19 +692,12 @@ namespace
 	{
 		using namespace Durin;
 		using namespace Durin::DurinCodeGen;
-		static const char* const Targets[] = {"Value"};
-		static const FPropertyDeprecationParams Deprecation{
-			AssetStructTest::FStructMigrationVersion::Guid,
-			AssetStructTest::FStructMigrationVersion::Changed,
-			AssetStructTest::FStructMigrationVersion::LatestVersion,
-			"Value", Targets, std::size(Targets)};
 		static const FFloatPropertyParams ValueProp{
 			"Value", EPropertyFlags::None, 1,
 			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value)};
-		static const FInt32PropertyParams DeprecatedProp = WithDeprecation(
-			FInt32PropertyParams{"Value_DEPRECATED", EPropertyFlags::Deprecated, 1,
-				STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value_DEPRECATED)},
-			&Deprecation);
+		static const FInt32PropertyParams DeprecatedProp{
+			"Value_DEPRECATED", EPropertyFlags::Deprecated, 1,
+			STRUCT_OFFSET_UINT16(AssetStructTest::FMigratingValue, Value_DEPRECATED)};
 		static const FPropertyParamsBase* Properties[] = {&ValueProp, &DeprecatedProp};
 		static const FStructParams Params{
 			&GetMigratingValueStructNoRegister, "Tests::FMigratingValue", "FMigratingValue",
@@ -779,23 +743,6 @@ namespace
 		{
 			using namespace Durin;
 			using namespace Durin::DurinCodeGen;
-			static const char* const ATargets[] = {"A", "B"};
-			static const char* const LeftTargets[] = {"Merged"};
-			static const char* const RightTargets[] = {"Merged"};
-			static const char* const DistanceTargets[] = {"Distance"};
-			static const FPropertyDeprecationParams ADeprecation{
-				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
-				FSchemaMigrationVersion::LatestVersion, "A", ATargets, std::size(ATargets)};
-			static const FPropertyDeprecationParams LeftDeprecation{
-				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
-				FSchemaMigrationVersion::LatestVersion, "Left", LeftTargets, std::size(LeftTargets)};
-			static const FPropertyDeprecationParams RightDeprecation{
-				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
-				FSchemaMigrationVersion::LatestVersion, "Right", RightTargets, std::size(RightTargets)};
-			static const FPropertyDeprecationParams DistanceDeprecation{
-				FSchemaMigrationVersion::Guid, FSchemaMigrationVersion::Changed,
-				FSchemaMigrationVersion::LatestVersion, "Distance", DistanceTargets,
-				std::size(DistanceTargets)};
 			static const FFloatPropertyParams AProp{
 				"A", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, A)};
 			static const FFloatPropertyParams BProp{
@@ -813,25 +760,18 @@ namespace
 				"StructData", EPropertyFlags::None, 1,
 				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, StructData),
 				&GetMigratingValueStruct};
-			static const FInt32PropertyParams ADeprecatedProp = WithDeprecation(
-				FInt32PropertyParams{"A_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, A_DEPRECATED)},
-				&ADeprecation);
-			static const FInt32PropertyParams LeftDeprecatedProp = WithDeprecation(
-				FInt32PropertyParams{"Left_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Left_DEPRECATED)},
-				&LeftDeprecation);
-			static const FInt32PropertyParams RightDeprecatedProp = WithDeprecation(
-				FInt32PropertyParams{"Right_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Right_DEPRECATED)},
-				&RightDeprecation);
-			static const FFloatPropertyParams DistanceDeprecatedProp = WithDeprecation(
-				FFloatPropertyParams{"Distance_DEPRECATED", EPropertyFlags::Deprecated, 1,
-					STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Distance_DEPRECATED)},
-				&DistanceDeprecation);
+			static const FInt32PropertyParams ADeprecatedProp{
+				"A_DEPRECATED", EPropertyFlags::Deprecated, 1,
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, A_DEPRECATED)};
+			static const FInt32PropertyParams LeftDeprecatedProp{
+				"Left_DEPRECATED", EPropertyFlags::Deprecated, 1,
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Left_DEPRECATED)};
+			static const FInt32PropertyParams RightDeprecatedProp{
+				"Right_DEPRECATED", EPropertyFlags::Deprecated, 1,
+				STRUCT_OFFSET_UINT16(DSchemaMigrationAssetForTest, Right_DEPRECATED)};
 			static const FPropertyParamsBase* Properties[] = {
 				&AProp, &BProp, &MergedProp, &DistanceProp, &AnchorProp, &StructDataProp, &ADeprecatedProp,
-				&LeftDeprecatedProp, &RightDeprecatedProp, &DistanceDeprecatedProp};
+				&LeftDeprecatedProp, &RightDeprecatedProp};
 			static const FClassParams Params{
 				&StaticClassNoRegister, "Tests::DSchemaMigrationAssetForTest",
 				"DSchemaMigrationAssetForTest", Properties, std::size(Properties)};
@@ -846,15 +786,14 @@ namespace
 				OutError = "Injected schema migration rejection.";
 				return false;
 			}
-			if (GetLoadedCustomVersion(FSchemaMigrationVersion::Guid).value_or(
-				FSchemaMigrationVersion::BeforeCustomVersionWasAdded)
-				< FSchemaMigrationVersion::Changed)
+			if (WasDeprecatedPropertyLoaded(Durin::FName("A_DEPRECATED")))
 			{
 				A = static_cast<float>(A_DEPRECATED) * 0.5f;
 				B = static_cast<float>(A_DEPRECATED) * 2.0f;
-				Merged = Left_DEPRECATED + Right_DEPRECATED;
-				Distance = Distance_DEPRECATED * 100.0f;
 			}
+			if (WasDeprecatedPropertyLoaded(Durin::FName("Left_DEPRECATED"))
+				|| WasDeprecatedPropertyLoaded(Durin::FName("Right_DEPRECATED")))
+				Merged = Left_DEPRECATED + Right_DEPRECATED;
 			return DObject::PostLoad(OutError);
 		}
 
@@ -867,7 +806,6 @@ namespace
 		int32 A_DEPRECATED = 0;
 		int32 Left_DEPRECATED = 0;
 		int32 Right_DEPRECATED = 0;
-		float Distance_DEPRECATED = 0.0f;
 	};
 
 	class DContainerMigrationAssetForTest : public Durin::DObject

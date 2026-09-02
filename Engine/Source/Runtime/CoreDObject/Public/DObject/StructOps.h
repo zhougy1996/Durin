@@ -2,9 +2,12 @@
 
 #include "CoreDObjectAPI.h"
 #include "Misc/EnumClassFlags.h"
+#include "Misc/Name.h"
 
+#include <algorithm>
 #include <concepts>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -45,7 +48,14 @@ namespace Durin
 		EDStructDeserializeSource Source = EDStructDeserializeSource::RuntimeArchive;
 		uint32 SourceVersion = 0;
 		const FArchiveVersionContext* VersionContext = nullptr;
+		std::span<const FName> LoadedDeprecatedProperties;
 		std::string* Error = nullptr;
+
+		auto WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool
+		{
+			return std::ranges::find(LoadedDeprecatedProperties, PropertyName)
+				!= LoadedDeprecatedProperties.end();
+		}
 
 		auto Fail(std::string_view Message) const -> bool
 		{

@@ -4,7 +4,7 @@ Summary: Define engine release, Archive, authored package, custom-version, and c
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-03
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`.
 CMake validates that file, exposes the numeric core as the workspace project
@@ -44,12 +44,12 @@ complete custom-version context. An object's pre-publication `PostLoad` sees the
 same already validated package state. Neither derives compatibility from the
 engine release.
 
-Reflected `_DEPRECATED` routes use one stable domain GUID, an exclusive
-`DeprecatedBefore` bound, and a domain `LatestVersion`. Current saves discover
-and emit `LatestVersion`. Missing tags resolve to the domain's
-`BeforeCustomVersionWasAdded` value (`-1` by convention), not the current
-version. A source value above the runtime's supported maximum fails before
-object publication. Version discovery and emission must agree exactly.
+Reflected `_DEPRECATED` routes are independent of custom-version domains. They
+match historical fields by declaring type, inferred stored name, and logical
+type signature; semantic conversion belongs to `PostLoad` or
+`PostDeserialize`. Custom versions remain appropriate when one unchanged
+schema shape has different meanings across package generations, but that
+version contract is not encoded in `DPROPERTY(Deprecated)`.
 
 ## Authored Package Policy
 

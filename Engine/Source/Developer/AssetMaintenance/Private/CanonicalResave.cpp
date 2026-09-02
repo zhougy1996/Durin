@@ -151,9 +151,6 @@ namespace Durin
 					EvidenceNode.SetChildValue("declaringType", Evidence.DeclaringType);
 					EvidenceNode.SetChildValue("storedFieldName", Evidence.StoredFieldName);
 					EvidenceNode.SetChildValue("deprecatedPropertyName", Evidence.DeprecatedPropertyName);
-					EvidenceNode.SetChildValue("customVersionGuid", Evidence.CustomVersionGuid.ToString());
-					EvidenceNode.SetChildValue("sourceVersion", Evidence.SourceVersion);
-					EvidenceNode.SetChildValue("deprecatedBefore", Evidence.DeprecatedBefore);
 				}
 				FJsonNodeRef Diagnostics = Node.AddArray("diagnostics");
 				for (const auto& Diagnostic : Package.Diagnostics)

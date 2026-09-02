@@ -187,9 +187,7 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
 struct FFirst
 {
     GENERATED_BODY()
-    DPROPERTY(Deprecated,
-        HistoricalName = "OldValue",
-        MigratesTo = "Value")
+    DPROPERTY(Deprecated)
     int Value;
 };
 DSTRUCT()

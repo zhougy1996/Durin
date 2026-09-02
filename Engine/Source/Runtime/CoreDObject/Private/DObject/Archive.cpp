@@ -529,6 +529,8 @@ namespace Durin
 							: EDStructDeserializeSource::RuntimeArchive,
 						.SourceVersion = DastVersion ? DastVersion->Version : 0,
 						.VersionContext = &Ar.GetVersionContext(),
+						.LoadedDeprecatedProperties = Ar.GetLoadedDeprecatedProperties(
+							Struct->GetQualifiedName()),
 						.Error = &PostDeserializeError};
 					if (!Struct->GetOps().PostDeserialize(Storage.GetValue(), Context))
 					{

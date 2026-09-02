@@ -135,8 +135,11 @@ namespace Durin
 
 		// Exposes source-package versions only while authored PostLoad migration runs.
 		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;
+		COREDOBJECT_API auto WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool;
 		COREDOBJECT_API auto SetLoadedCustomVersions(std::span<const std::pair<FGuid, int32>> Versions) -> void;
 		COREDOBJECT_API auto ClearLoadedCustomVersions() -> void;
+		COREDOBJECT_API auto SetLoadedDeprecatedProperties(std::span<const FName> Properties) -> void;
+		COREDOBJECT_API auto ClearLoadedDeprecatedProperties() -> void;
 
 		// Validates or normalizes detached reflected storage before a live write.
 		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool;
@@ -200,6 +203,7 @@ namespace Durin
 
 		std::shared_ptr<const FAuthoredOverrideLedger> AuthoredOverrideLedger;
 		std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
+		std::vector<FName> LoadedDeprecatedProperties;
 
 	public:
 		auto SetInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags |= InFlags; }

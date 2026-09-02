@@ -301,6 +301,12 @@ namespace Durin
 		return It == LoadedCustomVersions.end() ? std::nullopt : std::optional<int32>(It->second);
 	}
 
+	auto DObject::WasDeprecatedPropertyLoaded(FName PropertyName) const -> bool
+	{
+		return std::ranges::find(LoadedDeprecatedProperties, PropertyName)
+			!= LoadedDeprecatedProperties.end();
+	}
+
 	auto DObject::SetLoadedCustomVersions(std::span<const std::pair<FGuid, int32>> Versions) -> void
 	{
 		LoadedCustomVersions.assign(Versions.begin(), Versions.end());
@@ -309,6 +315,16 @@ namespace Durin
 	auto DObject::ClearLoadedCustomVersions() -> void
 	{
 		LoadedCustomVersions.clear();
+	}
+
+	auto DObject::SetLoadedDeprecatedProperties(std::span<const FName> Properties) -> void
+	{
+		LoadedDeprecatedProperties.assign(Properties.begin(), Properties.end());
+	}
+
+	auto DObject::ClearLoadedDeprecatedProperties() -> void
+	{
+		LoadedDeprecatedProperties.clear();
 	}
 
 	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
