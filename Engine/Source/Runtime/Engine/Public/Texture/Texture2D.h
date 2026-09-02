@@ -23,14 +23,6 @@ namespace Durin
 	inline constexpr uint64 MaximumTexture2DImportedPixelBytes =
 		512ull * 1024ull * 1024ull;
 
-	// Identifies the decoded pixel layout retained as editable texture source data.
-	DENUM()
-	enum class ETextureSourceFormat : uint8
-	{
-		Invalid,
-		RGBA8
-	};
-
 	// Selects semantic color handling and platform-build defaults for a texture.
 	DENUM()
 	enum class ETextureUsage : uint8
@@ -78,11 +70,15 @@ namespace Durin
 		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
 	};
 
-	// Owns the decoder-free RGBA8 value from which every Texture2D build is reconstructed.
+	// Detached request snapshot of canonical RGBA8 source; never asset-resident.
 	DSTRUCT()
 	struct FTexture2DImportedData
 	{
 		GENERATED_BODY()
+
+		FTexture2DImportedData() = default;
+		ENGINE_API FTexture2DImportedData(const FTextureSourceData& Source);
+		ENGINE_API FTexture2DImportedData(FTextureSourceData&& Source);
 
 		DPROPERTY()
 		FEditorBulkData Pixels;
@@ -159,26 +155,6 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
-	// Complete object-free imported state accepted by the Engine result-application seam.
-	// Build modules construct this value after their detached build succeeds.
-	struct FTexture2DImportedState
-	{
-		std::unique_ptr<FTextureSourceData> SourceData;
-		std::unique_ptr<FTexturePlatformData> PlatformData;
-		std::string DerivedDataKey;
-		std::string BuildDiagnostic;
-		ETextureUsage Usage = ETextureUsage::Color;
-		bool bSRGB = true;
-		uint32 MaxResolution = 0;
-		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
-		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
-		float AlphaCoverageThreshold = 0.5f;
-		bool bMarkPackageDirty = true;
-		bool bReportLoadMutation = false;
-		bool bSourceDecoderInvoked = true;
-		bool bLoadedFromDerivedDataCache = false;
-	};
-
 	// Owns imported texture source, derived platform data, and its render resources.
 	DCLASS()
 	class DTexture2D : public DTexture
@@ -198,36 +174,39 @@ namespace Durin
 		{
 			return AssetImportData.Get();
 		}
-		// Publishes a validated owner-compatible import-data object after the
-		// completed imported state has been applied on the editor thread.
-		ENGINE_API auto PublishAssetImportData(
+		ENGINE_API auto SetAssetImportData(
 			DAssetImportData& Value, std::string& OutError) -> bool;
-		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
-		auto GetImportedData() const -> const FTexture2DImportedData&
-		{
-			return ImportedData;
-		}
-		auto GetImportedDataIdentity() const -> FXxHash128
-		{
-			return ImportedData.GetIdentity();
-		}
-		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
-		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
-		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
-		auto SourceHasTransparency() const -> bool { return bSourceHasTransparency; }
+		ENGINE_API auto SetSourceData(
+			const FTexture2DImportedData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
+			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
+			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold,
+			std::string& OutError) -> bool;
+		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
+		ENGINE_API auto CreateBuildInput() const -> FTexture2DImportedData;
+		auto GetSourceWidth() const -> uint32 { return GetSource().Width; }
+		auto GetSourceHeight() const -> uint32 { return GetSource().Height; }
+		auto GetSourceChannelCount() const -> uint8 { return GetSource().SourceChannelCount; }
+		auto SourceHasTransparency() const -> bool { return GetSource().bHasTransparency; }
 		ENGINE_API auto GetPlatformData() const -> const FTexturePlatformData*;
-		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetInstalledPlatformData() const -> const FTexturePlatformData*
+		{
+			return PlatformData.get();
+		}
+		auto HasPlatformData() const -> bool
+		{
+			return PlatformData && PlatformData->IsValid();
+		}
+		ENGINE_API auto SetPlatformData(
+			std::unique_ptr<FTexturePlatformData> Data,
+			std::string& OutError) -> bool;
 		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
-		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
-		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
 		friend class FTextureCompilingManager;
@@ -240,26 +219,18 @@ namespace Durin
 	public:
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		ENGINE_API auto RefreshBuildStatus() -> void;
-		ENGINE_API auto PublishImportedState(
-			FTexture2DImportedState State,
-			std::string& OutError) -> bool;
-		// Narrow result-application seams for editor-owned uncooked load policy.
-		ENGINE_API auto PublishDerivedDataLoad(
-			std::unique_ptr<FTexturePlatformData> InPlatformData,
-			std::string InDerivedDataKey,
-			std::string& OutError) -> bool;
-		ENGINE_API auto PublishUncookedLoadFailure(
-			ETextureDerivedDataStatus DerivedDataStatus,
-			ETextureBuildStatus InBuildStatus,
-			std::string Message,
-			std::string DerivedDataKey = {}) -> bool;
 protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
+		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
+		auto GetTextureSourceStorage() const -> const FTextureSource& override
+		{
+			return Source;
+		}
+		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
 		auto InvalidatePlatformData() -> void;
@@ -270,19 +241,7 @@ protected:
 		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
-		uint32 SourceWidth = 0;
-
-		DPROPERTY(EditorOnly)
-		uint32 SourceHeight = 0;
-
-		DPROPERTY(EditorOnly)
-		uint8 SourceChannelCount = 0;
-
-		DPROPERTY(EditorOnly)
-		bool bSourceHasTransparency = false;
-
-		DPROPERTY(EditorOnly)
-		FTexture2DImportedData ImportedData;
+		FTextureSource Source;
 
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -292,38 +251,21 @@ protected:
 
 		// Zero retains the source-sized base mip. Other values select the largest
 		// generated mip whose dimensions both fit within the limit.
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 MaxResolution = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
 
 		// Alpha-test threshold used only by PreserveCoverage Color mip generation.
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		float AlphaCoverageThreshold = 0.5f;
 
-		// Both representations are derived from the imported source file. Keeping them
-		// separate lets platform builds replace format/mips without mutating edit data.
-		std::unique_ptr<FTextureSourceData> SourceData;
+		// Installed runtime data is rebuilt from Source but has an independent lifetime.
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		FBulkData CookedPlatformData;
-		std::string DerivedDataKey;
-		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
-		bool bLoadedFromDerivedDataCache = false;
-
-		// Persistent failure state. Set by the build pipeline and cleared on success.
-		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
-
-		std::string LastBuildError;
-
-		// Process-local object compilation identity. This serial is independent of
-		// deterministic build/DDC identity and is never serialized.
-		uint64 CompilationRequestSerial = 0;
-		uint64 CompilationLastRequestId = 0;
-		bool bCompilationLastRequestFailed = false;
-
 	};
 }

@@ -36,7 +36,7 @@ namespace Durin
 	{
 		OutProduct = {};
 		OutIdentity = {
-			.ImportedDataIdentity = Request.SourceData.GetImportedDataIdentity(),
+			.ImportedDataIdentity = Request.ImportedData.GetIdentity(),
 			.Settings = Request.Settings,
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile};
@@ -85,6 +85,12 @@ namespace Durin
 					return false;
 				}
 
+				const FTextureSourceData SourceData = Request.ImportedData.ToSourceData();
+				if (!SourceData.IsValid())
+				{
+					OutError = "Texture2D imported data could not be materialized.";
+					return false;
+				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
 				FTexture2DRecipeMetrics RecipeMetrics;
 				const FTexture2DRecipeExecutionControl RecipeControl{
@@ -92,7 +98,7 @@ namespace Durin
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
 				if (!Provider.Build({
-					.SourceData = std::cref(Request.SourceData),
+					.SourceData = std::cref(SourceData),
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},

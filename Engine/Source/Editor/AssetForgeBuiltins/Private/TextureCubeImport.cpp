@@ -101,8 +101,10 @@ namespace Durin::AssetForge::Builtins
 			}
 			auto* Data = Texture.GetAssetImportData();
 			if (!Data) Data = NewObject<DAssetImportData>(&Texture, "AssetImportData");
-			return Data && Data->SetState(std::move(State), OutError)
-				&& Texture.PublishAssetImportData(*Data, OutError);
+			if (!Data || !Data->SetState(std::move(State), OutError)
+				|| !Texture.SetAssetImportData(*Data, OutError)) return false;
+			Texture.MarkPackageDirty();
+			return true;
 		}
 
 		auto SaveImportedCube(DTextureCube& Texture, std::string& OutError,

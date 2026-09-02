@@ -36,9 +36,9 @@ namespace Durin
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
 			if (WorkingBytes == 0)
 				WorkingBytes = std::max<uint64>(
-					SaturatingMultiply(Request.SourceData.Pixels.size(), 3),
+					SaturatingMultiply(Request.ImportedData.Pixels.GetPayloadSize(), 3),
 					64ull * 1024ull * 1024ull);
-			return SaturatingAdd(Request.SourceData.Pixels.size(), WorkingBytes);
+			return SaturatingAdd(Request.ImportedData.Pixels.GetPayloadSize(), WorkingBytes);
 		}
 
 		auto PlatformDataBytes(const FTexturePlatformData& PlatformData) -> uint64
@@ -87,7 +87,7 @@ namespace Durin
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
 			if (!Completion || IsObjectHandleNull(Request.Owner)
-				|| Request.AssetIdentity.empty() || !Request.SourceData.IsValid()
+				|| Request.AssetIdentity.empty() || !Request.ImportedData.IsValid()
 				|| Request.ImportedDataIdentity.IsZero()) return 0;
 			auto Job = std::make_shared<FJob>();
 			Job->Request = std::move(Request);
@@ -210,7 +210,8 @@ namespace Durin
 				.Settings = Job.Request.Settings,
 				.Error = std::move(Error),
 				.Metrics = {.EstimatedBytes = Job.EstimatedBytes},
-				.Phase = Phase};
+				.Phase = Phase,
+				.bSourceDecoderInvoked = Job.Request.bSourceDecoderInvoked};
 		}
 
 		auto SetPhase(const std::shared_ptr<FJob>& Job, ETexture2DCompilationPhase Phase) -> void
@@ -271,9 +272,9 @@ namespace Durin
 			}
 			const uint64 PreparationStart = NowNanoseconds();
 			FTexture2DBuildRequest BuildRequest{
-				.SourceData = std::move(Job->Request.SourceData)};
+				.ImportedData = std::move(Job->Request.ImportedData)};
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
-			Result.Metrics.DecodedBytes = BuildRequest.SourceData.Pixels.size();
+			Result.Metrics.DecodedBytes = 0;
 			Result.ImportedDataIdentity = Job->Request.ImportedDataIdentity;
 
 			SetPhase(Job, ETexture2DCompilationPhase::Building);
@@ -320,8 +321,11 @@ namespace Durin
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
 			Result.PersistenceDiagnostic = std::move(Product.PersistenceDiagnostic);
 			Result.Origin = Product.Origin;
-			Result.SourceData = std::make_unique<FTextureSourceData>(
-				std::move(BuildRequest.SourceData));
+			Result.bSourceDecoderInvoked = Job->Request.bSourceDecoderInvoked;
+			if (Product.Origin == ETexture2DBuildProductOrigin::Rebuilt)
+				Result.Metrics.DecodedBytes = BuildRequest.ImportedData.Pixels.GetPayloadSize();
+			Result.ImportedData = std::make_unique<FTexture2DImportedData>(
+				std::move(BuildRequest.ImportedData));
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error.clear();
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
@@ -335,7 +339,6 @@ namespace Durin
 			std::string Error) -> void
 		{
 			FTexture2DCompilationWorkResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
-			FByteArray().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 		}
 
@@ -350,7 +353,6 @@ namespace Durin
 				--RunningCount;
 				InFlightEstimatedBytes -= std::min(InFlightEstimatedBytes, Job->EstimatedBytes);
 			}
-			FByteArray().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 			Admit();
 		}
@@ -369,6 +371,10 @@ namespace Durin
 				Job->Diagnostic.DerivedDataKey = Result.DerivedDataKey;
 				Job->Diagnostic.Metrics = Result.Metrics;
 				Job->Diagnostic.FailurePhase = Result.FailurePhase;
+				Job->Diagnostic.Origin = Result.Origin == ETexture2DBuildProductOrigin::CacheHit
+					? ETexture2DCompilationOrigin::CacheHit
+					: ETexture2DCompilationOrigin::Rebuilt;
+				Job->Diagnostic.bSourceDecoderInvoked = Result.bSourceDecoderInvoked;
 				Job->Diagnostic.QueuedNanoseconds = Job->WorkerStartNanoseconds != 0
 					? Job->WorkerStartNanoseconds - Job->EnqueueNanoseconds
 					: NowNanoseconds() - Job->EnqueueNanoseconds;

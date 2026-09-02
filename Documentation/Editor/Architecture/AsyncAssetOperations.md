@@ -4,20 +4,20 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, Engine
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-09-03
 
 ## Ownership Layers
 
 Asynchronous asset work crosses three independent concerns:
 
-1. Asset-family compilation domains schedule typed work and publish typed products.
+1. Asset-family compilation domains schedule typed work and return typed products.
 2. A family editor adapts typed completion to package save and diagnostics.
 3. DurinEd's optional compensating utility remains available for a mutation
    that actually needs external rollback and asynchronous repair.
 
 Typed compilation domains retain their own workers, priorities, cancellation,
 and metrics. Direct standalone-family import performs synchronous detached
-preparation and publication or delegates only build work to its typed family
+preparation and explicit setter application or delegates only build work to its typed family
 domain. Scene performs direct synchronous orchestration around private captured
 values and does not create a generic import job or operation handle.
 
@@ -29,6 +29,8 @@ compilation request invokes its `FTexture2DCompilationCompletion` exactly once
 on the contributing domain's completion thread. Rejection before acceptance is returned
 synchronously and does not invoke completion.
 
+Request serials, active/last request ids, failure state, and bounded terminal
+diagnostics belong to the Texture compiling manager rather than `DTexture2D`.
 Supersession is terminal, not silent callback disposal. When a family admits a
 new request for an identity that already has active work, it cancels the old
 worker and completes the old observer as `Superseded`. A late worker completion
@@ -73,17 +75,20 @@ retain a reflected object implicitly.
 For direct Texture2D source selection:
 
 - AssetForgeBuiltins captures the selected file without mutating it.
-- TextureBuild prepares and publishes the Texture2D candidate.
-- TextureEditor saves the package after successful publication.
-- A pre-publication failure preserves the live asset; save failure leaves the
-  valid published state Dirty for retry.
+- TextureBuild prepares a detached Texture2D platform-data candidate.
+- Engine rechecks request/object/source/settings identity before the first live
+  mutation, then applies explicit source/settings/platform setters and calls
+  `DTexture::UpdateResource()`.
+- TextureEditor owns Dirty and save sequencing after successful application.
+- A pre-application failure preserves the live asset; save failure leaves the
+  valid applied state Dirty for retry.
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
 
 Other asset families can reuse the compensating operation only when they have a
 real prepare/rollback/compensate transaction. Direct import itself does not use
 this utility: each family captures and validates detached state before its
-narrow publication seam, then reports synchronous rejection or typed build
+narrow setter/update seam, then reports synchronous rejection or typed build
 completion through its owning module.
 
 ## Related Documentation

@@ -816,13 +816,13 @@ namespace Durin::AssetForge::Builtins
 			.ShouldCancel = IsCancellationRequested};
 		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)) return false;
 		FTexture2DBuildRequest Request{
-			.SourceData = std::move(SourceData),
+			.ImportedData = std::move(SourceData),
 			.Settings = OutProduct.Settings};
 		FTexture2DBuildInputIdentity Identity;
 		if (!InvokeTexture2DBuildProvider(
 			Request, OutProduct.Product, Identity, OutError, &Control))
 			return false;
-		OutProduct.SourceData = std::move(Request.SourceData);
+		OutProduct.SourceData = Request.ImportedData.ToSourceData();
 		OutError.clear();
 		return true;
 	}

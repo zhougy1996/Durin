@@ -17,6 +17,40 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
+
+		auto MakeTexture2DSource(const FTexture2DImportedData& Input)
+			-> FTextureSource
+		{
+			if (!Input.IsValid()) return {};
+			FTextureSource Result{
+				.Payload = Input.Pixels,
+				.Width = Input.Width,
+				.Height = Input.Height,
+				.Depth = 1,
+				.NumSlices = 1,
+				.SourceChannelCount = Input.SourceChannelCount,
+				.Format = ETextureSourceFormat::RGBA8,
+				.Kind = ETextureSourceKind::Texture2D,
+				.bHasTransparency = Input.bHasTransparency,
+				.TransparencyMask = static_cast<uint8>(
+					Input.bHasTransparency ? 1u : 0u)};
+			return Result.IsValid() ? std::move(Result) : FTextureSource{};
+		}
+
+		auto MakeTexture2DBuildInput(const FTextureSource& Source)
+			-> FTexture2DImportedData
+		{
+			FTexture2DImportedData Result;
+			if (!Source.IsValid() || Source.Kind != ETextureSourceKind::Texture2D)
+				return Result;
+			Result.Pixels = Source.Payload;
+			Result.Width = Source.Width;
+			Result.Height = Source.Height;
+			Result.SourceChannelCount = Source.SourceChannelCount;
+			Result.Format = ETextureSourceFormat::RGBA8;
+			Result.bHasTransparency = Source.bHasTransparency;
+			return Result;
+		}
 	} // namespace
 
 	auto IsValidTextureUsage(ETextureUsage Usage) -> bool
@@ -85,6 +119,18 @@ namespace Durin
 			&& SourceChannelCount > 0 && SourceChannelCount <= TextureSourceChannelCount
 			&& ExpectedByteCount == Pixels.GetPayloadSize()
 			&& ExpectedByteCount <= MaximumTexture2DImportedPixelBytes;
+	}
+
+	FTexture2DImportedData::FTexture2DImportedData(
+		const FTextureSourceData& Source)
+	{
+		SetSourceData(Source);
+	}
+
+	FTexture2DImportedData::FTexture2DImportedData(
+		FTextureSourceData&& Source)
+	{
+		SetSourceData(Source);
 	}
 
 	auto FTexture2DImportedData::SetSourceData(
@@ -205,14 +251,6 @@ namespace Durin
 	auto DTexture2D::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
-		// Preserve specific failure states set by callers (DecodeFailure, BuildFailure, etc.).
-		// Only downgrade Ready to Unbuilt; a caller that wants a specific failure status
-		// sets it after this call.
-		if (BuildStatus == ETextureBuildStatus::Ready)
-		{
-			BuildStatus = ETextureBuildStatus::Unbuilt;
-			LastBuildError.clear();
-		}
 		InvalidateRenderResource();
 	}
 
@@ -225,6 +263,31 @@ namespace Durin
 			const_cast<DTexture2D*>(this)->LoadCookedPlatformData(Error);
 		}
 		return PlatformData.get();
+	}
+
+	auto DTexture2D::GetImportedDataIdentity() const -> FXxHash128
+	{
+		return MakeTexture2DBuildInput(GetSource()).GetIdentity();
+	}
+
+	auto DTexture2D::CreateBuildInput() const -> FTexture2DImportedData
+	{
+		return MakeTexture2DBuildInput(GetSource());
+	}
+
+	auto DTexture2D::SetPlatformData(
+		std::unique_ptr<FTexturePlatformData> Data,
+		std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		if (!Data || !Data->IsValid())
+		{
+			OutError = "Texture2D platform data must be complete and valid.";
+			return false;
+		}
+		PlatformData = std::move(Data);
+		OutError.clear();
+		return true;
 	}
 
 	auto DTexture2D::CreateRenderResourceCandidate(
@@ -252,30 +315,16 @@ namespace Durin
 					GetObjectPath());
 				return false;
 			}
-			SourceData.reset();
 			PlatformData.reset();
-			DerivedDataKey.clear();
-			bLoadedFromDerivedDataCache = false;
-			DerivedDataDiagnostic = {
-				.Status = ETextureDerivedDataStatus::CookedLoaded,
-				.Message = std::format(
-					"Loaded cooked Texture2D metadata for '{}'.", GetObjectPath())};
-			BuildStatus = ETextureBuildStatus::Ready;
-			LastBuildError.clear();
 			OutError.clear();
 			return true;
 		}
-		BuildStatus = ETextureBuildStatus::Unbuilt;
-		LastBuildError.clear();
-		DerivedDataKey.clear();
-		DerivedDataDiagnostic = {};
-		bLoadedFromDerivedDataCache = false;
-		if (!ImportedData.IsValid())
+		if (!GetSource().IsValid())
 		{
-			OutError = "Texture2D canonical imported data is missing or invalid.";
+			OutError = "Texture2D source data is missing or invalid.";
 		}
 		else if (BuildTexture2DSynchronously(*this, {
-			.SourceData = ImportedData.ToSourceData(),
+			.ImportedData = MakeTexture2DBuildInput(GetSource()),
 			.Settings = {
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
@@ -286,23 +335,14 @@ namespace Durin
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
 			.bSourceDecoderInvoked = false}, OutError)) return true;
-		if (BuildStatus == ETextureBuildStatus::Unbuilt)
-			PublishUncookedLoadFailure(
-				ETextureDerivedDataStatus::Incompatible,
-				ETextureBuildStatus::BuildFailure,
-				OutError);
 		return false;
 	}
 
 	auto DTexture2D::LoadCookedPlatformData(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::CookedFailure;
-			DerivedDataDiagnostic.Message = std::format(
+			OutError = std::format(
 				"Cooked Texture2D '{}': {}", GetObjectPath(), Message);
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = DerivedDataDiagnostic.Message;
-			OutError = LastBuildError;
 			return false;
 		};
 
@@ -322,16 +362,9 @@ namespace Durin
 		}
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
-		SourceData.reset();
-		PlatformData = std::move(CandidatePlatformData);
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::CookedLoaded,
-			.Message = std::format("Loaded cooked Texture2D payload for '{}'.", GetObjectPath())};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
+		if (!SetPlatformData(std::move(CandidatePlatformData), OutError))
+			return FailCooked(OutError);
+		UpdateResource();
 		OutError.clear();
 		return true;
 	}
@@ -375,144 +408,44 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 	}
 
-	auto DTexture2D::RefreshBuildStatus() -> void
+	auto DTexture2D::SetSourceData(
+		const FTexture2DImportedData& Value, std::string& OutError) -> bool
 	{
-		const std::shared_ptr<FTextureResourceCompletion>& Completion =
-			GetRenderCompletion();
-		if (Completion->GetFailedRevision() == GetBuildRevision())
+		CheckGameThread();
+		FTextureSource SourceCandidate = MakeTexture2DSource(Value);
+		if (!SourceCandidate.IsValid())
 		{
-			if (BuildStatus == ETextureBuildStatus::Ready)
-			{
-				if (Completion->GetFailureReason()
-					== ETextureRenderFailure::UnsupportedFormat)
-				{
-					BuildStatus = ETextureBuildStatus::UnsupportedFormat;
-					LastBuildError = "The current RHI does not support this texture format and usage.";
-				}
-				else
-				{
-					BuildStatus = ETextureBuildStatus::UploadFailure;
-					LastBuildError = "GPU texture creation or upload failed.";
-				}
-			}
+			OutError = "Texture2D source data could not be captured.";
+			return false;
 		}
+		return SetSource(std::move(SourceCandidate), OutError);
 	}
 
-	auto DTexture2D::PublishImportedState(
-		FTexture2DImportedState State,
+	auto DTexture2D::SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
+		uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
+		ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold,
 		std::string& OutError) -> bool
 	{
-		if (!IsInGameThread())
+		CheckGameThread();
+		if (!IsValidTextureUsage(InUsage)
+			|| !IsValidTextureCompressionQuality(InCompressionQuality)
+			|| !IsValidTextureAlphaMipMode(InAlphaMipMode)
+			|| !IsValidTextureAlphaCoverageThreshold(InAlphaCoverageThreshold))
 		{
-			OutError = "Texture2D imported state must be applied on the game thread.";
+			OutError = "Texture2D build settings are invalid.";
 			return false;
 		}
-		if (!State.SourceData || !State.SourceData->IsValid()
-			|| !State.PlatformData || !State.PlatformData->IsValid()
-			|| State.DerivedDataKey.empty()
-			|| !IsValidTextureUsage(State.Usage)
-			|| !IsValidTextureCompressionQuality(State.CompressionQuality)
-			|| !IsValidTextureAlphaMipMode(State.AlphaMipMode)
-			|| !IsValidTextureAlphaCoverageThreshold(State.AlphaCoverageThreshold))
-		{
-			OutError = "Texture2D imported state is incomplete or invalid.";
-			return false;
-		}
-
-		FTexture2DImportedData ImportedCandidate;
-		if (!ImportedCandidate.SetSourceData(*State.SourceData))
-		{
-			OutError = "Texture2D canonical imported data could not be captured.";
-			return false;
-		}
-
-		SourceWidth = State.SourceData->Width;
-		SourceHeight = State.SourceData->Height;
-		SourceChannelCount = State.SourceData->SourceChannelCount;
-		bSourceHasTransparency = State.SourceData->bHasTransparency;
-		ImportedData = std::move(ImportedCandidate);
-		SourceData = std::move(State.SourceData);
-		PlatformData = std::move(State.PlatformData);
-		DerivedDataKey = std::move(State.DerivedDataKey);
-		Usage = State.Usage;
-		bSRGB = State.bSRGB;
-		MaxResolution = State.MaxResolution;
-		CompressionQuality = State.CompressionQuality;
-		AlphaMipMode = State.AlphaMipMode;
-		AlphaCoverageThreshold = State.AlphaCoverageThreshold;
-		bLoadedFromDerivedDataCache = State.bLoadedFromDerivedDataCache;
-		DerivedDataDiagnostic = {
-			.Status = State.bLoadedFromDerivedDataCache
-				? ETextureDerivedDataStatus::Hit
-				: ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = State.BuildDiagnostic.empty()
-				? (State.bLoadedFromDerivedDataCache
-					? "Applied cached Texture2D build result."
-					: "Applied normalized Texture2D build result.")
-				: std::format(
-					"Applied {} Texture2D build result; DDC persistence was best effort: {}",
-					State.bLoadedFromDerivedDataCache ? "cached" : "normalized",
-					State.BuildDiagnostic),
-			.bSourceDecoderInvoked = State.bSourceDecoderInvoked};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
-		if (State.bMarkPackageDirty) MarkPackageDirty();
-		if (State.bReportLoadMutation)
-		{
-			ReportAssetLoadMutation(
-				this,
-				"Engine.Texture2D.SourceIdentity",
-				"Texture source identity metadata was reconciled by an uncooked post-load build.");
-		}
+		Usage = InUsage;
+		bSRGB = bInSRGB;
+		MaxResolution = InMaxResolution;
+		CompressionQuality = InCompressionQuality;
+		AlphaMipMode = InAlphaMipMode;
+		AlphaCoverageThreshold = InAlphaCoverageThreshold;
 		OutError.clear();
 		return true;
 	}
 
-	auto DTexture2D::PublishDerivedDataLoad(
-		std::unique_ptr<FTexturePlatformData> InPlatformData,
-		std::string InDerivedDataKey,
-		std::string& OutError) -> bool
-	{
-		if (!IsInGameThread() || !InPlatformData || !InPlatformData->IsValid()
-			|| InDerivedDataKey.empty())
-		{
-			OutError = "Texture2D derived-data load result is incomplete or invalid.";
-			return false;
-		}
-		SourceData.reset();
-		PlatformData = std::move(InPlatformData);
-		DerivedDataKey = std::move(InDerivedDataKey);
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		bLoadedFromDerivedDataCache = true;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Hit,
-			.Key = DerivedDataKey,
-			.Message = std::format("Texture2D DDC hit for key {}.", DerivedDataKey)};
-		QueueRenderResourceBuild();
-		OutError.clear();
-		return true;
-	}
-
-	auto DTexture2D::PublishUncookedLoadFailure(
-		ETextureDerivedDataStatus DerivedDataStatus,
-		ETextureBuildStatus InBuildStatus,
-		std::string Message,
-		std::string InDerivedDataKey) -> bool
-	{
-		DerivedDataKey = std::move(InDerivedDataKey);
-		DerivedDataDiagnostic = {
-			.Status = DerivedDataStatus,
-			.Key = DerivedDataKey,
-			.Message = Message};
-		BuildStatus = InBuildStatus;
-		LastBuildError = std::move(Message);
-		return false;
-	}
-
-	auto DTexture2D::PublishAssetImportData(
+	auto DTexture2D::SetAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
@@ -522,7 +455,6 @@ namespace Durin
 		}
 		if (!Value.Validate(OutError)) return false;
 		AssetImportData = &Value;
-		MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}

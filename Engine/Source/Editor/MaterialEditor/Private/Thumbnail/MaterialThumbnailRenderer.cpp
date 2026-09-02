@@ -99,11 +99,9 @@ namespace Durin::Editor::Material
 				bOutReady = true;
 				return Revision;
 			}
-			if (Texture->GetBuildStatus() != ETextureBuildStatus::Ready)
+			if (!Texture->HasPlatformData())
 			{
-				OutError = Texture->GetLastBuildError().empty()
-					? "A referenced material texture is not built."
-					: Texture->GetLastBuildError();
+				OutError = "A referenced material texture is not built.";
 				return 0;
 			}
 			const ERenderResourceState State = Texture->GetRenderResourceState();

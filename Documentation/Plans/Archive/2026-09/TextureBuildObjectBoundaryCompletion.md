@@ -4,7 +4,7 @@ Summary: Complete the Engine-owned Texture object boundary by reducing TextureBu
 
 Last reviewed: 2026-09-02
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-02
 
 ## Current Status
@@ -584,15 +584,15 @@ validation also passed.
 
 ## Related Documentation
 
-- [UE-Style Asset Compilation Ownership Plan](Archive/2026-09/UEStyleAssetCompilationOwnership.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [UE-Style Asset Compilation Ownership Plan](UEStyleAssetCompilationOwnership.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

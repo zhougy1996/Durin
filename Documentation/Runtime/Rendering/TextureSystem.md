@@ -4,31 +4,34 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns optional editor-only import data containing a normalized,
-  explicitly based physical source hint plus the reflected `Usage`,
-  `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
-  `AlphaCoverageThreshold` build settings.
-- The package also retains the imported source-content hash, source file
-  fingerprint, dimensions, channel count, and transparency. These lightweight
-  fields preserve diagnostics and derived-data identity without keeping decoded
-  pixels resident.
-- `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
-  original channel count, and whether transparency is present. A warm derived-
-  data load leaves it non-resident; an editor build-setting proposal snapshots
-  encoded source bytes and decodes them on a worker before publishing the edit.
+- Every concrete texture stores one editor-only `FTextureSource`. `DTexture`
+  owns the common validation and access contract, while the reflected field
+  remains on each concrete class so old family fields can migrate through the
+  serializer's exact declaring-type route. The source contains canonical bulk
+  texels plus dimensions, topology, format, channel/transparency metadata,
+  schema, and content identity. `DAssetImportData` separately records optional
+  physical-source provenance for explicit reimport.
+- `Usage` and `bSRGB` remain runtime-authored metadata. `MaxResolution`,
+  `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` are
+  editor-only build settings.
+- `FTexture2DImportedData` is a detached request input copied from an immutable
+  `FTextureSource` snapshot. It carries a shared `FEditorBulkData` handle and
+  metadata, so computing identity or completing a warm DDC lookup does not
+  materialize pixels. `FTextureSourceData` is the decoded RGBA8 recipe value and
+  is created only after a DDC miss or when an editor preview explicitly needs
+  pixels. Neither value is retained on `DTexture2D`.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.
 - Source and platform data are intentionally separate. Platform cache hits and
-  rebuilds replace platform data without mutating a resident decoded source
-  representation.
+  rebuilds install a complete platform-data value without mutating source.
 - Normal usage generates linear-space mips by averaging and renormalizing the
   encoded normal vector. Color usage filters RGB in linear space when sRGB is
   enabled. Data/Mask usage averages channels independently.
@@ -62,18 +65,18 @@ cooked-runtime, render-resource, editor, and material boundaries.
 Texture2D is a qualified production consumer of domain-owned payload schemas.
 The tracked VintageLighter derived sources include three 1024 x 1024 x 32-bit
 TGA files of 4,194,322 bytes each; each decodes to exactly 4 MiB RGBA8, while
-the corresponding `.dasset` packages are only 1,300-1,387 bytes. `DTexture2D`
-persists 15 bounded reflected source/build/domain descriptor fields. Neither
-`FTextureSourceData::Pixels` nor platform mip vectors are reflected or stored in
-the authored package.
+the corresponding `.dasset` packages are only 1,300-1,387 bytes. Large
+canonical texels use the authored package's `FEditorBulkData` placement rather
+than a reflected byte vector. Neither request-local decoded pixels nor platform
+mip vectors are stored in the authored object field tree.
 
 Source image encoding belongs to the ordinary source file and decoder. Texture
 payload schema 2 belongs to the owning asset, DDC values are rebuildable
 canonical platform data, and cooked `PlatformData` fields are immutable
-deployment data loaded through package resources. Decoded source, platform mip, and RHI resource
-lifetimes are independent downstream products. This measured boundary already
-satisfies the large-payload architecture; adding another authored container
-would not remove an oversized reflected value and is not selected.
+deployment data loaded through package resources. Request input, decoded recipe
+data, platform mips, and RHI resources have independent downstream lifetimes.
+The authored bulk source is the sole rebuild authority; request-local family
+values are views or snapshots, not a second persistent source container.
 
 Texture2D platform mip chains are content-addressed beneath
 `DerivedDataCache/Textures/Objects/` as `.bin` objects. A canonical 128-bit key
@@ -141,14 +144,16 @@ waiting; an already admitted job is never preempted. A single valid request
 larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
-Each request carries a normalized decoded source value, captured content hash,
-all build settings, Win64/Game target identity, scheduling identity, and a
-monotonic per-object generation. Workers only receive value snapshots. They
-generate mips, compress, validate, and atomically persist DDC data, then place a
-move-only result in the manager mailbox. The Texture compiling manager
-commits on the GameThread only when request id, generation, weak object identity,
-source path, and complete settings still match. Cancellation is cooperative;
-this commit comparison is the correctness boundary.
+Each request carries a detached `FTexture2DImportedData` snapshot, content
+identity, all build settings, Win64/Game target identity, scheduling identity,
+and a manager-owned monotonic request serial. Key computation and a warm DDC
+lookup use source metadata and content identity only. A miss materializes the
+bulk payload into `FTextureSourceData`, then workers generate mips, compress,
+validate, and atomically persist DDC data before placing a move-only result in
+the manager mailbox. The Texture compiling manager commits on the GameThread
+only when request id, serial, weak object identity, source identity, and
+complete settings still match. Cancellation is cooperative; this comparison
+is the live-object mutation boundary.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame budget. The manager mailbox
@@ -164,17 +169,17 @@ between mips, and every 64 compression blocks. New requests cancel the older
 generation. Unload, destruction, document close, failed startup unwind, and
 normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
 queued and running set, waits for worker quiescence, drains GameThread
-completions, and then destroys the manager-owned queue. Completion history is bounded
-to 256 diagnostics and encoded request bytes are released as soon as worker
-use ends.
+completions, and then destroys the manager-owned queue. Request state and
+completion history are manager-owned and bounded to 256 records; source payload
+handles are released as soon as worker use ends.
 
-Readiness is separate from the persistent build result and from render
-revision. Its phases are Queued, Preparing, Building, Persisting, Upload Pending,
-Ready, Failed, and Cancelled. Diagnostics retain request/generation identity,
-queue and worker time, estimated bytes, decoded bytes, peak intermediate bytes,
-result bytes, completion callback time, DDC key, and the latest matching failure with its originating
-decode, build, or persistence phase. Ready requires both a
-committed CPU result and completion of the matching revisioned render upload.
+CPU readiness is the presence of valid installed platform data. Compilation
+phase and terminal build/DDC diagnostics belong to the manager's active or
+bounded recent operation record; GPU readiness and failure belong to
+`FTextureResourceCompletion` for the current render revision. These owners are
+queried separately. Operation diagnostics retain request identity, timings,
+byte metrics, DDC key, cache-hit/rebuild origin, source-decoder invocation, and
+the matching failure phase; idle textures do not persist those facts.
 
 The 2026-08-11 `Win64-Debug-DurinEditor` completion characterization measured
 representative 1K and 4K success, failed, cancelled, and stale callbacks at
@@ -205,13 +210,13 @@ The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`,
 `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` through
 reflected-property transactions.
 `DTexture2D::PreEditChangeProperty` captures complete candidate settings from
-detached proposal storage and defers publication through the reflected-edit
+detached proposal storage and defers application through the reflected-edit
 protocol. The worker result remains private until it succeeds. Invalid values,
 decode/build/DDC failures, cancellation, supersession, and document close leave
 the reflected values, package Dirty state, undo history, platform data, and
 stable texture target unchanged.
 
-After a successful worker result, the GameThread publishes the reflected value
+After a successful worker result, the GameThread applies the reflected value
 once, `PostEditChangeProperty` installs that exact persisted candidate without
 rebuilding it, and the edit session registers one transaction and one Dirty
 transition. Cancel, Undo, and Redo use the same asynchronous proposal path.
@@ -222,18 +227,20 @@ rebuild rule and dirty the package after success.
 
 ## Render-Thread Boundary
 
-`DTexture` is the reflected abstract boundary shared by `DTexture2D` and
-`DTextureCube`. It cannot be instantiated or registered as a concrete asset
-type. The leaves retain their own reflected source, build-setting,
-platform-data, import, DDC, and cook contracts: material parameters remain
-`DTexture2D`-typed, while sky components remain `DTextureCube`-typed.
+`DTexture` is the reflected abstract boundary shared by `DTexture2D`,
+`DTextureCube`, and `DVolumeTexture`. It cannot be instantiated as a concrete
+asset type. It provides the common source and render-resource contract. Each
+leaf retains a single reflected `FTextureSource` storage field, its typed build
+settings and installed/cooked platform data, and its editor import metadata; it
+retains no legacy source fields, migration shims, DDC state, or build-operation
+diagnostic state. The maintained texture asset corpus uses this canonical
+layout directly.
 
 `DTexture` is the sole high-level owner of one stable `FTextureReference`, one
 revision/completion contract, and at most one current
 `FTextureAssetResource`. The reference and resource are uniquely owned rather
 than shared through C++ smart pointers. Each leaf snapshots validated immutable
-platform data into its topology-specific `FTexture2DResource` or
-`FTextureCubeResource`; the common base owns publication, replacement,
+platform data into its topology-specific resource; the common base owns publication, replacement,
 invalidation, release, and deferred cleanup. The concrete resource owns the
 uploaded `FTextureRHIRef`; the stable reference owns a counted
 `FRHITextureReferenceRef` whose target can change without changing the
@@ -283,7 +290,7 @@ complete structurally valid description is supported. Vulkan queries the exact
 format, image type, tiling, usage, flags, extent, mip, layer, and sample
 combination. An unsupported description is rejected before image creation and
 remains distinguishable from a general creation or upload failure in the
-asset's persistent editor diagnostics. The public capability and support
+current revision's render completion. The public capability and support
 contract is documented in
 [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
@@ -307,9 +314,11 @@ checked against known values rather than inferred from editor startup.
 by Texture2D and VolumeTexture. Live summaries cover source, derived, cooked,
 decoded CPU, and GPU stages with schema version, texel count, logical/stored
 bytes, placement capability, provenance, state, diagnostic, and an explicit
-repair classification. Package summaries are construct-free and join reflected
-domain fields with Engine storage inspection; they do not open DDC or build
-runtime resources.
+repair classification. They derive those stages from common source metadata,
+installed platform data, any available manager operation diagnostic, cooked
+bulk, and current render completion. Package summaries are construct-free and
+join reflected domain fields with Engine storage inspection; neither form opens
+DDC, rebuilds, or creates runtime resources merely to inspect state.
 
 Texture editors render this summary as a read-only Payload Lifecycle section.
 Buttons remain attached to explicit Reimport, Reimport From File, build, and

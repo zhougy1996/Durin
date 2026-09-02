@@ -4,7 +4,7 @@ Summary: Make TextureBuild a pure texture transformation provider while Engine o
 
 Last reviewed: 2026-09-02
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-02
 
 ## Current Status
@@ -482,38 +482,38 @@ Dependencies: Stage 4 complete.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Build System](../Development/Build/BuildSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
 - [Texture Build Object Boundary Completion](TextureBuildObjectBoundaryCompletion.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`DerivedDataCache.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
-- [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
-- [`TextureBuild.dmodule`](../../Engine/Source/Developer/TextureBuild/TextureBuild.dmodule)
-- [`TextureBuildModule.cpp`](../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
-- [`TextureBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
-- [`TextureCubeBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
-- [`VolumeTextureBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuildOperations.cpp)
-- [`Engine.dmodule`](../../Engine/Source/Runtime/Engine/Engine.dmodule)
-- [`Texture2DBuildProvider.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DBuildProvider.cpp)
-- [`Texture2DCompilation.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp)
-- [`TextureCubeBuildProvider.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/TextureCubeBuildProvider.cpp)
-- [`VolumeTextureBuildProvider.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureBuildProvider.cpp)
-- [`TextureDerivedData.h`](../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
-- [`TextureDerivedDataCache.h`](../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedDataCache.h)
-- [`TextureDerivedDataKey.h`](../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedDataKey.h)
-- [`Texture2D.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
-- [`TextureCube.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp)
-- [`VolumeTexture.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp)
-- [`TextureBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
-- [`TextureDerivedDataTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)
-- [`TextureImportAndCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureImportAndCacheTests.cpp)
-- [`TextureCookTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureCookTests.cpp)
+- [`DerivedDataCache.h`](../../../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
+- [`DerivedDataBuild.cpp`](../../../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
+- [`TextureBuild.dmodule`](../../../../Engine/Source/Developer/TextureBuild/TextureBuild.dmodule)
+- [`TextureBuildModule.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
+- [`TextureBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
+- [`TextureCubeBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.cpp)
+- [`VolumeTextureBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuildOperations.cpp)
+- [`Engine.dmodule`](../../../../Engine/Source/Runtime/Engine/Engine.dmodule)
+- [`Texture2DBuildProvider.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DBuildProvider.cpp)
+- [`Texture2DCompilation.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp)
+- [`TextureCubeBuildProvider.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureCubeBuildProvider.cpp)
+- [`VolumeTextureBuildProvider.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureBuildProvider.cpp)
+- [`TextureDerivedData.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h)
+- [`TextureDerivedDataCache.h`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedDataCache.h)
+- [`TextureDerivedDataKey.h`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedDataKey.h)
+- [`Texture2D.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
+- [`TextureCube.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp)
+- [`VolumeTexture.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/VolumeTexture.cpp)
+- [`TextureBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
+- [`TextureDerivedDataTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)
+- [`TextureImportAndCacheTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureImportAndCacheTests.cpp)
+- [`TextureCookTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureCookTests.cpp)

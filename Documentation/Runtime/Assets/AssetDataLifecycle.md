@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -87,8 +87,9 @@ calls but does not become an asset compiler. See
 
 Accepted asynchronous Texture2D requests use Engine's terminal
 `FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
-including cancellation and supersession. `DTexture2D` owns a process-local
-request serial; the Engine Texture manager owns generation-safe object handles,
+including cancellation and supersession. The Engine Texture manager owns the
+process-local request serial, active/last request identity, bounded terminal
+history, generation-safe object handles,
 workers, typed completion application, and the GameThread completion pump. Deterministic
 build/provider identity, DDC identity, CPU payload readiness, and GPU resource
 readiness remain separate. Editor-side commit and recovery sequencing is separately defined by
@@ -100,8 +101,8 @@ physical source file and translates its immutable encoded bytes into canonical
 RGBA8 pixels. Build is the detached
 `FTexture2DBuildRequest` to `FTexture2DBuildProduct` transformation and never
 observes an asset object. Compilation schedules that build for a specific
-`DTexture2D`, applies cancellation and supersession, and publishes the product
-on GameThread. Authored describes authoritative persisted package state; it is
+`DTexture2D`, applies cancellation and supersession, and installs the product
+through typed setters on GameThread. Authored describes authoritative persisted package state; it is
 not the name of the compiling manager or one of its requests.
 
 ## Storage Classes
@@ -127,7 +128,7 @@ byte offset, and asset paths and source hints are not interchangeable.
 
 Engine has one immutable `FAssetRuntimeConfiguration` for each initialized
 runtime lifetime. `Authored()` selects the authored execution domain with
-canonical imported data and disposable DDC available. The validated
+canonical source/build inputs and disposable DDC available. The validated
 `Cooked(...)` factory requires
 an absolute normalized cook root and fixes the payload policy to
 `CookedPayloadRequired`. `InitializeAssetManager` may reopen a shut-down
@@ -144,10 +145,10 @@ policy.
 
 ## Authored Packages
 
-An editor DAST v9 package and optional raw `.dbulk` segment contain authoritative object and imported state:
+An editor DAST v9 package and optional raw `.dbulk` segment contain authoritative object and source state:
 
 - reflected properties and cross-package asset references;
-- bounded decoder-free canonical imported data, inline or in authored bulk;
+- bounded canonical source data, inline or in authored bulk;
 - optional source hints and provenance used only by explicit Reimport;
 - build settings that contribute to derived-data keys.
 
@@ -160,8 +161,9 @@ never consults an asset mount and occurs only after the user invokes Reimport.
 
 Physical source input is not rebuild authority and is not a runtime asset.
 Texture2D, StaticMesh, TextureCube, VolumeTexture, TerrainHeightmap,
-SkeletalMesh, and AnimationClip persist the canonical imported data required by
-their builders. Runtime build settings remain on their assets; no asset also
+SkeletalMesh, and AnimationClip persist the canonical source data required by
+their builders. Runtime-required metadata remains on assets, while offline-only
+texture build settings are editor-only; no asset also
 persists a generic replay graph or mounted-source request.
 
 Import, Reimport, and Reimport From File are the only paths that read physical
@@ -328,7 +330,7 @@ invalidate a complete in-memory build result.
 For Texture2D/TextureCube/VolumeTexture, Engine validates cached PlatformData
 through the canonical serializer; other build families validate through their
 registered family functions. Invalid bytes become rebuildable misses from
-canonical imported data. Every family retains a complete local result
+the persistent common texture source. Every family retains a complete local result
 after a successful build even when best-effort DDC storage fails, and surfaces
 the bounded store diagnostic separately.
 
@@ -385,7 +387,8 @@ profile context and dispatches `DObject::SerializeCooked` during discovery,
 NoDelta planning, value capture, and load. Family overrides serialize detached
 or stack-local projections and never mutate authored fields, dirty state,
 diagnostics, build revisions, DDC state, or live residency. Editor-only source
-provenance, canonical imported data, and rebuild keys are omitted.
+provenance, `FTextureSource` bulk, offline build settings, and operation-owned
+rebuild keys/diagnostics are omitted.
 
 Payload-bearing packages use DAST v9 BulkData linker values. Values selected
 for inline storage occupy aligned ranges in the `.dasset` Inline Bulk section;
@@ -413,7 +416,8 @@ facts, bounds, checksums, and semantic validation. Cooked package load validates
 the complete package/segment closure and attaches each external `FBulkData`
 range before publishing the object graph. It performs no field-range read.
 The first explicit family request locks only the required field, decodes into a
-detached candidate, validates the family schema, and publishes transactionally.
+detached candidate, validates the family schema, installs typed platform data,
+and invokes the common resource update.
 Missing, truncated, corrupt, wrong-target, or incompatible data is an
 asset-qualified hard failure; there is no source, importer, DDC, or synthetic
 fallback.
@@ -585,8 +589,9 @@ state, wire, and resource rules are defined by
 Texture payload inspection reports source, derived, cooked, decoded CPU, and
 GPU stages without creating a shared authority descriptor. Construct-free
 inspection reads package field trees and storage descriptors; live inspection
-joins source-file diagnostics, DDC diagnostics, decoded data, and
-render-resource state. Placement labels are capability descriptions such as `SourceFile`,
+joins source metadata and placement, installed/cooked platform data, an
+available manager-owned Texture2D operation diagnostic, and current render-
+resource state. Placement labels are capability descriptions such as `SourceFile`,
 `EditorPackageCompanion`, `DerivedDataCache`, and `CookedPackageCompanion`, not
 backend paths supplied to domain callers.
 

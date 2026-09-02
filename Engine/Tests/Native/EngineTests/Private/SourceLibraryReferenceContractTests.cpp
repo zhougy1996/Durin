@@ -66,10 +66,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 
 	static constexpr std::array Texture2DProperties = {
 		std::string_view("AssetImportData"),
-		std::string_view("SourceWidth"),
-		std::string_view("SourceHeight"),
-		std::string_view("SourceChannelCount"),
-		std::string_view("bSourceHasTransparency"),
+		std::string_view("Source"),
 		std::string_view("Usage"),
 		std::string_view("bSRGB"),
 		std::string_view("MaxResolution"),
@@ -79,6 +76,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	static constexpr std::array TextureCubeProperties = {
 		std::string_view("SourceLayout"),
 		std::string_view("AssetImportData"),
+		std::string_view("Source"),
 		std::string_view("PanoramaFaceDimension"),
 		std::string_view("PanoramaExposureEV"),
 		std::string_view("OriginalSourceWidth"),
@@ -101,6 +99,10 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	EXPECT_EQ(Durin::DStaticMesh::StaticClass()->FindPropertyByName("SourceFile"), nullptr);
 	EXPECT_EQ(Durin::DStaticMesh::StaticClass()->FindPropertyByName("ImportSettings"), nullptr);
 	EXPECT_EQ(Texture2DClass->FindPropertyByName("SourceFile"), nullptr);
+	for (std::string_view RetiredField : {
+		"SourceWidth", "SourceHeight", "SourceChannelCount",
+		"bSourceHasTransparency", "SourceData"})
+		EXPECT_EQ(Texture2DClass->FindPropertyByName(RetiredField), nullptr);
 	for (std::string_view RetiredField : {
 		"PositiveXSourceFile",
 		"NegativeXSourceFile",

@@ -19,10 +19,14 @@ namespace Durin
 				});
 		}
 
-		auto GetCanonicalRole(FName Role) -> std::string_view
+		auto GetCanonicalRole(FName Role) -> std::string
 		{
-			return Role.IsNone()
-				? std::string_view{} : Role.GetComparisonNameEntry()->MakeView();
+			if (Role.IsNone()) return {};
+			std::string Result = Role.GetComparisonNameEntry()->GetPlainNameString();
+			std::ranges::transform(Result, Result.begin(), [](unsigned char Character) {
+				return static_cast<char>(std::tolower(Character));
+			});
+			return Result;
 		}
 
 		auto IsNormalizedSourceHint(
@@ -90,7 +94,7 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		const std::string_view CanonicalRole = GetCanonicalRole(Role);
+		const std::string CanonicalRole = GetCanonicalRole(Role);
 		if (Role.GetNumber() != 0 || CanonicalRole.size() > MaximumAssetImportRoleBytes
 			|| !IsIdentifier(CanonicalRole)
 			|| DisplayLabel.size() > MaximumAssetImportStringBytes
@@ -118,11 +122,11 @@ namespace Durin
 			OutError = "Asset import source count exceeds its bound.";
 			return false;
 		}
-		std::string_view PreviousRole;
+		std::string PreviousRole;
 		for (const FSourceFile& Source : Sources)
 		{
 			if (Source.IsEmpty() || !Source.Validate(OutError)) return false;
-			const std::string_view Role = GetCanonicalRole(Source.Role);
+			const std::string Role = GetCanonicalRole(Source.Role);
 			if (!PreviousRole.empty() && PreviousRole >= Role)
 			{
 				OutError = "Asset import source roles are duplicated or not in canonical order.";

@@ -132,11 +132,20 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		return Texture.ApplyBuildResult(SourceData, Settings,
-			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
-			std::move(Product.PersistenceDiagnostic), OutError,
-			Product.Origin == EVolumeTextureBuildProductOrigin::CacheHit,
-			Context.bMarkPackageDirty, Context.bSourceDecoderInvoked);
+		if (!SourceData.IsValid() || !Product.PlatformData
+			|| !Product.PlatformData->IsValid() || Product.DerivedDataKey.empty()
+			|| SourceData.Format != Settings.OutputFormat)
+		{
+			OutError = "VolumeTexture result application requires compatible source, settings, platform data, and key.";
+			return false;
+		}
+		if (!Texture.SetSourceData(SourceData, OutError)
+			|| !Texture.SetBuildSettings(Settings, OutError)
+			|| !Texture.SetPlatformData(std::move(Product.PlatformData), OutError)) return false;
+		Texture.UpdateResource();
+		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 	}
 }

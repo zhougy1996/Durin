@@ -90,8 +90,14 @@ namespace Durin
 		{
 			return AssetImportData.Get();
 		}
-		ENGINE_API auto PublishAssetImportData(
+		ENGINE_API auto SetAssetImportData(
 			DAssetImportData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetSourceData(
+			const FTextureCubeImportedData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
+			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
+			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,
+			bool bInSRGB, std::string& OutError) -> bool;
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
@@ -99,17 +105,21 @@ namespace Durin
 		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
-		auto GetSourceData() const -> const FTextureCubeSourceData* { return SourceData.get(); }
-		auto GetImportedData() const -> const FTextureCubeImportedData& { return ImportedData; }
-		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
+		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
 		ENGINE_API auto GetPlatformData() const -> const FTextureCubePlatformData*;
-		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetInstalledPlatformData() const -> const FTextureCubePlatformData*
+		{
+			return PlatformData.get();
+		}
+		auto HasPlatformData() const -> bool
+		{
+			return PlatformData && PlatformData->IsValid();
+		}
+		ENGINE_API auto SetPlatformData(
+			std::unique_ptr<FTextureCubePlatformData> Data,
+			std::string& OutError) -> bool;
 		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
-		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto IsSRGB() const -> bool { return bSRGB; }
-		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
-		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -120,70 +130,48 @@ namespace Durin
 			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
-	public:
-		ENGINE_API auto RefreshBuildStatus() -> void;
-
-		// Atomically accepts a complete, validated post-load candidate. Engine owns
-		// the live object and render-resource transition; production stays external.
-		ENGINE_API auto ApplyBuildResult(
-			FTextureCubeImportedData InImportedData,
-			ETextureCubeSourceLayout InSourceLayout,
-			uint32 InPanoramaFaceDimension,
-			float InPanoramaExposureEV,
-			uint32 InOriginalSourceWidth,
-			uint32 InOriginalSourceHeight,
-			bool bInSRGB,
-			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
-			std::string InDerivedDataKey,
-			FTextureDerivedDataDiagnostic InDiagnostic,
-			bool bMarkPackageDirty = true) -> void;
-		ENGINE_API auto PublishDerivedDataLoad(
-			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
-			std::string InDerivedDataKey,
-			std::string& OutError) -> bool;
 	protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
+		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
+		auto GetTextureSourceStorage() const -> const FTextureSource& override
+		{
+			return Source;
+		}
+		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
 		auto InvalidatePlatformData() -> void;
 
-		DPROPERTY(DisplayName = "Source Layout")
+		DPROPERTY(EditorOnly, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
-		FTextureCubeImportedData ImportedData;
+		FTextureSource Source;
 
-		DPROPERTY(DisplayName = "Panorama Face Dimension")
+		DPROPERTY(EditorOnly, DisplayName = "Panorama Face Dimension")
 		uint32 PanoramaFaceDimension = 0;
 
-		DPROPERTY(DisplayName = "Panorama Exposure EV")
+		DPROPERTY(EditorOnly, DisplayName = "Panorama Exposure EV")
 		float PanoramaExposureEV = 0.0f;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 OriginalSourceWidth = 0;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		uint32 OriginalSourceHeight = 0;
 
 		DPROPERTY()
 		bool bSRGB = true;
 
-		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FBulkData CookedPlatformData;
-		std::string DerivedDataKey;
-		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
-		bool bLoadedFromDerivedDataCache = false;
-		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
-		std::string LastBuildError;
-
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 	};
 

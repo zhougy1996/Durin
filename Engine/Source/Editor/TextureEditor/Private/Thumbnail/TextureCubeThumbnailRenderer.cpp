@@ -36,10 +36,9 @@ namespace Durin::Editor::Texture
 				OutError = "The TextureCube asset is unavailable.";
 				return 0;
 			}
-			if (TextureCube->GetBuildStatus() != ETextureBuildStatus::Ready)
+			if (!TextureCube->HasPlatformData())
 			{
-				OutError = TextureCube->GetLastBuildError();
-				if (OutError.empty()) OutError = "The TextureCube is not built.";
+				OutError = "The TextureCube has no installed platform data.";
 				return 0;
 			}
 			if (TextureCube->GetTextureReferenceRHI() == nullptr)

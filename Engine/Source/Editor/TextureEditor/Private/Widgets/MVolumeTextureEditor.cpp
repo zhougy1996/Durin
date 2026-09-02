@@ -175,7 +175,6 @@ namespace Durin::Editor::Texture
 		DVolumeTexture* Texture) -> void
 	{
 		if (!Texture) return;
-		Texture->RefreshBuildStatus();
 		if (ImGui::Button("Save")) Save(Texture);
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
@@ -203,7 +202,7 @@ namespace Durin::Editor::Texture
 	{
 		auto& State = PreviewStates.try_emplace(ResourceId).first->second;
 		const FVolumeTexturePlatformData* Platform = Texture->GetPlatformData();
-		const FVolumeTextureSourceData& Source = Texture->GetSourceData();
+		const FVolumeTextureSourceData Source = Texture->CreateBuildInput();
 		const bool bPlatform = Platform && Platform->IsValid()
 			&& (Platform->PixelFormat == EPixelFormat::R8_UNORM
 				|| Platform->PixelFormat == EPixelFormat::RGBA8_UNORM);
@@ -291,8 +290,9 @@ namespace Durin::Editor::Texture
 		ImGui::TextDisabled("VOLUME DETAILS");
 		if (!MonaImGui::PropertyEdit::BeginTable("VolumeTextureFacts")) return;
 		const auto* Platform = Texture->GetPlatformData();
-		const auto& Source = Texture->GetSourceData();
-		DrawFact("Build status", std::to_string(static_cast<uint32>(Texture->GetBuildStatus())));
+		const FTextureSource& Source = Texture->GetSource();
+		DrawFact("CPU status", Texture->HasPlatformData()
+			? "Platform data ready" : "Platform data unavailable");
 		if (Platform && Platform->IsValid())
 		{
 			const auto& Mip = Platform->Mips.front();
@@ -305,7 +305,7 @@ namespace Durin::Editor::Texture
 		if (Source.IsValid())
 		{
 			DrawFact("Source dimensions", std::format("{} x {} x {}", Source.Width, Source.Height, Source.Depth));
-			DrawFact("Source voxels", StringUtils::FormatByteSize(Source.GetVoxelBytes().size()));
+			DrawFact("Source voxels", StringUtils::FormatByteSize(Source.Payload.GetPayloadSize()));
 		}
 		const auto* Import = dynamic_cast<const AssetForge::Builtins::DVolumeTextureImportData*>(
 			Texture->GetAssetImportData());
@@ -320,7 +320,6 @@ namespace Durin::Editor::Texture
 			DrawFact("Atlas layout", std::format("{} x {} slices | {} x {} tiles | depth {}",
 				State.SliceWidth, State.SliceHeight, State.TilesX, State.TilesY, State.Depth));
 		}
-		if (!Texture->GetLastBuildError().empty()) DrawFact("Diagnostic", Texture->GetLastBuildError());
 		MonaImGui::PropertyEdit::EndTable();
 		ImGui::Spacing();
 		if (MonaImGui::PropertyEdit::BeginTable("VolumeTexturePayloadLifecycle"))

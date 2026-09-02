@@ -3,6 +3,7 @@
 #include "Texture/Texture2DBuildProvider.h"
 
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/Load.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureCompilingManager.h"
@@ -25,6 +26,8 @@ namespace Durin
 			TWeakObjectPtr<DTexture2D> Texture;
 			uint64 RequestSerial = 0;
 			uint64 ActiveRequestId = 0;
+			uint64 LastRequestId = 0;
+			bool bLastRequestFailed = false;
 			FTexture2DResultApplicationContext ResultApplicationContext;
 			FTexture2DBuildInputIdentity InputIdentity;
 			FTexture2DCompilationCompletion Completion;
@@ -44,7 +47,23 @@ namespace Durin
 
 		mutable std::mutex Mutex;
 		std::unordered_map<FObjectHandle, FAssetState, FObjectHandleHash> Assets;
+		std::deque<FObjectHandle> CompletedOrder;
+		static constexpr size_t MaximumRetainedAssetDiagnostics = 256;
 		std::vector<FWeakObjectPtr> SuccessfullyAppliedTextures;
+
+		auto RetainCompletedLocked(FObjectHandle Owner) -> void
+		{
+			CompletedOrder.erase(std::remove(
+				CompletedOrder.begin(), CompletedOrder.end(), Owner), CompletedOrder.end());
+			CompletedOrder.push_back(Owner);
+			while (CompletedOrder.size() > MaximumRetainedAssetDiagnostics)
+			{
+				const FObjectHandle Oldest = CompletedOrder.front();
+				CompletedOrder.pop_front();
+				if (FAssetState* State = FindLocked(Oldest);
+					State && State->ActiveRequestId == 0) Assets.erase(Oldest);
+			}
+		}
 	};
 
 	namespace
@@ -52,7 +71,7 @@ namespace Durin
 		std::mutex GTextureCompilingManagerMutex;
 		std::weak_ptr<FTextureCompilingManager> GTextureCompilingManager;
 		auto ApplyTexture2DBuildResult(DTexture2D& Texture,
-			FTextureSourceData SourceData,
+			FTexture2DImportedData ImportedData,
 			const FTexture2DBuildSettings& Settings,
 			FTexture2DBuildProduct Product,
 			const FTexture2DResultApplicationContext& Context,
@@ -104,11 +123,14 @@ namespace Durin
 		StopWorkAdmission();
 	}
 
-	auto FTextureCompilingManager::GetNumRemainingAssets() const -> uint64
+		auto FTextureCompilingManager::GetNumRemainingAssets() const -> uint64
 	{
 		if (!CompilationState) return 0;
 		std::lock_guard Lock(CompilationState->Mutex);
-		return static_cast<uint64>(CompilationState->Assets.size());
+		return static_cast<uint64>(std::ranges::count_if(
+			CompilationState->Assets, [](const auto& Pair) {
+				return Pair.second.ActiveRequestId != 0;
+			}));
 	}
 
 	auto FTextureCompilingManager::ApplyCompletion(
@@ -130,20 +152,20 @@ namespace Durin
 			WeakTexture = State->Texture;
 			ResultApplicationContext = State->ResultApplicationContext;
 			Completion = std::move(State->Completion);
-			CompilationState->Assets.erase(Result.Owner);
+			State->ActiveRequestId = 0;
+			State->LastRequestId = Result.RequestId;
+			State->bLastRequestFailed =
+				Result.Phase == ETexture2DCompilationPhase::Failed || bInputMismatch;
+			CompilationState->RetainCompletedLocked(Result.Owner);
 		}
 		DTexture2D* Texture = WeakTexture.Get();
-		if (!Texture || MakeObjectHandle(Texture) != Result.Owner
-			|| Texture->CompilationRequestSerial != Result.RequestSerial)
+		if (!Texture || MakeObjectHandle(Texture) != Result.Owner)
 		{
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
 				.Diagnostic = "The Texture2D compilation target is unavailable."});
 			return;
 		}
-		Texture->CompilationLastRequestId = Result.RequestId;
-		Texture->bCompilationLastRequestFailed =
-			Result.Phase == ETexture2DCompilationPhase::Failed || bInputMismatch;
 		if (bInputMismatch)
 		{
 			if (Completion) Completion({
@@ -152,7 +174,7 @@ namespace Durin
 			return;
 		}
 		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
-			|| !Result.SourceData || !Result.PlatformData)
+			|| !Result.ImportedData || !Result.PlatformData)
 		{
 			if (Completion) Completion({
 				.Status = Result.Phase == ETexture2DCompilationPhase::Cancelled
@@ -176,10 +198,15 @@ namespace Durin
 			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
 			.Origin = Result.Origin};
 		std::string Error;
-		if (!ApplyTexture2DBuildResult(*Texture, std::move(*Result.SourceData), Settings,
+		if (!ApplyTexture2DBuildResult(*Texture, std::move(*Result.ImportedData), Settings,
 			std::move(Product), ResultApplicationContext, Error))
 		{
-			Texture->bCompilationLastRequestFailed = true;
+			{
+				std::lock_guard Lock(CompilationState->Mutex);
+				if (FCompilationState::FAssetState* State =
+					CompilationState->FindLocked(Result.Owner))
+					State->bLastRequestFailed = true;
+			}
 			DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
 				Result.AssetIdentity, Error);
 			if (Completion) Completion({
@@ -187,7 +214,12 @@ namespace Durin
 				.Diagnostic = std::move(Error)});
 			return;
 		}
-		Texture->bCompilationLastRequestFailed = false;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			if (FCompilationState::FAssetState* State =
+				CompilationState->FindLocked(Result.Owner))
+				State->bLastRequestFailed = false;
+		}
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
@@ -275,7 +307,7 @@ namespace Durin
 		FTexture2DCompilationCompletion Completion) -> bool
 	{
 		CheckGameThread();
-		if (!Request.Build.SourceData.IsValid())
+		if (!Request.Build.ImportedData.IsValid())
 		{
 			OutError = "Texture2D compilation submission requires valid normalized source pixels.";
 			return false;
@@ -299,23 +331,26 @@ namespace Durin
 			return false;
 		}
 		const FTexture2DBuildSettings Settings = Request.Build.Settings;
+		const bool bSourceDecoderInvoked =
+			Request.ResultApplication.bSourceDecoderInvoked;
 		const bool bSRGB = ResolveTexture2DSRGB(Settings);
 		const FXxHash128 ImportedDataIdentity =
-			Request.Build.SourceData.GetImportedDataIdentity();
-		uint64 RequestSerial = ++Texture.CompilationRequestSerial;
-		if (RequestSerial == 0) RequestSerial = ++Texture.CompilationRequestSerial;
+			Request.Build.ImportedData.GetIdentity();
+		uint64 RequestSerial = 0;
 		uint64 PreviousRequestId = 0;
 		FTexture2DCompilationCompletion SupersededCompletion;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			FCompilationState::FAssetState& State = CompilationState->Assets[Owner];
+			RequestSerial = ++State.RequestSerial;
+			if (RequestSerial == 0) RequestSerial = ++State.RequestSerial;
 			PreviousRequestId = State.ActiveRequestId;
 			if (PreviousRequestId != 0) SupersededCompletion = std::move(State.Completion);
-			State = {
-				.Texture = TWeakObjectPtr<DTexture2D>(&Texture),
-				.RequestSerial = RequestSerial,
-				.ResultApplicationContext = std::move(Request.ResultApplication),
-				.InputIdentity = {
+			State.Texture = TWeakObjectPtr<DTexture2D>(&Texture);
+			State.ActiveRequestId = 0;
+			State.bLastRequestFailed = false;
+			State.ResultApplicationContext = std::move(Request.ResultApplication);
+			State.InputIdentity = {
 					.ImportedDataIdentity = ImportedDataIdentity,
 					.Settings = {
 						.Usage = Settings.Usage,
@@ -325,16 +360,16 @@ namespace Durin
 						.MaxResolution = Settings.MaxResolution,
 						.bSRGB = bSRGB},
 					.TargetPlatform = Request.Build.TargetPlatform,
-					.TargetProfile = Request.Build.TargetProfile},
-				.Completion = std::move(Completion)};
+					.TargetProfile = Request.Build.TargetProfile};
+			State.Completion = std::move(Completion);
 		}
 		if (PreviousRequestId != 0) CancelWork(PreviousRequestId);
 
-		const uint32 Width = Request.Build.SourceData.Width;
-		const uint32 Height = Request.Build.SourceData.Height;
+		const uint32 Width = Request.Build.ImportedData.Width;
+		const uint32 Height = Request.Build.ImportedData.Height;
 		const uint64 RequestId = SubmitWork({
 			.AssetIdentity = Identity,
-			.SourceData = std::move(Request.Build.SourceData),
+			.ImportedData = std::move(Request.Build.ImportedData),
 			.ImportedDataIdentity = ImportedDataIdentity,
 			.Settings = {
 				.Usage = Settings.Usage,
@@ -350,7 +385,8 @@ namespace Durin
 			.Priority = Request.Priority,
 			.TargetPlatform = Request.Build.TargetPlatform,
 			.TargetProfile = Request.Build.TargetProfile,
-			.bPersistDerivedData = Request.Build.bPersistDerivedData},
+			.bPersistDerivedData = Request.Build.bPersistDerivedData,
+			.bSourceDecoderInvoked = bSourceDecoderInvoked},
 			[this](FTexture2DCompilationWorkResult&& Result) {
 				ApplyCompletion(std::move(Result));
 			});
@@ -361,7 +397,11 @@ namespace Durin
 				if (FCompilationState::FAssetState* State =
 					CompilationState->FindLocked(Owner);
 					State && State->RequestSerial == RequestSerial)
-					CompilationState->Assets.erase(Owner);
+				{
+					State->ActiveRequestId = 0;
+					State->bLastRequestFailed = true;
+					CompilationState->RetainCompletedLocked(Owner);
+				}
 			}
 			if (SupersededCompletion) SupersededCompletion({
 				.Status = ETexture2DCompilationStatus::Superseded,
@@ -375,8 +415,8 @@ namespace Durin
 			if (State && State->RequestSerial == RequestSerial)
 			{
 				State->ActiveRequestId = RequestId;
-				Texture.CompilationLastRequestId = RequestId;
-				Texture.bCompilationLastRequestFailed = false;
+				State->LastRequestId = RequestId;
+				State->bLastRequestFailed = false;
 			}
 		}
 		if (SupersededCompletion) SupersededCompletion({
@@ -396,9 +436,9 @@ namespace Durin
 			if (const FCompilationState::FAssetState* State =
 				CompilationState->FindLocked(MakeObjectHandle(
 					const_cast<DTexture2D*>(&Texture))))
-				RequestId = State->ActiveRequestId;
+				RequestId = State->ActiveRequestId != 0
+					? State->ActiveRequestId : State->LastRequestId;
 		}
-		if (RequestId == 0) RequestId = Texture.CompilationLastRequestId;
 		return RequestId != 0 ? GetWorkDiagnostic(RequestId) : FTexture2DCompilationDiagnostic{};
 	}
 
@@ -408,7 +448,10 @@ namespace Durin
 		FTexture2DCompilationManagerDiagnostics Result = GetWorkManagerDiagnostics();
 		if (!CompilationState) return Result;
 		std::lock_guard Lock(CompilationState->Mutex);
-		Result.ActiveRecordCount = CompilationState->Assets.size();
+		Result.ActiveRecordCount = std::ranges::count_if(
+			CompilationState->Assets, [](const auto& Pair) {
+				return Pair.second.ActiveRequestId != 0;
+			});
 		return Result;
 	}
 
@@ -440,19 +483,29 @@ namespace Durin
 	{
 		if (!CompilationState) return false;
 		uint64 RequestId = 0;
+		bool bLastRequestFailed = false;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
 			FCompilationState::FAssetState* State =
 				CompilationState->FindLocked(MakeObjectHandle(&Texture));
-			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
+			if (State && State->Texture.Get() == &Texture)
+			{
+				RequestId = State->ActiveRequestId;
+				bLastRequestFailed = State->bLastRequestFailed;
+			}
 		}
 		if (RequestId == 0)
-			return !Texture.bCompilationLastRequestFailed
-				&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
+			return !bLastRequestFailed && Texture.HasPlatformData();
 		if (!WaitForWork(RequestId, TimeoutSeconds)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
-		return !HasPending(Texture) && !Texture.bCompilationLastRequestFailed
-			&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
+		{
+			std::lock_guard Lock(CompilationState->Mutex);
+			if (const FCompilationState::FAssetState* State =
+				CompilationState->FindLocked(MakeObjectHandle(&Texture)))
+				bLastRequestFailed = State->bLastRequestFailed;
+		}
+		return !HasPending(Texture) && !bLastRequestFailed
+			&& Texture.HasPlatformData();
 	}
 
 	namespace AssetPrivate
@@ -486,7 +539,7 @@ namespace Durin
 		FTexture2DBuildInputIdentity Identity;
 		if (!InvokeTexture2DBuildProvider(
 			Request, Product, Identity, OutError)) return false;
-		return ApplyTexture2DBuildResult(Texture, std::move(Request.SourceData),
+		return ApplyTexture2DBuildResult(Texture, std::move(Request.ImportedData),
 			Request.Settings, std::move(Product), Context, OutError);
 	}
 
@@ -494,7 +547,7 @@ namespace Durin
 	{
 	auto ApplyTexture2DBuildResult(
 		DTexture2D& Texture,
-		FTextureSourceData SourceData,
+		FTexture2DImportedData ImportedData,
 		const FTexture2DBuildSettings& Settings,
 		FTexture2DBuildProduct Product,
 		const FTexture2DResultApplicationContext& Context,
@@ -506,29 +559,30 @@ namespace Durin
 			OutError = "Texture2D result application requires a package.";
 			return false;
 		}
-		if (!SourceData.IsValid() || !Product.PlatformData.IsValid()
+		if (!ImportedData.IsValid() || !Product.PlatformData.IsValid()
 			|| Product.DerivedDataKey.empty())
 		{
 			OutError = "Texture2D result application requires a complete detached product.";
 			return false;
 		}
 		if (!ValidateTexture2DBuildSettings(Settings, OutError)) return false;
-		return Texture.PublishImportedState({
-			.SourceData = std::make_unique<FTextureSourceData>(std::move(SourceData)),
-			.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData)),
-			.DerivedDataKey = std::move(Product.DerivedDataKey),
-			.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
-			.Usage = Settings.Usage,
-			.bSRGB = ResolveTexture2DSRGB(Settings),
-			.MaxResolution = Settings.MaxResolution,
-			.CompressionQuality = Settings.CompressionQuality,
-			.AlphaMipMode = Settings.AlphaMipMode,
-			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-			.bMarkPackageDirty = Context.bMarkPackageDirty,
-			.bReportLoadMutation = Context.bReportLoadMutation,
-			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked,
-			.bLoadedFromDerivedDataCache =
-				Product.Origin == ETexture2DBuildProductOrigin::CacheHit}, OutError);
+		auto PlatformData = std::make_unique<FTexturePlatformData>(
+			std::move(Product.PlatformData));
+		if (!Texture.SetSourceData(ImportedData, OutError)
+			|| !Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
+				Settings.MaxResolution, Settings.CompressionQuality,
+				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold, OutError)
+			|| !Texture.SetPlatformData(std::move(PlatformData), OutError)) return false;
+		Texture.UpdateResource();
+		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
+		if (Context.bReportLoadMutation)
+		{
+			ReportAssetLoadMutation(&Texture,
+				"Engine.Texture2D.SourceIdentity",
+				"Texture source identity metadata was reconciled by an uncooked post-load build.");
+		}
+		OutError.clear();
+		return true;
 	}
 	}
 
@@ -573,8 +627,7 @@ namespace Durin
 		DTexture2D& Texture, double TimeoutSeconds) -> bool
 	{
 		const auto Manager = GetTextureCompilingManager();
-		if (!Manager)
-			return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
+		if (!Manager) return Texture.HasPlatformData();
 		return Manager->Wait(Texture, TimeoutSeconds);
 	}
 }

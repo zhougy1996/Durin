@@ -23,7 +23,7 @@ namespace Durin
 	struct FTexture2DCompilationWork
 	{
 		std::string AssetIdentity;
-		FTextureSourceData SourceData;
+		FTexture2DImportedData ImportedData;
 		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettingsSnapshot Settings;
 		FObjectHandle Owner;
@@ -34,6 +34,7 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
+		bool bSourceDecoderInvoked = false;
 	};
 
 	struct FTexture2DCompilationWorkResult
@@ -44,7 +45,7 @@ namespace Durin
 		std::string AssetIdentity;
 		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettingsSnapshot Settings;
-		std::unique_ptr<FTextureSourceData> SourceData;
+		std::unique_ptr<FTexture2DImportedData> ImportedData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
 		std::string PersistenceDiagnostic;
@@ -54,6 +55,7 @@ namespace Durin
 		FTexture2DBuildInputIdentity InputIdentity;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
+		bool bSourceDecoderInvoked = false;
 	};
 
 	struct FTextureCompilingManagerConfig

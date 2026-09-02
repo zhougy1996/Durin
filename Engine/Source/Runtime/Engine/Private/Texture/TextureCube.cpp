@@ -12,6 +12,7 @@
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -19,6 +20,38 @@ namespace Durin
 	{
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
+
+		auto MakeTextureCubeSource(const FTextureCubeImportedData& Input)
+			-> FTextureSource
+		{
+			if (!Input.IsValid()) return {};
+			FTextureSource Result{
+				.Payload = Input.Pixels,
+				.Width = Input.FaceDimension,
+				.Height = Input.FaceDimension,
+				.Depth = 1,
+				.NumSlices = TextureCubeFaceCount,
+				.SourceChannelCount = Input.SourceChannelCount,
+				.Format = ETextureSourceFormat::RGBA8,
+				.Kind = ETextureSourceKind::TextureCube,
+				.bHasTransparency = Input.TransparencyMask != 0,
+				.TransparencyMask = Input.TransparencyMask};
+			return Result.IsValid() ? std::move(Result) : FTextureSource{};
+		}
+
+		auto MakeTextureCubeImportedData(const FTextureSource& Source)
+			-> FTextureCubeImportedData
+		{
+			FTextureCubeImportedData Result;
+			if (!Source.IsValid() || Source.Kind != ETextureSourceKind::TextureCube)
+				return Result;
+			Result.Pixels = Source.Payload;
+			Result.FaceDimension = Source.Width;
+			Result.SourceChannelCount = Source.SourceChannelCount;
+			Result.TransparencyMask = Source.TransparencyMask;
+			return Result.IsValid() ? std::move(Result) : FTextureCubeImportedData{};
+		}
+
 		auto ValidateCubeSourceData(const FTextureCubeSourceData& SourceData, std::string& OutError) -> bool
 		{
 			const FTextureSourceData& Reference = SourceData.Faces[0];
@@ -197,7 +230,12 @@ namespace Durin
 	{
 		if (PlatformData && !PlatformData->Faces[0].Mips.empty())
 			return PlatformData->Faces[0].Mips[0].Width;
-		return SourceData && SourceData->IsValid() ? SourceData->Faces[0].Width : 0;
+		return GetSource().IsValid() ? GetSource().Width : 0;
+	}
+
+	auto DTextureCube::GetImportedDataIdentity() const -> FXxHash128
+	{
+		return MakeTextureCubeImportedData(GetSource()).GetIdentity();
 	}
 
 	auto DTextureCube::GetBuiltMipCount() const -> uint32
@@ -228,6 +266,21 @@ namespace Durin
 		return PlatformData.get();
 	}
 
+	auto DTextureCube::SetPlatformData(
+		std::unique_ptr<FTextureCubePlatformData> Data,
+		std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		if (!Data || !Data->IsValid())
+		{
+			OutError = "TextureCube platform data must be complete and valid.";
+			return false;
+		}
+		PlatformData = std::move(Data);
+		OutError.clear();
+		return true;
+	}
+
 	auto DTextureCube::CreateRenderResourceCandidate(
 		FTextureReference* TextureReference,
 		uint64 Revision,
@@ -244,13 +297,15 @@ namespace Durin
 
 	auto DTextureCube::RebuildPlatformData(std::string& OutError) -> bool
 	{
-		if (!ImportedData.IsValid())
+		FTextureCubeImportedData BuildInput =
+			MakeTextureCubeImportedData(GetSource());
+		if (!BuildInput.IsValid())
 		{
-			OutError = "TextureCube canonical imported data is missing or invalid.";
+			OutError = "TextureCube source data is missing or invalid.";
 			return false;
 		}
 		return BuildTextureCubeSynchronously(*this, {.Input = FTextureCubeFacesBuildInput{
-			.ImportedData = ImportedData, .SourceLayout = SourceLayout,
+			.ImportedData = std::move(BuildInput), .SourceLayout = SourceLayout,
 			.OriginalSourceWidth = OriginalSourceWidth,
 			.OriginalSourceHeight = OriginalSourceHeight,
 			.PanoramaFaceDimension = PanoramaFaceDimension,
@@ -269,26 +324,19 @@ namespace Durin
 					GetObjectPath());
 				return false;
 			}
-			SourceData.reset();
 			PlatformData.reset();
-			DerivedDataKey.clear();
-			bLoadedFromDerivedDataCache = false;
-			DerivedDataDiagnostic = {
-				.Status = ETextureDerivedDataStatus::CookedLoaded,
-				.Message = std::format(
-					"Loaded cooked TextureCube metadata for '{}'.", GetObjectPath())};
-			BuildStatus = ETextureBuildStatus::Ready;
-			LastBuildError.clear();
 			OutError.clear();
 			return true;
 		}
-		if (!ImportedData.IsValid())
+		FTextureCubeImportedData BuildInput =
+			MakeTextureCubeImportedData(GetSource());
+		if (!BuildInput.IsValid())
 		{
-			OutError = "TextureCube canonical imported data is missing or invalid.";
+			OutError = "TextureCube source data is missing or invalid.";
 			return false;
 		}
 		return BuildTextureCubeSynchronously(*this, {.Input = FTextureCubeFacesBuildInput{
-			.ImportedData = ImportedData, .SourceLayout = SourceLayout,
+			.ImportedData = std::move(BuildInput), .SourceLayout = SourceLayout,
 			.OriginalSourceWidth = OriginalSourceWidth,
 			.OriginalSourceHeight = OriginalSourceHeight,
 			.PanoramaFaceDimension = PanoramaFaceDimension,
@@ -300,12 +348,8 @@ namespace Durin
 	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::CookedFailure;
-			DerivedDataDiagnostic.Message = std::format(
+			OutError = std::format(
 				"Cooked TextureCube '{}': {}", GetObjectPath(), Message);
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = DerivedDataDiagnostic.Message;
-			OutError = LastBuildError;
 			return false;
 		};
 		std::span<const std::byte> Bytes;
@@ -323,16 +367,9 @@ namespace Durin
 		}
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
-		SourceData.reset();
-		PlatformData = std::move(CandidatePlatformData);
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::CookedLoaded,
-			.Message = std::format("Loaded cooked TextureCube payload for '{}'.", GetObjectPath())};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
+		if (!SetPlatformData(std::move(CandidatePlatformData), OutError))
+			return FailCooked(OutError);
+		UpdateResource();
 		OutError.clear();
 		return true;
 	}
@@ -364,27 +401,7 @@ namespace Durin
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
-	auto DTextureCube::RefreshBuildStatus() -> void
-	{
-		const std::shared_ptr<FTextureResourceCompletion>& Completion =
-			GetRenderCompletion();
-		if (Completion->GetFailedRevision() == GetBuildRevision())
-		{
-			if (Completion->GetFailureReason()
-				== ETextureRenderFailure::UnsupportedFormat)
-			{
-				BuildStatus = ETextureBuildStatus::UnsupportedFormat;
-				LastBuildError = "The current RHI does not support this cube texture format and usage.";
-			}
-			else
-			{
-				BuildStatus = ETextureBuildStatus::UploadFailure;
-				LastBuildError = "GPU cube texture creation or upload failed.";
-			}
-		}
-	}
-
-	auto DTextureCube::PublishAssetImportData(
+	auto DTextureCube::SetAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
@@ -394,69 +411,49 @@ namespace Durin
 		}
 		if (!Value.Validate(OutError)) return false;
 		AssetImportData = &Value;
-		MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}
 
-	auto DTextureCube::ApplyBuildResult(
-		FTextureCubeImportedData InImportedData,
+	auto DTextureCube::SetSourceData(
+		const FTextureCubeImportedData& Value, std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		FTextureSource Candidate = MakeTextureCubeSource(Value);
+		if (!Candidate.IsValid())
+		{
+			OutError = "TextureCube source data is invalid.";
+			return false;
+		}
+		return SetSource(std::move(Candidate), OutError);
+	}
+
+	auto DTextureCube::SetBuildSettings(
 		ETextureCubeSourceLayout InSourceLayout,
 		uint32 InPanoramaFaceDimension,
 		float InPanoramaExposureEV,
 		uint32 InOriginalSourceWidth,
 		uint32 InOriginalSourceHeight,
 		bool bInSRGB,
-		std::unique_ptr<FTextureCubePlatformData> InPlatformData,
-		std::string InDerivedDataKey,
-		FTextureDerivedDataDiagnostic InDiagnostic,
-		bool bMarkPackageDirty) -> void
+		std::string& OutError) -> bool
 	{
-		check(InPlatformData && InPlatformData->IsValid());
-		check(InImportedData.IsValid());
-		ImportedData = std::move(InImportedData);
+		CheckGameThread();
+		if ((InSourceLayout != ETextureCubeSourceLayout::SixFaces
+				&& InSourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
+			|| !std::isfinite(InPanoramaExposureEV)
+			|| InPanoramaExposureEV < MinimumTextureCubePanoramaExposureEV
+			|| InPanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
+			|| InOriginalSourceWidth == 0 || InOriginalSourceHeight == 0)
+		{
+			OutError = "TextureCube authored build settings are invalid.";
+			return false;
+		}
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;
 		OriginalSourceWidth = InOriginalSourceWidth;
 		OriginalSourceHeight = InOriginalSourceHeight;
 		bSRGB = bInSRGB;
-		SourceData = (InDiagnostic.Status == ETextureDerivedDataStatus::Rebuilt
-			|| InDiagnostic.bSourceDecoderInvoked)
-			? std::make_unique<FTextureCubeSourceData>(ImportedData.ToSourceData())
-			: nullptr;
-		PlatformData = std::move(InPlatformData);
-		DerivedDataKey = std::move(InDerivedDataKey);
-		DerivedDataDiagnostic = std::move(InDiagnostic);
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		bLoadedFromDerivedDataCache =
-			DerivedDataDiagnostic.Status == ETextureDerivedDataStatus::Hit;
-		QueueRenderResourceBuild();
-		if (bMarkPackageDirty) MarkPackageDirty();
-	}
-
-	auto DTextureCube::PublishDerivedDataLoad(
-		std::unique_ptr<FTextureCubePlatformData> InPlatformData,
-		std::string InDerivedDataKey,
-		std::string& OutError) -> bool
-	{
-		if (!InPlatformData || !InPlatformData->IsValid() || InDerivedDataKey.empty())
-		{
-			OutError = "TextureCube DDC result application requires valid platform data and key.";
-			return false;
-		}
-		SourceData.reset();
-		PlatformData = std::move(InPlatformData);
-		DerivedDataKey = std::move(InDerivedDataKey);
-		bLoadedFromDerivedDataCache = true;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Hit,
-			.Key = DerivedDataKey,
-			.Message = "Loaded TextureCube platform data from DDC."};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
 		OutError.clear();
 		return true;
 	}

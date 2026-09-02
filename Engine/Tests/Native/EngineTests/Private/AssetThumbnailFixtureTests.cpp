@@ -40,9 +40,9 @@ TEST(FAssetThumbnailFixtureTests, CreatesVersionedRenderedAssetFixtures)
 	EXPECT_EQ(Fixtures.MaterialInstance->GetParent(), Fixtures.Material);
 	EXPECT_EQ(Fixtures.InvalidMaterialInstance->GetParent(), nullptr);
 
-	ASSERT_NE(Fixtures.DirectionalCube->GetSourceData(), nullptr);
+	ASSERT_TRUE(Fixtures.DirectionalCube->GetSource().IsValid());
 	ASSERT_NE(Fixtures.DirectionalCube->GetPlatformData(), nullptr);
-	EXPECT_EQ(Fixtures.DirectionalCube->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Fixtures.DirectionalCube->HasPlatformData());
 	EXPECT_EQ(Fixtures.DirectionalCube->GetBuildRevision(), 1u);
 	EXPECT_TRUE(Fixtures.StaticMesh->GetLOD0LocalBounds().has_value());
 }

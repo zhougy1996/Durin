@@ -179,9 +179,28 @@ namespace
 		return static_cast<double>(CoveredPixelCount) / (Pixels.size() / 4);
 	}
 
+	auto GetTextureDerivedDataKey(const Durin::DTexture2D& Texture) -> std::string
+	{
+		Durin::FTexture2DBuildProduct Product;
+		Durin::FTexture2DBuildInputIdentity Identity;
+		std::string Error;
+		const bool bBuilt = Durin::InvokeTexture2DBuildProvider({
+			.ImportedData = Texture.CreateBuildInput(),
+			.Settings = {
+				.Usage = Texture.GetUsage(),
+				.CompressionQuality = Texture.GetCompressionQuality(),
+				.AlphaMipMode = Texture.GetAlphaMipMode(),
+				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
+				.MaxResolution = Texture.GetMaxResolution(),
+				.bSRGB = Texture.IsSRGB()},
+			.bPersistDerivedData = false}, Product, Identity, Error);
+		EXPECT_TRUE(bBuilt) << Error;
+		return Product.DerivedDataKey;
+	}
+
 	auto GetTextureCachePath(const Durin::DTexture2D& Texture) -> std::filesystem::path
 	{
-		const std::string& Key = Texture.GetDerivedDataKey();
+		const std::string Key = GetTextureDerivedDataKey(Texture);
 		EXPECT_GE(Key.size(), 2u);
 		return std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
 			/ "Textures" / "Objects" / Key.substr(0, 2) / (Key + ".bin");

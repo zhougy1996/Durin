@@ -423,7 +423,7 @@ Dependencies: Stage 5 complete.
 
 ## Related Documentation
 
-- [Texture Build DDC Decoupling](TextureBuildDdcDecoupling.md)
+- [Texture Build DDC Decoupling](Archive/2026-09/TextureBuildDdcDecoupling.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)

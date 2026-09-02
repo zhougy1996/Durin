@@ -315,7 +315,6 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void
 	{
-		Texture->RefreshBuildStatus();
 
 		DrawToolbar(Document, Texture);
 		ImGui::Spacing();
@@ -343,12 +342,15 @@ namespace Durin::Editor::Texture
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
 
-		const ETextureBuildStatus Status = Texture->GetBuildStatus();
-		const std::string StatusName =
-			GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Status));
-		const ImVec4 StatusColor = Status == ETextureBuildStatus::Ready
+		const FTexture2DCompilationDiagnostic Diagnostic =
+			GetTexture2DCompilationDiagnostic(*Texture);
+		const bool bPending = HasPendingTexture2DCompilation(*Texture);
+		const bool bReady = Texture->HasPlatformData();
+		const std::string StatusName = bPending ? DescribeBuildPhase(Diagnostic.Phase)
+			: bReady ? "CPU Ready" : "Not Built";
+		const ImVec4 StatusColor = bReady
 			? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
-			: (Status == ETextureBuildStatus::Unbuilt
+			: (!bPending
 				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
 				: ImVec4(1.0f, 0.48f, 0.35f, 1.0f));
 		const float StatusWidth = ImGui::CalcTextSize(StatusName.c_str()).x;
@@ -457,8 +459,12 @@ namespace Durin::Editor::Texture
 			if (ImGui::Button("Wait for Build"))
 			{
 				if (!WaitForTexture2DCompilation(*Texture))
-					SetError(Texture->GetLastBuildError().empty()
-						? "The texture build did not complete." : Texture->GetLastBuildError());
+				{
+					const FTexture2DCompilationDiagnostic Completed =
+						GetTexture2DCompilationDiagnostic(*Texture);
+					SetError(Completed.Message.empty()
+						? "The texture build did not complete." : Completed.Message);
+				}
 			}
 		}
 		ImGui::EndChild();
@@ -484,42 +490,29 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
-		const ETextureBuildStatus Status = Texture->GetBuildStatus();
-		if (Status == ETextureBuildStatus::Ready || Status == ETextureBuildStatus::Unbuilt)
-			return;
-
+		const FTexture2DCompilationDiagnostic Diagnostic =
+			GetTexture2DCompilationDiagnostic(*Texture);
+		const ETextureRenderFailure RenderFailure = Texture->GetRenderFailure();
+		if (Diagnostic.Phase != ETexture2DCompilationPhase::Failed
+			&& RenderFailure == ETextureRenderFailure::None) return;
 		const char* Title = "Build Error";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
-		std::string Message;
-
-		switch (Status)
+		std::string Message = Diagnostic.Message;
+		if (RenderFailure == ETextureRenderFailure::UnsupportedFormat)
 		{
-		case ETextureBuildStatus::DecodeFailure:
-			Title = "Decode Failure";
-			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
-			Message = std::format("The source image could not be decoded:\n{}", Texture->GetLastBuildError());
-			break;
-		case ETextureBuildStatus::BuildFailure:
-			Title = "Build Failure";
-			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
-			Message = std::format("The platform texture data could not be built:\n{}", Texture->GetLastBuildError());
-			break;
-		case ETextureBuildStatus::UploadFailure:
-			Title = "GPU Upload Failure";
-			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-			Message = "The texture could not be uploaded to the GPU.";
-			if (!Texture->GetLastBuildError().empty())
-				Message += std::format("\n{}", Texture->GetLastBuildError());
-			break;
-		case ETextureBuildStatus::UnsupportedFormat:
 			Title = "Unsupported Format";
 			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
 			Message = "The selected pixel format is not supported by this GPU.";
-			if (!Texture->GetLastBuildError().empty())
-				Message += std::format("\n{}", Texture->GetLastBuildError());
-			break;
-		default:
-			break;
+		}
+		else if (RenderFailure == ETextureRenderFailure::CreateOrUpload)
+		{
+			Title = "GPU Upload Failure";
+			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+			Message = "The texture could not be created or uploaded to the GPU.";
+		}
+		else if (Message.empty())
+		{
+			Message = "The platform texture data could not be built.";
 		}
 
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.08f, 0.08f, 0.5f));
@@ -540,7 +533,7 @@ namespace Durin::Editor::Texture
 			}
 		}
 
-		if (Status == ETextureBuildStatus::UploadFailure)
+		if (RenderFailure == ETextureRenderFailure::CreateOrUpload)
 		{
 			ImGui::SameLine();
 			const ERenderResourceState RState =
@@ -565,7 +558,9 @@ namespace Durin::Editor::Texture
 		FTexturePreview& Preview = *PreviewState.Preview;
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
-		const FTextureSourceData* Source = Texture->GetSourceData();
+		FTextureSourceData BuildInput = Texture->CreateBuildInput().ToSourceData();
+		const FTextureSourceData* Source = BuildInput.IsValid()
+			? &BuildInput : nullptr;
 		const bool bSourceAvailable = Source && Source->IsValid();
 		const bool bPlatformAvailable = Platform && Platform->IsValid();
 		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
@@ -760,27 +755,17 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Shared References", "Building source reference index...");
 			}
 		}
-		if (const FTextureSourceData* Source = Texture->GetSourceData())
+		const FTextureSource& Source = Texture->GetSource();
+		if (Source.IsValid())
 		{
-			DrawInfoRow("Dimensions", FormatDimensions(Source->Width, Source->Height));
-			DrawInfoRow("Source Channels", std::format("{}", Source->SourceChannelCount));
-			DrawInfoRow("Transparency", Source->bHasTransparency ? "Present" : "Opaque");
-			DrawInfoRow("Decoded Format", Source->Format == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
-		}
-		else if (Texture->GetSourceWidth() > 0 && Texture->GetSourceHeight() > 0)
-		{
-			DrawInfoRow("Dimensions", FormatDimensions(Texture->GetSourceWidth(), Texture->GetSourceHeight()));
-			DrawInfoRow("Source Channels", std::format("{}", Texture->GetSourceChannelCount()));
-			DrawInfoRow("Transparency", Texture->SourceHasTransparency() ? "Present" : "Opaque");
-			DrawInfoRow("Decoded Format", "Not resident (derived-data cache hit)");
+			DrawInfoRow("Dimensions", FormatDimensions(Source.Width, Source.Height));
+			DrawInfoRow("Source Channels", std::format("{}", Source.SourceChannelCount));
+			DrawInfoRow("Transparency", Source.bHasTransparency ? "Present" : "Opaque");
+			DrawInfoRow("Decoded Format", Source.Format == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
 		}
 		else
 		{
-			const ETextureBuildStatus Status = Texture->GetBuildStatus();
-			if (Status == ETextureBuildStatus::DecodeFailure)
-				DrawInfoRow("Status", "Source data unavailable (Decode failure)");
-			else
-				DrawInfoRow("Status", "Source data unavailable");
+			DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
 		const bool bCanReimport = !SourceHint.empty();
@@ -867,7 +852,7 @@ namespace Durin::Editor::Texture
 		{
 			uint64 TotalBytes = 0;
 			for (const FTexture2DMipData& Mip : Platform->Mips) TotalBytes += Mip.Pixels.size();
-			DrawInfoRow("Status", GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Texture->GetBuildStatus())));
+			DrawInfoRow("CPU Status", "Platform data ready");
 			DrawInfoRow("Pixel Format", GetPixelFormatInfo(Platform->PixelFormat).Name);
 			DrawInfoRow("Mip Count", std::format("{}", Platform->Mips.size()));
 			DrawInfoRow("Mip Range", std::format("{} to {}", FormatDimensions(Platform->Mips.front().Width, Platform->Mips.front().Height),
@@ -877,7 +862,7 @@ namespace Durin::Editor::Texture
 		}
 		else
 		{
-			DrawInfoRow("Status", GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Texture->GetBuildStatus())));
+			DrawInfoRow("CPU Status", "Platform data unavailable");
 		}
 
 		DrawInfoRow("Build Revision", std::format("{}", Texture->GetBuildRevision()));

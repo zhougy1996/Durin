@@ -243,7 +243,7 @@ namespace Durin::AssetForge::Builtins
 				return Mesh->GetRenderData() != nullptr;
 			if (const auto* Texture = Cast<DTexture2D>(Output.Candidate))
 				return Texture->GetPlatformData() != nullptr
-					&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready;
+					&& Texture->HasPlatformData();
 			if (const auto* Skeleton = Cast<DSkeleton>(Output.Candidate))
 				return Skeleton->Validate(OutError);
 			if (const auto* Mesh = Cast<DSkeletalMesh>(Output.Candidate))
@@ -477,28 +477,21 @@ namespace Durin::AssetForge::Builtins
 				auto* Texture = Cast<DTexture2D>(Output.Candidate);
 				FTexture2DBuildProduct& Product = Output.Texture.Product;
 				const FTexture2DBuildSettings& Settings = Output.Texture.Settings;
-				if (!Texture->PublishImportedState({
-					.SourceData = std::make_unique<FTextureSourceData>(
-						std::move(Output.Texture.SourceData)),
-					.PlatformData = std::make_unique<FTexturePlatformData>(
-						std::move(Product.PlatformData)),
-					.DerivedDataKey = std::move(Product.DerivedDataKey),
-					.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
-					.Usage = Settings.Usage,
-					.bSRGB = ResolveTexture2DSRGB(Settings),
-					.MaxResolution = Settings.MaxResolution,
-					.CompressionQuality = Settings.CompressionQuality,
-					.AlphaMipMode = Settings.AlphaMipMode,
-					.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-					.bMarkPackageDirty = true,
-					.bSourceDecoderInvoked = true,
-					.bLoadedFromDerivedDataCache =
-						Product.Origin == ETexture2DBuildProductOrigin::CacheHit}, Error))
+				auto PlatformData = std::make_unique<FTexturePlatformData>(
+					std::move(Product.PlatformData));
+				if (!Texture->SetSourceData(Output.Texture.SourceData, Error)
+					|| !Texture->SetBuildSettings(Settings.Usage,
+						ResolveTexture2DSRGB(Settings), Settings.MaxResolution,
+						Settings.CompressionQuality, Settings.AlphaMipMode,
+						Settings.AlphaCoverageThreshold, Error)
+					|| !Texture->SetPlatformData(std::move(PlatformData), Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
+				Texture->UpdateResource();
+				Texture->MarkPackageDirty();
 				FAssetImportDataState ImportState;
 				ImportState.SourceData.Sources.push_back({
 					.Role = "source",
@@ -511,7 +504,7 @@ namespace Durin::AssetForge::Builtins
 				auto* ImportData = NewObject<DAssetImportData>(
 					Output.Candidate, "AssetImportData");
 				if (!ImportData || !ImportData->SetState(std::move(ImportState), Error)
-					|| !Cast<DTexture2D>(Output.Candidate)->PublishAssetImportData(
+					|| !Cast<DTexture2D>(Output.Candidate)->SetAssetImportData(
 						*ImportData, Error))
 				{
 					Abandon(Prepared);
@@ -520,6 +513,7 @@ namespace Durin::AssetForge::Builtins
 							? "Scene texture import data could not be published." : std::move(Error),
 						Descriptor.StableIdentity);
 				}
+				Output.Candidate->MarkPackageDirty();
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
 				&& !FStaticMeshBuildOperations::PublishImportedProduct(

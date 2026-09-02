@@ -8,11 +8,72 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildProvider.h"
 #include "Texture/VolumeTextureRenderResource.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
 	namespace
 	{
+		auto ToTextureSourceFormat(EVolumeTextureFormat Format)
+			-> ETextureSourceFormat
+		{
+			switch (Format)
+			{
+			case EVolumeTextureFormat::R8_UNORM: return ETextureSourceFormat::R8_UNORM;
+			case EVolumeTextureFormat::RG8_UNORM: return ETextureSourceFormat::RG8_UNORM;
+			case EVolumeTextureFormat::RGBA8_UNORM: return ETextureSourceFormat::RGBA8;
+			case EVolumeTextureFormat::R16_FLOAT: return ETextureSourceFormat::R16_FLOAT;
+			case EVolumeTextureFormat::RGBA16_FLOAT: return ETextureSourceFormat::RGBA16_FLOAT;
+			default: return ETextureSourceFormat::Invalid;
+			}
+		}
+
+		auto ToVolumeTextureFormat(ETextureSourceFormat Format)
+			-> std::optional<EVolumeTextureFormat>
+		{
+			switch (Format)
+			{
+			case ETextureSourceFormat::R8_UNORM: return EVolumeTextureFormat::R8_UNORM;
+			case ETextureSourceFormat::RG8_UNORM: return EVolumeTextureFormat::RG8_UNORM;
+			case ETextureSourceFormat::RGBA8: return EVolumeTextureFormat::RGBA8_UNORM;
+			case ETextureSourceFormat::R16_FLOAT: return EVolumeTextureFormat::R16_FLOAT;
+			case ETextureSourceFormat::RGBA16_FLOAT: return EVolumeTextureFormat::RGBA16_FLOAT;
+			default: return std::nullopt;
+			}
+		}
+
+		auto MakeVolumeTextureSource(const FVolumeTextureSourceData& Input)
+			-> FTextureSource
+		{
+			if (!Input.IsValid()) return {};
+			FTextureSource Result{
+				.Payload = Input.Voxels,
+				.Width = Input.Width,
+				.Height = Input.Height,
+				.Depth = Input.Depth,
+				.NumSlices = 1,
+				.SourceChannelCount = 0,
+				.Format = ToTextureSourceFormat(Input.Format),
+				.Kind = ETextureSourceKind::Volume};
+			return Result.IsValid() ? std::move(Result) : FTextureSource{};
+		}
+
+		auto MakeVolumeTextureBuildInput(const FTextureSource& Source)
+			-> FVolumeTextureSourceData
+		{
+			FVolumeTextureSourceData Result;
+			const std::optional<EVolumeTextureFormat> Format =
+				ToVolumeTextureFormat(Source.Format);
+			if (!Source.IsValid() || Source.Kind != ETextureSourceKind::Volume
+				|| !Format) return Result;
+			Result.Width = Source.Width;
+			Result.Height = Source.Height;
+			Result.Depth = Source.Depth;
+			Result.Format = *Format;
+			Result.Voxels = Source.Payload;
+			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
+		}
+
 		auto ToPixelFormat(EVolumeTextureFormat Format) -> EPixelFormat
 		{
 			switch (Format)
@@ -123,6 +184,26 @@ namespace Durin
 		return PlatformData.get();
 	}
 
+	auto DVolumeTexture::CreateBuildInput() const -> FVolumeTextureSourceData
+	{
+		return MakeVolumeTextureBuildInput(GetSource());
+	}
+
+	auto DVolumeTexture::SetPlatformData(
+		std::unique_ptr<FVolumeTexturePlatformData> Data,
+		std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		if (!Data || !Data->IsValid())
+		{
+			OutError = "VolumeTexture platform data must be complete and valid.";
+			return false;
+		}
+		PlatformData = std::move(Data);
+		OutError.clear();
+		return true;
+	}
+
 	auto DVolumeTexture::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
@@ -185,18 +266,18 @@ namespace Durin
 				return false;
 			}
 			PlatformData.reset();
-			DerivedDataKey.clear();
-			DerivedDataDiagnostic = {
-				.Status = ETextureDerivedDataStatus::CookedLoaded,
-				.Message = std::format(
-					"Loaded cooked VolumeTexture metadata for '{}'.", GetObjectPath())};
-			BuildStatus = ETextureBuildStatus::Ready;
-			LastBuildError.clear();
 			OutError.clear();
 			return true;
 		}
+		FVolumeTextureSourceData BuildInput =
+			MakeVolumeTextureBuildInput(GetSource());
+		if (!BuildInput.IsValid())
+		{
+			OutError = "VolumeTexture source data is missing or invalid.";
+			return false;
+		}
 		return BuildVolumeTextureSynchronously(*this, {
-			.SourceData = SourceData,
+			.SourceData = BuildInput,
 			.Settings = BuildSettings}, {
 			.bMarkPackageDirty = false,
 			.bSourceDecoderInvoked = false}, OutError);
@@ -205,9 +286,7 @@ namespace Durin
 	auto DVolumeTexture::LoadCookedPlatformData(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = std::format("Cooked volume texture '{}': {}", GetObjectPath(), Message);
-			OutError = LastBuildError;
+			OutError = std::format("Cooked volume texture '{}': {}", GetObjectPath(), Message);
 			return false;
 		};
 		std::span<const std::byte> Bytes;
@@ -225,11 +304,9 @@ namespace Durin
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 		if (!Candidate->IsValid())
 			return FailCooked("platform data is invalid.");
-		PlatformData = std::move(Candidate);
-		DerivedDataKey.clear();
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
+		if (!SetPlatformData(std::move(Candidate), OutError))
+			return FailCooked(OutError);
+		UpdateResource();
 		OutError.clear();
 		return true;
 	}
@@ -251,69 +328,35 @@ namespace Durin
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
-	auto DVolumeTexture::ApplyBuildResult(const FVolumeTextureSourceData& InSourceData,
-		FVolumeTextureBuildSettings InBuildSettings,
-		std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-		std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
-		std::string& OutError,
-		bool bLoadedFromDerivedDataCache, bool bMarkPackageDirty,
-		bool bSourceDecoderInvoked) -> bool
+	auto DVolumeTexture::SetSourceData(
+		const FVolumeTextureSourceData& Value, std::string& OutError) -> bool
 	{
-		if (!InSourceData.IsValid() || !InPlatformData || !InPlatformData->IsValid()
-			|| InDerivedDataKey.empty()
-			|| ToPixelFormat(InBuildSettings.OutputFormat) != InPlatformData->PixelFormat
-			|| InSourceData.Format != InBuildSettings.OutputFormat
-			|| InBuildSettings.MipFilter != EVolumeTextureMipFilter::Box)
+		CheckGameThread();
+		FTextureSource Candidate = MakeVolumeTextureSource(Value);
+		if (!Candidate.IsValid())
 		{
-			OutError = "Volume texture result application requires compatible validated source, settings, payload, and key.";
+			OutError = "VolumeTexture source data is invalid.";
 			return false;
 		}
-		if (&InSourceData != &SourceData) SourceData = InSourceData;
-		BuildSettings = InBuildSettings;
-		PlatformData = std::move(InPlatformData);
-		DerivedDataKey = std::move(InDerivedDataKey);
-		DerivedDataDiagnostic = {
-			.Status = bLoadedFromDerivedDataCache
-				? ETextureDerivedDataStatus::Hit
-				: ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = InPersistenceDiagnostic.empty()
-				? (bLoadedFromDerivedDataCache
-					? "Loaded VolumeTexture platform data from DDC."
-					: "Built VolumeTexture from canonical voxels.")
-				: std::format("Applied VolumeTexture platform data; DDC persistence was best effort: {}",
-					InPersistenceDiagnostic),
-			.bSourceDecoderInvoked = bSourceDecoderInvoked};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
-		if (bMarkPackageDirty) MarkPackageDirty();
+		return SetSource(std::move(Candidate), OutError);
+	}
+
+	auto DVolumeTexture::SetBuildSettings(
+		FVolumeTextureBuildSettings Value, std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		if (ToPixelFormat(Value.OutputFormat) == EPixelFormat::Unknown
+			|| Value.MipFilter != EVolumeTextureMipFilter::Box)
+		{
+			OutError = "VolumeTexture build settings are invalid.";
+			return false;
+		}
+		BuildSettings = Value;
 		OutError.clear();
 		return true;
 	}
 
-	auto DVolumeTexture::PublishDerivedDataLoad(
-		std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-		std::string InDerivedDataKey, std::string& OutError) -> bool
-	{
-		if (!InPlatformData || !InPlatformData->IsValid() || InDerivedDataKey.empty())
-		{
-			OutError = "Volume texture DDC result application requires valid platform data and key.";
-			return false;
-		}
-		PlatformData = std::move(InPlatformData);
-		DerivedDataKey = std::move(InDerivedDataKey);
-		DerivedDataDiagnostic = {.Status = ETextureDerivedDataStatus::Hit,
-			.Key = DerivedDataKey,
-			.Message = "Loaded VolumeTexture platform data from DDC."};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
-		OutError.clear();
-		return true;
-	}
-
-	auto DVolumeTexture::PublishAssetImportData(
+	auto DVolumeTexture::SetAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
@@ -323,19 +366,7 @@ namespace Durin
 		}
 		if (!Value.Validate(OutError)) return false;
 		AssetImportData = &Value;
-		MarkPackageDirty();
 		OutError.clear();
 		return true;
-	}
-
-	auto DVolumeTexture::RefreshBuildStatus() -> void
-	{
-		const auto& Completion = GetRenderCompletion();
-		if (Completion->GetFailedRevision() != GetBuildRevision()) return;
-		BuildStatus = Completion->GetFailureReason() == ETextureRenderFailure::UnsupportedFormat
-			? ETextureBuildStatus::UnsupportedFormat : ETextureBuildStatus::UploadFailure;
-		LastBuildError = BuildStatus == ETextureBuildStatus::UnsupportedFormat
-			? "The current RHI does not support this volume texture format and usage."
-			: "GPU volume texture creation or upload failed.";
 	}
 }

@@ -217,11 +217,10 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 		Faces, "/TextureCubeTests/Convention");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
-	ASSERT_NE(Result.Asset->GetSourceData(), nullptr);
+	ASSERT_TRUE(Result.Asset->GetSource().IsValid());
 	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Result.Asset->GetSourceData()->IsValid());
 	EXPECT_TRUE(Result.Asset->GetPlatformData()->IsValid());
-	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Result.Asset->HasPlatformData());
 	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC1_UNORM_SRGB);
 	EXPECT_EQ(Result.Asset->GetBuildRevision(), 1u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
@@ -247,10 +246,8 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	Durin::DTextureCube* Loaded = nullptr;
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
-	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
-	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
-	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[0]), Faces[0]);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
@@ -355,7 +352,8 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Faces, "/TextureCubeTests/ReimportFaces");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
-	const std::string InitialKey = Texture->GetDerivedDataKey();
+	const Durin::FXxHash128 InitialSourceId =
+		Texture->GetSource().Payload.GetPayloadId();
 	const uint64 InitialRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Transparent =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceTransparent.tga";
@@ -368,7 +366,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 			Reimported = std::move(ResultValue);
 		});
 	ASSERT_TRUE(Reimported) << Reimported.Message;
-	EXPECT_NE(Texture->GetDerivedDataKey(), InitialKey);
+	EXPECT_NE(Texture->GetSource().Payload.GetPayloadId(), InitialSourceId);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ExpectCubeSourcePath(*Texture,
@@ -376,7 +374,8 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Transparent));
 
-	const std::string ValidKey = Texture->GetDerivedDataKey();
+	const Durin::FXxHash128 ValidSourceId =
+		Texture->GetSource().Payload.GetPayloadId();
 	const uint64 ValidRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Corrupt =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceCorrupt.png";
@@ -391,7 +390,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 			Reimported = std::move(ResultValue);
 		});
 	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
-	EXPECT_EQ(Texture->GetDerivedDataKey(), ValidKey);
+	EXPECT_EQ(Texture->GetSource().Payload.GetPayloadId(), ValidSourceId);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -410,9 +409,8 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 
 	std::string Error;
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 
 	std::filesystem::copy_file(GetConventionFaces()[static_cast<size_t>(
@@ -461,8 +459,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
-	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
-	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Loaded->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			ExpectedPlatform.Faces[FaceIndex].Mips[0].Pixels);
@@ -611,7 +608,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_EQ(Texture->GetPanoramaFaceDimension(), 4u);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 	EXPECT_EQ(Texture->GetPlatformData()->Faces[0].Mips[0].Pixels, ValidPixels);
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Texture->HasPlatformData());
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ReimportPanorama", AssetPath));
@@ -621,8 +618,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
-	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
-	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
@@ -640,21 +636,19 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 
 	std::string Error;
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
 
 	std::filesystem::copy_file(GetPanoramaFixture("AnalyticalHDR.hdr"), CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Texture->HasPlatformData());
 	{
 		std::ofstream Stream(CopiedSource, std::ios::binary | std::ios::trunc);
 		Stream << "corrupt";
 	}
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Texture->HasPlatformData());
 
 	std::filesystem::copy_file(GetPanoramaFixture("AnalyticalHDR.hdr"), CopiedSource,
 		std::filesystem::copy_options::overwrite_existing);
@@ -740,9 +734,6 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPlatformData(), nullptr);
 	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
-	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
-	EXPECT_EQ(Cooked->GetDerivedDataDiagnostic().Status,
-		Durin::ETextureDerivedDataStatus::CookedLoaded);
 	EXPECT_NE(Cooked->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,

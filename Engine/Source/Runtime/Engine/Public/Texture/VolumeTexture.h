@@ -134,7 +134,7 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
+		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
@@ -143,18 +143,26 @@ namespace Durin
 		{
 			return AssetImportData.Get();
 		}
-		ENGINE_API auto PublishAssetImportData(
+		ENGINE_API auto SetAssetImportData(
 			DAssetImportData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetSourceData(
+			const FVolumeTextureSourceData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetBuildSettings(
+			FVolumeTextureBuildSettings Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		ENGINE_API auto GetPlatformData() const -> const FVolumeTexturePlatformData*;
-		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
-		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
-		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
-		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic&
+		auto GetInstalledPlatformData() const -> const FVolumeTexturePlatformData*
 		{
-			return DerivedDataDiagnostic;
+			return PlatformData.get();
 		}
+		auto HasPlatformData() const -> bool
+		{
+			return PlatformData && PlatformData->IsValid();
+		}
+		ENGINE_API auto SetPlatformData(
+			std::unique_ptr<FVolumeTexturePlatformData> Data,
+			std::string& OutError) -> bool;
+		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
@@ -162,43 +170,30 @@ namespace Durin
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
 		ENGINE_API auto ContributeToCook(FCookContext& Context,
 			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
-	public:
-		ENGINE_API auto ApplyBuildResult(const FVolumeTextureSourceData& InSourceData,
-			FVolumeTextureBuildSettings InBuildSettings,
-			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-			std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
-			std::string& OutError,
-			bool bLoadedFromDerivedDataCache = false,
-			bool bMarkPackageDirty = true,
-			bool bSourceDecoderInvoked = false) -> bool;
-		ENGINE_API auto PublishDerivedDataLoad(
-			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-			std::string InDerivedDataKey, std::string& OutError) -> bool;
-		ENGINE_API auto RefreshBuildStatus() -> void;
-
 	protected:
 		auto CreateRenderResourceCandidate(FTextureReference* TextureReference,
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
+		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
+		auto GetTextureSourceStorage() const -> const FTextureSource& override
+		{
+			return Source;
+		}
+		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
-		FVolumeTextureSourceData SourceData;
+		FTextureSource Source;
 
-		DPROPERTY()
+		DPROPERTY(EditorOnly)
 		FVolumeTextureBuildSettings BuildSettings;
 
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FBulkData CookedPlatformData;
-		std::string DerivedDataKey;
-		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
-		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
-		std::string LastBuildError;
-
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 	};
 }

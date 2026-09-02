@@ -23,7 +23,7 @@ namespace Durin
 	// not forwarded through the recipe-provider boundary.
 	struct FTexture2DBuildRequest
 	{
-		FTextureSourceData SourceData;
+		FTexture2DImportedData ImportedData;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;

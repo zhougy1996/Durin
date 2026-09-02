@@ -29,17 +29,17 @@ namespace Durin::AssetForge::Builtins
 				: NotReady("SkeletalMesh");
 		if (const auto* Texture = Cast<DTexture2D>(&Object))
 			return Texture->GetPlatformData()
-				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				&& Texture->HasPlatformData()
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("Texture2D");
 		if (const auto* Texture = Cast<DTextureCube>(&Object))
 			return Texture->GetPlatformData()
-				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				&& Texture->HasPlatformData()
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("TextureCube");
 		if (const auto* Texture = Cast<DVolumeTexture>(&Object))
 			return Texture->GetPlatformData()
-				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
+				&& Texture->HasPlatformData()
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("VolumeTexture");
 		if (const auto* Heightmap = Cast<DTerrainHeightmap>(&Object))

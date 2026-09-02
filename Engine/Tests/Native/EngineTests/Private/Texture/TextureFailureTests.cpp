@@ -31,6 +31,17 @@ namespace
 	}
 }
 
+TEST(FTextureResourceCompletionTests, UpdateResourceRejectsMissingPlatformData)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, "MissingPlatformData");
+	ASSERT_NE(Texture, nullptr);
+	Texture->UpdateResource();
+	EXPECT_EQ(Texture->GetBuildRevision(), 0u);
+	EXPECT_EQ(Texture->GetRenderResourceState(), Durin::ERenderResourceState::Idle);
+}
+
 TEST(FTextureResourceCompletionTests, RejectsStaleBuild)
 {
 	Durin::FTextureResourceCompletion Completion;
@@ -170,13 +181,12 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	ASSERT_TRUE(CreateResult) << CreateResult.Message;
 	ASSERT_NE(Texture, nullptr);
 	// At creation time, the build has not run.
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Unbuilt);
+	EXPECT_FALSE(Texture->HasPlatformData());
 	// PostLoad with no canonical imported pixels.
 	std::string Error;
 	EXPECT_FALSE(Texture->PostLoad(Error));
 	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::BuildFailure);
-	EXPECT_FALSE(Texture->GetLastBuildError().empty());
+	EXPECT_FALSE(Texture->HasPlatformData());
 	ASSERT_TRUE(Durin::UnloadPackage(Texture->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
@@ -193,8 +203,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	WriteTextureFixture(Source);
 	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(Source.generic_string(), "/TextureFailureTests/Ready");
 	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
+	EXPECT_TRUE(Result.Asset->HasPlatformData());
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureFailureTests/Ready", AssetPath));
@@ -219,8 +228,8 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
 	ASSERT_NE(Texture, nullptr);
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	ASSERT_NE(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	ASSERT_TRUE(Texture->GetSource().IsValid());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 
 	Durin::FPackagePath AssetPath;
@@ -230,13 +239,9 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 
 	std::string Error;
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_NE(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
-	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
-		Durin::ETextureDerivedDataStatus::Hit);
-	EXPECT_TRUE(Texture->GetLastBuildError().empty());
 
 	const Durin::FTexturePlatformData RetainedPlatformData = *Texture->GetPlatformData();
 	const uint64 RetainedRevision = Texture->GetBuildRevision();
@@ -246,50 +251,35 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Texture->HasPlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), RetainedPlatformData);
 	EXPECT_GT(Texture->GetBuildRevision(), RetainedRevision);
-	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
-		Durin::ETextureDerivedDataStatus::Rebuilt);
-	EXPECT_FALSE(Texture->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
-	EXPECT_NE(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->GetSource().IsValid());
 
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_NE(Texture->GetSourceData(), nullptr);
+	EXPECT_TRUE(Texture->HasPlatformData());
+	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Texture->GetLastBuildError().empty());
 
 	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
+TEST(FTexture2DTests, RenderStatusEnumExposesSharedDisplayMetadata)
 {
 	InitializeDObjectSystem();
-	Durin::DEnum* BuildStatusEnum = Durin::FindEnumByQualifiedName("Durin::ETextureBuildStatus");
 	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ERenderResourceState");
-	ASSERT_NE(BuildStatusEnum, nullptr);
 	ASSERT_NE(ResourceStateEnum, nullptr);
-	EXPECT_EQ(BuildStatusEnum->GetDisplayName(), "Texture Build Status");
 	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Render Resource State");
 
-	const Durin::FEnumValue* Unbuilt = BuildStatusEnum->FindValueRecordByValue(
-		static_cast<uint64>(Durin::ETextureBuildStatus::Unbuilt));
-	const Durin::FEnumValue* BuildFailure = BuildStatusEnum->FindValueRecordByValue(
-		static_cast<uint64>(Durin::ETextureBuildStatus::BuildFailure));
 	const Durin::FEnumValue* Building = ResourceStateEnum->FindValueRecordByValue(
 		static_cast<uint64>(Durin::ERenderResourceState::Building));
-	ASSERT_NE(Unbuilt, nullptr);
-	ASSERT_NE(BuildFailure, nullptr);
 	ASSERT_NE(Building, nullptr);
-	EXPECT_EQ(Unbuilt->DisplayName, "Not Built");
-	EXPECT_EQ(BuildFailure->DisplayName, "Build Failure");
 	EXPECT_EQ(Building->DisplayName, "Building");
-	EXPECT_EQ(BuildStatusEnum->FindValueRecordByValue(255), nullptr);
+	EXPECT_EQ(ResourceStateEnum->FindValueRecordByValue(255), nullptr);
 }
 
 TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
@@ -316,7 +306,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
 		*Texture, Error)) << Error;
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision + 1);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		LastGood.Mips.front().Pixels);
@@ -349,7 +339,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_TRUE(Capabilities.bCanReimportFromFile) << Capabilities.Diagnostic;
 	const std::string PriorSource = ImportedSource->Hint;
 	const Durin::FTexturePlatformData PriorPlatform = *Texture->GetPlatformData();
-	const std::string PriorKey = Texture->GetDerivedDataKey();
+	const std::string PriorKey = GetTextureDerivedDataKey(*Texture);
 	const uint64 PriorRevision = Texture->GetBuildRevision();
 	ASSERT_FALSE(Texture->GetPackage()->IsDirty());
 
@@ -368,7 +358,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_EQ(ImportedSource->Hint, PriorSource);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		PriorPlatform.Mips.front().Pixels);
-	EXPECT_NE(Texture->GetDerivedDataKey(), PriorKey);
+	EXPECT_NE(GetTextureDerivedDataKey(*Texture), PriorKey);
 	EXPECT_EQ(Texture->GetBuildRevision(), PriorRevision + 1);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 

@@ -39,8 +39,11 @@ namespace Durin::Editor::Texture
 		DObject* Loaded = nullptr;
 		const FAssetResult Load = LoadObject(Request.Asset.AssetPath, Loaded);
 		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
-		const FTextureSourceData* Source = Texture ? Texture->GetSourceData() : nullptr;
-		if (!Texture || !Source || !Source->IsValid())
+		FTextureSourceData BuildInput = Texture
+			? Texture->CreateBuildInput().ToSourceData() : FTextureSourceData{};
+		const FTextureSourceData* Source = BuildInput.IsValid()
+			? &BuildInput : nullptr;
+		if (!Texture || !Source)
 		{
 			OutError = Load ? "Texture2D canonical source pixels are unavailable." : Load.Message;
 			return false;

@@ -141,24 +141,17 @@ namespace Durin
 			OutError = "TextureCube result application requires canonical source, platform data, and a derived-data key.";
 			return false;
 		}
-		const bool bCacheHit = Product.Origin == ETextureCubeBuildProductOrigin::CacheHit;
-		const std::string DiagnosticKey = Product.DerivedDataKey;
-		Texture.ApplyBuildResult(std::move(CanonicalInput.ImportedData),
-			CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,
-			CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
-			CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB,
-			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
-			{.Status = bCacheHit ? ETextureDerivedDataStatus::Hit
-					: ETextureDerivedDataStatus::Rebuilt,
-				.Key = DiagnosticKey,
-				.Message = bCacheHit
-					? "Loaded TextureCube build candidate from DDC."
-					: !Product.PersistenceDiagnostic.empty()
-						? std::format("Built TextureCube; DDC persistence was best effort: {}",
-							Product.PersistenceDiagnostic)
-						: "Built TextureCube from canonical normalized source.",
-				.bSourceDecoderInvoked = Context.bSourceDecoderInvoked},
-			Context.bMarkPackageDirty);
+		auto PlatformData = std::move(Product.PlatformData);
+		if (!Texture.SetSourceData(CanonicalInput.ImportedData, OutError)
+			|| !Texture.SetBuildSettings(CanonicalInput.SourceLayout,
+				CanonicalInput.PanoramaFaceDimension,
+				CanonicalInput.PanoramaExposureEV,
+				CanonicalInput.OriginalSourceWidth,
+				CanonicalInput.OriginalSourceHeight,
+				CanonicalInput.bSRGB, OutError)
+			|| !Texture.SetPlatformData(std::move(PlatformData), OutError)) return false;
+		Texture.UpdateResource();
+		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}

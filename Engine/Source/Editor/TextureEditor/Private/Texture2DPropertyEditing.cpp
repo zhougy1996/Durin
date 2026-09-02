@@ -113,13 +113,13 @@ namespace Durin::Editor::Texture
 			}
 			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
 			{
-				if (!Texture->GetPackage() || !Texture->GetImportedData().IsValid())
+				if (!Texture->GetPackage() || !Texture->GetSource().IsValid())
 				{
 					OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
 					return false;
 				}
 				return BuildTexture2DSynchronously(*Texture, {
-					.SourceData = Texture->GetImportedData().ToSourceData(),
+					.ImportedData = Texture->CreateBuildInput(),
 					.Settings = Settings,
 				}, {
 					.bMarkPackageDirty = true,

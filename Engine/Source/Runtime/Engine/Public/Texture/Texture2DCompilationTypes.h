@@ -24,6 +24,13 @@ namespace Durin
 		Interactive,
 	};
 
+	enum class ETexture2DCompilationOrigin : uint8
+	{
+		Unobserved,
+		CacheHit,
+		Rebuilt,
+	};
+
 	// Records worker timing and conservative versus observed retained bytes.
 	struct FTexture2DCompilationMetrics
 	{
@@ -43,7 +50,7 @@ namespace Durin
 	struct FTexture2DCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
-		// Latest-wins serial owned by the live Texture2D object; unrelated to DDC identity.
+		// Latest-wins serial owned by the compiling manager; unrelated to DDC identity.
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
 		std::string DerivedDataKey;
@@ -53,6 +60,8 @@ namespace Durin
 		uint64 WorkerNanoseconds = 0;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
 		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
+		ETexture2DCompilationOrigin Origin = ETexture2DCompilationOrigin::Unobserved;
+		bool bSourceDecoderInvoked = false;
 	};
 
 	struct FTexture2DCompilationManagerDiagnostics

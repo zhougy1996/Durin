@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Asset/EditorBulkData.h"
 #include "DObject/Object.h"
 #include "RHIResources.h"
 
@@ -8,21 +9,80 @@
 
 namespace Durin
 {
+	inline constexpr uint32 TextureSourceSchemaVersion = 1;
+	inline constexpr uint64 MaximumTextureSourceBytes = 512ull * 1024ull * 1024ull;
+
+	// Identifies the dimensional interpretation of persistent texture source art.
+	DENUM()
+	enum class ETextureSourceKind : uint8
+	{
+		Texture2D,
+		TextureCube,
+		Volume
+	};
+
+	// Identifies the stored texel representation of persistent texture source art.
+	DENUM()
+	enum class ETextureSourceFormat : uint8
+	{
+		Invalid,
+		RGBA8,
+		R8_UNORM,
+		RG8_UNORM,
+		R16_FLOAT,
+		RGBA16_FLOAT
+	};
+
+	// Owns editor source art independently from family-specific build inputs.
+	DSTRUCT()
+	struct FTextureSource
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FEditorBulkData Payload;
+
+		DPROPERTY()
+		uint32 Width = 0;
+
+		DPROPERTY()
+		uint32 Height = 0;
+
+		DPROPERTY()
+		uint32 Depth = 1;
+
+		DPROPERTY()
+		uint8 NumSlices = 1;
+
+		DPROPERTY()
+		uint8 SourceChannelCount = 0;
+
+		DPROPERTY()
+		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
+
+		DPROPERTY()
+		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
+
+		DPROPERTY()
+		bool bHasTransparency = false;
+
+		DPROPERTY()
+		uint8 TransparencyMask = 0;
+
+		DPROPERTY()
+		uint32 SchemaVersion = TextureSourceSchemaVersion;
+
+		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto SetPayload(std::span<const std::byte> Bytes) -> bool;
+		auto GetPayload() const -> FSharedByteBuffer
+		{
+			return Payload.GetPayload().Wait().Buffer;
+		}
+	};
+
 	class FTextureAssetResource;
 	class FTextureReference;
 	class FTextureResourceCompletion;
-
-	// Reports the persistent result of source decoding, platform build, and GPU upload.
-	DENUM(DisplayName = "Texture Build Status")
-	enum class ETextureBuildStatus : uint8
-	{
-		Unbuilt DMETA(DisplayName = "Not Built"), // No valid platform data is installed.
-		Ready,             // Platform data is valid and its render build is queued.
-		DecodeFailure,     // Source bytes could not be decoded.
-		BuildFailure,      // Platform-data construction failed.
-		UploadFailure,     // The current render-resource revision failed.
-		UnsupportedFormat, // The selected platform format is unavailable.
-	};
 
 	// Tracks the revisioned render-thread lifecycle of a texture resource.
 	DENUM()
@@ -44,27 +104,6 @@ namespace Durin
 		CreateOrUpload,
 	};
 
-	enum class ETextureDerivedDataStatus : uint8
-	{
-		None,
-		Hit,
-		Missing,
-		Corrupt,
-		Incompatible,
-		Rebuilt,
-		WriteFailure,
-		CookedLoaded,
-		CookedFailure
-	};
-
-	struct FTextureDerivedDataDiagnostic
-	{
-		ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
-		std::string Key;
-		std::string Message;
-		bool bSourceDecoderInvoked = false;
-	};
-
 	// Common reflected boundary and render-resource lifecycle owner for texture assets.
 	DCLASS(Abstract)
 	class DTexture : public DObject
@@ -79,13 +118,17 @@ namespace Durin
 			-> FRHITextureReferenceRef;
 		ENGINE_API auto GetRenderResourceState() const
 			-> ERenderResourceState;
+		ENGINE_API auto GetRenderFailure() const -> ETextureRenderFailure;
 		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
+		ENGINE_API auto GetSource() const -> const FTextureSource&;
+		// Replaces the current concrete resource from installed platform data.
+		ENGINE_API auto UpdateResource() -> void;
 
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
 
-		ENGINE_API auto QueueRenderResourceBuild() -> void;
 		ENGINE_API auto InvalidateRenderResource() -> void;
 		auto GetRenderCompletion() const
 			-> const std::shared_ptr<FTextureResourceCompletion>&
@@ -98,6 +141,9 @@ namespace Durin
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> = 0;
+		virtual auto GetTextureSourceStorage() -> FTextureSource& = 0;
+		virtual auto GetTextureSourceStorage() const -> const FTextureSource& = 0;
+		virtual auto HasValidPlatformData() const -> bool = 0;
 
 	private:
 		auto ReleaseRenderResources() -> void;
@@ -108,5 +154,6 @@ namespace Durin
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;
 		uint64 BuildRevision = 0;
+
 	};
 }

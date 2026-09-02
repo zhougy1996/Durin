@@ -147,7 +147,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 		Durin::AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), AssetPath.GetView());
 	ASSERT_TRUE(Imported) << Imported.Message;
-	ASSERT_TRUE(Imported.Asset->GetImportedData().IsValid());
+	ASSERT_TRUE(Imported.Asset->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(std::filesystem::remove(Source));
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot / "Textures");
@@ -157,9 +157,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Loaded, nullptr);
-	EXPECT_EQ(Loaded->GetDerivedDataDiagnostic().Status,
-		Durin::ETextureDerivedDataStatus::Rebuilt);
-	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
+	EXPECT_TRUE(Loaded->HasPlatformData());
 	Durin::FCookContext Cook(
 		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
@@ -201,8 +199,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_NE(Import.Asset, nullptr);
 	ASSERT_NE(Import.Asset->GetPlatformData(), nullptr);
 	const Durin::FTexturePlatformData ExpectedPlatformData = *Import.Asset->GetPlatformData();
-	const Durin::FTextureDerivedDataDiagnostic DiagnosticBeforeCook =
-		Import.Asset->GetDerivedDataDiagnostic();
+	const Durin::FXxHash128 SourceIdentityBeforeCook =
+		Import.Asset->GetImportedDataIdentity();
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	const Durin::FSourceFile* ImportedSource =
 		Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -218,9 +216,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
-	EXPECT_EQ(
-		Import.Asset->GetDerivedDataDiagnostic().bSourceDecoderInvoked,
-		DiagnosticBeforeCook.bSourceDecoderInvoked);
+	EXPECT_EQ(Import.Asset->GetImportedDataIdentity(), SourceIdentityBeforeCook);
 
 	Durin::FCookContext Second(
 		SecondCookRoot,
@@ -328,11 +324,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_NE(CookedTexture, nullptr);
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*CookedTexture->GetPlatformData(), ExpectedPlatformData);
-	EXPECT_EQ(
-		CookedTexture->GetDerivedDataDiagnostic().Status,
-		Durin::ETextureDerivedDataStatus::CookedLoaded);
 	EXPECT_EQ(CookedTexture->GetAssetImportData(), nullptr);
-	EXPECT_TRUE(CookedTexture->GetDerivedDataKey().empty());
 	EXPECT_NE(CookedTexture->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 
 	Durin::FRHITextureReferenceRef TextureReference =

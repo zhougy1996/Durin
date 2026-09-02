@@ -335,8 +335,10 @@ namespace Durin::AssetForge::Builtins
 				Texture.GetAssetImportData());
 			if (!Data) Data = NewObject<DVolumeTextureImportData>(
 				&Texture, "AssetImportData");
-			return Data && Data->SetState(std::move(State), OutError)
-				&& Texture.PublishAssetImportData(*Data, OutError);
+			if (!Data || !Data->SetState(std::move(State), OutError)
+				|| !Texture.SetAssetImportData(*Data, OutError)) return false;
+			Texture.MarkPackageDirty();
+			return true;
 		}
 
 		auto RebuildVolumeFromFilename(DVolumeTexture& Texture,

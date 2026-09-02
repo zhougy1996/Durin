@@ -62,8 +62,10 @@ namespace Durin::AssetForge::Builtins
 			if (!ImportData)
 				ImportData = NewObject<DAssetImportData>(
 					&Texture, "AssetImportData");
-			return ImportData && ImportData->SetState(std::move(State), OutError)
-				&& Texture.PublishAssetImportData(*ImportData, OutError);
+			if (!ImportData || !ImportData->SetState(std::move(State), OutError)
+				|| !Texture.SetAssetImportData(*ImportData, OutError)) return false;
+			Texture.MarkPackageDirty();
+			return true;
 		}
 
 		auto SubmitTexture2DFromFilename(
@@ -120,7 +122,7 @@ namespace Durin::AssetForge::Builtins
 			const std::string DisplayLabel = PhysicalPath.filename().generic_string();
 			return SubmitTexture2DCompilation(Texture, {
 				.Build = {
-					.SourceData = std::move(SourceData),
+					.ImportedData = std::move(SourceData),
 					.Settings = Settings},
 				.ResultApplication = {
 					.bMarkPackageDirty = bPublishImportData,
@@ -211,7 +213,7 @@ namespace Durin::AssetForge::Builtins
 			InClass, Package, InName, Flags);
 		if (!Texture) return Failed("Texture2D object could not be created.");
 		if (!BuildTexture2DSynchronously(*Texture, {
-			.SourceData = std::move(SourceData),
+			.ImportedData = std::move(SourceData),
 			.Settings = {
 				.Usage = Settings.Usage,
 				.CompressionQuality = Settings.CompressionQuality,
@@ -359,14 +361,14 @@ namespace Durin::AssetForge::Builtins
 		ETexture2DCompilationPriority Priority,
 		FTexture2DCompilationCompletion Completion) -> bool
 	{
-		if (!Texture.GetPackage() || !Texture.GetImportedData().IsValid())
+		if (!Texture.GetPackage() || !Texture.GetSource().IsValid())
 		{
 			OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
 			return false;
 		}
 		return SubmitTexture2DCompilation(Texture, {
 			.Build = {
-				.SourceData = Texture.GetImportedData().ToSourceData(),
+				.ImportedData = Texture.CreateBuildInput(),
 				.Settings = Settings},
 			.ResultApplication = {
 				.bMarkPackageDirty = true,

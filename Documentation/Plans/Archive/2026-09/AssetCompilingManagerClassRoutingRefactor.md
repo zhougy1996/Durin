@@ -4,7 +4,7 @@ Summary: Replace asset-compilation domains with Engine-owned typed compiling man
 
 Last reviewed: 2026-09-02
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-02
 
 ## Current Status
@@ -344,11 +344,11 @@ Dependencies: Stages 2 and 3.
 
 ## Related Documentation
 
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Texture Build Object Boundary Completion](TextureBuildObjectBoundaryCompletion.md)
-- [Non-Texture Asset Build DDC Decoupling](NonTextureAssetBuildDdcDecoupling.md)
+- [Non-Texture Asset Build DDC Decoupling](../../NonTextureAssetBuildDdcDecoupling.md)
 
 ## Related Code
 
