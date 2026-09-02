@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-02
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -63,13 +63,16 @@ Terrain function names intentionally retain their historical
 `Durin.GeometryBuild.Terrain...` prefix: the name is a stable production
 protocol rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
-Engine's Texture2D compilation domain calls TextureBuild's synchronous
-`ITexture2DBuildProvider` from Engine-owned workers. Engine owns admission,
+Engine calls TextureBuild through the typed synchronous
+`ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
+`ITextureCubeBuildProvider` contracts. Engine owns admission,
 cancellation, supersession, metrics, the completion mailbox, object-qualified
 main-thread publication, and terminal record retirement; TextureBuild owns the
-DDC session, recipes, codecs, and producer identity. AssetForgeBuiltins retains TextureCube source
-normalization, private Scene parsing/orchestration, Terrain source decoding/coalescing, and GameThread
-publication. Shader and other unrelated DDC paths remain direct family clients.
+DDC sessions, recipes, codecs, and producer identity. AssetForgeBuiltins retains
+physical-source capture and translation plus private Scene orchestration, but
+Engine alone combines retained Texture inputs with derived provider products
+and publishes live Texture objects. Shader and other unrelated DDC paths remain
+direct family clients.
 
 Engine's object-aware compilation aggregate owns asynchronous domain
 registration, frame pumping, selected-object finish/cancel, aggregate progress,
@@ -221,8 +224,8 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 
 Runtime Engine owns asset state and typed optional operation contracts:
 `IStaticMeshPostLoadFeature`, `IStaticMeshCollisionBuildFeature`,
-`ITexture2DPostLoadFeature`, `ITexture2DBuildProvider`,
-`ITextureCubePostLoadFeature`,
+`ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
+`ITextureCubeBuildProvider`,
 `ITerrainHeightmapDerivedDataLoadFeature`,
 and `ISkeletalDerivedDataFeature`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
@@ -230,8 +233,9 @@ visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
-`StaticMeshBuild` owns static-mesh post-load and collision construction,
-`TextureBuild` owns texture post-load and synchronous Texture2D production,
+`StaticMeshBuild` owns static-mesh post-load and collision construction. Engine
+owns Texture PostLoad and publication while `TextureBuild` owns the three
+synchronous value-only recipes/providers.
 `TerrainBuild` owns Terrain derived-data
 loading, and `SkeletalBuild` owns skeletal/animation derived-data loading.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor

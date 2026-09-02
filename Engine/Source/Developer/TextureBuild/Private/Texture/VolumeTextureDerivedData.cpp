@@ -31,8 +31,8 @@ namespace Durin
 		uint32 Filter = static_cast<uint32>(Settings.MipFilter);
 		uint32 Platform = static_cast<uint32>(TargetPlatform);
 		uint32 Profile = static_cast<uint32>(TargetProfile);
-		Ar << KeySchema << Dimension << SourceContentHash.HashLow
-			<< SourceContentHash.HashHigh << Width << Height << Depth
+		Ar << KeySchema << Dimension << CanonicalSourceIdentity.HashLow
+			<< CanonicalSourceIdentity.HashHigh << Width << Height << Depth
 			<< Format << Filter << BuilderVersion << SourcePayloadSchemaVersion
 			<< Platform << Profile;
 	}

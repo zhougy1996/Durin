@@ -15,7 +15,7 @@ namespace Durin
 		auto MakeKeyInput(const FVolumeTextureSourceData& Source,
 			const FVolumeTextureBuildSettings& Settings) -> FVolumeTextureBuildKeyInput
 		{
-			return {.SourceContentHash = Source.GetIdentity(),
+			return {.CanonicalSourceIdentity = Source.GetIdentity(),
 				.Width = Source.Width, .Height = Source.Height, .Depth = Source.Depth,
 				.Settings = Settings,
 				.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
@@ -42,10 +42,11 @@ namespace Durin
 		}
 	}
 
-	auto BuildVolumeTexture(FVolumeTextureSourceData SourceData,
+	auto BuildVolumeTexture(const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
 		FVolumeTextureBuildProduct& OutProduct,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		bool bPersistDerivedData) -> bool
 	{
 		if (!SourceData.IsValid() || SourceData.Format != Settings.OutputFormat)
 		{
@@ -59,12 +60,21 @@ namespace Durin
 		const std::string Key = KeyBytes.empty()
 			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
 		if (Key.empty()) return false;
-		FBuildDefinition Definition;
-		if (!MakeDefinition(Key, KeyBytes, &SourceData, &Settings,
-			Definition, OutError)) return false;
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true});
+		FBuildDefinition CacheDefinition;
+		if (!MakeDefinition(Key, KeyBytes, nullptr, nullptr,
+			CacheDefinition, OutError)) return false;
+		FBuildOutput Output = FBuildSession().Build(CacheDefinition, {
+			.bQueryCache = true, .bAllowLocalBuild = false,
+			.bStoreBuildResult = false});
+		if (!Output.Succeeded())
+		{
+			FBuildDefinition LocalDefinition;
+			if (!MakeDefinition(Key, KeyBytes, &SourceData, &Settings,
+				LocalDefinition, OutError)) return false;
+			Output = FBuildSession().Build(LocalDefinition, {
+				.bQueryCache = false, .bAllowLocalBuild = true,
+				.bStoreBuildResult = bPersistDerivedData});
+		}
 		if (!Output.Succeeded())
 		{
 			OutError = Output.Diagnostic;
@@ -73,85 +83,13 @@ namespace Durin
 		auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
 		if (!AssetPrivate::DecodeVolumeTexturePlatformValue(
 			Output.Value, *PlatformData, OutError)) return false;
-		OutProduct = {.SourceData = std::move(SourceData), .Settings = Settings,
-			.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
-			.bCacheHit = Output.Status == EBuildStatus::CacheHit,
-			.PersistenceDiagnostic = Output.StoreDiagnostic};
+		OutProduct = {.PlatformData = std::move(PlatformData),
+			.DerivedDataKey = Key,
+			.PersistenceDiagnostic = Output.StoreDiagnostic,
+			.Origin = Output.Status == EBuildStatus::CacheHit
+				? EVolumeTextureBuildProductOrigin::CacheHit
+				: EVolumeTextureBuildProductOrigin::Rebuilt};
 		OutError.clear();
-		return true;
-	}
-
-	auto PublishVolumeTextureProduct(DVolumeTexture& Texture,
-		FVolumeTextureBuildProduct Product, std::string& OutError) -> bool
-	{
-		return Texture.PublishBuiltData(std::move(Product.SourceData), Product.Settings,
-			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
-			std::move(Product.PersistenceDiagnostic), OutError);
-	}
-
-	auto BuildVolumeTextureInto(
-		DVolumeTexture& Texture,
-		FVolumeTextureSourceData SourceData,
-		const FVolumeTextureBuildSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		FVolumeTextureBuildProduct Product;
-		return BuildVolumeTexture(
-			std::move(SourceData), Settings, Product, OutError)
-			&& PublishVolumeTextureProduct(
-				Texture, std::move(Product), OutError);
-	}
-
-	auto MakeVolumeTextureDerivedDataKey(const DVolumeTexture& Texture,
-		std::string& OutError) -> std::string
-	{
-		if (!Texture.GetSourceData().IsValid())
-		{
-			OutError = "Volume texture has no valid normalized source.";
-			return {};
-		}
-		return BuildVolumeTextureDerivedDataKey(
-			MakeKeyInput(Texture.GetSourceData(), Texture.GetBuildSettings()), OutError);
-	}
-
-	auto LoadVolumeTextureDerivedData(std::string_view Key,
-		std::unique_ptr<FVolumeTexturePlatformData>& OutPlatformData,
-		ETextureDerivedDataStatus& OutStatus,
-		std::string& OutMessage) -> bool
-	{
-		if (!EnsureTextureBuildFunctions(&OutMessage))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			return false;
-		}
-		FBuildDefinition Definition;
-		std::string Error;
-		if (!MakeDefinition(Key, {}, nullptr, nullptr, Definition, Error))
-		{
-			OutStatus = ETextureDerivedDataStatus::Incompatible;
-			OutMessage = Error;
-			return false;
-		}
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false});
-		if (!Output.Succeeded())
-		{
-			OutStatus = Output.Status == EBuildStatus::CacheMiss
-				? ETextureDerivedDataStatus::Missing : ETextureDerivedDataStatus::Corrupt;
-			OutMessage = Output.Diagnostic;
-			return false;
-		}
-		auto Candidate = std::make_unique<FVolumeTexturePlatformData>();
-		if (!AssetPrivate::DecodeVolumeTexturePlatformValue(
-			Output.Value, *Candidate, OutMessage))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			return false;
-		}
-		OutPlatformData = std::move(Candidate);
-		OutStatus = ETextureDerivedDataStatus::Hit;
-		OutMessage.clear();
 		return true;
 	}
 }

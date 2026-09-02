@@ -10,7 +10,7 @@ namespace Durin
 	// Canonical inputs that determine one volume texture derived-data identity.
 	struct FVolumeTextureBuildKeyInput
 	{
-		FXxHash128 SourceContentHash;
+		FXxHash128 CanonicalSourceIdentity;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 Depth = 0;

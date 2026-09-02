@@ -16,7 +16,6 @@
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Texture/TextureCube.h"
 #include "TextureTestSupport.h"

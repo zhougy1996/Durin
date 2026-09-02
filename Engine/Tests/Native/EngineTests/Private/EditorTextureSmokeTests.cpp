@@ -35,7 +35,6 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 
@@ -70,6 +69,7 @@ namespace Durin
 		OrdinaryGraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
+		FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
@@ -247,6 +247,7 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
+		FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
@@ -409,6 +410,7 @@ namespace Durin
 		TextureUnloadBehindQueuedCommandReturnsResourceCountsToBaseline)
 	{
 		InitializeDObjectSystem();
+		FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		InitRenderingThread();
 		const size_t InitialRenderResourceCount =
 			GetNumInitializedRenderResources();

@@ -6,8 +6,6 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/PropertyEditing.h"
 #include "Texture/Texture2DCompilation.h"
-#include "Texture/TextureBuildOperations.h"
-#include "Texture/TextureBuilder.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::Editor::Texture
@@ -50,7 +48,7 @@ namespace Durin::Editor::Texture
 				Settings.Usage = static_cast<ETextureUsage>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
 						Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
-				Settings.bSRGB = TextureBuilder::GetDefaultSRGB(Settings.Usage);
+				Settings.bSRGB = GetDefaultTextureSRGB(Settings.Usage);
 			}
 			else if (PropertyName == FName("bSRGB"))
 			{
@@ -107,13 +105,10 @@ namespace Durin::Editor::Texture
 			}
 			else return true;
 
-			if (!TextureBuilder::IsValidUsage(Settings.Usage)
-				|| !TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
-				|| !TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
-				|| !TextureBuilder::IsValidAlphaCoverageThreshold(
-					Settings.AlphaCoverageThreshold))
+			if (!ValidateTexture2DBuildSettings(Settings, OutError))
 			{
-				OutError = "Texture2D property proposal contains invalid build settings.";
+				OutError = "Texture2D property proposal contains invalid build settings: "
+					+ OutError;
 				return false;
 			}
 			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
@@ -123,11 +118,8 @@ namespace Durin::Editor::Texture
 					OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
 					return false;
 				}
-				const FXxHash128 Identity = Texture->GetImportedDataIdentity();
-				return BuildTexture2DInto(*Texture, {
+				return BuildTexture2DSynchronously(*Texture, {
 					.SourceData = Texture->GetImportedData().ToSourceData(),
-					.SourceContentHashLow = Identity.HashLow,
-					.SourceContentHashHigh = Identity.HashHigh,
 					.Settings = Settings,
 				}, {
 					.bMarkPackageDirty = true,

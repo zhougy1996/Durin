@@ -11,8 +11,7 @@
 		"Core",
 		"CoreDObject",
 		"DurinEd",
-		"Engine",
-		"TextureBuild"
+		"Engine"
     ],
 	"ReflectHeaders": [
 		"Public/AssetForge/Builtins/Texture2DFactory.h",

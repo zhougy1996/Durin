@@ -126,16 +126,17 @@ namespace Durin
 		// Atomically accepts a complete, validated post-load candidate. Engine owns
 		// the live object and render-resource transition; production stays external.
 		ENGINE_API auto PublishBuildProduct(
+			FTextureCubeImportedData InImportedData,
 			ETextureCubeSourceLayout InSourceLayout,
 			uint32 InPanoramaFaceDimension,
 			float InPanoramaExposureEV,
 			uint32 InOriginalSourceWidth,
 			uint32 InOriginalSourceHeight,
 			bool bInSRGB,
-			std::unique_ptr<FTextureCubeSourceData> InSourceData,
 			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
 			std::string InDerivedDataKey,
-			FTextureDerivedDataDiagnostic InDiagnostic) -> void;
+			FTextureDerivedDataDiagnostic InDiagnostic,
+			bool bMarkPackageDirty = true) -> void;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
 			std::string InDerivedDataKey,

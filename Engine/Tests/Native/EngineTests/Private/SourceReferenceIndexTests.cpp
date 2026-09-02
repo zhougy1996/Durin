@@ -1,6 +1,5 @@
 #include "Source/SourceReferenceIndex.h"
 #include "Texture/TextureTestSupport.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"

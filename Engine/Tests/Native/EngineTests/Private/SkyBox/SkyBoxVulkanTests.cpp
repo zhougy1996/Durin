@@ -2,6 +2,7 @@
 #include "VulkanEngineTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/Load.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -9,6 +10,7 @@
 #include "Renderers/SceneViewState.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
+#include "Texture/TextureCubeBuilder.h"
 
 namespace
 {
@@ -593,10 +595,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
+	SkyBox.TextureReference = nullptr;
 	Durin::FPackagePath CubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
-		EXPECT_TRUE(Durin::DeleteAssetForTesting(CubePath));
+		EXPECT_TRUE(Durin::UnloadPackage(
+			CubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		const Durin::FAssetResult DeleteResult = Durin::DeleteAssetForTesting(CubePath);
+		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
 	}
 	else
 	{
@@ -605,7 +611,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FPackagePath HdrCubePath;
 	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
 	{
-		EXPECT_TRUE(Durin::DeleteAssetForTesting(HdrCubePath));
+		EXPECT_TRUE(Durin::UnloadPackage(
+			HdrCubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+		const Durin::FAssetResult DeleteResult = Durin::DeleteAssetForTesting(HdrCubePath);
+		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
 	}
 	else
 	{
@@ -615,7 +624,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::MarkAsGarbage(OcclusionMesh);
 	Durin::MarkAsGarbage(OcclusionMaterial);
 	Durin::CollectGarbage();
-	SkyBox.TextureReference = nullptr;
 	struct FRetireSkyBoxValidationResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }

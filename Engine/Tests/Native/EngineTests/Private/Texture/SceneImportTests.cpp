@@ -8,6 +8,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/AssetCook.h"
 #include "Materials/MaterialInstance.h"
+#include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -48,6 +49,7 @@ namespace
 		-> FSceneFixture
 	{
 		InitializeDObjectSystem();
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();
 		std::string Error;
@@ -104,12 +106,24 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	const auto Imported = RunScene(Fixture);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_EQ(Imported.Outputs.size(), 3u);
+	bool bSawTexture = false;
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
 		EXPECT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		EXPECT_NE(Object, nullptr);
+		if (const auto* Texture = Durin::Cast<Durin::DTexture2D>(Object))
+		{
+			bSawTexture = true;
+			ASSERT_NE(Texture->GetAssetImportData(), nullptr);
+			const Durin::FSourceFile* Source = Texture->GetAssetImportData()
+				->GetSourceData().FindByRole("source");
+			ASSERT_NE(Source, nullptr);
+			EXPECT_FALSE(Source->GetContentHash().IsZero());
+			EXPECT_NE(Source->GetContentHash(), Texture->GetImportedDataIdentity());
+		}
 	}
+	EXPECT_TRUE(bSawTexture);
 }
 
 TEST(FSceneImportTests, AssetForgePublishesSkeletalDependencyGraph)

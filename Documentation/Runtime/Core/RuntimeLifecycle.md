@@ -4,15 +4,16 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
 
 Engine starts its object-aware asset-compilation aggregate after the task
 system. Material and Texture2D compilation are built-in runtime domains;
-editor and headless authoring roots may add synchronous module-owned providers
-such as TextureBuild without transferring task or publication ownership. Launch
+editor and headless authoring roots may add TextureBuild's typed synchronous
+Texture2D, VolumeTexture, and TextureCube providers without transferring task,
+PostLoad, object, or publication ownership. Launch
 pumps the aggregate while dependent objects are alive and shuts it down before
 providers, objects, modules, and tasks are torn down. Detailed aggregation and
 provider lifetime are defined by [Asset Compilation](../Assets/AssetCompilation.md),

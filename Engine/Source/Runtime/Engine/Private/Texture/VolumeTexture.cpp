@@ -6,8 +6,8 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
+#include "Texture/VolumeTextureBuildProvider.h"
 #include "Texture/VolumeTextureRenderResource.h"
-#include "Texture/VolumeTexturePostLoad.h"
 
 namespace Durin
 {
@@ -195,7 +195,11 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		return InvokeVolumeTextureUncookedPostLoadHandler(*this, OutError);
+		return BuildVolumeTextureSynchronously(*this, {
+			.SourceData = SourceData,
+			.Settings = BuildSettings}, {
+			.bMarkPackageDirty = false,
+			.bSourceDecoderInvoked = false}, OutError);
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -247,11 +251,13 @@ namespace Durin
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
-	auto DVolumeTexture::PublishBuiltData(FVolumeTextureSourceData InSourceData,
+	auto DVolumeTexture::PublishBuiltData(const FVolumeTextureSourceData& InSourceData,
 		FVolumeTextureBuildSettings InBuildSettings,
 		std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 		std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		bool bLoadedFromDerivedDataCache, bool bMarkPackageDirty,
+		bool bSourceDecoderInvoked) -> bool
 	{
 		if (!InSourceData.IsValid() || !InPlatformData || !InPlatformData->IsValid()
 			|| InDerivedDataKey.empty()
@@ -262,22 +268,26 @@ namespace Durin
 			OutError = "Volume texture publication requires compatible validated source, settings, payload, and key.";
 			return false;
 		}
-		SourceData = std::move(InSourceData);
+		if (&InSourceData != &SourceData) SourceData = InSourceData;
 		BuildSettings = InBuildSettings;
 		PlatformData = std::move(InPlatformData);
 		DerivedDataKey = std::move(InDerivedDataKey);
 		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Status = bLoadedFromDerivedDataCache
+				? ETextureDerivedDataStatus::Hit
+				: ETextureDerivedDataStatus::Rebuilt,
 			.Key = DerivedDataKey,
 			.Message = InPersistenceDiagnostic.empty()
-				? "Built VolumeTexture from canonical voxels."
-				: std::format("Built VolumeTexture from canonical voxels; DDC persistence was best effort: {}",
+				? (bLoadedFromDerivedDataCache
+					? "Loaded VolumeTexture platform data from DDC."
+					: "Built VolumeTexture from canonical voxels.")
+				: std::format("Published VolumeTexture platform data; DDC persistence was best effort: {}",
 					InPersistenceDiagnostic),
-			.bSourceDecoderInvoked = false};
+			.bSourceDecoderInvoked = bSourceDecoderInvoked};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
 		QueueRenderResourceBuild();
-		MarkPackageDirty();
+		if (bMarkPackageDirty) MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}

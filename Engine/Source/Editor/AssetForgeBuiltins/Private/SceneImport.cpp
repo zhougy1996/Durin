@@ -21,7 +21,7 @@
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildProvider.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -808,18 +808,21 @@ namespace Durin::AssetForge::Builtins
 		else OutProduct.SourceFilename = std::move(SourceFilename);
 		OutProduct.SourceFileSize = Bytes.size();
 		FTextureSourceData SourceData;
-		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Bytes);
+		OutProduct.EncodedSourceHash = FXxHash128::HashBuffer(Bytes);
+		OutProduct.Settings = {
+			.Usage = Descriptor.TextureUsage,
+			.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color};
 		const FTexture2DBuildExecutionControl Control{
 			.ShouldCancel = IsCancellationRequested};
-		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)
-			|| !BuildTexture2D({
-				.SourceData = std::move(SourceData),
-				.SourceContentHashLow = SourceHash.HashLow,
-				.SourceContentHashHigh = SourceHash.HashHigh,
-				.Settings = {.Usage = Descriptor.TextureUsage,
-					.bSRGB = Descriptor.TextureUsage == ETextureUsage::Color}},
-				OutProduct.Product, OutError, &Control))
+		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)) return false;
+		FTexture2DBuildRequest Request{
+			.SourceData = std::move(SourceData),
+			.Settings = OutProduct.Settings};
+		FTexture2DBuildInputIdentity Identity;
+		if (!InvokeTexture2DBuildProvider(
+			Request, OutProduct.Product, Identity, OutError, &Control))
 			return false;
+		OutProduct.SourceData = std::move(Request.SourceData);
 		OutError.clear();
 		return true;
 	}

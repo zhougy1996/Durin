@@ -16,7 +16,7 @@ namespace Durin
 		uint32 EncodedTargetPlatform = static_cast<uint32>(TargetPlatform);
 		uint32 EncodedTargetProfile = static_cast<uint32>(TargetProfile);
 		Ar << KeySchemaVersion << Dimension
-			<< SourceContentHash.HashLow << SourceContentHash.HashHigh
+			<< ImportedDataIdentity.HashLow << ImportedDataIdentity.HashHigh
 			<< EncodedUsage << EncodedSRGB << EncodedCompressionQuality << EncodedAlphaMipMode
 			<< MaximumResolution << EncodedAlphaCoverageThreshold
 			<< BuilderVersion << PayloadSchemaVersion

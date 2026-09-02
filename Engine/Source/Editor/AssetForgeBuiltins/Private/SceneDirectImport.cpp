@@ -21,7 +21,7 @@
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DCompilation.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -419,9 +419,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::Texture2D)
 			{
-				const FXxHash128 SourceHash{
-					.HashLow = Output.Texture.Product.SourceContentHashLow,
-					.HashHigh = Output.Texture.Product.SourceContentHashHigh};
+				const FXxHash128 SourceHash = Output.Texture.EncodedSourceHash;
 				const std::string SourcePhysicalPath = Output.Texture.SourceFilename;
 				const FAssetPathResult PackageResolution =
 					FMountPaths::ResolveAssetPath(
@@ -446,6 +444,7 @@ namespace Durin::AssetForge::Builtins
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
 				if (!PublishTexture2DProduct(*Cast<DTexture2D>(Output.Candidate),
+					std::move(Output.Texture.SourceData), Output.Texture.Settings,
 					std::move(Output.Texture.Product), {}, Error))
 				{
 					Abandon(Prepared);

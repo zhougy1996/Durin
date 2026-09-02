@@ -88,7 +88,7 @@ namespace Durin
 		{
 			if (!Completion || IsObjectHandleNull(Request.Owner)
 				|| Request.AssetIdentity.empty() || !Request.SourceData.IsValid()
-				|| (Request.SourceHash.HashLow == 0 && Request.SourceHash.HashHigh == 0)) return 0;
+				|| Request.ImportedDataIdentity.IsZero()) return 0;
 			auto Job = std::make_shared<FJob>();
 			Job->Request = std::move(Request);
 			Job->Completion = std::move(Completion);
@@ -270,11 +270,11 @@ namespace Durin
 				return;
 			}
 			const uint64 PreparationStart = NowNanoseconds();
-			auto SourceData = std::make_unique<FTextureSourceData>(
-				std::move(Job->Request.SourceData));
+			FTexture2DBuildRequest BuildRequest{
+				.SourceData = std::move(Job->Request.SourceData)};
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
-			Result.Metrics.DecodedBytes = SourceData->Pixels.size();
-			Result.SourceHash = Job->Request.SourceHash;
+			Result.Metrics.DecodedBytes = BuildRequest.SourceData.Pixels.size();
+			Result.ImportedDataIdentity = Job->Request.ImportedDataIdentity;
 
 			SetPhase(Job, ETexture2DCompilationPhase::Building);
 			const FTexture2DBuildSettingsSnapshot& Settings = Job->Request.Settings;
@@ -288,20 +288,17 @@ namespace Durin
 				},
 				.Metrics = &RecipeMetrics};
 			FTexture2DBuildProduct Product;
-			if (!InvokeTexture2DBuildProvider({
-				.SourceData = std::move(*SourceData),
-				.SourceContentHashLow = Result.SourceHash.HashLow,
-				.SourceContentHashHigh = Result.SourceHash.HashHigh,
-				.Settings = {
+			BuildRequest.Settings = {
 					.Usage = Settings.Usage,
 					.CompressionQuality = Settings.CompressionQuality,
 					.AlphaMipMode = Settings.AlphaMipMode,
 					.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
 					.MaxResolution = Settings.MaxResolution,
-					.bSRGB = Settings.bSRGB},
-				.TargetPlatform = Job->Request.TargetPlatform,
-				.TargetProfile = Job->Request.TargetProfile,
-				.bPersistDerivedData = Job->Request.bPersistDerivedData},
+					.bSRGB = Settings.bSRGB};
+			BuildRequest.TargetPlatform = Job->Request.TargetPlatform;
+			BuildRequest.TargetProfile = Job->Request.TargetProfile;
+			BuildRequest.bPersistDerivedData = Job->Request.bPersistDerivedData;
+			if (!InvokeTexture2DBuildProvider(BuildRequest,
 				Product, Result.InputIdentity, Result.Error, &Control))
 			{
 				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
@@ -320,12 +317,11 @@ namespace Durin
 			Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
 			Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
-			Result.SourceHash = {
-				.HashLow = Product.SourceContentHashLow,
-				.HashHigh = Product.SourceContentHashHigh};
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
 			Result.PersistenceDiagnostic = std::move(Product.PersistenceDiagnostic);
-			Result.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData));
+			Result.Origin = Product.Origin;
+			Result.SourceData = std::make_unique<FTextureSourceData>(
+				std::move(BuildRequest.SourceData));
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error.clear();
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;

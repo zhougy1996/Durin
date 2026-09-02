@@ -1,31 +1,18 @@
 #pragma once
 
 #include "TextureBuildAPI.h"
-#include "Texture/TextureCube.h"
+#include "Texture/TextureCubeBuildProvider.h"
 
 namespace Durin::TextureCubeBuilder
 {
-	inline constexpr uint64 MaximumPanoramaPixels = 32ull * 1024ull * 1024ull;
-	inline constexpr uint32 MaximumPanoramaDimension = 16384;
-	inline constexpr uint32 MaximumProjectedCubeFaceDimension = 4096;
-	inline constexpr float MinimumPanoramaExposureEV = -16.0f;
-	inline constexpr float MaximumPanoramaExposureEV = 16.0f;
+	inline constexpr uint64 MaximumPanoramaPixels = MaximumTextureCubePanoramaPixels;
+	inline constexpr uint32 MaximumPanoramaDimension = MaximumTextureCubePanoramaDimension;
+	inline constexpr uint32 MaximumProjectedCubeFaceDimension = MaximumProjectedTextureCubeFaceDimension;
+	inline constexpr float MinimumPanoramaExposureEV = MinimumTextureCubePanoramaExposureEV;
+	inline constexpr float MaximumPanoramaExposureEV = MaximumTextureCubePanoramaExposureEV;
 
-	struct FTexturePanoramaImage
-	{
-		FByteArray Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
-		uint8 SourceChannelCount = 0;
-		bool bHasTransparency = false;
-	};
-
-	struct FTexturePanoramaFloatImage
-	{
-		std::vector<float> Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
-	};
+	using FTexturePanoramaImage = FTextureCubePanoramaImage;
+	using FTexturePanoramaFloatImage = FTextureCubePanoramaFloatImage;
 
 	// Selects output resolution and the offline HDR exposure transform.
 	struct FEquirectangularTextureCubeProjectionSettings

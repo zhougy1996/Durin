@@ -8,7 +8,6 @@
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "DObject/Package.h"
 #include "NativeTestSupport.h"
-#include "Texture/TextureBuildOperations.h"
 #include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Asset/AssetCompilingManager.h"

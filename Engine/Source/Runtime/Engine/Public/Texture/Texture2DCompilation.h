@@ -57,8 +57,15 @@ namespace Durin
 	ENGINE_API auto WaitForTexture2DCompilation(
 		DTexture2D& Texture,
 		double TimeoutSeconds = 300.0) -> bool;
+	ENGINE_API auto BuildTexture2DSynchronously(
+		DTexture2D& Texture,
+		FTexture2DBuildRequest Request,
+		const FTexture2DPublicationContext& Context,
+		std::string& OutError) -> bool;
 	ENGINE_API auto PublishTexture2DProduct(
 		DTexture2D& Texture,
+		FTextureSourceData SourceData,
+		const FTexture2DBuildSettings& Settings,
 		FTexture2DBuildProduct Product,
 		const FTexture2DPublicationContext& Context,
 		std::string& OutError) -> bool;

@@ -4,8 +4,8 @@ Summary: Complete the Engine-owned Texture object boundary by reducing TextureBu
 
 Last reviewed: 2026-09-02
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-02
 
 ## Current Status
 
@@ -47,6 +47,111 @@ The remaining module boundary is inconsistent outside that asynchronous path:
 
 This plan completes that boundary. It does not reopen the already-qualified
 decision to keep family-specific compilation state typed.
+
+Stage 0 completed on 2026-09-02 with the following frozen baseline:
+
+- Production object-aware callers are Texture2D factory/import and reimport in
+  `Texture2DImport.cpp`, Scene detached build and materialization in
+  `SceneImport.cpp` and `SceneDirectImport.cpp`, synchronous and deferred
+  property editing in `Texture2DPropertyEditing.cpp`, VolumeTexture import in
+  `VolumeTextureImport.cpp`, TextureCube six-face and panorama import in
+  `TextureCubeImport.cpp`, and the three uncooked PostLoad adapters in
+  `TextureBuildModule.cpp`. Direct test callers are in `TextureBuildTests.cpp`
+  and `TextureCubeTests.cpp`; other texture, cook, thumbnail, material, terrain,
+  and source-index tests consume the shared Texture test/import support rather
+  than adding another object-aware production seam.
+- The compatibility baseline is Texture2D builder version 2, TextureCube
+  builder version 2 plus projection version 1, VolumeTexture builder version 2,
+  Texture payload schema version 2, Texture derived-key schema version 2, and
+  Texture2D payload producer version 3. Build Function value names remain
+  `Texture2DPayload`, `TextureCubePayload`, and `VolumeTexturePayload`; input
+  names remain `Texture2DInput`, `TextureCubeBuildInput`, and
+  `VolumeTextureInput`. The existing Texture2D golden key
+  `5b1aa80fd0348f7d01d88e7c7687f39e`, six-face TextureCube golden key
+  `9b662f5ddca0399ae3bf02bda265d860`, canonical payload header/record sizes,
+  alignment, and payload golden hashes are the byte-compatibility baseline.
+- Engine provider feature names are frozen as
+  `Engine.Texture2DBuildProvider`, `Engine.VolumeTextureBuildProvider`, and
+  `Engine.TextureCubeBuildProvider`, each with a family-specific versioned
+  descriptor. Requests borrow immutable normalized source values and carry
+  Engine-validated settings, target platform/profile, and persistence policy.
+  Products carry only platform data, derived-data key, hit/rebuild origin,
+  persistence/recipe diagnostics, provider descriptor, and family metrics.
+- TextureCube input is a typed Engine-owned variant of canonical six-face
+  `FTextureCubeSourceData`, normalized LDR panorama pixels with dimensions,
+  channel count, and transparency, or normalized linear-float HDR panorama
+  pixels with dimensions. Face dimension, exposure, and sRGB remain explicit
+  request settings; panorama validation and projection remain TextureBuild
+  recipe work.
+- Engine owns `IsValidTextureUsage`, `GetDefaultTextureSRGB`, compression-quality,
+  alpha-mip-mode, alpha-threshold, and complete Texture2D build-setting
+  validation. TextureBuild retains pixel-format selection, mip generation,
+  alpha-coverage implementation, compression, codecs, and DDC key construction.
+- Encoded file identity originates in `FEncodedSourceSnapshot::ContentHash` and
+  belongs only to AssetForge transaction/import-data state. Canonical imported
+  identity is computed by `FTextureSourceData::GetImportedDataIdentity` or
+  `FTexture2DImportedData::GetIdentity`, belongs to Engine, and feeds the DDC
+  identity. Standalone import already persists encoded provenance separately;
+  Scene materialization is the confirmed conflation because it persists the
+  canonical hash echoed by `FTexture2DBuildProduct` as encoded-file provenance.
+- Startup order is frozen as callback gate creation, atomic Texture2D,
+  TextureCube, then VolumeTexture Build Function registration, followed by
+  provider publication. Retirement closes provider admission and drains calls
+  before unregistering VolumeTexture, TextureCube, then Texture2D Build
+  Functions. The focused test target is `TextureTests`; affected validation is
+  `test affected`, with `TextureCookIntegrationTests` and
+  `TextureThumbnailTests` used when their integration/resource behavior is
+  touched. Runtime/game and editor/developer module closures remain required at
+  the final gate.
+
+Stage 1 completed on 2026-09-02. `FTexture2DBuildProduct` is derived-only,
+provider invocation borrows a const Engine-owned request, canonical imported
+identity is computed from normalized source data, and publication combines the
+retained Engine source/settings with the provider result. Texture authored
+validation and default sRGB policy now have one Engine authority. Scene import
+retains and publishes the encoded-byte hash independently of canonical pixels.
+The focused `TextureTests` target passed 81/81 tests, including provider input
+retention, Scene encoded/canonical identity separation, existing invalid-setting
+behavior, and unchanged Texture2D/cube DDC golden identities and payload hashes.
+
+Stage 2 completed on 2026-09-02. Engine now owns one synchronous Texture2D
+provider invocation/publication path used by factory creation, synchronous
+property replay, and uncooked PostLoad; Scene detached work invokes the Engine
+provider seam and materialization uses Engine publication. TextureBuild no
+longer contains a `DTexture2D` symbol, object-derived key/load API, or Texture2D
+PostLoad feature. TextureEditor no longer includes or links TextureBuild. Build
+Function registration now completes before provider publication, and shutdown
+retires provider/PostLoad admissions before Build Functions. `TextureTests`
+passed 82/82 tests, including cache hit, corrupt-cache rebuild, authored-source
+retention, cooked behavior, provider unavailability, and TextureBuild
+unload/reload retirement coverage.
+
+Stage 3 completed on 2026-09-02. VolumeTexture now uses the typed
+`Engine.VolumeTextureBuildProvider` contract with borrowed immutable normalized
+source and a derived-only product. Engine owns synchronous invocation,
+GameThread publication, cache-origin diagnostics, dirty/source-decoder policy,
+and uncooked PostLoad. TextureBuild retains the recipe, unchanged key and Build
+Function payload contracts, and a two-phase DDC path that preserves lazy
+external authored-source reads on cache hits. AssetForgeBuiltins imports through
+the Engine boundary; the object-aware build/key/load/publication operations and
+PostLoad feature were removed. `TextureTests` passed 82/82 tests, including
+rebuild/hit, lazy source retention, invalid input, import, cooked/resource
+behavior, provider absence, and TextureBuild unload/reload retirement coverage.
+
+Stage 4 completed on 2026-09-02. TextureCube now uses the typed
+`Engine.TextureCubeBuildProvider` contract with explicit canonical-face, LDR
+panorama, and HDR panorama request variants. Panorama projection returns a
+separate Engine-owned canonical imported value while the provider product is
+derived-only. Engine owns synchronous invocation, source-layout and authoring
+metadata publication, diagnostics, object mutation, uncooked PostLoad, and
+resource invalidation. TextureBuild retains validation/projection, mip and
+compression recipes, DDC/Build Function/codec ownership, and unchanged producer
+versions and identities. AssetForgeBuiltins now consumes Engine contracts and
+no longer links TextureBuild; editor/test composition loads the provider module
+explicitly. The object-aware cube operations and PostLoad feature were removed.
+`TextureTests` passed 82/82, `TextureThumbnailTests` passed 9/9, and
+`TextureCookIntegrationTests` passed 2/2, including provider retirement,
+six-face and LDR/HDR panorama, cache, import, cooked, and GPU resource paths.
 
 ## Goal
 
@@ -222,27 +327,27 @@ selected dependency optimization.
 
 ### Stage 0: Freeze contracts, behavior, and migration inventory
 
-- [ ] Record every production and test caller of TextureBuild `Build*`,
+- [x] Record every production and test caller of TextureBuild `Build*`,
   `Build*Into`, `Publish*Product`, object-derived key/load, builder-policy, and
   PostLoad feature APIs, classified as import, reimport, property edit,
   PostLoad, cook, Scene build, test, or module startup.
-- [ ] Record the current DDC key bytes, producer versions, value names, cache
+- [x] Record the current DDC key bytes, producer versions, value names, cache
   origin diagnostics, payload schemas, and TextureBuild registration order for
   all three families.
-- [ ] Freeze the exact Engine-owned request/product fields and provider feature
+- [x] Freeze the exact Engine-owned request/product fields and provider feature
   names for Texture2D, VolumeTexture, and TextureCube. Resolve the normalized
   panorama value representation before implementation.
-- [ ] Identify which TextureBuilder validation/default functions are authored
+- [x] Identify which TextureBuilder validation/default functions are authored
   policy versus recipe implementation. Select one Engine API for the authored
   subset and leave pixel-format/encoding decisions in TextureBuild.
-- [ ] Trace encoded source hashes and canonical imported-data identities
+- [x] Trace encoded source hashes and canonical imported-data identities
   through standalone and Scene import, reimport, rebuild, DDC, publication,
   and AssetImportData persistence. Record every place where the two meanings
   are currently conflated.
-- [ ] Confirm module startup/retirement ordering permits Build Functions to be
+- [x] Confirm module startup/retirement ordering permits Build Functions to be
   ready before provider publication and retired only after provider admission
   closes and admitted calls drain.
-- [ ] Select focused native test targets and affected module closures through
+- [x] Select focused native test targets and affected module closures through
   the repository test and build workflows.
 
 #### Acceptance Gate
@@ -253,24 +358,24 @@ selected dependency optimization.
 
 ### Stage 1: Seal the Texture2D value and identity boundary
 
-- [ ] Change Texture2D provider invocation to borrow an immutable request for
+- [x] Change Texture2D provider invocation to borrow an immutable request for
   the duration of the synchronous call while Engine retains its source and
   authored settings.
-- [ ] Reduce `FTexture2DBuildProduct` to derived-only platform data, key,
+- [x] Reduce `FTexture2DBuildProduct` to derived-only platform data, key,
   origin, diagnostics, provider descriptor, and metrics; remove echoed source,
   settings, sRGB, and source-hash fields.
-- [ ] Remove caller-supplied build `SourceContentHash` fields. Compute and
+- [x] Remove caller-supplied build `SourceContentHash` fields. Compute and
   retain canonical imported-data identity from `FTextureSourceData` in Engine.
-- [ ] Keep encoded source-file hashes in AssetForge import transaction state
+- [x] Keep encoded source-file hashes in AssetForge import transaction state
   and repair Scene materialization so AssetImportData records the encoded
   bytes it names rather than a normalized-pixel identity.
-- [ ] Move Texture2D authored-setting validation and default-sRGB policy into
+- [x] Move Texture2D authored-setting validation and default-sRGB policy into
   Engine and make DTexture2D publication, TextureEditor proposals,
   AssetForge settings, and TextureBuild preconditions consume that authority.
-- [ ] Keep TextureBuild's pixel-format selection, mip generation,
+- [x] Keep TextureBuild's pixel-format selection, mip generation,
   compression-quality implementation, alpha-coverage recipe, producer version,
   DDC key, and codec logic unchanged.
-- [ ] Add focused coverage proving a provider cannot replace retained source
+- [x] Add focused coverage proving a provider cannot replace retained source
   or settings, encoded/canonical identities differ without crossing owners,
   invalid settings have one Engine result, and DDC key compatibility is
   preserved or intentionally versioned.
@@ -284,26 +389,26 @@ selected dependency optimization.
 
 ### Stage 2: Move Texture2D synchronous and PostLoad orchestration into Engine
 
-- [ ] Add or consolidate one Engine-owned synchronous Texture2D
+- [x] Add or consolidate one Engine-owned synchronous Texture2D
   build/publication path for creation, non-deferred property rebuild, Scene
   materialization, and uncooked PostLoad callers that cannot use the
   asynchronous domain.
-- [ ] Make uncooked `DTexture2D::PostLoad` invoke the value-only build provider,
+- [x] Make uncooked `DTexture2D::PostLoad` invoke the value-only build provider,
   consume its DDC hit/rebuild origin, and publish through Engine without an
   object-aware PostLoad feature.
-- [ ] Route Texture2D factory creation, Scene build/materialization, and
+- [x] Route Texture2D factory creation, Scene build/materialization, and
   non-deferred property rebuild through Engine provider invocation and
   publication; preserve their existing transaction, save, cancellation, and
   package-dirty policies.
-- [ ] Keep interactive reimport and deferred property edits on the existing
+- [x] Keep interactive reimport and deferred property edits on the existing
   Engine-owned asynchronous compilation domain.
-- [ ] Remove TextureBuild's `BuildTexture2DInto`, object-derived
+- [x] Remove TextureBuild's `BuildTexture2DInto`, object-derived
   `MakeTexture2DDerivedDataKey`, standalone `LoadTexture2DDerivedData`, and
   `ITexture2DPostLoadFeature` implementation and registration when their last
   caller is gone.
-- [ ] Remove TextureEditor's compile-time TextureBuild dependency and direct
+- [x] Remove TextureEditor's compile-time TextureBuild dependency and direct
   `TextureBuilder`/`TextureBuildOperations` includes.
-- [ ] Qualify provider absence, cache hit, cache miss plus rebuild, corrupt
+- [x] Qualify provider absence, cache hit, cache miss plus rebuild, corrupt
   cache fallback/failure, synchronous creation, Scene publication, property
   rebuild, cooked PostLoad, and module retirement.
 
@@ -316,23 +421,23 @@ selected dependency optimization.
 
 ### Stage 3: Move VolumeTexture behind a typed value-only provider
 
-- [ ] Define Engine-owned VolumeTexture request, derived-only product,
+- [x] Define Engine-owned VolumeTexture request, derived-only product,
   provider descriptor, and synchronous invocation contracts using the existing
   normalized source and build-setting values.
-- [ ] Implement the provider in TextureBuild by adapting the existing recipe,
+- [x] Implement the provider in TextureBuild by adapting the existing recipe,
   DDC key, Build Function, codec, and cache-origin behavior without changing
   payload compatibility.
-- [ ] Move VolumeTexture product validation, object publication, derived-data
+- [x] Move VolumeTexture product validation, object publication, derived-data
   diagnostic mapping, and uncooked PostLoad orchestration into Engine.
-- [ ] Route AssetForgeBuiltins VolumeTexture import through the Engine provider
+- [x] Route AssetForgeBuiltins VolumeTexture import through the Engine provider
   and publication boundary while preserving source translation and import
   transaction ownership.
-- [ ] Remove `BuildVolumeTextureInto`, `PublishVolumeTextureProduct`,
+- [x] Remove `BuildVolumeTextureInto`, `PublishVolumeTextureProduct`,
   object-derived key/load APIs, and `IVolumeTexturePostLoadFeature`
   implementation and registration after migration.
-- [ ] Keep VolumeTexture synchronous; do not register an empty compilation
+- [x] Keep VolumeTexture synchronous; do not register an empty compilation
   domain or add queue/progress state.
-- [ ] Qualify cache hit/rebuild, invalid source/settings, PostLoad, import,
+- [x] Qualify cache hit/rebuild, invalid source/settings, PostLoad, import,
   cooked load, resource publication, provider absence, and module retirement.
 
 #### Acceptance Gate
@@ -343,25 +448,25 @@ selected dependency optimization.
 
 ### Stage 4: Move TextureCube behind a typed value-only provider
 
-- [ ] Define Engine-owned TextureCube request variants for normalized six-face
+- [x] Define Engine-owned TextureCube request variants for normalized six-face
   and panorama input, a derived-only product, provider descriptor, and
   synchronous invocation contract.
-- [ ] Keep panorama validation/projection, face validation, mip generation,
+- [x] Keep panorama validation/projection, face validation, mip generation,
   compression, DDC key construction, Build Function, codec, and producer
   versions in TextureBuild.
-- [ ] Move TextureCube product validation, source-layout publication,
+- [x] Move TextureCube product validation, source-layout publication,
   diagnostic mapping, object mutation, and uncooked PostLoad orchestration into
   Engine.
-- [ ] Route standalone TextureCube import, panorama workflows, Scene-related
+- [x] Route standalone TextureCube import, panorama workflows, Scene-related
   callers, and test utilities through the Engine provider boundary while
   preserving source capture and transaction ownership.
-- [ ] Remove `BuildTextureCube*Into`, `PublishTextureCubeProduct`, object-derived
+- [x] Remove `BuildTextureCube*Into`, `PublishTextureCubeProduct`, object-derived
   key/load APIs, and `ITextureCubePostLoadFeature` implementation and
   registration after migration.
-- [ ] Keep TextureCube synchronous and preserve the existing six-face and
+- [x] Keep TextureCube synchronous and preserve the existing six-face and
   panorama DDC identities unless Stage 0 proves an identity defect requiring a
   producer-version change.
-- [ ] Qualify six-face and LDR/HDR panorama build, cache hit/rebuild, invalid
+- [x] Qualify six-face and LDR/HDR panorama build, cache hit/rebuild, invalid
   inputs, PostLoad, import, cooked load, thumbnail/render-resource readiness,
   provider absence, and module retirement.
 
@@ -374,31 +479,43 @@ selected dependency optimization.
 
 ### Stage 5: Narrow public API, module dependencies, and lasting documentation
 
-- [ ] Delete the three object-aware Texture PostLoad feature interfaces and
+- [x] Delete the three object-aware Texture PostLoad feature interfaces and
   invocation shims after repository search proves no caller remains.
-- [ ] Split Engine provider contracts from object-level compilation/publication
+- [x] Split Engine provider contracts from object-level compilation/publication
   headers where doing so removes unnecessary includes without duplicating
   types.
-- [ ] Internalize TextureBuild DDC key builders, codecs, operation helpers, and
+- [x] Internalize TextureBuild DDC key builders, codecs, operation helpers, and
   builder headers that have no non-test production consumer. Keep test access
   explicit rather than preserving a broad production API accidentally.
-- [ ] Remove AssetForgeBuiltins' compile-time TextureBuild dependency after all
+- [x] Remove AssetForgeBuiltins' compile-time TextureBuild dependency after all
   Texture family callers use Engine provider contracts. Keep the composition
   owner responsible for loading TextureBuild in authoring configurations.
-- [ ] Search production and tests for `Build*Into`, TextureBuild `Publish*`,
+- [x] Search production and tests for `Build*Into`, TextureBuild `Publish*`,
   object-derived Texture DDC operations, retired PostLoad features, direct
   editor TextureBuild calls, duplicated authored validation, and ambiguous
   Texture `SourceContentHash` uses.
-- [ ] Build the Runtime/game graph that excludes TextureBuild/DDC and the
+- [x] Build the Runtime/game graph that excludes TextureBuild/DDC and the
   affected editor/developer graph that includes the providers, following the
   repository build workflow.
-- [ ] Run the selected focused and affected native tests, plus applicable
+- [x] Run the selected focused and affected native tests, plus applicable
   hidden editor smoke and module unload/reload qualification, following the
   repository test workflow.
-- [ ] Update long-lived asset compilation, asset data lifecycle, Texture,
+- [x] Update long-lived asset compilation, asset data lifecycle, Texture,
   CubeTexture, runtime lifecycle, and module ownership documentation to record
   the implemented boundary without copying plan status into contract docs.
-- [ ] Validate changed documentation and the complete active-plan set.
+- [x] Validate changed documentation and the complete active-plan set.
+
+Stage 5 completed by deleting the retired PostLoad interfaces, moving recipe
+and DDC headers behind TextureBuild's private boundary, preserving explicit
+private access only for recipe-level tests, and keeping authoring module loading
+at MainFrame composition. Static boundary searches found no TextureBuild
+production dependency on live Texture objects and no AssetForgeBuiltins or
+TextureEditor production dependency on TextureBuild. The DurinGame launcher,
+AssetForgeBuiltins, and TextureBuild graphs built successfully; the 23-target
+affected native-test selection passed, including provider retirement coverage,
+Texture cook/thumbnail integration, and Vulkan cube rendering; the 75-case
+EditorRendering smoke target also passed. Changed-document and complete-plan
+validation also passed.
 
 #### Acceptance Gate
 
@@ -482,18 +599,15 @@ selected dependency optimization.
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2DBuildProvider.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2DCompilation.h`
-- `Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h`
-- `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexturePostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureCube.h`
-- `Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DBuildProvider.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilation.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DCompilationDomain.cpp`
-- `Engine/Source/Developer/TextureBuild/Public/Texture/TextureBuildOperations.h`
-- `Engine/Source/Developer/TextureBuild/Public/Texture/VolumeTextureBuildOperations.h`
-- `Engine/Source/Developer/TextureBuild/Public/Texture/TextureCubeBuildOperations.h`
+- `Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.h`
+- `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuildOperations.h`
+- `Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuildOperations.h`
 - `Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp`
 - `Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp`
 - `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuildOperations.cpp`

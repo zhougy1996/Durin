@@ -274,7 +274,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	std::string Error;
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_NE(Texture->GetSourceData(), nullptr);
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
@@ -301,7 +301,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_NE(Texture->GetSourceData(), nullptr);
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_TRUE(Texture->GetLastBuildError().empty());
 

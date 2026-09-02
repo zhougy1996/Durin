@@ -163,11 +163,14 @@ namespace Durin
 		ENGINE_API auto ContributeToCook(FCookContext& Context,
 			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
 	public:
-		ENGINE_API auto PublishBuiltData(FVolumeTextureSourceData InSourceData,
+		ENGINE_API auto PublishBuiltData(const FVolumeTextureSourceData& InSourceData,
 			FVolumeTextureBuildSettings InBuildSettings,
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
-			std::string& OutError) -> bool;
+			std::string& OutError,
+			bool bLoadedFromDerivedDataCache = false,
+			bool bMarkPackageDirty = true,
+			bool bSourceDecoderInvoked = false) -> bool;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;

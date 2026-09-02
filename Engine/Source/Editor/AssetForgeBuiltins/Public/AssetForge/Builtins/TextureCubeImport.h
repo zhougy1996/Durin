@@ -2,7 +2,7 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/TextureCube.h"
-#include "Texture/TextureCubeBuildOperations.h"
+#include "Texture/TextureCubeBuildProvider.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -10,8 +10,8 @@ namespace Durin::AssetForge::Builtins
 	using FTextureCubePanoramaImportSettings =
 		FTextureCubePanoramaBuildSettings;
 	using FTextureCubePanoramaSourceData = std::variant<
-		TextureCubeBuilder::FTexturePanoramaImage,
-		TextureCubeBuilder::FTexturePanoramaFloatImage>;
+		FTextureCubePanoramaImage,
+		FTextureCubePanoramaFloatImage>;
 	ASSETFORGEBUILTINS_API auto IsTextureCubeFaceSourceExtension(
 		std::string_view Extension) -> bool;
 	ASSETFORGEBUILTINS_API auto IsTextureCubePanoramaSourceExtension(

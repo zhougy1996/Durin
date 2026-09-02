@@ -42,6 +42,7 @@ if(DURIN_WITH_EDITOR)
 		${_durin_texture_test_include_directories})
 	target_link_libraries(SceneImportTests PRIVATE
 		${_durin_texture_test_libraries}
+		TextureBuild
 		bc7enc_rdo::bc7enc_rdo)
 	set_target_properties(SceneImportTests PROPERTIES
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -54,7 +55,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(SceneImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES engine asset-forge-builtins
+		MODULES engine texture-build asset-forge-builtins
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -78,12 +79,12 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES asset-tools engine terrain-build asset-forge-builtins
+	MODULES asset-tools engine terrain-build texture-build asset-forge-builtins
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetForgeBuiltins AssetTools DurinEd TerrainBuild
+	LIBRARIES AssetForgeBuiltins AssetTools DurinEd TerrainBuild TextureBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests

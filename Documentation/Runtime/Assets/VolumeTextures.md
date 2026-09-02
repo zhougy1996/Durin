@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-02
 
 ## Asset boundary
 
@@ -81,9 +81,10 @@ source/output format, mip filter, builder and payload schema versions, and
 Win64/Game target identity. It excludes source hints and physical files. A
 validated cache hit and a rebuild publish the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
-the asset's last-known-good CPU or GPU result. Engine reaches the uncooked
-post-load policy through `IVolumeTexturePostLoadFeature`, preserving the
-Engine-to-TextureBuild dependency direction.
+the asset's last-known-good CPU or GPU result. Engine invokes the typed
+`IVolumeTextureBuildProvider` for authored builds and uncooked PostLoad, then
+validates and publishes the derived-only result on the GameThread. TextureBuild
+never receives or mutates a `DVolumeTexture`.
 
 ## Authored source bulk data
 

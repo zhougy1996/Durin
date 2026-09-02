@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -14,10 +14,13 @@ values, serialization, Cooked loading, detached publication, and render
 resources. `AssetForge/Builtins/TextureCubeImport.h` owns validation,
 format admission, typed source translation, direct import/reimport, package
 save, and failure handling. One immutable source capture supplies the
-bytes, hash, size, path, and fingerprint used by each operation. TextureBuild owns source-independent face/panorama recipes and
-DDC policy. Runtime Engine has no authoring callback bundle; the only uncooked
-load seam is the independently reversible AssetForgeBuiltins
-`TextureCubePostLoadPolicy`, which reuses the same translator.
+bytes, hash, size, path, and fingerprint used by each operation. TextureBuild
+owns source-independent face/panorama recipes and DDC policy behind
+`ITextureCubeBuildProvider`. Engine owns typed request variants, canonical
+imported values, derived-only product validation, uncooked PostLoad, object
+publication, diagnostics, and resource invalidation. AssetForgeBuiltins captures
+and translates physical sources through Engine contracts and has no compile-time
+TextureBuild dependency.
 
 ## Coordinate System
 

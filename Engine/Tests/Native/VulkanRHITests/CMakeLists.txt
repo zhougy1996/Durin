@@ -49,6 +49,7 @@ target_compile_definitions(VulkanRHIIntegrationTests PRIVATE
 target_include_directories(VulkanRHIIntegrationTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/TextureBuild/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
 )

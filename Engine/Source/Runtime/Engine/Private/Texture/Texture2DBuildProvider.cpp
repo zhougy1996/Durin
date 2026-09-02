@@ -2,8 +2,29 @@
 
 namespace Durin
 {
+	auto ValidateTexture2DBuildSettings(
+		const FTexture2DBuildSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		if (!IsValidTextureUsage(Settings.Usage)
+			|| !IsValidTextureCompressionQuality(Settings.CompressionQuality)
+			|| !IsValidTextureAlphaMipMode(Settings.AlphaMipMode)
+			|| !IsValidTextureAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
+		{
+			OutError = "Texture2D build settings are invalid.";
+			return false;
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto ResolveTexture2DSRGB(const FTexture2DBuildSettings& Settings) -> bool
+	{
+		return Settings.bSRGB.value_or(GetDefaultTextureSRGB(Settings.Usage));
+	}
+
 	auto InvokeTexture2DBuildProvider(
-		FTexture2DBuildRequest Request,
+		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		std::string& OutError,
@@ -11,11 +32,11 @@ namespace Durin
 	{
 		OutProduct = {};
 		OutIdentity = {
-			.SourceContentHashLow = Request.SourceContentHashLow,
-			.SourceContentHashHigh = Request.SourceContentHashHigh,
+			.ImportedDataIdentity = Request.SourceData.GetImportedDataIdentity(),
 			.Settings = Request.Settings,
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile};
+		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) {
 				OutIdentity.Provider = Provider.GetDescriptor();
@@ -24,8 +45,12 @@ namespace Durin
 					OutError = "The Texture2D build provider descriptor is invalid.";
 					return false;
 				}
-				return Provider.Build(
-					std::move(Request), OutProduct, OutError, ExecutionControl);
+				if (!Provider.Build(Request, OutProduct, OutError, ExecutionControl))
+					return false;
+				OutProduct.Provider = OutIdentity.Provider;
+				if (ExecutionControl && ExecutionControl->Metrics)
+					OutProduct.Metrics = *ExecutionControl->Metrics;
+				return true;
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
 			&& Invocation.Value.has_value() && *Invocation.Value)

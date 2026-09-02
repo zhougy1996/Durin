@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-02
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -128,10 +128,11 @@ fallback.
 
 ## Asynchronous Editor Build Coordination
 
-`TextureBuild` registers `Durin.TextureCompilation` with the Engine-owned
-[asset-compilation aggregate](../Assets/AssetCompilation.md). Its scoped
-registration retains the module resource and shuts the domain down before the
-domain owner gate retires. `FTexture2DCompilationDomain` directly owns two
+Engine registers `Durin.TextureCompilation` with its
+[asset-compilation aggregate](../Assets/AssetCompilation.md). TextureBuild
+registers only the synchronous value provider used inside Engine-owned work;
+its callback gate retires admitted calls before provider code unloads.
+`FTexture2DCompilationDomain` directly owns two
 worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
 four interactive requests are admitted consecutively while background work is

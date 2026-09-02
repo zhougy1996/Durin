@@ -12,8 +12,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
-#include "Texture/TextureBuildOperations.h"
-#include "Texture/TextureBuilder.h"
+#include "Texture/Texture2DCompilation.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -122,8 +121,6 @@ namespace Durin::AssetForge::Builtins
 			return SubmitTexture2DCompilation(Texture, {
 				.Build = {
 					.SourceData = std::move(SourceData),
-					.SourceContentHashLow = ContentHash.HashLow,
-					.SourceContentHashHigh = ContentHash.HashHigh,
 					.Settings = Settings},
 				.Publication = {
 					.bMarkPackageDirty = bPublishImportData,
@@ -213,10 +210,8 @@ namespace Durin::AssetForge::Builtins
 		auto* Texture = NewObject<DTexture2D>(
 			InClass, Package, InName, Flags);
 		if (!Texture) return Failed("Texture2D object could not be created.");
-		if (!BuildTexture2DInto(*Texture, {
+		if (!BuildTexture2DSynchronously(*Texture, {
 			.SourceData = std::move(SourceData),
-			.SourceContentHashLow = Snapshot.ContentHash.HashLow,
-			.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
 			.Settings = {
 				.Usage = Settings.Usage,
 				.CompressionQuality = Settings.CompressionQuality,
@@ -369,12 +364,9 @@ namespace Durin::AssetForge::Builtins
 			OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
 			return false;
 		}
-		const FXxHash128 Identity = Texture.GetImportedDataIdentity();
 		return SubmitTexture2DCompilation(Texture, {
 			.Build = {
 				.SourceData = Texture.GetImportedData().ToSourceData(),
-				.SourceContentHashLow = Identity.HashLow,
-				.SourceContentHashHigh = Identity.HashHigh,
 				.Settings = Settings},
 			.Publication = {
 				.bMarkPackageDirty = true,
@@ -431,7 +423,7 @@ namespace Durin::AssetForge::Builtins
 	auto SetTexture2DUsage(
 		DTexture2D& Texture, ETextureUsage Usage, std::string& OutError) -> bool
 	{
-		if (!TextureBuilder::IsValidUsage(Usage))
+		if (!IsValidTextureUsage(Usage))
 		{
 			OutError = "Texture usage preset is invalid.";
 			return false;
@@ -439,7 +431,7 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.GetUsage() == Usage) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.Usage = Usage;
-		Settings.bSRGB = TextureBuilder::GetDefaultSRGB(Usage);
+		Settings.bSRGB = GetDefaultTextureSRGB(Usage);
 		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
 	}
 
@@ -466,7 +458,7 @@ namespace Durin::AssetForge::Builtins
 		ETextureCompressionQuality Quality,
 		std::string& OutError) -> bool
 	{
-		if (!TextureBuilder::IsValidCompressionQuality(Quality))
+		if (!IsValidTextureCompressionQuality(Quality))
 		{
 			OutError = "Texture compression quality is invalid.";
 			return false;
@@ -480,7 +472,7 @@ namespace Durin::AssetForge::Builtins
 	auto SetTexture2DAlphaMipMode(
 		DTexture2D& Texture, ETextureAlphaMipMode Mode, std::string& OutError) -> bool
 	{
-		if (!TextureBuilder::IsValidAlphaMipMode(Mode))
+		if (!IsValidTextureAlphaMipMode(Mode))
 		{
 			OutError = "Texture alpha mip mode is invalid.";
 			return false;
@@ -494,7 +486,7 @@ namespace Durin::AssetForge::Builtins
 	auto SetTexture2DAlphaCoverageThreshold(
 		DTexture2D& Texture, float Threshold, std::string& OutError) -> bool
 	{
-		if (!TextureBuilder::IsValidAlphaCoverageThreshold(Threshold))
+		if (!IsValidTextureAlphaCoverageThreshold(Threshold))
 		{
 			OutError = "Texture alpha coverage threshold must be greater than zero and less than one.";
 			return false;

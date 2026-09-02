@@ -484,34 +484,35 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 {
 	InitializeCubeMount();
-	Durin::TextureCubeBuilder::FTexturePanoramaImage Panorama{
+	Durin::FTextureCubePanoramaImage Panorama{
 		.Pixels = Durin::FByteArray(4u * 2u * 4u, std::byte{127}),
 		.Width = 4,
 		.Height = 2,
 		.SourceChannelCount = 4};
-	const Durin::FXxHash128 SourceHash{
-		.HashLow = 0x32f0551922ffbe31ull,
-		.HashHigh = 0x7c01c243d75dba09ull};
 	const Durin::FTextureCubePanoramaBuildSettings Settings{
 		.FaceDimension = 2};
+	Durin::FTextureCubeCanonicalBuildInput InitialCanonical;
 	Durin::FTextureCubeBuildProduct Initial;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildTextureCubePanorama(
-		Panorama, SourceHash, Settings, Initial, Error)) << Error;
+	ASSERT_TRUE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+		.Image = Panorama, .Settings = Settings}}, InitialCanonical, Initial, Error)) << Error;
 	ASSERT_NE(Initial.PlatformData, nullptr);
 
+	Durin::FTextureCubeCanonicalBuildInput CachedCanonical;
 	Durin::FTextureCubeBuildProduct Cached;
-	ASSERT_TRUE(Durin::BuildTextureCubePanorama(
-		Panorama, SourceHash, Settings, Cached, Error)) << Error;
-	EXPECT_TRUE(Cached.bLoadedFromDerivedDataCache);
-	EXPECT_TRUE(Cached.SourceData.Faces[0].IsValid());
+	ASSERT_TRUE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+		.Image = Panorama, .Settings = Settings}}, CachedCanonical, Cached, Error)) << Error;
+	EXPECT_EQ(Cached.Origin, Durin::ETextureCubeBuildProductOrigin::CacheHit);
+	EXPECT_TRUE(CachedCanonical.ImportedData.IsValid());
 	ASSERT_NE(Cached.PlatformData, nullptr);
 	EXPECT_TRUE(Cached.PlatformData->IsValid());
 
 	Panorama.Pixels.clear();
+	Durin::FTextureCubeCanonicalBuildInput InvalidCanonical;
 	Durin::FTextureCubeBuildProduct Invalid;
-	EXPECT_FALSE(Durin::BuildTextureCubePanorama(
-		std::move(Panorama), SourceHash, Settings, Invalid, Error));
+	EXPECT_FALSE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+		.Image = std::move(Panorama), .Settings = Settings}},
+		InvalidCanonical, Invalid, Error));
 	EXPECT_NE(Error.find("pixel storage"), std::string::npos);
 }
 

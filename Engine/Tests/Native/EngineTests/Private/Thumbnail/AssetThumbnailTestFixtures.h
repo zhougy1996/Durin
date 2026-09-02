@@ -19,6 +19,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Math/Operations.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
@@ -26,7 +27,6 @@
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Texture/TextureCube.h"
 
@@ -283,6 +283,7 @@ namespace Durin::Tests
 	inline auto RegisterAssetThumbnailFixtureMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
+		FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		Testing::RegisterMountPointForTests(
 			FAssetThumbnailFixtureSet::MountPoint,

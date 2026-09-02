@@ -4,7 +4,7 @@
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "ImportedSceneInternal.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DBuildProvider.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -44,7 +44,10 @@ namespace Durin::AssetForge::Builtins
 	};
 	struct FSceneTextureBuildProduct
 	{
+		FTextureSourceData SourceData;
+		FTexture2DBuildSettings Settings;
 		FTexture2DBuildProduct Product;
+		FXxHash128 EncodedSourceHash;
 		std::string SourceFilename;
 		FByteArray GeneratedSourceBytes;
 		uint64 SourceFileSize = 0;

@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate and domain l
 
 Modules: Engine, Launch, TextureBuild
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -18,8 +18,9 @@ The built-in domains are `Durin.MaterialCompilation` and
 `Durin.TextureCompilation`. Optional modules may register additional domains
 while the aggregate is accepting requests. Runtime Engine does not depend on
 TextureBuild or DerivedDataCache: authoring targets register a synchronous
-`ITexture2DBuildProvider`, while game deployments retain the Engine domain and
-simply have no provider-backed authoring work to submit.
+family-specific `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
+`ITextureCubeBuildProvider` features, while game deployments retain Engine
+runtime assets and simply have no provider-backed authoring work to submit.
 
 ## Domain Contract
 
@@ -76,8 +77,10 @@ aggregate does not add a compilation thread pool. Process shutdown completes
 the aggregate before Core closes task admission.
 
 Provider modules do not own those scopes or return concrete asynchronous tasks.
-The Engine Texture2D worker enters the single `ITexture2DBuildProvider` modular
-feature for one synchronous value-only call. Provider owner retirement closes
+Engine enters the single family-specific Texture provider modular feature for
+one synchronous value-only call. Only Texture2D places that call on an
+Engine-owned worker; VolumeTexture and TextureCube remain synchronous.
+Provider owner retirement closes
 new admission and waits for calls already inside the feature gate; no provider
 callback, task, deleter, or result lifetime escapes the call.
 
@@ -98,9 +101,11 @@ bounded independently. `DTexture2D` owns only its process-local request serial
 and last-request diagnostic handle. The deterministic input/provider identity
 remains separate from that serial and from GPU resource readiness.
 
-TextureBuild owns the synchronous provider implementation, build algorithms,
-DDC session, producer versions, codecs, and function registration. TextureCube,
-VolumeTexture, and Geometry recipes stay synchronous and do not register empty
+TextureBuild owns the three synchronous provider implementations, build
+algorithms, DDC sessions, producer versions, private codecs/helpers, and Build
+Function registration. Engine alone owns live Texture objects, authored state,
+PostLoad orchestration, diagnostics, publication, and resource invalidation.
+TextureCube and VolumeTexture stay synchronous and do not register empty
 compilation domains.
 
 ## Proven Reuse Boundary

@@ -13,8 +13,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
-#include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"

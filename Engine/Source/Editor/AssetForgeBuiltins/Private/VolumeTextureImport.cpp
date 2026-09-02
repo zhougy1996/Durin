@@ -15,7 +15,7 @@
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/VolumeTextureBuildOperations.h"
+#include "Texture/VolumeTextureBuildProvider.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -375,8 +375,9 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureSourceData SourceData;
 			if (!TranslateVolumeTextureAtlasSource(
 				Captured, Settings, SourceData, OutError)) return false;
-			if (!BuildVolumeTextureInto(Texture, std::move(SourceData),
-				{.OutputFormat = Settings.GetOutputFormat()}, OutError)
+			if (!BuildVolumeTextureSynchronously(Texture, {
+				.SourceData = SourceData,
+				.Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {}, OutError)
 				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase,
 					PhysicalPath,
 					Snapshot, Settings, OutError)) return false;

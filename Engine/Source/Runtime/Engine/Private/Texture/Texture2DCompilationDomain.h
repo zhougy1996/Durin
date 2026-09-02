@@ -24,7 +24,7 @@ namespace Durin
 	{
 		std::string AssetIdentity;
 		FTextureSourceData SourceData;
-		FXxHash128 SourceHash;
+		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettingsSnapshot Settings;
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
@@ -42,12 +42,13 @@ namespace Durin
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
-		FXxHash128 SourceHash;
+		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettingsSnapshot Settings;
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
 		std::string PersistenceDiagnostic;
+		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 		std::string Error;
 		FTexture2DCompilationMetrics Metrics;
 		FTexture2DBuildInputIdentity InputIdentity;

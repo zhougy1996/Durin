@@ -22,7 +22,6 @@
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Threading/Task.h"
 #include "Modules/ModuleManager.h"
@@ -46,6 +45,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 			Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		}

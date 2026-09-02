@@ -13,341 +13,150 @@ namespace Durin
 
 	namespace
 	{
-		auto TryLoadCubeBuild(
+		auto MakeDefinition(std::string_view Key, std::span<const std::byte> KeyBytes,
+			const FTextureCubeSourceData* SourceData,
 			const FTextureCubeBuildKeyInput& KeyInput,
-			std::string& OutKey,
-			std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-			std::string& OutError) -> bool
+			FBuildDefinition& OutDefinition, std::string& OutError) -> bool
 		{
-			OutKey = BuildTextureCubeDerivedDataKey(KeyInput, OutError);
-			if (OutKey.empty()) return false;
-			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::Missing;
-			std::string Message;
-			if (LoadTextureCubeDerivedData(
-				OutKey, OutPlatformData, Status, Message))
-			{
-				OutError.clear();
-				return true;
-			}
-			OutError.clear();
-			return false;
-		}
-
-		auto ExecuteCubeBuild(FTextureCubeSourceData& SourceData,
-			const FTextureCubeBuildKeyInput& KeyInput, std::string& OutKey,
-			std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-			bool bQueryCache, bool& OutCacheHit,
-			std::string& OutError) -> bool
-		{
-			if (!EnsureTextureBuildFunctions(&OutError)) return false;
-			const FByteArray KeyBytes =
-				BuildTextureCubeDerivedDataKeyBytes(KeyInput, OutError);
-			OutKey = KeyBytes.empty()
-				? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
-			if (OutKey.empty()) return false;
-			FBuildDefinition Definition;
-			FBuildDefinitionBuilder Builder(
-				AssetPrivate::TextureCubeFunctionName,
+			FBuildDefinitionBuilder Builder(AssetPrivate::TextureCubeFunctionName,
 				std::string(AssetPrivate::TextureCubeValueName));
-			Builder.SetKey(FBuildKey::FromString(OutKey), KeyBytes)
+			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 				.AddTargetFact("Platform", "Win64")
 				.AddTargetFact("Profile", "Game")
-				.AddTargetFact("SRGB", KeyInput.bSRGB ? "1" : "0")
-				.AddTargetFact("Dimension", std::to_string(SourceData.Faces[0].Width))
-				.AddInput(FBuildValue::FromOwned(
-					std::string(AssetPrivate::TextureCubeInputName),
-					AssetPrivate::EncodeTextureCubeLocalInput(SourceData)));
-			if (!Builder.Build(Definition, &OutError)) return false;
-			const FBuildOutput Output = FBuildSession().Build(Definition, {
-				.bQueryCache = bQueryCache, .bAllowLocalBuild = true,
-				.bStoreBuildResult = true});
+				.AddTargetFact("SRGB", KeyInput.bSRGB ? "1" : "0");
+			if (SourceData)
+				Builder.AddTargetFact("Dimension",
+					std::to_string(SourceData->Faces[0].Width))
+					.AddInput(FBuildValue::FromOwned(
+						std::string(AssetPrivate::TextureCubeInputName),
+						AssetPrivate::EncodeTextureCubeLocalInput(*SourceData)));
+			return Builder.Build(OutDefinition, &OutError);
+		}
+
+		auto ExecuteCubeBuild(const FTextureCubeImportedData& ImportedData,
+			bool bSRGB, bool bPersistDerivedData,
+			FTextureCubeBuildProduct& OutProduct, std::string& OutError) -> bool
+		{
+			if (!ImportedData.IsValid())
+			{
+				OutError = "TextureCube canonical imported faces are invalid.";
+				return false;
+			}
+			if (!EnsureTextureBuildFunctions(&OutError)) return false;
+			const FXxHash128 CanonicalHash = ImportedData.GetIdentity();
+			const FTextureCubeBuildKeyInput KeyInput{
+				.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
+				.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
+					CanonicalHash, CanonicalHash, CanonicalHash},
+				.bSRGB = bSRGB,
+				.TargetPlatform = ECookTargetPlatform::Win64,
+				.TargetProfile = ECookTargetProfile::Game};
+			const FByteArray KeyBytes = BuildTextureCubeDerivedDataKeyBytes(
+				KeyInput, OutError);
+			const std::string Key = KeyBytes.empty()
+				? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
+			if (Key.empty()) return false;
+
+			FBuildDefinition CacheDefinition;
+			if (!MakeDefinition(Key, KeyBytes, nullptr, KeyInput,
+				CacheDefinition, OutError)) return false;
+			FBuildOutput Output = FBuildSession().Build(CacheDefinition, {
+				.bQueryCache = true, .bAllowLocalBuild = false,
+				.bStoreBuildResult = false});
+			if (!Output.Succeeded())
+			{
+				const FTextureCubeSourceData SourceData = ImportedData.ToSourceData();
+				if (!SourceData.IsValid())
+				{
+					OutError = "TextureCube canonical source pixels are invalid.";
+					return false;
+				}
+				FBuildDefinition LocalDefinition;
+				if (!MakeDefinition(Key, KeyBytes, &SourceData, KeyInput,
+					LocalDefinition, OutError)) return false;
+				Output = FBuildSession().Build(LocalDefinition, {
+					.bQueryCache = false, .bAllowLocalBuild = true,
+					.bStoreBuildResult = bPersistDerivedData});
+			}
 			if (!Output.Succeeded())
 			{
 				OutError = Output.Diagnostic;
 				return false;
 			}
-			auto Candidate = std::make_unique<FTextureCubePlatformData>();
+			auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 			if (!AssetPrivate::DecodeTextureCubePlatformValue(
-				Output.Value, *Candidate, OutError)) return false;
-			OutPlatformData = std::move(Candidate);
-			OutCacheHit = Output.Status == EBuildStatus::CacheHit;
-			OutError = Output.StoreDiagnostic;
+				Output.Value, *PlatformData, OutError)) return false;
+			OutProduct = {.PlatformData = std::move(PlatformData),
+				.DerivedDataKey = Key,
+				.PersistenceDiagnostic = Output.StoreDiagnostic,
+				.Origin = Output.Status == EBuildStatus::CacheHit
+					? ETextureCubeBuildProductOrigin::CacheHit
+					: ETextureCubeBuildProductOrigin::Rebuilt};
+			OutError.clear();
 			return true;
 		}
 
-		auto FinishPanoramaProduct(
-			FTextureCubeSourceData SourceData,
-			uint32 SourceWidth,
-			uint32 SourceHeight,
-			const FXxHash128& Hash,
+		template <typename PanoramaType>
+		auto BuildPanorama(const PanoramaType& Panorama,
 			const FTextureCubePanoramaBuildSettings& Settings,
+			bool bPersistDerivedData,
+			FTextureCubeCanonicalBuildInput& OutCanonicalInput,
 			FTextureCubeBuildProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
-			(void)Hash;
-			FTextureCubeImportedData Imported;
-			if (!Imported.SetSourceData(SourceData))
+			FTextureCubeSourceData SourceData;
+			if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
+				Panorama, {Settings.FaceDimension, Settings.ExposureEV},
+				SourceData, OutError)) return false;
+			FTextureCubeImportedData ImportedData;
+			if (!ImportedData.SetSourceData(SourceData))
 			{
 				OutError = "TextureCube canonical imported faces are invalid.";
 				return false;
 			}
-			const FXxHash128 CanonicalHash = Imported.GetIdentity();
-			const FTextureCubeBuildKeyInput KeyInput{
-				.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
-				.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
-					CanonicalHash, CanonicalHash, CanonicalHash},
-				.bSRGB = true,
-				.TargetPlatform = ECookTargetPlatform::Win64,
-				.TargetProfile = ECookTargetProfile::Game};
-			std::string Key;
-			std::unique_ptr<FTextureCubePlatformData> PlatformData;
-			bool bCacheHit = false;
-			if (!ExecuteCubeBuild(
-				SourceData, KeyInput, Key, PlatformData, true, bCacheHit, OutError))
-				return false;
-			const std::string PersistenceDiagnostic = OutError;
-			OutProduct = {
+			OutCanonicalInput = {
+				.ImportedData = ImportedData,
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-				.SourceData = std::move(SourceData),
-				.PlatformData = std::move(PlatformData),
-				.DerivedDataKey = std::move(Key),
-				.SourceWidth = SourceWidth,
-				.SourceHeight = SourceHeight,
+				.OriginalSourceWidth = Panorama.Width,
+				.OriginalSourceHeight = Panorama.Height,
 				.PanoramaFaceDimension = Settings.FaceDimension,
 				.PanoramaExposureEV = Settings.ExposureEV,
-				.bSRGB = true,
-				.bLoadedFromDerivedDataCache = bCacheHit,
-				.PersistenceDiagnostic = PersistenceDiagnostic};
-			OutError.clear();
-			return true;
+				.bSRGB = true};
+			return ExecuteCubeBuild(ImportedData, true, bPersistDerivedData,
+				OutProduct, OutError);
 		}
 	}
 
-	auto BuildTextureCubePanorama(
-		TextureCubeBuilder::FTexturePanoramaImage Panorama,
-		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaBuildSettings& Settings,
+	auto BuildTextureCube(const FTextureCubeBuildRequest& Request,
+		FTextureCubeCanonicalBuildInput& OutCanonicalInput,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
-		FTextureCubeSourceData SourceData;
-		if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
-			Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, OutError))
-			return false;
-		return FinishPanoramaProduct(std::move(SourceData), Panorama.Width,
-			Panorama.Height, SourceHash, Settings, OutProduct, OutError);
-	}
-
-	auto MakeTextureCubeDerivedDataKey(
-		const DTextureCube& Texture,
-		std::string& OutError) -> std::string
-	{
-		const FXxHash128 CanonicalHash = Texture.GetImportedDataIdentity();
-		if (CanonicalHash.IsZero())
+		OutCanonicalInput = {};
+		OutProduct = {};
+		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
-			OutError = "TextureCube canonical imported-data identity is missing or invalid.";
-			return {};
-		}
-		FTextureCubeBuildKeyInput Input{
-			.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
-			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
-				CanonicalHash, CanonicalHash, CanonicalHash},
-			.bSRGB = Texture.IsSRGB(),
-			.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game};
-		return BuildTextureCubeDerivedDataKey(Input, OutError);
-	}
-
-	auto LoadTextureCubeDerivedData(
-		std::string_view Key,
-		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-		ETextureDerivedDataStatus& OutStatus,
-		std::string& OutMessage) -> bool
-	{
-		std::string Error;
-		if (!EnsureTextureBuildFunctions(&Error))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			OutMessage = Error;
+			OutError = "TextureCube build target is unsupported.";
 			return false;
 		}
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(
-			AssetPrivate::TextureCubeFunctionName,
-			std::string(AssetPrivate::TextureCubeValueName));
-		Builder.SetKey(FBuildKey::FromString(Key))
-			.AddTargetFact("Platform", "Win64")
-			.AddTargetFact("Profile", "Game");
-		if (!Builder.Build(Definition, &Error))
+		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(
+			&Request.Input))
 		{
-			OutStatus = ETextureDerivedDataStatus::Incompatible;
-			OutMessage = Error;
-			return false;
+			OutCanonicalInput = {.ImportedData = Faces->ImportedData,
+				.SourceLayout = Faces->SourceLayout,
+				.OriginalSourceWidth = Faces->OriginalSourceWidth,
+				.OriginalSourceHeight = Faces->OriginalSourceHeight,
+				.PanoramaFaceDimension = Faces->PanoramaFaceDimension,
+				.PanoramaExposureEV = Faces->PanoramaExposureEV,
+				.bSRGB = Faces->Settings.bSRGB};
+			return ExecuteCubeBuild(Faces->ImportedData, Faces->Settings.bSRGB,
+				Request.bPersistDerivedData, OutProduct, OutError);
 		}
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false});
-		if (!Output.Succeeded())
-		{
-			OutStatus = Output.Status == EBuildStatus::CacheMiss
-				? ETextureDerivedDataStatus::Missing : ETextureDerivedDataStatus::Corrupt;
-			OutMessage = Output.Diagnostic;
-			return false;
-		}
-		auto Candidate = std::make_unique<FTextureCubePlatformData>();
-		if (!AssetPrivate::DecodeTextureCubePlatformValue(
-			Output.Value, *Candidate, OutMessage))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			return false;
-		}
-		OutPlatformData = std::move(Candidate);
-		OutStatus = ETextureDerivedDataStatus::Hit;
-		OutMessage.clear();
-		return true;
-	}
-
-	auto BuildTextureCubePanorama(
-		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
-		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaBuildSettings& Settings,
-		FTextureCubeBuildProduct& OutProduct,
-		std::string& OutError) -> bool
-	{
-		FTextureCubeSourceData SourceData;
-		if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
-			Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, OutError))
-			return false;
-		return FinishPanoramaProduct(std::move(SourceData), Panorama.Width,
-			Panorama.Height, SourceHash, Settings, OutProduct, OutError);
-	}
-
-	auto BuildTextureCubeFaces(
-		FTextureCubeSourceData SourceData,
-		const std::array<FXxHash128, TextureCubeFaceCount>& Hashes,
-		const FTextureCubeFacesBuildSettings& Settings,
-		FTextureCubeBuildProduct& OutProduct,
-		std::string& OutError) -> bool
-	{
-		(void)Hashes;
-		FTextureCubeImportedData Imported;
-		if (!Imported.SetSourceData(SourceData))
-		{
-			OutError = "TextureCube canonical imported faces are invalid.";
-			return false;
-		}
-		const FXxHash128 CanonicalHash = Imported.GetIdentity();
-		const FTextureCubeBuildKeyInput KeyInput{
-			.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
-			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
-				CanonicalHash, CanonicalHash, CanonicalHash},
-			.bSRGB = Settings.bSRGB,
-			.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game};
-		std::string Key;
-		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		bool bCacheHit = false;
-		if (!ExecuteCubeBuild(
-			SourceData, KeyInput, Key, PlatformData, true, bCacheHit, OutError))
-			return false;
-		const std::string PersistenceDiagnostic = OutError;
-		const uint32 SourceWidth = SourceData.Faces[0].Width;
-		const uint32 SourceHeight = SourceData.Faces[0].Height;
-		OutProduct = {
-			.SourceLayout = ETextureCubeSourceLayout::SixFaces,
-			.SourceData = std::move(SourceData),
-			.PlatformData = std::move(PlatformData),
-			.DerivedDataKey = std::move(Key),
-			.SourceWidth = SourceWidth,
-			.SourceHeight = SourceHeight,
-			.bSRGB = Settings.bSRGB,
-			.bLoadedFromDerivedDataCache = bCacheHit,
-			.PersistenceDiagnostic = PersistenceDiagnostic};
-		OutError.clear();
-		return true;
-	}
-
-	auto PublishTextureCubeProduct(
-		DTextureCube& Texture,
-		FTextureCubeBuildProduct Product,
-		const FTextureCubePublicationContext& Context,
-		std::string& OutError) -> bool
-	{
-		(void)Context;
-		if (!Product.PlatformData || !Product.PlatformData->IsValid()
-			|| !Product.SourceData.IsValid()
-			|| Product.DerivedDataKey.empty())
-		{
-			OutError = "TextureCube publication product is incomplete.";
-			return false;
-		}
-		const std::string DiagnosticKey = Product.DerivedDataKey;
-		const bool bPanorama = Product.SourceLayout
-			== ETextureCubeSourceLayout::EquirectangularPanorama;
-		auto SourceData = std::make_unique<FTextureCubeSourceData>(
-			std::move(Product.SourceData));
-		Texture.PublishBuildProduct(
-			Product.SourceLayout, Product.PanoramaFaceDimension,
-			Product.PanoramaExposureEV, Product.SourceWidth, Product.SourceHeight,
-			Product.bSRGB,
-			std::move(SourceData),
-			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
-			{.Status = Product.bLoadedFromDerivedDataCache
-					? ETextureDerivedDataStatus::Hit
-					: ETextureDerivedDataStatus::Rebuilt,
-				.Key = DiagnosticKey,
-				.Message = Product.bLoadedFromDerivedDataCache
-					? "Loaded TextureCube build candidate from DDC."
-					: !Product.PersistenceDiagnostic.empty()
-						? std::format("Built TextureCube from canonical faces; DDC persistence was best effort: {}",
-							Product.PersistenceDiagnostic)
-					: bPanorama
-						? "Built TextureCube panorama candidate from normalized pixels."
-						: "Built six-face TextureCube candidate from normalized pixels.",
-				.bSourceDecoderInvoked = true});
-		OutError.clear();
-		return true;
-	}
-
-	auto BuildTextureCubePanoramaInto(
-		DTextureCube& Texture,
-		TextureCubeBuilder::FTexturePanoramaImage Panorama,
-		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaBuildSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		FTextureCubeBuildProduct Product;
-		return BuildTextureCubePanorama(
-			std::move(Panorama), SourceHash, Settings, Product, OutError)
-			&& PublishTextureCubeProduct(
-				Texture, std::move(Product), {.PanoramaHash = SourceHash}, OutError);
-	}
-
-	auto BuildTextureCubePanoramaInto(
-		DTextureCube& Texture,
-		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
-		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaBuildSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		FTextureCubeBuildProduct Product;
-		return BuildTextureCubePanorama(
-			std::move(Panorama), SourceHash, Settings, Product, OutError)
-			&& PublishTextureCubeProduct(
-				Texture, std::move(Product), {.PanoramaHash = SourceHash}, OutError);
-	}
-
-	auto BuildTextureCubeFacesInto(
-		DTextureCube& Texture,
-		FTextureCubeSourceData SourceData,
-		const std::array<FXxHash128, TextureCubeFaceCount>& SourceHashes,
-		const FTextureCubeFacesBuildSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		FTextureCubeBuildProduct Product;
-		return BuildTextureCubeFaces(
-			std::move(SourceData), SourceHashes, Settings, Product, OutError)
-			&& PublishTextureCubeProduct(
-				Texture, std::move(Product), {.FaceHashes = SourceHashes}, OutError);
+		const auto& Panorama = std::get<FTextureCubePanoramaBuildInput>(Request.Input);
+		return std::visit([&](const auto& Image) {
+			return BuildPanorama(Image, Panorama.Settings,
+				Request.bPersistDerivedData, OutCanonicalInput, OutProduct, OutError);
+		}, Panorama.Image);
 	}
 }

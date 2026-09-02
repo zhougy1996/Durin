@@ -11,7 +11,6 @@
         "RenderCore",
         "Engine",
         "AssetForgeBuiltins",
-        "TextureBuild",
         "MonaImGui",
 		"MonaCore",
 		"ContentBrowser"

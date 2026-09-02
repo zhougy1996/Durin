@@ -57,6 +57,13 @@ namespace Durin
 		PreserveCoverage DMETA(DisplayName = "Preserve Coverage")
 	};
 
+	ENGINE_API auto IsValidTextureUsage(ETextureUsage Usage) -> bool;
+	ENGINE_API auto GetDefaultTextureSRGB(ETextureUsage Usage) -> bool;
+	ENGINE_API auto IsValidTextureCompressionQuality(
+		ETextureCompressionQuality Quality) -> bool;
+	ENGINE_API auto IsValidTextureAlphaMipMode(ETextureAlphaMipMode Mode) -> bool;
+	ENGINE_API auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool;
+
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{
@@ -169,6 +176,7 @@ namespace Durin
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
 		bool bSourceDecoderInvoked = true;
+		bool bLoadedFromDerivedDataCache = false;
 	};
 
 	// Owns imported texture source, derived platform data, and its render resources.

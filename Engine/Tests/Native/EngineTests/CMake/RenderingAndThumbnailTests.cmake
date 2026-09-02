@@ -80,12 +80,12 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 durin_add_engine_functional_test(TextureThumbnailTests
 	KIND feature
 	DOMAINS texture thumbnail
-	MODULES engine texture-editor
+	MODULES engine texture-build texture-editor
 	STACKS editor renderer
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

@@ -134,8 +134,10 @@ if(TARGET AssetForgeBuiltins)
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild
-		TextureBuild
 		assimp::assimp
+	)
+	durin_assert_target_dependency_closure_excludes(AssetForgeBuiltins
+		TextureBuild
 	)
 endif()
 

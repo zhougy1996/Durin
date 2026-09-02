@@ -12,7 +12,6 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DFactory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/VolumeTextureFactory.h"

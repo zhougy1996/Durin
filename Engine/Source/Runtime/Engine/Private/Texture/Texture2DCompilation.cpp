@@ -74,8 +74,7 @@ namespace Durin
 			const FTexture2DBuildInputIdentity& Completed) -> bool
 		{
 			return Completed.Provider.IsValid()
-				&& Expected.SourceContentHashLow == Completed.SourceContentHashLow
-				&& Expected.SourceContentHashHigh == Completed.SourceContentHashHigh
+				&& Expected.ImportedDataIdentity == Completed.ImportedDataIdentity
 				&& Expected.Settings == Completed.Settings
 				&& Expected.TargetPlatform == Completed.TargetPlatform
 				&& Expected.TargetProfile == Completed.TargetProfile;
@@ -163,23 +162,21 @@ namespace Durin
 			return;
 		}
 
+		const FTexture2DBuildSettings Settings{
+			.Usage = Result.Settings.Usage,
+			.CompressionQuality = Result.Settings.CompressionQuality,
+			.AlphaMipMode = Result.Settings.AlphaMipMode,
+			.AlphaCoverageThreshold = Result.Settings.AlphaCoverageThreshold,
+			.MaxResolution = Result.Settings.MaxResolution,
+			.bSRGB = Result.Settings.bSRGB};
 		FTexture2DBuildProduct Product{
-			.SourceData = std::move(*Result.SourceData),
 			.PlatformData = std::move(*Result.PlatformData),
 			.DerivedDataKey = std::move(Result.DerivedDataKey),
 			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
-			.SourceContentHashLow = Result.SourceHash.HashLow,
-			.SourceContentHashHigh = Result.SourceHash.HashHigh,
-			.Settings = {
-				.Usage = Result.Settings.Usage,
-				.CompressionQuality = Result.Settings.CompressionQuality,
-				.AlphaMipMode = Result.Settings.AlphaMipMode,
-				.AlphaCoverageThreshold = Result.Settings.AlphaCoverageThreshold,
-				.MaxResolution = Result.Settings.MaxResolution,
-				.bSRGB = Result.Settings.bSRGB},
-			.bSRGB = Result.Settings.bSRGB};
+			.Origin = Result.Origin};
 		std::string Error;
-		if (!PublishTexture2DProduct(*Texture, std::move(Product), PublicationContext, Error))
+		if (!PublishTexture2DProduct(*Texture, std::move(*Result.SourceData), Settings,
+			std::move(Product), PublicationContext, Error))
 		{
 			Texture->bCompilationLastRequestFailed = true;
 			DURIN_ERROR("Texture2D compilation publication failed for {}: {}",
@@ -301,7 +298,9 @@ namespace Durin
 			return false;
 		}
 		const FTexture2DBuildSettings Settings = Request.Build.Settings;
-		const bool bSRGB = Settings.bSRGB.value_or(Settings.Usage == ETextureUsage::Color);
+		const bool bSRGB = ResolveTexture2DSRGB(Settings);
+		const FXxHash128 ImportedDataIdentity =
+			Request.Build.SourceData.GetImportedDataIdentity();
 		uint64 RequestSerial = ++Texture.CompilationRequestSerial;
 		if (RequestSerial == 0) RequestSerial = ++Texture.CompilationRequestSerial;
 		uint64 PreviousRequestId = 0;
@@ -316,8 +315,7 @@ namespace Durin
 				.RequestSerial = RequestSerial,
 				.PublicationContext = std::move(Request.Publication),
 				.InputIdentity = {
-					.SourceContentHashLow = Request.Build.SourceContentHashLow,
-					.SourceContentHashHigh = Request.Build.SourceContentHashHigh,
+					.ImportedDataIdentity = ImportedDataIdentity,
 					.Settings = {
 						.Usage = Settings.Usage,
 						.CompressionQuality = Settings.CompressionQuality,
@@ -336,9 +334,7 @@ namespace Durin
 		const uint64 RequestId = SubmitWork({
 			.AssetIdentity = Identity,
 			.SourceData = std::move(Request.Build.SourceData),
-			.SourceHash = {
-				.HashLow = Request.Build.SourceContentHashLow,
-				.HashHigh = Request.Build.SourceContentHashHigh},
+			.ImportedDataIdentity = ImportedDataIdentity,
 			.Settings = {
 				.Usage = Settings.Usage,
 				.bSRGB = bSRGB,
@@ -484,8 +480,25 @@ namespace Durin
 		}
 	}
 
+	auto BuildTexture2DSynchronously(
+		DTexture2D& Texture,
+		FTexture2DBuildRequest Request,
+		const FTexture2DPublicationContext& Context,
+		std::string& OutError) -> bool
+	{
+		CheckGameThread();
+		FTexture2DBuildProduct Product;
+		FTexture2DBuildInputIdentity Identity;
+		if (!InvokeTexture2DBuildProvider(
+			Request, Product, Identity, OutError)) return false;
+		return PublishTexture2DProduct(Texture, std::move(Request.SourceData),
+			Request.Settings, std::move(Product), Context, OutError);
+	}
+
 	auto PublishTexture2DProduct(
 		DTexture2D& Texture,
+		FTextureSourceData SourceData,
+		const FTexture2DBuildSettings& Settings,
 		FTexture2DBuildProduct Product,
 		const FTexture2DPublicationContext& Context,
 		std::string& OutError) -> bool
@@ -496,26 +509,29 @@ namespace Durin
 			OutError = "Texture2D product publication requires a package.";
 			return false;
 		}
-		if (!Product.SourceData.IsValid() || !Product.PlatformData.IsValid()
+		if (!SourceData.IsValid() || !Product.PlatformData.IsValid()
 			|| Product.DerivedDataKey.empty())
 		{
 			OutError = "Texture2D product publication requires a complete detached product.";
 			return false;
 		}
+		if (!ValidateTexture2DBuildSettings(Settings, OutError)) return false;
 		return Texture.PublishImportedState({
-			.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData)),
+			.SourceData = std::make_unique<FTextureSourceData>(std::move(SourceData)),
 			.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData)),
 			.DerivedDataKey = std::move(Product.DerivedDataKey),
 			.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
-			.Usage = Product.Settings.Usage,
-			.bSRGB = Product.bSRGB,
-			.MaxResolution = Product.Settings.MaxResolution,
-			.CompressionQuality = Product.Settings.CompressionQuality,
-			.AlphaMipMode = Product.Settings.AlphaMipMode,
-			.AlphaCoverageThreshold = Product.Settings.AlphaCoverageThreshold,
+			.Usage = Settings.Usage,
+			.bSRGB = ResolveTexture2DSRGB(Settings),
+			.MaxResolution = Settings.MaxResolution,
+			.CompressionQuality = Settings.CompressionQuality,
+			.AlphaMipMode = Settings.AlphaMipMode,
+			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
 			.bMarkPackageDirty = Context.bMarkPackageDirty,
 			.bReportLoadMutation = Context.bReportLoadMutation,
-			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked}, OutError);
+			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked,
+			.bLoadedFromDerivedDataCache =
+				Product.Origin == ETexture2DBuildProductOrigin::CacheHit}, OutError);
 	}
 
 	auto SubmitTexture2DCompilation(

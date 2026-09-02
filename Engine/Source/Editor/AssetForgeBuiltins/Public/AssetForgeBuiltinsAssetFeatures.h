@@ -2,7 +2,6 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "Asset/AssetSaveReadiness.h"
-#include "Texture/VolumeTexturePostLoad.h"
 
 namespace Durin::AssetForge::Builtins
 {

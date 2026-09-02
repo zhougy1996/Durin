@@ -14,7 +14,7 @@ namespace Durin
 	using namespace ::Durin::DerivedData;
 
 	auto BuildTexture2D(
-		FTexture2DBuildRequest Request,
+		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		std::string& OutError,
 		const FTexture2DBuildExecutionControl* ExecutionControl) -> bool
@@ -27,14 +27,7 @@ namespace Durin
 			OutError = "Texture2D build requires valid normalized RGBA8 source data.";
 			return false;
 		}
-		if (!TextureBuilder::IsValidUsage(Settings.Usage)
-			|| !TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
-			|| !TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
-			|| !TextureBuilder::IsValidAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
-		{
-			OutError = "Texture2D build settings are invalid.";
-			return false;
-		}
+		if (!ValidateTexture2DBuildSettings(Settings, OutError)) return false;
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
@@ -42,11 +35,10 @@ namespace Durin
 			return false;
 		}
 
-		const bool bSRGB = Settings.bSRGB.value_or(
-			TextureBuilder::GetDefaultSRGB(Settings.Usage));
+		const bool bSRGB = ResolveTexture2DSRGB(Settings);
 		const FXxHash128 SourceHash = Request.SourceData.GetImportedDataIdentity();
 		const FTexture2DBuildKeyInput KeyInput{
-			.SourceContentHash = SourceHash,
+			.ImportedDataIdentity = SourceHash,
 			.Usage = Settings.Usage,
 			.bSRGB = bSRGB,
 			.CompressionQuality = Settings.CompressionQuality,
@@ -95,99 +87,14 @@ namespace Durin
 				Request.SourceData.Pixels.size(), Output.Value.GetSize());
 
 		OutProduct = {
-			.SourceData = std::move(Request.SourceData),
 			.PlatformData = std::move(PlatformData),
 			.DerivedDataKey = Key,
 			.PersistenceDiagnostic = Output.StoreDiagnostic,
-			.SourceContentHashLow = SourceHash.HashLow,
-			.SourceContentHashHigh = SourceHash.HashHigh,
-			.Settings = Settings,
-			.bSRGB = bSRGB};
+			.Origin = Output.Status == EBuildStatus::CacheHit
+				? ETexture2DBuildProductOrigin::CacheHit
+				: ETexture2DBuildProductOrigin::Rebuilt};
 		OutError.clear();
 		return true;
 	}
 
-	auto BuildTexture2DInto(
-		DTexture2D& Texture,
-		FTexture2DBuildRequest Request,
-		const FTexture2DPublicationContext& Context,
-		std::string& OutError) -> bool
-	{
-		FTexture2DBuildProduct Product;
-		return BuildTexture2D(std::move(Request), Product, OutError)
-			&& PublishTexture2DProduct(
-				Texture, std::move(Product), Context, OutError);
-	}
-
-	auto MakeTexture2DDerivedDataKey(
-		const DTexture2D& Texture,
-		std::string& OutKey,
-		std::string& OutError) -> bool
-	{
-		const FXxHash128 SourceHash = Texture.GetImportedDataIdentity();
-		if (SourceHash.IsZero())
-		{
-			OutError = "Texture canonical imported-data identity is missing or invalid.";
-			return false;
-		}
-		OutKey = BuildTexture2DDerivedDataKey({
-			.SourceContentHash = SourceHash,
-			.Usage = Texture.GetUsage(),
-			.bSRGB = Texture.IsSRGB(),
-			.CompressionQuality = Texture.GetCompressionQuality(),
-			.AlphaMipMode = Texture.GetAlphaMipMode(),
-			.MaximumResolution = Texture.GetMaxResolution(),
-			.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
-			.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game});
-		OutError.clear();
-		return true;
-	}
-
-	auto LoadTexture2DDerivedData(
-		std::string_view Key,
-		std::unique_ptr<FTexturePlatformData>& OutPlatformData,
-		ETextureDerivedDataStatus& OutStatus,
-		std::string& OutMessage) -> bool
-	{
-		std::string Error;
-		if (!EnsureTextureBuildFunctions(&Error))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			OutMessage = Error;
-			return false;
-		}
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(
-			AssetPrivate::Texture2DFunctionName, std::string(AssetPrivate::Texture2DValueName));
-		Builder.SetKey(FBuildKey::FromString(Key))
-			.AddTargetFact("Platform", "Win64")
-			.AddTargetFact("Profile", "Game");
-		if (!Builder.Build(Definition, &Error))
-		{
-			OutStatus = ETextureDerivedDataStatus::Incompatible;
-			OutMessage = Error;
-			return false;
-		}
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false});
-		if (!Output.Succeeded())
-		{
-			OutStatus = Output.Status == EBuildStatus::CacheMiss
-				? ETextureDerivedDataStatus::Missing : ETextureDerivedDataStatus::Corrupt;
-			OutMessage = Output.Diagnostic;
-			return false;
-		}
-		auto Candidate = std::make_unique<FTexturePlatformData>();
-		if (!AssetPrivate::DecodeTexture2DPlatformValue(Output.Value, *Candidate, OutMessage))
-		{
-			OutStatus = ETextureDerivedDataStatus::Corrupt;
-			return false;
-		}
-		OutPlatformData = std::move(Candidate);
-		OutStatus = ETextureDerivedDataStatus::Hit;
-		OutMessage.clear();
-		return true;
-	}
 }

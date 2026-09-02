@@ -9,8 +9,8 @@
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
+#include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureCubeRenderResource.h"
-#include "Texture/TextureCubePostLoad.h"
 #include "Texture/TextureDerivedData.h"
 
 namespace Durin
@@ -244,9 +244,18 @@ namespace Durin
 
 	auto DTextureCube::RebuildPlatformData(std::string& OutError) -> bool
 	{
-		if (InvokeTextureCubeUncookedPostLoadHandler(*this, OutError)) return true;
-		if (OutError.empty()) OutError = "TextureCube rebuild policy is unavailable.";
-		return false;
+		if (!ImportedData.IsValid())
+		{
+			OutError = "TextureCube canonical imported data is missing or invalid.";
+			return false;
+		}
+		return BuildTextureCubeSynchronously(*this, {.Input = FTextureCubeFacesBuildInput{
+			.ImportedData = ImportedData, .SourceLayout = SourceLayout,
+			.OriginalSourceWidth = OriginalSourceWidth,
+			.OriginalSourceHeight = OriginalSourceHeight,
+			.PanoramaFaceDimension = PanoramaFaceDimension,
+			.PanoramaExposureEV = PanoramaExposureEV,
+			.Settings = {.bSRGB = bSRGB}}}, {}, OutError);
 	}
 
 	auto DTextureCube::PostLoad(std::string& OutError) -> bool
@@ -273,7 +282,19 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		return InvokeTextureCubeUncookedPostLoadHandler(*this, OutError);
+		if (!ImportedData.IsValid())
+		{
+			OutError = "TextureCube canonical imported data is missing or invalid.";
+			return false;
+		}
+		return BuildTextureCubeSynchronously(*this, {.Input = FTextureCubeFacesBuildInput{
+			.ImportedData = ImportedData, .SourceLayout = SourceLayout,
+			.OriginalSourceWidth = OriginalSourceWidth,
+			.OriginalSourceHeight = OriginalSourceHeight,
+			.PanoramaFaceDimension = PanoramaFaceDimension,
+			.PanoramaExposureEV = PanoramaExposureEV,
+			.Settings = {.bSRGB = bSRGB}}}, {
+			.bMarkPackageDirty = false, .bSourceDecoderInvoked = false}, OutError);
 	}
 
 	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -406,32 +427,31 @@ namespace Durin
 	}
 
 	auto DTextureCube::PublishBuildProduct(
+		FTextureCubeImportedData InImportedData,
 		ETextureCubeSourceLayout InSourceLayout,
 		uint32 InPanoramaFaceDimension,
 		float InPanoramaExposureEV,
 		uint32 InOriginalSourceWidth,
 		uint32 InOriginalSourceHeight,
 		bool bInSRGB,
-		std::unique_ptr<FTextureCubeSourceData> InSourceData,
 		std::unique_ptr<FTextureCubePlatformData> InPlatformData,
 		std::string InDerivedDataKey,
-		FTextureDerivedDataDiagnostic InDiagnostic) -> void
+		FTextureDerivedDataDiagnostic InDiagnostic,
+		bool bMarkPackageDirty) -> void
 	{
 		check(InPlatformData && InPlatformData->IsValid());
-		if (InSourceData)
-		{
-			FTextureCubeImportedData Candidate;
-			check(Candidate.SetSourceData(*InSourceData));
-			ImportedData = std::move(Candidate);
-		}
-		check(ImportedData.IsValid());
+		check(InImportedData.IsValid());
+		ImportedData = std::move(InImportedData);
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;
 		OriginalSourceWidth = InOriginalSourceWidth;
 		OriginalSourceHeight = InOriginalSourceHeight;
 		bSRGB = bInSRGB;
-		SourceData = std::move(InSourceData);
+		SourceData = (InDiagnostic.Status == ETextureDerivedDataStatus::Rebuilt
+			|| InDiagnostic.bSourceDecoderInvoked)
+			? std::make_unique<FTextureCubeSourceData>(ImportedData.ToSourceData())
+			: nullptr;
 		PlatformData = std::move(InPlatformData);
 		DerivedDataKey = std::move(InDerivedDataKey);
 		DerivedDataDiagnostic = std::move(InDiagnostic);
@@ -440,7 +460,7 @@ namespace Durin
 		bLoadedFromDerivedDataCache =
 			DerivedDataDiagnostic.Status == ETextureDerivedDataStatus::Hit;
 		QueueRenderResourceBuild();
-		MarkPackageDirty();
+		if (bMarkPackageDirty) MarkPackageDirty();
 	}
 
 	auto DTextureCube::PublishDerivedDataLoad(

@@ -13,7 +13,6 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
-#include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureDerivedData.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -45,7 +44,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedImage&& Image)
-			-> TextureCubeBuilder::FTexturePanoramaImage
+			-> FTextureCubePanoramaImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
@@ -53,7 +52,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedFloatImage&& Image)
-			-> TextureCubeBuilder::FTexturePanoramaFloatImage
+			-> FTextureCubePanoramaFloatImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height};
@@ -135,8 +134,9 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			if (!std::visit([&](auto&& Decoded) {
-					return BuildTextureCubePanoramaInto(Texture, std::move(Decoded),
-						Source.Snapshot.ContentHash, Settings, OutError);
+					return BuildTextureCubeSynchronously(Texture, {
+						.Input = FTextureCubePanoramaBuildInput{
+							.Image = std::move(Decoded), .Settings = Settings}}, {}, OutError);
 				}, std::move(Panorama))
 				|| !PublishCubeImportData(Texture, std::span(&Source, 1),
 					ETextureCubeSourceLayout::EquirectangularPanorama, OutError)) return false;
@@ -150,7 +150,6 @@ namespace Durin::AssetForge::Builtins
 		{
 			std::array<FCapturedCubeSource, TextureCubeFaceCount> Sources;
 			std::array<std::span<const std::byte>, TextureCubeFaceCount> Encoded;
-			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
 				if (!CaptureCubeSource(Texture, FaceFiles[Index], Sources[Index], OutError)
@@ -162,22 +161,34 @@ namespace Durin::AssetForge::Builtins
 					return false;
 				}
 				Encoded[Index] = Sources[Index].Snapshot.GetBytes();
-				Hashes[Index] = Sources[Index].Snapshot.ContentHash;
 			}
 			FTextureCubeSourceData SourceData;
-			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError)
-				|| !BuildTextureCubeFacesInto(
-					Texture, std::move(SourceData), Hashes, Settings, OutError)
+			FTextureCubeImportedData ImportedData;
+			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError))
+				return false;
+			if (!ImportedData.SetSourceData(SourceData))
+			{
+				OutError = "TextureCube canonical imported faces are invalid.";
+				return false;
+			}
+			if (!BuildTextureCubeSynchronously(Texture, {
+					.Input = FTextureCubeFacesBuildInput{
+						.ImportedData = std::move(ImportedData),
+						.OriginalSourceWidth = SourceData.Faces[0].Width,
+						.OriginalSourceHeight = SourceData.Faces[0].Height,
+						.Settings = Settings}}, {}, OutError)
 				|| !PublishCubeImportData(Texture, Sources,
 					ETextureCubeSourceLayout::SixFaces, OutError)) return false;
 			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
-		auto MakeValidation(const FTextureCubeBuildProduct& Product, bool bHDR)
+		auto MakeValidation(const FTextureCubeCanonicalBuildInput& CanonicalInput,
+			const FTextureCubeBuildProduct& Product, bool bHDR)
 			-> FTextureCubeImportValidation
 		{
-			return {.bValid = true, .SourceLayout = Product.SourceLayout,
-				.SourceWidth = Product.SourceWidth, .SourceHeight = Product.SourceHeight,
+			return {.bValid = true, .SourceLayout = CanonicalInput.SourceLayout,
+				.SourceWidth = CanonicalInput.OriginalSourceWidth,
+				.SourceHeight = CanonicalInput.OriginalSourceHeight,
 				.Dimension = Product.PlatformData->Faces[0].Mips[0].Width,
 				.MipCount = static_cast<uint32>(
 					Product.PlatformData->Faces[0].Mips.size()),
@@ -368,14 +379,14 @@ namespace Durin::AssetForge::Builtins
 		{
 			Image::FDecodedFloatImage Panorama;
 			if (!Image::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError,
-				{.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels}))
+				{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels}))
 				return false;
 			OutSource = NormalizePanorama(std::move(Panorama));
 			return true;
 		}
 		Image::FDecodedImage Panorama;
 		if (!Image::DecodeImageFromMemory(EncodedBytes, Panorama, OutError,
-			{.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels}))
+			{.MaximumDecodedPixels = MaximumTextureCubePanoramaPixels}))
 			return false;
 		OutSource = NormalizePanorama(std::move(Panorama));
 		return true;
@@ -405,7 +416,6 @@ namespace Durin::AssetForge::Builtins
 		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
 	{
 		FTextureCubeSourceData SourceData;
-		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 		std::array<FByteArray, TextureCubeFaceCount> Bytes;
 		std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
@@ -418,15 +428,21 @@ namespace Durin::AssetForge::Builtins
 				return {false, std::format("{} face decode failed: {}", FaceNames[Index],
 					Error.empty() ? "source is unavailable" : Error)};
 			EncodedFaces[Index] = Bytes[Index];
-			Hashes[Index] = FXxHash128::HashBuffer(Bytes[Index]);
 		}
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
 			return {false, std::move(Error)};
+		FTextureCubeImportedData ImportedData;
+		if (!ImportedData.SetSourceData(SourceData))
+			return {false, "TextureCube canonical imported faces are invalid."};
+		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
-		if (!BuildTextureCubeFaces(
-			std::move(SourceData), Hashes, Settings, Product, Error))
+		if (!InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{
+			.ImportedData = std::move(ImportedData),
+			.OriginalSourceWidth = SourceData.Faces[0].Width,
+			.OriginalSourceHeight = SourceData.Faces[0].Height,
+			.Settings = Settings}}, CanonicalInput, Product, Error))
 			return {false, std::move(Error)};
-		return MakeValidation(Product, false);
+		return MakeValidation(CanonicalInput, Product, false);
 	}
 
 	auto ValidateTextureCubePanorama(
@@ -439,8 +455,8 @@ namespace Durin::AssetForge::Builtins
 		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PanoramaFile))
 			return {false, "Panorama source is unavailable."};
-		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
 		std::string Error;
+		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
 		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
@@ -448,10 +464,12 @@ namespace Durin::AssetForge::Builtins
 		if (!TranslateTextureCubePanoramaSource(Bytes,
 			std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
 			|| !std::visit([&](auto&& Source) {
-				return BuildTextureCubePanorama(
-					std::move(Source), Hash, Settings, Product, Error);
+				return InvokeTextureCubeBuildProvider({
+					.Input = FTextureCubePanoramaBuildInput{
+						.Image = std::move(Source), .Settings = Settings}},
+					CanonicalInput, Product, Error);
 			}, std::move(Panorama))) return {false, std::move(Error)};
-		return MakeValidation(Product, bHDR);
+		return MakeValidation(CanonicalInput, Product, bHDR);
 	}
 
 	auto ReimportTextureCubePanorama(

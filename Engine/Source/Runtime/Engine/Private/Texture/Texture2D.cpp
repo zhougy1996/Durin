@@ -8,7 +8,7 @@
 #include "Serialization/Archive.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "Texture/Texture2DPostLoad.h"
+#include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 
@@ -17,31 +17,37 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
-		auto IsValidUsage(ETextureUsage Usage) -> bool
-		{
-			return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal
-				|| Usage == ETextureUsage::DataMask;
-		}
-
-		auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool
-		{
-			return Quality == ETextureCompressionQuality::Low
-				|| Quality == ETextureCompressionQuality::Normal
-				|| Quality == ETextureCompressionQuality::High;
-		}
-
-		auto IsValidAlphaMipMode(ETextureAlphaMipMode Mode) -> bool
-		{
-			return Mode == ETextureAlphaMipMode::Average
-				|| Mode == ETextureAlphaMipMode::PreserveCoverage;
-		}
-
-		auto IsValidAlphaCoverageThreshold(float Threshold) -> bool
-		{
-			return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
-		}
-
 	} // namespace
+
+	auto IsValidTextureUsage(ETextureUsage Usage) -> bool
+	{
+		return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal
+			|| Usage == ETextureUsage::DataMask;
+	}
+
+	auto GetDefaultTextureSRGB(ETextureUsage Usage) -> bool
+	{
+		return Usage == ETextureUsage::Color;
+	}
+
+	auto IsValidTextureCompressionQuality(
+		ETextureCompressionQuality Quality) -> bool
+	{
+		return Quality == ETextureCompressionQuality::Low
+			|| Quality == ETextureCompressionQuality::Normal
+			|| Quality == ETextureCompressionQuality::High;
+	}
+
+	auto IsValidTextureAlphaMipMode(ETextureAlphaMipMode Mode) -> bool
+	{
+		return Mode == ETextureAlphaMipMode::Average
+			|| Mode == ETextureAlphaMipMode::PreserveCoverage;
+	}
+
+	auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool
+	{
+		return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
+	}
 
 	auto FTextureSourceData::IsValid() const -> bool
 	{
@@ -264,7 +270,22 @@ namespace Durin
 		DerivedDataKey.clear();
 		DerivedDataDiagnostic = {};
 		bLoadedFromDerivedDataCache = false;
-		if (InvokeTexture2DUncookedPostLoadHandler(*this, OutError)) return true;
+		if (!ImportedData.IsValid())
+		{
+			OutError = "Texture2D canonical imported data is missing or invalid.";
+		}
+		else if (BuildTexture2DSynchronously(*this, {
+			.SourceData = ImportedData.ToSourceData(),
+			.Settings = {
+				.Usage = Usage,
+				.CompressionQuality = CompressionQuality,
+				.AlphaMipMode = AlphaMipMode,
+				.AlphaCoverageThreshold = AlphaCoverageThreshold,
+				.MaxResolution = MaxResolution,
+				.bSRGB = bSRGB}}, {
+			.bMarkPackageDirty = false,
+			.bReportLoadMutation = false,
+			.bSourceDecoderInvoked = false}, OutError)) return true;
 		if (BuildStatus == ETextureBuildStatus::Unbuilt)
 			PublishUncookedLoadFailure(
 				ETextureDerivedDataStatus::Incompatible,
@@ -389,10 +410,10 @@ namespace Durin
 		if (!State.SourceData || !State.SourceData->IsValid()
 			|| !State.PlatformData || !State.PlatformData->IsValid()
 			|| State.DerivedDataKey.empty()
-			|| !IsValidUsage(State.Usage)
-			|| !IsValidCompressionQuality(State.CompressionQuality)
-			|| !IsValidAlphaMipMode(State.AlphaMipMode)
-			|| !IsValidAlphaCoverageThreshold(State.AlphaCoverageThreshold))
+			|| !IsValidTextureUsage(State.Usage)
+			|| !IsValidTextureCompressionQuality(State.CompressionQuality)
+			|| !IsValidTextureAlphaMipMode(State.AlphaMipMode)
+			|| !IsValidTextureAlphaCoverageThreshold(State.AlphaCoverageThreshold))
 		{
 			OutError = "Texture2D imported state is incomplete or invalid.";
 			return false;
@@ -419,14 +440,19 @@ namespace Durin
 		CompressionQuality = State.CompressionQuality;
 		AlphaMipMode = State.AlphaMipMode;
 		AlphaCoverageThreshold = State.AlphaCoverageThreshold;
-		bLoadedFromDerivedDataCache = false;
+		bLoadedFromDerivedDataCache = State.bLoadedFromDerivedDataCache;
 		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Status = State.bLoadedFromDerivedDataCache
+				? ETextureDerivedDataStatus::Hit
+				: ETextureDerivedDataStatus::Rebuilt,
 			.Key = DerivedDataKey,
 			.Message = State.BuildDiagnostic.empty()
-				? "Published normalized Texture2D build product."
+				? (State.bLoadedFromDerivedDataCache
+					? "Published cached Texture2D build product."
+					: "Published normalized Texture2D build product.")
 				: std::format(
-					"Published normalized Texture2D build product; DDC persistence was best effort: {}",
+					"Published {} Texture2D build product; DDC persistence was best effort: {}",
+					State.bLoadedFromDerivedDataCache ? "cached" : "normalized",
 					State.BuildDiagnostic),
 			.bSourceDecoderInvoked = State.bSourceDecoderInvoked};
 		BuildStatus = ETextureBuildStatus::Ready;

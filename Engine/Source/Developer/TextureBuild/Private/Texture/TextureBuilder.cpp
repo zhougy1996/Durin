@@ -296,33 +296,6 @@ namespace Durin::TextureBuilder
 		}
 	}
 
-	auto IsValidUsage(ETextureUsage Usage) -> bool
-	{
-		return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal || Usage == ETextureUsage::DataMask;
-	}
-
-	auto GetDefaultSRGB(ETextureUsage Usage) -> bool
-	{
-		return Usage == ETextureUsage::Color;
-	}
-
-	auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool
-	{
-		return Quality == ETextureCompressionQuality::Low
-			|| Quality == ETextureCompressionQuality::Normal
-			|| Quality == ETextureCompressionQuality::High;
-	}
-
-	auto IsValidAlphaMipMode(ETextureAlphaMipMode Mode) -> bool
-	{
-		return Mode == ETextureAlphaMipMode::Average || Mode == ETextureAlphaMipMode::PreserveCoverage;
-	}
-
-	auto IsValidAlphaCoverageThreshold(float Threshold) -> bool
-	{
-		return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
-	}
-
 	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
 	{
 		switch (Usage)
@@ -357,22 +330,22 @@ namespace Durin::TextureBuilder
 			OutError = "Texture source data is unavailable or invalid.";
 			return false;
 		}
-		if (!IsValidUsage(Usage))
+		if (!IsValidTextureUsage(Usage))
 		{
 			OutError = "Texture usage preset is invalid.";
 			return false;
 		}
-		if (!IsValidCompressionQuality(CompressionQuality))
+		if (!IsValidTextureCompressionQuality(CompressionQuality))
 		{
 			OutError = "Texture compression quality is invalid.";
 			return false;
 		}
-		if (!IsValidAlphaMipMode(AlphaMipMode))
+		if (!IsValidTextureAlphaMipMode(AlphaMipMode))
 		{
 			OutError = "Texture alpha mip mode is invalid.";
 			return false;
 		}
-		if (!IsValidAlphaCoverageThreshold(AlphaCoverageThreshold))
+		if (!IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold))
 		{
 			OutError = "Texture alpha coverage threshold must be greater than zero and less than one.";
 			return false;

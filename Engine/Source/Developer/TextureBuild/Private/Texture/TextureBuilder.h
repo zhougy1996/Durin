@@ -23,11 +23,6 @@ namespace Durin::TextureBuilder
 	inline constexpr uint32 CancellationBlockInterval = 64;
 	inline constexpr uint32 CancellationScanlineInterval = 8;
 
-	TEXTUREBUILD_API auto IsValidUsage(ETextureUsage Usage) -> bool;
-	TEXTUREBUILD_API auto GetDefaultSRGB(ETextureUsage Usage) -> bool;
-	TEXTUREBUILD_API auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool;
-	TEXTUREBUILD_API auto IsValidAlphaMipMode(ETextureAlphaMipMode Mode) -> bool;
-	TEXTUREBUILD_API auto IsValidAlphaCoverageThreshold(float Threshold) -> bool;
 	TEXTUREBUILD_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
 	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.

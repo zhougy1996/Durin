@@ -91,7 +91,7 @@ namespace
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
 	Durin::FTexture2DBuildKeyInput Input{
-		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
+		.ImportedDataIdentity = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.Usage = Durin::ETextureUsage::Color,
 		.bSRGB = true,
 		.CompressionQuality = Durin::ETextureCompressionQuality::Normal,
@@ -110,7 +110,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 			Changed), Baseline);
 	};
 	auto Changed = Input;
-	Changed.SourceContentHash.HashLow ^= 1;
+	Changed.ImportedDataIdentity.HashLow ^= 1;
 	ExpectChange(Changed);
 	Changed = Input;
 	Changed.Usage = Durin::ETextureUsage::Normal;

@@ -24,8 +24,6 @@ namespace Durin
 	struct FTexture2DBuildRequest
 	{
 		FTextureSourceData SourceData;
-		uint64 SourceContentHashLow = 0;
-		uint64 SourceContentHashHigh = 0;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
@@ -49,8 +47,7 @@ namespace Durin
 	// used to enforce latest-wins publication for one live object.
 	struct FTexture2DBuildInputIdentity
 	{
-		uint64 SourceContentHashLow = 0;
-		uint64 SourceContentHashHigh = 0;
+		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -67,6 +64,13 @@ namespace Durin
 		uint64 PeakIntermediateBytes = 0;
 	};
 
+	// Identifies whether the provider returned cached data or ran the local recipe.
+	enum class ETexture2DBuildProductOrigin : uint8
+	{
+		CacheHit,
+		Rebuilt
+	};
+
 	// This observation/control value is borrowed only for the duration of Build.
 	struct FTexture2DBuildExecutionControl
 	{
@@ -79,15 +83,19 @@ namespace Durin
 	// GameThread operation and does not execute provider code.
 	struct FTexture2DBuildProduct
 	{
-		FTextureSourceData SourceData;
 		FTexturePlatformData PlatformData;
 		std::string DerivedDataKey;
 		std::string PersistenceDiagnostic;
-		uint64 SourceContentHashLow = 0;
-		uint64 SourceContentHashHigh = 0;
-		FTexture2DBuildSettings Settings;
-		bool bSRGB = true;
+		FTexture2DBuildProviderDescriptor Provider;
+		FTexture2DRecipeMetrics Metrics;
+		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 	};
+
+	ENGINE_API auto ValidateTexture2DBuildSettings(
+		const FTexture2DBuildSettings& Settings,
+		std::string& OutError) -> bool;
+	ENGINE_API auto ResolveTexture2DSRGB(
+		const FTexture2DBuildSettings& Settings) -> bool;
 
 	// Synchronous provider seam invoked by an Engine-owned worker. Implementations
 	// own algorithms and DDC interaction, never object lifetime or publication.
@@ -99,7 +107,7 @@ namespace Durin
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(
-			FTexture2DBuildRequest Request,
+			const FTexture2DBuildRequest& Request,
 			FTexture2DBuildProduct& OutProduct,
 			std::string& OutError,
 			const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> bool = 0;
@@ -108,7 +116,7 @@ namespace Durin
 	// Invokes the single registered provider under its module-owned invocation
 	// gate. The returned product and identity contain only Engine-owned values.
 	ENGINE_API auto InvokeTexture2DBuildProvider(
-		FTexture2DBuildRequest Request,
+		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
 		std::string& OutError,
