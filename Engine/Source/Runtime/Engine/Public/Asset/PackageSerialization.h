@@ -205,6 +205,7 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options = {}
 	) -> FAssetResult;
+	ENGINE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
 		const FPackagePath& Path
 	) -> FAssetResult;

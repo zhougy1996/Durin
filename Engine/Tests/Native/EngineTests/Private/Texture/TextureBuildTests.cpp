@@ -415,7 +415,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/VolumePackage", AssetPath));
 	Durin::DVolumeTexture* Texture = nullptr;
-	const Durin::FAssetResult Created = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
+	const auto Created = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
 	ASSERT_TRUE(Created) << Created.Message;
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->ApplyBuildResult(Source, {},

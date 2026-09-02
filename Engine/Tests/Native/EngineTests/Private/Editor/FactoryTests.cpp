@@ -2,7 +2,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "EditorReimportHandler.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Load.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -268,7 +268,7 @@ TEST(DFactoryTests, RejectsEmptyFactoryLookups)
 	EXPECT_EQ(Durin::DFactory::FindFactoryByExtension({}), nullptr);
 }
 
-TEST(DFactoryTests, AssetToolsRejectUnsupportedCreationWithoutLeakingPackage)
+TEST(DFactoryTests, AssetToolsCreatesConcreteAssetsWithoutSpecializedFactory)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
@@ -279,10 +279,12 @@ TEST(DFactoryTests, AssetToolsRejectUnsupportedCreationWithoutLeakingPackage)
 
 	Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreatePackageLeafAssetForTesting(
 		Path, Durin::DObject::StaticClass());
-	EXPECT_FALSE(Result);
-	EXPECT_EQ(Result.Asset, nullptr);
-	EXPECT_EQ(Result.Package, nullptr);
-	EXPECT_FALSE(Result.Message.empty());
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	ASSERT_NE(Result.Package, nullptr);
+	EXPECT_EQ(Result.Asset->GetOuter(), Result.Package);
+	EXPECT_EQ(Result.Package->FindTopLevelAsset(Result.Asset->GetFName()), Result.Asset);
+	EXPECT_TRUE(Durin::IAssetTools::Get().DiscardPackage(Result.Package));
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "AssetForge/Builtins/VolumeTextureFactory.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/DObjectGlobals.h"

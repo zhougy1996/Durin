@@ -2,7 +2,6 @@
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
 
-#include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
 #include "Asset/Asset.h"

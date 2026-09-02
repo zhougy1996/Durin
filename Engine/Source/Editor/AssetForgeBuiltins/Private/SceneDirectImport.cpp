@@ -2,12 +2,12 @@
 
 #include "Animation/AnimationClip.h"
 #include "Asset/Asset.h"
-#include "Asset/AssetOperations.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/SourceHint.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Asset/AssetImportData.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -146,12 +146,44 @@ namespace Durin::AssetForge::Builtins
 				(void)UnloadPackage(*It, EAssetPackageUnloadPolicy::DiscardUnsaved);
 		}
 
-		// Scene deliberately materializes each private candidate through Engine Asset:
-		// single-object AssetTools would expose outputs before the complete peer set
-		// is dependency-bound, validated, and ready for one atomic bundle save.
+		template<typename T>
+		auto ConstructSceneCandidate(
+			const FTopLevelAssetPath& AssetPath,
+			T*& OutAsset,
+			std::string& OutError) -> bool
+		{
+			OutAsset = nullptr;
+			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
+			if (!Package)
+			{
+				OutError = "The scene candidate package could not be created.";
+				return false;
+			}
+			FStaticConstructObjectParameters Parameters{
+				T::StaticClass(), Package, FName(AssetPath.GetAssetName()),
+				sizeof(T), EObjectFlags::Public};
+			DObject* Object = StaticConstructObject(Parameters);
+			DObjectForceRegistration(Object);
+			OutAsset = Cast<T>(Object);
+			if (!OutAsset
+				|| Package->FindTopLevelAsset(OutAsset->GetFName()) != OutAsset)
+			{
+				MarkObjectHierarchyAsGarbage(Package);
+				CollectGarbage();
+				OutAsset = nullptr;
+				OutError = "The scene candidate could not be registered as a top-level asset.";
+				return false;
+			}
+			Package->MarkDirty();
+			Package->MarkAsNewlyCreated();
+			return true;
+		}
+
+		// Scene candidates stay private until the complete peer set is
+		// dependency-bound, validated, and ready for one atomic bundle save.
 		auto CreateCandidate(FPreparedSceneOutput& Output, std::string& OutError) -> bool
 		{
-			FAssetResult Created;
+			bool bCreated = false;
 			FTopLevelAssetPath AssetPath;
 			if (!FTopLevelAssetPath::TryCreate(
 				Output.AssetPath, Output.AssetPath.GetPackageName(), AssetPath))
@@ -163,43 +195,42 @@ namespace Durin::AssetForge::Builtins
 			if (Kind == ESceneOutputKind::StaticMesh)
 			{
 				DStaticMesh* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::MaterialInstance)
 			{
 				DMaterialInstance* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Skeleton)
 			{
 				DSkeleton* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::SkeletalMesh)
 			{
 				DSkeletalMesh* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::AnimationClip)
 			{
 				DAnimationClip* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Texture2D)
 			{
 				DTexture2D* Value = nullptr;
-				Created = CreateAsset(AssetPath, Value);
+				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
-			if (!Created || !Output.Candidate)
+			if (!bCreated || !Output.Candidate)
 			{
-				OutError = Created.Message.empty()
-					? "Scene candidate could not be created." : Created.Message;
+				if (OutError.empty()) OutError = "Scene candidate could not be created.";
 				return false;
 			}
 			Output.Package = Output.Candidate->GetPackage();

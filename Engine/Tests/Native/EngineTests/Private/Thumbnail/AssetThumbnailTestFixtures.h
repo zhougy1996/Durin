@@ -3,9 +3,8 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
@@ -380,8 +379,8 @@ namespace Durin::Tests
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
 
-		FAssetResult Result = CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
-		if (!Result) return Fail(Result.Message);
+		auto Created = CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
+		if (!Created) return Fail(Created.Message);
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!OutFixtures.Material->SetMaterialProgram(
 			MakeCanonicalMaterialProgram(), ProgramValidation))
@@ -397,11 +396,11 @@ namespace Durin::Tests
 		{
 			return Fail("Could not assign the deterministic material fixture values.");
 		}
-		Result = SavePackage(OutFixtures.Material->GetPackage());
+		FAssetResult Result = SavePackage(OutFixtures.Material->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
-		if (!Result) return Fail(Result.Message);
+		Created = CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
+		if (!Created) return Fail(Created.Message);
 		if (!OutFixtures.MaterialInstance->SetParent(OutFixtures.Material)
 			|| !OutFixtures.MaterialInstance->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.8, 0.28, 0.12))
@@ -415,8 +414,8 @@ namespace Durin::Tests
 		Result = SavePackage(OutFixtures.MaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
-		if (!Result) return Fail(Result.Message);
+		Created = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
+		if (!Created) return Fail(Created.Message);
 		FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
@@ -447,8 +446,8 @@ namespace Durin::Tests
 		Result = SavePackage(OutFixtures.StaticMesh->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
-		if (!Result) return Fail(Result.Message);
+		Created = CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
+		if (!Created) return Fail(Created.Message);
 		Result = SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 

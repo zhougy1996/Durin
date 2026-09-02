@@ -2,7 +2,6 @@
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "AssetForge/Builtins/VolumeTextureFactory.h"
 
-#include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
 #include "Asset/Asset.h"

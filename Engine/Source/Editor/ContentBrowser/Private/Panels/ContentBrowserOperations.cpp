@@ -1,7 +1,7 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Deletion.h"
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"

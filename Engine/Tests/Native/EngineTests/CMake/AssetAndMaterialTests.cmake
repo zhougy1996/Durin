@@ -114,7 +114,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_content_browser_private}/Panels/ContentDeletionOperation.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

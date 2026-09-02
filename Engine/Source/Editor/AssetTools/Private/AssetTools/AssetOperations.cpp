@@ -1,16 +1,17 @@
 #include "AssetTools/IAssetTools.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Deletion.h"
 #include "Asset/Load.h"
-#include "Asset/PackageSerialization.h"
 #include "Asset/MutationTypes.h"
 #include "Asset/RedirectorFixup.h"
 #include "Asset/Relocation.h"
 #include "DObject/Object.h"
+#include "DObject/Archive.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 
 namespace Durin
@@ -156,14 +157,43 @@ namespace Durin
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"Could not find an available copy name in this folder.");
 
-		DObject* DuplicatedAsset = nullptr;
-		FAssetResult EngineResult = DuplicateAsset(
-			Request.SourcePath, DestinationAssetPath, DuplicatedAsset);
+		FObjectPath SourceObjectPath;
+		if (!FObjectPath::TryCreate(
+			Request.SourcePath, std::span<const std::string>{}, SourceObjectPath))
+			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
+				"The source top-level asset path is invalid.");
+		DObject* SourceAsset = nullptr;
+		FAssetResult EngineResult = LoadObject(
+			SourceObjectPath, nullptr, SourceAsset);
 		if (!EngineResult)
 			return FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
+		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;
+		if (!SourceAsset || !SourcePackage || SourceAsset->GetOuter() != SourcePackage
+			|| SourcePackage->FindTopLevelAsset(SourceAsset->GetFName()) != SourceAsset)
+			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
+				"The source is not a registered top-level asset.");
+
+		DPackage* DestinationPackage = CreatePackage(DestinationPackagePath);
+		if (!DestinationPackage)
+			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
+				"The destination package could not be created.");
+		DObject* DuplicatedAsset = DuplicateObject(
+			SourceAsset, DestinationPackage,
+			FName(DestinationAssetPath.GetAssetName()));
+		if (!DuplicatedAsset
+			|| DestinationPackage->FindTopLevelAsset(
+				DuplicatedAsset->GetFName()) != DuplicatedAsset)
+		{
+			MarkObjectHierarchyAsGarbage(DestinationPackage);
+			CollectGarbage();
+			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
+				"The source object graph could not be duplicated as an asset.");
+		}
+		DestinationPackage->MarkDirty();
+		DestinationPackage->MarkAsNewlyCreated();
 		if (Request.bSave)
 		{
-			EngineResult = SavePackage(DuplicatedAsset->GetPackage());
+			EngineResult = SavePackage(DestinationPackage);
 			if (!EngineResult)
 			{
 				FAssetOperationResult Failure = FromEngineResult(

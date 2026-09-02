@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v9 packages, runtime residency, l
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -17,9 +17,11 @@ containment and object paths, but is not by itself a GC strong reference.
 Persistent metadata consumers include `AssetRegistry/Catalog.h`,
 `AssetRegistry/References.h`, and `AssetRegistry/Scan.h`. Engine exposes narrow
 capabilities: `Asset.h` for resolution, residency, loading, and cooked payload
-reads; `Asset/AssetOperations.h` for create/save; `Asset/Mutation.h` for exact
-mutation; and `Asset/PackageSerialization.h` or `Asset/PackageInspection.h` for
-package serialization and construct-free inspection. `AssetCook.h` owns Cook
+reads; `Asset/Mutation.h` for exact mutation; and
+`Asset/PackageSerialization.h` or `Asset/PackageInspection.h` for package
+serialization, saving, and construct-free inspection. Asset creation,
+duplication, import, and editor persistence policy belong to `IAssetTools`;
+Engine exposes no generic asset-construction operation. `AssetCook.h` owns Cook
 reachability and publication. Developer `AssetMaintenance` owns project-wide
 compatibility and canonical-resave batches.
 

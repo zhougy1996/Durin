@@ -3,7 +3,7 @@
 #include "Asset/AssetImportData.h"
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
 #include "Asset/Asset.h"
 #include "DObject/DObjectGlobals.h"

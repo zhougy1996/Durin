@@ -2,8 +2,9 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
+#include "AssetTools/IAssetTools.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
@@ -38,11 +39,13 @@ namespace Durin
 					|| FindResidentPackage(Path)) continue;
 				FTopLevelAssetPath AssetPath;
 				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
-				TMaterial* Material = nullptr;
-				FAssetResult Result = CreateAsset(AssetPath, Material);
-				if (!Result || !Material)
+				const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
+					AssetPath, TMaterial::StaticClass());
+				TMaterial* Material = Cast<TMaterial>(Created.Asset);
+				if (!Created || !Material)
 				{
-					OutError = Result ? "Could not create the material asset." : Result.Message;
+					OutError = Created.Message.empty()
+						? "Could not create the material asset." : Created.Message;
 					return false;
 				}
 				if constexpr (std::same_as<TMaterial, DMaterial>)
@@ -53,7 +56,7 @@ namespace Durin
 						return false;
 					}
 				}
-				Result = SavePackage(Material->GetPackage());
+				const FAssetResult Result = SavePackage(Material->GetPackage());
 				if (!Result)
 				{
 					UnloadPackage(Path);

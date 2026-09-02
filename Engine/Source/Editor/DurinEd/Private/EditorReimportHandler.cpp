@@ -1,6 +1,6 @@
 #include "EditorReimportHandler.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Factories/Factory.h"

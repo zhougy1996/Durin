@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -105,31 +105,26 @@ unload guards continue to use package-header hard dependencies.
 
 ## Duplication
 
-`DuplicateAsset` accepts exact source and destination `FTopLevelAssetPath`
-values and clones that asset's complete persistent object graph into a
-distinct, newly created resident package. Internal references are remapped to
+`IAssetTools::DuplicateAsset` accepts an exact source `FTopLevelAssetPath`,
+selects the deterministic `_Copy`, `_Copy2`, and later destination against
+catalog, residency, and physical occupancy, and loads the exact source object.
+AssetTools creates the destination package and uses CoreDObject's
+`DuplicateObject` graph primitive directly. Internal references are remapped to
 the cloned inner objects while cross-package references retain their authored
-targets. The result remains unsaved so class-owning editor code can replace
-clone-specific identity before publishing it through the ordinary package-save
-seam. Redirectors and occupied catalog or resident destinations are rejected;
-failure discards every partially constructed clone.
-
-Editor callers do not compose that seam directly. AssetTools selects the
-deterministic `_Copy`, `_Copy2`, and later destination against catalog,
-residency, and physical occupancy, invokes graph duplication, applies the
-requested dirty-versus-persisted policy, and discards only the disposable
-destination if persistence fails.
+targets. Redirectors are rejected, every partially constructed graph is
+discarded on failure, and the requested dirty-versus-persisted policy owns
+failed-save cleanup. Engine exposes no separate asset-duplication operation.
 
 ## Editor Orchestration Boundary
 
 AssetRegistry owns persistent package discovery, bounded header projection,
 immutable package metadata and dependency snapshots, their revisions, and the
-single rebuildable registry cache. Engine owns package bytes and writing, exact
-on-demand package inspection, object
-construction and residency, Cook, graph copying, bounded artifact publication,
-and forward-only mutation jobs.
-`IAssetTools` owns reusable editor acceptance, typed terminal/persistence
-results, and one completion publication. Editor hosts own UI and presentation;
+single rebuildable registry cache. CoreDObject owns object/package construction
+and graph copying. Engine owns package residency, bytes and writing, exact
+on-demand package inspection, Cook, bounded artifact publication, and
+forward-only mutation jobs. `IAssetTools` owns asset creation, duplication,
+import, reusable editor acceptance, typed terminal/persistence results, and one
+completion publication. Editor hosts own UI and presentation;
 ContentBrowser additionally owns recursive ordinary-file planning and permanent
 physical deletion for mixed selections. Successful authored operations advance
 DurinEd's mounted-content mutation revision exactly once and never enter the

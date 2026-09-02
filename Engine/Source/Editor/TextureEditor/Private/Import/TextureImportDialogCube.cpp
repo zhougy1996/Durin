@@ -4,7 +4,7 @@
 #include "AssetForge/Builtins/TextureCubeFactory.h"
 
 #include "AssetTools/IAssetTools.h"
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Asset/Asset.h"
 #include "Dialogs/FileDialog.h"

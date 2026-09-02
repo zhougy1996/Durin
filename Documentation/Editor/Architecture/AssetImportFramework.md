@@ -2,9 +2,9 @@
 
 Summary: Define Factory-backed standalone import, immutable source capture, family-owned builds, and private Scene orchestration.
 
-Modules: AssetTools, AssetForgeBuiltins, DurinEd
+Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-08-28
+Last reviewed: 2026-09-02
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, StaticMesh,
@@ -148,12 +148,13 @@ The importer:
 - binds material/texture and skeletal relationships in dependency order;
 - saves the complete output package set atomically.
 
-Scene deliberately calls the Engine `CreateAsset` materialization
-seam for its private candidate packages. It does not call single-object
-`IAssetTools`: doing so would assign independent acceptance semantics before
-the complete dependency-ordered peer set is bound, validated, and ready for
-one atomic bundle save. Static-mesh and texture preparation still reuse their
-family build adapters below that transaction boundary.
+Scene constructs private candidate packages from CoreDObject package/object
+primitives. It does not call single-object `IAssetTools`: doing so would assign
+independent acceptance semantics before the complete dependency-ordered peer
+set is bound, validated, and ready for one atomic bundle save. Static-mesh and
+texture preparation still reuse their family build adapters below that
+transaction boundary. Engine exposes no generic `CreateAsset` materialization
+seam.
 
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation

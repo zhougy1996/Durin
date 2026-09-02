@@ -1,9 +1,9 @@
 #include "AssetTools/AssetToolsModule.h"
 
-#include "Asset/AssetOperations.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Factories/Factory.h"
@@ -155,7 +155,8 @@ namespace Durin
 			}
 			if (!Factory) Factory = DFactory::FindFactory(AssetClass);
 			std::string Error;
-			if (!ValidateFactory(Factory, AssetClass, Error))
+			if ((Factory || bFromFile)
+				&& !ValidateFactory(Factory, AssetClass, Error))
 				return MakeRejectedAssetOperation(Kind, std::move(Error));
 
 			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
@@ -165,11 +166,20 @@ namespace Durin
 
 			FFactoryDiagnostics Diagnostics;
 			const FName AssetName(AssetPath.GetAssetName());
-			DObject* Asset = bFromFile
-				? Factory->FactoryCreateFromFile(
-					AssetClass, Package, AssetName, Flags, Filename, Context, &Diagnostics)
-				: Factory->FactoryCreateNew(
+			DObject* Asset = nullptr;
+			if (bFromFile)
+				Asset = Factory->FactoryCreateFromFile(
+					AssetClass, Package, AssetName, Flags, Filename, Context, &Diagnostics);
+			else if (Factory)
+				Asset = Factory->FactoryCreateNew(
 					AssetClass, Package, AssetName, Flags, Context, &Diagnostics);
+			else
+			{
+				FStaticConstructObjectParameters Parameters{
+					AssetClass, Package, AssetName, AssetClass->PropertiesSize, Flags};
+				Asset = StaticConstructObject(Parameters);
+				DObjectForceRegistration(Asset);
+			}
 			if (!Asset)
 			{
 				DiscardPackage(Package);

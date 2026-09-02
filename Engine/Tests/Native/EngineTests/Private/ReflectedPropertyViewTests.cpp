@@ -1,8 +1,7 @@
 #include "Editor/PropertyView.h"
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
@@ -20,6 +19,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "MonaImGuiPropertyTable.h"
 #include "NativeTestSupport.h"
+#include "NativeAssetTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -563,7 +563,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	const Durin::FObjectPath AliasSoftPath = MakeSoftObjectPropertyViewPath("AliasXXX");
 	const Durin::FPackagePath AliasPath = AliasSoftPath.GetPackagePath();
 	Durin::DAssetRedirector* Redirector = nullptr;
-	ASSERT_TRUE(Durin::CreateAssetRedirectorForTesting(AliasPath, AssetPath, Redirector));
+	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(AliasPath, AssetPath, Redirector));
 	ASSERT_TRUE(Durin::SavePackage(Redirector->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
 	Object.SoftValues[0].SetPath(AliasSoftPath);

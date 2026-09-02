@@ -3,11 +3,13 @@
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
 #include "Actors/StaticMeshActor.h"
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/AssetPath.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
 #include "HAL/PlatformProcess.h"
@@ -181,8 +183,9 @@ namespace Durin::Editor::Level
 					std::error_code Error;
 					if (!std::filesystem::remove(Staged, Error) || Error) return false;
 				}
-				return true;
-			}
+			return true;
+		}
+
 			const FAssetPathResult Resolved =
 				FMountPaths::ResolveAssetPath(Path.ToString());
 			if (!Resolved) return false;
@@ -191,6 +194,32 @@ namespace Durin::Editor::Level
 			std::error_code Error;
 			if (!std::filesystem::exists(PackageFile, Error)) return !Error;
 			return std::filesystem::remove(PackageFile, Error) && !Error;
+		}
+
+		auto ConstructGrayboxCandidate(
+			const FTopLevelAssetPath& AssetPath,
+			DLevel*& OutLevel) -> bool
+		{
+			OutLevel = nullptr;
+			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
+			if (!Package) return false;
+			FStaticConstructObjectParameters Parameters{
+				DLevel::StaticClass(), Package, FName(AssetPath.GetAssetName()),
+				sizeof(DLevel), EObjectFlags::Public};
+			DObject* Object = StaticConstructObject(Parameters);
+			DObjectForceRegistration(Object);
+			OutLevel = Cast<DLevel>(Object);
+			if (!OutLevel
+				|| Package->FindTopLevelAsset(OutLevel->GetFName()) != OutLevel)
+			{
+				MarkObjectHierarchyAsGarbage(Package);
+				CollectGarbage();
+				OutLevel = nullptr;
+				return false;
+			}
+			Package->MarkDirty();
+			Package->MarkAsNewlyCreated();
+			return true;
 		}
 	}
 
@@ -348,7 +377,6 @@ namespace Durin::Editor::Level
 			return 3;
 		}
 
-		DLevel* Candidate = nullptr;
 		FTopLevelAssetPath CandidateAssetPath;
 		if (!FTopLevelAssetPath::TryCreate(
 			CandidatePath, CandidatePath.GetPackageName(), CandidateAssetPath))
@@ -356,11 +384,10 @@ namespace Durin::Editor::Level
 			DURIN_ERROR("graybox-build: temporary top-level asset path is invalid.");
 			return 4;
 		}
-		FAssetResult Result =
-			CreateAsset(CandidateAssetPath, Candidate);
-		if (!Result || !Candidate)
+		DLevel* Candidate = nullptr;
+		if (!ConstructGrayboxCandidate(CandidateAssetPath, Candidate))
 		{
-			DURIN_ERROR("graybox-build: could not create candidate: {}", Result.Message);
+			DURIN_ERROR("graybox-build: could not construct the private candidate asset.");
 			return 5;
 		}
 		auto FailCandidate = [&](int Code, std::string_view Message) {
@@ -395,7 +422,7 @@ namespace Durin::Editor::Level
 			|| !PlayerStart->SetActorTransform(Layout.PlayerStartTransform)
 			|| !Light->SetActorTransform(Layout.DirectionalLightTransform))
 			return FailCandidate(5, "could not create the baseline gameplay Actors.");
-		Result = SavePackage(Candidate->GetPackage());
+		FAssetResult Result = SavePackage(Candidate->GetPackage());
 		if (!Result) return FailCandidate(6, Result.Message);
 		FObjectPath CandidateObjectPath;
 		if (!FObjectPath::TryCreate(Candidate->GetObjectPath(), CandidateObjectPath))

@@ -4,7 +4,7 @@
 #include "DObject/Package.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
 #include "AssetRegistry/References.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"

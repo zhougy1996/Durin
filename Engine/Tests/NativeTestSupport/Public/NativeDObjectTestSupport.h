@@ -3,6 +3,8 @@
 #include "CoreGlobals.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "HAL/PlatformLTS.h"
 #include "Misc/Name.h"
 
@@ -50,5 +52,44 @@ namespace Durin::Testing
 			return true;
 		}();
 		(void)bInitialized;
+	}
+}
+
+namespace Durin
+{
+	struct FTestAssetCreateResult
+	{
+		std::string Message;
+
+		explicit operator bool() const { return Message.empty(); }
+	};
+
+	// Constructs a package-leaf top-level object for fixtures without exposing
+	// an Engine asset-creation operation to production callers.
+	template<typename T>
+	auto CreatePackageLeafAssetForTesting(
+		const FPackagePath& PackagePath,
+		T*& OutAsset) -> FTestAssetCreateResult
+	{
+		OutAsset = nullptr;
+		if (!PackagePath.IsValid()) return {"The fixture package path is invalid."};
+		DPackage* Package = CreatePackage(PackagePath);
+		if (!Package) return {"The fixture package could not be created."};
+		FStaticConstructObjectParameters Parameters{
+			T::StaticClass(), Package, FName(PackagePath.GetPackageName()),
+			sizeof(T), EObjectFlags::Public};
+		DObject* Object = StaticConstructObject(Parameters);
+		DObjectForceRegistration(Object);
+		OutAsset = Cast<T>(Object);
+		if (!OutAsset || Package->FindTopLevelAsset(OutAsset->GetFName()) != OutAsset)
+		{
+			MarkObjectHierarchyAsGarbage(Package);
+			CollectGarbage();
+			OutAsset = nullptr;
+			return {"The fixture object could not be registered as a top-level asset."};
+		}
+		Package->MarkDirty();
+		Package->MarkAsNewlyCreated();
+		return {};
 	}
 }

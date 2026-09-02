@@ -26,6 +26,8 @@ namespace Durin
 			DestinationObject = InDestination;
 		}
 
-		friend class FAssetLoadService;
+		friend auto SetAssetRedirectorDestinationForTesting(
+			DAssetRedirector& Redirector,
+			DObject* Destination) -> void;
 	};
 }

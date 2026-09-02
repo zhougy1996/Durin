@@ -20,19 +20,6 @@ namespace Durin
 		{
 		}
 
-		auto CreateAsset(
-			const FTopLevelAssetPath& Path,
-			DClass* Class,
-			size_t Size,
-			DObject*& OutAsset) -> FAssetResult;
-		auto DuplicateAsset(
-			const FTopLevelAssetPath& SourcePath,
-			const FTopLevelAssetPath& DestinationPath,
-			DObject*& OutAsset) -> FAssetResult;
-		auto CreateRedirector(
-			const FPackagePath& RedirectorPath,
-			const FPackagePath& DestinationPath,
-			DAssetRedirector*& OutRedirector) -> FAssetResult;
 		auto LoadPackage(
 			const FPackagePath& Path,
 			DPackage*& OutPackage,

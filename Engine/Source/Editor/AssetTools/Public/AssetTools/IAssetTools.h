@@ -15,9 +15,9 @@ namespace Durin
 
 	using FAssetToolsResult = FAssetOperationResult;
 
-	// Coordinates editor asset construction while factories own object-specific
-	// initialization. Returned assets are live and unsaved; the package is kept
-	// alive by Standalone residency rather than the permanent root set.
+	// Coordinates generic editor asset construction and delegates specialized
+	// initialization to factories when one is available. Returned assets are live
+	// and unsaved; Standalone package residency keeps them alive.
 	class IAssetTools
 	{
 	public:

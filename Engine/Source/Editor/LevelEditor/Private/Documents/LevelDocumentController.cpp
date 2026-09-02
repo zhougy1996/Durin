@@ -1,7 +1,7 @@
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "Editor/EditorEngine.h"

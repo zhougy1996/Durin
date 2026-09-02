@@ -23,34 +23,6 @@ namespace Durin
 			Path, ExpectedClass, OutObject, OutReport);
 	}
 
-	auto CreateAsset(
-		const FTopLevelAssetPath& Path,
-		DClass* Class,
-		size_t Size,
-		DObject*& OutAsset) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().CreateAsset(
-			Path, Class, Size, OutAsset);
-	}
-
-	auto DuplicateAsset(
-		const FTopLevelAssetPath& SourcePath,
-		const FTopLevelAssetPath& DestinationPath,
-		DObject*& OutAsset) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().DuplicateAsset(
-			SourcePath, DestinationPath, OutAsset);
-	}
-
-	auto CreateAssetRedirectorForTesting(
-		const FPackagePath& RedirectorPath,
-		const FPackagePath& DestinationPath,
-		DAssetRedirector*& OutRedirector) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().CreateRedirector(
-			RedirectorPath, DestinationPath, OutRedirector);
-	}
-
 	auto ResolveSoftObject(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,

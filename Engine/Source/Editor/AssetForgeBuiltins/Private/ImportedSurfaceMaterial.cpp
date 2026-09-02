@@ -1,7 +1,8 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
+#include "AssetTools/IAssetTools.h"
 #include "DObject/Package.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialProgramTypes.h"
@@ -110,7 +111,6 @@ namespace Durin::AssetForge::Builtins
 			return Loaded;
 		}
 
-		DMaterial* Created = nullptr;
 		FTopLevelAssetPath MaterialAssetPath;
 		if (!FTopLevelAssetPath::TryCreate(
 			MaterialPath, MaterialPath.GetPackageName(), MaterialAssetPath))
@@ -118,13 +118,15 @@ namespace Durin::AssetForge::Builtins
 			OutError = "The imported-surface material asset path is invalid.";
 			return nullptr;
 		}
-		const FAssetResult CreateResult =
-			CreateAsset(MaterialAssetPath, Created);
-		if (!CreateResult)
+		const FAssetToolsResult CreateResult = IAssetTools::Get().CreateAsset(
+			MaterialAssetPath, DMaterial::StaticClass());
+		DMaterial* Created = Cast<DMaterial>(CreateResult.Asset);
+		if (!CreateResult || !Created)
 		{
 			OutError = std::format(
 				"Failed to create standard imported-surface material: {}",
-				CreateResult.Message);
+				CreateResult.Message.empty()
+					? "the asset tool returned no material" : CreateResult.Message);
 			return nullptr;
 		}
 		if (!ValidateCanonicalMaterialParameterDefinitions(

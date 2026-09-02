@@ -2,9 +2,10 @@
 
 #include "ContentBrowser/ContentBrowserContracts.h"
 
-#include "Asset/AssetOperations.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
+#include "AssetTools/IAssetTools.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
@@ -56,14 +57,16 @@ namespace Durin
 					|| FindResidentPackage(Path)) continue;
 				FTopLevelAssetPath AssetPath;
 				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
-				DLevel* Level = nullptr;
-				FAssetResult Result = CreateAsset(AssetPath, Level);
-				if (!Result || !Level)
+				const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
+					AssetPath, DLevel::StaticClass());
+				DLevel* Level = Cast<DLevel>(Created.Asset);
+				if (!Created || !Level)
 				{
-					OutError = Result ? "Could not create the level asset." : Result.Message;
+					OutError = Created.Message.empty()
+						? "Could not create the level asset." : Created.Message;
 					return false;
 				}
-				Result = SavePackage(Level->GetPackage());
+				const FAssetResult Result = SavePackage(Level->GetPackage());
 				if (!Result)
 				{
 					UnloadPackage(Path);

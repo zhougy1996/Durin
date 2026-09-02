@@ -1,8 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetMaintenance/CompatibilityAudit.h"
@@ -36,6 +35,7 @@
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "NativeAssetTestSupport.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
@@ -2489,7 +2489,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 
 	Durin::DAssetRedirector* Redirector = nullptr;
-	ASSERT_TRUE(Durin::CreateAssetRedirectorForTesting(
+	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(
 		AliasPath, TargetPath, Redirector
 	));
 	ASSERT_NE(Redirector, nullptr);
@@ -2510,7 +2510,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_LT(Header.BytesRead, std::filesystem::file_size(AliasFile));
 
 	Durin::DAssetRedirector* Normalized = nullptr;
-	ASSERT_TRUE(Durin::CreateAssetRedirectorForTesting(
+	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(
 		NormalizedAliasPath, AliasPath, Normalized
 	));
 	ASSERT_NE(Normalized, nullptr);
@@ -2522,8 +2522,8 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 		NormalizedFile.generic_string(), NormalizedAliasPath, Header
 	));
 	EXPECT_EQ(Header.RedirectDestination, TargetPath);
-	EXPECT_EQ(Durin::CreateAssetRedirectorForTesting(MissingPath, MissingPath, Redirector).Error, Durin::EAssetError::InvalidPath);
-	EXPECT_EQ(Durin::CreateAssetRedirectorForTesting(MissingPath, UnregisteredPath, Redirector).Error, Durin::EAssetError::NotFound);
+	EXPECT_EQ(Durin::Testing::CreateAssetRedirectorForTests(MissingPath, MissingPath, Redirector).Error, Durin::EAssetError::InvalidPath);
+	EXPECT_EQ(Durin::Testing::CreateAssetRedirectorForTests(MissingPath, UnregisteredPath, Redirector).Error, Durin::EAssetError::NotFound);
 
 	ASSERT_TRUE(Durin::UnloadPackage(NormalizedAliasPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
@@ -3298,7 +3298,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_TRUE(Durin::FindAssetExact(Path));
 	EXPECT_GT(Durin::GetAssetCatalogRevision(), CatalogRevisionBeforeDraft);
 	Durin::DAssetRedirector* Redirector = nullptr;
-	ASSERT_TRUE(Durin::CreateAssetRedirectorForTesting(AliasPath, Path, Redirector));
+	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(AliasPath, Path, Redirector));
 	ASSERT_TRUE(Durin::SavePackage(Redirector->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AliasPath));
 
@@ -5744,7 +5744,7 @@ TEST(FPackageAssetTests, RepeatedRelocationLeavesAliasCompressionToFixup)
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Unrelated, UnrelatedAsset));
 	ASSERT_TRUE(Durin::SavePackage(UnrelatedAsset->GetPackage()));
 	Durin::DAssetRedirector* Alias = nullptr;
-	ASSERT_TRUE(Durin::CreateAssetRedirectorForTesting(
+	ASSERT_TRUE(Durin::Testing::CreateAssetRedirectorForTests(
 		UnrelatedAlias, Unrelated, Alias
 	));
 	ASSERT_TRUE(Durin::SavePackage(Alias->GetPackage()));

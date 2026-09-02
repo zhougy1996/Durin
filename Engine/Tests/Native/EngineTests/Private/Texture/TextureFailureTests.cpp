@@ -166,7 +166,7 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/FailureTestMissing", AssetPath));
 	Durin::DTexture2D* Texture = nullptr;
-	Durin::FAssetResult CreateResult = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
+	const auto CreateResult = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
 	ASSERT_TRUE(CreateResult) << CreateResult.Message;
 	ASSERT_NE(Texture, nullptr);
 	// At creation time, the build has not run.

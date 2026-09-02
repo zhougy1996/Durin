@@ -4,7 +4,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
-#include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Object.h"
 #include "Misc/FileHelper.h"
@@ -91,7 +90,7 @@ namespace
 		FPackagePath Path;
 		requiref(FPackagePath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
 		DObject* Object = nullptr;
-		const FAssetResult Created = CreatePackageLeafAssetForTesting(Path, Object);
+		const auto Created = CreatePackageLeafAssetForTesting(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
 		Durin::FByteArray Bytes;
 		const FAssetResult Serialized = SerializeAssetPackageBytes(

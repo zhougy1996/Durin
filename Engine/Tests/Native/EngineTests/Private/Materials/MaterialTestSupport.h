@@ -2,9 +2,8 @@
 
 #include "StaticMeshTestAccess.h"
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"

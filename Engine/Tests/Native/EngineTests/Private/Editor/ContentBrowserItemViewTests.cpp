@@ -1,15 +1,15 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "EngineTestSupport.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureCube.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -88,6 +88,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	TEST(FContentBrowserItemViewTests, InspectsTextureCubeDetailsWithoutLoadingPackage)
 	{
 		InitializeDObjectSystem();
+		FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeDetails";
 		std::error_code Error;

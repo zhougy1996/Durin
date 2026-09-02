@@ -5,9 +5,8 @@
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/ThumbnailStorage.h"
 
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"

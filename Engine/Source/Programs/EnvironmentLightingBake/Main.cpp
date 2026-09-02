@@ -1,9 +1,11 @@
 #include "CoreMinimal.h"
 
-#include "Asset/AssetOperations.h"
 #include "Asset/Asset.h"
+#include "Asset/PackageSerialization.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Name.h"
@@ -20,6 +22,33 @@ namespace
 	{
 		~FTaskSchedulerGuard() { Durin::ShutdownTaskScheduler(true); }
 	};
+
+	auto ConstructEnvironmentLightingAsset(
+		const Durin::FTopLevelAssetPath& AssetPath,
+		Durin::DEnvironmentLighting*& OutAsset) -> bool
+	{
+		OutAsset = nullptr;
+		Durin::DPackage* Package = Durin::CreatePackage(AssetPath.GetPackagePath());
+		if (!Package) return false;
+		Durin::FStaticConstructObjectParameters Parameters{
+			Durin::DEnvironmentLighting::StaticClass(), Package,
+			Durin::FName(AssetPath.GetAssetName()), sizeof(Durin::DEnvironmentLighting),
+			Durin::EObjectFlags::Public};
+		Durin::DObject* Object = Durin::StaticConstructObject(Parameters);
+		Durin::DObjectForceRegistration(Object);
+		OutAsset = Durin::Cast<Durin::DEnvironmentLighting>(Object);
+		if (!OutAsset
+			|| Package->FindTopLevelAsset(OutAsset->GetFName()) != OutAsset)
+		{
+			Durin::MarkObjectHierarchyAsGarbage(Package);
+			Durin::CollectGarbage();
+			OutAsset = nullptr;
+			return false;
+		}
+		Package->MarkDirty();
+		Package->MarkAsNewlyCreated();
+		return true;
+	}
 }
 
 auto main(int ArgumentCount, char** Arguments) -> int
@@ -94,12 +123,9 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		return 1;
 	}
 	Durin::DEnvironmentLighting* Asset = nullptr;
-	const Durin::FAssetResult CreateResult =
-		Durin::CreateAsset(TopLevelAssetPath, Asset);
-	if (!CreateResult)
+	if (!ConstructEnvironmentLightingAsset(TopLevelAssetPath, Asset))
 	{
-		std::cerr << "Failed to create environment-lighting asset: "
-			<< CreateResult.Message << '\n';
+		std::cerr << "Failed to construct the environment-lighting asset.\n";
 		return 1;
 	}
 

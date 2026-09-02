@@ -3,9 +3,8 @@
 #include "TextureTestSupport.h"
 
 #include "Animation/AnimationClip.h"
-#include "Asset/AssetOperations.h"
-#include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "Materials/MaterialInstance.h"
 #include "Modules/ModuleManager.h"
