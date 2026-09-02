@@ -41,8 +41,9 @@ The intended dependency direction is:
   discard, and reusable editor duplicate/save/mutation orchestration. It has
   no dependency on UI or concrete asset families.
 - `AssetForgeBuiltins` owns reflected concrete factories, concrete editor
-  import data, family capture/decode/build helpers, and safe candidate/swap
-  reimport implementations exposed through `FReimportHandler`.
+  import data, family capture/decode/build helpers, and reimport implementations
+  that publish complete detached build products in place through
+  `FReimportHandler`.
 - Editor hosts and feature modules own file selection, destinations, and
   presentation diagnostics; they query and invoke reimport through the manager.
 - Engine owns package identities, resident publication state, dirty state,

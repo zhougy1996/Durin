@@ -384,33 +384,6 @@ namespace Durin
 		}
 	}
 
-	auto DTextureCube::ExchangeImportedState(DTextureCube& Other) noexcept -> void
-	{
-		if (&Other == this) return;
-		std::swap(SourceLayout, Other.SourceLayout);
-		std::swap(ImportedData, Other.ImportedData);
-		std::swap(PanoramaFaceDimension, Other.PanoramaFaceDimension);
-		std::swap(PanoramaExposureEV, Other.PanoramaExposureEV);
-		std::swap(OriginalSourceWidth, Other.OriginalSourceWidth);
-		std::swap(OriginalSourceHeight, Other.OriginalSourceHeight);
-		std::swap(bSRGB, Other.bSRGB);
-		std::swap(CookedPlatformData, Other.CookedPlatformData);
-		std::swap(SourceData, Other.SourceData);
-		std::swap(PlatformData, Other.PlatformData);
-		std::swap(DerivedDataKey, Other.DerivedDataKey);
-		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
-		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
-		std::swap(BuildStatus, Other.BuildStatus);
-		std::swap(LastBuildError, Other.LastBuildError);
-		if (PlatformData && PlatformData->IsValid()) QueueRenderResourceBuild();
-		else InvalidateRenderResource();
-		if (Other.PlatformData && Other.PlatformData->IsValid())
-			Other.QueueRenderResourceBuild();
-		else Other.InvalidateRenderResource();
-		MarkPackageDirty();
-		Other.MarkPackageDirty();
-	}
-
 	auto DTextureCube::PublishAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{

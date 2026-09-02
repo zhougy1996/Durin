@@ -141,8 +141,6 @@ namespace Durin
 			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
 			std::string InDerivedDataKey,
 			std::string& OutError) -> bool;
-		ENGINE_API auto ExchangeImportedState(DTextureCube& Other) noexcept -> void;
-
 	protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,

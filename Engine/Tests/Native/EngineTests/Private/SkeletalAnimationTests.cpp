@@ -433,40 +433,6 @@ TEST(FSkeletalAnimationInstanceTests, RetainedCandidatesSurviveLaterRevisionsAnd
 	EXPECT_EQ(Second->Revision, 2u);
 }
 
-TEST(FSkeletalAnimationInstanceTests, DetachedBindingSurvivesSourcePayloadReplacement)
-{
-	auto* Skeleton = MakeSkeleton({{
-		.Name = Durin::FName("Root"), .ParentIndex = -1,
-		.ReferenceTransform = MatrixTransform(Durin::FMatrix(1.0))}});
-	auto* Mesh = MakeMesh(*Skeleton, {0}, {Durin::FMatrix4f(1.0f)});
-	auto* Clip = MakeLinearTranslationClip(*Skeleton);
-	Durin::FSkeletalAnimationInstance Instance;
-	std::string Error;
-	ASSERT_TRUE(Instance.Bind(*Mesh, Clip, Error)) << Error;
-
-	Durin::FTransform ReplacementInverseBind;
-	ReplacementInverseBind.Translation = {10.0, 0.0, 0.0};
-	auto* ReplacementMesh = MakeMesh(
-		*Skeleton, {0}, {FloatMatrix(ReplacementInverseBind.ToMatrix())});
-	auto* ReplacementClip = MakeClip(*Skeleton, {{
-		.BoneIndex = 0,
-		.Path = Durin::EAnimationTrackPath::Translation,
-		.Interpolation = Durin::EAnimationInterpolation::Linear,
-		.Times = {0.0f, 2.0f},
-		.VectorValues = {{0.0f, 0.0f, 0.0f}, {200.0f, 0.0f, 0.0f}}}});
-	auto MeshExchange = Mesh->PrepareImportedStateExchange(*ReplacementMesh, Error);
-	ASSERT_NE(MeshExchange, nullptr) << Error;
-	auto ClipExchange = Clip->PrepareImportedStateExchange(*ReplacementClip, Error);
-	ASSERT_NE(ClipExchange, nullptr) << Error;
-	MeshExchange->Commit();
-	ClipExchange->Commit();
-	MeshExchange->Finalize();
-	ClipExchange->Finalize();
-
-	ASSERT_TRUE(Instance.Seek(1.0f, Error)) << Error;
-	EXPECT_NEAR(Instance.GetLatestPosePalette()->Matrices[0][3][0], 1.0f, 1.0e-5f);
-}
-
 TEST(DSkeletalMeshComponentTests, RoutesRegistrationPlayTickProxyAndTeardown)
 {
 	auto* Skeleton = MakeSkeleton({{

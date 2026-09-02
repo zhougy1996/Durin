@@ -168,22 +168,6 @@ namespace Durin
 		++Revision;
 	}
 
-	auto DBodySetup::ExchangeCollisionState(DBodySetup& Other) noexcept -> void
-	{
-		using std::swap;
-		swap(CollisionSourceMode, Other.CollisionSourceMode);
-		swap(CollisionQueryPolicy, Other.CollisionQueryPolicy);
-		swap(CollisionBuildRevision, Other.CollisionBuildRevision);
-		swap(CollisionBuildStatus, Other.CollisionBuildStatus);
-		swap(CachedSimpleCollision, Other.CachedSimpleCollision);
-		swap(CachedComplexCollision, Other.CachedComplexCollision);
-		swap(CollisionDerivedDataKey, Other.CollisionDerivedDataKey);
-		swap(CollisionDiagnostic, Other.CollisionDiagnostic);
-		swap(CollisionPayloadBytes, Other.CollisionPayloadBytes);
-		++Revision;
-		++Other.Revision;
-	}
-
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool
 	{
 		FCollisionShape Shape;

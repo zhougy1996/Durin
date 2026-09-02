@@ -385,95 +385,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::GetNumInitializedRenderResources(),
 		InitialRenderResourceCount + 6u);
 
-	const Durin::FStaticMeshRenderData* OriginalRenderData =
-		LifecycleMesh->GetRenderData();
-	Durin::DStaticMesh* ReplacementCandidate =
-		Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::AddToRoot(ReplacementCandidate);
-	const Durin::FStaticMeshRenderData* ReplacementRenderData =
-		ReplacementCandidate->GetRenderData();
-	const Durin::FStaticMeshRenderResourceStatus CandidateStatusBeforeExchange =
-		ReplacementCandidate->GetRenderResourceStatus();
-	std::string ReplacementError;
-	ASSERT_TRUE(LifecycleMesh->ExchangeImportedState(
-		*ReplacementCandidate, ReplacementError))
-		<< ReplacementError;
-	const Durin::FStaticMeshRenderResourceStatus TargetStatusAfterExchange =
-		LifecycleMesh->GetRenderResourceStatus();
-	const Durin::FStaticMeshRenderResourceStatus CandidateStatusAfterExchange =
-		ReplacementCandidate->GetRenderResourceStatus();
-	EXPECT_TRUE(TargetStatusAfterExchange.IsReady());
-	EXPECT_GT(
-		TargetStatusAfterExchange.Revision,
-		ReadyLifecycleStatus.Revision);
-	EXPECT_EQ(
-		CandidateStatusAfterExchange.Readiness,
-		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
-	EXPECT_GT(
-		CandidateStatusAfterExchange.Revision,
-		CandidateStatusBeforeExchange.Revision);
-	EXPECT_EQ(LifecycleMesh->GetRenderData(), ReplacementRenderData);
-	EXPECT_EQ(ReplacementCandidate->GetRenderData(), OriginalRenderData);
-	EXPECT_EQ(
-		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 6u);
-
-	const Durin::FStaticMeshRenderResourceStatus TargetStatusBeforeReverse =
-		LifecycleMesh->GetRenderResourceStatus();
-	const Durin::FStaticMeshRenderResourceStatus CandidateStatusBeforeReverse =
-		ReplacementCandidate->GetRenderResourceStatus();
-	ASSERT_TRUE(LifecycleMesh->ExchangeImportedState(
-		*ReplacementCandidate, ReplacementError))
-		<< ReplacementError;
-	EXPECT_GT(
-		LifecycleMesh->GetRenderResourceStatus().Revision,
-		TargetStatusBeforeReverse.Revision);
-	EXPECT_GT(
-		ReplacementCandidate->GetRenderResourceStatus().Revision,
-		CandidateStatusBeforeReverse.Revision);
-	EXPECT_EQ(LifecycleMesh->GetRenderData(), OriginalRenderData);
-	EXPECT_EQ(
-		ReplacementCandidate->GetRenderData(),
-		ReplacementRenderData);
-	EXPECT_EQ(
-		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 6u);
-
-	Durin::DStaticMesh* FailedReplacementCandidate =
-		Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::AddToRoot(FailedReplacementCandidate);
-	Durin::FStaticMeshTestAccess::GetMutableRenderData(
-		FailedReplacementCandidate)
-		->LODResources.push_back(
-			FailedReplacementCandidate->GetRenderData()
-				->LODResources[0]);
-	Durin::FStaticMeshTestAccess::GetMutableRenderData(
-		FailedReplacementCandidate)
-		->LODResources[0].ScreenSize = 0.5f;
-	Durin::FStaticMeshTestAccess::GetMutableRenderData(
-		FailedReplacementCandidate)
-		->LODResources[1].Sections[0].MaterialSlotIndex = 99;
-	const Durin::FStaticMeshRenderResourceStatus TargetStatusBeforeFailure =
-		LifecycleMesh->GetRenderResourceStatus();
-	const Durin::FStaticMeshRenderResourceStatus CandidateStatusBeforeFailure =
-		FailedReplacementCandidate->GetRenderResourceStatus();
-	EXPECT_FALSE(LifecycleMesh->ExchangeImportedState(
-		*FailedReplacementCandidate, ReplacementError));
-	EXPECT_EQ(
-		LifecycleMesh->GetRenderResourceStatus().Revision,
-		TargetStatusBeforeFailure.Revision);
-	EXPECT_EQ(
-		FailedReplacementCandidate->GetRenderResourceStatus().Revision,
-		CandidateStatusBeforeFailure.Revision);
-	EXPECT_EQ(LifecycleMesh->GetRenderData(), OriginalRenderData);
-	EXPECT_EQ(
-		FailedReplacementCandidate->GetRenderData()
-			->GetNumInitializedResources(),
-		0u);
-	EXPECT_EQ(
-		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 6u);
-
 	Durin::DStaticMesh* InvalidMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::AddToRoot(InvalidMesh);
@@ -562,10 +473,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::RemoveFromRoot(InvalidMesh);
 	Durin::MarkAsGarbage(InvalidMesh);
-	Durin::RemoveFromRoot(FailedReplacementCandidate);
-	Durin::MarkAsGarbage(FailedReplacementCandidate);
-	Durin::RemoveFromRoot(ReplacementCandidate);
-	Durin::MarkAsGarbage(ReplacementCandidate);
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();

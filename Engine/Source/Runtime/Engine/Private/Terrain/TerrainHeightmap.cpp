@@ -585,45 +585,6 @@ namespace Durin
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
-	auto DTerrainHeightmap::IsSemanticImportNoOp(
-		const DTerrainHeightmap& Candidate) const -> bool
-	{
-		return DerivedDataKey == Candidate.DerivedDataKey
-			&& Payload && Candidate.Payload
-			&& Payload->Samples == Candidate.Payload->Samples;
-	}
-
-	auto DTerrainHeightmap::PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void
-	{
-		Candidate.Revision = Revision + (Payload && Candidate.Payload
-			&& Payload->Samples == Candidate.Payload->Samples ? 0 : 1);
-		if (Candidate.Revision == 0) Candidate.Revision = 1;
-	}
-
-	auto DTerrainHeightmap::ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void
-	{
-		if (&Other == this) return;
-		std::swap(ImportedData, Other.ImportedData);
-		std::swap(SourceBitDepth, Other.SourceBitDepth);
-		std::swap(SourceChannelCount, Other.SourceChannelCount);
-		std::swap(Width, Other.Width);
-		std::swap(Height, Other.Height);
-		std::swap(Minimum, Other.Minimum);
-		std::swap(Maximum, Other.Maximum);
-		std::swap(Revision, Other.Revision);
-		std::swap(SampleBytes, Other.SampleBytes);
-		std::swap(HierarchyBytes, Other.HierarchyBytes);
-		std::swap(RetainedBytes, Other.RetainedBytes);
-		std::swap(CookedPlatformData, Other.CookedPlatformData);
-		std::swap(Status, Other.Status);
-		std::swap(DerivedDataKey, Other.DerivedDataKey);
-		std::swap(LastDiagnostic, Other.LastDiagnostic);
-		std::swap(Payload, Other.Payload);
-		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
-		MarkPackageDirty();
-		Other.MarkPackageDirty();
-	}
-
 	auto DTerrainHeightmap::PublishAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{

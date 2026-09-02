@@ -603,118 +603,46 @@ TEST(FSkeletalAssetTests, PayloadValidationRequiresBoundsToContainGeometry)
 	EXPECT_TRUE(Durin::ValidateSkeletalMeshPayload(ConservativeBounds, *Skeleton, 1, Error)) << Error;
 }
 
-TEST(FSkeletalAssetTests, ImportedStateExchangeCommitsReversesAndRejectsInvalidCandidates)
+TEST(FSkeletalAssetTests, ProspectiveSkeletonValidatesDetachedDependentProducts)
 {
 	InitializeDObjectSystem();
-	auto* FirstSkeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "FirstSkeleton");
-	auto* SecondSkeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "SecondSkeleton");
-	InitializeSkeleton(*FirstSkeleton);
-	InitializeSkeleton(*SecondSkeleton, MakeAlternateBones());
-	const std::string FirstIdentity = FirstSkeleton->GetCompatibilityIdentity();
-	const std::string SecondIdentity = SecondSkeleton->GetCompatibilityIdentity();
-	std::string Error;
-	auto SkeletonExchange = FirstSkeleton->PrepareImportedStateExchange(*SecondSkeleton, Error);
-	ASSERT_NE(SkeletonExchange, nullptr) << Error;
-	SkeletonExchange->Commit();
-	EXPECT_EQ(FirstSkeleton->GetCompatibilityIdentity(), SecondIdentity);
-	SkeletonExchange->Reverse();
-	EXPECT_EQ(FirstSkeleton->GetCompatibilityIdentity(), FirstIdentity);
-	SkeletonExchange->Finalize();
-
-	auto* FirstMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "FirstMesh");
-	auto* SecondMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "SecondMesh");
-	InitializeMesh(*FirstMesh, *FirstSkeleton, "Body");
-	InitializeMesh(*SecondMesh, *SecondSkeleton, "Armor");
-	auto MeshExchange = FirstMesh->PrepareImportedStateExchange(*SecondMesh, Error);
-	ASSERT_NE(MeshExchange, nullptr) << Error;
-	MeshExchange->Commit();
-	EXPECT_EQ(FirstMesh->GetSkeleton(), SecondSkeleton);
-	EXPECT_EQ(FirstMesh->GetMaterialSlots()[0].Name, Durin::FName("Armor"));
-	MeshExchange->Reverse();
-	EXPECT_EQ(FirstMesh->GetSkeleton(), FirstSkeleton);
-	EXPECT_EQ(FirstMesh->GetMaterialSlots()[0].Name, Durin::FName("Body"));
-	MeshExchange->Finalize();
-
-	auto* FirstClip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "FirstClip");
-	auto* SecondClip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "SecondClip");
-	InitializeClip(*FirstClip, *FirstSkeleton, "Walk", 1.0f);
-	InitializeClip(*SecondClip, *SecondSkeleton, "Run", 2.0f);
-	auto ClipExchange = FirstClip->PrepareImportedStateExchange(*SecondClip, Error);
-	ASSERT_NE(ClipExchange, nullptr) << Error;
-	ClipExchange->Commit();
-	EXPECT_EQ(FirstClip->GetClipName(), Durin::FName("Run"));
-	ClipExchange->Reverse();
-	EXPECT_EQ(FirstClip->GetClipName(), Durin::FName("Walk"));
-	ClipExchange->Finalize();
-
-	auto* InvalidCandidate = Durin::NewObject<Durin::DAnimationClip>(nullptr, "InvalidCandidate");
-	EXPECT_EQ(FirstClip->PrepareImportedStateExchange(*InvalidCandidate, Error), nullptr);
-	EXPECT_EQ(FirstClip->GetClipName(), Durin::FName("Walk"));
-}
-
-TEST(FSkeletalAssetTests, ProspectiveSkeletonValidatesAtomicDependentReplacement)
-{
-	InitializeDObjectSystem();
-	auto* TargetSkeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "TargetSkeleton");
-	auto* ProspectiveSkeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "ProspectiveSkeleton");
-	InitializeSkeleton(*TargetSkeleton);
+	auto* CurrentSkeleton = Durin::NewObject<Durin::DSkeleton>(
+		nullptr, "CurrentSkeleton");
+	auto* ProspectiveSkeleton = Durin::NewObject<Durin::DSkeleton>(
+		nullptr, "ProspectiveSkeleton");
+	InitializeSkeleton(*CurrentSkeleton);
 	InitializeSkeleton(*ProspectiveSkeleton, MakeAlternateBones());
-	auto* TargetMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "TargetMesh");
-	auto* CandidateMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "CandidateMesh");
-	InitializeMesh(*TargetMesh, *TargetSkeleton);
 	std::string Error;
+
+	auto* CandidateMesh = Durin::NewObject<Durin::DSkeletalMesh>(
+		nullptr, "CandidateMesh");
 	ASSERT_TRUE(CandidateMesh->PublishBuiltProduct({
-		.Skeleton = TargetSkeleton,
+		.Skeleton = CurrentSkeleton,
 		.ValidationSkeleton = ProspectiveSkeleton,
-		.SkeletonCompatibilityIdentity = ProspectiveSkeleton->GetCompatibilityIdentity(),
+		.SkeletonCompatibilityIdentity =
+			ProspectiveSkeleton->GetCompatibilityIdentity(),
 		.MeshNodeBindTransform = MakeTransform(),
-		.MaterialSlots = {{.Name = Durin::FName("Armor"), .SourceMaterialIndex = 0}},
+		.MaterialSlots = {{
+			.Name = Durin::FName("Armor"), .SourceMaterialIndex = 0}},
 		.Payload = MakeMeshPayload()}, Error)) << Error;
 	EXPECT_FALSE(CandidateMesh->Validate(Error));
 	Error.clear();
-	EXPECT_TRUE(CandidateMesh->ValidateAgainstSkeleton(*ProspectiveSkeleton, Error)) << Error;
+	EXPECT_TRUE(CandidateMesh->ValidateAgainstSkeleton(
+		*ProspectiveSkeleton, Error)) << Error;
 
-	auto* TargetClip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "TargetClip");
-	auto* CandidateClip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "CandidateClip");
-	InitializeClip(*TargetClip, *TargetSkeleton);
+	auto* CandidateClip = Durin::NewObject<Durin::DAnimationClip>(
+		nullptr, "CandidateClip");
 	ASSERT_TRUE(CandidateClip->PublishBuiltProduct({
-		.Skeleton = TargetSkeleton,
+		.Skeleton = CurrentSkeleton,
 		.ValidationSkeleton = ProspectiveSkeleton,
-		.SkeletonCompatibilityIdentity = ProspectiveSkeleton->GetCompatibilityIdentity(),
+		.SkeletonCompatibilityIdentity =
+			ProspectiveSkeleton->GetCompatibilityIdentity(),
 		.ClipName = Durin::FName("Run"),
 		.Payload = MakeClipPayload(2.0f)}, Error)) << Error;
 	EXPECT_FALSE(CandidateClip->Validate(Error));
 	Error.clear();
-	EXPECT_TRUE(CandidateClip->ValidateAgainstSkeleton(*ProspectiveSkeleton, Error)) << Error;
-
-	auto SkeletonExchange = TargetSkeleton->PrepareImportedStateExchange(
-		*ProspectiveSkeleton, Error);
-	auto MeshExchange = TargetMesh->PrepareImportedStateExchange(
-		*CandidateMesh, *ProspectiveSkeleton, Error);
-	auto ClipExchange = TargetClip->PrepareImportedStateExchange(
-		*CandidateClip, *ProspectiveSkeleton, Error);
-	ASSERT_NE(SkeletonExchange, nullptr) << Error;
-	ASSERT_NE(MeshExchange, nullptr) << Error;
-	ASSERT_NE(ClipExchange, nullptr) << Error;
-
-	SkeletonExchange->Commit();
-	MeshExchange->Commit();
-	ClipExchange->Commit();
-	EXPECT_EQ(TargetMesh->GetSkeleton(), TargetSkeleton);
-	EXPECT_EQ(TargetClip->GetSkeleton(), TargetSkeleton);
-	Error.clear();
-	EXPECT_TRUE(TargetMesh->Validate(Error)) << Error;
-	EXPECT_TRUE(TargetClip->Validate(Error)) << Error;
-
-	ClipExchange->Reverse();
-	MeshExchange->Reverse();
-	SkeletonExchange->Reverse();
-	Error.clear();
-	EXPECT_TRUE(TargetMesh->Validate(Error)) << Error;
-	EXPECT_TRUE(TargetClip->Validate(Error)) << Error;
-	ClipExchange->Finalize();
-	MeshExchange->Finalize();
-	SkeletonExchange->Finalize();
+	EXPECT_TRUE(CandidateClip->ValidateAgainstSkeleton(
+		*ProspectiveSkeleton, Error)) << Error;
 }
 
 TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)

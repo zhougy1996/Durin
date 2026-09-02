@@ -174,11 +174,6 @@ namespace Durin
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
-		ENGINE_API auto ExchangeBuiltState(DVolumeTexture& Other) noexcept -> void;
-		auto ExchangeImportedState(DVolumeTexture& Other) noexcept -> void
-		{
-			ExchangeBuiltState(Other);
-		}
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
 	protected:

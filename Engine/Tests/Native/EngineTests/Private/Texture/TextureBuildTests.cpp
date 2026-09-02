@@ -490,40 +490,6 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FVolumeTextureTests, ExchangeWithUnbuiltAssetInvalidatesEmptyRenderState)
-{
-	InitializeDObjectSystem();
-	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
-	Durin::FVolumeTextureSourceData Source{
-		.Width = 1, .Height = 1, .Depth = 1,
-		.Format = Durin::EVolumeTextureFormat::R8_UNORM};
-	const std::array Voxels{std::byte{127}};
-	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
-	Durin::FVolumeTextureBuildProduct Product;
-	std::string Error;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Product, Error))
-		<< Error;
-
-	auto* Target = Durin::NewObject<Durin::DVolumeTexture>(nullptr, "VolumeExchangeTarget");
-	auto* Candidate = Durin::NewObject<Durin::DVolumeTexture>(
-		nullptr, "VolumeExchangeCandidate");
-	const std::string DerivedDataKey = Product.DerivedDataKey;
-	ASSERT_TRUE(Candidate->ApplyBuildResult(Source, {},
-		std::move(Product.PlatformData), DerivedDataKey, {}, Error)) << Error;
-
-	Target->ExchangeBuiltState(*Candidate);
-	ASSERT_NE(Target->GetPlatformData(), nullptr);
-	EXPECT_EQ(Target->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
-	EXPECT_EQ(Candidate->GetPlatformData(), nullptr);
-	EXPECT_EQ(Candidate->GetBuildStatus(), Durin::ETextureBuildStatus::Unbuilt);
-	EXPECT_EQ(Candidate->GetRenderResourceState(), Durin::ERenderResourceState::Released);
-
-	Durin::MarkAsGarbage(Target);
-	Durin::MarkAsGarbage(Candidate);
-	Durin::CollectGarbage();
-}
-
 TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkData)
 {
 	InitializeDObjectSystem();

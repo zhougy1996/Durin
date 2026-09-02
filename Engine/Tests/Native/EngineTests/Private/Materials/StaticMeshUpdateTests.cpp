@@ -18,27 +18,9 @@ namespace
 		return Material;
 	}
 
-	auto ReplaceWithDebugCandidate(Durin::DStaticMesh* Mesh) -> bool
+	auto RecreateStaticMeshState(Durin::DStaticMesh* Mesh) -> void
 	{
-		Durin::DStaticMesh* Candidate =
-			Durin::DStaticMesh::CreateDebugTriangle();
-		if (Candidate == nullptr) return false;
-		if (const Durin::FMeshMaterialSlotDefinition* Slot =
-			Mesh->GetMaterialSlot(0))
-		{
-			auto* Slots = static_cast<Durin::FArrayProperty*>(
-				Candidate->GetClass()->FindPropertyByName(
-					"MaterialSlots"));
-			auto* CandidateSlot =
-				static_cast<Durin::FMeshMaterialSlotDefinition*>(
-					Slots->GetMutableElementPtr(Candidate, 0));
-			CandidateSlot->DefaultMaterial = Slot->DefaultMaterial;
-		}
-		std::string Error;
-		const bool bSucceeded =
-			Mesh->ExchangeImportedState(*Candidate, Error);
-		Durin::MarkAsGarbage(Candidate);
-		return bSucceeded;
+		Durin::FStaticMeshRenderStateRecreateContext Context(Mesh);
 	}
 
 	auto SetDefaultMaterial(
@@ -166,31 +148,6 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGenerati
 	Durin::CollectGarbage();
 }
 
-TEST(FStaticMeshRenderStateRecreateContextTests, RepublishesSplineMeshDerivedStateAfterSourceExchange)
-{
-	InitializeDObjectSystem();
-	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	auto* Component = Durin::NewObject<Durin::DSplineMeshComponent>(nullptr, "SplineMeshSourceExchange");
-	ASSERT_NE(Mesh, nullptr);
-	ASSERT_NE(Component, nullptr);
-	Component->SetStaticMesh(Mesh);
-	Component->RegisterComponent();
-	const auto Before = Component->GetDerivedState();
-	ASSERT_TRUE(Before && Before->IsValid());
-	ASSERT_TRUE(ReplaceWithDebugCandidate(Mesh));
-	const auto After = Component->GetDerivedState();
-	ASSERT_TRUE(After && After->IsValid());
-	EXPECT_NE(After, Before);
-	EXPECT_GT(After->SourceRenderResourceRevision, Before->SourceRenderResourceRevision);
-	EXPECT_GT(After->DeformationRevision, Before->DeformationRevision);
-	EXPECT_NE(After->CollisionInputIdentity, Before->CollisionInputIdentity);
-
-	Component->UnregisterComponent();
-	Durin::MarkAsGarbage(Component);
-	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
-}
-
 TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentScans)
 {
 	FRenderSceneHarness Harness;
@@ -211,14 +168,13 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	ASSERT_EQ(Initial.Materials.size(), 1);
 	ExpectColorNear(GetMaterialBinding(Initial.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
 
-	ASSERT_TRUE(ReplaceWithDebugCandidate(SecondMesh));
+	RecreateStaticMeshState(SecondMesh);
 	const FMaterialSlotsSnapshot UnrelatedUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(UnrelatedUpdate.Proxy, Initial.Proxy);
 
 	SetDefaultMaterial(FirstMesh, 0, Second);
-	ASSERT_TRUE(ReplaceWithDebugCandidate(FirstMesh));
+	RecreateStaticMeshState(FirstMesh);
 	const FMaterialSlotsSnapshot DefaultUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_NE(DefaultUpdate.RenderData, Initial.RenderData);
 	EXPECT_GT(
 		DefaultUpdate.ComponentRevision,
 		Initial.ComponentRevision);
@@ -227,14 +183,11 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	Component->SetStaticMesh(SecondMesh);
 	const FMaterialSlotsSnapshot Reassigned = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_NE(Reassigned.RenderData, DefaultUpdate.RenderData);
-	ASSERT_TRUE(ReplaceWithDebugCandidate(FirstMesh));
+	RecreateStaticMeshState(FirstMesh);
 	const FMaterialSlotsSnapshot PreviousMeshUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(PreviousMeshUpdate.Proxy, Reassigned.Proxy);
-	ASSERT_TRUE(ReplaceWithDebugCandidate(SecondMesh));
+	RecreateStaticMeshState(SecondMesh);
 	const FMaterialSlotsSnapshot CurrentMeshUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_NE(
-		CurrentMeshUpdate.RenderData,
-		Reassigned.RenderData);
 	EXPECT_GT(
 		CurrentMeshUpdate.ComponentRevision,
 		Reassigned.ComponentRevision);
@@ -260,7 +213,7 @@ TEST(FStaticMeshUpdateTests, LoadedComponentScanSkipsGarbageObjects)
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 
 	Durin::MarkAsGarbage(Component);
-	ASSERT_TRUE(ReplaceWithDebugCandidate(Mesh));
+	RecreateStaticMeshState(Mesh);
 	const FMaterialSlotsSnapshot AfterUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(AfterUpdate.Proxy, Initial.Proxy);
 
@@ -294,12 +247,11 @@ TEST(FStaticMeshUpdateTests, LaterScansResolveReusedObjectSlotsByGenerationAndCu
 	Replacement->RegisterComponent();
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 
-	ASSERT_TRUE(ReplaceWithDebugCandidate(FirstMesh));
+	RecreateStaticMeshState(FirstMesh);
 	const FMaterialSlotsSnapshot PreviousMeshUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(PreviousMeshUpdate.Proxy, Initial.Proxy);
-	ASSERT_TRUE(ReplaceWithDebugCandidate(SecondMesh));
+	RecreateStaticMeshState(SecondMesh);
 	const FMaterialSlotsSnapshot CurrentMeshUpdate = CaptureMaterialSlots(Harness.Scene);
-	EXPECT_NE(CurrentMeshUpdate.RenderData, Initial.RenderData);
 	EXPECT_GT(
 		CurrentMeshUpdate.ComponentRevision,
 		Initial.ComponentRevision);

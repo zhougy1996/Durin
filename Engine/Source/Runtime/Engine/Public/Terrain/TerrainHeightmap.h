@@ -195,9 +195,6 @@ namespace Durin
 			uint32 InHeight,
 			std::span<const uint16> InSamples,
 			std::string& OutError) -> bool;
-		ENGINE_API auto IsSemanticImportNoOp(const DTerrainHeightmap& Candidate) const -> bool;
-		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
-		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
@@ -205,9 +202,7 @@ namespace Durin
 			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
-	public:
 
-	private:
 		friend class FTerrainHeightmapRenderStateRecreateContext;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto PublishPayload(

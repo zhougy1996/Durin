@@ -54,8 +54,6 @@ namespace Durin
 		auto operator==(const FSkeletonBone&) const -> bool = default;
 	};
 
-	class FSkeletonImportedStateExchange;
-
 	DCLASS()
 	class DSkeleton : public DObject
 	{
@@ -80,10 +78,6 @@ namespace Durin
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
-		ENGINE_API auto PrepareImportedStateExchange(
-			DSkeleton& Candidate,
-			std::string& OutError) -> std::unique_ptr<FSkeletonImportedStateExchange>;
-
 		ENGINE_API static auto ComputeCompatibilityIdentity(
 			std::span<const FSkeletonBone> InBones,
 			std::string& OutIdentity,
@@ -95,30 +89,5 @@ namespace Durin
 
 		DPROPERTY()
 		std::string CompatibilityIdentity;
-
-		friend class FSkeletonImportedStateExchange;
-	};
-
-	class ENGINE_API FSkeletonImportedStateExchange
-	{
-	public:
-		~FSkeletonImportedStateExchange();
-		FSkeletonImportedStateExchange(const FSkeletonImportedStateExchange&) = delete;
-		auto operator=(const FSkeletonImportedStateExchange&)
-			-> FSkeletonImportedStateExchange& = delete;
-
-		auto Commit() noexcept -> void;
-		auto Reverse() noexcept -> void;
-		auto Finalize() noexcept -> void;
-
-	private:
-		FSkeletonImportedStateExchange(DSkeleton& InTarget, DSkeleton& InCandidate);
-		auto Swap() noexcept -> void;
-
-		DSkeleton* Target = nullptr;
-		DSkeleton* Candidate = nullptr;
-		bool bCommitted = false;
-
-		friend class DSkeleton;
 	};
 }

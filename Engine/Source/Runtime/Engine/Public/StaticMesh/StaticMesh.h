@@ -141,7 +141,6 @@ namespace Durin
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshBuildProduct;
-	class FStaticMeshImportedStateExchange;
 
 	enum class EStaticMeshDerivedDataStatus : uint8
 	{
@@ -260,10 +259,6 @@ namespace Durin
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		// Seeds a detached candidate with only the slot state required by the
-		// conservative reimport reconciliation algorithm.
-		ENGINE_API auto SeedMaterialReconciliationFrom(
-			const DStaticMesh& Previous) -> void;
 		ENGINE_API auto PublishImportedProduct(
 			FStaticMeshBuildProduct Product,
 			std::string& OutError) -> bool;
@@ -271,18 +266,6 @@ namespace Durin
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
 			std::string& OutError) -> bool;
-		// Transactionally applies a detached import candidate while preserving
-		// this asset's package identity and component overrides. The displaced
-		// CPU data is left on Other for symmetric bundle rollback; resource
-		// state and destruction fences never move between assets.
-		ENGINE_API auto ExchangeImportedState(
-			DStaticMesh& Other,
-			std::string& OutError) -> bool;
-		// Performs all failable render-resource work up front. The returned token
-		// commits and reverses the complete imported state without failure.
-		ENGINE_API auto PrepareImportedStateExchange(
-			DStaticMesh& Candidate,
-			std::string& OutError) -> std::unique_ptr<FStaticMeshImportedStateExchange>;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;
@@ -379,31 +362,7 @@ namespace Durin
 		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
 		std::atomic<uint64> CookedLoadGeneration{1};
 
-		friend class FStaticMeshImportedStateExchange;
 		friend class FStaticMeshBuildOperations;
-	};
-
-	class ENGINE_API FStaticMeshImportedStateExchange
-	{
-	public:
-		~FStaticMeshImportedStateExchange();
-		FStaticMeshImportedStateExchange(const FStaticMeshImportedStateExchange&) = delete;
-		auto operator=(const FStaticMeshImportedStateExchange&)
-			-> FStaticMeshImportedStateExchange& = delete;
-
-		auto Commit() noexcept -> void;
-		auto Reverse() noexcept -> void;
-		auto Finalize() noexcept -> void;
-
-	private:
-		FStaticMeshImportedStateExchange(DStaticMesh& InTarget, DStaticMesh& InCandidate);
-		auto Swap() noexcept -> void;
-
-		DStaticMesh* Target = nullptr;
-		DStaticMesh* Candidate = nullptr;
-		bool bCommitted = false;
-
-		friend class DStaticMesh;
 	};
 
 }

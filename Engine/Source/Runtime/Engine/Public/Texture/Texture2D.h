@@ -254,10 +254,6 @@ namespace Durin
 			ETextureBuildStatus InBuildStatus,
 			std::string Message,
 			std::string DerivedDataKey = {}) -> bool;
-		// Exchanges persisted and derived import state while preserving object
-		// identity. Render resources are rebuilt for both objects.
-		ENGINE_API auto ExchangeImportedState(DTexture2D& Other) -> void;
-
 protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,

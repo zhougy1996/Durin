@@ -127,8 +127,6 @@ namespace Durin
 		uint32 SkeletonBoneCount,
 		std::string& OutError) -> bool;
 
-	class FAnimationClipImportedStateExchange;
-
 	DCLASS()
 	class DAnimationClip : public DObject
 	{
@@ -163,16 +161,7 @@ namespace Durin
 			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
-	public:
-		ENGINE_API auto PrepareImportedStateExchange(
-			DAnimationClip& Candidate,
-			std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>;
-		ENGINE_API auto PrepareImportedStateExchange(
-			DAnimationClip& Candidate,
-			const DSkeleton& ProspectiveSkeleton,
-			std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>;
 
-	private:
 		DPROPERTY()
 		TObjectPtr<DSkeleton> Skeleton;
 
@@ -198,30 +187,5 @@ namespace Durin
 		std::string PayloadStorageDiagnostic;
 
 		auto LoadCookedPayload(std::string& OutError) -> bool;
-
-		friend class FAnimationClipImportedStateExchange;
-	};
-
-	class ENGINE_API FAnimationClipImportedStateExchange
-	{
-	public:
-		~FAnimationClipImportedStateExchange();
-		FAnimationClipImportedStateExchange(const FAnimationClipImportedStateExchange&) = delete;
-		auto operator=(const FAnimationClipImportedStateExchange&)
-			-> FAnimationClipImportedStateExchange& = delete;
-
-		auto Commit() noexcept -> void;
-		auto Reverse() noexcept -> void;
-		auto Finalize() noexcept -> void;
-
-	private:
-		FAnimationClipImportedStateExchange(DAnimationClip& InTarget, DAnimationClip& InCandidate);
-		auto Swap() noexcept -> void;
-
-		DAnimationClip* Target = nullptr;
-		DAnimationClip* Candidate = nullptr;
-		bool bCommitted = false;
-
-		friend class DAnimationClip;
 	};
 }

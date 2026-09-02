@@ -26,6 +26,7 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "SceneTestAccess.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
@@ -271,12 +272,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::DStaticMesh* AuthoredMesh = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
-	Durin::DStaticMesh* Candidate = Durin::DStaticMesh::CreateDebugTriangle();
-	ASSERT_NE(Candidate, nullptr);
 	std::string Error;
-	ASSERT_TRUE(AuthoredMesh->ExchangeImportedState(*Candidate, Error)) << Error;
-	Durin::MarkAsGarbage(Candidate);
-	Durin::CollectGarbage();
+	ASSERT_TRUE(AuthoredMesh->PublishImportedProduct({
+		.RenderData = MakeRenderData(),
+		.MaterialSlots = {
+			{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
+			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
+			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
+			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}}, Error)) << Error;
 
 	Durin::FCookContext CookContext(
 		CookRoot,

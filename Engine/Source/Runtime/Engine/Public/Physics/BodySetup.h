@@ -72,7 +72,6 @@ namespace Durin
 		ENGINE_API auto ClearCollisionGeometry(
 			EBodySetupCollisionBuildStatus Status,
 			std::string Diagnostic) -> void;
-		ENGINE_API auto ExchangeCollisionState(DBodySetup& Other) noexcept -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }

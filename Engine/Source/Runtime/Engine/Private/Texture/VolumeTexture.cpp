@@ -328,29 +328,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DVolumeTexture::ExchangeBuiltState(DVolumeTexture& Other) noexcept -> void
-	{
-		if (&Other == this) return;
-		std::swap(SourceData, Other.SourceData);
-		std::swap(BuildSettings, Other.BuildSettings);
-		std::swap(CookedPlatformData, Other.CookedPlatformData);
-		std::swap(PlatformData, Other.PlatformData);
-		std::swap(DerivedDataKey, Other.DerivedDataKey);
-		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
-		std::swap(BuildStatus, Other.BuildStatus);
-		std::swap(LastBuildError, Other.LastBuildError);
-		auto RefreshRenderResource = [](DVolumeTexture& Texture) {
-			if (Texture.PlatformData && Texture.PlatformData->IsValid())
-				Texture.QueueRenderResourceBuild();
-			else
-				Texture.InvalidateRenderResource();
-		};
-		RefreshRenderResource(*this);
-		RefreshRenderResource(Other);
-		MarkPackageDirty();
-		Other.MarkPackageDirty();
-	}
-
 	auto DVolumeTexture::RefreshBuildStatus() -> void
 	{
 		const auto& Completion = GetRenderCompletion();

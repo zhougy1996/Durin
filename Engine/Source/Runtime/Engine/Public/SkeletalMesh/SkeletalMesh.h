@@ -212,8 +212,6 @@ namespace Durin
 		uint32 MaterialSlotCount,
 		std::string& OutError) -> bool;
 
-	class FSkeletalMeshImportedStateExchange;
-
 	DCLASS()
 	class DSkeletalMesh : public DObject
 	{
@@ -268,13 +266,6 @@ namespace Durin
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	public:
-		ENGINE_API auto PrepareImportedStateExchange(
-			DSkeletalMesh& Candidate,
-			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
-		ENGINE_API auto PrepareImportedStateExchange(
-			DSkeletalMesh& Candidate,
-			const DSkeleton& ProspectiveSkeleton,
-			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;
@@ -328,30 +319,5 @@ namespace Durin
 		auto BuildRenderData(std::string& OutError) -> bool;
 		auto SubmitCookedRenderDataRequest() -> bool;
 		auto ReleaseResources() -> void;
-
-		friend class FSkeletalMeshImportedStateExchange;
-	};
-
-	class ENGINE_API FSkeletalMeshImportedStateExchange
-	{
-	public:
-		~FSkeletalMeshImportedStateExchange();
-		FSkeletalMeshImportedStateExchange(const FSkeletalMeshImportedStateExchange&) = delete;
-		auto operator=(const FSkeletalMeshImportedStateExchange&)
-			-> FSkeletalMeshImportedStateExchange& = delete;
-
-		auto Commit() noexcept -> void;
-		auto Reverse() noexcept -> void;
-		auto Finalize() noexcept -> void;
-
-	private:
-		FSkeletalMeshImportedStateExchange(DSkeletalMesh& InTarget, DSkeletalMesh& InCandidate);
-		auto Swap() noexcept -> void;
-
-		DSkeletalMesh* Target = nullptr;
-		DSkeletalMesh* Candidate = nullptr;
-		bool bCommitted = false;
-
-		friend class DSkeletalMesh;
 	};
 }

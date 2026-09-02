@@ -194,21 +194,6 @@ namespace Durin
 		return ParameterOverrides;
 	}
 
-	auto DMaterialInstance::ExchangeImportedState(DMaterialInstance& Other) -> void
-	{
-		if (&Other == this) return;
-		std::swap(Parent, Other.Parent);
-		std::swap(ParameterOverrides, Other.ParameterOverrides);
-		std::swap(bOverrideStaticProperties, Other.bOverrideStaticProperties);
-		std::swap(StaticPropertiesOverride, Other.StaticPropertiesOverride);
-		MarkPackageDirty();
-		Other.MarkPackageDirty();
-		MarkRenderDataDirty(
-			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
-		Other.MarkRenderDataDirty(
-			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
-	}
-
 	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);

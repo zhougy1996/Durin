@@ -143,49 +143,6 @@ TEST(FTextureResourceCompletionTests, AppliedRevisionIsMonotonic)
 	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
 }
 
-TEST(FTexture2DTests, ExchangeInvalidatesTheSideWithoutPlatformData)
-{
-	InitializeDObjectSystem();
-	auto* Populated = Durin::NewObject<Durin::DTexture2D>(nullptr, "PopulatedTexture2D");
-	auto* Empty = Durin::NewObject<Durin::DTexture2D>(nullptr, "EmptyTexture2D");
-	std::string Error;
-	ASSERT_TRUE(Populated->PublishDerivedDataLoad(
-		std::make_unique<Durin::FTexturePlatformData>(MakeSingleMipPlatformData()),
-		"Texture2DExchangeTest", Error)) << Error;
-
-	Populated->ExchangeImportedState(*Empty);
-
-	EXPECT_EQ(Populated->GetPlatformData(), nullptr);
-	EXPECT_EQ(Populated->GetRenderResourceState(), Durin::ERenderResourceState::Released);
-	ASSERT_NE(Empty->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Empty->GetPlatformData()->IsValid());
-	Durin::MarkAsGarbage(Populated);
-	Durin::MarkAsGarbage(Empty);
-}
-
-TEST(FTextureCubeTests, ExchangeInvalidatesTheSideWithoutPlatformData)
-{
-	InitializeDObjectSystem();
-	auto* Populated = Durin::NewObject<Durin::DTextureCube>(nullptr, "PopulatedTextureCube");
-	auto* Empty = Durin::NewObject<Durin::DTextureCube>(nullptr, "EmptyTextureCube");
-	auto PlatformData = std::make_unique<Durin::FTextureCubePlatformData>();
-	PlatformData->PixelFormat = Durin::EPixelFormat::BC1_UNORM;
-	for (Durin::FTexturePlatformData& Face : PlatformData->Faces)
-		Face = MakeSingleMipPlatformData();
-	std::string Error;
-	ASSERT_TRUE(Populated->PublishDerivedDataLoad(
-		std::move(PlatformData), "TextureCubeExchangeTest", Error)) << Error;
-
-	Populated->ExchangeImportedState(*Empty);
-
-	EXPECT_EQ(Populated->GetPlatformData(), nullptr);
-	EXPECT_EQ(Populated->GetRenderResourceState(), Durin::ERenderResourceState::Released);
-	ASSERT_NE(Empty->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Empty->GetPlatformData()->IsValid());
-	Durin::MarkAsGarbage(Populated);
-	Durin::MarkAsGarbage(Empty);
-}
-
 TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 {
 	InitializeDObjectSystem();

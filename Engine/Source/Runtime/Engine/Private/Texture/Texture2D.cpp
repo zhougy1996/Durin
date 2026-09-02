@@ -527,35 +527,4 @@ namespace Durin
 		return true;
 	}
 
-	auto DTexture2D::ExchangeImportedState(DTexture2D& Other) -> void
-	{
-		if (&Other == this) return;
-		std::swap(SourceWidth, Other.SourceWidth);
-		std::swap(SourceHeight, Other.SourceHeight);
-		std::swap(SourceChannelCount, Other.SourceChannelCount);
-		std::swap(bSourceHasTransparency, Other.bSourceHasTransparency);
-		std::swap(ImportedData, Other.ImportedData);
-		std::swap(Usage, Other.Usage);
-		std::swap(bSRGB, Other.bSRGB);
-		std::swap(MaxResolution, Other.MaxResolution);
-		std::swap(CompressionQuality, Other.CompressionQuality);
-		std::swap(AlphaMipMode, Other.AlphaMipMode);
-		std::swap(AlphaCoverageThreshold, Other.AlphaCoverageThreshold);
-		std::swap(CookedPlatformData, Other.CookedPlatformData);
-		std::swap(SourceData, Other.SourceData);
-		std::swap(PlatformData, Other.PlatformData);
-		std::swap(DerivedDataKey, Other.DerivedDataKey);
-		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
-		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
-		std::swap(BuildStatus, Other.BuildStatus);
-		std::swap(LastBuildError, Other.LastBuildError);
-		if (PlatformData && PlatformData->IsValid()) QueueRenderResourceBuild();
-		else InvalidateRenderResource();
-		if (Other.PlatformData && Other.PlatformData->IsValid())
-			Other.QueueRenderResourceBuild();
-		else Other.InvalidateRenderResource();
-		MarkPackageDirty();
-		Other.MarkPackageDirty();
-	}
-
 }
