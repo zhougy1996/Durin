@@ -307,6 +307,13 @@ enqueued, while ImGui samples the texture later in the same frame. Engine uses
 the retained extent for view construction and rendering, so interactive resize
 does not add a stale-size frame.
 
+Offscreen texture creation and its initial transition execute together on the
+render thread, after earlier immediate-command-list work such as ImGui buffer
+uploads. On allocation or resize, a non-render-thread caller waits for a render
+thread fence before publishing the texture; an unchanged extent does not wait.
+This preserves same-frame sizing without a GPU-idle flush or concurrent access
+to an open buffer lock on the immediate command list.
+
 The Level Editor finalizes one scene-view snapshot after all of its panels have submitted UI for the logic frame. Matrix construction is independent from editor-overlay generation: navigation, gizmo interaction, projection, and picking use the lightweight view, while component visualizers traverse the level once to populate the final render snapshot. `FLevelEditorViewportClient::CalcSceneView()` reuses that snapshot when the renderer requests the same frame and quantized extent. Hover and visualization picking use the previous rendered collector with current matrices, matching the image on which the input occurred; weak object handles make cached hits harmless after object retirement. Hover color is stored on visualization primitives and resolved during composition, so changing hover does not rerun component visualizers.
 
 ### Viewport Rendering Statistics

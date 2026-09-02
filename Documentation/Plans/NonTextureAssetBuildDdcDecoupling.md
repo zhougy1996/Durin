@@ -13,7 +13,7 @@ Implementation is complete through the family cutovers and Build Framework
 removal. Stage 0, Stage 2, Stage 4, and Stage 5 passed their local gates.
 Stage 3 code and non-GPU gates passed; its real Vulkan gate remains open.
 Stage 1 remains active for Windows Game binary qualification. Stage 6 also
-retains project-loading smoke and real skeletal Vulkan qualification gates.
+retains real skeletal Vulkan qualification; macOS project-loading smoke passes.
 
 - Engine owns all non-Texture asset keys, metadata-first lookup, runtime codecs,
   cache validation/fallback, bounded operation diagnostics, and typed application.
@@ -82,19 +82,33 @@ Editor build passed
   assertion, exiting with signal status -5 before 60 ticks
   (`Build/.agent-state/logs/20260903-040207-855102-59316-DurinEditor.log`).
   The crash stack is `FSceneViewport::UpdateRHIViewport` -> `RHICreateTexture`
-  -> `ExecuteFallibleSynchronousOperation`. This is a distinct outstanding
-  rendering failure, not a passed end-to-end smoke.
+  -> `ExecuteFallibleSynchronousOperation`. This was a distinct rendering
+  failure at that checkpoint, repaired below.
 - Project Browser was rerun with the updated executable and again completed
   60 ticks and normal shutdown, exit code 0
   (`Build/.agent-state/logs/20260903-040248-024689-59364-DurinEditor.log`).
+
+User-selected viewport repair (2026-09-03): the UI thread's direct offscreen
+texture creation raced the previous frame's render-thread ImGui buffer locks
+on the immediate command list. Creation and the initial transition now execute
+together on the render thread; allocation/resize waits for a render-thread
+fence before publishing the same-frame texture, without a GPU-idle flush.
+The 106 viewport tests pass, including creation/resize ordering, unchanged-size
+reuse, failed-creation retry, and render-thread callers. All 37 affected native
+targets pass (`Build/.agent-state/logs/20260903-041222-676682-60006-ctest.log`).
+Full Editor `all` build
+passes (`Build/.agent-state/logs/20260903-041118-327270-59882-cmake.log`).
+Sandbox passes two consecutive hidden-window 60-tick runs on Apple M4, including
+default Level load, first presentation, rendering, and normal render/RHI/GPU
+shutdown (exit code 0), without modifying the tracked asset:
+
+- `Build/.agent-state/logs/20260903-041128-984397-59962-DurinEditor.log`
+- `Build/.agent-state/logs/20260903-041147-919180-59973-DurinEditor.log`
 
 Pending acceptance:
 
 - Build and inspect the existing `Win64-Debug-DurinGame` closure/deployment,
   proving no asset DDC or provider dependency in Game.
-- Diagnose/repair the Sandbox viewport RHI open-buffer-lock assertion and pass
-  project-loading startup/shutdown smoke; the basic Project Browser smoke is
-  qualified on macOS and removed authored fields no longer block Level load.
 - Run `SkeletalMeshRenderResourcesVulkanTests` qualification.
   Local GPU qualification compiled but failed at Vulkan initialization because
   Metal was unavailable and instance extension dependencies were reported
@@ -576,9 +590,10 @@ Dependencies: Stage 5 complete.
 - [x] Pass macOS Project Browser startup/shutdown smoke (60 ticks, exit code 0).
 - [x] Implement the user-selected removed-authored-field discard policy and
   qualify package/type/deprecation/cooked boundaries plus affected tests.
+- [x] Repair viewport creation ordering and pass two consecutive macOS Sandbox
+  project-loading startup/shutdown smokes (60 ticks each, exit code 0).
 - [ ] Complete the user-selected Windows Game build/deployment closure,
-  project-loading Editor smoke (Sandbox viewport RHI assertion remains), and real
-  skeletal Vulkan qualification.
+  and real skeletal Vulkan qualification.
 - [x] Update lasting architecture/module/family documentation and validate
   changed/all documentation, all plans, and all roadmaps.
 

@@ -105,6 +105,7 @@ durin_register_native_test(EngineViewportHeaderTests
 )
 
 set(_durin_viewport_test_sources
+	Private/Viewport/SceneViewportResourceTests.cpp
 	Private/Viewport/ViewportFoundationTests.cpp
 	Private/Viewport/ViewportProjectionTests.cpp
 	Private/Viewport/ViewportCustomizationTests.cpp

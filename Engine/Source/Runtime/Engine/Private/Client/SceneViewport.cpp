@@ -93,18 +93,27 @@ namespace Durin
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 				"SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
-			RenderTargetRHI = RHICreateTexture(Desc);
-			if (RenderTargetRHI != nullptr)
-			{
-				const FTextureRHIRef NewRenderTarget = RenderTargetRHI;
-				ENQUEUE_RENDER_COMMAND(InitializeSceneViewportRenderTarget)(
-					[NewRenderTarget](FRHICommandListImmediate& CommandList) {
+			// Resource creation also touches the immediate timeline. Serialize it
+			// behind earlier render work (including ImGui's recorded buffer locks).
+			const auto Result = std::make_shared<FTextureRHIRef>();
+			ENQUEUE_RENDER_COMMAND(CreateSceneViewportRenderTarget)(
+				[Desc, Result](FRHICommandListImmediate& CommandList) {
+					*Result = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+					if (*Result)
+					{
 						const std::array Transition{FRHITextureTransition::Whole(
-							NewRenderTarget, ERHIAccess::Discard,
+							*Result, ERHIAccess::Discard,
 							ERHIAccess::GraphicsShaderRead)};
 						CommandList.TransitionTextures(Transition);
-					});
+					}
+				});
+			if (!IsInRenderingThread())
+			{
+				FRenderCommandFence Fence;
+				Fence.BeginFence();
+				Fence.Wait();
 			}
+			RenderTargetRHI = std::move(*Result);
 		}
 		ViewportRHI = nullptr;
 	}
