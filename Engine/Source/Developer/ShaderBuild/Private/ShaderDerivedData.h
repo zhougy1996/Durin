@@ -14,9 +14,6 @@ namespace Durin::ShaderDerivedData
 		ShaderCompiledOutput::MaximumEntryPoints;
 	inline constexpr uint64 MaximumValueBytes =
 		ShaderCompiledOutput::MaximumValueBytes;
-	inline constexpr uint64 BucketBudgetBytes =
-		2ull * 1024ull * 1024ull * 1024ull;
-	inline constexpr uint32 CleanupDeleteLimit = 16;
 
 	auto GetBucket() -> DerivedData::FCacheBucket;
 	auto BuildKey(

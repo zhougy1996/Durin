@@ -6,8 +6,8 @@
 namespace Durin
 {
 	TEXTUREBUILD_API auto BuildTexture2D(
-		const FTexture2DBuildRequest& Request,
-		FTexture2DBuildProduct& OutProduct,
+		const FTexture2DRecipeBuildRequest& Request,
+		FTexture2DRecipeBuildProduct& OutProduct,
 		std::string& OutError,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> bool;
+		const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> bool;
 }

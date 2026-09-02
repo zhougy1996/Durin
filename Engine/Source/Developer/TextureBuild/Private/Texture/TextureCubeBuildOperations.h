@@ -5,9 +5,12 @@
 
 namespace Durin
 {
-	TEXTUREBUILD_API auto BuildTextureCube(
+	TEXTUREBUILD_API auto NormalizeTextureCube(
 		const FTextureCubeBuildRequest& Request,
 		FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-		FTextureCubeBuildProduct& OutProduct,
+		std::string& OutError) -> bool;
+	TEXTUREBUILD_API auto BuildTextureCube(
+		const FTextureCubeRecipeBuildRequest& Request,
+		FTextureCubeRecipeBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 }

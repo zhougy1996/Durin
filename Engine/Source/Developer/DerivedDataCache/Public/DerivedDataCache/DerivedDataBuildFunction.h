@@ -13,8 +13,6 @@ namespace Durin::DerivedData
 		std::string CacheBucket;
 		std::string ExpectedValueName;
 		uint64 MaximumValueBytes = 0;
-		uint64 CleanupBudgetBytes = 0;
-		uint32 CleanupDeleteLimit = 0;
 	};
 
 	class FBuildContext

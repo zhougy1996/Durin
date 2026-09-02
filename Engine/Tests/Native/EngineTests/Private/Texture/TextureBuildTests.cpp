@@ -8,12 +8,11 @@
 #include "Texture/Texture2DBuildProvider.h"
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureDerivedData.h"
+#include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
 #include "Texture/VolumeTextureBuildProvider.h"
-#include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
-#include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTextureBuilder.h"
 #include "DObject/DefaultDeltaPlan.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -25,16 +24,16 @@ namespace
 	public:
 		auto GetDescriptor() const -> Durin::FTexture2DBuildProviderDescriptor override
 		{
-			return {.ProducerIdentity = "Tests.Texture2D", .SchemaVersion = 7};
+			return {.ProducerIdentity = "Tests.Texture2D", .BuilderVersion = 7};
 		}
 
 		auto Build(
-			const Durin::FTexture2DBuildRequest&,
-			Durin::FTexture2DBuildProduct& OutProduct,
+			const Durin::FTexture2DRecipeBuildRequest&,
+			Durin::FTexture2DRecipeBuildProduct& OutProduct,
 			std::string& OutError,
-			const Durin::FTexture2DBuildExecutionControl*) -> bool override
+			const Durin::FTexture2DRecipeExecutionControl*) -> bool override
 		{
-			OutProduct.DerivedDataKey = "test-value";
+			OutProduct = {};
 			OutError.clear();
 			return true;
 		}
@@ -307,6 +306,9 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
+		"cd69e1f94de659a143bd520aed40f4c8");
+	EXPECT_EQ(Bytes.size(), 177u);
 	Durin::FVolumeTexturePlatformData Decoded;
 	Durin::FDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::ECookTargetPlatform::Win64,
@@ -355,21 +357,36 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_FALSE(Source.IsValid());
 	Durin::FVolumeTextureBuildProduct Rejected;
 	std::string SchemaError;
-	EXPECT_FALSE(Durin::BuildVolumeTexture(
-		Source, {}, Rejected, SchemaError));
+	EXPECT_FALSE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Rejected, SchemaError));
 	EXPECT_FALSE(SchemaError.empty());
 	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion;
+	const Durin::FVolumeTextureBuildKeyInput GoldenKeyInput{
+		.CanonicalSourceIdentity = Source.GetIdentity(),
+		.Width = Source.Width,
+		.Height = Source.Height,
+		.Depth = Source.Depth,
+		.Settings = {},
+		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::ECookTargetProfile::Game};
+	std::string GoldenKeyError;
+	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
+		GoldenKeyInput, GoldenKeyError),
+		"f15f5130fe5dc0e647218ceda0bc70fd") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildVolumeTexture(Source, {}, First, Error)) << Error;
-	ASSERT_TRUE(Durin::BuildVolumeTexture(Source, {}, Second, Error)) << Error;
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, First, Error)) << Error;
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Second, Error)) << Error;
 	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	Voxels[0] = std::byte{9};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Changed;
-	ASSERT_TRUE(Durin::BuildVolumeTexture(Source, {}, Changed, Error)) << Error;
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Changed, Error)) << Error;
 	EXPECT_NE(First.DerivedDataKey, Changed.DerivedDataKey);
 }
 
@@ -388,7 +405,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Product;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildVolumeTexture(Source, {}, Product, Error)) << Error;
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Product, Error)) << Error;
 	ASSERT_NE(Product.PlatformData, nullptr);
 	const Durin::FVolumeTexturePlatformData Expected = *Product.PlatformData;
 	const std::string ExpectedKey = Product.DerivedDataKey;
@@ -400,12 +418,12 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	const Durin::FAssetResult Created = Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture);
 	ASSERT_TRUE(Created) << Created.Message;
 	ASSERT_NE(Texture, nullptr);
-	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
+	ASSERT_TRUE(Texture->ApplyBuildResult(Source, {},
 		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData),
 		Product.DerivedDataKey, {}, Error)) << Error;
 	const uint64 ValidRevision = Texture->GetBuildRevision();
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_FALSE(Texture->PublishBuiltData({}, {}, nullptr, "invalid", {}, Error));
+	EXPECT_FALSE(Texture->ApplyBuildResult({}, {}, nullptr, "invalid", {}, Error));
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
@@ -483,14 +501,15 @@ TEST(FVolumeTextureTests, ExchangeWithUnbuiltAssetInvalidatesEmptyRenderState)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Product;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildVolumeTexture(Source, {}, Product, Error))
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Product, Error))
 		<< Error;
 
 	auto* Target = Durin::NewObject<Durin::DVolumeTexture>(nullptr, "VolumeExchangeTarget");
 	auto* Candidate = Durin::NewObject<Durin::DVolumeTexture>(
 		nullptr, "VolumeExchangeCandidate");
 	const std::string DerivedDataKey = Product.DerivedDataKey;
-	ASSERT_TRUE(Candidate->PublishBuiltData(Source, {},
+	ASSERT_TRUE(Candidate->ApplyBuildResult(Source, {},
 		std::move(Product.PlatformData), DerivedDataKey, {}, Error)) << Error;
 
 	Target->ExchangeBuiltState(*Candidate);
@@ -531,7 +550,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 		"/TextureImportTests/LargeVolumeBlob", AssetPath));
 	Durin::DVolumeTexture* Texture = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
-	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
+	ASSERT_TRUE(Texture->ApplyBuildResult(Source, {},
 		std::make_unique<Durin::FVolumeTexturePlatformData>(Platform),
 		"large-volume-blob", {}, Error)) << Error;
 
@@ -714,13 +733,16 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 
 	Durin::FTexture2DBuildProduct Product;
 	const Durin::FTexture2DBuildRequest Request{.SourceData = std::move(SourceData)};
-	ASSERT_TRUE(Durin::BuildTexture2D(Request, Product, Error)) << Error;
+	Durin::FTexture2DBuildInputIdentity Identity;
+	ASSERT_TRUE(Durin::InvokeTexture2DBuildProvider(
+		Request, Product, Identity, Error)) << Error;
 	EXPECT_TRUE(Request.SourceData.IsValid());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
 	EXPECT_FALSE(Product.DerivedDataKey.empty());
 
 	Product.DerivedDataKey = "sentinel";
-	EXPECT_FALSE(Durin::BuildTexture2D({}, Product, Error));
+	EXPECT_FALSE(Durin::InvokeTexture2DBuildProvider(
+		{}, Product, Identity, Error));
 	EXPECT_TRUE(Product.DerivedDataKey.empty());
 }
 
@@ -738,7 +760,9 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 		std::as_bytes(std::span{TransparentPngBytes}), SourceData, Error)) << Error;
 	Durin::FTexture2DBuildProduct Product;
 	const Durin::FTexture2DBuildRequest Request{.SourceData = std::move(SourceData)};
-	ASSERT_TRUE(Durin::BuildTexture2D(Request, Product, Error)) << Error;
+	Durin::FTexture2DBuildInputIdentity Identity;
+	ASSERT_TRUE(Durin::InvokeTexture2DBuildProvider(
+		Request, Product, Identity, Error)) << Error;
 	EXPECT_TRUE(Request.SourceData.IsValid());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
 	EXPECT_FALSE(Product.DerivedDataKey.empty());
@@ -835,7 +859,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
+TEST(FTexture2DTests, CompilationAppliesLatestNormalizedProduct)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -860,7 +884,7 @@ TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 		.Build = {
 			.SourceData = std::move(SourceData),
 			.Settings = {.MaxResolution = 1}},
-		.Publication = {
+		.ResultApplication = {
 			},
 		.Priority = Durin::ETexture2DCompilationPriority::Interactive}, Error,
 		[&](Durin::FTexture2DCompilationResult Result) {
@@ -899,7 +923,7 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 			.Build = {
 				.SourceData = std::move(SourceData),
 				.Settings = {.MaxResolution = 1}},
-			.Publication = {
+			.ResultApplication = {
 				},
 			.Priority = Durin::ETexture2DCompilationPriority::Interactive};
 	};

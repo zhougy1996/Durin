@@ -404,7 +404,7 @@ namespace Durin
 	{
 		if (!IsInGameThread())
 		{
-			OutError = "Texture2D imported state must be published on the game thread.";
+			OutError = "Texture2D imported state must be applied on the game thread.";
 			return false;
 		}
 		if (!State.SourceData || !State.SourceData->IsValid()
@@ -448,10 +448,10 @@ namespace Durin
 			.Key = DerivedDataKey,
 			.Message = State.BuildDiagnostic.empty()
 				? (State.bLoadedFromDerivedDataCache
-					? "Published cached Texture2D build product."
-					: "Published normalized Texture2D build product.")
+					? "Applied cached Texture2D build result."
+					: "Applied normalized Texture2D build result.")
 				: std::format(
-					"Published {} Texture2D build product; DDC persistence was best effort: {}",
+					"Applied {} Texture2D build result; DDC persistence was best effort: {}",
 					State.bLoadedFromDerivedDataCache ? "cached" : "normalized",
 					State.BuildDiagnostic),
 			.bSourceDecoderInvoked = State.bSourceDecoderInvoked};
@@ -478,7 +478,7 @@ namespace Durin
 		if (!IsInGameThread() || !InPlatformData || !InPlatformData->IsValid()
 			|| InDerivedDataKey.empty())
 		{
-			OutError = "Texture2D derived-data load publication is incomplete or invalid.";
+			OutError = "Texture2D derived-data load result is incomplete or invalid.";
 			return false;
 		}
 		SourceData.reset();

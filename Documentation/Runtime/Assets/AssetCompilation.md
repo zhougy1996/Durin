@@ -11,13 +11,14 @@ compilation. Launch starts it after Core task scheduling and pumps it once per
 normal GameThread frame. The aggregate owns domain discovery, dependency
 ordering, bounded processing, object routing, aggregate progress, successful
 post-compile notification, and shutdown placement. It does not impose one
-typeless compiler payload, DDC key, queue, or publication policy across domains;
+typeless compiler payload, DDC key, queue, or result-application policy across domains;
 each Engine-owned domain retains its typed values and invariants.
 
 The built-in domains are `Durin.MaterialCompilation` and
 `Durin.TextureCompilation`. Optional modules may register additional domains
-while the aggregate is accepting requests. Runtime Engine does not depend on
-TextureBuild or DerivedDataCache: authoring targets register a synchronous
+while the aggregate is accepting requests. Runtime Engine does not require
+TextureBuild or DerivedDataCache in Game: editor-enabled Engine optionally links
+DDC, and authoring targets register a synchronous
 family-specific `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
 `ITextureCubeBuildProvider` features, while game deployments retain Engine
 runtime assets and simply have no provider-backed authoring work to submit.
@@ -40,7 +41,7 @@ each ready domain a bounded first opportunity, rotates independent peers, and
 reclaims quota unused by idle domains. Concrete domains report consumed
 completions separately from successfully published live objects.
 
-## Object Operations and Publication
+## Object Operations and Result Application
 
 Selected finish and cancellation broadcast a bounded `DObject*` span to every
 domain in dependency order. Each domain filters the object families it owns.
@@ -52,7 +53,7 @@ Concrete domains retain generation-safe object handles and independently named
 request serial, authored/build identity, target, and dependency qualifiers.
 They admit results only on GameThread after every family-specific qualifier
 still matches. Workers receive detached immutable values and never resolve or
-mutate managed objects. A successful, current publication is returned to the
+mutate managed objects. A successful, current result application is returned to the
 aggregate as a weak object identity. Failed, canceled, superseded, destroyed,
 and stale results do not emit success.
 
@@ -95,16 +96,17 @@ consumers rather than shared worker flights.
 Texture compilation is Engine-owned. One `FTexture2DCompilationDomain` owns
 typed asset state, worker admission, priority fairness, memory budget,
 cancellation, the completion mailbox, latest-wins request serials, GameThread
-publication, and exactly-once completion callbacks. Active records are keyed by
+completion application, and exactly-once completion callbacks. Active records are keyed by
 `FObjectHandle` and erased at terminal delivery; retained work diagnostics are
 bounded independently. `DTexture2D` owns only its process-local request serial
 and last-request diagnostic handle. The deterministic input/provider identity
 remains separate from that serial and from GPU resource readiness.
 
-TextureBuild owns the three synchronous provider implementations, build
-algorithms, DDC sessions, producer versions, private codecs/helpers, and Build
-Function registration. Engine alone owns live Texture objects, authored state,
-PostLoad orchestration, diagnostics, publication, and resource invalidation.
+TextureBuild owns the three synchronous pure provider implementations, build
+algorithms, recipe metrics, and producer versions. Editor-enabled Engine owns
+Texture DDC keys, Get/Put, PlatformData validation and serialization, live
+Texture objects, authored state, PostLoad orchestration, diagnostics, completion
+application, and resource invalidation.
 TextureCube and VolumeTexture stay synchronous and do not register empty
 compilation domains.
 
@@ -117,8 +119,8 @@ state object. Reuse stays at these Engine-owned boundaries:
 | --- | --- |
 | Aggregate/domain contract | Stop admission, process bounded completions, route object operations, finish accepted work, then shut down. |
 | Object identity | Carry an `FObjectHandle`; never use an asset path as live-object identity. |
-| Freshness | Carry an independently named per-object publication epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/provider identity. |
-| Detached completion | Workers produce family-owned value envelopes; only the GameThread resolves the owner and attempts publication. |
+| Freshness | Carry an independently named per-object completion epoch. Material uses authored/dependency revisions and generation; Texture2D uses request serial plus deterministic input/provider identity. |
+| Detached completion | Workers produce family-owned value envelopes; only the GameThread resolves the owner and attempts result application. |
 | Cancellation and terminal delivery | Cancellation is advisory, late results are consumed, and every accepted consumer reaches one typed terminal outcome. |
 | Lifetime accounting | Active records end with terminal delivery; only explicitly bounded diagnostics or family caches may remain. |
 
@@ -127,7 +129,7 @@ typeless job framework. Material retains program-identity single-flight,
 multiple consumers, retained programs, last-known-good behavior, Renderer
 publication, and its authored/dependency checks. Texture2D retains its priority
 queue, byte budget, synchronous provider/DDC boundary, mutation-aware CPU
-payload publication, and separate GPU resource enqueue. Their managers remain
+payload result application, and separate GPU resource enqueue. Their managers remain
 typed because a shared state bag would hide rather than enforce those
 invariants.
 

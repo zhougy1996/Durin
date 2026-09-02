@@ -21,11 +21,11 @@ namespace Durin
 	struct FVolumeTextureBuildProviderDescriptor
 	{
 		std::string ProducerIdentity;
-		uint32 SchemaVersion = 0;
+		uint32 BuilderVersion = 0;
 
 		[[nodiscard]] auto IsValid() const -> bool
 		{
-			return !ProducerIdentity.empty() && SchemaVersion != 0;
+			return !ProducerIdentity.empty() && BuilderVersion != 0;
 		}
 	};
 
@@ -45,8 +45,21 @@ namespace Durin
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;
 	};
 
-	// Caller-owned publication policy applied only by Engine on the GameThread.
-	struct FVolumeTexturePublicationContext
+	struct FVolumeTextureRecipeBuildRequest
+	{
+		std::reference_wrapper<const FVolumeTextureSourceData> SourceData;
+		FVolumeTextureBuildSettings Settings;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+	};
+
+	struct FVolumeTextureRecipeBuildProduct
+	{
+		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
+	};
+
+	// Caller-owned result-application policy used only by Engine on the GameThread.
+	struct FVolumeTextureResultApplicationContext
 	{
 		bool bMarkPackageDirty = true;
 		bool bSourceDecoderInvoked = true;
@@ -63,8 +76,8 @@ namespace Durin
 		virtual auto GetDescriptor() const
 			-> FVolumeTextureBuildProviderDescriptor = 0;
 		virtual auto Build(
-			const FVolumeTextureBuildRequest& Request,
-			FVolumeTextureBuildProduct& OutProduct,
+			const FVolumeTextureRecipeBuildRequest& Request,
+			FVolumeTextureRecipeBuildProduct& OutProduct,
 			std::string& OutError) -> bool = 0;
 	};
 
@@ -75,13 +88,6 @@ namespace Durin
 	ENGINE_API auto BuildVolumeTextureSynchronously(
 		DVolumeTexture& Texture,
 		const FVolumeTextureBuildRequest& Request,
-		const FVolumeTexturePublicationContext& Context,
-		std::string& OutError) -> bool;
-	ENGINE_API auto PublishVolumeTextureProduct(
-		DVolumeTexture& Texture,
-		const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings,
-		FVolumeTextureBuildProduct Product,
-		const FVolumeTexturePublicationContext& Context,
+		const FVolumeTextureResultApplicationContext& Context,
 		std::string& OutError) -> bool;
 }

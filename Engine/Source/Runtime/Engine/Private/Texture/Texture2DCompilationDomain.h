@@ -67,7 +67,7 @@ namespace Durin
 		std::function<void(FTexture2DCompilationWorkResult&&)>;
 
 	// Owns the complete Texture2D compilation domain: typed asset state, bounded
-	// worker admission, cancellation, completion pumping, and publication.
+	// worker admission, cancellation, completion pumping, and result application.
 	class FTexture2DCompilationDomain final : public IAssetCompilationDomain
 	{
 	public:

@@ -443,9 +443,26 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
-				if (!PublishTexture2DProduct(*Cast<DTexture2D>(Output.Candidate),
-					std::move(Output.Texture.SourceData), Output.Texture.Settings,
-					std::move(Output.Texture.Product), {}, Error))
+				auto* Texture = Cast<DTexture2D>(Output.Candidate);
+				FTexture2DBuildProduct& Product = Output.Texture.Product;
+				const FTexture2DBuildSettings& Settings = Output.Texture.Settings;
+				if (!Texture->PublishImportedState({
+					.SourceData = std::make_unique<FTextureSourceData>(
+						std::move(Output.Texture.SourceData)),
+					.PlatformData = std::make_unique<FTexturePlatformData>(
+						std::move(Product.PlatformData)),
+					.DerivedDataKey = std::move(Product.DerivedDataKey),
+					.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
+					.Usage = Settings.Usage,
+					.bSRGB = ResolveTexture2DSRGB(Settings),
+					.MaxResolution = Settings.MaxResolution,
+					.CompressionQuality = Settings.CompressionQuality,
+					.AlphaMipMode = Settings.AlphaMipMode,
+					.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
+					.bMarkPackageDirty = true,
+					.bSourceDecoderInvoked = true,
+					.bLoadedFromDerivedDataCache =
+						Product.Origin == ETexture2DBuildProductOrigin::CacheHit}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,

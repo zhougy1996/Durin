@@ -69,11 +69,13 @@ namespace Durin
 	struct FTextureCubeBuildProviderDescriptor
 	{
 		std::string ProducerIdentity;
-		uint32 SchemaVersion = 0;
+		uint32 BuilderVersion = 0;
+		uint32 ProjectionVersion = 0;
 
 		[[nodiscard]] auto IsValid() const -> bool
 		{
-			return !ProducerIdentity.empty() && SchemaVersion != 0;
+			return !ProducerIdentity.empty() && BuilderVersion != 0
+				&& ProjectionVersion != 0;
 		}
 	};
 
@@ -105,7 +107,20 @@ namespace Durin
 		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;
 	};
 
-	struct FTextureCubePublicationContext
+	struct FTextureCubeRecipeBuildRequest
+	{
+		std::reference_wrapper<const FTextureCubeImportedData> ImportedData;
+		bool bSRGB = true;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+	};
+
+	struct FTextureCubeRecipeBuildProduct
+	{
+		std::unique_ptr<FTextureCubePlatformData> PlatformData;
+	};
+
+	struct FTextureCubeResultApplicationContext
 	{
 		bool bMarkPackageDirty = true;
 		bool bSourceDecoderInvoked = true;
@@ -118,10 +133,13 @@ namespace Durin
 		static constexpr uint32 FeatureVersion = 1;
 
 		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
-		virtual auto Build(
+		virtual auto Normalize(
 			const FTextureCubeBuildRequest& Request,
 			FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-			FTextureCubeBuildProduct& OutProduct,
+			std::string& OutError) -> bool = 0;
+		virtual auto Build(
+			const FTextureCubeRecipeBuildRequest& Request,
+			FTextureCubeRecipeBuildProduct& OutProduct,
 			std::string& OutError) -> bool = 0;
 	};
 
@@ -133,12 +151,6 @@ namespace Durin
 	ENGINE_API auto BuildTextureCubeSynchronously(
 		DTextureCube& Texture,
 		const FTextureCubeBuildRequest& Request,
-		const FTextureCubePublicationContext& Context,
-		std::string& OutError) -> bool;
-	ENGINE_API auto PublishTextureCubeProduct(
-		DTextureCube& Texture,
-		FTextureCubeCanonicalBuildInput CanonicalInput,
-		FTextureCubeBuildProduct Product,
-		const FTextureCubePublicationContext& Context,
+		const FTextureCubeResultApplicationContext& Context,
 		std::string& OutError) -> bool;
 }

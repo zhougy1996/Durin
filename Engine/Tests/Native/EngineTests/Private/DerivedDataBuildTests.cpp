@@ -91,9 +91,7 @@ namespace
 			.Version = 1,
 			.CacheBucket = "DerivedDataBuildTests/Config",
 			.ExpectedValueName = "ConfigOutput",
-			.MaximumValueBytes = 1024,
-			.CleanupBudgetBytes = 4096,
-			.CleanupDeleteLimit = 2};
+			.MaximumValueBytes = 1024};
 		mutable uint32 GetConfigCount = 0;
 
 		auto GetConfig() const -> FBuildFunctionConfig override
@@ -154,12 +152,6 @@ TEST(FDerivedDataBuildTests, RegistrationRejectsInvalidCompleteFunctionConfig)
 	Config.MaximumValueBytes = 0;
 	ExpectInvalid(Config);
 	Config = FConfigurableTestFunction().Config;
-	Config.CleanupDeleteLimit = 0;
-	ExpectInvalid(Config);
-	Config = FConfigurableTestFunction().Config;
-	Config.CleanupBudgetBytes = 0;
-	ExpectInvalid(Config);
-	Config = FConfigurableTestFunction().Config;
 	Config.Version = 0;
 	ExpectInvalid(Config);
 }
@@ -195,9 +187,7 @@ TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
 	Function->Config = {
 		.Version = 99, .CacheBucket = "../escape",
 		.ExpectedValueName = "ChangedOutput",
-		.MaximumValueBytes = 1,
-		.CleanupBudgetBytes = 0,
-		.CleanupDeleteLimit = 0};
+		.MaximumValueBytes = 1};
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Builder(
 		BuildFunctionName("Durin.Tests.FrozenConfigFunction"), "ConfigOutput");
@@ -235,8 +225,7 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
 			return {.Version = 1, .CacheBucket = "DerivedDataBuildTests/Session",
-				.ExpectedValueName = "SampleOutput", .MaximumValueBytes = 1024,
-				.CleanupBudgetBytes = 4096, .CleanupDeleteLimit = 2};
+				.ExpectedValueName = "SampleOutput", .MaximumValueBytes = 1024};
 		}
 		auto Validate(const FBuildDefinition&, const FBuildValue& Value,
 			std::string& Error) const -> bool override

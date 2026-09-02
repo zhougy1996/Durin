@@ -159,7 +159,7 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
-	// Complete object-free imported state accepted by the Engine publication seam.
+	// Complete object-free imported state accepted by the Engine result-application seam.
 	// Build modules construct this value after their detached build succeeds.
 	struct FTexture2DImportedState
 	{
@@ -244,7 +244,7 @@ namespace Durin
 		ENGINE_API auto PublishImportedState(
 			FTexture2DImportedState State,
 			std::string& OutError) -> bool;
-		// Narrow value-publication seams for editor-owned uncooked load policy.
+		// Narrow result-application seams for editor-owned uncooked load policy.
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey,

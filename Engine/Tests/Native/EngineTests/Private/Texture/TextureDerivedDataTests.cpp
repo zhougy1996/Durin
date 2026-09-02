@@ -1,8 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"
-#include "Texture/Texture2DDerivedData.h"
-#include "Texture/TextureCubeDerivedData.h"
+#include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
 #include "Texture/TextureCube.h"
 #include "Serialization/Archive.h"
 
@@ -172,6 +171,7 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
 			ExpectedPayloadHashes[FormatIndex])
 			<< "format index " << FormatIndex;
+		if (FormatIndex == 0) EXPECT_EQ(First.size(), 264u);
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
@@ -291,6 +291,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
+	EXPECT_EQ(Baseline, "6e1b82f4a72d7280fea2a5c37e3e3156");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -326,6 +327,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
 		"b58d569e2b733237bee9037ab4fab262");
+	EXPECT_EQ(First.size(), 1376u);
 
 	Durin::FTextureCubePlatformData Actual;
 	Durin::FCanonicalMemoryReader Reader(First, Durin::EArchivePurpose::DerivedDataPayload);

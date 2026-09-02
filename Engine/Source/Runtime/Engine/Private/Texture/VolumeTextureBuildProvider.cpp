@@ -1,26 +1,92 @@
 #include "Texture/VolumeTextureBuildProvider.h"
 
+#include "Texture/TextureDerivedData.h"
+#include "TextureDerivedDataCache.h"
+#include "TextureDerivedDataKey.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto ApplyVolumeTextureBuildResult(DVolumeTexture& Texture,
+			const FVolumeTextureSourceData& SourceData,
+			const FVolumeTextureBuildSettings& Settings,
+			FVolumeTextureBuildProduct Product,
+			const FVolumeTextureResultApplicationContext& Context,
+			std::string& OutError) -> bool;
+	}
+
 	auto InvokeVolumeTextureBuildProvider(
 		const FVolumeTextureBuildRequest& Request,
 		FVolumeTextureBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+#if !DURIN_WITH_EDITOR
+		OutError = "VolumeTexture authored build orchestration is unavailable outside editor builds.";
+		return false;
+#else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			IVolumeTextureBuildProvider>([&](IVolumeTextureBuildProvider& Provider) {
-				const FVolumeTextureBuildProviderDescriptor Descriptor =
-					Provider.GetDescriptor();
+				const FVolumeTextureBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
 				if (!Descriptor.IsValid())
 				{
 					OutError = "The VolumeTexture build provider descriptor is invalid.";
 					return false;
 				}
-				if (!Provider.Build(Request, OutProduct, OutError)) return false;
-				OutProduct.Provider = Descriptor;
+				const FVolumeTextureSourceData& Source = Request.SourceData.get();
+				const FVolumeTextureBuildKeyInput KeyInput{
+					.CanonicalSourceIdentity = Source.GetIdentity(),
+					.Width = Source.Width,
+					.Height = Source.Height,
+					.Depth = Source.Depth,
+					.Settings = Request.Settings,
+					.BuilderVersion = Descriptor.BuilderVersion,
+					.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
+					.TargetPlatform = Request.TargetPlatform,
+					.TargetProfile = Request.TargetProfile};
+				const std::string Key = BuildVolumeTextureDerivedDataKey(KeyInput, OutError);
+				if (Key.empty()) return false;
+
+				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
+				auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
+				if (TextureDerivedDataCache::Load(
+					TextureDerivedDataCache::VolumeTextureBucket, Key,
+					Request.TargetPlatform, Request.TargetProfile,
+					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
+				{
+					OutProduct = {.PlatformData = std::move(PlatformData),
+						.DerivedDataKey = Key,
+						.Provider = Descriptor,
+						.Origin = EVolumeTextureBuildProductOrigin::CacheHit};
+					return true;
+				}
+
+				FVolumeTextureRecipeBuildProduct RecipeProduct;
+				if (!Provider.Build({
+					.SourceData = std::cref(Source),
+					.Settings = Request.Settings,
+					.TargetPlatform = Request.TargetPlatform,
+					.TargetProfile = Request.TargetProfile}, RecipeProduct, OutError)) return false;
+				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
+				{
+					OutError = "VolumeTexture provider returned invalid platform data.";
+					return false;
+				}
+				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
+				if (Request.bPersistDerivedData)
+					TextureDerivedDataCache::Store(
+						TextureDerivedDataCache::VolumeTextureBucket, Key,
+						Request.TargetPlatform, Request.TargetProfile,
+						*RecipeProduct.PlatformData, StoreDiagnostic);
+				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
+					.DerivedDataKey = Key,
+					.PersistenceDiagnostic = !StoreDiagnostic.Message.empty()
+						? std::move(StoreDiagnostic.Message)
+						: std::move(CacheDiagnostic.Message),
+					.Provider = Descriptor,
+					.Origin = EVolumeTextureBuildProductOrigin::Rebuilt};
 				return true;
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
@@ -39,34 +105,38 @@ namespace Durin
 		else if (OutError.empty())
 			OutError = "The VolumeTexture build provider failed without a diagnostic.";
 		return false;
+#endif
 	}
 
 	auto BuildVolumeTextureSynchronously(
 		DVolumeTexture& Texture,
 		const FVolumeTextureBuildRequest& Request,
-		const FVolumeTexturePublicationContext& Context,
+		const FVolumeTextureResultApplicationContext& Context,
 		std::string& OutError) -> bool
 	{
 		CheckGameThread();
 		FVolumeTextureBuildProduct Product;
 		if (!InvokeVolumeTextureBuildProvider(Request, Product, OutError)) return false;
-		return PublishVolumeTextureProduct(Texture, Request.SourceData.get(),
+		return ApplyVolumeTextureBuildResult(Texture, Request.SourceData.get(),
 			Request.Settings, std::move(Product), Context, OutError);
 	}
 
-	auto PublishVolumeTextureProduct(
+	namespace
+	{
+	auto ApplyVolumeTextureBuildResult(
 		DVolumeTexture& Texture,
 		const FVolumeTextureSourceData& SourceData,
 		const FVolumeTextureBuildSettings& Settings,
 		FVolumeTextureBuildProduct Product,
-		const FVolumeTexturePublicationContext& Context,
+		const FVolumeTextureResultApplicationContext& Context,
 		std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		return Texture.PublishBuiltData(SourceData, Settings,
+		return Texture.ApplyBuildResult(SourceData, Settings,
 			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
 			std::move(Product.PersistenceDiagnostic), OutError,
 			Product.Origin == EVolumeTextureBuildProductOrigin::CacheHit,
 			Context.bMarkPackageDirty, Context.bSourceDecoderInvoked);
+	}
 	}
 }

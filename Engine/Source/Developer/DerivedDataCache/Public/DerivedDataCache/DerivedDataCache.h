@@ -86,45 +86,15 @@ namespace Durin::DerivedData
 		explicit operator bool() const { return Status == ECachePutStatus::Stored; }
 	};
 
-	// Distinguishes a satisfied budget from bounded partial maintenance.
-	enum class ECacheTrimStatus : uint8
-	{
-		Complete,
-		Partial,
-		InvalidRequest,
-		StorageFailure
-	};
-
-	// Bounds cache maintenance by both retained bytes and deleted entry count.
-	struct FCacheTrimRequest
-	{
-		FCacheBucket Bucket;
-		uint64 BudgetBytes = 0;
-		uint32 MaximumDeletes = 0;
-	};
-
-	// Accounts for one bounded trim attempt within a logical bucket.
-	struct FCacheTrimResult
-	{
-		ECacheTrimStatus Status = ECacheTrimStatus::StorageFailure;
-		uint64 BytesBefore = 0;
-		uint64 BytesAfter = 0;
-		uint64 DeletedBytes = 0;
-		uint32 DeletedEntries = 0;
-		std::string Diagnostic;
-		explicit operator bool() const { return Status == ECacheTrimStatus::Complete; }
-	};
-
 	// Provides synchronous backend-neutral access to process derived data.
 	class FDerivedDataCache
 	{
 	public:
 		DERIVEDDATACACHE_API auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult;
 		DERIVEDDATACACHE_API auto Put(const FCachePutRequest& Request) const -> FCachePutResult;
-		DERIVEDDATACACHE_API auto Trim(const FCacheTrimRequest& Request) const -> FCacheTrimResult;
 	};
 
 	// Returns the process-owned cache facade. Calls remain synchronous and do not
 	// retain backend paths or mutable caller buffers.
-	DERIVEDDATACACHE_API auto GetDerivedDataCache() -> FDerivedDataCache&;
+	DERIVEDDATACACHE_API auto GetCache() -> FDerivedDataCache&;
 }

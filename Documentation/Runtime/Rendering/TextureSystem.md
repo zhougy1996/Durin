@@ -129,9 +129,10 @@ fallback.
 ## Asynchronous Editor Build Coordination
 
 Engine registers `Durin.TextureCompilation` with its
-[asset-compilation aggregate](../Assets/AssetCompilation.md). TextureBuild
-registers only the synchronous value provider used inside Engine-owned work;
-its callback gate retires admitted calls before provider code unloads.
+[asset-compilation aggregate](../Assets/AssetCompilation.md). Editor-enabled
+Engine computes Texture keys, validates DDC Get results, invokes TextureBuild's
+pure synchronous provider only on a miss, and performs best-effort Put. The
+provider callback gate retires admitted calls before provider code unloads.
 `FTexture2DCompilationDomain` directly owns two
 worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most

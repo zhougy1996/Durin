@@ -121,7 +121,7 @@ namespace Durin
 			Platform->Mips.push_back({.Voxels = {static_cast<std::byte>(Density)},
 				.Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
 			std::string Error;
-			EXPECT_TRUE(Texture->PublishBuiltData(
+			EXPECT_TRUE(Texture->ApplyBuildResult(
 				std::move(Source), {}, std::move(Platform), std::format("scene-cloud-{}", Name), {}, Error))
 				<< Error;
 			return Texture;

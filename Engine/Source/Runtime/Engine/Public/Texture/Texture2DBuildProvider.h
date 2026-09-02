@@ -19,8 +19,8 @@ namespace Durin
 		auto operator==(const FTexture2DBuildSettings&) const -> bool = default;
 	};
 
-	// Immutable object-free input. Provider implementations must not retain it or
-	// any execution-control callbacks after Build returns.
+	// Engine-owned orchestration request. Cache persistence policy is intentionally
+	// not forwarded through the recipe-provider boundary.
 	struct FTexture2DBuildRequest
 	{
 		FTextureSourceData SourceData;
@@ -33,18 +33,18 @@ namespace Durin
 	struct FTexture2DBuildProviderDescriptor
 	{
 		std::string ProducerIdentity;
-		uint32 SchemaVersion = 0;
+		uint32 BuilderVersion = 0;
 
 		[[nodiscard]] auto IsValid() const -> bool
 		{
-			return !ProducerIdentity.empty() && SchemaVersion != 0;
+			return !ProducerIdentity.empty() && BuilderVersion != 0;
 		}
 
 		auto operator==(const FTexture2DBuildProviderDescriptor&) const -> bool = default;
 	};
 
 	// Separates deterministic build/DDC identity from the Engine request serial
-	// used to enforce latest-wins publication for one live object.
+	// used to enforce latest-wins result application for one live object.
 	struct FTexture2DBuildInputIdentity
 	{
 		FXxHash128 ImportedDataIdentity;
@@ -64,6 +64,20 @@ namespace Durin
 		uint64 PeakIntermediateBytes = 0;
 	};
 
+	struct FTexture2DRecipeBuildRequest
+	{
+		std::reference_wrapper<const FTextureSourceData> SourceData;
+		FTexture2DBuildSettings Settings;
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+	};
+
+	struct FTexture2DRecipeBuildProduct
+	{
+		FTexturePlatformData PlatformData;
+		FTexture2DRecipeMetrics Metrics;
+	};
+
 	// Identifies whether the provider returned cached data or ran the local recipe.
 	enum class ETexture2DBuildProductOrigin : uint8
 	{
@@ -79,7 +93,13 @@ namespace Durin
 		FTexture2DRecipeMetrics* Metrics = nullptr;
 	};
 
-	// Detached Engine-owned CPU product. Publishing it remains a separate
+	struct FTexture2DRecipeExecutionControl
+	{
+		std::function<bool()> ShouldCancel;
+		FTexture2DRecipeMetrics* Metrics = nullptr;
+	};
+
+	// Detached Engine-owned CPU product. Applying it remains a separate
 	// GameThread operation and does not execute provider code.
 	struct FTexture2DBuildProduct
 	{
@@ -97,8 +117,7 @@ namespace Durin
 	ENGINE_API auto ResolveTexture2DSRGB(
 		const FTexture2DBuildSettings& Settings) -> bool;
 
-	// Synchronous provider seam invoked by an Engine-owned worker. Implementations
-	// own algorithms and DDC interaction, never object lifetime or publication.
+	// Synchronous pure-recipe seam invoked by an Engine-owned worker.
 	class ITexture2DBuildProvider : public IModularFeature
 	{
 	public:
@@ -107,10 +126,10 @@ namespace Durin
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(
-			const FTexture2DBuildRequest& Request,
-			FTexture2DBuildProduct& OutProduct,
+			const FTexture2DRecipeBuildRequest& Request,
+			FTexture2DRecipeBuildProduct& OutProduct,
 			std::string& OutError,
-			const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> bool = 0;
+			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> bool = 0;
 	};
 
 	// Invokes the single registered provider under its module-owned invocation

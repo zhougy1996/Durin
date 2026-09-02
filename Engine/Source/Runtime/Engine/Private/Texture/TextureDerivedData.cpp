@@ -1,4 +1,5 @@
 #include "Texture/TextureDerivedData.h"
+#include "TextureDerivedDataKey.h"
 
 #include "Serialization/Archive.h"
 #include "Serialization/BoundedPayloadSerialization.h"
@@ -82,6 +83,168 @@ namespace Durin
 			return true;
 		}
 
+	}
+
+	auto FTexture2DBuildKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
+		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture2D);
+		uint8 EncodedUsage = static_cast<uint8>(Usage);
+		uint8 EncodedSRGB = bSRGB ? 1 : 0;
+		uint8 EncodedCompressionQuality = static_cast<uint8>(CompressionQuality);
+		uint8 EncodedAlphaMipMode = static_cast<uint8>(AlphaMipMode);
+		uint32 EncodedAlphaCoverageThreshold = std::bit_cast<uint32>(AlphaCoverageThreshold);
+		uint32 EncodedTargetPlatform = static_cast<uint32>(TargetPlatform);
+		uint32 EncodedTargetProfile = static_cast<uint32>(TargetProfile);
+		Ar << KeySchemaVersion << Dimension
+			<< ImportedDataIdentity.HashLow << ImportedDataIdentity.HashHigh
+			<< EncodedUsage << EncodedSRGB << EncodedCompressionQuality << EncodedAlphaMipMode
+			<< MaximumResolution << EncodedAlphaCoverageThreshold
+			<< BuilderVersion << PayloadSchemaVersion
+			<< EncodedTargetPlatform << EncodedTargetProfile;
+		if (Ar.IsLoading())
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Texture2D build-key input is save-only.");
+	}
+
+	auto FTextureCubeBuildKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.IsLoading())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"TextureCube build-key input is save-only.");
+			return;
+		}
+		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"TextureCube derived-data target is unsupported.");
+			return;
+		}
+		if (!std::isfinite(ExposureEV)
+			|| std::bit_cast<uint32>(ExposureEV) == 0x80000000u
+			|| ExposureEV < -32.0f || ExposureEV > 32.0f)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"TextureCube panorama exposure is not canonical.");
+			return;
+		}
+		if (FaceDimension > MaximumTextureCubeDimension)
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"TextureCube requested face dimension exceeds the supported limit.");
+			return;
+		}
+
+		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
+		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::TextureCube);
+		uint32 EncodedLayout = static_cast<uint32>(SourceLayout);
+		Ar << KeySchemaVersion << Dimension << EncodedLayout;
+		switch (SourceLayout)
+		{
+		case ETextureCubeBuildSourceLayout::SixFaces:
+			for (FXxHash128& Hash : FaceContentHashes)
+				Ar << Hash.HashLow << Hash.HashHigh;
+			break;
+		case ETextureCubeBuildSourceLayout::EquirectangularPanorama:
+			Ar << PanoramaContentHash.HashLow << PanoramaContentHash.HashHigh;
+			{
+				uint32 EncodedExposure = std::bit_cast<uint32>(ExposureEV);
+				Ar << FaceDimension << EncodedExposure;
+			}
+			break;
+		default:
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"TextureCube source layout is unsupported.");
+			return;
+		}
+		uint8 EncodedSRGB = bSRGB ? 1 : 0;
+		uint32 EncodedPlatform = static_cast<uint32>(TargetPlatform);
+		uint32 EncodedProfile = static_cast<uint32>(TargetProfile);
+		Ar << EncodedSRGB << BuilderVersion << PayloadSchemaVersion << ProjectionVersion
+			<< EncodedPlatform << EncodedProfile;
+	}
+
+	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.IsLoading())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Volume texture build-key input is save-only.");
+			return;
+		}
+		if (Width == 0 || Height == 0 || Depth == 0
+			|| Width > MaximumVolumeTextureDimension
+			|| Height > MaximumVolumeTextureDimension
+			|| Depth > MaximumVolumeTextureDimension
+			|| SourcePayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
+			|| !IsSupportedTarget(TargetPlatform, TargetProfile))
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"Volume texture derived-data key input is invalid.");
+			return;
+		}
+		uint32 KeySchema = TextureDerivedDataKeySchemaVersion;
+		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture3D);
+		uint32 Format = static_cast<uint32>(Settings.OutputFormat);
+		uint32 Filter = static_cast<uint32>(Settings.MipFilter);
+		uint32 Platform = static_cast<uint32>(TargetPlatform);
+		uint32 Profile = static_cast<uint32>(TargetProfile);
+		Ar << KeySchema << Dimension << CanonicalSourceIdentity.HashLow
+			<< CanonicalSourceIdentity.HashHigh << Width << Height << Depth
+			<< Format << Filter << BuilderVersion << SourcePayloadSchemaVersion
+			<< Platform << Profile;
+	}
+
+	auto BuildTexture2DDerivedDataKeyBytes(
+		const FTexture2DBuildKeyInput& Input) -> FByteArray
+	{
+		FByteArray Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
+		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
+		return Bytes;
+	}
+
+	auto BuildTexture2DDerivedDataKey(
+		const FTexture2DBuildKeyInput& Input) -> std::string
+	{
+		return FXxHash128::HashBuffer(BuildTexture2DDerivedDataKeyBytes(Input)).ToString();
+	}
+
+	auto BuildTextureCubeDerivedDataKeyBytes(
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteArray
+	{
+		FByteArray Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
+		const_cast<FTextureCubeBuildKeyInput&>(Input).Serialize(Ar);
+		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.HasError()) Bytes.clear();
+		return Bytes;
+	}
+
+	auto BuildTextureCubeDerivedDataKey(
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> std::string
+	{
+		const FByteArray Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
+		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
+	}
+
+	auto BuildVolumeTextureDerivedDataKeyBytes(
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteArray
+	{
+		FByteArray Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
+		const_cast<FVolumeTextureBuildKeyInput&>(Input).Serialize(Ar);
+		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.HasError()) Bytes.clear();
+		return Bytes;
+	}
+
+	auto BuildVolumeTextureDerivedDataKey(
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> std::string
+	{
+		const FByteArray Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
+		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 
 	auto BuildTexture2DSerializedValue(

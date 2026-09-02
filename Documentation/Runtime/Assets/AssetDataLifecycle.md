@@ -16,13 +16,14 @@ Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
 Developer `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, and `TerrainBuild` own normalized,
-source-independent recipes and canonical build-key inputs;
+source-independent recipes. Engine owns Texture build-key inputs and editor-only
+cache orchestration; the other build modules retain their family key ownership;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `DerivedDataCache` owns the backend-neutral
 `bucket + key -> opaque immutable bytes` contract, the private local filesystem
 backend, and the family-neutral Build Framework that adapts cache results inside
-`FBuildSession`; recipe modules reach cache query/store only through that
-session. `Engine` owns package fields, raw-segment placement, manifest, and
+`FBuildSession` for non-Texture clients. Engine uses the lower-level typed
+Get/Put facade for Texture values. `Engine` owns package fields, raw-segment placement, manifest, and
 atomic-publication formats without interpreting family payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
@@ -37,28 +38,29 @@ function's current version and cache configuration; the version is not part of
 registry lookup, and each family canonical key encodes the same builder version
 to invalidate incompatible results. `FBuildSession` performs query,
 cached-value validation, local build,
-built-value validation, store, and cleanup in that order and reports structured
+built-value validation and store in that order and reports structured
 origin, status, failure phase, and bounded nanosecond durations for each
 executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
 The low-level Cache API permits concurrent Get and Put operations under a
-logical bucket's shared lock; bounded Trim owns only that bucket exclusively.
+logical bucket's shared lock. Request paths never scan or evict cache entries.
 Shader compilation is a direct Cache API client because RenderCore already owns
 its build orchestration. It stores one complete versioned SPIR-V-plus-reflection
 value in `Shaders/CompiledOutput`; machine-local dependency manifests remain a
 separate RenderCore optimization and never enter portable DDC values. Asset
-recipe families continue to use `FBuildSession` and retain their existing
-observable policy.
+non-Texture recipe families continue to use `FBuildSession`; Texture orchestration
+uses Engine-owned typed Get/validate/build/Put paths.
 
 StaticMeshBuild registers the StaticMesh render/collision functions as one
 atomic module-owned transaction; SkeletalBuild independently registers the
 SkeletalMesh and AnimationClip functions as another transaction; TerrainBuild
-does the same for TerrainHeightmap and the five Terrain World product functions;
-TextureBuild does the same for Texture2D, TextureCube, and VolumeTexture. Each
+does the same for TerrainHeightmap and the five Terrain World product functions.
+TextureBuild registers only its three pure typed providers. Each Build Function
 transaction rolls back registrations acquired by a failed attempt and resets
 the complete set in reverse order during owner retirement. Each family retains
-its build keys, cache namespace, value schema, codec, and validation policy.
+its build keys, cache namespace, value schema, codec, and validation policy;
+Engine owns those responsibilities for Texture values.
 Terrain function names intentionally retain their historical
 `Durin.GeometryBuild.Terrain...` prefix: the name is a stable production
 protocol rather than the selectable module name, so this ownership extraction
@@ -67,18 +69,18 @@ Engine calls TextureBuild through the typed synchronous
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
 `ITextureCubeBuildProvider` contracts. Engine owns admission,
 cancellation, supersession, metrics, the completion mailbox, object-qualified
-main-thread publication, and terminal record retirement; TextureBuild owns the
-DDC sessions, recipes, codecs, and producer identity. AssetForgeBuiltins retains
+main-thread completion application, Texture DDC keys/Get/Put/validation, and
+terminal record retirement; TextureBuild owns only recipes and producer identity. AssetForgeBuiltins retains
 physical-source capture and translation plus private Scene orchestration, but
-Engine alone combines retained Texture inputs with derived provider products
-and publishes live Texture objects. Shader and other unrelated DDC paths remain
+Engine alone combines retained Texture inputs with derived provider values and
+applies results to live Texture objects. Shader and other unrelated DDC paths remain
 direct family clients.
 
 Engine's object-aware compilation aggregate owns asynchronous domain
 registration, frame pumping, selected-object finish/cancel, aggregate progress,
 successful post-compile notification, and shutdown placement. Concrete domains
-retain typed scheduling and publication; provider modules may retain DDC and
-build validation without acquiring object lifecycle. DerivedDataCache build
+retain typed scheduling and result application; TextureBuild retains neither DDC
+nor payload validation. DerivedDataCache build
 function registration still uses a module callback gate for bounded synchronous
 calls but does not become a compilation domain. See
 [Asset Compilation](AssetCompilation.md).
@@ -87,7 +89,7 @@ Accepted asynchronous Texture2D requests use Engine's terminal
 `FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
 including cancellation and supersession. `DTexture2D` owns a process-local
 request serial; the Engine family domain owns generation-safe object handles,
-workers, typed publication, and the GameThread completion pump. Deterministic
+workers, typed completion application, and the GameThread completion pump. Deterministic
 build/provider identity, DDC identity, CPU payload readiness, and GPU resource
 readiness remain separate. Editor-side commit and recovery sequencing is separately defined by
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
@@ -234,8 +236,8 @@ visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
 `StaticMeshBuild` owns static-mesh post-load and collision construction. Engine
-owns Texture PostLoad and publication while `TextureBuild` owns the three
-synchronous value-only recipes/providers.
+owns Texture PostLoad, DDC orchestration, and result application while
+`TextureBuild` owns the three synchronous pure recipes/providers.
 `TerrainBuild` owns Terrain derived-data
 loading, and `SkeletalBuild` owns skeletal/animation derived-data loading.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
@@ -291,9 +293,9 @@ companion.
 
 Generic content-addressed DDC entries are opaque `.bin` values.
 `DerivedDataCache` validates logical buckets and canonical lowercase 128-bit
-keys, returns immutable `FSharedByteBuffer` values, distinguishes hit, miss,
-invalid request, excessive value, and storage failure, and performs bounded
-deterministic trim. Its filesystem paths and backend type remain private. The request's
+keys, returns immutable `FSharedByteBuffer` values, and distinguishes hit, miss,
+invalid request, excessive value, and storage failure. Its filesystem paths and
+backend type remain private. The request's
 build function and expected value name select one owner-defined decoder; the
 cache does not identify a type from the bytes. That owner validates its schema,
 producer, bounds, structure, and checksums. Native artifacts such as shader
@@ -323,18 +325,18 @@ Owners validate reserved fields, versions, declared sizes, allocation limits,
 structural invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
 
-For StaticMesh render/collision, Texture2D/TextureCube/VolumeTexture,
-SkeletalMesh/AnimationClip, and TerrainHeightmap requests, invalid cached bytes
-are validated by the registered family function and become rebuildable misses
-from canonical imported data. Every family retains a complete local result
+For Texture2D/TextureCube/VolumeTexture, Engine validates cached PlatformData
+through the canonical serializer; other build families validate through their
+registered family functions. Invalid bytes become rebuildable misses from
+canonical imported data. Every family retains a complete local result
 after a successful build even when best-effort DDC storage fails, and surfaces
 the bounded store diagnostic separately.
 
-TextureCube uses function `Durin.TextureBuild.TextureCube` with value
-`TextureCubePayload` under `TextureCube/Objects`. Explicit import or reimport
-decodes and projects a panorama into six canonical authored RGBA8 faces before
-the immutable request. Ordinary build, PostLoad, DDC recovery, and Cook consume
-those faces and never decode or capture a physical source.
+TextureCube uses Engine-owned bucket `TextureCube/Objects`. Explicit import or
+reimport decodes and projects a panorama into six canonical authored RGBA8
+faces before the cache lookup. Engine derives the key from those faces and the
+provider descriptor; only a miss invokes TextureBuild platform construction.
+Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical source.
 
 ### Skeletal Derived Data
 

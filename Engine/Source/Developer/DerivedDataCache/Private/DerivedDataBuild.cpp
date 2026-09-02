@@ -221,12 +221,9 @@ namespace Durin::DerivedData
 			return SetError(OutError, "Build function is invalid."), FBuildFunctionRegistration{};
 		const FBuildFunctionConfig Config = Function->GetConfig();
 		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
-		const bool bHasCleanupBudget = Config.CleanupBudgetBytes != 0;
-		const bool bHasCleanupDeleteLimit = Config.CleanupDeleteLimit != 0;
 		if (Config.Version == 0 || !CacheBucket.IsValid()
 			|| !IsCanonicalIdentityPart(Config.ExpectedValueName)
-			|| Config.MaximumValueBytes == 0
-			|| bHasCleanupBudget != bHasCleanupDeleteLimit)
+			|| Config.MaximumValueBytes == 0)
 			return SetError(OutError, "Build function cache configuration is invalid."), FBuildFunctionRegistration{};
 		auto Resource = OwnerGate.IsValid() ? OwnerGate.RetainResource() : FModuleOwnedResourceLease{};
 		if (OwnerGate.IsValid() && !Resource)
@@ -289,7 +286,7 @@ namespace Durin::DerivedData
 		const FCacheKey CacheKey = FCacheKey::FromString(Definition.GetKey().ToString());
 		if (!CacheKey.IsValid())
 			return Fail(EBuildFailurePhase::Request, "Build key is invalid.");
-		FDerivedDataCache& Cache = GetDerivedDataCache();
+		FDerivedDataCache& Cache = DerivedData::GetCache();
 		FBuildOutput Result;
 		auto FailResult = [&](EBuildFailurePhase Phase, std::string Message) -> FBuildOutput {
 			Result.Status = EBuildStatus::Failed;
@@ -432,12 +429,6 @@ namespace Durin::DerivedData
 				Result.FailurePhase = EBuildFailurePhase::CacheStore;
 				Result.Diagnostic = Put.Diagnostic;
 				return Result;
-			}
-			if (Put && Config.CleanupBudgetBytes)
-			{
-				const auto Trim = Cache.Trim({CacheBucket,
-					Config.CleanupBudgetBytes, Config.CleanupDeleteLimit});
-				Result.StoreDiagnostic = Trim.Diagnostic;
 			}
 		}
 		if (Policy.bReturnData) Result.Value = std::move(BuiltValue);

@@ -64,11 +64,11 @@ Every `FVolumeTextureMipData` records width, height, depth, exact row pitch,
 exact depth pitch, and owned bytes. Successive axes independently halve with
 `max(1, previous / 2)` until the final `1x1x1` mip. Validation rejects missing
 tail mips, incorrect pitches or byte counts, unsupported formats, excessive
-dimensions, and malformed progression before publication.
+dimensions, and malformed progression before result application.
 
 ## Deterministic build and cache
 
-TextureBuild owns the registered volume recipe. It consumes normalized voxels,
+TextureBuild owns the pure registered volume recipe. It consumes normalized voxels,
 uses a three-axis box filter in linear numeric space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
@@ -79,12 +79,13 @@ floating inputs must be finite. Numeric filtering explicitly converts at the
 The canonical DDC key includes the canonical voxel identity and dimensions,
 source/output format, mip filter, builder and payload schema versions, and
 Win64/Game target identity. It excludes source hints and physical files. A
-validated cache hit and a rebuild publish the same platform value.
+validated cache hit and a rebuild apply the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
-the asset's last-known-good CPU or GPU result. Engine invokes the typed
-`IVolumeTextureBuildProvider` for authored builds and uncooked PostLoad, then
-validates and publishes the derived-only result on the GameThread. TextureBuild
-never receives or mutates a `DVolumeTexture`.
+the asset's last-known-good CPU or GPU result. Engine computes the key, queries
+and validates DDC, invokes the typed `IVolumeTextureBuildProvider` only on a
+miss, performs best-effort Put, and applies the derived-only completion result
+on the GameThread. TextureBuild never receives cache policy or mutates a
+`DVolumeTexture`.
 
 ## Authored source bulk data
 

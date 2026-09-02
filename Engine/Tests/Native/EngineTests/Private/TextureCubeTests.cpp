@@ -20,7 +20,7 @@
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureCube.h"
-#include "Texture/TextureCubeBuildOperations.h"
+#include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 
@@ -494,13 +494,13 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	Durin::FTextureCubeCanonicalBuildInput InitialCanonical;
 	Durin::FTextureCubeBuildProduct Initial;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+	ASSERT_TRUE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
 		.Image = Panorama, .Settings = Settings}}, InitialCanonical, Initial, Error)) << Error;
 	ASSERT_NE(Initial.PlatformData, nullptr);
 
 	Durin::FTextureCubeCanonicalBuildInput CachedCanonical;
 	Durin::FTextureCubeBuildProduct Cached;
-	ASSERT_TRUE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+	ASSERT_TRUE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
 		.Image = Panorama, .Settings = Settings}}, CachedCanonical, Cached, Error)) << Error;
 	EXPECT_EQ(Cached.Origin, Durin::ETextureCubeBuildProductOrigin::CacheHit);
 	EXPECT_TRUE(CachedCanonical.ImportedData.IsValid());
@@ -510,7 +510,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	Panorama.Pixels.clear();
 	Durin::FTextureCubeCanonicalBuildInput InvalidCanonical;
 	Durin::FTextureCubeBuildProduct Invalid;
-	EXPECT_FALSE(Durin::BuildTextureCube({.Input = Durin::FTextureCubePanoramaBuildInput{
+	EXPECT_FALSE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
 		.Image = std::move(Panorama), .Settings = Settings}},
 		InvalidCanonical, Invalid, Error));
 	EXPECT_NE(Error.find("pixel storage"), std::string::npos);

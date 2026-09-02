@@ -9,7 +9,6 @@ namespace Durin::DerivedData
 	public:
 		auto Get(const FCacheGetRequest& Request) const -> FCacheGetResult;
 		auto Put(const FCachePutRequest& Request) const -> FCachePutResult;
-		auto TrimToBudget(const FCacheTrimRequest& Request) const -> FCacheTrimResult;
 
 	private:
 		auto GetBucketDirectory(const FCacheBucket& Bucket) const -> std::filesystem::path;

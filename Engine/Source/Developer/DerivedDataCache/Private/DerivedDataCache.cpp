@@ -85,14 +85,7 @@ namespace Durin::DerivedData
 		return FFileSystemCacheBackend().Put(Request);
 	}
 
-	auto FDerivedDataCache::Trim(const FCacheTrimRequest& Request) const -> FCacheTrimResult
-	{
-		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Bucket);
-		std::unique_lock Lock(*BucketLock);
-		return FFileSystemCacheBackend().TrimToBudget(Request);
-	}
-
-	auto GetDerivedDataCache() -> FDerivedDataCache&
+	auto GetCache() -> FDerivedDataCache&
 	{
 		return GDerivedDataCache;
 	}

@@ -10,6 +10,7 @@ namespace Durin
 	struct FVolumeTexturePlatformData;
 
 	inline constexpr uint32 TexturePayloadSchemaVersion = 2;
+	inline constexpr uint32 Texture2DBuilderVersion = 2;
 	inline constexpr uint32 Texture2DPayloadProducerVersion = 3;
 	inline constexpr uint32 TextureCubeBuilderVersion = 2;
 	inline constexpr uint32 TextureCubeProjectionVersion = 1;

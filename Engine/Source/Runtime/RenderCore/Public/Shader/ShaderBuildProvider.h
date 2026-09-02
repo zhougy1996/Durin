@@ -16,7 +16,6 @@ namespace Durin
 		uint64 DdcHits = 0;
 		uint64 DdcCorruptMisses = 0;
 		uint64 DdcStoreFailures = 0;
-		uint64 DdcMaintenanceFailures = 0;
 		uint64 Compilations = 0;
 		uint64 ContentReads = 0;
 		uint64 OutputEntries = 0;

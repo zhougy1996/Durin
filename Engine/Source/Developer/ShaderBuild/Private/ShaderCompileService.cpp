@@ -277,7 +277,6 @@ namespace Durin
 					.DdcHits = DdcHits.load(std::memory_order_relaxed),
 					.DdcCorruptMisses = DdcCorruptMisses.load(std::memory_order_relaxed),
 					.DdcStoreFailures = DdcStoreFailures.load(std::memory_order_relaxed),
-					.DdcMaintenanceFailures = DdcMaintenanceFailures.load(std::memory_order_relaxed),
 					.Compilations = Compilations.load(std::memory_order_relaxed),
 					.ContentReads = FileFingerprintCache.GetContentReadCount(),
 					.OutputEntries = OutputCache.size(),
@@ -465,7 +464,7 @@ namespace Durin
 				const FCacheKey Key = ShaderDerivedData::BuildKey(
 					VariantKey, Options);
 				if (!Key.IsValid()) return false;
-				const FCacheGetResult Result = GetDerivedDataCache().Get({
+				const FCacheGetResult Result = DerivedData::GetCache().Get({
 					ShaderDerivedData::GetBucket(), Key,
 					ShaderDerivedData::MaximumValueBytes});
 				if (Result.Status != ECacheGetStatus::Hit)
@@ -502,21 +501,12 @@ namespace Durin
 					return;
 				}
 				const FCacheBucket Bucket = ShaderDerivedData::GetBucket();
-				const FCachePutResult Put = GetDerivedDataCache().Put({
+				const FCachePutResult Put = DerivedData::GetCache().Put({
 					Bucket, Key, Bytes, ShaderDerivedData::MaximumValueBytes});
 				if (!Put)
 				{
 					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
 					DURIN_WARN("Shader DDC store failed: {}", Put.Diagnostic);
-				}
-				const FCacheTrimResult Trim = GetDerivedDataCache().Trim({
-					Bucket, ShaderDerivedData::BucketBudgetBytes,
-					ShaderDerivedData::CleanupDeleteLimit});
-				if (Trim.Status != ECacheTrimStatus::Complete)
-				{
-					DdcMaintenanceFailures.fetch_add(1, std::memory_order_relaxed);
-					DURIN_WARN("Shader DDC maintenance did not complete: {}",
-						Trim.Diagnostic);
 				}
 			}
 
@@ -703,7 +693,6 @@ namespace Durin
 			std::atomic_uint64_t DdcHits = 0;
 			std::atomic_uint64_t DdcCorruptMisses = 0;
 			std::atomic_uint64_t DdcStoreFailures = 0;
-			std::atomic_uint64_t DdcMaintenanceFailures = 0;
 			std::atomic_uint64_t Compilations = 0;
 			std::atomic_uint64_t SourceTreeFingerprintHits = 0;
 		};

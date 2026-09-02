@@ -251,7 +251,7 @@ namespace Durin
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
-	auto DVolumeTexture::PublishBuiltData(const FVolumeTextureSourceData& InSourceData,
+	auto DVolumeTexture::ApplyBuildResult(const FVolumeTextureSourceData& InSourceData,
 		FVolumeTextureBuildSettings InBuildSettings,
 		std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 		std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
@@ -265,7 +265,7 @@ namespace Durin
 			|| InSourceData.Format != InBuildSettings.OutputFormat
 			|| InBuildSettings.MipFilter != EVolumeTextureMipFilter::Box)
 		{
-			OutError = "Volume texture publication requires compatible validated source, settings, payload, and key.";
+			OutError = "Volume texture result application requires compatible validated source, settings, payload, and key.";
 			return false;
 		}
 		if (&InSourceData != &SourceData) SourceData = InSourceData;
@@ -281,7 +281,7 @@ namespace Durin
 				? (bLoadedFromDerivedDataCache
 					? "Loaded VolumeTexture platform data from DDC."
 					: "Built VolumeTexture from canonical voxels.")
-				: std::format("Published VolumeTexture platform data; DDC persistence was best effort: {}",
+				: std::format("Applied VolumeTexture platform data; DDC persistence was best effort: {}",
 					InPersistenceDiagnostic),
 			.bSourceDecoderInvoked = bSourceDecoderInvoked};
 		BuildStatus = ETextureBuildStatus::Ready;
@@ -298,7 +298,7 @@ namespace Durin
 	{
 		if (!InPlatformData || !InPlatformData->IsValid() || InDerivedDataKey.empty())
 		{
-			OutError = "Volume texture DDC publication requires valid platform data and key.";
+			OutError = "Volume texture DDC result application requires valid platform data and key.";
 			return false;
 		}
 		PlatformData = std::move(InPlatformData);

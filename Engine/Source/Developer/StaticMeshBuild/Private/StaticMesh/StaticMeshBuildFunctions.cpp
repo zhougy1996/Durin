@@ -14,9 +14,6 @@ namespace Durin::AssetPrivate
 
 	namespace
 	{
-		constexpr uint64 StaticMeshDerivedDataBudgetBytes =
-			8ull * 1024ull * 1024ull * 1024ull;
-		constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 
 		auto DecodeStaticMeshCollisionInput(std::span<const std::byte> Bytes,
 			std::vector<FVector3>& Positions, std::vector<uint32>& Indices,
@@ -69,9 +66,7 @@ namespace Durin::AssetPrivate
 				return {.Version = StaticMeshBuilderVersion,
 					.CacheBucket = "StaticMesh/Objects",
 					.ExpectedValueName = std::string(StaticMeshValueName),
-					.MaximumValueBytes = MaximumStaticMeshPayloadBytes,
-					.CleanupBudgetBytes = StaticMeshDerivedDataBudgetBytes,
-					.CleanupDeleteLimit = StaticMeshDerivedDataCleanupDeleteLimit};
+					.MaximumValueBytes = MaximumStaticMeshPayloadBytes};
 			}
 
 			auto Validate(const FBuildDefinition&, const FBuildValue& Value,

@@ -122,7 +122,7 @@ namespace Durin::AssetForge::Builtins
 				.Build = {
 					.SourceData = std::move(SourceData),
 					.Settings = Settings},
-				.Publication = {
+				.ResultApplication = {
 					.bMarkPackageDirty = bPublishImportData,
 					.bReportLoadMutation = !bPublishImportData},
 				.Priority = Priority}, OutError,
@@ -368,7 +368,7 @@ namespace Durin::AssetForge::Builtins
 			.Build = {
 				.SourceData = Texture.GetImportedData().ToSourceData(),
 				.Settings = Settings},
-			.Publication = {
+			.ResultApplication = {
 				.bMarkPackageDirty = true,
 				.bReportLoadMutation = false,
 				.bSourceDecoderInvoked = false},

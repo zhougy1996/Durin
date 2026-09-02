@@ -11,9 +11,6 @@ namespace Durin::AssetPrivate
 
 	namespace
 	{
-		constexpr uint64 SkeletalDerivedDataBudgetBytes =
-			32ull * 1024ull * 1024ull * 1024ull;
-		constexpr uint32 SkeletalDerivedDataCleanupDeleteLimit = 256;
 
 		template<typename T>
 		auto EncodePayload(T& Payload,
@@ -100,9 +97,7 @@ namespace Durin::AssetPrivate
 			{
 				return {.Version = Version, .CacheBucket = Root,
 					.ExpectedValueName = std::string(SkeletalValueName),
-					.MaximumValueBytes = MaximumBytes,
-					.CleanupBudgetBytes = SkeletalDerivedDataBudgetBytes,
-					.CleanupDeleteLimit = SkeletalDerivedDataCleanupDeleteLimit};
+					.MaximumValueBytes = MaximumBytes};
 			}
 
 			auto Validate(const FBuildDefinition& Definition, const FBuildValue& Value,

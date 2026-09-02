@@ -1,9 +1,8 @@
 #include "Modules/ModuleManager.h"
-#include "Texture/Texture2DDerivedData.h"
 #include "Texture/Texture2DBuildProvider.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureCubeBuildOperations.h"
+#include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 
 namespace Durin
@@ -15,14 +14,14 @@ namespace Durin
 		{
 			return {
 				.ProducerIdentity = "Durin.TextureBuild.Texture2D",
-				.SchemaVersion = Texture2DBuilderVersion};
+				.BuilderVersion = Texture2DBuilderVersion};
 		}
 
 		auto Build(
-			const FTexture2DBuildRequest& Request,
-			FTexture2DBuildProduct& OutProduct,
+			const FTexture2DRecipeBuildRequest& Request,
+			FTexture2DRecipeBuildProduct& OutProduct,
 			std::string& OutError,
-			const FTexture2DBuildExecutionControl* ExecutionControl) -> bool override
+			const FTexture2DRecipeExecutionControl* ExecutionControl) -> bool override
 		{
 			return BuildTexture2D(Request, OutProduct, OutError, ExecutionControl);
 		}
@@ -36,23 +35,15 @@ namespace Durin
 		{
 			return {
 				.ProducerIdentity = "Durin.TextureBuild.VolumeTexture",
-				.SchemaVersion = VolumeTextureBuilderVersion};
+				.BuilderVersion = VolumeTextureBuilderVersion};
 		}
 
 		auto Build(
-			const FVolumeTextureBuildRequest& Request,
-			FVolumeTextureBuildProduct& OutProduct,
+			const FVolumeTextureRecipeBuildRequest& Request,
+			FVolumeTextureRecipeBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			if (Request.TargetPlatform != ECookTargetPlatform::Win64
-				|| Request.TargetProfile != ECookTargetProfile::Game)
-			{
-				OutError = "VolumeTexture build target is unsupported.";
-				return false;
-			}
-			return BuildVolumeTexture(
-				Request.SourceData.get(), Request.Settings, OutProduct, OutError,
-				Request.bPersistDerivedData);
+			return BuildVolumeTexture(Request, OutProduct, OutError);
 		}
 	};
 
@@ -62,15 +53,22 @@ namespace Durin
 		auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor override
 		{
 			return {.ProducerIdentity = "Durin.TextureBuild.TextureCube",
-				.SchemaVersion = TextureCubeBuilderVersion};
+				.BuilderVersion = TextureCubeBuilderVersion,
+				.ProjectionVersion = TextureCubeProjectionVersion};
 		}
 
-		auto Build(const FTextureCubeBuildRequest& Request,
+		auto Normalize(const FTextureCubeBuildRequest& Request,
 			FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-			FTextureCubeBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			return BuildTextureCube(Request, OutCanonicalInput, OutProduct, OutError);
+			return NormalizeTextureCube(Request, OutCanonicalInput, OutError);
+		}
+
+		auto Build(const FTextureCubeRecipeBuildRequest& Request,
+			FTextureCubeRecipeBuildProduct& OutProduct,
+			std::string& OutError) -> bool override
+		{
+			return BuildTextureCube(Request, OutProduct, OutError);
 		}
 	};
 
@@ -79,13 +77,6 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
-			BuildFunctionCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration(
-					"DerivedDataCache.BuildFunctions");
-			std::string Error;
-			requiref(InitializeTextureBuildFunctions(
-				BuildFunctionCallbackRegistration.GetGate(), &Error),
-				"TextureBuild could not register its build functions: {}", Error);
 			Texture2DBuildProviderRegistration = FModuleStartup::RegisterFeature<
 				ITexture2DBuildProvider>(Texture2DBuildProvider);
 			TextureCubeBuildProviderRegistration = FModuleStartup::RegisterFeature<
@@ -98,7 +89,6 @@ namespace Durin
 		}
 
 	private:
-		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
 		FTexture2DBuildProvider Texture2DBuildProvider;
 		FModularFeatureRegistration Texture2DBuildProviderRegistration;
 		FVolumeTextureBuildProvider VolumeTextureBuildProvider;
@@ -111,7 +101,6 @@ namespace Durin
 			VolumeTextureBuildProviderRegistration.Reset();
 			TextureCubeBuildProviderRegistration.Reset();
 			Texture2DBuildProviderRegistration.Reset();
-			ShutdownTextureBuildFunctions();
 		}
 	};
 

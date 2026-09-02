@@ -426,7 +426,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DTextureCube::PublishBuildProduct(
+	auto DTextureCube::ApplyBuildResult(
 		FTextureCubeImportedData InImportedData,
 		ETextureCubeSourceLayout InSourceLayout,
 		uint32 InPanoramaFaceDimension,
@@ -470,7 +470,7 @@ namespace Durin
 	{
 		if (!InPlatformData || !InPlatformData->IsValid() || InDerivedDataKey.empty())
 		{
-			OutError = "TextureCube DDC publication requires valid platform data and key.";
+			OutError = "TextureCube DDC result application requires valid platform data and key.";
 			return false;
 		}
 		SourceData.reset();

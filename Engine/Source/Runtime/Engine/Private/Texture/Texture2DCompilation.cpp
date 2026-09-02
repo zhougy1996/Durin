@@ -25,7 +25,7 @@ namespace Durin
 			TWeakObjectPtr<DTexture2D> Texture;
 			uint64 RequestSerial = 0;
 			uint64 ActiveRequestId = 0;
-			FTexture2DPublicationContext PublicationContext;
+			FTexture2DResultApplicationContext ResultApplicationContext;
 			FTexture2DBuildInputIdentity InputIdentity;
 			FTexture2DCompilationCompletion Completion;
 		};
@@ -44,13 +44,19 @@ namespace Durin
 
 		mutable std::mutex Mutex;
 		std::unordered_map<FObjectHandle, FAssetState, FObjectHandleHash> Assets;
-		std::vector<FWeakObjectPtr> SuccessfullyPublishedTextures;
+		std::vector<FWeakObjectPtr> SuccessfullyAppliedTextures;
 	};
 
 	namespace
 	{
 		std::mutex GTexture2DCompilationDomainMutex;
 		std::shared_ptr<FTexture2DCompilationDomain> GTexture2DCompilationDomain;
+		auto ApplyTexture2DBuildResult(DTexture2D& Texture,
+			FTextureSourceData SourceData,
+			const FTexture2DBuildSettings& Settings,
+			FTexture2DBuildProduct Product,
+			const FTexture2DResultApplicationContext& Context,
+			std::string& OutError) -> bool;
 
 		auto GetTexture2DCompilationDomain() -> std::shared_ptr<FTexture2DCompilationDomain>
 		{
@@ -115,7 +121,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		TWeakObjectPtr<DTexture2D> WeakTexture;
-		FTexture2DPublicationContext PublicationContext;
+		FTexture2DResultApplicationContext ResultApplicationContext;
 		FTexture2DCompilationCompletion Completion;
 		bool bInputMismatch = false;
 		{
@@ -127,7 +133,7 @@ namespace Durin
 			bInputMismatch = Result.Phase == ETexture2DCompilationPhase::UploadPending
 				&& !MatchesRequestedInput(State->InputIdentity, Result.InputIdentity);
 			WeakTexture = State->Texture;
-			PublicationContext = State->PublicationContext;
+			ResultApplicationContext = State->ResultApplicationContext;
 			Completion = std::move(State->Completion);
 			CompilationState->Assets.erase(Result.Owner);
 		}
@@ -147,7 +153,7 @@ namespace Durin
 		{
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
-				.Diagnostic = "The Texture2D build input identity changed before publication."});
+				.Diagnostic = "The Texture2D build input identity changed before result application."});
 			return;
 		}
 		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
@@ -157,7 +163,7 @@ namespace Durin
 				.Status = Result.Phase == ETexture2DCompilationPhase::Cancelled
 					? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Failed,
 				.Diagnostic = Result.Error.empty()
-					? "The Texture2D compilation did not produce a publishable product."
+					? "The Texture2D compilation did not produce an applicable product."
 					: std::move(Result.Error)});
 			return;
 		}
@@ -175,11 +181,11 @@ namespace Durin
 			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
 			.Origin = Result.Origin};
 		std::string Error;
-		if (!PublishTexture2DProduct(*Texture, std::move(*Result.SourceData), Settings,
-			std::move(Product), PublicationContext, Error))
+		if (!ApplyTexture2DBuildResult(*Texture, std::move(*Result.SourceData), Settings,
+			std::move(Product), ResultApplicationContext, Error))
 		{
 			Texture->bCompilationLastRequestFailed = true;
-			DURIN_ERROR("Texture2D compilation publication failed for {}: {}",
+			DURIN_ERROR("Texture2D compilation result application failed for {}: {}",
 				Result.AssetIdentity, Error);
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
@@ -189,7 +195,7 @@ namespace Durin
 		Texture->bCompilationLastRequestFailed = false;
 		{
 			std::lock_guard Lock(CompilationState->Mutex);
-			CompilationState->SuccessfullyPublishedTextures.emplace_back(Texture);
+			CompilationState->SuccessfullyAppliedTextures.emplace_back(Texture);
 		}
 		if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded});
 	}
@@ -201,8 +207,8 @@ namespace Durin
 		Result.ProcessedCompletionCount = PumpWorkCompletions(MaximumCount);
 		std::lock_guard Lock(CompilationState->Mutex);
 		Result.SuccessfullyCompiledAssets =
-			std::move(CompilationState->SuccessfullyPublishedTextures);
-		CompilationState->SuccessfullyPublishedTextures.clear();
+			std::move(CompilationState->SuccessfullyAppliedTextures);
+		CompilationState->SuccessfullyAppliedTextures.clear();
 		return Result;
 	}
 
@@ -313,7 +319,7 @@ namespace Durin
 			State = {
 				.Texture = TWeakObjectPtr<DTexture2D>(&Texture),
 				.RequestSerial = RequestSerial,
-				.PublicationContext = std::move(Request.Publication),
+				.ResultApplicationContext = std::move(Request.ResultApplication),
 				.InputIdentity = {
 					.ImportedDataIdentity = ImportedDataIdentity,
 					.Settings = {
@@ -483,7 +489,7 @@ namespace Durin
 	auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
-		const FTexture2DPublicationContext& Context,
+		const FTexture2DResultApplicationContext& Context,
 		std::string& OutError) -> bool
 	{
 		CheckGameThread();
@@ -491,28 +497,30 @@ namespace Durin
 		FTexture2DBuildInputIdentity Identity;
 		if (!InvokeTexture2DBuildProvider(
 			Request, Product, Identity, OutError)) return false;
-		return PublishTexture2DProduct(Texture, std::move(Request.SourceData),
+		return ApplyTexture2DBuildResult(Texture, std::move(Request.SourceData),
 			Request.Settings, std::move(Product), Context, OutError);
 	}
 
-	auto PublishTexture2DProduct(
+	namespace
+	{
+	auto ApplyTexture2DBuildResult(
 		DTexture2D& Texture,
 		FTextureSourceData SourceData,
 		const FTexture2DBuildSettings& Settings,
 		FTexture2DBuildProduct Product,
-		const FTexture2DPublicationContext& Context,
+		const FTexture2DResultApplicationContext& Context,
 		std::string& OutError) -> bool
 	{
 		CheckGameThread();
 		if (!Texture.GetPackage())
 		{
-			OutError = "Texture2D product publication requires a package.";
+			OutError = "Texture2D result application requires a package.";
 			return false;
 		}
 		if (!SourceData.IsValid() || !Product.PlatformData.IsValid()
 			|| Product.DerivedDataKey.empty())
 		{
-			OutError = "Texture2D product publication requires a complete detached product.";
+			OutError = "Texture2D result application requires a complete detached product.";
 			return false;
 		}
 		if (!ValidateTexture2DBuildSettings(Settings, OutError)) return false;
@@ -532,6 +540,7 @@ namespace Durin
 			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked,
 			.bLoadedFromDerivedDataCache =
 				Product.Origin == ETexture2DBuildProductOrigin::CacheHit}, OutError);
+	}
 	}
 
 	auto SubmitTexture2DCompilation(

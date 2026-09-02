@@ -49,7 +49,7 @@ namespace
 TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 {
 	FScopedCacheDirectory Directory("CacheReadWrite");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey('a');
 	const Durin::FByteArray First = Bytes({1, 2, 3});
@@ -67,7 +67,7 @@ TEST(FDerivedDataCacheTests, GetsAndAtomicallyReplacesCanonicalEntries)
 TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 {
 	FScopedCacheDirectory Directory("CacheValidation");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	std::string Error;
 	EXPECT_FALSE(FCacheBucket::FromString("../escape", &Error).IsValid());
 	EXPECT_FALSE(FCacheBucket::FromString("/absolute", &Error).IsValid());
@@ -83,7 +83,7 @@ TEST(FDerivedDataCacheTests, ValidatesRequestsAndBoundsValuesTransactionally)
 TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
 {
 	FScopedCacheDirectory Directory("CacheStoredEntryValidation");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey('c');
 	const Durin::FByteArray Value(8, std::byte{1});
@@ -94,43 +94,10 @@ TEST(FDerivedDataCacheTests, RejectsOversizedAndNonregularStoredEntries)
 	EXPECT_EQ(Cache.Get({Bucket, MakeKey('d'), 8}).Status, ECacheGetStatus::StorageFailure);
 }
 
-TEST(FDerivedDataCacheTests, TrimIsBoundedAndIgnoresNoncanonicalFiles)
-{
-	FScopedCacheDirectory Directory("CacheTrim");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
-	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
-	const FCacheKey OldKey = MakeKey('1');
-	const FCacheKey NewKey = MakeKey('2');
-	const Durin::FByteArray Value(10, std::byte{1});
-	ASSERT_TRUE(Cache.Put({Bucket, OldKey, Value, 1024}));
-	ASSERT_TRUE(Cache.Put({Bucket, NewKey, Value, 1024}));
-	const auto OldPath = Directory.Root / "Test" / "Objects" / "11" / (std::string(32, '1') + ".bin");
-	const auto NewPath = Directory.Root / "Test" / "Objects" / "22" / (std::string(32, '2') + ".bin");
-	std::filesystem::last_write_time(OldPath,
-		std::filesystem::file_time_type::clock::now() - std::chrono::hours(2));
-	std::filesystem::last_write_time(NewPath,
-		std::filesystem::file_time_type::clock::now() - std::chrono::hours(1));
-	const auto IgnoredPath = Directory.Root / "Test" / "Objects" / "not-an-entry.txt";
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Value, IgnoredPath));
-
-	const FCacheTrimResult Bounded = Cache.Trim({Bucket, 0, 1});
-	EXPECT_EQ(Bounded.Status, ECacheTrimStatus::Partial);
-	EXPECT_EQ(Bounded.BytesBefore, 20u);
-	EXPECT_EQ(Bounded.DeletedEntries, 1u);
-	EXPECT_FALSE(std::filesystem::exists(OldPath));
-	EXPECT_TRUE(std::filesystem::exists(NewPath));
-	EXPECT_TRUE(std::filesystem::exists(IgnoredPath));
-
-	const FCacheTrimResult Finished = Cache.Trim({Bucket, 0, 8});
-	EXPECT_EQ(Finished.Status, ECacheTrimStatus::Complete);
-	EXPECT_EQ(Finished.DeletedEntries, 1u);
-	EXPECT_TRUE(std::filesystem::exists(IgnoredPath));
-}
-
 TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 {
 	FScopedCacheDirectory Directory("CacheConcurrency");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
 	const FCacheKey Key = MakeKey('e');
 	const Durin::FByteArray First(128, std::byte{1});
@@ -148,10 +115,31 @@ TEST(FDerivedDataCacheTests, ConcurrentSameKeyCallsPublishCompleteValues)
 	for (std::thread& Thread : Threads) Thread.join();
 }
 
+TEST(FDerivedDataCacheTests, PutNeverEvictsExistingEntries)
+{
+	FScopedCacheDirectory Directory("CacheNoRequestEviction");
+	FDerivedDataCache& Cache = DerivedData::GetCache();
+	const FCacheBucket Bucket = FCacheBucket::FromString("Test/NoEviction");
+	const Durin::FByteArray Value(64, std::byte{5});
+	for (uint32 Index = 0; Index < 32; ++Index)
+	{
+		const FCacheKey Key = FCacheKey::FromString(
+			std::format("{:032x}", Index + 1));
+		ASSERT_TRUE(Cache.Put({Bucket, Key, Value, Value.size()}));
+	}
+	for (uint32 Index = 0; Index < 32; ++Index)
+	{
+		const FCacheKey Key = FCacheKey::FromString(
+			std::format("{:032x}", Index + 1));
+		EXPECT_EQ(Cache.Get({Bucket, Key, Value.size()}).Status,
+			ECacheGetStatus::Hit);
+	}
+}
+
 TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 {
 	FScopedCacheDirectory Directory("CacheParallelBuckets");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	const FCacheBucket FirstBucket = FCacheBucket::FromString("Test/First");
 	const FCacheBucket SecondBucket = FCacheBucket::FromString("Test/Second");
 	const Durin::FByteArray Value(4096, std::byte{7});
@@ -172,39 +160,6 @@ TEST(FDerivedDataCacheTests, UnrelatedBucketsAndKeysMakeConcurrentProgress)
 	for (auto& Operation : Operations) EXPECT_TRUE(Operation.get());
 }
 
-TEST(FDerivedDataCacheTests, SameBucketTrimExcludesPublicationAndDifferentBucketRemainsSafe)
-{
-	FScopedCacheDirectory Directory("CacheConcurrentTrim");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
-	const FCacheBucket TrimmedBucket = FCacheBucket::FromString("Test/Trimmed");
-	const FCacheBucket OtherBucket = FCacheBucket::FromString("Test/Other");
-	const Durin::FByteArray Value(128, std::byte{3});
-	for (uint32 Index = 0; Index < 16; ++Index)
-	{
-		const FCacheKey Key = FCacheKey::FromString(std::format("{:032x}", Index + 1));
-		ASSERT_TRUE(Cache.Put({TrimmedBucket, Key, Value, 1024}));
-	}
-	std::latch Start(1);
-	auto Trim = std::async(std::launch::async, [&] {
-		Start.wait();
-		return Cache.Trim({TrimmedBucket, 0, 8});
-	});
-	auto Publish = std::async(std::launch::async, [&] {
-		Start.wait();
-		return Cache.Put({TrimmedBucket, MakeKey('f'), Value, 1024});
-	});
-	auto Other = std::async(std::launch::async, [&] {
-		Start.wait();
-		return Cache.Put({OtherBucket, MakeKey('a'), Value, 1024});
-	});
-	Start.count_down();
-	EXPECT_NE(Trim.get().Status, ECacheTrimStatus::StorageFailure);
-	EXPECT_TRUE(Publish.get());
-	EXPECT_TRUE(Other.get());
-	EXPECT_EQ(Cache.Get({OtherBucket, MakeKey('a'), 1024}).Status,
-		ECacheGetStatus::Hit);
-}
-
 TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 {
 	FScopedCacheDirectory Directory("CacheBlockedStorage");
@@ -212,15 +167,14 @@ TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 	const Durin::FByteArray Value = Bytes({1, 2, 3});
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Value, Blocker));
 	const FCacheBucket Bucket = FCacheBucket::FromString("blocked/Bucket");
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	EXPECT_EQ(Cache.Put({Bucket, MakeKey('1'), Value, 1024}).Status,
 		ECachePutStatus::StorageFailure);
 	EXPECT_EQ(Cache.Get({Bucket, MakeKey('1'), 1024}).Status,
 		ECacheGetStatus::StorageFailure);
-	EXPECT_EQ(Cache.Trim({Bucket, 0, 1}).Status, ECacheTrimStatus::Complete);
 }
 
-TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverReadOrTrimmed)
+TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverRead)
 {
 	FScopedCacheDirectory Directory("CacheSymlinkSafety");
 	const FCacheBucket Bucket = FCacheBucket::FromString("Test/Objects");
@@ -234,10 +188,9 @@ TEST(FDerivedDataCacheTests, SymlinkEntriesAreNeverReadOrTrimmed)
 	std::error_code Error;
 	std::filesystem::create_symlink(Outside, Link, Error);
 	if (Error) GTEST_SKIP() << "Host cannot create a test symlink: " << Error.message();
-	FDerivedDataCache& Cache = GetDerivedDataCache();
+	FDerivedDataCache& Cache = DerivedData::GetCache();
 	EXPECT_EQ(Cache.Get({Bucket, Key, 1024}).Status,
 		ECacheGetStatus::StorageFailure);
-	EXPECT_EQ(Cache.Trim({Bucket, 0, 8}).Status, ECacheTrimStatus::Complete);
 	EXPECT_TRUE(std::filesystem::exists(Outside));
 	EXPECT_TRUE(std::filesystem::is_symlink(Link));
 }

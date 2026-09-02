@@ -28,7 +28,7 @@ namespace Durin
 	// Accepted requests invoke their completion exactly once on the GameThread.
 	using FTexture2DCompilationCompletion = std::function<void(FTexture2DCompilationResult)>;
 
-	struct FTexture2DPublicationContext
+	struct FTexture2DResultApplicationContext
 	{
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
@@ -39,8 +39,8 @@ namespace Durin
 	{
 		// Detached worker input and derived-data policy.
 		FTexture2DBuildRequest Build;
-		// Main-thread asset publication and source provenance.
-		FTexture2DPublicationContext Publication;
+		// Main-thread result application and source provenance.
+		FTexture2DResultApplicationContext ResultApplication;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 	};
 
@@ -60,14 +60,7 @@ namespace Durin
 	ENGINE_API auto BuildTexture2DSynchronously(
 		DTexture2D& Texture,
 		FTexture2DBuildRequest Request,
-		const FTexture2DPublicationContext& Context,
-		std::string& OutError) -> bool;
-	ENGINE_API auto PublishTexture2DProduct(
-		DTexture2D& Texture,
-		FTextureSourceData SourceData,
-		const FTexture2DBuildSettings& Settings,
-		FTexture2DBuildProduct Product,
-		const FTexture2DPublicationContext& Context,
+		const FTexture2DResultApplicationContext& Context,
 		std::string& OutError) -> bool;
 }
 
