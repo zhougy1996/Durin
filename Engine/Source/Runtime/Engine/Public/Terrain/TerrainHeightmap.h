@@ -21,8 +21,6 @@ namespace Durin
 	enum class ETerrainHeightmapStatus : uint8
 	{
 		Unavailable,
-		Loading,
-		Rebuilding,
 		Ready,
 		Failed
 	};
@@ -34,25 +32,6 @@ namespace Durin
 		Unknown,
 		Png16,
 		Raw16
-	};
-
-	// Carries the source contract transiently through heightmap build and recovery.
-	struct FTerrainHeightmapSourceImportData
-	{
-		std::string SourceFilename;
-		uint64 SourceContentHashLow = 0;
-		uint64 SourceContentHashHigh = 0;
-		std::string DecoderId;
-		uint32 DecoderVersion = 0;
-		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
-		uint32 SourceProfileVersion = 0;
-
-		auto HasSource() const -> bool { return !SourceFilename.empty(); }
-		auto HasContentHash() const -> bool
-		{
-			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
-		}
-		auto operator==(const FTerrainHeightmapSourceImportData&) const -> bool = default;
 	};
 
 	// Owns the decoder-free row-major uint16 samples used by every Terrain build.
@@ -169,26 +148,17 @@ namespace Durin
 		}
 		ENGINE_API auto PublishAssetImportData(
 			DAssetImportData& Value, std::string& OutError) -> bool;
-		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
 		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
-		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		auto GetDerivedDataLoadGeneration() const -> uint64 { return DerivedDataLoadGeneration; }
-		ENGINE_API auto BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
-		ENGINE_API auto IsDerivedDataLoadCurrent(uint64 Generation) const -> bool;
-		ENGINE_API auto FailDerivedDataLoad(
-			uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool;
 		ENGINE_API auto GetSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
 		ENGINE_API auto QueryMinMax(
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
 			uint16& OutMinimum, uint16& OutMaximum) const -> bool;
-		ENGINE_API auto PublishDerivedDataLoadResult(
+		// Validate before replacement; caller owns dirtying and operation diagnostics.
+		ENGINE_API auto SetPayload(
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
-			std::string InDerivedDataKey,
-			std::string InDiagnostic,
+			std::string& OutError,
 			bool bAdvanceRevision = true,
-			bool bMarkPackageDirty = true,
-			bool bInLoadedFromDerivedDataCache = false) -> void;
+			std::optional<FTerrainHeightmapImportedData> InImportedData = {}) -> bool;
 
 		ENGINE_API auto InitializeFromSamples(
 			uint32 InWidth,
@@ -250,15 +220,8 @@ namespace Durin
 		DPROPERTY(Transient)
 		ETerrainHeightmapStatus Status = ETerrainHeightmapStatus::Unavailable;
 
-		DPROPERTY(Transient)
-		std::string DerivedDataKey;
-
-		DPROPERTY(Transient)
-		std::string LastDiagnostic;
 
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-		bool bLoadedFromDerivedDataCache = false;
-		uint64 DerivedDataLoadGeneration = 0;
 	};
 
 	ENGINE_API auto BuildTerrainHeightmapPayload(

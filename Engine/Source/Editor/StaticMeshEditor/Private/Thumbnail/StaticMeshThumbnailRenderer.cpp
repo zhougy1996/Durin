@@ -106,16 +106,6 @@ namespace Durin::Editor::StaticMesh
 				}
 				if (!StaticMesh->GetLOD0LocalBounds())
 				{
-					const FStaticMeshDerivedDataDiagnostic& Diagnostic =
-						StaticMesh->GetDerivedDataDiagnostic();
-					if (Diagnostic.Status == EStaticMeshDerivedDataStatus::Missing
-						&& Diagnostic.bSourceImporterInvoked)
-					{
-						return {
-							.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
-							.AssetRevision = Status.Revision,
-							.ResourceRevision = Status.Revision};
-					}
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.AssetRevision = Status.Revision,

@@ -5,7 +5,7 @@
 #include "DObject/Property.h"
 #include "Math/Operations.h"
 #include "Serialization/Archive.h"
-#include "SkeletalMesh/SkeletalAssetPostLoad.h"
+#include "SkeletalMesh/SkeletalAssetBuild.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
 namespace Durin
@@ -219,10 +219,11 @@ namespace Durin
 		return PayloadData;
 	}
 
-	auto DAnimationClip::PublishBuiltProduct(
-		FAnimationClipPublicationCandidate InData,
+	auto DAnimationClip::SetAssetData(
+		FAnimationClipAssetData InData,
 		std::string& OutError) -> bool
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!InData.Skeleton || !InData.Payload || InData.ClipName.IsNone())
 			return Fail("Animation imported data requires a Skeleton, payload, and clip name.", &OutError);
 		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
@@ -230,12 +231,11 @@ namespace Durin
 		if (InData.SkeletonCompatibilityIdentity != ValidationSkeleton->GetCompatibilityIdentity())
 			return Fail("Animation imported data is incompatible with its Skeleton.", &OutError);
 		if (!ValidateAnimationClipPayload(*InData.Payload, *ValidationSkeleton, OutError)) return false;
-		FAnimationClipImportedData ImportedCandidate;
-		if (InData.bReplaceImportedData
+		FAnimationClipImportedData ImportedCandidate = InData.ImportedData.value_or(FAnimationClipImportedData{});
+		if (!InData.ImportedData
 			&& !ImportedCandidate.Capture(
 				*InData.Payload, ValidationSkeleton->GetBoneCount(), OutError)) return false;
-		if (!InData.bReplaceImportedData
-			&& !ImportedData.IsValid(ValidationSkeleton->GetBoneCount()))
+		if (!ImportedCandidate.IsValid(ValidationSkeleton->GetBoneCount()))
 			return Fail("AnimationClip canonical imported data is missing or invalid.", &OutError);
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : InData.Payload->Tracks) KeyCount += Track.Times.size();
@@ -248,15 +248,8 @@ namespace Durin
 			.TrackCount = static_cast<uint32>(InData.Payload->Tracks.size()),
 			.KeyCount = static_cast<uint32>(KeyCount)};
 		CookedPlatformData = {};
-		DerivedDataKey = std::move(InData.DerivedDataKey);
-		if (InData.bReplaceImportedData) ImportedData = std::move(ImportedCandidate);
+		ImportedData = std::move(ImportedCandidate);
 		PayloadData = std::move(InData.Payload);
-		bLoadedFromDerivedDataCache = InData.bLoadedFromDerivedDataCache;
-		PayloadStorageDiagnostic = std::move(InData.DiagnosticMessage);
-		if (PayloadStorageDiagnostic.empty() && !DerivedDataKey.empty())
-			PayloadStorageDiagnostic = std::format(
-				"Published built AnimationClip key {}.", DerivedDataKey);
-		if (InData.bMarkPackageDirty) MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}
@@ -311,14 +304,10 @@ namespace Durin
 				return Fail(std::format(
 					"Cooked AnimationClip '{}': required PlatformData field is missing.",
 					GetObjectPath()), &OutError);
-			DerivedDataKey.clear();
-			bLoadedFromDerivedDataCache = false;
-			PayloadStorageDiagnostic = std::format(
-				"Loaded cooked AnimationClip metadata for '{}'.", GetObjectPath());
 			OutError.clear();
 			return true;
 		}
-		return InvokeAnimationClipUncookedPostLoad(*this, OutError);
+		return PrepareAnimationClipPayload(*this, OutError);
 	}
 
 	auto DAnimationClip::SerializeCooked(FArchive& Ar) -> void
@@ -365,9 +354,7 @@ namespace Durin
 	auto DAnimationClip::LoadCookedPayload(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			PayloadStorageDiagnostic = std::format(
-				"Cooked AnimationClip '{}': {}", GetObjectPath(), Message);
-			OutError = PayloadStorageDiagnostic;
+			OutError = std::format("Cooked AnimationClip '{}': {}", GetObjectPath(), Message);
 			return false;
 		};
 		std::span<const std::byte> Bytes;
@@ -395,10 +382,6 @@ namespace Durin
 		}
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 		PayloadData = std::make_shared<const FAnimationClipPayloadData>(std::move(Candidate));
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		PayloadStorageDiagnostic = std::format(
-			"Loaded cooked AnimationClip payload for '{}'.", GetObjectPath());
 		OutError.clear();
 		return true;
 	}

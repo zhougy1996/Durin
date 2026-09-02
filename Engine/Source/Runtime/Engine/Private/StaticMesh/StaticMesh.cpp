@@ -500,18 +500,13 @@ namespace Durin
 		FStaticMeshCollisionInspection Result{};
 		Result.Mode = EBodySetupCollisionSourceMode::None;
 		Result.Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		Result.BuildStatus = EBodySetupCollisionBuildStatus::None;
 		Result.GeometryKind = ECollisionGeometryKind::Primitive;
 		Result.BuilderVersion = StaticMeshCollisionBuilderVersion;
 		Result.SchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
 		if (!BodySetup) return Result;
 		Result.Mode = BodySetup->GetCollisionSourceMode();
 		Result.Policy = BodySetup->GetCollisionQueryPolicy();
-		Result.BuildStatus = BodySetup->GetCollisionBuildStatus();
 		Result.BuildRevision = BodySetup->GetCollisionBuildRevision();
-		Result.PayloadBytes = BodySetup->GetCollisionPayloadBytes();
-		Result.CacheKey = BodySetup->GetCollisionDerivedDataKey();
-		Result.Diagnostic = BodySetup->GetCollisionDiagnostic();
 		if (RenderData && !RenderData->LODResources.empty())
 			Result.SourceTriangles = static_cast<uint32>(
 				RenderData->LODResources.front().IndexBuffer.GetIndices().size() / 3);
@@ -728,10 +723,6 @@ namespace Durin
 #endif
 		FCollisionGeometryRef CollisionSimple;
 		FCollisionGeometryRef CollisionComplex;
-		EBodySetupCollisionBuildStatus CollisionStatus = EBodySetupCollisionBuildStatus::None;
-		std::string CollisionKey;
-		std::string CollisionDiagnostic;
-		uint64 CollisionPayloadBytes = 0;
 		const bool bHasAuthoredCollision = bBuildAuthoredCollision && BodySetup
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
 		if (bHasAuthoredCollision && !BuildCollisionCandidate(
@@ -740,10 +731,6 @@ namespace Durin
 			BodySetup->GetCollisionQueryPolicy(),
 			CollisionSimple,
 			CollisionComplex,
-			CollisionStatus,
-			CollisionKey,
-			CollisionDiagnostic,
-			CollisionPayloadBytes,
 			OutError)) return false;
 
 #if DURIN_BUILD_DEBUG
@@ -765,10 +752,8 @@ namespace Durin
 			RefreshQualifiedBoxBodySetup();
 			if (bHasAuthoredCollision)
 			{
-				const bool bPublished = BodySetup->PublishCollisionGeometry(
-					CollisionSimple, CollisionComplex, CollisionStatus,
-					std::move(CollisionKey), std::move(CollisionDiagnostic),
-					CollisionPayloadBytes);
+				const bool bPublished = BodySetup->SetCollisionGeometry(
+					CollisionSimple, CollisionComplex);
 				check(bPublished);
 			}
 			PublishRenderResourceState(
@@ -800,10 +785,8 @@ namespace Durin
 			RefreshQualifiedBoxBodySetup();
 			if (bHasAuthoredCollision)
 			{
-				const bool bPublished = BodySetup->PublishCollisionGeometry(
-					CollisionSimple, CollisionComplex, CollisionStatus,
-					std::move(CollisionKey), std::move(CollisionDiagnostic),
-					CollisionPayloadBytes);
+				const bool bPublished = BodySetup->SetCollisionGeometry(
+					CollisionSimple, CollisionComplex);
 				check(bPublished);
 			}
 			PublishRenderResourceState(CandidateState);
@@ -886,55 +869,58 @@ namespace Durin
 		return Mesh;
 	}
 
-	auto DStaticMesh::PublishRenderData(
+	auto DStaticMesh::SetImportedRenderData(
+		FStaticMeshImportedData InImportedData,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-		bool bSlotMetadataChanged,
-		std::string& OutError) -> bool
+		float InNormalizedSize, std::string& OutError) -> bool
 	{
-		if (!CommitRenderDataCandidate(
-			std::move(InRenderData), &InMaterialSlots, OutError))
+		CheckStaticMeshUpdateThread();
+		if (!InImportedData.IsValid()
+			|| !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
 		{
+			OutError = "StaticMesh replacement requires valid imported values and normalization.";
 			return false;
 		}
-		if (bSlotMetadataChanged)
-		{
-			MarkPackageDirty();
-			ReportAssetLoadMutation(
-				this,
-				"Engine.StaticMesh.MaterialSlotsV1",
-				"Static mesh material-slot identity metadata was upgraded.",
-				EAssetLoadMutationKind::Upgrade);
-		}
+		if (!SetRenderData(std::move(InRenderData), std::move(InMaterialSlots), OutError))
+			return false;
+		NormalizedSize = InNormalizedSize;
+		ImportedData = std::move(InImportedData);
 		return true;
 	}
 
-	auto DStaticMesh::PublishImportedProduct(
-		FStaticMeshBuildProduct Product,
+	auto DStaticMesh::SetRenderData(
+		std::unique_ptr<FStaticMeshRenderData> InRenderData,
+		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 		std::string& OutError) -> bool
 	{
-		const float PreviousNormalizedSize = NormalizedSize;
-		NormalizedSize = Product.NormalizedSize;
-		if (!PublishRenderData(
-			std::move(Product.RenderData),
-			std::move(Product.MaterialSlots),
-			Product.bSlotMetadataChanged,
-			OutError))
+		CheckStaticMeshUpdateThread();
+		if (!InRenderData || InMaterialSlots.empty()
+			|| InMaterialSlots.size() > MaximumMeshMaterialSlots
+			|| InRenderData->MaterialSlots.size() != InMaterialSlots.size())
 		{
-			NormalizedSize = PreviousNormalizedSize;
+			OutError = "StaticMesh replacement requires valid imported, render, and material values.";
 			return false;
 		}
-		DerivedDataDiagnostic = {
-			.Status = Product.DerivedDataStatus,
-			.Key = std::move(Product.DerivedDataKey),
-			.Message = std::move(Product.DiagnosticMessage),
-			.bSourceImporterInvoked = Product.bSourceImporterInvoked};
-		if (Product.bContainsImportedData)
+		std::unordered_set<FName> SlotNames;
+		for (const FMeshMaterialSlotDefinition& Slot : InMaterialSlots)
 		{
-			check(Product.ImportedData.IsValid());
-			ImportedData = std::move(Product.ImportedData);
+			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
+			{
+				OutError = "StaticMesh replacement requires unique non-None material slots.";
+				return false;
+			}
 		}
-		if (Product.bMarkPackageDirty) MarkPackageDirty();
+		for (const FStaticMeshLODResources& LOD : InRenderData->LODResources)
+			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
+			{
+				OutError = "StaticMesh replacement exceeds the texture coordinate limit.";
+				return false;
+			}
+		FStaticMeshPayloadData ValidatedPayload;
+		if (!MakeStaticMeshPayloadData(*InRenderData, ValidatedPayload, OutError)
+			|| !CommitRenderDataCandidate(std::move(InRenderData), &InMaterialSlots, OutError))
+			return false;
 		OutError.clear();
 		return true;
 	}

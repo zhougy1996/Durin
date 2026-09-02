@@ -11,7 +11,6 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
 
 namespace Durin::Editor::Level

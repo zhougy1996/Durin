@@ -4,7 +4,7 @@ Summary: Define deterministic single-clip skeletal pose evaluation, playback own
 
 Modules: Engine, SkeletalBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 ## Ownership Boundary
 
@@ -14,12 +14,12 @@ animation clip, persistent playback settings, and one
 play state, looping, rate, revisions, and evaluated poses never live on
 `DSkeleton`, `DSkeletalMesh`, or `DAnimationClip`.
 
-SkeletalBuild registers the build function name
-`Durin.GeometryBuild.AnimationClip`; its synchronous
-session validates the complete animation payload against the Skeleton/target context.
-AssetForgeBuiltins retains private Scene capture, clip naming, hard Skeleton
-relationships, and transaction publication. Cache-only authored load never
-invokes scene import, and a valid hit skips payload encoding and another store.
+SkeletalBuild provides pure typed mesh and animation recipes. Engine owns
+schema-4 keys, cache policy, Skeleton/target validation, and detached results;
+object paths do not affect payload identity. AssetForgeBuiltins retains Scene
+capture, clip naming, hard Skeleton relationships, and transaction publication.
+Metadata-only authored cache hits skip canonical bulk reads and recipes.
+Assets retain payload readiness and compatibility, not cache keys or history.
 
 Cook projects the same target-qualified clip schema into the lazy
 `PlatformData` BulkData field and preserves the hard Skeleton dependency and

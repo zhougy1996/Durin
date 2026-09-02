@@ -49,6 +49,8 @@ namespace
 	{
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();
 		std::string Error;

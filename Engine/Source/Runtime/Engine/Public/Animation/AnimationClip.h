@@ -102,8 +102,8 @@ namespace Durin
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
-	// Complete main-thread candidate accepted by the Runtime publication seam.
-	struct FAnimationClipPublicationCandidate
+	// Validated authored relationships and detached values for owner-thread replacement.
+	struct FAnimationClipAssetData
 	{
 		DSkeleton* Skeleton = nullptr;
 		// Optional prospective state for failure-atomic multi-asset publication.
@@ -111,11 +111,8 @@ namespace Durin
 		std::string SkeletonCompatibilityIdentity;
 		FName ClipName;
 		std::shared_ptr<const FAnimationClipPayloadData> Payload;
-		std::string DerivedDataKey;
-		std::string DiagnosticMessage;
-		bool bLoadedFromDerivedDataCache = false;
-		bool bReplaceImportedData = true;
-		bool bMarkPackageDirty = true;
+		// Preserve lazy authored storage on PostLoad; otherwise capture from Payload.
+		std::optional<FAnimationClipImportedData> ImportedData;
 	};
 
 	ENGINE_API auto ValidateAnimationClipPayload(
@@ -141,12 +138,10 @@ namespace Durin
 		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData>;
 		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FAnimationClipImportedData& { return ImportedData; }
-		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 
-		ENGINE_API auto PublishBuiltProduct(
-			FAnimationClipPublicationCandidate Candidate,
+		// Validates before replacement; does not retain operation history or dirty the package.
+		ENGINE_API auto SetAssetData(
+			FAnimationClipAssetData Candidate,
 			std::string& OutError) -> bool;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto ValidateAgainstSkeleton(
@@ -177,14 +172,9 @@ namespace Durin
 		FBulkData CookedPlatformData;
 
 		DPROPERTY(EditorOnly)
-		std::string DerivedDataKey;
-
-		DPROPERTY(EditorOnly)
 		FAnimationClipImportedData ImportedData;
 
 		std::shared_ptr<const FAnimationClipPayloadData> PayloadData;
-		bool bLoadedFromDerivedDataCache = false;
-		std::string PayloadStorageDiagnostic;
 
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 	};

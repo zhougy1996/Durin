@@ -83,7 +83,7 @@ namespace
 
 		auto* Mesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, NextObjectName("PoseMesh"));
 		std::string Error;
-		EXPECT_TRUE(Mesh->PublishBuiltProduct({
+		EXPECT_TRUE(Mesh->SetAssetData({
 			.Skeleton = &Skeleton,
 			.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 			.MeshNodeBindTransform = MatrixTransform(MeshBind),
@@ -102,7 +102,7 @@ namespace
 		Payload->Tracks = std::move(Tracks);
 		auto* Clip = Durin::NewObject<Durin::DAnimationClip>(nullptr, NextObjectName("PoseClip"));
 		std::string Error;
-		EXPECT_TRUE(Clip->PublishBuiltProduct({
+		EXPECT_TRUE(Clip->SetAssetData({
 			.Skeleton = &Skeleton,
 			.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 			.ClipName = Durin::FName("Contract"),

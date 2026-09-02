@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetForge/Builtins/ImportedScene.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {

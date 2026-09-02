@@ -13,7 +13,7 @@
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "StaticMeshImportAdapter.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -147,16 +147,15 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format("Failed to decode StaticMesh source {}.", Filename);
 				return false;
 			}
-			FStaticMeshBuildProduct Product;
-			if (!FStaticMeshBuildOperations::BuildImportedProduct(
-				FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+			FStaticMeshBuildResult Product;
+			if (!BuildStaticMeshImportedData(
+				CaptureStaticMeshReconciliation(Mesh),
 				MakeStaticMeshImportedData(Scene), Filename, Product, OutError))
 				return false;
-			Product.bSourceImporterInvoked = true;
 			DStaticMeshImportData* ImportData = nullptr;
 			if (!PrepareImportData(Mesh, Filename, HintBase, PhysicalPath, Snapshot,
 				Settings, ImportData, OutError)
-				|| !FStaticMeshBuildOperations::PublishImportedProduct(
+				|| !ApplyStaticMeshBuildResult(
 					Mesh, std::move(Product), OutError)
 				|| !Mesh.PublishAssetImportData(*ImportData, OutError)) return false;
 			if (!SaveOptions) return true;

@@ -23,12 +23,10 @@ namespace Durin
 		1024ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
 
-	class FStaticMeshBuildOperations;
 	class DBodySetup;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
 	enum class EBodySetupCollisionQueryPolicy : uint8;
-	enum class EBodySetupCollisionBuildStatus : uint8;
 	enum class ECollisionGeometryKind : uint8;
 
 	// Reports only the semantic render-resource states required by nonblocking consumers.
@@ -140,36 +138,12 @@ namespace Durin
 
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
-	struct FStaticMeshBuildProduct;
-
-	enum class EStaticMeshDerivedDataStatus : uint8
-	{
-		None,
-		Hit,
-		Missing,
-		Corrupt,
-		Incompatible,
-		Rebuilt,
-		WriteFailure,
-		CookedLoaded,
-		CookedFailure
-	};
-
-	// Describes the most recent native-payload cache decision for editor diagnostics.
-	struct FStaticMeshDerivedDataDiagnostic
-	{
-		EStaticMeshDerivedDataStatus Status = EStaticMeshDerivedDataStatus::None;
-		std::string Key;
-		std::string Message;
-		bool bSourceImporterInvoked = false;
-	};
 
 	// Bounded value-only collision facts for diagnostics and the read-only Inspector.
 	struct FStaticMeshCollisionInspection
 	{
 		EBodySetupCollisionSourceMode Mode;
 		EBodySetupCollisionQueryPolicy Policy;
-		EBodySetupCollisionBuildStatus BuildStatus;
 		ECollisionGeometryKind GeometryKind;
 		bool bHasGeometry = false;
 		uint32 SourceTriangles = 0;
@@ -177,14 +151,11 @@ namespace Durin
 		uint32 RemovedTriangles = 0;
 		uint32 Nodes = 0;
 		std::optional<FBox> Bounds;
-		uint64 PayloadBytes = 0;
 		uint64 RuntimeBytes = 0;
 		uint32 BuilderVersion = 0;
 		uint32 SchemaVersion = 0;
 		uint64 BuildRevision = 0;
 		bool bRevisionCoherent = false;
-		std::string CacheKey;
-		std::string Diagnostic;
 	};
 
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
@@ -243,8 +214,8 @@ namespace Durin
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
 		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
-		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
+		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
@@ -259,8 +230,19 @@ namespace Durin
 	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		ENGINE_API auto PublishImportedProduct(
-			FStaticMeshBuildProduct Product,
+		// Installs validated CPU values with rollback-safe render/collision replacement.
+		// Authored inputs and package dirty state are unchanged.
+		ENGINE_API auto SetRenderData(
+			std::unique_ptr<FStaticMeshRenderData> InRenderData,
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
+			std::string& OutError) -> bool;
+		// Validates detached values before atomic render/collision replacement.
+		// Does not dirty the package or retain build-operation diagnostics.
+		ENGINE_API auto SetImportedRenderData(
+			FStaticMeshImportedData InImportedData,
+			std::unique_ptr<FStaticMeshRenderData> InRenderData,
+			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
+			float InNormalizedSize,
 			std::string& OutError) -> bool;
 		ENGINE_API auto SetImportedDefaultMaterial(
 			uint32 SourceMaterialIndex,
@@ -311,11 +293,6 @@ namespace Durin
 			EStaticMeshRenderResourceState State) -> bool;
 		auto AdvanceRenderResourceRevision() -> void;
 		auto ReleaseResources() -> void;
-		auto PublishRenderData(
-			std::unique_ptr<FStaticMeshRenderData> InRenderData,
-			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
-			bool bSlotMetadataChanged,
-			std::string& OutError) -> bool;
 		auto CommitRenderDataCandidate(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition>*
@@ -331,10 +308,6 @@ namespace Durin
 			EBodySetupCollisionQueryPolicy Policy,
 			FCollisionGeometryRef& OutSimple,
 			FCollisionGeometryRef& OutComplex,
-			EBodySetupCollisionBuildStatus& OutStatus,
-			std::string& OutKey,
-			std::string& OutDiagnostic,
-			uint64& OutPayloadBytes,
 			std::string& OutError) const -> bool;
 
 		DPROPERTY(EditorOnly)
@@ -355,14 +328,12 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		FBulkData CookedRenderData;
 		FBulkData CookedCollisionData;
-		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
 		FRenderCommandFence ReleaseResourcesFence;
 		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(
 			EStaticMeshRenderResourceState::Uninitialized, 1)};
 		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
 		std::atomic<uint64> CookedLoadGeneration{1};
 
-		friend class FStaticMeshBuildOperations;
 	};
 
 }

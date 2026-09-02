@@ -4,7 +4,7 @@ Summary: Define production GPU skinning, animated bounds, scene preparation, pal
 
 Modules: Engine, SkeletalBuild, AssetForgeBuiltins, Renderer, RenderCore, RHI, VulkanRHI
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 Durin renders `DSkeletalMeshComponent` through the ordinary scene and viewport
 pipeline. The component evaluates a complete immutable `FSkeletalPosePalette`
@@ -12,13 +12,12 @@ on the game thread and publishes a detached `FSkeletalMeshSceneProxy`; the
 rendering thread never reads the component, mesh asset, skeleton, clip, or
 actor.
 
-SkeletalBuild registers the build function name
-`Durin.GeometryBuild.SkeletalMesh`; its synchronous
-session validates complete skeletal-mesh payloads against Skeleton bone count, material
-slot count, target, and request identity. Scene parsing and detached candidate
-construction remain in AssetForgeBuiltins, which also owns private ordered peer
-publication and hard Skeleton relationships. A valid cache hit skips
-payload encoding and another store.
+SkeletalBuild registers one pure typed provider for skeletal mesh and clip
+recipes. Engine owns keys, cache lookup, validation, fallback, and detached
+results; validation includes Skeleton bone count, material slots, and target.
+Scene parsing and ordered peer publication remain in AssetForgeBuiltins.
+Metadata-only PostLoad hits skip canonical bulk reads, recipes, and cache writes.
+Engine applies validated payloads explicitly; assets retain no DDC history.
 
 Cook projects that same target-qualified skeletal schema into the lazy
 `PlatformData` BulkData field while retaining the hard Skeleton dependency and

@@ -21,7 +21,7 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
@@ -283,6 +283,7 @@ namespace Durin::Tests
 	{
 		InitializeDObjectSystem();
 		FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		Testing::RegisterMountPointForTests(
 			FAssetThumbnailFixtureSet::MountPoint,
@@ -434,7 +435,7 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		if (!FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!BuildStaticMeshSynchronously(
 				*OutFixtures.StaticMesh, ImportedMesh,
 				"Rendered thumbnail StaticMesh fixture",
 				OutError)

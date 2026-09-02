@@ -9,7 +9,7 @@
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
@@ -163,7 +163,7 @@ namespace
 			Payload->InverseBindMatrices = {Durin::FMatrix4f(1.0f), Durin::FMatrix4f(1.0f)};
 
 			Mesh = Durin::NewObject<Durin::DSkeletalMesh>(Level, "SkeletalPickingMesh");
-			if (!Mesh->PublishBuiltProduct({.Skeleton = Skeleton,
+			if (!Mesh->SetAssetData({.Skeleton = Skeleton,
 				.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
 				.MeshNodeBindTransform = MatrixTransform(Durin::FMatrix(1.0)),
 				.MaterialSlots = {{.Name = Durin::FName("Body"), .SourceMaterialIndex = 0}},
@@ -226,7 +226,7 @@ namespace
 		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
-		if (!Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!Durin::BuildStaticMeshSynchronously(
 			*Result, Imported,
 			"viewport picking grid", Error)) throw std::runtime_error(Error);
 		return Result;
@@ -472,7 +472,7 @@ TEST(FViewportPickingContractTests, CurrentAnimationPoseAddsAndRemovesSurfaceHit
 		.Times = {0.0f, 1.0f}, .VectorValues = {{0.0f, 0.0f, 0.0f}, {4.0f, 0.0f, 0.0f}}});
 	auto* Clip = Durin::NewObject<Durin::DAnimationClip>(Fixture.Level, "SkeletalPickingClip");
 	std::string Error;
-	ASSERT_TRUE(Clip->PublishBuiltProduct({.Skeleton = Fixture.Skeleton,
+	ASSERT_TRUE(Clip->SetAssetData({.Skeleton = Fixture.Skeleton,
 		.SkeletonCompatibilityIdentity = Fixture.Skeleton->GetCompatibilityIdentity(),
 		.ClipName = Durin::FName("Move"), .Payload = std::move(ClipPayload)}, Error)) << Error;
 	auto* Component = Fixture.Actor->GetSkeletalMeshComponent();

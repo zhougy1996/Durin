@@ -34,18 +34,6 @@ namespace Durin
 		SimpleAndComplex
 	};
 
-	DENUM()
-	enum class EBodySetupCollisionBuildStatus : uint8
-	{
-		None,
-		Ready,
-		CacheHit,
-		Rebuilt,
-		SourceUnavailable,
-		Failed,
-		CookedLoaded
-	};
-
 	// Owns reusable asset collision independently from render data and component transforms.
 	DCLASS()
 	class DBodySetup : public DObject
@@ -62,26 +50,18 @@ namespace Durin
 		ENGINE_API auto BuildComplexGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
 		ENGINE_API auto SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> bool;
 		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> bool;
-		ENGINE_API auto PublishCollisionGeometry(
+		// Installs compatible immutable geometry and advances its revision.
+		// Build/cache provenance is deliberately not retained by the physics owner.
+		ENGINE_API auto SetCollisionGeometry(
 			const FCollisionGeometryRef& Simple,
-			const FCollisionGeometryRef& Complex,
-			EBodySetupCollisionBuildStatus Status,
-			std::string DerivedDataKey,
-			std::string Diagnostic,
-			uint64 PayloadBytes = 0) -> bool;
-		ENGINE_API auto ClearCollisionGeometry(
-			EBodySetupCollisionBuildStatus Status,
-			std::string Diagnostic) -> void;
+			const FCollisionGeometryRef& Complex) -> bool;
+		ENGINE_API auto ClearCollisionGeometry() -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
 		auto GetCollisionSourceMode() const -> EBodySetupCollisionSourceMode { return CollisionSourceMode; }
 		auto GetCollisionQueryPolicy() const -> EBodySetupCollisionQueryPolicy { return CollisionQueryPolicy; }
-		auto GetCollisionBuildStatus() const -> EBodySetupCollisionBuildStatus { return CollisionBuildStatus; }
 		auto GetCollisionBuildRevision() const -> uint64 { return CollisionBuildRevision; }
-		auto GetCollisionDerivedDataKey() const -> const std::string& { return CollisionDerivedDataKey; }
-		auto GetCollisionDiagnostic() const -> const std::string& { return CollisionDiagnostic; }
-		auto GetCollisionPayloadBytes() const -> uint64 { return CollisionPayloadBytes; }
 
 	private:
 		DPROPERTY()
@@ -106,15 +86,9 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		uint64 CollisionBuildRevision = 0;
 
-		DPROPERTY(EditorOnly)
-		EBodySetupCollisionBuildStatus CollisionBuildStatus = EBodySetupCollisionBuildStatus::None;
-
 		mutable FCollisionGeometryRef CachedGeometry;
 		mutable uint64 CachedGeometryRevision = 0;
 		FCollisionGeometryRef CachedSimpleCollision;
 		FCollisionGeometryRef CachedComplexCollision;
-		std::string CollisionDerivedDataKey;
-		std::string CollisionDiagnostic;
-		uint64 CollisionPayloadBytes = 0;
 	};
 }

@@ -7,22 +7,11 @@
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapRenderStateRecreateContext.h"
-#include "Terrain/TerrainHeightmapPostLoad.h"
+#include "Terrain/TerrainHeightmapAssetBuild.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
-	namespace
-	{
-		auto SetBoundedDiagnostic(std::string& Target, std::string Message) -> void
-		{
-			constexpr size_t MaximumDiagnosticBytes = 2048;
-			if (Message.size() > MaximumDiagnosticBytes)
-				Message.resize(MaximumDiagnosticBytes);
-			Target = std::move(Message);
-		}
-
-	}
-
 	auto FTerrainHeightmapImportedData::IsValid() const -> bool
 	{
 		const uint64 Count = static_cast<uint64>(Width) * Height;
@@ -337,7 +326,6 @@ namespace Durin
 
 	auto DTerrainHeightmap::BeginDestroy() -> void
 	{
-		++DerivedDataLoadGeneration;
 		Payload.reset();
 		Status = ETerrainHeightmapStatus::Unavailable;
 		Super::BeginDestroy();
@@ -373,54 +361,34 @@ namespace Durin
 			MinX, MinY, MaxX, MaxY, OutMinimum, OutMaximum);
 	}
 
-	auto DTerrainHeightmap::PublishDerivedDataLoadResult(
+	auto DTerrainHeightmap::SetPayload(
 		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
-		std::string InDerivedDataKey,
-		std::string InDiagnostic,
+		std::string& OutError,
 		bool bAdvanceRevision,
-		bool bMarkPackageDirty,
-		bool bInLoadedFromDerivedDataCache) -> void
+		std::optional<FTerrainHeightmapImportedData> InImportedData) -> bool
 	{
-		++DerivedDataLoadGeneration;
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!InPayload || !InPayload->IsValid())
+		{
+			OutError = "Terrain heightmap payload is invalid.";
+			return false;
+		}
+		FTerrainHeightmapImportedData Candidate = InImportedData.value_or(
+			FTerrainHeightmapImportedData{});
+		if ((!InImportedData && !Candidate.SetSamples(
+			InPayload->Width, InPayload->Height, InPayload->Samples))
+			|| !Candidate.IsValid() || Candidate.Width != InPayload->Width
+			|| Candidate.Height != InPayload->Height)
+		{
+			OutError = "Terrain heightmap canonical imported metadata is incompatible.";
+			return false;
+		}
+		ImportedData = std::move(Candidate);
+		CookedPlatformData = {};
 		SourceBitDepth = 16;
 		SourceChannelCount = 1;
-		DerivedDataKey = std::move(InDerivedDataKey);
-		bLoadedFromDerivedDataCache = bInLoadedFromDerivedDataCache;
-		if (bMarkPackageDirty && InPayload && InPayload->IsValid())
-		{
-			FTerrainHeightmapImportedData Candidate;
-			check(Candidate.SetSamples(
-				InPayload->Width, InPayload->Height, InPayload->Samples));
-			ImportedData = std::move(Candidate);
-		}
 		PublishPayload(std::move(InPayload), bAdvanceRevision);
-		SetBoundedDiagnostic(LastDiagnostic, std::move(InDiagnostic));
-		if (bMarkPackageDirty) MarkPackageDirty();
-	}
-
-	auto DTerrainHeightmap::BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64
-	{
-		++DerivedDataLoadGeneration;
-		Status = bRebuilding ? ETerrainHeightmapStatus::Rebuilding : ETerrainHeightmapStatus::Loading;
-		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
-		return DerivedDataLoadGeneration;
-	}
-
-	auto DTerrainHeightmap::IsDerivedDataLoadCurrent(uint64 Generation) const -> bool
-	{
-		return Generation != 0 && Generation == DerivedDataLoadGeneration
-			&& (Status == ETerrainHeightmapStatus::Loading
-				|| Status == ETerrainHeightmapStatus::Rebuilding);
-	}
-
-	auto DTerrainHeightmap::FailDerivedDataLoad(
-		uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool
-	{
-		if (!IsDerivedDataLoadCurrent(Generation)
-			|| FailureStatus != ETerrainHeightmapStatus::Failed) return false;
-		++DerivedDataLoadGeneration;
-		Status = FailureStatus;
-		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
+		OutError.clear();
 		return true;
 	}
 
@@ -431,21 +399,8 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
-		if (!BuildTerrainHeightmapPayload(InWidth, InHeight, InSamples, Candidate, OutError))
-		{
-			Status = ETerrainHeightmapStatus::Failed;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		PublishPayload(std::move(Candidate), true);
-		if (!ImportedData.SetSamples(InWidth, InHeight, InSamples))
-		{
-			OutError = "Terrain heightmap canonical imported samples could not be retained.";
-			return false;
-		}
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		LastDiagnostic = "Built canonical terrain heightmap payload from exact samples.";
+		if (!BuildTerrainHeightmapPayload(InWidth, InHeight, InSamples, Candidate, OutError)
+			|| !SetPayload(std::move(Candidate), OutError)) return false;
 		MarkPackageDirty();
 		return true;
 	}
@@ -460,14 +415,13 @@ namespace Durin
 					"Cooked terrain heightmap '{}': required PlatformData field is missing.",
 					GetObjectPath());
 				Status = ETerrainHeightmapStatus::Failed;
-				SetBoundedDiagnostic(LastDiagnostic, OutError);
+
 				return false;
 			}
 			Payload.reset();
-			DerivedDataKey.clear();
-			bLoadedFromDerivedDataCache = false;
+
 			Status = ETerrainHeightmapStatus::Ready;
-			LastDiagnostic = "Loaded cooked terrain heightmap metadata.";
+
 			OutError.clear();
 			return true;
 		}
@@ -476,7 +430,7 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		return InvokeTerrainHeightmapUncookedPostLoadHandler(*this, OutError);
+		return PrepareTerrainHeightmapPayload(*this, OutError);
 	}
 
 	auto DTerrainHeightmap::GetPayload() const
@@ -536,7 +490,7 @@ namespace Durin
 		auto FailCooked = [&](std::string Message) {
 			OutError = std::format("Cooked terrain heightmap '{}': {}", GetObjectPath(), Message);
 			Status = ETerrainHeightmapStatus::Failed;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
+
 			return false;
 		};
 		std::span<const std::byte> Bytes;
@@ -561,9 +515,7 @@ namespace Durin
 		}
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 		PublishPayload(std::move(Candidate), false);
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		LastDiagnostic = "Loaded validated cooked terrain heightmap payload.";
+
 		OutError.clear();
 		return true;
 	}

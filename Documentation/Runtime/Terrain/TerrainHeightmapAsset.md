@@ -2,9 +2,9 @@
 
 Summary: Defines the exact unsigned 16-bit terrain-height authority, regional extrema, source import, DDC, package, and cooked-runtime contracts.
 
-Modules: Engine, AssetForgeBuiltins, DurinEd, LevelEditor
+Modules: Engine, TerrainBuild, AssetForgeBuiltins, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-09-03
 
 ## Asset Contract
 
@@ -57,9 +57,9 @@ The maximum canonical sample plane is 536,870,912 bytes. Its 64×64 hierarchy
 contains 87,381 nodes (349,524 bytes) plus nine in-memory level records. The
 maximum retained canonical payload is 537,220,652 bytes. Direct import and
 reimport build inside a detached candidate. Uncooked package reload instead
-stages DDC query and canonical-sample recovery through the CPU task system; no
-worker accesses a DObject or physical source, and no Texture2D scheduler is
-involved.
+uses synchronous Engine-owned DDC lookup and lazy canonical-sample recovery.
+The TerrainBuild provider receives only detached samples, dimensions, and
+cancellation; it never accesses objects, sources, or cache policy.
 
 ## Regional Min/Max Hierarchy
 
@@ -89,22 +89,18 @@ version-1 PNG entries. A warm hit validates and restores the immutable payload.
 A missing, corrupt, or incompatible object rebuilds from resident canonical
 samples without resolving a source hint.
 
-Uncooked PostLoad publishes the reflected object graph immediately in `Loading`
-and moves DDC query, object read, payload decode, canonical build, and DDC store
-to worker execution. Query, read, decode, and build/store timings remain
-separate in the bounded diagnostic. Publication is
-always deferred to GameThread and revalidates the object handle and derived-data
-load generation. A normal publication drives the existing payload revision
-context, so registered render and collision consumers rebuild through their
-ordinary invalidation path.
+Uncooked PostLoad derives the key from imported metadata before reading sample
+bulk. A valid hit performs no package range read; a miss reads canonical samples
+and invokes the pure provider. Engine validates the detached result before
+`SetPayload` replaces it through the existing render-state recreation context.
+Authoring callers explicitly decide dirtying and content revision changes.
+Invalid replacements retain the previous complete payload and revision.
 
-Requests with the same derived-data key coalesce onto one worker. Admission is
-bounded to two distinct retained load works and 64 subscribers, which bounds the
-worst-case canonical result retention to approximately 1,026 MiB. Unload,
-replacement, a newer publication, provider shutdown, or task-system shutdown
-invalidates or cancels stale work. Editor rendering reports payload loading and
-publishes no partial proxy. Required gameplay collision waits at its explicit
-activation barrier; missing/corrupt payload recovery failure rejects play.
+The current load path is synchronous: there is no async load group, subscriber
+coalescing, or stale-request generation on the asset. Status describes actual
+availability/readiness/failure, while payload revisions invalidate render and
+collision consumers. Keys, origins, phase timings, and bounded persistence
+diagnostics belong to Engine operation results, not reflected asset state.
 
 ## Payload and Cook
 
@@ -138,11 +134,11 @@ when saving fails.
 
 `TranslateTerrainHeightmapSource` is the sole encoded-source interpretation
 authority. Direct import, reimport, and explicit source selection consume one
-immutable source capture and pass exact owned samples to TerrainBuild.
+immutable source capture and pass exact owned samples to Engine orchestration.
 
 Generic reflected inspection exposes source format facts, dimensions, global
-range, revision, sample/hierarchy/retained bytes, status, DDC identity, cooked
-descriptor versions, and a diagnostic capped at 2,048 bytes. The asset has no
+range, revision, sample/hierarchy/retained bytes, status, and cooked
+descriptor versions. DDC keys and narrative history are not asset properties. The asset has no
 dedicated editor, rendered thumbnail, renderer resource, or collision object.
 
 ## Validation

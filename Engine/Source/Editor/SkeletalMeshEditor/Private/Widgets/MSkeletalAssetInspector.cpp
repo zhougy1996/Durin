@@ -207,7 +207,6 @@ namespace Durin::Editor::SkeletalMesh
 				DrawInfoRow("Material slots", std::to_string(Mesh->GetNumMaterialSlots()));
 				const auto Payload = Mesh->GetPayloadData();
 				DrawInfoRow("Palette bones", std::to_string(Payload ? Payload->PaletteBoneIndices.size() : 0));
-				DrawInfoRow("Storage", Mesh->WasLoadedFromDerivedDataCache() ? "Derived data cache" : "Authored/cooked payload");
 			}
 			else if (const auto* Clip = Cast<DAnimationClip>(Asset))
 			{
@@ -217,7 +216,6 @@ namespace Durin::Editor::SkeletalMesh
 				DrawInfoRow("Duration", std::format("{:.3f} s", Summary.DurationSeconds));
 				DrawInfoRow("Tracks", std::to_string(Summary.TrackCount));
 				DrawInfoRow("Keys", std::to_string(Summary.KeyCount));
-				DrawInfoRow("Storage", Clip->WasLoadedFromDerivedDataCache() ? "Derived data cache" : "Authored/cooked payload");
 			}
 			ImGui::EndTable();
 		}

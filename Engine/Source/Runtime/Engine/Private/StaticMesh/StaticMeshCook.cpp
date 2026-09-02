@@ -9,7 +9,7 @@
 #include "Hash/XxHash.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
-#include "StaticMesh/StaticMeshPostLoad.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
@@ -119,12 +119,8 @@ namespace Durin
 				&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
 			{
 				FCollisionGeometryRef Simple, Complex;
-				EBodySetupCollisionBuildStatus BuildStatus;
-				std::string Key, Diagnostic;
-				uint64 CollisionPayloadBytes = 0;
 				if (!BuildCollisionCandidate(*RenderData, BodySetup->GetCollisionSourceMode(),
-					BodySetup->GetCollisionQueryPolicy(), Simple, Complex, BuildStatus, Key,
-					Diagnostic, CollisionPayloadBytes, Error))
+					BodySetup->GetCollisionQueryPolicy(), Simple, Complex, Error))
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
 					return;
@@ -170,7 +166,6 @@ namespace Durin
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
 	{
-		DerivedDataDiagnostic = {};
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedRenderData.GetMetadata().LogicalSize == 0)
@@ -181,9 +176,6 @@ namespace Durin
 				return false;
 			}
 			RenderData.reset();
-			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
-			DerivedDataDiagnostic.Message = std::format(
-				"Loaded cooked static-mesh metadata for '{}'.", GetObjectPath());
 			OutError.clear();
 			return true;
 		}
@@ -214,15 +206,18 @@ namespace Durin
 			OutError = "StaticMesh canonical imported geometry is missing or invalid.";
 			return false;
 		}
-		return InvokeStaticMeshPostLoadFeature(*this, DerivedDataDiagnostic, OutError);
+		FStaticMeshBuildResult Product;
+		if (!BuildStaticMeshDerivedData({
+			.Reconciliation = CaptureStaticMeshReconciliation(*this),
+			.ImportedData = ImportedData,
+			.SourceLabel = "canonical imported geometry"}, Product, OutError)) return false;
+		return ApplyStaticMeshBuildResult(*this, std::move(Product), OutError, false);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedFailure;
-			DerivedDataDiagnostic.Message = std::format(
+			OutError = std::format(
 				"Cooked static mesh '{}': {}", GetObjectPath(), Message);
-			OutError = DerivedDataDiagnostic.Message;
 			return false;
 		};
 
@@ -270,16 +265,10 @@ namespace Durin
 		}
 		if (bRequiresCollision)
 		{
-			const bool bPublished = BodySetup->PublishCollisionGeometry(
-				Product.SimpleCollision, Product.ComplexCollision,
-				EBodySetupCollisionBuildStatus::CookedLoaded,
-				{}, "Loaded immutable collision from the cooked DCOL package field.",
-				Product.CollisionPayloadBytes);
+			const bool bPublished = BodySetup->SetCollisionGeometry(
+				Product.SimpleCollision, Product.ComplexCollision);
 			check(bPublished);
 		}
-		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
-		DerivedDataDiagnostic.Message = std::format(
-			"Loaded cooked static-mesh payload for '{}'.", GetObjectPath());
 		OutError.clear();
 		return true;
 	}
@@ -379,21 +368,13 @@ namespace Durin
 				if (Product.bHasCollision)
 				{
 					if (!Mesh->BodySetup
-						|| !Mesh->BodySetup->PublishCollisionGeometry(
-							Product.SimpleCollision, Product.ComplexCollision,
-							EBodySetupCollisionBuildStatus::CookedLoaded, {},
-							"Loaded immutable collision from the cooked DCOL package field.",
-							Product.CollisionPayloadBytes))
+						|| !Mesh->BodySetup->SetCollisionGeometry(
+							Product.SimpleCollision, Product.ComplexCollision))
 					{
 						OutError = "StaticMesh cooked collision publication failed.";
 						return false;
 					}
 				}
-				Mesh->DerivedDataDiagnostic.Status =
-					EStaticMeshDerivedDataStatus::CookedLoaded;
-				Mesh->DerivedDataDiagnostic.Message = std::format(
-					"Loaded cooked static-mesh payload for '{}'.",
-					Mesh->GetObjectPath());
 				Mesh->CookedLoadPhase.store(
 					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 				Mesh->InitResources();
@@ -403,7 +384,7 @@ namespace Durin
 			.OnTerminal = [](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
 				ECookedMeshTerminalState Terminal,
-				std::string_view Message) {
+				std::string_view) {
 				auto* Mesh = Cast<DStaticMesh>(&Owner);
 				if (!Mesh) return;
 				const bool bFailed = Terminal == ECookedMeshTerminalState::Failed
@@ -411,11 +392,6 @@ namespace Durin
 				Mesh->CookedLoadPhase.store(bFailed
 					? ECookedMeshCpuPhase::Failed
 					: ECookedMeshCpuPhase::Cancelled, std::memory_order_release);
-				Mesh->DerivedDataDiagnostic.Status =
-					EStaticMeshDerivedDataStatus::CookedFailure;
-				Mesh->DerivedDataDiagnostic.Message = std::format(
-					"Cooked static mesh '{}': {}", Mesh->GetObjectPath(),
-					Message.empty() ? "asynchronous load terminated" : Message);
 			}
 		};
 		if (bRequiresCollision)

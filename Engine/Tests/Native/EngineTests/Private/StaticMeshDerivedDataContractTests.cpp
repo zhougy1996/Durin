@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+#include "Runtime/Engine/Private/StaticMesh/StaticMeshDerivedDataKey.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace
@@ -55,7 +55,8 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
+	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input, Error),
+		"373d527e05a47be00505fd636fd724a2");
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
@@ -103,7 +104,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	EXPECT_EQ(Bytes, Expected);
 	const std::string BaselineKey =
 		Durin::BuildStaticMeshCollisionDerivedDataKey(Baseline, Error);
-	EXPECT_EQ(BaselineKey.size(), 32u);
+	EXPECT_EQ(BaselineKey, "2f83321f2ed9af9cbd52d38467d40155");
 
 	auto ExpectChanged = [&](auto Mutate)
 	{

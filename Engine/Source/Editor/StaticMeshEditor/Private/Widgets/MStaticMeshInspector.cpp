@@ -69,20 +69,6 @@ namespace Durin::Editor::StaticMesh
 			return "Invalid";
 		}
 
-		auto CollisionStatusLabel(EBodySetupCollisionBuildStatus Status) -> const char*
-		{
-			switch (Status)
-			{
-			case EBodySetupCollisionBuildStatus::None: return "None";
-			case EBodySetupCollisionBuildStatus::Ready: return "Ready";
-			case EBodySetupCollisionBuildStatus::CacheHit: return "Cache hit";
-			case EBodySetupCollisionBuildStatus::Rebuilt: return "Rebuilt";
-			case EBodySetupCollisionBuildStatus::SourceUnavailable: return "Source unavailable";
-			case EBodySetupCollisionBuildStatus::Failed: return "Failed";
-			case EBodySetupCollisionBuildStatus::CookedLoaded: return "Cooked loaded";
-			}
-			return "Invalid";
-		}
 	}
 
 	MStaticMeshInspector::MStaticMeshInspector(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
@@ -297,12 +283,11 @@ namespace Durin::Editor::StaticMesh
 		{
 			DrawInfoRow("Mode", CollisionModeLabel(Collision.Mode));
 			DrawInfoRow("Policy", CollisionPolicyLabel(Collision.Policy));
-			DrawInfoRow("Cache / Cook status", CollisionStatusLabel(Collision.BuildStatus));
+			DrawInfoRow("Geometry readiness", Collision.bHasGeometry ? "Ready" : "Unavailable");
 			DrawInfoRow("Source triangles", std::to_string(Collision.SourceTriangles));
 			DrawInfoRow("Retained triangles", std::to_string(Collision.RetainedTriangles));
 			DrawInfoRow("Removed triangles", std::to_string(Collision.RemovedTriangles));
 			DrawInfoRow("BVH nodes", std::to_string(Collision.Nodes));
-			DrawInfoRow("Payload bytes", std::to_string(Collision.PayloadBytes));
 			DrawInfoRow("Runtime bytes", std::to_string(Collision.RuntimeBytes));
 			DrawInfoRow("Builder / schema", std::format("{} / {}", Collision.BuilderVersion, Collision.SchemaVersion));
 			DrawInfoRow("Build revision", std::to_string(Collision.BuildRevision));
@@ -312,8 +297,6 @@ namespace Durin::Editor::StaticMesh
 				DrawInfoRow("Bounds center", FormatVector(Collision.Bounds->GetCenter()));
 				DrawInfoRow("Bounds extent", FormatVector(Collision.Bounds->GetExtent()));
 			}
-			DrawInfoRow("Cache key", Collision.CacheKey.empty() ? "None" : Collision.CacheKey);
-			DrawInfoRow("Last diagnostic", Collision.Diagnostic.empty() ? "None" : Collision.Diagnostic);
 			ImGui::EndTable();
 		}
 

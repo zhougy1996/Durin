@@ -2,7 +2,6 @@
 
 #include "Engine/World.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "Terrain/TerrainHeightmapPostLoad.h"
 
 namespace Durin
 {
@@ -153,19 +152,6 @@ namespace Durin
 		if (!Owner.Heightmap)
 			return SetFailure(ETerrainCollisionStatus::MissingHeightmap,
 				"Terrain collision requires an assigned heightmap.");
-		if (Owner.Heightmap->GetStatus() == ETerrainHeightmapStatus::Loading
-			|| Owner.Heightmap->GetStatus() == ETerrainHeightmapStatus::Rebuilding)
-		{
-			if (!bWaitUntilReady)
-			{
-				SetStatus(ETerrainCollisionStatus::Building,
-					"Terrain collision is waiting for the asynchronous heightmap payload.");
-				return true;
-			}
-			if (!WaitForTerrainHeightmapDerivedDataLoad(*Owner.Heightmap, Error))
-				return SetFailure(ETerrainCollisionStatus::BuildFailed, std::move(Error));
-			return RequestPhysicsStateCreation(true);
-		}
 		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Owner.Heightmap->GetPayload();
 		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 			return SetFailure(ETerrainCollisionStatus::InvalidPayload,

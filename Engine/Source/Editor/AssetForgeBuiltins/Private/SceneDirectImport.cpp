@@ -14,11 +14,11 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "SceneImportInternal.h"
-#include "Skeletal/SkeletalBuildOperations.h"
+#include "SkeletalMesh/SkeletalBuild.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
@@ -37,10 +37,10 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FSceneOutputData* Descriptor = nullptr;
 			FPackagePath AssetPath;
-			FStaticMeshBuildProduct StaticMesh;
+			FStaticMeshBuildResult StaticMesh;
 			FSceneTextureBuildProduct Texture;
-			FSkeletalMeshBuildProduct SkeletalMesh;
-			FAnimationClipBuildProduct Animation;
+			FSkeletalMeshDerivedDataResult SkeletalMesh;
+			FAnimationClipDerivedDataResult Animation;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
 		};
@@ -337,7 +337,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				if (!FStaticMeshBuildOperations::BuildImportedProduct(
+				if (!BuildStaticMeshImportedData(
 					{.StableObjectPath = Output.AssetPath.ToString()},
 					MakeStaticMeshImportedData(Data.Scene),
 					Root->Filename, Output.StaticMesh, Error))
@@ -361,21 +361,14 @@ namespace Durin::AssetForge::Builtins
 					static_cast<uint32>(Imported.MaterialSlots.size()), Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				FSkeletalMeshBuildKeyInput Key;
-				static_cast<FSkeletalBuildKeyFields&>(Key) = {
-					.ProviderIdentity = "CanonicalSkeletalMesh",
-					.ProviderVersion = SkeletalMeshImportedDataSchemaVersion,
+				if (!BuildSkeletalMeshDerivedData({
 					.ImportedDataIdentity = Canonical.GetIdentity(),
-					.StableOutputIdentity = Output.AssetPath.ToString(),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-				if (!BuildSkeletalMeshProduct({
-					.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
-					.MaterialSlotCount = static_cast<uint32>(Imported.MaterialSlots.size()),
-					.Payload = Imported.Payload, .KeyInput = std::move(Key)},
+					.Context = {.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
+						.MaterialSlotCount = static_cast<uint32>(Imported.MaterialSlots.size()),
+						.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+						.TargetProfile = ESkeletalPayloadTargetProfile::Game},
+					.Payload = Imported.Payload, .ShouldCancel = IsCancellationRequested},
 					Output.SkeletalMesh, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
@@ -396,20 +389,14 @@ namespace Durin::AssetForge::Builtins
 					static_cast<uint32>(Skeleton.Bones.size()), Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				FAnimationClipBuildKeyInput Key;
-				static_cast<FSkeletalBuildKeyFields&>(Key) = {
-					.ProviderIdentity = "CanonicalAnimationClip",
-					.ProviderVersion = AnimationClipImportedDataSchemaVersion,
+				if (!BuildAnimationClipDerivedData({
 					.ImportedDataIdentity = Canonical.GetIdentity(),
-					.StableOutputIdentity = Output.AssetPath.ToString(),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
+					.Context = {.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
 					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-				if (!BuildAnimationClipProduct({
-					.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.ClipName = FName(Imported.SuggestedName), .Payload = Imported.Payload,
-					.KeyInput = std::move(Key)}, Output.Animation, Error))
+					.TargetProfile = ESkeletalPayloadTargetProfile::Game},
+					.Payload = Imported.Payload, .ShouldCancel = IsCancellationRequested},
+					Output.Animation, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
 			}
@@ -516,7 +503,7 @@ namespace Durin::AssetForge::Builtins
 				Output.Candidate->MarkPackageDirty();
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
-				&& !FStaticMeshBuildOperations::PublishImportedProduct(
+				&& !ApplyStaticMeshBuildResult(
 					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMesh), Error))
 			{
 				Abandon(Prepared);
@@ -645,16 +632,12 @@ namespace Durin::AssetForge::Builtins
 							Descriptor.StableIdentity);
 					}
 				FPreparedSceneOutput* SkeletonOutput = FindOutput(Descriptor.SkeletonIdentity);
-				if (!SkeletonOutput || !Cast<DSkeletalMesh>(Output.Candidate)->PublishBuiltProduct({
+				if (!SkeletonOutput || !Cast<DSkeletalMesh>(Output.Candidate)->SetAssetData({
 					.Skeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
 					.ValidationSkeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.MeshNodeBindTransform = Output.SkeletalMesh.MeshNodeBindTransform,
-					.MaterialSlots = std::move(Slots), .Payload = std::move(Output.SkeletalMesh.Payload),
-					.DerivedDataKey = std::move(Output.SkeletalMesh.DerivedDataKey),
-					.DiagnosticMessage = std::move(Output.SkeletalMesh.Diagnostic),
-					.bLoadedFromDerivedDataCache =
-						Output.SkeletalMesh.bLoadedFromDerivedDataCache}, Error))
+					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
+					.MaterialSlots = std::move(Slots), .Payload = std::move(Output.SkeletalMesh.Payload)}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
@@ -668,22 +651,19 @@ namespace Durin::AssetForge::Builtins
 				const FImportedSkeletonData& Skeleton =
 					Data.Scene.Skeletons[Imported.SkeletonIndex];
 				FPreparedSceneOutput* SkeletonOutput = FindOutput(Descriptor.SkeletonIdentity);
-				if (!SkeletonOutput || !Cast<DAnimationClip>(Output.Candidate)->PublishBuiltProduct({
+				if (!SkeletonOutput || !Cast<DAnimationClip>(Output.Candidate)->SetAssetData({
 					.Skeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
 					.ValidationSkeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.ClipName = Output.Animation.ClipName,
-					.Payload = std::move(Output.Animation.Payload),
-					.DerivedDataKey = std::move(Output.Animation.DerivedDataKey),
-					.DiagnosticMessage = std::move(Output.Animation.Diagnostic),
-					.bLoadedFromDerivedDataCache =
-						Output.Animation.bLoadedFromDerivedDataCache}, Error))
+					.ClipName = FName(Imported.SuggestedName),
+					.Payload = std::move(Output.Animation.Payload)}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
 						"scene-dependency-binding", std::move(Error), Descriptor.StableIdentity);
 				}
 			}
+			Output.Candidate->MarkPackageDirty();
 			if (!ValidateCandidate(Output, Error))
 			{
 				Abandon(Prepared);

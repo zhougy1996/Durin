@@ -9,7 +9,6 @@
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapFactoryTestSupport.h"
-#include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Components/TerrainComponent.h"
 #include "Collision/CollisionGeometry.h"
@@ -81,7 +80,6 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	EXPECT_EQ(Cooked->GetPayload()->Samples,
 		std::vector<uint16>(RawSamples.begin(), RawSamples.end()));
 	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
-	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
 	auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "CookedTerrainComponent");
 	Component->SetHeightmap(Cooked);
 	Durin::FCollisionGeometryRef Collision;

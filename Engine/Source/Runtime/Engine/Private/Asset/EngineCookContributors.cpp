@@ -36,18 +36,7 @@ namespace Durin
 							return {EAssetError::UnsupportedProperty, std::move(Error)};
 						return {};
 					},
-					[](const DObject& Object) -> ECookPackageStatus {
-						const T& Typed = static_cast<const T&>(Object);
-						if constexpr (requires { Typed.WasLoadedFromDerivedDataCache(); })
-							return Typed.WasLoadedFromDerivedDataCache()
-								? ECookPackageStatus::DdcHit : ECookPackageStatus::Rebuilt;
-						else if constexpr (requires { Typed.GetDerivedDataDiagnostic().Status; })
-						{
-							const uint8 Status = static_cast<uint8>(
-								Typed.GetDerivedDataDiagnostic().Status);
-							if (Status == 1) return ECookPackageStatus::DdcHit;
-							if (Status == 5) return ECookPackageStatus::Rebuilt;
-						}
+					[](const DObject&) -> ECookPackageStatus {
 						return ECookPackageStatus::Captured;
 					}}
 			);

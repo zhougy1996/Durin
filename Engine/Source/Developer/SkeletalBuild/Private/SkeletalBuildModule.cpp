@@ -1,50 +1,72 @@
-#include "SkeletalBuildFunctionRegistry.h"
 #include "Modules/ModuleManager.h"
-#include "Skeletal/SkeletalBuildOperations.h"
-#include "SkeletalMesh/SkeletalAssetPostLoad.h"
+#include "SkeletalMesh/SkeletalBuildProvider.h"
 
 namespace Durin
 {
-	// Owns skeletal build-function and canonical authored-data rebuild registration.
+	// Owns pure skeletal recipe registration and drains admitted calls on retirement.
 	class FSkeletalBuildModule final
 		: public IModuleInterface
-		, public ISkeletalDerivedDataFeature
+		, public ISkeletalBuildProvider
 	{
-		FModularFeatureRegistration SkeletalFeatureRegistration;
-		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
+		FModularFeatureRegistration ProviderRegistration;
 
-		auto PostLoadUncooked(
-			DSkeletalMesh& Mesh,
-			std::string& OutMessage) -> bool override
+		auto GetDescriptor() const -> FSkeletalBuildProviderDescriptor override
 		{
-			return RebuildSkeletalMeshFromImportedData(Mesh, OutMessage);
+			return {
+				.SkeletalMeshProducerIdentity = "CanonicalSkeletalMesh",
+				.SkeletalMeshProducerVersion = SkeletalMeshImportedDataSchemaVersion,
+				.AnimationClipProducerIdentity = "CanonicalAnimationClip",
+				.AnimationClipProducerVersion = AnimationClipImportedDataSchemaVersion};
 		}
 
-		auto PostLoadUncooked(
-			DAnimationClip& Clip,
-			std::string& OutMessage) -> bool override
+		auto BuildSkeletalMesh(
+			const FSkeletalMeshRecipeRequest& Request,
+			FSkeletalMeshRecipeProduct& OutProduct,
+			std::string& OutError) -> bool override
 		{
-			return RebuildAnimationClipFromImportedData(Clip, OutMessage);
+			OutProduct = {};
+			if (Request.ShouldCancel && Request.ShouldCancel())
+			{
+				OutError = "SkeletalMesh build was canceled.";
+				return false;
+			}
+			if (!Request.Payload || !ValidateSkeletalMeshPayload(*Request.Payload,
+				Request.Context.SkeletonBoneCount,
+				Request.Context.MaterialSlotCount, OutError)) return false;
+			OutProduct.Payload = Request.Payload;
+			OutError.clear();
+			return true;
+		}
+
+		auto BuildAnimationClip(
+			const FAnimationClipRecipeRequest& Request,
+			FAnimationClipRecipeProduct& OutProduct,
+			std::string& OutError) -> bool override
+		{
+			OutProduct = {};
+			if (Request.ShouldCancel && Request.ShouldCancel())
+			{
+				OutError = "AnimationClip build was canceled.";
+				return false;
+			}
+			if (!Request.Payload || !ValidateAnimationClipPayload(*Request.Payload,
+				Request.Context.SkeletonBoneCount, OutError)) return false;
+			OutProduct.Payload = Request.Payload;
+			OutError.clear();
+			return true;
 		}
 
 		auto StartupModule() -> void override
 		{
-			std::string Error;
-			BuildFunctionCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration(
-					"SkeletalBuild.BuildFunctions");
-			checkf(InitializeSkeletalBuildFunctions(
-				BuildFunctionCallbackRegistration.GetGate(), &Error),
-				"SkeletalBuild could not register its build functions: {}", Error);
-			SkeletalFeatureRegistration =
-				FModuleStartup::RegisterFeature<ISkeletalDerivedDataFeature>(*this);
-			checkf(SkeletalFeatureRegistration.IsValid(),
-				"SkeletalBuild could not register skeletal DDC loading.");
+			ProviderRegistration =
+				FModuleStartup::RegisterFeature<ISkeletalBuildProvider>(*this);
+			checkf(ProviderRegistration.IsValid(),
+				"SkeletalBuild could not register its typed recipe provider.");
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownSkeletalBuildFunctions();
+			ProviderRegistration.Reset();
 		}
 	};
 

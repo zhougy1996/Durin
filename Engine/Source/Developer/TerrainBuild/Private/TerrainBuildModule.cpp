@@ -1,84 +1,81 @@
-#include "TerrainBuildFunctionRegistry.h"
 #include "Modules/ModuleManager.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "Terrain/TerrainHeightmapBuildOperations.h"
-#include "Terrain/TerrainHeightmapPostLoad.h"
+#include "Terrain/TerrainHeightmapBuildProvider.h"
+#include "Terrain/TerrainWorldTile.h"
 
 namespace Durin
 {
-	// Owns Terrain build-function registration for the loaded module generation.
+	// Owns pure Terrain recipe providers for the loaded module generation.
 	class FTerrainBuildModule final
 		: public IModuleInterface
-		, public ITerrainHeightmapDerivedDataLoadFeature
+		, public ITerrainHeightmapBuildProvider
+		, public ITerrainWorldBuildProvider
 	{
-		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
-		FModularFeatureRegistration DerivedDataLoadRegistration;
+		FModularFeatureRegistration HeightmapProviderRegistration;
+		FModularFeatureRegistration WorldProviderRegistration;
 
-		auto PostLoadUncooked(DTerrainHeightmap& Heightmap,
+		auto GetHeightmapDescriptor() const
+			-> FTerrainHeightmapBuildProviderDescriptor override
+		{
+			return {.ProducerIdentity = "canonical-u16",
+				.ProducerVersion = TerrainHeightmapImportedDataSchemaVersion};
+		}
+
+		auto Build(FTerrainHeightmapRecipeRequest Request,
+			FTerrainHeightmapRecipeProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			if (!Heightmap.GetImportedData().IsValid())
+			OutProduct = {};
+			if (Request.ShouldCancel && Request.ShouldCancel())
 			{
-				OutError = "Terrain heightmap canonical imported data is missing or invalid.";
+				OutError = "Terrain heightmap build was canceled.";
 				return false;
 			}
-			std::string Key = MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
-			if (Key.empty()) return false;
-			std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-			if (LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
+			if (!BuildTerrainHeightmapPayload(Request.Width, Request.Height,
+				Request.Samples, OutProduct.Payload, OutError)) return false;
+			if (Request.ShouldCancel && Request.ShouldCancel())
 			{
-				Heightmap.PublishDerivedDataLoadResult(std::move(Payload),
-					std::move(Key), "Loaded terrain heightmap payload from DDC.",
-					false, false, true);
-				OutError.clear();
-				return true;
+				OutProduct = {};
+				OutError = "Terrain heightmap build was canceled.";
+				return false;
 			}
-			FTerrainHeightmapBuildProduct Product;
-			if (!BuildTerrainHeightmap({
-				.Samples = Heightmap.GetImportedData().GetSamples(),
-				.Width = Heightmap.GetImportedData().Width,
-				.Height = Heightmap.GetImportedData().Height,
-				.bQueryDerivedData = false}, Product, OutError)) return false;
-			const std::string Diagnostic = Product.PersistenceDiagnostic.empty()
-				? "Rebuilt terrain heightmap from canonical samples after DDC miss or corruption."
-				: std::format(
-					"Rebuilt terrain heightmap from canonical samples; DDC persistence was best effort: {}",
-					Product.PersistenceDiagnostic);
-			Heightmap.PublishDerivedDataLoadResult(std::move(Product.Payload),
-				std::move(Product.DerivedDataKey), Diagnostic, false, false, false);
-			OutError.clear();
 			return true;
 		}
 
-		auto WaitForDerivedDataLoad(DTerrainHeightmap& Heightmap,
+		auto GetTerrainWorldDescriptor() const
+			-> FTerrainWorldBuildProviderDescriptor override
+		{
+			return {.ProducerIdentity = "Durin.TerrainWorld",
+				.BuilderVersion = TerrainWorldBuilderVersion,
+				.ProductSchemaVersion = TerrainWorldSchemaVersion};
+		}
+
+		auto Build(FTerrainWorldRecipeRequest Request,
+			FTerrainWorldRecipeProduct& OutProduct,
+			ETerrainWorldOutcome& OutOutcome,
 			std::string& OutError) -> bool override
 		{
-			if (Heightmap.GetStatus() == ETerrainHeightmapStatus::Ready)
-			{
-				OutError.clear();
-				return true;
-			}
-			OutError = Heightmap.GetLastDiagnostic();
-			return false;
+			OutProduct = {};
+			return BuildTerrainWorldRecipe(
+				std::move(Request), OutProduct, OutOutcome, OutError);
 		}
 
 		auto StartupModule() -> void override
 		{
-			std::string Error;
-			BuildFunctionCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration("TerrainBuild.BuildFunctions");
-			checkf(InitializeTerrainBuildFunctions(
-				BuildFunctionCallbackRegistration.GetGate(), &Error),
-				"TerrainBuild could not register its build functions: {}", Error);
-			DerivedDataLoadRegistration = FModuleStartup::RegisterFeature<
-				ITerrainHeightmapDerivedDataLoadFeature>(*this);
-			checkf(DerivedDataLoadRegistration.IsValid(),
-				"TerrainBuild could not register TerrainHeightmap post-load building.");
+			HeightmapProviderRegistration = FModuleStartup::RegisterFeature<
+				ITerrainHeightmapBuildProvider>(*this);
+			checkf(HeightmapProviderRegistration.IsValid(),
+				"TerrainBuild could not register its typed heightmap provider.");
+			WorldProviderRegistration = FModuleStartup::RegisterFeature<
+				ITerrainWorldBuildProvider>(*this);
+			checkf(WorldProviderRegistration.IsValid(),
+				"TerrainBuild could not register its typed world provider.");
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownTerrainBuildFunctions();
+			WorldProviderRegistration.Reset();
+			HeightmapProviderRegistration.Reset();
 		}
 	};
 

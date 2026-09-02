@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Terrain/TerrainWorldTile.h"
+#include "Terrain/TerrainWorldBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -30,7 +31,7 @@ namespace Durin::AssetForge::Builtins
 		OutDiagnostics = {};
 		const uint64 RequestId = Publisher.BeginRequest();
 		const auto NormalizeStart = std::chrono::steady_clock::now();
-		FTerrainNormalizedTileInput Input;
+		FTerrainTileRecipeInput Input;
 		if (!NormalizeTerrainTileInput(Definition, TileX, TileY, ComposedValues,
 			Input, OutDiagnostics.Outcome, OutError)) return false;
 		OutDiagnostics.NormalizeNanoseconds = static_cast<uint64>(
@@ -38,21 +39,21 @@ namespace Durin::AssetForge::Builtins
 				std::chrono::steady_clock::now() - NormalizeStart).count());
 		OutDiagnostics.PeakTaskBytes = EstimateTerrainTileBuildBytes(Input);
 		const auto BuildStart = std::chrono::steady_clock::now();
-		FTerrainTileGeneration Candidate;
-		if (!BuildTerrainTileGeneration(Input, GenerationId, Candidate,
+		FTerrainWorldDerivedDataResult Result;
+		if (!BuildTerrainWorldDerivedData({std::move(Input), GenerationId}, Result,
 			OutDiagnostics.Outcome, OutError)) return false;
 		OutDiagnostics.BuildNanoseconds = static_cast<uint64>(
 			std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - BuildStart).count());
-		for (const FTerrainTileProduct& Product : Candidate.Products)
+		for (size_t Index = 0; Index < Result.Generation.Products.size(); ++Index)
 		{
-			OutDiagnostics.ProductBytes += Product.Bytes.size();
-			if (Product.Origin == ETerrainTileBuildOrigin::DerivedData)
+			OutDiagnostics.ProductBytes += Result.Generation.Products[Index].Bytes.size();
+			if (Result.Origins[Index] == ETerrainTileBuildOrigin::DerivedData)
 				++OutDiagnostics.CachedProductCount;
 			else ++OutDiagnostics.LocalProductCount;
 		}
 		const auto PublishStart = std::chrono::steady_clock::now();
-		if (!Publisher.Publish(RequestId, std::move(Candidate),
+		if (!Publisher.Publish(RequestId, std::move(Result.Generation),
 			OutDiagnostics.Outcome, OutError)) return false;
 		OutDiagnostics.PublishNanoseconds = static_cast<uint64>(
 			std::chrono::duration_cast<std::chrono::nanoseconds>(

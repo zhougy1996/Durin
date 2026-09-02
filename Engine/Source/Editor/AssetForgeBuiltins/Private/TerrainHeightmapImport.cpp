@@ -14,7 +14,7 @@
 #include "Misc/StringHelper.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
-#include "Terrain/TerrainHeightmapBuildOperations.h"
+#include "Terrain/TerrainHeightmapBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -107,26 +107,17 @@ namespace Durin::AssetForge::Builtins
 			if (!TranslateTerrainHeightmapSource(
 				PhysicalPath.extension().generic_string(), Snapshot.GetBytes(),
 				SourceData, OutError)) return false;
-			const FTerrainHeightmapSourceData ImportState = SourceData;
 			const std::shared_ptr<const FTerrainHeightmapPayload> Existing = Heightmap.GetPayload();
 			const bool bSamplesChanged = !Existing || Existing->Samples != SourceData.Samples;
-			if (!BuildTerrainHeightmapInto(Heightmap, {
-					.Samples = std::move(SourceData.Samples),
-					.Width = SourceData.Width, .Height = SourceData.Height,
-					.SourceContentHashLow = Snapshot.ContentHash.HashLow,
-					.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
-					.DecoderId = SourceData.DecoderId,
-					.DecoderVersion = SourceData.DecoderVersion,
-					.SourceFormat = SourceData.SourceFormat,
-					.SourceProfileVersion = SourceData.SourceProfileVersion}, {
-						.SourceFilename = Snapshot.Filename,
-						.DecoderId = ImportState.DecoderId,
-						.DecoderVersion = ImportState.DecoderVersion,
-						.SourceFormat = ImportState.SourceFormat,
-						.SourceProfileVersion = ImportState.SourceProfileVersion,
-						.bAdvanceRevision = bSamplesChanged}, OutError)
+			FTerrainHeightmapDerivedDataResult Result;
+			if (!BuildTerrainHeightmapDerivedData({
+				.Samples = std::move(SourceData.Samples),
+				.Width = SourceData.Width, .Height = SourceData.Height}, Result, OutError)
+				|| !Heightmap.SetPayload(std::move(Result.Payload), OutError,
+					bSamplesChanged, std::move(Result.ImportedData))
 				|| !PublishImportData(Heightmap, std::move(Filename), HintBase, PhysicalPath,
 					Snapshot, OutError)) return false;
+			Heightmap.MarkPackageDirty();
 			if (!SaveOptions) return true;
 			DPackage* Package = Heightmap.GetPackage();
 			const FAssetResult Saved = SavePackagesAtomically(

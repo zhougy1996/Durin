@@ -17,6 +17,12 @@ namespace Durin
 	inline constexpr uint32 SkeletalPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumSkeletalPayloadChunks = 64;
 	inline constexpr uint32 MaximumSkeletalPayloadNameBytes = 1024;
+	inline constexpr uint32 SkeletalMeshBuilderVersion = 1;
+	inline constexpr uint32 AnimationClipBuilderVersion = 1;
+	inline constexpr std::string_view SkeletalMeshBuilderIdentity =
+		"Durin.SkeletalMesh.Builder.V1";
+	inline constexpr std::string_view AnimationClipBuilderIdentity =
+		"Durin.AnimationClip.Builder.V1";
 	inline const FGuid SkeletalMeshPrimaryCookedPayloadId{
 		0x716b7891, 0x4ce54f80, 0xa8c6d1b2, 0x173fa049};
 	inline const FGuid AnimationClipPrimaryCookedPayloadId{

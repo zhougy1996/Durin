@@ -181,6 +181,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			Durin::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		Durin::DMaterial* StandardMaterial =
 			Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error);
 		ASSERT_NE(StandardMaterial, nullptr) << Error;
@@ -378,7 +380,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),
 				Mesh->GetPayloadData()->Indices);
 			EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMeshes[Index]);
-			EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
+
 			RuntimeMeshes.push_back(Mesh);
 		}
 		std::vector<Durin::DAnimationClip*> RuntimeClips;
@@ -393,7 +395,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_NE(Clip->GetSkeleton(), nullptr);
 			ASSERT_NE(Clip->GetPayloadData(), nullptr);
 			EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClips[Index]);
-			EXPECT_TRUE(Clip->GetDerivedDataKey().empty());
+
 			RuntimeClips.push_back(Clip);
 		}
 

@@ -2,7 +2,7 @@
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
@@ -124,7 +124,7 @@ namespace
 		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
-		if (!Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!Durin::BuildStaticMeshSynchronously(
 			*Result, Imported,
 			"viewport picking grid", Error)) throw std::runtime_error(Error);
 		return Result;

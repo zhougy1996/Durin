@@ -1,82 +1,24 @@
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
-#include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "StaticMeshBuildFunctionRegistry.h"
-#include "DObject/DObjectGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
-#include "Serialization/Archive.h"
-#include "StaticMesh/StaticMeshBuildDerivedData.h"
-#include "StaticMesh/StaticMeshBuildFunctions.h"
-#include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
 {
-	using namespace ::Durin::DerivedData;
-
 	namespace
 	{
-		auto BuildReconciliationHash(
-			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			float NormalizedSize) -> FXxHash128
-		{
-			FXxHash128Builder Builder;
-			Builder.UpdateValue(NormalizedSize);
-			const uint64 SlotCount = MaterialSlots.size();
-			Builder.UpdateValue(SlotCount);
-			for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
-			{
-				const std::string Name = Slot.Name.ToString();
-				const uint64 NameSize = Name.size();
-				Builder.UpdateValue(NameSize);
-				Builder.Update(Name);
-				const uint64 SourceNameSize = Slot.SourceName.size();
-				Builder.UpdateValue(SourceNameSize);
-				Builder.Update(Slot.SourceName);
-				Builder.UpdateValue(Slot.SourceMaterialIndex);
-			}
-			return Builder.Finalize();
-		}
-
 		constexpr float VectorTolerance = 1.0e-10f;
 
-		auto RestoreRuntimeMetadata(
-			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-			FStaticMeshRenderData& RenderData,
-			std::string& OutError) -> bool
-		{
-			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
-			{
-				OutError = "Cached StaticMesh material slot count does not match asset metadata.";
-				return false;
-			}
-			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
-			{
-				RenderData.MaterialSlots[SlotIndex].Name =
-					MaterialSlots[SlotIndex].Name.ToString();
-				RenderData.MaterialSlots[SlotIndex].SourceMaterialIndex =
-					MaterialSlots[SlotIndex].SourceMaterialIndex;
-			}
-			for (size_t LODIndex = 0; LODIndex < RenderData.LODResources.size(); ++LODIndex)
-				for (size_t SectionIndex = 0;
-					SectionIndex < RenderData.LODResources[LODIndex].Sections.size();
-					++SectionIndex)
-					RenderData.LODResources[LODIndex].Sections[SectionIndex].Name =
-						std::format("LOD{}_Section{}", LODIndex, SectionIndex);
-			OutError.clear();
-			return true;
-		}
 		auto SlotDefinitionsEqual(
-			std::span<const FMeshMaterialSlotDefinition> A,
-			std::span<const FMeshMaterialSlotDefinition> B) -> bool
+			std::span<const FStaticMeshRecipeMaterialSlot> A,
+			std::span<const FStaticMeshRecipeMaterialSlot> B) -> bool
 		{
 			if (A.size() != B.size()) return false;
 			for (size_t Index = 0; Index < A.size(); ++Index)
 			{
 				if (A[Index].Name != B[Index].Name
 					|| A[Index].SourceName != B[Index].SourceName
-					|| A[Index].SourceMaterialIndex != B[Index].SourceMaterialIndex
-					|| A[Index].DefaultMaterial != B[Index].DefaultMaterial) return false;
+					|| A[Index].SourceMaterialIndex != B[Index].SourceMaterialIndex) return false;
 			}
 			return true;
 		}
@@ -210,19 +152,17 @@ namespace Durin
 		}
 
 		auto BuildRenderDataCandidate(
-		std::span<const FMeshMaterialSlotDefinition> PreviousMaterialSlots,
+		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots,
 		float NormalizedSize,
-		std::string_view OwnerPath,
 		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::vector<FMeshMaterialSlotDefinition>& OutMaterialSlots,
+		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
 		std::string& OutError) -> bool
 	{
-		const std::vector<FMeshMaterialSlotDefinition> PreviousSlots(
+		const std::vector<FStaticMeshRecipeMaterialSlot> PreviousSlots(
 			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
-		std::vector<FMeshMaterialSlotDefinition> ReconciledSlots = PreviousSlots;
+		std::vector<FStaticMeshRecipeMaterialSlot> ReconciledSlots = PreviousSlots;
 		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
 		std::vector<bool> NewMatched(ImportedData.MaterialSlots.size(), false);
 		std::vector<uint32> ImportedToStableSlot(
@@ -231,9 +171,9 @@ namespace Durin
 		std::unordered_map<std::string, uint32> NewNameCounts;
 		std::unordered_map<uint32, uint32> OldSourceIndexCounts;
 		std::unordered_map<uint32, uint32> NewSourceIndexCounts;
-		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
+		for (const FStaticMeshRecipeMaterialSlot& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
 		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewNameCounts[Slot.SourceName];
-		for (const FMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
+		for (const FStaticMeshRecipeMaterialSlot& Slot : PreviousSlots) ++OldSourceIndexCounts[Slot.SourceMaterialIndex];
 		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewSourceIndexCounts[Slot.SourceMaterialIndex];
 
 		auto PreserveSlot = [&](size_t ImportedIndex, size_t OldIndex) {
@@ -250,7 +190,7 @@ namespace Durin
 			const std::string& SourceName = ImportedData.MaterialSlots[NewIndex].SourceName;
 			if (SourceName.empty()) continue;
 			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
-			const auto It = std::ranges::find(PreviousSlots, SourceName, &FMeshMaterialSlotDefinition::SourceName);
+			const auto It = std::ranges::find(PreviousSlots, SourceName, &FStaticMeshRecipeMaterialSlot::SourceName);
 			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
 		}
 
@@ -262,7 +202,7 @@ namespace Durin
 				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
 			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
 			{
-				const FMeshMaterialSlotDefinition& Previous = PreviousSlots[OldIndex];
+				const FStaticMeshRecipeMaterialSlot& Previous = PreviousSlots[OldIndex];
 				if (OldConsumed[OldIndex]
 					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
 				PreserveSlot(NewIndex, OldIndex);
@@ -275,7 +215,7 @@ namespace Durin
 			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
 			FName Candidate(BaseName);
 			uint32 Suffix = 1;
-			while (std::ranges::find(ReconciledSlots, Candidate, &FMeshMaterialSlotDefinition::Name)
+			while (std::ranges::find(ReconciledSlots, Candidate, &FStaticMeshRecipeMaterialSlot::Name)
 				!= ReconciledSlots.end())
 			{
 				Candidate = FName(std::format("{}_{}", BaseName, Suffix++));
@@ -287,15 +227,15 @@ namespace Durin
 		{
 			if (NewMatched[NewIndex]) continue;
 			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
-			FMeshMaterialSlotDefinition& Definition = ReconciledSlots.emplace_back();
+			FStaticMeshRecipeMaterialSlot& Definition = ReconciledSlots.emplace_back();
 			Definition.Name = MakeUniqueSlotName(Imported);
 			Definition.SourceName = Imported.SourceName;
 			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
 			ImportedToStableSlot[NewIndex] = static_cast<uint32>(ReconciledSlots.size() - 1);
 			if (NewNameCounts[Imported.SourceName] > 1)
 			{
-				DURIN_WARN("Static mesh '{}' has ambiguous duplicate source material name '{}'; appended a stable slot.",
-					OwnerPath, Imported.SourceName);
+				DURIN_WARN("Static mesh has ambiguous duplicate source material name '{}'; appended a stable slot.",
+					Imported.SourceName);
 			}
 		}
 
@@ -321,7 +261,7 @@ namespace Durin
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.reserve(ReconciledSlots.size());
-		for (const FMeshMaterialSlotDefinition& Slot : ReconciledSlots)
+		for (const FStaticMeshRecipeMaterialSlot& Slot : ReconciledSlots)
 		{
 			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
 		}
@@ -332,7 +272,7 @@ namespace Durin
 			if (!ImportedSourceToIndex.emplace(SourceIndex, ImportedIndex).second)
 			{
 				OutError = std::format(
-					"Static mesh '{}' has duplicate imported source material index {}.", SourceLabel, SourceIndex);
+					"Static mesh has duplicate imported source material index {}.", SourceIndex);
 				return false;
 			}
 		}
@@ -364,7 +304,7 @@ namespace Durin
 			if (Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
 				|| Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
 			{
-				OutError = std::format("Static mesh '{}' exceeds uint32 render-data limits.", SourceLabel);
+				OutError = "Static mesh exceeds uint32 render-data limits.";
 				return false;
 			}
 
@@ -468,7 +408,7 @@ namespace Durin
 
 		if (Positions.empty() || Indices.empty() || LOD.Sections.empty())
 		{
-			OutError = std::format("Static mesh source has no renderable geometry: {}", SourceLabel);
+			OutError = "Static mesh source has no renderable geometry.";
 			return false;
 		}
 
@@ -481,7 +421,7 @@ namespace Durin
 		const float MaxDimension = std::max(BoundsExtent.x, std::max(BoundsExtent.y, BoundsExtent.z));
 		if (MaxDimension <= 0.0f)
 		{
-			OutError = std::format("Static mesh source has invalid bounds: {}", SourceLabel);
+			OutError = "Static mesh source has invalid bounds.";
 			return false;
 		}
 
@@ -503,272 +443,58 @@ namespace Durin
 
 	}
 
-	auto FStaticMeshBuildOperations::CaptureReconciliationSnapshot(
-		const DStaticMesh& Mesh) -> FStaticMeshReconciliationSnapshot
-	{
-		CheckGameThread();
-		return {
-			.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
-				Mesh.MaterialSlots.begin(), Mesh.MaterialSlots.end()),
-			.NormalizedSize = Mesh.NormalizedSize,
-			.StableObjectPath = Mesh.GetObjectPath()};
-	}
-
-	auto FStaticMeshBuildOperations::BuildAndPublishImported(
-		DStaticMesh& Mesh,
-		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
-		std::string& OutError) -> bool
-	{
-		FStaticMeshBuildProduct Product;
-		return BuildImportedProduct(
-				CaptureReconciliationSnapshot(Mesh), ImportedData,
-				SourceLabel, Product, OutError)
-			&& PublishImportedProduct(Mesh, std::move(Product), OutError);
-	}
-
-	auto FStaticMeshBuildOperations::BuildImportedProduct(
-		const FStaticMeshReconciliationSnapshot& Reconciliation,
-		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
-		FStaticMeshBuildProduct& OutProduct,
+	auto FStaticMeshBuildOperations::BuildRenderRecipe(
+		const FStaticMeshRecipeBuildRequest& Request,
+		FStaticMeshRecipeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
-		FStaticMeshBuildProduct& Product = OutProduct;
-		if (ImportedData.MaterialSlots.empty() || ImportedData.Meshes.empty())
-		{
-			OutProduct.FailureStage = EStaticMeshBuildFailureStage::Request;
-			OutError = "Imported StaticMesh build requires canonical geometry.";
-			return false;
-		}
-		Product.ImportedData = ImportedData;
-		if (!Product.ImportedData.CaptureDecodedData(OutError))
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::Request;
-			return false;
-		}
-		Product.bContainsImportedData = true;
-		const FXxHash128 ImportedIdentity = Product.ImportedData.GetIdentity();
-
-		if (!BuildRenderDataCandidate(
-			Reconciliation.MaterialSlots,
-			Reconciliation.NormalizedSize,
-			Reconciliation.StableObjectPath,
-			ImportedData,
-			SourceLabel,
-			Product.RenderData,
-			Product.MaterialSlots,
-			Product.bSlotMetadataChanged,
-			OutError))
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::RenderConversion;
-			return false;
-		}
-
-		const FStaticMeshBuildKeyInput KeyInput{
-			.ImportedDataHash = ImportedIdentity,
-			.ReconciliationHash = BuildReconciliationHash(
-				Product.MaterialSlots, Reconciliation.NormalizedSize),
-			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-		Product.DerivedDataKey = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
-		if (Product.DerivedDataKey.empty())
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::Key;
-			return false;
-		}
-		FBuildValue CandidateValue;
-		if (!AssetPrivate::EncodeStaticMeshRenderData(*Product.RenderData, CandidateValue, OutError))
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::DerivedDataWrite;
-			return false;
-		}
-		const FByteArray KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(AssetPrivate::StaticMeshFunctionName, std::string(AssetPrivate::StaticMeshValueName));
-		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
-			.AddTargetFact("Platform", "Win64")
-			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::StaticMeshInputName),
-				FByteArray(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
-		if (!Builder.Build(Definition, &OutError))
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::Key;
-			return false;
-		}
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true});
-		if (!Output.Succeeded())
-		{
-			Product.FailureStage = Output.FailurePhase == EBuildFailurePhase::CacheStore
-				? EStaticMeshBuildFailureStage::DerivedDataWrite
-				: EStaticMeshBuildFailureStage::RenderConversion;
-			OutError = Output.Diagnostic;
-			return false;
-		}
-		std::unique_ptr<FStaticMeshRenderData> SelectedRenderData;
-		if (!AssetPrivate::DecodeStaticMeshRenderData(Output.Value, SelectedRenderData, OutError)
-			|| !RestoreRuntimeMetadata(Product.MaterialSlots, *SelectedRenderData, OutError))
-		{
-			Product.FailureStage = EStaticMeshBuildFailureStage::RenderConversion;
-			return false;
-		}
-		Product.RenderData = std::move(SelectedRenderData);
-
-		Product.NormalizedSize = Reconciliation.NormalizedSize;
-		Product.DerivedDataStatus = EStaticMeshDerivedDataStatus::Rebuilt;
-		Product.DiagnosticMessage = Output.StoreDiagnostic.empty()
-			? "Built StaticMesh from canonical imported geometry."
-			: std::format("Built StaticMesh from canonical imported geometry; DDC persistence was best effort: {}",
-				Output.StoreDiagnostic);
-		Product.FailureStage = EStaticMeshBuildFailureStage::None;
-		OutError.clear();
-		return true;
+		return BuildRenderDataCandidate(
+			Request.PreviousMaterialSlots,
+			Request.NormalizedSize,
+			Request.ImportedData.get(),
+			OutProduct.RenderData,
+			OutProduct.MaterialSlots,
+			OutProduct.bSlotMetadataChanged,
+			OutError);
 	}
 
-	auto FStaticMeshBuildOperations::TryLoadImportedProduct(
-		const FStaticMeshReconciliationSnapshot& Reconciliation,
-		const FStaticMeshImportedData& ImportedData,
-		FStaticMeshBuildProduct& OutProduct,
+	auto FStaticMeshBuildOperations::BuildCollisionRecipe(
+		const FStaticMeshCollisionRecipeRequest& Request,
+		FStaticMeshCollisionRecipeProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!ImportedData.IsValid())
-		{
-			OutError = "StaticMesh canonical imported-data metadata is invalid.";
-			return false;
-		}
-		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
-		const FStaticMeshBuildKeyInput KeyInput{
-			.ImportedDataHash = ImportedData.GetIdentity(),
-			.ReconciliationHash = BuildReconciliationHash(
-				Reconciliation.MaterialSlots, Reconciliation.NormalizedSize),
-			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-		const FByteArray KeyBytes =
-			BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
-		const std::string Key = KeyBytes.empty()
-			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
-		if (Key.empty()) return false;
-
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(
-			AssetPrivate::StaticMeshFunctionName,
-			std::string(AssetPrivate::StaticMeshValueName));
-		Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
-			.AddTargetFact("Platform", "Win64");
-		if (!Builder.Build(Definition, &OutError)) return false;
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false});
-		if (!Output.Succeeded())
-		{
-			OutError.clear();
-			return false;
-		}
-		auto RenderData = std::unique_ptr<FStaticMeshRenderData>();
-		if (!AssetPrivate::DecodeStaticMeshRenderData(
-			Output.Value, RenderData, OutError)
-			|| !RestoreRuntimeMetadata(
-				Reconciliation.MaterialSlots, *RenderData, OutError))
-		{
-			OutError.clear();
-			return false;
-		}
-		OutProduct = {
-			.RenderData = std::move(RenderData),
-			.MaterialSlots = Reconciliation.MaterialSlots,
-			.NormalizedSize = Reconciliation.NormalizedSize,
-			.DerivedDataKey = Key,
-			.DerivedDataStatus = EStaticMeshDerivedDataStatus::Hit,
-			.DiagnosticMessage = "Loaded StaticMesh render data from DDC.",
-			.bSourceImporterInvoked = false,
-			.bMarkPackageDirty = false,
-			.bContainsImportedData = false};
-		OutError.clear();
-		return true;
-	}
-
-	auto FStaticMeshBuildOperations::PublishImportedProduct(
-		DStaticMesh& Mesh,
-		FStaticMeshBuildProduct Product,
-		std::string& OutError) -> bool
-	{
-		return Mesh.PublishImportedProduct(std::move(Product), OutError);
-	}
-
-	auto FStaticMeshBuildOperations::BuildCollisionProduct(
-		const FStaticMeshRenderData& RenderData,
-		EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy,
-		FStaticMeshCollisionBuildProduct& OutProduct,
-		std::string& OutError) -> bool
-	{
-		OutProduct = {};
-		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
-		if (Mode == EBodySetupCollisionSourceMode::None)
+		if (Request.Mode == EBodySetupCollisionSourceMode::None)
 		{
 			OutError.clear();
 			return true;
 		}
-		if (RenderData.LODResources.empty())
+		if (Request.Positions.empty() || Request.Indices.empty()
+			|| Request.Indices.size() % 3 != 0)
 		{
-			OutError = "StaticMesh has no LOD 0 collision source.";
+			OutError = "StaticMesh collision recipe input is empty or malformed.";
 			return false;
 		}
-		const FStaticMeshLODResources& LOD = RenderData.LODResources.front();
-		const auto& Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
-		const auto& Indices = LOD.IndexBuffer.GetIndices();
-		if (Positions.empty() || Indices.empty() || Indices.size() % 3 != 0)
+		FCollisionGeometryBuildDiagnostics Diagnostics;
+		std::vector<FVector3> CollisionPositions;
+		CollisionPositions.reserve(Request.Positions.size());
+		for (const FVector3f& Position : Request.Positions)
+			CollisionPositions.emplace_back(Position);
+		OutProduct.Geometry =
+			Request.Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			? FCollisionGeometryRef::BuildConvexHull(CollisionPositions, &Diagnostics)
+			: FCollisionGeometryRef::BuildTriangleMesh(
+				CollisionPositions, Request.Indices, &Diagnostics);
+		if (!OutProduct.Geometry)
 		{
-			OutError = "StaticMesh LOD 0 collision source is empty or malformed.";
+			OutError = std::format(
+				"StaticMesh collision build failed with status {}.",
+				static_cast<uint32>(Diagnostics.Status));
 			return false;
 		}
-		const FXxHash128 GeometryHash = AssetPrivate::BuildCollisionGeometryHash(Positions, Indices);
-		const FStaticMeshCollisionBuildKeyInput KeyInput{
-			.GeometryHash = GeometryHash,
-			.SourceMode = Mode,
-			.QueryPolicy = Policy,
-			.WeldToleranceBits = 0,
-			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-		OutProduct.DerivedDataKey =
-			BuildStaticMeshCollisionDerivedDataKey(KeyInput, OutError);
-		if (OutProduct.DerivedDataKey.empty()) return false;
-
-		const FByteArray KeyBytes =
-			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(
-			AssetPrivate::StaticMeshCollisionFunctionName, std::string(AssetPrivate::CollisionValueName));
-		Builder.SetKey(FBuildKey::FromString(OutProduct.DerivedDataKey), KeyBytes)
-			.AddTargetFact("Platform", "Win64")
-			.AddTargetFact("Mode", std::to_string(static_cast<uint32>(Mode)))
-			.AddTargetFact("Policy", std::to_string(static_cast<uint32>(Policy)))
-			.AddInput(FBuildValue::FromOwned(std::string(AssetPrivate::CollisionInputName),
-				AssetPrivate::EncodeStaticMeshCollisionInput(Positions, Indices, Mode, Policy)));
-		if (!Builder.Build(Definition, &OutError)) return false;
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true});
-		if (!Output.Succeeded())
-		{
-			OutError = Output.Diagnostic;
-			return false;
-		}
-		FCollisionGeometryRef Geometry;
-		if (!AssetPrivate::DecodeStaticMeshCollisionValue(Output.Value, Mode, Policy, Geometry, OutError)) return false;
-		if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
-			OutProduct.Simple = Geometry;
-		else OutProduct.Complex = Geometry;
-		OutProduct.Status = Output.Status == EBuildStatus::CacheHit
-			? EBodySetupCollisionBuildStatus::CacheHit
-			: EBodySetupCollisionBuildStatus::Rebuilt;
-		OutProduct.PayloadBytes = Output.Value.GetSize();
-		OutProduct.Diagnostic = Output.Status == EBuildStatus::CacheHit
-			? std::format("StaticMesh collision DDC hit for key {}.", OutProduct.DerivedDataKey)
-			: std::format("Rebuilt StaticMesh collision key {} ({} bytes).",
-				OutProduct.DerivedDataKey, Geometry.GetRetainedBytes());
 		OutError.clear();
 		return true;
 	}
+
 }

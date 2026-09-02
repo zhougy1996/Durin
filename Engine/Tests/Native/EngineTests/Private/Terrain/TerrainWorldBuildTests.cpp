@@ -7,23 +7,36 @@
 #include "Asset/PackageSerialization.h"
 #include "DObject/Object.h"
 #include "Misc/FileHelper.h"
+#include "Modules/ModuleManager.h"
 #include "Terrain/TerrainWorldCook.h"
 #include "Terrain/TerrainWorldTile.h"
+#include "Terrain/TerrainWorldBuild.h"
+#include "Runtime/Engine/Private/Terrain/TerrainWorldBuildKey.h"
 #include "Editor/AssetForgeBuiltins/Private/TerrainWorldBuildAdapter.h"
 
 namespace
 {
 	using namespace Durin;
-	using namespace Durin;
+
+	class FTerrainWorldTestEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			FModuleManager::Get().LoadModuleChecked("TerrainBuild");
+		}
+	};
+	[[maybe_unused]] testing::Environment* GTerrainWorldTestEnvironment =
+		testing::AddGlobalTestEnvironment(new FTerrainWorldTestEnvironment);
 
 	auto Id(uint32 Value) -> FGuid
 	{
 		return {0x01020304u, 0x11121314u, 0x21222324u, Value};
 	}
 
-	auto MakeInput() -> FTerrainNormalizedTileInput
+	auto MakeInput() -> FTerrainTileRecipeInput
 	{
-		FTerrainNormalizedTileInput Input;
+		FTerrainTileRecipeInput Input;
 		Input.Tile = {{Id(1)}, -2, 3, TerrainWorldTileSchemeVersion};
 		Input.WorldExtent = {{-512, 768}, {-256, 1024}};
 		Input.Coordinates = {10.0, 20.0, 30.0, 1.0, -5.0};
@@ -51,9 +64,21 @@ namespace
 		}
 		Input.CompositionPolicyId = Id(3);
 		Input.CompositionPolicyVersion = 1;
-		Input.bQueryDerivedData = false;
-		Input.bPersistDerivedData = false;
+
+
 		return Input;
+	}
+
+	// Runtime-only assertions discard operation metadata explicitly.
+	auto BuildTestGeneration(const FTerrainTileRecipeInput& Input, const FGuid& Id,
+		FTerrainTileGeneration& OutGeneration, ETerrainWorldOutcome& Outcome,
+		std::string& Error) -> bool
+	{
+		FTerrainWorldDerivedDataResult Result;
+		if (!BuildTerrainWorldDerivedData({Input, Id, false, false},
+			Result, Outcome, Error)) return false;
+		OutGeneration = std::move(Result.Generation);
+		return true;
 	}
 
 	class FScopedTerrainWorldCache
@@ -100,6 +125,51 @@ namespace
 		return Bytes;
 	}
 } // namespace
+
+TEST(FTerrainWorldBuildTests, EngineProviderPathPreservesIndependentBodiesAndBestEffortPersistence)
+{
+	FModuleManager::Get().LoadModuleChecked("TerrainBuild");
+	const FScopedTerrainWorldCache Cache;
+	FTerrainTileRecipeInput Input = MakeInput();
+
+
+	const FGuid GenerationId = Id(800);
+	FTerrainWorldDerivedDataResult Cold;
+	ETerrainWorldOutcome Outcome;
+	std::string Error;
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, GenerationId}, Cold, Outcome, Error)) << Error;
+	FTerrainWorldDerivedDataResult Result;
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, GenerationId}, Result, Outcome, Error)) << Error;
+	for (size_t Index = 0; Index < 5; ++Index)
+	{
+		EXPECT_EQ(Result.Generation.Products[Index].Bytes, Cold.Generation.Products[Index].Bytes);
+		EXPECT_EQ(Result.Keys[Index], Cold.Keys[Index]);
+		EXPECT_EQ(Result.Origins[Index], ETerrainTileBuildOrigin::DerivedData);
+	}
+	const auto& HeightKey = Cold.Keys[1];
+	const auto HeightPath = Cache.GetRoot() / "TerrainWorld/TerrainWorldHeight/Objects"
+		/ HeightKey.substr(0, 2) / (HeightKey + ".bin");
+	FByteArray Corrupt;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, HeightPath));
+	ASSERT_GT(Corrupt.size(), 4u);
+	Corrupt[4] ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, HeightPath));
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, GenerationId}, Result, Outcome, Error)) << Error;
+	for (size_t Index = 0; Index < 5; ++Index)
+	{
+		EXPECT_EQ(Result.Generation.Products[Index].Bytes, Cold.Generation.Products[Index].Bytes);
+		EXPECT_EQ(Result.Origins[Index], Index == 1
+			? ETerrainTileBuildOrigin::LocalBuild : ETerrainTileBuildOrigin::DerivedData);
+	}
+	const auto BlockedRoot = Cache.GetRoot() / "BlockedRoot";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, BlockedRoot));
+	FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, GenerationId}, Result, Outcome, Error)) << Error;
+	for (const auto& Diagnostic : Result.Diagnostics) EXPECT_FALSE(Diagnostic.empty());
+	FTerrainTileGenerationPublisher Publisher;
+	ASSERT_TRUE(Publisher.Publish(Publisher.BeginRequest(), std::move(Result.Generation), Outcome, Error)) << Error;
+	ASSERT_NE(Publisher.GetCurrent(), nullptr);
+}
 
 TEST(FTerrainWorldBuildTests, FloorDivisionAndInclusiveMaximumMatchGoldenCoordinates)
 {
@@ -181,9 +251,9 @@ TEST(FTerrainWorldBuildTests, AuthoredValuesNormalizeToImmutableBoundedWorkerInp
 		{Id(4), {4, 5}, {{-1024, 0}, {-768, 256}}, 1, 255, true},
 		{Id(5), {6, 7}, {{-512, 768}, {-256, 1024}}, 1, 255, true}
 	};
-	FTerrainNormalizedTileInput Fixture = MakeInput();
+	FTerrainTileRecipeInput Fixture = MakeInput();
 	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage, Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
-	FTerrainNormalizedTileInput Normalized;
+	FTerrainTileRecipeInput Normalized;
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	ASSERT_TRUE(NormalizeTerrainTileInput(Definition, -2, 3, Values, Normalized, Outcome, Error)) << Error;
@@ -218,7 +288,7 @@ TEST(FTerrainWorldBuildTests, OrderedHeightAndCoverageSourcesComposeDeterministi
 	}
 	FTerrainTileSourceContribution Add{Id(5), {6, 7}, std::vector<int16>(TerrainWorldSampleCount, 20), {}};
 	std::array Contributions{std::move(Base), std::move(Add)};
-	FTerrainNormalizedTileInput Composed;
+	FTerrainTileRecipeInput Composed;
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	ASSERT_TRUE(ComposeTerrainTileInput(Definition, -2, 3, Contributions, Composed, Outcome, Error)) << Error;
@@ -232,14 +302,14 @@ TEST(FTerrainWorldBuildTests, OrderedHeightAndCoverageSourcesComposeDeterministi
 
 TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductBodyRoundTrips)
 {
-	const FTerrainNormalizedTileInput Input = MakeInput();
+	const FTerrainTileRecipeInput Input = MakeInput();
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	auto Build = [&Input] {
 		FTerrainTileGeneration Generation;
 		ETerrainWorldOutcome LocalOutcome{};
 		std::string LocalError;
-		const bool bSucceeded = BuildTerrainTileGeneration(
+		const bool bSucceeded = BuildTestGeneration(
 			Input, Id(9), Generation, LocalOutcome, LocalError
 		);
 		return std::tuple{bSucceeded, std::move(Generation), LocalOutcome, std::move(LocalError)};
@@ -250,11 +320,28 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductB
 	auto [SecondSucceeded, Second, SecondOutcome, SecondError] = SecondTask.get();
 	ASSERT_TRUE(FirstSucceeded) << FirstError;
 	ASSERT_TRUE(SecondSucceeded) << SecondError;
+	const std::array<std::string_view, 5> ExpectedKeys{
+		"b2cd046498921422e047ab6363880690",
+		"9a3acecacf787d9204af584f83b1cd9d",
+		"94a8b56d2e8734194d84b81b20ebfa23",
+		"ce02dc604305e46246623d517679f817",
+		"c4e9256487ea214e5f7cdd451a6967db"};
+	const std::array<std::string_view, 5> ExpectedPayloadHashes{
+		"25c0a7d61ec9899210cbd20a07a16645",
+		"239debbe9c475531b67cd1862604fd15",
+		"fe83b96d80436b2b95ec1ae74f2e9500",
+		"583643110cf4677b1917186c47efd478",
+		"b6ae78327755cb417e921498a3e25211"};
+	const std::array<size_t, 5> ExpectedPayloadSizes{
+		214, 132210, 198276, 33410, 116631};
 	for (size_t Index = 0; Index < First.Products.size(); ++Index)
 	{
 		const FTerrainTileProduct& Product = First.Products[Index];
 		EXPECT_EQ(Product.Bytes, Second.Products[Index].Bytes);
-		EXPECT_EQ(Product.DerivedDataKey, Second.Products[Index].DerivedDataKey);
+		EXPECT_EQ(MakeTerrainTileBuildKey(Input, Product.ProductClass, Error), ExpectedKeys[Index]);
+		EXPECT_EQ(FXxHash128::HashBuffer(Product.Bytes).ToString(),
+			ExpectedPayloadHashes[Index]);
+		EXPECT_EQ(Product.Bytes.size(), ExpectedPayloadSizes[Index]);
 		const std::array ProductMagic{std::byte{'T'}, std::byte{'W'}, std::byte{'P'}, std::byte{'D'}};
 		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4, ProductMagic.begin()));
 		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4, First.Products[0].Bytes.begin()));
@@ -275,11 +362,11 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductB
 
 TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTrailingAndOversizedInput)
 {
-	const FTerrainNormalizedTileInput Input = MakeInput();
+	const FTerrainTileRecipeInput Input = MakeInput();
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	FTerrainTileGeneration Generation;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Generation, Outcome, Error)) << Error;
+	ASSERT_TRUE(BuildTestGeneration(Input, Id(9), Generation, Outcome, Error)) << Error;
 	Durin::FByteArray Bytes = Generation.Products[1].Bytes;
 	FTerrainTileProduct Product;
 	Bytes[0] = std::byte{'T'};
@@ -312,7 +399,7 @@ TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTraili
 
 TEST(FTerrainWorldBuildTests, ProductKeysInvalidateOnlyDeclaredHeightCoverageAndNeighborInputs)
 {
-	FTerrainNormalizedTileInput Input = MakeInput();
+	FTerrainTileRecipeInput Input = MakeInput();
 	std::string Error;
 	const std::string Height = MakeTerrainTileBuildKey(Input, ETerrainTileProductClass::Height, Error);
 	const std::string Coverage = MakeTerrainTileBuildKey(Input, ETerrainTileProductClass::Coverage, Error);
@@ -332,7 +419,7 @@ TEST(FTerrainWorldBuildTests, ProductKeysInvalidateOnlyDeclaredHeightCoverageAnd
 	const std::string CoverageAfterEdit = MakeTerrainTileBuildKey(Input, ETerrainTileProductClass::Coverage, Error);
 	Input.Heights[2] += 1;
 	EXPECT_EQ(MakeTerrainTileBuildKey(Input, ETerrainTileProductClass::Coverage, Error), CoverageAfterEdit);
-	FTerrainNormalizedTileInput SourceInput = MakeInput();
+	FTerrainTileRecipeInput SourceInput = MakeInput();
 	SourceInput.Sources.push_back({Id(7), {8, 9}, SourceInput.WorldExtent, static_cast<uint8>(ETerrainCompositionBlendOperation::Replace), 255, true, TerrainSourceAffectsHeight});
 	const std::string SourceHeight = MakeTerrainTileBuildKey(
 		SourceInput, ETerrainTileProductClass::Height, Error
@@ -347,24 +434,25 @@ TEST(FTerrainWorldBuildTests, ProductKeysInvalidateOnlyDeclaredHeightCoverageAnd
 
 TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDerivedData)
 {
+	FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 	FScopedTerrainWorldCache Cache;
-	FTerrainNormalizedTileInput Input = MakeInput();
-	Input.bQueryDerivedData = true;
-	Input.bPersistDerivedData = true;
+	FTerrainTileRecipeInput Input = MakeInput();
+
+
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
-	FTerrainTileGeneration Cold;
-	FTerrainTileGeneration Warm;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Cold, Outcome, Error)) << Error;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Warm, Outcome, Error)) << Error;
-	for (size_t Index = 0; Index < Cold.Products.size(); ++Index)
+	FTerrainWorldDerivedDataResult Cold;
+	FTerrainWorldDerivedDataResult Warm;
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, Id(9)}, Cold, Outcome, Error)) << Error;
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, Id(9)}, Warm, Outcome, Error)) << Error;
+	for (size_t Index = 0; Index < Cold.Generation.Products.size(); ++Index)
 	{
-		EXPECT_EQ(Cold.Products[Index].Origin, ETerrainTileBuildOrigin::LocalBuild);
-		EXPECT_EQ(Warm.Products[Index].Origin, ETerrainTileBuildOrigin::DerivedData);
-		EXPECT_EQ(Cold.Products[Index].DerivedDataKey, Warm.Products[Index].DerivedDataKey);
-		EXPECT_EQ(Cold.Products[Index].Bytes, Warm.Products[Index].Bytes);
+		EXPECT_EQ(Cold.Origins[Index], ETerrainTileBuildOrigin::LocalBuild);
+		EXPECT_EQ(Warm.Origins[Index], ETerrainTileBuildOrigin::DerivedData);
+		EXPECT_EQ(Cold.Keys[Index], Warm.Keys[Index]);
+		EXPECT_EQ(Cold.Generation.Products[Index].Bytes, Warm.Generation.Products[Index].Bytes);
 	}
-	const std::string& HeightKey = Cold.Products[1].DerivedDataKey;
+	const std::string& HeightKey = Cold.Keys[1];
 	const std::filesystem::path HeightObject = Cache.GetRoot()
 											   / "TerrainWorld/TerrainWorldHeight/Objects" / HeightKey.substr(0, 2)
 											   / (HeightKey + ".bin");
@@ -372,18 +460,18 @@ TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDeri
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, HeightObject));
 	Corrupt.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, HeightObject));
-	FTerrainTileGeneration Recovered;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Recovered, Outcome, Error)) << Error;
-	EXPECT_EQ(Recovered.Products[1].Origin, ETerrainTileBuildOrigin::LocalBuild);
+	FTerrainWorldDerivedDataResult Recovered;
+	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, Id(9)}, Recovered, Outcome, Error)) << Error;
+	EXPECT_EQ(Recovered.Origins[1], ETerrainTileBuildOrigin::LocalBuild);
 	for (size_t Index : {0u, 2u, 3u, 4u})
-		EXPECT_EQ(Recovered.Products[Index].Origin, ETerrainTileBuildOrigin::DerivedData);
+		EXPECT_EQ(Recovered.Origins[Index], ETerrainTileBuildOrigin::DerivedData);
 }
 
 TEST(FTerrainWorldBuildTests, NeighborEvidenceRequiresBitIdenticalStableHeightAndCoverageBorders)
 {
-	FTerrainNormalizedTileInput West = MakeInput();
+	FTerrainTileRecipeInput West = MakeInput();
 	West.WorldExtent.Max.X += 256;
-	FTerrainNormalizedTileInput East = West;
+	FTerrainTileRecipeInput East = West;
 	East.Tile.TileX += 1;
 	for (uint32 Y = 0; Y <= 256; ++Y)
 	{
@@ -405,13 +493,13 @@ TEST(FTerrainWorldBuildTests, NeighborEvidenceRequiresBitIdenticalStableHeightAn
 
 TEST(FTerrainWorldBuildTests, AtomicPublisherRejectsStaleOrPartialCandidatesAndRetainsPriorGeneration)
 {
-	const FTerrainNormalizedTileInput Input = MakeInput();
+	const FTerrainTileRecipeInput Input = MakeInput();
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	FTerrainTileGeneration First;
 	FTerrainTileGeneration Second;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), First, Outcome, Error)) << Error;
-	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(10), Second, Outcome, Error)) << Error;
+	ASSERT_TRUE(BuildTestGeneration(Input, Id(9), First, Outcome, Error)) << Error;
+	ASSERT_TRUE(BuildTestGeneration(Input, Id(10), Second, Outcome, Error)) << Error;
 	FTerrainTileGenerationPublisher Publisher;
 	const uint64 FirstRequest = Publisher.BeginRequest();
 	ASSERT_TRUE(Publisher.Publish(FirstRequest, First, Outcome, Error)) << Error;
@@ -442,7 +530,7 @@ TEST(FTerrainWorldBuildTests, AssetForgeBridgeNormalizesBuildsAndPublishesWithCo
 	Definition.ProductProfile = 1;
 	Definition.PeakBuildBudgetBytes = 2ull * 1024ull * 1024ull * 1024ull;
 	Definition.Layers = {{Id(2), "Base", Id(20)}};
-	FTerrainNormalizedTileInput Fixture = MakeInput();
+	FTerrainTileRecipeInput Fixture = MakeInput();
 	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage, Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
 	FTerrainTileGenerationPublisher Publisher;
 	Durin::AssetForge::Builtins::FTerrainWorldBuildDiagnostics Diagnostics;
@@ -458,13 +546,13 @@ TEST(FTerrainWorldBuildTests, AssetForgeBridgeNormalizesBuildsAndPublishesWithCo
 
 TEST(FTerrainWorldBuildTests, CancellationHasOneTerminalAndDoesNotPublishCandidate)
 {
-	FTerrainNormalizedTileInput Input = MakeInput();
+	FTerrainTileRecipeInput Input = MakeInput();
 	Input.ShouldCancel = [] { return true; };
 	FTerrainTileGeneration Candidate;
 	Candidate.GenerationId = Id(77);
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
-	EXPECT_FALSE(BuildTerrainTileGeneration(Input, Id(9), Candidate, Outcome, Error));
+	EXPECT_FALSE(BuildTestGeneration(Input, Id(9), Candidate, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Cancelled);
 	EXPECT_EQ(Candidate.GenerationId, Id(77));
 }
@@ -518,12 +606,12 @@ TEST(FTerrainWorldBuildTests, F0TileGridReconcilesToFourRegionsPlusOneManifest)
 
 TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProductLoading)
 {
-	FTerrainNormalizedTileInput FirstInput = MakeInput();
+	FTerrainTileRecipeInput FirstInput = MakeInput();
 	FirstInput.WorldExtent = {{-512, 768}, {2304, 1024}};
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	FTerrainTileGeneration First;
-	ASSERT_TRUE(BuildTerrainTileGeneration(FirstInput, Id(9), First, Outcome, Error)) << Error;
+	ASSERT_TRUE(BuildTestGeneration(FirstInput, Id(9), First, Outcome, Error)) << Error;
 	FTerrainTileGeneration Second = First;
 	Second.Tile.TileX = 8;
 	Second.GenerationId = Id(10);

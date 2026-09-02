@@ -273,13 +273,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	std::string Error;
-	ASSERT_TRUE(AuthoredMesh->PublishImportedProduct({
-		.RenderData = MakeRenderData(),
-		.MaterialSlots = {
+	ASSERT_TRUE(AuthoredMesh->SetRenderData(MakeRenderData(), {
 			{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
 			{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 			{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
-			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}}, Error)) << Error;
+			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
 
 	Durin::FCookContext CookContext(
 		CookRoot,

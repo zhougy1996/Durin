@@ -5,6 +5,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "DObject/DObjectGlobals.h"
 #include "FactoryImportTestSupport.h"
+#include "Modules/ModuleManager.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -16,6 +17,7 @@ namespace Durin::AssetForge::Builtins
 		const FStaticMeshImportSettings& Settings = {})
 		-> Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>
 	{
+		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		FPackagePath ParsedPath;
 		std::string Error;
 		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))

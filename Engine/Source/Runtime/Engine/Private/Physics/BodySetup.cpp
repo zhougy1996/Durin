@@ -108,9 +108,6 @@ namespace Durin
 		CollisionSourceMode = Mode;
 		CachedSimpleCollision = {};
 		CachedComplexCollision = {};
-		CollisionDerivedDataKey.clear();
-		CollisionDiagnostic.clear();
-		CollisionBuildStatus = EBodySetupCollisionBuildStatus::None;
 		++Revision;
 		MarkPackageDirty();
 		return true;
@@ -128,13 +125,9 @@ namespace Durin
 		return true;
 	}
 
-	auto DBodySetup::PublishCollisionGeometry(
+	auto DBodySetup::SetCollisionGeometry(
 		const FCollisionGeometryRef& Simple,
-		const FCollisionGeometryRef& Complex,
-		EBodySetupCollisionBuildStatus Status,
-		std::string DerivedDataKey,
-		std::string Diagnostic,
-		uint64 PayloadBytes) -> bool
+		const FCollisionGeometryRef& Complex) -> bool
 	{
 		if (CollisionSourceMode == EBodySetupCollisionSourceMode::None
 			|| (CollisionSourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
@@ -145,25 +138,15 @@ namespace Durin
 			|| (Complex && Complex.GetKind() != ECollisionGeometryKind::TriangleMesh)) return false;
 		CachedSimpleCollision = Simple;
 		CachedComplexCollision = Complex;
-		CollisionBuildStatus = Status;
-		CollisionDerivedDataKey = std::move(DerivedDataKey);
-		CollisionDiagnostic = std::move(Diagnostic);
-		CollisionPayloadBytes = PayloadBytes;
 		++CollisionBuildRevision;
 		++Revision;
 		return true;
 	}
 
-	auto DBodySetup::ClearCollisionGeometry(
-		EBodySetupCollisionBuildStatus Status,
-		std::string Diagnostic) -> void
+	auto DBodySetup::ClearCollisionGeometry() -> void
 	{
 		CachedSimpleCollision = {};
 		CachedComplexCollision = {};
-		CollisionDerivedDataKey.clear();
-		CollisionBuildStatus = Status;
-		CollisionDiagnostic = std::move(Diagnostic);
-		CollisionPayloadBytes = 0;
 		++CollisionBuildRevision;
 		++Revision;
 	}

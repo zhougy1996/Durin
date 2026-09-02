@@ -15,56 +15,31 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, and `TerrainBuild` own normalized,
-source-independent recipes. Engine owns Texture build-key inputs and editor-only
-cache orchestration; the other build modules retain their family key ownership;
-`AssetForgeBuiltins` adapts standard concrete source formats into those
-normalized values. `DerivedDataCache` owns the backend-neutral
-`bucket + key -> opaque immutable bytes` contract, the private local filesystem
-backend, and the family-neutral Build Framework that adapts cache results inside
-`FBuildSession` for non-Texture clients. Engine uses the lower-level typed
-Get/Put facade for Texture values. `Engine` owns package fields, raw-segment placement, manifest, and
-atomic-publication formats without interpreting family payloads.
+Developer `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, and
+`TerrainBuild` own normalized source-independent recipes. Engine owns all
+asset key encoding, editor-only cache lookup/validation/fallback, diagnostics,
+and typed application. AssetForgeBuiltins adapts explicit physical imports to
+canonical inputs and owns editor transactions.
 
-Builder and translator versions invalidate production identity. Payload schema
-and stable value identifiers determine runtime readability, so a producer
-version change does not by itself make a compatible payload unreadable.
+DerivedDataCache owns only the backend-neutral
+`bucket + key -> opaque immutable bytes` storage contract and private local
+backend. It has no build-function registry, request framework, or recipe policy.
+Builder/translator versions invalidate production identity;
+payload schema and stable value identifiers determine runtime readability.
 
-`DerivedDataCache` owns a synchronous local derived-data request boundary. An
-immutable `FBuildDefinition` selects a local `IBuildFunction` by its stable,
-case-sensitive `FBuildFunctionName`, carries an existing canonical key plus
-opaque local inputs, and declares one expected value. Registration freezes the
-function's current version and cache configuration; the version is not part of
-registry lookup, and each family canonical key encodes the same builder version
-to invalidate incompatible results. `FBuildSession` performs query,
-cached-value validation, local build,
-built-value validation and store in that order and reports structured
-origin, status, failure phase, and bounded nanosecond durations for each
-executed phase. It does not own worker threads, priorities,
-callbacks, dependency graphs, remote execution, or typed asset interpretation.
+Low-level Get and Put permit concurrency under a logical bucket's shared lock.
+Requests never scan or evict entries. Shader compilation remains a direct Cache
+API client: RenderCore owns its orchestration and stores complete versioned
+SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
+dependency manifests do not enter portable values.
 
-The low-level Cache API permits concurrent Get and Put operations under a
-logical bucket's shared lock. Request paths never scan or evict cache entries.
-Shader compilation is a direct Cache API client because RenderCore already owns
-its build orchestration. It stores one complete versioned SPIR-V-plus-reflection
-value in `Shaders/CompiledOutput`; machine-local dependency manifests remain a
-separate RenderCore optimization and never enter portable DDC values. Asset
-non-Texture recipe families continue to use `FBuildSession`; Texture orchestration
-uses Engine-owned typed Get/validate/build/Put paths.
-
-StaticMeshBuild registers the StaticMesh render/collision functions as one
-atomic module-owned transaction; SkeletalBuild independently registers the
-SkeletalMesh and AnimationClip functions as another transaction; TerrainBuild
-does the same for TerrainHeightmap and the five Terrain World product functions.
-TextureBuild registers only its three pure typed providers. Each Build Function
-transaction rolls back registrations acquired by a failed attempt and resets
-the complete set in reverse order during owner retirement. Each family retains
-its build keys, cache namespace, value schema, codec, and validation policy;
-Engine owns those responsibilities for Texture values.
-Terrain function names intentionally retain their historical
-`Durin.GeometryBuild.Terrain...` prefix: the name is a stable production
-protocol rather than the selectable module name, so this ownership extraction
-does not invalidate otherwise compatible disposable cache entries.
+StaticMeshBuild registers one render/collision provider, SkeletalBuild one
+mesh/clip provider, TerrainBuild one Heightmap and one World provider, and
+TextureBuild three providers. All registrations use module callback gates.
+Engine owns keys, runtime serialization, DDC policy, and object application;
+providers retain no cache keys, origin, persistence diagnostics, or live assets.
+Terrain World additionally keeps independent five-product operation metadata,
+while installed generations contain only runtime product values.
 Engine calls TextureBuild through the typed synchronous
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
 `ITextureCubeBuildProvider` contracts. Engine owns admission,
@@ -227,7 +202,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 ### Optional Asset Operation Boundaries
 
 Runtime Engine owns asset state and typed optional operation contracts:
-`IStaticMeshPostLoadFeature`, `IStaticMeshCollisionBuildFeature`,
+`IStaticMeshBuildProvider`,
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
 `ITextureCubeBuildProvider`,
 `ITerrainHeightmapDerivedDataLoadFeature`,
@@ -237,24 +212,29 @@ visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
-`StaticMeshBuild` owns static-mesh post-load and collision construction. Engine
-owns Texture PostLoad, DDC orchestration, and result application while
+`StaticMeshBuild` owns only detached render/collision recipes. Engine owns its
+PostLoad, import/Scene build, cache lookup/validation/fallback, and result
+application. StaticMesh keys are editor-only Engine-private values; operation
+results carry key, origin, descriptor, timings, payload bytes, and bounded
+persistence diagnostics without copying them onto `DStaticMesh` or `DBodySetup`.
+Metadata-only warm loads do not read authored geometry; a miss decodes canonical
+bulk before calling the recipe. `SetImportedRenderData` and `SetRenderData`
+validate candidates before rollback-safe resource replacement; Engine
+application separately decides dirtying and material-slot upgrade notification.
+Cook reports existing payload capture rather than inferring an old build origin
+from the asset. Engine also owns Texture PostLoad, DDC orchestration, and result application while
 `TextureBuild` owns the three synchronous pure recipes/providers.
-`TerrainBuild` owns Terrain derived-data
-loading, and `SkeletalBuild` owns skeletal/animation derived-data loading.
+Engine also owns Heightmap and skeletal/animation lookup, fallback, and typed
+application; TerrainBuild sees only detached recipe inputs.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an
 importer dependency. Each build module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
 and waits for admitted visitors before provider state is destroyed.
 
-Terrain post-load is the asynchronous exception to the otherwise synchronous
-boundary. Its coalesced workers and Game Thread publishers belong to the
-`TerrainBuild`-owned `TerrainDerivedDataLoads` operation group before the
-feature visitor returns. Module retirement closes the whole group with
-module-shutdown cancellation. Unload may proceed only after the group reports
-no active tasks, retained results, or deferred/worker callables. Cooked loads
-never invoke these editor-only operation features.
+Heightmap PostLoad is synchronous and metadata-first. It reads canonical
+sample bulk only after a miss; no async group or request-generation state is
+retained on the asset. Cooked loads never invoke editor recipe providers.
 
 ### Skeletal Authored State
 
@@ -281,8 +261,9 @@ large geometry, influence, inverse-bind, time, and typed-key arrays are detached
 immutable CPU payloads: they contain no source token, reflected object, RHI
 handle, playback clock, evaluated pose, or palette state.
 
-Authored editor packages may retain a content-addressed rebuild key and compact
-source-hint/import metadata. A loaded package first attempts a validated DDC
+Authored skeletal packages retain canonical imported data and compact
+source-hint/import metadata, but no rebuild key or cache history. Engine derives
+a key from current metadata and first attempts a validated DDC
 object. Missing or corrupt disposable data invokes the owning family build from
 resident canonical imported data and current settings; it never issues an
 import request, resolves a hint, or rewrites source metadata. Scene outputs
@@ -343,36 +324,30 @@ Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical sour
 ### Skeletal Derived Data
 
 SkeletalMesh objects live under `SkeletalMesh/Objects`; AnimationClip objects
-live under `AnimationClip/Objects`. Their schema-2 keys are XXH3-128 over an
-explicit canonical encoding of builder and payload versions, target
-platform/profile, the owning canonical imported-data identity and payload
-fingerprint, current output identity, normalized settings, and Skeleton
-compatibility.
+live under `AnimationClip/Objects`. Engine-private schema-4 keys are XXH3-128
+over canonical builder and payload versions, target platform/profile, producer
+identity/version, canonical imported identity/fingerprint, and Skeleton
+compatibility. Object paths are deliberately absent: relocation reuses the same
+payload. Payload schema 2 and its exact bytes are unchanged.
 
-The key is an editor rebuild locator, not runtime identity. Import stores a
-complete in-memory candidate even when its best-effort DDC write fails. A
-missing or corrupt object is always a safe authored miss: ordinary package load
-decodes the owning asset's canonical bulk and never replays Scene import.
-
-The registered function names are `Durin.GeometryBuild.SkeletalMesh` and
-`Durin.GeometryBuild.AnimationClip`, both returning `SkeletalPayload`.
-Definitions carry the exact Skeleton/count/material target context. PostLoad
-validates the complete owner-selected value and rebuilds it from the owning
-canonical bulk when necessary; Scene import owns only the initial detached
-multi-package transaction and hard Skeleton edges.
+Engine owns Get/decode/validate/recipe/encode/Put. Metadata-only PostLoad checks
+DDC before reading canonical bulk. A valid hit skips the recipe and write; a
+miss or corrupt object decodes canonical authored bulk without Scene replay.
+Write failure retains a complete detached result and bounded operation
+diagnostics. `SetAssetData` validates relationships, slots, and payload before
+replacement; authoring callers own dirtying. Assets retain no DDC key, origin,
+or storage diagnostic. SkeletalBuild sees only detached payloads, copied
+validation context, cancellation, and producer identity.
 
 ### Terrain Heightmap Derived Data
 
-TerrainHeightmap uses function `Durin.GeometryBuild.TerrainHeightmap`, value
-`TerrainHeightmapPayload`, and `TerrainHeightmap/Objects`. Persisting direct
+TerrainHeightmap uses Engine-owned `TerrainHeightmap/Objects`. Persisting direct
 builds query/build/store; explicit non-persisting builds disable both query and
-store. Authored load first performs a cache query using the metadata-only
-content identity. A validated hit reads no package range; only a miss or invalid
-value requests one immutable row-major uint16 sample snapshot before worker execution.
-The worker adapts its cancellation token to the session while TerrainBuild
-retains coalescing, admission, generation checks, and deferred GameThread
-publication. Diagnostics map the session phases and never expose a physical
-DDC path or probe a source hint.
+store. Authored load keys canonical metadata before reading sample bulk.
+A validated hit reads no package range; only a miss requests immutable row-major
+uint16 samples. Runtime serialization validates checksums, layout, extrema, and
+the exact hierarchy. Engine owns synchronous results and bounded diagnostics;
+the pure TerrainBuild provider owns only canonical-sample recipes.
 
 ## Cooked Packages and Bulk Fields
 

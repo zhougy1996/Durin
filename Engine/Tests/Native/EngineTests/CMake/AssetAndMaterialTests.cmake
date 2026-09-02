@@ -28,7 +28,6 @@ durin_add_engine_functional_test(DerivedDataCacheTests
 		"Exercises the Developer-only derived-data cache contract."
 	SOURCES
 		Private/DerivedDataCacheTests.cpp
-		Private/DerivedDataBuildTests.cpp
 	LIBRARIES DerivedDataCache
 )
 

@@ -1,89 +1,45 @@
-#include "StaticMeshBuildFunctionRegistry.h"
 #include "Modules/ModuleManager.h"
-#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshBuildProvider.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "StaticMesh/StaticMeshPostLoad.h"
 
 namespace Durin
 {
-	// Owns StaticMesh build-function and collision-provider registration.
+	// Retires admitted recipe calls before unloading the implementation.
 	class FStaticMeshBuildModule final
 		: public IModuleInterface
-		, public IStaticMeshCollisionBuildFeature
-		, public IStaticMeshPostLoadFeature
+		, public IStaticMeshBuildProvider
 	{
-		FModularFeatureRegistration CollisionFeatureRegistration;
-		FModularFeatureRegistration PostLoadFeatureRegistration;
-		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
+		FModularFeatureRegistration Registration;
 
-		auto BuildCollisionProduct(
-			const FStaticMeshRenderData& RenderData,
-			EBodySetupCollisionSourceMode Mode,
-			EBodySetupCollisionQueryPolicy Policy,
-			FStaticMeshCollisionBuildProduct& OutProduct,
-			std::string& OutError) -> bool override
+		auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor override
 		{
-			return FStaticMeshBuildOperations::BuildCollisionProduct(
-				RenderData, Mode, Policy, OutProduct, OutError);
+			return {.ProducerIdentity = "Durin.StaticMeshBuild",
+				.RenderBuilderVersion = 4, .CollisionBuilderVersion = 2};
 		}
 
-		auto PostLoadUncooked(DStaticMesh& Mesh,
-			FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
+			FStaticMeshRecipeBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			if (!Mesh.GetImportedData().IsValid())
-			{
-				OutError = "StaticMesh canonical imported geometry is missing or invalid.";
-				return false;
-			}
-			const FStaticMeshReconciliationSnapshot Reconciliation =
-				FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh);
-			FStaticMeshBuildProduct Product;
-			if (FStaticMeshBuildOperations::TryLoadImportedProduct(
-				Reconciliation, Mesh.GetImportedData(), Product, OutError))
-			{
-				if (!FStaticMeshBuildOperations::PublishImportedProduct(
-					Mesh, std::move(Product), OutError)) return false;
-				OutDiagnostic = Mesh.GetDerivedDataDiagnostic();
-				return true;
-			}
-			if (!OutError.empty()) return false;
-			FStaticMeshImportedData Decoded = Mesh.GetImportedData().Decode(OutError);
-			if (!OutError.empty()) return false;
-			if (!FStaticMeshBuildOperations::BuildImportedProduct(
-				Reconciliation,
-				Decoded, "canonical imported geometry", Product, OutError)) return false;
-			Product.bMarkPackageDirty = false;
-			Product.bContainsImportedData = false;
-			Product.bSourceImporterInvoked = false;
-			if (!FStaticMeshBuildOperations::PublishImportedProduct(
-				Mesh, std::move(Product), OutError)) return false;
-			OutDiagnostic = Mesh.GetDerivedDataDiagnostic();
-			return true;
+			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, OutProduct, OutError);
+		}
+
+		auto BuildCollision(const FStaticMeshCollisionRecipeRequest& Request,
+			FStaticMeshCollisionRecipeProduct& OutProduct,
+			std::string& OutError) -> bool override
+		{
+			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, OutProduct, OutError);
 		}
 
 		auto StartupModule() -> void override
 		{
-			std::string Error;
-			BuildFunctionCallbackRegistration =
-				FModuleStartup::CreateOwnedCallbackRegistration(
-					"StaticMeshBuild.BuildFunctions");
-			checkf(InitializeStaticMeshBuildFunctions(
-				BuildFunctionCallbackRegistration.GetGate(), &Error),
-				"StaticMeshBuild could not register its build functions: {}", Error);
-			CollisionFeatureRegistration =
-				FModuleStartup::RegisterFeature<IStaticMeshCollisionBuildFeature>(*this);
-			PostLoadFeatureRegistration =
-				FModuleStartup::RegisterFeature<IStaticMeshPostLoadFeature>(*this);
-			checkf(CollisionFeatureRegistration.IsValid(),
-				"StaticMeshBuild could not register StaticMesh collision building.");
-			checkf(PostLoadFeatureRegistration.IsValid(),
-				"StaticMeshBuild could not register StaticMesh post-load building.");
+			Registration = FModuleStartup::RegisterFeature<IStaticMeshBuildProvider>(*this);
+			checkf(Registration.IsValid(), "StaticMeshBuild could not register its recipe provider.");
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownStaticMeshBuildFunctions();
+			Registration.Reset();
 		}
 	};
 

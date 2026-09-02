@@ -17,7 +17,7 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
@@ -390,7 +390,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			1, 2, 3,
 			2, 0, 3};
 		ImportedSection.SourceMaterialIndex = 0;
-		ASSERT_TRUE(Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
+		ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 			*StaticMeshFixture, ImportedMesh,
 			"StaticMesh thumbnail preview test fixture",
 			Error)) << Error;

@@ -1,34 +1,85 @@
 # Non-Texture Asset Build DDC Decoupling Plan
 
-Summary: Make StaticMeshBuild, SkeletalBuild, and TerrainBuild pure typed recipe providers while Engine owns editor-only asset DDC orchestration and the unused Build Framework is removed.
+Summary: Make non-Texture build modules pure typed recipe providers, move DDC orchestration into Engine, simplify asset state, and remove the unused Build Framework.
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Status: Active
 Completed:
 
 ## Current Status
 
-The ownership path is selected and implementation has not started:
+Implementation is complete through the family cutovers and Build Framework
+removal. Stage 0, Stage 2, Stage 4, and Stage 5 passed their local gates.
+Stage 3 code and non-GPU gates passed; its real Vulkan gate remains open.
+Stage 1 remains active for Windows Game binary qualification. Stage 6 also
+retains project-loading smoke and real skeletal Vulkan qualification gates.
 
-- Texture has established the target boundary: Engine owns editor-only key,
-  cache, payload validation, fallback, diagnostics, and result application;
-  the Developer build module supplies only pure typed recipes and producer
-  identity.
-- StaticMeshBuild still owns two Build Functions for render and collision;
-  SkeletalBuild still owns two for SkeletalMesh and AnimationClip; TerrainBuild
-  still owns one TerrainHeightmap function and five independently cached
-  Terrain World product functions.
-- Those nine functions are the only remaining asset clients of the
-  DerivedDataCache Build Framework. ShaderBuild already uses the lower-level
-  Cache API directly and is outside this asset migration.
-- StaticMesh, SkeletalMesh, AnimationClip, and TerrainHeightmap runtime payload
-  types and serialization already live in Engine. Terrain World is the
-  exceptional value-only domain: Stage 0 must freeze its Engine-facing schema
-  ownership and generation-application boundary before its cache path moves.
-- The migration order is StaticMesh, SkeletalMesh/AnimationClip,
-  TerrainHeightmap, then Terrain World. The common Build Framework is deleted
-  only after all nine functions and their registrations have been removed.
+- Engine owns all non-Texture asset keys, metadata-first lookup, runtime codecs,
+  cache validation/fallback, bounded operation diagnostics, and typed application.
+  StaticMeshBuild, SkeletalBuild, and TerrainBuild are pure recipe providers.
+  StaticMesh recipes receive material-slot metadata without object references;
+  Engine restores live material bindings after reconciliation.
+- All ten asset Build Functions, their registries/local envelopes, and the
+  generic Build Framework's four headers, implementation, and tests are removed.
+  Direct DDC Get/Put and Shader clients remain.
+- Asset objects retain authored inputs, installed/cooked values, and genuine
+  resource/readiness/revision state, not DDC key/origin or narrative history.
+  Heightmap loading is synchronous; stale documentation describing an async
+  group was corrected rather than introducing one.
+- Skeletal key schema 4 removes object paths. Reverse-wire tests reproduce
+  both schema-3 goldens; payload bytes are unchanged. StaticMesh, Heightmap, and
+  all five World key/payload goldens remain unchanged. World's raw schema-1
+  cache bodies retain exact recipe comparison on warm requests; each product
+  is still independently classified, recovered, and persisted.
+- Focused evidence: StaticMesh 75 cases, skeletal 35, Heightmap 13 (including
+  replacement rollback), Terrain World 16, and lower-level DDC 8 pass.
+  Stage 4 affected coverage passed 39 targets; Stage 5 passed 35. Final affected
+  coverage passed all 37 targets, including Shader cache/service and Cook/
+  source-free runtime contracts
+  (`Build/.agent-state/logs/20260903-033436-015018-55758-ctest.log`).
+  Final Editor `all` build passed
+  (`Build/.agent-state/logs/20260903-033625-570226-56555-cmake.log`).
+- Current source/test search has no Build Framework symbols or includes.
+  Active StaticMeshBuild, SkeletalBuild, and TerrainBuild binaries have no DDC
+  dependency or Build Framework symbols; DerivedDataCache has no framework
+  symbols. Eighteen related Engine translation units pass non-Editor syntax
+  and object compilation without the DDC include path or a compiled Editor
+  PCH; their undefined symbols contain no Cache API or recipe-provider imports.
+- All 135 current documents, all plans (5 active, 324 archived), and all
+  roadmaps (2 active, 25 archived) validate. Historical archived documents are
+  not rewritten as current architecture claims.
+
+macOS smoke follow-up (explicitly requested by the user):
+
+- Project Browser passed hidden-window startup, first presentation, 60 ticks,
+  and normal rendering/GPU shutdown with exit code 0 using the existing Editor
+  executable (`Build/.agent-state/logs/20260903-034719-104679-56912-DurinEditor.log`).
+- Sandbox initialized macOS services and Vulkan on Apple M4 and loaded all
+  three recipe modules, but failed before entering the tick loop: the default
+  Level contains serialized `DSkyBoxComponent::SkyBoxSceneId`, incompatible
+  with the live schema. It exited with code 1
+  (`Build/.agent-state/logs/20260903-034658-009767-56894-DurinEditor.log`).
+  Existing assets were not modified. The field was removed by `703928944`,
+  but `Sandbox/Content/Levels/GrayboxStage15.dasset` still contains it; the
+  loader rejects fields without a current compatible property or deprecated
+  route. This is not a passed project-loading smoke. Asset migration or an
+  explicit deprecated-field route requires a separate repair decision.
+
+Pending acceptance:
+
+- Build and inspect the existing `Win64-Debug-DurinGame` closure/deployment,
+  proving no asset DDC or provider dependency in Game.
+- Resolve the Sandbox schema mismatch and pass project-loading startup/shutdown
+  smoke; the basic Project Browser smoke is now qualified on macOS.
+- Run `SkeletalMeshRenderResourcesVulkanTests` qualification.
+  Local GPU qualification compiled but failed at Vulkan initialization because
+  Metal was unavailable and instance extension dependencies were reported
+  (`Build/.agent-state/logs/20260903-031815-880363-52007-ctest.log`).
+- The session exposes only the local macOS host and this checkout has no CI
+  workflow entry point. Windows access details were requested and are still
+  needed. Do not mark the plan complete or substitute local syntax checks for
+  those acceptance gates.
 
 ## Goal
 
@@ -50,6 +101,11 @@ At completion:
 - each Developer build module exposes only copied/owned normalized requests,
   detached typed outputs, immutable recipe descriptors, and bounded provider
   registration;
+- StaticMesh, SkeletalMesh, AnimationClip, and TerrainHeightmap objects no
+  longer retain recomputable DDC keys, cache-origin flags, persistence
+  messages, or narrative build diagnostics; synchronous operations return
+  their result/error directly and any retained asynchronous history belongs to
+  a bounded Engine manager;
 - authored editor PostLoad, import/reimport, property-driven rebuild, Scene
   import, collision rebuild, Terrain generation, and Cook preparation use the
   corresponding Engine-owned orchestration path;
@@ -61,9 +117,13 @@ At completion:
 ## Scope
 
 - Freeze existing keys, bucket names, maximum-value policies, payload bytes,
-  hit/miss/failure behavior, and Cook/runtime closure for all nine functions.
+  hit/miss/failure behavior, and Cook/runtime closure for all ten functions.
 - Introduce or refine Engine-owned typed provider contracts for StaticMesh,
   SkeletalMesh, AnimationClip, TerrainHeightmap, and Terrain World recipes.
+- Classify non-Texture object fields as authored input, installed/cooked
+  payload, genuine render/physics/generation lifetime state, or operation
+  metadata; remove or relocate the last category unless Stage 0 proves a
+  correctness dependency.
 - Move family key construction, DDC Get/Put, payload serialization and
   validation, cache fallback, origin classification, diagnostics, and result
   application into Engine editor-only code.
@@ -94,6 +154,9 @@ At completion:
 - Creating a public typeless asset-build coordinator or preserving the Build
   Framework under a new name.
 - Persisting derived keys or DDC payload bytes in authored packages.
+- Removing render revisions, render/physics readiness, lazy cooked-payload
+  state, or Terrain complete-generation identity when those values enforce a
+  real runtime lifecycle invariant.
 - Renaming genuine render-resource state publication or Terrain's atomic
   complete-generation visibility merely to eliminate the word `Publish`.
 
@@ -101,7 +164,8 @@ At completion:
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| Engine | Runtime payload schemas, family keys and cache policy, editor-only Get/Put, typed payload validation, fallback, diagnostics, object scheduling, Cook serialization, result application, Terrain complete-generation visibility | Asset recipe algorithms, source decoding, DDC backend mechanics |
+| Engine | Runtime payload schemas, family keys and cache policy, editor-only Get/Put, typed payload validation, fallback, operation/manager diagnostics, object scheduling, Cook serialization, result application, Terrain complete-generation visibility | Asset recipe algorithms, source decoding, DDC backend mechanics |
+| Runtime asset objects | Authored inputs and relationships, installed/cooked payloads, and genuine render, physics, or generation lifetime state | Recomputable DDC keys, cache origin, persistence messages, narrative operation history |
 | StaticMeshBuild | Pure render-data and collision recipes, reconciliation algorithm and versions, typed provider registration | DDC, Build Functions, cache keys/bytes/origin, live object mutation |
 | SkeletalBuild | Pure SkeletalMesh and AnimationClip recipes, compatibility validation and versions, typed provider registration | DDC, Build Functions, cache metadata, live object mutation |
 | TerrainBuild | Pure Heightmap and Terrain World normalization/product recipes, product codecs and versions where the runtime value contract requires them, typed provider registration | DDC policy, Build Functions, cache origin, object application, generation admission |
@@ -141,6 +205,25 @@ only wrap object assignment are removed; genuine atomic Terrain generation
 commit and render-resource state publication remain distinct lifecycle
 concepts.
 
+### Diagnostics describe operations, not assets
+
+The Texture state simplification is the object-shape precedent as well as the
+DDC-ownership precedent. A successful build may return its key, cache origin,
+timings, persistence warning, and bounded diagnostics in an Engine-owned
+operation result, but applying the detached payload does not copy that history
+onto the asset. Synchronous callers consume the result or `OutError` directly;
+an asynchronous domain may retain bounded request history in its owning Engine
+manager.
+
+Stage 0 classifies the existing `DerivedDataKey`,
+`bLoadedFromDerivedDataCache`, diagnostic/status, revision, and publication-
+shaped fields on StaticMesh, SkeletalMesh, AnimationClip, and
+TerrainHeightmap. Recomputable provenance and narrative history are removed.
+Fields that gate stale-result rejection, lazy cooked materialization, render or
+physics readiness, or Terrain's atomic complete-generation visibility remain
+with the lifecycle owner that enforces the invariant. The migration must not
+replace family-specific status fields with a generic asset-state container.
+
 ### Compatibility precedes ownership movement
 
 Existing cache bucket strings, canonical key bytes/strings, function recipe
@@ -150,15 +233,28 @@ intentional break is versioned and recorded before code moves.
 
 Key inputs exclude object paths except where the current output contract proves
 they affect the value. In particular, Stage 0 must decide whether skeletal
-`StableOutputIdentity` is semantic output identity or accidental object
-identity; removal requires a versioned compatibility decision rather than a
-silent key change.
+`StableOutputIdentity` is accidental object identity: neither skeletal payload
+contains it and relocation currently changes otherwise reusable cache keys.
+Stage 3 removes it from both key inputs and increments the skeletal key schema
+version. Existing disposable entries become misses by an explicit versioned
+compatibility decision rather than a silent key change.
 
 ### Terrain World keeps independent cache values and atomic generations
 
 The five Terrain World product classes remain independently keyed, queried,
-validated, built, and stored so a warm product can be reused without rebuilding
-the others. Generation IDs and package placement remain outside product keys.
+validated, classified, and stored. Generation IDs and package placement remain
+outside product keys.
+
+Implementation inspection in Stage 1 found that the existing DDC format is a
+raw product body, not the checksummed TWPD runtime envelope. Its validation
+compares the cached body byte-for-byte with the locally computed recipe body;
+the old warm path already computes those bodies before querying the cache.
+This migration preserves that exact-input corruption check and existing cache
+bytes. Terrain World therefore retains one pure recipe pass for warm
+validation; it must not claim recipe-free warm reuse. A cache envelope that
+permits recipe-free validation requires an explicit versioned format change
+and is deferred. StaticMesh, skeletal, and Heightmap warm hits continue to skip
+their recipe calls.
 
 Engine owns cache orchestration and accepts a complete typed candidate only
 after all required products, dependencies, neighbor evidence, and generation
@@ -193,23 +289,26 @@ end-to-end lifecycle needs; this plan does not require one.
 
 Dependencies: none.
 
-- [ ] Inventory the nine remaining asset Build Functions, registrations,
+- [x] Inventory the ten remaining asset Build Functions, registrations,
   buckets, keys, local input envelopes, codecs, policies, production callers,
   direct tests, and module closure edges.
-- [ ] Record golden key bytes/strings and representative payload bytes, hashes,
+- [x] Record golden key bytes/strings and representative payload bytes, hashes,
   and sizes for StaticMesh render/collision, SkeletalMesh, AnimationClip,
   TerrainHeightmap, and all five Terrain World product classes.
-- [ ] Characterize cold build, warm hit, corrupt/truncated/trailing hit, read
+- [x] Characterize cold build, warm hit, corrupt/truncated/trailing hit, read
   failure, Put failure, query/store disabled, cancellation, supersession,
   provider unavailable/ambiguous, unload/reload, and Cook behavior wherever
   each family supports them.
-- [ ] Map every authored PostLoad, import/reimport, Scene import, collision
+- [x] Map every authored PostLoad, import/reimport, Scene import, collision
   rebuild, Terrain generation, Cook, result-application, render/physics
   readiness, and runtime-load entry point to one selected Engine owner.
-- [ ] Freeze typed provider descriptor fields and decide the Terrain World
+- [x] Classify every non-Texture asset field and public status/publication API;
+  record which values are authoritative asset/resource state and which are
+  removable DDC provenance, request bookkeeping, or narrative diagnostics.
+- [x] Freeze typed provider descriptor fields and decide the Terrain World
   runtime/recipe contract split without introducing an Engine-to-Developer
   static dependency.
-- [ ] Decide and document skeletal `StableOutputIdentity` compatibility and any
+- [x] Decide and document skeletal `StableOutputIdentity` compatibility and any
   other current key field whose semantic ownership is unclear.
 
 #### Acceptance Gate
@@ -219,24 +318,72 @@ Dependencies: none.
   selected owner; and no Terrain World or skeletal identity decision remains
   unresolved.
 
+Stage 0 evidence (2026-09-03):
+
+- The inventory contains ten functions, not the nine stated by the initial
+  plan: StaticMesh render/collision, SkeletalMesh, AnimationClip,
+  TerrainHeightmap, and Terrain World Metadata/Height/Coverage/Collision/Query.
+  Their frozen buckets are respectively `StaticMesh/Objects`,
+  `StaticMeshCollision/Objects`, `SkeletalMesh/Objects`,
+  `AnimationClip/Objects`, `TerrainHeightmap/Objects`, and
+  `TerrainWorld/<value>/Objects`; registration remains one two-function Static
+  Mesh transaction, one two-function skeletal transaction, and one six-
+  function Terrain transaction until the owning family stage cuts over.
+- Golden key bytes and exact key strings are covered by
+  `StaticMeshDerivedDataContractTests`, `SkeletalAssetTests`, and
+  `TerrainHeightmapTests`. `TerrainWorldBuildTests` freezes all five exact keys,
+  payload hashes, and payload sizes from one asymmetric fixture. Existing
+  payload tests freeze StaticMesh, skeletal, heightmap, and Terrain World
+  serialized values and their corruption/trailing/limit rejection.
+- Existing cold/warm/corrupt/store-failure/source-unavailable/PostLoad/Cook
+  coverage maps the current behavior. Provider zero/multiple-registration
+  rejection is frozen by the common single-feature invocation contract and is
+  re-qualified with each new provider interface in Stage 1. Terrain World alone
+  supports cancellation/supersession and atomic prior-generation retention.
+- Engine owns the selected entry points: family-specific editor orchestration
+  serves authored PostLoad, import/reimport, Scene import, property/collision
+  rebuild, and Cook preparation; existing cooked mesh and Terrain consumers
+  remain the runtime path and never call an editor provider or DDC.
+- StaticMesh retains authored imported geometry/material/collision policy,
+  installed render/collision values, cooked bulk, and real render/cooked-load
+  lifetime state. SkeletalMesh and AnimationClip retain authored source,
+  skeleton compatibility and summaries plus installed/cooked payload state.
+  TerrainHeightmap retains canonical samples, installed/cooked payload, and
+  only actual component readiness and payload revisions; the current synchronous
+  load has no asynchronous generation owner or request-group state to migrate. DDC key/origin, persistence messages, source-
+  invocation facts, and narrative diagnostics are operation state and leave
+  all four asset types. Terrain World accepted products likewise lose key and
+  origin; those remain on the Engine operation result.
+- Terrain World runtime enums, product/manifest/region schemas, decoding, and
+  complete-generation publication move to Engine. TerrainBuild owns normalized
+  recipe requests and pure composition/product algorithms and may depend on
+  Engine's value contract; Engine and Game never depend on TerrainBuild.
+- `StableOutputIdentity` is removed with a skeletal key-schema increment in
+  Stage 3 because the payload is path-independent. This is the sole selected
+  intentional key break; all other frozen keys, payload bytes, buckets, value
+  names, size ceilings, and failure policies remain compatible.
+
 ### Stage 1: Establish Engine provider and cache primitives
 
 Dependencies: Stage 0 complete.
 
-- [ ] Add family-specific Engine provider interfaces and immutable descriptor
+- [x] Add family-specific Engine provider interfaces and immutable descriptor
   snapshots for the remaining recipe families, using module callback gates to
   bound calls during provider retirement.
-- [ ] Add Engine-private typed key and DDC helpers guarded by
+- [x] Add Engine-private typed key and DDC helpers guarded by
   `DURIN_WITH_EDITOR`; reuse the optional DerivedDataCache dependency already
   established by Texture without exposing DDC types publicly.
-- [ ] Route DDC and Cook payload encoding through the owning runtime value
+- [x] Route DDC and Cook payload encoding through the owning runtime value
   serialization protocol; require archive end, target compatibility, size
   bounds, checksums, dependency validation, and typed validity on decode.
-- [ ] Define family-specific Engine results carrying key, `CacheHit` or
+- [x] Define family-specific Engine results carrying key, `CacheHit` or
   `Rebuilt` origin, bounded diagnostics, phase timings, descriptor, metrics,
   and detached payloads; keep these results internal to orchestration and
   application.
-- [ ] Add direct golden compatibility and corrupt-value fallback tests before
+- [x] Establish validated typed payload setters and explicit resource/collision
+  update transitions where current `Publish*Product` helpers conflate value
+  installation, operation history, dirtying, notification, or resource work.
+- [x] Add direct golden compatibility and corrupt-value fallback tests before
   switching any production caller.
 - [ ] Prove the Game Engine compilation closure preprocesses all new code with
   `DURIN_WITH_EDITOR=0` and imports no DDC or provider symbol.
@@ -247,22 +394,54 @@ Dependencies: Stage 0 complete.
   every family without calling a Build Function, while Game builds have no new
   Developer or DDC closure edge.
 
+Stage 1 partial evidence (2026-09-03):
+
+- `./DevTool test affected` passed all 36 selected native-test targets;
+  the receipt is `Build/.agent-state/logs/20260903-023520-659552-44460-ctest.log`.
+- Direct `EngineProviderPath*` tests pass for StaticMesh, SkeletalAsset,
+  TerrainHeightmap, and TerrainWorldBuild targets. Existing StaticMesh key
+  goldens, skeletal payload/key goldens, Heightmap goldens, and the complete
+  15-case Terrain World baseline passed during extraction.
+- StaticMesh tests compare both render and collision keys with the legacy
+  path and verify that initial material-slot reconciliation persists under the
+  reconciled key rather than the pre-build empty-slot key.
+- Terrain World runtime validation, TWPD encoding/decoding, and generation
+  publication moved without changing the five golden bodies. A structurally
+  valid changed height sample is still rejected by exact-input cache
+  validation; the other four products retain warm-origin classification.
+- At that extraction checkpoint, transitional interfaces and legacy
+  publication contracts still remained; those receipts did not qualify the
+  final interfaces or Game binary closure. Stage 2 through Stage 6 subsequently
+  removed the legacy callers and publication adapters, privatized keys, and
+  separated Engine operation results from pure provider and runtime value
+  contracts. Operation results are not retained on assets.
+
+Sequencing clarification: family cutovers proceeded after their direct provider
+paths and compatibility tests passed, allowing interface cleanup alongside
+removal of the legacy callers. That cleanup is now complete. Stage 1 remains
+open only for the user-selected Windows Game binary closure gate; this host
+has no registered Game preset.
+
 ### Stage 2: Migrate StaticMesh render and collision
 
-Dependencies: Stage 1 complete.
+Dependencies: Stage 1 direct provider paths and compatibility tests qualified;
+its final interface cleanup and Game closure remain explicit joint gates.
 
-- [ ] Split material-slot reconciliation, render-data construction, and
+- [x] Split material-slot reconciliation, render-data construction, and
   collision construction into pure typed provider calls with no live
   `DStaticMesh` or `DBodySetup` access.
-- [ ] Move render and collision keys, Get/decode/build/encode/Put fallback,
+- [x] Move render and collision keys, Get/decode/build/encode/Put fallback,
   diagnostics, and result application to Engine.
-- [ ] Route uncooked PostLoad, standalone import/reimport, Scene import,
+- [x] Route uncooked PostLoad, standalone import/reimport, Scene import,
   collision policy changes, duplication, and Cook through the selected Engine
   paths while preserving rollback and resource invalidation ordering.
-- [ ] Replace `BuildAndPublishImported`, `TryLoadImportedProduct`,
+- [x] Replace `BuildAndPublishImported`, `TryLoadImportedProduct`,
   `PublishImportedProduct`, and cache-bearing products with explicit Engine
   orchestration and direct result application.
-- [ ] Remove the two StaticMesh Build Functions, local envelopes/codecs,
+- [x] Remove StaticMesh object copies of DDC key/origin and narrative build
+  diagnostics; derive CPU render/collision readiness and resource readiness
+  from their actual owners while preserving revision-based stale-work guards.
+- [x] Remove the two StaticMesh Build Functions, local envelopes/codecs,
   registry state, and DerivedDataCache dependency after cutover.
 
 #### Acceptance Gate
@@ -276,19 +455,22 @@ Dependencies: Stage 1 complete.
 
 Dependencies: Stage 2 complete.
 
-- [ ] Reduce SkeletalBuild to pure typed SkeletalMesh and AnimationClip
+- [x] Reduce SkeletalBuild to pure typed SkeletalMesh and AnimationClip
   providers with copied relationship facts, detached payloads, cancellation,
   recipe identity, and no object or cache fields.
-- [ ] Move both key schemas and Get/decode/build/encode/Put fallback into Engine
+- [x] Move both key schemas and Get/decode/build/encode/Put fallback into Engine
   while preserving skeleton compatibility, bind transforms, clip identity,
   material-slot validation, and imported-data fingerprint behavior.
-- [ ] Route uncooked PostLoad, direct import/reimport, Scene import, duplicate,
+- [x] Route uncooked PostLoad, direct import/reimport, Scene import, duplicate,
   skeleton relationship changes, Cook preparation, and result application
   through one Engine path per family.
-- [ ] Remove `Rebuild*FromImportedData`, cache-bearing build products, and
+- [x] Remove `Rebuild*FromImportedData`, cache-bearing build products, and
   `PublishBuiltProduct` application wrappers in favor of Engine-owned results
   and direct application.
-- [ ] Remove the two skeletal Build Functions, local envelopes/codecs, registry
+- [x] Remove SkeletalMesh and AnimationClip object copies of DDC key/origin and
+  payload-storage diagnostics; keep authored compatibility identity and actual
+  payload/render readiness in their existing semantic owners.
+- [x] Remove the two skeletal Build Functions, local envelopes/codecs, registry
   state, and DerivedDataCache dependency after cutover.
 
 #### Acceptance Gate
@@ -300,20 +482,25 @@ Dependencies: Stage 2 complete.
 
 ### Stage 4: Migrate TerrainHeightmap
 
-Dependencies: Stage 3 complete.
+Dependencies: Stage 3 code cutover and local non-GPU tests complete; its
+Windows Vulkan qualification remains an explicit final gate.
 
-- [ ] Reduce TerrainHeightmapBuild to a pure canonical-sample-to-payload
+- [x] Reduce TerrainHeightmapBuild to a pure canonical-sample-to-payload
   provider and remove query/store policy, key, persistence diagnostic, source
   provenance, and live `DTerrainHeightmap` application from its contract.
-- [ ] Move key construction, metadata-only lookup, lazy authored-source
+- [x] Move key construction, metadata-only lookup, lazy authored-source
   fallback, typed payload serialization, DDC Get/Put, diagnostics, and result
   application into Engine.
-- [ ] Route PostLoad, PNG/raw import and reimport, property mutation, Cook, and
+- [x] Route PostLoad, PNG/raw import and reimport, property mutation, Cook, and
   source-unavailable warm-hit behavior through the Engine path without forcing
   authored bulk reads on a valid hit.
-- [ ] Remove `BuildTerrainHeightmapInto`, `PublishTerrainHeightmapProduct`,
+- [x] Remove `BuildTerrainHeightmapInto`, `PublishTerrainHeightmapProduct`,
   `LoadTerrainHeightmapDerivedData`, its Build Function, local envelope/codec,
   and obsolete cache-bearing public values.
+- [x] Move heightmap DDC key/origin and narrative diagnostics out of the asset;
+  retain status/generation fields only where Stage 0 proves they are required
+  for asynchronous stale-result rejection or component readiness, and place
+  any bounded operation history with the Engine orchestration owner.
 
 #### Acceptance Gate
 
@@ -325,26 +512,27 @@ Dependencies: Stage 3 complete.
 
 Dependencies: Stage 4 complete.
 
-- [ ] Apply the Stage 0 Terrain runtime/recipe contract split so Game-visible
+- [x] Apply the Stage 0 Terrain runtime/recipe contract split so Game-visible
   types and codecs are Engine-owned while TerrainBuild implements only pure
   normalization, composition, and five-class product recipes.
-- [ ] Move each product key and independent Get/decode/build/encode/Put path to
+- [x] Move each product key and independent Get/decode/build/encode/Put path to
   Engine, preserving domain-specific key inputs, dependency hashes, bucket
   layout, schema ceilings, and partial warm-hit reuse.
-- [ ] Keep generation ID outside product identity and perform complete-set
+- [x] Keep generation ID outside product identity and perform complete-set
   dependency, neighbor, border, generation, cancellation, and supersession
   checks before atomic Engine generation commit.
-- [ ] Route AssetForgeBuiltins Terrain World adaptation and Cook production
+- [x] Route AssetForgeBuiltins Terrain World adaptation and Cook production
   through Engine orchestration; prove cooked region/runtime loading needs no
   DDC or TerrainBuild module.
-- [ ] Remove the five Terrain World Build Functions, cache policy from
+- [x] Remove the five Terrain World Build Functions, cache policy from
   normalized input, cache metadata from products, registration state, and the
   final TerrainBuild DerivedDataCache dependency.
 
 #### Acceptance Gate
 
-- All five product classes preserve golden keys/payloads and independent warm
-  reuse; partial failure retains the previous complete generation; Cooked
+- All five product classes preserve golden keys/payloads and independent cache
+  classification with the schema-1 exact-input validation exception; partial
+  failure retains the previous complete generation; Cooked
   Terrain World loads without source/DDC/Developer modules; and TerrainBuild is
   a pure typed recipe provider.
 
@@ -352,20 +540,22 @@ Dependencies: Stage 4 complete.
 
 Dependencies: Stage 5 complete.
 
-- [ ] Prove no production or test client remains for Build definitions,
+- [x] Prove no production or test client remains for Build definitions,
   values, policies, sessions, cancellation adapters, function names,
   registration, or Build Function callback gates.
-- [ ] Delete the DerivedDataCache Build Framework headers, implementation,
-  tests, and documentation; keep only the low-level Get/Put facade and backend.
-- [ ] Audit StaticMeshBuild, SkeletalBuild, TerrainBuild, public headers,
-  binaries, and Game deployment for DDC, Build Framework, cache, and live
-  object-application references.
-- [ ] Run focused family and DDC tests, affected tests, default Editor and Game
-  builds, the required Editor startup/shutdown smoke, Cook qualification, and
-  repository-selected closure audits using the build and test workflows.
-- [ ] Update lasting architecture/module/family documentation only after code,
-  compatibility, runtime, and closure evidence passes; validate changed/all
-  documentation, all plans, and all roadmaps.
+- [x] Delete the DerivedDataCache Build Framework headers, implementation,
+  tests, and current documentation claims; retain the low-level Get/Put facade.
+- [x] Audit provider modules, public contracts, runtime object fields, and
+  current Editor binaries for DDC/framework coupling, cache history, and live
+  object application. Validate non-Editor compilation without DDC headers.
+- [x] Run focused family/DDC tests, final affected tests, default Editor build,
+  and native Cook/source-free runtime contracts.
+- [x] Pass macOS Project Browser startup/shutdown smoke (60 ticks, exit code 0).
+- [ ] Complete the user-selected Windows Game build/deployment closure,
+  project-loading Editor smoke (Sandbox schema mismatch remains), and real
+  skeletal Vulkan qualification.
+- [x] Update lasting architecture/module/family documentation and validate
+  changed/all documentation, all plans, and all roadmaps.
 
 #### Acceptance Gate
 
@@ -378,10 +568,12 @@ Dependencies: Stage 5 complete.
 
 | Concern | Required evidence |
 | --- | --- |
-| Key compatibility | Golden key bytes and strings for all nine former Build Functions are unchanged or have an explicitly versioned, documented correction |
+| Key compatibility | Golden key bytes and strings for all ten former Build Functions are unchanged except for the versioned removal of skeletal `StableOutputIdentity` |
 | Payload compatibility | DDC and Cook bytes/hashes round-trip through the owning typed serialization; corrupt, trailing, oversized, and incompatible values fail at the Engine boundary |
 | Pure providers | Requests contain no query/store policy; products contain no key/origin/cache diagnostic; providers touch no live object or DDC API |
-| Cache behavior | Warm hits skip recipe work; misses/read failures/corruption rebuild; Put failure is best effort; disabled persistence performs no Put |
+| Cache behavior | Warm hits skip recipe work except Terrain World's preserved schema-1 exact-input validation pass; misses/read failures/corruption rebuild; Put failure is best effort; disabled persistence performs no Put |
+| Object shape | Runtime assets retain authored inputs, installed/cooked payloads, and genuine resource/generation state; no recomputable DDC key, cache-origin flag, persistence message, or narrative operation history remains |
+| Diagnostics | Synchronous results/errors remain caller-owned; any asynchronous history is bounded and manager-owned; readiness is queried from payload, resource, physics, or generation owners rather than inferred from DDC provenance |
 | StaticMesh | Reconciliation, render/collision policy, import/Scene/PostLoad/Cook, rollback, render readiness, and physics readiness remain qualified |
 | Skeletal | Skeleton compatibility, mesh/clip identity, Scene/PostLoad/Cook, animation playback, and render readiness remain qualified |
 | TerrainHeightmap | Canonical PNG/raw equivalence, lazy authored bulk, warm hit, revision, PostLoad/import/Cook, and runtime load remain qualified |
@@ -397,10 +589,14 @@ Dependencies: Stage 5 complete.
   requests and return detached typed outputs through unload-safe providers.
 - Engine editor code is the sole DDC client for all package-backed asset and
   Terrain World derived values and owns key, payload validation, fallback,
-  diagnostics, and application or generation commit.
+  operation diagnostics, and application or generation commit.
+- StaticMesh, SkeletalMesh, AnimationClip, and TerrainHeightmap retain no
+  recomputable DDC provenance or narrative operation history; their public
+  mutation surface installs validated typed values and triggers only explicit
+  resource, collision, or generation transitions.
 - Game runtime consumes only cooked payloads and has no DDC or Developer build
   dependency.
-- All nine legacy Build Functions, their registries, envelopes, codecs, cache
+- All ten legacy Build Functions, their registries, envelopes, codecs, cache
   fields, and object application helpers are removed.
 - DerivedDataCache exposes only the low-level synchronous cache facade; the
   Build Framework and its tests are deleted after zero-client proof.
@@ -409,6 +605,9 @@ Dependencies: Stage 5 complete.
 
 ## Deferred Follow-ups
 
+- A versioned checksummed Terrain World DDC envelope that permits recipe-free
+  warm validation while retaining exact corruption detection; the current raw
+  body bytes remain unchanged in this ownership migration.
 - A family-neutral Engine editor derived-data orchestrator, only if the
   completed StaticMesh, skeletal, and Terrain paths demonstrate repeated code
   that cannot remain small private helpers.
@@ -424,6 +623,7 @@ Dependencies: Stage 5 complete.
 ## Related Documentation
 
 - [Texture Build DDC Decoupling](Archive/2026-09/TextureBuildDdcDecoupling.md)
+- [Texture Asset State Simplification](Archive/2026-09/TextureAssetStateSimplification.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
@@ -437,9 +637,8 @@ Dependencies: Stage 5 complete.
 
 ## Related Code
 
-- `Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildFunction.h`
-- `Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildSession.h`
-- `Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp`
+- `Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h`
+- `Engine/Source/Runtime/Engine/Private/Asset/AssetDerivedDataCache.h`
 - `Engine/Source/Developer/StaticMeshBuild`
 - `Engine/Source/Developer/SkeletalBuild`
 - `Engine/Source/Developer/TerrainBuild`
@@ -449,7 +648,8 @@ Dependencies: Stage 5 complete.
 - `Engine/Source/Runtime/Engine/Private/Terrain`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainWorldBuildAdapter.h`
-- `Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataContractTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/StaticMeshPayloadCodecTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp`

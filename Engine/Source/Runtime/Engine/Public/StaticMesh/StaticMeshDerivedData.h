@@ -12,7 +12,6 @@ namespace Durin
 	class FArchive;
 	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 5;
 	inline constexpr uint32 StaticMeshBuilderVersion = 4;
-	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 4;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;
@@ -26,7 +25,6 @@ namespace Durin
 		0x6d9f79b5, 0x7b684d91, 0xa42c2a60, 0x63fcab16};
 	inline constexpr uint32 StaticMeshCollisionPayloadSchemaVersion = 2;
 	inline constexpr uint32 StaticMeshCollisionBuilderVersion = 2;
-	inline constexpr uint32 StaticMeshCollisionKeySchemaVersion = 3;
 	inline constexpr uint32 StaticMeshCollisionPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshCollisionPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshCollisionPayloadChunkEntrySize = 32;
@@ -113,6 +111,7 @@ namespace Durin
 			FArchive& Ar,
 			EStaticMeshTargetPlatform TargetPlatform) -> void;
 	};
+
 
 	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,

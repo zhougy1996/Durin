@@ -8,7 +8,7 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"

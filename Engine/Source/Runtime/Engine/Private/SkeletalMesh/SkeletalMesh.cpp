@@ -13,7 +13,7 @@
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
-#include "SkeletalMesh/SkeletalAssetPostLoad.h"
+#include "SkeletalMesh/SkeletalAssetBuild.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/SkeletalMeshRenderStateRecreateContext.h"
@@ -544,10 +544,11 @@ namespace Durin
 			});
 	}
 
-	auto DSkeletalMesh::PublishBuiltProduct(
-		FSkeletalMeshPublicationCandidate InData,
+	auto DSkeletalMesh::SetAssetData(
+		FSkeletalMeshAssetData InData,
 		std::string& OutError) -> bool
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!InData.Skeleton || !InData.Payload)
 			return Fail("Skeletal-mesh imported data requires a Skeleton and payload.", &OutError);
 		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
@@ -570,13 +571,12 @@ namespace Durin
 		if (!ValidateSkeletalMeshPayload(
 			*InData.Payload, *ValidationSkeleton,
 			static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
-		FSkeletalMeshImportedData ImportedCandidate;
-		if (InData.bReplaceImportedData
+		FSkeletalMeshImportedData ImportedCandidate = InData.ImportedData.value_or(FSkeletalMeshImportedData{});
+		if (!InData.ImportedData
 			&& !ImportedCandidate.Capture(*InData.Payload,
 				ValidationSkeleton->GetBoneCount(),
 				static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
-		if (!InData.bReplaceImportedData
-			&& !ImportedData.IsValid(ValidationSkeleton->GetBoneCount(),
+		if (!ImportedCandidate.IsValid(ValidationSkeleton->GetBoneCount(),
 				static_cast<uint32>(InData.MaterialSlots.size())))
 			return Fail("SkeletalMesh canonical imported data is missing or invalid.", &OutError);
 
@@ -597,17 +597,10 @@ namespace Durin
 			.SectionCount = static_cast<uint32>(InData.Payload->Sections.size()),
 			.LocalBounds = FSkeletalMeshBounds::FromBox(InData.Payload->LocalBounds)};
 		CookedPlatformData = {};
-		DerivedDataKey = std::move(InData.DerivedDataKey);
-		if (InData.bReplaceImportedData) ImportedData = std::move(ImportedCandidate);
+		ImportedData = std::move(ImportedCandidate);
 		PayloadData = std::move(InData.Payload);
 		RenderData = std::move(RenderDataCandidate);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
-		bLoadedFromDerivedDataCache = InData.bLoadedFromDerivedDataCache;
-		PayloadStorageDiagnostic = std::move(InData.DiagnosticMessage);
-		if (PayloadStorageDiagnostic.empty() && !DerivedDataKey.empty())
-			PayloadStorageDiagnostic = std::format(
-				"Published built SkeletalMesh key {}.", DerivedDataKey);
-		if (InData.bMarkPackageDirty) MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}
@@ -681,14 +674,10 @@ namespace Durin
 					GetObjectPath()), &OutError);
 			PayloadData.reset();
 			RenderData.reset();
-			DerivedDataKey.clear();
-			bLoadedFromDerivedDataCache = false;
-			PayloadStorageDiagnostic = std::format(
-				"Loaded cooked SkeletalMesh metadata for '{}'.", GetObjectPath());
 			OutError.clear();
 			return true;
 		}
-		if (!PayloadData && !InvokeSkeletalMeshUncookedPostLoad(*this, OutError)) return false;
+		if (!PayloadData && !PrepareSkeletalMeshPayload(*this, OutError)) return false;
 		return PayloadData && (RenderData || BuildRenderData(OutError));
 	}
 
@@ -738,9 +727,7 @@ namespace Durin
 	{
 		auto FailCooked = [&](std::string Message) {
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
-			PayloadStorageDiagnostic = std::format(
-				"Cooked SkeletalMesh '{}': {}", GetObjectPath(), Message);
-			OutError = PayloadStorageDiagnostic;
+			OutError = std::format("Cooked SkeletalMesh '{}': {}", GetObjectPath(), Message);
 			return false;
 		};
 		std::span<const std::byte> Bytes;
@@ -764,10 +751,6 @@ namespace Durin
 		RenderData = std::move(Product.RenderData);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
 		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
-		DerivedDataKey.clear();
-		bLoadedFromDerivedDataCache = false;
-		PayloadStorageDiagnostic = std::format(
-			"Loaded cooked SkeletalMesh payload for '{}'.", GetObjectPath());
 		OutError.clear();
 		return true;
 	}
@@ -842,10 +825,6 @@ namespace Durin
 				Mesh->RenderResourceState.store(
 					ERenderResourceState::Uninitialized, std::memory_order_release);
 				Mesh->RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
-				Mesh->DerivedDataKey.clear();
-				Mesh->bLoadedFromDerivedDataCache = false;
-				Mesh->PayloadStorageDiagnostic = std::format(
-					"Loaded cooked SkeletalMesh payload for '{}'.", Mesh->GetObjectPath());
 				Mesh->CookedLoadPhase.store(
 					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 				Mesh->InitResources();
@@ -863,9 +842,6 @@ namespace Durin
 				Mesh->CookedLoadPhase.store(bFailed
 					? ECookedMeshCpuPhase::Failed : ECookedMeshCpuPhase::Cancelled,
 					std::memory_order_release);
-				Mesh->PayloadStorageDiagnostic = std::format(
-					"Cooked SkeletalMesh '{}': {}", Mesh->GetObjectPath(),
-					Message.empty() ? "asynchronous load terminated" : Message);
 			}
 		};
 		if (!Manager->Submit(std::move(Request))) return false;

@@ -17,7 +17,7 @@
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsScene.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Threading/Task.h"
 
@@ -1134,7 +1134,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
-	ASSERT_TRUE(Durin::FStaticMeshBuildOperations::BuildAndPublishImported(
+	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 		*Mesh, Imported, "Scene collision fixture", Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;

@@ -28,22 +28,14 @@ namespace Durin
 		EBodySetupCollisionQueryPolicy Policy,
 		FCollisionGeometryRef& OutSimple,
 		FCollisionGeometryRef& OutComplex,
-		EBodySetupCollisionBuildStatus& OutStatus,
-		std::string& OutKey,
-		std::string& OutDiagnostic,
-		uint64& OutPayloadBytes,
 		std::string& OutError) const -> bool
 	{
-		FStaticMeshCollisionBuildProduct Product;
-		if (!InvokeStaticMeshCollisionBuildFeature(
+		FStaticMeshCollisionBuildResult Product;
+		if (!BuildStaticMeshCollisionDerivedData(
 			SourceRenderData, Mode, Policy, Product, OutError))
 			return false;
 		OutSimple = std::move(Product.Simple);
 		OutComplex = std::move(Product.Complex);
-		OutStatus = Product.Status;
-		OutKey = std::move(Product.DerivedDataKey);
-		OutDiagnostic = std::move(Product.Diagnostic);
-		OutPayloadBytes = Product.PayloadBytes;
 		return true;
 	}
 	auto DStaticMesh::SetCollisionSourceMode(
@@ -62,7 +54,7 @@ namespace Durin
 			if (!BodySetup) { OutError.clear(); return true; }
 			FStaticMeshRenderStateRecreateContext RecreateContext(this);
 			if (!BodySetup->SetCollisionSourceMode(Mode)) return false;
-			BodySetup->ClearCollisionGeometry(EBodySetupCollisionBuildStatus::None, {});
+			BodySetup->ClearCollisionGeometry();
 			OutError.clear();
 			return true;
 		}
@@ -76,12 +68,8 @@ namespace Durin
 			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
-		EBodySetupCollisionBuildStatus Status;
-		std::string Key;
-		std::string Diagnostic;
-		uint64 PayloadBytes = 0;
 		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
-			Status, Key, Diagnostic, PayloadBytes, OutError)) return false;
+			OutError)) return false;
 		DBodySetup* Setup = BodySetup.Get();
 		if (!Setup)
 		{
@@ -91,8 +79,7 @@ namespace Durin
 		}
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		if (!Setup->SetCollisionSourceMode(Mode)
-			|| !Setup->PublishCollisionGeometry(Simple, Complex, Status,
-				std::move(Key), std::move(Diagnostic), PayloadBytes))
+			|| !Setup->SetCollisionGeometry(Simple, Complex))
 		{
 			OutError = "Static mesh could not publish collision state.";
 			return false;
@@ -120,16 +107,11 @@ namespace Durin
 		const EBodySetupCollisionSourceMode Mode = BodySetup->GetCollisionSourceMode();
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
-		EBodySetupCollisionBuildStatus Status;
-		std::string Key;
-		std::string Diagnostic;
-		uint64 PayloadBytes = 0;
 		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
-			Status, Key, Diagnostic, PayloadBytes, OutError)) return false;
+			OutError)) return false;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		if (!BodySetup->SetCollisionQueryPolicy(Policy)
-			|| !BodySetup->PublishCollisionGeometry(Simple, Complex, Status,
-				std::move(Key), std::move(Diagnostic), PayloadBytes))
+			|| !BodySetup->SetCollisionGeometry(Simple, Complex))
 		{
 			OutError = "Static mesh could not publish collision policy state.";
 			return false;

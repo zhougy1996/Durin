@@ -80,8 +80,8 @@ selects the lowest overlapping child and still emits one result per body.
 ## Assets and components
 
 `DBodySetup` owns collision source mode, Simple/Complex query policy, build
-revision/status, a local shape offset, optional independent immutable-resource
-caches, and exact retained payload bytes. Repeated publication for one revision
+revision, a local shape offset, and independent immutable-resource
+caches. Repeated publication for one revision
 returns the same identity; successful collision-relevant setters invalidate
 geometry. Material, thumbnail, and render-readiness changes do not.
 
@@ -95,8 +95,12 @@ continues to derive its authored Box setup from verified LOD 0 bounds.
 Editor derived data uses the separate `StaticMeshCollision/Objects` namespace
 and a key containing collision builder/schema/platform versions, exact source
 identity, import-space settings, mode/policy, and canonical bytes. Builds and
-reimports publish render data, BodySetup state, collision resources, revisions,
-and diagnostics transactionally. A cache miss or corruption is rebuildable only
+reimports replace render data, BodySetup state, collision resources, and revisions
+transactionally. Engine-owned operation results retain cache origin, key,
+payload bytes, and persistence diagnostics; neither asset nor physics owner
+stores that history. `DBodySetup::SetCollisionGeometry` validates compatible
+immutable values and advances revisions without accepting build metadata.
+A cache miss or corruption is rebuildable only
 while detached source inputs exist.
 
 Cook writes independently versioned render and optional required collision
@@ -357,9 +361,9 @@ The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
 plus bounded hull/mesh/HeightField feature lines and the latest blocking impact normal without
 exposing mutable scene storage. Feature detail is globally capped at 256
-triangles and 64 HeightField node bounds per snapshot. StaticMesh Inspector reports mode/policy/status, source
-and retained counts, node/depth/bounds, payload/runtime bytes, versions,
-revision, key, and diagnostics without providing mutation controls.
+triangles and 64 HeightField node bounds per snapshot. StaticMesh Inspector reports mode/policy, actual geometry readiness, source
+and retained counts, nodes/bounds, runtime bytes, versions, and
+revision coherence without retaining or displaying cache-operation history.
 
 The implementation is synchronous and query-only. Programmatic low-level
 compounds are qualified; reflected compound authoring is deferred. Writable

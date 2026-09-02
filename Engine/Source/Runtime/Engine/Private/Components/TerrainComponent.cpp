@@ -324,13 +324,6 @@ namespace Durin
 			LastRenderDiagnostic = "Terrain rendering requires an assigned heightmap.";
 			return nullptr;
 		}
-		if (Heightmap->GetStatus() == ETerrainHeightmapStatus::Loading
-			|| Heightmap->GetStatus() == ETerrainHeightmapStatus::Rebuilding)
-		{
-			RenderStatus = ETerrainRenderStatus::PayloadLoading;
-			LastRenderDiagnostic = "Terrain rendering is waiting for the asynchronous heightmap payload.";
-			return nullptr;
-		}
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
 		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 		{

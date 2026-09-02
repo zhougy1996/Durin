@@ -57,12 +57,12 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DerivedDataCache` | Backend-neutral synchronous bucket/key cache with concurrent bucket-scoped access, local filesystem persistence, and the family-neutral Build Framework: immutable definitions/values/policy, synchronous local sessions, cache-status adaptation, and build-function registration; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
+| `DerivedDataCache` | Backend-neutral synchronous bucket/key Get/Put cache, concurrent bucket-scoped access, immutable returned bytes, and private local persistence; depends only on `Core` and owns no build orchestration | [source](../../Engine/Source/Developer/DerivedDataCache) |
 | `ShaderBuild` | Module-owned live Shader provider: Slang compiler/resolver, dependency manifests, source fingerprints, single-flight workers/LRU, Shader DDC orchestration, generated-source handling, and deterministic cooked-library production; excluded from DurinGame | [source](../../Engine/Source/Developer/ShaderBuild) |
 | `TextureBuild` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions, and three typed synchronous providers; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureBuild) |
-| `StaticMeshBuild` | StaticMesh render/collision keys, canonical-geometry recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
-| `SkeletalBuild` | SkeletalMesh/AnimationClip keys, canonical-payload recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
-| `TerrainBuild` | TerrainHeightmap canonical-sample and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
+| `StaticMeshBuild` | Pure canonical-geometry reconciliation, render/collision recipes, producer versions, and one bounded typed provider registration; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/StaticMeshBuild) |
+| `SkeletalBuild` | Pure typed SkeletalMesh/AnimationClip canonical-payload recipes and one module-owned provider; Engine owns keys, cache policy, diagnostics, and asset application | [source](../../Engine/Source/Developer/SkeletalBuild) |
+| `TerrainBuild` | Pure Heightmap sample and Terrain World composition/product recipes with typed provider registration; Engine owns private keys, cache orchestration, generation application, Cook, manifests, and runtime loads | [source](../../Engine/Source/Developer/TerrainBuild) |
 | `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-v9-resave orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
 
 ## Project Modules
@@ -75,7 +75,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
-| generic DDC bucket/key get, put, Build policy, or recipe orchestration | `DerivedDataCache` | Family owners for typed inputs, execution, and validation; Engine for Texture DDC orchestration |
+| generic DDC bucket/key get or put | `DerivedDataCache` | Engine owns asset policy and orchestration; pure recipe modules own transformations |
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
 | package linker tables, serialized type identity, canonical Map-key tokens, DAST v9 codec | `CoreDObject` | `AssetRegistry` for bounded metadata projection; `Engine` only for live graph capture/application |
 | asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for package/object link identity; editor modules for UI |
@@ -88,7 +88,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
 | importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine provider contracts for Texture recipes; `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for their typed recipes; plus `Engine` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `Engine` owns Texture keys, Get/Put, payload validation, fallback, and result application; `TextureBuild` supplies only pure recipes; other build modules retain their Build Framework clients |
+| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `Engine` | Engine owns keys, Get/Put, validation, fallback, and application; Developer build modules supply pure typed recipes |
 | project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
 
 Engine public headers are a repository-owned module contract rather than an

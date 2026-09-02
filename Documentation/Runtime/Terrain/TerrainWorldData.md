@@ -4,7 +4,7 @@ Summary: Define the canonical Terrain World lattice, tile products, packages, bu
 
 Modules: Engine, TerrainBuild, DerivedDataCache
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-09-03
 
 This contract is authoritative for the new Terrain World family. The current
 `DTerrainHeightmap`, `DTerrainComponent`, `ATerrainActor`, `FTerrainSceneProxy`,
@@ -232,7 +232,7 @@ addressable and checksummed. Counts are capped at 64 products per product class
 per region, five known required classes, eight neighbors, 64 dependencies per
 product, and 1,024 manifest regions per lookup page.
 
-Build functions may compute and cache products independently. Publication of a
+Engine caches the five product bodies independently. Publication of a
 new tile generation is atomic: its manifest record becomes visible only after
 all five required products validate, every present neighbor border agrees, and
 all hashes and dependency identities are fixed. Failure retains the prior
@@ -247,7 +247,8 @@ worker count, cache path, package placement, and cancellation timing are absent.
 
 ### Implemented schema-1 product layout
 
-`TerrainBuild` implements every schema-1 product as one canonical envelope.
+Engine owns every schema-1 product envelope; TerrainBuild computes only
+canonical bodies from detached cache-free inputs.
 The fixed 108-byte prefix is followed by zero to 64 dependency hashes and then
 the canonical body. Fields occur in this order:
 
@@ -277,9 +278,13 @@ class before any body or dependency allocation. The implemented bodies are:
 - Metadata: signed extrema, geometric range, canonical world-space XYZ bounds,
   and the ordered five-class product directory with each schema ceiling.
 
-The five TerrainBuild functions use the DerivedDataCache Build Framework to
-cache and validate canonical bodies
-independently. Generation envelopes are applied only at atomic publication, so
+Engine owns the five private keys and direct cache Get/Put operations.
+Schema-1 cache bodies have no checksum envelope, so a warm request still runs
+one pure five-body recipe and checks each cached body against its exact result.
+Each product independently reports hit or rebuild in the operation result;
+cache writes are best effort and bounded diagnostics do not enter runtime
+products. This preserves corruption detection without changing frozen bytes.
+Generation envelopes are applied only at atomic publication, so
 one body can be reused without putting generation or package placement in its
 build identity. A generation publisher accepts exactly the five checked
 classes, verifies Height/Collision/Query dependencies, rejects stale request
@@ -313,7 +318,7 @@ product class before reading a body. The retired per-class product magics, old
 legacy cooked payload IDs, and old component/actor fields return
 `UnsupportedLegacySchema`; no partial decode, alias, or dependency lookup occurs.
 
-`TerrainBuild` materializes this contract through a sorted `TWMF` world
+Engine materializes this contract through a sorted `TWMF` world
 manifest and headerless opaque region segments. Installed region packages
 contain five independently addressable raw ranges per complete tile;
 uninstalled occupied regions remain explicit manifest records with no product
@@ -407,7 +412,7 @@ interest, traversal, teleport, failure fallback, and the four product profiles.
 ## Related code
 
 - `Engine/Source/Developer/TerrainBuild/Public/Terrain/TerrainWorldTile.h`
-- `Engine/Source/Developer/TerrainBuild/Public/Terrain/TerrainWorldCook.h`
-- `Engine/Source/Developer/TerrainBuild/Private/Terrain/TerrainWorldBuildFunctions.cpp`
+- `Engine/Source/Runtime/Engine/Public/Terrain/TerrainWorldCook.h`
+- `Engine/Source/Runtime/Engine/Private/Terrain/TerrainWorldDerivedData.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainWorldBuildAdapter.h`
 - `Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp`

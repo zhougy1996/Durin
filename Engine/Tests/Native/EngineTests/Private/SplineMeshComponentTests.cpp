@@ -23,7 +23,7 @@
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 
@@ -51,7 +51,7 @@ namespace
 		Section.Indices = {0, 1, 2};
 		Section.SourceMaterialIndex = 0;
 		std::string Error;
-		if (!FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!BuildStaticMeshSynchronously(
 			*Mesh, Imported,
 			"SplineMesh authored triangle fixture", Error))
 		{
