@@ -120,6 +120,34 @@ def cmake_build_target(context: BuildContext) -> str:
     return context.target
 
 
+def configure_build_tree(
+    context: BuildContext,
+    output: BuildOutput,
+    *,
+    build_directory: Path,
+    paths: BuildPaths,
+    fresh: bool,
+    definitions: Sequence[str] = (),
+) -> None:
+    command = [context.cmake]
+    if fresh:
+        command.append("--fresh")
+    command.extend(["--preset", context.preset.name])
+    command.extend(f"-D{definition}" for definition in definitions)
+    with output.stage("Dependencies"):
+        prepare_configure_dependencies(context, output)
+    with output.stage("Configure"):
+        run_command(
+            command,
+            environment=context.environment or os.environ,
+            output=output,
+            show_heartbeat=context.request.agent,
+            cwd=paths.root,
+            state_directory=paths.state_directory,
+        )
+    require_english_msvc_ninja_prefix(context, build_directory)
+
+
 def perform_action(
     context: BuildContext,
     output: BuildOutput,
@@ -134,23 +162,14 @@ def perform_action(
 
     if request.action is Action.CONFIGURE:
         fresh = request.fresh or (cache_file.exists() and not cache_is_usable(cache_file))
-        command = [context.cmake]
-        if fresh:
-            command.append("--fresh")
-        command.extend(["--preset", context.preset.name])
-        command.extend(f"-D{definition}" for definition in request.defines)
-        with output.stage("Dependencies"):
-            prepare_configure_dependencies(context, output)
-        with output.stage("Configure"):
-            run_command(
-                command,
-                environment=environment,
-                output=output,
-                show_heartbeat=request.agent,
-                cwd=paths.root,
-                state_directory=paths.state_directory,
-            )
-        require_english_msvc_ninja_prefix(context, build_directory)
+        configure_build_tree(
+            context,
+            output,
+            build_directory=build_directory,
+            paths=paths,
+            fresh=fresh,
+            definitions=request.defines,
+        )
         return
     if request.action is Action.CLEAN:
         if not cache_is_usable(cache_file):
@@ -181,18 +200,13 @@ def perform_action(
                 )
         else:
             output.warning(f'Skipping clean because the build tree is unconfigured: "{build_directory}"')
-        with output.stage("Dependencies"):
-            prepare_configure_dependencies(context, output)
-        with output.stage("Configure"):
-            run_command(
-                [context.cmake, "--fresh", "--preset", context.preset.name],
-                environment=environment,
-                output=output,
-                show_heartbeat=request.agent,
-                cwd=paths.root,
-                state_directory=paths.state_directory,
-            )
-        require_english_msvc_ninja_prefix(context, build_directory)
+        configure_build_tree(
+            context,
+            output,
+            build_directory=build_directory,
+            paths=paths,
+            fresh=True,
+        )
     elif not cache_is_usable(cache_file) or (
         context.current_host == "windows"
         and context.profile.environment_provider is EnvironmentProvider.VISUAL_STUDIO
@@ -200,23 +214,15 @@ def perform_action(
     ):
         if cache_is_usable(cache_file):
             output.warning("Existing Ninja rules do not use the English MSVC dependency prefix; reconfiguring.")
-        command = [context.cmake]
-        # Avoid a redundant --fresh for a new tree, but discard unusable or incompatible state.
-        if cache_file.exists():
-            command.append("--fresh")
-        command.extend(["--preset", context.preset.name])
-        with output.stage("Dependencies"):
-            prepare_configure_dependencies(context, output)
-        with output.stage("Configure"):
-            run_command(
-                command,
-                environment=environment,
-                output=output,
-                show_heartbeat=request.agent,
-                cwd=paths.root,
-                state_directory=paths.state_directory,
-            )
-        require_english_msvc_ninja_prefix(context, build_directory)
+        configure_build_tree(
+            context,
+            output,
+            build_directory=build_directory,
+            paths=paths,
+            # Avoid a redundant --fresh for a new tree, but discard unusable or
+            # incompatible state.
+            fresh=cache_file.exists(),
+        )
 
     with output.stage("Build"):
         targets = target.split(";")

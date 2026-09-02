@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from durin_dev_tool import cook
+from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 
 def report(*, status: str = "succeeded") -> str:
@@ -92,19 +98,28 @@ def test_cook_maps_stable_native_contract_and_renders_json(tmp_path: Path) -> No
     )()
     calls: list[list[str]] = []
 
-    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def command_runner(arguments: list[str], **_kwargs: object) -> str:
         calls.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, report(), "")
+        return report()
 
     output = io.StringIO()
-    assert cook.run(
-        namespace,
-        repository_root=tmp_path,
-        stdout=output,
-        stderr=io.StringIO(),
-        executable_resolver=lambda *_args: executable,
-        process_runner=process_runner,
-    ) == 0
+    repository = REPOSITORY.at_root(tmp_path)
+    selection = replace(cook.select_runtime(REPOSITORY), repository=repository)
+    with mock.patch.object(
+        RepositoryContext,
+        "load",
+        side_effect=AssertionError("repository context was rediscovered"),
+    ), mock.patch.object(cook, "select_runtime", return_value=selection) as select:
+        assert cook.run(
+            namespace,
+            repository_root=tmp_path,
+            repository_context=repository,
+            stdout=output,
+            stderr=io.StringIO(),
+            executable_resolver=lambda *_args: executable,
+            command_runner=command_runner,
+        ) == 0
+    select.assert_called_once_with(repository, profile_name="", preset_name="")
     assert calls == [
         [
             str(executable),

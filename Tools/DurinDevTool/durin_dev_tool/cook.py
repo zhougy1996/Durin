@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import subprocess
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
@@ -26,19 +24,11 @@ from .runtime_program import (
 )
 
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
-
-
-def _runtime_executable(namespace: argparse.Namespace, repository_root: Path) -> Path:
-    repository = RepositoryContext.load().at_root(repository_root)
-    selection = select_runtime(
-        repository,
-        profile_name=str(getattr(namespace, "profile", "") or ""),
-        preset_name=str(getattr(namespace, "preset", "") or ""),
-    )
-    return locate_executable(
-        selection,
-        ExecutableDescription("Project Cook", "DurinAssetTool", "DurinAssetTool"),
-    )
+COOK_EXECUTABLE = ExecutableDescription(
+    "Project Cook",
+    "DurinAssetTool",
+    "DurinAssetTool",
+)
 
 
 def _read_report(output: str) -> dict[str, Any]:
@@ -87,21 +77,24 @@ def run(
     namespace: argparse.Namespace,
     *,
     repository_root: Path,
+    repository_context: RepositoryContext,
     stdout: TextIO,
     stderr: TextIO,
-    process_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-    executable_resolver: Callable[[argparse.Namespace, Path], Path] = _runtime_executable,
+    command_runner: Callable[..., str] | None = None,
+    executable_resolver: Callable[[argparse.Namespace, Path], Path] | None = None,
     **_kwargs: object,
 ) -> int:
-    base_repository = RepositoryContext.load()
-    repository = base_repository.at_root(repository_root)
+    repository = repository_context
     selection = select_runtime(
-        base_repository,
+        repository,
         profile_name=str(getattr(namespace, "profile", "") or ""),
         preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    selection = replace(selection, repository=repository)
-    executable = executable_resolver(namespace, repository_root)
+    executable = (
+        executable_resolver(namespace, repository.root)
+        if executable_resolver
+        else locate_executable(selection, COOK_EXECUTABLE)
+    )
     project_value = getattr(namespace, "project_path", None)
     if project_value is None:
         project_value = repository.config.paths.default_game_project
@@ -122,48 +115,33 @@ def run(
     if namespace.dry_run:
         arguments.append("--dry-run")
 
-    if process_runner is subprocess.run:
-        process_output = BuildOutput(
-            plain=True,
-            output_mode=OutputMode.COMPACT,
-            stdout=io.StringIO(),
-            stderr=stderr,
+    process_output = BuildOutput(
+        plain=True,
+        output_mode=OutputMode.COMPACT,
+        stdout=io.StringIO(),
+        stderr=stderr,
+    )
+    try:
+        native_output = invoke_runtime_program(
+            selection,
+            COOK_EXECUTABLE,
+            arguments,
+            output=process_output,
+            policy=RuntimeProcessPolicy(
+                interruption_message="Project Cook cancelled.",
+                show_heartbeat=True,
+                capture_output=True,
+            ),
+            executable_override=executable,
+            command_runner=command_runner,
         )
-        try:
-            native_output = invoke_runtime_program(
-                selection,
-                ExecutableDescription("Project Cook", "DurinAssetTool", "DurinAssetTool"),
-                arguments,
-                output=process_output,
-                policy=RuntimeProcessPolicy(
-                    interruption_message="Project Cook cancelled.",
-                    show_heartbeat=True,
-                    capture_output=True,
-                ),
-                executable_override=executable,
-            )
-        except BuildToolError as error:
-            if error.exit_code == 130:
-                print("Project Cook cancelled.", file=stderr)
-                return 130
-            if not error.output_excerpt.strip():
-                raise
-            native_output = error.output_excerpt
-    else:
-        completed = process_runner(
-            [str(executable), *arguments],
-            cwd=repository_root,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if completed.returncode == 130:
+    except BuildToolError as error:
+        if error.exit_code == 130:
             print("Project Cook cancelled.", file=stderr)
             return 130
-        if completed.returncode != 0 and not completed.stdout.strip():
-            diagnostic = completed.stderr.strip() or "native Cook process failed"
-            raise DevToolError(f"Project Cook failed: {diagnostic}")
-        native_output = completed.stdout
+        if not error.output_excerpt.strip():
+            raise
+        native_output = error.output_excerpt
 
     report = _read_report(native_output)
     if namespace.format_name == "json":
