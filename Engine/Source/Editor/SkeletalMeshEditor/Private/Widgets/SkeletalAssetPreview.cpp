@@ -67,7 +67,7 @@ namespace Durin::Editor::SkeletalMesh
 			{
 				SetVisible(false); ImGui::TextWrapped("Preview unavailable: %s", Error.c_str()); ImGui::EndChild(); return;
 			}
-			(void)Mesh->EnsureRenderDataAndResourcesBlocking();
+			(void)Mesh->RequestRenderDataAndResources();
 			Host->Tick(ImGui::GetIO().DeltaTime);
 			SetVisible(true);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();

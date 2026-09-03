@@ -53,7 +53,7 @@ namespace Durin::Editor::SkeletalMesh
 				FSkeletalMeshRenderResourceStatus Status = Mesh->GetRenderResourceStatus();
 				if (Status.Readiness == ESkeletalMeshRenderResourceReadiness::Unavailable)
 				{
-					(void)Mesh->EnsureRenderDataAndResourcesBlocking();
+					if (Mesh->EnsureRenderDataLoadedBlocking()) Mesh->InitResources();
 					Status = Mesh->GetRenderResourceStatus();
 				}
 				AssetRevision = Status.Revision;

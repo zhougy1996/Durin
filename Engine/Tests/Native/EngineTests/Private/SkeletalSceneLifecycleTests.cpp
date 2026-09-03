@@ -373,7 +373,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			EXPECT_EQ(Mesh->GetPayloadData(), nullptr);
 			EXPECT_EQ(Mesh->GetRenderData(), nullptr);
 			const Durin::FCookedMeshBlockingResult Residency =
-				Mesh->EnsureRenderDataAndResourcesBlocking();
+				Mesh->EnsureRenderDataLoadedBlocking();
 			ASSERT_TRUE(Residency) << Residency.Message;
 			ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 			ASSERT_NE(Mesh->GetRenderData(), nullptr);

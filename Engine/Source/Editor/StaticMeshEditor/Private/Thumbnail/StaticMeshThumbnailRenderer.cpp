@@ -101,7 +101,7 @@ namespace Durin::Editor::StaticMesh
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 				{
-					(void)StaticMesh->EnsureRenderDataAndResourcesBlocking();
+					if (StaticMesh->EnsureRenderDataLoadedBlocking()) StaticMesh->InitResources();
 					Status = StaticMesh->GetRenderResourceStatus();
 				}
 				if (!StaticMesh->GetLOD0LocalBounds())

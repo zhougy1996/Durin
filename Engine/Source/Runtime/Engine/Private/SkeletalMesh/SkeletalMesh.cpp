@@ -362,13 +362,20 @@ namespace Durin
 		if (RenderData)
 		{
 			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
-			InitResources();
+			if (RenderResourceState.load(std::memory_order_acquire)
+				== ERenderResourceState::Uninitialized)
+				InitResources();
 		}
 		else if (CookedLoadPhase.load(std::memory_order_acquire)
 			== ECookedMeshCpuPhase::Unloaded)
 		{
-			SubmitCookedRenderDataRequest();
+			SubmitCookedRenderDataRequest(true);
 		}
+		return GetRenderDataLoadStatus();
+	}
+
+	auto DSkeletalMesh::GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus
+	{
 		const FSkeletalMeshRenderResourceStatus Resource = GetRenderResourceStatus();
 		ECookedMeshGpuPhase GpuPhase = ECookedMeshGpuPhase::Unavailable;
 		switch (Resource.Readiness)
@@ -385,46 +392,7 @@ namespace Durin
 			.ResourceRevision = Resource.Revision};
 	}
 
-	auto DSkeletalMesh::EnsureRenderDataAndResourcesBlocking()
-		-> FCookedMeshBlockingResult
-	{
-		if (GIsGameThreadIdInitialized) CheckGameThread();
-		FCookedMeshLoadStatus Initial = RequestRenderDataAndResources();
-		if (!Initial.HasCpuData() && Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
-		{
-			if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager();
-				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
-			{
-				Manager->Finish(MakeObjectHandle(this));
-				Initial = RequestRenderDataAndResources();
-			}
-		}
-		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
-			!= ECookedMeshCpuPhase::Failed
-			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
-		{
-			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
-			std::string Error;
-			if ((!PayloadData && !LoadCookedPayload(Error))
-				|| (!RenderData && !BuildRenderData(Error)))
-			{
-				CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
-				return {.Status = RequestRenderDataAndResources(), .Message = std::move(Error)};
-			}
-			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
-		}
-		if (RenderData)
-		{
-			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
-			InitResources();
-		}
-		FCookedMeshBlockingResult Result{.Status = RequestRenderDataAndResources()};
-		if (!Result.Status.HasCpuData()) Result.Message = "SkeletalMesh CPU render data is unavailable.";
-		return Result;
-	}
-
-	auto DSkeletalMesh::RetryRenderDataAndResourcesBlocking()
+	auto DSkeletalMesh::EnsureRenderDataLoadedBlocking()
 		-> FCookedMeshBlockingResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -438,12 +406,40 @@ namespace Durin
 			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
 			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
 		}
-		if (RenderResourceState.load(std::memory_order_acquire) == ERenderResourceState::Failed)
+		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
+			== ECookedMeshCpuPhase::Unloaded)
+			SubmitCookedRenderDataRequest(false);
+		const FCookedMeshLoadStatus Initial = GetRenderDataLoadStatus();
+		if (!Initial.HasCpuData() && Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
 		{
-			RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
-			RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
+			if (FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager();
+				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
+			{
+				Manager->Finish(MakeObjectHandle(this));
+			}
 		}
-		return EnsureRenderDataAndResourcesBlocking();
+		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
+			!= ECookedMeshCpuPhase::Failed
+			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
+			std::string Error;
+			if ((!PayloadData && !LoadCookedPayload(Error))
+				|| (!RenderData && !BuildRenderData(Error)))
+			{
+				CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+				return {.Status = GetRenderDataLoadStatus(), .Message = std::move(Error)};
+			}
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+		}
+		if (RenderData)
+		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+		}
+		FCookedMeshBlockingResult Result{.Status = GetRenderDataLoadStatus()};
+		if (!Result.Status.HasCpuData()) Result.Message = "SkeletalMesh CPU render data is unavailable.";
+		return Result;
 	}
 
 	auto DSkeletalMesh::GetMaterialSlot(uint32 SlotIndex) const
@@ -501,9 +497,11 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!RenderData || GDynamicRHI == nullptr) return;
-		ERenderResourceState Expected = ERenderResourceState::Uninitialized;
-		if (!RenderResourceState.compare_exchange_strong(
-			Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel))
+		ERenderResourceState Expected = RenderResourceState.load(std::memory_order_acquire);
+		if ((Expected != ERenderResourceState::Uninitialized
+				&& Expected != ERenderResourceState::Failed)
+			|| !RenderResourceState.compare_exchange_strong(
+				Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel))
 			return;
 		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 #if DURIN_BUILD_DEBUG
@@ -755,7 +753,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DSkeletalMesh::SubmitCookedRenderDataRequest() -> bool
+	auto DSkeletalMesh::SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool
 	{
 		FCookedMeshLoadManager* Manager = GetCookedMeshLoadManager();
 		if (!Manager || RenderData
@@ -807,7 +805,7 @@ namespace Durin
 					&& BuildSkeletalCookedMetadataIdentity(*Mesh)
 						== Identity.MetadataIdentity;
 			},
-			.Publish = [](DObject& Owner,
+			.Publish = [bInitializeResources](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
 				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct,
 				std::string& OutError) {
@@ -827,7 +825,7 @@ namespace Durin
 				Mesh->RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 				Mesh->CookedLoadPhase.store(
 					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
-				Mesh->InitResources();
+				if (bInitializeResources) Mesh->InitResources();
 				OutError.clear();
 				return true;
 			},

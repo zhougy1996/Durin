@@ -99,17 +99,17 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	EDITOR_ONLY
 	KIND integration
-	DOMAINS static-mesh
-	MODULES engine renderer
+	DOMAINS static-mesh skeletal-mesh
+	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises view-local StaticMesh material preparation against initialized render resources."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for the prepared-section resource gate."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )
 
 durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests

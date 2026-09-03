@@ -25,11 +25,15 @@
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "SceneTestAccess.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
+#include <vulkan/vulkan.hpp>
+#include "VulkanRHIPrivate.h"
 
 #include "NativeDObjectTestSupport.h"
 
@@ -236,6 +240,115 @@ namespace
 } // namespace
 
 TEST(FStaticMeshRenderPreparationVulkanTests,
+	BlockingMeshCpuResidencyDoesNotInitializeGpuResources)
+{
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	InitializeDObjectSystem();
+	auto* StaticMesh = Durin::NewObject<Durin::DStaticMesh>(nullptr, "CpuOnlyStaticMesh");
+	EXPECT_FALSE(StaticMesh->HasPendingRenderResourceInitialization());
+	std::string Error;
+	ASSERT_TRUE(StaticMesh->SetRenderData(MakeRenderData(), {
+		{.Name = Durin::FName("Section0"), .SourceMaterialIndex = 0},
+		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
+		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
+		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
+	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "CpuOnlySkeleton");
+	ASSERT_TRUE(Skeleton->InitializeCanonicalBones({
+		{.Name = Durin::FName("$DurinRoot"), .ParentIndex = -1}}, Error)) << Error;
+	auto Payload = std::make_shared<Durin::FSkeletalMeshPayloadData>();
+	Payload->Positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
+	Payload->Normals.assign(3, {0.0f, 0.0f, 1.0f});
+	Payload->Tangents.assign(3, {1.0f, 0.0f, 0.0f, 1.0f});
+	Payload->UVChannels[0] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
+	Payload->Indices = {0, 1, 2};
+	Durin::FSkeletalMeshVertexInfluences Influence;
+	Influence.BoneIndices[0] = 0;
+	Influence.Weights[0] = 1.0f;
+	Influence.Count = 1;
+	Payload->Influences.assign(3, Influence);
+	Payload->LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0});
+	Payload->Sections.push_back({.Name = Durin::FName("Body"), .FirstIndex = 0,
+		.IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2,
+		.MaterialSlotIndex = 0, .LocalBounds = Payload->LocalBounds});
+	Payload->PaletteBoneIndices = {0};
+	Payload->InverseBindMatrices = {Durin::FMatrix4f(1.0f)};
+	auto* SkeletalMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "CpuOnlySkeletalMesh");
+	EXPECT_FALSE(SkeletalMesh->HasPendingRenderResourceInitialization());
+	ASSERT_TRUE(SkeletalMesh->SetAssetData({.Skeleton = Skeleton,
+		.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
+		.MaterialSlots = {{.Name = Durin::FName("Body"), .SourceMaterialIndex = 0}},
+		.Payload = std::move(Payload)}, Error)) << Error;
+
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+	auto CheckCpuOnlyAndGpuRetry = [](auto* Mesh) {
+		const auto Before = Mesh->GetRenderResourceStatus();
+		const auto Loaded = Mesh->EnsureRenderDataLoadedBlocking();
+		ASSERT_TRUE(Loaded.Succeeded()) << Loaded.Message;
+		EXPECT_EQ(Loaded.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
+		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
+		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
+		const auto Repeated = Mesh->EnsureRenderDataLoadedBlocking();
+		ASSERT_TRUE(Repeated.Succeeded()) << Repeated.Message;
+		EXPECT_EQ(Repeated.Status.Generation, Loaded.Status.Generation);
+		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Before.Revision);
+		{
+			FScopedRenderThreadBlocker Blocker;
+			Durin::VulkanRHI::ArmVulkanCreateFailure(
+				Durin::VulkanRHI::EVulkanCreateFailurePoint::Buffer);
+			Mesh->InitResources();
+			const auto Queued = Mesh->GetRenderResourceStatus();
+			const auto WhileQueued = Mesh->EnsureRenderDataLoadedBlocking();
+			EXPECT_TRUE(WhileQueued.Succeeded());
+			EXPECT_EQ(WhileQueued.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Queued);
+			EXPECT_FALSE(Mesh->GetRenderResourceStatus().IsReady());
+			EXPECT_TRUE(Mesh->HasPendingRenderResourceInitialization());
+			Mesh->InitResources();
+			EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Queued.Revision);
+		}
+		Durin::FlushRenderingCommands();
+		const auto Failed = Mesh->RequestRenderDataAndResources();
+		EXPECT_EQ(Failed.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
+		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
+		EXPECT_EQ(Mesh->GetRenderData()->GetNumInitializedResources(), 0u);
+		for (int Index = 0; Index < 3; ++Index)
+		{
+			const auto Polled = Mesh->RequestRenderDataAndResources();
+			EXPECT_EQ(Polled.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
+			EXPECT_EQ(Polled.ResourceRevision, Failed.ResourceRevision);
+			const auto CpuOnly = Mesh->EnsureRenderDataLoadedBlocking();
+			EXPECT_TRUE(CpuOnly.Succeeded());
+			EXPECT_EQ(CpuOnly.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Failed);
+			EXPECT_EQ(CpuOnly.Status.ResourceRevision, Failed.ResourceRevision);
+		}
+		Mesh->InitResources();
+		Durin::FlushRenderingCommands();
+		const auto Ready = Mesh->GetRenderResourceStatus();
+		EXPECT_TRUE(Ready.IsReady());
+		EXPECT_FALSE(Mesh->HasPendingRenderResourceInitialization());
+		EXPECT_GT(Ready.Revision, Failed.ResourceRevision);
+		Mesh->InitResources();
+		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Ready.Revision);
+	};
+	CheckCpuOnlyAndGpuRetry(StaticMesh);
+	CheckCpuOnlyAndGpuRetry(SkeletalMesh);
+	Durin::MarkAsGarbage(StaticMesh);
+	Durin::MarkAsGarbage(SkeletalMesh);
+	Durin::MarkAsGarbage(Skeleton);
+	Durin::CollectGarbage();
+	Durin::FlushRenderingCommands();
+	Durin::ShutdownRenderingThread();
+	Durin::RHIExit();
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests,
 	CookedComponentProxyConvergesFromCpuReadyGpuQueuedWithoutMutation)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -316,6 +429,20 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
+	for (bool bUseManager : {true, false})
+	{
+		if (!bUseManager) Durin::ShutdownCookedMeshLoadManager();
+		const auto CpuOnly = CookedMesh->EnsureRenderDataLoadedBlocking();
+		ASSERT_TRUE(CpuOnly.Succeeded()) << CpuOnly.Message;
+		EXPECT_EQ(CpuOnly.Status.GpuPhase, Durin::ECookedMeshGpuPhase::Unavailable);
+		EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
+		ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
+		CookedMesh = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()), CookedMesh));
+		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
+	}
+	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 	FScopedRenderThreadBlocker RenderThreadBlocker;
 
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(
@@ -323,6 +450,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Component->SetStaticMesh(CookedMesh);
 	Component->RegisterComponent();
 	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
+	EXPECT_FALSE(CookedMesh->HasPendingRenderResourceInitialization());
 	const auto Deadline = std::chrono::steady_clock::now()
 		+ std::chrono::seconds(10);
 	Durin::FCookedMeshLoadStatus LoadStatus =

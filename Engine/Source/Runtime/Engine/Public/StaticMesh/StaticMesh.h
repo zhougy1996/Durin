@@ -169,17 +169,23 @@ namespace Durin
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Starts or joins bounded cooked loading and returns immediately with the
-		// current generation-qualified CPU/GPU snapshot.
+		// current generation-qualified CPU/GPU snapshot. Does not retry failed/cancelled work.
 		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
-		// May perform package I/O and CPU construction on the calling GameThread.
-		ENGINE_API auto EnsureRenderDataAndResourcesBlocking()
-			-> FCookedMeshBlockingResult;
-		// Clears a sticky cooked failure and explicitly repeats the blocking request.
-		ENGINE_API auto RetryRenderDataAndResourcesBlocking()
+		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
+		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
+		// Does not request GPU initialization; prior rendering requests may still complete.
+		ENGINE_API auto EnsureRenderDataLoadedBlocking()
 			-> FCookedMeshBlockingResult;
 		// Returns one coherent, nonblocking snapshot for stale-work rejection.
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FStaticMeshRenderResourceStatus;
+		// Nonblocking query for queued GPU initialization only. False also covers
+		// CPU loading, absent resources, initialization failure, and released resources.
+		auto HasPendingRenderResourceInitialization() const -> bool
+		{
+			return GetRenderResourceStatus().Readiness
+				== EStaticMeshRenderResourceReadiness::Queued;
+		}
 		// Returns finite, ordered CPU LOD 0 bounds, including zero-thickness bounds.
 		ENGINE_API auto GetLOD0LocalBounds() const -> std::optional<FBox>;
 		// Returns CPU LOD 0 bounds only when every axis has positive extent.
@@ -195,6 +201,8 @@ namespace Durin
 		ENGINE_API auto RebuildCollision(std::string& OutError) -> bool;
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
+		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
+		// for readiness. Explicit calls retry failed GPU initialization without reloading CPU data.
 		ENGINE_API auto InitResources() -> void;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
@@ -299,7 +307,8 @@ namespace Durin
 			std::string& OutError,
 			bool bBuildAuthoredCollision = true) -> bool;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
-		auto SubmitCookedRenderDataRequest() -> bool;
+		auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
+		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
 		auto BuildCollisionCandidate(
 			const FStaticMeshRenderData& SourceRenderData,

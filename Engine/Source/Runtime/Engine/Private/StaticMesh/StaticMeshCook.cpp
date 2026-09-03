@@ -272,7 +272,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::SubmitCookedRenderDataRequest() -> bool
+	auto DStaticMesh::SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool
 	{
 		FCookedMeshLoadManager* Manager =
 			GetCookedMeshLoadManager();
@@ -345,7 +345,7 @@ namespace Durin
 					&& BuildStaticCookedMetadataIdentity(*Mesh)
 						== Identity.MetadataIdentity;
 			},
-			.Publish = [](DObject& Owner,
+			.Publish = [bInitializeResources](DObject& Owner,
 				const FCookedMeshLoadIdentity&,
 				std::unique_ptr<ICookedMeshDetachedProduct> BaseProduct,
 				std::string& OutError) {
@@ -376,7 +376,7 @@ namespace Durin
 				}
 				Mesh->CookedLoadPhase.store(
 					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
-				Mesh->InitResources();
+				if (bInitializeResources) Mesh->InitResources();
 				OutError.clear();
 				return true;
 			},

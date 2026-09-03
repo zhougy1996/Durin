@@ -1514,12 +1514,13 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		Durin::ECookedMeshCpuPhase::IoQueued);
 	EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
 	Durin::ShutdownCookedMeshLoadManager();
-	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase,
-		Durin::ECookedMeshCpuPhase::Cancelled);
+	const auto CancelledStatus = Mesh->RequestRenderDataAndResources();
+	EXPECT_EQ(CancelledStatus.CpuPhase, Durin::ECookedMeshCpuPhase::Cancelled);
 	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 	const Durin::FCookedMeshBlockingResult RetryResult =
-		Mesh->RetryRenderDataAndResourcesBlocking();
+		Mesh->EnsureRenderDataLoadedBlocking();
 	ASSERT_TRUE(RetryResult) << RetryResult.Message;
+	EXPECT_GT(RetryResult.Status.Generation, CancelledStatus.Generation);
 	auto FirstProxy = FirstConsumer->CreateSceneProxy();
 	if (!FirstProxy) Durin::ShutdownCookedMeshLoadManager();
 	ASSERT_NE(FirstProxy, nullptr) << RetryResult.Message;

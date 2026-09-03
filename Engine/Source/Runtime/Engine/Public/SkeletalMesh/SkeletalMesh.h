@@ -232,15 +232,24 @@ namespace Durin
 		auto GetImportedData() const -> const FSkeletalMeshImportedData& { return ImportedData; }
 		ENGINE_API auto GetRenderData() const -> const FSkeletalMeshRenderData*;
 		// Starts or joins nonblocking cooked work and returns the current snapshot.
+		// Does not retry failed/cancelled work.
 		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
-		// May perform package I/O and CPU construction on the calling GameThread.
-		ENGINE_API auto EnsureRenderDataAndResourcesBlocking()
-			-> FCookedMeshBlockingResult;
-		// Clears a sticky cooked failure and explicitly repeats the blocking request.
-		ENGINE_API auto RetryRenderDataAndResourcesBlocking()
+		// Blocks for CPU data only, retrying a prior CPU failure/cancellation.
+		// May perform package I/O on the GameThread; use RequestRenderDataAndResources() for polling.
+		// Does not request GPU initialization; prior rendering requests may still complete.
+		ENGINE_API auto EnsureRenderDataLoadedBlocking()
 			-> FCookedMeshBlockingResult;
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FSkeletalMeshRenderResourceStatus;
+		// Nonblocking query for queued GPU initialization only. False also covers
+		// CPU loading, absent resources, initialization failure, and released resources.
+		auto HasPendingRenderResourceInitialization() const -> bool
+		{
+			return GetRenderResourceStatus().Readiness
+				== ESkeletalMeshRenderResourceReadiness::Queued;
+		}
+		// Queues GPU initialization for resident CPU data; query GetRenderResourceStatus()
+		// for readiness. Explicit calls retry failed GPU initialization without reloading CPU data.
 		ENGINE_API auto InitResources() -> void;
 
 		// Validates before replacement; does not retain operation history or dirty the package.
@@ -307,7 +316,8 @@ namespace Durin
 
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto BuildRenderData(std::string& OutError) -> bool;
-		auto SubmitCookedRenderDataRequest() -> bool;
+		auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
+		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
 		auto ReleaseResources() -> void;
 	};
 }

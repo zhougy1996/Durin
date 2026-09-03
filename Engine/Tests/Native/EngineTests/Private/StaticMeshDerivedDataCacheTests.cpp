@@ -418,7 +418,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
 		const Durin::FCookedMeshBlockingResult LoadResult =
-			CookedMesh->EnsureRenderDataAndResourcesBlocking();
+			CookedMesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(LoadResult) << LoadResult.Message;
 		ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
 		Durin::FCollisionGeometryRef Geometry;
@@ -506,12 +506,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 			Durin::ECookedMeshCpuPhase::IoQueued);
 		EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
 		Durin::ShutdownCookedMeshLoadManager();
-		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
-			Durin::ECookedMeshCpuPhase::Cancelled);
+		const auto CancelledStatus = CookedMesh->RequestRenderDataAndResources();
+		EXPECT_EQ(CancelledStatus.CpuPhase, Durin::ECookedMeshCpuPhase::Cancelled);
 		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 		const Durin::FCookedMeshBlockingResult RetryResult =
-			CookedMesh->RetryRenderDataAndResourcesBlocking();
+			CookedMesh->EnsureRenderDataLoadedBlocking();
 		ASSERT_TRUE(RetryResult) << RetryResult.Message;
+		EXPECT_GT(RetryResult.Status.Generation, CancelledStatus.Generation);
 		auto FirstProxy = FirstConsumer->CreateSceneProxy();
 		const Durin::FCookedMeshLoadStatus RecoveredStatus =
 			CookedMesh->RequestRenderDataAndResources();

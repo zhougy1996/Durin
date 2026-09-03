@@ -362,19 +362,25 @@ alone rechecks object/load/resource generations and metadata identity, installs
 the detached candidate and diagnostics, queues GPU initialization, and
 invalidates registered consumers.
 
-`EnsureRenderDataAndResourcesBlocking()` is an explicit compatibility boundary.
-It submits or joins the same request identity and pumps only that owner's
-manager work before using the shared synchronous fallback. It is not used by
-getters, component ticks, SceneProxy creation, or renderer preparation. A
-failure or cancellation remains sticky for that load generation;
-`RetryRenderDataAndResourcesBlocking()` advances the generation and explicitly
-repeats the same contract.
+`EnsureRenderDataLoadedBlocking()` submits CPU-only work or joins an existing
+request identity, waits for that owner's manager work, and uses the shared
+synchronous fallback when necessary. Its result reports CPU residency only;
+callers explicitly call `InitResources()` and query `GetRenderResourceStatus()`
+for GPU readiness. Existing combined async requests still queue GPU initialization
+when published. Blocking loading is not used by getters, component ticks,
+SceneProxy creation, or renderer preparation. Explicit calls to
+`EnsureRenderDataLoadedBlocking()` advance a failed/cancelled CPU generation and
+repeat CPU loading; `InitResources()` also retries failed GPU initialization.
+Ordinary `RequestRenderDataAndResources()` calls retain terminal failures and
+cancellations, so polling does not repeatedly submit failed work. See
+[Render Resource Lifecycle](../Rendering/RenderResourceLifecycle.md#cooked-mesh-readiness).
 
 Manager shutdown stops admission, cancels reads and decode work, reports a
 current cancellation terminal to live assets without publishing CPU or GPU
 state, and drains tasks and completions before package, task, render, or Engine
 lifetime ends. Reinitialization creates a new manager scope; a cancelled asset
-resumes only through explicit retry. Package retirement, unload, destruction,
+resumes through an explicit `EnsureRenderDataLoadedBlocking()` call.
+Package retirement, unload, destruction,
 or a newer generation cannot publish stale candidates.
 
 Terrain World is a manifest-owned opaque-stream exception rather than an asset

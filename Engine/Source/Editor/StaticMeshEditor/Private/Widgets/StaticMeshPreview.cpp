@@ -79,7 +79,7 @@ namespace Durin::Editor::StaticMesh
 				return;
 			}
 
-			if (Mesh) (void)Mesh->EnsureRenderDataAndResourcesBlocking();
+			if (Mesh) (void)Mesh->RequestRenderDataAndResources();
 			FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
 			const std::optional<FBox> Bounds = Mesh ? Mesh->GetLOD0LocalBounds() : std::nullopt;
 			if (!Mesh || !Status.IsReady() || !Bounds)

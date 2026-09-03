@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, MonaImGui
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -46,10 +46,27 @@ asset diagnostics are defined by [Texture System](TextureSystem.md).
 ## Cooked mesh readiness
 
 StaticMesh and SkeletalMesh CPU residency is independent of render-resource
-readiness. A current cooked CPU candidate is published on GameThread and queues
-resource initialization immediately. The asset reports the queued state before
-the rendering thread executes that command and advances its resource revision
-again when initialization reaches Ready or Failed.
+readiness. `EnsureRenderDataLoadedBlocking()` waits for CPU residency only;
+`FCookedMeshBlockingResult::Succeeded()` reports that CPU result. It does not
+request GPU initialization. Call `InitResources()` explicitly, then query
+`GetRenderResourceStatus()` to distinguish queued, ready, and failed resources.
+`HasPendingRenderResourceInitialization()` is a nonblocking convenience query
+that returns true only while GPU initialization is queued. False does not imply
+readiness: CPU loading, absent, failed, and released resources also return false.
+An explicit `EnsureRenderDataLoadedBlocking()` call also retries a previous CPU
+failure/cancellation. An explicit `InitResources()` call also retries failed GPU
+initialization using resident CPU data without performing package I/O. Neither
+operation repeats completed work or duplicates an in-flight initialization.
+
+`RequestRenderDataAndResources()` retains its nonblocking combined contract and
+does not retry CPU failures/cancellations or failed GPU initialization. Components
+and per-frame editor previews use this entry point to avoid repeated failed work.
+Its current cooked CPU candidate is published on GameThread and queues resource
+initialization immediately. A CPU-only blocking call can finish previously
+requested combined work, and registered rendering consumers may still request
+GPU initialization when CPU publication recreates their render state. The asset
+reports the queued state before the rendering thread executes that command and
+advances its resource revision again when initialization reaches Ready or Failed.
 
 A StaticMesh, SplineMesh, or SkeletalMesh SceneProxy may be created from valid
 CPU data while GPU initialization is queued. Renderer preparation still checks
@@ -59,11 +76,11 @@ queued-to-ready transition needs no warm-up getter, second asset assignment, or
 external render-state mutation.
 
 Initialization failure is sticky for the current asset/resource generation and
-never leaves a partially initialized LOD accepted by the renderer. Explicit
-retry resets the failed resource state and queues the same validated CPU data
-again. Replacement, unload, and destruction first invalidate component state,
-then enqueue release and retain displaced RenderData until the deferred C++
-cleanup boundary.
+never leaves a partially initialized LOD accepted by the renderer.
+Calling `InitResources()` explicitly transitions a failed resource back to queued
+using the same validated CPU data. Replacement, unload, and destruction first
+invalidate component state, then enqueue release and retain displaced RenderData
+until the deferred C++ cleanup boundary.
 
 ## Producer Teardown
 

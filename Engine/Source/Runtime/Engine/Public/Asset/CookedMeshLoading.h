@@ -38,7 +38,8 @@ namespace Durin
 		}
 	};
 
-	// Makes synchronous cooked I/O and CPU construction explicit at the call site.
+	// Reports blocking CPU residency only. Success does not imply GPU readiness;
+	// query the mesh render-resource status after explicitly requesting initialization.
 	struct FCookedMeshBlockingResult
 	{
 		FCookedMeshLoadStatus Status;
