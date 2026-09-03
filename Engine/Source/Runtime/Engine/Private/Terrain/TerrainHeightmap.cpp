@@ -436,13 +436,22 @@ namespace Durin
 	auto DTerrainHeightmap::GetPayload() const
 		-> std::shared_ptr<const FTerrainHeightmapPayload>
 	{
-		if (!Payload && GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
-		{
-			std::string Error;
-			const_cast<DTerrainHeightmap*>(this)->LoadCookedPayload(Error);
-		}
 		return Payload;
+	}
+
+	auto DTerrainHeightmap::EnsurePayloadLoadedBlocking() -> bool
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (Payload) return true;
+		std::string Error;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			Error = std::format("TerrainHeightmap '{}': payload has not been built.", GetObjectPath());
+		else if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			Error = std::format("Cooked terrain heightmap '{}': required PlatformData field is missing.", GetObjectPath());
+		else if (LoadCookedPayload(Error))
+			return true;
+		DURIN_WARN("{}", Error);
+		return false;
 	}
 
 	auto DTerrainHeightmap::SerializeCooked(FArchive& Ar) -> void

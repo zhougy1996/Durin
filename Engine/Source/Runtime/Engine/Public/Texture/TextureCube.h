@@ -106,11 +106,16 @@ namespace Durin
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
 		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
-		ENGINE_API auto GetPlatformData() const -> const FTextureCubePlatformData*;
-		auto GetInstalledPlatformData() const -> const FTextureCubePlatformData*
+		// Returns installed CPU data only; never loads bulk data or updates resources.
+		auto GetPlatformData() const -> const FTextureCubePlatformData*
 		{
 			return PlatformData.get();
 		}
+		// GameThread only. Loads and installs cooked data synchronously when absent,
+		// then calls UpdateResource (GPU completion is asynchronous). Does not build
+		// authored data. Already-installed data succeeds without another update.
+		// On failure, logs the texture path and reason and returns false.
+		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
 		auto HasPlatformData() const -> bool
 		{
 			return PlatformData && PlatformData->IsValid();

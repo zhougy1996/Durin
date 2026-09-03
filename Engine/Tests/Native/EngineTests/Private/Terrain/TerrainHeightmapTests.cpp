@@ -57,7 +57,7 @@ namespace
 		using namespace Durin;
 		std::string Error;
 		return BuildTerrainHeightmapDerivedDataKey({
-			.SourceContentHash = Heightmap.GetImportedDataIdentity(),
+			.SourceContentHash = Heightmap.GetImportedData().GetIdentity(),
 			.DecoderId = "canonical-u16",
 			.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.SourceFormat = ETerrainHeightmapSourceFormat::Raw16,
@@ -387,19 +387,21 @@ TEST(FTerrainHeightmapPayloadTests, InvalidReplacementPreservesPayloadAndRevisio
 {
 	InitializeDObjectSystem();
 	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr, "ValidatedHeightmap");
+	EXPECT_FALSE(Heightmap->EnsurePayloadLoadedBlocking());
+	EXPECT_EQ(Heightmap->GetPayload(), nullptr);
 	const std::array<uint16, 4> Samples{1, 2, 3, 4};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
 	const auto Original = Heightmap->GetPayload();
 	const auto Revision = Heightmap->GetRevision();
-	const auto Identity = Heightmap->GetImportedDataIdentity();
+	const auto Identity = Heightmap->GetImportedData().GetIdentity();
 	EXPECT_FALSE(Heightmap->SetPayload({}, Error));
 	auto Invalid = std::make_shared<Durin::FTerrainHeightmapPayload>(*Original);
 	Invalid->Samples.front() = 500;
 	EXPECT_FALSE(Heightmap->SetPayload(Invalid, Error));
 	EXPECT_EQ(Heightmap->GetPayload(), Original);
 	EXPECT_EQ(Heightmap->GetRevision(), Revision);
-	EXPECT_EQ(Heightmap->GetImportedDataIdentity(), Identity);
+	EXPECT_EQ(Heightmap->GetImportedData().GetIdentity(), Identity);
 	EXPECT_EQ(Heightmap->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);
 }
 

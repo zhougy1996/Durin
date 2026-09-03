@@ -173,15 +173,28 @@ namespace Durin
 
 	DVolumeTexture::~DVolumeTexture() = default;
 
-	auto DVolumeTexture::GetPlatformData() const -> const FVolumeTexturePlatformData*
+	auto DVolumeTexture::EnsurePlatformDataLoadedBlocking() -> bool
 	{
-		if (!PlatformData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		CheckGameThread();
+		if (PlatformData) return true;
+		std::string Error;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			std::string Error;
-			const_cast<DVolumeTexture*>(this)->LoadCookedPlatformData(Error);
+			Error = std::format(
+				"VolumeTexture '{}': platform data has not been built.", GetObjectPath());
 		}
-		return PlatformData.get();
+		else if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+		{
+			Error = std::format(
+				"Cooked VolumeTexture '{}': required PlatformData field is missing.",
+				GetObjectPath());
+		}
+		else if (LoadCookedPlatformData(Error))
+		{
+			return true;
+		}
+		DURIN_WARN("{}", Error);
+		return false;
 	}
 
 	auto DVolumeTexture::CreateBuildInput() const -> FVolumeTextureSourceData

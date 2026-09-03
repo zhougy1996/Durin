@@ -129,9 +129,12 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
+		// Returns installed data only; never loads cooked bulk data.
 		ENGINE_API auto GetPayload() const -> std::shared_ptr<const FTerrainHeightmapPayload>;
+		// GameThread only. Synchronously loads cooked data when absent; does not
+		// build authored data. Logs the asset path and reason on failure.
+		ENGINE_API auto EnsurePayloadLoadedBlocking() -> bool;
 		auto GetImportedData() const -> const FTerrainHeightmapImportedData& { return ImportedData; }
-		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetWidth() const -> uint32 { return Width; }
 		auto GetHeight() const -> uint32 { return Height; }
 		auto GetMinimum() const -> uint16 { return Minimum; }

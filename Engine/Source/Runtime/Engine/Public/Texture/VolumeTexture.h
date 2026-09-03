@@ -150,11 +150,16 @@ namespace Durin
 		ENGINE_API auto SetBuildSettings(
 			FVolumeTextureBuildSettings Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
-		ENGINE_API auto GetPlatformData() const -> const FVolumeTexturePlatformData*;
-		auto GetInstalledPlatformData() const -> const FVolumeTexturePlatformData*
+		// Returns installed CPU data only; never loads bulk data or updates resources.
+		auto GetPlatformData() const -> const FVolumeTexturePlatformData*
 		{
 			return PlatformData.get();
 		}
+		// GameThread only. Loads and installs cooked data synchronously when absent,
+		// then calls UpdateResource (GPU completion is asynchronous). Does not build
+		// authored data. Already-installed data succeeds without another update.
+		// On failure, logs the texture path and reason and returns false.
+		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
 		auto HasPlatformData() const -> bool
 		{
 			return PlatformData && PlatformData->IsValid();

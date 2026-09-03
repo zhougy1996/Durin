@@ -306,7 +306,7 @@ namespace Durin
 			.Repair = bImportedDataValid
 				? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RestoreEditorCompanion,
-			.LogicalElementCount = Multiply(Texture.GetSourceWidth(), Texture.GetSourceHeight()),
+			.LogicalElementCount = Multiply(Texture.GetSource().Width, Texture.GetSource().Height),
 			.LogicalByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
 			.StoredByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
 			.Placement = "EditorBulkData",
@@ -317,7 +317,7 @@ namespace Durin
 		const FTexture2DCompilationDiagnostic Compilation =
 			GetTexture2DCompilationDiagnostic(Texture);
 		const FTexturePlatformData* PlatformData =
-			Texture.GetInstalledPlatformData();
+			Texture.GetPlatformData();
 		const bool bPlatformReady = PlatformData && PlatformData->IsValid();
 		const bool bCompilationFailed =
 			Compilation.Phase == ETexture2DCompilationPhase::Failed;
@@ -384,7 +384,7 @@ namespace Durin
 			.Placement = "EditorPackage",
 			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{}});
 		const FVolumeTexturePlatformData* PlatformData =
-			Texture.GetInstalledPlatformData();
+			Texture.GetPlatformData();
 		const bool bDerivedReady = PlatformData && PlatformData->IsValid();
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::DerivedData,

@@ -322,7 +322,25 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::LoadObject(CookedAssetPath, CookedTexture);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(CookedTexture, nullptr);
+	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
+	const auto RevisionBeforeGet = CookedTexture->GetBuildRevision();
+	const Durin::DTexture2D& ConstTexture = *CookedTexture;
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_FALSE(CookedTexture->HasPlatformData());
+	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
+	EXPECT_EQ(CookedTexture->GetBuildRevision(), RevisionBeforeGet);
+	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
+	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
+	const auto InstalledRevision = CookedTexture->GetBuildRevision();
+	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
+	EXPECT_EQ(CookedTexture->GetBuildRevision(), InstalledRevision);
+	auto* MissingPlatform = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, "MissingCookedPlatformData");
+	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*CookedTexture->GetPlatformData(), ExpectedPlatformData);
 	EXPECT_EQ(CookedTexture->GetAssetImportData(), nullptr);
 	EXPECT_NE(CookedTexture->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);

@@ -59,7 +59,7 @@ namespace
 	{
 		std::string Error;
 		const std::string Key = Durin::BuildStaticMeshDerivedDataKey({
-			.ImportedDataHash = Mesh.GetImportedDataIdentity(),
+			.ImportedDataHash = Mesh.GetImportedData().GetIdentity(),
 			.ReconciliationHash = Durin::BuildStaticMeshReconciliationHash(
 				Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()),
 			.TargetPlatform = Durin::EStaticMeshTargetPlatform::Win64}, Error);
@@ -231,7 +231,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementPreservesLiveSt
 	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshReplacementRollback");
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const FStaticMeshRenderData* Original = Fixture.Mesh->GetRenderData();
-	const FXxHash128 ImportedIdentity = Fixture.Mesh->GetImportedDataIdentity();
+	const FXxHash128 ImportedIdentity = Fixture.Mesh->GetImportedData().GetIdentity();
 	const uint64 Revision = Fixture.Mesh->GetRenderResourceStatus().Revision;
 	FStaticMeshBuildResult Result;
 	std::string Error;
@@ -244,7 +244,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementPreservesLiveSt
 	EXPECT_FALSE(ApplyStaticMeshBuildResult(*Fixture.Mesh, std::move(Result), Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), Original);
-	EXPECT_EQ(Fixture.Mesh->GetImportedDataIdentity(), ImportedIdentity);
+	EXPECT_EQ(Fixture.Mesh->GetImportedData().GetIdentity(), ImportedIdentity);
 	EXPECT_EQ(Fixture.Mesh->GetRenderResourceStatus().Revision, Revision);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));

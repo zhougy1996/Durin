@@ -223,6 +223,18 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_TRUE(Result.Asset->HasPlatformData());
 	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC1_UNORM_SRGB);
 	EXPECT_EQ(Result.Asset->GetBuildRevision(), 1u);
+	auto* SourceOnly = Durin::NewObject<Durin::DTextureCube>(nullptr, "SourceOnlyCube");
+	const auto& Source = Result.Asset->GetSource();
+	Durin::FTextureCubeImportedData ImportedData;
+	ImportedData.Pixels = Source.Payload;
+	ImportedData.FaceDimension = Source.Width;
+	ImportedData.SourceChannelCount = Source.SourceChannelCount;
+	ImportedData.TransparencyMask = Source.TransparencyMask;
+	std::string SourceError;
+	ASSERT_TRUE(SourceOnly->SetSourceData(ImportedData, SourceError)) << SourceError;
+	ASSERT_TRUE(SourceOnly->GetSource().IsValid());
+	EXPECT_EQ(SourceOnly->GetPlatformData(), nullptr);
+	EXPECT_EQ(SourceOnly->GetBuiltFaceDimension(), 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		ExpectCubeSourcePath(*Result.Asset, GetSourceHint(*Result.Asset, FaceRoles[FaceIndex]),
@@ -732,7 +744,25 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	const Durin::FAssetResult Load = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Cooked, nullptr);
+	const auto BulkStateBeforeGet = Cooked->GetCookedPlatformData().GetState();
+	const auto RevisionBeforeGet = Cooked->GetBuildRevision();
+	const Durin::DTextureCube& ConstTexture = *Cooked;
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_FALSE(Cooked->HasPlatformData());
+	EXPECT_EQ(Cooked->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
+	EXPECT_EQ(Cooked->GetBuildRevision(), RevisionBeforeGet);
+	ASSERT_TRUE(Cooked->EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(Cooked->GetPlatformData(), nullptr);
+	const auto* InstalledPlatform = Cooked->GetPlatformData();
+	const auto InstalledRevision = Cooked->GetBuildRevision();
+	ASSERT_TRUE(Cooked->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(Cooked->GetPlatformData(), InstalledPlatform);
+	EXPECT_EQ(Cooked->GetBuildRevision(), InstalledRevision);
+	auto* MissingPlatform = Durin::NewObject<Durin::DTextureCube>(
+		nullptr, "MissingCookedPlatformData");
+	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
 	EXPECT_NE(Cooked->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)

@@ -23,9 +23,13 @@ Assets retain payload readiness and compatibility, not cache keys or history.
 
 Cook projects the same target-qualified clip schema into the lazy
 `PlatformData` BulkData field and preserves the hard Skeleton dependency and
-compatibility identity. Cooked metadata load is range-free; binding setup locks,
-decodes, validates, and transactionally publishes the clip payload without
-source, importer, or DDC fallback.
+compatibility identity. Cooked metadata load is range-free.
+`DAnimationClip::GetPayloadData()` returns installed data only. Before binding
+playback, the component calls `EnsurePayloadLoadedBlocking()` on the game
+thread to lock, decode, validate, and publish missing cooked payloads. This
+boundary logs failures with the asset path and returns false; it does not build
+authored data. Repeated successful calls preserve the installed payload.
+Direct binding callers must prepare residency before constructing detached inputs.
 
 Binding construction is the only playback operation that reads reflected asset
 objects. A successful `FSkeletalAnimationBinding` detaches:

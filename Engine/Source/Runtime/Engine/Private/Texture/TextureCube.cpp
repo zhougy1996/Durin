@@ -230,7 +230,7 @@ namespace Durin
 	{
 		if (PlatformData && !PlatformData->Faces[0].Mips.empty())
 			return PlatformData->Faces[0].Mips[0].Width;
-		return GetSource().IsValid() ? GetSource().Width : 0;
+		return 0;
 	}
 
 	auto DTextureCube::GetImportedDataIdentity() const -> FXxHash128
@@ -255,15 +255,28 @@ namespace Durin
 		InvalidateRenderResource();
 	}
 
-	auto DTextureCube::GetPlatformData() const -> const FTextureCubePlatformData*
+	auto DTextureCube::EnsurePlatformDataLoadedBlocking() -> bool
 	{
-		if (!PlatformData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		CheckGameThread();
+		if (PlatformData) return true;
+		std::string Error;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			std::string Error;
-			const_cast<DTextureCube*>(this)->LoadCookedPlatformData(Error);
+			Error = std::format(
+				"TextureCube '{}': platform data has not been built.", GetObjectPath());
 		}
-		return PlatformData.get();
+		else if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+		{
+			Error = std::format(
+				"Cooked TextureCube '{}': required PlatformData field is missing.",
+				GetObjectPath());
+		}
+		else if (LoadCookedPlatformData(Error))
+		{
+			return true;
+		}
+		DURIN_WARN("{}", Error);
+		return false;
 	}
 
 	auto DTextureCube::SetPlatformData(

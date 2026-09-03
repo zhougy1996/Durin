@@ -393,6 +393,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					ClipPaths[Index]), Clip));
 			ASSERT_NE(Clip, nullptr);
 			ASSERT_NE(Clip->GetSkeleton(), nullptr);
+			EXPECT_EQ(Clip->GetPayloadData(), nullptr);
+			ASSERT_TRUE(Clip->EnsurePayloadLoadedBlocking());
 			ASSERT_NE(Clip->GetPayloadData(), nullptr);
 			EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClips[Index]);
 

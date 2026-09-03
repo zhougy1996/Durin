@@ -276,3 +276,10 @@ conservative component-local bounds.
 Cooked runtime obtains the exact payload from the heightmap companion. Proxy
 creation needs neither source data nor DDC and uses the same patch and GPU
 contracts as editor-loaded data.
+
+`DTerrainHeightmap::GetPayload()` returns installed data only. Proxy and collision
+construction call `EnsurePayloadLoadedBlocking()` on the game thread before
+consuming missing cooked data. The explicit boundary logs failures with the
+asset path and returns false; it does not build authored data. Repeated successful
+calls preserve the installed payload and revision. Metadata queries and editor
+picking do not initiate payload loading.

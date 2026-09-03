@@ -1478,8 +1478,24 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_NE(Clip, nullptr);
 	EXPECT_EQ(Clip->GetSkeleton(), Mesh->GetSkeleton());
 	EXPECT_NE(Clip->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
+	const Durin::DAnimationClip& ConstClip = *Clip;
+	const auto ClipBulkState = Clip->GetCookedPlatformData().GetState();
+	EXPECT_EQ(ConstClip.GetPayloadData(), nullptr);
+	EXPECT_EQ(ConstClip.GetPayloadData(), nullptr);
+	EXPECT_EQ(Clip->GetCookedPlatformData().GetState(), ClipBulkState);
+	ASSERT_TRUE(Clip->EnsurePayloadLoadedBlocking());
 	ASSERT_NE(Clip->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
+	const auto InstalledClip = Clip->GetPayloadData();
+	ASSERT_TRUE(Clip->EnsurePayloadLoadedBlocking());
+	EXPECT_EQ(Clip->GetPayloadData(), InstalledClip);
+	auto* MissingClip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "MissingCookedClipPayload");
+	EXPECT_FALSE(MissingClip->EnsurePayloadLoadedBlocking());
+	EXPECT_EQ(MissingClip->GetPayloadData(), nullptr);
+	ASSERT_TRUE(Durin::UnloadPackage(ClipPath));
+	Clip = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ClipPath), Clip));
+	EXPECT_EQ(Clip->GetPayloadData(), nullptr);
 	auto* FirstConsumer = Durin::NewObject<Durin::DSkeletalMeshComponent>(
 		nullptr, Durin::FName("CookedSkeletalMeshFirstConsumer"));
 	ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
@@ -1506,6 +1522,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	auto FirstProxy = FirstConsumer->CreateSceneProxy();
 	if (!FirstProxy) Durin::ShutdownCookedMeshLoadManager();
 	ASSERT_NE(FirstProxy, nullptr) << RetryResult.Message;
+	ASSERT_NE(Clip->GetPayloadData(), nullptr);
+	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
 	EXPECT_EQ(ReassignedConsumer->GetSkeletalMesh(), nullptr);
 	EXPECT_EQ(ReassignedConsumer->GetLatestPosePalette(), nullptr);
 	EXPECT_EQ(ReassignedConsumer->CreateSceneProxy(), nullptr);

@@ -37,6 +37,7 @@ namespace Durin
 	};
 
 	// Reads reflected assets only while prospectively preparing detached inputs.
+	// Requires installed mesh and clip payloads; never loads cooked data.
 	ENGINE_API auto BuildSkeletalAnimationBinding(
 		const DSkeletalMesh& Mesh,
 		const DAnimationClip* Clip,

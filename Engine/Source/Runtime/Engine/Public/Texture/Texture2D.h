@@ -184,15 +184,16 @@ namespace Durin
 			std::string& OutError) -> bool;
 		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
 		ENGINE_API auto CreateBuildInput() const -> FTexture2DImportedData;
-		auto GetSourceWidth() const -> uint32 { return GetSource().Width; }
-		auto GetSourceHeight() const -> uint32 { return GetSource().Height; }
-		auto GetSourceChannelCount() const -> uint8 { return GetSource().SourceChannelCount; }
-		auto SourceHasTransparency() const -> bool { return GetSource().bHasTransparency; }
-		ENGINE_API auto GetPlatformData() const -> const FTexturePlatformData*;
-		auto GetInstalledPlatformData() const -> const FTexturePlatformData*
+		// Returns installed CPU data only; never loads bulk data or updates resources.
+		auto GetPlatformData() const -> const FTexturePlatformData*
 		{
 			return PlatformData.get();
 		}
+		// GameThread only. Loads and installs cooked data synchronously when absent,
+		// then calls UpdateResource (GPU completion is asynchronous). Does not build
+		// authored data. Already-installed data succeeds without another update.
+		// On failure, logs the texture path and reason and returns false.
+		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
 		auto HasPlatformData() const -> bool
 		{
 			return PlatformData && PlatformData->IsValid();

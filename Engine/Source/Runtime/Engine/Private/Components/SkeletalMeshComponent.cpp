@@ -102,7 +102,8 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		if (!InMesh->GetPayloadData() || !InMesh->GetRenderData())
+		if (!InMesh->GetPayloadData() || !InMesh->GetRenderData()
+			|| (InClip && !InClip->GetPayloadData()))
 		{
 			if (!InMesh->Validate(OutError)) return false;
 			if (InClip)
@@ -155,6 +156,11 @@ namespace Durin
 			return ValidateProspectiveBinding(InMesh, InClip, OutError);
 		}
 		const bool bWasPlaying = AnimationInstance.IsPlaying();
+		if (InClip && !InClip->EnsurePayloadLoadedBlocking())
+		{
+			OutError = "Animation clip payload is unavailable.";
+			return false;
+		}
 		if (!AnimationInstance.Bind(*InMesh, InClip, OutError)) return false;
 		AnimationInstance.SetLooping(bLooping);
 		const bool bAppliedPlayRate = AnimationInstance.SetPlayRate(PlayRate, OutError);

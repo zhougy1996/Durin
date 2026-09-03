@@ -40,6 +40,23 @@ namespace
 	};
 }
 
+TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	auto ExpectMissingAuthoredData = []<typename TTexture>() {
+		auto* Texture = Durin::NewObject<TTexture>(nullptr, "MissingAuthoredPlatformData");
+		const auto Revision = Texture->GetBuildRevision();
+		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
+		EXPECT_FALSE(Texture->EnsurePlatformDataLoadedBlocking());
+		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
+		EXPECT_EQ(Texture->GetBuildRevision(), Revision);
+	};
+	ExpectMissingAuthoredData.template operator()<Durin::DTexture2D>();
+	ExpectMissingAuthoredData.template operator()<Durin::DTextureCube>();
+	ExpectMissingAuthoredData.template operator()<Durin::DVolumeTexture>();
+}
+
 TEST(FTexture2DBuildProviderTests, RejectsAmbiguityAndKeepsProductsValueOwned)
 {
 	Durin::FModuleTestOwner Owner("Texture2DBuildProviderContract");
@@ -505,7 +522,25 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 			CookedPath, AssetPath.GetPackageName()), CookedTexture);
 	ASSERT_TRUE(CookedLoad) << CookedLoad.Message;
 	ASSERT_NE(CookedTexture, nullptr);
+	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
+	const auto RevisionBeforeGet = CookedTexture->GetBuildRevision();
+	const Durin::DVolumeTexture& ConstTexture = *CookedTexture;
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
+	EXPECT_FALSE(CookedTexture->HasPlatformData());
+	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
+	EXPECT_EQ(CookedTexture->GetBuildRevision(), RevisionBeforeGet);
+	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
+	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
+	const auto InstalledRevision = CookedTexture->GetBuildRevision();
+	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
+	EXPECT_EQ(CookedTexture->GetBuildRevision(), InstalledRevision);
+	auto* MissingPlatform = Durin::NewObject<Durin::DVolumeTexture>(
+		nullptr, "MissingCookedPlatformData");
+	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(MissingPlatform->GetPlatformData(), nullptr);
 	EXPECT_FALSE(CookedTexture->CreateBuildInput().IsValid());
 	EXPECT_EQ(CookedTexture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels);

@@ -7,6 +7,7 @@
 #include "Serialization/Archive.h"
 #include "SkeletalMesh/SkeletalAssetBuild.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -210,13 +211,24 @@ namespace Durin
 	auto DAnimationClip::GetPayloadData() const
 		-> std::shared_ptr<const FAnimationClipPayloadData>
 	{
-		if (!PayloadData && GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
-		{
-			std::string Error;
-			const_cast<DAnimationClip*>(this)->LoadCookedPayload(Error);
-		}
 		return PayloadData;
+	}
+
+	auto DAnimationClip::EnsurePayloadLoadedBlocking() -> bool
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (PayloadData) return true;
+		std::string Error;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			Error = std::format("AnimationClip '{}': payload has not been built.", GetObjectPath());
+		else if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			Error = std::format("Cooked AnimationClip '{}': required PlatformData field is missing.", GetObjectPath());
+		else if (!Validate(Error))
+			Error = std::format("Cooked AnimationClip '{}': {}", GetObjectPath(), Error);
+		else if (LoadCookedPayload(Error))
+			return true;
+		DURIN_WARN("{}", Error);
+		return false;
 	}
 
 	auto DAnimationClip::SetAssetData(

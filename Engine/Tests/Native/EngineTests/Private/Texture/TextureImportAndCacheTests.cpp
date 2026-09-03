@@ -146,10 +146,10 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
-	EXPECT_EQ(Loaded->GetSourceWidth(), 2u);
-	EXPECT_EQ(Loaded->GetSourceHeight(), 1u);
-	EXPECT_EQ(Loaded->GetSourceChannelCount(), 4u);
-	EXPECT_TRUE(Loaded->SourceHasTransparency());
+	EXPECT_EQ(Loaded->GetSource().Width, 2u);
+	EXPECT_EQ(Loaded->GetSource().Height, 1u);
+	EXPECT_EQ(Loaded->GetSource().SourceChannelCount, 4u);
+	EXPECT_TRUE(Loaded->GetSource().bHasTransparency);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
 	std::string ExpectedFilename;
@@ -345,8 +345,8 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	EXPECT_EQ(GetTextureDerivedDataKey(*Loaded), OriginalKey);
-	EXPECT_NE(Loaded->GetSourceWidth(), 5u);
-	EXPECT_NE(Loaded->GetSourceHeight(), 3u);
+	EXPECT_NE(Loaded->GetSource().Width, 5u);
+	EXPECT_NE(Loaded->GetSource().Height, 3u);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
 	ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
@@ -447,8 +447,8 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	ImportedSource = FindImportedSource(*Result.Asset);
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_EQ(ImportedSource->Hint, ReplacementFilename);
-	EXPECT_EQ(Result.Asset->GetSourceWidth(), 5u);
-	EXPECT_EQ(Result.Asset->GetSourceHeight(), 3u);
+	EXPECT_EQ(Result.Asset->GetSource().Width, 5u);
+	EXPECT_EQ(Result.Asset->GetSource().Height, 3u);
 	EXPECT_FALSE(Result.Asset->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(Replacement));
 }

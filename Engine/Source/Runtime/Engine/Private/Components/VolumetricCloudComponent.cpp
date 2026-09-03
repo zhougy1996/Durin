@@ -46,8 +46,13 @@ namespace Durin
 		template<typename TTexture>
 		auto IsTextureReady(TTexture* Texture) -> bool
 		{
-			return Texture != nullptr && Texture->GetPlatformData() != nullptr
-				   && Texture->GetPlatformData()->IsValid();
+			return Texture != nullptr && Texture->HasPlatformData();
+		}
+
+		template<typename TTexture>
+		auto EnsureTextureLoaded(TTexture* Texture) -> void
+		{
+			if (Texture) (void)Texture->EnsurePlatformDataLoadedBlocking();
 		}
 	} // namespace
 
@@ -278,6 +283,12 @@ namespace Durin
 
 	auto DVolumetricCloudComponent::CreateRenderState() -> void
 	{
+		if (IsRegistered())
+		{
+			EnsureTextureLoaded(BaseDensityTexture.Get());
+			EnsureTextureLoaded(DetailDensityTexture.Get());
+			EnsureTextureLoaded(WeatherTexture.Get());
+		}
 		RefreshEligibilityDiagnostic();
 		if (!IsRegistered()) return;
 		if (FSceneInterface* Scene = GetRenderScene()) Scene->AddVolumetricCloud(this);

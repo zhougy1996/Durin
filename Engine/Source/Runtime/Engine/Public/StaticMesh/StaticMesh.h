@@ -216,7 +216,6 @@ namespace Durin
 		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
 		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
-		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;

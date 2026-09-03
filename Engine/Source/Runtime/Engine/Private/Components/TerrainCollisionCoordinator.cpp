@@ -152,7 +152,8 @@ namespace Durin
 		if (!Owner.Heightmap)
 			return SetFailure(ETerrainCollisionStatus::MissingHeightmap,
 				"Terrain collision requires an assigned heightmap.");
-		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Owner.Heightmap->GetPayload();
+		const std::shared_ptr<const FTerrainHeightmapPayload> Payload =
+			Owner.Heightmap->EnsurePayloadLoadedBlocking() ? Owner.Heightmap->GetPayload() : nullptr;
 		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 			return SetFailure(ETerrainCollisionStatus::InvalidPayload,
 				"Terrain collision requires a valid heightmap with at least two samples on each axis.");
@@ -348,7 +349,8 @@ namespace Durin
 		if (!Owner.Heightmap)
 			return SetFailure(ETerrainCollisionStatus::MissingHeightmap,
 				"Terrain collision requires an assigned heightmap.");
-		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Owner.Heightmap->GetPayload();
+		const std::shared_ptr<const FTerrainHeightmapPayload> Payload =
+			Owner.Heightmap->EnsurePayloadLoadedBlocking() ? Owner.Heightmap->GetPayload() : nullptr;
 		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 			return SetFailure(ETerrainCollisionStatus::InvalidPayload,
 				"Terrain collision requires a valid heightmap with at least two samples on each axis.");

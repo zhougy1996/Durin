@@ -60,6 +60,17 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Derived Platform Data
 
+For Texture2D, TextureCube, and VolumeTexture, `GetPlatformData()` returns only
+installed CPU data and returns null until installation. Queries and payload
+inspection never read cooked bulk, deserialize data, or update render resources.
+`EnsurePlatformDataLoadedBlocking()` is the explicit GameThread boundary:
+it synchronously reads and validates cooked data, installs it, and calls
+`UpdateResource()`; GPU completion remains asynchronous. An already-installed
+value succeeds without repeating the resource update. Missing authored builds,
+missing cooked fields, and bulk/decode failures log the texture path and reason
+inside this boundary and return false. Callers use the result for fallback
+without repeating the log. This API does not compile authored source.
+
 ### Payload architecture qualification
 
 Texture2D is a qualified production consumer of domain-owned payload schemas.

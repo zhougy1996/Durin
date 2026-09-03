@@ -135,7 +135,11 @@ namespace Durin
 		auto GetSkeletonCompatibilityIdentity() const -> const std::string& { return SkeletonCompatibilityIdentity; }
 		auto GetClipName() const -> FName { return ClipName; }
 		auto GetSummary() const -> const FAnimationClipSummary& { return Summary; }
+		// Returns installed data only; never loads cooked bulk data.
 		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData>;
+		// GameThread only. Synchronously loads cooked data when absent; does not
+		// build authored data. Logs the asset path and reason on failure.
+		ENGINE_API auto EnsurePayloadLoadedBlocking() -> bool;
 		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FAnimationClipImportedData& { return ImportedData; }
 
