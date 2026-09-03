@@ -3,7 +3,12 @@
     "LinkType": "Shared",
     "PCH": "Self",
     "PrivateDependencies": [
-        "Core"
+        "Core",
+        "Engine"
+    ],
+    "ReflectHeaders": [
+        "Public/RoadNet/RoadNet.h",
+        "Public/RoadNet/RoadNetTypes.h"
     ],
     "PublicDependencies": [],
     "OptionalPrivateDependencies": [],

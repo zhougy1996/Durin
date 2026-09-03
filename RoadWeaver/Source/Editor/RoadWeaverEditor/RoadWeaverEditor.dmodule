@@ -1,0 +1,14 @@
+{
+    "ModuleName": "RoadWeaverEditor",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [
+        "AssetTools",
+        "ContentBrowser",
+        "Core",
+        "DurinEd",
+        "Engine",
+        "MonaImGui",
+        "RoadWeaver"
+    ]
+}

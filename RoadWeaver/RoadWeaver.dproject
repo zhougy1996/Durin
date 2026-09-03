@@ -1,9 +1,20 @@
 {
     "ProjectName": "RoadWeaver",
     "ModuleDirs": {
-        "RoadWeaver": "Source/Runtime/RoadWeaver"
+        "RoadWeaver": "Source/Runtime/RoadWeaver",
+        "RoadWeaverEditor": "Source/Editor/RoadWeaverEditor"
     },
     "BaseModules": [
         "RoadWeaver"
-    ]
+    ],
+    "ExtraModules": {
+        "DurinEditor": {
+            "Modules": [
+                "RoadWeaverEditor"
+            ]
+        },
+        "DurinGame": {
+            "Modules": []
+        }
+    }
 }
