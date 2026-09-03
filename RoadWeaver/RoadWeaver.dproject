@@ -1,0 +1,9 @@
+{
+    "ProjectName": "RoadWeaver",
+    "ModuleDirs": {
+        "RoadWeaver": "Source/Runtime/RoadWeaver"
+    },
+    "BaseModules": [
+        "RoadWeaver"
+    ]
+}

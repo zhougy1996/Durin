@@ -34,6 +34,7 @@ include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
+add_subdirectory("RoadWeaver")
 
 # Runtime values and generic storage are allowed below authoring modules;
 # source translators and offline build tools may not flow in the opposite direction.
