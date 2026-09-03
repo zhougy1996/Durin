@@ -111,12 +111,10 @@ texture build settings are editor-only; no asset also
 persists a generic replay graph or mounted-source request.
 
 Texture2D, TextureCube, and VolumeTexture share the sole reflected
-`DTexture::Source` and `DTexture::AssetImportData` storage. Exact historical
-property-move routes admit references and bulk for the former family-declared
-identities before load application, then canonical saves emit only the base
-identities. This compatibility path requests resave without mutating or dirtying
-the loaded package. Package identity, collision, and strict-load rules remain
-defined by [Asset Packages](AssetPackages.md).
+`DTexture::Source` and `DTexture::AssetImportData` storage. Checked-in authored
+packages and new saves use only these base declaring identities. Package
+identity, collision, and strict-load rules remain defined by
+[Asset Packages](AssetPackages.md).
 
 Import, Reimport, and Reimport From File are the only paths that read physical
 sources, and none mutates them. See

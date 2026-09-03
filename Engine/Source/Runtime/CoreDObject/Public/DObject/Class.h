@@ -396,23 +396,6 @@ namespace Durin
 	};
 	COREDOBJECT_API auto CaptureSerializedPropertyAliases()
 		-> std::vector<FSerializedPropertyAlias>;
-	// Exact read-only route for a reflected field whose declaring type changed.
-	// Registration is process-lifetime; serializers continue to emit only the
-	// current declaring type and field name.
-	struct FSerializedPropertyMove
-	{
-		std::string StoredDeclaringType;
-		std::string StoredName;
-		std::string CurrentDeclaringType;
-		std::string CurrentName;
-
-		auto operator==(const FSerializedPropertyMove&) const -> bool = default;
-	};
-	COREDOBJECT_API auto RegisterSerializedPropertyMoves(
-		std::span<const FSerializedPropertyMove> Moves,
-		std::string* OutError = nullptr) -> bool;
-	COREDOBJECT_API auto CaptureSerializedPropertyMoves()
-		-> std::vector<FSerializedPropertyMove>;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;

@@ -1,6 +1,5 @@
 #include "Texture/Texture.h"
 
-#include "DObject/Class.h"
 #include "DObject/Package.h"
 
 #include "Asset/Load.h"
@@ -15,20 +14,6 @@ namespace Durin
 {
 	namespace
 	{
-		const bool GTextureBaseStateMovesRegistered = [] {
-			static const std::array Moves{
-				FSerializedPropertyMove{"Durin::DTexture2D", "Source", "Durin::DTexture", "Source"},
-				FSerializedPropertyMove{"Durin::DTexture2D", "AssetImportData", "Durin::DTexture", "AssetImportData"},
-				FSerializedPropertyMove{"Durin::DTextureCube", "Source", "Durin::DTexture", "Source"},
-				FSerializedPropertyMove{"Durin::DTextureCube", "AssetImportData", "Durin::DTexture", "AssetImportData"},
-				FSerializedPropertyMove{"Durin::DVolumeTexture", "Source", "Durin::DTexture", "Source"},
-				FSerializedPropertyMove{"Durin::DVolumeTexture", "AssetImportData", "Durin::DTexture", "AssetImportData"}};
-			std::string Error;
-			const bool bRegistered = RegisterSerializedPropertyMoves(Moves, &Error);
-			checkf(bRegistered, "Texture base-state property moves failed to register: {}", Error);
-			return bRegistered;
-		}();
-
 		auto GetTextureSourceBytesPerTexel(ETextureSourceFormat Format) -> uint32
 		{
 			switch (Format)

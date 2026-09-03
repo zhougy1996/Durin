@@ -581,25 +581,9 @@ namespace Durin::AssetPrivate::DastV9
 					const std::string Signature = TypeSignature(Property.Type);
 					const auto* Alias = Catalog.FindSerializedPropertyAlias(Property.DeclaringType, Property.FieldName);
 					const std::string& FieldName = Alias ? Alias->CurrentName : Property.FieldName;
-					const auto* Move = Catalog.FindSerializedPropertyMove(
-						Property.DeclaringType, FieldName);
-					const std::string_view CurrentDeclaringType = Move
-						? std::string_view(Move->CurrentDeclaringType)
-						: std::string_view(Property.DeclaringType);
-					const std::string_view CurrentFieldName = Move
-						? std::string_view(Move->CurrentName) : std::string_view(FieldName);
 					const auto* Expected = Catalog.FindField(
-						*Class, CurrentDeclaringType, CurrentFieldName);
+						*Class, Property.DeclaringType, FieldName);
 					const bool bKnownOwner = std::ranges::binary_search(Class->Ancestry, Property.DeclaringType);
-					if (Move)
-					{
-						Record.CanonicalizationEvidence.push_back({Path,
-							std::format("{}::{}", Property.DeclaringType, Property.FieldName),
-							std::format("{}::{}", CurrentDeclaringType, CurrentFieldName),
-							EAssetReflectedIdentityKind::Property,
-							EAssetSerializedIdentityLocation::ObjectRecord,
-							std::format("objects[{}].properties", Index)});
-					}
 					if (bKnownOwner)
 						if (const auto* Route = Catalog.FindDeprecatedPropertyRoute(Property.DeclaringType, FieldName, Kind, Signature))
 						{
@@ -611,7 +595,7 @@ namespace Durin::AssetPrivate::DastV9
 						[&](const auto& Route) { return Route.DeclaringType == Property.DeclaringType
 							&& (Route.StoredName == FieldName || Route.DeprecatedPropertyName == FieldName); });
 					const bool bRemoved = !Expected && !bKnownHistoricalName
-						&& !Alias && !Move && bKnownOwner;
+						&& !Alias && bKnownOwner;
 					if (!Expected || Expected->Kind != Kind
 						|| Expected->TypeSignature != Signature)
 					{
@@ -636,32 +620,6 @@ namespace Durin::AssetPrivate::DastV9
 								: "Serialized field is not present in the current reflection catalog."});
 					}
 				}
-				std::vector<std::pair<std::string, std::string>> CanonicalProperties;
-				CanonicalProperties.reserve(Export.Properties.size());
-				for (const auto& Property : Export.Properties)
-				{
-					const auto* Alias = Catalog.FindSerializedPropertyAlias(
-						Property.DeclaringType, Property.FieldName);
-					const std::string& AliasedName = Alias ? Alias->CurrentName : Property.FieldName;
-					const auto* Move = Catalog.FindSerializedPropertyMove(
-						Property.DeclaringType, AliasedName);
-					CanonicalProperties.emplace_back(
-						Move ? Move->CurrentDeclaringType : Property.DeclaringType,
-						Move ? Move->CurrentName : AliasedName);
-				}
-				std::ranges::sort(CanonicalProperties);
-				for (size_t PropertyIndex = 1; PropertyIndex < CanonicalProperties.size(); ++PropertyIndex)
-					if (CanonicalProperties[PropertyIndex - 1] == CanonicalProperties[PropertyIndex])
-					{
-						Record.Status = EPackageSchemaStatus::Incompatible;
-						Record.Issues.push_back({
-							.Code = EPackageSchemaIssueCode::DuplicateFieldIdentity,
-							.ObjectPath = ObjectPath,
-							.ClassIdentity = Export.ClassName,
-							.DeclaringType = CanonicalProperties[PropertyIndex].first,
-							.FieldName = CanonicalProperties[PropertyIndex].second,
-							.Diagnostic = "Serialized fields canonicalize to a duplicate identity."});
-					}
 			}
 			if (OutStats)
 			{

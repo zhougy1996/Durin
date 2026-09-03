@@ -6,7 +6,7 @@ if(DURIN_WITH_EDITOR)
 		Private/Texture/TextureBuildTests.cpp
 		Private/Texture/VolumeTextureSourceImportTests.cpp
 		Private/Texture/TextureFailureTests.cpp
-		Private/Texture/TextureBaseStateCompatibilityTests.cpp
+		Private/Texture/TextureCookedBaseStateTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp

@@ -16,10 +16,8 @@ cooked-runtime, render-resource, editor, and material boundaries.
   TextureCube, and VolumeTexture. The source contains canonical bulk texels plus
   dimensions, topology, format, channel/transparency metadata, schema, and
   content identity; import data records optional physical-source provenance for
-  explicit reimport. Exact historical routes map the former family-declared
-  fields to these base fields before reference admission, authored-override
-  restoration, and family `PostLoad`. Loading recommends canonical resave but
-  does not dirty or rewrite the source package.
+  explicit reimport. Checked-in authored packages store both fields with the
+  canonical `DTexture` declaring identity.
 - `Usage` and `bSRGB` remain runtime-authored metadata. `MaxResolution`,
   `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` are
   editor-only build settings.
@@ -242,10 +240,9 @@ rebuild rule and dirty the package after success.
 asset type. It provides the common source and render-resource contract. Each
 leaf retains its typed build settings, installed platform data, family codec,
 and resource-construction hook. The base retains the sole reflected source and
-import pointer plus the sole cooked bulk slot; there are no forwarding accessors
-or duplicate family storage fields. Exact load-only migration routes recognize
-the former family field identities, while every new save emits only the
-canonical base identities.
+  import pointer plus the sole cooked bulk slot; there are no forwarding accessors
+  or duplicate family storage fields. Authored saves emit only the canonical base
+  identities.
 
 `DTexture` is the sole high-level owner of one stable `FTextureReference`, one
 revision/completion contract, and at most one current
