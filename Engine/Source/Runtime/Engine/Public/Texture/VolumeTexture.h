@@ -134,18 +134,7 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		auto GetSource() const -> const FTextureSource& override { return Source; }
 		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
-		auto GetAssetImportData() const -> const DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		auto GetAssetImportData() -> DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FVolumeTextureSourceData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(
@@ -163,8 +152,6 @@ namespace Durin
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FVolumeTexturePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
-
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
@@ -176,20 +163,12 @@ namespace Durin
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
-		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
 
 	private:
-		DPROPERTY(EditorOnly)
-		TObjectPtr<DAssetImportData> AssetImportData;
-
-		DPROPERTY(EditorOnly)
-		FTextureSource Source;
-
 		DPROPERTY(EditorOnly)
 		FVolumeTextureBuildSettings BuildSettings;
 
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
-		FBulkData CookedPlatformData;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
 	};
 }

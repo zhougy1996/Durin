@@ -101,6 +101,13 @@ namespace Durin
 			return std::tie(Left.DeclaringType, Left.StoredName)
 				< std::tie(Right.DeclaringType, Right.StoredName);
 		});
+		for (const FSerializedPropertyMove& Move : CaptureSerializedPropertyMoves())
+			Result.SerializedPropertyMoves.push_back({Move.StoredDeclaringType,
+				Move.StoredName, Move.CurrentDeclaringType, Move.CurrentName});
+		std::ranges::sort(Result.SerializedPropertyMoves, [](const auto& Left, const auto& Right) {
+			return std::tie(Left.StoredDeclaringType, Left.StoredName)
+				< std::tie(Right.StoredDeclaringType, Right.StoredName);
+		});
 		for (DClass* Class : GetDerivedClasses(DObject::StaticClass(), true))
 		{
 			if (!Class || Class->GetQualifiedName().IsNone()) continue;
@@ -173,6 +180,21 @@ namespace Durin
 			});
 		return It != SerializedPropertyAliases.end()
 			&& It->DeclaringType == DeclaringType && It->StoredName == StoredName ? &*It : nullptr;
+	}
+
+	auto FReflectionSchemaCatalog::FindSerializedPropertyMove(
+		std::string_view StoredDeclaringType,
+		std::string_view StoredName) const -> const FReflectionSerializedPropertyMove*
+	{
+		const auto Key = std::pair(StoredDeclaringType, StoredName);
+		const auto It = std::ranges::lower_bound(
+			SerializedPropertyMoves, Key, {}, [](const auto& Move) {
+				return std::pair(std::string_view(Move.StoredDeclaringType),
+					std::string_view(Move.StoredName));
+			});
+		return It != SerializedPropertyMoves.end()
+			&& It->StoredDeclaringType == StoredDeclaringType
+			&& It->StoredName == StoredName ? &*It : nullptr;
 	}
 
 	auto FReflectionSchemaCatalog::FindClass(std::string_view QualifiedName) const -> const FReflectionSchemaClass*

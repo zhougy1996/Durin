@@ -81,18 +81,7 @@ namespace Durin
 		ENGINE_API ~DTextureCube() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		auto GetSource() const -> const FTextureSource& override { return Source; }
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		auto GetAssetImportData() const -> const DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		auto GetAssetImportData() -> DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FTextureCubeImportedData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
@@ -118,7 +107,6 @@ namespace Durin
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTextureCubePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
@@ -136,18 +124,11 @@ namespace Durin
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
-		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
 
 	private:
 
 		DPROPERTY(EditorOnly, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
-
-		DPROPERTY(EditorOnly)
-		TObjectPtr<DAssetImportData> AssetImportData;
-
-		DPROPERTY(EditorOnly)
-		FTextureSource Source;
 
 		DPROPERTY(EditorOnly, DisplayName = "Panorama Face Dimension")
 		uint32 PanoramaFaceDimension = 0;
@@ -165,7 +146,6 @@ namespace Durin
 		bool bSRGB = true;
 
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		FBulkData CookedPlatformData;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
 	};
 

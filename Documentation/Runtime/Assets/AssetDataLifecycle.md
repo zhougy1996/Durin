@@ -110,6 +110,14 @@ their builders. Runtime-required metadata remains on assets, while offline-only
 texture build settings are editor-only; no asset also
 persists a generic replay graph or mounted-source request.
 
+Texture2D, TextureCube, and VolumeTexture share the sole reflected
+`DTexture::Source` and `DTexture::AssetImportData` storage. Exact historical
+property-move routes admit references and bulk for the former family-declared
+identities before load application, then canonical saves emit only the base
+identities. This compatibility path requests resave without mutating or dirtying
+the loaded package. Package identity, collision, and strict-load rules remain
+defined by [Asset Packages](AssetPackages.md).
+
 Import, Reimport, and Reimport From File are the only paths that read physical
 sources, and none mutates them. See
 [Source File Workflows](../../Editor/Guides/SourceFileWorkflows.md).
@@ -326,6 +334,12 @@ The implemented family projections are:
 | Material | `ProgramData` | material render-layer publication |
 | EnvironmentLighting | `PlatformData` | lighting resource upload |
 | Skeleton | metadata only | skeleton compatibility lookup |
+
+The three texture families store their cooked `FBulkData` in one `DTexture`
+slot, but their serializers continue to expose the stable concrete wire fields
+`DTexture2D::PlatformData`, `DTextureCube::PlatformData`, and
+`DVolumeTexture::PlatformData`. Each family retains its own typed installed data
+and codec; common storage does not make those wire identities interchangeable.
 
 Family serializers retain their existing versioned headers, target/profile
 facts, bounds, checksums, and semantic validation. Cooked package load validates

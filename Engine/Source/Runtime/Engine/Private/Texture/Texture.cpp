@@ -1,5 +1,6 @@
 #include "Texture/Texture.h"
 
+#include "DObject/Class.h"
 #include "DObject/Package.h"
 
 #include "Asset/Load.h"
@@ -14,6 +15,20 @@ namespace Durin
 {
 	namespace
 	{
+		const bool GTextureBaseStateMovesRegistered = [] {
+			static const std::array Moves{
+				FSerializedPropertyMove{"Durin::DTexture2D", "Source", "Durin::DTexture", "Source"},
+				FSerializedPropertyMove{"Durin::DTexture2D", "AssetImportData", "Durin::DTexture", "AssetImportData"},
+				FSerializedPropertyMove{"Durin::DTextureCube", "Source", "Durin::DTexture", "Source"},
+				FSerializedPropertyMove{"Durin::DTextureCube", "AssetImportData", "Durin::DTexture", "AssetImportData"},
+				FSerializedPropertyMove{"Durin::DVolumeTexture", "Source", "Durin::DTexture", "Source"},
+				FSerializedPropertyMove{"Durin::DVolumeTexture", "AssetImportData", "Durin::DTexture", "AssetImportData"}};
+			std::string Error;
+			const bool bRegistered = RegisterSerializedPropertyMoves(Moves, &Error);
+			checkf(bRegistered, "Texture base-state property moves failed to register: {}", Error);
+			return bRegistered;
+		}();
+
 		auto GetTextureSourceBytesPerTexel(ETextureSourceFormat Format) -> uint32
 		{
 			switch (Format)
@@ -131,7 +146,21 @@ namespace Durin
 			OutError = "Texture source must be complete and valid.";
 			return false;
 		}
-		GetTextureSourceStorage() = std::move(Value);
+		Source = std::move(Value);
+		OutError.clear();
+		return true;
+	}
+
+	auto DTexture::SetAssetImportData(
+		DAssetImportData& Value, std::string& OutError) -> bool
+	{
+		if (Value.GetOuter() != this)
+		{
+			OutError = "Texture import data must be an owned inner object.";
+			return false;
+		}
+		if (!Value.Validate(OutError)) return false;
+		AssetImportData = &Value;
 		OutError.clear();
 		return true;
 	}

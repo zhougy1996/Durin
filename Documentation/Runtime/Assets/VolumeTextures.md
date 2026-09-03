@@ -5,14 +5,15 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 ## Asset boundary
 
 `DVolumeTexture` is a `DTexture` leaf for one non-array 3D color texture. Its
-authored package stores reflected `FVolumeTextureSourceData` and
-`FVolumeTextureBuildSettings`. Source data is validated tightly packed authored
-BulkData with width, height, depth, and one of five portable formats:
+authored package uses the common reflected `DTexture::Source` and import pointer,
+while `DVolumeTexture` retains reflected `FVolumeTextureBuildSettings`. Source
+data is validated tightly packed authored BulkData with width, height, depth,
+and one of five portable formats:
 `R8_UNORM`, `RG8_UNORM`, `RGBA8_UNORM`, `R16_FLOAT`, or `RGBA16_FLOAT`.
 Dimensions are nonzero and no greater than 2048; the common texture payload byte
 ceiling is authoritative. Materials, streaming, and volume-rendering algorithms

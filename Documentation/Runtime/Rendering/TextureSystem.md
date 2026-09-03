@@ -11,13 +11,15 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- Every concrete texture stores one editor-only `FTextureSource`. `DTexture`
-  owns the common validation and access contract, while the reflected field
-  remains on each concrete class so old family fields can migrate through the
-  serializer's exact declaring-type route. The source contains canonical bulk
-  texels plus dimensions, topology, format, channel/transparency metadata,
-  schema, and content identity. `DAssetImportData` separately records optional
-  physical-source provenance for explicit reimport.
+- `DTexture` stores the one editor-only reflected `FTextureSource` and the one
+  editor-only reflected `DAssetImportData` pointer shared by Texture2D,
+  TextureCube, and VolumeTexture. The source contains canonical bulk texels plus
+  dimensions, topology, format, channel/transparency metadata, schema, and
+  content identity; import data records optional physical-source provenance for
+  explicit reimport. Exact historical routes map the former family-declared
+  fields to these base fields before reference admission, authored-override
+  restoration, and family `PostLoad`. Loading recommends canonical resave but
+  does not dirty or rewrite the source package.
 - `Usage` and `bSRGB` remain runtime-authored metadata. `MaxResolution`,
   `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` are
   editor-only build settings.
@@ -132,6 +134,15 @@ the cooked `PlatformData` BulkData field. Cook serializes runtime settings and
 the detached field, strips source provenance and editor fingerprints, and
 publishes large bytes in the package's headerless raw segment.
 
+`DTexture` owns the common cooked `FBulkData` slot and its side-effect-free const
+getter. Each leaf retains its typed installed platform data, codec, validation,
+and explicit wire identity: `DTexture2D::PlatformData`,
+`DTextureCube::PlatformData`, or `DVolumeTexture::PlatformData`. Storage
+consolidation therefore does not change TXPL bytes, DAST version, DDC keys, or
+the family dispatch boundary. Cube-specific and volume-specific payload rules
+remain in [Cube Textures](CubeTextures.md) and
+[Volume Textures](../Assets/VolumeTextures.md).
+
 Cooked-runtime package mode accepts only Win64/Game and schema 2. Metadata load
 attaches the field without reading its range; first platform-data/resource
 access locks and decodes it. Decode validates every mip
@@ -229,11 +240,12 @@ rebuild rule and dirty the package after success.
 `DTexture` is the reflected abstract boundary shared by `DTexture2D`,
 `DTextureCube`, and `DVolumeTexture`. It cannot be instantiated as a concrete
 asset type. It provides the common source and render-resource contract. Each
-leaf retains a single reflected `FTextureSource` storage field, its typed build
-settings and installed/cooked platform data, and its editor import metadata; it
-retains no legacy source fields, migration shims, DDC state, or build-operation
-diagnostic state. The maintained texture asset corpus uses this canonical
-layout directly.
+leaf retains its typed build settings, installed platform data, family codec,
+and resource-construction hook. The base retains the sole reflected source and
+import pointer plus the sole cooked bulk slot; there are no forwarding accessors
+or duplicate family storage fields. Exact load-only migration routes recognize
+the former family field identities, while every new save emits only the
+canonical base identities.
 
 `DTexture` is the sole high-level owner of one stable `FTextureReference`, one
 revision/completion contract, and at most one current

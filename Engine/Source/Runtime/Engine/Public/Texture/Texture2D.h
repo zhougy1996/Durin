@@ -164,17 +164,6 @@ namespace Durin
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		auto GetSource() const -> const FTextureSource& override { return Source; }
-		auto GetAssetImportData() const -> const DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		auto GetAssetImportData() -> DAssetImportData* override
-		{
-			return AssetImportData.Get();
-		}
-		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FTexture2DImportedData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
@@ -195,7 +184,6 @@ namespace Durin
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTexturePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
@@ -217,18 +205,9 @@ namespace Durin
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
-		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
 
 	private:
 		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
-		// Complete editor-only replay authority. The concrete class is supplied by
-		// the owning authoring framework and is absent from Cooked packages.
-		DPROPERTY(EditorOnly)
-		TObjectPtr<DAssetImportData> AssetImportData;
-
-		DPROPERTY(EditorOnly)
-		FTextureSource Source;
-
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;
 
@@ -252,6 +231,5 @@ namespace Durin
 
 		// Installed runtime data is rebuilt from Source but has an independent lifetime.
 		std::unique_ptr<FTexturePlatformData> PlatformData;
-		FBulkData CookedPlatformData;
 	};
 }

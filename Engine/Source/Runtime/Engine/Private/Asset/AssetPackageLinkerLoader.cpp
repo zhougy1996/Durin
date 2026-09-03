@@ -470,6 +470,20 @@ namespace Durin::AssetPrivate
 					Name = Property->NamePrivate.ToString();
 		}
 
+		auto FindSerializedPropertyMove(
+			std::span<const FSerializedPropertyMove> Moves,
+			std::string_view DeclaringType,
+			std::string_view Name) -> const FSerializedPropertyMove*
+		{
+			const auto It = std::ranges::lower_bound(
+				Moves, std::pair(DeclaringType, Name), {}, [](const auto& Move) {
+					return std::pair(std::string_view(Move.StoredDeclaringType),
+						std::string_view(Move.StoredName));
+				});
+			return It != Moves.end() && It->StoredDeclaringType == DeclaringType
+				&& It->StoredName == Name ? &*It : nullptr;
+		}
+
 		auto CanonicalizeSerializedTypeName(ObjectPackage::FSerializedType& Type) -> void
 		{
 			for (auto& Child : Type.Children) CanonicalizeSerializedTypeName(Child);
@@ -497,6 +511,8 @@ namespace Durin::AssetPrivate
 			-> std::vector<FAssetCanonicalizationEvidence>
 		{
 			std::vector<FAssetCanonicalizationEvidence> Result;
+			const std::vector<FSerializedPropertyMove> PropertyMoves =
+				CaptureSerializedPropertyMoves();
 			auto AddClass = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
 				std::string LogicalPath) {
 				if (DClass* Class = FindClassBySerializedName(FName(Stored));
@@ -547,7 +563,36 @@ namespace Durin::AssetPrivate
 								EAssetSerializedIdentityLocation::Schema,
 								std::format("schemas[{}].fields[{}].name", Index, FieldIndex)});
 					}
+				for (size_t FieldIndex = 0; FieldIndex < Linker.Schemas[Index].Fields.size(); ++FieldIndex)
+				{
+					std::string FieldName = Linker.Schemas[Index].Fields[FieldIndex].Name;
+					CanonicalizeSerializedPropertyName(Stored, FieldName);
+					if (const auto* Move = FindSerializedPropertyMove(
+						PropertyMoves, Stored, FieldName))
+						Result.push_back({PackagePath,
+							std::format("{}::{}", Stored, Linker.Schemas[Index].Fields[FieldIndex].Name),
+							std::format("{}::{}", Move->CurrentDeclaringType, Move->CurrentName),
+							EAssetReflectedIdentityKind::Property,
+							EAssetSerializedIdentityLocation::Schema,
+							std::format("schemas[{}].fields[{}]", Index, FieldIndex)});
+				}
 			}
+			for (size_t ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
+				for (size_t PropertyIndex = 0;
+					PropertyIndex < Linker.Exports[ExportIndex].Properties.size(); ++PropertyIndex)
+				{
+					const auto& Property = Linker.Exports[ExportIndex].Properties[PropertyIndex];
+					std::string FieldName = Property.FieldName;
+					CanonicalizeSerializedPropertyName(Property.DeclaringType, FieldName);
+					if (const auto* Move = FindSerializedPropertyMove(
+						PropertyMoves, Property.DeclaringType, FieldName))
+						Result.push_back({PackagePath,
+							std::format("{}::{}", Property.DeclaringType, Property.FieldName),
+							std::format("{}::{}", Move->CurrentDeclaringType, Move->CurrentName),
+							EAssetReflectedIdentityKind::Property,
+							EAssetSerializedIdentityLocation::ObjectRecord,
+							std::format("objects[{}].properties[{}]", ExportIndex, PropertyIndex)});
+				}
 			for (size_t Index = 0; Index < Linker.Types.size(); ++Index)
 			{
 				const auto& Type = Linker.Types[Index];
@@ -573,6 +618,8 @@ namespace Durin::AssetPrivate
 			ObjectPackage::FLinkerTables& Linker,
 			std::string* OutError = nullptr) -> bool
 		{
+			const std::vector<FSerializedPropertyMove> PropertyMoves =
+				CaptureSerializedPropertyMoves();
 			for (auto& Export : Linker.Exports)
 				CanonicalizeSerializedClassName(Export.ClassName);
 			for (auto& Asset : Linker.Summary.TopLevelAssets)
@@ -596,6 +643,45 @@ namespace Durin::AssetPrivate
 					}
 				}
 			}
+			struct FMovedSchemaField
+			{
+				std::string CurrentDeclaringType;
+				std::string CurrentName;
+				ObjectPackage::FSerializedField Field;
+			};
+			std::vector<FMovedSchemaField> MovedFields;
+			for (auto& Schema : Linker.Schemas)
+			{
+				std::erase_if(Schema.Fields, [&](const auto& Field) {
+					const auto* Move = FindSerializedPropertyMove(
+						PropertyMoves, Schema.QualifiedName, Field.Name);
+					if (!Move) return false;
+					MovedFields.push_back({Move->CurrentDeclaringType, Move->CurrentName,
+						ObjectPackage::FSerializedField{Move->CurrentName, Field.Type, Field.AuthoredFlags}});
+					return true;
+				});
+			}
+			for (auto& Moved : MovedFields)
+			{
+				auto Schema = std::ranges::find(Linker.Schemas, Moved.CurrentDeclaringType,
+					&ObjectPackage::FSerializedSchema::QualifiedName);
+				if (Schema == Linker.Schemas.end())
+				{
+					Linker.Schemas.push_back({Moved.CurrentDeclaringType, {}});
+					Schema = std::prev(Linker.Schemas.end());
+				}
+				auto Existing = std::ranges::find(Schema->Fields, Moved.CurrentName,
+					&ObjectPackage::FSerializedField::Name);
+				if (Existing == Schema->Fields.end()) Schema->Fields.push_back(std::move(Moved.Field));
+				else if (Existing->Type != Moved.Field.Type
+					|| Existing->AuthoredFlags != Moved.Field.AuthoredFlags)
+				{
+					if (OutError) *OutError = std::format(
+						"Serialized field move to {}::{} conflicts with its canonical schema.",
+						Moved.CurrentDeclaringType, Moved.CurrentName);
+					return false;
+				}
+			}
 			for (auto& Type : Linker.Types)
 				CanonicalizeSerializedTypeName(Type);
 			for (auto& Export : Linker.Exports)
@@ -603,8 +689,30 @@ namespace Durin::AssetPrivate
 				{
 					CanonicalizeSerializedSchemaName(Property.DeclaringType);
 					CanonicalizeSerializedPropertyName(Property.DeclaringType, Property.FieldName);
+					if (const auto* Move = FindSerializedPropertyMove(
+						PropertyMoves, Property.DeclaringType, Property.FieldName))
+					{
+						Property.DeclaringType = Move->CurrentDeclaringType;
+						Property.FieldName = Move->CurrentName;
+					}
 					CanonicalizeSerializedTypeName(Property.Type);
 				}
+			for (const auto& Export : Linker.Exports)
+			{
+				std::unordered_set<std::string> PropertyIdentities;
+				for (const auto& Property : Export.Properties)
+				{
+					const std::string Identity = std::format(
+						"{}::{}", Property.DeclaringType, Property.FieldName);
+					if (!PropertyIdentities.emplace(Identity).second)
+					{
+						if (OutError) *OutError = std::format(
+							"Serialized object contains fields that canonicalize to duplicate identity {}.",
+							Identity);
+						return false;
+					}
+				}
+			}
 			return true;
 		}
 

@@ -17,6 +17,7 @@ namespace Durin
 	{
 		UnknownField,
 		IncompatibleFieldSignature,
+		DuplicateFieldIdentity,
 		DeprecatedRouteUsed,
 		UnavailableClass,
 		InvalidObjectGraph
@@ -58,6 +59,15 @@ namespace Durin
 		auto operator==(const FReflectionSerializedPropertyAlias&) const -> bool = default;
 	};
 
+	struct FReflectionSerializedPropertyMove
+	{
+		std::string StoredDeclaringType;
+		std::string StoredName;
+		std::string CurrentDeclaringType;
+		std::string CurrentName;
+		auto operator==(const FReflectionSerializedPropertyMove&) const -> bool = default;
+	};
+
 	struct FReflectionDeprecatedPropertyRoute
 	{
 		std::string DeclaringType;
@@ -85,6 +95,10 @@ namespace Durin
 			std::string_view StoredName) const -> const FReflectionSerializedPropertyAlias*;
 		auto GetSerializedPropertyAliases() const -> std::span<const FReflectionSerializedPropertyAlias>
 			{ return SerializedPropertyAliases; }
+		ENGINE_API auto FindSerializedPropertyMove(std::string_view StoredDeclaringType,
+			std::string_view StoredName) const -> const FReflectionSerializedPropertyMove*;
+		auto GetSerializedPropertyMoves() const -> std::span<const FReflectionSerializedPropertyMove>
+			{ return SerializedPropertyMoves; }
 		ENGINE_API auto FindDeprecatedPropertyRoute(std::string_view DeclaringType,
 			std::string_view StoredName, DurinCodeGen::EPropertyGenFlags Kind,
 			std::string_view TypeSignature) const
@@ -96,6 +110,7 @@ namespace Durin
 		std::vector<FReflectionSchemaClass> Classes;
 		std::vector<FReflectionSerializedAlias> SerializedAliases;
 		std::vector<FReflectionSerializedPropertyAlias> SerializedPropertyAliases;
+		std::vector<FReflectionSerializedPropertyMove> SerializedPropertyMoves;
 		std::vector<FReflectionDeprecatedPropertyRoute> DeprecatedPropertyRoutes;
 	};
 

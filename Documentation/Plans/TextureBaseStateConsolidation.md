@@ -4,25 +4,42 @@ Summary: Move shared texture source, import metadata, and cooked bulk storage in
 
 Last reviewed: 2026-09-03
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-03
 
 ## Current Status
 
-Planning only; no stage has started. The preceding interface refactors
-(`b1213e289`, `e8bc7db63`) established common texture access and blocking cooked
-loading. Their latest affected validation passed 45 native-test targets.
-That evidence is a baseline, not validation of the member moves in this plan.
+All four stages are complete. The selected compatibility mechanism is the process-lifetime
+`RegisterSerializedPropertyMoves` registry in CoreDObject. Engine owns the six
+texture route registrations installed with Stage 1; each route maps one exact stored declaring type and
+field name to one canonical declaring type and field name. Loader
+canonicalization runs before dependency admission, type checking, value
+application, authored-override restoration, and PostLoad. Duplicate canonical
+identities are rejected, and schema inspection captures the same route table.
+No temporary deprecated texture fields are required, so there is no retirement
+state to carry.
 
-`DTexture2D`, `DTextureCube`, and `DVolumeTexture` still each own identical
-`Source`, `AssetImportData`, and `CookedPlatformData` storage. Their source and
-import accessors override base virtual interfaces; a protected mutable source
-hook exists only to let `DTexture::SetSource` assign derived storage.
+The bounded AssetPackageTests fixture proves cross-owner inline/external bulk,
+hard-reference dependency admission, `Forced` override preservation, canonical
+resave without load-time writes, and duplicate/incompatible rejection. Immutable
+pre-move authored and Win64 Game cooked packages for 2D, Cube, and Volume are
+captured under `Engine/Tests/Native/EngineTests/Data/TextureBaseStateCompatibility`;
+the Volume pair supplies external `.dbulk` coverage. Added validation scope is
+CoreDObject, Engine package serialization, AssetPackageTests, and TextureTests.
 
-The package field identity includes its declaring type. The current loader
-discards removed authored fields on known types, so moving reflected members
-without explicit compatibility handling can discard old texture data.
-Stage 0 must settle and verify this boundary before production fields move.
+`DTexture` now owns the sole reflected `Source` and `AssetImportData` fields,
+their non-virtual access/validation, and the sole cooked bulk slot. Family
+serializers retain their concrete `PlatformData` wire identities and TXPL
+codecs. The three legacy authored fixtures pass
+load, canonical override restoration, duplicate, explicit canonical save, and
+reload checks without load-time dirtiness. Their pre-move cooked counterparts
+load source-free and preserve passive-getter, first-load, and repeated-load
+semantics for all three families. The complete `TextureTests` target passes 83
+tests, and `TextureCookIntegrationTests` passes 2 Vulkan-backed tests, covering
+the existing import, reimport, build, transaction, cook, and family behavior.
+Final affected-test selection passed all 51 registered targets, the selected
+host's complete `all` build passed, and the durable texture, cube, volume, and
+asset-lifecycle contracts now describe the consolidated ownership boundary.
 
 ## Goal
 
@@ -87,21 +104,21 @@ wire identities or changing the TXPL payload, DAST version, or DDC keys.
 Dependency: none. Outcome: a selected, tested compatibility mechanism and
 fixtures captured before moving the production fields.
 
-- [ ] Inspect existing serialized-property aliases and deprecated-property
+- [x] Inspect existing serialized-property aliases and deprecated-property
   routes for cross-declaring-type moves, reference admission, bulk ownership,
   and authored override restoration. Prefer the existing mechanism if it meets
   every requirement above; do not assume a rename alias also changes its owner.
-- [ ] Resolve the mechanism in this stage: either use the proven existing route
+- [x] Resolve the mechanism in this stage: either use the proven existing route
   or specify the smallest exact-identity extension required. Record the selected
   API, registration owner/lifetime, canonicalization order, collision policy,
   and whether temporary deprecated fields are needed. Such fields must remain
   non-authoritative and have an explicit retirement policy.
-- [ ] Capture deterministic pre-move authored fixtures for 2D, Cube, and Volume,
+- [x] Capture deterministic pre-move authored fixtures for 2D, Cube, and Volume,
   with nondefault source data, owned import data, and explicit override intent;
   include inline and external bulk coverage and corresponding pre-move cooked
   packages for Stage 2. Use the existing fixture conventions and do not depend
   on mutable user content or a local absolute path.
-- [ ] Add focused compatibility coverage showing exact old-to-new field mapping,
+- [x] Add focused compatibility coverage showing exact old-to-new field mapping,
   preserved dependency admission and override intent, canonical resave, and
   rejection of duplicate/incompatible identities. If infrastructure needs a
   change, validate it with a bounded fixture before production cutover.
@@ -115,17 +132,17 @@ starting Stage 1. No texture field has moved yet.
 Dependency: Stage 0. Outcome: one base-owned source and import pointer for all
 three families, with historical data retained.
 
-- [ ] Move `Source` and `AssetImportData` into DTexture with their existing
+- [x] Move `Source` and `AssetImportData` into DTexture with their existing
   EditorOnly policy, GC participation, defaults, and ownership validation.
-- [ ] Install the Stage 0 historical routes in the same change as the field move.
+- [x] Install the Stage 0 historical routes in the same change as the field move.
   Apply migrated state before PostLoad and family build-input creation.
-- [ ] Make `GetSource`, both `GetAssetImportData` overloads, and
+- [x] Make `GetSource`, both `GetAssetImportData` overloads, and
   `SetAssetImportData` common non-virtual methods. Make SetSource assign base
   storage and remove every mutable source-storage hook and derived duplicate.
-- [ ] Audit direct reflection lookups, property owners, compilation friends,
+- [x] Audit direct reflection lookups, property owners, compilation friends,
   transactions, duplication, reimport, payload inspection, and editor consumers;
   use the canonical base field identity where ownership is required.
-- [ ] Validate all three legacy fixtures and new assets through load, duplicate,
+- [x] Validate all three legacy fixtures and new assets through load, duplicate,
   edit/undo-redo where applicable, explicit save, reload, and reimport. Check
   exact source payload identity/content, import Outer/references, and override
   intent; successful load alone is not sufficient evidence.
@@ -138,17 +155,17 @@ canonical field of each kind, and family build inputs/results remain unchanged.
 Dependency: Stage 1. Outcome: one base-owned cooked bulk slot with unchanged
 family wire formats and lazy-loading behavior.
 
-- [ ] Move CookedPlatformData storage and its const getter to DTexture. Keep
+- [x] Move CookedPlatformData storage and its const getter to DTexture. Keep
   mutation restricted to the serialization/loading implementation; do not add a
   public mutable bulk accessor.
-- [ ] Retain each family serializer's native PlatformData field identity and
+- [x] Retain each family serializer's native PlatformData field identity and
   typed payload codec. Remove redundant derived storage/getters and review
   include/export boundaries across Engine and editor modules.
-- [ ] Validate pre-move cooked packages and new cooks for 2D, Cube, and Volume:
+- [x] Validate pre-move cooked packages and new cooks for 2D, Cube, and Volume:
   passive getters do not load bulk or update resources; the first explicit
   blocking load installs data; repeated calls preserve pointer/revision; missing
   or corrupt data fails without publishing an invalid replacement.
-- [ ] Confirm authored-source filtering, source-free cooked loading, payload
+- [x] Confirm authored-source filtering, source-free cooked loading, payload
   content/identity, and the existing Win64 Game target restriction are unchanged.
 
 Completion: all three families share bulk storage while existing cooked assets
@@ -158,23 +175,47 @@ load and resource lifecycle behavior matches the baseline.
 
 Dependency: Stages 1-2. Outcome: verified cleanup and durable ownership guidance.
 
-- [ ] Audit the final headers/callers for duplicate storage, forwarding overrides,
+- [x] Audit the final headers/callers for duplicate storage, forwarding overrides,
   and unused hooks. Retain family-specific APIs that still have real consumers.
-- [ ] Run affected native coverage under the repository testing workflow,
+- [x] Run affected native coverage under the repository testing workflow,
   including texture build/reimport, thumbnail, cooked integration, and package
   compatibility coverage. Discover current registry selections rather than
   inferring target names from test source directories.
-- [ ] Complete a full `all` build on the selected host profile to verify the
+- [x] Complete a full `all` build on the selected host profile to verify the
   exported base API across the editor/module closure. No visual UI change or
   application-hosted smoke is required by this plan.
-- [ ] Update the owning runtime asset/serialization documents only for newly
+- [x] Update the owning runtime asset/serialization documents only for newly
   implemented contracts, linking to existing package and volume contracts rather
   than duplicating their specifications.
-- [ ] Record exact validation evidence and remaining limitations, validate plan
+- [x] Record exact validation evidence and remaining limitations, validate plan
   metadata, and mark Completed only after all acceptance gates pass.
 
 Completion: implementation and documentation agree, all required checks pass,
 and every stage's changes and status are committed with the required provenance.
+
+## Validation Evidence
+
+- Stage 0: `DevTool test AssetPackageTests` passed 104 tests; focused
+  `FTextureBaseStateCompatibilityTests.*` passed the two immutable pre-move
+  authored/cooked fixture cases before production cutover.
+- Stages 1-2: `DevTool test TextureTests` passed 83 tests across 14 suites;
+  `DevTool test TextureCookIntegrationTests` passed both Vulkan-backed cooked
+  texture integration tests. The focused compatibility cases additionally
+  exercised canonical save/reload and old cooked packages for all three texture
+  families.
+- Stage 3: `DevTool test affected --base ea99793c2 --explain` selected the
+  CoreDObject, Engine, texture, terrain, editor, package, thumbnail, and renderer
+  closure. `DevTool test affected --base ea99793c2` passed all 51 direct CTest
+  targets, including the selected Vulkan lanes. `DevTool build` completed the
+  `Win64-Debug-DurinEditor` `all` target.
+- Documentation validation completed with `DevTool doc validate --scope all`
+  and `DevTool doc plan validate --scope all`.
+
+Remaining limitations are intentional: compatibility remains limited to the
+supported DAST v9 baseline, cooked texture payloads remain Win64 Game only, and
+the six exact historical property routes stay registered for process lifetime.
+No tracked content corpus rewrite, older-version broadening, UI change, or
+application-hosted smoke was performed or required.
 
 ## Execution And Validation
 

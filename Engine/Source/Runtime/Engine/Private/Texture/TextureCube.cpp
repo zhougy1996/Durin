@@ -197,7 +197,7 @@ namespace Durin
 			return;
 		}
 		FBulkData Projection;
-		FBulkData* Value = &CookedPlatformData;
+		FBulkData* Value = &GetMutableCookedPlatformData();
 		if (Ar.IsSaving())
 		{
 			if (!PlatformData || !PlatformData->IsValid())
@@ -295,7 +295,7 @@ namespace Durin
 	{
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 			{
 				OutError = std::format(
 					"Cooked TextureCube '{}': required PlatformData field is missing.",
@@ -330,8 +330,9 @@ namespace Durin
 				"Cooked TextureCube '{}': {}", GetObjectPath(), Message);
 			return false;
 		};
+		FBulkData& CookedData = GetMutableCookedPlatformData();
 		std::span<const std::byte> Bytes;
-		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
+		if (!CookedData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
 		auto CandidatePlatformData = std::make_unique<FTextureCubePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
@@ -340,10 +341,10 @@ namespace Durin
 			.TargetProfile = ECookTargetProfile::Game});
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
-			CookedPlatformData.UnlockReadOnly();
+			CookedData.UnlockReadOnly();
 			return FailCooked(std::string(PayloadAr.GetError()));
 		}
-		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
+		if (!CookedData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
 		if (!SetPlatformData(std::move(CandidatePlatformData), OutError))
 			return FailCooked(OutError);
@@ -377,20 +378,6 @@ namespace Durin
 		}
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
-	}
-
-	auto DTextureCube::SetAssetImportData(
-		DAssetImportData& Value, std::string& OutError) -> bool
-	{
-		if (Value.GetOuter() != this)
-		{
-			OutError = "TextureCube import data must be an owned inner object.";
-			return false;
-		}
-		if (!Value.Validate(OutError)) return false;
-		AssetImportData = &Value;
-		OutError.clear();
-		return true;
 	}
 
 	auto DTextureCube::SetSourceData(

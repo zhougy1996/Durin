@@ -198,7 +198,7 @@ namespace Durin
 			return;
 		}
 		FBulkData Projection;
-		FBulkData* Value = &CookedPlatformData;
+		FBulkData* Value = &GetMutableCookedPlatformData();
 		if (Ar.IsSaving())
 		{
 			if (!PlatformData || !PlatformData->IsValid())
@@ -270,7 +270,7 @@ namespace Durin
 	{
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 			{
 				OutError = std::format(
 					"Cooked Texture2D '{}': required PlatformData field is missing.",
@@ -308,8 +308,9 @@ namespace Durin
 			return false;
 		};
 
+		FBulkData& CookedData = GetMutableCookedPlatformData();
 		std::span<const std::byte> Bytes;
-		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
+		if (!CookedData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
 
 		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
@@ -319,10 +320,10 @@ namespace Durin
 			.TargetProfile = ECookTargetProfile::Game});
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
-			CookedPlatformData.UnlockReadOnly();
+			CookedData.UnlockReadOnly();
 			return FailCooked(std::string(PayloadAr.GetError()));
 		}
-		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
+		if (!CookedData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
 		if (!SetPlatformData(std::move(CandidatePlatformData), OutError))
 			return FailCooked(OutError);
@@ -393,20 +394,6 @@ namespace Durin
 		CompressionQuality = InCompressionQuality;
 		AlphaMipMode = InAlphaMipMode;
 		AlphaCoverageThreshold = InAlphaCoverageThreshold;
-		OutError.clear();
-		return true;
-	}
-
-	auto DTexture2D::SetAssetImportData(
-		DAssetImportData& Value, std::string& OutError) -> bool
-	{
-		if (Value.GetOuter() != this)
-		{
-			OutError = "Texture2D import data must be an owned inner object.";
-			return false;
-		}
-		if (!Value.Validate(OutError)) return false;
-		AssetImportData = &Value;
 		OutError.clear();
 		return true;
 	}
