@@ -363,7 +363,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 					CommandList, Scene.GetStaticMeshSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			ASSERT_EQ(Prepared.Primitives.size(), 1u);
-			EXPECT_EQ(Prepared.GetNumSections(), 1u);
+			// MakeRenderData supplies four sections on the single cooked primitive.
+			EXPECT_EQ(Prepared.GetNumSections(), 4u);
 			EXPECT_EQ(Prepared.RejectedPrimitives, 0u);
 		});
 	Durin::FlushRenderingCommands();
