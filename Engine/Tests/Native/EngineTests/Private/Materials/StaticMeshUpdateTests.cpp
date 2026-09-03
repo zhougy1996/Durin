@@ -172,8 +172,8 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	const FMaterialSlotsSnapshot UnrelatedUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(UnrelatedUpdate.Proxy, Initial.Proxy);
 
-	SetDefaultMaterial(FirstMesh, 0, Second);
-	RecreateStaticMeshState(FirstMesh);
+	std::string Error;
+	ASSERT_TRUE(FirstMesh->SetImportedDefaultMaterial(0, Second, Error)) << Error;
 	const FMaterialSlotsSnapshot DefaultUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_GT(
 		DefaultUpdate.ComponentRevision,

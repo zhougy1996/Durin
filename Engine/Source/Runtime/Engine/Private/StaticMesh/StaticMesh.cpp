@@ -965,6 +965,7 @@ namespace Durin
 				"Static mesh has ambiguous slots for source material {}.", SourceMaterialIndex);
 			return false;
 		}
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		Slot->DefaultMaterial = Material;
 		MarkPackageDirty();
 		OutError.clear();
