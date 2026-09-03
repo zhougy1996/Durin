@@ -4,7 +4,7 @@ Summary: Make non-Texture build modules pure typed recipe providers, move DDC or
 
 Last reviewed: 2026-09-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-03
 
 ## Current Status
@@ -665,18 +665,18 @@ Dependencies: Stage 5 complete.
 
 ## Related Documentation
 
-- [Texture Build DDC Decoupling](Archive/2026-09/TextureBuildDdcDecoupling.md)
-- [Texture Asset State Simplification](Archive/2026-09/TextureAssetStateSimplification.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Texture Build DDC Decoupling](TextureBuildDdcDecoupling.md)
+- [Texture Asset State Simplification](TextureAssetStateSimplification.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

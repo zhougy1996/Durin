@@ -4,7 +4,7 @@ Summary: Collapse the one-shot scene frame entry, establish one frame-owned cont
 
 Last reviewed: 2026-09-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-03
 
 ## Current Status
@@ -67,7 +67,7 @@ mapping, and final transaction publication directly; the executor object and
 one-shot callback are removed. The focused scene contract target continues to
 pass all 40 tests with the pipeline/context type boundary asserted. Stage 0
 previously froze the migration inventory and baseline contract. The active
-[RDG Compatibility Retirement and Allocator Simplification Plan](Archive/2026-09/RDGCompatibilityRetirementAndAllocatorSimplification.md)
+[RDG Compatibility Retirement and Allocator Simplification Plan](RDGCompatibilityRetirementAndAllocatorSimplification.md)
 has explicitly released ownership of the scene-render orchestration sources;
 its only remaining work is an exclusive quiet-GPU qualification rerun and a
 documentation-only status update. Its RDG parameter, allocation, capture,
@@ -416,8 +416,8 @@ continue to observe actual command-recording results.
   names and that feature input fields express capabilities rather than copied
   policy facts.
 - [x] Update the lasting
-  [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-  and [Render Graph](../Runtime/Rendering/RenderGraph.md) contracts to describe
+  [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+  and [Render Graph](../../../Runtime/Rendering/RenderGraph.md) contracts to describe
   the final frame owner, feature plan, Composer boundary, and feature-owned
   setup/execute split.
 - [x] Run changed/all documentation validation and all-plan lifecycle
@@ -447,12 +447,12 @@ continue to observe actual command-recording results.
 
 ## Related Documentation
 
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Persistent View State](../Runtime/Rendering/PersistentViewState.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Volumetric Cloud Spatial Rendering](../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
-- [RDG Compatibility Retirement and Allocator Simplification Plan](Archive/2026-09/RDGCompatibilityRetirementAndAllocatorSimplification.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Persistent View State](../../../Runtime/Rendering/PersistentViewState.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Volumetric Cloud Spatial Rendering](../../../Runtime/Rendering/VolumetricCloudSpatialRendering.md)
+- [RDG Compatibility Retirement and Allocator Simplification Plan](RDGCompatibilityRetirementAndAllocatorSimplification.md)
 
 ## Related Code
 

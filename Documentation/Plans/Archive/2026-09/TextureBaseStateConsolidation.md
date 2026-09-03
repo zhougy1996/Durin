@@ -4,7 +4,7 @@ Summary: Move shared texture source, import metadata, and cooked bulk storage in
 
 Last reviewed: 2026-09-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-03
 
 ## Current Status
@@ -219,10 +219,10 @@ application-hosted smoke was performed or required.
 
 ## Execution And Validation
 
-Follow [Build And Run](../Agents/BuildAndRun.md),
-[Testing](../Agents/Testing.md), and
-[Documentation](../Agents/Documentation.md). Native test metadata/fixture changes
-also follow [Native Test Authoring](../Development/Build/NativeTestAuthoring.md).
+Follow [Build And Run](../../../Agents/BuildAndRun.md),
+[Testing](../../../Agents/Testing.md), and
+[Documentation](../../../Agents/Documentation.md). Native test metadata/fixture changes
+also follow [Native Test Authoring](../../../Development/Build/NativeTestAuthoring.md).
 Each stage must leave the checkout buildable and commit its implementation,
 tests, and status together using the exact Plan and Stage trailers required by
 the repository. Never treat the earlier interface-refactor test results as
@@ -240,10 +240,10 @@ acceptance evidence for this plan.
 - `Engine/Source/Editor/TextureEditor/Private/`
 - `Engine/Tests/Native/EngineTests/Private/Texture/`
 - `Engine/Tests/Native/EngineTests/Private/TextureCubeTests.cpp`
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
 
 UE reference: [UTexture](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/UTexture)
 owns Source and AssetImportData. This informs the ownership choice; Durin's

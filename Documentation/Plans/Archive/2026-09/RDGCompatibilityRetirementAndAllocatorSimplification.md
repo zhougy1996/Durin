@@ -30,7 +30,7 @@ request before inspecting payload and RenderData; its focused case and the
 complete aggregate pass.
 
 Scene-render source ownership is explicitly released to the
-[Scene Render Frame Orchestration Simplification Plan](../../SceneRenderFrameOrchestrationSimplification.md)
+[Scene Render Frame Orchestration Simplification Plan](SceneRenderFrameOrchestrationSimplification.md)
 as of 2026-09-01. No scene-render orchestration source was changed to obtain the
 qualification exception.
 
