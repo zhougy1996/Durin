@@ -414,6 +414,41 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
+TEST_F(FContentBrowserModelTests, SingleAssetPackageUsesPackageNameAfterRelocation)
+{
+	InitializeDObjectSystem();
+	FPackagePath SourcePath;
+	FPackagePath DestinationPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
+		"/ContentBrowserTests/DisplayNameSource", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate(
+		"/ContentBrowserTests/DisplayNameDestination", DestinationPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Material));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
+		.Mappings = {{SourcePath, DestinationPath}}}));
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	const FTopLevelAssetPath AssetPath =
+		Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath);
+	FTopLevelAssetPath RelocatedAssetPath;
+	ASSERT_TRUE(FTopLevelAssetPath::TryCreate(
+		DestinationPath, AssetPath.GetAssetName(), RelocatedAssetPath));
+	const std::string Revealed = Model.RevealAsset(RelocatedAssetPath.ToString());
+	ASSERT_FALSE(Revealed.empty());
+	const auto It = std::ranges::find_if(
+		Model.GetItems(), [&](const FContentBrowserItem& Item) {
+			return Item.StableId() == Revealed;
+		});
+	ASSERT_NE(It, Model.GetItems().end());
+	EXPECT_EQ(It->Name, "DisplayNameDestination");
+	EXPECT_EQ(It->VirtualPath, RelocatedAssetPath.ToString());
+	EXPECT_TRUE(Testing::RemoveAssetPackageForTests(SourcePath));
+	EXPECT_TRUE(Testing::RemoveAssetPackageForTests(DestinationPath));
+}
+
 TEST_F(FContentBrowserModelTests, RevealPhysicalItemPublishesNewFolderHiddenByFilters)
 {
 	FContentBrowserModel Model;
@@ -1222,6 +1257,29 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	EXPECT_TRUE(std::filesystem::exists(Folder));
 	EXPECT_TRUE(std::filesystem::exists(Folder / "child.txt"));
 
+}
+
+TEST_F(FContentBrowserModelTests, PackageRenameReturnsRelocatedAssetIdentity)
+{
+	FContentBrowserModel Model;
+	FPackagePath OldPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/OldPackage", OldPath));
+	const FContentBrowserItem AssetItem{
+		.Kind = EContentBrowserItemKind::Asset,
+		.Name = "OldPackage",
+		.VirtualPath = "/ContentBrowserTests/OldPackage.AssetObject",
+		.PackagePath = OldPath,
+		.PhysicalPath = (Root / "Content/OldPackage.dasset").generic_string()};
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> FAssetResult { return {}; });
+
+	const FContentBrowserOperationResult Result =
+		Operations.Rename(AssetItem, "NewPackage");
+
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_EQ(Result.RevealAssetPath,
+		"/ContentBrowserTests/NewPackage.AssetObject");
 }
 
 TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)

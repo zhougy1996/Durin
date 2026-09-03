@@ -408,13 +408,16 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FPackagePath& Path,
 		const FAssetData& Data) -> void
 	{
+		const bool bSingleAssetPackage = Data.TopLevelAssets.size() == 1;
 		for (const FTopLevelAssetData& AssetData : Data.TopLevelAssets)
 		{
 			FContentBrowserItem Item{
 				AssetData.IsRedirector()
 					? EContentBrowserItemKind::Redirector
 					: EContentBrowserItemKind::Asset,
-				std::string(AssetData.AssetPath.GetAssetName()),
+				bSingleAssetPackage
+					? std::string(Path.GetPackageName())
+					: std::string(AssetData.AssetPath.GetAssetName()),
 				AssetData.AssetPath.ToString(),
 				Path,
 				NormalizePath(Data.PhysicalPath),

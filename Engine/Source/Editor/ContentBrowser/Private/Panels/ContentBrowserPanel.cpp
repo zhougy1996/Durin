@@ -333,10 +333,15 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
+		const std::string_view InitialName =
+			Item.Kind == EContentBrowserItemKind::Asset
+				|| Item.Kind == EContentBrowserItemKind::Redirector
+			? Item.PackagePath.GetPackageName()
+			: std::string_view(Item.Name);
 		std::memcpy(
 			RenameBuffer.data(),
-			Item.Name.data(),
-			std::min(Item.Name.size(), RenameBuffer.size() - 1));
+			InitialName.data(),
+			std::min(InitialName.size(), RenameBuffer.size() - 1));
 		bFocusRename = true;
 	}
 
@@ -344,7 +349,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		-> bool
 	{
 		const std::string NewName = RenameBuffer.data();
-		if (NewName == Item.Name)
+		const std::string_view CurrentName =
+			Item.Kind == EContentBrowserItemKind::Asset
+				|| Item.Kind == EContentBrowserItemKind::Redirector
+			? Item.PackagePath.GetPackageName()
+			: std::string_view(Item.Name);
+		if (NewName == CurrentName)
 		{
 			RenameTarget.clear();
 			return true;
@@ -358,11 +368,16 @@ namespace Durin::Editor::ContentBrowser::Private
 			return false;
 		}
 		RenameTarget.clear();
-		Selection.clear();
-		if (!Result.FocusPhysicalPath.empty())
-			Selection.insert(Result.FocusPhysicalPath);
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		PublishMountedContentMutation();
+		Selection.clear();
+		if (!Result.RevealAssetPath.empty())
+		{
+			if (!RevealAsset(Result.RevealAssetPath))
+				SetError("The asset was renamed, but it could not be shown in the content browser.");
+		}
+		else if (!Result.FocusPhysicalPath.empty())
+			Selection.insert(Result.FocusPhysicalPath);
 		return true;
 	}
 

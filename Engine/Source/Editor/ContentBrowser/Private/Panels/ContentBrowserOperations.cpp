@@ -211,6 +211,14 @@ namespace Durin::Editor::ContentBrowser::Private
 			FContentBrowserOperationResult Outcome;
 			Outcome.FocusPhysicalPath =
 				Model.VirtualToPhysical(NewPath.ToString() + ".dasset");
+			FTopLevelAssetPath OldAssetPath;
+			FTopLevelAssetPath NewAssetPath;
+			if (FTopLevelAssetPath::TryCreate(Item.VirtualPath, OldAssetPath)
+				&& FTopLevelAssetPath::TryCreate(
+					NewPath,
+					OldAssetPath.GetAssetName(),
+					NewAssetPath))
+				Outcome.RevealAssetPath = NewAssetPath.ToString();
 			return Outcome;
 		}
 
