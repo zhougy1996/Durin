@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Asset/Testing.h"
 #include "VulkanEngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -677,11 +678,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::UnloadPackage(LODContractPath));
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(MeshPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(MaterialPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(TexturePath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(StandardPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(LODContractPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MeshPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MaterialPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TexturePath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(StandardPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LODContractPath));
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

@@ -204,58 +204,11 @@ namespace
 		return Result ? Job.ResumeForward() : Result;
 	}
 
-	// Test cleanup follows the production target-plus-alias closure contract while
-	// avoiding a second editor-level destructive operation in asset tests.
-	auto DeleteAssetClosureForTest(
-		std::initializer_list<Durin::FPackagePath> Paths
-	)
+	// Runtime fixture cleanup uses only the package removal primitives.
+	inline auto DeleteAssetClosureForTest(std::initializer_list<Durin::FPackagePath> Paths)
 		-> Durin::FAssetResult
 	{
-		const std::vector<Durin::FPackagePath> DeletionPaths(Paths);
-		Durin::FAssetDeletionJob Job;
-		std::vector<Durin::FAssetDeletionBatchBlocker> Blockers;
-		Durin::FAssetResult Result =
-			Durin::PrepareAssetDeletionJob(
-				DeletionPaths, {}, Job, Blockers
-			);
-		if (!Result) return Result;
-		if (!Blockers.empty())
-			return {
-				Durin::EAssetError::InUse,
-				Blockers.front().Details
-			};
-		const auto RemoveFiles = [&]() -> Durin::FAssetResult {
-		for (const Durin::FAssetDeletionBatchEntry& Entry : Job.GetEntries())
-		{
-			std::error_code Error;
-			if (!std::filesystem::remove(Entry.RegistryEntry.PhysicalPath, Error)
-				|| Error)
-				return {
-					Durin::EAssetError::IoError,
-					std::format(
-						"Could not remove test asset {}: {}",
-						Entry.RegistryEntry.PackagePath.ToString(),
-						Error.message()
-					)
-				};
-			for (const std::filesystem::path& Companion : Entry.CompanionFiles)
-			{
-				Error.clear();
-				if (!std::filesystem::remove(Companion, Error) || Error)
-					return {
-						Durin::EAssetError::IoError,
-						std::format(
-							"Could not remove test companion {}: {}",
-							Companion.generic_string(), Error.message()
-						)
-					};
-			}
-		}
-		return {};
-		};
-		return Job.Delete({
-			.Delete = RemoveFiles,
-		});
+		return Durin::Testing::RemoveAssetPackagesForTests(std::span{Paths.begin(), Paths.size()});
 	}
 
 	template<typename T>
@@ -1338,21 +1291,6 @@ namespace
 		FVectorMap VectorMap;
 	};
 
-	auto RegisterTestDeleteContributor() -> void
-	{
-		static const bool Registered = [] {
-			Durin::RegisterAssetDeleteContributor(DPackageAssetForTest::StaticClass(), [](const Durin::FAssetData&, const Durin::FAssetPackageInspection& Inspection, Durin::FAssetDeleteContribution& Out) -> Durin::FAssetResult {
-				const Durin::FAssetPackageField* LabelField = Inspection.FindField("Label");
-				std::string Label;
-				if (LabelField && LabelField->TryReadString(Label) && Label.starts_with("companion:"))
-					Out.Files.emplace_back(Label.substr(10));
-				return {};
-			});
-			return true;
-		}();
-		(void)Registered;
-	}
-
 	auto InitializeAssetTests() -> void
 	{
 		static const bool Initialized = [] {
@@ -2012,7 +1950,7 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 	EXPECT_TRUE(Durin::IsAssetRegistryProjectionFenced(Path));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	EXPECT_FALSE(Durin::IsAssetRegistryProjectionFenced(Path));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 }
 
 TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
@@ -2333,7 +2271,7 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 	ASSERT_NE(Durin::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Job.GetState(),
 		Durin::EAssetMutationJobState::Completed);
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(OwnerPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 }
 
@@ -2827,10 +2765,6 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(WrongTypeReport.Error, Durin::EAssetError::TypeMismatch);
 	EXPECT_EQ(WrongTypeReport.PackageFileReadCount, 0u);
 
-	EXPECT_EQ(
-		Durin::DeleteAssetForTesting(AliasPath).Error,
-		Durin::EAssetError::InUse
-	);
 	ASSERT_TRUE(DeleteAssetClosureForTest(
 		{NormalizedAliasPath, AliasPath, TargetPath}
 	));
@@ -3609,7 +3543,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_FALSE(Owner->Direct.IsLoaded());
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(OwnerPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, Path}));
 }
 
@@ -3660,7 +3594,7 @@ TEST(FPackageAssetTests, ResidentUnloadRequiresExplicitUnsavedDiscard)
 	ASSERT_NE(Published, nullptr);
 	EXPECT_EQ(Published->Value, 17);
 	ASSERT_TRUE(Durin::UnloadPackage(PublishedPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(PublishedPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(PublishedPath));
 }
 
 TEST(FPackageAssetTests, SoftObjectNullAndMissingPoliciesReturnStableResults)
@@ -3982,7 +3916,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	ASSERT_TRUE(Durin::SerializeAssetPackageBytes(
 		Omitted->GetPackage(), OmittedSoftBytes, OmitSoftFields
 	));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(OmittedPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OmittedPath));
 	WriteTestBytes(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "SoftOmittedFields.dasset",
 		OmittedSoftBytes
@@ -4742,7 +4676,7 @@ TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
 			RemainingOperations.insert(
 				Entry.path().filename().generic_string());
 	EXPECT_EQ(RemainingOperations, ExistingOperations);
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(SourcePath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(SourcePath));
 }
 
 TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
@@ -5019,7 +4953,7 @@ namespace
 		EXPECT_EQ(Durin::FindAssetExact(OldPath), nullptr);
 		EXPECT_TRUE(Durin::CaptureAssetReferenceIndex().FindReferencers(OldPath).empty());
 		StoreRegistration.Reset();
-		ASSERT_TRUE(Durin::DeleteAssetForTesting(OwnerPath));
+		ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 		ASSERT_TRUE(DeleteAssetClosureForTest({NewPath}));
 	}
 } // namespace
@@ -5152,7 +5086,7 @@ namespace
 			const auto Alias = Durin::FindAssetExact(OldPath);
 			ASSERT_NE(Alias, nullptr);
 			EXPECT_EQ(Alias->EntryKind, Durin::EAssetRegistryEntryKind::Redirector);
-			ASSERT_TRUE(Durin::DeleteAssetForTesting(OwnerPath));
+			ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 			ASSERT_TRUE(DeleteAssetClosureForTest({NewPath}));
 		};
 		RunCase("ReadOnly", true);
@@ -5223,7 +5157,7 @@ namespace
 			EXPECT_EQ(Store.Path, NewPath);
 			EXPECT_EQ(Durin::FindAssetExact(OldPath), nullptr);
 			StoreRegistration.Reset();
-			ASSERT_TRUE(Durin::DeleteAssetForTesting(OwnerPath));
+			ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(OwnerPath));
 			ASSERT_TRUE(DeleteAssetClosureForTest({NewPath}));
 		}
 	}
@@ -5244,11 +5178,7 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(TargetPath, Analysis));
-	EXPECT_TRUE(Analysis.DirectReferencers.empty());
-	EXPECT_TRUE(Analysis.CanDelete());
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(TargetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(TargetPath));
 	EXPECT_EQ(Durin::FindAssetExact(TargetPath), nullptr);
 	auto Referencers =
 		Durin::CaptureAssetReferenceIndex().FindReferencers(TargetPath);
@@ -6038,6 +5968,64 @@ TEST(FPackageAssetTests, RelocationLeavesMountedReferrersAuthoredToAlias)
 	EXPECT_EQ(Dependency->GetName(), OldPath.GetPackageName());
 }
 
+TEST(FPackageAssetTests, PackageRemovalValidatesEveryResidentBeforeRetiringAny)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath FirstPath, SecondPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RemovalFirst", FirstPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RemovalSecond", SecondPath));
+	DPackageAssetForTest* First = nullptr;
+	DPackageAssetForTest* Second = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(SecondPath, Second));
+	ASSERT_TRUE(Durin::SavePackage(First->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Second->GetPackage()));
+	const std::array Packages{*Durin::FindAssetExact(FirstPath), *Durin::FindAssetExact(SecondPath)};
+	const uint64 Revision = Durin::GetAssetCatalogRevision();
+	Second->GetPackage()->MarkDirty();
+	EXPECT_EQ(Durin::ReleasePackagesForRemoval(Packages, Revision).Error, Durin::EAssetError::InUse);
+	EXPECT_EQ(Durin::FindResidentPackage(FirstPath), First->GetPackage());
+	EXPECT_EQ(Durin::FindResidentPackage(SecondPath), Second->GetPackage());
+	EXPECT_EQ(Durin::GetAssetCatalogRevision(), Revision);
+	EXPECT_TRUE(std::filesystem::exists(Packages.front().PhysicalPath));
+	EXPECT_TRUE(std::filesystem::exists(Packages.back().PhysicalPath));
+}
+
+TEST(FPackageAssetTests, PackageRemovalReleasesInternalReferencesAndPublishesOnlyAbsentFiles)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath TargetPath, OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RemovalTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RemovalOwner", OwnerPath));
+	DPackageAssetForTest* Target = nullptr;
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	Owner->ExternalReference = Target;
+	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
+	const std::array Packages{*Durin::FindAssetExact(TargetPath), *Durin::FindAssetExact(OwnerPath)};
+	const uint64 Revision = Durin::GetAssetCatalogRevision();
+	EXPECT_EQ(Durin::ReleasePackagesForRemoval(Packages, Revision + 1).Error,
+		Durin::EAssetError::StaleData);
+	EXPECT_EQ(Durin::FindResidentPackage(TargetPath), Target->GetPackage());
+	ASSERT_TRUE(Durin::ReleasePackagesForRemoval(Packages, Revision));
+	EXPECT_EQ(Durin::FindResidentPackage(TargetPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(OwnerPath), nullptr);
+	EXPECT_EQ(Durin::PublishPackageRemoval(Packages, Revision).Error, Durin::EAssetError::IoError);
+	EXPECT_EQ(Durin::GetAssetCatalogRevision(), Revision);
+	EXPECT_NE(Durin::FindAssetExact(TargetPath), nullptr);
+	for (const auto& Package : Packages)
+	{
+		std::error_code Ec;
+		ASSERT_TRUE(std::filesystem::remove(Package.PhysicalPath, Ec));
+		ASSERT_FALSE(Ec);
+	}
+	ASSERT_TRUE(Durin::PublishPackageRemoval(Packages, Revision));
+	EXPECT_EQ(Durin::FindAssetExact(TargetPath), nullptr);
+	EXPECT_EQ(Durin::FindAssetExact(OwnerPath), nullptr);
+}
+
 TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 {
 	InitializeAssetTests();
@@ -6050,11 +6038,8 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 	const std::filesystem::path File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteMe.dasset";
 	ASSERT_TRUE(std::filesystem::exists(File));
 
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(Path, Analysis));
-	EXPECT_FALSE(Analysis.bLoaded);
-	EXPECT_TRUE(Analysis.CanDelete());
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
+	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 	EXPECT_FALSE(std::filesystem::exists(File));
 	EXPECT_EQ(Durin::FindAssetExact(Path), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
@@ -6068,12 +6053,9 @@ TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(Path, Analysis));
-	EXPECT_TRUE(Analysis.bLoaded);
-	EXPECT_TRUE(Analysis.CanDelete());
+	EXPECT_NE(Durin::FindResidentPackage(Path), nullptr);
 
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
 	EXPECT_EQ(Durin::FindAssetExact(Path), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
@@ -6095,12 +6077,10 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	Owner->ExternalReference = Dependency;
 	ASSERT_TRUE(Durin::SavePackage(Owner->GetPackage()));
 
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(DependencyPath, Analysis));
-	ASSERT_EQ(Analysis.DirectReferencers.size(), 1u);
-	EXPECT_EQ(Analysis.DirectReferencers.front(), OwnerPath);
-	EXPECT_FALSE(Analysis.CanDelete());
-	EXPECT_EQ(Durin::DeleteAssetForTesting(DependencyPath).Error, Durin::EAssetError::InUse);
+	const auto References = Durin::CaptureAssetReferenceIndex().FindReferencers(DependencyPath);
+	ASSERT_EQ(References.size(), 1u);
+	EXPECT_EQ(References.front().SourcePackage, OwnerPath);
+	EXPECT_EQ(Durin::Testing::RemoveAssetPackageForTests(DependencyPath).Error, Durin::EAssetError::InUse);
 	EXPECT_NE(Durin::FindResidentPackage(DependencyPath), nullptr);
 	EXPECT_NE(Durin::FindAssetExact(DependencyPath), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(
@@ -6108,59 +6088,7 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	));
 }
 
-TEST(FPackageAssetTests, DeletesRegisteredCompanionFile)
-{
-	InitializeAssetTests();
-	RegisterTestDeleteContributor();
-
-	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteWithCompanion", Path));
-	const std::filesystem::path Companion =
-		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteWithCompanion.source";
-	{
-		std::ofstream Stream(Companion);
-		Stream << "source";
-	}
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
-	Asset->Label = "companion:" + Companion.generic_string();
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(Path, Analysis));
-	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
-	ASSERT_EQ(Analysis.CompanionFiles.size(), 1u);
-	EXPECT_EQ(Analysis.CompanionFiles.front(), Companion);
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
-	EXPECT_FALSE(std::filesystem::exists(Companion));
-}
-
-TEST(FPackageAssetTests, DeletesMainAssetWhenCompanionInspectionFails)
-{
-	InitializeAssetTests();
-	RegisterTestDeleteContributor();
-	Durin::FPackagePath Path;
-	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteCorruptPackage", Path));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
-	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
-	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	const std::filesystem::path File =
-		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteCorruptPackage.dasset";
-	Durin::FByteArray Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
-	ASSERT_GT(Bytes.size(), 16u);
-	WriteTestBytes(File, std::span<const std::byte>(Bytes).first(16));
-
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(Path, Analysis));
-	EXPECT_FALSE(Analysis.Warning.empty());
-	EXPECT_TRUE(Analysis.CompanionFiles.empty());
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
-	EXPECT_FALSE(std::filesystem::exists(File));
-}
-
-TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
+TEST(FPackageAssetTests, PackageInspectionDoesNotLeaveTemporaryDependenciesLoaded)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath DependencyPath, OwnerPath;
@@ -6176,9 +6104,10 @@ TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
 	ASSERT_TRUE(Durin::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Durin::UnloadPackage(DependencyPath));
 
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(OwnerPath, Analysis));
-	EXPECT_FALSE(Analysis.bLoaded);
+	Durin::FAssetPackageInspection Inspection;
+	const auto Data = Durin::FindAssetExact(OwnerPath);
+	ASSERT_TRUE(Data);
+	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, OwnerPath, Inspection));
 	EXPECT_EQ(Durin::FindResidentPackage(OwnerPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(DependencyPath), nullptr);
 }
@@ -6285,7 +6214,7 @@ TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(Path));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
 }
 
 TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInvalidCache)

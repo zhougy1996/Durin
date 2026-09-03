@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
@@ -352,7 +353,7 @@ TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Transparent", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Transparent_nz.tga"));
 }
 
@@ -431,7 +432,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/MissingAfterImport", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
@@ -632,7 +633,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSource)
@@ -667,7 +668,7 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/MissingPanorama", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)

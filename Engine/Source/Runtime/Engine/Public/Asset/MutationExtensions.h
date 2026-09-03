@@ -41,7 +41,22 @@ namespace Durin
 		uint64 ProviderVersion = 0;
 		std::string Fingerprint;
 		std::vector<FAssetReferenceStoreOccurrence> Occurrences;
+
+		auto operator==(const FAssetReferenceStoreSnapshot&) const -> bool = default;
 	};
+
+	// Owned provider facts captured under their module gates, shared by authoring tools.
+	struct FAssetReferenceStoreCapture
+	{
+		uint64 RegistryRevision = 0;
+		std::vector<FAssetReferenceStoreSnapshot> Stores;
+
+		auto operator==(const FAssetReferenceStoreCapture&) const -> bool = default;
+	};
+
+	// Returns an error if any provider cannot be inspected. Partial output must not be used.
+	ENGINE_API auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
+		-> FAssetResult;
 
 	struct FAssetReferenceStorePackageRewrite
 	{

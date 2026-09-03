@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
@@ -1311,9 +1312,9 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	EXPECT_NE(Clip->GetPayloadData(), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::UnloadPackage(SkeletonPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(ClipPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(MeshPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(SkeletonPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(ClipPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(MeshPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(SkeletonPath));
 }
 
 TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences)

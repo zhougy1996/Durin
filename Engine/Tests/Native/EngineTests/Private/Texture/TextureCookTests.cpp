@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetRegistry/Catalog.h"
 #include "VulkanEngineTestSupport.h"
@@ -170,7 +171,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dbulk"));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)

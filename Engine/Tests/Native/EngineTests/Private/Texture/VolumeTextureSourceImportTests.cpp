@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "TextureTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
@@ -525,6 +526,6 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(RepeatedCookedPackage, V6CookedPackage);
 	EXPECT_EQ(RepeatedCookedBulk, V6CookedBulk);
 	ASSERT_TRUE(UnloadPackage(AssetPath));
-	ASSERT_TRUE(DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(V6Companions.front()));
 }

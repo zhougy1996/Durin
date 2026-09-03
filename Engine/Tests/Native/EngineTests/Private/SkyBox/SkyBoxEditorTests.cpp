@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
@@ -98,8 +99,8 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsAndPersistsAcrossReload)
 		LevelPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(LevelPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LevelPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 	Durin::ShutdownRenderingThread();
 }
 
@@ -185,7 +186,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	Durin::GEngine = nullptr;
 	ASSERT_TRUE(Durin::UnloadPackage(LevelPath));
 	ASSERT_TRUE(Durin::UnloadPackage(CubePath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(LevelPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(LevelPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 	Durin::ShutdownRenderingThread();
 }

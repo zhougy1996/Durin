@@ -24,8 +24,4 @@ namespace Durin::AssetPrivate
 
 	auto GetAssetReferenceStoreRegistry() -> FAssetReferenceStoreRegistry&;
 	auto GetAssetReferenceStoreRevision() -> uint64;
-	auto AppendRegisteredReferenceStoreDeletionProjection(
-		std::span<const FPackagePath> Paths,
-		std::vector<FAssetDeletionBatchWarning>& OutWarnings,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> void;
 }

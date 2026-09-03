@@ -2,7 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "Asset/PackageSerialization.h"
-#include "Asset/Deletion.h"
+#include "AssetTools/AssetDeletion.h"
 #include "Asset/Mutation.h"
 #include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
@@ -1162,7 +1162,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Blocker.RelatedAssetPath.ToString(),
 				Blocker.Details);
 		}
-		for (const FAssetOperationWarning& Warning : Plan->AssetOperation.GetWarnings())
+		for (const FAssetDeletionWarning& Warning : Plan->AssetOperation.GetWarnings())
 			Plan->Warnings.push_back({
 				.DisplayName = Warning.AssetPath.ToString(),
 				.Details = Warning.Details});

@@ -47,6 +47,11 @@ namespace Durin
 		auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		auto ReleasePackagesLoadedSince(const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 
+		auto IsPackageLoading(const FPackagePath& Path) const -> bool
+		{
+			return LoadingPackages.contains(Path);
+		}
+
 		auto IsIdle() const -> bool
 		{
 			return LoadDepth == 0 && LoadingPackages.empty()
@@ -128,22 +133,14 @@ namespace Durin
 			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
 		auto CommitRedirectorFixup(
 			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
-		auto AnalyzeAssetDeletion(
-			const FPackagePath& Path,
-			FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
-		auto PrepareAssetDeletionJob(
-			std::span<const FPackagePath> Paths,
-			std::span<const std::filesystem::path> PhysicalRoots,
-			FAssetDeletionJob& OutJob,
-			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		auto ValidateAssetDeletionJob(
-			const FAssetDeletionJob& Job,
-			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
-		auto UnloadAssetDeletionJob(const FAssetDeletionJob& Job) -> FAssetResult;
-		auto RemoveAssetDeletionRegistryProjection(const FAssetDeletionJob& Job) -> FAssetResult;
-		auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult;
+		auto ReleasePackagesForRemoval(
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
+		auto PublishPackageRemoval(
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
 
 	private:
+		auto ValidatePackageRemoval(
+			std::span<const FAssetData> Entries, uint64 ExpectedRevision) -> FAssetResult;
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);

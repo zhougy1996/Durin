@@ -4,7 +4,7 @@
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "AssetRegistry/Catalog.h"
-#include "Asset/Deletion.h"
+#include "AssetOperationResultInternal.h"
 #include "Asset/Load.h"
 #include "Asset/MutationTypes.h"
 #include "Asset/RedirectorFixup.h"
@@ -27,35 +27,6 @@ namespace Durin
 
 	namespace
 	{
-		auto FromEngineResult(
-			EAssetOperationKind Kind,
-			const FAssetResult& Result,
-			std::span<const FPackagePath> Affected = {}) -> FAssetOperationResult
-		{
-			EAssetOperationTerminalState State = Result
-				? EAssetOperationTerminalState::Completed
-				: EAssetOperationTerminalState::Rejected;
-			if (Result.Disposition ==
-				EAssetResultDisposition::ContentCommittedProjectionPending)
-				State = EAssetOperationTerminalState::ContentCommittedProjectionPending;
-			else if (Result.Disposition ==
-				EAssetResultDisposition::RecoveryRequired)
-				State = EAssetOperationTerminalState::RecoveryRequired;
-			else if (Result.Disposition ==
-				EAssetResultDisposition::ForwardPending)
-				State = EAssetOperationTerminalState::ForwardPending;
-			FAssetOperationResult Operation{
-				.Kind = Kind,
-				.State = State,
-				.Message = Result.Message,
-				.OperationId = Result.OperationId,
-				.DesiredDirection = Result.DesiredDirection,
-				.FailedParticipant = Result.FailedParticipant,
-				.RecoveryLocation = Result.RecoveryLocation};
-			Operation.AffectedAssets.assign(Affected.begin(), Affected.end());
-			return Operation;
-		}
-
 		auto Publish(
 			const FPublishAssetOperation& Callback,
 			FAssetOperationResult& Result) -> void
@@ -75,7 +46,7 @@ namespace Durin
 			std::span<const FPackagePath> Affected) -> FAssetOperationResult
 		{
 			const FAssetResult Committed = Job.ResumeForward();
-			if (!Committed) return FromEngineResult(Kind, Committed, Affected);
+			if (!Committed) return AssetToolsPrivate::FromEngineResult(Kind, Committed, Affected);
 			FAssetOperationResult Result{
 				.Kind = Kind,
 				.Persistence = EAssetOperationPersistenceState::Persisted,
@@ -83,33 +54,6 @@ namespace Durin
 			Result.AffectedAssets.assign(Affected.begin(), Affected.end());
 			return Result;
 		}
-	}
-
-	struct FAssetDeletionOperation::FState
-	{
-		FAssetDeletionJob Job;
-	};
-
-	FAssetDeletionOperation::FAssetDeletionOperation()
-		: State(std::make_shared<FState>()) {}
-	FAssetDeletionOperation::~FAssetDeletionOperation() = default;
-	FAssetDeletionOperation::FAssetDeletionOperation(
-		FAssetDeletionOperation&&) noexcept = default;
-	auto FAssetDeletionOperation::operator=(FAssetDeletionOperation&&) noexcept
-		-> FAssetDeletionOperation& = default;
-
-	auto FAssetDeletionOperation::Delete(
-		const FAssetDeletionCommit& Commit)
-		-> FAssetOperationResult
-	{
-		const FAssetResult EngineResult = State->Job.Delete(Commit);
-		FAssetOperationResult Result = FromEngineResult(
-			EAssetOperationKind::Delete, EngineResult);
-		for (const FAssetDeletionEntry& Entry : Entries)
-			Result.AffectedAssets.push_back(Entry.AssetPath);
-		if (EngineResult)
-			Result.Persistence = EAssetOperationPersistenceState::Persisted;
-		return Result;
 	}
 
 	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request)
@@ -166,7 +110,7 @@ namespace Durin
 		FAssetResult EngineResult = LoadObject(
 			SourceObjectPath, nullptr, SourceAsset);
 		if (!EngineResult)
-			return FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
+			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
 		DPackage* SourcePackage = SourceAsset ? SourceAsset->GetPackage() : nullptr;
 		if (!SourceAsset || !SourcePackage || SourceAsset->GetOuter() != SourcePackage
 			|| SourcePackage->FindTopLevelAsset(SourceAsset->GetFName()) != SourceAsset)
@@ -196,7 +140,7 @@ namespace Durin
 			EngineResult = SavePackage(DestinationPackage);
 			if (!EngineResult)
 			{
-				FAssetOperationResult Failure = FromEngineResult(
+				FAssetOperationResult Failure = AssetToolsPrivate::FromEngineResult(
 					EAssetOperationKind::Duplicate, EngineResult);
 				const FAssetResult Cleanup = UnloadPackage(
 					DestinationPackagePath,
@@ -286,7 +230,7 @@ namespace Durin
 			Packages.push_back(FindResidentPackage(Path));
 		const FAssetResult Saved =
 			SavePackagesAtomically(Packages);
-		FAssetOperationResult Result = FromEngineResult(
+		FAssetOperationResult Result = AssetToolsPrivate::FromEngineResult(
 			EAssetOperationKind::Save, Saved, Request.AssetPaths);
 		Result.Persistence = Result
 			? EAssetOperationPersistenceState::Persisted
@@ -312,7 +256,7 @@ namespace Durin
 		const FAssetResult Prepared = PrepareAssetRelocationJob(
 			Mappings, Summary, Job);
 		if (!Prepared)
-			return FromEngineResult(EAssetOperationKind::Relocate, Prepared, Affected);
+			return AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Relocate, Prepared, Affected);
 		return CommitMutation(
 			std::move(Job), EAssetOperationKind::Relocate, Affected);
 	}
@@ -331,46 +275,11 @@ namespace Durin
 				: EAssetRedirectorFixupMode::RewriteOnly,
 			Summary, Job);
 		if (!Prepared)
-			return FromEngineResult(
+			return AssetToolsPrivate::FromEngineResult(
 				EAssetOperationKind::FixUpRedirectors, Prepared, Request.Redirectors);
 		return CommitMutation(
 			std::move(Job), EAssetOperationKind::FixUpRedirectors,
 			Request.Redirectors);
 	}
 
-	auto PrepareAssetDeletionWithEditorPolicy(
-		const FAssetDeletionRequest& Request,
-		FAssetDeletionOperation& OutOperation) -> FAssetOperationResult
-	{
-		OutOperation = FAssetDeletionOperation{};
-		std::vector<FAssetDeletionBatchBlocker> EngineBlockers;
-		const FAssetResult Prepared = PrepareAssetDeletionJob(
-			Request.AssetPaths, Request.PhysicalRoots,
-			OutOperation.State->Job, EngineBlockers);
-		for (const FAssetDeletionBatchBlocker& Blocker : EngineBlockers)
-			OutOperation.Blockers.push_back({
-				.Kind = static_cast<EAssetDeletionBlocker>(Blocker.Kind),
-				.AssetPath = Blocker.AssetPath,
-				.RelatedAssetPath = Blocker.RelatedAssetPath,
-				.PhysicalPath = Blocker.PhysicalPath,
-				.Details = Blocker.Details});
-		for (const FAssetDeletionBatchEntry& Entry :
-			OutOperation.State->Job.GetEntries())
-			OutOperation.Entries.push_back({
-				.AssetPath = Entry.RegistryEntry.PackagePath,
-				.PhysicalPath = Entry.RegistryEntry.PhysicalPath,
-				.CompanionFiles = Entry.CompanionFiles,
-				.bLoaded = Entry.bLoaded});
-		for (const FAssetDeletionBatchWarning& Warning :
-			OutOperation.State->Job.GetWarnings())
-			OutOperation.Warnings.push_back({
-				.AssetPath = Warning.TargetPath,
-				.Details = Warning.Details});
-		FAssetOperationResult Result = FromEngineResult(
-			EAssetOperationKind::Delete, Prepared, Request.AssetPaths);
-		Result.Warnings = OutOperation.Warnings;
-		if (!OutOperation.Blockers.empty())
-			Result.State = EAssetOperationTerminalState::Rejected;
-		return Result;
-	}
 }

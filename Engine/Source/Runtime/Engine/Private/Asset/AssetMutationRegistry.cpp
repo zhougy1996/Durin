@@ -15,59 +15,27 @@ namespace Durin
 			return GetAssetReferenceStoreRegistry().Revision;
 		}
 
-		auto AppendRegisteredReferenceStoreDeletionProjection(
-			std::span<const FPackagePath> Paths,
-			std::vector<FAssetDeletionBatchWarning>& OutWarnings,
-			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> void
+	}
+
+	auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
+		-> FAssetResult
+	{
+		OutCapture = {};
+		const auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
+		FAssetReferenceStoreCapture Capture{.RegistryRevision = Registry.Revision};
+		for (const auto& [Handle, Entry] : Registry.Stores)
 		{
-			if (Paths.empty()) return;
-			for (const auto& [Handle, Entry] :
-				 GetAssetReferenceStoreRegistry().Stores)
-			{
-				(void)Handle;
-				FAssetReferenceStoreSnapshot Snapshot;
-				auto Call = Entry.OwnerGate.TryEnter();
-				const bool bAdmitted = !Entry.OwnerGate.IsValid() || Call;
-				const FAssetResult SnapshotResult = Entry.Store && bAdmitted
-					? Entry.Store->CaptureSnapshot(Snapshot)
-					: FAssetResult{
-						EAssetError::StaleData,
-						"A registered asset reference store is unavailable."};
-				if (!SnapshotResult)
-				{
-					OutBlockers.push_back({
-						.Kind = EAssetDeletionBatchBlocker::ReferenceStoreInspectionFailed,
-						.AssetPath = Paths.front(),
-						.Details = std::format(
-							"A persistent asset-reference owner could not be inspected: {}",
-							SnapshotResult.Message)});
-					continue;
-				}
-				for (const FPackagePath& Path : Paths)
-				{
-					std::vector<std::string> Occurrences;
-					for (const FAssetReferenceStoreOccurrence& Occurrence :
-						 Snapshot.Occurrences)
-					{
-						if (Occurrence.TargetPath != Path) continue;
-						Occurrences.push_back(std::format(
-							"{}:{} ({})",
-							Occurrence.ProviderId,
-							Occurrence.StableId,
-							Occurrence.DisplayRoute));
-					}
-					std::ranges::sort(Occurrences);
-					if (Occurrences.empty()) continue;
-					const size_t OccurrenceCount = Occurrences.size();
-					OutWarnings.push_back({
-						.TargetPath = Path,
-						.ExternalOccurrences = std::move(Occurrences),
-						.Details = std::format(
-							"Deleting {} leaves {} persistent external owner occurrence(s) dangling. Run Fix Up Redirectors or update those owners before confirming.",
-							Path.ToString(), OccurrenceCount)});
-				}
-			}
+			(void)Handle;
+			auto Call = Entry.OwnerGate.TryEnter();
+			if (!Entry.Store || (Entry.OwnerGate.IsValid() && !Call))
+				return {EAssetError::StaleData, "An asset reference store is unavailable."};
+			FAssetReferenceStoreSnapshot Snapshot;
+			const FAssetResult Result = Entry.Store->CaptureSnapshot(Snapshot);
+			if (!Result) return Result;
+			Capture.Stores.push_back(std::move(Snapshot));
 		}
+		OutCapture = std::move(Capture);
+		return {};
 	}
 
 	auto RegisterAssetReferenceStore(

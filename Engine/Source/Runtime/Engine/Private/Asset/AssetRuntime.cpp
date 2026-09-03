@@ -1,6 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Scan.h"
-#include "AssetDeletionInternal.h"
+#include "AssetMutationRegistryInternal.h"
 #include "AssetRegistry/Publication.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"

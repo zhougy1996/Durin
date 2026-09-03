@@ -1,6 +1,7 @@
 #include "AssetRuntimeStateInternal.h"
 
 #include "DObject/Package.h"
+#include "Asset/PackageRemoval.h"
 
 namespace Durin
 {
@@ -67,29 +68,23 @@ namespace Durin
 			.PrepareRedirectorFixupJob(Redirectors, Mode, OutSummary, OutJob);
 	}
 
-	auto AnalyzeAssetDeletion(
-		const FPackagePath& Path,
-		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
+	auto IsPackageLoading(const FPackagePath& Path) -> bool
 	{
-		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.AnalyzeAssetDeletion(Path, OutAnalysis);
+		return FAssetRuntimeState::Get().GetLoadService().IsPackageLoading(Path);
 	}
 
-	auto PrepareAssetDeletionJob(
-		std::span<const FPackagePath> Paths,
-		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionJob& OutJob,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	auto ReleasePackagesForRemoval(
+		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.PrepareAssetDeletionJob(
-			Paths, PhysicalRoots, OutJob, OutBlockers);
+			.ReleasePackagesForRemoval(Packages, ExpectedRevision);
 	}
 
-	auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult
+	auto PublishPackageRemoval(
+		std::span<const FAssetData> Packages, uint64 ExpectedRevision) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
-			.DeleteAssetForTesting(Path);
+			.PublishPackageRemoval(Packages, ExpectedRevision);
 	}
 
 	auto FindResidentPackage(const FPackagePath& Path) -> DPackage*

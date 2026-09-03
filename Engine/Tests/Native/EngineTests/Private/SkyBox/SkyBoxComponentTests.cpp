@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -182,6 +183,6 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");
 
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(ActorPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(CubePath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(ActorPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CubePath));
 }

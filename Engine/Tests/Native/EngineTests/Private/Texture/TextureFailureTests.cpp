@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
 #include "EditorReimportHandler.h"
@@ -208,7 +209,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureFailureTests/Ready", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
@@ -265,7 +266,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 
 	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, RenderStatusEnumExposesSharedDisplayMetadata)
@@ -312,7 +313,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 		LastGood.Mips.front().Pixels);
 
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
@@ -376,5 +377,5 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }

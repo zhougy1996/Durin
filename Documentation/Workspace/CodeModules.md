@@ -40,7 +40,7 @@ direction.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
-| `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, deletion, and redirector fix-up; built on Engine mechanisms and DurinEd factories/history | [source](../../Engine/Source/Editor/AssetTools) |
+| `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, and redirector fix-up; owns deletion operations, confirmed selection/reference policy, and deletion companion providers over Engine package mechanisms | [source](../../Engine/Source/Editor/AssetTools) |
 | `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, Level settings, and editor visualization producers built on Engine primitive drawing | [source](../../Engine/Source/Editor/LevelEditor) |

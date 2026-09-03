@@ -243,6 +243,7 @@ namespace Durin
 		return Result;
 	}
 
+	ENGINE_API auto IsPackageLoading(const FPackagePath& Path) -> bool;
 	ENGINE_API auto FindResidentPackage(const FPackagePath& Path) -> DPackage*;
 	// Attempts to release Standalone residency and collect an unreferenced package.
 	// Returns InUse and restores residency when a live strong reference keeps it reachable.

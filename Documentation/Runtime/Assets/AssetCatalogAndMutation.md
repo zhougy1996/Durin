@@ -47,7 +47,8 @@ Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
 discovery values and immutable queries, `AssetRegistry/References.h` owns the
 reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
 lifecycle, `Asset/Load.h` owns runtime resolution and residency,
-`Asset/Mutation.h` owns forward-only asset jobs, and `Asset/Testing.h` owns
+`Asset/Mutation.h` owns forward-only relocation/fix-up jobs and package mutation
+mechanisms, `AssetTools/AssetDeletion.h` owns editor deletion operations, and `Asset/Testing.h` owns
 Engine's deterministic failure seams.
 Runtime and offline consumers include these capability headers directly; the
 former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
@@ -122,8 +123,11 @@ immutable package metadata and dependency snapshots, their revisions, and the
 single rebuildable registry cache. CoreDObject owns object/package construction
 and graph copying. Engine owns package residency, bytes and writing, exact
 on-demand package inspection, Cook, bounded artifact publication, and
-forward-only mutation jobs. `IAssetTools` owns asset creation, duplication,
-import, reusable editor acceptance, typed terminal/persistence results, and one
+forward-only relocation/fix-up jobs. `Asset/PackageRemoval.h` supplies bounded
+batch residency release and catalog removal against expected package metadata
+and revision. It owns no selection, warning, companion-provider, or physical
+deletion policy. `IAssetTools` owns asset creation, duplication,
+import, deletion planning and execution, reusable editor acceptance, typed terminal/persistence results, and one
 completion publication. Editor hosts own UI and presentation;
 ContentBrowser additionally owns recursive ordinary-file planning and permanent
 physical deletion for mixed selections. Successful authored operations advance
@@ -183,6 +187,15 @@ when those values exist; diagnostic messages remain presentation data.
 
 ## Deletion And Fix-Up
 
+`FAssetDeletionOperation` in AssetTools owns the sole confirmed deletion state,
+including entries, blockers, detailed warnings, and the irreversible callback.
+Engine exposes no deletion job or deletion-specific extension registry. AssetTools
+owns deletion contributors and companion-ownership queries; package and `.dbulk`
+inspection remain Engine mechanisms. External reference-store registration stays
+in Engine for shared Cook/fix-up use. `CaptureAssetReferenceStores` returns owned
+snapshots under provider gates; AssetTools interprets them as deletion warnings
+and revalidates their fingerprints and registration revision before execution.
+
 Deletion never rewrites persistent paths. Preparation evaluates the selected
 target, complete direct/upstream alias closure, unified reference projection,
 registered external stores, residency, and exact files. Alias-only deletion,
@@ -191,6 +204,13 @@ and changed fingerprints are blocked. After confirmation, maximal roots are
 permanently removed and no Engine recovery copy, Undo record, Restore command,
 or reverse callback is retained. Recovery belongs to version control. A partial
 I/O failure remains forward-only and fences stale Registry paths for retry.
+AssetTools calls Engine's `ReleasePackagesForRemoval` only after editor policy
+revalidation. Engine checks the complete batch before retiring any resident
+graph, allowing internal hard references while rejecting outside hard
+referencers, dirty/loading packages, and stale catalog state. After the physical
+callback, `PublishPackageRemoval` removes matching catalog entries only when
+their package files are absent. An empty, moved-from, blocked, or completed
+AssetTools operation cannot invoke the callback.
 
 Fix Up is the only path-canonicalizing asset-mutation job. It rewrites
 tagged hard and soft package fields plus registered external stores, reopens

@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
 #include "SkyBoxTestSupport.h"
@@ -595,7 +596,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		EXPECT_TRUE(Durin::UnloadPackage(
 			CubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-		const Durin::FAssetResult DeleteResult = Durin::DeleteAssetForTesting(CubePath);
+		const Durin::FAssetResult DeleteResult = Durin::Testing::RemoveAssetPackageForTests(CubePath);
 		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
 	}
 	else
@@ -607,7 +608,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		EXPECT_TRUE(Durin::UnloadPackage(
 			HdrCubePath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-		const Durin::FAssetResult DeleteResult = Durin::DeleteAssetForTesting(HdrCubePath);
+		const Durin::FAssetResult DeleteResult = Durin::Testing::RemoveAssetPackageForTests(HdrCubePath);
 		EXPECT_TRUE(DeleteResult) << DeleteResult.Message;
 	}
 	else

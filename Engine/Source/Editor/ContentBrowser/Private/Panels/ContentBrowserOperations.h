@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Deletion.h"
+#include "AssetTools/AssetDeletion.h"
 #include "AssetTools/AssetDeletion.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserModel.h"

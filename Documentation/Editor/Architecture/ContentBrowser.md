@@ -242,8 +242,12 @@ alias closure and explicit confirmation.
 The confirmation dialog states that Delete permanently removes local content,
 cannot be undone, and must be restored through version control. ContentBrowser
 revalidates every confirmed byte identity and rejects new descendants before it
-calls AssetTools. Engine then revalidates Registry/reference safety, unloads
-eligible resident packages, and invokes one destructive maximal-root callback.
+calls AssetTools. AssetTools revalidates the confirmed selection, companion
+ownership, warnings, and external-reference snapshots, asks Engine to release
+the eligible resident package batch, and invokes one destructive maximal-root
+callback. Engine then publishes the checked catalog removals. The move-only
+AssetTools operation owns the complete deletion state; no Engine deletion job
+is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 

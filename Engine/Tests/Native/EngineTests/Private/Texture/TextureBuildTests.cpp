@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
@@ -548,7 +549,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::InitializeAssetManager());
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkData)
@@ -701,7 +702,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::InitializeAssetManager());
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 	EXPECT_FALSE(std::filesystem::exists(EditorBulkDataFiles.front()));
 }
 
@@ -895,7 +896,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	EXPECT_EQ(LoadedTexture, nullptr);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		CompanionBytes, Companions.front()));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, CompilationAppliesLatestNormalizedProduct)
@@ -1062,7 +1063,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ExpectPixelNear(DecodeFirstCompressedPixel(Preset.PixelFormat,
 			Loaded->GetPlatformData()->Mips.back().Pixels), Preset.ExpectedPixel);
 		ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-		ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+		ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 	}
 }
 
@@ -1089,7 +1090,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Npot", AssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 
 	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> ColorResult = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/NpotColor");
@@ -1101,7 +1102,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	Durin::FPackagePath ColorAssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/NpotColor", ColorAssetPath));
 	ASSERT_TRUE(Durin::UnloadPackage(ColorAssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(ColorAssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(ColorAssetPath));
 }
 
 TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
@@ -1141,7 +1142,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	EXPECT_EQ(Loaded->GetPlatformData()->Mips.front().Width, 2u);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
@@ -1316,7 +1317,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo)
@@ -1493,7 +1494,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransactions)
@@ -1609,5 +1610,5 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }

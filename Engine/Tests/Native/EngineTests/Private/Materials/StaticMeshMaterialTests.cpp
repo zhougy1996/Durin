@@ -129,9 +129,13 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_EQ(ImportedSource->Hint, OriginalSourcePath);
 
-	Durin::FAssetDeleteAnalysis Analysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(NewPath, Analysis));
-	EXPECT_TRUE(Analysis.CompanionFiles.empty());
+	Durin::FAssetPackageInspection Inspection;
+	const auto Data = Durin::FindAssetExact(NewPath);
+	ASSERT_TRUE(Data);
+	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, NewPath, Inspection));
+	std::vector<std::filesystem::path> Companions;
+	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions));
+	EXPECT_TRUE(Companions.empty());
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }

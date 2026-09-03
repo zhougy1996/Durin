@@ -1,3 +1,4 @@
+#include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
@@ -190,9 +191,13 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	ASSERT_TRUE(Durin::UnloadPackage(RenamedPath));
-	Durin::FAssetDeleteAnalysis DeleteAnalysis;
-	ASSERT_TRUE(Durin::AnalyzeAssetDeletion(RenamedPath, DeleteAnalysis));
-	EXPECT_TRUE(DeleteAnalysis.CompanionFiles.empty());
+	Durin::FAssetPackageInspection Inspection;
+	const auto Data = Durin::FindAssetExact(RenamedPath);
+	ASSERT_TRUE(Data);
+	ASSERT_TRUE(Durin::InspectAssetPackage(Data->PhysicalPath, RenamedPath, Inspection));
+	std::vector<std::filesystem::path> Companions;
+	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(Data->PhysicalPath, Inspection, Companions));
+	EXPECT_TRUE(Companions.empty());
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Source));
 }
@@ -259,8 +264,8 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	ASSERT_TRUE(Durin::UnloadPackage(
 		CustomAssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(DefaultAssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(CustomAssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(DefaultAssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(CustomAssetPath));
 }
 
 TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
@@ -355,7 +360,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirtying)
@@ -390,7 +395,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirty
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
@@ -532,6 +537,6 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 		FirstPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::UnloadPackage(SecondPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(FirstPath));
-	ASSERT_TRUE(Durin::DeleteAssetForTesting(SecondPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(FirstPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(SecondPath));
 }

@@ -2,7 +2,7 @@
 
 Summary: Define asset identity, canonical DAST v9 packages, runtime residency, loading, and inspection.
 
-Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
+Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
 Last reviewed: 2026-09-03
 
@@ -20,10 +20,14 @@ capabilities: `Asset.h` for resolution, residency, loading, and cooked payload
 reads; `Asset/Mutation.h` for exact mutation; and
 `Asset/PackageSerialization.h` or `Asset/PackageInspection.h` for package
 serialization, saving, and construct-free inspection. Asset creation,
-duplication, import, and editor persistence policy belong to `IAssetTools`;
+duplication, import, deletion operations, and editor persistence policy belong to `IAssetTools`;
 Engine exposes no generic asset-construction operation. `AssetCook.h` owns Cook
 reachability and publication. Developer `AssetMaintenance` owns project-wide
 compatibility and canonical-resave batches.
+`Asset/PackageRemoval.h` exposes batch residency release and checked catalog
+removal; selection, confirmation, companions, and deletion callbacks belong to
+`AssetTools/AssetDeletion.h` as defined by
+[Asset Catalog And Mutation](AssetCatalogAndMutation.md#deletion-and-fix-up).
 
 Ownership is deliberately one-way:
 

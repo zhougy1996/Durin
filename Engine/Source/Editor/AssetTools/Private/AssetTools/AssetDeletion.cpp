@@ -1,9 +1,10 @@
-#include "AssetRuntimeStateInternal.h"
+#include "AssetTools/IAssetTools.h"
 #include "AssetDeletionInternal.h"
-#include "AssetMutationReferenceInternal.h"
-
-#include "DObject/DObjectGlobals.h"
-#include "DObject/ObjectLifecycle.h"
+#include "AssetOperationResultInternal.h"
+#include "Asset/Load.h"
+#include "Asset/MutationExtensions.h"
+#include "Asset/PackageRemoval.h"
+#include "AssetRegistry/Publication.h"
 #include "DObject/Package.h"
 #include "Misc/Paths.h"
 
@@ -15,96 +16,122 @@ namespace Durin
 		{
 			return {Code, std::move(Message)};
 		}
+
+		auto AppendReferenceStoreWarnings(std::span<const FPackagePath> Paths,
+			const FAssetReferenceStoreCapture& Capture,
+			std::vector<FAssetDeletionWarning>& Warnings) -> void
+		{
+			for (const auto& Snapshot : Capture.Stores)
+				for (const FPackagePath& Path : Paths)
+				{
+					std::vector<std::string> Occurrences;
+					for (const auto& Occurrence : Snapshot.Occurrences)
+						if (Occurrence.TargetPath == Path)
+							Occurrences.push_back(std::format("{}:{} ({})",
+								Occurrence.ProviderId, Occurrence.StableId, Occurrence.DisplayRoute));
+					std::ranges::sort(Occurrences);
+					if (Occurrences.empty()) continue;
+					const size_t Count = Occurrences.size();
+					Warnings.push_back({.AssetPath = Path,
+						.ExternalOccurrences = std::move(Occurrences),
+						.Details = std::format(
+							"Deleting {} leaves {} persistent external owner occurrence(s) dangling. Run Fix Up Redirectors or update those owners before confirming.",
+							Path.ToString(), Count)});
+				}
+		}
 	}
 
-	auto FAssetDeletionJob::GetRegistryRevision() const -> uint64
+	struct FAssetDeletionOperation::FState
+	{
+		uint64 RegistryRevision = 0;
+		FAssetReferenceStoreCapture ReferenceStores;
+		std::vector<FAssetDeletionEntry> Entries;
+		std::vector<FAssetDeletionWarning> Warnings;
+		std::vector<FAssetDeletionBlocker> Blockers;
+		std::vector<std::filesystem::path> PhysicalRoots;
+		bool bPrepared = false;
+		bool bDeleted = false;
+
+		auto Prepare(std::span<const FPackagePath> Paths,
+			std::span<const std::filesystem::path> Roots,
+			std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult;
+		auto Validate(std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult;
+		auto Delete(const FAssetDeletionCommit& Commit) -> FAssetResult;
+	};
+
+	FAssetDeletionOperation::FAssetDeletionOperation() = default;
+	FAssetDeletionOperation::~FAssetDeletionOperation() = default;
+	FAssetDeletionOperation::FAssetDeletionOperation(FAssetDeletionOperation&&) noexcept = default;
+	auto FAssetDeletionOperation::operator=(FAssetDeletionOperation&&) noexcept
+		-> FAssetDeletionOperation& = default;
+
+	auto FAssetDeletionOperation::GetRegistryRevision() const -> uint64
 	{
 		return State ? State->RegistryRevision : 0;
 	}
 
-	auto FAssetDeletionJob::GetEntries() const
-		-> std::span<const FAssetDeletionBatchEntry>
+	auto FAssetDeletionOperation::GetEntries() const
+		-> std::span<const FAssetDeletionEntry>
 	{
-		return State ? std::span<const FAssetDeletionBatchEntry>(State->Entries)
-			: std::span<const FAssetDeletionBatchEntry>{};
+		return State ? std::span<const FAssetDeletionEntry>(State->Entries)
+			: std::span<const FAssetDeletionEntry>{};
 	}
 
-	auto FAssetDeletionJob::GetWarnings() const
-		-> std::span<const FAssetDeletionBatchWarning>
+	auto FAssetDeletionOperation::GetWarnings() const
+		-> std::span<const FAssetDeletionWarning>
 	{
-		return State ? std::span<const FAssetDeletionBatchWarning>(State->Warnings)
-			: std::span<const FAssetDeletionBatchWarning>{};
+		return State ? std::span<const FAssetDeletionWarning>(State->Warnings)
+			: std::span<const FAssetDeletionWarning>{};
 	}
 
-	auto FAssetMutationCoordinator::AnalyzeAssetDeletion(
-		const FPackagePath& Path,
-		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
+	auto FAssetDeletionOperation::GetBlockers() const -> std::span<const FAssetDeletionBlocker>
 	{
-		OutAnalysis = {};
-		OutAnalysis.AssetPath = Path;
-		const FAssetCatalogEntry Data = FindAssetExact(Path);
-		if (!Path.IsValid() || !Data)
-			return Error(EAssetError::NotFound, std::format(
-				"Asset {} was not found.", Path.ToString()));
-		OutAnalysis.bRedirector =
-			Data->EntryKind == EAssetRegistryEntryKind::Redirector;
-		OutAnalysis.RedirectDestination = Data->RedirectDestination;
-
-		for (const auto& [OtherPath, OtherData] : CaptureAssetCatalogSnapshot().Assets)
-		{
-			if (OtherPath != Path
-				&& std::ranges::find(OtherData.Dependencies, Path)
-					!= OtherData.Dependencies.end())
-				OutAnalysis.DirectReferencers.push_back(OtherPath);
-		}
-		std::ranges::sort(
-			OutAnalysis.DirectReferencers,
-			[](const FPackagePath& A, const FPackagePath& B) {
-				return A.GetView() < B.GetView();
-			});
-		OutAnalysis.bLoaded = FindResidentPackage(Path) != nullptr;
-		OutAnalysis.bLoading = LoadingPackages.contains(Path);
-
-		const FAssetResult CompanionResult =
-			AssetPrivate::InspectAssetCompanionFilesForDeletion(
-				*Data, OutAnalysis.CompanionFiles);
-		if (!CompanionResult)
-		{
-			OutAnalysis.Warning = std::format(
-				"Could not determine companion files: {} Only the package file will be deleted.",
-				CompanionResult.Message);
-		}
-		return {};
+		return State ? std::span<const FAssetDeletionBlocker>(State->Blockers)
+			: std::span<const FAssetDeletionBlocker>{};
 	}
 
-	auto FAssetDeletionJob::Delete(
+	auto FAssetDeletionOperation::Delete(const FAssetDeletionCommit& Commit) -> FAssetOperationResult
+	{
+		const FAssetResult Result = State ? State->Delete(Commit)
+			: Error(EAssetError::StaleData, "The asset deletion operation is not prepared.");
+		FAssetOperationResult Operation = AssetToolsPrivate::FromEngineResult(EAssetOperationKind::Delete, Result);
+		for (const auto& Entry : GetEntries())
+			Operation.AffectedAssets.push_back(Entry.RegistryEntry.PackagePath);
+		for (const auto& Warning : GetWarnings())
+			Operation.Warnings.push_back({Warning.AssetPath, Warning.Details});
+		if (Result) Operation.Persistence = EAssetOperationPersistenceState::Persisted;
+		return Operation;
+	}
+
+	auto FAssetDeletionOperation::FState::Delete(
 		const FAssetDeletionCommit& Commit) -> FAssetResult
 	{
-		if (!State || State->bDeleted)
+		if (!bPrepared || bDeleted)
 			return Error(EAssetError::StaleData,
 				"Only a prepared asset deletion job can execute.");
 		if (!Commit.Delete)
 			return Error(EAssetError::StaleData,
 				"The asset deletion job has no destructive callback.");
 
-		FAssetMutationCoordinator& Mutations =
-			FAssetRuntimeState::Get().GetMutationCoordinator();
-		std::vector<FAssetDeletionBatchBlocker> Blockers;
+		std::vector<FAssetDeletionBlocker> Blockers;
 		FAssetResult Result =
-			Mutations.ValidateAssetDeletionJob(*this, Blockers);
+			Validate(Blockers);
 		if (!Result) return Result;
 		if (!Blockers.empty())
 			return Error(EAssetError::InUse, Blockers.front().Details);
-		if (GetAssetCatalogRevision() != State->RegistryRevision)
+		if (GetAssetCatalogRevision() != RegistryRevision)
 			return Error(EAssetError::StaleData,
 				"The asset Registry changed after deletion confirmation.");
-		Result = Mutations.UnloadAssetDeletionJob(*this);
+		std::vector<FAssetData> Packages;
+		for (const FAssetDeletionEntry& Entry : Entries)
+			Packages.push_back(Entry.RegistryEntry);
+		Result = ReleasePackagesForRemoval(Packages, RegistryRevision);
 		if (!Result) return Result;
 		const FAssetResult DeleteResult = Commit.Delete();
 		if (!DeleteResult)
 		{
 			std::vector<FPackagePath> Paths;
-			for (const FAssetDeletionBatchEntry& Entry : State->Entries)
+			for (const FAssetDeletionEntry& Entry : Entries)
 				Paths.push_back(Entry.RegistryEntry.PackagePath);
 			FenceAssetRegistryProjection(Paths);
 			return {
@@ -115,14 +142,14 @@ namespace Durin
 				.Disposition = EAssetResultDisposition::ForwardPending,
 				.DesiredDirection = "DeleteRemaining"};
 		}
-		Result = Mutations.RemoveAssetDeletionRegistryProjection(*this);
+		Result = PublishPackageRemoval(Packages, RegistryRevision);
 		if (!Result)
 		{
 			std::vector<FPackagePath> Paths;
-			for (const FAssetDeletionBatchEntry& Entry : State->Entries)
+			for (const FAssetDeletionEntry& Entry : Entries)
 				Paths.push_back(Entry.RegistryEntry.PackagePath);
 			FenceAssetRegistryProjection(Paths);
-			State->bDeleted = true;
+			bDeleted = true;
 			return {
 				.Error = EAssetError::StaleData,
 				.Message = std::format(
@@ -130,21 +157,18 @@ namespace Durin
 					Result.Message),
 				.Disposition = EAssetResultDisposition::ContentCommittedProjectionPending};
 		}
-		State->bDeleted = true;
+		bDeleted = true;
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::PrepareAssetDeletionJob(
+	auto FAssetDeletionOperation::FState::Prepare(
 		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
-		FAssetDeletionJob& OutJob,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+		std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult
 	{
-		OutJob = {};
-		OutJob.State = std::make_shared<FAssetDeletionJob::FState>();
-		auto& OutToken = *OutJob.State;
+		auto& OutToken = *this;
 		OutBlockers.clear();
-		if (RuntimeConfiguration.IsCooked())
+		if (GetAssetRuntimeConfiguration().IsCooked())
 			return Error(
 				EAssetError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit asset deletion.");
@@ -161,14 +185,13 @@ namespace Durin
 		const std::unordered_set<FPackagePath> DeletionSet(
 			SortedPaths.begin(), SortedPaths.end());
 		OutToken.RegistryRevision = GetAssetCatalogRevision();
-		OutToken.ReferenceStoreRevision =
-			AssetPrivate::GetAssetReferenceStoreRevision();
+
 		OutToken.PhysicalRoots.reserve(PhysicalRoots.size());
 		for (const std::filesystem::path& Root : PhysicalRoots)
 			OutToken.PhysicalRoots.push_back(
 				std::filesystem::absolute(Root).lexically_normal());
 
-		auto AddBlocker = [&](EAssetDeletionBatchBlocker Kind,
+		auto AddBlocker = [&](EAssetDeletionBlocker Kind,
 			const FPackagePath& AssetPath,
 			const FPackagePath& RelatedAssetPath,
 			std::filesystem::path PhysicalPath,
@@ -187,7 +210,7 @@ namespace Durin
 			if (!Path.IsValid() || !Data)
 			{
 				AddBlocker(
-					EAssetDeletionBatchBlocker::MissingAsset,
+					EAssetDeletionBlocker::MissingAsset,
 					Path,
 					{},
 					{},
@@ -195,12 +218,12 @@ namespace Durin
 				continue;
 			}
 
-			FAssetDeletionBatchEntry Entry{
+			FAssetDeletionEntry Entry{
 				.RegistryEntry = *Data,
 				.bLoaded = FindResidentPackage(Path) != nullptr};
-			if (LoadingPackages.contains(Path))
+			if (IsPackageLoading(Path))
 				AddBlocker(
-					EAssetDeletionBatchBlocker::LoadingPackage,
+					EAssetDeletionBlocker::LoadingPackage,
 					Path,
 					{},
 					Data->PhysicalPath,
@@ -208,18 +231,18 @@ namespace Durin
 			if (DPackage* Loaded = FindResidentPackage(Path);
 				Loaded && Loaded->IsDirty())
 				AddBlocker(
-					EAssetDeletionBatchBlocker::DirtyPackage,
+					EAssetDeletionBlocker::DirtyPackage,
 					Path,
 					{},
 					Data->PhysicalPath,
 					"Asset has unsaved changes.");
 
 			const FAssetResult CompanionResult =
-				AssetPrivate::InspectAssetCompanionFilesForDeletion(
+				AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
 					*Data, Entry.CompanionFiles);
 			if (!CompanionResult)
 				AddBlocker(
-					EAssetDeletionBatchBlocker::CompanionInspectionFailed,
+					EAssetDeletionBlocker::CompanionInspectionFailed,
 					Path,
 					{},
 					Data->PhysicalPath,
@@ -239,7 +262,7 @@ namespace Durin
 			if (!Resolution) continue;
 			RedirectorsByTarget[Resolution.FinalPath].push_back(AliasPath);
 		}
-		for (auto& [TargetPath, Redirectors] : RedirectorsByTarget)
+		for (auto& [AssetPath, Redirectors] : RedirectorsByTarget)
 			std::ranges::sort(
 				Redirectors,
 				[](const FPackagePath& A, const FPackagePath& B) {
@@ -260,7 +283,7 @@ namespace Durin
 						? Resolution.FinalPath
 						: Data->RedirectDestination;
 					AddBlocker(
-						EAssetDeletionBatchBlocker::RedirectorTargetNotSelected,
+						EAssetDeletionBlocker::RedirectorTargetNotSelected,
 						Path,
 						Related,
 						Data->PhysicalPath,
@@ -286,7 +309,7 @@ namespace Durin
 				{
 					const FAssetCatalogEntry RedirectorData = FindAssetExact(Redirector);
 					AddBlocker(
-						EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected,
+						EAssetDeletionBlocker::TargetRedirectorsNotSelected,
 						Path,
 						Redirector,
 						RedirectorData
@@ -299,7 +322,7 @@ namespace Durin
 			}
 			if (!SelectedRedirectors.empty())
 				OutToken.Warnings.push_back({
-					.TargetPath = Path,
+					.AssetPath = Path,
 					.RedirectorPaths = std::move(SelectedRedirectors),
 					.Details = std::format(
 						"Deleting {} together with {} redirector(s) permanently invalidates every authored old path.",
@@ -330,7 +353,7 @@ namespace Durin
 			{
 				const size_t SoftReferencerCount = SoftReferencers.size();
 				OutToken.Warnings.push_back({
-					.TargetPath = Path,
+					.AssetPath = Path,
 					.SoftReferencerPaths = std::move(SoftReferencers),
 					.Details = std::format(
 						"Deleting {} leaves {} package(s) with dangling soft references. Review the referencers before confirming.",
@@ -340,20 +363,27 @@ namespace Durin
 		}
 		if (!SortedPaths.empty() && !ReferenceIndex.IsComplete())
 			OutToken.Warnings.push_back({
-				.TargetPath = SortedPaths.front(),
+				.AssetPath = SortedPaths.front(),
 				.Details = std::format(
 					"The package reference index is incomplete ({} error{}), so soft-reference warning counts may be incomplete.",
 					ReferenceIndex.GetErrors().size(),
 					ReferenceIndex.GetErrors().size() == 1 ? "" : "s")});
 
-		AssetPrivate::AppendRegisteredReferenceStoreDeletionProjection(
-			SortedPaths, OutToken.Warnings, OutBlockers);
+		if (!SortedPaths.empty())
+		{
+			const FAssetResult Captured = CaptureAssetReferenceStores(ReferenceStores);
+			if (!Captured)
+				AddBlocker(EAssetDeletionBlocker::ReferenceStoreInspectionFailed,
+					SortedPaths.front(), {}, {}, Captured.Message);
+			else
+				AppendReferenceStoreWarnings(SortedPaths, ReferenceStores, Warnings);
+		}
 		std::ranges::sort(
 			OutToken.Warnings,
-			[](const FAssetDeletionBatchWarning& A,
-				const FAssetDeletionBatchWarning& B) {
-				if (A.TargetPath.GetView() != B.TargetPath.GetView())
-					return A.TargetPath.GetView() < B.TargetPath.GetView();
+			[](const FAssetDeletionWarning& A,
+				const FAssetDeletionWarning& B) {
+				if (A.AssetPath.GetView() != B.AssetPath.GetView())
+					return A.AssetPath.GetView() < B.AssetPath.GetView();
 				return A.Details < B.Details;
 			});
 
@@ -369,8 +399,8 @@ namespace Durin
 				const bool bLoadedReference = FindResidentPackage(OtherPath) != nullptr;
 				AddBlocker(
 					bLoadedReference
-						? EAssetDeletionBatchBlocker::ExternalLoadedReference
-						: EAssetDeletionBatchBlocker::ExternalPersistentReference,
+						? EAssetDeletionBlocker::ExternalLoadedReference
+						: EAssetDeletionBlocker::ExternalPersistentReference,
 					Dependency,
 					OtherPath,
 					OtherData.PhysicalPath,
@@ -385,13 +415,13 @@ namespace Durin
 		for (const auto& [OwnerPath, OwnerData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			std::vector<std::filesystem::path> Files;
-			if (!AssetPrivate::InspectAssetCompanionFilesForDeletion(
+			if (!AssetToolsPrivate::InspectAssetCompanionFilesForDeletion(
 					OwnerData, Files))
 				continue;
 			for (const std::filesystem::path& File : Files)
 				CompanionOwners[File.generic_string()].push_back(OwnerPath);
 		}
-		for (const FAssetDeletionBatchEntry& Entry : OutToken.Entries)
+		for (const FAssetDeletionEntry& Entry : OutToken.Entries)
 		{
 			for (const std::filesystem::path& File : Entry.CompanionFiles)
 			{
@@ -404,7 +434,7 @@ namespace Durin
 				Owners.erase(std::unique(Owners.begin(), Owners.end()), Owners.end());
 				if (Owners.size() > 1)
 					AddBlocker(
-						EAssetDeletionBatchBlocker::CompanionOwnershipConflict,
+						EAssetDeletionBlocker::CompanionOwnershipConflict,
 						Entry.RegistryEntry.PackagePath,
 						{},
 						File,
@@ -412,7 +442,7 @@ namespace Durin
 				for (const FPackagePath& Owner : Owners)
 					if (!DeletionSet.contains(Owner))
 						AddBlocker(
-							EAssetDeletionBatchBlocker::ExternalCompanionOwner,
+							EAssetDeletionBlocker::ExternalCompanionOwner,
 							Entry.RegistryEntry.PackagePath,
 							Owner,
 							File,
@@ -436,7 +466,7 @@ namespace Durin
 			for (const FPackagePath& Owner : Owners)
 				if (!DeletionSet.contains(Owner))
 					AddBlocker(
-						EAssetDeletionBatchBlocker::ExternalCompanionOwner,
+						EAssetDeletionBlocker::ExternalCompanionOwner,
 						Owner,
 						Owner,
 						PhysicalPath,
@@ -447,8 +477,8 @@ namespace Durin
 
 		std::ranges::sort(
 			OutBlockers,
-			[](const FAssetDeletionBatchBlocker& A,
-				const FAssetDeletionBatchBlocker& B) {
+			[](const FAssetDeletionBlocker& A,
+				const FAssetDeletionBlocker& B) {
 				if (A.AssetPath.GetView() != B.AssetPath.GetView())
 					return A.AssetPath.GetView() < B.AssetPath.GetView();
 				if (A.RelatedAssetPath.GetView() != B.RelatedAssetPath.GetView())
@@ -462,28 +492,23 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::ValidateAssetDeletionJob(
-		const FAssetDeletionJob& Job,
-		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	auto FAssetDeletionOperation::FState::Validate(
+		std::vector<FAssetDeletionBlocker>& OutBlockers) -> FAssetResult
 	{
-		if (!Job.State)
-			return Error(EAssetError::StaleData,
-				"The asset deletion job is empty.");
-		const auto& Token = *Job.State;
+		const auto& Token = *this;
 		std::vector<FPackagePath> Paths;
 		Paths.reserve(Token.Entries.size());
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+		for (const FAssetDeletionEntry& Entry : Token.Entries)
 			Paths.push_back(Entry.RegistryEntry.PackagePath);
 
-		FAssetDeletionJob CurrentJob;
-		FAssetResult Result = PrepareAssetDeletionJob(
-			Paths, Token.PhysicalRoots, CurrentJob, OutBlockers);
+		FState Current;
+		FAssetResult Result = Current.Prepare(
+			Paths, Token.PhysicalRoots, OutBlockers);
 		if (!Result || !OutBlockers.empty()) return Result;
-		const auto& Current = *CurrentJob.State;
 		if (Current.Entries.size() != Token.Entries.size())
 			return Error(EAssetError::InUse,
 				"The asset deletion set changed after confirmation.");
-		if (Current.ReferenceStoreRevision != Token.ReferenceStoreRevision)
+		if (Current.ReferenceStores != Token.ReferenceStores)
 			return Error(EAssetError::InUse,
 				"Persistent asset-reference owners changed after deletion confirmation.");
 		if (Current.Warnings != Token.Warnings)
@@ -491,8 +516,8 @@ namespace Durin
 				"Asset references changed after deletion confirmation.");
 		for (size_t Index = 0; Index < Token.Entries.size(); ++Index)
 		{
-			const FAssetDeletionBatchEntry& Expected = Token.Entries[Index];
-			const FAssetDeletionBatchEntry& Actual = Current.Entries[Index];
+			const FAssetDeletionEntry& Expected = Token.Entries[Index];
+			const FAssetDeletionEntry& Actual = Current.Entries[Index];
 			if (!(Expected.RegistryEntry == Actual.RegistryEntry)
 				|| Expected.CompanionFiles != Actual.CompanionFiles)
 				return Error(EAssetError::InUse, std::format(
@@ -502,188 +527,19 @@ namespace Durin
 		return {};
 	}
 
-	auto FAssetMutationCoordinator::UnloadAssetDeletionJob(
-		const FAssetDeletionJob& Job) -> FAssetResult
+	auto PrepareAssetDeletionWithEditorPolicy(const FAssetDeletionRequest& Request,
+		FAssetDeletionOperation& OutOperation) -> FAssetOperationResult
 	{
-		const auto& Token = *Job.State;
-		std::vector<DPackage*> Packages;
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-		{
-			const FPackagePath& Path = Entry.RegistryEntry.PackagePath;
-			if (LoadingPackages.contains(Path))
-				return Error(EAssetError::InUse, std::format(
-					"Asset {} is currently loading.", Path.ToString()));
-			DPackage* Loaded = FindResidentPackage(Path);
-			if (!Loaded) continue;
-			if (Loaded->IsDirty())
-				return Error(EAssetError::InUse, std::format(
-					"Asset {} has unsaved changes.", Path.ToString()));
-			Packages.push_back(Loaded);
-		}
-		for (DPackage* Package : Packages)
-		{
-			MarkObjectHierarchyAsGarbage(Package);
-		}
-		if (!Packages.empty()) CollectGarbage();
-		return {};
-	}
-
-	auto FAssetMutationCoordinator::RemoveAssetDeletionRegistryProjection(
-		const FAssetDeletionJob& Job) -> FAssetResult
-	{
-		const auto& Token = *Job.State;
-		const uint64 ExpectedRevision = Token.RegistryRevision;
-		FAssetPublicationState Prepared = Registry.CapturePreparedState();
-		std::unordered_set<FPackagePath> DeletionSet;
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-		{
-			const auto Current = Prepared.Assets.find(Entry.RegistryEntry.PackagePath);
-			if (Current == Prepared.Assets.end() || !(Current->second == Entry.RegistryEntry))
-				return Error(EAssetError::InUse, std::format(
-					"Asset {} changed before registry removal.",
-					Entry.RegistryEntry.PackagePath.ToString()));
-		}
-		for (const auto& [OtherPath, OtherData] : Prepared.Assets)
-		{
-			if (DeletionSet.contains(OtherPath)) continue;
-			for (const FPackagePath& Dependency : OtherData.Dependencies)
-				if (DeletionSet.contains(Dependency))
-					return Error(EAssetError::InUse, std::format(
-						"Asset {} gained external referencer {}.",
-						Dependency.ToString(), OtherPath.ToString()));
-		}
-		FAssetRegistryDelta Delta{.ExpectedRevision = ExpectedRevision};
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-		{
-			Delta.Removes.push_back(Entry.RegistryEntry.PackagePath);
-			Delta.ReferenceInvalidations.push_back(Entry.RegistryEntry.PackagePath);
-		}
-		return Registry.PublishDelta(std::move(Delta));
-	}
-
-	auto FAssetMutationCoordinator::DeleteAssetForTesting(const FPackagePath& Path)
-		-> FAssetResult
-	{
-		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetError::ReadOnlyMode,
-				"Cooked runtime package mode does not permit asset deletion.");
-		FAssetDeleteAnalysis Analysis;
-		FAssetResult Result = AnalyzeAssetDeletion(Path, Analysis);
-		if (!Result) return Result;
-		if (Analysis.bRedirector)
-			return Error(EAssetError::InUse, std::format(
-				"Redirector {} cannot be deleted alone. Select its final target and every alias in one batch, or run Fix Up Redirectors.",
-				Path.ToString()));
-		if (!Analysis.DirectReferencers.empty())
-			return Error(EAssetError::InUse, std::format(
-				"Asset {} is referenced by {} asset(s).",
-				Path.ToString(), Analysis.DirectReferencers.size()));
-		if (Analysis.bLoading)
-			return Error(EAssetError::InUse, "Asset is currently loading.");
-		if (Analysis.bLoaded)
-		{
-			// Once persistent package references are gone, keeping the live
-			// package must not require a restart.
-			Result = UnloadPackage(Path);
-			if (!Result) return Result;
-		}
-
-		const FAssetCatalogEntry Data = FindAssetExact(Path);
-		if (!Data)
-			return Error(EAssetError::NotFound, std::format(
-				"Asset {} was not found.", Path.ToString()));
-		std::vector<std::filesystem::path> Files;
-		Files.emplace_back(Data->PhysicalPath);
-		for (const std::filesystem::path& Companion : Analysis.CompanionFiles)
-		{
-			const std::filesystem::path Normalized =
-				std::filesystem::absolute(Companion).lexically_normal();
-			if (std::ranges::find(Files, Normalized) == Files.end())
-				Files.push_back(Normalized);
-		}
-
-		const uint64 ExpectedRevision = GetAssetCatalogRevision();
-		struct FStagedDeleteFile
-		{
-			std::filesystem::path Original;
-			std::filesystem::path Staged;
-			std::filesystem::path RecoveryCopy;
-		};
-		std::vector<FStagedDeleteFile> StagedFiles;
-		auto Rollback = [&]() {
-			std::error_code Ec;
-			for (auto It = StagedFiles.rbegin(); It != StagedFiles.rend(); ++It)
-			{
-				Ec.clear();
-				if (std::filesystem::exists(It->Staged))
-					std::filesystem::rename(It->Staged, It->Original, Ec);
-				else if (std::filesystem::exists(It->RecoveryCopy))
-					std::filesystem::copy_file(
-						It->RecoveryCopy, It->Original,
-						std::filesystem::copy_options::overwrite_existing, Ec);
-				std::filesystem::remove(It->RecoveryCopy, Ec);
-			}
-		};
-
-		for (const std::filesystem::path& File : Files)
-		{
-			if (!std::filesystem::exists(File)) continue;
-			std::filesystem::path Staged = File.string() + ".deletebak";
-			std::error_code Ec;
-			std::filesystem::remove(Staged, Ec);
-			Ec.clear();
-			std::filesystem::rename(File, Staged, Ec);
-			if (Ec)
-			{
-				Rollback();
-				return Error(EAssetError::IoError, std::format(
-					"Failed to stage {} for deletion.", File.generic_string()));
-			}
-			const std::filesystem::path RecoveryCopy = Staged.string() + ".copy";
-			Ec.clear();
-			std::filesystem::remove(RecoveryCopy, Ec);
-			Ec.clear();
-			std::filesystem::copy_file(
-				Staged, RecoveryCopy,
-				std::filesystem::copy_options::overwrite_existing, Ec);
-			if (Ec)
-			{
-				std::filesystem::rename(Staged, File, Ec);
-				Rollback();
-				return Error(EAssetError::IoError, std::format(
-					"Failed to prepare rollback data for {}.",
-					File.generic_string()));
-			}
-			StagedFiles.push_back({File, Staged, RecoveryCopy});
-		}
-
-		for (const FStagedDeleteFile& File : StagedFiles)
-		{
-			std::error_code Ec;
-			if (!std::filesystem::remove(File.Staged, Ec) || Ec)
-			{
-				Rollback();
-				return Error(EAssetError::IoError, std::format(
-					"Failed to delete {}.", File.Original.generic_string()));
-			}
-		}
-		FAssetRegistryDelta Delta{
-			.ExpectedRevision = ExpectedRevision,
-			.Removes = {Path},
-			.ReferenceInvalidations = {Path}};
-		if (FAssetResult PublishResult = Registry.PublishDelta(std::move(Delta));
-			!PublishResult)
-		{
-			Rollback();
-			return PublishResult;
-		}
-		for (const FStagedDeleteFile& File : StagedFiles)
-		{
-			std::error_code Ec;
-			std::filesystem::remove(File.RecoveryCopy, Ec);
-		}
-		return {};
+		OutOperation = FAssetDeletionOperation{};
+		OutOperation.State = std::make_unique<FAssetDeletionOperation::FState>();
+		auto& State = *OutOperation.State;
+		const FAssetResult Prepared = State.Prepare(Request.AssetPaths, Request.PhysicalRoots, State.Blockers);
+		State.bPrepared = Prepared && State.Blockers.empty();
+		FAssetOperationResult Result = AssetToolsPrivate::FromEngineResult(
+			EAssetOperationKind::Delete, Prepared, Request.AssetPaths);
+		for (const auto& Warning : State.Warnings)
+			Result.Warnings.push_back({Warning.AssetPath, Warning.Details});
+		if (!State.Blockers.empty()) Result.State = EAssetOperationTerminalState::Rejected;
+		return Result;
 	}
 }

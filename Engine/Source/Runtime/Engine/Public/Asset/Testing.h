@@ -7,8 +7,6 @@
 
 namespace Durin
 {
-	ENGINE_API auto DeleteAssetForTesting(const FPackagePath& Path)
-		-> FAssetResult;
 	enum class EAssetRedirectorFixupFailurePoint : uint8
 	{
 		None,

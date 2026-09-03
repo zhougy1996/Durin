@@ -1,5 +1,5 @@
 #include "AssetRuntimeStateInternal.h"
-#include "AssetDeletionInternal.h"
+#include "AssetMutationRegistryInternal.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"

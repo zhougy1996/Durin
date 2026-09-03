@@ -1,4 +1,3 @@
-#include "AssetPublicationCoordinatorInternal.h"
 #include "AssetDeletionInternal.h"
 #include "Asset/EditorBulkDataStorage.h"
 
@@ -79,7 +78,7 @@ namespace Durin
 
 	}
 
-	namespace AssetPrivate
+	namespace AssetToolsPrivate
 	{
 		auto InspectAssetCompanionFilesForDeletion(
 			const FAssetData& Data,
