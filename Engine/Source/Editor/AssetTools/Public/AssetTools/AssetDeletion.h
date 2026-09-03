@@ -5,7 +5,6 @@
 #include "AssetTools/AssetOperation.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/PackageInspection.h"
-#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -114,9 +113,8 @@ namespace Durin
 	using FAssetDeleteContributorHandle = uint64;
 	ASSETTOOLS_API auto RegisterAssetDeleteContributor(
 		DClass* Class,
-		FAssetDeleteContributor Contributor,
-		FModuleOwnedCallbackGate OwnerGate = {}
-	) -> FAssetDeleteContributorHandle;
+		FAssetDeleteContributor Contributor) -> FAssetDeleteContributorHandle;
+
 	ASSETTOOLS_API auto UnregisterAssetDeleteContributor(
 		FAssetDeleteContributorHandle Handle
 	) -> void;

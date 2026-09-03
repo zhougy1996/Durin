@@ -30,8 +30,8 @@ namespace Durin::Editor::Material
 	{
 	public:
 		explicit MMaterialEditor(
-			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
-			FModuleOwnedCallbackGate OwnerGate = {});
+			::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
+
 		MATERIALEDITOR_API ~MMaterialEditor() override;
 		MATERIALEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
 		MATERIALEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;

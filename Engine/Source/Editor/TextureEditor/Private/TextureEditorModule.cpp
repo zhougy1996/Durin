@@ -35,9 +35,6 @@ namespace Durin
 
 	auto FTextureEditorModule::StartupModule() -> void
 	{
-		EditorExtensionCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
-		require(EditorExtensionCallbacks.IsValid());
 		require(Editor::Texture::RegisterTexture2DPropertyEditing());
 	}
 
@@ -46,7 +43,6 @@ namespace Durin
 		UnregisterTextureEditor();
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
-		require(EditorExtensionCallbacks.Reset().Succeeded());
 	}
 
 	auto FTextureEditorModule::RegisterTextureEditor(
@@ -105,7 +101,7 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		}, EditorExtensionCallbacks.GetGate());
+		});
 		if (!Registration)
 		{
 			UnregisterTextureEditor();
@@ -115,7 +111,7 @@ namespace Durin
 		std::string Error;
 		auto Texture2DHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DTextureThumbnailRenderer>(),
-			EditorExtensionCallbacks.GetGate(), Error);
+			Error);
 		if (!Texture2DHandle)
 		{
 			UnregisterTextureEditor();
@@ -126,7 +122,7 @@ namespace Durin
 				std::move(Texture2DHandle));
 		auto TextureCubeHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DTextureCubeThumbnailRenderer>(),
-			EditorExtensionCallbacks.GetGate(), Error);
+			Error);
 		if (!TextureCubeHandle)
 		{
 			UnregisterTextureEditor();
@@ -152,8 +148,7 @@ namespace Durin
 				if (Integration->ImportDialog)
 					Integration->ImportDialog->Draw(bAllowAssetMutation);
 			},
-			.OwnerGate = EditorExtensionCallbacks.GetGate(),
-		}, Error);
+			}, Error);
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Texture import: {}", Error);

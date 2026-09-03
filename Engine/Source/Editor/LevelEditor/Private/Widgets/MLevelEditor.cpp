@@ -48,12 +48,10 @@ namespace Durin::Editor::Level
 	// MLevelEditor is the composition root for the editor-specific controllers.
 	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
-		FModuleOwnedCallbackGate InOwnerGate,
 		FTaskScopeToken InThumbnailTaskScope,
 		FContentBrowserCallbacks InContentBrowserCallbacks)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
-		, OwnerGate(std::move(InOwnerGate))
 		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 	{
@@ -119,7 +117,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::CreatePanels() -> void
 	{
-		auto SceneViewport = std::make_unique<FSceneViewportPanel>(OwnerGate);
+		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
@@ -145,8 +143,7 @@ namespace Durin::Editor::Level
 		AssetMoveCoordinator = std::make_unique<FEditorAssetMoveCoordinator>(
 			*Context,
 			SessionSettings,
-			*SceneViewportPanel,
-			OwnerGate
+			*SceneViewportPanel
 		);
 
 		DocumentController = std::make_unique<FLevelDocumentController>(

@@ -30,9 +30,9 @@ namespace Durin::Editor::ContentBrowser
 	{
 		OutError.clear();
 		if (Descriptor.Id.empty() || Descriptor.Label.empty() || !Descriptor.IsApplicable
-			|| !Descriptor.Invoke || !Descriptor.OwnerGate.IsValid())
+			|| !Descriptor.Invoke)
 		{
-			OutError = "A Content Browser extension requires an ID, label, callbacks, and a live owner gate.";
+			OutError = "A Content Browser extension requires an ID, label, and callbacks.";
 			return {};
 		}
 		const std::shared_ptr<FRegistryState> State = GetRegistryState();
@@ -103,9 +103,6 @@ namespace Durin::Editor::ContentBrowser
 				&& !Invocation.bAllowAssetMutation)
 			|| !Descriptor.IsApplicable(Invocation.Context))
 			return false;
-		FModuleOwnedCallbackInvocation Admission =
-			Descriptor.OwnerGate.TryEnter();
-		if (!Admission) return false;
 		Descriptor.Invoke(Invocation);
 		return true;
 	}
@@ -115,9 +112,6 @@ namespace Durin::Editor::ContentBrowser
 		bool bAllowAssetMutation) -> bool
 	{
 		if (!Descriptor.DrawHostPresentation) return false;
-		FModuleOwnedCallbackInvocation Admission =
-			Descriptor.OwnerGate.TryEnter();
-		if (!Admission) return false;
 		Descriptor.DrawHostPresentation(bAllowAssetMutation);
 		return true;
 	}

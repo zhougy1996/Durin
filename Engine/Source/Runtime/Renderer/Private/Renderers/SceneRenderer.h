@@ -46,7 +46,7 @@ namespace Durin
 		FSceneRenderer(const FSceneRenderer&) = delete;
 		auto operator=(const FSceneRenderer&) -> FSceneRenderer& = delete;
 
-		auto Start(FConsoleCommandRegistry& Registry, FModuleOwnedCallbackGate OwnerGate = {}) -> bool;
+		auto Start(FConsoleCommandRegistry& Registry) -> bool;
 		auto Stop() -> void;
 		auto InitializeStartupResources_RenderThread(
 			FRHICommandListImmediate& CommandList

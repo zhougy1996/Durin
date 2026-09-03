@@ -172,7 +172,7 @@ beside the affected content mounts. Recovery verifies every completed artifact,
 recognizes publication that became visible before its progress write, and
 continues remaining package and payload participants in their recorded forward
 order. Fix Up journals also persist provider ids, stable rewrite ids, and source
-and destination paths; restart reacquires the owner-gated provider, recognizes
+and destination paths; restart reacquires the registered provider, recognizes
 already-applied rewrites, and replays only pending occurrences before deleting
 redirectors. Projection reconciliation and journal cleanup happen only after all
 authoritative participants converge. Missing providers remain forward-pending;
@@ -222,9 +222,10 @@ mutation. Later participant failures retain verified rewrites and valid
 redirectors; a later invocation resumes remaining forward work.
 
 Owned-payload relocators, deletion companions, persistent external reference
-stores, and committed-only observers register through scoped handles that retain
-their module lease, gate invocation against retirement, reject duplicate class
-providers, and are removed by exact handle.
+stores, and committed-only observers register through exact handles and reject
+duplicate class providers. Owners unregister and complete active mutation/fix-up
+operations, including destruction of retained plans and callback copies, before
+unloading provider code.
 
 ## Related Documentation
 

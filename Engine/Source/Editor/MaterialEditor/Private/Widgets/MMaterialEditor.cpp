@@ -288,15 +288,14 @@ namespace Durin::Editor::Material
 	};
 
 	MMaterialEditor::MMaterialEditor(
-		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
-		FModuleOwnedCallbackGate OwnerGate)
+		::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 		, MaterialParameterPanelCache(std::make_unique<FMaterialParameterPanelCache>())
 		, SessionSettings(std::make_unique<FMaterialEditorSessionSettings>())
 	{
 		SessionSettings->Load();
 		MoveObserverHandle = RegisterAssetMoveObserver(
-			this, std::move(OwnerGate));
+			this);
 	}
 
 	MMaterialEditor::~MMaterialEditor()

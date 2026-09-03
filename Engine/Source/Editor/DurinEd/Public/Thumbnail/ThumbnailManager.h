@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnailKey.h"
-#include "Modules/ModularFeature.h"
 #include "DObject/Object.h"
 
 #include "ThumbnailManager.gen.h"
@@ -189,26 +188,14 @@ namespace Durin
 		DThumbnailManager(const DThumbnailManager&) = delete;
 		DThumbnailManager& operator=(const DThumbnailManager&) = delete;
 
+		// Unregister on GameThread after stopping thumbnail consumers and draining work,
+		// before unloading renderer code. Removal invalidates outstanding sessions.
 		DURINED_API auto Register(
 			std::shared_ptr<DThumbnailRenderer> Renderer,
-			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> bool;
-		// Process-owned/test renderers only; unloadable modules must pass an owner gate.
-		auto Register(std::shared_ptr<DThumbnailRenderer> Renderer,
-			std::string& OutError) -> bool
-		{
-			return Register(std::move(Renderer), {}, OutError);
-		}
 		DURINED_API auto RegisterScoped(
 			std::unique_ptr<DThumbnailRenderer> Renderer,
-			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> FThumbnailRendererRegistrationHandle;
-		// Process-owned/test renderers only; unloadable modules must pass an owner gate.
-		auto RegisterScoped(std::unique_ptr<DThumbnailRenderer> Renderer,
-			std::string& OutError) -> FThumbnailRendererRegistrationHandle
-		{
-			return RegisterScoped(std::move(Renderer), {}, OutError);
-		}
 		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
 		DURINED_API auto Shutdown() -> void;

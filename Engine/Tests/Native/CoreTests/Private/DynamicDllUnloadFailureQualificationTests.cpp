@@ -204,20 +204,6 @@ namespace Durin::Tests
 		Host.ReleaseSync(*SyncSerial);
 		Caller.join();
 
-		const FName ResourceName("DynamicUnloadFixtureRetainedResource");
-		const auto ResourceInfo = LoadFixture(ResourceName);
-		ASSERT_NE(ResourceInfo, nullptr);
-		const auto Retained = InvokeFixture(
-			[](IDynamicUnloadFixtureFeature& Fixture) {
-				return Fixture.RetainOwnerResourceForFailure();
-			});
-		ASSERT_TRUE(Retained.WasInvoked() && Retained.Value && *Retained.Value);
-		const auto ResourceUnload = Manager.UnloadModule(ResourceName);
-		EXPECT_EQ(ResourceUnload.Status,
-			EModuleOperationStatus::OutstandingFeatureAudit);
-		EXPECT_EQ(ResourceUnload.RetirementSnapshot.RetainedResourceCount, 1u);
-		ExpectBlockedAndMapped(ResourceInfo);
-
 		const FName WorkerName("DynamicUnloadFixtureWorkerTimeout");
 		const auto WorkerInfo = LoadFixture(WorkerName);
 		ASSERT_NE(WorkerInfo, nullptr);

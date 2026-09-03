@@ -77,10 +77,11 @@ then use one renderer-owned session with these hooks:
 4. validate revisions before render, readback, encoding, and publication;
 5. reset preview state idempotently.
 
-A renderer registration is qualified by a monotonically increasing generation
-and the feature module's callback gate. Reset closes admission, cancels all
+A renderer registration is qualified by a monotonically increasing generation.
+The host stops thumbnail consumers and drains work before unloading renderer code. Reset closes admission, cancels all
 captured leases, resets and destroys sessions on the game thread, releases
-immutable feature-owned input, and drains callbacks before returning. Queued,
+immutable feature-owned input. Owners must finish any executing callbacks before
+reset; registration removal is not a concurrent-callback barrier. Queued,
 waiting, rendering, readback, encoding, and already-enqueued upload completions
 all reject the retired generation.
 

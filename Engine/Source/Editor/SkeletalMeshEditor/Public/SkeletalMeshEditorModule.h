@@ -18,7 +18,6 @@ namespace Durin
 	{
 	public:
 		SKELETALMESHEDITOR_API ~FSkeletalMeshEditorModule() override;
-		SKELETALMESHEDITOR_API auto StartupModule() -> void override;
 		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
@@ -26,7 +25,6 @@ namespace Durin
 		SKELETALMESHEDITOR_API auto UnregisterSkeletalMeshEditor() -> void;
 
 	private:
-		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 	};

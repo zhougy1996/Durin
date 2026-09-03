@@ -178,8 +178,9 @@ Content Browser Import workflows are feature-owned scoped extensions.
 TextureEditor registers Texture, LevelEditor registers Terrain Heightmap and
 Scene, and StaticMeshEditor registers standalone Static Mesh. Stable IDs and
 explicit order values preserve the visible menu independently of module load
-order. ContentBrowser invokes applicable entries through their owner gate and
-MainFrame has no import-family enum, descriptor table, or feature switch.
+order. ContentBrowser invokes applicable entries directly. Owners unregister extensions
+and finish dispatch before unloading their code; MainFrame has no import-family
+enum, descriptor table, or feature switch.
 
 Reimport has no extension entry, family enum, or host switch: Content Browser asks
 `FReimportManager` for loaded-object capabilities and sends Reimport or the

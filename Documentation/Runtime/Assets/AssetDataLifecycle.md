@@ -35,7 +35,7 @@ dependency manifests do not enter portable values.
 
 StaticMeshBuild registers one render/collision provider, SkeletalBuild one
 mesh/clip provider, TerrainBuild one Heightmap and one World provider, and
-TextureBuild three providers. All registrations use module callback gates.
+TextureBuild three providers. These providers use bounded typed modular-feature invocation.
 Providers own recipe metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 providers retain no cache keys, origin, persistence diagnostics, or live assets.
@@ -419,7 +419,7 @@ incomplete reference projections fail before manifest publication.
 `FCookCoordinator` owns project Cook. Explicit roots augment the configured
 default Level and registered runtime roots, one asset-registry/reference
 snapshot determines the closure, and normalized final package identities are
-loaded and captured serially in canonical order. Class-keyed, owner-gated
+loaded and captured serially in canonical order. Class-keyed
 contributors may prepare derived state and return detached save plans; the
 coordinator rejects any contributor that changes authored package bytes or
 dirty state. Unsupported classes, stale registry facts, missing or mistyped

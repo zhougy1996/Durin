@@ -146,7 +146,7 @@ Engine registers `DTexture2D` to the `Durin.Texture` typed manager in its
 [asset-compilation aggregate](../Assets/AssetCompilation.md). Editor-enabled
 Engine computes Texture keys, validates DDC Get results, invokes TextureBuild's
 pure synchronous provider only on a miss, and performs best-effort Put. The
-provider callback gate retires admitted calls before provider code unloads.
+typed modular-feature registry retires admitted provider calls before provider code unloads.
 `FTextureCompilingManager` directly owns two
 worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most

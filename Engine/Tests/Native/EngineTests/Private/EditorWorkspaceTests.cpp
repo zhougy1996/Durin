@@ -19,7 +19,6 @@
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
-#include "Modules/ModuleTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 
@@ -276,26 +275,25 @@ TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
 	EXPECT_EQ(Events, (std::vector<std::string>{"visible", "draw"}));
 }
 
-TEST(FEditorWorkspaceManagerTests, OwnerRetirementRejectsEscapedWorkspaceCallsAndAuditsLease)
+TEST(FEditorWorkspaceManagerTests, UnregistrationRemovesLookupAndOwnerReleasesEscapedWorkspace)
 {
-	Durin::FModuleTestOwner Context("EditorWorkspaceTests.Owner");
-	auto Owner = Context.CreateOwnedCallbackRegistration("Editor.Workspaces");
 	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("OwnedEditor");
 	auto Registration = Manager.RegisterBatch({
-		.Workspaces = {MakeWorkspaceRegistration(Workspace)}}, Owner.GetGate());
+		.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
 	ASSERT_TRUE(Registration);
 	auto Escaped = Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("OwnedEditor"));
 	ASSERT_TRUE(Escaped);
 
-	const auto Snapshot = Owner.Retire();
-	EXPECT_EQ(Snapshot.RetainedResourceCount, 1u);
-	EXPECT_EQ(Escaped->OpenDocument({}),
-		Durin::Editor::EDocumentOpenResult::Rejected);
+	EXPECT_EQ(Escaped.get(), Workspace.get());
+	const std::weak_ptr<FTestWorkspace> WeakWorkspace = Workspace;
+	Workspace.reset();
 	Registration.Reset();
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("OwnedEditor")), nullptr);
+	EXPECT_FALSE(WeakWorkspace.expired());
 	Escaped.reset();
-	EXPECT_TRUE(Owner.Reset(std::chrono::milliseconds(0)).Succeeded());
+	EXPECT_TRUE(WeakWorkspace.expired());
 }
 
 TEST(FEditorWorkspaceManagerTests, RejectsDuplicatesBeforeApplyingAnyBatchEntry)

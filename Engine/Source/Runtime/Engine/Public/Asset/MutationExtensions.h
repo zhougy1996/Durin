@@ -4,7 +4,6 @@
 
 #include "EngineAPI.h"
 #include "Asset/Relocation.h"
-#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -90,10 +89,10 @@ namespace Durin
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
+	// Unregister and finish active mutation/fix-up operations before destroying the store.
 	ENGINE_API auto RegisterAssetReferenceStore(
-		IAssetReferenceStore* Store,
-		FModuleOwnedCallbackGate OwnerGate = {}
-	) -> FAssetReferenceStoreHandle;
+		IAssetReferenceStore* Store) -> FAssetReferenceStoreHandle;
+
 	ENGINE_API auto UnregisterAssetReferenceStore(
 		FAssetReferenceStoreHandle Handle
 	) -> void;
@@ -114,9 +113,8 @@ namespace Durin
 	using FAssetOwnedPayloadRelocatorHandle = uint64;
 	ENGINE_API auto RegisterAssetOwnedPayloadRelocator(
 		DClass* Class,
-		FAssetOwnedPayloadRelocator Relocator,
-		FModuleOwnedCallbackGate OwnerGate = {}
-	) -> FAssetOwnedPayloadRelocatorHandle;
+		FAssetOwnedPayloadRelocator Relocator) -> FAssetOwnedPayloadRelocatorHandle;
+
 	ENGINE_API auto UnregisterAssetOwnedPayloadRelocator(
 		FAssetOwnedPayloadRelocatorHandle Handle
 	) -> void;
@@ -132,9 +130,8 @@ namespace Durin
 
 	using FAssetMoveObserverHandle = uint64;
 	ENGINE_API auto RegisterAssetMoveObserver(
-		IAssetMoveObserver* Observer,
-		FModuleOwnedCallbackGate OwnerGate = {}
-	) -> FAssetMoveObserverHandle;
+		IAssetMoveObserver* Observer) -> FAssetMoveObserverHandle;
+
 	ENGINE_API auto UnregisterAssetMoveObserver(
 		FAssetMoveObserverHandle Handle
 	) -> void;

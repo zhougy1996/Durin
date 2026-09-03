@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, owner-bound asynchronous drain, and fa
 
 Modules: Core
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-09-03
 
 ## Feature Contract
 
@@ -133,50 +133,53 @@ final feature audit. `AsyncOperationDrainTimeout`, `AsyncOperationSelfWait`,
 `AsyncOperationUnsupportedThread`, and `OutstandingAsyncOperationAudit` all
 leave the module `UnloadBlocked` and its native library mapped.
 
-## Specialized Registries
+## Specialized Registries and Explicit Unload
 
-Domain registries whose selection depends on provider identity, asset class,
-ranking, provenance, route, or build key remain specialized. They do not expose
-their providers through generic modular-feature cardinality. An unloadable
-module instead creates an `FModuleOwnedCallbackRegistration` during startup and
-passes its copyable gate to every foreign registry that retains its callable,
-virtual provider, raw observer, factory, or custom deleter.
+Domain registries retain their own class, identity, ranking, route, and generation
+rules. Registration takes the provider or callback and returns an exact removal
+handle; no module callback gate or module resource lease is propagated through
+business interfaces. The module manager audits typed modular features and
+owner-bound asynchronous operations only. It does not discover arbitrary stored
+callbacks, virtual objects, custom deleters, or copied function wrappers.
 
-A retained entry follows all of these rules:
+Explicit module shutdown and physical unload require a caller-established safe
+point on the module-control thread (Game Thread after its identity is installed).
+The caller stops dependent consumers and external dispatch before shutdown;
+specialized callbacks must have returned and cannot race the unload. A callback
+must not unload its own module, including through a reentrant UI or event path.
+Request the unload and perform it at a later safe point instead. Typed feature
+visitors and owner-bound tasks retain their existing mechanical retirement and
+drain checks.
 
-- registration first admits through the owner gate and retains a persistent
-  `FModuleOwnedResourceLease` for the full storage lifetime;
-- invocation enters `FModuleOwnedCallbackInvocation` and, when provider or
-  callable storage is copied beyond the registry lock, retains a temporary
-  resource lease until that copy is destroyed;
-- metadata enumeration strips executable callbacks instead of returning a
-  callable snapshot;
-- a plan, session, workspace proxy, customization instance, viewport mode, or
-  other escaped object retains a resource lease until its Plugin-owned state is
-  destroyed;
-- removal uses an identity- and generation-bearing handle so a stale owner
-  cannot remove its replacement; and
-- `ShutdownModule` destroys registrations and escaped instances before the
-  manager performs its final owner audit.
+Each owner is responsible for these boundaries, in dependency order:
 
-The manager's synchronous retirement closes all gates before module shutdown.
-Late registration and invocation therefore fail, already admitted calls finish,
-and any forgotten stored entry or escaped instance leaves a non-zero retained
-resource count that blocks native release. A `shared_ptr` alone is never DLL
-lifetime evidence because its deleter and virtual destructor may be Plugin code.
+- stop request producers, UI/event dispatch, timers, and external entry points;
+- unregister exact handles to remove future lookup;
+- cancel or finish accepted work and wait for callbacks and queued continuations;
+- detach consumers and destroy retained plans, sessions, previews, providers,
+  callable copies, and custom deleters while their code is mapped;
+- release services only after their consumers have finished using them.
 
-This contract currently covers asset-import translators, pipelines, and typed
-factories; build-host contributions and local build functions; Editor
-workspaces and routes; rendered thumbnail providers; customizations; viewport
-modes; startup and console commands; asset-reference stores; and asset-move
-observers. Each registry keeps its existing domain-specific matching and
-ordering behavior.
+Registration removal does not invalidate an already copied callable or shared
+pointer. A registry mutex serializes registry access, not execution after a
+callback has been copied outside the lock. Consumers must release those copies
+before DLL release. Metadata-only enumeration remains preferable when callers
+do not need executable state. Specialized generation checks and thumbnail
+session invalidation continue to govern their local resources.
 
-Interchange component leases cover more than callback duration. Submitted jobs
-and detached products retain the exact component and module resource until
-their values are destroyed. Component unregistration closes admission before
-the exact registration generation retires; provider code can therefore neither
-execute nor run a product destructor after native release.
+`ShutdownModule()` completes the module-owned portion of this cleanup before
+returning. Cleanup failure must throw so the manager leaves the library mapped;
+logging an error and returning success is insufficient. Failed startup must
+roll back any external registrations it published before propagating failure.
+Modules whose consumers cannot establish this boundary must remain mapped.
+Normal process exit stops modules in reverse load order and leaves libraries
+mapped for operating-system reclamation.
+
+Workspace registration stores the original workspace directly. The host closes
+documents, releases integrations, and destroys external workspace references
+before unloading the concrete editor module. Asset compiler handle reset removes
+routes, stops admission, finishes accepted compilation, and calls provider
+shutdown directly, including after typed-feature retirement has started.
 
 ## External and Deferred Execution
 
@@ -211,6 +214,10 @@ process-resident feature interfaces, POD lifecycle events, manager-owned owner
 generations, host-assigned fixture instance serials, and `GetModuleHandleW`.
 The host never retains a function pointer into the fixture after unload.
 
+Successful qualification also registers a fixture-owned console callback and
+checks that explicit shutdown removes it and destroys its capture before the
+module instance is destroyed and its DLL unmapped.
+
 Successful qualification proves that an admitted synchronous call completes
 while late admission is rejected, a Worker-to-Game-Thread chain and its
 destructor-sensitive capture drain before module destruction, and the native
@@ -220,8 +227,7 @@ that earlier instances publish no later events and every successfully retired
 image is physically unmapped.
 
 Failure qualification runs irreversible cases in a separate process with one
-logical module record per scenario. Invocation timeout, retained owner
-resource, active worker, retained typed result, retained deferred callable,
+logical module record per scenario. Invocation timeout, active worker, retained typed result, retained deferred callable,
 reflected-object rejection, shutdown exception, wrong-thread request, and
 recursive owned execution all produce their categorized unload result without
 destroying or releasing the affected module image. Successful stress also runs
@@ -231,22 +237,11 @@ The dedicated native targets are `DynamicDllUnloadQualificationTests` and
 `DynamicDllUnloadFailureQualificationTests`; both require explicit
 `--mode qualification` admission and are excluded from ordinary aggregates.
 
-## Bounded Exemptions
+## Scope of the Guarantees
 
-Owner attribution is unnecessary only when construction proves that no
-unloadable code can remain callable or destructible:
-
-- a predicate, visitor, serializer hook, or failure callback is created,
-  invoked, and destroyed within one synchronous stack;
-- a static C callback is owned by the same library as the external object and
-  that object clears the callback during its own destruction;
-- the provider code belongs to a process-resident foundation library with no
-  dynamic `IModuleInterface` entry;
-- a registration or local scope exists only inside a bounded native test; or
-- repository search establishes that the service has definitions but no
-  production registration, as with the current timer and file-watcher classes.
-
-An exemption must name the storage owner, provider code location, and lifetime
-boundary in the owning plan or contract. A load-order assumption, raw pointer,
-module-loaded query, or generation invalidation without callable destruction is
-not an exemption.
+Synchronous stack-local visitors need no specialized registration lifetime
+machinery. Process-resident code also needs no DLL ownership token, but must
+still obey object and service lifetimes. Neither an `IsModuleLoaded` query nor
+a generation number proves that escaped executable storage has been destroyed.
+Explicit unload correctness is the responsibility of the caller and owners;
+the remaining Core audits cover only their declared feature and task boundaries.

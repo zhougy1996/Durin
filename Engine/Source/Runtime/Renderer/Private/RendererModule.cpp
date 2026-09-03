@@ -64,9 +64,6 @@ namespace Durin
 
 	auto FRendererModule::StartupModule() -> void
 	{
-		ConsoleCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Core.ConsoleCommands");
-		require(ConsoleCallbacks.IsValid());
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
 		SetActiveDefaultTextureResources(
@@ -74,7 +71,7 @@ namespace Durin
 		);
 		const bool bCommandsRegistered =
 			SceneRenderer->Start(
-				FConsoleCommandRegistry::Get(), ConsoleCallbacks.GetGate()
+				FConsoleCommandRegistry::Get()
 			);
 		checkf(
 			bCommandsRegistered,

@@ -2,80 +2,10 @@
 
 namespace Durin::Editor::Detail
 {
-	class FModuleOwnedWorkspaceProxy final : public IWorkspace
-	{
-	public:
-		FModuleOwnedWorkspaceProxy(
-			std::shared_ptr<IWorkspace> InWorkspace,
-			FModuleOwnedCallbackGate InGate,
-			FModuleOwnedResourceLease InResource)
-			: Resource(std::move(InResource))
-			, Workspace(std::move(InWorkspace))
-			, Gate(std::move(InGate)) {}
-
-		auto GetWorkspaceType() const -> const FWorkspaceTypeId& override
-		{
-			auto Call = Gate.TryEnter();
-			if (Call) return Workspace->GetWorkspaceType();
-			static const FWorkspaceTypeId Invalid;
-			return Invalid;
-		}
-		auto OpenDocument(const FDocumentTab& Document) -> EDocumentOpenResult override
-		{
-			auto Call = Gate.TryEnter();
-			return Call ? Workspace->OpenDocument(Document) : EDocumentOpenResult::Rejected;
-		}
-		auto ActivateDocument(const FDocumentTab& Document) -> void override
-		{ auto Call = Gate.TryEnter(); if (Call) Workspace->ActivateDocument(Document); }
-		auto RequestDeactivate() -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->RequestDeactivate(); }
-		auto RequestCloseDocument(const FDocumentTab& Document) -> EDocumentCloseResult override
-		{ auto Call = Gate.TryEnter(); return Call ? Workspace->RequestCloseDocument(Document) : EDocumentCloseResult::Rejected; }
-		auto SaveDocument(const FDocumentTab& Document) -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->SaveDocument(Document); }
-		auto DiscardDocument(const FDocumentTab& Document) -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->DiscardDocument(Document); }
-		auto IsDocumentDirty(const FDocumentTab& Document) const -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->IsDocumentDirty(Document); }
-		auto CanSaveActiveDocument() const -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->CanSaveActiveDocument(); }
-		auto SaveActiveDocument() -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->SaveActiveDocument(); }
-		auto CanUndo() const -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->CanUndo(); }
-		auto CanRedo() const -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->CanRedo(); }
-		auto GetUndoDescription() const -> std::string_view override
-		{ auto Call = Gate.TryEnter(); return Call ? Workspace->GetUndoDescription() : std::string_view{}; }
-		auto GetRedoDescription() const -> std::string_view override
-		{ auto Call = Gate.TryEnter(); return Call ? Workspace->GetRedoDescription() : std::string_view{}; }
-		auto Undo() -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->Undo(); }
-		auto Redo() -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->Redo(); }
-		auto DrawFileMenu() -> void override
-		{ auto Call = Gate.TryEnter(); if (Call) Workspace->DrawFileMenu(); }
-		auto DrawEditMenu() -> void override
-		{ auto Call = Gate.TryEnter(); if (Call) Workspace->DrawEditMenu(); }
-		auto DrawWindowMenu() -> void override
-		{ auto Call = Gate.TryEnter(); if (Call) Workspace->DrawWindowMenu(); }
-		auto DrawWorkspace(bool bActive) -> bool override
-		{ auto Call = Gate.TryEnter(); return Call && Workspace->DrawWorkspace(bActive); }
-		auto ResetLayout() -> void override
-		{ auto Call = Gate.TryEnter(); if (Call) Workspace->ResetLayout(); }
-
-	private:
-		FModuleOwnedResourceLease Resource;
-		std::shared_ptr<IWorkspace> Workspace;
-		FModuleOwnedCallbackGate Gate;
-	};
-
-	// Couples a registered workspace with the batch lease that owns it.
 	struct FRegisteredWorkspace
 	{
 		FWorkspaceDescriptor Descriptor;
 		std::shared_ptr<IWorkspace> Workspace;
-		std::shared_ptr<IWorkspace> OwnerWorkspace;
 		uint64 RegistrationId = 0;
 		// Registration order keeps host menus, initial tabs, and drawing deterministic despite map storage.
 		uint64 RegistrationOrder = 0;
@@ -119,7 +49,7 @@ namespace Durin::Editor::Detail
 			if (Active != State.Documents.end())
 			{
 				const auto Workspace = State.Workspaces.find(std::string(Active->WorkspaceType.GetValue()));
-				requiref(Workspace == State.Workspaces.end() || Workspace->second.OwnerWorkspace->RequestDeactivate(),
+				requiref(Workspace == State.Workspaces.end() || Workspace->second.Workspace->RequestDeactivate(),
 					"An editor workspace cannot be unloaded while an active property preview cannot be cancelled");
 			}
 		}
@@ -209,11 +139,8 @@ namespace Durin::Editor
 	}
 
 	auto FWorkspaceManager::RegisterBatch(
-		FWorkspaceRegistrationBatch Batch,
-		FModuleOwnedCallbackGate OwnerGate) -> FWorkspaceRegistrationHandle
+		FWorkspaceRegistrationBatch Batch) -> FWorkspaceRegistrationHandle
 	{
-		auto RegistrationInvocation = OwnerGate.TryEnter();
-		if (OwnerGate.IsValid() && !RegistrationInvocation) return {};
 		if (Batch.Workspaces.empty() && Batch.AssetEditors.empty()) return {};
 		std::unordered_set<std::string> BatchWorkspaceTypes;
 		std::unordered_set<std::string> BatchRootKeys;
@@ -252,19 +179,9 @@ namespace Durin::Editor
 		for (FWorkspaceRegistration& Registration : Batch.Workspaces)
 		{
 			const std::string WorkspaceType(Registration.Descriptor.WorkspaceType.GetValue());
-			std::shared_ptr<IWorkspace> OwnerWorkspace = std::move(Registration.Workspace);
-			std::shared_ptr<IWorkspace> PublishedWorkspace = OwnerWorkspace;
-			if (OwnerGate.IsValid())
-			{
-				auto Resource = OwnerGate.RetainResource();
-				if (!Resource) return {};
-				PublishedWorkspace = std::make_shared<Detail::FModuleOwnedWorkspaceProxy>(
-					OwnerWorkspace, OwnerGate, std::move(Resource));
-			}
 			State->Workspaces.emplace(WorkspaceType, Detail::FRegisteredWorkspace{
 				.Descriptor = std::move(Registration.Descriptor),
-				.Workspace = std::move(PublishedWorkspace),
-				.OwnerWorkspace = std::move(OwnerWorkspace),
+				.Workspace = std::move(Registration.Workspace),
 				.RegistrationId = RegistrationId,
 				.RegistrationOrder = State->NextWorkspaceRegistrationOrder++,
 			});

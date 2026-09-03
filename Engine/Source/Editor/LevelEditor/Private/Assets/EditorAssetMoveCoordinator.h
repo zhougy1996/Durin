@@ -18,8 +18,7 @@ namespace Durin::Editor::Level
 		FEditorAssetMoveCoordinator(
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
-			FSceneViewportPanel& InSceneViewportPanel,
-			FModuleOwnedCallbackGate OwnerGate
+			FSceneViewportPanel& InSceneViewportPanel
 		);
 		~FEditorAssetMoveCoordinator();
 

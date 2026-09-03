@@ -20,8 +20,6 @@ namespace Durin
 	{
 		struct FRegisteredAssetCompiler
 		{
-			FModuleOwnedResourceLease RegistryResource;
-			FModuleOwnedCallbackGate Gate;
 			std::vector<DClass*> AssetClasses;
 			std::shared_ptr<IAssetCompilingManager> Manager;
 			uint64 Generation = 0;
@@ -29,8 +27,6 @@ namespace Durin
 
 		struct FDispatchEntry
 		{
-			FModuleOwnedResourceLease Resource;
-			FModuleOwnedCallbackGate Gate;
 			std::shared_ptr<IAssetCompilingManager> Manager;
 			FName CompilerName;
 		};
@@ -102,16 +98,6 @@ namespace Durin
 				[](const FName& Name) { return Name.ToString(); });
 		}
 
-		auto MakeDispatchEntryLocked(const FName& Name,
-			const FRegisteredAssetCompiler& Registered) -> std::optional<FDispatchEntry>
-		{
-			auto Resource = Registered.Gate.IsValid()
-				? Registered.Gate.RetainResource() : FModuleOwnedResourceLease{};
-			if (Registered.Gate.IsValid() && !Resource) return std::nullopt;
-			return FDispatchEntry{std::move(Resource), Registered.Gate,
-				Registered.Manager, Name};
-		}
-
 		auto MakeSnapshot(bool bReverse = false) -> std::vector<FDispatchEntry>
 		{
 			std::vector<FDispatchEntry> Result;
@@ -121,8 +107,7 @@ namespace Durin
 			{
 				const auto It = GCompilers.find(Name);
 				if (It == GCompilers.end()) continue;
-				if (auto Entry = MakeDispatchEntryLocked(Name, It->second))
-					Result.push_back(std::move(*Entry));
+				Result.push_back({It->second.Manager, Name});
 			}
 			if (bReverse) std::ranges::reverse(Result);
 			return Result;
@@ -153,9 +138,7 @@ namespace Durin
 				{
 					const auto Registered = GCompilers.find(CompilerName);
 					if (Registered == GCompilers.end()) continue;
-					auto Entry = MakeDispatchEntryLocked(CompilerName, Registered->second);
-					if (!Entry) continue;
-					Result.push_back({std::move(*Entry), {}});
+					Result.push_back({{Registered->second.Manager, CompilerName}, {}});
 					Batch = std::prev(Result.end());
 				}
 				Batch->Objects.push_back(Object);
@@ -164,20 +147,6 @@ namespace Durin
 				return Batch.Entry.CompilerName.ToString();
 			});
 			return Result;
-		}
-
-		template<typename F>
-		auto Invoke(FDispatchEntry& Entry, F&& Callback) -> bool
-		{
-			if (!Entry.Gate.IsValid())
-			{
-				std::invoke(std::forward<F>(Callback), *Entry.Manager);
-				return true;
-			}
-			auto Invocation = Entry.Gate.TryEnter();
-			if (!Invocation) return false;
-			std::invoke(std::forward<F>(Callback), *Entry.Manager);
-			return true;
 		}
 
 		auto CoalesceSuccessfulAssets(FAssetCompileProcessResult& Destination,
@@ -270,14 +239,9 @@ namespace Durin
 
 	auto FAssetCompilingManager::RegisterCompiler(
 		FAssetCompilingManagerRegistration Registration,
-		FModuleOwnedCallbackGate OwnerGate, std::string* OutError)
+		std::string* OutError)
 		-> FAssetCompilerRegistrationHandle
 	{
-		if (!OwnerGate.IsValid())
-		{
-			SetError(OutError, "External asset compiler owner gate is invalid.");
-			return {};
-		}
 		if (!Registration.Manager || !IsCanonicalCompilerName(Registration.Name)
 			|| !HasValidUniqueClasses(Registration.AssetClasses))
 		{
@@ -289,58 +253,7 @@ namespace Durin
 			SetError(OutError, "Asset compiler registration requires GameThread.");
 			return {};
 		}
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (!Resource)
-		{
-			SetError(OutError, "Asset compiler owner is retiring.");
-			return {};
-		}
-		{
-			std::lock_guard Lock(GAssetCompilingMutex);
-			if (!ValidateRegistrationLocked(Registration, OutError)) return {};
-		}
-		{
-			auto Invocation = OwnerGate.TryEnter();
-			if (!Invocation || !Registration.Manager->Start(OutError)) return {};
-		}
-		FAssetCompilerRegistrationHandle Result;
-		bool bRollback = false;
-		{
-			std::lock_guard Lock(GAssetCompilingMutex);
-			if (!ValidateRegistrationLocked(Registration, OutError)) bRollback = true;
-			else
-			{
-				const uint64 Generation = GNextGeneration++;
-				for (DClass* Class : Registration.AssetClasses)
-					GClassRoutes.emplace(Class, Registration.Name);
-				GCompilers.emplace(Registration.Name, FRegisteredAssetCompiler{
-					std::move(Resource), OwnerGate, std::move(Registration.AssetClasses),
-					Registration.Manager, Generation});
-				RebuildCompilerOrder();
-				Result.CompilerName = Registration.Name;
-				Result.Generation = Generation;
-			}
-		}
-		if (bRollback)
-		{
-			auto Invocation = OwnerGate.TryEnter();
-			if (Invocation)
-			{
-				Registration.Manager->StopAdmission();
-				Registration.Manager->Shutdown();
-			}
-			return {};
-		}
-		if (OutError) OutError->clear();
-		return Result;
-	}
 
-	auto FAssetCompilingManager::RegisterBuiltInCompiler(
-		FAssetCompilingManagerRegistration Registration, std::string* OutError)
-		-> FAssetCompilerRegistrationHandle
-	{
-		if (!Registration.Manager || !IsCanonicalCompilerName(Registration.Name)
-			|| !HasValidUniqueClasses(Registration.AssetClasses)) return {};
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);
 			if (!ValidateRegistrationLocked(Registration, OutError)) return {};
@@ -357,7 +270,8 @@ namespace Durin
 				for (DClass* Class : Registration.AssetClasses)
 					GClassRoutes.emplace(Class, Registration.Name);
 				GCompilers.emplace(Registration.Name, FRegisteredAssetCompiler{
-					{}, {}, std::move(Registration.AssetClasses), Registration.Manager, Generation});
+					std::move(Registration.AssetClasses),
+					Registration.Manager, Generation});
 				RebuildCompilerOrder();
 				Result.CompilerName = Registration.Name;
 				Result.Generation = Generation;
@@ -369,11 +283,13 @@ namespace Durin
 			Registration.Manager->Shutdown();
 			return {};
 		}
+		if (OutError) OutError->clear();
 		return Result;
 	}
 
 	auto FAssetCompilingManager::Unregister(FName CompilerName, uint64 Generation) -> void
 	{
+		requiref(IsSupportedThread(), "Asset compiler unregistration requires GameThread.");
 		FRegisteredAssetCompiler Removed;
 		{
 			std::lock_guard Lock(GAssetCompilingMutex);
@@ -384,14 +300,9 @@ namespace Durin
 			GCompilers.erase(It);
 			RebuildCompilerOrder();
 		}
-		FDispatchEntry Entry{std::move(Removed.RegistryResource), Removed.Gate,
-			Removed.Manager, CompilerName};
-		Invoke(Entry, [](IAssetCompilingManager& Manager) { Manager.StopAdmission(); });
-		FAssetCompileProcessResult Result;
-		Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-			Result = Manager.FinishAllCompilation();
-			Manager.Shutdown();
-		});
+		Removed.Manager->StopAdmission();
+		FAssetCompileProcessResult Result = Removed.Manager->FinishAllCompilation();
+		Removed.Manager->Shutdown();
 		Publish(CompilerName, Result);
 	}
 
@@ -416,11 +327,8 @@ namespace Durin
 			const uint32 Remaining = Params.MaximumCompletions
 				- Aggregate.ProcessedCompletionCount;
 			const uint32 RemainingCompilers = static_cast<uint32>(Entries.size() - Offset);
-			FAssetCompileProcessResult Item;
-			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-				Item = Manager.ProcessAsyncTasks({
-					std::max(1u, Remaining / RemainingCompilers), Params.Deadline});
-			});
+			FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
+				std::max(1u, Remaining / RemainingCompilers), Params.Deadline});
 			Accumulate(Entry.CompilerName, std::move(Item));
 		}
 		while (Aggregate.ProcessedCompletionCount < Params.MaximumCompletions)
@@ -430,12 +338,9 @@ namespace Durin
 			{
 				if (Aggregate.ProcessedCompletionCount >= Params.MaximumCompletions) break;
 				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) break;
-				FAssetCompileProcessResult Item;
-				Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-					Item = Manager.ProcessAsyncTasks({
-						Params.MaximumCompletions - Aggregate.ProcessedCompletionCount,
-						Params.Deadline});
-				});
+				FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
+					Params.MaximumCompletions - Aggregate.ProcessedCompletionCount,
+					Params.Deadline});
 				bMadeProgress |= Item.ProcessedCompletionCount != 0;
 				Accumulate(Entry.CompilerName, std::move(Item));
 			}
@@ -457,9 +362,7 @@ namespace Durin
 		uint64 Count = 0;
 		auto Entries = MakeSnapshot();
 		for (auto& Entry : Entries)
-			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-				Count = SaturatingAdd(Count, Manager.GetNumRemainingAssets());
-			});
+			Count = SaturatingAdd(Count, Entry.Manager->GetNumRemainingAssets());
 		return Count;
 	}
 
@@ -470,10 +373,7 @@ namespace Durin
 		if (!IsSupportedThread()) return Aggregate;
 		for (FRoutedBatch& Batch : MakeRoutedBatches(Objects))
 		{
-			FAssetCompileProcessResult Item;
-			Invoke(Batch.Entry, [&](IAssetCompilingManager& Manager) {
-				Item = Manager.FinishCompilationForObjects(Batch.Objects);
-			});
+			FAssetCompileProcessResult Item = Batch.Entry.Manager->FinishCompilationForObjects(Batch.Objects);
 			Publish(Batch.Entry.CompilerName, Item);
 			CoalesceSuccessfulAssets(Aggregate, std::move(Item));
 		}
@@ -492,9 +392,7 @@ namespace Durin
 	{
 		if (!IsSupportedThread()) return;
 		for (FRoutedBatch& Batch : MakeRoutedBatches(Objects))
-			Invoke(Batch.Entry, [&](IAssetCompilingManager& Manager) {
-				Manager.MarkCompilationAsCanceled(Batch.Objects);
-			});
+			Batch.Entry.Manager->MarkCompilationAsCanceled(Batch.Objects);
 	}
 
 	auto FAssetCompilingManager::MarkCompilationAsCanceled(DObject& Object) -> void
@@ -509,10 +407,7 @@ namespace Durin
 		if (!IsSupportedThread()) return Aggregate;
 		for (auto& Entry : MakeSnapshot())
 		{
-			FAssetCompileProcessResult Item;
-			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-				Item = Manager.FinishAllCompilation();
-			});
+			FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
 			Publish(Entry.CompilerName, Item);
 			CoalesceSuccessfulAssets(Aggregate, std::move(Item));
 		}
@@ -533,10 +428,7 @@ namespace Durin
 		}
 		for (auto& Entry : MakeSnapshot())
 		{
-			uint64 Remaining = 0;
-			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-				Remaining = Manager.GetNumRemainingAssets();
-			});
+			const uint64 Remaining = Entry.Manager->GetNumRemainingAssets();
 			Result.Compilers.push_back({Entry.CompilerName, Remaining});
 			Result.RemainingAssetCount = SaturatingAdd(Result.RemainingAssetCount, Remaining);
 		}
@@ -559,14 +451,11 @@ namespace Durin
 		}
 		auto Entries = MakeSnapshot(true);
 		for (auto& Entry : Entries)
-			Invoke(Entry, [](IAssetCompilingManager& Manager) { Manager.StopAdmission(); });
+			Entry.Manager->StopAdmission();
 		for (auto& Entry : Entries)
 		{
-			FAssetCompileProcessResult Item;
-			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
-				Item = Manager.FinishAllCompilation();
-				Manager.Shutdown();
-			});
+			FAssetCompileProcessResult Item = Entry.Manager->FinishAllCompilation();
+			Entry.Manager->Shutdown();
 			Publish(Entry.CompilerName, Item);
 		}
 		std::lock_guard Lock(GAssetCompilingMutex);
@@ -589,7 +478,7 @@ namespace Durin
 		auto& Aggregate = FAssetCompilingManager::Get();
 		std::string Error;
 		if (!Aggregate.Start(&Error)) return false;
-		auto MaterialRegistration = Aggregate.RegisterBuiltInCompiler({
+		auto MaterialRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Material"),
 			.AssetClasses = {DMaterial::StaticClass()},
 			.Manager = CreateMaterialCompilingManager()}, &Error);
@@ -599,7 +488,7 @@ namespace Durin
 			Aggregate.Shutdown();
 			return false;
 		}
-		auto TextureRegistration = Aggregate.RegisterBuiltInCompiler({
+		auto TextureRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Texture"),
 			.AssetClasses = {DTexture2D::StaticClass()},
 			.Manager = AssetPrivate::CreateTextureCompilingManager()}, &Error);

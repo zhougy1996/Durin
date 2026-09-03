@@ -9,9 +9,7 @@ namespace Durin
 		struct FRegisteredOwnedPayloadRelocator
 		{
 			FAssetOwnedPayloadRelocatorHandle Handle = 0;
-			FModuleOwnedResourceLease OwnerResource;
 			FAssetOwnedPayloadRelocator Relocator;
-			FModuleOwnedCallbackGate OwnerGate;
 		};
 
 		auto GetOwnedPayloadRelocators()
@@ -29,17 +27,10 @@ namespace Durin
 			return Handle;
 		}
 
-		struct FRegisteredAssetMoveObserver
-		{
-			FModuleOwnedResourceLease OwnerResource;
-			IAssetMoveObserver* Observer = nullptr;
-			FModuleOwnedCallbackGate OwnerGate;
-		};
-
 		auto GetMoveObservers()
-			-> std::map<FAssetMoveObserverHandle, FRegisteredAssetMoveObserver>&
+			-> std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>&
 		{
-			static std::map<FAssetMoveObserverHandle, FRegisteredAssetMoveObserver>
+			static std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>
 				Observers;
 			return Observers;
 		}
@@ -64,24 +55,19 @@ namespace Durin
 
 	auto RegisterAssetOwnedPayloadRelocator(
 		DClass* Class,
-		FAssetOwnedPayloadRelocator Relocator,
-		FModuleOwnedCallbackGate OwnerGate)
+		FAssetOwnedPayloadRelocator Relocator)
 		-> FAssetOwnedPayloadRelocatorHandle
 	{
-		auto Call = OwnerGate.TryEnter();
-		if (!Class || !Relocator || (OwnerGate.IsValid() && !Call)) return 0;
+		if (!Class || !Relocator) return 0;
 		auto& Relocators = GetOwnedPayloadRelocators();
 		if (Relocators.contains(Class)) return 0;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (OwnerGate.IsValid() && !Resource) return 0;
+
 		auto& NextHandle = NextOwnedPayloadRelocatorHandle();
 		const FAssetOwnedPayloadRelocatorHandle Handle = NextHandle++;
 		Relocators.emplace(Class, FRegisteredOwnedPayloadRelocator{
 			.Handle = Handle,
-			.OwnerResource = std::move(Resource),
 			.Relocator = std::move(Relocator),
-			.OwnerGate = std::move(OwnerGate),
-		});
+			});
 		return Handle;
 	}
 
@@ -96,20 +82,14 @@ namespace Durin
 	}
 
 	auto RegisterAssetMoveObserver(
-		IAssetMoveObserver* Observer,
-		FModuleOwnedCallbackGate OwnerGate)
+		IAssetMoveObserver* Observer)
 		-> FAssetMoveObserverHandle
 	{
-		auto Call = OwnerGate.TryEnter();
-		if (OwnerGate.IsValid() && !Call) return 0;
 		if (!Observer) return 0;
 		auto& NextHandle = NextMoveObserverHandle();
 		const FAssetMoveObserverHandle Handle = NextHandle++;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (OwnerGate.IsValid() && !Resource) return 0;
-		GetMoveObservers().emplace(Handle,
-			FRegisteredAssetMoveObserver{
-				std::move(Resource), Observer, std::move(OwnerGate)});
+
+		GetMoveObservers().emplace(Handle, Observer);
 		return Handle;
 	}
 
@@ -134,24 +114,16 @@ namespace Durin
 
 	namespace AssetPrivate
 	{
-		auto AcquireAssetOwnedPayloadRelocator(
-			DClass* AssetClass,
-			FAssetOwnedPayloadRelocatorInvocation& OutInvocation) -> FAssetResult
+		auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
+			-> FAssetOwnedPayloadRelocator
 		{
-			OutInvocation = {};
 			auto& Relocators = GetOwnedPayloadRelocators();
 			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
 			{
 				auto Found = Relocators.find(Class);
 				if (Found == Relocators.end()) continue;
-				auto Call = Found->second.OwnerGate.TryEnter();
-				if (Found->second.OwnerGate.IsValid() && !Call)
-					return {
-						EAssetError::StaleData,
-						"The owned-payload relocator is unavailable."};
-				OutInvocation.Relocator = Found->second.Relocator;
-				OutInvocation.OwnerCall = std::move(Call);
-				return {};
+
+				return Found->second.Relocator;
 			}
 			return {};
 		}
@@ -159,12 +131,10 @@ namespace Durin
 		auto NotifyAssetMoveObservers(
 			std::span<const FAssetRelocationMapping> Mappings) -> void
 		{
-			for (const auto& [Handle, Entry] : GetMoveObservers())
+			for (const auto& [Handle, Observer] : GetMoveObservers())
 			{
 				(void)Handle;
-				auto Call = Entry.OwnerGate.TryEnter();
-				if (Entry.Observer && (!Entry.OwnerGate.IsValid() || Call))
-					Entry.Observer->OnAssetsRelocated(Mappings);
+				Observer->OnAssetsRelocated(Mappings);
 			}
 		}
 

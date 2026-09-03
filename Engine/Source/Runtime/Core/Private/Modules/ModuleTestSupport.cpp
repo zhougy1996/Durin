@@ -67,7 +67,6 @@ namespace Durin
 		const auto Audit = Owner.GetFeatureSnapshot();
 		require(Audit.PublishedCount == 0);
 		require(Audit.InFlightInvocationCount == 0);
-		require(Audit.RetainedResourceCount == 0);
 		StartedModule = nullptr;
 	}
 

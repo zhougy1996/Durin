@@ -120,20 +120,11 @@ namespace Durin::Editor::Level
 	}
 
 	auto FLevelViewportEditModeRegistry::Register(
-		FLevelViewportEditModeDescriptor Descriptor,
-		FModuleOwnedCallbackGate OwnerGate) -> FLevelViewportEditModeHandle
+		FLevelViewportEditModeDescriptor Descriptor) -> FLevelViewportEditModeHandle
 	{
-		auto Call = OwnerGate.TryEnter();
-		if (OwnerGate.IsValid() && !Call) return {};
 		if (Descriptor.Id.empty() || Descriptor.DisplayName.empty() || !Descriptor.Factory || Find(Descriptor.Id)) return {};
-		FModuleOwnedResourceLease Resource;
-		if (OwnerGate.IsValid())
-		{
-			Resource = OwnerGate.RetainResource();
-			if (!Resource) return {};
-		}
 		const uint64 Id = NextHandleId++;
-		Entries.push_back({Id, std::move(Resource), std::move(OwnerGate), std::move(Descriptor)});
+		Entries.push_back({Id, std::move(Descriptor)});
 		return {Id};
 	}
 
@@ -147,18 +138,9 @@ namespace Durin::Editor::Level
 
 	auto FLevelViewportEditModeRegistry::Find(std::string_view Id) const -> const FLevelViewportEditModeDescriptor*
 	{
-		const FEntry* Entry = FindEntry(Id);
-		if (!Entry) return nullptr;
-		auto Call = Entry->OwnerGate.TryEnter();
-		return !Entry->OwnerGate.IsValid() || Call ? &Entry->Descriptor : nullptr;
-	}
-
-	auto FLevelViewportEditModeRegistry::FindEntry(std::string_view Id) const
-		-> const FEntry*
-	{
 		const auto It = std::ranges::find_if(Entries,
 			[Id](const FEntry& Entry) { return Entry.Descriptor.Id == Id; });
-		return It == Entries.end() ? nullptr : &*It;
+		return It == Entries.end() ? nullptr : &It->Descriptor;
 	}
 
 	auto FLevelViewportEditModeRegistry::GetAvailable(const FLevelEditorContext& Context) const -> std::vector<const FLevelViewportEditModeDescriptor*>
@@ -166,8 +148,6 @@ namespace Durin::Editor::Level
 		std::vector<const FLevelViewportEditModeDescriptor*> Result;
 		for (const FEntry& Entry : Entries)
 		{
-			auto Call = Entry.OwnerGate.TryEnter();
-			if (Entry.OwnerGate.IsValid() && !Call) continue;
 			if (!Entry.Descriptor.CanActivate || Entry.Descriptor.CanActivate(Context))
 				Result.push_back(&Entry.Descriptor);
 		}
@@ -187,29 +167,17 @@ namespace Durin::Editor::Level
 
 	auto FLevelViewportEditModeManager::Activate(std::string_view Id, FLevelEditorContext& Context) -> bool
 	{
-		const FLevelViewportEditModeRegistry::FEntry* Entry =
-			FLevelViewportEditModeRegistry::Get().FindEntry(Id);
-		if (!Entry) return false;
-		auto Call = Entry->OwnerGate.TryEnter();
-		if (Entry->OwnerGate.IsValid() && !Call) return false;
-		const FLevelViewportEditModeDescriptor* Descriptor = &Entry->Descriptor;
+		const FLevelViewportEditModeDescriptor* Descriptor =
+			FLevelViewportEditModeRegistry::Get().Find(Id);
+		if (!Descriptor) return false;
 		if (Descriptor->CanActivate && !Descriptor->CanActivate(Context)) return false;
 		if (ActiveId == Id && ActiveMode) return true;
 		if (ActiveMode)
 		{
-			auto ActiveCall = ActiveOwnerGate.TryEnter();
-			if (!ActiveOwnerGate.IsValid() || ActiveCall) ActiveMode->Exit(Context, false);
-		}
-		FModuleOwnedResourceLease Resource;
-		if (Entry->OwnerGate.IsValid())
-		{
-			Resource = Entry->OwnerGate.RetainResource();
-			if (!Resource) return false;
+			ActiveMode->Exit(Context, false);
 		}
 		ActiveMode = Descriptor->Factory();
 		if (!ActiveMode) { ActiveId.clear(); return false; }
-		ActiveOwnerResource = std::move(Resource);
-		ActiveOwnerGate = Entry->OwnerGate;
 		ActiveId = Descriptor->Id;
 		LastContext = &Context;
 		ActiveMode->Enter(Context);
@@ -219,17 +187,14 @@ namespace Durin::Editor::Level
 	auto FLevelViewportEditModeManager::Synchronize(FLevelEditorContext& Context) -> void
 	{
 		LastContext = &Context;
-		const FLevelViewportEditModeRegistry::FEntry* Active =
-			FLevelViewportEditModeRegistry::Get().FindEntry(ActiveId);
-		auto ActiveCall = ActiveOwnerGate.TryEnter();
-		if (ActiveMode && (!Active || (ActiveOwnerGate.IsValid() && !ActiveCall)
-			|| (Active->Descriptor.CanActivate && !Active->Descriptor.CanActivate(Context))))
+		const FLevelViewportEditModeDescriptor* Active =
+			FLevelViewportEditModeRegistry::Get().Find(ActiveId);
+
+		if (ActiveMode && (!Active
+			|| (Active->CanActivate && !Active->CanActivate(Context))))
 		{
-			if (!ActiveOwnerGate.IsValid() || ActiveCall)
-				ActiveMode->Exit(Context, true);
+			ActiveMode->Exit(Context, true);
 			ActiveMode.reset();
-			ActiveOwnerResource = {};
-			ActiveOwnerGate = {};
 			ActiveId.clear();
 		}
 		if (!ActiveMode) Activate("Select", Context);
@@ -240,8 +205,6 @@ namespace Durin::Editor::Level
 	{
 		Synchronize(Context);
 		if (!ActiveMode) return false;
-		auto Call = ActiveOwnerGate.TryEnter();
-		if (ActiveOwnerGate.IsValid() && !Call) return false;
 		const bool bHandled = ActiveMode->Tick(Context, Client, View, Input, Transactions);
 		if (ActiveMode && ActiveMode->ShouldExit()) Activate("Select", Context);
 		return bHandled;
@@ -251,8 +214,6 @@ namespace Durin::Editor::Level
 	{
 		if (ActiveMode && (Context || LastContext)) ActiveMode->Exit(Context ? *Context : *LastContext, true);
 		ActiveMode.reset();
-		ActiveOwnerResource = {};
-		ActiveOwnerGate = {};
 		ActiveId.clear();
 		LastContext = nullptr;
 	}

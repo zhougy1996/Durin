@@ -95,9 +95,6 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
-		EditorExtensionCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
-		require(EditorExtensionCallbacks.IsValid());
 		ThumbnailOperations =
 			FModuleStartup::CreateAsyncOperationGroup("SourceImageThumbnail.Decodes");
 		require(ThumbnailOperations.IsValid());
@@ -110,23 +107,22 @@ namespace Durin
 				});
 		ProjectDefaultLevelReferenceStoreHandle =
 			RegisterAssetReferenceStore(
-				ProjectDefaultLevelReferenceStore.get(),
-				EditorExtensionCallbacks.GetGate());
+				ProjectDefaultLevelReferenceStore.get());
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
-		const FModuleOwnedCallbackGate ExtensionGate = EditorExtensionCallbacks.GetGate();
-		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization(), ExtensionGate));
-		SplineEditModeHandle = RegisterSplineViewportEditMode(ExtensionGate);
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization(), ExtensionGate));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization(), ExtensionGate));
+
+		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
+		SplineEditModeHandle = RegisterSplineViewportEditMode();
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DVolumetricCloudComponent::StaticClass(), CreateVolumetricCloudDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 	}
 
@@ -161,14 +157,13 @@ namespace Durin
 		std::string Error;
 		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DTerrainHeightmapThumbnailRenderer>(),
-			EditorExtensionCallbacks.GetGate(), Error);
+			Error);
 		if (!ThumbnailHandle) return false;
 
 		// Content Browser captures thumbnail routing while the workspace is constructed,
 		// so feature-owned renderers must already be visible to the shared service.
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
-			*SessionSettings, WorkspaceManager, EditorExtensionCallbacks.GetGate(),
-			ThumbnailOperations.GetTaskScope(),
+			*SessionSettings, WorkspaceManager, ThumbnailOperations.GetTaskScope(),
 			std::move(ContentBrowserCallbacks));
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
@@ -198,7 +193,7 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		}, EditorExtensionCallbacks.GetGate());
+		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		TerrainThumbnailRegistration = std::make_unique<
@@ -229,8 +224,7 @@ namespace Durin
 						Invocation.NotifyMountedContentChanged();
 					if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
 				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
+				}, Error);
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser Level creation: {}", Error);
@@ -267,8 +261,7 @@ namespace Durin
 						AdmittedWorkspace->DrawContentBrowserImport(
 							Type, bAllowAssetMutation);
 				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
+				}, Error);
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser import: {}", Error);

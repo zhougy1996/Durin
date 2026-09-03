@@ -32,8 +32,6 @@ namespace Durin
 			FAsyncOperationGroupOptions Options = {}
 		) -> FAsyncOperationGroup;
 
-		CORE_API static auto CreateOwnedCallbackRegistration(FName DomainName)
-			-> FModuleOwnedCallbackRegistration;
 		[[nodiscard]] CORE_API static auto GetModuleName() -> FName;
 
 	private:
@@ -46,6 +44,8 @@ namespace Durin
 	public:
 		virtual ~IModuleInterface() = default;
 		virtual auto StartupModule() -> void {}
+		// Stop external entry points, drain work, and release every externally stored
+		// callback/object before returning. Throw on cleanup failure to keep the DLL mapped.
 		virtual auto ShutdownModule() -> void {}
 	};
 
@@ -127,7 +127,7 @@ namespace Durin
 
 	using InitializeModuleFunc = IModuleInterface* (*)();
 
-	// Serializes native module lifecycle and prevents unload before owner quiescence.
+	// Coordinates explicit module shutdown with typed-feature and asynchronous-work audits.
 	class FModuleManager
 	{
 	public:
@@ -154,7 +154,12 @@ namespace Durin
 		CORE_API auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
 		CORE_API auto IsModuleLoaded(const FName& InModuleName) -> bool;
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
+		// Caller must establish a control-thread safe point: no specialized callback
+		// is executing or can start, and dependent consumers are stopped. Never call
+		// from a callback implemented by the module being shut down.
 		CORE_API auto ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult;
+		// Same safe-point contract as ShutdownModule; all escaped module objects and
+		// callback copies must be destroyed before this physically releases the DLL.
 		CORE_API auto UnloadModule(const FName& InModuleName) -> FModuleUnloadResult;
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;

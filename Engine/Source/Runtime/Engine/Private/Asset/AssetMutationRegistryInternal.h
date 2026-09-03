@@ -10,14 +10,7 @@ namespace Durin::AssetPrivate
 	// whenever provider availability changes.
 	struct FAssetReferenceStoreRegistry
 	{
-		struct FEntry
-		{
-			FModuleOwnedResourceLease OwnerResource;
-			IAssetReferenceStore* Store = nullptr;
-			FModuleOwnedCallbackGate OwnerGate;
-		};
-
-		std::map<FAssetReferenceStoreHandle, FEntry> Stores;
+		std::map<FAssetReferenceStoreHandle, IAssetReferenceStore*> Stores;
 		FAssetReferenceStoreHandle NextHandle = 1;
 		uint64 Revision = 1;
 	};

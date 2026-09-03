@@ -1,6 +1,7 @@
 #include "DynamicUnloadFixtureContract.h"
 
 #include "CoreGlobals.h"
+#include "Console/ConsoleCommand.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Threading/Task.h"
@@ -185,6 +186,8 @@ namespace Durin::Tests
 		const uint64 FirstGeneration = FirstInfo->OwnerGeneration;
 		const auto FirstSerial = GetFixtureInstanceSerial();
 		ASSERT_TRUE(FirstSerial.has_value());
+		const std::string ConsoleName = std::format("fixture.{}", *FirstSerial);
+		EXPECT_TRUE(FConsoleCommandRegistry::Get().Execute(ConsoleName).bSuccess);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::Startup, *FirstSerial));
 
@@ -229,6 +232,11 @@ namespace Durin::Tests
 		EXPECT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *FirstSerial));
 		ExpectFixtureReleased(FirstInfo);
+		EXPECT_FALSE(FConsoleCommandRegistry::Get().Execute(ConsoleName).bSuccess);
+		EXPECT_TRUE(Host.WaitFor(
+			EDynamicUnloadFixtureEvent::ConsoleCaptureDestroyed, *FirstSerial));
+		EXPECT_LT(Host.EventIndex(EDynamicUnloadFixtureEvent::ConsoleCaptureDestroyed, *FirstSerial),
+			Host.EventIndex(EDynamicUnloadFixtureEvent::ModuleDestroyed, *FirstSerial));
 
 		ASSERT_NE(Manager.LoadModule(FName(FixtureModuleName)), nullptr);
 		const auto SecondInfo = Manager.FindModule(FName(FixtureModuleName));

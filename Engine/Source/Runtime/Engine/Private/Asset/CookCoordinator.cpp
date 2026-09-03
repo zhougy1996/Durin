@@ -80,8 +80,7 @@ namespace Durin
 		{
 			FCookContributorHandle Handle = 0;
 			FCookContributorRegistration Registration;
-			FModuleOwnedResourceLease OwnerResource;
-			FModuleOwnedCallbackGate OwnerGate;
+
 		};
 
 		auto GetCookContributorMutex() -> std::mutex&
@@ -106,7 +105,7 @@ namespace Durin
 		struct FResolvedCookContributor
 		{
 			FCookContributorRegistration Registration;
-			FModuleOwnedCallbackGate OwnerGate;
+
 		};
 
 		auto ResolveCookContributor(DClass* Class, FResolvedCookContributor& OutContributor) -> FAssetResult
@@ -118,7 +117,6 @@ namespace Durin
 				const auto Found = GetCookContributors().find(Candidate);
 				if (Found == GetCookContributors().end()) continue;
 				OutContributor.Registration = Found->second.Registration;
-				OutContributor.OwnerGate = Found->second.OwnerGate;
 				return {};
 			}
 			return Failure(EAssetError::UnsupportedProperty, std::format("CookUnsupportedClass: no contributor is registered for class {}.", Class ? Class->GetName() : "<null>"));
@@ -659,20 +657,17 @@ namespace Durin
 		);
 	}
 
-	auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration, FModuleOwnedCallbackGate OwnerGate) -> FCookContributorHandle
+	auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorHandle
 	{
-		auto Invocation = OwnerGate.TryEnter();
 		if (!Class || Registration.Name.empty() || !Registration.Contribute
 			|| Registration.ContributorVersion == 0
-			|| Registration.FamilyProducerVersion == 0
-			|| (OwnerGate.IsValid() && !Invocation)) return 0;
+			|| Registration.FamilyProducerVersion == 0) return 0;
 		std::scoped_lock Lock(GetCookContributorMutex());
 		auto& Contributors = GetCookContributors();
 		if (Contributors.contains(Class)) return 0;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (OwnerGate.IsValid() && !Resource) return 0;
+
 		const FCookContributorHandle Handle = GetNextCookContributorHandle()++;
-		Contributors.emplace(Class, FRegisteredCookContributor{Handle, std::move(Registration), std::move(Resource), std::move(OwnerGate)});
+		Contributors.emplace(Class, FRegisteredCookContributor{Handle, std::move(Registration)});
 		return Handle;
 	}
 
@@ -823,9 +818,7 @@ namespace Durin
 			if (!LoadResult || !Asset)
 				return Finish(ECookRunStatus::Failed, "load-failed", std::format("CookLoadFailed: {}: {}", Path.ToString(), LoadResult.Message));
 			FCookContext Capture({}, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
-			auto Invocation = Contributor.OwnerGate.TryEnter();
-			if (Contributor.OwnerGate.IsValid() && !Invocation)
-				return Finish(ECookRunStatus::Failed, "contributor-retired", std::format("CookContributorRetired: {}", Contributor.Registration.Name));
+
 			if (ShouldFail && ShouldFail(ECookOperationStage::Prepare, Index, Error))
 				return Finish(ECookRunStatus::Failed, "prepare-injected-failure", Error);
 			DPackage* AuthoredPackage = Asset->GetPackage();

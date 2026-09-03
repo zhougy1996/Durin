@@ -4,19 +4,11 @@
 
 namespace Durin::AssetPrivate
 {
-	// Holds the provider gate for the complete load-and-contribute call so a
-	// module-owned relocator cannot disappear while relocation is being prepared.
-	struct FAssetOwnedPayloadRelocatorInvocation
-	{
-		FAssetOwnedPayloadRelocator Relocator;
-		FModuleOwnedCallbackInvocation OwnerCall;
-	};
-
-	// Acquires the first extension registered for the concrete asset class or
-	// one of its superclasses. An empty relocator means no extension owns payload.
-	auto AcquireAssetOwnedPayloadRelocator(
-		DClass* AssetClass,
-		FAssetOwnedPayloadRelocatorInvocation& OutInvocation) -> FAssetResult;
+	// Copies the first extension registered for the class or one of its superclasses.
+	// An empty callback means no extension owns payload. The caller must release
+	// the copy before unloading provider code.
+	auto FindAssetOwnedPayloadRelocator(DClass* AssetClass)
+		-> FAssetOwnedPayloadRelocator;
 
 	auto NotifyAssetMoveObservers(
 		std::span<const FAssetRelocationMapping> Mappings) -> void;

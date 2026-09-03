@@ -28,7 +28,6 @@ namespace Durin
 			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 	private:
-		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 		struct FIntegrationState;

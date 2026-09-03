@@ -1,6 +1,7 @@
 #include "DynamicUnloadFixtureContract.h"
 
 #include "Threading/Task.h"
+#include "Console/ConsoleCommand.h"
 
 namespace Durin
 {
@@ -22,6 +23,17 @@ namespace Durin
 				Host.Record({Phase, InstanceSerial});
 			});
 		}
+
+		struct FConsoleCaptureProbe
+		{
+			explicit FConsoleCaptureProbe(uint64 InSerial) : InstanceSerial(InSerial) {}
+			~FConsoleCaptureProbe()
+			{
+				RecordHostEvent(Tests::EDynamicUnloadFixtureEvent::ConsoleCaptureDestroyed,
+					InstanceSerial);
+			}
+			uint64 InstanceSerial;
+		};
 
 		struct FAsyncCaptureProbe
 		{
@@ -53,7 +65,7 @@ namespace Durin
 				InstanceSerial);
 		}
 
-			auto StartupModule() -> void override
+		auto StartupModule() -> void override
 		{
 			const auto Serial = FModularFeatureRegistry::Get()
 				.InvokeSingle<Tests::IDynamicUnloadHostFeature>(
@@ -66,30 +78,37 @@ namespace Durin
 			ModuleName = FModuleStartup::GetModuleName();
 			FeatureRegistration =
 				FModuleStartup::RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
-			OwnedCallbacks = FModuleStartup::CreateOwnedCallbackRegistration(
-				"DynamicUnloadFixture.SpecializedCallbacks");
+
 			AsyncOperations = FModuleStartup::CreateAsyncOperationGroup(
 				"DynamicUnloadFixture.Drained",
 				{.ShutdownMode = EAsyncOperationCloseMode::Drain});
 			FailureOperations = FModuleStartup::CreateAsyncOperationGroup(
 				"DynamicUnloadFixture.Failures",
 				{.ShutdownMode = EAsyncOperationCloseMode::Cancel});
-			if (!FeatureRegistration.IsValid() || !OwnedCallbacks.IsValid()
+			if (!FeatureRegistration.IsValid()
 				|| !AsyncOperations.IsValid() || !FailureOperations.IsValid())
 				throw std::runtime_error(
 					"Dynamic unload fixture failed to create its owned boundaries.");
+			ConsoleCommand = FConsoleCommandRegistry::Get().RegisterCommand({
+				std::format("fixture.{}", InstanceSerial), "Fixture lifetime probe", "",
+				[Probe = std::make_shared<FConsoleCaptureProbe>(InstanceSerial)](auto) {
+					return FConsoleCommandResult::Success(std::to_string(Probe->InstanceSerial));
+				}});
+			require(ConsoleCommand != 0);
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Startup,
 				InstanceSerial);
 		}
 
-			auto ShutdownModule() -> void override
+		auto ShutdownModule() -> void override
 		{
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Shutdown,
 				InstanceSerial);
 			if (bThrowOnShutdown) throw std::runtime_error(
 				"Injected dynamic unload fixture shutdown failure.");
+			FConsoleCommandRegistry::Get().UnregisterCommand(ConsoleCommand);
+			ConsoleCommand = 0;
 			Publisher = {};
 			Worker = {};
 			BlockingWorker = {};
@@ -153,12 +172,6 @@ namespace Durin
 			return Publisher.IsValid();
 		}
 
-		auto RetainOwnerResourceForFailure() -> bool override
-		{
-			RetainedOwnerResource = OwnedCallbacks.GetGate().RetainResource();
-			return static_cast<bool>(RetainedOwnerResource);
-		}
-
 		auto StartRetainedResultForFailure() -> bool override
 		{
 			if (RetainedResult.IsValid()) return false;
@@ -212,10 +225,10 @@ namespace Durin
 
 	private:
 		uint64 InstanceSerial = 0;
+		FConsoleCommandHandle ConsoleCommand = 0;
 		FName ModuleName;
 		FModularFeatureRegistration FeatureRegistration;
-		FModuleOwnedCallbackRegistration OwnedCallbacks;
-		FModuleOwnedResourceLease RetainedOwnerResource;
+
 		FAsyncOperationGroup AsyncOperations;
 		FAsyncOperationGroup FailureOperations;
 		TTaskHandle<uint64> Worker;

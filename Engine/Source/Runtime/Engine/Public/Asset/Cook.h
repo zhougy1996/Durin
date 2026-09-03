@@ -8,7 +8,6 @@
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
-#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -308,7 +307,7 @@ namespace Durin
 		std::function<ECookPackageStatus(const DObject&)> ClassifyPreparation;
 	};
 
-	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration, FModuleOwnedCallbackGate OwnerGate = {}) -> FCookContributorHandle;
+	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorHandle;
 	ENGINE_API auto UnregisterCookContributor(FCookContributorHandle Handle) -> void;
 	ENGINE_API auto RegisterEngineCookContributors(
 		std::vector<FCookContributorHandle>& OutHandles,

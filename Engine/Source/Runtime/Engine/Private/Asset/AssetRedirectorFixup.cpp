@@ -117,8 +117,6 @@ namespace Durin
 
 		struct FFixupStoreState
 		{
-			FModuleOwnedResourceLease OwnerResource;
-			FModuleOwnedCallbackGate OwnerGate;
 			FAssetReferenceStoreHandle Handle = 0;
 			IAssetReferenceStore* Store = nullptr;
 			FAssetReferenceStoreSnapshot Snapshot;
@@ -402,23 +400,13 @@ namespace Durin
 
 		auto& StoreRegistry = GetAssetReferenceStoreRegistry();
 		State->ExpectedStoreRevision = StoreRegistry.Revision;
-		for (const auto& [Handle, Entry] : StoreRegistry.Stores)
+		for (const auto [Handle, Store] : StoreRegistry.Stores)
 		{
-			IAssetReferenceStore* Store = Entry.Store;
 			if (!Store)
 				return Error(EAssetError::StaleData,
 					"A registered asset reference store is unavailable.");
-			auto Call = Entry.OwnerGate.TryEnter();
-			if (Entry.OwnerGate.IsValid() && !Call)
-				return Error(EAssetError::StaleData,
-					"An asset reference store owner is retiring.");
-			FModuleOwnedResourceLease Resource = Entry.OwnerGate.RetainResource();
-			if (Entry.OwnerGate.IsValid() && !Resource)
-				return Error(EAssetError::StaleData,
-					"An asset reference store owner is retiring.");
+
 			FFixupStoreState StoreState{
-				.OwnerResource = std::move(Resource),
-				.OwnerGate = Entry.OwnerGate,
 				.Handle = Handle,
 				.Store = Store};
 			FAssetResult Result = Store->CaptureSnapshot(StoreState.Snapshot);
@@ -648,13 +636,10 @@ namespace Durin
 		{
 			const auto Current = Stores.Stores.find(StoreState.Handle);
 			if (Current == Stores.Stores.end()
-				|| Current->second.Store != StoreState.Store)
+				|| Current->second != StoreState.Store)
 				return Error(EAssetError::StaleData,
 					"An asset reference store became unavailable.");
-			auto Call = StoreState.OwnerGate.TryEnter();
-			if (StoreState.OwnerGate.IsValid() && !Call)
-				return Error(EAssetError::StaleData,
-					"An asset reference store owner is retiring.");
+
 			FAssetReferenceStoreSnapshot Snapshot;
 			FAssetResult Result = StoreState.Store->CaptureSnapshot(Snapshot);
 			if (!Result) return Result;
@@ -797,9 +782,7 @@ namespace Durin
 		for (FFixupStoreState& Store : State.Stores)
 		{
 			if (Store.Contribution.Rewrites.empty() || Store.bApplied) continue;
-			auto Call = Store.OwnerGate.TryEnter();
-			if (Store.OwnerGate.IsValid() && !Call)
-				return ForwardPending("An asset reference store owner is retiring.");
+
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::ApplyStore))
 				return ForwardPending("Injected Fix Up store-publication failure.");
 			Result = Store.Contribution.Apply();
@@ -846,9 +829,6 @@ namespace Durin
 					Edge.SourcePackage.ToString(), Edge.DisplayRoute));
 		for (FFixupStoreState& Store : State.Stores)
 		{
-			auto Call = Store.OwnerGate.TryEnter();
-			if (Store.OwnerGate.IsValid() && !Call)
-				return ForwardPending("An asset reference store owner is retiring.");
 			if (Store.Contribution.Verify)
 			{
 				Result = Store.Contribution.Verify();

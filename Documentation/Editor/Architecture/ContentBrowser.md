@@ -25,8 +25,8 @@ Import snapshot for a selected virtual directory; MainFrame neither enumerates
 nor dispatches concrete import families. Reimport remains capability-driven
 through `FReimportManager` rather than this presentation registry.
 
-Releasing a feature handle removes
-admission before its module callback gate retires. An extension may also
+Releasing a feature handle removes it from future snapshots. The host stops
+dispatch and releases captured descriptors before unloading feature code. An extension may also
 contribute one host presenter for its feature-owned modal state. MainFrame
 draws those presenters through the browser tool without depending on concrete
 asset-editor modules, and supplies the current asset-mutation policy to both

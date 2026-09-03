@@ -26,14 +26,6 @@ inline auto InitializeDObjectSystem() -> void
 	(void)bInitialized;
 }
 
-inline auto GetEngineTestModuleCallbackGate() -> Durin::FModuleOwnedCallbackGate
-{
-	static Durin::FModuleTestOwner Context("EngineTests.SpecializedRegistries");
-	static auto Registration = Context.CreateOwnedCallbackRegistration(
-		"EngineTests.SpecializedRegistries");
-	return Registration.GetGate();
-}
-
 // Runtime fixture cleanup uses only the package removal primitives.
 inline auto DeleteAssetClosureForTest(std::initializer_list<Durin::FPackagePath> Paths)
 	-> Durin::FAssetResult

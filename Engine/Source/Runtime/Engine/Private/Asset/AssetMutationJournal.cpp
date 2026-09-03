@@ -133,7 +133,6 @@ namespace Durin::AssetPrivate
 		return {};
 	}
 
-
 	auto InitializeMutationJournal(
 		FAssetMutationJournal& Journal,
 		EAssetMutationJournalKind OperationKind) -> void
@@ -362,7 +361,6 @@ namespace Durin::AssetPrivate
 		OutEntryIndex = Index;
 		return {};
 	}
-
 
 	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult
 	{
@@ -1059,23 +1057,19 @@ namespace Durin::AssetPrivate
 			if (Participant.bCompleted) return {};
 			auto& StoreRegistry = GetAssetReferenceStoreRegistry();
 			IAssetReferenceStore* Store = nullptr;
-			FModuleOwnedCallbackGate OwnerGate;
-			for (const auto& [Handle, Entry] : StoreRegistry.Stores)
+			for (const auto& [Handle, Candidate] : StoreRegistry.Stores)
 			{
 				(void)Handle;
-				if (!Entry.Store) continue;
-				auto Call = Entry.OwnerGate.TryEnter();
-				if (Entry.OwnerGate.IsValid() && !Call) continue;
+				if (!Candidate) continue;
 				FAssetReferenceStoreSnapshot Snapshot;
-				if (!Entry.Store->CaptureSnapshot(Snapshot)) continue;
+				if (!Candidate->CaptureSnapshot(Snapshot)) continue;
 				if (Snapshot.ProviderId != Participant.ProviderId) continue;
 				if (Store)
 					return MakeRecoveryRequired(
 						Journal, Participant.ProviderId,
 						"Multiple external reference stores claim one recovery provider id."
 					);
-				Store = Entry.Store;
-				OwnerGate = Entry.OwnerGate;
+				Store = Candidate;
 			}
 			if (!Store)
 				return MakeRecoveryPending(
@@ -1083,11 +1077,6 @@ namespace Durin::AssetPrivate
 								 "External recovery provider {} is not registered.",
 								 Participant.ProviderId
 							 )
-				);
-			auto Call = OwnerGate.TryEnter();
-			if (OwnerGate.IsValid() && !Call)
-				return MakeRecoveryPending(
-					Journal, "An external recovery provider is retiring."
 				);
 			FAssetReferenceStoreSnapshot Snapshot;
 			FAssetResult Result = Store->CaptureSnapshot(Snapshot);
@@ -1272,7 +1261,6 @@ namespace Durin::AssetPrivate
 		}
 		return {};
 	}
-
 
 	auto PublishRelocationFile(
 		const FAssetMutationJournalEntry& Entry) -> FAssetResult

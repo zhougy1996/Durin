@@ -38,8 +38,7 @@ namespace Durin
 
 	auto FRendererResourceCoordinator::Start(
 		FConsoleCommandRegistry& InRegistry,
-		FRequestSink RequestSink,
-		FModuleOwnedCallbackGate OwnerGate) -> bool
+		FRequestSink RequestSink) -> bool
 	{
 		Stop();
 		auto State = std::make_shared<FSharedState>();
@@ -77,7 +76,7 @@ namespace Durin
 				return FConsoleCommandResult::Failure(
 					"Usage: renderer.reload-shaders <changed|all>");
 			},
-		}, OwnerGate);
+		});
 		RetryResourcesHandle = Registry->RegisterCommand({
 			.Name = "renderer.retry-resources",
 			.Description =
@@ -95,7 +94,7 @@ namespace Durin
 					"Queued renderer resource retry; reconstruction remains "
 					"demand-driven.");
 			},
-		}, std::move(OwnerGate));
+		});
 		if (ReloadShadersHandle != 0 && RetryResourcesHandle != 0)
 		{
 			return true;

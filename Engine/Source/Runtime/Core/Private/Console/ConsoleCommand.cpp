@@ -89,20 +89,15 @@ namespace Durin
 	}
 
 	auto FConsoleCommandRegistry::RegisterCommand(
-		FConsoleCommandDesc Desc,
-		FModuleOwnedCallbackGate OwnerGate) -> FConsoleCommandHandle
+		FConsoleCommandDesc Desc) -> FConsoleCommandHandle
 	{
-		auto Invocation = OwnerGate.TryEnter();
-		if (OwnerGate.IsValid() && !Invocation) return 0;
 		if (Desc.Name.empty() || !Desc.Execute || std::ranges::any_of(Desc.Name, [](unsigned char C) { return std::isspace(C); })) return 0;
 		const std::string Key = ToLower(Desc.Name);
 		std::scoped_lock Lock(Mutex);
 		if (Commands.contains(Key)) return 0;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (OwnerGate.IsValid() && !Resource) return 0;
 		const FConsoleCommandHandle Handle = NextHandle.fetch_add(1, std::memory_order_relaxed);
 		Commands.emplace(Key, FEntry{
-			Handle, std::move(Resource), std::move(Desc), std::move(OwnerGate)});
+			Handle, std::move(Desc)});
 		return Handle;
 	}
 
@@ -121,20 +116,10 @@ namespace Durin
 		if (FConsoleCommandResult ParseResult = ParseCommandLine(CommandLine, Tokens); !ParseResult.bSuccess) return ParseResult;
 		if (Tokens.empty()) return FConsoleCommandResult::Success();
 		FConsoleCommandDesc Command;
-		FModuleOwnedResourceLease Resource;
-		FModuleOwnedCallbackInvocation Invocation;
 		{
 			std::scoped_lock Lock(Mutex);
 			const auto It = Commands.find(ToLower(Tokens.front()));
 			if (It == Commands.end()) return FConsoleCommandResult::Failure(std::format("Unknown command '{}'. Type 'help' for a list of commands.", Tokens.front()));
-			Invocation = It->second.OwnerGate.TryEnter();
-			if (It->second.OwnerGate.IsValid() && !Invocation)
-				return FConsoleCommandResult::Failure(
-					std::format("Command '{}' is unavailable because its owner is retiring.", Tokens.front()));
-			Resource = It->second.OwnerGate.RetainResource();
-			if (It->second.OwnerGate.IsValid() && !Resource)
-				return FConsoleCommandResult::Failure(
-					std::format("Command '{}' is unavailable because its owner is retiring.", Tokens.front()));
 			Command = It->second.Desc;
 		}
 		try

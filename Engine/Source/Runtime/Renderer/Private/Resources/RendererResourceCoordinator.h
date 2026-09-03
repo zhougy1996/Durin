@@ -42,8 +42,8 @@ namespace Durin
 
 		RENDERER_API auto Start(
 			FConsoleCommandRegistry& Registry,
-			FRequestSink RequestSink,
-			FModuleOwnedCallbackGate OwnerGate = {}) -> bool;
+			FRequestSink RequestSink) -> bool;
+
 		RENDERER_API auto Stop() -> void;
 		RENDERER_API auto Request(
 			ERendererResourceInvalidationCause Cause)

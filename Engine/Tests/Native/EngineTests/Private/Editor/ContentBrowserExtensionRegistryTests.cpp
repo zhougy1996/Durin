@@ -1,30 +1,27 @@
 #include <gtest/gtest.h>
 
 #include "ContentBrowser/ContentBrowserContracts.h"
-#include "Modules/ModuleTestSupport.h"
 
 namespace Durin::Editor::ContentBrowser
 {
 	TEST(FContentBrowserExtensionRegistryTests, OrdersByOrderThenStableId)
 	{
-		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.Order");
-		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
 		std::string Error;
 		auto B = RegisterExtension({
 			.Id = "test.order.b", .Label = "B",
 			.Category = EExtensionCategory::Import, .Order = 20,
 			.IsApplicable = [](const auto&) { return true; },
-			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
+			.Invoke = [](const auto&) {}}, Error);
 		auto A = RegisterExtension({
 			.Id = "test.order.a", .Label = "A",
 			.Category = EExtensionCategory::Import, .Order = 20,
 			.IsApplicable = [](const auto&) { return true; },
-			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
+			.Invoke = [](const auto&) {}}, Error);
 		auto First = RegisterExtension({
 			.Id = "test.order.first", .Label = "First",
 			.Category = EExtensionCategory::Import, .Order = 10,
 			.IsApplicable = [](const auto&) { return true; },
-			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
+			.Invoke = [](const auto&) {}}, Error);
 		ASSERT_TRUE(A.IsValid());
 		ASSERT_TRUE(B.IsValid());
 		ASSERT_TRUE(First.IsValid());
@@ -38,10 +35,8 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_LT(FindIndex("test.order.a"), FindIndex("test.order.b"));
 	}
 
-	TEST(FContentBrowserExtensionRegistryTests, RejectsDuplicateAndRetiredOwnerInvocation)
+	TEST(FContentBrowserExtensionRegistryTests, RejectsDuplicatesAndRemovesRegistration)
 	{
-		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.Lifetime");
-		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
 		int Invocations = 0;
 		std::string Error;
 		auto Registration = RegisterExtension({
@@ -51,13 +46,13 @@ namespace Durin::Editor::ContentBrowser
 				return !Context.VirtualDirectory.empty();
 			},
 			.Invoke = [&Invocations](const auto&) { ++Invocations; },
-			.OwnerGate = Gate.GetGate()}, Error);
+			}, Error);
 		ASSERT_TRUE(Registration.IsValid());
 		auto Duplicate = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Duplicate",
 			.Category = EExtensionCategory::Import,
 			.IsApplicable = [](const auto&) { return true; },
-			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
+			.Invoke = [](const auto&) {}}, Error);
 		EXPECT_FALSE(Duplicate.IsValid());
 		EXPECT_FALSE(Error.empty());
 
@@ -68,17 +63,14 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_TRUE(InvokeExtension(*Entry,
 			{.Context = {.VirtualDirectory = "/Project"}}));
 		EXPECT_EQ(Invocations, 1);
-		EXPECT_TRUE(Owner.BeginRetirement(std::chrono::milliseconds(0)).Succeeded());
-		EXPECT_FALSE(InvokeExtension(*Entry,
-			{.Context = {.VirtualDirectory = "/Project"}}));
-		EXPECT_EQ(Invocations, 1);
 		Registration.Reset();
+		const auto Remaining = CaptureExtensions(EExtensionCategory::Import);
+		EXPECT_EQ(std::ranges::find(Remaining, "test.lifetime", &FExtensionDescriptor::Id),
+			Remaining.end());
 	}
 
 	TEST(FContentBrowserExtensionRegistryTests, RegistersInvokesAndRemovesEveryCategory)
 	{
-		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.Categories");
-		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
 		const std::array Categories{
 			EExtensionCategory::Create,
 			EExtensionCategory::Details,
@@ -96,7 +88,7 @@ namespace Durin::Editor::ContentBrowser
 				.Category = Categories[Index],
 				.IsApplicable = [](const auto&) { return true; },
 				.Invoke = [&Invocations](const auto&) { ++Invocations; },
-				.OwnerGate = Gate.GetGate()}, Error);
+				}, Error);
 			ASSERT_TRUE(Registration.IsValid()) << Error;
 			const auto Snapshot = CaptureExtensions(Categories[Index]);
 			const auto Entry = std::ranges::find(
@@ -119,10 +111,8 @@ namespace Durin::Editor::ContentBrowser
 	}
 
 	TEST(FContentBrowserExtensionRegistryTests,
-		RejectsMutatingInvocationsAndGatesHostPresenters)
+		RejectsMutatingInvocationsAndRemovesHostPresenters)
 	{
-		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.MutationPolicy");
-		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
 		int Invocations = 0;
 		int Presentations = 0;
 		bool bLastPresentationAllowedMutation = true;
@@ -148,7 +138,7 @@ namespace Durin::Editor::ContentBrowser
 						bLastPresentationAllowedMutation = bAllowAssetMutation;
 					}}
 					: std::function<void(bool)>{},
-				.OwnerGate = Gate.GetGate()}, Error);
+				}, Error);
 			ASSERT_TRUE(Registration.IsValid()) << Error;
 
 			const auto Extensions = CaptureExtensions(Category);
@@ -169,8 +159,10 @@ namespace Durin::Editor::ContentBrowser
 		EXPECT_EQ(Presentations, 1);
 		EXPECT_FALSE(bLastPresentationAllowedMutation);
 
-		EXPECT_TRUE(Owner.BeginRetirement(std::chrono::milliseconds(0)).Succeeded());
-		EXPECT_FALSE(DrawHostPresentation(*Presenter, true));
+		Registrations.clear();
+		const auto Remaining = CaptureHostPresenters();
+		EXPECT_EQ(std::ranges::find(Remaining, "test.mutation-policy.import",
+			&FExtensionDescriptor::Id), Remaining.end());
 		EXPECT_EQ(Presentations, 1);
 	}
 } // namespace Durin::Editor::ContentBrowser

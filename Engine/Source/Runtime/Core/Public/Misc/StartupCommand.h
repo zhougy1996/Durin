@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreAPI.h"
-#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -13,10 +12,11 @@ namespace Durin
 		std::string Name,
 		std::vector<std::string> Arguments,
 		std::string* OutError = nullptr) -> bool;
+	// Register, dispatch, and unregister on the control thread. Unregister before
+	// destroying captures or unloading handler code; dispatch must have returned.
 	CORE_API auto RegisterStartupCommandHandler(
 		std::string Name,
-		FStartupCommandHandler Handler,
-		FModuleOwnedCallbackGate OwnerGate) -> uint64;
+		FStartupCommandHandler Handler) -> uint64;
 	CORE_API auto UnregisterStartupCommandHandler(uint64 Handle) -> void;
 	CORE_API auto HasPendingStartupCommand() -> bool;
 	// Without bRequireHandler, a not-yet-loaded feature module leaves the command pending.

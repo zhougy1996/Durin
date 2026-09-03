@@ -15,6 +15,7 @@ namespace Durin::Tests
 		BlockingWorkerEntered,
 		RetainedResultReady,
 		Shutdown,
+		ConsoleCaptureDestroyed,
 		ModuleDestroyed,
 	};
 
@@ -45,7 +46,6 @@ namespace Durin::Tests
 		virtual auto GetInstanceSerial() const -> uint64 = 0;
 		virtual auto RunSynchronousBarrier() -> void = 0;
 		virtual auto StartDrainedAsyncChain() -> bool = 0;
-		virtual auto RetainOwnerResourceForFailure() -> bool = 0;
 		virtual auto StartRetainedResultForFailure() -> bool = 0;
 		virtual auto StartBlockingWorkerForFailure() -> bool = 0;
 		virtual auto SetThrowOnShutdownForFailure() -> void = 0;

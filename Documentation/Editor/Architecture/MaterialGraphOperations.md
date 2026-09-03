@@ -219,8 +219,9 @@ resource. Closing a document destroys its controller; reopening restores only
 that material's viewport while authored positions continue to come from the
 package.
 
-MaterialEditor registers the authoritative Engine move observer with its
-module callback gate. A relocation moves the loaded-material entry and asks
+MaterialEditor registers the authoritative Engine move observer for its
+workspace lifetime. The owner unregisters the observer and finishes
+active relocation before unloading its code. A relocation moves the loaded-material entry and asks
 `FWorkspaceManager` to remap the existing document resource ID, per-resource
 document key, and label without changing document identity. There is no local
 asset catalog mirror. Deletion is observed through the existing object handle;

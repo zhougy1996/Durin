@@ -61,10 +61,8 @@ namespace Durin::Editor::Level
 		}
 	} // namespace
 
-
-	FSceneViewportPanel::FSceneViewportPanel(FModuleOwnedCallbackGate InOwnerGate)
-		: OwnerGate(std::move(InOwnerGate))
-		, PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
+	FSceneViewportPanel::FSceneViewportPanel()
+		: PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
 		, PreferredPlayDestination(::Durin::Editor::EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
@@ -118,7 +116,7 @@ namespace Durin::Editor::Level
 	{
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
 			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(
-				std::move(Desc), OwnerGate))
+				std::move(Desc)))
 				ViewportConsoleCommandHandles.push_back(Handle);
 		};
 		RegisterCommand({"viewport.camera.speed", "Gets or sets the editor viewport fly speed.", "viewport.camera.speed [unitsPerSecond]", [this](std::span<const std::string> Args) {
@@ -535,7 +533,6 @@ namespace Durin::Editor::Level
 		ImGui::End();
 	}
 
-
 	auto FSceneViewportPanel::UpdateCameraPreview(FLevelEditorContext& Context) -> void
 	{
 		DCameraComponent* Camera = nullptr;
@@ -591,7 +588,6 @@ namespace Durin::Editor::Level
 		const ImVec2 LabelSize = ImGui::CalcTextSize(Label);
 		DrawList->AddText(ImVec2(HeaderMin.x + MonaImGui::ScaleUI(8.0f), HeaderMin.y + (HeaderHeight - LabelSize.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), Label);
 	}
-
 
 	auto FSceneViewportPanel::UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void
 	{

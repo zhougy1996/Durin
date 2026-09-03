@@ -16,12 +16,6 @@ namespace Durin
 	IMPLEMENT_MODULE(FSkeletalMeshEditorModule, SkeletalMeshEditor)
 
 	FSkeletalMeshEditorModule::~FSkeletalMeshEditorModule() = default;
-	auto FSkeletalMeshEditorModule::StartupModule() -> void
-	{
-		EditorExtensionCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
-		require(EditorExtensionCallbacks.IsValid());
-	}
 	auto FSkeletalMeshEditorModule::ShutdownModule() -> void { UnregisterSkeletalMeshEditor(); }
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
@@ -51,15 +45,14 @@ namespace Durin
 					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true},
 				{.AssetClassName = DAnimationClip::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = Workspace::Type,
-					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true}}},
-			EditorExtensionCallbacks.GetGate());
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true}}});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		::Durin::Editor::FThumbnailRendererRegistrationHandle ThumbnailHandle =
 			ThumbnailManager.RegisterScoped(
 				std::make_unique<DSkeletalMeshThumbnailRenderer>(),
-				EditorExtensionCallbacks.GetGate(), Error);
+				Error);
 		if (!ThumbnailHandle)
 		{
 			WorkspaceRegistration.reset(); return false;

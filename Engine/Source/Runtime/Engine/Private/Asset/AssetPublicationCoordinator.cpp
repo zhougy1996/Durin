@@ -119,7 +119,6 @@ namespace Durin
 		}
 	} // namespace
 
-
 	auto BuildCookReachability(
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
@@ -149,13 +148,11 @@ namespace Durin
 		Pending.reserve(Roots.size());
 		for (const FPackagePath& Root : Roots)
 			Pending.push_back({Root, {}, "explicit Cook root"});
-		for (const auto& [Handle, Entry] : GetAssetReferenceStoreRegistry().Stores)
+		for (const auto [Handle, Store] : GetAssetReferenceStoreRegistry().Stores)
 		{
 			(void)Handle;
-			IAssetReferenceStore* Store = Entry.Store;
 			if (!Store) continue;
-			auto Call = Entry.OwnerGate.TryEnter();
-			if (Entry.OwnerGate.IsValid() && !Call) continue;
+
 			FAssetReferenceStoreSnapshot Snapshot;
 			FAssetResult StoreResult = Store->CaptureSnapshot(Snapshot);
 			if (!StoreResult)

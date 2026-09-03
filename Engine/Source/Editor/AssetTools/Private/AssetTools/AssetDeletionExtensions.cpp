@@ -16,9 +16,7 @@ namespace Durin
 	struct FRegisteredDeleteContributor
 	{
 		FAssetDeleteContributorHandle Handle = 0;
-		FModuleOwnedResourceLease OwnerResource;
 		FAssetDeleteContributor Contributor;
-		FModuleOwnedCallbackGate OwnerGate;
 	};
 
 	auto GetDeleteContributors()
@@ -56,10 +54,6 @@ namespace Durin
 			const auto It = GetDeleteContributors().find(Class);
 			if (It == GetDeleteContributors().end()) continue;
 			if (OutHasContributor) *OutHasContributor = true;
-			auto Call = It->second.OwnerGate.TryEnter();
-			if (It->second.OwnerGate.IsValid() && !Call)
-				return Error(EAssetError::StaleData,
-					"The asset deletion contributor is unavailable.");
 			FAssetDeleteContribution Contribution;
 			FAssetResult Result = It->second.Contributor(Data, Inspection, Contribution);
 			if (!Result) return Result;
@@ -91,23 +85,17 @@ namespace Durin
 
 	auto RegisterAssetDeleteContributor(
 		DClass* Class,
-		FAssetDeleteContributor Contributor,
-		FModuleOwnedCallbackGate OwnerGate) -> FAssetDeleteContributorHandle
+		FAssetDeleteContributor Contributor) -> FAssetDeleteContributorHandle
 	{
-		auto Call = OwnerGate.TryEnter();
-		if (!Class || !Contributor || (OwnerGate.IsValid() && !Call)) return 0;
+		if (!Class || !Contributor) return 0;
 		auto& Contributors = GetDeleteContributors();
 		if (Contributors.contains(Class)) return 0;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (OwnerGate.IsValid() && !Resource) return 0;
 		auto& NextHandle = NextDeleteContributorHandle();
 		const FAssetDeleteContributorHandle Handle = NextHandle++;
 		Contributors.emplace(Class, FRegisteredDeleteContributor{
 			.Handle = Handle,
-			.OwnerResource = std::move(Resource),
 			.Contributor = std::move(Contributor),
-			.OwnerGate = std::move(OwnerGate),
-		});
+			});
 		return Handle;
 	}
 

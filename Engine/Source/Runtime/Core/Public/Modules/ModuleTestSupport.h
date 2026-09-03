@@ -32,13 +32,6 @@ namespace Durin
 				ModuleOwner, std::move(GroupName), Options);
 		}
 
-		auto CreateOwnedCallbackRegistration(FName DomainName)
-			-> FModuleOwnedCallbackRegistration
-		{
-			return FModularFeatureRegistry::Get().RegisterOwnedCallback(
-				ModuleOwner, std::move(DomainName));
-		}
-
 		CORE_API auto BeginRetirement(
 			std::chrono::milliseconds Timeout = std::chrono::seconds(5))
 			-> FModularFeatureRetirementResult;

@@ -363,11 +363,8 @@ namespace Durin
 
 			DClass* AssetClass = FindClassByQualifiedName(
 				FName(SourceData->AssetClassName));
-			AssetPrivate::FAssetOwnedPayloadRelocatorInvocation RelocatorInvocation;
-			Result = AssetPrivate::AcquireAssetOwnedPayloadRelocator(
-				AssetClass, RelocatorInvocation);
-			if (!Result) return Result;
-			if (RelocatorInvocation.Relocator)
+			const auto Relocator = AssetPrivate::FindAssetOwnedPayloadRelocator(AssetClass);
+			if (Relocator)
 			{
 				const auto AssetRecord = std::ranges::find(
 					SourceData->TopLevelAssets, SourceData->AssetClassName,
@@ -397,7 +394,7 @@ namespace Durin
 						.PrePackageName = LoadedPackage->GetName()});
 				}
 				FAssetOwnedPayloadRelocation Payload;
-				Result = RelocatorInvocation.Relocator(
+				Result = Relocator(
 					AssetObject, Mapping.SourcePath,
 					Mapping.DestinationPath, Payload);
 				if (!Result) return Result;

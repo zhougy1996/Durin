@@ -101,8 +101,7 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	std::string Error;
 	ASSERT_TRUE(Aggregate.Start(&Error)) << Error;
 	FModuleTestOwner Owner("AssetCompilingManagerTests.Provider");
-	auto GateRegistration = Owner.CreateOwnedCallbackRegistration(
-		"Engine.AssetCompilingManager.Tests");
+
 	std::vector<std::string> Calls;
 	DMaterial* FirstMaterial = NewObject<DMaterial>(nullptr, "FirstRoutedMaterial");
 	DMaterial* SecondMaterial = NewObject<DMaterial>(nullptr, "SecondRoutedMaterial");
@@ -125,12 +124,12 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 	auto Base = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Base"),
 		.AssetClasses = {DMaterial::StaticClass(), DTexture::StaticClass()},
-		.Manager = BaseManager}, GateRegistration.GetGate(), &Error);
+		.Manager = BaseManager}, &Error);
 	ASSERT_TRUE(Base.IsValid()) << Error;
 	auto Derived = Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Derived"),
 		.AssetClasses = {DTexture2D::StaticClass()},
-		.Manager = DerivedManager}, GateRegistration.GetGate(), &Error);
+		.Manager = DerivedManager}, &Error);
 	ASSERT_TRUE(Derived.IsValid()) << Error;
 	EXPECT_EQ(BaseState->StartCount, 1u);
 	EXPECT_EQ(Aggregate.GetDiagnostics().CompilerCount, 2u);
@@ -140,13 +139,13 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.AssetClasses = {DTexture2D::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>(
 			"duplicate-name", std::make_shared<FSyntheticState>())},
-		GateRegistration.GetGate(), &Error).IsValid());
+		&Error).IsValid());
 	EXPECT_FALSE(Aggregate.RegisterCompiler({
 		.Name = FName("Durin.Tests.Conflict"),
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>(
 			"duplicate-class", std::make_shared<FSyntheticState>())},
-		GateRegistration.GetGate(), &Error).IsValid());
+		&Error).IsValid());
 
 	uint32 EventCount = 0;
 	const FDelegateHandle EventHandle = Aggregate.OnAssetPostCompile().AddLambda(
@@ -188,11 +187,13 @@ TEST(FAssetCompilingManagerTests, RoutesClassesBatchesObjectsAndOwnsCompilerLife
 		.Name = FName("Durin.Tests.Retired"),
 		.AssetClasses = {DMaterial::StaticClass()},
 		.Manager = std::make_shared<FSyntheticManager>("retired", RetiredState)},
-		GateRegistration.GetGate(), &Error);
+		&Error);
 	ASSERT_TRUE(Retired.IsValid()) << Error;
-	GateRegistration.Retire();
+	EXPECT_TRUE(Owner.BeginRetirement().Succeeded());
 	EXPECT_EQ(Aggregate.ProcessAsyncTasks().ProcessedCompletionCount, 0u);
+	EXPECT_GT(RetiredState->ProcessCount, 0u);
 	Retired.Reset();
-	EXPECT_TRUE(GateRegistration.Reset().Succeeded());
+	EXPECT_EQ(RetiredState->FinishAllCount, 1u);
+	EXPECT_EQ(RetiredState->ShutdownCount, 1u);
 	Aggregate.Shutdown();
 }

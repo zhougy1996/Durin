@@ -28,15 +28,11 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
-		EditorExtensionCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
-		require(EditorExtensionCallbacks.IsValid());
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
 		UnregisterStaticMeshEditor();
-		require(EditorExtensionCallbacks.Reset().Succeeded());
 	}
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
@@ -73,7 +69,7 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		}, EditorExtensionCallbacks.GetGate());
+		});
 		if (!Registration)
 		{
 			UnregisterStaticMeshEditor();
@@ -85,7 +81,7 @@ namespace Durin
 		::Durin::Editor::FThumbnailRendererRegistrationHandle ThumbnailHandle =
 			ThumbnailManager.RegisterScoped(
 				std::make_unique<DStaticMeshThumbnailRenderer>(),
-				EditorExtensionCallbacks.GetGate(), Error);
+				Error);
 		if (!ThumbnailHandle)
 		{
 			UnregisterStaticMeshEditor();
@@ -111,8 +107,7 @@ namespace Durin
 				if (Integration->ImportDialog)
 					Integration->ImportDialog->Draw(bAllowAssetMutation);
 			},
-			.OwnerGate = EditorExtensionCallbacks.GetGate(),
-		}, Error);
+			}, Error);
 		if (!ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser Static Mesh import: {}", Error);

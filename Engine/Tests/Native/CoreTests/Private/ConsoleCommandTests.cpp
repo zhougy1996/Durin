@@ -1,5 +1,4 @@
 #include "Console/ConsoleCommand.h"
-#include "Modules/ModuleTestSupport.h"
 #include "gtest/gtest.h"
 
 namespace Durin
@@ -43,10 +42,8 @@ namespace Durin
 		EXPECT_FALSE(Registry.Execute("test").bSuccess);
 	}
 
-	TEST(FConsoleCommandTests, OwnerRetirementRejectsDispatchAndAuditsStoredCallable)
+	TEST(FConsoleCommandTests, UnregistrationReleasesStoredCallableAndRejectsDispatch)
 	{
-		FModuleTestOwner Context("ConsoleCommandTests.Owner");
-		auto Owner = Context.CreateOwnedCallbackRegistration("Core.ConsoleCommands");
 		FConsoleCommandRegistry Registry;
 		auto Capture = std::make_shared<int>(7);
 		const std::weak_ptr<int> WeakCapture = Capture;
@@ -54,12 +51,10 @@ namespace Durin
 			"owned", "Owned command.", "owned",
 			[Capture](std::span<const std::string>) {
 				return FConsoleCommandResult::Success(std::to_string(*Capture));
-			}}, Owner.GetGate());
+			}});
 		ASSERT_NE(Handle, 0u);
 		Capture.reset();
-		const auto Snapshot = Owner.Retire();
-		EXPECT_EQ(Snapshot.RetainedResourceCount, 1u);
-		EXPECT_FALSE(Registry.Execute("owned").bSuccess);
+		EXPECT_TRUE(Registry.Execute("owned").bSuccess);
 		const auto Commands = Registry.GetCommands();
 		const auto It = std::ranges::find(Commands, std::string("owned"),
 			&FConsoleCommandDesc::Name);
@@ -68,6 +63,6 @@ namespace Durin
 
 		Registry.UnregisterCommand(Handle);
 		EXPECT_TRUE(WeakCapture.expired());
-		EXPECT_TRUE(Owner.Reset(std::chrono::milliseconds(0)).Succeeded());
+		EXPECT_FALSE(Registry.Execute("owned").bSuccess);
 	}
 } // namespace Durin

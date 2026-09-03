@@ -40,7 +40,6 @@ namespace Durin
 	private:
 		static auto ReleaseViewState(FSceneViewStateId Id) -> void;
 
-		FModuleOwnedCallbackRegistration ConsoleCallbacks;
 		std::unique_ptr<FSceneRenderer> SceneRenderer;
 	};
 }

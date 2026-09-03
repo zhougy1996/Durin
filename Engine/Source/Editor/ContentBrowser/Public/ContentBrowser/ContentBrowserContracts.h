@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DObject/AssetPath.h"
-#include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
 #include "ContentBrowserAPI.h"
 
@@ -43,7 +42,8 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void(std::string)> ReportError;
 	};
 
-	// Defines one deterministically ordered, unload-gated browser contribution.
+	// Defines one deterministically ordered browser contribution. Owners unregister
+	// and release all captured descriptor copies before unloading provider code.
 	struct FExtensionDescriptor
 	{
 		std::string Id;
@@ -54,7 +54,6 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void(const FExtensionInvocation&)> Invoke;
 		// Draws feature-owned modal state without exposing its concrete module to the host.
 		std::function<void(bool)> DrawHostPresentation;
-		FModuleOwnedCallbackGate OwnerGate;
 	};
 
 	// Removes one contribution when its owning feature module releases the handle.
@@ -122,7 +121,6 @@ namespace Durin::Editor::ContentBrowser
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		FTaskScopeToken ThumbnailTaskScope;
-		FModuleOwnedCallbackGate OwnerGate;
 	};
 
 	// Exposes host-level browser requests without leaking models or UI types.

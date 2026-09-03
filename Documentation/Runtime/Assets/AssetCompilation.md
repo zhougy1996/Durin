@@ -67,13 +67,14 @@ a compiler callback.
 
 ## Module and Task Lifetime
 
-External registration returns a move-only
-`FAssetCompilerRegistrationHandle`. Registration retains a compiler-owner
-resource lease for its full lifetime and enters the compiler owner's
-`FModuleOwnedCallbackGate` immediately before every callback. Reset removes the
-compiler and its routes from future snapshots, stops admission, finishes accepted work, invokes
-compiler shutdown, destroys retained values, and only then releases
-the module resource lease. Owner retirement rejects later callback entry.
+Built-in and external registration use the same move-only
+`FAssetCompilerRegistrationHandle`. Reset removes the compiler and its routes
+from future snapshots, stops admission, finishes accepted work, invokes compiler
+shutdown, and releases the registered provider. Registration and reset run on
+GameThread outside compiler callbacks. Owners release remaining provider and
+callback copies before DLL unload under the
+[explicit module unload contract](../Core/ModularFeaturesAndModuleRetirement.md).
+Typed-feature retirement does not suppress these cleanup calls.
 
 Concrete managers retain their own Engine task scopes, cancellation sources,
 concurrency and memory bounds, mailboxes, diagnostics, and timeout policy. The

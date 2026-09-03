@@ -4,7 +4,6 @@
 #include "DObject/WeakObjectPtr.h"
 #include "EngineAPI.h"
 #include "Misc/Name.h"
-#include "Modules/ModularFeature.h"
 
 #include <chrono>
 #include <memory>
@@ -110,9 +109,10 @@ namespace Durin
 	public:
 		ENGINE_API static auto Get() -> FAssetCompilingManager&;
 		ENGINE_API auto Start(std::string* OutError = nullptr) -> bool;
+		// GameThread only. Reset the handle outside compiler callbacks before module
+		// unload; reset stops admission, finishes compilation, and shuts down the provider.
 		ENGINE_API auto RegisterCompiler(
 			FAssetCompilingManagerRegistration Registration,
-			FModuleOwnedCallbackGate OwnerGate,
 			std::string* OutError = nullptr) -> FAssetCompilerRegistrationHandle;
 		ENGINE_API auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params = {})
 			-> FAssetCompileProcessResult;
@@ -132,9 +132,6 @@ namespace Durin
 
 	private:
 		FAssetCompilingManager() = default;
-		auto RegisterBuiltInCompiler(
-			FAssetCompilingManagerRegistration Registration,
-			std::string* OutError) -> FAssetCompilerRegistrationHandle;
 		auto Unregister(FName CompilerName, uint64 Generation) -> void;
 
 		friend class FAssetCompilerRegistrationHandle;

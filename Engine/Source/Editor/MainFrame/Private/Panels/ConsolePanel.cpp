@@ -212,7 +212,7 @@ namespace Durin::Editor::MainFrame
 		}
 	} // namespace
 
-	FConsolePanel::FConsolePanel(FModuleOwnedCallbackGate OwnerGate)
+	FConsolePanel::FConsolePanel()
 		: State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
@@ -223,7 +223,7 @@ namespace Durin::Editor::MainFrame
 																					 SharedState->bClearRequested.store(true, std::memory_order_release);
 																				 }
 																				 return FConsoleCommandResult::Success();
-											 }}, std::move(OwnerGate));
+											 }});
 		AssetFixUpCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({
 			"asset.fixup_redirectors",
 			"Fixes every project redirector without source-control automation.",

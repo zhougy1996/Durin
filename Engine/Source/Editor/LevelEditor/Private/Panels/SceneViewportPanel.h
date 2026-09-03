@@ -36,7 +36,7 @@ namespace Durin::Editor::Level
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
 	public:
-		explicit FSceneViewportPanel(FModuleOwnedCallbackGate OwnerGate = {});
+		explicit FSceneViewportPanel();
 		~FSceneViewportPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Scene Viewport"; }
@@ -74,7 +74,6 @@ namespace Durin::Editor::Level
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
 		auto RegisterViewportConsoleCommands() -> void;
-		FModuleOwnedCallbackGate OwnerGate;
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;

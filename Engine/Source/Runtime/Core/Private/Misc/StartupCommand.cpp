@@ -13,9 +13,7 @@ namespace Durin
 		struct FRegisteredStartupCommand
 		{
 			uint64 Handle = 0;
-			FModuleOwnedResourceLease OwnerResource;
 			FStartupCommandHandler Handler;
-			FModuleOwnedCallbackGate OwnerGate;
 		};
 
 		std::optional<FPendingStartupCommand> GPendingStartupCommand;
@@ -46,19 +44,15 @@ namespace Durin
 
 	auto RegisterStartupCommandHandler(
 		std::string Name,
-		FStartupCommandHandler Handler,
-		FModuleOwnedCallbackGate OwnerGate) -> uint64
+		FStartupCommandHandler Handler) -> uint64
 	{
-		auto Invocation = OwnerGate.TryEnter();
-		if (!Invocation || Name.empty() || !Handler
+		if (Name.empty() || !Handler
 			|| GStartupCommandHandlers.contains(Name))
 			return 0;
-		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-		if (!Resource) return 0;
 		const uint64 Handle = GNextStartupCommandHandle++;
 		GStartupCommandHandlers.emplace(
 			std::move(Name), FRegisteredStartupCommand{
-				Handle, std::move(Resource), std::move(Handler), std::move(OwnerGate)});
+				Handle, std::move(Handler)});
 		return Handle;
 	}
 
@@ -93,12 +87,6 @@ namespace Durin
 		}
 		FPendingStartupCommand Command = std::move(*GPendingStartupCommand);
 		GPendingStartupCommand.reset();
-		auto Invocation = It->second.OwnerGate.TryEnter();
-		if (!Invocation)
-		{
-			if (OutError) *OutError = "The startup command owner is retiring.";
-			return 2;
-		}
 		return It->second.Handler(Command.Arguments);
 	}
 }

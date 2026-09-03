@@ -13,7 +13,7 @@ namespace Durin::Editor::MainFrame
 	class FConsolePanel final
 	{
 	public:
-		explicit FConsolePanel(FModuleOwnedCallbackGate OwnerGate = {});
+		explicit FConsolePanel();
 		~FConsolePanel();
 
 		auto Tick() -> void;

@@ -154,7 +154,7 @@ documents.
 MainFrame shutdown first stops Content Browser request admission. It then
 unregisters SkeletalMesh, StaticMesh, Texture, Material, and Level integrations
 in reverse composition order. Scoped browser extensions and feature-owned
-dialogs retire before their callback gates, and each concrete thumbnail handle
+dialogs close while their modules remain mapped, and each concrete thumbnail handle
 drains its queued and in-flight leases before its workspace documents close.
 The host then destroys Content Browser, which drains an admitted import and
 releases its provider-neutral and source-thumbnail caches, followed by shared

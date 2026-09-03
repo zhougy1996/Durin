@@ -28,8 +28,6 @@ namespace Durin::Editor
 	{
 		struct FAssetThumbnailGenerationLeaseState
 		{
-			FModuleOwnedResourceLease OwnerResource;
-			FModuleOwnedCallbackGate OwnerGate;
 			FAssetThumbnailCancellation Cancellation;
 			std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
 			std::shared_ptr<DThumbnailRenderer> Renderer;
@@ -62,9 +60,7 @@ namespace Durin::Editor
 		{
 			struct FEntry
 			{
-				FModuleOwnedResourceLease OwnerResource;
 				std::shared_ptr<DThumbnailRenderer> Renderer;
-				FModuleOwnedCallbackGate OwnerGate;
 				std::vector<std::weak_ptr<FAssetThumbnailGenerationLeaseState>> Leases;
 				uint64 Generation = 0;
 			};
@@ -110,15 +106,8 @@ namespace Durin::Editor
 		auto RegisterRenderer(
 			const std::shared_ptr<Detail::DThumbnailManagerState>& State,
 			std::shared_ptr<DThumbnailRenderer> Renderer,
-			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> uint64
 		{
-			auto Invocation = OwnerGate.TryEnter();
-			if (OwnerGate.IsValid() && !Invocation)
-			{
-				OutError = "Thumbnail renderer owner is retiring.";
-				return 0;
-			}
 			if (State->bShuttingDown)
 			{
 				OutError = "Thumbnail renderer registration is closed during shutdown.";
@@ -145,18 +134,10 @@ namespace Durin::Editor
 				return 0;
 			}
 			const uint64 Generation = State->NextGeneration++;
-			FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
-			if (OwnerGate.IsValid() && !Resource)
-			{
-				OutError = "Thumbnail renderer owner is retiring.";
-				return 0;
-			}
 			State->Renderers.emplace(
 				Registration.AssetClassName,
 				Detail::DThumbnailManagerState::FEntry{
-					.OwnerResource = std::move(Resource),
 					.Renderer = std::move(Renderer),
-					.OwnerGate = std::move(OwnerGate),
 					.Generation = Generation});
 			OutError.clear();
 			return Generation;
@@ -213,12 +194,6 @@ namespace Durin::Editor
 		if (!LeaseState || !LeaseState->bActive.load(std::memory_order_acquire))
 		{
 			OutError = "The thumbnail renderer registration is no longer active.";
-			return nullptr;
-		}
-		auto Invocation = LeaseState->OwnerGate.TryEnter();
-		if (LeaseState->OwnerGate.IsValid() && !Invocation)
-		{
-			OutError = "The thumbnail renderer owner is retiring.";
 			return nullptr;
 		}
 		if (LeaseState->Session)
@@ -303,23 +278,21 @@ namespace Durin::Editor
 
 	auto DThumbnailManager::Register(
 		std::shared_ptr<DThumbnailRenderer> Renderer,
-		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError
 	) -> bool
 	{
 		return RegisterRenderer(
-			State, std::move(Renderer), std::move(OwnerGate), OutError) != 0;
+			State, std::move(Renderer), OutError) != 0;
 	}
 
 	auto DThumbnailManager::RegisterScoped(
 		std::unique_ptr<DThumbnailRenderer> Renderer,
-		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> FThumbnailRendererRegistrationHandle
 	{
 		std::shared_ptr<DThumbnailRenderer> SharedRenderer = std::move(Renderer);
 		const uint64 RegistrationId =
 			RegisterRenderer(State, std::move(SharedRenderer),
-				std::move(OwnerGate), OutError);
+				OutError);
 		return RegistrationId != 0
 			? FThumbnailRendererRegistrationHandle(State, RegistrationId)
 			: FThumbnailRendererRegistrationHandle{};
@@ -369,12 +342,6 @@ namespace Durin::Editor
 			return false;
 		}
 		Detail::DThumbnailManagerState::FEntry& Entry = It->second;
-		auto Invocation = Entry.OwnerGate.TryEnter();
-		if (Entry.OwnerGate.IsValid() && !Invocation)
-		{
-			OutError = "The thumbnail renderer owner is retiring.";
-			return false;
-		}
 		if (!Entry.Renderer->CaptureGenerationRequest(
 				Request, RendererGeneration, OutRequest, OutError))
 			return false;
@@ -382,13 +349,6 @@ namespace Durin::Editor
 		OutRegistration = Entry.Renderer->GetRegistration();
 		auto LeaseState =
 			std::make_shared<Detail::FAssetThumbnailGenerationLeaseState>();
-		LeaseState->OwnerResource = Entry.OwnerGate.RetainResource();
-		if (Entry.OwnerGate.IsValid() && !LeaseState->OwnerResource)
-		{
-			OutError = "The thumbnail renderer owner is retiring.";
-			return false;
-		}
-		LeaseState->OwnerGate = Entry.OwnerGate;
 		LeaseState->Cancellation = OutRequest.Cancellation;
 		LeaseState->Input = std::move(OutRequest.Input);
 		LeaseState->Renderer = Entry.Renderer;

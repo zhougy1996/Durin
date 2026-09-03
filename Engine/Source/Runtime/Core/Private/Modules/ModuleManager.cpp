@@ -84,13 +84,6 @@ namespace Durin
 			GetCurrentOwner(), std::move(GroupName), Options);
 	}
 
-	auto FModuleStartup::CreateOwnedCallbackRegistration(FName DomainName)
-		-> FModuleOwnedCallbackRegistration
-	{
-		return FModularFeatureRegistry::Get().RegisterOwnedCallback(
-			GetCurrentOwner(), std::move(DomainName));
-	}
-
 	auto FModuleStartup::GetModuleName() -> FName
 	{
 		require(!GCurrentModuleStartupStack.empty());
@@ -357,8 +350,7 @@ namespace Durin
 				"Owned asynchronous operations failed the final callable and result audit.", Retirement.Snapshot, AsyncAudit);
 		}
 		const auto Audit = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->ModuleOwner);
-		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0
-			|| Audit.RetainedResourceCount != 0)
+		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0)
 		{
 			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::OutstandingFeatureAudit,
 				"Owned feature registrations failed the final synchronous retirement audit.", Audit);

@@ -87,13 +87,6 @@ namespace Durin
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
-	auto FMaterialEditorModule::StartupModule() -> void
-	{
-		EditorExtensionCallbacks =
-			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
-		require(EditorExtensionCallbacks.IsValid());
-	}
-
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
 		UnregisterMaterialEditor();
@@ -115,7 +108,7 @@ namespace Durin
 		MaterialThumbnailRegistration.reset();
 		MaterialInstanceThumbnailRegistration.reset();
 		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(
-			WorkspaceManager, EditorExtensionCallbacks.GetGate());
+			WorkspaceManager);
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
@@ -144,14 +137,14 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		}, EditorExtensionCallbacks.GetGate());
+		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto MaterialHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
 				DMaterial::StaticClass()->GetQualifiedName().ToString()),
-			EditorExtensionCallbacks.GetGate(), Error);
+			Error);
 		if (!MaterialHandle)
 		{
 			WorkspaceRegistration.reset();
@@ -163,7 +156,7 @@ namespace Durin
 		auto InstanceHandle = ThumbnailManager.RegisterScoped(
 			std::make_unique<DMaterialThumbnailRenderer>(
 				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
-			EditorExtensionCallbacks.GetGate(), Error);
+			Error);
 		if (!InstanceHandle)
 		{
 			MaterialThumbnailRegistration.reset();
@@ -209,8 +202,7 @@ namespace Durin
 						Invocation.ReportError(
 							"The material was created, but its editor could not be opened.");
 				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
+				}, Error);
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser material creation: {}", Error);
