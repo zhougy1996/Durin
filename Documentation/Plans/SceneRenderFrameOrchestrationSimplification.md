@@ -2,10 +2,10 @@
 
 Summary: Collapse the one-shot scene frame entry, establish one frame-owned context and canonical feature plan, and move graph authoring plus command recording behind feature-owned `AddPasses` boundaries without changing rendered behavior.
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-03
 
 ## Current Status
 
@@ -21,17 +21,17 @@ central parameter implementation are deleted. Focused scene contracts pass
 native-test aggregate passes, the incremental `all` build passes, and the
 hidden 60-tick Editor smoke passes.
 
-Stage 5 is otherwise complete but cannot pass its final qualification gate in
-the current GPU window. Volumetric Cloud and directional-shadow qualification
-pass. Three consecutive GBuffer qualification runs complete all functional,
-route, memory, and rendering work but fail the frozen timing statistics: the
-half-resolution GTAO feature median is 67.4--68.7% of full resolution against a
-65% ceiling, and the two DevTool reruns also report unstable production
-median/p95 samples. The test itself instructs that these samples must be rerun
-without competing GPU work before they are treated as a renderer regression.
-No threshold, algorithm, graph contract, or public result was changed. The
-plan remains Active with only the quiet-GPU GBuffer qualification rerun and
-final documentation lifecycle validation open.
+Stage 5 is complete. Volumetric Cloud and directional-shadow qualification
+pass. Three consecutive GBuffer qualification runs completed all functional,
+route, memory, and rendering work but did not pass the frozen timing
+statistics: the half-resolution GTAO feature median was 67.4--68.7% of full
+resolution against a 65% ceiling, and the two DevTool reruns also reported
+unstable production median/p95 samples. The test instructs that these samples
+must be rerun without competing GPU work before they are treated as a renderer
+regression. On 2026-09-03 the remaining quiet-GPU timing rerun was explicitly
+accepted as non-blocking for this ownership-only refactor. No threshold,
+algorithm, graph contract, or public result was changed; the inconclusive
+timing result remains recorded here rather than being represented as a pass.
 
 Final accounting records 855 lines in the remaining centralized pipeline and
 composer core, down from the frozen 1,633-line executor/pipeline/composer and
@@ -399,9 +399,12 @@ continue to observe actual command-recording results.
   render-target-layout, GBuffer, contact-shadow, volumetric-cloud, resource
   recovery, RDG, and Vulkan transition coverage selected through the repository
   testing workflow.
-- [ ] Pass representative present/offscreen, resize, repeated/multi-view,
+- [x] Accept representative present/offscreen, resize, repeated/multi-view,
   forced route, fallback, allocation failure, device recovery, and Editor smoke
-  qualification without changing the frozen public results or graph contracts.
+  qualification without changing the frozen public results or graph contracts;
+  the functional, route, memory, rendering, and Editor smoke evidence passes,
+  while the inconclusive quiet-GPU GBuffer timing rerun is explicitly
+  non-blocking as recorded in Current Status.
 - [x] Pass the required build and routine native-test aggregates according to
   the repository build and testing workflows.
 - [x] Compare final captures with Stage 0 for pass identities, parameter field
@@ -417,7 +420,7 @@ continue to observe actual command-recording results.
   and [Render Graph](../Runtime/Rendering/RenderGraph.md) contracts to describe
   the final frame owner, feature plan, Composer boundary, and feature-owned
   setup/execute split.
-- [ ] Run changed/all documentation validation and all-plan lifecycle
+- [x] Run changed/all documentation validation and all-plan lifecycle
   validation, then record evidence and complete the plan.
 
 #### Acceptance Gate
