@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
 ## Ownership Boundary
 
@@ -212,13 +212,6 @@ plan.
 
 ## Render Graph Integration Boundary
 
-The production graph declares, in order, directional shadow, GBuffer, GTAO,
-contact visibility, cloud-shadow visibility, deferred lighting, opaque Scene
-Color, cloud spatial/reconstruction/composite, translucency, post process,
-editor assistance, and output finalization. Its inputs are typed preparation
-partitions, resolved geometry values, imported/persistent graph handles,
-retained logical target descriptions, and non-RHI pass results described above.
-
 Each stable pass identity, parameter metadata definition, graph setup,
 callback, and private command-recording function is owned by its rendering
 unit. The composer wires returned typed outputs into narrow downstream inputs
@@ -226,13 +219,13 @@ and passes only the exact renderer services, immutable decisions, and upstream
 capabilities required by that feature. Features add parameterized passes only
 to the caller-owned builder and never compile or execute a graph; neither they
 nor their callbacks can discover the complete frame context or execution
-pipeline. There is no central contributor declaration, parameter
-implementation, recorder facade, service bag, or wide compose input. Retained
-allocation policy is the Renderer-owned implementation of `FRDGAllocator`. It
-receives only exact
-descriptors and lifetimes from RenderCore, and publishes one complete candidate
-table by resource ID. Human-readable resource names remain diagnostics and
-never reach allocation compatibility or physical selection.
+pipeline. Routes and
+fallbacks are selected before immutable pass parameters are published; callbacks
+validate the selected capabilities and fail the feature if they no longer match,
+rather than switching routes. Physical textures are resolved only from declared
+pass fields. Parameter lowering and callback authority follow
+[Render Graph](RenderGraph.md#typed-pass-parameters).
+
 Feature memory telemetry uses the request's numeric observation tag only for
 attribution; changing the tag cannot change compatibility, allocation success,
 transitions, culling, or command recording.
@@ -244,12 +237,29 @@ scene-preparation model, mutable blackboard, public pass registry, or alternate
 feature interface. Physical aliasing, asynchronous compute, multiple queues,
 pass merging, and PSO centralization remain separate measured decisions.
 
-The cross-plan sequencing, required migration milestones, and evidence gates
-for those conditional extensions are owned by the
+## Scene Budgets and Capture
+
+`FSceneRenderGraphComposer` sets observational regression ceilings of 12 declared
+passes, 28 dependencies, and 32 physical texture transitions. Structural limits
+are 256 passes and 4096 dependencies, buffer transitions, and texture
+transitions. No cross-pass buffers are currently declared, so no measured buffer
+regression ceiling is selected. Debug CPU ceilings are 5 milliseconds to compile
+and 250 milliseconds to record callbacks. Budget interpretation is defined by
+[Render Graph diagnostics](RenderGraph.md#diagnostics-and-budgets).
+
+`SetSceneRenderGraphCaptureSink` is the development/test observer. A `RenderView`
+submission may also request an explicit owning capture for its exact viewport.
+No capture is constructed without a consumer; with both consumers, one owning
+snapshot is published to both. Neither can mutate resources, scheduling,
+callbacks, or commit state. Viewport publication is defined by
+[Viewport Rendering](ViewportRendering.md#viewport-rendering-statistics).
+
+Historical migration and extension decisions remain in the
 [Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md).
 
 ## Related Documentation
 
+- [Render Graph](RenderGraph.md)
 - [Viewport Rendering](ViewportRendering.md)
 - [Renderer Scene Representation](SceneRepresentation.md)
 - [Persistent View State](PersistentViewState.md)

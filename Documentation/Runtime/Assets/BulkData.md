@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v9 placement, package-
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-03
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -73,7 +73,7 @@ no hash, GUID, DDC key, schema, target, asset path, or physical path.
 
 Only the loose backend stores the mounted `.dasset` path and derives the stable
 `.dbulk` sibling. At package admission it validates the complete external
-segment against the v8 Registry extent and XXH3-128 digest, every external
+segment against the v9 Registry extent and XXH3-128 digest, every external
 field digest, and zero alignment padding in one sequential pass using 64 KiB
 scratch and the 1 GiB package limit. It then exposes immutable ranges from the
 already validated Bulk Directory. Backup recovery uses a bounded-memory atomic
@@ -96,7 +96,7 @@ returning a mixed generation.
 
 CoreDObject receives BulkData as detached linker values. Each value includes
 logical bytes, element size, power-of-two alignment, and explicit Inline or
-External placement. The v8 writer owns placement; it never writes offsets,
+External placement. The v9 writer owns placement; it never writes offsets,
 handles, residency, or resource state back into the live field.
 
 The package contains two physical payload domains:
@@ -126,7 +126,7 @@ XXH3-128. Header validation checks declared extent against physical extent;
 complete package validation checks the whole digest and every directory range
 before linker publication or object construction.
 
-Runtime loose loading uses the resource-backed v8 reader. External linker
+Runtime loose loading uses the resource-backed v9 reader. External linker
 values carry only directory offset, extent, alignment, element size, and
 content digest; they do not own payload bytes. Canonical main-package
 validation reconstructs `.dasset` from those descriptors without emitting a
@@ -137,40 +137,33 @@ the owning-byte reader when byte-for-byte external reconstruction is required.
 
 A cooked Archive dispatches `DObject::SerializeCooked`, supplies exact
 platform/profile facts, filters editor-only state, and captures runtime
-`FBulkData` into the same v8 linker value and placement contract. Detached live
+`FBulkData` into the same v9 linker value and placement contract. Detached live
 fields remain detached while capture copies immutable bytes. The writer assigns
 physical offsets only inside detached output.
 
 `FCookContext::AddPackage(VirtualPath, Package)` carries canonical identity and
-exact v8 main/bulk bytes through reachability, pruning, output planning, and
+exact v9 main/bulk bytes through reachability, pruning, output planning, and
 CMNF publication. Cooked load validates the closure first, then attaches
 external fields to the package resource. Metadata load issues no range request;
 first access requests exactly the declared range. There is no Cook-only package
 raw-segment metadata grammar.
 
 Opaque non-package Cook segments remain a separate explicit plan kind. They
-are validated by their own extent/digest and are never passed to the v8 package
+are validated by their own extent/digest and are never passed to the v9 package
 reader or misidentified as a `.dbulk` closure.
 
 ## Publication And Companion Ownership
 
-An authored save snapshots all payloads, writes canonical v8 main/bulk buffers,
-validates the detached closure, and stages the optional external segment before
-the referencing main package. The prior stable segment is preserved as
-recoverable backup state. Catalog publication occurs last; after committed
-bytes validate, backups are removed. Failure restores the previous complete
-pair or removes a first uncommitted pair. Inline-only saves publish no empty
-segment and remove a stale prior companion only after the new main package is
-committed.
-
-Cook publication follows segment, package, incremental state, then CMNF commit
-order. Read-back validation covers each changed output, backups restore every
-overwritten/new file on failure, and unchanged validated plans preserve bytes
-and timestamps. Stale cleanup is restricted to entries owned by the prior
-manifest.
+Authored save snapshots all payloads into the detached closure and follows
+[package publication](AssetPackages.md#production-save-and-load), including the
+distinction between pre-commit rollback and post-commit Registry reconciliation.
+The prior stable segment remains recoverable until the new closure commits.
+Inline-only saves publish no empty segment and remove a stale prior companion
+only after the new main package is committed. Cook publication and rollback
+follow [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
 
 Move, duplicate, delete, inventory, orphan detection, source-control closure,
-and canonical resave derive companion ownership from validated v8 Registry and
+and canonical resave derive companion ownership from validated v9 Registry and
 Bulk Directory facts. A suffix scan is never authority. Atomic temporaries and
 `.durin-backup` files are recovery state, not authored companions. Git LFS
 pointer text, absent content, truncated companions, and partial clones fail

@@ -310,7 +310,7 @@ is not eligible to render.
 
 - [Volumetric Cloud Rendering roadmap](../../../Roadmaps/Archive/2026-08/VolumetricCloudRendering.md)
 - [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene authoring](../../../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
 - [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Build and run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)

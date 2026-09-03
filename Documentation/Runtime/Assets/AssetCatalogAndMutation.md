@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -142,7 +142,8 @@ unrelated referencer packages: their authored paths continue to target the
 source alias until an explicit Fix Up operation canonicalizes those paths.
 
 Moving package `A -> B` retains one redirect record for each moved top-level
-asset and preserves every asset name and descendant suffix. Relocation does not
+asset and preserves every asset name and descendant suffix. Asset rename is a
+separate exact operation. Relocation does not
 compress unrelated upstream aliases; canonicalization belongs exclusively to
 Fix Up. Reclaiming a destination alias requires exact proof that it resolves to
 the selected real source.

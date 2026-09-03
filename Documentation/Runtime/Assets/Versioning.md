@@ -66,6 +66,8 @@ reader/writer owns all package tables and tagged-value semantics. Engine's
 immutable ordinary codec policy selects v9 only for header reads, validation,
 inspection, schema probes, reference projection, live load, serialization,
 relocation, fix-up, redirectors, Cook, and canonical resave.
+The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v9;
+older package versions have no reader or migration path.
 
 Every production entry requires exact package identity and, when present, the
 complete main/raw-bulk closure. Unknown format identities, non-v9 DAST versions,
@@ -80,16 +82,12 @@ change requires a new DAST version and a separately planned corpus transition.
 The Registry cache fingerprints exact source bytes/format and is invalidated by
 any relevant main/bulk change.
 
-Raw `.dbulk` is not a DURF format. DAST v9 Registry and Bulk Directory own its
-extent, whole-segment digest, field ranges, alignments, and per-value digests.
-Asset-family payload schemas and DDC/Cook keys version independently.
-
-## Retired Package Formats
-
-The maintained repository baseline is canonical v9. Production discovery,
-load, save, inspection, mutation, Cook, and resave select v9 only. V7 and v8
-have no reader or migration path. A mounted non-v9 package fails Registry
-admission before it can publish catalog state.
+Raw `.dbulk` has no independent DURF version; its format is owned by the
+[package BulkData contract](BulkData.md#dast-v9-authored-placement).
+Asset-family payload schemas and DDC/Cook keys version independently. A
+builder-version change invalidates production identity without necessarily
+changing readable family bytes; a family schema change requires a supported
+reader or an explicit unsupported-version result.
 
 ## Early-Development Compatibility
 

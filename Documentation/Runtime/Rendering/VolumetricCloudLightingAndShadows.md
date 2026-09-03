@@ -4,7 +4,7 @@ Summary: Defines production cloud single scattering, self-transmittance, ambient
 
 Modules: Renderer
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-09-03
 
 ## Selected light and cloud radiance
 
@@ -47,7 +47,7 @@ The quality-owned shadow sample counts are 4, 6, 8, and 8 for `Performance`,
 `High`, `Epic`, and `Reference`. The target follows the fitted viewport and
 supports both depth conventions; pixels outside the fitted viewport and
 background receivers retain visibility one. It is regenerated each eligible
-view. P4 deliberately has no cross-frame shadow reuse or camera-dependent
+view. There is no cross-frame shadow reuse or camera-dependent
 shadow cache key.
 
 Deferred directional lighting multiplies the existing geometric visibility,
@@ -71,36 +71,37 @@ count, sample work, active bytes, retained bytes, identity fallback, and
 lighting-sensitive history behavior. Timing and capture sinks identify the
 shadow route independently from complete cloud-route timing.
 
-Fragment and compute shadow target families each retain at most 16 MiB. A 4K
-target is 8,294,400 bytes; retaining both route families is 16,588,800 bytes.
-Targets and shader payloads use Renderer resource generations and
-complete-or-last-known-good publication. Manual/device invalidation and
-shutdown release shadow targets, views, and pipelines without a device-idle
-wait.
+A full-resolution `R8_UNORM` visibility target costs one byte per pixel,
+8,294,400 bytes at 4K. The selected route declares a transient graph target;
+[frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes)
+own allocation and retention. Feature shader/pipeline payloads follow Renderer
+resource generations and compatible last-known-good publication. Invalidation
+and shutdown release feature payloads and views without a device-idle wait.
 
 ## Qualification
 
-The frozen gate is NVIDIA GeForce RTX 3090 / Vulkan 1.4.325 at 3840x2160. It
+The [`VolumetricCloudQualificationTests`](../../../Engine/Tests/Native/EngineTests/Private/VolumetricCloudQualificationTests.cpp)
+frozen gate is NVIDIA GeForce RTX 3090 / Vulkan 1.4.325 at 3840x2160. It
 runs six deterministic frames per tier with static, translated, rotated, and
 cut cameras, and executes explicit inline and threaded lanes. Production tiers
 render the cloud body at 1920x1080 and reconstruct temporally; receiver
-visibility remains 3840x2160. The accepted image metrics against `Reference`
-are stable across both executors:
+visibility remains 3840x2160. Image and history acceptance are defined by
+[Temporal Reconstruction](VolumetricCloudTemporalReconstruction.md#qualification).
+The timed complete route uses 12 warm-up and 48 measured frames per tier.
 
-| Tier | Mean RGB error | Outlier fraction | Shadow samples | Total retained |
-| --- | ---: | ---: | ---: | ---: |
-| `Performance` | 0.0348179 | 1.31761% | 33,177,600 | 149,299,200 B |
-| `High` | 0.0162224 | 0.76421% | 49,766,400 | 149,299,200 B |
-| `Epic` | 0.0031851 | 0.0430464% | 66,355,200 | 149,299,200 B |
-| `Reference` | 0 | 0% | 66,355,200 | 215,654,400 B |
+| Tier | Complete median / p95 | Shadow median / p95 |
+| --- | ---: | ---: |
+| `Performance` | 20 / 32 ms | 4 / 32 ms |
+| `High` | 26 / 40 ms | 6 / 32 ms |
+| `Epic` | 32 / 48 ms | 8 / 32 ms |
+| `Reference` | 60 / 80 ms | 12 / 32 ms |
 
-The complete-route median/p95 budgets are 20/32, 26/40, 32/48, and 60/80 ms.
-Shadow-only median/p95 budgets are 4/32, 6/32, 8/32, and 12/32 ms. The accepted
-2026-08-23 inline run observed complete-route medians of 2.589, 2.537, 14.216,
-and 9.498 ms and shadow medians of 0.694, 0.912, 1.141, and 1.198 ms. The
-threaded run observed complete-route medians of 1.876, 14.279, 15.136, and
-17.925 ms and shadow medians of 0.524, 0.761, 0.959, and 0.829 ms. Every median,
-p95, image, work, and 224 MiB complete-retention gate passed.
+`High` median must be at most 80% of `Reference`. The fixture requires at most
+224 MiB complete-cloud retained bytes, exact target extent and sample work,
+complete output, and the selected compute route. These are qualification
+budgets, distinct from the shared allocator's structural policy.
+Historical measurements and rollout decisions remain in the
+[Cloud Lighting and Shadows plan](../../Plans/Archive/2026-08/VolumetricCloudLightingAndShadows.md).
 
 `VolumetricCloudSceneContractTests`, `RenderShaderContractTests`,
 `VolumetricCloudVulkanTests`, `VolumetricCloudSceneVulkanTests`, and

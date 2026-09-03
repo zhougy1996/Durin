@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -100,17 +100,29 @@ Texture compilation is Engine-owned. One `FTextureCompilingManager` owns
 typed asset state, worker admission, priority fairness, memory budget,
 cancellation, the completion mailbox, latest-wins request serials, GameThread
 completion application, and exactly-once completion callbacks. Active records are keyed by
-`FObjectHandle` and erased at terminal delivery; retained work diagnostics are
-bounded independently. `DTexture2D` owns only its process-local request serial
-and last-request diagnostic handle. The deterministic input/provider identity
-remains separate from that serial and from GPU resource readiness.
+`FObjectHandle`; the manager owns request serials, active/last request ids,
+failure state, and bounded terminal diagnostics. Active work ends at terminal
+delivery, while completed asset diagnostics remain under a separate bound.
+The deterministic input/provider identity remains separate from request serials
+and GPU resource readiness.
 
-TextureBuild owns the three synchronous pure provider implementations, build
-algorithms, recipe metrics, and producer versions. Editor-enabled Engine owns
-Texture DDC keys, Get/Put, PlatformData validation and serialization, live
-Texture objects, authored state, PostLoad orchestration, diagnostics, completion
-application, and resource invalidation.
+Recipe providers, DDC ownership, and typed build application are defined by
+[Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).
 TextureCube and VolumeTexture stay synchronous and do not register class routes.
+
+### Texture2D Completion
+
+`FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`,
+`Failed`, `Canceled`, or `Superseded` and carries a bounded diagnostic. An
+accepted request invokes its `FTexture2DCompilationCompletion` exactly once on
+GameThread. Rejection before acceptance is returned synchronously without
+invoking completion.
+
+A new request for an object with active work cancels the old worker and
+completes the old observer as `Superseded`. A late worker result for that
+generation cannot publish or complete the observer again. Editor save and
+compensation adapters consume this terminal contract through
+[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md).
 
 ## Proven Reuse Boundary
 

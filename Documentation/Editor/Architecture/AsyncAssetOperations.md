@@ -21,24 +21,9 @@ preparation and explicit setter application or delegates only build work to its 
 domain. Scene performs direct synchronous orchestration around private captured
 values and does not create a generic import job or operation handle.
 
-## Texture2D Compilation Completion Contract
-
-`FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`, `Failed`,
-`Canceled`, or `Superseded` and carries a bounded diagnostic. An accepted
-compilation request invokes its `FTexture2DCompilationCompletion` exactly once
-on the contributing domain's completion thread. Rejection before acceptance is returned
-synchronously and does not invoke completion.
-
-Request serials, active/last request ids, failure state, and bounded terminal
-diagnostics belong to the Texture compiling manager rather than `DTexture2D`.
-Supersession is terminal, not silent callback disposal. When a family admits a
-new request for an identity that already has active work, it cancels the old
-worker and completes the old observer as `Superseded`. A late worker completion
-for that generation cannot publish or complete the observer again.
-
-The terminal contract is not a generic request scheduler or observation
-handle. A family domain still decides whether requests are identified by
-asset, generation, opaque serial, or another typed key.
+Texture2D adapters consume the GameThread terminal result defined by
+[Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
+Request identity, cancellation, and supersession remain compilation concerns.
 
 ## Compensating Operation Contract
 

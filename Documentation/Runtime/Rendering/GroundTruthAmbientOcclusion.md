@@ -11,23 +11,14 @@ for production solid Lit views with required deferred opaque ownership.
 `FSceneViewSettings::AmbientOcclusion.bEnabled` captures the immutable
 per-view enable selection and defaults to enabled. The separate immutable
 `FSceneViewSettings::AmbientOcclusion.Quality` selects `HalfResolution`, the
-production default, or `FullResolution`, the quality reference. Forward-reference,
-migration fallback, wireframe, and Unlit views neither allocate nor sample
-GTAO. The viewport View menu exposes the toggle and quality under
-`Post Processing > GTAO`; the submenu contains an `Enabled` checkbox and the
-mutually exclusive quality choices.
+production default, or `FullResolution`, the quality reference. Wireframe and
+Unlit views neither allocate nor sample GTAO. Editor controls are defined by
+[Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
 
-Production half resolution records:
-
-```text
-directional shadow -> GBuffer/D32 -> representative selector -> half raw GTAO
-                   -> half bilateral horizontal/vertical -> full resolve
-                   -> sky/clear bootstrap
-                   -> deferred direct + environment * material AO * GTAO
-                      + emissive
-                   -> retained forward -> contact -> display
-                   -> editor assistance
-```
+The local half-resolution sequence is GBuffer/D32, representative selector,
+raw GTAO, horizontal/vertical bilateral filtering, then full-resolution resolve.
+The resolved result precedes deferred consumption in the
+[frame schedule](RendererFramePreparation.md#render-graph-frame-schedule).
 
 The full-resolution resolved factor is consumed only by the deferred
 environment-light call. Directional and local direct lighting,
@@ -110,40 +101,23 @@ invalidation, retry, explicit release, cache eviction, recorded-command
 lifetime, and shutdown cannot reuse stale payloads from another quality, view,
 or extent.
 
-## Memory and RTX 3090 qualification
+## Memory and Qualification
 
 Full resolution retains two full-resolution `R8_UNORM` targets and costs two
 bytes per pixel: `4,147,200` bytes at 1920x1080. Half resolution owns raw,
 scratch, and selector at `ceil(W/2) x ceil(H/2)`, plus one full-resolution
 resolved R8 target. Its exact formula is
-`3 * ceil(W/2) * ceil(H/2) + W * H`, or `3,628,800` bytes at 1920x1080. Quality
-is part of the cache key. The cache retains the current entry and evicts oldest
-other extent/quality entries above `32 MiB`; publication remains transactional.
+`3 * ceil(W/2) * ceil(H/2) + W * H`, or `3,628,800` bytes at 1920x1080.
+Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
+feature byte costs do not define independent cache quotas.
 
-Qualification uses NVIDIA GeForce RTX 3090, driver 591.86, Vulkan 1.4.325,
-validation enabled, `Win64-Debug-DurinEditor`, threaded RHI execution,
-1920x1080, 30 warm-up frames, and 120 measured frames. The 2026-08-16
-same-process run measured full feature `681,808/697,248 ns`, half feature
-`397,568/400,032 ns`, half resolve `116,416/117,600 ns`, and
-shadow-through-display production total `468,672/483,552 ns` median/p95 with
-FXAA enabled and editor assistance disabled. Half median was `58.3%` of full.
-Inline RHI execution also passes the correctness and lifecycle matrix;
-production p95 gates belong to the normal threaded mode.
-
-The frozen gates are:
-
-| GPU interval | Median gate | p95 gate |
-| --- | ---: | ---: |
-| Full reference feature | `850,000 ns` | `1,100,000 ns` |
-| Half feature | `600,000 ns` | `900,000 ns` |
-| Half resolve | `150,000 ns` | `250,000 ns` |
-| Deferred composition increment | `75,000 ns` | `125,000 ns` |
-| Shadow-through-display, GTAO + FXAA | `2,000,000 ns` | `3,000,000 ns` |
-
-Half feature median must additionally be at most `65%` of the same-run full
-feature median. All image, isolation, lifecycle, memory, and timing gates
-passed, so half resolution is the shipped default while full resolution
-remains the opt-in reference.
+`GBufferQualificationTests` exercises full/half quality, image parity, isolation,
+failure, resize, and release in inline and threaded execution. The same-run half
+feature median must be at most 65% of the full feature median. Isolated raw,
+filter, resolve, and full-feature absolute median/p95 timings are characterization;
+they are not cross-batch absolute regression gates. The synchronized production
+route and AO composition increment use the budgets in
+[Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
 
 The screen-space result cannot observe off-screen casters and does not repair
 direct-shadow leaks. Shadow maps remain authoritative for direct visibility;

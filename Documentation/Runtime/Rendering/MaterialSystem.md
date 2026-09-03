@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -31,7 +31,8 @@ diagnostic counters.
   identity, type, order, and metadata are canonical; only the nested values are
   editable. Definitions are a compatibility/value catalog; a definition becomes
   active only when a reachable Parameter, TextureParameter, TextureCoordinate,
-  or TextureSample graph node declares it.
+  or TextureSample graph node declares it. Definitions reject invalid/duplicate
+  GUIDs, `None`/duplicate names, and deviations from the built-in schema.
 - `DMaterialInstance` references a parent material interface and stores one
   ordered collection of GUID/value overrides plus an optional all-or-nothing
   static-property override. Dynamic resolution walks the current
@@ -190,13 +191,11 @@ filter `DMaterial`; aggregate shutdown closes admission, publishes accepted
 terminal results, empties the mailbox, and releases flights and retained
 results before task-system teardown.
 
-RenderCore remains the sole persistent DDC owner for SPIR-V, reflection, and
-dependency manifests. M6 adds no second editor material DDC because the
-material result would duplicate those artifacts and the retained M5 IR/source
-does not justify another disk owner. Cache outcomes exposed by the material
-manager are therefore retained-result hit, shared in-flight work, compiled, or
-forced; corrupt RenderCore artifacts retain their existing cache-miss/repair
-semantics.
+ShaderBuild owns compiled-output DDC and local dependency manifests as defined
+by [Shader Cache](ShaderCache.md). Materials add no second persistent cache for
+IR/source or compiled artifacts. The material manager reports retained-result
+hits, shared in-flight work, compilation, or forced compilation; corrupt Shader
+artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
@@ -414,6 +413,10 @@ and material-sampler fallback.
 
 ## Dependency And Invalidation Model
 
+Material mutation publishes explicit render-thread commands. Replacing a
+component material assignment rebuilds its scene proxy; parameter changes
+publish through the stable proxy and dynamic-only changes reuse shader identity.
+
 - Material dependencies are forward-only. `DMaterialInstance::Parent` is the
   canonical relationship, and dependency tests walk that chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
@@ -483,78 +486,14 @@ black environment set, preserving direct lighting and Emissive. This internal
 asset follows Engine content and asset-cook ownership rather than `DevTool`
 build orchestration.
 
-## Static Mesh Vertex Contract
+## Geometry and Editor Consumers
 
-- Static meshes retain up to four UV channels. Missing channels are filled with `(0, 0)` while the LOD records how many source channels were present.
-- Tangents are stored as `xyz` plus a handedness sign in `w`; the bitangent is reconstructed as `cross(N, T) * sign`.
-- Missing normals and tangents are generated deterministically. Missing vertex colors use linear white, so they do not change the material base color.
-- Each imported node-mesh instance becomes a section. Sections keep contiguous index ranges and reference a stable source material slot; source material assets are not created automatically.
-
-The render-resource ownership, physical stream layout, and vertex-factory
-boundary are defined in [Static Mesh Rendering](StaticMeshRendering.md).
-
-## Static Mesh Derived Data and Cooking
-
-StaticMesh source provenance stores one normalized project-relative or external
-absolute filename plus the exact source hash, Assimp importer version, and
-import axes. Source organization is independent of the StaticMesh package
-path. Reimport reads the persisted file without copying, replacing, relocating,
-or deleting it. Legacy package-relative source fields are rejected. The
-canonical DDC key also includes builder version 4, render-payload schema 5, and target
-platform. A valid warm DDC object can load from persisted identity while source
-and Assimp are unavailable.
-
-StaticMesh render schema 5 is a little-endian, checksummed chunk layout for bounds, a
-bounded material-slot count, per-LOD screen-size policy and geometry metadata,
-sections, vertex streams, and index buffers.
-Readers bound all counts and ranges, reject invalid numeric data and indices,
-skip only optional unknown chunks, and publish render data only after complete
-validation. Schema 3 and older payloads are rejected rather than converted.
-Cook strips source/import metadata and projects schema 5 into the lazy
-`RenderData` BulkData field. BodySetup collision uses the parallel
-`CollisionData` field. Runtime metadata load reads neither field; render and
-physics publication lock, decode, validate, and publish their required field
-independently without source or DDC fallback.
-
-Material Preview acquires shared `/Engine/Models/Sphere` and
-`/Engine/Models/Box` StaticMesh assets through the canonical
-editor retention service. Multiple documents coalesce by virtual asset identity;
-preview creation performs no transient OBJ import, and retained handles provide
-the GC lifetime edge.
-
-Content Browser Material and MaterialInstance thumbnails acquire the same
-retained sphere and bind fully resolved `FMaterialRenderData`; they do not own a
-second mesh import or a live viewport. Their cache key contains the material
-package plus a deterministic, sorted, cycle-guarded closure of parent-material
-and referenced-texture package fingerprints. A parent, local override, or
-referenced texture change therefore regenerates the dependent preview, while a
-warm PNG hit performs no asset load or render. Provider, scheduling, recovery,
-and UI behavior belongs to the editor
-[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md) contract.
-
-## Design Rules
-
-- Components and assets use `DMaterialInterface`; renderer code consumes only render data and shader maps.
-- Mesh slot vector index is the persistent component-assignment identity.
-  Display names are renameable conveniences; imported names and source indices
-  are reconciliation evidence; section indices consume the stable table.
-- Parameter GUID is authoritative persistent identity; `FName` is lookup and
-  display-facing identity, never serialized override identity.
-- A valid definition set contains no invalid or duplicate GUIDs, `None` names,
-  duplicate names, or deviations from the canonical built-in schema.
-- Instances override parameters without duplicating declarations or the
-  parent's shader program.
-- Static properties are authored on base materials and inherited atomically by
-  default. An instance may persist one validated all-or-nothing static-property
-  override; imported materials use this to retain blend mode, mask threshold,
-  and two-sided state without creating importer-specific base materials.
-- Static properties belong in shader-map/permutation keys; dynamic parameters
-  belong in uniform/resource bindings. A dynamic-only update reuses the cached
-  identity, while a static update causes the next draw to resolve or create the
-  matching shader-map and pipeline entry.
-- Material object mutation crosses to the rendering thread through explicit
-  update commands. Replacing the material assigned to a component still
-  rebuilds its scene proxy because the set of render snapshots changes.
+[Static Mesh Rendering](StaticMeshRendering.md) owns imported vertex semantics,
+source provenance, derived data, and Cook. Material consumers use its vertex
+factory and positional slot contract rather than defining another payload.
+[Material Graph Operations](../../Editor/Architecture/MaterialGraphOperations.md)
+owns editor preview lifetime; [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md)
+owns thumbnail fixtures, dependency keys, scheduling, and recovery.
 
 Long-term sequencing and current editor/rendering limitations are tracked in
 the [Material System Roadmap](../../Roadmaps/MaterialSystem.md); executable work

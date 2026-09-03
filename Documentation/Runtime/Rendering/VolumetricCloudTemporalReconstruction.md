@@ -4,7 +4,7 @@ Summary: Defines Renderer-owned cloud quality tiers, low-resolution spatial reco
 
 Modules: RenderCore, Renderer
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-09-03
 
 ## Quality policy and target extent
 
@@ -95,18 +95,13 @@ Cloud debug modes reuse the normal composite and production intermediates, add
 no retained target, and leave history evaluation and the outer transaction
 unchanged.
 
-At 3840x2160 one `RGBA16_FLOAT` target is 66,355,200 bytes and a half-linear
-target is 16,588,800 bytes. The qualified production steady state retains two
-low-resolution route targets, the full-resolution composite target, and two
-history textures: 132,710,400 bytes total. `Reference` retains three
-full-resolution renderer targets and no history: 199,065,600 bytes. Both remain
-under the 192 MiB renderer/cloud qualification ceiling; these values do not
-include unrelated scene-color or depth ownership.
-
-P4 adds a full-resolution `R8_UNORM` receiver-visibility target. Retaining both
-shadow route families adds 16,588,800 bytes, producing complete-cloud totals of
-149,299,200 bytes for production tiers and 215,654,400 bytes for `Reference`,
-both below P4's 224 MiB ceiling.
+At 3840x2160 one `RGBA16_FLOAT` target costs 66,355,200 bytes and a half-linear
+target costs 16,588,800 bytes. Spatial and composite targets use the shared
+[RDG allocator](RendererFramePreparation.md#resource-lifetime-classes); committed,
+pending, and spare history stay outside that allocator. Actual retained bytes
+depend on demanded routes, descriptor reuse, and live histories, rather than
+fixed per-route cache quotas. Complete-cloud qualification budgets are owned by
+[Cloud Lighting and Shadows](VolumetricCloudLightingAndShadows.md#qualification).
 
 Resource or shader failure returns the current spatial cloud when possible and
 publishes no temporal candidate. An outer abort leaves the prior committed
@@ -122,24 +117,18 @@ candidate creation failure followed by recovery, policy rejection, abort
 preservation, device invalidation, and release. The spatial qualification matrix
 adds odd fitted extents and both forward and reversed depth conventions.
 
-On the frozen NVIDIA GeForce RTX 3090 / Vulkan 1.4.325 gate, the 4K complete
-route uses 12 warm-up and 48 measured frames per tier and reports median/p95 GPU
-time, work, target/history/total bytes, history acceptance, and six-frame
-static/translation/rotation/cut image error against `Reference`. The accepted
-2026-08-23 threaded run reported:
+The 4K image matrix uses six static/translation/rotation/cut frames against
+`Reference`. Production-tier mean RGB errors are bounded by 0.08/0.06/0.04;
+at most 5%/1%/0.5% of RGB components may exceed 0.35/0.30/0.25 for
+`Performance`/`High`/`Epic`. Maximum error remains diagnostic. Reference accepts
+no history and has zero reference-relative error. Production tiers require
+four accepted and two rejected histories, with at most 32 MiB retained history
+in the fixture.
 
-| Tier | Median / p95 | Mean RGB error | Outlier fraction | Total retained |
-| --- | ---: | ---: | ---: | ---: |
-| `Performance` | 0.419 / 1.531 ms | 0.052072 | 3.419% | 132,710,400 B |
-| `High` | 0.982 / 4.716 ms | 0.012408 | 0.661% | 132,710,400 B |
-| `Epic` | 1.658 / 8.367 ms | 0.002340 | 0.044% | 132,710,400 B |
-| `Reference` | 2.644 / 6.609 ms | 0 | 0% | 199,065,600 B |
-
-`High` is 62.9% below `Reference` median cost. Absolute median budgets are
-16/20/24/48 ms and p95 budgets are four-thirds of those values. Mean RGB error
-budgets are 0.08/0.06/0.04 for production tiers. The reported maximum remains a
-diagnostic; the bounded gate permits at most 5%/1%/0.5% of RGB components above
-0.35/0.30/0.25 for `Performance`/`High`/`Epic`.
+Current complete-route timing and memory gates are defined by
+[Cloud Lighting and Shadows](VolumetricCloudLightingAndShadows.md#qualification).
+The original spatial/temporal calibration, rejected filter, and measured runs
+remain in the [Temporal Reconstruction plan](../../Plans/Archive/2026-08/VolumetricCloudTemporalReconstruction.md).
 
 ## Related documentation
 

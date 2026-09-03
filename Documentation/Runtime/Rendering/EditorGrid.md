@@ -4,7 +4,7 @@ Summary: Define the procedural editor grid's screen-space generation, camera-rel
 
 Modules: RenderCore, Renderer, LevelEditor, RHI
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-09-03
 
 ## Purpose and mental model
 
@@ -251,43 +251,6 @@ broad surface.
 
 A fixed-point or integer depth format requires a format-specific
 representable-step policy.
-
-## Problems solved by the current design
-
-### Finite-grid edge and camera-following geometry
-
-Fullscreen ray-plane reconstruction removes finite geometry extent. Distance
-and angle fades, rather than mesh boundaries, define visibility.
-
-### Large-world line fragmentation
-
-The former complete inverse view-projection path reconstructed large absolute
-positions. Precision loss in `far - near` and
-`frac(WorldPosition / Spacing)` could make neighboring pixels alternate
-between line and non-line coverage, especially in large Terrain scenes.
-Translation-free matrices keep ray math camera-relative, while double-precision
-decimal phases retain exact world anchoring without restoring large absolute
-coordinates in the periodic path.
-
-### Decimal LOD popping and derivative seams
-
-Continuous-position derivatives are evaluated before discrete spacing
-selection, and adjacent decimal levels cross-fade through shared world lines.
-This avoids whole-region scale pops and false derivative boundaries.
-
-### Coplanar grid disappearance and z-fighting
-
-The visual plane remains exact, while its emitted depth receives a bounded D32
-camera-side tolerance. Direct clip-plane depth plus that tolerance keeps the
-grid stable across camera rotation on a coplanar Terrain surface without
-allowing it to pass genuinely closer geometry.
-
-### Scene and post-process interaction
-
-The grid renders after scene post-processing, so FXAA does not blur the editor
-reference lines. Loading preserved scene depth retains mesh occlusion, while
-drawing the grid before other assistance leaves gizmos and simple line, point,
-and sprite batches readable over it.
 
 ## Limits and extension rules
 

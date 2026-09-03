@@ -4,13 +4,14 @@ Summary: Defines the deterministic volumetric-cloud spatial producer, scene-line
 
 Modules: Renderer
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-09-03
 
 ## Ownership and input
 
-`FVolumetricCloudRenderer` owns cloud shader payloads, canonical output views,
-extent-keyed targets, the optional-white weather fallback, timing/capture hooks,
-and composition. RHI and VulkanRHI remain cloud-agnostic. Generic volume and 2D
+`FVolumetricCloudRenderer` owns cloud shader payloads, the optional-white
+weather fallback, timing/capture hooks, and composition. Spatial/composite
+targets are frame-transient graph resources. RHI and VulkanRHI remain
+cloud-agnostic. Generic volume and 2D
 textures remain owned by their asset/render-resource producers.
 
 One prepared view may publish an immutable renderer-private input translated
@@ -65,24 +66,24 @@ command.
 
 ## Lifetime, diagnostics, and recovery
 
-Fragment, compute, and composite targets use complete-or-last-known-good
-resource slots; compute also owns canonical sampled/storage views. Each target
-family is capped at 64 MiB under a 192 MiB retained-target ceiling, so a full
-3840x2160 `RGBA16_FLOAT` target fits in every family while all three families
-remain within 192 MiB total. Old extents are evicted in insertion order while
-preserving the current extent. Oversized extents fail explicitly.
+Fragment, compute, and composite targets are graph-owned `RGBA16_FLOAT`
+resources costing 8 bytes per target pixel. Compute uses canonical
+sampled/storage views. Route selection finishes before graph compilation.
+Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
+feature byte costs do not define independent cache quotas.
 
-Shader/device/manual generations control retry and invalidation. Replacement
-failure retains the previous complete payload when its generation remains
-usable; device invalidation releases device-owned targets and views. Shutdown
-releases target caches, shader payloads, the white-weather fallback, and shared
-composition state.
+Shader/device/manual generations control persistent-payload retry and
+invalidation. Same-device replacement may retain a compatible complete shader
+or pipeline; transient targets never borrow another view's stale output.
+Shutdown releases feature payloads and the white-weather fallback, while the
+allocator owns transient release. Committed temporal history remains view-owned.
 
 Per-view counters publish route and reason, dispatch/draw/copy structure,
 primary/light sample budgets, active and retained target bytes, and composite
 draws. Timing and capture sinks receive the complete selected cloud target.
-Failures are diagnostic only and never convert an otherwise renderable scene
-view into a failed view.
+Optional producer unavailability disables clouds for that view. Failure of the
+shared graph allocation or required final output follows the frame-level abort
+contract rather than publishing a partial frame.
 
 ## Qualification
 
@@ -96,7 +97,7 @@ fragment/compute median gates only when the physical device reports the frozen
 NVIDIA GeForce RTX 3090 and Vulkan 1.4.325 identity; other devices emit
 explicit non-gating observations.
 
-P2 production views receive their input from the selected immutable Engine
+Production views receive their input from the selected immutable Engine
 scene snapshot. Tests force the fragment route through the feature-bounded
 Renderer-private `FScopedRendererQualificationPolicy`; the graph executor
 snapshots this value without mutating cloud preparation. There is no cloud

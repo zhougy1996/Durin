@@ -6,22 +6,6 @@ Modules: RHI, RenderCore
 
 This document describes the current typed shader parameter path used by `RenderCore`, `RHI`, and `VulkanRHI`.
 
-## Goals
-
-The old prototype exposed descriptor-facing details to callers:
-
-- callers had to provide descriptor set indices
-- callers had to provide binding indices
-- callers had to provide resource binding types
-
-The current design moves those responsibilities into the shader system:
-
-- shader code reflection remains the source of truth for resource bindings
-- shader classes declare typed parameter structs
-- RenderCore resolves parameter fields to reflected bindings once during shader initialization
-- RHI callers submit typed parameter structs instead of descriptor-oriented binding records
-- Vulkan materializes descriptor sets lazily at draw time and caches the result for the current frame
-
 ## High-Level Flow
 
 1. A shader type optionally declares parameter metadata.
@@ -214,104 +198,23 @@ the active compute PSO. Both paths retain canonical views and parent resources
 through replay and require every reflected descriptor element before draw or
 dispatch.
 
-## Vulkan Responsibilities
+## Backend and Material Boundaries
 
-Vulkan owns draw-time descriptor materialization and frame-local snapshot
-caching. Native descriptor-pool reuse is independently gated by GPU completion.
+`FVulkanCommandListContext` owns pending per-draw resources and descriptor
+materialization; the PSO owns immutable pipeline/layout state. Binding updates
+merge by exact `(SetIndex, BindingIndex, ArrayElement)`, replacing that location
+while retaining unrelated bindings. Descriptor write vectors remain alive
+through `updateDescriptorSets(...)`.
 
-### Why Mutable Descriptor State Moved Out Of PSO
+Snapshot validation, cache identity, bounds, eviction, and GPU-completion-gated
+pool reuse are defined by [Graphics State and Bindings](GraphicsStateAndBindings.md).
+[Material System](MaterialSystem.md#renderer-surface-execution) owns material
+representation decoding, role fallbacks, and the resolved surface packet before
+it reaches this typed submission boundary.
 
-The old prototype stored mutable descriptor state directly on `FVulkanGraphicsPipelineState`. That caused bad behavior when parameter state changed across calls because the PSO is conceptually immutable pipeline state, while descriptor contents are per-draw mutable state.
+## Example: ImGui Submission
 
-The new design keeps:
-
-- pipeline and pipeline layout on the PSO
-- pending shader resources and descriptor cache on `FVulkanCommandListContext`
-
-### Pending Shader Resource State
-
-`FVulkanCommandListContext::RHISetShaderParameters(...)` merges incoming resolved resources into `PendingShaderResources`.
-
-Merge rule:
-
-- if a `(SetIndex, BindingIndex, ArrayElement)` location is not present, append it
-- if the location already exists, overwrite the existing record
-
-This allows multiple `SetShaderParameters(...)` calls before a draw. Later calls replace only the exact binding they touch; unrelated bindings remain live.
-
-### Descriptor Set Cache
-
-The command context stores a frame-generation-local indexed cache:
-
-- resource hash
-- sorted resource records
-- allocated descriptor sets
-- retained resource owners
-- least-recently-used serial
-
-`GetOrCreateDescriptorSetsForDraw()` performs:
-
-1. validate complete occupancy against the active PSO layout
-2. sort pending resource records by `(SetIndex, BindingIndex, ArrayElement)`
-3. compute a hash from binding coordinates, binding type, view/resource identity, and immutable range data
-4. search the indexed hash candidates and confirm complete equality
-5. reuse descriptor sets on hit
-6. allocate descriptor sets and write descriptors on miss
-
-The cache lifetime is intentionally tied to the frame-pool generation.
-`RHIBeginFrame()` clears it before selecting a completion-eligible descriptor
-pool batch; a native pool resets only after its maximum use token completes.
-One command context is bounded to 512 entries and 8192 descriptor values;
-least-recently-used eviction releases retained resources when either bound is
-reached.
-
-### Draw-Time Materialization
-
-`Draw()` and `DrawIndexed()` do three things in order:
-
-1. prepare non-descriptor pipeline state such as viewport and scissor
-2. fetch cached or newly-built descriptor sets for the current pending bindings
-3. bind descriptor sets and submit the draw call
-
-This means descriptor allocation and update happen only when a draw actually needs them.
-
-### Material Representation Binding
-
-Material resolution is completed before a Renderer draw reaches this typed
-shader-parameter path. Engine publishes an immutable
-`FMaterialRenderRepresentation` containing the validated layout identity,
-uniform bytes, and counted texture-reference resources. The current
-`FMaterialRenderBinding` decoder accepts only the exact v3 field table and
-turns that compact payload into the PBR constants, UV transforms, sampler
-states, and eight texture roles required by the material shaders.
-
-`FStaticMeshRenderer` does not perform material parameter GUID or `FName`
-lookup, inspect reflected material objects, or read ad-hoc fixed fields from a
-material snapshot. It builds the existing `FStaticMeshMaterialUniform` ABI
-from the decoded binding and submits the typed shader parameters together
-with the binding's counted texture references and shared environment-lighting
-resources. A layout mismatch is reported as a
-Renderer `ShaderBinding` diagnostic and is replaced by a complete default
-ErrorMaterial before shader-map, pipeline, or descriptor selection. The
-Renderer-owned white, black, or flat-normal texture remains the final
-role-specific fallback when a validated resource slot is null or not ready;
-the environment set falls back atomically to black cube/LUT resources.
-
-### Stable Descriptor Write Inputs
-
-Descriptor writes are built from local vectors of:
-
-- `vk::DescriptorBufferInfo`
-- `vk::DescriptorImageInfo`
-- `vk::WriteDescriptorSet`
-
-These vectors live for the duration of `updateDescriptorSets(...)`, which fixes the earlier lifetime problem caused by mutable PSO-owned temporary state that could be invalidated across multiple parameter submissions.
-
-## Example: ImGui Migration
-
-`MonaImGui` is the first migrated caller.
-
-Its fragment shader now uses a typed parameter struct:
+`MonaImGui` declares a typed fragment parameter struct:
 
 ```cpp
 struct FParameters
@@ -326,7 +229,7 @@ The metadata names intentionally match Slang reflection names from `Engine/Shade
 - `fontTexture`
 - `fontSampler`
 
-At draw time the backend now does:
+At draw time the backend submits:
 
 ```cpp
 FImGuiFragmentShader::FParameters ShaderParameters;

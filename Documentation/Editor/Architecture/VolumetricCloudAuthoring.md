@@ -4,7 +4,7 @@ Summary: Define editor ownership for volume inspection, cloud Details presentati
 
 Modules: TextureEditor, LevelEditor, Engine, RenderCore, Renderer
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-09-03
 
 ## Ownership
 
@@ -86,7 +86,7 @@ before editor services are retired.
 
 - [Volumetric cloud authoring guide](../Guides/VolumetricCloudAuthoring.md)
 - [Volume textures](../../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene authoring](../../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
+- [Volumetric cloud scene contract](../../Runtime/Rendering/VolumetricCloudSceneContract.md)
 - [Volumetric cloud temporal reconstruction](../../Runtime/Rendering/VolumetricCloudTemporalReconstruction.md)
 
 ## Related code

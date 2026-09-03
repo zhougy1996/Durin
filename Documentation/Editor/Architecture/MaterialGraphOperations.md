@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 ## Ownership
 
@@ -25,6 +25,17 @@ snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
 and per-document controller state. None of those values are serialized.
+
+## Preview Resources
+
+Material Preview acquires shared `/Engine/Models/Sphere` and
+`/Engine/Models/Box` StaticMesh assets through the canonical
+editor retention service. Multiple documents coalesce by virtual asset identity;
+preview creation performs no transient OBJ import, and retained handles provide
+the GC lifetime edge.
+
+Preview rendering follows [Material System](../../Runtime/Rendering/MaterialSystem.md).
+Thumbnail sessions follow [Asset Thumbnails](AssetThumbnails.md).
 
 ## Inspection and commands
 

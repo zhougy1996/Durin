@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-03
 
 SkeletalMesh uses the same material/pass policy and combined Translucent order
 through its dedicated geometry, vertex-factory, palette, and renderer owner; see
@@ -99,9 +99,9 @@ semantic picking behavior are owned by
 buffer, and vertex factory to be ready and the same geometry validation to
 pass. A populated RHI reference cannot make a malformed LOD renderable.
 
-High-level render-data ownership, replacement, proxy recreation, release
-fences, and deferred destruction are owned by the
-[Static Mesh Render-Data Lifecycle Plan](../../Plans/Archive/2026-08/StaticMeshRenderDataLifecycle.md).
+High-level replacement, proxy borrows, and destruction fences follow the
+[asset lifecycle](#asset-lifecycle) below. The linked lifecycle plan preserves
+historical implementation evidence.
 
 ## Asset Lifecycle
 
@@ -160,6 +160,10 @@ do not reconstruct them.
 | 1 | Packed normal and tangent basis | `Short4N` x2 | 16 | 1, 2 |
 | 2 | Four UV channels | `Float2` x4 | 32 | 3-6 |
 | 3 | Vertex color | `UByte4N` | 4 | 7 |
+
+Import generates missing normals and tangents deterministically. Each imported
+node-mesh instance becomes a section with contiguous indices and a stable source
+material slot; import does not automatically create source material assets.
 
 Missing UV channels are zero-filled and missing colors are linear white,
 materialized CPU-side before upload. The tangent stream stores normal and
@@ -370,7 +374,22 @@ asset-independent ErrorMaterial snapshot before shader-map or pipeline lookup.
 The terminal contains the same validated v3 contract and is not recursively
 validated as another fallback, so no partial payload can reach a draw.
 
-## Payload Compatibility
+## Source and Payload Compatibility
+
+StaticMesh source provenance stores one normalized project-relative or external
+absolute filename plus the exact source hash, Assimp importer version, and
+import axes. Source organization is independent of the StaticMesh package
+path. Reimport reads the persisted file without copying, replacing, relocating,
+or deleting it. Legacy package-relative source fields are rejected. The
+canonical DDC key also includes builder version 4, render-payload schema 5, and target
+platform. A valid warm DDC object can load from persisted identity while source
+and Assimp are unavailable.
+
+The schema-5 payload is little-endian and checksummed, with bounded chunks for
+bounds, material-slot count, per-LOD geometry and screen-size policy, sections,
+vertex streams, and indices. Readers validate counts, ranges, numeric data, and
+indices, and skip only optional unknown chunks. Cook strips source/import
+metadata and uses the independent lazy bulk fields described above.
 
 StaticMesh render schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
 the schema-3 bounded material-slot count rather than slot GUIDs.

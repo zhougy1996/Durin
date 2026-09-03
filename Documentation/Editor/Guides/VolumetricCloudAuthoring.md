@@ -2,7 +2,7 @@
 
 Summary: Import and inspect volume inputs, configure the global cloud, and diagnose its rendered view.
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-09-03
 
 ## Inspect volume inputs
 
@@ -69,4 +69,4 @@ for timing evidence.
 
 - [Volumetric cloud authoring architecture](../Architecture/VolumetricCloudAuthoring.md)
 - [Volume textures](../../Runtime/Assets/VolumeTextures.md)
-- [Volumetric cloud scene authoring](../../Runtime/Rendering/VolumetricCloudSceneAuthoring.md)
+- [Volumetric cloud scene contract](../../Runtime/Rendering/VolumetricCloudSceneContract.md)

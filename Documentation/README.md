@@ -46,12 +46,15 @@ not open the other rows or scan an entire directory.
 | Render-resource state, deferred C++ cleanup, producer teardown, or registry auditing | [Render resource lifecycle](Runtime/Rendering/RenderResourceLifecycle.md) |
 | Renderer resource creation failure, retry, fallback, or device invalidation | [Renderer resource recovery](Runtime/Rendering/RendererResourceRecovery.md) |
 | Fixed non-Material shader registration, typed global lookup, atomic shader sets, or shader/pipeline generation coupling | [Global shaders](Runtime/Rendering/GlobalShaders.md) |
-| Render Graph, RDG, pass dependencies, automatic barriers, transient lifetimes, aliasing, or async-compute scheduling | [Render Graph architecture roadmap](Roadmaps/Archive/2026-08/RenderGraphArchitecture.md) |
+| Render Graph, RDG, pass declarations, dependencies, barriers, or graph captures | [Render Graph](Runtime/Rendering/RenderGraph.md) |
+| Production frame preparation, feature ordering, transient allocation, or output transactions | [Renderer frame preparation](Runtime/Rendering/RendererFramePreparation.md) |
+| Rendering statistics overlay, diagnostics panel, or sampled graph inspection UI | [Viewport rendering diagnostics](Editor/Architecture/ViewportRenderingDiagnostics.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |
 | Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/DeferredDirectionalLighting.md) |
+| Volumetric-cloud components, eligibility, scene selection, or texture-reference recovery | [Volumetric cloud scene contract](Runtime/Rendering/VolumetricCloudSceneContract.md) |
 | Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
-| Shadow quality, bias, PCF, cascades, contact shadows, or future local-light shadow development | [Shadow system evolution roadmap](Roadmaps/Archive/2026-08/ShadowSystemEvolution.md) |
+| Shadow quality, bias, PCF, cascades, or contact shadows | [Directional shadows](Runtime/Rendering/DirectionalShadows.md) |
 | Material graph commands, canvas, clipboard, diagnostics, or editor lifecycle | [Material graph authoring](Editor/Architecture/MaterialGraphOperations.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Editor transaction identity, focused records, or collector-enumerated history references | [Transaction record foundation](Editor/Architecture/TransactionRecords.md) |

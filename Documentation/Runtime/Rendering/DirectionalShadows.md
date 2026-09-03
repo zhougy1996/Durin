@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-09-03
 
 ## Ownership and selection
 
@@ -90,9 +90,9 @@ resource-failure, and optional-tier fallback.
   `1/16` normalization, a 1.5-texel radius, and a two-texel guard.
 - High performs the Cartesian 5x5 offsets `{-2,-1,0,1,2}` with per-axis weights
   `[1,2,3,2,1]`, 25 comparison operations, row-major accumulation, exact
-  `1/81` normalization, a 2.5-texel radius, and a three-texel guard. High is
-  available as a bounded tier but is not the default because it fails the
-  frozen motion gate.
+  `1/81` normalization, a 2.5-texel radius, and a three-texel guard. High remains
+  an optional tier. Medium retains the qualified default; the
+  original motion-based selection and later bias-fix evidence are linked below.
 
 Offsets derive at runtime from `Texture2DArray.GetDimensions`; viewport size,
 nominal resolution constants, and world scale do not determine the sampling
@@ -181,25 +181,18 @@ backend handle, second queue, or queue-family transfer. Every in-bounds target
 pixel is overwritten; pixels outside a constrained viewport are exactly one,
 matching fragment clear-plus-scissor behavior.
 
-Compute and fragment shader/PSO slots and size-keyed target caches publish
-transactionally and invalidate independently. Compute uses a sampled/storage
-`R8_UNORM` target with validated canonical views; fragment retains its
-render-targetable target. Missing compute payload, unsupported format/extent,
-or compute-target failure selects fragment before any compute transition is
-recorded. Missing fragment resources, invalid light or matrix input, or total
-resource creation failure binds the complete white fallback and continues the
-same deferred path. A view with no successful
-deferred receiver draw records no target or pass. The viewport View menu
-groups the controls under `Shadows > Directional Shadows`: `Filter Quality`
-contains the PCF tier, while `Contact Shadows` contains an `Enabled` checkbox
-and a `Visibility Route` selector. `Auto` preserves compute-first production fallback,
-`Compute Only` suppresses fragment fallback, and `Fragment Only` bypasses
-compute. Its mutually exclusive `Debug Views > Contact Shadow Contribution`
-mode enables the pass and displays the computed contribution as a red mask;
-selecting another diagnostic clears that mode. `Debug Views > Reset Debug
-Views` restores normal rendering and clears
-every shadow diagnostic mode. The expanded viewport statistics panel reports
-the producer that actually completed the current view. Per-view counters
+Compute and fragment shader/PSO slots publish transactionally and invalidate
+independently. Their transient targets follow
+[frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes).
+Compute declares sampled/storage `R8_UNORM` with canonical views; fragment
+declares the render-targetable equivalent. Missing compute payload or target
+capability rejection selects fragment before graph compilation. Missing fragment
+resources, invalid light or matrix input, or total
+persistent-payload failure binds the complete white fallback and continues the
+same deferred path. Shared graph allocation failure follows the frame abort
+contract. A view with no successful deferred receiver draw records no target
+or pass. Editor controls follow [Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
+Per-view counters
 distinguish compute, fragment, and factor-one routes; exact dispatch/draw
 counts, bounded route reasons, and
 active/retained bytes are reported separately. An optional route-tagged GPU
@@ -272,87 +265,27 @@ classification tests. A build means the current cascade preparation performed
 that logical work; a reuse means a selected frame-local shared owner supplied
 it. Zero reuse is therefore meaningful and does not imply a missing sample.
 
-The selected optimization boundary was qualified on the Intel Core i7-12700
-and RTX 3090 host with driver 591.86 and Vulkan 1.4.325. Across five
-interleaved Win64 Release runs of 30 warm-up and 120 measured frames, the
-single-traversal table changed the high-overlap ThreeCascades logical
-run-median from 1,106.4 us to 1,100.1 us and p95 from 1,544.8 us to 1,459.0 us;
-SingleMap changed from 337.3/400.5 us to 318.3/388.8 us. The fixture owns 128
-unique eligible casters, 384 conservative classifications, membership popcount
-384, and one authoritative scene traversal.
+## Qualification and Decision Evidence
 
-Two deeper frame-local cache candidates were rejected and removed. A
-StaticMesh primitive/LOD/section fact table missed the required 15% family and
-5% total improvements. A 256-patch Terrain primitive/bounds/patch-mask table
-improved Terrain median from 988.2 us to 963.5 us and total logical median from
-999.0 us to 975.6 us, also below those gates. Production therefore retains
-cascade-local mesh and Terrain logical draw preparation; the submission-local
-Skeletal palette remains the only shared draw-resource fact beyond caster
-membership.
+`DirectionalShadowBaselineVulkanTests` owns image hashes, disabled/Unlit parity,
+Masked/Opaque controls, motion, filter diagnostics, contact visibility, and
+caster-preparation observations. CPU contracts own split ordering, overlap,
+selection, and degenerate inputs; RHI/Vulkan coverage owns array/layer views,
+transitions, comparison sampling, creation failure, release, and retry.
+Production timing gates are listed in
+[Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
 
-## Q0 qualification
+The selected preparation shares caster membership and Skeletal palettes while
+keeping mesh/Terrain logical draws cascade-local. Deeper fact caches did not
+meet the measured benefit thresholds; the detailed candidates and CPU results
+remain in [Directional Shadow Caster Preparation](../../Plans/Archive/2026-08/DirectionalShadowCasterPreparation.md).
 
-The checked-in `DirectionalShadowQ0` package contains the 13-image fixed-bias
-entry baseline, 13 selected-policy Lit images, seven causal diagnostic images,
-and exact disabled/Unlit diagnostic references. On the RTX 3090, driver 591.86,
-Vulkan 1.4.325 fixture, Masked and Opaque controls are byte-identical, valid
-and intentionally defective modular boundaries remain distinct, and the
-0.12-world-unit contact case is no longer identical to the fully lit fallback.
-Tolerance-2 sub-texel motion changes 22, 18, and 58 of 66,049 pixels against a
-132-pixel limit.
+Historical bias, filter selection, per-stage budgets, image packages, and runs
+are preserved by the completed plans:
 
-The 1920x1080 timing fixture uses 30 warm-up and 120 measured frames. The Lit
-shadow tier records 7,936 ns disabled Scene Color, 10,464 ns enabled Scene
-Color, 9,248 ns Shadow Depth, and an 11,776 ns combined median increment.
-Classification records 10,528 ns Scene Color, a 64 ns median increment over
-Lit. Logical and backend shadow storage both remain 16,777,216 bytes.
+- [Bias and causal diagnostics](../../Plans/Archive/2026-08/DirectionalShadowDiagnosticsAndBias.md)
+- [PCF quality tiers](../../Plans/Archive/2026-08/DirectionalShadowPCFQualityTiers.md)
+- [Three-cascade selection](../../Plans/Archive/2026-08/CascadedDirectionalShadows.md)
 
-## Q1 qualification
-
-The checked-in `DirectionalShadowQ1` package preserves all Low hashes and adds
-complete Medium/High edge, diagonal, thin-caster, Masked, guard, camera/light
-motion, Q0 correctness-parity, and filter-diagnostic evidence. The shadow-only
-radial high-frequency fractions are 0.018361, 0.015372, and 0.013730 for Low,
-Medium, and High. Medium/Low is 0.837 against a maximum 0.85; High/Medium is
-0.893 against a maximum 0.90. Maximum transition width remains 40 pixels for
-all tiers.
-
-After rebasing the per-draw dynamic raster-bias fix, the frozen channel-
-tolerance-two camera/light motion values are 71/117 pixels for Low, 48/88 for
-Medium, and 32/49 for High against a 132-pixel limit. Medium remains the Q1
-policy selected before Q2; the prerequisite fix did not reopen filter policy.
-Medium also preserves the Q0 planar-acne output exactly,
-keeps Masked/Opaque controls equal, retains distinct valid/defective geometry,
-and matches the disabled reference. The original Q1 evidence rejected High by
-motion; the later prerequisite fix improves those captures but does not reopen
-the already selected Medium policy inside Q2.
-
-On the RTX 3090, driver 591.86, Vulkan 1.4.325, 1920x1080 timing fixture with
-30 warm-up and 120 measured frames, Low/Medium/High Scene Color medians are
-11,872/12,640/13,504 ns and Shadow Depth medians are
-9,600/10,240/10,816 ns. Medium adds 768 ns Scene Color over Low against a
-200,000 ns budget; High adds 1,632 ns against 400,000 ns. Shadow Depth
-regressions are 640 and 1,216 ns against 20,000 ns. The Medium filter-difference
-diagnostic adds 1,568 ns over Medium Lit. Logical/backend bytes remain exactly
-16,777,216 and failed frames remain zero. These results select Medium as the
-production default while retaining Low fallback and bounded High availability.
-
-## Q2 qualification
-
-The selected production candidate is three independently fitted 2048x2048 D32
-cascades, practical perspective splits at lambda 0.65, uniform orthographic
-splits, a 256-unit maximum distance, 10% adjacent overlap, and the Medium 3x3
-tent filter. CPU goldens own split ordering, clamp, overlap, selection, and
-degenerate behavior. RHI and Vulkan tests own array creation, sampled-array and
-exact layer views, layer transitions, comparison sampling, descriptor
-completeness, injected creation failure, and release/retry behavior. Vulkan
-captures exercise the three-pass candidate and cascade-index receiver path.
-
-On the RTX 3090, driver 591.86, Vulkan 1.4.325, the 1920x1080 fixture uses 30
-warm-up and 120 measured frames. SingleMap Medium records 19,328 ns combined
-Scene Color plus Shadow Depth; ThreeCascades Medium records 31,936 ns, an
-increment of 12,608 ns against the 1,000,000 ns gate. Logical/backend bytes are
-50,331,648 against the 67,108,864-byte gate and measured-frame failures are
-zero. Static/Spline, Skeletal, Terrain, Opaque/Masked, resource reload,
-sequential-view, fully lit fallback, and Vulkan validation suites pass. These
-results select `ThreeCascades` plus Medium as the production default.
+These records explain the selected Medium/ThreeCascades defaults; they do not
+redefine current target ownership or production timing gates.

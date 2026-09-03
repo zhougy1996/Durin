@@ -4,7 +4,7 @@ Summary: Define scene-light ownership, deterministic view selection, and the sha
 
 Modules: Engine, Renderer
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
 Directional direct lighting may be attenuated by the selected view-local
 shadow described in [Directional Shadows](DirectionalShadows.md). The shadow
@@ -22,17 +22,16 @@ variants load existing HDR Scene Color and GBuffer depth;
 they never clear or display-map those attachments. No product caller silently
 falls back to generic Lit opaque forward rendering.
 
-`FSceneRenderer::RenderScene_RenderThread` is the single scene-composition
-entry point. Solid Lit views use its deferred-opaque plus retained-forward
-sequence. Unlit, wireframe, and other explicitly named special view modes use
-its special-forward stage; resource failure never selects that stage.
+[Renderer Frame Preparation](RendererFramePreparation.md) owns the shared scene
+pipeline and ordering. Special-forward work is selected by the immutable view
+mode; resource failure never selects another lighting owner.
 
 The fixed lighting ABI and the shared helpers below remain common to deferred
 Lit evaluation and retained forward translucency. The selected four local
 records therefore keep the same stable order, attenuation, BRDF, environment,
 emissive, and shadow semantics across the composition boundary. See
 [Deferred Directional Lighting](DeferredDirectionalLighting.md) for the
-authoritative production ordering and failure contract.
+deferred consumption and failure contract.
 
 ## Scene ownership
 
@@ -139,8 +138,7 @@ The qualification target is NVIDIA GeForce GTX 1060 6GB at 1920x1080, using RHI
 GPU timestamp queries around Scene Color after warm-up. The representative
 fixture is an opaque full-screen receiver plus masked/translucent overdraw. The
 accepted incremental median for `1 + 4` over the single-directional baseline is
-1.0 ms across at least 120 measured frames. Qualification on 2026-08-12 measured
-1.376288 ms for the single-directional baseline and 1.978080 ms for `1 + 4`, an
-incremental 0.601792 ms, so the production tier passed. The original `1 + 8`
-candidate measured 1.748 ms incremental and was rejected. Larger tiers remain
-deferred and require a reviewed evidence-backed plan revision.
+1.0 ms across at least 120 measured frames. This historical forward-tier
+qualification selected `1 + 4` and rejected `1 + 8`. Current hybrid production
+timing gates belong to [Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
+Larger tiers require separate measured qualification.

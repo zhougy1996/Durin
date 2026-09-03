@@ -192,28 +192,16 @@ queried separately. Operation diagnostics retain request identity, timings,
 byte metrics, DDC key, cache-hit/rebuild origin, source-decoder invocation, and
 the matching failure phase; idle textures do not persist those facts.
 
-The 2026-08-11 `Win64-Debug-DurinEditor` completion characterization measured
-representative 1K and 4K success, failed, cancelled, and stale callbacks at
-0.5-16.9 microseconds. Sixty-four callbacks at the slowest observed sample are
-about 1.08 ms. The normal-frame policy therefore retains the established
-64-item cap without adding a separate unmeasured time constant; callback time
-remains diagnostic evidence and the item cap is the contract.
+Normal-frame completion drains retain the 64-item cap; callback duration is
+diagnostic rather than a separate time limit. A 16K source has a 1 GiB decoded
+allocation, about 1.33 GiB uncompressed mip chain, and 170.67–341.33 MiB BC
+result. Its 2.50–2.67 GiB source/intermediate/result working set is admitted
+alone. Two typical 4K builds remain below the 1 GiB admission budget, while
+larger requests serialize. These are allocation bounds, not wall-clock promises;
+the full 16K high-quality matrix is not a routine gate.
 
-The scheduling constants were selected from the
-`Win64-Debug-DurinEditor` characterization gate on 2026-08-10. Times below are
-synchronous baseline stalls; moving them to the compiling manager removes the same
-compression-scale interval from the GameThread.
-
-| Square source | Color Low / Normal / High | Normal Low / Normal / High | Data Low / Normal / High | Decoded | Peak uncompressed mip chain | BC result |
-| --- | --- | --- | --- | ---: | ---: | ---: |
-| 1K measured | 0.36 / 0.83 / 10.64 s | 1.31 / 5.47 / 11.96 s | 1.71 / 2.40 / 5.08 s | 4 MiB | 5.33 MiB | 0.67-1.33 MiB |
-| 4K measured | 7.50 / 24.18 / 187.26 s | 23.16 / 86.52 / 197.36 s | 26.96 / 37.49 / 77.08 s | 64 MiB | 85.33 MiB | 10.67-21.33 MiB |
-| 16K supported bound | Compression cost scales with the 16x 4K block count; the full high-quality matrix is intentionally not a routine gate. | Same bound. | Same bound. | 1 GiB | 1.33 GiB | 170.67-341.33 MiB |
-
-The 16K row is the exact allocation bound from the same mip/layout functions,
-not a claimed wall-clock measurement. Its 2.50-2.67 GiB source/intermediate/
-result working set is admitted alone. Two typical 4K builds remain below the
-1 GiB admission budget, while larger requests naturally serialize.
+Historical synchronous stalls and scheduling calibration remain in
+[Asynchronous Texture2D Build and Readiness](../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md).
 
 ## Transactional Build-Setting Edits
 
@@ -368,15 +356,8 @@ content identity and never inspect a physical source.
   scene-import candidate construction remain synchronous; the asynchronous
   contract owns ordinary editor DDC misses, retries, direct reimports, and
   build-setting changes.
-- The shipped material shader consumes eight explicit roles: BaseColor and
-  Emissive require Color/sRGB textures; Normal requires Normal/linear;
-  Metallic, Roughness, AmbientOcclusion, Opacity, and OpacityMask require
-  Data/Mask/linear and sample the R channel. Each role has independent UV0-UV3
-  selection, scale, and offset. A mismatched Usage or sRGB setting stays
-  authored for correction but compiles to the role fallback with an
-  asset-qualified diagnostic.
-- Opacity and OpacityMask texture data are resolved into the surface, but the
-  current fixed opaque pass does not use either value for coverage or depth.
+- Material role validation, UV transforms, opacity, and mask coverage follow
+  [Material System](MaterialSystem.md); Texture assets do not define pass policy.
 
 ## Related Documentation
 

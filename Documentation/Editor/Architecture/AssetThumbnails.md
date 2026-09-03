@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, SkeletalMeshEditor, LevelEditor
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-09-03
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -43,15 +43,18 @@ dimensions are presentation-only: Content Browser scales the shared output and
 requested width/height never enter the cache key, CPU/GPU budget accounting, or
 persistent object identity. This avoids an unbounded output-size key space.
 
-Persistent keys retain the established little-endian field order and values:
+Persistent keys use a canonical little-endian encoding of:
 canonical virtual path, exact class, package fingerprint, stable renderer name,
 generator schema, fixed output settings, preview fixture identity/version,
-shader contract, and sorted dependency fingerprints. The refactor does not
-change the project-local `DerivedDataCache/Thumbnails` root, object/index format,
-PNG encoding, or stable renderer strings. A C++ type rename alone is therefore
-not a cache invalidation.
+shader contract, and sorted dependency fingerprints. The project-local
+`DerivedDataCache/Thumbnails` store uses PNG objects and a persistent index.
+A C++ type rename alone does not change cache identity.
 
-Material keys include the sorted parent-material and texture dependency closure.
+Material and MaterialInstance sessions acquire the retained
+`/Engine/Models/Sphere` fixture and attach their material to a component in the
+leased preview scene. They perform no transient mesh import or private viewport
+allocation. Material keys include the sorted, cycle-guarded parent-material and
+texture dependency closure.
 StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
 keys preserve wide environment orientation and visual-contract versions.
 Texture2D derives fixed output from canonical pixels stored in the asset rather

@@ -36,49 +36,18 @@ dependency manifests do not enter portable values.
 StaticMeshBuild registers one render/collision provider, SkeletalBuild one
 mesh/clip provider, TerrainBuild one Heightmap and one World provider, and
 TextureBuild three providers. All registrations use module callback gates.
+Providers own recipe metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 providers retain no cache keys, origin, persistence diagnostics, or live assets.
 Terrain World additionally keeps independent five-product operation metadata,
 while installed generations contain only runtime product values.
-Engine calls TextureBuild through the typed synchronous
-`ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`, and
-`ITextureCubeBuildProvider` contracts. Engine owns admission,
-cancellation, supersession, metrics, the completion mailbox, object-qualified
-main-thread completion application, Texture DDC keys/Get/Put/validation, and
-terminal record retirement; TextureBuild owns only recipes and producer identity. AssetForgeBuiltins retains
-physical-source capture and translation plus private Scene orchestration, but
-Engine alone combines retained Texture inputs with derived provider values and
-applies results to live Texture objects. Shader and other unrelated DDC paths remain
-direct family clients.
 
-Engine's object-aware compilation aggregate owns asynchronous compiler and class-route
-registration, frame pumping, selected-object finish/cancel, aggregate progress,
-successful post-compile notification, and shutdown placement. Concrete managers
-retain typed scheduling and result application; TextureBuild retains neither DDC
-nor payload validation. DerivedDataCache build
-function registration still uses a module callback gate for bounded synchronous
-calls but does not become an asset compiler. See
-[Asset Compilation](AssetCompilation.md).
-
-Accepted asynchronous Texture2D requests use Engine's terminal
-`FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
-including cancellation and supersession. The Engine Texture manager owns the
-process-local request serial, active/last request identity, bounded terminal
-history, generation-safe object handles,
-workers, typed completion application, and the GameThread completion pump. Deterministic
-build/provider identity, DDC identity, CPU payload readiness, and GPU resource
-readiness remain separate. Editor-side commit and recovery sequencing is separately defined by
-[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
-it does not move scheduling or typed build policy into DurinEd.
-
-Texture2D uses three distinct terms at this boundary. Import captures one
-physical source file and translates its immutable encoded bytes into canonical
-RGBA8 pixels. Build is the detached
-`FTexture2DBuildRequest` to `FTexture2DBuildProduct` transformation and never
-observes an asset object. Compilation schedules that build for a specific
-`DTexture2D`, applies cancellation and supersession, and installs the product
-through typed setters on GameThread. Authored describes authoritative persisted package state; it is
-not the name of the compiling manager or one of its requests.
+Import translates captured physical sources into canonical authored inputs;
+build transforms detached inputs into derived products; compilation schedules
+and applies those products for live objects. Scheduling, request identity,
+completion, and lifetime rules belong to [Asset Compilation](AssetCompilation.md).
+Editor commit and recovery belong to
+[Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md).
 
 ## Storage Classes
 
@@ -130,9 +99,9 @@ An editor DAST v9 package and optional raw `.dbulk` segment contain authoritativ
 Large platform render payloads do not belong in authored storage. Canonical
 imported arrays use `FEditorBulkData`, allowing Engine to keep small values
 inline and place large values in package-resource ranges of the raw segment.
-Standalone family import data stores an explicit `AssetRelative`,
-`ProjectRelative`, or `Absolute` hint base beside each optional hint. Resolution
-never consults an asset mount and occurs only after the user invokes Reimport.
+Field state, placement, validation, and resource lifetime are defined by
+[Package Bulk Data](BulkData.md). Optional source-hint resolution is defined by
+[Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
 
 Physical source input is not rebuild authority and is not a runtime asset.
 Texture2D, StaticMesh, TextureCube, VolumeTexture, TerrainHeightmap,
@@ -147,36 +116,12 @@ sources, and none mutates them. See
 
 ### Import-Time Build Policy
 
-Import is an editor authoring operation, not a cook. It creates or updates the
-authored `.dasset`, records portable source provenance, builds data required for
-immediate editor use, and populates the DDC. It does not create `Cooked/`
-packages, `.dbulk` companions, or `CookManifest.bin`.
-
-Scene import creates ordinary independent output assets and no aggregate
-management companion. It is creation-only and offers no whole-scene reimport,
-stable reconciliation, or generated-output recovery. Built-in implementation
-state, editor diagnostics, and extension-module identities do not enter cooked
-runtime ownership. See
+Import creates or updates authored `.dasset` packages and optional authored
+`.dbulk` companions, records source provenance, builds data for immediate editor
+use, and populates the DDC. Only Cook publishes `Cooked/` packages, cooked bulk,
+and `CookManifest.bin`. Factory/reimport acceptance, live-state commit versus
+save failure, and atomic Scene publication are defined by
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
-
-Every standalone family is a direct importer: it validates the destination,
-captures each selected file once, decodes canonical imported data, builds a
-detached product, atomically commits asset state and concrete family import
-data, then saves independently. Reimport and Reimport From File repeat that
-sequence without a graph, provider, generic job, replay provenance, or
-mounted-source mutation.
-
-Scene captures one immutable source closure and owns a private stable
-topological order for its peer outputs. It performs complete decode, build,
-relationship, resource-limit, and collision validation before the
-non-cancelable publication boundary, then binds and saves the package set
-atomically. Its transient nodes are neither public framework graphs nor
-persisted replay data.
-
-Package persistence is a subsequent operation, not a reversible part of the
-asset-state transition. A save failure leaves the newly published package
-Dirty and reports persistence failure separately, while the prior disk/catalog
-state remains intact. The editor can retry Save without rerunning import.
 
 The current import behavior is:
 
@@ -222,10 +167,7 @@ bulk before calling the recipe. `SetImportedRenderData` and `SetRenderData`
 validate candidates before rollback-safe resource replacement; Engine
 application separately decides dirtying and material-slot upgrade notification.
 Cook reports existing payload capture rather than inferring an old build origin
-from the asset. Engine also owns Texture PostLoad, DDC orchestration, and result application while
-`TextureBuild` owns the three synchronous pure recipes/providers.
-Engine also owns Heightmap and skeletal/animation lookup, fallback, and typed
-application; TerrainBuild sees only detached recipe inputs.
+from the asset.
 `AssetForgeBuiltins` owns only explicit import/reimport providers and editor
 save-readiness policy; Engine, Build, and Cook consumers do not acquire an
 importer dependency. Each build module instance owns its provider objects and
@@ -278,9 +220,8 @@ Generic content-addressed DDC entries are opaque `.bin` values.
 `DerivedDataCache` validates logical buckets and canonical lowercase 128-bit
 keys, returns immutable `FSharedByteBuffer` values, and distinguishes hit, miss,
 invalid request, excessive value, and storage failure. Its filesystem paths and
-backend type remain private. The request's
-build function and expected value name select one owner-defined decoder; the
-cache does not identify a type from the bytes. That owner validates its schema,
+backend type remain private. The caller selects the owner-defined decoder;
+the cache does not identify a type from the bytes. That owner validates its schema,
 producer, bounds, structure, and checksums. Native artifacts such as shader
 SPIR-V and reflection sidecars may retain their own strict file grammar beneath
 a namespaced subtree. Every DDC entry remains disposable and its authored inputs
@@ -298,6 +239,10 @@ Source hints, timestamps, and physical paths do not enter build keys. DDC paths
 are derived from keys and must never be serialized into `.dasset`. Missing,
 incompatible, truncated, or corrupt objects are safe cache misses because the
 authored package closure retains every local rebuild input.
+
+Family build keys use editor payload identity before requesting bytes, so a
+validated DDC hit performs zero source-range reads. A miss captures one owned
+immutable payload snapshot before worker execution.
 
 DDC writes use Core's shared atomic byte-publication API: a fixed-length
 same-directory temporary file is flushed and closed before replacement. The
@@ -365,14 +310,10 @@ diagnostics, build revisions, DDC state, or live residency. Editor-only source
 provenance, `FTextureSource` bulk, offline build settings, and operation-owned
 rebuild keys/diagnostics are omitted.
 
-Payload-bearing packages use DAST v9 BulkData linker values. Values selected
-for inline storage occupy aligned ranges in the `.dasset` Inline Bulk section;
-external values occupy aligned ranges in one stable, headerless `.dbulk`
-sibling. Registry owns the exact external extent and whole-segment digest, and
-Bulk Directory binds every inline/external range to its reflected value. The
-raw segment has no DURF header, nested directory, target, schema, or physical
-path. Metadata-only packages, including Skeleton and packages whose fields stay
-inline, have no companion and no empty manifest record.
+Payload-bearing packages use the placement contract in
+[Package Bulk Data](BulkData.md#cooked-projection). Metadata-only packages,
+including Skeleton and packages whose fields stay inline, have no companion
+and no empty manifest record.
 
 The implemented family projections are:
 
@@ -453,13 +394,9 @@ Terrain region. The ten asset families contribute through class-keyed
 registrations owned by `RegisterEngineCookContributors`; individual family
 Cook methods are private.
 
-Publication stages and validates complete outputs, writes a required segment
-before its referencing package, and publishes `CookManifest.bin` last. CMNF
-entries are sorted by normalized cook-relative path and record kind, required
+CMNF entries are sorted by normalized cook-relative path and record kind, required
 flag, byte extent, and XXH3-128 digest. Raw companions use `PackageBulk`;
-package-only output has no companion entry. Cleanup removes stale outputs only
-when owned by the previous valid manifest, so an interrupted Cook retains a
-complete prior generation or diagnosable staged files.
+package-only output has no companion entry.
 
 Win64/Game Cook also supplies `Shaders/ShaderLibrary.dslb` as a
 `ShaderLibrary` auxiliary output. It is detached before the store transaction,
@@ -495,34 +432,26 @@ The local loose store enforces one writer per output root, stages and validates
 every changed file, retains overwritten bytes, commits segments before packages,
 then `CookState.bin`, and commits `CookManifest.bin` last. Failure or
 cancellation before the manifest commit restores the prior closure in reverse
-order. Only after manifest publication may paths owned solely by the previous
+order. Unchanged validated plans preserve bytes and timestamps.
+Only after manifest publication may paths owned solely by the previous
 manifest be removed; unowned files are never cleanup candidates.
 
 ## Compatibility, targets, and inspection
 
-DAST v9 main bytes and their exact optional headerless raw segment are the only
-supported cooked asset-package representation. Construct-free inspection reads
-validated linker BulkData descriptors and never constructs an asset or a
-second container model.
+Package reader policy is defined by [Versioning](Versioning.md#authored-package-policy).
 
 The implemented compatibility identifiers are Win64 platform `1`, Game
 profile `1`, and EditorValidation profile `2`. Production family Cook and
 runtime qualification currently select Win64/Game. Other target/profile pairs
 are unsupported and fail explicitly rather than falling back or guessing.
 
-Construct-free inspection reports DAST fields, inline/external placement,
-declared segment extent/digest, and compatibility status without constructing
-assets or loading field ranges. Live family inspection may additionally report
-DDC/build, decoded CPU, and renderer/physics publication state. Inspection is
-read-only and never rebuilds, recooks, repairs, deletes, or publishes.
+Inspection and explicit repair ownership are defined
+[below](#domain-qualified-inspection-and-repair-ownership).
 
 ## Versioning and naming
 
-Package format, family PlatformData schema, builder version, and Cook target/profile
-are independent. A builder-version change
-invalidates DDC/Cook production identity without necessarily changing readable
-family bytes. A package or family schema change requires an explicit supported
-reader or a hard unsupported-version result.
+Package format, family schema, and producer-version policy are defined by
+[Versioning](Versioning.md). Cook target/profile also qualifies production identity.
 
 `.bin` is disposable content-addressed DDC storage. A cooked `.dbulk` is a
 manifest-owned deployable raw package segment whose layout is authoritative only
@@ -531,33 +460,9 @@ operating-system file per package after future archive/store integration.
 
 ## Repository Policy
 
-Authored `.dasset` packages and source inputs are versioned according to the
-content storage policy. `DerivedDataCache`, `Cooked`, and `Saved` remain ignored
-generated directories. Cooked output is nevertheless authoritative within a
-specific staged build: ignored means reproducible distribution output, not
-disposable while that build is running or installed.
-
-## Authored bulk ownership and failure behavior
-
-`FBulkData` owns bounded runtime storage metadata, optional allocation, lock
-state, and an optional logical package-resource range; it owns no content hash,
-payload GUID, DDC key, schema, target, or physical path. `FEditorBulkData` is an
-independent authored value with instance identity, content-derived payload
-identity, asynchronous immutable retrieval, and atomic whole-payload update.
-
-DAST v9 live load validates the raw segment extent, whole and per-value digests,
-ranges, ordering, alignment, and padding before object publication, while
-leaving external field allocations unloaded. Family build keys use editor
-payload identity before requesting bytes, so a validated DDC hit performs zero
-source-range reads. A miss obtains and owns exactly one immutable payload
-snapshot before worker execution.
-
-DAST v9 plus its exact optional raw `.dbulk` segment is the sole supported
-authored package closure. Canonical resave republishes that closure through the
-same bounded artifact publisher as ordinary Save. Projection failure after
-content commit is reconciled from authored files and does not roll them back. Exact
-state, wire, and resource rules are defined by
-[Package Bulk Data](BulkData.md).
+Git/LFS ownership and generated-directory rules are defined by
+[Content Version Control](../../Development/VersionControl/ContentVersionControl.md).
+Cooked output remains required for its staged build even when ignored by Git.
 
 ## Domain-qualified inspection and repair ownership
 
@@ -588,7 +493,8 @@ recook, publication, cleanup, or deletion.
 
 - [Asset Packages](AssetPackages.md)
 - [Asset Catalog And Mutation](AssetCatalogAndMutation.md)
+- [Package Bulk Data](BulkData.md)
+- [Asset Compilation](AssetCompilation.md)
+- [Versioning](Versioning.md)
 - [Texture System](../Rendering/TextureSystem.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
-- [Asynchronous Texture2D Build and Readiness Plan](../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md)
-- [Asset Derived Data and Cooking Plan](../../Plans/Archive/2026-07/AssetDerivedDataAndCooking.md)

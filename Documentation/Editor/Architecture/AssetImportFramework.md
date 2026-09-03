@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, StaticMesh,
@@ -16,10 +16,8 @@ Scene remains a private multi-output transaction rather than a single-object
 factory.
 
 Shared capture, diagnostic, and publication values live in
-`AssetForgeBuiltins`. They are implementation helpers, not an extensibility or
-orchestration contract. Generic graphs, registries, replay schemas, import
-requests/jobs, and mounted-source mutation have been physically removed by the
-[AssetForge Framework Removal Plan](../../Plans/Archive/2026-08/AssetForgeFrameworkRemoval.md).
+`AssetForgeBuiltins`. They support the concrete importers and expose no generic
+graph, replay schema, or import-job framework.
 
 ## Ownership And Layering
 
@@ -30,8 +28,10 @@ The intended dependency direction is:
 - Runtime `Engine` owns the editor-only `DAssetImportData` base and lightweight
   `FSourceFile` / `FAssetImportInfo` values. Runtime assets do not know import
   dialogs, decoder selection, or source mutation workflows.
-- Family build modules own normalized build inputs, derived-data keys,
-  compilation, and disposable-data reconstruction.
+- Family build modules own detached recipes and producer identity. Engine owns
+  derived-data keys, cache policy, typed application, and compilation; see
+  [Asset Data Lifecycle](../../Runtime/Assets/AssetDataLifecycle.md#serialization-and-production-ownership)
+  and [Asset Compilation](../../Runtime/Assets/AssetCompilation.md).
 - `DurinEd` owns the generic `DFactory` descriptor/discovery contract and the
   self-registering `FReimportHandler` / `FReimportManager` capability, routing,
   priority, result, and optional persistence policy.
@@ -221,18 +221,12 @@ nor DDC fallback.
 
 ## Compatibility Boundary
 
-The supported authored baseline is the repository-owned asset corpus. Old
-standalone first-import result wrappers and direct `CreateAsset` family
-entrypoints have no production compatibility route. Current
-standalone family import data is schema 2 and is read and written only through
-concrete family schemas. Scene outputs are ordinary independently rebuildable
-assets and do not persist an import replay record. Retired filename, generic
-replay, mounted-source, and source-backed recovery schemas have no production
-reader or dual-write route.
+Standalone family import data uses concrete schema 2 with no legacy reader or
+dual-write route. Package baseline and future migration policy are defined by
+[Versioning](../../Runtime/Assets/Versioning.md#authored-package-policy).
 
 ## Related Documentation
 
-- [Asset Import Simplification Roadmap](../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [Source File Workflows](../Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle And Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../Runtime/Assets/AssetCompilation.md)

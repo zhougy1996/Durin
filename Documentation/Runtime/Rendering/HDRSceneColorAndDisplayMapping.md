@@ -4,7 +4,7 @@ Summary: Define the scene-linear HDR intermediate and the single deterministic t
 
 Modules: RenderCore, Renderer, RHI
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-09-03
 
 ## Color Domains and Formats
 
@@ -63,12 +63,10 @@ there is no raw HDR-to-SDR fallback. Same-device last-known-good shader/manual
 payloads follow the renderer resource coordinator contract, while device
 invalidation clears dependent resources before retry.
 
-One scene-target extent accounts for 12 bytes per pixel: 8 Scene Color and
-4 depth. The size-keyed cache keeps
-the current extent and evicts oldest other extents while retained payload bytes
-exceed `96 MiB`. Recorded commands retain their own RHI references, so cache
-eviction cannot invalidate in-flight work. One 1920x1080 extent is
-`24,883,200` bytes and the budget retains at least three such extents.
+Scene Color and depth cost 12 bytes per pixel (8 + 4), or `24,883,200` bytes
+at 1920x1080. They are frame-transient graph targets.
+Allocation and retention follow [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes);
+feature byte costs do not define independent cache quotas.
 
 ## Validation Contract
 

@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-03
 
 ## Ownership Boundary
 
@@ -257,15 +257,9 @@ zero. A graph-local resource index is never presented as physical identity.
 `ObservationTag` may attribute memory to a typed owner, but is excluded from
 compatibility, selection, scheduling, eviction priority, and success.
 
-The Renderer allocator keys textures and buffers only by exact allocation
-descriptions. Diagnostic names are stored outside compatibility, so renaming a
-logical graph resource does not change reuse or its stable physical allocation ID.
-Candidate reservation, generation-based failure suppression, rollback,
-publication, and error reporting form one transaction for both resource kinds;
-typed RHI creation remains at the boundary. Retained bytes are maintained
-incrementally and inactive entries are evicted in stable creation order. The
-named structural policy ceiling is 640 MiB; a requested batch above that ceiling
-fails atomically, while observation tags cannot reserve or prioritize memory.
+Renderer allocation compatibility, retention, and failure transactions are
+defined by [frame resource lifetimes](RendererFramePreparation.md#resource-lifetime-classes)
+and [resource recovery](RendererResourceRecovery.md).
 
 `FRDGCapture::Parameters` contains one record for every submitted leaf
 field of every parameterized pass, including fields on a culled pass and a
@@ -346,84 +340,13 @@ and RHI transition oracles have parameterized replacements that remain
 independent of the lowering behavior they validate and no external low-level
 consumer has been admitted.
 
-## Production Pilot Boundary
+## Renderer Integration
 
-Contact-shadow visibility contributes work to the scene parent graph and no
-longer constructs, compiles, or executes a child graph. Its current compute or
-fragment body retains its bounded intra-pass pipeline handoffs while the parent
-owns ordering against GBuffer, depth, deferred lighting, and final output.
-
-## Scene Render Graph
-
-`FSceneRenderPipeline` owns the sole production graph's preparation,
-compile/execute/capture, and commit-or-abort boundary. One stack-owned
-`FSceneFrameContext` separates logical preparation, resolved resources, feature
-decisions, transaction state, and observation state, while
-`FSceneRenderGraphComposer` wires renderer-private features in a fixed order.
-Feature-owned `AddPasses` entries accept a feature-specific immutable input,
-create their own typed completion value and logical textures, then return a
-narrow typed output for the next consumer. Every production scene pass is
-parameterized: one graph-owned parameter object supplies its exact texture,
-attachment, value, token, and selected-route declarations to both compilation
-and the bounded callback. Present or offscreen output is the explicit typed
-root. Stable compilation preserves declaration order between independent
-optional producers.
-
-The pipeline and composer are the only graph-authoring boundaries allowed to
-see the complete frame context. The composer reads the immutable
-`FSceneRenderPlan` and canonical `FSceneFrameFeaturePlan`, then slices them into
-feature-specific inputs before invoking each feature. Features and their
-callbacks cannot receive the complete plan, frame context, or execution
-pipeline. Every feature rendering unit owns its parameter metadata, graph
-setup, callback, and private command-recording function. The production path
-has no central contributor declaration, parameter implementation, recorder
-facade, renderer-service bag, or wide compose input.
-
-Production scene authoring has no frame-wide resource/channel bag, repeated
-persistent-input declaration helper, or manual `Graph.Use*` supplement. A pass
-may resolve only fields present in its immutable parameter object. Route and
-fallback selection finishes before that object is assigned, so absent optional
-fields mean the route cannot access those capabilities.
-
-Persistent geometry and feature pipeline preparation complete before graph
-compile. Compute, fragment, disabled, and factor-one routes are therefore part
-of the published feature plan rather than callback-time choices. Callbacks
-validate that physical capabilities still match the authored route and fail the
-feature instead of selecting another route. After culling, the
-descriptor-keyed Renderer allocator reserves a distinct physical entry for
-every retained logical resource and atomically publishes the complete
-strong-reference table. Diagnostic names and feature routes do not participate
-in compatibility or selection. Only then do callbacks run. Scene failure prevents
-final output work from publishing success, and the surrounding view-state
-transaction commits only after the rooted final-output pass succeeds.
-
-The scene graph observes regression ceilings of 12 declared passes, 28
-dependencies, and 32 physical texture transitions. Its structural safety
-limits are independently set to 256 passes and 4096 dependencies, buffer
-transitions, and texture transitions. The current graph declares no cross-pass
-buffers, so its buffer regression ceiling remains unbounded until production
-measurements establish one.
-Scene Color, depth, directional and cloud shadows, GBuffer, ambient occlusion,
-contact visibility, cloud spatial/composite, isolated deferred, GBuffer debug,
-and output all have graph identities. Consumers obtain physical textures only
-from their pass-scoped resource views; typed tokens carry non-RHI outcome state.
-
-The 2026-08-24 Win64 Debug Vulkan cloud fixture froze six disabled,
-invalid-input, compute, fragment, offscreen, present, and resized captures. Each
-scheduled all 11 declared passes, with 22--25 dependencies and 1 or 17 texture
-transitions. The observational Debug CPU thresholds remain 5 milliseconds to
-compile and 250 milliseconds to record the complete callback schedule; every
-fixture capture stayed within both ceilings. These are regression ceilings,
-not optimization targets.
-
-`SetSceneRenderGraphCaptureSink` remains the development and test observer
-authored after complete frame migration. An individual `RenderView` submission
-may instead supply an explicit capture output; Engine uses that path to route a
-one-shot owning capture back to the exact requesting `FSceneViewport`. With no
-observer and no explicit output, no capture is constructed. Neither mechanism
-can mutate resources, callbacks, scheduling, or frame commit state.
-When both consumers are present, Renderer constructs one owning snapshot and
-publishes that same value to the observer and explicit output.
+The production scene schedule, feature ownership, route preparation, resource
+lifetimes, output transaction, and scene budgets are defined by
+[Renderer Frame Preparation](RendererFramePreparation.md). Features contribute
+parameterized passes to that single caller-owned graph. Contact visibility
+uses the same boundary; bounded intra-pass handoffs do not create child graphs.
 
 ## Related Documentation
 

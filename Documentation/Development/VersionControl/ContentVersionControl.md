@@ -1,6 +1,6 @@
 # Content Version Control
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-03
 
 Durin keeps authored content reproducible alongside the source revision that consumes it. Do not ignore an entire `Content` directory. Store Durin packages and small metadata in Git, large source assets in Git LFS, and leave regenerable output out of version control.
 
@@ -20,18 +20,12 @@ not be treated like disposable DDC entries while that build is installed or
 running. See [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
 
-Standalone imported assets store their decoder-free canonical imported data in
-the `.dasset` plus optional raw `.dbulk` closure. Optional schema-2 source hints are explicitly
-`AssetRelative`, `ProjectRelative`, or `Absolute` physical paths used only by
-explicit Reimport. They are not asset identities, DDC keys, or rebuild
-authority. Source art is optional authoring input after a successful package
-save. Moving, duplicating, or deleting a package never moves or deletes
-potentially shared source art.
-
-Repository packages use concrete family import-data schema 2. Retired mounted
-source, filename-only, and source-backed recovery schemas have no current
-reader; the repository corpus must remain canonical-resaved before those
-compatibility routes are removed.
+Standalone imported assets retain their canonical rebuild inputs in the
+`.dasset` plus optional raw `.dbulk` closure. Source art is optional after a
+successful package save; moving, duplicating, or deleting a package never moves
+or deletes potentially shared source art. Source-hint and explicit Reimport
+behavior are defined by
+[Source File Workflows](../../Editor/Guides/SourceFileWorkflows.md).
 
 ## Directory Convention
 
@@ -169,8 +163,8 @@ transaction state and must never be submitted. Revisit
 `.dasset` LFS only if a separately qualified route begins embedding large
 render data.
 
-The v8 Registry and Bulk Directory, not a suffix scan, select and bind the
-canonical closure. Review migration or resave reports and submit the `.dasset`
+Validated [Registry and Bulk Directory facts](../../Runtime/Assets/BulkData.md#publication-and-companion-ownership)
+select the canonical closure. Review migration or resave reports and submit the `.dasset`
 and its LFS-backed `.dbulk` together whenever either changes. Never submit only
 one side of a closure that still references the other.
 

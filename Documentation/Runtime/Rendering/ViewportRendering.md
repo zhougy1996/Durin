@@ -53,36 +53,10 @@ scene abstraction. See
 [Renderer Scene Representation](SceneRepresentation.md) for its identity,
 ownership, and mutation contracts.
 
-`FSceneRenderer` is distinct from `FScene`: it executes one view and owns the
-resources and feature renderers used to produce that view. `FRendererModule`
-is the module-lifecycle and public-interface adapter around this private
-composition:
-
-```text
-FRendererModule
-`-- FSceneRenderer
-    |-- FRendererResourceCoordinator
-    |-- FDefaultTextureResources
-    |-- FFullscreenGeometryResources
-    |-- FStaticMeshRenderer
-    |-- FSkyBoxRenderer
-    |-- FTextureCubeThumbnailRenderer
-    |-- FPostProcessRenderer
-    `-- FEditorAssistanceRenderer
-        |-- FEditorGridRenderer
-        |-- FGizmoRenderer
-        `-- FSimpleElementRenderer
-```
-
-RenderCore owns fixed non-Material shader maps as bounded atomic
-[global shader sets](GlobalShaders.md). Feature renderers retain typed refs to
-the exact set used by each pipeline and continue to own pipelines, non-shader
-RHI payloads, keyed caches, geometry, retry state, diagnostics, and release
-paths. Material and vertex-factory/mesh renderers retain their specialized
-shader-map identities. Shared
-facilities are explicit resource owners rather than anonymous feature globals.
-All GPU resource mutation, invalidation, retry, and release remains confined
-to the rendering thread.
+`FSceneRenderer` executes views over that scene. Its preparation, feature
+composition, and transient resources are owned by
+[Renderer Frame Preparation](RendererFramePreparation.md); fixed non-Material
+shader maps are owned by [Global Shaders](GlobalShaders.md).
 
 ## Output Policies
 
@@ -149,12 +123,8 @@ refs, pipelines, dynamic upload buffers, drawing, invalidation, and release.
 Procedural fullscreen Grid and solid Gizmo meshes remain specialized because
 they are not simple line/point/sprite batches.
 
-The Level Editor View menu mirrors that ownership. Features with subordinate
-quality or route policy own one submenu containing their boolean `Enabled`
-checkbox and mutually exclusive radio choices. Independent visibility toggles
-such as grid and collision remain checkboxes. Instantaneous commands use plain
-actions. Checkbox and radio controls do not close their popup hierarchy,
-allowing repeated A/B changes without reopening the menu.
+Editor control presentation is defined by
+[Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
 
 For the main scene viewport, a valid view supplied by its `FViewportClient`
 still has first priority. If it supplies none, Engine resolves the active
@@ -171,37 +141,22 @@ camera. A null client alone selects default settings. This lets embedded PIE
 keep the Level Editor viewport's diagnostic policy without letting its editor
 camera override the runtime view.
 
-For each valid non-zero output, `FSceneRenderer` preserves this order:
+All valid outputs use the production schedule defined by
+[Renderer Frame Preparation](RendererFramePreparation.md#render-graph-frame-schedule).
+[Scene Representation](SceneRepresentation.md#view-local-environment-overrides)
+owns view-local environment overrides; [Material System](MaterialSystem.md#environment-lighting)
+owns the independent shared studio lighting environment.
 
-1. Resolve size-keyed Scene Color and depth targets and fit the view to the
-   output.
-2. Draw the submission-local environment override or scene SkyBox, then PBR
-   StaticMesh and SkeletalMesh geometry into Scene Color. An explicit
-   environment overrides the scene SkyBox only for that view. Geometry shares
-   the hidden Engine studio-environment asset for lighting; it does not replace
-   or follow the visible SkyBox.
-3. Prepare demanded editor-assistance operations after the scene pass.
-4. Apply manual exposure and the ACES fitted display transform, with optional
-   FXAA in bounded display-linear space, into the final SDR output.
-5. When assistance has drawable work, load the preserved color and depth and
-   draw Grid, X-Ray Gizmos, Foreground simple elements, visible solid Gizmos,
-   then World simple elements. XRay+Visible helpers preserve their historical
-   appearance by submitting a low-alpha Foreground element before the matching
-   World element.
-6. Transition only the final pass to Present for a window-backed output or
-   ShaderReadOnly for an offscreen output.
-
-When the production hybrid-deferred route is active, its GBuffer is completed
-inside step 2 before deferred lighting. Requested directional contact
-visibility is produced there by synchronous compute, or by its fragment
-fallback, and consumed immediately by deferred lighting before retained
-forward geometry. The visibility route is independent of the final output:
-main, camera-preview, other auxiliary offscreen, and window-backed Present
-views use the same route decision and compute-to-graphics handoff. Display
-mapping and editor assistance remain after deferred/retained composition and
-never consume the storage target directly.
+Display mapping precedes editor assistance. Assistance loads preserved color
+and depth, then draws Grid, X-Ray Gizmos, Foreground simple elements, visible
+solid Gizmos, and World simple elements. XRay+Visible helpers submit a low-alpha
+Foreground element before its matching World element. Only the final output
+transitions to `Present` for windows or `ShaderReadOnly` offscreen.
 
 ## Game Window Path
+
+Device/queue qualification and startup-surface adoption are defined by
+[RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
 Launch creates the hidden primary `MWindow` and native platform window before
 RHI initialization. `DGameEngine::Init()` adopts and shows that window, then
@@ -344,38 +299,12 @@ render-thread publication and UI-thread reads without flushing render commands.
 Main, window-backed, and auxiliary viewports own independent snapshots; camera
 preview rendering cannot overwrite the Level Editor main-view statistics.
 
-The Level Editor FPS badge is the statistics entry point. Activating the badge
-toggles a compact frame summary right-aligned directly below it. The summary is
-limited to frame interval, visibility, triangles, and draw calls; its `Details...`
-action opens the independently dockable Rendering Diagnostics panel. The full
-badge/panel rectangle is excluded from drag/drop, selection, gizmo editing,
-camera navigation, wheel input, and embedded-PIE capture before those paths
-evaluate the viewport. The summary is suppressed when its minimum readable
-size cannot fit inside the viewport, while the FPS badge remains available.
-Expansion is an editor session preference under `SceneViewport.ShowStatistics`;
-it defaults to collapsed and never dirties level or asset packages.
-
-Rendering Diagnostics separates Overview, Scene, and Render Graph inspection.
-Overview separates the smoothed wall-clock frame interval into game-thread work
-and the measured end-of-frame render synchronization wait. The latter is a
-pacing boundary that may include render-thread, RHI, GPU, Present, or VSync
-backlog; it is not presented as pure VSync time. Overview also reports
-graph-budget values. The three frame-timing values publish one synchronized
-snapshot every half second while their underlying accumulators continue to
-sample every frame. Scene owns the
-feature breakdowns removed from the compact overlay, and Render Graph provides
-pass filtering, pass/resource inspection, dependency visualization, resource
-lifetimes, and transition counts. Pass filtering compacts the graph to matches
-plus their direct dependency context. Hovering or selecting a pass focuses its
-incoming and outgoing edges by default, with an opt-out for whole-graph
-inspection; dependency tooltips identify value, execution, and explicit edges
-and their captured resource cause. The panel is optional in the workspace and
-is also available from the Level Editor Panels menu.
+Editor badge, panel, input exclusion, and capture controls are defined by
+[Viewport Rendering Diagnostics](../../Editor/Architecture/ViewportRenderingDiagnostics.md).
 
 Full graph inspection is explicitly sampled rather than copied every frame.
-Opening the panel without a capture requests the next frame once; later
-captures occur only through `Capture next frame`. `FSceneViewport` carries the
-request atomically into the exact render submission and publishes an immutable
+`FSceneViewport` carries each request atomically into the exact render
+submission and publishes an immutable
 owning `FRDGCapture` under a separate revision. Main, window-backed,
 and auxiliary viewports therefore retain independent graph captures just as
 they retain independent bounded statistics. A failed requested render
@@ -536,22 +465,6 @@ immediate deletion-queue drain.
 
 The lasting diagnostic, timing, snapshot, and cross-viewport conformance rules
 are defined by [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
-
-## Design Rules
-
-- Keep `MWindow` focused on native window state and widget content.
-- Put viewport widget behavior in `MViewport`.
-- Keep scene rendering state in `FSceneViewport` and engine/rendering code.
-- Keep UI texture registration in `MViewport`; Engine must not call a UI backend.
-- Keep primary viewport semantics separate from auxiliary editor views; auxiliary clients must explicitly provide their view and do not fall back to the world's active camera.
-- Do not make Mona widgets depend on Engine types.
-- Keep Engine's concrete Mona integration private; never add a reverse Mona-to-Engine dependency.
-- Do not make `MViewport` own the scene viewport lifetime.
-- Window-backed game rendering should continue to present through the native RHI viewport.
-
-The provisioned Win64 graphics/presentation family and later-surface rejection
-rule are documented in
-[RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
 ## Related Code
 

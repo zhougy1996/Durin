@@ -28,8 +28,7 @@ compatibility and canonical-resave batches.
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  production DAST v9 read/write, bounded validation, and the construct-free v8
-  conversion primitives used only by AssetMaintenance and focused fixtures.
+  production DAST v9 read/write, and bounded validation.
 - `AssetRegistry` owns canonical-v9 mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` captures live graphs into linker tables, applies validated linker
@@ -39,6 +38,8 @@ Ownership is deliberately one-way:
 - `AssetMaintenance` owns deterministic compatibility/resave plans,
   fingerprints, stale checks, reporting, and publication rollback. It is not
   linked into the game Runtime.
+- Asset-family Runtime/Editor modules own canonical imported data, domain
+  payload codecs, build/DDC recipes, save readiness, and Cook contributions.
 
 ## Paths And Mounts
 
@@ -145,21 +146,15 @@ for tools that need a concrete edit. See
 
 DAST has permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56`, diagnostic name
-`Durin.BinaryFormat.DAST`, and current production version 9. The ordinary codec
-policy registers v9 only. Unknown identities, unsupported versions or features,
-legacy prefixes, corrupt envelopes, and noncanonical encodings fail before
-object construction, mutation, or publication.
+`Durin.BinaryFormat.DAST`, and current production version 9. Supported readers
+and corpus-transition policy are defined by
+[Versioning](Versioning.md#authored-package-policy).
 
 `CoreDObject`'s `DObject/PackageFormat.h` is the sole code authority for the
 DAST magic, identity, format and object-stream versions, supported-reader set,
 and persisted-projection reader-policy fingerprint. AssetRegistry and Engine
 consume those constants directly and publish no independent package-format
 copy.
-
-The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v9.
-Production discovery, save, load, inspection, mutation, Cook, and canonical
-resave reject v7. The completed repository migration removed its converter,
-decoder, command route, and fixtures.
 
 ### Envelope And Sections
 
@@ -231,20 +226,12 @@ writes files.
 
 ### BulkData Closure
 
-Every `BulkData` linker value declares element size, power-of-two alignment,
-storage kind, extent, and content digest. Inline values consume exact ranges in
-Inline Bulk. External values consume exact aligned ranges in the headerless
-raw `.dbulk` segment. Bulk Directory binds each value to its owner/field and
-placement; zero padding is canonical and every byte of each inline or external
-segment is consumed exactly once. Registry binds the complete external segment
-by extent and XXH3-128 digest. Empty external closure means zero extent and a
-zero digest.
-
-The payload bytes are opaque to the package format. Asset-family code owns
-dimensions, pixel/vertex formats, schema versions, rebuild policy, and repair.
-The field/resource and Cook rules are defined by
-[Package Bulk Data](BulkData.md) and
-[Asset Data Lifecycle](AssetDataLifecycle.md).
+Bulk Directory binds each `BulkData` value to an Inline Bulk or external raw
+`.dbulk` range; Registry binds the complete external segment. Placement,
+alignment, padding, and digest rules are defined by
+[Package Bulk Data](BulkData.md#dast-v9-authored-placement).
+Payload bytes remain opaque to the package format; asset families own their
+schemas, interpretation, and [data lifecycle](AssetDataLifecycle.md).
 
 ## Production Save And Load
 
@@ -300,31 +287,21 @@ invokes no serializer or `PostLoad`, changes no dirty state, and never publishes
 files. Texture and other asset-family inspectors add semantic interpretation
 outside this package boundary.
 
-Registry refresh uses only package-level front matter. Relocation, redirector
-Fix Up, deletion, compatibility maintenance, and Cook first select candidate
-packages from those package edges, then open only the candidates that need an
-exact occurrence or rewrite. Rewrites operate on detached v9 linkers, preserve
+Mutation tools use Registry package edges to select candidates, then open only
+those requiring exact inspection. Rewrites operate on detached v9 linkers, preserve
 untouched values, rebuild Registry metadata, validate the exact output closure,
 and enter bounded artifact publication. No persistent occurrence route,
 display path, or legacy value cache exists.
 
-Package relocation rewrites only the package component and preserves top-level
-asset names and subobject suffixes. It publishes forward, destination first and
-source redirector last; upstream alias compression belongs to Fix Up. Asset
-rename is a separate exact operation. Deletion uses package-level hard blockers
-and exact companion ownership, then permanently removes the revalidated closure
-without a local recovery copy; version control owns restoration. Cook carries identity plus exact main/bulk bytes
-through canonicalization, reachability, pruning, publication, and runtime
-admission; it never manufactures a legacy raw-segment metadata grammar.
+Relocation, asset rename, Fix Up, and deletion policy belong to
+[Asset Catalog And Mutation](AssetCatalogAndMutation.md). Cook reachability and
+publication belong to [Asset Data Lifecycle](AssetDataLifecycle.md#cook-and-publication-rules).
 
 ## Compatibility And Canonical Resave
 
-Ordinary authored load queries current classes and properties, skips removed
-fields, and fails on unknown classes/declaring types or incompatible retained
-fields. Explicit deprecated routes take precedence over automatic discard.
-Wire validation still checks the entire package before applying this policy;
-malformed bytes are not excused by an unknown field name. Cooked native fields
-retain their exact serializer-consumption contract and are not auto-discarded.
+Schema evolution follows the [Archive version policy](Versioning.md#archive-version-context)
+and the load rules above. Wire validation checks the entire package before
+applying that policy; malformed bytes are not excused by an unknown field name.
 
 Discarded fields are omitted from live values and authored override ledgers.
 `FAssetLoadReport::DiscardedFieldCount` reports the number of skipped field
@@ -351,28 +328,8 @@ requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.
 
-Ordinary load, discovery, save, mutation, Cook, and canonical resave accept v9
-only. Older package formats have no reader or migration boundary.
 User-facing resave steps are in
 [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
-
-## Subsystem Boundary
-
-- `CoreDObject`: `DPackage`, `FPackagePath`, reflection, Archive semantics,
-  linker tables, canonical values/Map keys, and DAST v9 codec.
-- `AssetRegistry`: mounted discovery, bounded v9 front-matter projection,
-  package metadata/dependency state, revisions, and rebuildable cache.
-- `Engine`: physical closure I/O, live capture/application, residency,
-  dependency loading, exact inspection/mutation, DDC integration, and Cook.
-- `AssetMaintenance`: project snapshots and compatibility/resave reports.
-- Asset-family Runtime/Editor modules: canonical imported data, domain payload
-  codecs, build/DDC recipes, save readiness, and Cook contributions.
-
-Asset-level Cook publication is implemented for StaticMesh, Texture2D,
-TextureCube, VolumeTexture, TerrainHeightmap, SkeletalMesh, AnimationClip, and
-ordinary package-only assets. Engine also owns the fixed built-in Cook-root
-list. Async package loading, hot reload, and complete installable-build
-orchestration remain separate future work.
 
 ## Related Documentation
 
