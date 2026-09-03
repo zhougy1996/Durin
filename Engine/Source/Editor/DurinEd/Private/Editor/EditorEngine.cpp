@@ -45,6 +45,15 @@ namespace Durin
 	auto DEditorEngine::Init(const FEngineInitContext& InitContext)
 		-> FEngineInitializationResult
 	{
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			for (const std::string& ModuleName : Project->EnabledRootModules)
+			{
+				if (!FModuleManager::Get().LoadModule(FName(ModuleName)))
+					return FEngineInitializationResult::Failure(std::format(
+						"Editor initialization could not load project module '{}'.", ModuleName));
+			}
+		}
 		// The registry extracts references before MainFrame activates the full
 		// editor stack. Publish editor-authored package classes first so import
 		// records participate in that initial, atomic catalog revision.

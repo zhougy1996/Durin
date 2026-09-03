@@ -35,6 +35,87 @@ namespace Durin
 			const std::filesystem::path Absolute = std::filesystem::absolute(Path, Error).lexically_normal();
 			return (Error ? Path.lexically_normal() : Absolute).generic_string();
 		}
+
+		auto ReadModuleArray(
+			FJsonNodeView Array,
+			std::string_view FieldName,
+			std::vector<std::string>& OutModules,
+			std::unordered_set<std::string>& SeenModules,
+			std::string* OutError
+		) -> bool
+		{
+			if (!Array.IsArray())
+			{
+				if (OutError) *OutError = std::format(
+					"Project descriptor field '{}' must be an array of module names.", FieldName);
+				return false;
+			}
+			for (size_t Index = 0; Index < Array.Num(); ++Index)
+			{
+				const FJsonNodeView Entry = Array.GetView(Index);
+				if (!Entry.IsString() || Entry.GetString().empty())
+				{
+					if (OutError) *OutError = std::format(
+						"Project descriptor field '{}[{}]' must be a non-empty module name.",
+						FieldName, Index);
+					return false;
+				}
+				std::string ModuleName = Entry.GetString();
+				if (SeenModules.insert(ModuleName).second)
+					OutModules.push_back(std::move(ModuleName));
+			}
+			return true;
+		}
+
+		auto ReadEnabledRootModules(
+			FJsonNodeView Root,
+			std::vector<std::string>& OutModules,
+			std::string* OutError
+		) -> bool
+		{
+			std::unordered_set<std::string> SeenModules;
+			if (Root.Contains("BaseModules"))
+			{
+				if (!ReadModuleArray(
+					Root.GetView("BaseModules"), "BaseModules", OutModules, SeenModules, OutError))
+					return false;
+			}
+			else
+			{
+				const FJsonNodeView ModuleDirs = Root.GetView("ModuleDirs");
+				if (ModuleDirs.IsValid() && !ModuleDirs.IsObject())
+				{
+					if (OutError) *OutError = "Project descriptor field 'ModuleDirs' must be an object.";
+					return false;
+				}
+				ModuleDirs.ForEachObjectMember([&](std::string_view ModuleName, FJsonNodeView) {
+					std::string Name(ModuleName);
+					if (SeenModules.insert(Name).second) OutModules.push_back(std::move(Name));
+				});
+			}
+
+			const FJsonNodeView ExtraModules = Root.GetView("ExtraModules");
+			if (!ExtraModules.IsValid()) return true;
+			if (!ExtraModules.IsObject())
+			{
+				if (OutError) *OutError = "Project descriptor field 'ExtraModules' must be an object.";
+				return false;
+			}
+			const FJsonNodeView RuntimeModules = ExtraModules.GetView(DURIN_RUNTIME_VARIANT);
+			if (!RuntimeModules.IsValid()) return true;
+			if (!RuntimeModules.IsObject())
+			{
+				if (OutError) *OutError = std::format(
+					"Project descriptor field 'ExtraModules.{}' must be an object.",
+					DURIN_RUNTIME_VARIANT);
+				return false;
+			}
+			if (!RuntimeModules.Contains("Modules")) return true;
+			return ReadModuleArray(
+				RuntimeModules.GetView("Modules"),
+				std::format("ExtraModules.{}.Modules", DURIN_RUNTIME_VARIANT),
+				OutModules, SeenModules, OutError);
+		}
 	}
 
 	auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string { return Normalize(ProjectFile); }
@@ -66,7 +147,8 @@ namespace Durin
 			if (OutError) *OutError = std::format("Invalid project descriptor '{}': {}", Normalized, ParseError.Message);
 			return false;
 		}
-		const std::string ProjectName = Descriptor.GetRootView().GetView("ProjectName").GetString();
+		const FJsonNodeView Root = Descriptor.GetRootView();
+		const std::string ProjectName = Root.GetView("ProjectName").GetString();
 		if (ProjectName.empty())
 		{
 			if (OutError) *OutError = std::format("Project descriptor has no ProjectName: {}", Normalized);
@@ -84,6 +166,11 @@ namespace Durin
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";
 		Info.ContentDir = Info.ProjectDir + "Content/";
 		Info.MountRoot = FMountPaths::ProjectContentMountRoot;
+		if (!ReadEnabledRootModules(Root, Info.EnabledRootModules, OutError))
+		{
+			FPaths::SetProjectFile({});
+			return false;
+		}
 		GCurrentProject = std::move(Info);
 		return true;
 	}

@@ -12,6 +12,8 @@ namespace Durin
 		std::string ProjectDir;
 		std::string ContentDir;
 		std::string MountRoot;
+		// Project-owned module roots enabled for this executable's runtime variant.
+		std::vector<std::string> EnabledRootModules;
 	};
 
 	// Describes how startup selects the process's initial project.

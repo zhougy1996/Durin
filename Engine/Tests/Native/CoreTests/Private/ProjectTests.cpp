@@ -298,6 +298,46 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	}
 }
 
+TEST_F(FProjectHistoryTest, ResolvesEnabledModulesForCurrentRuntimeVariant)
+{
+	const std::string Project = WriteProject(
+		"Modules",
+		std::format(
+			R"({{
+				"ProjectName":"Modules",
+				"ModuleDirs":{{"Runtime":"Source/Runtime","Editor":"Source/Editor"}},
+				"BaseModules":["Runtime"],
+				"ExtraModules":{{"{}":{{"Modules":["Editor","Runtime"]}}}}
+			}})",
+			DURIN_RUNTIME_VARIANT));
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = Project;
+	std::string Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
+	EXPECT_EQ(
+		Durin::GetCurrentProject()->EnabledRootModules,
+		(std::vector<std::string>{"Runtime", "Editor"}));
+}
+
+TEST_F(FProjectHistoryTest, DefaultsEnabledBaseModulesToModuleDirectoryKeys)
+{
+	const std::string Project = WriteProject(
+		"DefaultModules",
+		R"({
+			"ProjectName":"DefaultModules",
+			"ModuleDirs":{"Runtime":"Source/Runtime","Tools":"Source/Tools"}
+		})");
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = Project;
+	std::string Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
+	EXPECT_EQ(
+		Durin::GetCurrentProject()->EnabledRootModules,
+		(std::vector<std::string>{"Runtime", "Tools"}));
+}
+
 TEST_F(FProjectHistoryTest, RecordsNewestFirstDeduplicatesAndCapsHistory)
 {
 	Durin::FProjectHistory History(HistoryFile());
