@@ -2,6 +2,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
@@ -509,12 +510,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Texture = nullptr;
-	Durin::ShutdownAssetManager();
-	Durin::CollectGarbage();
-	auto CookedConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
-		CookRoot, CookedConfiguration));
-	ASSERT_TRUE(Durin::InitializeAssetManager(std::move(CookedConfiguration)));
+	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -550,9 +547,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_EQ(CookedTexture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels);
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
-	Durin::ShutdownAssetManager();
-	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_TRUE(AssetRuntime.Restore());
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 

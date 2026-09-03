@@ -1,4 +1,5 @@
 #include "NativeAssetTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetRegistry/Catalog.h"
 #include "VulkanEngineTestSupport.h"
@@ -107,20 +108,6 @@ namespace
 			TextBytes.begin(), TextBytes.end()) != Bytes.end();
 	}
 
-	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
-	{
-		Durin::ShutdownAssetManager();
-		Durin::CollectGarbage();
-		if (CookRoot.empty())
-		{
-			ASSERT_TRUE(Durin::InitializeAssetManager());
-			return;
-		}
-		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
-			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
-	}
 }
 
 TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
@@ -291,7 +278,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Root / "Content" / "Textures");
-	RestartAssetManager(CookRoot);
+	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -483,7 +471,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;
-	RestartAssetManager();
+	ASSERT_TRUE(AssetRuntime.Restore());
 	struct FRetireCookedTextureResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireCookedTextureResource"; }
@@ -498,7 +486,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
-	RestartAssetManager(CookRoot);
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	const Durin::FAssetCatalogRefreshResult MissingBulkRefresh =
@@ -511,7 +499,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			return Result.Message.find("bulk binding") != std::string::npos;
 		}));
 
-	RestartAssetManager(CorruptRoot);
+	ASSERT_TRUE(AssetRuntime.RestartCooked(CorruptRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CorruptRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -522,6 +510,5 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_EQ(CookedTexture, nullptr);
 	EXPECT_NE(CorruptBulkLoad.Message.find("bulk segment"), std::string::npos)
 		<< CorruptBulkLoad.Message;
-	Durin::ShutdownAssetManager();
-	Durin::CollectGarbage();
+	ASSERT_TRUE(AssetRuntime.Restore());
 }

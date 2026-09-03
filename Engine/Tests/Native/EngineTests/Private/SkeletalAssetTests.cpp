@@ -1,4 +1,5 @@
 #include "NativeAssetTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
@@ -393,20 +394,6 @@ namespace
 			TextBytes.begin(), TextBytes.end()) != Bytes.end();
 	}
 
-	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
-	{
-		Durin::ShutdownAssetManager();
-		Durin::CollectGarbage();
-		if (CookRoot.empty())
-		{
-			ASSERT_TRUE(Durin::InitializeAssetManager());
-			return;
-		}
-		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
-			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
-	}
 }
 
 TEST(FSkeletalMeshCookedProductTests,
@@ -1461,7 +1448,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_TRUE(Durin::UnloadPackage(SkeletonPath));
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
-	RestartAssetManager(FirstCookRoot);
+	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstCookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -1546,7 +1534,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	MeshPackage.back() ^= std::byte{0x80};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(MeshPackage)), FirstCookRoot / "Game/Mesh.dasset"));
-	RestartAssetManager(FirstCookRoot);
+	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstCookRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -1555,6 +1543,6 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	EXPECT_FALSE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), CorruptMesh));
 	EXPECT_EQ(CorruptMesh, nullptr);
 
-	RestartAssetManager();
+	ASSERT_TRUE(AssetRuntime.Restore());
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }

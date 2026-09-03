@@ -1,4 +1,5 @@
 #include "Texture/TextureCube.h"
+#include "Texture/TextureCookedData.h"
 
 #include "DObject/Package.h"
 
@@ -190,40 +191,8 @@ namespace Durin
 	auto DTextureCube::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
-		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
-		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
-				"TextureCube cooked platform data requires the Win64 Game target.");
-			return;
-		}
-		FBulkData Projection;
-		FBulkData* Value = &GetMutableCookedPlatformData();
-		if (Ar.IsSaving())
-		{
-			if (!PlatformData || !PlatformData->IsValid())
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData,
-					"TextureCube cooked platform data is unavailable.");
-				return;
-			}
-			FByteArray Bytes;
-			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
-			PlatformData->Serialize(Writer, {
-				.TargetPlatform = ECookTargetPlatform::Win64,
-				.TargetProfile = ECookTargetProfile::Game});
-			std::string Error;
-			if (Writer.HasError() || !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
-			{
-				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
-					? Writer.GetFailure()->Message : std::move(Error));
-				return;
-			}
-			Value = &Projection;
-		}
-		auto Field = EnterArchiveField(Ar, {FName("Durin::DTextureCube"),
-			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
-		Value->Serialize(Ar, {.Alignment = TexturePayloadAlignment,
-			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
+		TexturePrivate::SerializeCookedPlatformData(Ar, GetMutableCookedPlatformData(),
+			PlatformData.get(), FName("Durin::DTextureCube"), "TextureCube");
 	}
 
 	auto DTextureCube::GetBuiltFaceDimension() const -> uint32
@@ -325,32 +294,8 @@ namespace Durin
 
 	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
 	{
-		auto FailCooked = [&](std::string Message) {
-			OutError = std::format(
-				"Cooked TextureCube '{}': {}", GetObjectPath(), Message);
-			return false;
-		};
-		FBulkData& CookedData = GetMutableCookedPlatformData();
-		std::span<const std::byte> Bytes;
-		if (!CookedData.LockReadOnly(Bytes, &OutError))
-			return FailCooked(OutError);
-		auto CandidatePlatformData = std::make_unique<FTextureCubePlatformData>();
-		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
-		CandidatePlatformData->Serialize(PayloadAr, {
-			.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game});
-		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
-		{
-			CookedData.UnlockReadOnly();
-			return FailCooked(std::string(PayloadAr.GetError()));
-		}
-		if (!CookedData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
-
-		if (!SetPlatformData(std::move(CandidatePlatformData), OutError))
-			return FailCooked(OutError);
-		UpdateResource();
-		OutError.clear();
-		return true;
+		return TexturePrivate::LoadCookedPlatformData<FTextureCubePlatformData>(
+			*this, GetMutableCookedPlatformData(), "TextureCube", OutError);
 	}
 
 	auto DTextureCube::ContributeToCook(

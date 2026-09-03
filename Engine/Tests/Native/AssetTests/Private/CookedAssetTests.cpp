@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <gtest/gtest-spi.h>
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -18,6 +19,7 @@
 #include "Misc/MountPathTestSupport.h"
 #include "Materials/Material.h"
 #include "NativeTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
@@ -25,11 +27,11 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Texture/TextureCookedData.h"
 #include "Texture/VolumeTexture.h"
 
 namespace
 {
-	using namespace Durin;
 	using namespace Durin;
 
 	template<typename T>
@@ -71,6 +73,51 @@ namespace
 		return Bytes;
 	}
 
+	template<class TTexture, class TPlatformData>
+	auto ExpectCookedTextureDecodeBoundaries(
+		TPlatformData PlatformData, std::string_view Family) -> void
+	{
+		auto* Texture = NewObject<TTexture>(nullptr, "CookedDecodeBoundary");
+		ASSERT_NE(Texture, nullptr);
+		std::string Error;
+		ASSERT_TRUE(Texture->SetPlatformData(std::make_unique<TPlatformData>(PlatformData), Error))
+			<< Error;
+		const auto* Installed = Texture->GetPlatformData();
+		const uint64 Revision = Texture->GetBuildRevision();
+		FByteArray ValidBytes;
+		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload);
+		PlatformData.Serialize(Writer, {.TargetPlatform = ECookTargetPlatform::Win64,
+			.TargetProfile = ECookTargetProfile::Game});
+		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		FByteArray TrailingBytes = ValidBytes;
+		TrailingBytes.push_back(std::byte{0x7f});
+
+		FBulkData Bulk;
+		EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
+			*Texture, Bulk, Family, Error));
+		for (const FByteArray& InvalidBytes : {FByteArray{std::byte{0xff}}, TrailingBytes})
+		{
+			ASSERT_TRUE(FBulkData::TryCreateDetached(InvalidBytes, Bulk, &Error)) << Error;
+			EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
+				*Texture, Bulk, Family, Error));
+			EXPECT_NE(Error.find(std::format("Cooked {} '{}'", Family, Texture->GetObjectPath())),
+				std::string::npos) << Error;
+			EXPECT_EQ(Texture->GetPlatformData(), Installed);
+			EXPECT_EQ(Texture->GetBuildRevision(), Revision);
+			// A failed decoder must release its lock so the payload can be retried.
+			std::span<const std::byte> LockedBytes;
+			ASSERT_TRUE(Bulk.LockReadOnly(LockedBytes, &Error)) << Error;
+			ASSERT_TRUE(Bulk.UnlockReadOnly(&Error)) << Error;
+		}
+		ASSERT_TRUE(FBulkData::TryCreateDetached(ValidBytes, Bulk, &Error)) << Error;
+		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
+			*Texture, Bulk, Family, Error)) << Error;
+		EXPECT_TRUE(Texture->HasPlatformData());
+		EXPECT_EQ(Texture->GetBuildRevision(), Revision + 1);
+		EXPECT_NE(Bulk.GetState(), EBulkDataState::ReadLocked);
+		EXPECT_TRUE(Error.empty());
+	}
+
 } // namespace
 
 TEST(FCookedPathTests, ResolvesMountedCompanionsAndRejectsTraversal)
@@ -109,6 +156,74 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetError::ReadOnlyMode);
 	ShutdownAssetManager();
 	ASSERT_TRUE(InitializeAssetManager());
+}
+
+TEST(FCookedPathTests, ScopedRuntimeRejectsInvalidRootAndRestoresNestedConfigurations)
+{
+	Testing::InitializeDObjectSystemForTests();
+	ASSERT_TRUE(InitializeAssetManager());
+	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
+	const auto FirstRoot = Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeFirst");
+	const auto SecondRoot = Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeSecond");
+	Testing::FScopedAssetRuntimeForTests Outer;
+	ASSERT_TRUE(Outer.RestartCooked(FirstRoot));
+	const FAssetRuntimeConfiguration First = GetAssetRuntimeConfiguration();
+	{
+		Testing::FScopedAssetRuntimeForTests Inner;
+		const auto Invalid = Inner.RestartCooked("relative/cook");
+		EXPECT_FALSE(Invalid);
+		EXPECT_EQ(GetAssetRuntimeConfiguration(), First);
+		EXPECT_FALSE(InitializeAssetManager(Original));
+		ASSERT_TRUE(Inner.Restore());
+		EXPECT_EQ(GetAssetRuntimeConfiguration(), First);
+		ASSERT_TRUE(Inner.RestartCooked(SecondRoot));
+		EXPECT_EQ(GetAssetRuntimeConfiguration().GetCookRoot(), SecondRoot);
+	}
+	EXPECT_EQ(GetAssetRuntimeConfiguration(), First);
+	ASSERT_TRUE(Outer.Restore());
+	EXPECT_EQ(GetAssetRuntimeConfiguration(), Original);
+	ASSERT_TRUE(Outer.Restore());
+	EXPECT_EQ(GetAssetRuntimeConfiguration(), Original);
+	// The same scope can switch again after an explicit restore.
+	ASSERT_TRUE(Outer.RestartCooked(SecondRoot));
+	ASSERT_TRUE(Outer.Restore());
+	EXPECT_EQ(GetAssetRuntimeConfiguration(), Original);
+}
+
+TEST(FCookedPathTests, ScopedRuntimeRestoresAfterFatalAssertion)
+{
+	Testing::InitializeDObjectSystemForTests();
+	ASSERT_TRUE(InitializeAssetManager());
+	const FAssetRuntimeConfiguration Original = GetAssetRuntimeConfiguration();
+	EXPECT_FATAL_FAILURE({
+		Testing::FScopedAssetRuntimeForTests Runtime;
+		ASSERT_TRUE(Runtime.RestartCooked(
+			Testing::CreateTestFixtureDirectory("ScopedCookedRuntimeEarlyExit")));
+		FAIL() << "intentional runtime scope exit";
+	}, "intentional runtime scope exit");
+	EXPECT_EQ(GetAssetRuntimeConfiguration(), Original);
+	ASSERT_TRUE(InitializeAssetManager(Original));
+}
+
+TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndPreservesInstalledFamilyData)
+{
+	Testing::InitializeDObjectSystemForTests();
+	FTexturePlatformData Texture2D;
+	Texture2D.PixelFormat = EPixelFormat::BC1_UNORM;
+	const FPixelFormatLayout Texture2DLayout =
+		GetPixelFormatLayout(Texture2D.PixelFormat, 1, 1);
+	Texture2D.Mips.push_back({FByteArray(Texture2DLayout.DataSize, std::byte{0x7f}),
+		1, 1, static_cast<uint32>(Texture2DLayout.RowPitch)});
+	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTexture2D>(Texture2D, "Texture2D"));
+	FTextureCubePlatformData Cube;
+	Cube.PixelFormat = Texture2D.PixelFormat;
+	Cube.Faces.fill(Texture2D);
+	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTextureCube>(Cube, "TextureCube"));
+	FVolumeTexturePlatformData Volume;
+	Volume.PixelFormat = EPixelFormat::R8_UNORM;
+	Volume.Mips.push_back({FByteArray(1, std::byte{0x7f}), 1, 1, 1, 1, 1});
+	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DVolumeTexture>(Volume, "volume texture"));
+	CollectGarbage();
 }
 
 TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)

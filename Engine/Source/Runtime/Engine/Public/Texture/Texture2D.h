@@ -1,10 +1,7 @@
 #pragma once
 
-#include "Asset/AssetImportData.h"
-#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
-#include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
@@ -154,7 +151,7 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
-	// Owns imported texture source, derived platform data, and its render resources.
+	// Adds 2D build settings and typed platform data to the shared texture state.
 	DCLASS()
 	class DTexture2D : public DTexture
 	{

@@ -3,6 +3,7 @@
 #include "Asset/PackageInspection.h"
 #include "Asset/Load.h"
 #include "NativeAssetTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 
@@ -80,17 +81,6 @@ namespace
 					&& Evidence.CurrentIdentity == Current;
 			}));
 	}
-
-	class FScopedAuthoredAssetRuntimeRestore
-	{
-	public:
-		~FScopedAuthoredAssetRuntimeRestore()
-		{
-			Durin::ShutdownAssetManager();
-			Durin::CollectGarbage();
-			(void)Durin::InitializeAssetManager();
-		}
-	};
 
 	template<class T>
 	auto ExpectLazyCookedInstall(T& Texture) -> void
@@ -283,12 +273,8 @@ TEST(FTextureBaseStateCompatibilityTests, PreMoveCookedFixturesKeepNativeFieldId
 	ASSERT_NE(Inspection.FindField("PlatformData"), nullptr);
 	EXPECT_EQ(Inspection.FindField("PlatformData")->DeclaringClass, "Durin::DVolumeTexture");
 
-	FScopedAuthoredAssetRuntimeRestore RestoreAuthoredRuntime;
-	Durin::ShutdownAssetManager();
-	Durin::CollectGarbage();
-	auto Runtime = Durin::FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(Root, Runtime));
-	ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Runtime)));
+	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	ASSERT_TRUE(AssetRuntime.RestartCooked(Root));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
 

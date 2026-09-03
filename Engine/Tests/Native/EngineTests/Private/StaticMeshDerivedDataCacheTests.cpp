@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "NativeAssetRuntimeTestSupport.h"
 
 #include "NativeDObjectTestSupport.h"
 
@@ -132,20 +133,6 @@ namespace
 		WriteU64(Bytes, 56, Hash.HashHigh);
 	}
 
-	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
-	{
-		Durin::ShutdownAssetManager();
-		Durin::CollectGarbage();
-		if (CookRoot.empty())
-		{
-			ASSERT_TRUE(Durin::InitializeAssetManager());
-			return;
-		}
-		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
-			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
-	}
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecoversCorruption)
@@ -405,7 +392,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_NE(Inspection.FindField("CollisionData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-		RestartAssetManager(CookRoot);
+		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -428,7 +416,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_EQ(Geometry.GetNodeCount(), AuthoredNodes);
 		EXPECT_EQ(Geometry.GetRetainedBytes(), AuthoredBytes);
 		ASSERT_TRUE(Durin::UnloadPackage(Path));
-		RestartAssetManager();
+		ASSERT_TRUE(AssetRuntime.Restore());
 		return;
 	}
 }
@@ -480,7 +468,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-		RestartAssetManager(CookRoot);
+		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::RefreshAssetRegistry(
@@ -535,7 +524,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_EQ(CookedMesh->GetAssetImportData(), nullptr);
 		EXPECT_NE(CookedMesh->GetCookedRenderData().GetMetadata().LogicalSize, 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(Path));
-		RestartAssetManager();
+		ASSERT_TRUE(AssetRuntime.Restore());
 		return;
 	}
 }

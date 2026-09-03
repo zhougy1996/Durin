@@ -507,12 +507,11 @@ namespace Durin::AssetPrivate
 
 		auto GatherCanonicalizationEvidence(
 			const ObjectPackage::FLinkerTables& Linker,
-			const FPackagePath& PackagePath)
+			const FPackagePath& PackagePath,
+			std::span<const FSerializedPropertyMove> PropertyMoves)
 			-> std::vector<FAssetCanonicalizationEvidence>
 		{
 			std::vector<FAssetCanonicalizationEvidence> Result;
-			const std::vector<FSerializedPropertyMove> PropertyMoves =
-				CaptureSerializedPropertyMoves();
 			auto AddClass = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
 				std::string LogicalPath) {
 				if (DClass* Class = FindClassBySerializedName(FName(Stored));
@@ -616,10 +615,9 @@ namespace Durin::AssetPrivate
 		// Converts recognized reflection aliases on the Engine-owned linker copy.
 		auto CanonicalizeSerializedReflectionNames(
 			ObjectPackage::FLinkerTables& Linker,
+			std::span<const FSerializedPropertyMove> PropertyMoves,
 			std::string* OutError = nullptr) -> bool
 		{
-			const std::vector<FSerializedPropertyMove> PropertyMoves =
-				CaptureSerializedPropertyMoves();
 			for (auto& Export : Linker.Exports)
 				CanonicalizeSerializedClassName(Export.ClassName);
 			for (auto& Asset : Linker.Summary.TopLevelAssets)
@@ -909,10 +907,13 @@ namespace Durin::AssetPrivate
 				"A package with the requested path is already live.");
 			return Finish({EAssetError::AlreadyExists, Diagnostic.Message});
 		}
+		// Evidence and application must use the same immutable route snapshot.
+		const std::vector<FSerializedPropertyMove> PropertyMoves =
+			CaptureSerializedPropertyMoves();
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
-			GatherCanonicalizationEvidence(Linker, PackagePath);
+			GatherCanonicalizationEvidence(Linker, PackagePath, PropertyMoves);
 		std::string CanonicalizationError;
-		if (!CanonicalizeSerializedReflectionNames(Linker, &CanonicalizationError))
+		if (!CanonicalizeSerializedReflectionNames(Linker, PropertyMoves, &CanonicalizationError))
 		{
 			LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, CanonicalizationError);
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});

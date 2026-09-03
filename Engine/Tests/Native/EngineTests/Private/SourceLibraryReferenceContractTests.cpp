@@ -64,9 +64,10 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	EXPECT_EQ(Durin::Cast<Durin::DTexture>(Texture2DObject), Texture2DObject);
 	EXPECT_EQ(Durin::Cast<Durin::DTexture>(TextureCubeObject), TextureCubeObject);
 
-	static constexpr std::array Texture2DProperties = {
+	static constexpr std::array TextureProperties = {
 		std::string_view("AssetImportData"),
-		std::string_view("Source"),
+		std::string_view("Source")};
+	static constexpr std::array Texture2DProperties = {
 		std::string_view("Usage"),
 		std::string_view("bSRGB"),
 		std::string_view("MaxResolution"),
@@ -75,8 +76,6 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		std::string_view("AlphaCoverageThreshold")};
 	static constexpr std::array TextureCubeProperties = {
 		std::string_view("SourceLayout"),
-		std::string_view("AssetImportData"),
-		std::string_view("Source"),
 		std::string_view("PanoramaFaceDimension"),
 		std::string_view("PanoramaExposureEV"),
 		std::string_view("OriginalSourceWidth"),
@@ -94,6 +93,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 			EXPECT_EQ(Property->Owner.ToDObject(), Class);
 		}
 	};
+	ExpectDeclaredProperties(TextureClass, TextureProperties);
 	ExpectDeclaredProperties(Texture2DClass, Texture2DProperties);
 	ExpectDeclaredProperties(TextureCubeClass, TextureCubeProperties);
 	EXPECT_EQ(Durin::DStaticMesh::StaticClass()->FindPropertyByName("SourceFile"), nullptr);

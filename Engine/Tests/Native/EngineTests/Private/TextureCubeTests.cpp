@@ -1,4 +1,5 @@
 #include "NativeAssetTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
@@ -194,20 +195,6 @@ namespace
 		return Root;
 	}
 
-	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
-	{
-		Durin::ShutdownAssetManager();
-		Durin::CollectGarbage();
-		if (CookRoot.empty())
-		{
-			ASSERT_TRUE(Durin::InitializeAssetManager());
-			return;
-		}
-		auto Configuration = Durin::FAssetRuntimeConfiguration::Authored();
-		ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
-			CookRoot, Configuration));
-		ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Configuration)));
-	}
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
@@ -730,7 +717,8 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AuthoredPath));
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
-	RestartAssetManager(FirstRoot);
+	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
+	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstRoot));
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	const Durin::FAssetCatalogRefreshResult Refresh =
@@ -770,5 +758,5 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
-	RestartAssetManager();
+	ASSERT_TRUE(AssetRuntime.Restore());
 }
