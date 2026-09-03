@@ -83,6 +83,8 @@ namespace Durin
 	class FTextureAssetResource;
 	class FTextureReference;
 	class FTextureResourceCompletion;
+	class DAssetImportData;
+	class FBulkData;
 
 	// Tracks the revisioned render-thread lifecycle of a texture resource.
 	DENUM()
@@ -121,7 +123,19 @@ namespace Durin
 		ENGINE_API auto GetRenderFailure() const -> ETextureRenderFailure;
 		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
-		ENGINE_API auto GetSource() const -> const FTextureSource&;
+		virtual auto GetSource() const -> const FTextureSource& = 0;
+		virtual auto GetAssetImportData() const -> const DAssetImportData* = 0;
+		virtual auto GetAssetImportData() -> DAssetImportData* = 0;
+		// Accepts validated import data owned by this texture as an inner object.
+		virtual auto SetAssetImportData(DAssetImportData& Value, std::string& OutError) -> bool = 0;
+		// Queries installed CPU data without loading bulk data or updating resources.
+		virtual auto HasPlatformData() const -> bool = 0;
+		virtual auto GetCookedPlatformData() const -> const FBulkData& = 0;
+		// GameThread only. Loads and installs cooked data synchronously when absent,
+		// then calls UpdateResource (GPU completion is asynchronous). Does not build
+		// authored data. Already-installed data succeeds without another update.
+		// On failure, logs the texture path and reason and returns false.
+		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
 		// Replaces the current concrete resource from installed platform data.
 		ENGINE_API auto UpdateResource() -> void;
 
@@ -129,21 +143,14 @@ namespace Durin
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
 
-		ENGINE_API auto InvalidateRenderResource() -> void;
-		auto GetRenderCompletion() const
-			-> const std::shared_ptr<FTextureResourceCompletion>&
-		{
-			return RenderCompletion;
-		}
-
 		virtual auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> = 0;
 		virtual auto GetTextureSourceStorage() -> FTextureSource& = 0;
-		virtual auto GetTextureSourceStorage() const -> const FTextureSource& = 0;
-		virtual auto HasValidPlatformData() const -> bool = 0;
+		// Installs family-specific cooked data and queues its resource update.
+		virtual auto LoadCookedPlatformData(std::string& OutError) -> bool = 0;
 
 	private:
 		auto ReleaseRenderResources() -> void;

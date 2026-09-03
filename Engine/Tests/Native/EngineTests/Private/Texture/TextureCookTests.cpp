@@ -331,11 +331,11 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(CookedTexture->GetBuildRevision(), RevisionBeforeGet);
-	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
 	const auto InstalledRevision = CookedTexture->GetBuildRevision();
-	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
 	EXPECT_EQ(CookedTexture->GetBuildRevision(), InstalledRevision);
 	auto* MissingPlatform = Durin::NewObject<Durin::DTexture2D>(

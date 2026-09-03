@@ -67,7 +67,6 @@ namespace Durin
 		bool bHasTransparency = false;
 
 		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
 	};
 
 	// Detached request snapshot of canonical RGBA8 source; never asset-resident.
@@ -163,19 +162,19 @@ namespace Durin
 	public:
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
-		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		auto GetAssetImportData() const -> const DAssetImportData*
+		auto GetSource() const -> const FTextureSource& override { return Source; }
+		auto GetAssetImportData() const -> const DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FTexture2DImportedData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
@@ -189,19 +188,14 @@ namespace Durin
 		{
 			return PlatformData.get();
 		}
-		// GameThread only. Loads and installs cooked data synchronously when absent,
-		// then calls UpdateResource (GPU completion is asynchronous). Does not build
-		// authored data. Already-installed data succeeds without another update.
-		// On failure, logs the texture path and reason and returns false.
-		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
-		auto HasPlatformData() const -> bool
+		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTexturePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
@@ -217,25 +211,16 @@ namespace Durin
 			FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
-	public:
-		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
-		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-protected:
+	protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
 		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
-		auto GetTextureSourceStorage() const -> const FTextureSource& override
-		{
-			return Source;
-		}
-		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
-		auto InvalidatePlatformData() -> void;
-		auto LoadCookedPlatformData(std::string& OutError) -> bool;
+		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
 		// Complete editor-only replay authority. The concrete class is supplied by
 		// the owning authoring framework and is absent from Cooked packages.
 		DPROPERTY(EditorOnly)

@@ -134,17 +134,18 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
+		auto GetSource() const -> const FTextureSource& override { return Source; }
 		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
-		auto GetAssetImportData() const -> const DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FVolumeTextureSourceData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(
@@ -155,19 +156,14 @@ namespace Durin
 		{
 			return PlatformData.get();
 		}
-		// GameThread only. Loads and installs cooked data synchronously when absent,
-		// then calls UpdateResource (GPU completion is asynchronous). Does not build
-		// authored data. Already-installed data succeeds without another update.
-		// On failure, logs the texture path and reason and returns false.
-		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
-		auto HasPlatformData() const -> bool
+		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FVolumeTexturePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 	private:
@@ -181,11 +177,6 @@ namespace Durin
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
 		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
-		auto GetTextureSourceStorage() const -> const FTextureSource& override
-		{
-			return Source;
-		}
-		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
 		DPROPERTY(EditorOnly)
@@ -199,6 +190,6 @@ namespace Durin
 
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		FBulkData CookedPlatformData;
-		auto LoadCookedPlatformData(std::string& OutError) -> bool;
+		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
 	};
 }

@@ -47,9 +47,13 @@ TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
 	InitializeTextureImportMount();
 	auto ExpectMissingAuthoredData = []<typename TTexture>() {
 		auto* Texture = Durin::NewObject<TTexture>(nullptr, "MissingAuthoredPlatformData");
+		Durin::DTexture& Base = *Texture;
 		const auto Revision = Texture->GetBuildRevision();
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
-		EXPECT_FALSE(Texture->EnsurePlatformDataLoadedBlocking());
+		EXPECT_FALSE(Base.HasPlatformData());
+		EXPECT_EQ(Base.GetAssetImportData(), nullptr);
+		EXPECT_EQ(std::as_const(Base).GetAssetImportData(), nullptr);
+		EXPECT_FALSE(Base.EnsurePlatformDataLoadedBlocking());
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
 		EXPECT_EQ(Texture->GetBuildRevision(), Revision);
 	};
@@ -531,11 +535,11 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
 	EXPECT_EQ(CookedTexture->GetBuildRevision(), RevisionBeforeGet);
-	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
 	const auto InstalledRevision = CookedTexture->GetBuildRevision();
-	ASSERT_TRUE(CookedTexture->EnsurePlatformDataLoadedBlocking());
+	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
 	EXPECT_EQ(CookedTexture->GetBuildRevision(), InstalledRevision);
 	auto* MissingPlatform = Durin::NewObject<Durin::DVolumeTexture>(

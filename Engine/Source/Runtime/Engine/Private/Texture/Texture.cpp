@@ -2,6 +2,9 @@
 
 #include "DObject/Package.h"
 
+#include "Asset/Load.h"
+#include "Asset/BulkData.h"
+
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 #include "Texture/TextureRenderResource.h"
@@ -120,11 +123,6 @@ namespace Durin
 		return RenderCompletion->GetAppliedRevision();
 	}
 
-	auto DTexture::GetSource() const -> const FTextureSource&
-	{
-		return GetTextureSourceStorage();
-	}
-
 	auto DTexture::SetSource(FTextureSource Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
@@ -147,7 +145,7 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
-		if (!HasValidPlatformData())
+		if (!HasPlatformData())
 		{
 			DURIN_WARN(
 				"Texture render-resource build rejected without valid platform data. (texture: {})",
@@ -191,19 +189,26 @@ namespace Durin
 		}
 	}
 
-	auto DTexture::InvalidateRenderResource() -> void
+	auto DTexture::EnsurePlatformDataLoadedBlocking() -> bool
 	{
-		RenderCompletion->BeginRequest(++BuildRevision);
-		if (RenderResource)
+		CheckGameThread();
+		if (HasPlatformData()) return true;
+		std::string Error;
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			RenderResource->PrepareForRelease(BuildRevision);
-			RenderResource->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(RenderResource)));
+			Error = std::format(
+				"Texture '{}': platform data has not been built.", GetObjectPath());
 		}
-		else
+		else if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 		{
-			RenderCompletion->MarkReleased(BuildRevision);
+			Error = std::format(
+				"Cooked texture '{}': required PlatformData field is missing.", GetObjectPath());
 		}
+		else if (LoadCookedPlatformData(Error))
+		{
+			return true;
+		}
+		DURIN_WARN("{}", Error);
+		return false;
 	}
 }

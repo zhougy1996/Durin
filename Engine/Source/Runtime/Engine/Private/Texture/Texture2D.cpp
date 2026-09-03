@@ -93,22 +93,6 @@ namespace Durin
 			&& Pixels.size() <= MaximumTexture2DImportedPixelBytes;
 	}
 
-	auto FTextureSourceData::GetImportedDataIdentity() const -> FXxHash128
-	{
-		if (!IsValid()) return {};
-		FEditorBulkData PayloadIdentity;
-		if (!PayloadIdentity.UpdatePayload(Pixels)) return {};
-		FXxHash128Builder Builder;
-		Builder.UpdateValue(Texture2DImportedDataSchemaVersion);
-		Builder.UpdateValue(Width);
-		Builder.UpdateValue(Height);
-		Builder.UpdateValue(SourceChannelCount);
-		Builder.UpdateValue(static_cast<uint8>(Format));
-		Builder.UpdateValue(bHasTransparency);
-		Builder.UpdateValue(PayloadIdentity.GetPayloadId());
-		return Builder.Finalize();
-	}
-
 	auto FTexture2DImportedData::IsValid() const -> bool
 	{
 		const uint64 ExpectedByteCount = static_cast<uint64>(Width)
@@ -204,11 +188,6 @@ namespace Durin
 
 	DTexture2D::~DTexture2D() = default;
 
-	auto DTexture2D::Serialize(FArchive& Ar) -> void
-	{
-		Super::Serialize(Ar);
-	}
-
 	auto DTexture2D::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
@@ -246,36 +225,6 @@ namespace Durin
 			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
 		Value->Serialize(Ar, {.Alignment = TexturePayloadAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
-	}
-
-	auto DTexture2D::InvalidatePlatformData() -> void
-	{
-		PlatformData.reset();
-		InvalidateRenderResource();
-	}
-
-	auto DTexture2D::EnsurePlatformDataLoadedBlocking() -> bool
-	{
-		CheckGameThread();
-		if (PlatformData) return true;
-		std::string Error;
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			Error = std::format(
-				"Texture2D '{}': platform data has not been built.", GetObjectPath());
-		}
-		else if (CookedPlatformData.GetMetadata().LogicalSize == 0)
-		{
-			Error = std::format(
-				"Cooked Texture2D '{}': required PlatformData field is missing.",
-				GetObjectPath());
-		}
-		else if (LoadCookedPlatformData(Error))
-		{
-			return true;
-		}
-		DURIN_WARN("{}", Error);
-		return false;
 	}
 
 	auto DTexture2D::GetImportedDataIdentity() const -> FXxHash128
@@ -409,16 +358,6 @@ namespace Durin
 
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
-	}
-
-	auto DTexture2D::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
-	{
-		return Super::PreEditChangeProperty(Proposal, OutError);
-	}
-
-	auto DTexture2D::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
-	{
-		Super::PostEditChangeProperty(Event);
 	}
 
 	auto DTexture2D::SetSourceData(

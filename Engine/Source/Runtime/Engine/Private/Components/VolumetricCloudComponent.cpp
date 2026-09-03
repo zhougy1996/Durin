@@ -37,20 +37,17 @@ namespace Durin
 				   && ClampFinite(Value.y, Minimum, Maximum, Out.y);
 		}
 
-		template<typename TTexture>
-		auto GetTextureReference(TTexture* Texture) -> FRHITextureReferenceRef
+		auto GetTextureReference(const DTexture* Texture) -> FRHITextureReferenceRef
 		{
 			return Texture ? Texture->GetTextureReferenceRHI() : FRHITextureReferenceRef{};
 		}
 
-		template<typename TTexture>
-		auto IsTextureReady(TTexture* Texture) -> bool
+		auto IsTextureReady(const DTexture* Texture) -> bool
 		{
 			return Texture != nullptr && Texture->HasPlatformData();
 		}
 
-		template<typename TTexture>
-		auto EnsureTextureLoaded(TTexture* Texture) -> void
+		auto EnsureTextureLoaded(DTexture* Texture) -> void
 		{
 			if (Texture) (void)Texture->EnsurePlatformDataLoadedBlocking();
 		}

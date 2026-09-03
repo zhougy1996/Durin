@@ -81,17 +81,18 @@ namespace Durin
 		ENGINE_API ~DTextureCube() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
+		auto GetSource() const -> const FTextureSource& override { return Source; }
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		auto GetAssetImportData() const -> const DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData* override
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool override;
 		ENGINE_API auto SetSourceData(
 			const FTextureCubeImportedData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
@@ -105,25 +106,19 @@ namespace Durin
 		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
-		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTextureCubePlatformData*
 		{
 			return PlatformData.get();
 		}
-		// GameThread only. Loads and installs cooked data synchronously when absent,
-		// then calls UpdateResource (GPU completion is asynchronous). Does not build
-		// authored data. Already-installed data succeeds without another update.
-		// On failure, logs the texture path and reason and returns false.
-		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
-		auto HasPlatformData() const -> bool
+		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTextureCubePlatformData> Data,
 			std::string& OutError) -> bool;
-		auto GetCookedPlatformData() const -> const FBulkData& { return CookedPlatformData; }
+		auto GetCookedPlatformData() const -> const FBulkData& override { return CookedPlatformData; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
@@ -142,14 +137,8 @@ namespace Durin
 			const std::shared_ptr<FTextureResourceCompletion>& Completion)
 			-> std::unique_ptr<FTextureAssetResource> override;
 		auto GetTextureSourceStorage() -> FTextureSource& override { return Source; }
-		auto GetTextureSourceStorage() const -> const FTextureSource& override
-		{
-			return Source;
-		}
-		auto HasValidPlatformData() const -> bool override { return HasPlatformData(); }
 
 	private:
-		auto InvalidatePlatformData() -> void;
 
 		DPROPERTY(EditorOnly, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
@@ -177,7 +166,7 @@ namespace Durin
 
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		FBulkData CookedPlatformData;
-		auto LoadCookedPlatformData(std::string& OutError) -> bool;
+		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
 	};
 
 }
