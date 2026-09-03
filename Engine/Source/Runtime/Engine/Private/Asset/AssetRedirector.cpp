@@ -6,11 +6,4 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 	}
-
-	auto SetAssetRedirectorDestinationForTesting(
-		DAssetRedirector& Redirector,
-		DObject* Destination) -> void
-	{
-		Redirector.SetDestinationObject(Destination);
-	}
 }

@@ -4,13 +4,9 @@
 
 #include "EngineAPI.h"
 #include "Asset/Mutation.h"
-#include "Asset/Redirector.h"
 
 namespace Durin
 {
-	ENGINE_API auto SetAssetRedirectorDestinationForTesting(
-		DAssetRedirector& Redirector,
-		DObject* Destination) -> void;
 	ENGINE_API auto DeleteAssetForTesting(const FPackagePath& Path)
 		-> FAssetResult;
 	enum class EAssetRedirectorFixupFailurePoint : uint8

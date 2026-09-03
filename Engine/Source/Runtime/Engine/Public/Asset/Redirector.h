@@ -20,14 +20,5 @@ namespace Durin
 	private:
 		DPROPERTY()
 		TObjectPtr<DObject> DestinationObject;
-
-		auto SetDestinationObject(DObject* InDestination) -> void
-		{
-			DestinationObject = InDestination;
-		}
-
-		friend auto SetAssetRedirectorDestinationForTesting(
-			DAssetRedirector& Redirector,
-			DObject* Destination) -> void;
 	};
 }

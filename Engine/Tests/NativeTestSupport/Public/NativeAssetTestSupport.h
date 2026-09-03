@@ -2,8 +2,9 @@
 
 #include "Asset/Asset.h"
 #include "Asset/Redirector.h"
-#include "Asset/Testing.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 
@@ -68,6 +69,14 @@ namespace Durin::Testing
 			DestinationObjectPath, nullptr, DestinationObject);
 		if (!Result) return Result;
 
+		// Build serialization fixtures through reflection without adding a runtime test API.
+		FProperty* DestinationProperty =
+			DAssetRedirector::StaticClass()->FindPropertyByName("DestinationObject");
+		if (!DestinationProperty
+			|| DestinationProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
+			return {EAssetError::InvalidObjectGraph,
+				"The redirector fixture requires a reflected destination object property."};
+
 		DPackage* Package = CreatePackage(RedirectorPath);
 		if (!Package)
 			return {EAssetError::AlreadyExists,
@@ -88,8 +97,8 @@ namespace Durin::Testing
 			return {EAssetError::InvalidObjectGraph,
 				"The redirector fixture could not be registered as a top-level asset."};
 		}
-		SetAssetRedirectorDestinationForTesting(
-			*OutRedirector, DestinationObject);
+		static_cast<FObjectProperty*>(DestinationProperty)->SetObjectPropertyValue(
+			OutRedirector, DestinationObject);
 		Package->MarkDirty();
 		Package->MarkAsNewlyCreated();
 		return {};
