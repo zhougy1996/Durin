@@ -110,12 +110,17 @@ namespace Durin
 			FSkeletalMeshPayloadData Candidate;
 			bool bHit = AssetDerivedDataCache::Load(SkeletalMeshBucket, Key,
 				MaximumSkeletalMeshPayloadBytes, CachedBytes, ReadDiagnostic)
-				== AssetDerivedDataCache::ELoadResult::Hit
-				&& (!Request.Payload || CachedBytes == Bytes)
-				&& DecodePayload(CachedBytes, Request.Context, Candidate, OutError)
-				&& ValidateSkeletalMeshPayload(Candidate,
-					Request.Context.SkeletonBoneCount,
-					Request.Context.MaterialSlotCount, OutError);
+				== AssetDerivedDataCache::ELoadResult::Hit;
+			if (bHit)
+			{
+				bHit = (!Request.Payload || CachedBytes == Bytes)
+					&& DecodePayload(CachedBytes, Request.Context, Candidate, ReadDiagnostic.Message)
+					&& ValidateSkeletalMeshPayload(Candidate,
+						Request.Context.SkeletonBoneCount,
+						Request.Context.MaterialSlotCount, ReadDiagnostic.Message);
+				if (!bHit && ReadDiagnostic.Message.empty())
+					ReadDiagnostic.Message = "Cached SkeletalMesh payload does not match the canonical input.";
+			}
 			AssetDerivedDataCache::FOperationDiagnostic WriteDiagnostic;
 			std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
 			if (bHit)
@@ -155,7 +160,8 @@ namespace Durin
 				.CacheReadNanoseconds = ReadDiagnostic.DurationNanoseconds,
 				.CacheWriteNanoseconds = WriteDiagnostic.DurationNanoseconds,
 				.PayloadBytes = bHit ? CachedBytes.size() : Bytes.size(),
-				.Diagnostic = WriteDiagnostic.Message};
+				.Diagnostic = AssetDerivedDataCache::CombineDiagnostics(
+					ReadDiagnostic, WriteDiagnostic)};
 			return true;
 		});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
@@ -214,11 +220,16 @@ namespace Durin
 			FAnimationClipPayloadData Candidate;
 			bool bHit = AssetDerivedDataCache::Load(AnimationClipBucket, Key,
 				MaximumAnimationClipPayloadBytes, CachedBytes, ReadDiagnostic)
-				== AssetDerivedDataCache::ELoadResult::Hit
-				&& (!Request.Payload || CachedBytes == Bytes)
-				&& DecodePayload(CachedBytes, Request.Context, Candidate, OutError)
-				&& ValidateAnimationClipPayload(Candidate,
-					Request.Context.SkeletonBoneCount, OutError);
+				== AssetDerivedDataCache::ELoadResult::Hit;
+			if (bHit)
+			{
+				bHit = (!Request.Payload || CachedBytes == Bytes)
+					&& DecodePayload(CachedBytes, Request.Context, Candidate, ReadDiagnostic.Message)
+					&& ValidateAnimationClipPayload(Candidate,
+						Request.Context.SkeletonBoneCount, ReadDiagnostic.Message);
+				if (!bHit && ReadDiagnostic.Message.empty())
+					ReadDiagnostic.Message = "Cached AnimationClip payload does not match the canonical input.";
+			}
 			AssetDerivedDataCache::FOperationDiagnostic WriteDiagnostic;
 			std::shared_ptr<const FAnimationClipPayloadData> Payload;
 			if (bHit)
@@ -258,7 +269,8 @@ namespace Durin
 				.CacheReadNanoseconds = ReadDiagnostic.DurationNanoseconds,
 				.CacheWriteNanoseconds = WriteDiagnostic.DurationNanoseconds,
 				.PayloadBytes = bHit ? CachedBytes.size() : Bytes.size(),
-				.Diagnostic = WriteDiagnostic.Message};
+				.Diagnostic = AssetDerivedDataCache::CombineDiagnostics(
+					ReadDiagnostic, WriteDiagnostic)};
 			return true;
 		});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked

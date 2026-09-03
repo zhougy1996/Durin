@@ -437,7 +437,6 @@ namespace Durin::Tests
 		Mesh.SourceMaterialIndex = 0;
 		if (!BuildStaticMeshSynchronously(
 				*OutFixtures.StaticMesh, ImportedMesh,
-				"Rendered thumbnail StaticMesh fixture",
 				OutError)
 			|| !OutFixtures.StaticMesh->SetImportedDefaultMaterial(
 				0, OutFixtures.Material, OutError))

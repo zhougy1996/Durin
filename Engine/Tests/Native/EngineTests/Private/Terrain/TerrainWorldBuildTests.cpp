@@ -463,6 +463,8 @@ TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDeri
 	FTerrainWorldDerivedDataResult Recovered;
 	ASSERT_TRUE(BuildTerrainWorldDerivedData({Input, Id(9)}, Recovered, Outcome, Error)) << Error;
 	EXPECT_EQ(Recovered.Origins[1], ETerrainTileBuildOrigin::LocalBuild);
+	EXPECT_FALSE(Recovered.Diagnostics[1].empty());
+	EXPECT_TRUE(Error.empty());
 	for (size_t Index : {0u, 2u, 3u, 4u})
 		EXPECT_EQ(Recovered.Origins[Index], ETerrainTileBuildOrigin::DerivedData);
 }

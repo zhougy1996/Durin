@@ -148,9 +148,9 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			FStaticMeshBuildResult Product;
-			if (!BuildStaticMeshImportedData(
-				CaptureStaticMeshReconciliation(Mesh),
-				MakeStaticMeshImportedData(Scene), Filename, Product, OutError))
+			if (!BuildStaticMeshDerivedData({
+				.Reconciliation = CaptureStaticMeshReconciliation(Mesh),
+				.ImportedData = MakeStaticMeshImportedData(Scene)}, Product, OutError))
 				return false;
 			DStaticMeshImportData* ImportData = nullptr;
 			if (!PrepareImportData(Mesh, Filename, HintBase, PhysicalPath, Snapshot,

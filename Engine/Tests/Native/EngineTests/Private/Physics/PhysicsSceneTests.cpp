@@ -1135,7 +1135,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
 	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
-		*Mesh, Imported, "Scene collision fixture", Error)) << Error;
+		*Mesh, Imported, Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {

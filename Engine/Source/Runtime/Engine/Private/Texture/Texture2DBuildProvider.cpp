@@ -131,9 +131,8 @@ namespace Durin
 					*ExecutionControl->Metrics = RecipeMetrics;
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
 					.DerivedDataKey = Key,
-					.PersistenceDiagnostic = !StoreDiagnostic.Message.empty()
-						? std::move(StoreDiagnostic.Message)
-						: std::move(CacheDiagnostic.Message),
+					.PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(
+						CacheDiagnostic, StoreDiagnostic),
 					.Provider = OutIdentity.Provider,
 					.Metrics = RecipeMetrics,
 					.Origin = ETexture2DBuildProductOrigin::Rebuilt};

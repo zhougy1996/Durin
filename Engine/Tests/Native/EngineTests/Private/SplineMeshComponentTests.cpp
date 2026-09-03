@@ -52,8 +52,7 @@ namespace
 		Section.SourceMaterialIndex = 0;
 		std::string Error;
 		if (!BuildStaticMeshSynchronously(
-			*Mesh, Imported,
-			"SplineMesh authored triangle fixture", Error))
+			*Mesh, Imported, Error))
 		{
 			ADD_FAILURE() << Error;
 			return nullptr;

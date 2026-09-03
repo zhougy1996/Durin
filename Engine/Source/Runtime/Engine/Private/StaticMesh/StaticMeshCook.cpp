@@ -209,8 +209,7 @@ namespace Durin
 		FStaticMeshBuildResult Product;
 		if (!BuildStaticMeshDerivedData({
 			.Reconciliation = CaptureStaticMeshReconciliation(*this),
-			.ImportedData = ImportedData,
-			.SourceLabel = "canonical imported geometry"}, Product, OutError)) return false;
+			.ImportedData = ImportedData}, Product, OutError)) return false;
 		return ApplyStaticMeshBuildResult(*this, std::move(Product), OutError, false);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool

@@ -113,12 +113,17 @@ namespace Durin
 			AssetDerivedDataCache::FOperationDiagnostic ReadDiagnostic;
 			FByteArray Bytes;
 			std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-			const bool bHit = Request.bPersistDerivedData && Request.bQueryDerivedData
+			bool bHit = Request.bPersistDerivedData && Request.bQueryDerivedData
 				&& AssetDerivedDataCache::Load(TerrainHeightmapBucket, Key,
-				MaximumTerrainHeightmapPayloadBytes, Bytes, ReadDiagnostic)
-				== AssetDerivedDataCache::ELoadResult::Hit
-				&& DecodePayload(Bytes, Payload, OutError)
-				&& Payload->Width == Request.Width && Payload->Height == Request.Height;
+					MaximumTerrainHeightmapPayloadBytes, Bytes, ReadDiagnostic)
+					== AssetDerivedDataCache::ELoadResult::Hit;
+			if (bHit)
+			{
+				bHit = DecodePayload(Bytes, Payload, ReadDiagnostic.Message)
+					&& Payload->Width == Request.Width && Payload->Height == Request.Height;
+				if (!bHit && ReadDiagnostic.Message.empty())
+					ReadDiagnostic.Message = "Cached Terrain heightmap dimensions do not match the canonical input.";
+			}
 			AssetDerivedDataCache::FOperationDiagnostic WriteDiagnostic;
 			if (!bHit)
 			{
@@ -174,7 +179,8 @@ namespace Durin
 				.CacheReadNanoseconds = ReadDiagnostic.DurationNanoseconds,
 				.CacheWriteNanoseconds = WriteDiagnostic.DurationNanoseconds,
 				.PayloadBytes = Bytes.size(),
-				.Diagnostic = WriteDiagnostic.Message};
+				.Diagnostic = AssetDerivedDataCache::CombineDiagnostics(
+					ReadDiagnostic, WriteDiagnostic)};
 			return true;
 		});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked

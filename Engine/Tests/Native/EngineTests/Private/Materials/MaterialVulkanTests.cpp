@@ -392,7 +392,6 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ImportedSection.SourceMaterialIndex = 0;
 		ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
 			*StaticMeshFixture, ImportedMesh,
-			"StaticMesh thumbnail preview test fixture",
 			Error)) << Error;
 		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
 			0, CaptureMaterial, Error)) << Error;

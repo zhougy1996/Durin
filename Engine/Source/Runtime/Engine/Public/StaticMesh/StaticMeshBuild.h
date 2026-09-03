@@ -10,7 +10,6 @@ namespace Durin
 	{
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		float NormalizedSize = 1.5f;
-		std::string StableObjectPath;
 	};
 
 	// Detached Engine request; cache policy is not forwarded to recipe code.
@@ -18,7 +17,6 @@ namespace Durin
 	{
 		FStaticMeshReconciliationSnapshot Reconciliation;
 		FStaticMeshImportedData ImportedData;
-		std::string SourceLabel;
 		bool bPersistDerivedData = true;
 	};
 
@@ -74,18 +72,11 @@ namespace Durin
 	// Capture on the asset's owner thread before dispatching detached work.
 	ENGINE_API auto CaptureStaticMeshReconciliation(const DStaticMesh& Mesh)
 		-> FStaticMeshReconciliationSnapshot;
-	ENGINE_API auto BuildStaticMeshImportedData(
-		const FStaticMeshReconciliationSnapshot& Reconciliation,
-		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
-		FStaticMeshBuildResult& OutProduct,
-		std::string& OutError) -> bool;
 	// Applies on the owner thread; candidate failure preserves existing resources.
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
 		FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty = true) -> bool;
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
 		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
 		std::string& OutError) -> bool;
 }

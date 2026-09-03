@@ -366,6 +366,8 @@ TEST(FTerrainHeightmapDerivedDataTests, EngineProviderPathReusesCanonicalBytesAn
 	FByteArray RebuiltBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(RebuiltBytes, GetTerrainCachePath(Result.Key)));
 	EXPECT_EQ(RebuiltBytes, LegacyBytes);
+	EXPECT_FALSE(Result.Diagnostic.empty());
+	EXPECT_TRUE(Error.empty());
 	uint32 CancellationChecks = 0;
 	Request.ShouldCancel = [&] { return ++CancellationChecks >= 2; };
 	EXPECT_FALSE(BuildTerrainHeightmapDerivedData(Request, Result, Error));

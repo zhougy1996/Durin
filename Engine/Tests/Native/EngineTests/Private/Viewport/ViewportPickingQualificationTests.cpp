@@ -125,8 +125,7 @@ namespace
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
 		if (!Durin::BuildStaticMeshSynchronously(
-			*Result, Imported,
-			"viewport picking grid", Error)) throw std::runtime_error(Error);
+			*Result, Imported, Error)) throw std::runtime_error(Error);
 		return Result;
 	}
 }

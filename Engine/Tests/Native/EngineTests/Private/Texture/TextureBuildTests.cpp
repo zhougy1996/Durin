@@ -386,6 +386,26 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 		{.SourceData = Source}, Second, Error)) << Error;
 	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
+	EXPECT_TRUE(Second.PersistenceDiagnostic.empty());
+	const auto CachePath = std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
+		/ "VolumeTexture/Objects" / First.DerivedDataKey.substr(0, 2)
+		/ (First.DerivedDataKey + ".bin");
+	Durin::FByteArray CachedBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CachedBytes, CachePath));
+	CachedBytes.push_back(std::byte{1});
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CachedBytes, CachePath));
+	Durin::FVolumeTextureBuildProduct Recovered;
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Recovered, Error)) << Error;
+	EXPECT_EQ(Recovered.Origin, Durin::EVolumeTextureBuildProductOrigin::Rebuilt);
+	EXPECT_EQ(Recovered.DerivedDataKey, First.DerivedDataKey);
+	EXPECT_FALSE(Recovered.PersistenceDiagnostic.empty());
+	EXPECT_LE(Recovered.PersistenceDiagnostic.size(), 2048u);
+	EXPECT_TRUE(Error.empty());
+	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
+		{.SourceData = Source}, Second, Error)) << Error;
+	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
+	EXPECT_TRUE(Second.PersistenceDiagnostic.empty());
 	Voxels[0] = std::byte{9};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Changed;

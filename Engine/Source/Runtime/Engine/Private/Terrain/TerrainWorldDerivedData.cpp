@@ -77,22 +77,28 @@ namespace Durin
 				const uint64 MaximumBytes = GetTerrainWorldProductBodyMaximumBytes(Class);
 				AssetDerivedDataCache::FOperationDiagnostic ReadDiagnostic;
 				FByteArray CachedBytes;
-				const bool bHit = Request.bQueryDerivedData
+				bool bHit = Request.bQueryDerivedData
 					&& AssetDerivedDataCache::Load(ProductBuckets[Index], Key,
 						MaximumBytes, CachedBytes, ReadDiagnostic)
-						== AssetDerivedDataCache::ELoadResult::Hit
-					&& ValidateTerrainWorldProductBody(Class, CachedBytes, OutError)
-					&& CachedBytes == Recipe.Bodies[Index];
+						== AssetDerivedDataCache::ELoadResult::Hit;
+				if (bHit)
+				{
+					bHit = ValidateTerrainWorldProductBody(Class, CachedBytes, ReadDiagnostic.Message)
+						&& CachedBytes == Recipe.Bodies[Index];
+					if (!bHit && ReadDiagnostic.Message.empty())
+						ReadDiagnostic.Message = "Cached Terrain World product does not match the canonical input.";
+				}
 				Candidate.CacheReadNanoseconds[Index] = ReadDiagnostic.DurationNanoseconds;
 				OutError.clear();
+				AssetDerivedDataCache::FOperationDiagnostic WriteDiagnostic;
 				if (!bHit && Request.bPersistDerivedData)
 				{
-					AssetDerivedDataCache::FOperationDiagnostic WriteDiagnostic;
 					AssetDerivedDataCache::Store(ProductBuckets[Index], Key,
 						Recipe.Bodies[Index], MaximumBytes, WriteDiagnostic);
 					Candidate.CacheWriteNanoseconds[Index] = WriteDiagnostic.DurationNanoseconds;
-					Candidate.Diagnostics[Index] = std::move(WriteDiagnostic.Message);
 				}
+				Candidate.Diagnostics[Index] = AssetDerivedDataCache::CombineDiagnostics(
+					ReadDiagnostic, WriteDiagnostic);
 				std::vector<FXxHash128> Dependencies;
 				if (Class == ETerrainTileProductClass::Metadata
 					|| Class == ETerrainTileProductClass::Collision) Dependencies.push_back(Hashes[1]);

@@ -82,9 +82,8 @@ namespace Durin
 						*RecipeProduct.PlatformData, StoreDiagnostic);
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
 					.DerivedDataKey = Key,
-					.PersistenceDiagnostic = !StoreDiagnostic.Message.empty()
-						? std::move(StoreDiagnostic.Message)
-						: std::move(CacheDiagnostic.Message),
+					.PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(
+						CacheDiagnostic, StoreDiagnostic),
 					.Provider = Descriptor,
 					.Origin = EVolumeTextureBuildProductOrigin::Rebuilt};
 				return true;

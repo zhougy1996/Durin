@@ -15,30 +15,43 @@ namespace Durin::AssetDerivedDataCache
 		return Message;
 	}
 
+	// Family decoders may reject a byte hit and rebuild it as a miss.
 	enum class ELoadResult : uint8
 	{
 		Hit,
 		Miss
 	};
 
+	// Measures only the cache Get/Put call, excluding payload codecs and copies.
 	struct FOperationDiagnostic
 	{
 		uint64 DurationNanoseconds = 0;
 		std::string Message;
 	};
 
+	// Preserve both recovery and persistence failures within one bounded result.
+	inline auto CombineDiagnostics(const FOperationDiagnostic& Read,
+		const FOperationDiagnostic& Write) -> std::string
+	{
+		if (Read.Message.empty()) return BoundDiagnostic(Write.Message);
+		if (Write.Message.empty()) return BoundDiagnostic(Read.Message);
+		constexpr size_t MessageBudget = (MaximumDiagnosticBytes - 13) / 2;
+		return "Read: " + Read.Message.substr(0, MessageBudget)
+			+ "; Put: " + Write.Message.substr(0, MessageBudget);
+	}
+
 	inline auto Load(
 		std::string_view BucketName,
 		std::string_view Key,
 		uint64 MaximumValueBytes,
-		FByteArray& OutBytes,
+		FSharedByteBuffer& OutBytes,
 		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
 	{
 		using namespace DerivedData;
-		OutBytes.clear();
+		OutBytes = {};
 		OutDiagnostic = {};
 		const auto Start = std::chrono::steady_clock::now();
-		const FCacheGetResult Result = GetCache().Get({
+		FCacheGetResult Result = GetCache().Get({
 			.Bucket = FCacheBucket::FromString(BucketName),
 			.Key = FCacheKey::FromString(Key),
 			.MaximumValueBytes = MaximumValueBytes});
@@ -50,8 +63,21 @@ namespace Durin::AssetDerivedDataCache
 			OutDiagnostic.Message = BoundDiagnostic(Result.Diagnostic);
 			return ELoadResult::Miss;
 		}
-		OutBytes.assign(Result.Value.GetBytes().begin(), Result.Value.GetBytes().end());
+		OutBytes = std::move(Result.Value);
 		return ELoadResult::Hit;
+	}
+
+	inline auto Load(std::string_view BucketName, std::string_view Key,
+		uint64 MaximumValueBytes, FByteArray& OutBytes,
+		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
+	{
+		OutBytes.clear();
+		FSharedByteBuffer Value;
+		const ELoadResult Result = Load(BucketName, Key, MaximumValueBytes,
+			Value, OutDiagnostic);
+		if (Result == ELoadResult::Hit)
+			OutBytes.assign(Value.GetBytes().begin(), Value.GetBytes().end());
+		return Result;
 	}
 
 	inline auto Store(

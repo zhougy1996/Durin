@@ -745,6 +745,9 @@ TEST(FSkeletalAssetTests, EngineProviderPathSkipsWarmRecipesAndRecoversCorruptPa
 	EXPECT_EQ(Provider.ClipBuilds, 2u);
 	EXPECT_EQ(MeshLoads, 1u);
 	EXPECT_EQ(ClipLoads, 1u);
+	EXPECT_FALSE(Mesh.Diagnostic.empty());
+	EXPECT_FALSE(Clip.Diagnostic.empty());
+	EXPECT_TRUE(Error.empty());
 	EXPECT_EQ(*Mesh.Payload, *ExpectedMesh);
 	EXPECT_EQ(*Clip.Payload, *ExpectedClip);
 	FByteArray Rebuilt;

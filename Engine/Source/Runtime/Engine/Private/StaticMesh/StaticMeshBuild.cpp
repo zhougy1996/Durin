@@ -9,21 +9,7 @@ namespace Durin
 	{
 		return {.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
 				Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()),
-			.NormalizedSize = Mesh.GetNormalizedSize(),
-			.StableObjectPath = Mesh.GetObjectPath()};
-	}
-
-	auto BuildStaticMeshImportedData(
-		const FStaticMeshReconciliationSnapshot& Reconciliation,
-		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel,
-		FStaticMeshBuildResult& OutProduct,
-		std::string& OutError) -> bool
-	{
-		if (!BuildStaticMeshDerivedData({.Reconciliation = Reconciliation,
-			.ImportedData = ImportedData, .SourceLabel = std::string(SourceLabel)},
-			OutProduct, OutError)) return false;
-		return true;
+			.NormalizedSize = Mesh.GetNormalizedSize()};
 	}
 
 	auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
@@ -45,11 +31,11 @@ namespace Durin
 
 	auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
 		const FStaticMeshImportedData& ImportedData,
-		std::string_view SourceLabel, std::string& OutError) -> bool
+		std::string& OutError) -> bool
 	{
 		FStaticMeshBuildResult Product;
-		return BuildStaticMeshImportedData(CaptureStaticMeshReconciliation(Mesh),
-			ImportedData, SourceLabel, Product, OutError)
+		return BuildStaticMeshDerivedData({.Reconciliation = CaptureStaticMeshReconciliation(Mesh),
+			.ImportedData = ImportedData}, Product, OutError)
 			&& ApplyStaticMeshBuildResult(Mesh, std::move(Product), OutError);
 	}
 }

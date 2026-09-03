@@ -185,7 +185,7 @@ namespace Durin
 			{
 				std::unique_ptr<FStaticMeshRenderData> RenderData;
 				if (DecodeRenderData(Bytes, Request.Reconciliation.MaterialSlots,
-					RenderData, OutError))
+					RenderData, LoadDiagnostic.Message))
 				{
 					OutProduct = {
 						.RenderData = std::move(RenderData),
@@ -243,7 +243,8 @@ namespace Durin
 				.CacheReadNanoseconds = LoadDiagnostic.DurationNanoseconds,
 				.CacheWriteNanoseconds = StoreDiagnostic.DurationNanoseconds,
 				.PayloadBytes = Bytes.size(),
-				.DiagnosticMessage = StoreDiagnostic.Message};
+				.DiagnosticMessage = AssetDerivedDataCache::CombineDiagnostics(
+					LoadDiagnostic, StoreDiagnostic)};
 			return true;
 		});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
@@ -310,7 +311,7 @@ namespace Durin
 			if (AssetDerivedDataCache::Load(StaticMeshCollisionBucket, Key,
 				MaximumStaticMeshCollisionPayloadBytes, Bytes, LoadDiagnostic)
 				== AssetDerivedDataCache::ELoadResult::Hit)
-				bCacheHit = DecodeCollision(Bytes, Mode, Policy, Geometry, OutError);
+				bCacheHit = DecodeCollision(Bytes, Mode, Policy, Geometry, LoadDiagnostic.Message);
 			if (!bCacheHit)
 			{
 				FStaticMeshCollisionRecipeProduct RecipeProduct;
@@ -333,7 +334,8 @@ namespace Durin
 			OutProduct.Descriptor = Descriptor;
 			OutProduct.CacheReadNanoseconds = LoadDiagnostic.DurationNanoseconds;
 			OutProduct.CacheWriteNanoseconds = StoreDiagnostic.DurationNanoseconds;
-			OutProduct.Diagnostic = StoreDiagnostic.Message;
+			OutProduct.Diagnostic = AssetDerivedDataCache::CombineDiagnostics(
+				LoadDiagnostic, StoreDiagnostic);
 			return true;
 		});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked

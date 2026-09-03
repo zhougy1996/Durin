@@ -157,8 +157,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	const std::string BaselineKey = GetStaticMeshKey(*Fixture.Mesh);
 	FStaticMeshBuildRequest Request{
 		.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
-		.ImportedData = Fixture.Mesh->GetImportedData(),
-		.SourceLabel = "Engine provider test"};
+		.ImportedData = Fixture.Mesh->GetImportedData()};
 	FStaticMeshBuildResult Product;
 	std::string Error;
 	// The runtime loader carries only authored metadata until a cache miss.
@@ -167,6 +166,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
 	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::CacheHit);
+	EXPECT_TRUE(Product.DiagnosticMessage.empty());
 	EXPECT_TRUE(Product.ImportedData.IsValid());
 	ASSERT_NE(Product.RenderData, nullptr);
 	const std::array<std::byte, 4> Corrupt{};
@@ -175,6 +175,8 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::Rebuilt);
 	EXPECT_TRUE(Product.ImportedData.IsValid());
+	EXPECT_FALSE(Product.DiagnosticMessage.empty());
+	EXPECT_TRUE(Error.empty());
 	Request.Reconciliation.MaterialSlots.clear();
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
 	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
@@ -202,12 +204,22 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	const auto BlockedRoot = Fixture.Root / "BlockedCollisionCache";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, BlockedRoot));
 	FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
+	// A read failure remains observable even when no Put is attempted.
+	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Fixture.Mesh->GetRenderData(),
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Collision, Error, false)) << Error;
+	EXPECT_TRUE(Collision.Complex);
+	EXPECT_FALSE(Collision.Diagnostic.empty());
+	EXPECT_EQ(Collision.CacheWriteNanoseconds, 0u);
+	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Collision, Error)) << Error;
 	EXPECT_TRUE(Collision.Complex);
 	EXPECT_FALSE(Collision.Diagnostic.empty());
 	EXPECT_LE(Collision.Diagnostic.size(), 2048u);
+	EXPECT_NE(Collision.Diagnostic.find("Read: "), std::string::npos);
+	EXPECT_NE(Collision.Diagnostic.find("; Put: "), std::string::npos);
 	FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
