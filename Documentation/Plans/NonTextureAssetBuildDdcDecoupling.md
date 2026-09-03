@@ -4,16 +4,14 @@ Summary: Make non-Texture build modules pure typed recipe providers, move DDC or
 
 Last reviewed: 2026-09-03
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-03
 
 ## Current Status
 
-Implementation is complete through the family cutovers and Build Framework
-removal. Stage 0, Stage 2, Stage 4, and Stage 5 passed their local gates.
-Stage 3 code and non-GPU gates passed; its real Vulkan gate remains open.
-Stage 1 remains active for Windows Game binary qualification. Stage 6 also
-retains real skeletal Vulkan qualification; macOS project-loading smoke passes.
+Implementation and qualification are complete. All stages and the final
+acceptance gate pass, including Windows Game binary/deployment closure, real
+Vulkan skeletal render-resource qualification, and macOS project-loading smoke.
 
 - Engine owns all non-Texture asset keys, metadata-first lookup, runtime codecs,
   cache validation/fallback, bounded operation diagnostics, and typed application.
@@ -49,6 +47,18 @@ retains real skeletal Vulkan qualification; macOS project-loading smoke passes.
 - All 135 current documents, all plans (5 active, 324 archived), and all
   roadmaps (2 active, 25 archived) validate. Historical archived documents are
   not rewritten as current architecture claims.
+- `Win64-Debug-DurinGame` configured and completed its full `all` build
+  (`Build/.agent-state/logs/20260903-212915-643011-19832-cmake.log`,
+  `Build/.agent-state/logs/20260903-212933-993268-15616-cmake.log`). Its compile
+  database contains 164 Engine translation units, all with
+  `DURIN_WITH_EDITOR=0`; none has a DerivedDataCache, StaticMeshBuild,
+  SkeletalBuild, or TerrainBuild include path. The Engine and Sandbox Game
+  deployment directories contain no DLL for those modules, and all 16 deployed
+  PE import tables contain no dependency on them.
+- `SkeletalMeshRenderResourcesVulkanTests` passes its real Windows Vulkan case
+  1/1 (`Build/.agent-state/logs/20260903-212855-060093-30620-SkeletalMeshRenderResourcesVulkanTests.log`);
+  its target build also passed
+  (`Build/.agent-state/logs/20260903-212750-696570-30620-cmake.log`).
 
 macOS smoke follow-up (explicitly requested by the user):
 
@@ -105,18 +115,12 @@ shutdown (exit code 0), without modifying the tracked asset:
 - `Build/.agent-state/logs/20260903-041128-984397-59962-DurinEditor.log`
 - `Build/.agent-state/logs/20260903-041147-919180-59973-DurinEditor.log`
 
-Pending acceptance:
-
-- Build and inspect the existing `Win64-Debug-DurinGame` closure/deployment,
-  proving no asset DDC or provider dependency in Game.
-- Run `SkeletalMeshRenderResourcesVulkanTests` qualification.
-  Local GPU qualification compiled but failed at Vulkan initialization because
-  Metal was unavailable and instance extension dependencies were reported
-  (`Build/.agent-state/logs/20260903-031815-880363-52007-ctest.log`).
-- The session exposes only the local macOS host and this checkout has no CI
-  workflow entry point. Windows access details were requested and are still
-  needed. Do not mark the plan complete or substitute local syntax checks for
-  those acceptance gates.
+Final acceptance completed on Windows after the earlier macOS qualification.
+The prior macOS skeletal Vulkan attempt remains useful negative evidence: it
+compiled but could not initialize Vulkan because Metal was unavailable and
+instance extension dependencies were reported
+(`Build/.agent-state/logs/20260903-031815-880363-52007-ctest.log`). The required
+real Vulkan gate is the passing Windows run recorded above.
 
 ## Goal
 
@@ -422,7 +426,7 @@ Dependencies: Stage 0 complete.
   installation, operation history, dirtying, notification, or resource work.
 - [x] Add direct golden compatibility and corrupt-value fallback tests before
   switching any production caller.
-- [ ] Prove the Game Engine compilation closure preprocesses all new code with
+- [x] Prove the Game Engine compilation closure preprocesses all new code with
   `DURIN_WITH_EDITOR=0` and imports no DDC or provider symbol.
 
 #### Acceptance Gate
@@ -431,7 +435,7 @@ Dependencies: Stage 0 complete.
   every family without calling a Build Function, while Game builds have no new
   Developer or DDC closure edge.
 
-Stage 1 partial evidence (2026-09-03):
+Stage 1 evidence (2026-09-03):
 
 - `./DevTool test affected` passed all 36 selected native-test targets;
   the receipt is `Build/.agent-state/logs/20260903-023520-659552-44460-ctest.log`.
@@ -455,9 +459,9 @@ Stage 1 partial evidence (2026-09-03):
 
 Sequencing clarification: family cutovers proceeded after their direct provider
 paths and compatibility tests passed, allowing interface cleanup alongside
-removal of the legacy callers. That cleanup is now complete. Stage 1 remains
-open only for the user-selected Windows Game binary closure gate; this host
-has no registered Game preset.
+removal of the legacy callers. That cleanup is complete. The final
+`Win64-Debug-DurinGame` build and closure audit recorded in Current Status close
+the remaining Stage 1 gate.
 
 ### Stage 2: Migrate StaticMesh render and collision
 
@@ -519,8 +523,7 @@ Dependencies: Stage 2 complete.
 
 ### Stage 4: Migrate TerrainHeightmap
 
-Dependencies: Stage 3 code cutover and local non-GPU tests complete; its
-Windows Vulkan qualification remains an explicit final gate.
+Dependencies: Stage 3 complete.
 
 - [x] Reduce TerrainHeightmapBuild to a pure canonical-sample-to-payload
   provider and remove query/store policy, key, persistence diagnostic, source
@@ -592,7 +595,7 @@ Dependencies: Stage 5 complete.
   qualify package/type/deprecation/cooked boundaries plus affected tests.
 - [x] Repair viewport creation ordering and pass two consecutive macOS Sandbox
   project-loading startup/shutdown smokes (60 ticks each, exit code 0).
-- [ ] Complete the user-selected Windows Game build/deployment closure,
+- [x] Complete the user-selected Windows Game build/deployment closure,
   and real skeletal Vulkan qualification.
 - [x] Update lasting architecture/module/family documentation and validate
   changed/all documentation, all plans, and all roadmaps.
