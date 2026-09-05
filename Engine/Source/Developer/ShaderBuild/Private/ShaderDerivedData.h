@@ -15,7 +15,6 @@ namespace Durin::ShaderDerivedData
 	inline constexpr uint64 MaximumValueBytes =
 		ShaderCompiledOutput::MaximumValueBytes;
 
-	auto GetBucket() -> DerivedData::FCacheBucket;
 	auto BuildKey(
 		const FShaderVariantKey& VariantKey,
 		const FShaderCompileOptions& Options) -> DerivedData::FCacheKey;

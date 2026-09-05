@@ -194,7 +194,7 @@ namespace
 				.bSRGB = Texture.IsSRGB()},
 			.bPersistDerivedData = false}, Product, Identity);
 		EXPECT_TRUE(BuildResult) << BuildResult.Diagnostic;
-		return Product.DerivedDataKey;
+		return Product.DerivedDataKey.ToString();
 	}
 
 	auto GetTextureCachePath(const Durin::DTexture2D& Texture) -> std::filesystem::path

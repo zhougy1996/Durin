@@ -46,13 +46,13 @@ namespace Durin
 					.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile};
-				const std::string Key = BuildVolumeTextureDerivedDataKey(KeyInput, OutError);
-				if (Key.empty()) return false;
+				const FCacheKeyProxy Key = BuildVolumeTextureDerivedDataKey(KeyInput, OutError);
+				if (!Key.IsValid()) return false;
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				auto PlatformData = std::make_unique<FVolumeTexturePlatformData>();
 				if (TextureDerivedDataCache::Load(
-					TextureDerivedDataCache::VolumeTextureBucket, Key,
+					Key,
 					Request.TargetPlatform, Request.TargetProfile,
 					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
@@ -77,7 +77,7 @@ namespace Durin
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 				if (Request.bPersistDerivedData)
 					TextureDerivedDataCache::Store(
-						TextureDerivedDataCache::VolumeTextureBucket, Key,
+						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
@@ -132,7 +132,7 @@ namespace Durin
 	{
 		CheckGameThread();
 		if (!SourceData.IsValid() || !Product.PlatformData
-			|| !Product.PlatformData->IsValid() || Product.DerivedDataKey.empty()
+			|| !Product.PlatformData->IsValid() || !Product.DerivedDataKey.IsValid()
 			|| SourceData.Format != Settings.OutputFormat)
 		{
 			OutError = "VolumeTexture result application requires compatible source, settings, platform data, and key.";

@@ -47,13 +47,13 @@ namespace Durin
 					.ProjectionVersion = Descriptor.ProjectionVersion,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile};
-				const std::string Key = BuildTextureCubeDerivedDataKey(KeyInput, OutError);
-				if (Key.empty()) return false;
+				const FCacheKeyProxy Key = BuildTextureCubeDerivedDataKey(KeyInput, OutError);
+				if (!Key.IsValid()) return false;
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 				if (TextureDerivedDataCache::Load(
-					TextureDerivedDataCache::TextureCubeBucket, Key,
+					Key,
 					Request.TargetPlatform, Request.TargetProfile,
 					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
@@ -78,7 +78,7 @@ namespace Durin
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 				if (Request.bPersistDerivedData)
 					TextureDerivedDataCache::Store(
-						TextureDerivedDataCache::TextureCubeBucket, Key,
+						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
 				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
@@ -135,7 +135,7 @@ namespace Durin
 		CheckGameThread();
 		if (!CanonicalInput.ImportedData.IsValid()
 			|| !Product.PlatformData || !Product.PlatformData->IsValid()
-			|| Product.DerivedDataKey.empty())
+			|| !Product.DerivedDataKey.IsValid())
 		{
 			OutError = "TextureCube result application requires canonical source, platform data, and a derived-data key.";
 			return false;

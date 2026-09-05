@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
 
+#include "DerivedDataCache/DerivedDataCache.h"
+
 #if DURIN_WITH_EDITOR
 
 #include "Serialization/Archive.h"
@@ -93,10 +95,13 @@ namespace Durin
 
 	auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::string
+		std::string& OutError) -> FCacheKeyProxy
 	{
 		const FByteArray Bytes = BuildKeyBytes(Input, OutError);
-		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
+		return Bytes.empty() ? FCacheKeyProxy{}
+			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
+				DerivedData::FCacheBucket::FromString(StaticMeshCacheBucket),
+				FXxHash128::HashBuffer(Bytes)));
 	}
 
 	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
@@ -108,10 +113,14 @@ namespace Durin
 
 	auto BuildStaticMeshCollisionDerivedDataKey(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> std::string
+		std::string& OutError) -> FCacheKeyProxy
 	{
 		const FByteArray Bytes = BuildKeyBytes(Input, OutError);
-		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
+		return Bytes.empty() ? FCacheKeyProxy{}
+			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
+				DerivedData::FCacheBucket::FromString(
+					StaticMeshCollisionCacheBucket),
+				FXxHash128::HashBuffer(Bytes)));
 	}
 }
 

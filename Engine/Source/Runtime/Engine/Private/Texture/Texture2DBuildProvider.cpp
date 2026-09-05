@@ -63,11 +63,11 @@ namespace Durin
 					.BuilderVersion = OutIdentity.Provider.BuilderVersion,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile};
-				const std::string Key = BuildTexture2DDerivedDataKey(KeyInput);
+				const FCacheKeyProxy Key = BuildTexture2DDerivedDataKey(KeyInput);
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
 				FTexturePlatformData PlatformData;
 				if (TextureDerivedDataCache::Load(
-					TextureDerivedDataCache::Texture2DBucket, Key,
+					Key,
 					Request.TargetPlatform, Request.TargetProfile,
 					PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
@@ -122,7 +122,7 @@ namespace Durin
 					if (ExecutionControl && ExecutionControl->OnPersisting)
 						ExecutionControl->OnPersisting();
 					TextureDerivedDataCache::Store(
-						TextureDerivedDataCache::Texture2DBucket, Key,
+						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						RecipeProduct.PlatformData, StoreDiagnostic);
 					RecipeMetrics.PersistenceNanoseconds =

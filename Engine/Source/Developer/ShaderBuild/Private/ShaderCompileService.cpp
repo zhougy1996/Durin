@@ -468,11 +468,12 @@ namespace Durin
 					VariantKey, Options);
 				if (!Key.IsValid()) return false;
 				const FCacheGetResult Result = DerivedData::GetCache().Get({
-					ShaderDerivedData::GetBucket(), Key,
+					Key,
 					ShaderDerivedData::MaximumValueBytes});
 				if (Result.Status != ECacheGetStatus::Hit)
 				{
-					if (Result.Status == ECacheGetStatus::ValueTooLarge)
+					if (Result.Status == ECacheGetStatus::ValueTooLarge
+						|| Result.Status == ECacheGetStatus::Corrupt)
 						DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
 					return false;
 				}
@@ -503,9 +504,8 @@ namespace Durin
 					DURIN_WARN("Shader DDC encoding failed: {}", Error);
 					return;
 				}
-				const FCacheBucket Bucket = ShaderDerivedData::GetBucket();
 				const FCachePutResult Put = DerivedData::GetCache().Put({
-					Bucket, Key, Bytes, ShaderDerivedData::MaximumValueBytes});
+					Key, Bytes, ShaderDerivedData::MaximumValueBytes});
 				if (!Put)
 				{
 					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);

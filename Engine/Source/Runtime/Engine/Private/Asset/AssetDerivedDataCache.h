@@ -3,6 +3,7 @@
 #if DURIN_WITH_EDITOR
 
 #include "DerivedDataCache/DerivedDataCache.h"
+#include "DerivedDataCacheKeyProxy.h"
 
 namespace Durin::AssetDerivedDataCache
 {
@@ -41,8 +42,7 @@ namespace Durin::AssetDerivedDataCache
 	}
 
 	inline auto Load(
-		std::string_view BucketName,
-		std::string_view Key,
+		const FCacheKeyProxy& Key,
 		uint64 MaximumValueBytes,
 		FSharedByteBuffer& OutBytes,
 		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
@@ -52,8 +52,7 @@ namespace Durin::AssetDerivedDataCache
 		OutDiagnostic = {};
 		const auto Start = std::chrono::steady_clock::now();
 		FCacheGetResult Result = GetCache().Get({
-			.Bucket = FCacheBucket::FromString(BucketName),
-			.Key = FCacheKey::FromString(Key),
+			.Key = *Key.AsCacheKey(),
 			.MaximumValueBytes = MaximumValueBytes});
 		OutDiagnostic.DurationNanoseconds = static_cast<uint64>(
 			std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -67,13 +66,13 @@ namespace Durin::AssetDerivedDataCache
 		return ELoadResult::Hit;
 	}
 
-	inline auto Load(std::string_view BucketName, std::string_view Key,
+	inline auto Load(const FCacheKeyProxy& Key,
 		uint64 MaximumValueBytes, FByteArray& OutBytes,
 		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
 	{
 		OutBytes.clear();
 		FSharedByteBuffer Value;
-		const ELoadResult Result = Load(BucketName, Key, MaximumValueBytes,
+		const ELoadResult Result = Load(Key, MaximumValueBytes,
 			Value, OutDiagnostic);
 		if (Result == ELoadResult::Hit)
 			OutBytes.assign(Value.GetBytes().begin(), Value.GetBytes().end());
@@ -81,8 +80,7 @@ namespace Durin::AssetDerivedDataCache
 	}
 
 	inline auto Store(
-		std::string_view BucketName,
-		std::string_view Key,
+		const FCacheKeyProxy& Key,
 		std::span<const std::byte> Bytes,
 		uint64 MaximumValueBytes,
 		FOperationDiagnostic& OutDiagnostic) -> bool
@@ -91,8 +89,7 @@ namespace Durin::AssetDerivedDataCache
 		OutDiagnostic = {};
 		const auto Start = std::chrono::steady_clock::now();
 		const FCachePutResult Result = GetCache().Put({
-			.Bucket = FCacheBucket::FromString(BucketName),
-			.Key = FCacheKey::FromString(Key),
+			.Key = *Key.AsCacheKey(),
 			.Value = Bytes,
 			.MaximumValueBytes = MaximumValueBytes});
 		OutDiagnostic.DurationNanoseconds = static_cast<uint64>(

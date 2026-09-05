@@ -565,7 +565,7 @@ namespace Durin
 			return false;
 		}
 		if (!ImportedData.IsValid() || !Product.PlatformData.IsValid()
-			|| Product.DerivedDataKey.empty())
+			|| !Product.DerivedDataKey.IsValid())
 		{
 			OutError = "Texture2D result application requires a complete detached product.";
 			return false;

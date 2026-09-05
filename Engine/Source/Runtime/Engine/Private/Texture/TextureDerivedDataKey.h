@@ -1,11 +1,16 @@
 #pragma once
 
+#include "DerivedDataCacheKeyProxy.h"
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"
 
 namespace Durin
 {
+	inline constexpr std::string_view Texture2DCacheBucket = "Textures/Objects";
+	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube/Objects";
+	inline constexpr std::string_view VolumeTextureCacheBucket = "VolumeTexture/Objects";
+
 	struct FTexture2DBuildKeyInput
 	{
 		FXxHash128 ImportedDataIdentity;
@@ -61,13 +66,13 @@ namespace Durin
 	ENGINE_API auto BuildTexture2DDerivedDataKeyBytes(
 		const FTexture2DBuildKeyInput& Input) -> FByteArray;
 	ENGINE_API auto BuildTexture2DDerivedDataKey(
-		const FTexture2DBuildKeyInput& Input) -> std::string;
+		const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy;
 	ENGINE_API auto BuildTextureCubeDerivedDataKeyBytes(
 		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteArray;
 	ENGINE_API auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> std::string;
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy;
 	ENGINE_API auto BuildVolumeTextureDerivedDataKeyBytes(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteArray;
 	ENGINE_API auto BuildVolumeTextureDerivedDataKey(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> std::string;
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy;
 }

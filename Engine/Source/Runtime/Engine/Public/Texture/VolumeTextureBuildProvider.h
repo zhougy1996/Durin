@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Modules/ModularFeature.h"
 #include "Texture/VolumeTexture.h"
@@ -39,7 +40,7 @@ namespace Durin
 	struct FVolumeTextureBuildProduct
 	{
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		std::string PersistenceDiagnostic;
 		FVolumeTextureBuildProviderDescriptor Provider;
 		EVolumeTextureBuildProductOrigin Origin = EVolumeTextureBuildProductOrigin::Rebuilt;

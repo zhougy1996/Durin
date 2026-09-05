@@ -59,13 +59,13 @@ namespace
 	auto GetStaticMeshKey(const Durin::DStaticMesh& Mesh) -> std::string
 	{
 		std::string Error;
-		const std::string Key = Durin::BuildStaticMeshDerivedDataKey({
+		const Durin::FCacheKeyProxy Key = Durin::BuildStaticMeshDerivedDataKey({
 			.ImportedDataHash = Mesh.GetImportedData().GetIdentity(),
 			.ReconciliationHash = Durin::BuildStaticMeshReconciliationHash(
 				Mesh.GetMaterialSlots(), Mesh.GetNormalizedSize()),
 			.TargetPlatform = Durin::EStaticMeshTargetPlatform::Win64}, Error);
-		EXPECT_FALSE(Key.empty()) << Error;
-		return Key;
+		EXPECT_TRUE(Key.IsValid()) << Error;
+		return Key.ToString();
 	}
 
 	auto ImportCacheFixture(std::string_view Name) -> FStaticMeshCacheFixture
@@ -151,7 +151,7 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	Request.ImportedData.Meshes.clear();
 	Request.ImportedData.MaterialSlots.clear();
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
-	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
+	EXPECT_EQ(Product.DerivedDataKey.ToString(), BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::CacheHit);
 	EXPECT_TRUE(Product.DiagnosticMessage.empty());
 	EXPECT_TRUE(Product.ImportedData.IsValid());
@@ -159,14 +159,14 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	const std::array<std::byte, 4> Corrupt{};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, GetObjectPath(Fixture, BaselineKey)));
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
-	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
+	EXPECT_EQ(Product.DerivedDataKey.ToString(), BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::Rebuilt);
 	EXPECT_TRUE(Product.ImportedData.IsValid());
 	EXPECT_FALSE(Product.DiagnosticMessage.empty());
 	EXPECT_TRUE(Error.empty());
 	Request.Reconciliation.MaterialSlots.clear();
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
-	EXPECT_EQ(Product.DerivedDataKey, BaselineKey);
+	EXPECT_EQ(Product.DerivedDataKey.ToString(), BaselineKey);
 	EXPECT_EQ(Product.MaterialSlots.size(), Fixture.Mesh->GetMaterialSlots().size());
 
 	FStaticMeshCollisionBuildResult ColdCollision;
@@ -181,7 +181,8 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	EXPECT_EQ(Collision.Origin, EStaticMeshBuildOrigin::CacheHit);
 	EXPECT_EQ(Collision.PayloadBytes, ColdCollision.PayloadBytes);
 	const auto CollisionPath = Fixture.CacheRoot / "StaticMeshCollision/Objects"
-		/ Collision.DerivedDataKey.substr(0, 2) / (Collision.DerivedDataKey + ".bin");
+		/ Collision.DerivedDataKey.ToString().substr(0, 2)
+		/ (Collision.DerivedDataKey.ToString() + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(CollisionPath));
 	ASSERT_TRUE(BuildStaticMeshCollisionDerivedData(*Fixture.Mesh->GetRenderData(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,

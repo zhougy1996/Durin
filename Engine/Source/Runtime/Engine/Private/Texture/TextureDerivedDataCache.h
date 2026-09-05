@@ -8,21 +8,17 @@
 
 namespace Durin::TextureDerivedDataCache
 {
-	inline constexpr std::string_view Texture2DBucket = "Textures/Objects";
-	inline constexpr std::string_view TextureCubeBucket = "TextureCube/Objects";
-	inline constexpr std::string_view VolumeTextureBucket = "VolumeTexture/Objects";
-
 	using AssetDerivedDataCache::ELoadResult;
 	using AssetDerivedDataCache::FOperationDiagnostic;
 
 	template <typename PlatformDataType>
-	auto Load(std::string_view BucketName, std::string_view Key,
+	auto Load(const FCacheKeyProxy& Key,
 		ECookTargetPlatform TargetPlatform, ECookTargetProfile TargetProfile,
 		PlatformDataType& OutPlatformData,
 		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
 	{
 		FSharedByteBuffer Bytes;
-		if (AssetDerivedDataCache::Load(BucketName, Key,
+		if (AssetDerivedDataCache::Load(Key,
 			MaximumTexturePayloadBytes, Bytes, OutDiagnostic) == ELoadResult::Miss)
 			return ELoadResult::Miss;
 
@@ -45,7 +41,7 @@ namespace Durin::TextureDerivedDataCache
 	}
 
 	template <typename PlatformDataType>
-	auto Store(std::string_view BucketName, std::string_view Key,
+	auto Store(const FCacheKeyProxy& Key,
 		ECookTargetPlatform TargetPlatform, ECookTargetProfile TargetProfile,
 		PlatformDataType& PlatformData,
 		FOperationDiagnostic& OutDiagnostic) -> bool
@@ -64,7 +60,7 @@ namespace Durin::TextureDerivedDataCache
 			return false;
 		}
 
-		return AssetDerivedDataCache::Store(BucketName, Key, Bytes,
+		return AssetDerivedDataCache::Store(Key, Bytes,
 			MaximumTexturePayloadBytes, OutDiagnostic);
 	}
 }

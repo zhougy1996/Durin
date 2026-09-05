@@ -47,7 +47,7 @@ namespace Durin
 		FTexture2DBuildSettingsSnapshot Settings;
 		std::unique_ptr<FTexture2DImportedData> ImportedData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		std::string PersistenceDiagnostic;
 		ETexture2DBuildProductOrigin Origin = ETexture2DBuildProductOrigin::Rebuilt;
 		std::string Error;

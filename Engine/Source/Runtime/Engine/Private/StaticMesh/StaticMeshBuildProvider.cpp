@@ -11,11 +11,6 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 	namespace
 	{
-		constexpr std::string_view StaticMeshBucket = "StaticMesh/Objects";
-		constexpr std::string_view StaticMeshCollisionBucket =
-			"StaticMeshCollision/Objects";
-
-
 		auto BuildCollisionGeometryHash(
 			std::span<const FVector3f> Positions,
 			std::span<const uint32> Indices) -> FXxHash128
@@ -175,12 +170,12 @@ namespace Durin
 					Request.Reconciliation.NormalizedSize),
 				.BuilderVersion = Descriptor.RenderBuilderVersion,
 				.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-			std::string Key = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
-			if (Key.empty()) return false;
+			FCacheKeyProxy Key = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
+			if (!Key.IsValid()) return false;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FByteArray Bytes;
 			if (AssetDerivedDataCache::Load(
-				StaticMeshBucket, Key, MaximumStaticMeshPayloadBytes,
+				Key, MaximumStaticMeshPayloadBytes,
 				Bytes, LoadDiagnostic) == AssetDerivedDataCache::ELoadResult::Hit)
 			{
 				std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -226,10 +221,10 @@ namespace Durin
 			KeyInput.ReconciliationHash = BuildStaticMeshReconciliationHash(
 				MaterialSlots, Request.Reconciliation.NormalizedSize);
 			Key = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
-			if (Key.empty()) return false;
+			if (!Key.IsValid()) return false;
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 			if (Request.bPersistDerivedData)
-				AssetDerivedDataCache::Store(StaticMeshBucket, Key, Bytes,
+				AssetDerivedDataCache::Store(Key, Bytes,
 					MaximumStaticMeshPayloadBytes, StoreDiagnostic);
 			OutProduct = {
 				.RenderData = std::move(RecipeProduct.RenderData),
@@ -300,15 +295,15 @@ namespace Durin
 				.QueryPolicy = Policy,
 				.BuilderVersion = Descriptor.CollisionBuilderVersion,
 				.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-			const std::string Key = BuildStaticMeshCollisionDerivedDataKey(
+			const FCacheKeyProxy Key = BuildStaticMeshCollisionDerivedDataKey(
 				KeyInput, OutError);
-			if (Key.empty()) return false;
+			if (!Key.IsValid()) return false;
 			FByteArray Bytes;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FCollisionGeometryRef Geometry;
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
 			bool bCacheHit = false;
-			if (AssetDerivedDataCache::Load(StaticMeshCollisionBucket, Key,
+			if (AssetDerivedDataCache::Load(Key,
 				MaximumStaticMeshCollisionPayloadBytes, Bytes, LoadDiagnostic)
 				== AssetDerivedDataCache::ELoadResult::Hit)
 				bCacheHit = DecodeCollision(Bytes, Mode, Policy, Geometry, LoadDiagnostic.Message);
@@ -320,7 +315,7 @@ namespace Durin
 				Geometry = std::move(RecipeProduct.Geometry);
 				if (!EncodeCollision(Geometry, Policy, Bytes, OutError)) return false;
 				if (bPersistDerivedData)
-					AssetDerivedDataCache::Store(StaticMeshCollisionBucket, Key, Bytes,
+					AssetDerivedDataCache::Store(Key, Bytes,
 						MaximumStaticMeshCollisionPayloadBytes, StoreDiagnostic);
 			}
 			if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)

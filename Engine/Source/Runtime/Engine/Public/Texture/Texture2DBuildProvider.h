@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Modules/ModularFeature.h"
 #include "Texture/Texture2D.h"
@@ -123,7 +124,7 @@ namespace Durin
 	struct FTexture2DBuildProduct
 	{
 		FTexturePlatformData PlatformData;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		std::string PersistenceDiagnostic;
 		FTexture2DBuildProviderDescriptor Provider;
 		FTexture2DRecipeMetrics Metrics;

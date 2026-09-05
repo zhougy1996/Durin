@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DerivedDataCacheAPI.h"
+#include "Hash/XxHash.h"
 #include "Serialization/SharedByteBuffer.h"
 
 namespace Durin::DerivedData
@@ -9,28 +10,35 @@ namespace Durin::DerivedData
 	class FCacheBucket
 	{
 	public:
+		static constexpr size_t MaximumNameLength = 63;
 		DERIVEDDATACACHE_API static auto FromString(
 			std::string_view Value, std::string* OutError = nullptr) -> FCacheBucket;
-		auto IsValid() const -> bool { return !Value.empty(); }
-		auto ToString() const -> std::string_view { return Value; }
+		auto IsValid() const -> bool { return Name != nullptr; }
+		DERIVEDDATACACHE_API auto ToString() const -> std::string_view;
 		auto operator==(const FCacheBucket&) const -> bool = default;
 
 	private:
-		std::string Value;
+		const char* Name = nullptr;
 	};
 
-	// Identifies one canonical lowercase 128-bit cache entry.
+	// Identifies one cache record by its logical namespace and binary identity.
 	class FCacheKey
 	{
 	public:
+		DERIVEDDATACACHE_API static auto FromHash(
+			FCacheBucket Bucket, FXxHash128 Hash) -> FCacheKey;
 		DERIVEDDATACACHE_API static auto FromString(
-			std::string_view Value, std::string* OutError = nullptr) -> FCacheKey;
-		auto IsValid() const -> bool { return Value.size() == 32; }
-		auto ToString() const -> std::string_view { return Value; }
+			FCacheBucket Bucket, std::string_view Hash,
+			std::string* OutError = nullptr) -> FCacheKey;
+		auto IsValid() const -> bool { return Bucket.IsValid() && !Hash.IsZero(); }
+		auto GetBucket() const -> const FCacheBucket& { return Bucket; }
+		auto GetHash() const -> const FXxHash128& { return Hash; }
+		DERIVEDDATACACHE_API auto ToString() const -> std::string;
 		auto operator==(const FCacheKey&) const -> bool = default;
 
 	private:
-		std::string Value;
+		FCacheBucket Bucket;
+		FXxHash128 Hash;
 	};
 
 	// Classifies a synchronous cache lookup without interpreting entry bytes.
@@ -40,13 +48,13 @@ namespace Durin::DerivedData
 		Miss,
 		InvalidRequest,
 		ValueTooLarge,
+		Corrupt,
 		StorageFailure
 	};
 
 	// Supplies the logical identity and caller-enforced read bound for one lookup.
 	struct FCacheGetRequest
 	{
-		FCacheBucket Bucket;
 		FCacheKey Key;
 		uint64 MaximumValueBytes = 0;
 	};
@@ -72,7 +80,6 @@ namespace Durin::DerivedData
 	// Borrows entry bytes only for the duration of a synchronous put call.
 	struct FCachePutRequest
 	{
-		FCacheBucket Bucket;
 		FCacheKey Key;
 		std::span<const std::byte> Value;
 		uint64 MaximumValueBytes = 0;

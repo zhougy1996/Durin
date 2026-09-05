@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
 
@@ -33,7 +34,7 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		FStaticMeshImportedData ImportedData;
 		float NormalizedSize = 1.5f;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		bool bSlotMetadataChanged = false;
 		EStaticMeshBuildOrigin Origin = EStaticMeshBuildOrigin::Rebuilt;
 		FStaticMeshBuildProviderDescriptor Descriptor;
@@ -49,7 +50,7 @@ namespace Durin
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
 		EStaticMeshBuildOrigin Origin = EStaticMeshBuildOrigin::Rebuilt;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		std::string Diagnostic;
 		uint64 PayloadBytes = 0;
 		FStaticMeshBuildProviderDescriptor Descriptor;

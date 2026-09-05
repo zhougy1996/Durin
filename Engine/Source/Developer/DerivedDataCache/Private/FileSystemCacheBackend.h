@@ -12,7 +12,7 @@ namespace Durin::DerivedData
 
 	private:
 		auto GetBucketDirectory(const FCacheBucket& Bucket) const -> std::filesystem::path;
-		auto GetEntryPath(const FCacheBucket& Bucket, const FCacheKey& Key,
+		auto GetEntryPath(const FCacheKey& Key,
 			std::filesystem::path& OutPath, std::string& OutError) const -> bool;
 	};
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "Modules/ModularFeature.h"
 #include "Texture/TextureCube.h"
@@ -102,7 +103,7 @@ namespace Durin
 	struct FTextureCubeBuildProduct
 	{
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		std::string DerivedDataKey;
+		FCacheKeyProxy DerivedDataKey;
 		std::string PersistenceDiagnostic;
 		FTextureCubeBuildProviderDescriptor Provider;
 		ETextureCubeBuildProductOrigin Origin = ETextureCubeBuildProductOrigin::Rebuilt;

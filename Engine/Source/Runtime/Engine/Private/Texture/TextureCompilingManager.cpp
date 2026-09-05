@@ -372,7 +372,7 @@ namespace Durin
 				std::lock_guard JobLock(Job->Mutex);
 				Job->Diagnostic.Phase = Result.Phase;
 				Job->Diagnostic.Message = Result.Error;
-				Job->Diagnostic.DerivedDataKey = Result.DerivedDataKey;
+				Job->Diagnostic.DerivedDataKey = Result.DerivedDataKey.ToString();
 				Job->Diagnostic.Metrics = Result.Metrics;
 				Job->Diagnostic.FailurePhase = Result.FailurePhase;
 				Job->Diagnostic.Origin = Result.Origin == ETexture2DBuildProductOrigin::CacheHit

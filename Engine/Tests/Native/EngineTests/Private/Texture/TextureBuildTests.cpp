@@ -581,7 +581,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	std::string GoldenKeyError;
 	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
-		GoldenKeyInput, GoldenKeyError),
+		GoldenKeyInput, GoldenKeyError).ToString(),
 		"f912c280977e4486722e8f7bb22a5277") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
@@ -594,8 +594,8 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	EXPECT_TRUE(Second.PersistenceDiagnostic.empty());
 	const auto CachePath = std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
-		/ "VolumeTexture/Objects" / First.DerivedDataKey.substr(0, 2)
-		/ (First.DerivedDataKey + ".bin");
+		/ "VolumeTexture/Objects" / First.DerivedDataKey.ToString().substr(0, 2)
+		/ (First.DerivedDataKey.ToString() + ".bin");
 	Durin::FByteArray CachedBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CachedBytes, CachePath));
 	CachedBytes.push_back(std::byte{1});
@@ -639,7 +639,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 		{.SourceData = Source}, Product, Error)) << Error;
 	ASSERT_NE(Product.PlatformData, nullptr);
 	const Durin::FVolumeTexturePlatformData Expected = *Product.PlatformData;
-	const std::string ExpectedKey = Product.DerivedDataKey;
+	const Durin::FCacheKeyProxy ExpectedKey = Product.DerivedDataKey;
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
@@ -669,7 +669,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_FALSE(ExpectedKey.empty());
+	EXPECT_TRUE(ExpectedKey.IsValid());
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels);
 
@@ -945,14 +945,13 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 	ASSERT_TRUE(BuildResult) << BuildResult.Diagnostic;
 	EXPECT_TRUE(Request.ImportedData.IsValid());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
-	EXPECT_FALSE(Product.DerivedDataKey.empty());
+	EXPECT_TRUE(Product.DerivedDataKey.IsValid());
 
-	Product.DerivedDataKey = "sentinel";
 	const Durin::FTexture2DBuildResult InvalidResult =
 		Durin::InvokeTexture2DBuildProvider({}, Product, Identity);
 	EXPECT_FALSE(InvalidResult);
 	EXPECT_EQ(InvalidResult.Status, Durin::ETexture2DBuildStatus::Failed);
-	EXPECT_TRUE(Product.DerivedDataKey.empty());
+	EXPECT_FALSE(Product.DerivedDataKey.IsValid());
 }
 
 TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
@@ -975,7 +974,7 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	ASSERT_TRUE(BuildResult) << BuildResult.Diagnostic;
 	EXPECT_TRUE(Request.ImportedData.IsValid());
 	EXPECT_TRUE(Product.PlatformData.IsValid());
-	EXPECT_FALSE(Product.DerivedDataKey.empty());
+	EXPECT_TRUE(Product.DerivedDataKey.IsValid());
 	EXPECT_FALSE(Product.PersistenceDiagnostic.empty());
 }
 

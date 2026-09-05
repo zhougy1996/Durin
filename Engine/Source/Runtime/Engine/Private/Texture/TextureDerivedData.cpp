@@ -6,10 +6,27 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TexturePayloadContainer.h"
 
+#if DURIN_WITH_EDITOR
+#include "DerivedDataCache/DerivedDataCache.h"
+#endif
+
 namespace Durin
 {
 	namespace
 	{
+		auto MakeDerivedDataKey(
+			std::string_view BucketName, std::span<const std::byte> Bytes)
+			-> FCacheKeyProxy
+		{
+#if DURIN_WITH_EDITOR
+			return FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
+				DerivedData::FCacheBucket::FromString(BucketName),
+				FXxHash128::HashBuffer(Bytes)));
+#else
+			return {};
+#endif
+		}
+
 		auto IsSupportedTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
 			return Platform == ECookTargetPlatform::Win64
@@ -206,9 +223,10 @@ namespace Durin
 	}
 
 	auto BuildTexture2DDerivedDataKey(
-		const FTexture2DBuildKeyInput& Input) -> std::string
+		const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy
 	{
-		return FXxHash128::HashBuffer(BuildTexture2DDerivedDataKeyBytes(Input)).ToString();
+		return MakeDerivedDataKey(
+			Texture2DCacheBucket, BuildTexture2DDerivedDataKeyBytes(Input));
 	}
 
 	auto BuildTextureCubeDerivedDataKeyBytes(
@@ -223,10 +241,11 @@ namespace Durin
 	}
 
 	auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> std::string
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
 	{
 		const FByteArray Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
-		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
+		return Bytes.empty() ? FCacheKeyProxy{}
+			: MakeDerivedDataKey(TextureCubeCacheBucket, Bytes);
 	}
 
 	auto BuildVolumeTextureDerivedDataKeyBytes(
@@ -241,10 +260,11 @@ namespace Durin
 	}
 
 	auto BuildVolumeTextureDerivedDataKey(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> std::string
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
 	{
 		const FByteArray Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
-		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
+		return Bytes.empty() ? FCacheKeyProxy{}
+			: MakeDerivedDataKey(VolumeTextureCacheBucket, Bytes);
 	}
 
 	auto BuildTexture2DSerializedValue(

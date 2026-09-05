@@ -974,7 +974,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 38u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "01a75c9d6203686e307cc52a38543a74");
-	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
+	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error).ToString(),
 		"01a75c9d6203686e307cc52a38543a74");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
@@ -1063,8 +1063,8 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Sta
 	ASSERT_NE(Setup, nullptr);
 	EXPECT_EQ(Setup->GetCollisionSourceMode(),
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
-	const std::string FirstKey = Cold.DerivedDataKey;
-	EXPECT_EQ(FirstKey.size(), 32u);
+	const FCacheKeyProxy FirstKey = Cold.DerivedDataKey;
+	EXPECT_EQ(FirstKey.ToString().size(), 32u);
 	FCollisionGeometryRef FirstGeometry;
 	ASSERT_TRUE(Setup->BuildComplexGeometry(FirstGeometry));
 	const uint64 FirstIdentity = FirstGeometry.GetIdentity();

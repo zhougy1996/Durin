@@ -31,11 +31,6 @@ namespace Durin::ShaderDerivedData
 		}
 	}
 
-	auto GetBucket() -> DerivedData::FCacheBucket
-	{
-		return DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput");
-	}
-
 	auto BuildKey(
 		const FShaderVariantKey& VariantKey,
 		const FShaderCompileOptions& Options) -> DerivedData::FCacheKey
@@ -53,6 +48,8 @@ namespace Durin::ShaderDerivedData
 				? std::string_view(Options.EntryPoints[Index]) : std::string_view{});
 			Builder.UpdateValue(static_cast<uint32>(Options.Frequencies[Index]));
 		}
-		return DerivedData::FCacheKey::FromString(Builder.Finalize().ToString());
+		return DerivedData::FCacheKey::FromHash(
+			DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput"),
+			Builder.Finalize());
 	}
 }
