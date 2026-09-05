@@ -72,6 +72,8 @@ namespace Durin
 		DPROPERTY()
 		uint32 PayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 
+		FXxHash128 CanonicalSourceIdentity;
+
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		auto GetVoxelBytes() const -> FSharedByteBuffer

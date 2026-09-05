@@ -74,6 +74,62 @@ TEST(FTextureSourceTests, ValidatesVolumeMipsIdentityAndSnapshotIsolation)
 	EXPECT_EQ(Snapshot.Generation, 17u);
 }
 
+TEST(FTextureSourceTests, InitApisKeepCanonicalIdentityAcrossLosslessStorage)
+{
+	Durin::Image::FImage Image;
+	const Durin::FByteArray Pixels(4 * 4 * 4, std::byte{0x2a});
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Durin::Image::ERawImageFormat::RGBA8,
+		.GammaSpace = Durin::Image::EImageGammaSpace::SRGB},
+		Pixels, Image));
+	Durin::FTextureSource Raw;
+	Durin::FTextureSource Compressed;
+	ASSERT_TRUE(Raw.Init2D(Image.GetView(), 4, 0,
+		Durin::ETextureSourceCompression::Raw));
+	ASSERT_TRUE(Compressed.Init2D(Image.GetView(), 4, 0,
+		Durin::ETextureSourceCompression::RunLength));
+	EXPECT_EQ(Compressed.GetCompression(),
+		Durin::ETextureSourceCompression::RunLength);
+	EXPECT_LT(Compressed.GetBulkData().GetPayloadSize(), Pixels.size());
+	EXPECT_EQ(Raw.GetIdentity(), Compressed.GetIdentity());
+	Durin::FTextureSourceSnapshot Snapshot;
+	std::string Error;
+	ASSERT_TRUE(Compressed.CreateSnapshotBlocking(9, Snapshot, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(Snapshot.Payload.GetBytes(), Pixels));
+	EXPECT_EQ(Snapshot.Generation, 9u);
+}
+
+TEST(FTextureSourceTests, Texture2DPreservesSuppliedMipChainForRecipeBuild)
+{
+	InitializeDObjectSystem();
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "SuppliedMipTexture");
+	ASSERT_NE(Texture, nullptr);
+	std::vector<Durin::Image::FImage> Images(3);
+	std::vector<Durin::Image::FImageView> Views;
+	for (uint32 Index = 0; Index < 3; ++Index)
+	{
+		const uint32 Size = 4u >> Index;
+		ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = Size, .Height = Size,
+			.Format = Durin::Image::ERawImageFormat::RGBA8,
+			.GammaSpace = Durin::Image::EImageGammaSpace::SRGB},
+			Durin::FByteArray(Size * Size * 4, static_cast<std::byte>(Index * 70)),
+			Images[Index]));
+		Views.push_back(Images[Index].GetView());
+	}
+	std::string Error;
+	ASSERT_TRUE(Texture->SetSourceMipChain(Views, 4, 0, Error)) << Error;
+	const Durin::FTexture2DImportedData Input = Texture->CreateBuildInput();
+	ASSERT_EQ(Input.SuppliedMips.size(), 3u);
+	Durin::FTexturePlatformData Platform;
+	ASSERT_TRUE(Durin::TextureBuilder::BuildMipChain(Input.ToSourceData(),
+		Durin::ETextureUsage::Color, true, Platform, Error, 0,
+		Durin::ETextureCompressionQuality::Normal,
+		Durin::ETextureAlphaMipMode::Average, 0.5f, nullptr,
+		Input.SuppliedMips)) << Error;
+	EXPECT_EQ(Platform.Mips.size(), 3u);
+	EXPECT_EQ(Platform.Mips.back().Width, 1u);
+}
+
 TEST(FTextureSourceTests, FailedFamilyEditPreservesAcceptedState)
 {
 	InitializeDObjectSystem();
@@ -449,7 +505,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, Bytes, Error)) << Error;
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
-		"cd69e1f94de659a143bd520aed40f4c8");
+		"3653410e7207268f7089e69dfa0f3d38");
 	EXPECT_EQ(Bytes.size(), 177u);
 	Durin::FVolumeTexturePlatformData Decoded;
 	Durin::FDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
@@ -514,7 +570,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	std::string GoldenKeyError;
 	EXPECT_EQ(Durin::BuildVolumeTextureDerivedDataKey(
 		GoldenKeyInput, GoldenKeyError),
-		"f15f5130fe5dc0e647218ceda0bc70fd") << GoldenKeyError;
+		"f912c280977e4486722e8f7bb22a5277") << GoldenKeyError;
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
@@ -808,7 +864,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const Durin::FPackageResourceHandle WarmResource =
 		Durin::GetPackageResourceManager().FindPackage(AssetPath.ToString());
 	ASSERT_TRUE(WarmResource);
-	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	EXPECT_TRUE(std::ranges::equal(
 		Texture->CreateBuildInput().GetVoxelBytes(), Source.GetVoxelBytes()));
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
@@ -977,10 +1033,10 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	const Durin::FPackageResourceHandle WarmResource =
 		Durin::GetPackageResourceManager().FindPackage(AssetPath.ToString());
 	ASSERT_TRUE(WarmResource);
-	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	const Durin::FTexture2DImportedData WarmInput = LoadedTexture->CreateBuildInput();
 	EXPECT_EQ(WarmInput.GetIdentity(), ImportedIdentity);
-	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	const Durin::FTextureSourceData WarmDecoded = WarmInput.ToSourceData();
 	EXPECT_TRUE(WarmDecoded.IsValid());
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);

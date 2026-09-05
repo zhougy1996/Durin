@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-05
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -104,9 +104,11 @@ persistence, failure, and reset behavior are owned by
 
 ## Equirectangular Panorama Import
 
-An equirectangular panorama is an offline source layout for the existing LDR
-cube build path. It does not change runtime sampling or introduce a
-floating-point texture format.
+An equirectangular panorama is retained as the authoritative single-slice
+`LongLatCube` source. LDR input remains RGBA8 sRGB and Radiance HDR is stored as
+finite RGBA32F linear data with alpha one. Projection, exposure, tone mapping,
+face generation, and platform encoding are derived recipe work, so changing
+face dimension or exposure rebuilds without reopening the imported file.
 
 ### Source Layout and Compatibility
 
@@ -116,7 +118,7 @@ numeric values:
 | Serialized value | Enumerator | Authoritative source |
 | ---: | --- | --- |
 | 0 | `SixFaces` | Six ordered normalized source-provenance values |
-| 1 | `EquirectangularPanorama` | One normalized panorama provenance value |
+| 1 | `EquirectangularPanorama` | One normalized panorama Source plus provenance |
 
 The property initializer is `SixFaces`. Packages written before the property
 existed therefore retain value 0 when deserialization leaves the missing
@@ -127,8 +129,9 @@ delete.
 
 Six-face imports retain one normalized, explicitly based physical source hint
 for each canonical face role; panorama imports retain one panorama hint.
-Provenance stores exact XXH3-128 source hashes plus decoder version 1 and
-projection version 1. Import never copies, moves, or deletes source art, and
+Provenance stores exact XXH3-128 encoded-source hashes. Generic Source identity
+covers decoded pixels and interpretation; projection version 2 is part of build
+identity. Import never copies, moves, or deletes source art, and
 moving or deleting a package does not affect potentially shared source files.
 
 ### Derived Data and Cooking

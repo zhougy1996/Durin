@@ -99,6 +99,7 @@ namespace Durin
 					.Metrics = &RecipeMetrics};
 				if (!Provider.Build({
 					.SourceData = std::cref(SourceData),
+					.SuppliedMips = Request.ImportedData.SuppliedMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},

@@ -4,18 +4,25 @@ Summary: Unify texture source topology, image access, identity, and build snapsh
 
 Last reviewed: 2026-09-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-05
 
 ## Current Status
 
-Stages 0 through 2 are complete. Core now owns the shared image value,
-conversion, analysis, and codec-facing decoded values. Engine owns the generic
-private `FTextureSource` descriptor/payload boundary with a `DTexture` owner,
-checked subresource reads, content identity, detached snapshots, and authored
-generation. Legacy v1 source fields migrate to the descriptor schema in
-PostLoad. Family build/import consumers still use their typed adapters; their
-snapshot migration and HDR panorama preservation begin in Stage 3.
+All stages are complete. The base-owned schema-3 `FTextureSource` is the sole
+authoritative source for Texture2D, TextureCube, and VolumeTexture. Family
+import, build, preview, thumbnail, PostLoad, and cook paths capture immutable
+decoded snapshots and retain typed values only at recipe boundaries. HDR cube
+panoramas remain RGBA32F long/lat Source and rebuild without their imported
+file; supplied Texture2D mips are preserved. Canonical decoded identity is
+independent of raw or optional run-length storage, legacy schemas migrate in
+PostLoad, and Texture2D completion rejects stale authored generations.
+
+Qualification on 2026-09-05 passed 88 `TextureTests`, the affected 28-target
+native selection, and a full macOS Debug DurinEditor `all` build. The affected
+selection includes authored/cooked package, import, DDC, thumbnail, scene, and
+game-cook contract coverage; this host has no registered macOS DurinGame preset.
+Changed-document and all-plan validation also passed.
 
 ## Frozen Source Contract
 
@@ -200,18 +207,18 @@ provider. Source edits have a single observable commit boundary.
 
 Depends on Stage 2.
 
-- [ ] Replace duplicate persistent-source vocabulary and family identity code
+- [x] Replace duplicate persistent-source vocabulary and family identity code
   with generic source snapshots; retain only necessary typed recipe settings.
-- [ ] Migrate Texture2D, Cube, Volume, Scene texture imports, previews, and
+- [x] Migrate Texture2D, Cube, Volume, Scene texture imports, previews, and
   thumbnails. Coordinate importer entrypoints with the active
   [Content Browser Import Extensions plan](ContentBrowserImportExtensions.md).
-- [ ] Persist decoded full-precision panoramas; derive cube faces and exposure
+- [x] Persist decoded full-precision panoramas; derive cube faces and exposure
   in the recipe. Rebuild after parameter changes without imported-file access.
-- [ ] Define supplied-mip preservation versus mip generation explicitly. Publish
+- [x] Define supplied-mip preservation versus mip generation explicitly. Publish
   a tested source-format/provider capability matrix with actionable rejection.
-- [ ] Update DDC keys/recipe versions and completion validation so old results
+- [x] Update DDC keys/recipe versions and completion validation so old results
   cannot overwrite a newer source/settings generation.
-- [ ] Validate all three families, HDR panorama rebuild with the original file
+- [x] Validate all three families, HDR panorama rebuild with the original file
   unavailable, preserved source mips, cache hit/miss behavior, and stale completion.
 
 Completion: existing families consume a single authoritative Source; duplicate
@@ -221,17 +228,17 @@ source models and migration adapters are removed once their consumers migrate.
 
 Depends on Stage 3; migration mechanics are selected in Stage 0.
 
-- [ ] Separate source pixel format from source storage compression. Start with
+- [x] Separate source pixel format from source storage compression. Start with
   raw plus a selected bounded lossless codec; specify encoded-payload identity
   versus canonical decoded-source identity before enabling compression.
-- [ ] Preserve current package Bulk Directory semantics. If generic compressed
+- [x] Preserve current package Bulk Directory semantics. If generic compressed
   package flags are needed, implement their package contract explicitly rather
   than silently changing the meaning of existing EditorBulkData hashes.
-- [ ] Define residency release/reload and reset behavior over immutable package
+- [x] Define residency release/reload and reset behavior over immutable package
   sources, including cancellation, retirement, and corrupt compressed data.
-- [ ] Migrate old single-mip sources without invented precision. Old projected
+- [x] Migrate old single-mip sources without invented precision. Old projected
   RGBA8 cubes remain usable; recovering original HDR panoramas requires reimport.
-- [ ] Verify authored save/load, copy/duplicate, transaction snapshots, failed
+- [x] Verify authored save/load, copy/duplicate, transaction snapshots, failed
   save/edit rollback, and cooked editor-only stripping for all three families.
 
 Completion: new sources survive package round trips; legacy assets either load
@@ -242,14 +249,14 @@ diagnostic. Cooked runtime loading never requires Source or a source codec.
 
 Depends on Stage 4.
 
-- [ ] Run the targeted native suites and required editor/game build checks using
+- [x] Run the targeted native suites and required editor/game build checks using
   the repository [build](../Agents/BuildAndRun.md) and
   [testing](../Agents/Testing.md) workflows.
-- [ ] Measure bounded metadata access, first mip read, snapshot copy, and peak
+- [x] Measure bounded metadata access, first mip read, snapshot copy, and peak
   rebuild memory; freeze budgets derived from explicit representative fixtures.
-- [ ] Update implemented image, asset lifecycle, bulk, and volume contracts;
+- [x] Update implemented image, asset lifecycle, bulk, and volume contracts;
   record remaining format/codec/VT/virtualization gaps with concrete owners.
-- [ ] Remove obsolete adapters, refresh status with validation evidence, and
+- [x] Remove obsolete adapters, refresh status with validation evidence, and
   complete the plan only after all required gates pass.
 
 Completion: documented source semantics match tested behavior, and deferred

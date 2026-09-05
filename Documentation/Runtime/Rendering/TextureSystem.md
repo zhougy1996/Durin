@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-05
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -21,12 +21,10 @@ cooked-runtime, render-resource, editor, and material boundaries.
 - `Usage` and `bSRGB` remain runtime-authored metadata. `MaxResolution`,
   `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` are
   editor-only build settings.
-- `FTexture2DImportedData` is a detached request input copied from an immutable
-  `FTextureSource` snapshot. It carries a shared `FEditorBulkData` handle and
-  metadata, so computing identity or completing a warm DDC lookup does not
-  materialize pixels. `FTextureSourceData` is the decoded RGBA8 recipe value and
-  is created only after a DDC miss or when an editor preview explicitly needs
-  pixels. Neither value is retained on `DTexture2D`.
+- Builds, previews, and thumbnails capture an owned `FTextureSourceSnapshot`.
+  Family values such as `FTexture2DImportedData` and `FTextureSourceData` are
+  transient recipe adapters and are never reflected on a texture leaf. Snapshot
+  capture resolves package storage once; workers never read the live asset.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.
@@ -45,6 +43,9 @@ cooked-runtime, render-resource, editor, and material boundaries.
   Otherwise the builder selects the first generated mip whose width and height
   both fit the limit. The cap is mip-aligned and preserves the usage-aware
   filter path and source aspect ratio.
+- A supplied canonical source mip chain is preserved verbatim through the
+  recipe input instead of being regenerated. A source with only its base mip
+  selects deterministic mip generation.
 - Compression quality is an offline search-effort choice. Low, Normal, and High
   map to progressively stronger endpoint, channel, and BC7 partition searches.
   It changes build time and encoded quality, not the selected pixel format or
@@ -127,7 +128,7 @@ slices. The selected cross-asset storage and cooked companion contract is docume
 
 ## Cooking and Runtime Loading
 
-Texture2D producer version 3 contributes its validated TXPL schema-2 value as
+Texture2D producer version 4 contributes its validated TXPL schema-2 value as
 the cooked `PlatformData` BulkData field. Cook serializes runtime settings and
 the detached field, strips source provenance and editor fingerprints, and
 publishes large bytes in the package's headerless raw segment.
@@ -164,14 +165,14 @@ waiting; an already admitted job is never preempted. A single valid request
 larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
-Each request carries a detached `FTexture2DImportedData` snapshot, content
+Each request carries detached source bytes derived from one generic source snapshot, content
 identity, all build settings, Win64/Game target identity, scheduling identity,
-and a manager-owned monotonic request serial. Key computation and a warm DDC
+the captured authored generation, and a manager-owned monotonic request serial. Key computation and a warm DDC
 lookup use source metadata and content identity only. A miss materializes the
 bulk payload into `FTextureSourceData`, then workers generate mips, compress,
 validate, and atomically persist DDC data before placing a move-only result in
 the manager mailbox. The Texture compiling manager commits on the GameThread
-only when request id, serial, weak object identity, source identity, and
+only when request id, serial, weak object identity, source identity, authored generation, and
 complete settings still match. Cancellation is cooperative; this comparison
 is the live-object mutation boundary.
 
@@ -319,7 +320,7 @@ checked against known values rather than inferred from editor startup.
 ## Editor Contract
 
 `TexturePayloadInspection.h` defines the texture-domain lifecycle summary used
-by Texture2D and VolumeTexture. Live summaries cover source, derived, cooked,
+by Texture2D, TextureCube, and VolumeTexture. Live summaries cover source, derived, cooked,
 decoded CPU, and GPU stages with schema version, texel count, logical/stored
 bytes, placement capability, provenance, state, diagnostic, and an explicit
 repair classification. They derive those stages from common source metadata,
@@ -331,6 +332,38 @@ DDC, rebuilds, or creates runtime resources merely to inspect state.
 Texture editors render this summary as a read-only Payload Lifecycle section.
 Buttons remain attached to explicit Reimport, Reimport From File, build, and
 save workflows; the summary itself performs no mutation or source probing.
+
+## Source capability matrix
+
+| Family/source | Accepted source formats | Mip policy | Recipe result |
+| --- | --- | --- | --- |
+| Texture2D | RGBA8 | One mip generates; a supplied chain is preserved | BC1/BC3/BC5/BC7 according to settings |
+| TextureCube six-face | RGBA8, six equal square slices | Generates from faces | Six matching BC face chains |
+| TextureCube long/lat | RGBA8 sRGB or finite RGBA32F linear | Source panorama is retained; projection regenerates faces | Six matching BC face chains |
+| VolumeTexture | R8, RG8, RGBA8, R16F, RGBA16F | Generates a full 3D box-filtered chain | Matching uncompressed portable format |
+
+Generic Source can represent additional blocks, layers, arrays, G16, RGBA16,
+and R32F. Current family validators reject combinations absent from this table
+with a family-specific import/build diagnostic; representation support does not
+imply a provider exists.
+
+## Source storage and budgets
+
+Texture source schema 3 separates raw texel format from storage compression.
+Raw is the package default and therefore retains existing inline/external Bulk
+Directory placement. Explicit initialization may select bounded byte-run
+lossless compression when it produces a smaller value. Metadata records decoded
+size and the canonical decoded XXH3-128 hash, so raw and compressed storage have
+the same content identity. Snapshot creation verifies decompression and the
+canonical hash before publishing an immutable decoded buffer.
+
+The qualification fixtures freeze behavioral rather than machine-time budgets:
+metadata access performs zero payload reads; an uncompressed first snapshot
+performs at most one package read; snapshot copies share their backing allocation
+and add zero payload bytes; stored plus decoded source bytes are each capped at
+512 MiB. Texture2D recipe peak intermediates remain reported by the compiling
+manager and bounded by its 1 GiB admission estimate. These invariants remain
+portable across developer machines where a millisecond threshold would not.
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 

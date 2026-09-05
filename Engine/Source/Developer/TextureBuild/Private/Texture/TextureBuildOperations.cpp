@@ -34,7 +34,7 @@ namespace Durin
 			ResolveTexture2DSRGB(Request.Settings), OutProduct.PlatformData, OutError,
 			Request.Settings.MaxResolution, Request.Settings.CompressionQuality,
 			Request.Settings.AlphaMipMode, Request.Settings.AlphaCoverageThreshold,
-			&Control)) return false;
+			&Control, Request.SuppliedMips)) return false;
 		OutProduct.Metrics = {
 			.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds,
 			.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds,

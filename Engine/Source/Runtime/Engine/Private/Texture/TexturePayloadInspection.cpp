@@ -6,6 +6,7 @@
 #include "Misc/FileHelper.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/TextureCube.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"
 
@@ -47,6 +48,15 @@ namespace Durin
 			if (Data)
 				for (const FVolumeTextureMipData& Mip : Data->Mips)
 					Bytes = Add(Bytes, static_cast<uint64>(Mip.Voxels.size()));
+			return Bytes;
+		}
+
+		auto MipBytes(const FTextureCubePlatformData* Data) -> uint64
+		{
+			uint64 Bytes = 0;
+			if (Data)
+				for (const FTexturePlatformData& Face : Data->Faces)
+					Bytes = Add(Bytes, MipBytes(&Face));
 			return Bytes;
 		}
 
@@ -144,6 +154,7 @@ namespace Durin
 	{
 		OutInspection = {.bConstructFree = true};
 		const std::string Texture2DClass = DTexture2D::StaticClass()->GetQualifiedName().ToString();
+		const std::string TextureCubeClass = DTextureCube::StaticClass()->GetQualifiedName().ToString();
 		const std::string VolumeClass = DVolumeTexture::StaticClass()->GetQualifiedName().ToString();
 		if (Package.Header.AssetClassName == Texture2DClass)
 		{
@@ -193,19 +204,24 @@ namespace Durin
 			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
 				"Texture2D", Package.FindField("PlatformData")));
 		}
-		else if (Package.Header.AssetClassName == VolumeClass)
+		else if (Package.Header.AssetClassName == VolumeClass
+			|| Package.Header.AssetClassName == TextureCubeClass)
 		{
 			const FAssetPackageField* SourceField = Package.FindField("Source");
 			std::vector<FAssetPackageField> SourceFields;
 			const bool bReadable = SourceField
 				&& SourceField->TryInspectStructFields(SourceFields);
 			uint32 Width = 0, Height = 0, Depth = 0, SchemaVersion = 0;
+			uint8 NumSlices = 1;
+			uint64 DecodedPayloadSize = 0;
 			if (bReadable)
 			{
 				ReadScalar(SourceFields, "Width", Width);
 				ReadScalar(SourceFields, "Height", Height);
 				ReadScalar(SourceFields, "Depth", Depth);
+				ReadScalar(SourceFields, "NumSlices", NumSlices);
 				ReadScalar(SourceFields, "SchemaVersion", SchemaVersion);
+				ReadScalar(SourceFields, "DecodedPayloadSize", DecodedPayloadSize);
 			}
 			FEditorBulkDataStorageDescriptor Descriptor;
 			const FAssetPackageField* VoxelsField = FindField(SourceFields, "Payload");
@@ -250,12 +266,18 @@ namespace Durin
 				else
 					SourceDiagnostic = "Editor source companion and integrity are valid.";
 			}
+			const std::string Domain = Package.Header.AssetClassName == TextureCubeClass
+				? "TextureCube" : "VolumeTexture";
 			OutInspection.Entries.push_back({
-				.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Source,
+				.Domain = Domain, .Stage = ETexturePayloadStage::Source,
 				.State = SourceState, .Repair = SourceRepair,
 				.DomainSchemaVersion = SchemaVersion,
-				.LogicalElementCount = Multiply(Multiply(Width, Height), Depth),
-				.LogicalByteCount = bHasDescriptor ? Descriptor.LogicalByteCount : 0,
+				.LogicalElementCount = Package.Header.AssetClassName == TextureCubeClass
+					? Multiply(Multiply(Multiply(Width, Height), Depth), NumSlices)
+					: Multiply(Multiply(Width, Height), Depth),
+				.LogicalByteCount = SchemaVersion == TextureSourceSchemaVersion
+					? DecodedPayloadSize
+					: bHasDescriptor ? Descriptor.LogicalByteCount : 0,
 				.StoredByteCount = bHasDescriptor ? Descriptor.StoredByteCount : 0,
 				.PayloadId = bHasDescriptor ? Descriptor.PayloadId : FGuid{},
 				.Placement = std::move(Placement),
@@ -267,7 +289,7 @@ namespace Durin
 					Package.PhysicalPath, Package, Orphans, &OrphanError)
 				&& !Orphans.empty())
 				OutInspection.Entries.push_back({
-					.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Source,
+					.Domain = Domain, .Stage = ETexturePayloadStage::Source,
 					.State = ETexturePayloadState::Stale,
 					.Repair = ETexturePayloadRepairAction::RemoveOrphan,
 					.Placement = "EditorPackageCompanion",
@@ -275,18 +297,18 @@ namespace Durin
 						"{} unreferenced editor companion(s) require explicit cleanup.",
 						Orphans.size())});
 			OutInspection.Entries.push_back({
-				.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::DerivedData,
+				.Domain = Domain, .Stage = ETexturePayloadStage::DerivedData,
 				.State = ETexturePayloadState::Unknown,
 				.Repair = ETexturePayloadRepairAction::RebuildDerivedData,
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.Placement = "DerivedDataCache",
 				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
 			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
-				"VolumeTexture", Package.FindField("PlatformData")));
+				Domain, Package.FindField("PlatformData")));
 		}
 		else
 		{
-			if (OutError) *OutError = "Package is not a Texture2D or VolumeTexture asset.";
+			if (OutError) *OutError = "Package is not a supported texture asset.";
 			return false;
 		}
 		if (OutError) OutError->clear();
@@ -307,9 +329,11 @@ namespace Durin
 				? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RestoreEditorCompanion,
 			.LogicalElementCount = Multiply(Texture.GetSource().GetWidth(), Texture.GetSource().GetHeight()),
-			.LogicalByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
-			.StoredByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
-			.Placement = "EditorBulkData",
+			.DomainSchemaVersion = Texture.GetSource().GetSchemaVersion(),
+			.LogicalByteCount = Texture.GetSource().GetDecodedPayloadSize(),
+			.StoredByteCount = Texture.GetSource().GetBulkData().GetPayloadSize(),
+			.PayloadId = Texture.GetSource().GetBulkData().GetInstanceId(),
+			.Placement = "EditorPackage",
 			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{},
 			.Diagnostic = bImportedDataValid
 				? "Canonical imported pixels are authored; the optional source hint was not probed."
@@ -378,7 +402,7 @@ namespace Durin
 				: ETexturePayloadRepairAction::ReimportSource,
 			.DomainSchemaVersion = Source.GetSchemaVersion(),
 			.LogicalElementCount = Multiply(Multiply(Source.GetWidth(), Source.GetHeight()), Source.GetDepth()),
-			.LogicalByteCount = Source.GetBulkData().GetPayloadSize(),
+			.LogicalByteCount = Source.GetDecodedPayloadSize(),
 			.StoredByteCount = Source.GetBulkData().GetPayloadSize(),
 			.PayloadId = Source.GetBulkData().GetInstanceId(),
 			.Placement = "EditorPackage",
@@ -426,6 +450,52 @@ namespace Durin
 				? "The current RHI does not support this volume texture format and usage."
 				: Texture.GetRenderFailure() == ETextureRenderFailure::CreateOrUpload
 					? "GPU volume texture creation or upload failed." : std::string{}});
+		return Result;
+	}
+
+	auto InspectTexturePayloads(const DTextureCube& Texture) -> FTexturePayloadInspection
+	{
+		FTexturePayloadInspection Result;
+		const FTextureSource& Source = Texture.GetSource();
+		const bool bSourceValid = Source.IsValid();
+		Result.Entries.push_back({
+			.Domain = "TextureCube", .Stage = ETexturePayloadStage::Source,
+			.State = bSourceValid ? ETexturePayloadState::Available : ETexturePayloadState::Corrupt,
+			.Repair = bSourceValid ? ETexturePayloadRepairAction::None
+				: ETexturePayloadRepairAction::ReimportSource,
+			.DomainSchemaVersion = Source.GetSchemaVersion(),
+			.LogicalElementCount = Multiply(Multiply(Source.GetWidth(), Source.GetHeight()),
+				Source.GetNumSlices()),
+			.LogicalByteCount = Source.GetDecodedPayloadSize(),
+			.StoredByteCount = Source.GetBulkData().GetPayloadSize(),
+			.PayloadId = Source.GetBulkData().GetInstanceId(),
+			.Placement = "EditorPackage"});
+		const FTextureCubePlatformData* PlatformData = Texture.GetPlatformData();
+		const bool bReady = PlatformData && PlatformData->IsValid();
+		Result.Entries.push_back({
+			.Domain = "TextureCube", .Stage = ETexturePayloadStage::DerivedData,
+			.State = bReady ? ETexturePayloadState::Available : ETexturePayloadState::Missing,
+			.Repair = bReady ? ETexturePayloadRepairAction::None
+				: ETexturePayloadRepairAction::RebuildDerivedData,
+			.DomainSchemaVersion = TexturePayloadSchemaVersion,
+			.LogicalByteCount = MipBytes(PlatformData),
+			.Placement = "DerivedDataCache"});
+		Result.Entries.push_back(MakeCookedFieldEntry(
+			"TextureCube", Texture.GetCookedPlatformData()));
+		Result.Entries.push_back({
+			.Domain = "TextureCube", .Stage = ETexturePayloadStage::Decoded,
+			.State = bReady ? ETexturePayloadState::Available : ETexturePayloadState::NotPresent,
+			.Repair = bReady ? ETexturePayloadRepairAction::None
+				: ETexturePayloadRepairAction::RebuildDerivedData,
+			.DomainSchemaVersion = TexturePayloadSchemaVersion,
+			.LogicalByteCount = MipBytes(PlatformData), .Placement = "ResidentMemory"});
+		Result.Entries.push_back({
+			.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource,
+			.State = MapResourceState(Texture.GetRenderResourceState()),
+			.Repair = Texture.GetRenderResourceState() == ERenderResourceState::Failed
+				? ETexturePayloadRepairAction::RetryRuntimeResource
+				: ETexturePayloadRepairAction::None,
+			.Placement = "GPU"});
 		return Result;
 	}
 }

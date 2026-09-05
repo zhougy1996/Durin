@@ -114,7 +114,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_NE(LiveDecoded, LiveInspection.Entries.end());
 	EXPECT_EQ(LiveSource->State, Durin::ETexturePayloadState::Available);
 	EXPECT_EQ(LiveSource->LogicalElementCount, 2u);
-	EXPECT_EQ(LiveSource->LogicalByteCount, 74u);
+	EXPECT_EQ(LiveSource->LogicalByteCount, 8u);
 	EXPECT_EQ(LiveDerived->State, Durin::ETexturePayloadState::Available);
 	EXPECT_EQ(LiveDecoded->State, Durin::ETexturePayloadState::Available);
 

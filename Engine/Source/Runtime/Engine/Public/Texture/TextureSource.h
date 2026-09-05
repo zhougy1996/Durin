@@ -12,7 +12,8 @@ namespace Durin
 	class DTexture2D;
 	class DTextureCube;
 	class DVolumeTexture;
-	inline constexpr uint32 TextureSourceSchemaVersion = 2;
+	inline constexpr uint32 TextureSourceSchemaVersion = 3;
+	inline constexpr uint32 DescriptorTextureSourceSchemaVersion = 2;
 	inline constexpr uint32 LegacyTextureSourceSchemaVersion = 1;
 	inline constexpr uint64 MaximumTextureSourceBytes = 512ull * 1024ull * 1024ull;
 
@@ -47,6 +48,13 @@ namespace Durin
 		Unknown,
 		Linear,
 		SRGB,
+	};
+
+	DENUM()
+	enum class ETextureSourceCompression : uint8
+	{
+		Raw,
+		RunLength,
 	};
 
 	DSTRUCT()
@@ -97,6 +105,7 @@ namespace Durin
 		FSharedByteBuffer Payload;
 		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
 		ETextureSourceGammaSpace GammaSpace = ETextureSourceGammaSpace::Unknown;
+		ETextureSourceCompression Compression = ETextureSourceCompression::Raw;
 		uint8 SourceChannelCount = 0;
 		uint8 TransparencyMask = 0;
 		FXxHash128 Identity;
@@ -153,6 +162,18 @@ namespace Durin
 		DPROPERTY()
 		uint32 SchemaVersion = TextureSourceSchemaVersion;
 
+		DPROPERTY()
+		ETextureSourceCompression Compression = ETextureSourceCompression::Raw;
+
+		DPROPERTY()
+		uint64 DecodedPayloadSize = 0;
+
+		DPROPERTY()
+		uint64 CanonicalPayloadHashLow = 0;
+
+		DPROPERTY()
+		uint64 CanonicalPayloadHashHigh = 0;
+
 	public:
 		auto GetWidth() const -> uint32
 		{
@@ -181,10 +202,30 @@ namespace Durin
 		auto GetBlocks() const -> std::span<const FTextureSourceBlock> { return Blocks; }
 		auto GetLayers() const -> std::span<const FTextureSourceLayer> { return Layers; }
 		auto GetGammaSpace() const -> ETextureSourceGammaSpace { return GammaSpace; }
+		auto GetCompression() const -> ETextureSourceCompression { return Compression; }
+		auto GetDecodedPayloadSize() const -> uint64 { return DecodedPayloadSize; }
 		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
 		auto GetBulkData() const -> const FEditorBulkData& { return Payload; }
 
 		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto Init2D(Image::FImageView Image, uint8 InSourceChannelCount,
+			uint8 InTransparencyMask = 0,
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+		ENGINE_API auto InitCube(std::span<const Image::FImageView> Faces,
+			uint8 InSourceChannelCount, uint8 InTransparencyMask = 0,
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+		ENGINE_API auto InitVolume(Image::FImageView Image,
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+		ENGINE_API auto InitLongLatCube(Image::FImageView Image,
+			uint8 InSourceChannelCount, uint8 InTransparencyMask = 0,
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+		ENGINE_API auto InitLayered(ETextureSourceKind InKind,
+			std::span<const FTextureSourceBlock> InBlocks,
+			std::span<const FTextureSourceLayer> InLayers,
+			ETextureSourceGammaSpace InGammaSpace,
+			std::span<const std::byte> DecodedPayload,
+			uint8 InSourceChannelCount = 0, uint8 InTransparencyMask = 0,
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
 		ENGINE_API auto Reset() -> void;
 		ENGINE_API auto MigrateLegacy() -> bool;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
@@ -207,6 +248,13 @@ namespace Durin
 		friend class DTextureCube;
 		friend class DVolumeTexture;
 		auto BindOwner(DTexture* InOwner) -> void { Owner = InOwner; }
+		ENGINE_API auto InitLayeredImpl(ETextureSourceKind InKind,
+			std::span<const FTextureSourceBlock> InBlocks,
+			std::span<const FTextureSourceLayer> InLayers,
+			ETextureSourceGammaSpace InGammaSpace,
+			std::span<const std::byte> DecodedPayload,
+			uint8 InSourceChannelCount, uint8 InTransparencyMask,
+			ETextureSourceCompression PreferredCompression) -> bool;
 		// Non-owning runtime back-reference; reflection and source identity exclude it.
 		DTexture* Owner = nullptr;
 	};

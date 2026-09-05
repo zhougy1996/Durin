@@ -141,7 +141,13 @@ namespace Durin
 			return false;
 		}
 		auto PlatformData = std::move(Product.PlatformData);
-		if (!Texture.SetSourceData(CanonicalInput.ImportedData, OutError)
+		const bool bSourceSet = CanonicalInput.AuthoredPanorama.IsValid()
+			? Texture.SetPanoramaSourceData(CanonicalInput.AuthoredPanorama.GetView(),
+				Image::GetRawImageFormatInfo(
+					CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount,
+				0, OutError)
+			: Texture.SetSourceData(CanonicalInput.ImportedData, OutError);
+		if (!bSourceSet
 			|| !Texture.SetBuildSettings(CanonicalInput.SourceLayout,
 				CanonicalInput.PanoramaFaceDimension,
 				CanonicalInput.PanoramaExposureEV,

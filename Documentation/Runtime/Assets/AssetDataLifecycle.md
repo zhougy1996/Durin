@@ -132,7 +132,7 @@ The current import behavior is:
 | StaticMesh | Import canonical geometry and build render/collision payloads | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Texture2D | Decode canonical pixels, then generate mips and platform format | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
-| TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| TextureCube, panorama | Retain decoded full-precision panorama, then derive projected platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 

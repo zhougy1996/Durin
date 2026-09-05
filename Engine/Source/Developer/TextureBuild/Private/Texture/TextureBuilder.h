@@ -31,5 +31,6 @@ namespace Durin::TextureBuilder
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
 		float AlphaCoverageThreshold = 0.5f,
-		const FBuildExecutionControl* ExecutionControl = nullptr) -> bool;
+		const FBuildExecutionControl* ExecutionControl = nullptr,
+		std::span<const FTextureSourceData> SuppliedMips = {}) -> bool;
 }

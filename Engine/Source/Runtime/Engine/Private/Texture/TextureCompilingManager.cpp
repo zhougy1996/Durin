@@ -276,6 +276,7 @@ namespace Durin
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			Result.Metrics.DecodedBytes = 0;
 			Result.ImportedDataIdentity = Job->Request.ImportedDataIdentity;
+			Result.CapturedGeneration = Job->Request.CapturedGeneration;
 
 			SetPhase(Job, ETexture2DCompilationPhase::Building);
 			const FTexture2DBuildSettingsSnapshot& Settings = Job->Request.Settings;

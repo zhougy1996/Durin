@@ -83,6 +83,7 @@ namespace Durin
 	struct FTextureCubeCanonicalBuildInput
 	{
 		FTextureCubeImportedData ImportedData;
+		Image::FImage AuthoredPanorama;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
 		uint32 OriginalSourceHeight = 0;

@@ -91,17 +91,18 @@ on the GameThread. TextureBuild never receives cache policy or mutates a
 
 ## Authored source bulk data
 
-Normalized source voxels use the base-owned generic `FTextureSource` schema 2
+Normalized source voxels use the base-owned generic `FTextureSource` schema 3
 and `FEditorBulkData` with stable storage
 payload id words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`. Source payload
 descriptors record one volume block and one layer for the current family adapter;
 the layer format carries the portable voxel format. Legacy schema 1 dimensions
-and format remain loadable and migrate to descriptors during PostLoad;
+and schema 2 raw descriptors remain loadable and migrate to canonical decoded
+size/hash metadata during PostLoad;
 unsupported values fail domain validation. Import provenance remains on the
 texture's import-data object rather than participating in source identity.
-The source identity accessor performs no I/O. Build keys use that identity
-before bytes are requested; a validated DDC hit reads no package range, while a
-miss obtains one immutable owned snapshot through `GetPayload()`. Import and
+The source identity accessor performs no I/O and excludes raw versus lossless
+storage encoding. Build capture obtains one immutable decoded snapshot and
+recipe code never consults the live asset. Import and
 reimport replace the complete payload atomically. The VolumeTexture fields
 define voxel meaning and require a tightly
 packed row-major depth-slice encoding whose exact byte width comes from
@@ -136,7 +137,7 @@ interpretation is selected by the dimension. Ranges are 16-byte aligned,
 non-overlapping, checksummed with XXH3-128, bounded, and validated across all
 three axes before allocation.
 
-The volume producer version is 2 and the primary cooked payload ID is
+The volume producer version is 3 and the primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts only Win64/Game and emits
 one uncompressed field value. Cooked loading requires valid field metadata and
 payload, strips authored source by default, does not query DDC or invoke an

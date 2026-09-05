@@ -55,7 +55,10 @@ namespace Durin
 			Result.Height = Source.GetHeight();
 			Result.Depth = Source.GetDepth();
 			Result.Format = *Format;
-			Result.Voxels = Source.GetBulkData();
+			Result.CanonicalSourceIdentity = Source.GetIdentity();
+			FTextureSourceSnapshot Snapshot;
+			if (!Source.CreateSnapshotBlocking(0, Snapshot)
+				|| !Result.Voxels.UpdatePayload(Snapshot.Payload)) return {};
 			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
 		}
 
@@ -91,12 +94,22 @@ namespace Durin
 
 	auto FVolumeTextureSourceData::SetVoxelBytes(std::span<const std::byte> Bytes) -> bool
 	{
-		return Voxels.UpdatePayload(Bytes);
+		if (!Voxels.UpdatePayload(Bytes)) return false;
+		FTextureSource Canonical;
+		const FTextureSourceBlock Block{.Width = Width, .Height = Height, .Depth = Depth};
+		const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Format)};
+		if (Canonical.InitLayered(ETextureSourceKind::Volume,
+			std::span(&Block, 1), std::span(&Layer, 1),
+			ETextureSourceGammaSpace::Linear, Bytes, 0, 0,
+			ETextureSourceCompression::Raw))
+			CanonicalSourceIdentity = Canonical.GetIdentity();
+		return true;
 	}
 
 	auto FVolumeTextureSourceData::GetIdentity() const -> FXxHash128
 	{
 		if (!IsValid()) return {};
+		if (!CanonicalSourceIdentity.IsZero()) return CanonicalSourceIdentity;
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(PayloadSchemaVersion);
 		Builder.UpdateValue(Width);
@@ -212,7 +225,7 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
+		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
 			if (!Migrated.MigrateLegacy()
@@ -264,20 +277,24 @@ namespace Durin
 			OutError = "VolumeTexture source data is invalid.";
 			return false;
 		}
+		const FPackageResourceReadResult Read = Value.Voxels.GetPayload().Wait();
+		if (!Read)
+		{
+			OutError = "VolumeTexture source payload could not be read.";
+			return false;
+		}
 		FTextureSource NewSource;
-		NewSource.Payload = Value.Voxels;
-		NewSource.Width = Value.Width;
-		NewSource.Height = Value.Height;
-		NewSource.Depth = Value.Depth;
-		NewSource.NumSlices = 1;
-		NewSource.SourceChannelCount = 0;
-		NewSource.Format = ToTextureSourceFormat(Value.Format);
-		NewSource.Kind = ETextureSourceKind::Volume;
-		NewSource.Blocks = {{.Width = Value.Width, .Height = Value.Height,
-			.Depth = Value.Depth}};
-		NewSource.Layers = {{.Format = NewSource.Format}};
-		NewSource.GammaSpace = ETextureSourceGammaSpace::Linear;
-		NewSource.SchemaVersion = TextureSourceSchemaVersion;
+		const FTextureSourceBlock Block{.Width = Value.Width, .Height = Value.Height,
+			.Depth = Value.Depth};
+		const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Value.Format)};
+		if (!NewSource.InitLayeredImpl(ETextureSourceKind::Volume,
+			std::span(&Block, 1), std::span(&Layer, 1),
+			ETextureSourceGammaSpace::Linear, Read.Buffer.GetBytes(), 0, 0,
+			ETextureSourceCompression::Raw))
+		{
+			OutError = "VolumeTexture source data could not be initialized.";
+			return false;
+		}
 		return SetSource(std::move(NewSource), OutError);
 	}
 

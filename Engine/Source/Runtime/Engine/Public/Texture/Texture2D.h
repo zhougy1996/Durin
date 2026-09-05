@@ -97,6 +97,10 @@ namespace Durin
 		DPROPERTY()
 		uint32 SchemaVersion = Texture2DImportedDataSchemaVersion;
 
+		// Detached recipe-only mip chain. Persistent authored storage lives in FTextureSource.
+		std::vector<FTextureSourceData> SuppliedMips;
+		FXxHash128 CanonicalSourceIdentity;
+
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto SetSourceData(const FTextureSourceData& Source) -> bool;
 		ENGINE_API auto ToSourceData() const -> FTextureSourceData;
@@ -163,6 +167,9 @@ namespace Durin
 
 		ENGINE_API auto SetSourceData(
 			const FTexture2DImportedData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetSourceMipChain(std::span<const Image::FImageView> Mips,
+			uint8 SourceChannelCount, uint8 TransparencyMask,
+			std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold,

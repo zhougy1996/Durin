@@ -52,6 +52,8 @@ namespace Durin
 		DPROPERTY()
 		uint32 SchemaVersion = TextureCubeImportedDataSchemaVersion;
 
+		FXxHash128 CanonicalSourceIdentity;
+
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto SetSourceData(const FTextureCubeSourceData& Source) -> bool;
 		ENGINE_API auto ToSourceData() const -> FTextureCubeSourceData;
@@ -82,6 +84,9 @@ namespace Durin
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		ENGINE_API auto SetSourceData(
 			const FTextureCubeImportedData& Value, std::string& OutError) -> bool;
+		ENGINE_API auto SetPanoramaSourceData(
+			Image::FImageView Value, uint8 SourceChannelCount,
+			uint8 TransparencyMask, std::string& OutError) -> bool;
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
 			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
 			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,

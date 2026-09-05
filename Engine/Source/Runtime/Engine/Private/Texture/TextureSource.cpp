@@ -56,6 +56,67 @@ namespace Durin
 			}
 		}
 
+		auto ToTextureFormat(Image::ERawImageFormat Format) -> ETextureSourceFormat
+		{
+			switch (Format)
+			{
+			case Image::ERawImageFormat::G8: return ETextureSourceFormat::R8_UNORM;
+			case Image::ERawImageFormat::G16: return ETextureSourceFormat::G16_UNORM;
+			case Image::ERawImageFormat::RG8: return ETextureSourceFormat::RG8_UNORM;
+			case Image::ERawImageFormat::RGBA8: return ETextureSourceFormat::RGBA8;
+			case Image::ERawImageFormat::RGBA16: return ETextureSourceFormat::RGBA16_UNORM;
+			case Image::ERawImageFormat::R16F: return ETextureSourceFormat::R16_FLOAT;
+			case Image::ERawImageFormat::RGBA16F: return ETextureSourceFormat::RGBA16_FLOAT;
+			case Image::ERawImageFormat::R32F: return ETextureSourceFormat::R32_FLOAT;
+			case Image::ERawImageFormat::RGBA32F: return ETextureSourceFormat::RGBA32_FLOAT;
+			default: return ETextureSourceFormat::Invalid;
+			}
+		}
+
+		auto ToTextureGamma(Image::EImageGammaSpace Gamma) -> ETextureSourceGammaSpace
+		{
+			switch (Gamma)
+			{
+			case Image::EImageGammaSpace::Linear: return ETextureSourceGammaSpace::Linear;
+			case Image::EImageGammaSpace::SRGB: return ETextureSourceGammaSpace::SRGB;
+			default: return ETextureSourceGammaSpace::Unknown;
+			}
+		}
+
+		auto EncodeRunLength(std::span<const std::byte> Bytes) -> FByteArray
+		{
+			FByteArray Result;
+			Result.reserve(Bytes.size());
+			for (size_t Offset = 0; Offset < Bytes.size();)
+			{
+				uint8 Count = 1;
+				while (Offset + Count < Bytes.size() && Count < 255
+					&& Bytes[Offset + Count] == Bytes[Offset]) ++Count;
+				Result.push_back(static_cast<std::byte>(Count));
+				Result.push_back(Bytes[Offset]);
+				Offset += Count;
+			}
+			return Result;
+		}
+
+		auto DecodeRunLength(std::span<const std::byte> Bytes, uint64 DecodedSize,
+			FByteArray& OutBytes) -> bool
+		{
+			if ((Bytes.size() & 1u) != 0 || DecodedSize > MaximumTextureSourceBytes)
+				return false;
+			FByteArray Result;
+			Result.reserve(static_cast<size_t>(DecodedSize));
+			for (size_t Offset = 0; Offset < Bytes.size(); Offset += 2)
+			{
+				const uint8 Count = std::to_integer<uint8>(Bytes[Offset]);
+				if (Count == 0 || Count > DecodedSize - Result.size()) return false;
+				Result.insert(Result.end(), Count, Bytes[Offset + 1]);
+			}
+			if (Result.size() != DecodedSize) return false;
+			OutBytes = std::move(Result);
+			return true;
+		}
+
 		auto IsKindValid(ETextureSourceKind Kind) -> bool
 		{
 			return Kind >= ETextureSourceKind::Texture2D
@@ -132,12 +193,158 @@ namespace Durin
 			return Info.GetByteSize(ExpectedSize)
 				&& ExpectedSize == Payload.GetPayloadSize();
 		}
-		if (SchemaVersion != TextureSourceSchemaVersion) return false;
+		if (SchemaVersion != DescriptorTextureSourceSchemaVersion
+			&& SchemaVersion != TextureSourceSchemaVersion) return false;
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
 		if (!ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, 0, 0, 0,
 			Ignored, &Total, nullptr)) return false;
-		return Total == Payload.GetPayloadSize() && SourceChannelCount <= 4;
+		if (SourceChannelCount > 4) return false;
+		if (SchemaVersion == DescriptorTextureSourceSchemaVersion)
+			return Total == Payload.GetPayloadSize();
+		if (DecodedPayloadSize != Total || (CanonicalPayloadHashLow == 0
+			&& CanonicalPayloadHashHigh == 0)) return false;
+		if (Compression == ETextureSourceCompression::Raw)
+			return Payload.GetPayloadSize() == Total;
+		return Compression == ETextureSourceCompression::RunLength
+			&& Payload.GetPayloadSize() > 0 && Payload.GetPayloadSize() < Total;
+	}
+
+	auto FTextureSource::InitLayered(ETextureSourceKind InKind,
+		std::span<const FTextureSourceBlock> InBlocks,
+		std::span<const FTextureSourceLayer> InLayers,
+		ETextureSourceGammaSpace InGammaSpace,
+		std::span<const std::byte> DecodedPayload,
+		uint8 InSourceChannelCount, uint8 InTransparencyMask,
+		ETextureSourceCompression PreferredCompression) -> bool
+	{
+		return InitLayeredImpl(InKind, InBlocks, InLayers, InGammaSpace,
+			DecodedPayload, InSourceChannelCount, InTransparencyMask,
+			PreferredCompression);
+	}
+
+		auto FTextureSource::InitLayeredImpl(ETextureSourceKind InKind,
+		std::span<const FTextureSourceBlock> InBlocks,
+		std::span<const FTextureSourceLayer> InLayers,
+		ETextureSourceGammaSpace InGammaSpace,
+		std::span<const std::byte> DecodedPayload,
+		uint8 InSourceChannelCount, uint8 InTransparencyMask,
+		ETextureSourceCompression PreferredCompression) -> bool
+	{
+		if (PreferredCompression != ETextureSourceCompression::Raw
+			&& PreferredCompression != ETextureSourceCompression::RunLength)
+			return false;
+		FTextureSource NewSource;
+		NewSource.Kind = InKind;
+		NewSource.GammaSpace = InGammaSpace;
+		NewSource.Blocks.assign(InBlocks.begin(), InBlocks.end());
+		NewSource.Layers.assign(InLayers.begin(), InLayers.end());
+		if (!NewSource.Blocks.empty())
+		{
+			NewSource.Width = NewSource.Blocks[0].Width;
+			NewSource.Height = NewSource.Blocks[0].Height;
+			NewSource.Depth = NewSource.Blocks[0].Depth;
+			NewSource.NumSlices = static_cast<uint8>(std::min<uint32>(
+				NewSource.Blocks[0].NumSlices, std::numeric_limits<uint8>::max()));
+		}
+		if (!NewSource.Layers.empty()) NewSource.Format = NewSource.Layers[0].Format;
+		NewSource.SourceChannelCount = InSourceChannelCount;
+		NewSource.TransparencyMask = InTransparencyMask;
+		NewSource.bHasTransparency = InTransparencyMask != 0;
+		NewSource.SchemaVersion = TextureSourceSchemaVersion;
+		NewSource.DecodedPayloadSize = DecodedPayload.size();
+		const FXxHash128 PayloadHash = FXxHash128::HashBuffer(DecodedPayload);
+		NewSource.CanonicalPayloadHashLow = PayloadHash.HashLow;
+		NewSource.CanonicalPayloadHashHigh = PayloadHash.HashHigh;
+		FByteArray Stored;
+		if (PreferredCompression == ETextureSourceCompression::RunLength)
+			Stored = EncodeRunLength(DecodedPayload);
+		if (PreferredCompression == ETextureSourceCompression::RunLength
+			&& !Stored.empty() && Stored.size() < DecodedPayload.size())
+		{
+			NewSource.Compression = ETextureSourceCompression::RunLength;
+			if (!NewSource.Payload.UpdatePayload(Stored)) return false;
+		}
+		else
+		{
+			NewSource.Compression = ETextureSourceCompression::Raw;
+			if (!NewSource.Payload.UpdatePayload(DecodedPayload)) return false;
+		}
+		if (!NewSource.IsValid()) return false;
+		DTexture* PreviousOwner = Owner;
+		*this = std::move(NewSource);
+		Owner = PreviousOwner;
+		return true;
+	}
+
+	auto FTextureSource::Init2D(Image::FImageView Image, uint8 InSourceChannelCount,
+		uint8 InTransparencyMask, ETextureSourceCompression PreferredCompression) -> bool
+	{
+		if (!Image.IsValid() || Image.GetInfo().Depth != 1
+			|| Image.GetInfo().SliceCount != 1) return false;
+		const FTextureSourceBlock Block{.Width = Image.GetInfo().Width,
+			.Height = Image.GetInfo().Height};
+		const FTextureSourceLayer Layer{.Format = ToTextureFormat(Image.GetInfo().Format)};
+		return InitLayeredImpl(ETextureSourceKind::Texture2D,
+			std::span(&Block, 1), std::span(&Layer, 1),
+			ToTextureGamma(Image.GetInfo().GammaSpace), Image.GetPixels(),
+			InSourceChannelCount, InTransparencyMask, PreferredCompression);
+	}
+
+	auto FTextureSource::InitCube(std::span<const Image::FImageView> Faces,
+		uint8 InSourceChannelCount, uint8 InTransparencyMask,
+		ETextureSourceCompression PreferredCompression) -> bool
+	{
+		if (Faces.size() != 6 || !Faces[0].IsValid()) return false;
+		const Image::FImageInfo Info = Faces[0].GetInfo();
+		if (Info.Width != Info.Height || Info.Depth != 1 || Info.SliceCount != 1)
+			return false;
+		FByteArray Bytes;
+		uint64 FaceSize = 0;
+		if (!Info.GetByteSize(FaceSize) || FaceSize > MaximumTextureSourceBytes / 6)
+			return false;
+		Bytes.reserve(static_cast<size_t>(FaceSize * 6));
+		for (const Image::FImageView& Face : Faces)
+		{
+			if (!Face.IsValid() || Face.GetInfo() != Info) return false;
+			const auto Pixels = Face.GetPixels();
+			Bytes.insert(Bytes.end(), Pixels.begin(), Pixels.end());
+		}
+		const FTextureSourceBlock Block{.Width = Info.Width, .Height = Info.Height,
+			.NumSlices = 6};
+		const FTextureSourceLayer Layer{.Format = ToTextureFormat(Info.Format)};
+		return InitLayeredImpl(ETextureSourceKind::TextureCube,
+			std::span(&Block, 1), std::span(&Layer, 1), ToTextureGamma(Info.GammaSpace),
+			Bytes, InSourceChannelCount, InTransparencyMask, PreferredCompression);
+	}
+
+	auto FTextureSource::InitVolume(Image::FImageView Image,
+		ETextureSourceCompression PreferredCompression) -> bool
+	{
+		if (!Image.IsValid() || Image.GetInfo().Depth == 0
+			|| Image.GetInfo().SliceCount != 1) return false;
+		const FTextureSourceBlock Block{.Width = Image.GetInfo().Width,
+			.Height = Image.GetInfo().Height, .Depth = Image.GetInfo().Depth};
+		const FTextureSourceLayer Layer{.Format = ToTextureFormat(Image.GetInfo().Format)};
+		return InitLayeredImpl(ETextureSourceKind::Volume,
+			std::span(&Block, 1), std::span(&Layer, 1),
+			ToTextureGamma(Image.GetInfo().GammaSpace), Image.GetPixels(), 0, 0,
+			PreferredCompression);
+	}
+
+	auto FTextureSource::InitLongLatCube(Image::FImageView Image,
+		uint8 InSourceChannelCount, uint8 InTransparencyMask,
+		ETextureSourceCompression PreferredCompression) -> bool
+	{
+		if (!Image.IsValid() || Image.GetInfo().Depth != 1
+			|| Image.GetInfo().SliceCount != 1) return false;
+		const FTextureSourceBlock Block{.Width = Image.GetInfo().Width,
+			.Height = Image.GetInfo().Height};
+		const FTextureSourceLayer Layer{.Format = ToTextureFormat(Image.GetInfo().Format)};
+		return InitLayeredImpl(ETextureSourceKind::LongLatCube,
+			std::span(&Block, 1), std::span(&Layer, 1),
+			ToTextureGamma(Image.GetInfo().GammaSpace), Image.GetPixels(),
+			InSourceChannelCount, InTransparencyMask, PreferredCompression);
 	}
 
 	auto FTextureSource::Reset() -> void
@@ -152,11 +359,21 @@ namespace Durin
 		if (SchemaVersion == TextureSourceSchemaVersion) return IsValid();
 		if (!IsValid()) return false;
 		FTextureSource Migrated = *this;
-		Migrated.Blocks = {{.Width = Width, .Height = Height, .Depth = Depth,
-			.NumSlices = NumSlices}};
-		Migrated.Layers = {{.Format = Format, .NumMips = 1}};
-		Migrated.GammaSpace = (Kind == ETextureSourceKind::Volume)
-			? ETextureSourceGammaSpace::Linear : ETextureSourceGammaSpace::Unknown;
+		if (SchemaVersion == LegacyTextureSourceSchemaVersion)
+		{
+			Migrated.Blocks = {{.Width = Width, .Height = Height, .Depth = Depth,
+				.NumSlices = NumSlices}};
+			Migrated.Layers = {{.Format = Format, .NumMips = 1}};
+			Migrated.GammaSpace = (Kind == ETextureSourceKind::Volume)
+				? ETextureSourceGammaSpace::Linear : ETextureSourceGammaSpace::Unknown;
+		}
+		const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
+		if (!Read) return false;
+		Migrated.DecodedPayloadSize = Read.Buffer.GetSize();
+		const FXxHash128 Hash = FXxHash128::HashBuffer(Read.Buffer.GetBytes());
+		Migrated.CanonicalPayloadHashLow = Hash.HashLow;
+		Migrated.CanonicalPayloadHashHigh = Hash.HashHigh;
+		Migrated.Compression = ETextureSourceCompression::Raw;
 		Migrated.SchemaVersion = TextureSourceSchemaVersion;
 		if (!Migrated.IsValid()) return false;
 		*this = std::move(Migrated);
@@ -187,8 +404,14 @@ namespace Durin
 		{
 			Builder.UpdateValue(Layer.Format); Builder.UpdateValue(Layer.NumMips);
 		}
-		Builder.UpdateValue(Payload.GetPayloadSize());
-		Builder.UpdateValue(Payload.GetPayloadId());
+		const uint64 CanonicalSize = SchemaVersion == TextureSourceSchemaVersion
+			? DecodedPayloadSize : Payload.GetPayloadSize();
+		const FXxHash128 CanonicalHash = SchemaVersion == TextureSourceSchemaVersion
+			? FXxHash128{.HashLow = CanonicalPayloadHashLow,
+				.HashHigh = CanonicalPayloadHashHigh}
+			: Payload.GetPayloadId();
+		Builder.UpdateValue(CanonicalSize);
+		Builder.UpdateValue(CanonicalHash);
 		return Builder.Finalize();
 	}
 
@@ -211,8 +434,22 @@ namespace Durin
 		if (!Read)
 			return SetError(Read.Message.empty() ? "Texture source payload read failed."
 				: Read.Message, OutError);
+		FSharedByteBuffer Decoded = Read.Buffer;
+		if (SchemaVersion == TextureSourceSchemaVersion
+			&& Compression == ETextureSourceCompression::RunLength)
+		{
+			FByteArray Bytes;
+			if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
+				return SetError("Texture source compressed payload is corrupt.", OutError);
+			Decoded = FSharedByteBuffer::Take(std::move(Bytes));
+		}
+		if (SchemaVersion == TextureSourceSchemaVersion
+			&& FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{
+				.HashLow = CanonicalPayloadHashLow, .HashHigh = CanonicalPayloadHashHigh})
+			return SetError("Texture source decoded payload identity does not match.", OutError);
 		FTextureSourceSnapshot NewSnapshot{.Blocks = Blocks, .Layers = Layers,
-			.Payload = Read.Buffer, .Kind = Kind, .GammaSpace = GammaSpace,
+			.Payload = Decoded, .Kind = Kind, .GammaSpace = GammaSpace,
+			.Compression = ETextureSourceCompression::Raw,
 			.SourceChannelCount = SourceChannelCount,
 			.TransparencyMask = TransparencyMask, .Identity = GetIdentity(),
 			.Generation = Generation};
@@ -225,6 +462,8 @@ namespace Durin
 	{
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
+		if (Compression != ETextureSourceCompression::Raw)
+			return SetError("Texture source snapshots must expose decoded payload bytes.", OutError);
 		if (Identity.IsZero() || !ResolveMipInfo(Kind, GammaSpace, Blocks, Layers,
 			0, 0, 0, Ignored, &Total, OutError)) return false;
 		if (Total != Payload.GetSize())

@@ -67,6 +67,7 @@ namespace Durin
 	struct FTexture2DRecipeBuildRequest
 	{
 		std::reference_wrapper<const FTextureSourceData> SourceData;
+		std::span<const FTextureSourceData> SuppliedMips;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;

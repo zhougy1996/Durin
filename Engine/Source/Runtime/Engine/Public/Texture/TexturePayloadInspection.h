@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class DTexture2D;
+	class DTextureCube;
 	class DVolumeTexture;
 
 	enum class ETexturePayloadStage : uint8
@@ -76,6 +77,8 @@ namespace Durin
 	// Joins live source, derived, cooked, decoded, and render-resource state.
 	// These overloads are read-only and do not perform repair or fallback.
 	ENGINE_API auto InspectTexturePayloads(const DTexture2D& Texture)
+		-> FTexturePayloadInspection;
+	ENGINE_API auto InspectTexturePayloads(const DTextureCube& Texture)
 		-> FTexturePayloadInspection;
 	ENGINE_API auto InspectTexturePayloads(const DVolumeTexture& Texture)
 		-> FTexturePayloadInspection;

@@ -52,7 +52,40 @@ namespace Durin
 				OutError = "TextureCube canonical imported faces are invalid.";
 				return false;
 			}
+			Durin::Image::FImage AuthoredPanorama;
+			const Durin::Image::FImageInfo Info{.Width = Image.Width,
+				.Height = Image.Height,
+				.Format = std::is_same_v<std::decay_t<decltype(Image)>,
+					FTextureCubePanoramaFloatImage>
+					? Durin::Image::ERawImageFormat::RGBA32F
+					: Durin::Image::ERawImageFormat::RGBA8,
+				.GammaSpace = std::is_same_v<std::decay_t<decltype(Image)>,
+					FTextureCubePanoramaFloatImage>
+					? Durin::Image::EImageGammaSpace::Linear
+					: Durin::Image::EImageGammaSpace::SRGB};
+			FByteArray AuthoredBytes;
+			if constexpr (std::is_same_v<std::decay_t<decltype(Image)>,
+				FTextureCubePanoramaFloatImage>)
+			{
+				const size_t PixelCount = static_cast<size_t>(Image.Width) * Image.Height;
+				AuthoredBytes.resize(PixelCount * 4 * sizeof(float));
+				for (size_t Index = 0; Index < PixelCount; ++Index)
+				{
+					std::memcpy(AuthoredBytes.data() + Index * 4 * sizeof(float),
+						Image.Pixels.data() + Index * 3, 3 * sizeof(float));
+					const float Alpha = 1.0f;
+					std::memcpy(AuthoredBytes.data() + (Index * 4 + 3) * sizeof(float),
+						&Alpha, sizeof(float));
+				}
+			}
+			else
+			{
+				AuthoredBytes.assign(Image.Pixels.begin(), Image.Pixels.end());
+			}
+			if (!Durin::Image::FImage::TryCreate(Info,
+				std::move(AuthoredBytes), AuthoredPanorama, &OutError)) return false;
 			OutCanonicalInput = {.ImportedData = std::move(ImportedData),
+				.AuthoredPanorama = std::move(AuthoredPanorama),
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
 				.OriginalSourceWidth = Image.Width,
 				.OriginalSourceHeight = Image.Height,

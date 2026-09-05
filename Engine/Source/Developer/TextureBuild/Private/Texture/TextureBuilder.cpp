@@ -315,7 +315,8 @@ namespace Durin::TextureBuilder
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution,
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
-		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl) -> bool
+		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
+		std::span<const FTextureSourceData> SuppliedMips) -> bool
 	{
 		using FClock = std::chrono::steady_clock;
 		auto IsCancelled = [ExecutionControl] {
@@ -357,11 +358,30 @@ namespace Durin::TextureBuilder
 			return false;
 		}
 		std::vector<FTexture2DMipData> UncompressedMips;
-		FTexture2DMipData& BaseMip = UncompressedMips.emplace_back();
-		BaseMip.Pixels = SourceData.Pixels;
-		BaseMip.Width = SourceData.Width;
-		BaseMip.Height = SourceData.Height;
-		BaseMip.RowPitch = SourceData.Width * ChannelCount;
+		if (!SuppliedMips.empty())
+		{
+			for (size_t Index = 0; Index < SuppliedMips.size(); ++Index)
+			{
+				const FTextureSourceData& Supplied = SuppliedMips[Index];
+				if (!Supplied.IsValid() || Supplied.Format != SourceData.Format
+					|| Supplied.Width != std::max(1u, SourceData.Width >> std::min<size_t>(Index, 31))
+					|| Supplied.Height != std::max(1u, SourceData.Height >> std::min<size_t>(Index, 31)))
+				{
+					OutError = "Supplied texture mip chain is invalid.";
+					return false;
+				}
+				UncompressedMips.push_back({.Pixels = Supplied.Pixels,
+					.Width = Supplied.Width, .Height = Supplied.Height,
+					.RowPitch = Supplied.Width * ChannelCount});
+			}
+		}
+		else
+		{
+			UncompressedMips.push_back({.Pixels = SourceData.Pixels,
+				.Width = SourceData.Width, .Height = SourceData.Height,
+				.RowPitch = SourceData.Width * ChannelCount});
+		}
+		FTexture2DMipData& BaseMip = UncompressedMips.front();
 		const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
 			&& SourceData.bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
 		double SourceAlphaCoverage = 0.0;
@@ -378,7 +398,8 @@ namespace Durin::TextureBuilder
 			return false;
 		}
 		const FClock::time_point MipStart = FClock::now();
-		while (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1)
+		while (SuppliedMips.empty()
+			&& (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1))
 		{
 			if (IsCancelled())
 			{
