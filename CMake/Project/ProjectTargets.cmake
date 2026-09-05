@@ -253,6 +253,8 @@ function(add_durin_test target_name)
 		${ARGN}
 		"${_durin_native_test_main}"
 	)
+	set_property(TARGET ${target_name} PROPERTY
+		_DURIN_NATIVE_TEST_MAIN "${_durin_native_test_main}")
 	if(MSVC)
 		# Native-test executables are runtime artifacts; keeping one incremental
 		# linker database per target makes the shared test Bin grow rapidly.
@@ -554,7 +556,14 @@ function(_durin_finalize_native_test target_name)
 	endif()
 
 	get_target_property(_durin_sources ${target_name} SOURCES)
+	get_target_property(_durin_generated_main ${target_name} _DURIN_NATIVE_TEST_MAIN)
 	foreach(_durin_source IN LISTS _durin_sources)
+		# The harness entry point is generated after configuration and is not
+		# production source. Keep all other sources in the ownership check,
+		# including sources added by target_sources() after add_durin_test().
+		if("${_durin_source}" STREQUAL "${_durin_generated_main}")
+			continue()
+		endif()
 		if(_durin_source MATCHES "^\\$<")
 			continue()
 		endif()

@@ -49,6 +49,7 @@ function(configure_metadata_probe probe expect_success expected_text)
 	execute_process(
 		COMMAND "${CMAKE_COMMAND}"
 			-G Ninja
+			-Werror=dev
 			"-DCMAKE_MAKE_PROGRAM=${DURIN_MAKE_PROGRAM}"
 			-S "${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/NativeTestMetadata"
 			-B "${_durin_probe_binary}"
@@ -322,6 +323,8 @@ configure_metadata_probe("duplicate" FALSE "duplicate value 'world'")
 configure_metadata_probe("reserved-label" FALSE "reserved native-test prefix")
 configure_metadata_probe("characterization" TRUE "\"kind\":\"characterization\"")
 configure_metadata_probe("private-source" FALSE "compiles production-private source")
+configure_metadata_probe("generated-main" TRUE "")
+configure_metadata_probe("generated-main-private-source" FALSE "compiles production-private source")
 if(APPLE)
 	configure_metadata_probe("application-host-disabled" FALSE
 		"DURIN_ENABLE_APPLICATION_TESTS is OFF")

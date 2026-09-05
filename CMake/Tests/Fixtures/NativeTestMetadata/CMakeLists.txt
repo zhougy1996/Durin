@@ -13,6 +13,12 @@ if(DURIN_METADATA_PROBE STREQUAL "unavailable")
 endif()
 
 add_custom_target(ProbeTests SOURCES Empty.cpp)
+if(DURIN_METADATA_PROBE MATCHES "^generated-main")
+	set(_durin_generated_main "${CMAKE_BINARY_DIR}/Generated/$<CONFIG>/NativeTestMain.cpp")
+	file(GENERATE OUTPUT "${_durin_generated_main}" CONTENT "// Generated harness entry point\n")
+	target_sources(ProbeTests PRIVATE "${_durin_generated_main}")
+	set_property(TARGET ProbeTests PROPERTY _DURIN_NATIVE_TEST_MAIN "${_durin_generated_main}")
+endif()
 set_target_properties(ProbeTests PROPERTIES
 	DURIN_TEST_ROOT_DIR "${CMAKE_SOURCE_DIR}/Generated/$<CONFIG>/ProbeTests"
 	DURIN_TEST_BIN_DIR "${CMAKE_SOURCE_DIR}/Generated/$<CONFIG>/ProbeTests/Bin"
@@ -36,7 +42,8 @@ elseif(DURIN_METADATA_PROBE STREQUAL "characterization")
 	set(_durin_metadata KIND characterization DOMAINS process)
 elseif(DURIN_METADATA_PROBE STREQUAL "qualification")
 	set(_durin_metadata KIND qualification DOMAINS renderer)
-elseif(DURIN_METADATA_PROBE STREQUAL "private-source")
+elseif(DURIN_METADATA_PROBE STREQUAL "private-source"
+	OR DURIN_METADATA_PROBE STREQUAL "generated-main-private-source")
 	target_sources(ProbeTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/FakeModule/Private/Foreign.cpp")
 elseif(DURIN_METADATA_PROBE MATCHES "^application-host(-disabled)?$")
 	list(APPEND _durin_metadata EXECUTION_HOST application)
