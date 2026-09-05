@@ -101,15 +101,18 @@ Durin's immutable EditorBulkData and package ownership boundaries.
   codec APIs. Conversion and analysis algorithms may live in a separate
   `ImageUtils.h` if required by their size.
 - Engine owns `TextureSource.h/.cpp`, with private reflected source metadata,
-  checked initialization, validation, identity, and subresource reads. `DTexture`
-  remains the sole persistent Source owner; Source remains EditorOnly.
+  lightweight structural validity, identity, and subresource reads. Texture
+  families are narrow friends that assemble complete local values; `DTexture`
+  remains the sole persistent Source owner and Source remains EditorOnly.
 - Describe blocks, per-layer formats, mip counts, and slice interpretation.
   Source layout is independent of the platform GPU format. Volume depth shrinks
   with mip level; array and cube face counts do not. Layer is distinct from
   array slice. Long/lat cube source remains a single image per cube.
-- Source validation establishes a structurally valid image. Family/provider
-  admission independently rejects unsupported topology or formats with an
-  explicit diagnostic, never silently discarding layers, blocks, or mips.
+- `FTextureSource::IsValid` checks only generic descriptor sizes, formats,
+  overflow, and exact payload coverage. The `DTexture` virtual
+  `ValidateSettingsAfterImportOrEdit` boundary lets each family independently
+  reject unsupported topology, formats, or settings without teaching Source
+  those policies.
 - Reuse immutable `FEditorBulkData` and package-resource requests. Read views
   retain buffer ownership. Editing uses complete-value validation and atomic replacement;
   failed edits preserve the previous source, identity, and accepted build state.
@@ -179,7 +182,7 @@ Depends on Stage 1.
 
 - [x] Extract source declarations from `Texture.h`; implement block/layer/mip
   descriptors, 32-bit slice counts, long/lat interpretation, and bounded payloads.
-- [x] Add atomic initialization, reset, metadata validation, mip image info,
+- [x] Add reset, lightweight structural validity, mip image info,
   checked offsets/sizes, owned read views, and explicit asynchronous/ blocking
   read APIs that preserve package failure diagnostics.
 - [x] Implement generic identity and detached immutable snapshots; remove

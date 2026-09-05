@@ -117,6 +117,8 @@ namespace Durin
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 	protected:
+		auto ValidateSettingsAfterImportOrEdit(
+			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,

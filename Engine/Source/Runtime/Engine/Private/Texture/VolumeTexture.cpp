@@ -43,20 +43,6 @@ namespace Durin
 			}
 		}
 
-		auto MakeVolumeTextureSource(const FVolumeTextureSourceData& Input)
-			-> FTextureSource
-		{
-			if (!Input.IsValid()) return {};
-			FTextureSource Result;
-			const FTextureSourceBlock Block{.Width = Input.Width, .Height = Input.Height,
-				.Depth = Input.Depth};
-			const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Input.Format)};
-			return FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
-				.Payload = Input.Voxels, .Kind = ETextureSourceKind::Volume,
-				.GammaSpace = ETextureSourceGammaSpace::Linear}, Result)
-				? std::move(Result) : FTextureSource{};
-		}
-
 		auto MakeVolumeTextureBuildInput(const FTextureSource& Source)
 			-> FVolumeTextureSourceData
 		{
@@ -229,7 +215,7 @@ namespace Durin
 		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy(&OutError)
+			if (!Migrated.MigrateLegacy()
 				|| !SetSource(std::move(Migrated), OutError)) return false;
 		}
 		FVolumeTextureSourceData BuildInput =
@@ -273,13 +259,39 @@ namespace Durin
 		const FVolumeTextureSourceData& Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		FTextureSource Candidate = MakeVolumeTextureSource(Value);
-		if (!Candidate.IsValid())
+		if (!Value.IsValid())
 		{
 			OutError = "VolumeTexture source data is invalid.";
 			return false;
 		}
-		return SetSource(std::move(Candidate), OutError);
+		FTextureSource NewSource;
+		NewSource.Payload = Value.Voxels;
+		NewSource.Width = Value.Width;
+		NewSource.Height = Value.Height;
+		NewSource.Depth = Value.Depth;
+		NewSource.NumSlices = 1;
+		NewSource.SourceChannelCount = 0;
+		NewSource.Format = ToTextureSourceFormat(Value.Format);
+		NewSource.Kind = ETextureSourceKind::Volume;
+		NewSource.Blocks = {{.Width = Value.Width, .Height = Value.Height,
+			.Depth = Value.Depth}};
+		NewSource.Layers = {{.Format = NewSource.Format}};
+		NewSource.GammaSpace = ETextureSourceGammaSpace::Linear;
+		NewSource.SchemaVersion = TextureSourceSchemaVersion;
+		return SetSource(std::move(NewSource), OutError);
+	}
+
+	auto DVolumeTexture::ValidateSettingsAfterImportOrEdit(
+		const FTextureSource& ProposedSource) const -> bool
+	{
+		const auto Blocks = ProposedSource.GetBlocks();
+		const auto Layers = ProposedSource.GetLayers();
+		return ProposedSource.GetKind() == ETextureSourceKind::Volume
+			&& Blocks.size() == 1 && Layers.size() == 1
+			&& Blocks[0].NumSlices == 1 && Layers[0].NumMips == 1
+			&& MakeVolumeTextureBuildInput(ProposedSource).IsValid()
+			&& ToPixelFormat(BuildSettings.OutputFormat) != EPixelFormat::Unknown
+			&& BuildSettings.MipFilter == EVolumeTextureMipFilter::Box;
 	}
 
 	auto DVolumeTexture::SetBuildSettings(

@@ -90,6 +90,8 @@ namespace Durin
 		ENGINE_API auto ResetSource() -> void;
 		ENGINE_API auto AdvanceAuthoredGeneration() -> void;
 		ENGINE_API auto BindTextureSourceOwner() -> void;
+		virtual auto ValidateSettingsAfterImportOrEdit(
+			const FTextureSource& ProposedSource) const -> bool = 0;
 		// Restricted to family serializers and blocking loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
 		{

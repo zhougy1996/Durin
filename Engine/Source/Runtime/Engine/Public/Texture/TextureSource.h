@@ -9,6 +9,9 @@
 namespace Durin
 {
 	class DTexture;
+	class DTexture2D;
+	class DTextureCube;
+	class DVolumeTexture;
 	inline constexpr uint32 TextureSourceSchemaVersion = 2;
 	inline constexpr uint32 LegacyTextureSourceSchemaVersion = 1;
 	inline constexpr uint64 MaximumTextureSourceBytes = 512ull * 1024ull * 1024ull;
@@ -108,17 +111,6 @@ namespace Durin
 			std::string* OutError = nullptr) const -> bool;
 	};
 
-	struct FTextureSourceInitData
-	{
-		std::vector<FTextureSourceBlock> Blocks;
-		std::vector<FTextureSourceLayer> Layers;
-		FEditorBulkData Payload;
-		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
-		ETextureSourceGammaSpace GammaSpace = ETextureSourceGammaSpace::Unknown;
-		uint8 SourceChannelCount = 0;
-		uint8 TransparencyMask = 0;
-	};
-
 	// Owns authoritative editor source art independently from family recipes.
 	DSTRUCT()
 	struct FTextureSource
@@ -162,15 +154,27 @@ namespace Durin
 		uint32 SchemaVersion = TextureSourceSchemaVersion;
 
 	public:
-		auto GetWidth() const -> uint32 { return Width; }
-		auto GetHeight() const -> uint32 { return Height; }
-		auto GetDepth() const -> uint32 { return Depth; }
+		auto GetWidth() const -> uint32
+		{
+			return Blocks.empty() ? Width : Blocks[0].Width;
+		}
+		auto GetHeight() const -> uint32
+		{
+			return Blocks.empty() ? Height : Blocks[0].Height;
+		}
+		auto GetDepth() const -> uint32
+		{
+			return Blocks.empty() ? Depth : Blocks[0].Depth;
+		}
 		auto GetNumSlices() const -> uint32
 		{
 			return Blocks.empty() ? NumSlices : Blocks[0].NumSlices;
 		}
 		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
-		auto GetFormat() const -> ETextureSourceFormat { return Format; }
+		auto GetFormat() const -> ETextureSourceFormat
+		{
+			return Layers.empty() ? Format : Layers[0].Format;
+		}
 		auto GetKind() const -> ETextureSourceKind { return Kind; }
 		auto HasTransparency() const -> bool { return bHasTransparency; }
 		auto GetTransparencyMask() const -> uint8 { return TransparencyMask; }
@@ -181,14 +185,8 @@ namespace Durin
 		auto GetBulkData() const -> const FEditorBulkData& { return Payload; }
 
 		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto Validate(std::string* OutError = nullptr) const -> bool;
-		ENGINE_API static auto TryCreate(FTextureSourceInitData InitData,
-			FTextureSource& OutSource, std::string* OutError = nullptr) -> bool;
-		ENGINE_API static auto TryCreate(FTextureSourceInitData InitData,
-			std::span<const std::byte> Bytes, FTextureSource& OutSource,
-			std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto Reset() -> void;
-		ENGINE_API auto MigrateLegacy(std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto MigrateLegacy() -> bool;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
 			uint32 MipIndex, FTextureSourceMipInfo& OutInfo,
@@ -205,6 +203,9 @@ namespace Durin
 
 	private:
 		friend class DTexture;
+		friend class DTexture2D;
+		friend class DTextureCube;
+		friend class DVolumeTexture;
 		auto BindOwner(DTexture* InOwner) -> void { Owner = InOwner; }
 		// Non-owning runtime back-reference; reflection and source identity exclude it.
 		DTexture* Owner = nullptr;

@@ -19,22 +19,6 @@ namespace Durin
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
 
-		auto MakeTexture2DSource(const FTexture2DImportedData& Input)
-			-> FTextureSource
-		{
-			if (!Input.IsValid()) return {};
-			FTextureSource Result;
-			const FTextureSourceBlock Block{.Width = Input.Width, .Height = Input.Height};
-			const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
-			return FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
-				.Payload = Input.Pixels, .Kind = ETextureSourceKind::Texture2D,
-				.GammaSpace = ETextureSourceGammaSpace::Unknown,
-				.SourceChannelCount = Input.SourceChannelCount,
-				.TransparencyMask = static_cast<uint8>(Input.bHasTransparency ? 1u : 0u)},
-				Result)
-				? std::move(Result) : FTextureSource{};
-		}
-
 		auto MakeTexture2DBuildInput(const FTextureSource& Source)
 			-> FTexture2DImportedData
 		{
@@ -251,7 +235,7 @@ namespace Durin
 		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy(&OutError)
+			if (!Migrated.MigrateLegacy()
 				|| !SetSource(std::move(Migrated), OutError)) return false;
 		}
 		if (!GetSource().IsValid())
@@ -312,13 +296,44 @@ namespace Durin
 		const FTexture2DImportedData& Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		FTextureSource SourceCandidate = MakeTexture2DSource(Value);
-		if (!SourceCandidate.IsValid())
+		if (!Value.IsValid())
 		{
 			OutError = "Texture2D source data could not be captured.";
 			return false;
 		}
-		return SetSource(std::move(SourceCandidate), OutError);
+		FTextureSource NewSource;
+		NewSource.Payload = Value.Pixels;
+		NewSource.Width = Value.Width;
+		NewSource.Height = Value.Height;
+		NewSource.Depth = 1;
+		NewSource.NumSlices = 1;
+		NewSource.SourceChannelCount = Value.SourceChannelCount;
+		NewSource.Format = ETextureSourceFormat::RGBA8;
+		NewSource.Kind = ETextureSourceKind::Texture2D;
+		NewSource.bHasTransparency = Value.bHasTransparency;
+		NewSource.TransparencyMask = Value.bHasTransparency ? 1 : 0;
+		NewSource.Blocks = {{.Width = Value.Width, .Height = Value.Height}};
+		NewSource.Layers = {{.Format = ETextureSourceFormat::RGBA8}};
+		NewSource.GammaSpace = ETextureSourceGammaSpace::Unknown;
+		NewSource.SchemaVersion = TextureSourceSchemaVersion;
+		return SetSource(std::move(NewSource), OutError);
+	}
+
+	auto DTexture2D::ValidateSettingsAfterImportOrEdit(
+		const FTextureSource& ProposedSource) const -> bool
+	{
+		const auto Blocks = ProposedSource.GetBlocks();
+		const auto Layers = ProposedSource.GetLayers();
+		return ProposedSource.GetKind() == ETextureSourceKind::Texture2D
+			&& Blocks.size() == 1 && Layers.size() == 1
+			&& Blocks[0].Depth == 1 && Blocks[0].NumSlices == 1
+			&& Layers[0].Format == ETextureSourceFormat::RGBA8
+			&& Layers[0].NumMips == 1
+			&& MakeTexture2DBuildInput(ProposedSource).IsValid()
+			&& IsValidTextureUsage(Usage)
+			&& IsValidTextureCompressionQuality(CompressionQuality)
+			&& IsValidTextureAlphaMipMode(AlphaMipMode)
+			&& IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold);
 	}
 
 	auto DTexture2D::SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,

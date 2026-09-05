@@ -22,22 +22,6 @@ namespace Durin
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
-		auto MakeTextureCubeSource(const FTextureCubeImportedData& Input)
-			-> FTextureSource
-		{
-			if (!Input.IsValid()) return {};
-			FTextureSource Result;
-			const FTextureSourceBlock Block{.Width = Input.FaceDimension,
-				.Height = Input.FaceDimension, .NumSlices = TextureCubeFaceCount};
-			const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
-			return FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
-				.Payload = Input.Pixels, .Kind = ETextureSourceKind::TextureCube,
-				.GammaSpace = ETextureSourceGammaSpace::Unknown,
-				.SourceChannelCount = Input.SourceChannelCount,
-				.TransparencyMask = Input.TransparencyMask}, Result)
-				? std::move(Result) : FTextureSource{};
-		}
-
 		auto MakeTextureCubeImportedData(const FTextureSource& Source)
 			-> FTextureCubeImportedData
 		{
@@ -277,7 +261,7 @@ namespace Durin
 		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy(&OutError)
+			if (!Migrated.MigrateLegacy()
 				|| !SetSource(std::move(Migrated), OutError)) return false;
 		}
 		FTextureCubeImportedData BuildInput =
@@ -334,13 +318,47 @@ namespace Durin
 		const FTextureCubeImportedData& Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		FTextureSource Candidate = MakeTextureCubeSource(Value);
-		if (!Candidate.IsValid())
+		if (!Value.IsValid())
 		{
 			OutError = "TextureCube source data is invalid.";
 			return false;
 		}
-		return SetSource(std::move(Candidate), OutError);
+		FTextureSource NewSource;
+		NewSource.Payload = Value.Pixels;
+		NewSource.Width = Value.FaceDimension;
+		NewSource.Height = Value.FaceDimension;
+		NewSource.Depth = 1;
+		NewSource.NumSlices = TextureCubeFaceCount;
+		NewSource.SourceChannelCount = Value.SourceChannelCount;
+		NewSource.Format = ETextureSourceFormat::RGBA8;
+		NewSource.Kind = ETextureSourceKind::TextureCube;
+		NewSource.bHasTransparency = Value.TransparencyMask != 0;
+		NewSource.TransparencyMask = Value.TransparencyMask;
+		NewSource.Blocks = {{.Width = Value.FaceDimension,
+			.Height = Value.FaceDimension, .NumSlices = TextureCubeFaceCount}};
+		NewSource.Layers = {{.Format = ETextureSourceFormat::RGBA8}};
+		NewSource.GammaSpace = ETextureSourceGammaSpace::Unknown;
+		NewSource.SchemaVersion = TextureSourceSchemaVersion;
+		return SetSource(std::move(NewSource), OutError);
+	}
+
+	auto DTextureCube::ValidateSettingsAfterImportOrEdit(
+		const FTextureSource& ProposedSource) const -> bool
+	{
+		const auto Blocks = ProposedSource.GetBlocks();
+		const auto Layers = ProposedSource.GetLayers();
+		return ProposedSource.GetKind() == ETextureSourceKind::TextureCube
+			&& Blocks.size() == 1 && Layers.size() == 1
+			&& Blocks[0].Width == Blocks[0].Height && Blocks[0].Depth == 1
+			&& Blocks[0].NumSlices == TextureCubeFaceCount
+			&& Layers[0].Format == ETextureSourceFormat::RGBA8
+			&& Layers[0].NumMips == 1
+			&& MakeTextureCubeImportedData(ProposedSource).IsValid()
+			&& (SourceLayout == ETextureCubeSourceLayout::SixFaces
+				|| SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
+			&& std::isfinite(PanoramaExposureEV)
+			&& PanoramaExposureEV >= MinimumTextureCubePanoramaExposureEV
+			&& PanoramaExposureEV <= MaximumTextureCubePanoramaExposureEV;
 	}
 
 	auto DTextureCube::SetBuildSettings(

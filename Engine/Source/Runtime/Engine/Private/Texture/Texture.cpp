@@ -86,9 +86,9 @@ namespace Durin
 	auto DTexture::SetSource(FTextureSource Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		if (!Value.IsValid())
+		if (!Value.IsValid() || !ValidateSettingsAfterImportOrEdit(Value))
 		{
-			OutError = "Texture source must be complete and valid.";
+			OutError = "Texture source or authored settings are invalid for this texture type.";
 			return false;
 		}
 		Value.BindOwner(this);

@@ -117,80 +117,27 @@ namespace Durin
 		}
 	}
 
-	auto FTextureSource::Validate(std::string* OutError) const -> bool
+	auto FTextureSource::IsValid() const -> bool
 	{
 		if (SchemaVersion == LegacyTextureSourceSchemaVersion)
 		{
 			const uint32 ByteWidth = BytesPerTexel(Format);
 			if (ByteWidth == 0 || Width == 0 || Height == 0 || Depth == 0 || NumSlices == 0)
-				return SetError("Legacy texture source metadata is invalid.", OutError);
-			if (Kind == ETextureSourceKind::Texture2D
-				&& (Depth != 1 || NumSlices != 1 || Format != ETextureSourceFormat::RGBA8))
-				return SetError("Legacy Texture2D source is not canonical RGBA8.", OutError);
-			if (Kind == ETextureSourceKind::TextureCube
-				&& (Depth != 1 || NumSlices != 6 || Width != Height
-					|| Format != ETextureSourceFormat::RGBA8))
-				return SetError("Legacy TextureCube source is not six canonical RGBA8 faces.", OutError);
-			if (Kind == ETextureSourceKind::Volume && NumSlices != 1)
-				return SetError("Legacy volume source must use one volume slice.", OutError);
-			const uint64 Texels = static_cast<uint64>(Width) * Height * Depth * NumSlices;
-			if (Texels > MaximumTextureSourceBytes / ByteWidth
-				|| Payload.GetPayloadSize() != Texels * ByteWidth)
-				return SetError("Legacy texture source payload size is invalid.", OutError);
-			if (OutError) OutError->clear();
-			return true;
+				return false;
+			if (!IsKindValid(Kind)) return false;
+			const Image::FImageInfo Info{.Width = Width, .Height = Height,
+				.Depth = Depth, .SliceCount = NumSlices,
+				.Format = ToImageFormat(Format)};
+			uint64 ExpectedSize = 0;
+			return Info.GetByteSize(ExpectedSize)
+				&& ExpectedSize == Payload.GetPayloadSize();
 		}
-		if (SchemaVersion != TextureSourceSchemaVersion)
-			return SetError("Texture source schema version is unsupported.", OutError);
+		if (SchemaVersion != TextureSourceSchemaVersion) return false;
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
 		if (!ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, 0, 0, 0,
-			Ignored, &Total, OutError)) return false;
-		if (Total != Payload.GetPayloadSize())
-			return SetError("Texture source descriptors do not exactly cover the payload.", OutError);
-		if (SourceChannelCount > 4)
-			return SetError("Texture source channel provenance is out of range.", OutError);
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto FTextureSource::IsValid() const -> bool { return Validate(); }
-
-	auto FTextureSource::TryCreate(FTextureSourceInitData InitData,
-		std::span<const std::byte> Bytes, FTextureSource& OutSource,
-		std::string* OutError) -> bool
-	{
-		if (Bytes.size() > MaximumTextureSourceBytes
-			|| !InitData.Payload.UpdatePayload(Bytes))
-			return SetError("Texture source payload exceeds the supported limit.", OutError);
-		return TryCreate(std::move(InitData), OutSource, OutError);
-	}
-
-	auto FTextureSource::TryCreate(FTextureSourceInitData InitData,
-		FTextureSource& OutSource, std::string* OutError) -> bool
-	{
-		FTextureSource Candidate;
-		Candidate.Payload = std::move(InitData.Payload);
-		Candidate.Kind = InitData.Kind;
-		Candidate.GammaSpace = InitData.GammaSpace;
-		Candidate.Blocks = std::move(InitData.Blocks);
-		Candidate.Layers = std::move(InitData.Layers);
-		Candidate.SourceChannelCount = InitData.SourceChannelCount;
-		Candidate.TransparencyMask = InitData.TransparencyMask;
-		Candidate.bHasTransparency = InitData.TransparencyMask != 0;
-		Candidate.SchemaVersion = TextureSourceSchemaVersion;
-		if (!Candidate.Blocks.empty())
-		{
-			Candidate.Width = Candidate.Blocks[0].Width;
-			Candidate.Height = Candidate.Blocks[0].Height;
-			Candidate.Depth = Candidate.Blocks[0].Depth;
-			Candidate.NumSlices = static_cast<uint8>(std::min(Candidate.Blocks[0].NumSlices, 255u));
-		}
-		if (!Candidate.Layers.empty()) Candidate.Format = Candidate.Layers[0].Format;
-		if (!Candidate.Validate(OutError)) return false;
-		OutSource = std::move(Candidate);
-		if (OutError) OutError->clear();
-		return true;
+			Ignored, &Total, nullptr)) return false;
+		return Total == Payload.GetPayloadSize() && SourceChannelCount <= 4;
 	}
 
 	auto FTextureSource::Reset() -> void
@@ -200,19 +147,19 @@ namespace Durin
 		Owner = PreviousOwner;
 	}
 
-	auto FTextureSource::MigrateLegacy(std::string* OutError) -> bool
+	auto FTextureSource::MigrateLegacy() -> bool
 	{
-		if (SchemaVersion == TextureSourceSchemaVersion) return Validate(OutError);
-		if (!Validate(OutError)) return false;
-		FTextureSource Candidate = *this;
-		Candidate.Blocks = {{.Width = Width, .Height = Height, .Depth = Depth,
+		if (SchemaVersion == TextureSourceSchemaVersion) return IsValid();
+		if (!IsValid()) return false;
+		FTextureSource Migrated = *this;
+		Migrated.Blocks = {{.Width = Width, .Height = Height, .Depth = Depth,
 			.NumSlices = NumSlices}};
-		Candidate.Layers = {{.Format = Format, .NumMips = 1}};
-		Candidate.GammaSpace = (Kind == ETextureSourceKind::Volume)
+		Migrated.Layers = {{.Format = Format, .NumMips = 1}};
+		Migrated.GammaSpace = (Kind == ETextureSourceKind::Volume)
 			? ETextureSourceGammaSpace::Linear : ETextureSourceGammaSpace::Unknown;
-		Candidate.SchemaVersion = TextureSourceSchemaVersion;
-		if (!Candidate.Validate(OutError)) return false;
-		*this = std::move(Candidate);
+		Migrated.SchemaVersion = TextureSourceSchemaVersion;
+		if (!Migrated.IsValid()) return false;
+		*this = std::move(Migrated);
 		return true;
 	}
 
@@ -259,18 +206,18 @@ namespace Durin
 		FTextureSourceSnapshot& OutSnapshot, std::string* OutError) const -> bool
 	{
 		OutSnapshot = {};
-		if (!Validate(OutError)) return false;
+		if (!IsValid()) return SetError("Texture source is invalid.", OutError);
 		const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
 		if (!Read)
 			return SetError(Read.Message.empty() ? "Texture source payload read failed."
 				: Read.Message, OutError);
-		FTextureSourceSnapshot Candidate{.Blocks = Blocks, .Layers = Layers,
+		FTextureSourceSnapshot NewSnapshot{.Blocks = Blocks, .Layers = Layers,
 			.Payload = Read.Buffer, .Kind = Kind, .GammaSpace = GammaSpace,
 			.SourceChannelCount = SourceChannelCount,
 			.TransparencyMask = TransparencyMask, .Identity = GetIdentity(),
 			.Generation = Generation};
-		if (!Candidate.IsValid(OutError)) return false;
-		OutSnapshot = std::move(Candidate);
+		if (!NewSnapshot.IsValid(OutError)) return false;
+		OutSnapshot = std::move(NewSnapshot);
 		return true;
 	}
 
