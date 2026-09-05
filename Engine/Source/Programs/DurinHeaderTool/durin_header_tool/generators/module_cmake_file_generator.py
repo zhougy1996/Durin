@@ -11,7 +11,7 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
         return configs.is_module_enabled_for_active_runtime_variant(dep)
 
     if len(module_config.reflect_headers) > 0:
-        reflect_header_file_paths = [(module_config.module_dir / header).resolve().as_posix() for header in module_config.reflect_headers]
+        reflect_header_file_paths = [f"${{module_dir}}/{Path(header).as_posix()}" for header in module_config.reflect_headers]
         content.append("# Reflect headers for this module\n")
         content.append("set(module_reflect_headers\n")
         for header_path in reflect_header_file_paths:
@@ -67,8 +67,10 @@ def _append_export_dependencies_to_cmake_content(content: list[str], module_name
 def _append_module_paths_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config = configs.get_module_config(module_name)
     content.append("# Paths related to this module\n")
-    content.append(f"set(module_dir \"{module_config.module_dir.as_posix()}\")\n")
-    content.append(f"set(module_config_file \"{module_config.config_file_path.as_posix()}\")\n")
+    # This metadata is included from the module's CMakeLists.txt. Let CMake
+    # retain its source-directory spelling, including any workspace symlink.
+    content.append('set(module_dir "${CMAKE_CURRENT_SOURCE_DIR}")\n')
+    content.append(f'set(module_config_file "${{module_dir}}/{module_config.config_file_path.name}")\n')
     if module_config.has_export_file():
         content.append(f"set(module_dht_output_dir \"{utils.get_module_dht_output_dir(module_name).as_posix()}\")\n")
         content.append(f"set(module_export_file \"{utils.get_module_export_file_path(module_name).as_posix()}\")\n")

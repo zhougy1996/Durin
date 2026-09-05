@@ -12,11 +12,6 @@ target_include_directories(Core PUBLIC "${_durin_version_generated_dir}")
 
 target_sources(Core PRIVATE
     ${DURIN_PROJECT_ROOT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
-	Private/Console/ConsoleCommand.cpp
-	Private/Image/ImageDecoder.cpp
-	Private/Image/ImageEncoder.cpp
-    Private/Threading/QueuedThreadPool.cpp
-    Private/Threading/Task.cpp
 )
 
 target_include_directories(Core PRIVATE

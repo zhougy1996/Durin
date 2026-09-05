@@ -1,6 +1,8 @@
 import argparse
 import json
 import logging
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -426,6 +428,51 @@ class TestIntermediateLayout:
         assert "module_definitions_header" not in content
         assert "module_export_dependencies" in content
         assert "module_reflection_export_dependencies" in content
+
+    @pytest.mark.parametrize("use_symlink", [False, True])
+    def test_module_source_paths_follow_cmake_directory(self, tmp_path, use_symlink):
+        cmake = shutil.which("cmake")
+        if cmake is None:
+            pytest.skip("CMake is required to evaluate generated metadata")
+        module_dir = tmp_path / "real" / "Fixture"
+        module_dir.mkdir(parents=True)
+        descriptor = module_dir / "Fixture.dmodule"
+        descriptor.write_text(json.dumps({
+            "ModuleName": "Fixture", "ReflectHeaders": ["Public/Fixture.h"],
+        }), encoding="utf-8")
+        (module_dir / "Public").mkdir()
+        (module_dir / "Public/Fixture.h").touch()
+        cmake_source_dir = module_dir
+        if use_symlink:
+            alias = tmp_path / "alias"
+            try:
+                alias.symlink_to(module_dir.parent, target_is_directory=True)
+            except OSError as error:
+                pytest.skip(f"Directory symlinks unavailable: {error}")
+            cmake_source_dir = alias / "Fixture"
+        module_config = configs.DurinModuleConfig.from_file(descriptor)
+        content = []
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=module_config),
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=tmp_path / "DHT"),
+            mock.patch.object(utils, "get_module_export_file_path", return_value=tmp_path / "DHT/Fixture.export.json"),
+        ):
+            module_cmake_file_generator._append_module_paths_to_cmake_content(content, "Fixture")
+            module_cmake_file_generator._append_module_configs_to_cmake_content(content, "Fixture")
+        script = tmp_path / "check.cmake"
+        result = tmp_path / "paths.txt"
+        script.write_text(
+            f'set(CMAKE_CURRENT_SOURCE_DIR "{cmake_source_dir.as_posix()}")\n'
+            + "".join(content)
+            + f'file(WRITE "{result.as_posix()}" "${{module_dir}}\n${{module_config_file}}\n${{module_reflect_headers}}\n")\n',
+            encoding="utf-8",
+        )
+        subprocess.run([cmake, "-P", str(script)], check=True, capture_output=True, text=True, timeout=600)
+        assert result.read_text(encoding="utf-8").splitlines() == [
+            cmake_source_dir.as_posix(),
+            (cmake_source_dir / "Fixture.dmodule").as_posix(),
+            (cmake_source_dir / "Public/Fixture.h").as_posix(),
+        ]
 
     def test_cmake_declares_tool_and_generated_file_contracts(self):
         workspace_root = ROOT.parents[3]
