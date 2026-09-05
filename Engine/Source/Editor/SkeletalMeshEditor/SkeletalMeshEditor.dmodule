@@ -1,9 +1,0 @@
-{
-    "ModuleName": "SkeletalMeshEditor",
-    "LinkType": "Shared",
-    "PCH": "SharedPCH_MonaEditor",
-    "PrivateDependencies": [
-        "Core", "CoreDObject", "ApplicationCore", "RHI", "RenderCore",
-        "Renderer", "Engine", "Mona", "MonaImGui", "DurinEd"
-    ]
-}

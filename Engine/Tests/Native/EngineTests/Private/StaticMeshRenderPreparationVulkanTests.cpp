@@ -25,8 +25,6 @@
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "SceneTestAccess.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -256,33 +254,6 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		{.Name = Durin::FName("Section1"), .SourceMaterialIndex = 1},
 		{.Name = Durin::FName("Section2"), .SourceMaterialIndex = 2},
 		{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
-	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "CpuOnlySkeleton");
-	ASSERT_TRUE(Skeleton->InitializeCanonicalBones({
-		{.Name = Durin::FName("$DurinRoot"), .ParentIndex = -1}}, Error)) << Error;
-	auto Payload = std::make_shared<Durin::FSkeletalMeshPayloadData>();
-	Payload->Positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
-	Payload->Normals.assign(3, {0.0f, 0.0f, 1.0f});
-	Payload->Tangents.assign(3, {1.0f, 0.0f, 0.0f, 1.0f});
-	Payload->UVChannels[0] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
-	Payload->Indices = {0, 1, 2};
-	Durin::FSkeletalMeshVertexInfluences Influence;
-	Influence.BoneIndices[0] = 0;
-	Influence.Weights[0] = 1.0f;
-	Influence.Count = 1;
-	Payload->Influences.assign(3, Influence);
-	Payload->LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0});
-	Payload->Sections.push_back({.Name = Durin::FName("Body"), .FirstIndex = 0,
-		.IndexCount = 3, .MinVertexIndex = 0, .MaxVertexIndex = 2,
-		.MaterialSlotIndex = 0, .LocalBounds = Payload->LocalBounds});
-	Payload->PaletteBoneIndices = {0};
-	Payload->InverseBindMatrices = {Durin::FMatrix4f(1.0f)};
-	auto* SkeletalMesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "CpuOnlySkeletalMesh");
-	EXPECT_FALSE(SkeletalMesh->HasPendingRenderResourceInitialization());
-	ASSERT_TRUE(SkeletalMesh->SetAssetData({.Skeleton = Skeleton,
-		.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
-		.MaterialSlots = {{.Name = Durin::FName("Body"), .SourceMaterialIndex = 0}},
-		.Payload = std::move(Payload)}, Error)) << Error;
-
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
@@ -338,10 +309,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		EXPECT_EQ(Mesh->GetRenderResourceStatus().Revision, Ready.Revision);
 	};
 	CheckCpuOnlyAndGpuRetry(StaticMesh);
-	CheckCpuOnlyAndGpuRetry(SkeletalMesh);
 	Durin::MarkAsGarbage(StaticMesh);
-	Durin::MarkAsGarbage(SkeletalMesh);
-	Durin::MarkAsGarbage(Skeleton);
 	Durin::CollectGarbage();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

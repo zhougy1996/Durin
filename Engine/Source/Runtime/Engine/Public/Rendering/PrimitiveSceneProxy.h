@@ -10,7 +10,6 @@ namespace Durin
 	enum class EPrimitiveSceneProxyKind : uint8
 	{
 		StaticMesh,
-		SkeletalMesh,
 		SplineMesh
 	};
 

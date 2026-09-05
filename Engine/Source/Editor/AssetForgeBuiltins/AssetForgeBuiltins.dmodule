@@ -4,8 +4,7 @@
     "PCH": "SharedPCH_DObject",
 	"PrivateDependencies": [
 		"AssetTools",
-		"StaticMeshBuild",
-		"SkeletalBuild"
+		"StaticMeshBuild"
 	],
     "PublicDependencies": [
 		"Core",

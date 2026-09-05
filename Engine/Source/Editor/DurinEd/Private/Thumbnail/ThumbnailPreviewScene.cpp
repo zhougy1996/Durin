@@ -146,8 +146,7 @@ namespace Durin::Editor
 			-> bool
 		{
 			if (Statistics.Visibility.VisiblePrimitives == 0) return false;
-			return Statistics.StaticMesh.DrawCalls == 0
-				&& Statistics.SkeletalMesh.DrawCalls == 0;
+			return Statistics.StaticMesh.DrawCalls == 0;
 		}
 	} // namespace
 

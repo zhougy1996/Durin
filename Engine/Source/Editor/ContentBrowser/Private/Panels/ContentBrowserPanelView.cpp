@@ -282,7 +282,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::EndChild();
 		};
 
-		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Skeletal assets", "Materials", "Textures", "Other assets", "Redirectors"};
+		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Materials", "Textures", "Other assets", "Redirectors"};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
 		auto DrawViewControls = [&]() {

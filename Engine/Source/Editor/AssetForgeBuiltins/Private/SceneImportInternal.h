@@ -10,7 +10,7 @@ namespace Durin::AssetForge::Builtins
 {
 	enum class ESceneOutputKind : uint8
 	{
-		Skeleton, SkeletalMesh, AnimationClip, StaticMesh, MaterialInstance, Texture2D
+		StaticMesh, MaterialInstance, Texture2D
 	};
 	enum class ESceneTextureDerivation : uint8
 	{
@@ -32,7 +32,6 @@ namespace Durin::AssetForge::Builtins
 		float TextureDerivationScale = 1.0f;
 		FVector3f TextureDerivationColorScale{1.0f};
 		std::vector<FSceneMaterialTextureBinding> TextureBindings;
-		std::string SkeletonIdentity;
 	};
 	// Carries decoded scene data and stable output descriptors into product construction.
 	struct FSceneImportPlan

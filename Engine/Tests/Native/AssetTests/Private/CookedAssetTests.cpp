@@ -4,7 +4,6 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
-#include "Animation/AnimationClip.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -21,8 +20,6 @@
 #include "NativeTestSupport.h"
 #include "NativeAssetRuntimeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -293,9 +290,6 @@ TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 	EXPECT_FALSE(HasPublicAddToCook<DTextureCube>);
 	EXPECT_FALSE(HasPublicAddToCook<DVolumeTexture>);
 	EXPECT_FALSE(HasPublicAddToCook<DStaticMesh>);
-	EXPECT_FALSE(HasPublicAddToCook<DSkeletalMesh>);
-	EXPECT_FALSE(HasPublicAddToCook<DSkeleton>);
-	EXPECT_FALSE(HasPublicAddToCook<DAnimationClip>);
 	EXPECT_FALSE(HasPublicAddToCook<DMaterial>);
 	EXPECT_FALSE(HasPublicAddToCook<DEnvironmentLighting>);
 }

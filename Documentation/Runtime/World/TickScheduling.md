@@ -53,8 +53,8 @@ Tick in one group completes before the next group begins.
 - `PostPhysics` consumes final transforms for animation and late gameplay work.
 
 Actor and ordinary Component Tick functions default to `PrePhysics`.
-`DPhysicsComponent` uses `Physics`; `DSkeletalMeshComponent` uses
-`PostPhysics`. Durin does not expose a `DuringPhysics` group because the current
+`DPhysicsComponent` uses `Physics`. Durin does not expose a `DuringPhysics`
+group because the current
 physics path has no asynchronous interval to overlap.
 
 Changing a Tick group while its registry is executing a frame is rejected. A

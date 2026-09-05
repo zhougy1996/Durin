@@ -48,19 +48,17 @@ and stores the result in a bounded membership mask. Cascade-local reserved
 family reference lists are materialized from that table without another scene
 walk. Boundary contact and invalid finite bounds are included conservatively
 and counted per cascade. Static/Spline LOD selection is evaluated against
-the 2048 shadow view; SkeletalMesh remains LOD0.
+the 2048 shadow view.
 The camera's prepared visibility and LOD values are not mutated.
 
 ## Pass and material contract
 
-Opaque and Masked StaticMesh, SplineMesh, and SkeletalMesh draws cast;
+Opaque and Masked StaticMesh and SplineMesh draws cast;
 Translucent draws do not. Shadow-depth preparation filters translucent
 materials before final draw-list sorting and counter accumulation; it does not
 construct and later erase translucent shadow buckets. Shadow preparation reuses normal material snapshots,
 strict opacity-mask threshold behavior, vertex factories, spline deformation,
-skeletal palettes, two-sided state, and mirrored
-winding. Skeletal shadow draws reuse the base view's matching frame-local
-palette range rather than uploading a second palette.
+two-sided state, and mirrored winding.
 
 Three ordered depth-only passes have no color attachment. Each binds and clears
 only its exact layer view to 1.0, writes with `Less`, and leaves the array ready
@@ -252,7 +250,7 @@ sinks expose Shadow Depth and Scene Color independently.
 
 An optional view-counter sink publishes render-thread preparation evidence.
 The total logical shadow duration includes cascade fitting, authoritative
-discovery/membership, and Static/Spline and Skeletal family
+discovery/membership, and Static/Spline family
 preparation. The reported
 sorting/batching duration is nested within those family timings and is not an
 additional total component. Shadow resource preparation is measured afterward
@@ -274,8 +272,8 @@ transitions, comparison sampling, creation failure, release, and retry.
 Production timing gates are listed in
 [Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
 
-The selected preparation shares caster membership and Skeletal palettes while
-keeping mesh logical draws cascade-local. Deeper fact caches did not
+The selected preparation shares caster membership while keeping mesh logical
+draws cascade-local. Deeper fact caches did not
 meet the measured benefit thresholds; the detailed candidates and CPU results
 remain in [Directional Shadow Caster Preparation](../../Plans/Archive/2026-08/DirectionalShadowCasterPreparation.md).
 

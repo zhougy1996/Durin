@@ -165,7 +165,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(ViewportTests
 		KIND feature
 		DOMAINS viewport
-		MODULES engine level-editor mona
+		MODULES engine level-editor mona static-mesh-build
 		STACKS editor
 		PRIVATE_SOURCE_OWNER LevelEditor
 		PRIVATE_SOURCE_RATIONALE

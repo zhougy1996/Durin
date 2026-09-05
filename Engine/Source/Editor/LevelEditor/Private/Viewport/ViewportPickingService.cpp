@@ -2,15 +2,12 @@
 #include "Viewport/ViewportPickingSceneIndex.h"
 
 #include "Components/PrimitiveComponent.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Math/Operations.h"
 #include "SceneViewProjection.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -311,149 +308,6 @@ namespace Durin::Editor::Level
 			}
 		};
 
-		// Provides exact current-pose LOD0 double-sided skeletal surface intersection.
-		class FSkeletalMeshViewportGeometryProvider final : public IViewportGeometryProvider
-		{
-		public:
-			auto Query(const FViewportPickingBackendRequest& Request,
-				const FViewportPickingTarget& Target,
-				FViewportGeometryQueryContext& Context) const -> FViewportGeometryQueryResult override
-			{
-				auto* Component = Cast<DSkeletalMeshComponent>(Target.Component.Get());
-				if (!Component) return {};
-				++Context.Diagnostics.ApplicableSkeletalTargets;
-				const auto Invalid = [&Context]()
-				{
-					++Context.Diagnostics.InvalidSkeletalTargets;
-					return FViewportGeometryQueryResult{EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
-				};
-
-				const DSkeletalMesh* Mesh = Component->GetSkeletalMesh();
-				const FSkeletalMeshRenderData* Data = Mesh ? Mesh->GetRenderData() : nullptr;
-				const std::shared_ptr<const FSkeletalPosePalette> Pose = Component->GetLatestPosePalette();
-				if (!Component->IsRegistered() || !Mesh || !Data || Data->LODIndex != 0 || !Pose
-					|| Pose->Revision == 0 || Mesh->GetSkeletonCompatibilityIdentity().empty()
-					|| Pose->SkeletonCompatibilityIdentity != Mesh->GetSkeletonCompatibilityIdentity()
-					|| Data->PaletteBoneIndices.empty()
-					|| Pose->Matrices.size() != Data->PaletteBoneIndices.size()
-					|| !Pose->LocalBounds.bIsValid || !Math::IsFinite(Pose->LocalBounds.Min)
-					|| !Math::IsFinite(Pose->LocalBounds.Max)
-					|| Pose->LocalBounds.Min.x > Pose->LocalBounds.Max.x
-					|| Pose->LocalBounds.Min.y > Pose->LocalBounds.Max.y
-					|| Pose->LocalBounds.Min.z > Pose->LocalBounds.Max.z) return Invalid();
-
-				const auto& Positions = Data->VertexBuffers.Geometry.PositionVertexBuffer.GetPositions();
-				const auto& Influences = Data->VertexBuffers.InfluenceVertexBuffer.GetInfluences();
-				const auto& Indices = Data->IndexBuffer.GetIndices();
-				if (Positions.empty() || Positions.size() != Influences.size() || Indices.empty()
-					|| Indices.size() % 3 != 0 || Data->Sections.empty()) return Invalid();
-
-				std::unordered_map<uint16, size_t> BoneToPalette;
-				std::vector<FMatrix> PaletteMatrices;
-				PaletteMatrices.reserve(Pose->Matrices.size());
-				for (size_t PaletteIndex = 0; PaletteIndex < Data->PaletteBoneIndices.size(); ++PaletteIndex)
-				{
-					FMatrix Matrix = ToDoubleMatrix(Pose->Matrices[PaletteIndex]);
-					if (!Math::IsFinite(Matrix)
-						|| !BoneToPalette.emplace(Data->PaletteBoneIndices[PaletteIndex], PaletteIndex).second)
-						return Invalid();
-					PaletteMatrices.push_back(std::move(Matrix));
-				}
-
-				uint64 CoveredIndices = 0;
-				for (const FSkeletalMeshRenderSection& Section : Data->Sections)
-				{
-					const uint64 End = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
-					if (Section.FirstIndex != CoveredIndices || Section.IndexCount == 0
-						|| Section.IndexCount % 3 != 0 || End > Indices.size()
-						|| Section.MinVertexIndex > Section.MaxVertexIndex
-						|| Section.MaxVertexIndex >= Positions.size()) return Invalid();
-					CoveredIndices = End;
-				}
-				if (CoveredIndices != Indices.size()) return Invalid();
-
-				std::vector<uint8> Referenced(Positions.size(), 0);
-				uint64 ReferencedVertexCount = 0;
-				for (uint32 Index : Indices)
-				{
-					if (Index >= Positions.size()) return Invalid();
-					if (!Referenced[Index])
-					{
-						Referenced[Index] = 1;
-						++ReferencedVertexCount;
-					}
-				}
-				for (size_t VertexIndex = 0; VertexIndex < Positions.size(); ++VertexIndex)
-				{
-					if (!Math::IsFinite(FVector3(Positions[VertexIndex]))) return Invalid();
-					const FSkeletalMeshVertexInfluences& VertexInfluences = Influences[VertexIndex];
-					if (VertexInfluences.Count == 0 || VertexInfluences.Count > MaximumSkeletalMeshInfluences) return Invalid();
-					double WeightSum = 0.0;
-					for (uint8 InfluenceIndex = 0; InfluenceIndex < VertexInfluences.Count; ++InfluenceIndex)
-					{
-						const float Weight = VertexInfluences.Weights[InfluenceIndex];
-						if (!std::isfinite(Weight) || Weight <= 0.0f
-							|| !BoneToPalette.contains(VertexInfluences.BoneIndices[InfluenceIndex])) return Invalid();
-						WeightSum += Weight;
-					}
-					if (!std::isfinite(WeightSum) || std::abs(WeightSum - 1.0) > kInfluenceWeightEpsilon) return Invalid();
-				}
-
-				const FMatrix LocalToWorld = Component->GetRenderMatrix();
-				FMatrix WorldToLocal(1.0);
-				if (!Math::TryInverse(LocalToWorld, WorldToLocal, kIntersectionEpsilon)) return Invalid();
-				const FVector3 LocalOrigin(WorldToLocal * FVector4(Request.RayOrigin, 1.0));
-				const FVector3 LocalDirection(WorldToLocal * FVector4(Request.RayDirection, 0.0));
-				if (!Math::IsFinite(LocalOrigin) || !Math::IsFinite(LocalDirection)) return Invalid();
-				if (!IntersectRayBox(LocalOrigin, LocalDirection, Pose->LocalBounds))
-				{
-					++Context.Diagnostics.SkeletalBoundsRejects;
-					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-				}
-
-				const uint64 TriangleCount = static_cast<uint64>(Indices.size() / 3);
-				if (ReferencedVertexCount > Context.Budget.MaximumSkinnedVertices - std::min(
-					Context.Diagnostics.SkinnedVertices, Context.Budget.MaximumSkinnedVertices)
-					|| TriangleCount > Context.Budget.MaximumTestedTriangles - std::min(
-					Context.Diagnostics.TestedTriangles, Context.Budget.MaximumTestedTriangles))
-				{
-					++Context.Diagnostics.SkeletalBudgetFailures;
-					return {EViewportGeometryQueryStatus::Failed, std::nullopt};
-				}
-				Context.Diagnostics.SkinnedVertices += ReferencedVertexCount;
-				Context.Diagnostics.TestedTriangles += TriangleCount;
-
-				std::vector<FVector3> Skinned(Positions.size(), FVector3(0.0));
-				for (size_t VertexIndex = 0; VertexIndex < Positions.size(); ++VertexIndex)
-				{
-					if (!Referenced[VertexIndex]) continue;
-					const FSkeletalMeshVertexInfluences& VertexInfluences = Influences[VertexIndex];
-					for (uint8 InfluenceIndex = 0; InfluenceIndex < VertexInfluences.Count; ++InfluenceIndex)
-					{
-						const size_t PaletteIndex = BoneToPalette.at(VertexInfluences.BoneIndices[InfluenceIndex]);
-						Skinned[VertexIndex] += static_cast<double>(VertexInfluences.Weights[InfluenceIndex])
-							* FVector3(PaletteMatrices[PaletteIndex]
-								* FVector4(FVector3(Positions[VertexIndex]), 1.0));
-					}
-					if (!Math::IsFinite(Skinned[VertexIndex])) return Invalid();
-				}
-
-				std::optional<FViewportPickingBackendHit> Best;
-				for (size_t Index = 0; Index < Indices.size(); Index += 3)
-				{
-					double LocalDistance = 0.0;
-					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, Skinned[Indices[Index]],
-						Skinned[Indices[Index + 1]], Skinned[Indices[Index + 2]], LocalDistance)) continue;
-					const FVector3 WorldHit(LocalToWorld * FVector4(LocalOrigin + LocalDirection * LocalDistance, 1.0));
-					const double WorldDistance = Math::Length(WorldHit - Request.RayOrigin);
-					if (!std::isfinite(WorldDistance) || WorldDistance < 0.0) continue;
-					if (!Best || WorldDistance < Best->Distance)
-						Best = FViewportPickingBackendHit{Target.Token, WorldDistance, 0};
-				}
-				return {Best ? EViewportGeometryQueryStatus::Hit : EViewportGeometryQueryStatus::Miss, Best};
-			}
-		};
-
 		// Composes an ordered built-in provider list behind the complete-or-pending backend API.
 		class FReferenceViewportPickingBackend final : public IViewportPickingBackend
 		{
@@ -463,7 +317,6 @@ namespace Durin::Editor::Level
 			{
 				Providers.push_back(std::make_unique<FStaticMeshViewportGeometryProvider>(bAccelerated));
 				Providers.push_back(std::make_unique<FSplineMeshViewportGeometryProvider>());
-				Providers.push_back(std::make_unique<FSkeletalMeshViewportGeometryProvider>());
 			}
 
 			auto Submit(FViewportPickingBackendRequest Request) -> FViewportPickingBackendCompletion override

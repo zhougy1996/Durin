@@ -72,7 +72,6 @@ namespace Durin
 		{
 			FDeferredDirectionalLightingRenderer& DeferredDirectionalLightingRenderer;
 			FStaticMeshRenderer& StaticMeshRenderer;
-			FSkeletalMeshRenderer& SkeletalMeshRenderer;
 			FSkyBoxRenderer& SkyBoxRenderer;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
@@ -91,7 +90,7 @@ namespace Durin
 	{
 		auto& Graph = Inputs.Graph;
 		FBaseSceneRecorder Recorder{Inputs.DeferredRenderer,
-			Inputs.StaticMeshes, Inputs.SkeletalMeshes,
+			Inputs.StaticMeshes,
 			Inputs.SkyBox, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque =
@@ -320,18 +319,6 @@ namespace Durin
 						ResolvedSceneResources.Receiver.StaticMeshes, true
 					);
 				}
-			const auto& SkeletalDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.SkeletalMeshes.Opaque : Inputs.Receiver.SkeletalMeshes.Masked;
-			for (const FPreparedSkeletalMeshDraw& Draw : SkeletalDraws)
-				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
-					!= EMaterialShadingModel::Lit)
-				{
-					SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-						View.Settings.Mode.RenderMode, Pass, Draw,
-						Inputs.Receiver.SkeletalMeshes,
-						ResolvedSceneResources.Receiver.SkeletalMeshes, true
-					);
-				}
 		}
 		CommandList.EndRenderPass();
 		RetainedOpaqueTiming.Commit();
@@ -402,12 +389,6 @@ namespace Durin
 				Inputs.Receiver.StaticMeshes,
 				ResolvedSceneResources.Receiver.StaticMeshes
 			);
-			SkeletalMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-				View.Settings.Mode.RenderMode, Pass,
-				Inputs.Receiver.SkeletalMeshes,
-				ResolvedSceneResources.Receiver.SkeletalMeshes
-			);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
 			 Inputs.Receiver.TranslucentGeometry)
@@ -420,20 +401,9 @@ namespace Durin
 					Inputs.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes
 				);
-			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
-				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
-					Inputs.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
-					Inputs.Receiver.SkeletalMeshes,
-					ResolvedSceneResources.Receiver.SkeletalMeshes
-				);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			ResolvedSceneResources.Receiver.StaticMeshes
-		);
-		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedSceneResources.Receiver.SkeletalMeshes
 		);
 		return true;
 	}

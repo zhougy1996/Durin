@@ -23,7 +23,6 @@ namespace Durin
 	{
 		Unsupported,
 		StaticMesh,
-		SkeletalMesh,
 		SplineMesh
 	};
 

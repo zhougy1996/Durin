@@ -552,10 +552,9 @@ namespace Durin
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
 			/ "StaticMeshBasePass.slang";
-		const std::array<std::pair<const char*, const char*>, 4> Domains{{
+		const std::array<std::pair<const char*, const char*>, 2> Domains{{
 			{"Local", nullptr},
 			{"Spline", "DURIN_SPLINE_MESH"},
-			{"Skeletal", "DURIN_SKELETAL_MESH"},
 		}};
 		FSlangShaderCompiler Compiler;
 		for (const auto& [Name, DomainMacro] : Domains)

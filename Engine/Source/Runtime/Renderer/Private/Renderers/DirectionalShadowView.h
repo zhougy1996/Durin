@@ -107,7 +107,6 @@ namespace Durin
 	{
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshes;
 		std::vector<const FPrimitiveSceneInfo*> SplineMeshes;
-		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshes;
 		size_t Submitted = 0;
 		size_t Hidden = 0;
 		size_t Culled = 0;
@@ -118,7 +117,6 @@ namespace Durin
 	{
 		StaticMesh,
 		SplineMesh,
-		SkeletalMesh,
 	};
 
 	// Non-owning frame-local caster identity and membership snapshot.
@@ -142,7 +140,6 @@ namespace Durin
 		size_t UniqueHidden = 0;
 		size_t UniqueEligibleStaticMeshes = 0;
 		size_t UniqueEligibleSplineMeshes = 0;
-		size_t UniqueEligibleSkeletalMeshes = 0;
 		size_t CascadeClassificationTests = 0;
 		size_t MembershipPopcount = 0;
 		size_t TemporaryBytes = 0;

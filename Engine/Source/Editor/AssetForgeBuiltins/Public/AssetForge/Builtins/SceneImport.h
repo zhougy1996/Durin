@@ -9,9 +9,6 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class DTexture2D;
-	class DSkeleton;
-	class DSkeletalMesh;
-	class DAnimationClip;
 }
 
 namespace Durin::AssetForge::Builtins

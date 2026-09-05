@@ -61,7 +61,6 @@ namespace Durin
 		struct FSceneColorRecorder final
 		{
 			FStaticMeshRenderer& StaticMeshRenderer;
-			FSkeletalMeshRenderer& SkeletalMeshRenderer;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
 
@@ -77,7 +76,7 @@ namespace Durin
 	{
 		auto& Graph = Inputs.Graph;
 		FSceneColorRecorder Recorder{Inputs.StaticMeshes,
-			Inputs.SkeletalMeshes, Inputs.Telemetry, Inputs.Resolved};
+			Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque =
 			Inputs.DeferredFeature.HasPurpose(ESceneFeaturePurpose::Production);
@@ -138,9 +137,6 @@ namespace Durin
 				if (!SceneColorResult.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
 					Recorder.ResolvedSceneResources.Receiver.StaticMeshes, Recorder.Telemetry.View);
-				ReduceSkeletalMeshTelemetry(RecordInputs.Receiver.SkeletalMeshes,
-					Recorder.ResolvedSceneResources.Receiver.SkeletalMeshes,
-					Recorder.ResolvedSceneResources.Receiver.SkeletalPalettes, Recorder.Telemetry.View);
 			});
 		return {.Completion = SceneColorCompletion,
 			.Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth,
@@ -202,14 +198,6 @@ namespace Durin
 					Inputs.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes, true
 				);
-			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
-				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
-					Inputs.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
-					Inputs.Receiver.SkeletalMeshes,
-					ResolvedSceneResources.Receiver.SkeletalMeshes, true
-				);
 		}
 		CommandList.EndRenderPass();
 		SortedTranslucencyTiming.Commit();
@@ -218,8 +206,6 @@ namespace Durin
 		// equal every prepared section as it does in the all-forward finalizer.
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			ResolvedSceneResources.Receiver.StaticMeshes);
-		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedSceneResources.Receiver.SkeletalMeshes);
 		++Telemetry.View.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,

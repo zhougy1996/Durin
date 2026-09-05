@@ -2,7 +2,6 @@
 
 #include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/SurfaceMaterial.h"
-#include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "Renderers/DirectionalShadowView.h"
@@ -14,7 +13,6 @@
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Math/Operations.h"
@@ -42,11 +40,6 @@ namespace Durin::RendererPrivate
 		return Type;
 	}
 
-	inline auto GetSkeletalVertexFactoryShaderType() -> const FVertexFactoryType&
-	{
-		static const FVertexFactoryType Type("SkeletalVertexFactory");
-		return Type;
-	}
 
 	inline constexpr uint32 MaterialMeshPassForward = 0;
 	inline constexpr uint32 MaterialMeshPassGBuffer = 1;
@@ -123,22 +116,6 @@ namespace Durin::RendererPrivate
 		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
 	};
 
-	class FSkeletalMeshVertexShader : public FMeshMaterialShader
-	{
-	public:
-		DURIN_BEGIN_SHADER_PARAMETERS(FSkeletalMeshVertexShader)
-			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-			DURIN_SHADER_PARAMETER_STORAGE_BUFFER(SkinPalette);
-		DURIN_END_SHADER_PARAMETERS();
-
-		DURIN_DECLARE_MESH_MATERIAL_SHADER(
-			FSkeletalMeshVertexShader,
-			FMeshMaterialShader,
-			"/Engine/StaticMeshBasePass",
-			EShaderFrequency::Vertex,
-			"VertexMain"
-		);
-	};
 
 	struct FStaticMeshTransformUniform
 	{
@@ -311,96 +288,4 @@ namespace Durin::RendererPrivate
 		return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex);
 	}
 
-	inline auto MakeSkeletalMeshDrawSortKey(
-		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Draw
-	) -> FMeshDrawSortKey
-	{
-		const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
-		const std::array<uint32, 6> Geometry = Draw.Section != nullptr
-													   && Primitive.RenderData != nullptr ?
-												   std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.RenderData->IndexBuffer.GetIndices().size())} :
-												   std::array<uint32, 6>{};
-		return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, 0, Draw.SectionIndex);
-	}
-
-	enum class ESkeletalPaletteResolveResult : uint8
-	{
-		Uploaded,
-		Reused,
-		Rejected,
-	};
-
-	inline auto ResolveSkeletalPalette_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		const FPreparedSkeletalPaletteTable& PreparedTable,
-		FResolvedSkeletalPaletteTable& ResolvedTable,
-		const FPreparedSkeletalMeshPrimitive& Primitive,
-		FRHIStorageBufferRange& OutRange
-	) -> ESkeletalPaletteResolveResult
-	{
-		constexpr uint64 PaletteBudget = 64ull * 1024ull * 1024ull;
-		++ResolvedTable.RequestedPalettes;
-		if (Primitive.Pose == nullptr)
-		{
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-
-		const FPrimitiveSceneId PrimitiveId = Primitive.PrimitiveId;
-		const auto It = PreparedTable.PrimitiveToEntry.find(PrimitiveId);
-		if (It == PreparedTable.PrimitiveToEntry.end()
-			|| It->second >= PreparedTable.Entries.size())
-		{
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-		const auto& PreparedEntry = PreparedTable.Entries[It->second];
-		if (PreparedEntry.Pose != Primitive.Pose)
-		{
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-		if (ResolvedTable.Entries.size() < PreparedTable.Entries.size())
-			ResolvedTable.Entries.resize(PreparedTable.Entries.size());
-		auto& Entry = ResolvedTable.Entries[It->second];
-		if (Entry.Range.Buffer != nullptr)
-		{
-			OutRange = Entry.Range;
-			++ResolvedTable.ReusedPalettes;
-			return ESkeletalPaletteResolveResult::Reused;
-		}
-		if (Entry.bUploadAttempted)
-		{
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-		Entry.bUploadAttempted = true;
-		const uint64 Bytes = Primitive.Pose->Matrices.size() * sizeof(FMatrix4f);
-		if (Bytes == 0 || ResolvedTable.UploadedBytes + Bytes > PaletteBudget)
-		{
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-
-		Entry.Range = CommandList.AllocateDynamicStorageBuffer(
-			Primitive.Pose->Matrices.data(), static_cast<uint32>(Bytes)
-		);
-		if (Entry.Range.Buffer == nullptr || Entry.Range.Size != Bytes)
-		{
-			Entry.Range = {};
-			++ResolvedTable.RejectedPalettes;
-			return ESkeletalPaletteResolveResult::Rejected;
-		}
-		const std::array Transition{FRHIBufferTransition{
-			Entry.Range.Buffer, Entry.Range.Offset, Entry.Range.Size,
-			ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead
-		}};
-		CommandList.TransitionBuffers(Transition);
-		OutRange = Entry.Range;
-		ResolvedTable.UploadedBytes += Bytes;
-		++ResolvedTable.UploadedPalettes;
-		ResolvedTable.UploadedMatrices += Primitive.Pose->Matrices.size();
-		return ESkeletalPaletteResolveResult::Uploaded;
-	}
 } // namespace Durin::RendererPrivate

@@ -41,7 +41,6 @@ add_subdirectory("RoadWeaver")
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		StaticMeshBuild
-		SkeletalBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -56,7 +55,6 @@ if(TARGET TextureBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
 		StaticMeshBuild
-		SkeletalBuild
 		AssetForgeBuiltins
 		assimp::assimp
 	)
@@ -68,22 +66,6 @@ if(TARGET StaticMeshBuild)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(StaticMeshBuild
-		SkeletalBuild
-		TextureBuild
-		AssetForgeBuiltins
-		assimp::assimp
-		bc7enc_rdo::bc7enc_rdo
-		rgbcx
-	)
-endif()
-
-if(TARGET SkeletalBuild)
-	durin_assert_target_dependency_closure_includes(SkeletalBuild
-		DerivedDataCache
-		Engine
-	)
-	durin_assert_target_dependency_closure_excludes(SkeletalBuild
-		StaticMeshBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -99,7 +81,6 @@ if(TARGET DerivedDataCache)
 	durin_assert_target_dependency_closure_excludes(DerivedDataCache
 		Engine
 		StaticMeshBuild
-		SkeletalBuild
 		TextureBuild
 		DurinEd
 		RHI
@@ -112,7 +93,6 @@ endif()
 if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
 		StaticMeshBuild
-		SkeletalBuild
 		assimp::assimp
 	)
 	durin_assert_target_dependency_closure_excludes(AssetForgeBuiltins
@@ -132,7 +112,6 @@ if(DURIN_RUNTIME_VARIANT STREQUAL "DurinGame")
 		AssetImport
 		# Derived builders and offline compressors.
 		StaticMeshBuild
-		SkeletalBuild
 		DerivedDataCache
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo

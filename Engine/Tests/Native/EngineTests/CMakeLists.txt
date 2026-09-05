@@ -6,8 +6,6 @@ set(_durin_material_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private")
 set(_durin_static_mesh_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Private")
-set(_durin_skeletal_mesh_editor_private
-	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/SkeletalMeshEditor/Private")
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
 set(_durin_content_browser_public
@@ -20,7 +18,6 @@ set(_durin_editor_test_modules
 	Mona
 	MonaImGui
 	StaticMeshBuild
-	SkeletalBuild
 	DerivedDataCache
 	TextureBuild
 	AssetForgeBuiltins
@@ -135,8 +132,6 @@ function(durin_add_engine_functional_test target_name)
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
 		${_durin_static_mesh_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
-		${_durin_skeletal_mesh_editor_private}
-		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/SkeletalMeshEditor/Public
 		${_durin_main_frame_private}
 		${_durin_content_browser_public}
 		${_durin_content_browser_private}

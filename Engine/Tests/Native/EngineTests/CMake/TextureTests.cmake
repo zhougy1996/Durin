@@ -31,7 +31,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS asset-workflow texture
-		MODULES asset-tools engine texture-build static-mesh-build skeletal-build asset-forge-builtins texture-editor
+	MODULES asset-tools engine texture-build static-mesh-build asset-forge-builtins texture-editor
 		STACKS editor
 		TIMEOUT 600
 	)

@@ -9,7 +9,6 @@
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
-#include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
@@ -106,7 +105,6 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
 		FGroundTruthAmbientOcclusionRenderer GroundTruthAmbientOcclusionRenderer;
 		FStaticMeshRenderer StaticMeshRenderer;
-		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
 		FPostProcessRenderer PostProcessRenderer;
 		FContactShadowVisibilityRenderer ContactShadowRenderer;

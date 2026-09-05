@@ -301,9 +301,6 @@ namespace Durin::Editor::Level
 				Statistics.StaticMesh.Triangles, Statistics.StaticMesh.DrawCalls));
 			DrawValueRow("Spline mesh", std::format("{} tris",
 				Statistics.SplineMesh.Triangles));
-			DrawValueRow("Skeletal mesh", std::format("{} tris, {} draws",
-				Statistics.SkeletalMesh.Triangles,
-				Statistics.SkeletalMesh.DrawCalls));
 			DrawValueRow("Shadow", Statistics.Shadow.bEnabled
 				? std::format("{} cascades, {} tris, {} draws",
 					Statistics.Shadow.Cascades, Statistics.Shadow.Triangles,

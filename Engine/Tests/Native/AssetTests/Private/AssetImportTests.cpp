@@ -211,30 +211,6 @@ namespace Durin::AssetForge::Builtins
 			return Count;
 		}
 
-		auto WriteOptionalSkeletalAttributesFixture() -> std::filesystem::path
-		{
-			std::ifstream Source(TestDataPath("Skeletal/Contract.gltf"), std::ios::binary);
-			EXPECT_TRUE(Source.is_open());
-			std::stringstream Stream;
-			Stream << Source.rdbuf();
-			std::string Document = Stream.str();
-			EXPECT_EQ(ReplaceAll(Document,
-				"            \"NORMAL\": 1,\n",
-				"            \"COLOR_0\": 1,\n"), 2u);
-			EXPECT_EQ(ReplaceAll(Document, "            \"TANGENT\": 2,\n", ""), 2u);
-			EXPECT_EQ(ReplaceAll(Document, "          \"material\": 0,\n", ""), 2u);
-
-			const std::filesystem::path Root =
-				Durin::Testing::GetTestWorkDirectory() / "OptionalSkeletalAttributes";
-			std::filesystem::create_directories(Root);
-			const std::filesystem::path Path = Root / "OptionalAttributes.gltf";
-			std::ofstream Destination(Path, std::ios::binary | std::ios::trunc);
-			EXPECT_TRUE(Destination.is_open());
-			Destination.write(Document.data(), static_cast<std::streamsize>(Document.size()));
-			EXPECT_TRUE(Destination.good());
-			return Path;
-		}
-
 		auto MakeYUpNegativeZForwardOptions() -> FMeshImportOptions
 		{
 			FMeshImportOptions Options;
@@ -357,244 +333,30 @@ namespace Durin::AssetForge::Builtins
 		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, 1.0f);
 	}
 
-	TEST(FAssetImportTests, SkeletalContractContainersPreserveCurrentStaticBaseline)
+	TEST(FAssetImportTests, RejectsSkeletalOrAnimatedGltfBeforeProducingStaticOutputs)
 	{
-		std::array<FImportedSceneData, 3> Scenes;
-		const std::array<std::string_view, 3> Files = {
-			"Skeletal/StaticProjection.gltf",
-			"Skeletal/StaticProjectionExternal.gltf",
-			"Skeletal/StaticProjection.glb"};
-		for (size_t Index = 0; Index < Files.size(); ++Index)
+		const std::filesystem::path Root =
+			Durin::Testing::GetTestWorkDirectory() / "UnsupportedSceneFeatures";
+		std::filesystem::create_directories(Root);
+		for (const std::string_view Feature : {"skins", "animations"})
 		{
-			SCOPED_TRACE(Files[Index]);
-			ASSERT_TRUE(ImportFromFile(TestDataPath(Files[Index]), Scenes[Index]));
-			ASSERT_EQ(Scenes[Index].MaterialSlots.size(), 2u);
-			EXPECT_EQ(Scenes[Index].MaterialSlots[0].Name, "Red");
-			EXPECT_EQ(Scenes[Index].MaterialSlots[1].Name, "Blue");
-			ASSERT_EQ(Scenes[Index].Meshes.size(), 4u);
-			EXPECT_TRUE(Scenes[Index].Diagnostics.empty());
-			for (const FImportedMeshData& Mesh : Scenes[Index].Meshes)
-			{
-				EXPECT_EQ(Mesh.Positions.size(), 3u);
-				EXPECT_EQ(Mesh.Normals.size(), 3u);
-				EXPECT_EQ(Mesh.Tangents.size(), 3u);
-				EXPECT_EQ(Mesh.UVChannels[0].size(), 3u);
-				EXPECT_EQ(Mesh.Indices, (std::vector<uint32>{0, 1, 2}));
-			}
-		}
+			SCOPED_TRACE(Feature);
+			const std::filesystem::path Path = Root / std::format("{}.gltf", Feature);
+			std::ofstream Stream(Path, std::ios::trunc);
+			ASSERT_TRUE(Stream.is_open());
+			Stream << std::format(
+				R"({{"asset":{{"version":"2.0"}},"materials":[{{"name":"MustNotPublish"}}],"{}":[]}})",
+				Feature);
+			Stream.close();
 
-		for (size_t SceneIndex = 1; SceneIndex < Scenes.size(); ++SceneIndex)
-		{
-			ASSERT_EQ(Scenes[0].MaterialSlots.size(), Scenes[SceneIndex].MaterialSlots.size());
-			for (size_t SlotIndex = 0; SlotIndex < Scenes[0].MaterialSlots.size(); ++SlotIndex)
-			{
-				EXPECT_EQ(Scenes[0].MaterialSlots[SlotIndex].Name,
-					Scenes[SceneIndex].MaterialSlots[SlotIndex].Name);
-				EXPECT_EQ(Scenes[0].MaterialSlots[SlotIndex].SourceMaterialIndex,
-					Scenes[SceneIndex].MaterialSlots[SlotIndex].SourceMaterialIndex);
-			}
-			ASSERT_EQ(Scenes[0].Meshes.size(), Scenes[SceneIndex].Meshes.size());
-			for (size_t MeshIndex = 0; MeshIndex < Scenes[0].Meshes.size(); ++MeshIndex)
-				ExpectMeshEq(Scenes[0].Meshes[MeshIndex], Scenes[SceneIndex].Meshes[MeshIndex]);
-		}
-	}
-
-	TEST(FAssetImportTests, SkeletalContractContainersNormalizeExactRuntimeValues)
-	{
-		const std::array<std::string_view, 3> Files = {
-			"Skeletal/Contract.gltf",
-			"Skeletal/ContractExternal.gltf",
-			"Skeletal/Contract.glb"};
-		const std::array<std::string_view, 3> ProjectionFiles = {
-			"Skeletal/StaticProjection.gltf",
-			"Skeletal/StaticProjectionExternal.gltf",
-			"Skeletal/StaticProjection.glb"};
-		std::array<FImportedSceneData, 3> Scenes;
-		for (size_t ContainerIndex = 0; ContainerIndex < Files.size(); ++ContainerIndex)
-		{
-			SCOPED_TRACE(Files[ContainerIndex]);
-			ASSERT_TRUE(ImportFromFile(TestDataPath(Files[ContainerIndex]), Scenes[ContainerIndex]));
-			const FImportedSceneData& Scene = Scenes[ContainerIndex];
-			ASSERT_EQ(Scene.Nodes.size(), 7u);
-			ASSERT_EQ(Scene.Skeletons.size(), 2u);
-			ASSERT_EQ(Scene.SkeletalMeshes.size(), 2u);
-			ASSERT_EQ(Scene.AnimationClips.size(), 4u);
-			for (size_t SkeletonIndex = 0; SkeletonIndex < Scene.Skeletons.size(); ++SkeletonIndex)
-			{
-				const FImportedSkeletonData& Skeleton = Scene.Skeletons[SkeletonIndex];
-				EXPECT_EQ(Skeleton.StableIdentity, std::format("skeleton:skin/{}", SkeletonIndex));
-				EXPECT_EQ(Skeleton.CompatibilityIdentity, "be0f679ef83133e5acfab7f12b688f54");
-				ASSERT_EQ(Skeleton.Bones.size(), 5u);
-				EXPECT_EQ(Skeleton.Bones[0].Name, FName("$DurinRoot"));
-				EXPECT_EQ(Skeleton.Bones[0].ParentIndex, -1);
-				EXPECT_EQ(Skeleton.Bones[1].Name, FName("Hip"));
-				EXPECT_EQ(Skeleton.Bones[1].ParentIndex, 0);
-				EXPECT_EQ(Skeleton.Bones[2].Name, FName("Knee"));
-				EXPECT_EQ(Skeleton.Bones[2].ParentIndex, 1);
-				EXPECT_EQ(Skeleton.Bones[3].Name, FName("Shoulder"));
-				EXPECT_EQ(Skeleton.Bones[3].ParentIndex, 0);
-				EXPECT_EQ(Skeleton.Bones[4].Name, FName("Hand"));
-				EXPECT_EQ(Skeleton.Bones[4].ParentIndex, 3);
-				FMatrix4f ExpectedHip(1.0f);
-				ExpectedHip[0][0] = 0.7071068f;
-				ExpectedHip[0][1] = -0.7071068f;
-				ExpectedHip[1][0] = 0.7071068f;
-				ExpectedHip[1][1] = 0.7071068f;
-				ExpectedHip[3][2] = 1.0f;
-				ExpectMatrixEq(ExpectedHip, Skeleton.Bones[1].ReferenceTransform.ToMatrix4f());
-			}
-
-			ASSERT_EQ(Scene.SkeletalMeshes[0].StableIdentity, "skeletal-mesh:node/1/mesh/0");
-			ASSERT_EQ(Scene.SkeletalMeshes[1].StableIdentity, "skeletal-mesh:node/6/mesh/1");
-			for (const FImportedSkeletalMeshData& Mesh : Scene.SkeletalMeshes)
-			{
-				ASSERT_NE(Mesh.Payload, nullptr);
-				EXPECT_EQ(Mesh.Payload->Positions.size(), 6u);
-				EXPECT_EQ(Mesh.Payload->Indices.size(), 6u);
-				EXPECT_EQ(Mesh.Payload->Indices, (std::vector<uint32>{0, 2, 1, 3, 5, 4}));
-				EXPECT_EQ(Mesh.Payload->Sections.size(), 2u);
-				EXPECT_EQ(Mesh.Payload->PaletteBoneIndices, (std::vector<uint16>{1, 2, 3, 4}));
-				EXPECT_EQ(Mesh.Payload->InverseBindMatrices.size(), 4u);
-				EXPECT_EQ(Mesh.MaterialSlots.size(), 2u);
-			}
-			const FSkeletalMeshVertexInfluences& FirstInfluence =
-				Scene.SkeletalMeshes[0].Payload->Influences[0];
-			EXPECT_EQ(FirstInfluence.Count, 4u);
-			EXPECT_EQ(FirstInfluence.BoneIndices,
-				(std::array<uint16, MaximumSkeletalMeshInfluences>{1, 2, 3, 4}));
-			EXPECT_FLOAT_EQ(FirstInfluence.Weights[0], 0.4f);
-			EXPECT_FLOAT_EQ(FirstInfluence.Weights[1], 0.3f);
-			EXPECT_FLOAT_EQ(FirstInfluence.Weights[2], 0.2f);
-			EXPECT_FLOAT_EQ(FirstInfluence.Weights[3], 0.1f);
-
-			EXPECT_EQ(Scene.AnimationClips[0].StableIdentity, "animation-clip:animation/0/skin/0");
-			EXPECT_EQ(Scene.AnimationClips[1].StableIdentity, "animation-clip:animation/0/skin/1");
-			EXPECT_EQ(Scene.AnimationClips[2].StableIdentity, "animation-clip:animation/1/skin/0");
-			EXPECT_EQ(Scene.AnimationClips[3].StableIdentity, "animation-clip:animation/1/skin/1");
-			ASSERT_NE(Scene.AnimationClips[0].Payload, nullptr);
-			EXPECT_FLOAT_EQ(Scene.AnimationClips[0].Payload->DurationSeconds, 2.0f);
-			ASSERT_EQ(Scene.AnimationClips[0].Payload->Tracks.size(), 3u);
-			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[0].BoneIndex, 1u);
-			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[0].Path, EAnimationTrackPath::Translation);
-			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[1].Interpolation, EAnimationInterpolation::Step);
-			ASSERT_EQ(Scene.AnimationClips[0].Payload->Tracks[1].RotationValues.size(), 3u);
-			ExpectVec4Eq(FVector4f(0.7071068f, 0.0f, 0.0f, 0.7071068f),
-				Scene.AnimationClips[0].Payload->Tracks[1].RotationValues[1]);
-
-			FImportedSceneData Projection;
-			ASSERT_TRUE(ImportFromFile(TestDataPath(ProjectionFiles[ContainerIndex]), Projection));
-			ASSERT_EQ(Scene.Meshes.size(), Projection.Meshes.size());
-			for (size_t MeshIndex = 0; MeshIndex < Scene.Meshes.size(); ++MeshIndex)
-				ExpectMeshEq(Projection.Meshes[MeshIndex], Scene.Meshes[MeshIndex]);
-		}
-
-		for (size_t ContainerIndex = 1; ContainerIndex < Scenes.size(); ++ContainerIndex)
-		{
-			ASSERT_EQ(Scenes[0].Skeletons.size(), Scenes[ContainerIndex].Skeletons.size());
-			for (size_t SkeletonIndex = 0; SkeletonIndex < Scenes[0].Skeletons.size(); ++SkeletonIndex)
-			{
-				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].StableIdentity,
-					Scenes[ContainerIndex].Skeletons[SkeletonIndex].StableIdentity);
-				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].CompatibilityIdentity,
-					Scenes[ContainerIndex].Skeletons[SkeletonIndex].CompatibilityIdentity);
-				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].Bones,
-					Scenes[ContainerIndex].Skeletons[SkeletonIndex].Bones);
-			}
-			ASSERT_EQ(Scenes[0].SkeletalMeshes.size(), Scenes[ContainerIndex].SkeletalMeshes.size());
-			for (size_t MeshIndex = 0; MeshIndex < Scenes[0].SkeletalMeshes.size(); ++MeshIndex)
-			{
-				EXPECT_EQ(Scenes[0].SkeletalMeshes[MeshIndex].StableIdentity,
-					Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].StableIdentity);
-				ASSERT_NE(Scenes[0].SkeletalMeshes[MeshIndex].Payload, nullptr);
-				ASSERT_NE(Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].Payload, nullptr);
-				EXPECT_EQ(*Scenes[0].SkeletalMeshes[MeshIndex].Payload,
-					*Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].Payload);
-			}
-			ASSERT_EQ(Scenes[0].AnimationClips.size(), Scenes[ContainerIndex].AnimationClips.size());
-			for (size_t ClipIndex = 0; ClipIndex < Scenes[0].AnimationClips.size(); ++ClipIndex)
-			{
-				EXPECT_EQ(Scenes[0].AnimationClips[ClipIndex].StableIdentity,
-					Scenes[ContainerIndex].AnimationClips[ClipIndex].StableIdentity);
-				ASSERT_NE(Scenes[0].AnimationClips[ClipIndex].Payload, nullptr);
-				ASSERT_NE(Scenes[ContainerIndex].AnimationClips[ClipIndex].Payload, nullptr);
-				EXPECT_EQ(*Scenes[0].AnimationClips[ClipIndex].Payload,
-					*Scenes[ContainerIndex].AnimationClips[ClipIndex].Payload);
-			}
-		}
-	}
-
-	TEST(FAssetImportTests, SkeletalGltfGeneratesMissingBasisAndAcceptsDefaultMaterialAndRgbColors)
-	{
-		FImportedSceneData Scene;
-		ASSERT_TRUE(ImportFromFile(WriteOptionalSkeletalAttributesFixture().generic_string(), Scene));
-		ASSERT_EQ(Scene.Materials.size(), 3u);
-		EXPECT_EQ(Scene.Materials[2].SourceMaterialIndex, 2u);
-		EXPECT_EQ(Scene.Materials[2].SourceName, "Default");
-		ASSERT_EQ(Scene.SkeletalMeshes.size(), 2u);
-
-		for (const FImportedSkeletalMeshData& Mesh : Scene.SkeletalMeshes)
-		{
-			ASSERT_NE(Mesh.Payload, nullptr);
-			EXPECT_EQ(Mesh.Payload->Indices, (std::vector<uint32>{0, 2, 1, 3, 5, 4}));
-			ASSERT_EQ(Mesh.MaterialSlots.size(), 2u);
-			EXPECT_EQ(Mesh.MaterialSlots[0].SourceMaterialIndex, 2u);
-			EXPECT_EQ(Mesh.MaterialSlots[0].SourceName, "Default");
-			ASSERT_EQ(Mesh.Payload->Normals.size(), 6u);
-			ASSERT_EQ(Mesh.Payload->Tangents.size(), 6u);
-			ASSERT_EQ(Mesh.Payload->Colors.size(), 6u);
-			for (size_t Vertex = 0; Vertex < 3; ++Vertex)
-			{
-				ExpectVec3Eq(FVector3f(-1.0f, 0.0f, 0.0f), Mesh.Payload->Normals[Vertex]);
-				ExpectVec4Eq(FVector4f(0.0f, 1.0f, 0.0f, -1.0f), Mesh.Payload->Tangents[Vertex]);
-				ExpectVec4Eq(FVector4f(0.0f, 0.0f, 1.0f, 1.0f), Mesh.Payload->Colors[Vertex]);
-			}
-		}
-
-		ASSERT_EQ(Scene.Meshes.size(), 4u);
-		EXPECT_EQ(Scene.Meshes[0].SourceMaterialIndex, 2u);
-		EXPECT_TRUE(std::ranges::any_of(Scene.MaterialSlots, [](const FImportedMaterialSlot& Slot) {
-			return Slot.SourceMaterialIndex == 2u && Slot.Name == "Default";
-		}));
-	}
-
-	TEST(FAssetImportTests, SkeletalMalformedFixturesUseFrozenDiagnosticCategories)
-	{
-		struct FCase
-		{
-			std::string_view File;
-			ESceneImportDiagnosticCategory Category;
-		};
-		const std::array Cases = {
-			FCase{"CyclicHierarchy.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"DisconnectedHierarchy.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"CountMismatch.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"InvalidAnimationTarget.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"UnsupportedCubicSpline.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"UnsupportedSecondaryInfluences.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"UnsupportedRequiredExtension.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"ResourceLimit.gltf", ESceneImportDiagnosticCategory::ResourceLimitExceeded},
-			FCase{"SparseAccessor.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"TruncatedAccessor.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"AnimatedNonJoint.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"MorphTargets.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"InvalidJointIndex.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"ZeroWeights.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"NaNWeights.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"NonFiniteInverseBind.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"UnorderedKeyTimes.gltf", ESceneImportDiagnosticCategory::MalformedSource},
-			FCase{"DuplicateKeyTimes.gltf", ESceneImportDiagnosticCategory::MalformedSource}};
-		for (const FCase& Case : Cases)
-		{
-			SCOPED_TRACE(Case.File);
 			FImportedSceneData Scene;
-			EXPECT_FALSE(ImportFromFile(
-				TestDataPath(std::format("Skeletal/Malformed/{}", Case.File)), Scene));
-			EXPECT_TRUE(Scene.Skeletons.empty());
-			EXPECT_TRUE(Scene.SkeletalMeshes.empty());
-			EXPECT_TRUE(Scene.AnimationClips.empty());
-			EXPECT_TRUE(std::ranges::any_of(Scene.Diagnostics, [&](const FSceneImportDiagnostic& Diagnostic) {
+			EXPECT_FALSE(ImportFromFile(Path.generic_string(), Scene));
+			EXPECT_TRUE(Scene.Meshes.empty());
+			EXPECT_TRUE(Scene.Materials.empty());
+			EXPECT_TRUE(Scene.MaterialSlots.empty());
+			EXPECT_TRUE(std::ranges::any_of(Scene.Diagnostics, [](const FSceneImportDiagnostic& Diagnostic) {
 				return Diagnostic.Severity == EImportDiagnosticSeverity::Error
-					&& Diagnostic.Category == Case.Category;
+					&& Diagnostic.Category == ESceneImportDiagnosticCategory::UnsupportedFeature;
 			}));
 		}
 	}

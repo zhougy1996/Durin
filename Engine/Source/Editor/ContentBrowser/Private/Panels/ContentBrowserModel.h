@@ -26,7 +26,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		Files,
 		Levels,
 		StaticMeshes,
-		SkeletalAssets,
 		Materials,
 		Textures,
 		OtherAssets,

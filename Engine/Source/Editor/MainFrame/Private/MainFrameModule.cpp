@@ -16,7 +16,6 @@
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
-#include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/ThumbnailManager.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
@@ -54,8 +53,6 @@ namespace Durin::Editor::MainFrame
 			// Release every UI-held FAssetThumbnail reference before renderer
 			// registrations and their owning modules begin retirement.
 			ContentBrowserTool.reset();
-			if (SkeletalMeshEditorModule)
-				SkeletalMeshEditorModule->UnregisterSkeletalMeshEditor();
 			if (StaticMeshEditorModule)
 				StaticMeshEditorModule->UnregisterStaticMeshEditor();
 			if (TextureEditorModule)
@@ -86,7 +83,6 @@ namespace Durin::Editor::MainFrame
 		::Durin::FMaterialEditorModule* MaterialEditorModule = nullptr;
 		::Durin::FTextureEditorModule* TextureEditorModule = nullptr;
 		::Durin::FStaticMeshEditorModule* StaticMeshEditorModule = nullptr;
-		::Durin::FSkeletalMeshEditorModule* SkeletalMeshEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
 		std::unique_ptr<FConsolePanel> Console;
 		std::unique_ptr<FEditorNotificationOverlay> Activity;
@@ -256,7 +252,6 @@ namespace Durin::Editor::MainFrame
 			::Durin::FMaterialEditorModule& MaterialEditorModule,
 			::Durin::FTextureEditorModule& TextureEditorModule,
 			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
-			::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
 			Editor::DThumbnailManager& ThumbnailManager
 		) -> bool
 		{
@@ -315,20 +310,10 @@ namespace Durin::Editor::MainFrame
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
-			if (!SkeletalMeshEditorModule.RegisterSkeletalMeshEditor(
-				WorkspaceManager, ThumbnailManager))
-			{
-				StaticMeshEditorModule.UnregisterStaticMeshEditor();
-				TextureEditorModule.UnregisterTextureEditor();
-				MaterialEditorModule.UnregisterMaterialEditor();
-				LevelEditorModule.UnregisterLevelEditorWorkspace();
-				return false;
-			}
 			if (WorkspaceManager.OpenDefaultWorkspaces()) return true;
 
 			// Feature modules own their handles, but the host coordinates this multi-module
 			// startup so a failed default document cannot leave a partial editor behind.
-			SkeletalMeshEditorModule.UnregisterSkeletalMeshEditor();
 			StaticMeshEditorModule.UnregisterStaticMeshEditor();
 			TextureEditorModule.UnregisterTextureEditor();
 			MaterialEditorModule.UnregisterMaterialEditor();
@@ -346,7 +331,6 @@ namespace Durin::Editor::MainFrame
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
 				FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-				FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 				Editor::DThumbnailManager& ThumbnailManager =
 					Editor::GetDefaultThumbnailManager();
@@ -358,13 +342,10 @@ namespace Durin::Editor::MainFrame
 					FModuleManager::LoadModuleChecked<::Durin::FTextureEditorModule>("TextureEditor");
 				::Durin::FStaticMeshEditorModule& StaticMeshEditorModule =
 					FModuleManager::LoadModuleChecked<::Durin::FStaticMeshEditorModule>("StaticMeshEditor");
-				::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule =
-					FModuleManager::LoadModuleChecked<::Durin::FSkeletalMeshEditorModule>("SkeletalMeshEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
 				Context.MaterialEditorModule = &MaterialEditorModule;
 				Context.TextureEditorModule = &TextureEditorModule;
 				Context.StaticMeshEditorModule = &StaticMeshEditorModule;
-				Context.SkeletalMeshEditorModule = &SkeletalMeshEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					Context,
 					*Context.WorkspaceManager,
@@ -372,7 +353,6 @@ namespace Durin::Editor::MainFrame
 					MaterialEditorModule,
 					TextureEditorModule,
 					StaticMeshEditorModule,
-					SkeletalMeshEditorModule,
 					ThumbnailManager);
 				if (bWorkspaceReady)
 				{
@@ -1358,7 +1338,7 @@ namespace Durin
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
 				&& Context->bHasProject && Context->LevelEditorModule
 				&& Context->MaterialEditorModule && Context->TextureEditorModule
-				&& Context->StaticMeshEditorModule && Context->SkeletalMeshEditorModule
+				&& Context->StaticMeshEditorModule
 				&& Context->ContentBrowserTool;
 			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)

@@ -87,7 +87,7 @@ mutations.
 For each scene-geometry request, the service captures a request-local table
 from a non-zero numeric token to `FPrimitiveSceneId`, weak component/Actor, and
 the component registration generation. The built-in reference backend performs
-LOD0, double-sided surface queries for StaticMesh and current-pose SkeletalMesh
+LOD0, double-sided surface queries for StaticMesh and SplineMesh
 components and returns only a token and world distance. Before exposing a completion, the service verifies client/Level
 generation, weak identity, Level membership, ownership, registration cycle,
 visibility, and primitive identity. World or Level replacement, client reset or
@@ -97,13 +97,12 @@ camera movement alone does not reinterpret the immutable clicked view.
 `FLevelEditorContext` owns one game-thread `FViewportPickingSceneIndex` for its
 active Level and shares it with every attached viewport service. Engine emits
 monotonic editor-only primitive mutation batches for registration, retirement,
-transform, owner visibility, mesh/proxy replacement, and skeletal pose-bound
-publication. Subscription begins with a complete snapshot. A missing revision,
+transform, owner visibility, and mesh/proxy replacement. Subscription begins with a complete snapshot. A missing revision,
 invalid batch, Level replacement, or an index build that cannot satisfy its
 64 MiB budget makes the complete request use reference discovery; a stale
 partial candidate table is never queried.
 
-The index admits registered visible StaticMesh and SkeletalMesh primitives
+The index admits registered visible StaticMesh and SplineMesh primitives
 with non-zero identity and finite current world bounds. It uses deterministic
 centroid splits and 10 percent fat update bounds with a 0.01 world-unit minimum.
 An update inside its fat bound changes only the exact leaf; an escape, add, or
@@ -124,30 +123,12 @@ reference triangle loop for that component.
 Private backend policy selects `Reference`, `Accelerated`, or `Compare`.
 Compare runs both against the same immutable request target table; a status,
 token, hit-presence, or distance mismatch increments the parity counter and
-returns the reference completion. Skeletal triangles retain the exact M2
-provider: only their current-pose world bounds are accelerated because measured
-skinning work did not meet the Stage 3 activation threshold.
-
-For a skeletal candidate, the backend acquires one immutable
-`FSkeletalPosePalette` from the component on the game thread. The pose must have
-a non-zero revision, the mesh's non-empty skeleton compatibility identity, one
-finite matrix per LOD0 palette entry, and finite valid current local bounds.
-CPU positions, indices, sections, influences, and palette shapes must agree.
-Influence bone indices are skeleton bone indices and resolve through a unique
-request-local bone-to-palette-slot map; each referenced vertex is deformed once
-as the weighted sum of its palette-matrix-transformed bind position. Missing,
-incomplete, incompatible, malformed, or non-finite data makes only that
-component a non-candidate. There is no bind-pose or bounds-only fallback.
-
-The current pose bounds reject work before deformation. Bounds-surviving
-skeletal candidates share request-wide limits of 250,000 skinned referenced
-vertices and 500,000 tested triangles. Reaching either limit is permitted;
-exceeding a limit fails the complete geometry request with no partial winner.
-Private diagnostics record applicable/invalid targets, bounds rejects, budget
-failures, skinned vertices, and tested triangles without expanding the public
-result or producing per-click logs. Local hits are transformed back to world
-space before distance comparison, preserving ordering under rotation,
-non-uniform scale, and mirroring; singular transforms are skipped.
+returns the reference completion. SplineMesh uses its current immutable spline
+parameters to deform the retained StaticMesh LOD0 surface before exact triangle
+queries. Missing or malformed mesh data makes only that component a
+non-candidate. Local hits are transformed back to world space before distance
+comparison, preserving ordering under rotation, non-uniform scale, and
+mirroring; singular transforms are skipped.
 
 Geometry and the prepared visualization candidate enter one resolver. A
 depth-independent visualization wins first. Otherwise the nearest finite world

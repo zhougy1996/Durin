@@ -34,11 +34,10 @@
   ],
   "entryGeometrySubset": {
     "StaticMesh": "complete artifact matrix in this package",
-    "SplineMesh": "SkeletalMeshRenderResourcesVulkanTests identity/curved parity captures",
-    "SkeletalMesh": "SkeletalMeshRenderResourcesVulkanTests Lit and shadow capture"
+    "SplineMesh": "Spline qualification identity/curved parity captures"
   },
   "stage4ParityMatrix": {
-    "geometry": ["StaticMesh", "SplineMesh", "SkeletalMesh"],
+    "geometry": ["StaticMesh", "SplineMesh"],
     "surface": ["horizontal", "vertical", "sloped", "grazing", "thin", "mirrored", "two-sided", "masked", "modular-valid", "modular-defective"],
     "motion": ["camera-translation", "camera-rotation", "light-direction", "animation", "resize"],
     "views": ["main", "auxiliary", "preview", "present", "offscreen", "fixed-aspect", "post-process", "editor-assistance"]

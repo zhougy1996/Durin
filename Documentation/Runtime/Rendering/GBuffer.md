@@ -8,8 +8,8 @@ Last reviewed: 2026-09-03
 
 ## Scope and Ownership
 
-The minimal GBuffer represents eligible lit opaque and masked StaticMesh,
-SplineMesh and SkeletalMesh draws. Unlit, translucent, special forward, sky,
+The minimal GBuffer represents eligible lit opaque and masked StaticMesh and
+SplineMesh draws. Unlit, translucent, special forward, sky,
 and editor-assistance surfaces do not publish records. Masked rejection occurs
 before any attachment write.
 
@@ -74,7 +74,7 @@ range.
 The geometry pass clears once, writes every attachment, and
 leaves all four color targets graphics-shader-readable. D32 follows the
 existing reversed-Z clear/write contract and is shader-readable after the
-pass. Static, spline, and skeletal pipelines differ only in vertex
+pass. Static and spline pipelines differ only in vertex
 transport; fragment material evaluation and record encoding are shared.
 
 Target publication is transactional. A partially created extent is not
@@ -100,7 +100,7 @@ packing or keep the GBuffer debug target resident in ordinary production.
 ## Diagnostics and Qualification
 
 `FSceneViewCounters` reports attempted, successful, and skipped GBuffer draws
-separately for StaticMesh, SplineMesh, and SkeletalMesh, plus active
+separately for StaticMesh and SplineMesh, plus active
 attachment and retained bytes. Development captures can read the four color
 attachments directly. Sampled D32 is inspected through the depth and
 reconstruction debug routes because generic depth-image copies are not an RHI

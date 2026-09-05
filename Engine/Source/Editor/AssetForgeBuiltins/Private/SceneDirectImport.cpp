@@ -1,6 +1,5 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
-#include "Animation/AnimationClip.h"
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/SourceHint.h"
@@ -14,9 +13,6 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "SceneImportInternal.h"
-#include "SkeletalMesh/SkeletalBuild.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMeshImportAdapter.h"
@@ -39,8 +35,6 @@ namespace Durin::AssetForge::Builtins
 			FPackagePath AssetPath;
 			FStaticMeshBuildResult StaticMesh;
 			FSceneTextureBuildProduct Texture;
-			FSkeletalMeshDerivedDataResult SkeletalMesh;
-			FAnimationClipDerivedDataResult Animation;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
 		};
@@ -89,11 +83,7 @@ namespace Durin::AssetForge::Builtins
 				if (Output.Kind == ESceneOutputKind::MaterialInstance)
 					for (const FSceneMaterialTextureBinding& Binding : Output.TextureBindings)
 						Dependencies.push_back(Binding.TextureIdentity);
-				if (Output.Kind == ESceneOutputKind::SkeletalMesh
-					|| Output.Kind == ESceneOutputKind::AnimationClip)
-					Dependencies.push_back(Output.SkeletonIdentity);
-				if (Output.Kind == ESceneOutputKind::StaticMesh
-					|| Output.Kind == ESceneOutputKind::SkeletalMesh)
+				if (Output.Kind == ESceneOutputKind::StaticMesh)
 					Dependencies.insert(Dependencies.end(),
 						MaterialIdentities.begin(), MaterialIdentities.end());
 				std::ranges::sort(Dependencies);
@@ -204,24 +194,6 @@ namespace Durin::AssetForge::Builtins
 				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
 				Output.Candidate = Value;
 			}
-			else if (Kind == ESceneOutputKind::Skeleton)
-			{
-				DSkeleton* Value = nullptr;
-				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
-				Output.Candidate = Value;
-			}
-			else if (Kind == ESceneOutputKind::SkeletalMesh)
-			{
-				DSkeletalMesh* Value = nullptr;
-				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
-				Output.Candidate = Value;
-			}
-			else if (Kind == ESceneOutputKind::AnimationClip)
-			{
-				DAnimationClip* Value = nullptr;
-				bCreated = ConstructSceneCandidate(AssetPath, Value, OutError);
-				Output.Candidate = Value;
-			}
 			else if (Kind == ESceneOutputKind::Texture2D)
 			{
 				DTexture2D* Value = nullptr;
@@ -244,12 +216,6 @@ namespace Durin::AssetForge::Builtins
 			if (const auto* Texture = Cast<DTexture2D>(Output.Candidate))
 				return Texture->GetPlatformData() != nullptr
 					&& Texture->HasPlatformData();
-			if (const auto* Skeleton = Cast<DSkeleton>(Output.Candidate))
-				return Skeleton->Validate(OutError);
-			if (const auto* Mesh = Cast<DSkeletalMesh>(Output.Candidate))
-				return Mesh->Validate(OutError);
-			if (const auto* Clip = Cast<DAnimationClip>(Output.Candidate))
-				return Clip->Validate(OutError);
 			return Cast<DMaterialInstance>(Output.Candidate) != nullptr;
 		}
 	}
@@ -343,62 +309,6 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
 			}
-			else if (Descriptor.Kind == ESceneOutputKind::SkeletalMesh)
-			{
-				if (Descriptor.SourceIndex >= Data.Scene.SkeletalMeshes.size())
-					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
-						"scene-build", "Scene SkeletalMesh mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedSkeletalMeshData& Imported =
-					Data.Scene.SkeletalMeshes[Descriptor.SourceIndex];
-				if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
-					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
-						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
-				FSkeletalMeshImportedData Canonical;
-				if (!Canonical.Capture(*Imported.Payload,
-					static_cast<uint32>(Skeleton.Bones.size()),
-					static_cast<uint32>(Imported.MaterialSlots.size()), Error))
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				if (!BuildSkeletalMeshDerivedData({
-					.ImportedDataIdentity = Canonical.GetIdentity(),
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.Context = {.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
-						.MaterialSlotCount = static_cast<uint32>(Imported.MaterialSlots.size()),
-						.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-						.TargetProfile = ESkeletalPayloadTargetProfile::Game},
-					.Payload = Imported.Payload, .ShouldCancel = IsCancellationRequested},
-					Output.SkeletalMesh, Error))
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", std::move(Error), Descriptor.StableIdentity);
-			}
-			else if (Descriptor.Kind == ESceneOutputKind::AnimationClip)
-			{
-				if (Descriptor.SourceIndex >= Data.Scene.AnimationClips.size())
-					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
-						"scene-build", "Scene AnimationClip mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedAnimationClipData& Imported =
-					Data.Scene.AnimationClips[Descriptor.SourceIndex];
-				if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
-					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
-						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
-				FAnimationClipImportedData Canonical;
-				if (!Canonical.Capture(*Imported.Payload,
-					static_cast<uint32>(Skeleton.Bones.size()), Error))
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", std::move(Error), Descriptor.StableIdentity);
-				if (!BuildAnimationClipDerivedData({
-					.ImportedDataIdentity = Canonical.GetIdentity(),
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.Context = {.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
-					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-					.TargetProfile = ESkeletalPayloadTargetProfile::Game},
-					.Payload = Imported.Payload, .ShouldCancel = IsCancellationRequested},
-					Output.Animation, Error))
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-build", std::move(Error), Descriptor.StableIdentity);
-			}
 		}
 
 		if (IsCanceled(IsCancellationRequested))
@@ -423,18 +333,7 @@ namespace Durin::AssetForge::Builtins
 					"scene-materialization", std::move(Error), Output.Descriptor->StableIdentity);
 			}
 			const FSceneOutputData& Descriptor = *Output.Descriptor;
-			if (Descriptor.Kind == ESceneOutputKind::Skeleton)
-			{
-				if (Descriptor.SourceIndex >= Data.Scene.Skeletons.size()
-					|| !Cast<DSkeleton>(Output.Candidate)->InitializeCanonicalBones(
-						Data.Scene.Skeletons[Descriptor.SourceIndex].Bones, Error))
-				{
-					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
-						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
-				}
-			}
-			else if (Descriptor.Kind == ESceneOutputKind::Texture2D)
+			if (Descriptor.Kind == ESceneOutputKind::Texture2D)
 			{
 				const FXxHash128 SourceHash = Output.Texture.EncodedSourceHash;
 				const std::string SourcePhysicalPath = Output.Texture.SourceFilename;
@@ -614,53 +513,6 @@ namespace Durin::AssetForge::Builtins
 								Descriptor.StableIdentity);
 						}
 					}
-			}
-			else if (Descriptor.Kind == ESceneOutputKind::SkeletalMesh)
-			{
-				const FImportedSkeletalMeshData& Imported =
-					Data.Scene.SkeletalMeshes[Descriptor.SourceIndex];
-				const FImportedSkeletonData& Skeleton =
-					Data.Scene.Skeletons[Imported.SkeletonIndex];
-				std::vector<FMeshMaterialSlotDefinition> Slots = Imported.MaterialSlots;
-				for (auto& Slot : Slots)
-					if (!(Slot.DefaultMaterial = FindMaterial(Slot.SourceMaterialIndex)))
-					{
-						Abandon(Prepared);
-						return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
-							"scene-dependency-binding", "Scene material dependency is unavailable.",
-							Descriptor.StableIdentity);
-					}
-				FPreparedSceneOutput* SkeletonOutput = FindOutput(Descriptor.SkeletonIdentity);
-				if (!SkeletonOutput || !Cast<DSkeletalMesh>(Output.Candidate)->SetAssetData({
-					.Skeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
-					.ValidationSkeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
-					.MaterialSlots = std::move(Slots), .Payload = std::move(Output.SkeletalMesh.Payload)}, Error))
-				{
-					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
-						"scene-dependency-binding", std::move(Error), Descriptor.StableIdentity);
-				}
-			}
-			else if (Descriptor.Kind == ESceneOutputKind::AnimationClip)
-			{
-				const FImportedAnimationClipData& Imported =
-					Data.Scene.AnimationClips[Descriptor.SourceIndex];
-				const FImportedSkeletonData& Skeleton =
-					Data.Scene.Skeletons[Imported.SkeletonIndex];
-				FPreparedSceneOutput* SkeletonOutput = FindOutput(Descriptor.SkeletonIdentity);
-				if (!SkeletonOutput || !Cast<DAnimationClip>(Output.Candidate)->SetAssetData({
-					.Skeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
-					.ValidationSkeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,
-					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
-					.ClipName = FName(Imported.SuggestedName),
-					.Payload = std::move(Output.Animation.Payload)}, Error))
-				{
-					Abandon(Prepared);
-					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
-						"scene-dependency-binding", std::move(Error), Descriptor.StableIdentity);
-				}
 			}
 			Output.Candidate->MarkPackageDirty();
 			if (!ValidateCandidate(Output, Error))

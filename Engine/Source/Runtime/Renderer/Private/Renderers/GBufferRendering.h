@@ -6,7 +6,6 @@
 namespace Durin
 {
 	class FGBufferRenderer;
-	class FSkeletalMeshRenderer;
 	class FStaticMeshRenderer;
 	struct FPreparedReceiverGeometry;
 	struct FSceneRenderTelemetry;
@@ -38,7 +37,6 @@ namespace Durin
 		FSceneRenderTelemetry& Telemetry;
 		FGBufferRenderer& Renderer;
 		FStaticMeshRenderer& StaticMeshes;
-		FSkeletalMeshRenderer& SkeletalMeshes;
 		FRDGTextureHandle Depth;
 		const FSceneViewRenderOptions& Options;
 		uint32 Width;

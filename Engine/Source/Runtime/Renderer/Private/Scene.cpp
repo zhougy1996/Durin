@@ -6,7 +6,6 @@
 #include "Components/SkyBoxComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Actor.h"
-#include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 
@@ -282,12 +281,6 @@ namespace Durin
 		return static_cast<FStaticMeshSceneProxy&>(*Proxy);
 	}
 
-	auto FPrimitiveSceneInfo::GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&
-	{
-		check(Kind == EPrimitiveSceneProxyKind::SkeletalMesh);
-		return static_cast<FSkeletalMeshSceneProxy&>(*Proxy);
-	}
-
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
 	{
 		check(Kind == EPrimitiveSceneProxyKind::SplineMesh);
@@ -303,17 +296,6 @@ namespace Durin
 	auto FPrimitiveSceneInfo::UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
 		return Proxy->UpdateMaterialBinding_RenderThread(Update);
-	}
-
-	auto FPrimitiveSceneInfo::UpdateSkeletalMeshDynamicData(
-		std::shared_ptr<const FSkeletalPosePalette> Pose
-	) -> bool
-	{
-		if (Kind != EPrimitiveSceneProxyKind::SkeletalMesh
-			|| !GetSkeletalMeshProxy().UpdateDynamicData_RenderThread(std::move(Pose))) return false;
-		LocalBounds = GetSkeletalMeshProxy().GetLocalBounds();
-		WorldBounds = TransformBounds(LocalBounds, Transform);
-		return true;
 	}
 
 	auto FPrimitiveSceneInfo::UpdateSplineMeshDynamicData(
@@ -333,7 +315,6 @@ namespace Durin
 		switch (Info.GetKind())
 		{
 		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
-		case EPrimitiveSceneProxyKind::SkeletalMesh: std::erase(SkeletalMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::SplineMesh: std::erase(SplineMeshSceneInfos, &Info); break;
 		}
 	}
@@ -354,7 +335,6 @@ namespace Durin
 			switch (RawInfo->GetKind())
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
-			case EPrimitiveSceneProxyKind::SkeletalMesh: SkeletalMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::SplineMesh: SplineMeshSceneInfos.push_back(RawInfo); break;
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
@@ -414,22 +394,6 @@ namespace Durin
 		requiref(bAccepted, "UpdatePrimitiveMaterialBinding command admission failed.");
 	}
 
-	auto FScene::UpdateSkeletalMeshDynamicData(
-		FPrimitiveSceneId PrimitiveId,
-		std::shared_ptr<const FSkeletalPosePalette> Pose
-	) -> void
-	{
-		RequireActive("UpdateSkeletalMeshDynamicData");
-		if (PrimitiveId == InvalidPrimitiveSceneId || !Pose) return;
-		const bool bAccepted = TryEnqueueRenderCommand("UpdateSkeletalMeshDynamicData", [this, PrimitiveId, Pose = std::move(Pose)](FRHICommandListImmediate&) mutable {
-			CheckRenderingThread();
-			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
-				Found != PrimitiveInfosById.end())
-				Found->second->UpdateSkeletalMeshDynamicData(std::move(Pose));
-		});
-		requiref(bAccepted, "UpdateSkeletalMeshDynamicData command admission failed.");
-	}
-
 	auto FScene::UpdateSplineMeshDynamicData(
 		FPrimitiveSceneId PrimitiveId,
 		FSplineMeshRenderDynamicData DynamicData
@@ -451,7 +415,7 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
-			   && StaticMeshSceneInfos.empty() && SkeletalMeshSceneInfos.empty()
+			   && StaticMeshSceneInfos.empty()
 			   && SplineMeshSceneInfos.empty()
 			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
 			   && VolumetricClouds->Num() == 0;
@@ -462,7 +426,6 @@ namespace Durin
 		CheckRenderingThread();
 		PrimitiveSceneInfos.clear();
 		StaticMeshSceneInfos.clear();
-		SkeletalMeshSceneInfos.clear();
 		SplineMeshSceneInfos.clear();
 		PrimitiveInfosById.clear();
 		Lights->Clear();

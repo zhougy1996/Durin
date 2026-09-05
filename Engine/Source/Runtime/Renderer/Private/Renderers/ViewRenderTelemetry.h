@@ -37,7 +37,6 @@ namespace Durin
 		size_t InvalidBoundsFallbacks = 0;
 		size_t PreparedStaticMeshCasters = 0;
 		size_t PreparedSplineMeshCasters = 0;
-		size_t PreparedSkeletalMeshCasters = 0;
 		size_t PreparedTriangles = 0;
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
@@ -90,39 +89,6 @@ namespace Durin
 		size_t AcceptedSplineMeshDynamicUpdates = 0;
 	};
 
-	struct FSkeletalMeshRenderTelemetry
-	{
-		size_t VisibleSkeletalMeshCandidates = 0;
-		size_t PreparedSkeletalMeshPrimitives = 0;
-		size_t RejectedSkeletalMeshPrimitives = 0;
-		size_t PreparedSkeletalMeshSections = 0;
-		size_t PreparedSkeletalMeshTriangles = 0;
-		size_t OpaqueSkeletalMeshSections = 0;
-		size_t MaskedSkeletalMeshSections = 0;
-		size_t TranslucentSkeletalMeshSections = 0;
-		size_t OpaqueSkeletalMeshTriangles = 0;
-		size_t MaskedSkeletalMeshTriangles = 0;
-		size_t TranslucentSkeletalMeshTriangles = 0;
-		size_t OpaqueSkeletalMeshStateGroups = 0;
-		size_t MaskedSkeletalMeshStateGroups = 0;
-		size_t SkeletalMeshPipelineTransitions = 0;
-		size_t SkeletalMeshMaterialTransitions = 0;
-		size_t SkeletalMeshVertexFactoryTransitions = 0;
-		size_t SkeletalMeshGeometryTransitions = 0;
-		size_t SkeletalMeshResourceAttemptedDraws = 0;
-		size_t SkeletalMeshResourceSuccessfulDraws = 0;
-		size_t SkeletalMeshResourceRejectedDraws = 0;
-		size_t SkeletalMeshAttemptedDraws = 0;
-		size_t SkeletalMeshSuccessfulDraws = 0;
-		size_t SkeletalMeshRejectedDraws = 0;
-		size_t RequestedSkeletalPaletteUploads = 0;
-		size_t UploadedSkeletalPalettes = 0;
-		size_t ReusedSkeletalPalettes = 0;
-		size_t RejectedSkeletalPalettes = 0;
-		size_t UploadedSkeletalPaletteMatrices = 0;
-		size_t UploadedSkeletalPaletteBytes = 0;
-	};
-
 	struct FLightingRenderTelemetry
 	{
 		size_t SubmittedDirectionalLights = 0;
@@ -160,7 +126,6 @@ namespace Durin
 		size_t ShadowUniqueHiddenCasters = 0;
 		size_t ShadowUniqueEligibleStaticMeshCasters = 0;
 		size_t ShadowUniqueEligibleSplineMeshCasters = 0;
-		size_t ShadowUniqueEligibleSkeletalMeshCasters = 0;
 		size_t ShadowCascadeClassificationTests = 0;
 		size_t ShadowMembershipPopcount = 0;
 		size_t ShadowTemporaryBytes = 0;
@@ -170,19 +135,13 @@ namespace Durin
 		size_t ShadowSelectedLODFactReuses = 0;
 		size_t ShadowStaticSplineSectionFactBuilds = 0;
 		size_t ShadowStaticSplineSectionFactReuses = 0;
-		size_t ShadowSkeletalPrimitiveFactBuilds = 0;
-		size_t ShadowSkeletalPrimitiveFactReuses = 0;
-		size_t ShadowSkeletalSectionFactBuilds = 0;
-		size_t ShadowSkeletalSectionFactReuses = 0;
 		uint64 ShadowDiscoveryMembershipNanoseconds = 0;
 		uint64 ShadowStaticSplinePreparationNanoseconds = 0;
-		uint64 ShadowSkeletalPreparationNanoseconds = 0;
 		uint64 ShadowSortingBatchingNanoseconds = 0;
 		uint64 ShadowLogicalPreparationNanoseconds = 0;
 		uint64 ShadowResourcePreparationNanoseconds = 0;
 		size_t ShadowPreparedStaticMeshCasters = 0;
 		size_t ShadowPreparedSplineMeshCasters = 0;
-		size_t ShadowPreparedSkeletalMeshCasters = 0;
 		size_t ShadowPreparedTriangles = 0;
 		size_t ShadowResourceAttempts = 0;
 		size_t ShadowResourceSuccesses = 0;
@@ -238,10 +197,6 @@ namespace Durin
 		size_t GBufferSplineMeshSuccessfulDraws = 0;
 		size_t GBufferSplineMeshRejectedDraws = 0;
 		size_t GBufferSplineMeshSkippedDraws = 0;
-		size_t GBufferSkeletalMeshAttemptedDraws = 0;
-		size_t GBufferSkeletalMeshSuccessfulDraws = 0;
-		size_t GBufferSkeletalMeshRejectedDraws = 0;
-		size_t GBufferSkeletalMeshSkippedDraws = 0;
 	};
 
 	struct FDeferredRenderTelemetry
@@ -315,7 +270,6 @@ namespace Durin
 		FVisibilityRenderTelemetry Visibility;
 		FStaticMeshRenderTelemetry StaticMesh;
 		FSplineMeshRenderTelemetry SplineMesh;
-		FSkeletalMeshRenderTelemetry SkeletalMesh;
 		FLightingRenderTelemetry Lighting;
 		FDirectionalShadowRenderTelemetry DirectionalShadow;
 		FContactShadowRenderTelemetry ContactShadow;

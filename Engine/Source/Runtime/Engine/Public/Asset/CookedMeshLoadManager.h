@@ -12,8 +12,7 @@ namespace Durin
 
 	enum class ECookedMeshFamily : uint8
 	{
-		StaticMesh,
-		SkeletalMesh,
+		StaticMesh = 0,
 	};
 
 	enum class ECookedMeshManagerState : uint8

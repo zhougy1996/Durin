@@ -134,8 +134,8 @@ PostLoad policy rather than import `Recover` semantics.
 ## Scene Import
 
 Scene import is the one supported multi-output importer. It is creation-only
-and owns a private transient dependency model for textures, materials, static
-meshes, Skeletons, SkeletalMeshes, and AnimationClips. The private model is not
+and owns a private transient dependency model for textures, materials, and static
+meshes. Sources with skins or animation channels fail before staging outputs. The private model is not
 a public AssetForge graph and is never persisted for replay.
 
 The importer:
@@ -145,7 +145,7 @@ The importer:
 - derives a stable private topological order;
 - preflights every destination collision;
 - constructs and validates all peer candidates before publication;
-- binds material/texture and skeletal relationships in dependency order;
+- binds material and texture relationships in dependency order;
 - saves the complete output package set atomically.
 
 Scene constructs private candidate packages from CoreDObject package/object

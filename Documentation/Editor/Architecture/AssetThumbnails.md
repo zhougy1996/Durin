@@ -2,7 +2,7 @@
 
 Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, persistence, and presentation contracts.
 
-Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, SkeletalMeshEditor, LevelEditor
+Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
 Last reviewed: 2026-09-03
 
@@ -20,7 +20,7 @@ content.
   explicit shutdown.
 - Feature editor modules own their concrete renderer objects and move-only
   `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
-  Texture2D/TextureCube, StaticMesh, and SkeletalMesh logic
+  Texture2D/TextureCube, and StaticMesh logic
   remains in the corresponding feature module.
 - `FAssetThumbnail` is the UI-facing reference for one canonical asset identity,
   requested presentation size, and pool. It owns no asset, task, preview world,

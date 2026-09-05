@@ -3,7 +3,6 @@
 #include "EngineAPI.h"
 #include "Materials/MeshMaterialSlot.h"
 #include "Physics/BodySetup.h"
-#include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin
@@ -33,12 +32,6 @@ namespace Durin
 		bool bHasCollision = false;
 	};
 
-	struct FSkeletalMeshCookedProduct
-	{
-		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
-		std::unique_ptr<FSkeletalMeshRenderData> RenderData;
-	};
-
 	// Worker-safe codecs. Every input is detached from managed objects and every
 	// output owns the CPU state required for later GameThread publication.
 	ENGINE_API auto DecodeStaticMeshCookedProduct(
@@ -48,14 +41,5 @@ namespace Durin
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,
 		FStaticMeshCookedProduct& OutProduct,
-		FCookedMeshProductError& OutError) -> bool;
-
-	ENGINE_API auto DecodeSkeletalMeshCookedProduct(
-		std::span<const std::byte> Bytes,
-		std::span<const FSkeletonBone> SkeletonBones,
-		const FSkeletonTransform& MeshNodeBindTransform,
-		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-		const FSkeletalMeshSummary& ExpectedSummary,
-		FSkeletalMeshCookedProduct& OutProduct,
 		FCookedMeshProductError& OutError) -> bool;
 }

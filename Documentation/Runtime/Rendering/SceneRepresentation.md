@@ -17,7 +17,7 @@ seam are Renderer-private.
 
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
-| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SkeletalMesh/SplineMesh typed views |
+| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SplineMesh typed views |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
 | SkyBox | `FSkyBoxSceneProxy` | Sole retained proxy |
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
@@ -38,7 +38,6 @@ Removal erases every typed membership reference before destroying the
 SceneInfo and proxy on the rendering thread. Scene release clears typed views
 before their owning maps. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.
-SkeletalMesh pose matrices and animated bounds are retained immutable values.
 SplineMesh retains copied normalized deformation values and bounds while
 borrowing the source StaticMesh render data under the same retirement fence;
 material proxies and SkyBox texture references remain counted references.
@@ -47,12 +46,10 @@ material proxies and SkyBox texture references remain counted references.
 
 `FPrimitiveSceneInfo` owns stable identity, primitive kind,
 visibility, transform, local bounds, derived world bounds, and typed-list
-membership. StaticMesh, SkeletalMesh, and SplineMesh proxies own
+membership. StaticMesh and SplineMesh proxies own
 family-specific render data and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
-box remains invalid and is not used for culling. A skeletal dynamic update
-replaces the immutable pose and local bound together and recomputes this world
-bound before later FIFO visibility work. A SplineMesh dynamic update similarly
+box remains invalid and is not used for culling. A SplineMesh dynamic update
 accepts only a newer non-zero deformation revision and atomically replaces the
 copied parameters and local/world bounds. Stale updates and updates after
 retirement are ignored without reading the component.
@@ -120,8 +117,7 @@ a narrow Engine seam on `DLevel`: a game-thread subscriber first receives one
 complete primitive snapshot and then monotonically revised mutation batches.
 `DPrimitiveComponent` publishes registration, retirement, transform, owner
 visibility, and proxy/data replacement through its authoritative render-state
-paths; `DSkeletalMeshComponent` additionally publishes each complete current
-pose bound. Payloads contain weak Actor/component identity plus primitive ID,
+paths. Payloads contain weak Actor/component identity plus primitive ID,
 registration generation, family, visibility, and finite transformed bounds.
 
 The observer owns no LevelEditor types, does not retain reflected objects, and

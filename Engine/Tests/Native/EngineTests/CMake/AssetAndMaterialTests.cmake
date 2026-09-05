@@ -14,7 +14,7 @@ durin_add_engine_functional_test(AssetCompilingManagerTests
 
 durin_add_engine_functional_test(CookedMeshLoadingTests
 	KIND contract
-	DOMAINS asset-workflow static-mesh skeletal-mesh
+	DOMAINS asset-workflow static-mesh
 	MODULES engine
 	SOURCES Private/CookedMeshLoadManagerTests.cpp
 )
@@ -278,59 +278,6 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-durin_add_engine_functional_test(SkeletalAssetTests
-	KIND feature
-	DOMAINS skeletal-mesh
-	MODULES engine skeletal-build
-	RUNTIME_STACK_RATIONALE
-		"Exercises uncooked skeletal DDC publication through the editor-only SkeletalBuild module."
-	SOURCES
-		Private/SkeletalAssetTests.cpp
-		Private/SkeletalAnimationTests.cpp
-	LIBRARIES SkeletalBuild
-)
-
-durin_add_engine_functional_test(SkeletalMeshEditorTests
-	KIND feature
-	DOMAINS skeletal-mesh
-	MODULES engine skeletal-mesh-editor
-	STACKS editor renderer
-	RUNTIME_STACK_RATIONALE "Exercises exact skeletal asset editor registration and read-only ownership."
-	SOURCES Private/SkeletalMeshEditorTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd SkeletalMeshEditor
-)
-
-durin_add_engine_functional_test(SkeletalSceneLifecycleTests
-	KIND integration
-	DOMAINS asset-import skeletal-mesh
-	MODULES engine skeletal-mesh-editor asset-forge-builtins
-	STACKS editor renderer
-	TIMEOUT 600
-	RUNTIME_STACK_RATIONALE
-		"Exercises editor skeletal Scene import, render-command publication, cook, and runtime-only load."
-	SOURCES
-		Private/SkeletalSceneLifecycleTests.cpp
-	LIBRARIES AssetForgeBuiltins RenderCore Renderer DurinEd SkeletalMeshEditor
-	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
-)
-
-durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
-	EDITOR_ONLY
-	KIND integration
-	DOMAINS skeletal-mesh
-	MODULES engine renderer
-	BACKENDS vulkan
-	STACKS renderer
-	GPU
-	TIMEOUT 900
-	RUNTIME_STACK_RATIONALE "Exercises Vulkan-backed skeletal render-resource initialization and retry."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for skeletal render-resource validation."
-	RUNTIME_ONLY_TARGETS VulkanRHI
-	SOURCES Private/SkeletalMeshRenderResourcesVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
-)
-
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source
@@ -343,7 +290,6 @@ set(_durin_texture_test_libraries
 	AssetTools
 	Engine
 	StaticMeshBuild
-	SkeletalBuild
 	TextureBuild
 	AssetForgeBuiltins
 	TextureEditor

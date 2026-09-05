@@ -49,8 +49,8 @@ path escapes, collisions, unsupported data, and resource limits are reported
 before any peer output is published.
 
 The importer creates only populated type directories beneath the selected
-destination, such as `Meshes`, `Materials`, `Textures`, `Skeletons`,
-`SkeletalMeshes`, and `Animations`. No generated asset is primary. Scene is
+destination, such as `Meshes`, `Materials`, and `Textures`. Sources containing
+skins or animation channels are rejected before publication. No generated asset is primary. Scene is
 creation-only: import a revised source into a fresh destination; there is no
 whole-scene reimport, generated-output repair, or reconciliation workflow.
 

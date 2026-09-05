@@ -163,8 +163,7 @@ TEST(FCookedMeshLoadManagerTests,
 		Resources[Index] = std::make_shared<FControlledPackageResource>();
 		ASSERT_TRUE(Manager.Submit(MakeRequest(*Owners[Index], 1,
 			MakeBulkData(Resources[Index]), &bCurrent, &PublishCount, 4,
-			&TerminalCount, Index % 2 == 0 ? ECookedMeshFamily::StaticMesh
-				: ECookedMeshFamily::SkeletalMesh)));
+			&TerminalCount, ECookedMeshFamily::StaticMesh)));
 	}
 
 	const FCookedMeshLoadDiagnostics Saturated = Manager.GetDiagnostics();
@@ -180,7 +179,7 @@ TEST(FCookedMeshLoadManagerTests,
 	});
 
 	// Exercise reassignment/supersession, unload cancellation, package-resource
-	// retirement, and object destruction while both mesh families occupy the
+	// retirement, and object destruction while static-mesh requests occupy the
 	// full configured admission budget.
 	auto SuccessorResource = std::make_shared<FControlledPackageResource>();
 	ASSERT_TRUE(Manager.Submit(MakeRequest(*Owners[0], 2,

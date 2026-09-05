@@ -549,10 +549,6 @@ namespace Durin
 				Record.Kind = EDirectionalShadowCasterKind::SplineMesh;
 				++Result.UniqueEligibleSplineMeshes;
 				break;
-			case EPrimitiveSceneProxyKind::SkeletalMesh:
-				Record.Kind = EDirectionalShadowCasterKind::SkeletalMesh;
-				++Result.UniqueEligibleSkeletalMeshes;
-				break;
 			}
 			for (uint32 CascadeIndex = 0;
 				 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
@@ -600,14 +596,10 @@ namespace Durin
 				case EDirectionalShadowCasterKind::SplineMesh:
 					++FamilyMemberships[1];
 					break;
-				case EDirectionalShadowCasterKind::SkeletalMesh:
-					++FamilyMemberships[2];
-					break;
 				}
 			}
 			Candidates.StaticMeshes.reserve(FamilyMemberships[0]);
 			Candidates.SplineMeshes.reserve(FamilyMemberships[1]);
-			Candidates.SkeletalMeshes.reserve(FamilyMemberships[2]);
 			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
 			{
 				if ((Record.CascadeMask & Bit) == 0) continue;
@@ -622,22 +614,16 @@ namespace Durin
 				case EDirectionalShadowCasterKind::SplineMesh:
 					Candidates.SplineMeshes.push_back(Record.SceneInfo);
 					break;
-				case EDirectionalShadowCasterKind::SkeletalMesh:
-					Candidates.SkeletalMeshes.push_back(Record.SceneInfo);
-					break;
 				}
 			}
 			const size_t Memberships = Candidates.StaticMeshes.size()
-				+ Candidates.SplineMeshes.size()
-				+ Candidates.SkeletalMeshes.size();
+				+ Candidates.SplineMeshes.size();
 			Candidates.Culled = Result.Records.size() - Memberships;
 			check(Candidates.Submitted == Candidates.Hidden + Candidates.Culled
 				+ Memberships);
 			Result.TemporaryBytes += Candidates.StaticMeshes.capacity()
 				* sizeof(const FPrimitiveSceneInfo*);
 			Result.TemporaryBytes += Candidates.SplineMeshes.capacity()
-				* sizeof(const FPrimitiveSceneInfo*);
-			Result.TemporaryBytes += Candidates.SkeletalMeshes.capacity()
 				* sizeof(const FPrimitiveSceneInfo*);
 		}
 		Result.TemporaryBytes += Result.Records.capacity()

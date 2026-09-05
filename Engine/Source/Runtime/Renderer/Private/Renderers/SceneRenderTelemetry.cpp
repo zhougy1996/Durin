@@ -1,6 +1,5 @@
 #include "Renderers/SceneRenderTelemetry.h"
 
-#include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 
 namespace Durin
@@ -39,15 +38,12 @@ namespace Durin
 		Result.Visibility.VisiblePrimitives = Telemetry.Visibility.VisiblePrimitives;
 		Result.StaticMesh.Primitives = Telemetry.StaticMesh.PreparedStaticMeshPrimitives;
 		Result.SplineMesh.Primitives = Telemetry.SplineMesh.PreparedSplineMeshPrimitives;
-		Result.SkeletalMesh.Primitives = Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives;
 
 		Result.SplineMesh.Triangles = Telemetry.SplineMesh.PreparedSplineMeshTriangles;
 		Result.StaticMesh.Triangles = Telemetry.StaticMesh.PreparedStaticMeshTriangles
 									  - std::min(Telemetry.StaticMesh.PreparedStaticMeshTriangles, Telemetry.SplineMesh.PreparedSplineMeshTriangles);
-		Result.SkeletalMesh.Triangles = Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles;
 		Result.Summary.Triangles = AddSaturated(
-			AddSaturated(Result.StaticMesh.Triangles, Result.SplineMesh.Triangles),
-			Result.SkeletalMesh.Triangles
+			Result.StaticMesh.Triangles, Result.SplineMesh.Triangles
 		);
 		Result.Shadow.Triangles = Telemetry.DirectionalShadow.ShadowPreparedTriangles;
 
@@ -56,9 +52,6 @@ namespace Durin
 			AddSaturated(
 				Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws,
 				Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws));
-		Result.SkeletalMesh.DrawCalls = AddSaturated(
-			Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws,
-			Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws);
 		Result.Shadow.DrawCalls = Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
 		Result.Lights.Directional = Telemetry.Lighting.SelectedDirectionalLights;
 		Result.Lights.Point = Telemetry.Lighting.SelectedPointLights;
@@ -179,47 +172,5 @@ namespace Durin
 		Telemetry.StaticMesh.StaticMeshRejectedDraws = Resolved.Observations.RejectedDraws;
 	}
 
-	auto ReduceSkeletalMeshTelemetry(
-		const FPreparedSkeletalMeshView& Meshes,
-		const FResolvedSkeletalMeshView& Resolved,
-		const FResolvedSkeletalPaletteTable& Palettes,
-		FViewRenderTelemetry& Telemetry
-	) -> void
-	{
-		check(Palettes.RequestedPalettes == Palettes.UploadedPalettes + Palettes.ReusedPalettes + Palettes.RejectedPalettes);
-		check(Palettes.UploadedBytes == Palettes.UploadedMatrices * sizeof(FMatrix4f));
-		Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives = Meshes.Primitives.size();
-		Telemetry.SkeletalMesh.RejectedSkeletalMeshPrimitives = Meshes.RejectedPrimitives;
-		Telemetry.SkeletalMesh.PreparedSkeletalMeshSections = Meshes.SelectedSections;
-		Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles = Meshes.SelectedTriangles;
-		Telemetry.SkeletalMesh.OpaqueSkeletalMeshSections = Meshes.OpaqueSections;
-		Telemetry.SkeletalMesh.MaskedSkeletalMeshSections = Meshes.MaskedSections;
-		Telemetry.SkeletalMesh.TranslucentSkeletalMeshSections = Meshes.TranslucentSections;
-		Telemetry.SkeletalMesh.OpaqueSkeletalMeshTriangles = Meshes.OpaqueTriangles;
-		Telemetry.SkeletalMesh.MaskedSkeletalMeshTriangles = Meshes.MaskedTriangles;
-		Telemetry.SkeletalMesh.TranslucentSkeletalMeshTriangles = Meshes.TranslucentTriangles;
-		Telemetry.SkeletalMesh.OpaqueSkeletalMeshStateGroups = Meshes.OpaqueStateGroups;
-		Telemetry.SkeletalMesh.MaskedSkeletalMeshStateGroups = Meshes.MaskedStateGroups;
-		Telemetry.SkeletalMesh.SkeletalMeshPipelineTransitions = Meshes.PipelineTransitions;
-		Telemetry.SkeletalMesh.SkeletalMeshMaterialTransitions = Meshes.MaterialTransitions;
-		Telemetry.SkeletalMesh.SkeletalMeshVertexFactoryTransitions =
-			Meshes.VertexFactoryTransitions;
-		Telemetry.SkeletalMesh.SkeletalMeshGeometryTransitions = Meshes.GeometryTransitions;
-		Telemetry.SkeletalMesh.SkeletalMeshResourceAttemptedDraws =
-			Resolved.Observations.ResourcePreparationAttemptedDraws;
-		Telemetry.SkeletalMesh.SkeletalMeshResourceSuccessfulDraws =
-			Resolved.Observations.ResourcePreparationSuccessfulDraws;
-		Telemetry.SkeletalMesh.SkeletalMeshResourceRejectedDraws =
-			Resolved.Observations.ResourcePreparationRejectedDraws;
-		Telemetry.SkeletalMesh.SkeletalMeshAttemptedDraws = Resolved.Observations.AttemptedDraws;
-		Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
-		Telemetry.SkeletalMesh.SkeletalMeshRejectedDraws = Resolved.Observations.RejectedDraws;
-		Telemetry.SkeletalMesh.RequestedSkeletalPaletteUploads = Palettes.RequestedPalettes;
-		Telemetry.SkeletalMesh.UploadedSkeletalPalettes = Palettes.UploadedPalettes;
-		Telemetry.SkeletalMesh.ReusedSkeletalPalettes = Palettes.ReusedPalettes;
-		Telemetry.SkeletalMesh.RejectedSkeletalPalettes = Palettes.RejectedPalettes;
-		Telemetry.SkeletalMesh.UploadedSkeletalPaletteMatrices = Palettes.UploadedMatrices;
-		Telemetry.SkeletalMesh.UploadedSkeletalPaletteBytes = Palettes.UploadedBytes;
-	}
 
 } // namespace Durin

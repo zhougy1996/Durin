@@ -8,7 +8,6 @@ namespace Durin
 	class FDefaultTextureResources;
 	class FDeferredDirectionalLightingRenderer;
 	class FDirectionalShadowRenderer;
-	class FSkeletalMeshRenderer;
 	class FSkyBoxRenderer;
 	class FStaticMeshRenderer;
 	struct FPreparedEnvironment;
@@ -69,7 +68,6 @@ namespace Durin
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
 		FDeferredDirectionalLightingRenderer& DeferredRenderer;
 		FStaticMeshRenderer& StaticMeshes;
-		FSkeletalMeshRenderer& SkeletalMeshes;
 		FSkyBoxRenderer& SkyBox;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;

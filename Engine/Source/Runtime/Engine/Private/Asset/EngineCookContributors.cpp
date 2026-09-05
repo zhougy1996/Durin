@@ -1,11 +1,8 @@
 #include "Asset/Cook.h"
 
-#include "Animation/AnimationClip.h"
 #include "Asset/AssetCompilingManager.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Materials/Material.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -63,15 +60,6 @@ namespace Durin
 		if (Object.IsA(DStaticMesh::StaticClass()))
 			return static_cast<DStaticMesh&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DSkeletalMesh::StaticClass()))
-			return static_cast<DSkeletalMesh&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DSkeleton::StaticClass()))
-			return static_cast<DSkeleton&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DAnimationClip::StaticClass()))
-			return static_cast<DAnimationClip&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
 		if (Object.IsA(DMaterial::StaticClass()))
 			return static_cast<DMaterial&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
@@ -92,9 +80,6 @@ namespace Durin
 			&& RegisterFamily<DTextureCube>("texture-cube", OutHandles)
 			&& RegisterFamily<DVolumeTexture>("volume-texture", OutHandles)
 			&& RegisterFamily<DStaticMesh>("static-mesh", OutHandles)
-			&& RegisterFamily<DSkeletalMesh>("skeletal-mesh", OutHandles)
-			&& RegisterFamily<DSkeleton>("skeleton", OutHandles)
-			&& RegisterFamily<DAnimationClip>("animation-clip", OutHandles)
 			&& RegisterFamily<DMaterial>("material", OutHandles)
 			&& RegisterFamily<DEnvironmentLighting>(
 				"environment-lighting", OutHandles);

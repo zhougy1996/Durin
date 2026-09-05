@@ -234,13 +234,13 @@ pass and geometry-domain contract. On the rendering thread they combine the
 shared fixed geometry vertex stage with the accepted generated `FragmentMain`,
 `GeometryFragmentMain`, or `ShadowFragmentMain` artifact and create a complete
 typed shader map transactionally. Opaque shadow retains the fixed material-
-resource-free fragment. StaticMesh, SplineMesh, SkeletalMesh, Material
+resource-free fragment. StaticMesh, SplineMesh, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
 none reads the authored graph or IR.
 
 RenderCore represents those sets with `FMaterialShaderMap` and strongly owned
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
-`FMaterialShader`; Local, Spline, Skeletal, GBuffer, and opaque-shadow
+`FMaterialShader`; Local, Spline, GBuffer, and opaque-shadow
 mesh stages derive from `FMeshMaterialShader`. Mesh compatibility adds only a
 registered stable Vertex Factory descriptor, mesh-pass key, frequency, and
 local permutation to the existing Material identity. Runtime factory pointers,
@@ -285,7 +285,7 @@ result; neither operation reinterprets the authored program.
   is the only GUID-to-layout compilation seam. The renderer consumes the
   validated v3 binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
-- StaticMesh and SkeletalMesh use one Renderer-private material
+- StaticMesh and SplineMesh use one Renderer-private material
   binding resolver. It accepts only the exact v3 field table through
   `TryGetMaterialRenderBinding`; an unsupported layout records the shared
   fallback reason, emits a renderer-specific `ShaderBinding` diagnostic, and
@@ -386,8 +386,8 @@ coalescing, stale-update, startup-replay, and counted-resource contracts.
 ## Renderer Surface Execution
 
 `FSceneRenderer` owns one Renderer-private surface-material resource service.
-StaticMesh and SkeletalMesh keep their own geometry preparation,
-vertex programs, pipelines, batching, counters, and diagnostics, but consume
+StaticMesh and SplineMesh keep their family-specific geometry preparation and
+vertex programs while consuming
 one canonical fragment contract. The contract builds the 256-byte aligned PBR
 surface uniform and resolves the eight ordered roles with fallbacks `White`,
 `FlatNormal`, `White`, `White`, `White`, `Black`, `White`, and `White`.

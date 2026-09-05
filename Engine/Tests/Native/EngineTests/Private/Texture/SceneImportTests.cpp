@@ -2,7 +2,6 @@
 #include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
 
-#include "Animation/AnimationClip.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
@@ -10,8 +9,6 @@
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace
@@ -50,7 +47,6 @@ namespace
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();
 		std::string Error;
@@ -75,11 +71,6 @@ namespace
 		std::filesystem::copy_file(Input,
 			Root / "Project/Content/Scenes" / (std::string(Name) + Extension),
 			std::filesystem::copy_options::overwrite_existing);
-		if (FixturePath == "Skeletal/ContractExternal.gltf")
-			std::filesystem::copy_file(
-				std::filesystem::path(DURIN_TEST_DATA_DIR) / "Skeletal/Contract.bin",
-				Root / "Project/Content/Scenes/Contract.bin",
-				std::filesystem::copy_options::overwrite_existing);
 		FSceneFixture Fixture;
 		Fixture.RenderingThread = std::move(RenderingThread);
 		Fixture.Mounts = std::move(Mounts);
@@ -127,27 +118,21 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	EXPECT_TRUE(bSawTexture);
 }
 
-TEST(FSceneImportTests, AssetForgePublishesSkeletalDependencyGraph)
+TEST(FSceneImportTests, AssetForgeRejectsUnsupportedSceneFeaturesWithoutPartialPublication)
 {
-	const FSceneFixture Fixture = InitializeFixture(
-		"Skeletal", "Skeletal/ContractExternal.gltf");
-	const auto Imported = RunScene(Fixture);
-	ASSERT_TRUE(Imported) << Imported.Message;
-	ASSERT_EQ(Imported.Outputs.size(), 11u);
-	size_t Skeletons = 0;
-	size_t SkeletalMeshes = 0;
-	size_t Animations = 0;
-	for (const auto& Output : Imported.Outputs)
-	{
-		Durin::DObject* Object = nullptr;
-		ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
-		Skeletons += Durin::Cast<Durin::DSkeleton>(Object) != nullptr;
-		SkeletalMeshes += Durin::Cast<Durin::DSkeletalMesh>(Object) != nullptr;
-		Animations += Durin::Cast<Durin::DAnimationClip>(Object) != nullptr;
-	}
-	EXPECT_EQ(Skeletons, 2u);
-	EXPECT_EQ(SkeletalMeshes, 2u);
-	EXPECT_EQ(Animations, 4u);
+	FSceneFixture Fixture = InitializeFixture("Unsupported");
+	std::ofstream Source(Fixture.Source, std::ios::trunc);
+	ASSERT_TRUE(Source.is_open());
+	Source << R"({"asset":{"version":"2.0"},"materials":[{"name":"MustNotPublish"}],"skins":[]})";
+	Source.close();
+	Durin::AssetForge::Builtins::FSceneImportResult Imported;
+	EXPECT_FALSE(Durin::AssetForge::Builtins::ImportSceneAssets(
+		Fixture.Source, Fixture.DestinationDirectory,
+		Durin::FStaticMeshImportSettings::MakeDurin(), Imported));
+	EXPECT_FALSE(Imported);
+	EXPECT_TRUE(Imported.Outputs.empty());
+	EXPECT_FALSE(Durin::FindAssetExact(MakeAssetPath(
+		"/SceneImportTests/SceneImport/Unsupported/Materials/MustNotPublish")));
 }
 
 TEST(FSceneImportTests, DirectImportHonorsCancellationBeforePublication)
@@ -166,8 +151,6 @@ TEST(FSceneImportTests, RuntimeOutputsDoNotReflectSceneOwnershipState)
 {
 	InitializeDObjectSystem();
 	for (Durin::DClass* Class : {Durin::DStaticMesh::StaticClass(),
-		Durin::DMaterialInstance::StaticClass(), Durin::DTexture2D::StaticClass(),
-		Durin::DSkeleton::StaticClass(), Durin::DSkeletalMesh::StaticClass(),
-		Durin::DAnimationClip::StaticClass()})
+		Durin::DMaterialInstance::StaticClass(), Durin::DTexture2D::StaticClass()})
 		EXPECT_EQ(Class->FindPropertyByName("ImportOwnership"), nullptr);
 }

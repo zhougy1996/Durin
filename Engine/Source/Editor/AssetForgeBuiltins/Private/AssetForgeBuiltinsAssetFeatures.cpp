@@ -1,7 +1,6 @@
 #include "AssetForgeBuiltinsAssetFeatures.h"
 
 #include "DObject/Package.h"
-#include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -22,10 +21,6 @@ namespace Durin::AssetForge::Builtins
 			return Mesh->GetRenderData()
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("StaticMesh");
-		if (const auto* Mesh = Cast<DSkeletalMesh>(&Object))
-			return Mesh->GetRenderData()
-				? FAssetSaveReadinessFeatureResult{.bHandled = true}
-				: NotReady("SkeletalMesh");
 		if (const auto* Texture = Cast<DTexture2D>(&Object))
 			return Texture->GetPlatformData()
 				&& Texture->HasPlatformData()

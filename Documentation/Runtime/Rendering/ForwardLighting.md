@@ -13,8 +13,8 @@ retain the behavior documented below.
 
 ## Production surface ownership
 
-The production hybrid renderer evaluates Lit opaque/masked StaticMesh,
-SplineMesh and SkeletalMesh records after the GBuffer. Forward owns
+The production hybrid renderer evaluates Lit opaque/masked StaticMesh and
+SplineMesh records after the GBuffer. Forward owns
 only Unlit opaque/masked surfaces, the globally sorted translucent list,
 wireframe or another explicitly named special mode, and SkyBox bootstrap.
 Dedicated retained-forward pipeline
@@ -87,7 +87,7 @@ spot submitted = rejected + frustum culled + selected + overflow
 ## Fixed forward ABI
 
 One view allocates one 16-byte-aligned, 768-byte dynamic uniform range. StaticMesh
-and SkeletalMesh opaque, masked, and translucent draws bind the same range.
+and SplineMesh opaque, masked, and translucent draws bind the same range.
 
 | Field | Layout | Bytes |
 | --- | --- | ---: |

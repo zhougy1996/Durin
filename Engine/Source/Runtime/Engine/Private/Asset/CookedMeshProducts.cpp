@@ -1,8 +1,6 @@
 #include "Asset/CookedMeshProducts.h"
 
 #include "Serialization/Archive.h"
-#include "SkeletalMesh/SkeletalDerivedData.h"
-#include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin
 {
@@ -99,48 +97,6 @@ namespace Durin
 				std::move(Error));
 		if (!RestoreStaticMeshRuntimeMetadata(
 			MaterialSlots, *Candidate.RenderData, OutError)) return false;
-		OutProduct = std::move(Candidate);
-		OutError = {};
-		return true;
-	}
-
-	auto DecodeSkeletalMeshCookedProduct(
-		std::span<const std::byte> Bytes,
-		std::span<const FSkeletonBone> SkeletonBones,
-		const FSkeletonTransform& MeshNodeBindTransform,
-		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
-		const FSkeletalMeshSummary& ExpectedSummary,
-		FSkeletalMeshCookedProduct& OutProduct,
-		FCookedMeshProductError& OutError) -> bool
-	{
-		FSkeletalMeshPayloadData Payload;
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
-		Payload.Serialize(Ar, {
-			.SkeletonBoneCount = static_cast<uint32>(SkeletonBones.size()),
-			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
-			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
-			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
-				std::string(Ar.GetError()));
-		if (Payload.Positions.size() != ExpectedSummary.VertexCount
-			|| Payload.Indices.size() != ExpectedSummary.IndexCount
-			|| Payload.Sections.size() != ExpectedSummary.SectionCount
-			|| FSkeletalMeshBounds::FromBox(Payload.LocalBounds) != ExpectedSummary.LocalBounds)
-		{
-			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Metadata,
-				"Skeletal-mesh payload does not match authored summary.");
-		}
-		FSkeletalMeshCookedProduct Candidate;
-		std::string Error;
-		if (!BuildSkeletalMeshRenderData(Payload, SkeletonBones,
-			MeshNodeBindTransform, MaterialSlots, Candidate.RenderData, Error))
-		{
-			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Construction,
-				std::move(Error));
-		}
-		Candidate.Payload = std::make_shared<const FSkeletalMeshPayloadData>(
-			std::move(Payload));
 		OutProduct = std::move(Candidate);
 		OutError = {};
 		return true;

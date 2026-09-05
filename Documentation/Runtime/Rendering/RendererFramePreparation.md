@@ -13,14 +13,14 @@ Last reviewed: 2026-09-03
 One render command prepares one `FSceneRenderPlan`. Only the private scene-render
 execution pipeline may inspect this outer value. It owns command-local logical
 partitions for the fitted view, optional environment, selected lighting,
-receiver geometry and its shared Skeletal pose table, optional directional
+receiver geometry, optional directional
 shadow, and optional volumetric cloud. The temporal transaction, resolved
 execution resources, final feature decisions, pass results, and telemetry
 occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
 of the same stack-owned `FSceneFrameContext`, not fields of the logical plan.
 
-Logical geometry is immutable after publication. StaticMesh, SplineMesh,
-and SkeletalMesh logical draws contain visibility, LOD, material and
+Logical geometry is immutable after publication. StaticMesh and SplineMesh
+logical draws contain visibility, LOD, material and
 pipeline identity, geometry facts, sort keys, and shadow membership. Separate
 resolved values own fallible shader, pipeline, material binding, geometry,
 palette, upload, and directional-shadow resources. Resolution and
@@ -30,11 +30,10 @@ draw.
 
 After each family's final sort, logical draws receive contiguous
 `ResolvedIndex` values shared by receiver, GBuffer, retained-forward, and
-shadow execution. Resolved StaticMesh/SplineMesh and SkeletalMesh
-views store one index-aligned record per draw; each record co-locates the
-optional material binding and readiness bit. Skeletal palette ranges align
-with prepared primitive indices. Submission-local geometry performs no pointer-keyed draw,
-primitive, material-binding, palette-range, or batch-readiness lookup.
+shadow execution. Resolved StaticMesh/SplineMesh views store one index-aligned
+record per draw; each record co-locates the optional material binding and
+readiness bit. Submission-local geometry performs no pointer-keyed draw,
+primitive, material-binding, or batch-readiness lookup.
 
 Preparation/resource/execution measurements live in family-specific
 observation values rather than the resolved correctness record surface. Common
@@ -62,8 +61,7 @@ environment fails the view.
 
 Preparation returns either one complete plan or a typed failure. The published
 plan is then held as `const`. A distinct resolution stage allocates the packed
-lighting uniform, resolves receiver and shadow resources, uploads shared
-Skeletal palettes into a resolved palette table, and resolves the cloud
+lighting uniform, resolves receiver and shadow resources, and resolves the cloud
 sampler. The pipeline then publishes one immutable `FSceneFrameFeaturePlan`.
 Purpose flags explain production, debug, qualification, and dependency demand;
 feature-specific decisions carry the exact Contact Visibility, cloud-shadow,

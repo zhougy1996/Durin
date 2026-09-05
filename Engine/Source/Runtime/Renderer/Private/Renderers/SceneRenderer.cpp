@@ -22,7 +22,6 @@ namespace Durin
 		, DeferredDirectionalLightingRenderer(Coordinator, FullscreenGeometry)
 		, GroundTruthAmbientOcclusionRenderer(Coordinator, FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, SurfaceMaterials)
-		, SkeletalMeshRenderer(Coordinator, SurfaceMaterials)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, ContactShadowRenderer(Coordinator, FullscreenGeometry)
@@ -88,7 +87,6 @@ namespace Durin
 		EnvironmentLighting.ReleaseResources_RenderThread();
 		SurfaceMaterials.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
-		SkeletalMeshRenderer.ReleaseResources_RenderThread();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();
 		GBufferDebugRenderer.ReleaseResources_RenderThread();
@@ -210,7 +208,6 @@ namespace Durin
 						EnvironmentLighting.ReleaseResources_RenderThread();
 						SurfaceMaterials.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
-						SkeletalMeshRenderer.ReleaseResources_RenderThread();
 						DirectionalShadowRenderer.ReleaseResources_RenderThread();
 						GBufferRenderer.ReleaseResources_RenderThread();
 						GBufferDebugRenderer.ReleaseResources_RenderThread();

@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TextureBuild, AssetForgeBuiltins
+Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
 Last reviewed: 2026-09-03
 
@@ -15,7 +15,7 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild`, `StaticMeshBuild`, and `SkeletalBuild` own normalized
+Developer `TextureBuild` and `StaticMeshBuild` own normalized
 source-independent recipes. Engine owns all
 asset key encoding, editor-only cache lookup/validation/fallback, diagnostics,
 and typed application. AssetForgeBuiltins adapts explicit physical imports to
@@ -33,8 +33,8 @@ API client: RenderCore owns its orchestration and stores complete versioned
 SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
 dependency manifests do not enter portable values.
 
-StaticMeshBuild registers one render/collision provider, SkeletalBuild one
-mesh/clip provider, and TextureBuild three providers. These providers use bounded typed modular-feature invocation.
+StaticMeshBuild registers one render/collision provider and TextureBuild three
+providers. These providers use bounded typed modular-feature invocation.
 Providers own recipe metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 providers retain no cache keys, origin, persistence diagnostics, or live assets.
@@ -101,8 +101,7 @@ Field state, placement, validation, and resource lifetime are defined by
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
 
 Physical source input is not rebuild authority and is not a runtime asset.
-Texture2D, StaticMesh, TextureCube, VolumeTexture, SkeletalMesh, and
-AnimationClip persist the canonical source data required by
+Texture2D, StaticMesh, TextureCube, and VolumeTexture persist the canonical source data required by
 their builders. Runtime-required metadata remains on assets, while offline-only
 texture build settings are editor-only; no asset also
 persists a generic replay graph or mounted-source request.
@@ -135,12 +134,9 @@ The current import behavior is:
 | TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
-| Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
-| SkeletalMesh | Persist canonical geometry/influences, validate Skeleton compatibility, and build LOD0 | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
-| AnimationClip | Persist canonical tracks/keys, validate Skeleton compatibility, and build clip data | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
-StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
+StaticMesh and texture import currently build the
 Win64 Game platform/profile variant eagerly so the editor has immediately
 usable data. This is a platform build stored under rebuildable DDC ownership;
 it is not cooked publication. Cook may later validate and reuse equivalent
@@ -151,7 +147,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 Runtime Engine owns asset state and typed optional operation contracts:
 `IStaticMeshBuildProvider`,
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
-`ITextureCubeBuildProvider`, and `ISkeletalDerivedDataFeature`.
+and `ITextureCubeBuildProvider`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
 visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
@@ -173,42 +169,6 @@ save-readiness policy; Engine, Build, and Cook consumers do not acquire an
 importer dependency. Each build module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
 and waits for admitted visitors before provider state is destroyed.
-
-### Skeletal Authored State
-
-`DSkeleton` is a package-only runtime asset. Its parent-before-child canonical
-bone array stores name, parent index, and finite decomposable local reference
-transform. Compatibility encoding version 1 hashes the exact canonical names,
-parents, and float32 reference matrices with XXH3-128. The identity deliberately
-excludes package path, source indices, inverse binds, materials, and animation
-tracks.
-
-The canonical little-endian compatibility stream begins with ASCII `DSKC`,
-encoding version 1, and the bone count. Each bone contributes its signed parent
-index, UTF-8 name length and bytes, then the 16 row-major float32 entries of its
-local reference matrix. Negative zero is canonicalized to positive zero and the
-rotation sign is canonical before encoding. The maximum bone count is 65,535.
-
-`DSkeletalMesh` and `DAnimationClip` each persist both a hard `DSkeleton`
-reference and the expected compatibility identity. Validation requires both to
-match; an equal name or hash without the referenced Skeleton is insufficient.
-The mesh also persists its mesh-node bind transform, stable material slots,
-and LOD0/section/bounds summary. The clip persists its stable name, duration,
-and track/key summary. Their
-large geometry, influence, inverse-bind, time, and typed-key arrays are detached
-immutable CPU payloads: they contain no source token, reflected object, RHI
-handle, playback clock, evaluated pose, or palette state.
-
-Authored skeletal packages retain canonical imported data and compact
-source-hint/import metadata, but no rebuild key or cache history. Engine derives
-a key from current metadata and first attempts a validated DDC
-object. Missing or corrupt disposable data invokes the owning family build from
-resident canonical imported data and current settings; it never issues an
-import request, resolves a hint, or rewrites source metadata. Scene outputs
-retain no aggregate recipe, but each SkeletalMesh and AnimationClip rebuilds
-independently from its own canonical data plus referenced Skeleton.
-`DSkeleton` has no external payload and therefore no DDC object or cooked bulk
-companion.
 
 ## Derived Data Cache Objects
 
@@ -262,24 +222,6 @@ faces before the cache lookup. Engine derives the key from those faces and the
 provider descriptor; only a miss invokes TextureBuild platform construction.
 Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical source.
 
-### Skeletal Derived Data
-
-SkeletalMesh objects live under `SkeletalMesh/Objects`; AnimationClip objects
-live under `AnimationClip/Objects`. Engine-private schema-4 keys are XXH3-128
-over canonical builder and payload versions, target platform/profile, producer
-identity/version, canonical imported identity/fingerprint, and Skeleton
-compatibility. Object paths are deliberately absent: relocation reuses the same
-payload. Payload schema 2 and its exact bytes are unchanged.
-
-Engine owns Get/decode/validate/recipe/encode/Put. Metadata-only PostLoad checks
-DDC before reading canonical bulk. A valid hit skips the recipe and write; a
-miss or corrupt object decodes canonical authored bulk without Scene replay.
-Write failure retains a complete detached result and bounded operation
-diagnostics. `SetAssetData` validates relationships, slots, and payload before
-replacement; authoring callers own dirtying. Assets retain no DDC key, origin,
-or storage diagnostic. SkeletalBuild sees only detached payloads, copied
-validation context, cancellation, and producer identity.
-
 ## Cooked Packages and Bulk Fields
 
 Cook produces a target-qualified runtime projection beneath
@@ -298,7 +240,7 @@ rebuild keys/diagnostics are omitted.
 
 Payload-bearing packages use the placement contract in
 [Package Bulk Data](BulkData.md#cooked-projection). Metadata-only packages,
-including Skeleton and packages whose fields stay inline, have no companion
+whose fields stay inline have no companion
 and no empty manifest record.
 
 The implemented family projections are:
@@ -307,10 +249,8 @@ The implemented family projections are:
 | --- | --- | --- |
 | Texture2D, TextureCube, VolumeTexture | `PlatformData` | texture resource upload |
 | StaticMesh | `RenderData`, `CollisionData` | render and physics publication |
-| SkeletalMesh, AnimationClip | `PlatformData` | render or animation setup |
 | Material | `ProgramData` | material render-layer publication |
 | EnvironmentLighting | `PlatformData` | lighting resource upload |
-| Skeleton | metadata only | skeleton compatibility lookup |
 
 The three texture families store their cooked `FBulkData` in one `DTexture`
 slot, but their serializers continue to expose the stable concrete wire fields
@@ -331,7 +271,7 @@ fallback.
 
 ### Cooked mesh runtime residency
 
-`DStaticMesh` and `DSkeletalMesh` expose side-effect-free RenderData and payload
+`DStaticMesh` exposes side-effect-free RenderData
 getters. `RequestRenderDataAndResources()` is the ordinary non-blocking entry
 point used by mesh-component assignment, registration, and SceneProxy fallback.
 Its generation-qualified snapshot separates `Unloaded`, queued/read/decode,

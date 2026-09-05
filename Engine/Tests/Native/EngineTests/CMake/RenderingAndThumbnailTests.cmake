@@ -28,7 +28,7 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetTools StaticMeshBuild SkeletalBuild AssetForgeBuiltins RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore AssetTools StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private

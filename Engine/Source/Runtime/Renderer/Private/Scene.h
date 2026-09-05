@@ -17,7 +17,6 @@ namespace Durin
 	class FLightSceneRegistry;
 	class FSkyBoxSceneRegistry;
 	class FVolumetricCloudSceneRegistry;
-	class FSkeletalMeshSceneProxy;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
@@ -46,10 +45,6 @@ namespace Durin
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveSceneId PrimitiveId, bool bVisible) -> void override;
 		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveSceneId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
-		RENDERER_API auto UpdateSkeletalMeshDynamicData(
-			FPrimitiveSceneId PrimitiveId,
-			std::shared_ptr<const FSkeletalPosePalette> Pose
-		) -> void override;
 		RENDERER_API auto UpdateSplineMeshDynamicData(
 			FPrimitiveSceneId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
@@ -64,7 +59,6 @@ namespace Durin
 
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
-		auto GetSkeletalMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SkeletalMeshSceneInfos; }
 		auto GetSplineMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SplineMeshSceneInfos; }
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
@@ -108,7 +102,6 @@ namespace Durin
 		std::unordered_map<FPrimitiveSceneId, std::unique_ptr<FPrimitiveSceneInfo>, FSceneIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
-		std::vector<FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;

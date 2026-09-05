@@ -12,8 +12,8 @@ commands, workspace registration, and document lifecycle contracts.
 Shared workspace, document, transaction, property, asset, preview, and
 interaction contracts live directly in `Durin::Editor`. Concrete editor modules
 own their ordinary C++ APIs under `Durin::Editor::MainFrame`, `LevelEditor`,
-`MaterialEditor`, `TextureEditor`, `StaticMeshEditor`, and
-`SkeletalMeshEditor`. Runtime and reflected object types remain in `Durin`; in
+`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor`. Runtime and reflected
+object types remain in `Durin`; in
 particular, `DEditorEngine` keeps its stable reflection identity. Module lookup
 strings and persisted workspace/document
 identities are independent of these C++ namespaces.
@@ -137,8 +137,7 @@ registered descriptors. The Window menu lists every open document, marks the
 active document, and exposes layout reset and workspace-specific panel commands
 for the active editor; it does not name concrete editor root windows.
 
-`LevelEditor`, `MaterialEditor`, `TextureEditor`, `StaticMeshEditor`, and
-`SkeletalMeshEditor` own
+`LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own
 their editor-specific panels and resource behavior. `DurinEd` must not depend on
 those concrete modules. Rendering dependencies belong in an editor module only
 when its preview implementation actually uses them. MainFrame registers these
@@ -152,7 +151,7 @@ unregistration removes thumbnail admission in reverse order before closing its
 documents.
 
 MainFrame shutdown first stops Content Browser request admission. It then
-unregisters SkeletalMesh, StaticMesh, Texture, Material, and Level integrations
+unregisters StaticMesh, Texture, Material, and Level integrations
 in reverse composition order. Scoped browser extensions and feature-owned
 dialogs close while their modules remain mapped, and each concrete thumbnail handle
 drains its queued and in-flight leases before its workspace documents close.

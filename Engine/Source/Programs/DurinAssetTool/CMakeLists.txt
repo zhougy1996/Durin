@@ -13,7 +13,7 @@ target_link_libraries(DurinAssetTool PRIVATE AssetMaintenance AssetRegistry Engi
 if(DURIN_WITH_EDITOR)
     # Canonical-resave apply loads AssetForgeBuiltins dynamically so uncooked assets can
     # run their uncooked post-load policy without expanding read-only audits.
-    add_dependencies(DurinAssetTool StaticMeshBuild SkeletalBuild TextureBuild AssetForgeBuiltins ShaderBuild Renderer)
+    add_dependencies(DurinAssetTool StaticMeshBuild TextureBuild AssetForgeBuiltins ShaderBuild Renderer)
 endif()
 if(DURIN_ENABLE_PCH)
     target_precompile_headers(DurinAssetTool REUSE_FROM SharedPCH_Core)

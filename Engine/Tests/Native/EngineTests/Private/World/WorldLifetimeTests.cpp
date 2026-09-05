@@ -64,13 +64,6 @@ namespace
 		{
 		}
 
-		auto UpdateSkeletalMeshDynamicData(
-			Durin::FPrimitiveSceneId,
-			std::shared_ptr<const Durin::FSkeletalPosePalette>
-		) -> void override
-		{
-		}
-
 		auto UpdateSplineMeshDynamicData(
 			Durin::FPrimitiveSceneId,
 			Durin::FSplineMeshRenderDynamicData

@@ -27,8 +27,7 @@ namespace Durin
 	enum class EVertexDeformationDomain : uint8
 	{
 		Local,
-		Spline,
-		Skeletal
+		Spline
 	};
 
 	struct FMeshShaderMapKey

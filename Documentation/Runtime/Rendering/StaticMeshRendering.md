@@ -6,9 +6,6 @@ Modules: Engine, Renderer, RenderCore
 
 Last reviewed: 2026-09-03
 
-SkeletalMesh uses the same material/pass policy and combined Translucent order
-through its dedicated geometry, vertex-factory, palette, and renderer owner; see
-[Skeletal Mesh Rendering](SkeletalMeshRendering.md).
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
 
@@ -202,8 +199,8 @@ roughness of `0.045` for finite evaluation and uses
 separate denominator floor that would reshape low-roughness highlights;
 the shared surface material module instead derives a bounded normal variance
 from screen derivatives of the final world-space shading normal and folds it
-into effective perceptual roughness. Opaque and masked StaticMesh, SplineMesh,
-and SkeletalMesh records publish that value through the existing
+into effective perceptual roughness. Opaque and masked StaticMesh and SplineMesh
+records publish that value through the existing
 GBuffer roughness channel; retained Lit forward surfaces use the same value for
 directional, local, and environment lighting. Unlit and shadow/depth-only
 paths do not evaluate the filter. Authored roughness and material identities
@@ -220,7 +217,7 @@ change invalidates every dependent shader artifact.
 ### SplineMesh vertex deformation domain
 
 Prepared mesh identity includes
-`EVertexDeformationDomain::{Local,Spline,Skeletal}` in shader-map, effective
+`EVertexDeformationDomain::{Local,Spline}` in shader-map, effective
 graphics-pipeline, and draw-sort keys. Material identity alone therefore cannot
 alias Local and Spline vertex programs. `FSplineMeshSceneProxy` supplies the
 same selected LOD buffers, indices, declaration, sections, material proxies,
@@ -359,8 +356,8 @@ environment irradiance, prefilter, and BRDF-LUT resources are shared by the
 scene renderer and fall back together to black.
 
 After StaticMesh or SplineMesh selects its family pipeline, allocates transform
-and optional spline uniforms, and binds its geometry streams, both it and
-SkeletalMesh enter the same mesh surface-pass executor. The executor preserves
+and optional spline uniforms, and binds its geometry streams, it enters the
+shared mesh surface-pass executor. The executor preserves
 pipeline/vertex-before-fragment ordering and submits exactly one bounded draw:
 opaque shadow takes the zero-material fast path, masked shadow binds only the
 canonical role-7 packet, and forward binds the complete surface packet.

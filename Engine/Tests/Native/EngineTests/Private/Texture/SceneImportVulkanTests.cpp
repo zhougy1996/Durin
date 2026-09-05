@@ -107,7 +107,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::InitRenderingThread();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
@@ -607,11 +606,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				AutomaticLODPixels).ToString(),
-			"d2a6434efb8ecbdaf248ed02af77de45");
+			"068ab55933f8416c0aabc995982bf219");
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				ForcedLOD0Pixels).ToString(),
-			"47ed38d9436419d0d66c3264ab9d995e");
+			"52fd6459e2beedd91682296b55f560c0");
 		Durin::VulkanRHI::ArmVulkanCreateFailure(
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
 		const Durin::FByteArray FailedResourcePixels =

@@ -10,11 +10,8 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FStaticMeshRenderer;
-	class FSkeletalMeshRenderer;
 	struct FPreparedDirectionalShadow;
 	struct FResolvedDirectionalShadow;
-	struct FPreparedSkeletalPaletteTable;
-	struct FResolvedSkeletalPaletteTable;
 	struct FViewRenderTelemetry;
 
 	using FShadowDepthTimingQuerySink = void (*)(
@@ -33,17 +30,13 @@ namespace Durin
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FStaticMeshRenderer& StaticMeshes,
-			FSkeletalMeshRenderer& SkeletalMeshes,
 			const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow,
-			const FPreparedSkeletalPaletteTable& PreparedPalettes,
-			FResolvedSkeletalPaletteTable& ResolvedPalettes,
 			FViewRenderTelemetry& Telemetry) -> bool;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* Target,
 			FStaticMeshRenderer& StaticMeshes,
-			FSkeletalMeshRenderer& SkeletalMeshes,
 			const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow,
 			FViewRenderTelemetry& Telemetry) -> bool;

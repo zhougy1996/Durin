@@ -6,7 +6,6 @@
 namespace Durin
 {
 	class FDirectionalShadowRenderer;
-	class FSkeletalMeshRenderer;
 	class FStaticMeshRenderer;
 	struct FPreparedDirectionalShadow;
 	struct FSceneRenderTelemetry;
@@ -42,7 +41,6 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Shadow;
 		FDirectionalShadowRenderer& Renderer;
 		FStaticMeshRenderer& StaticMeshes;
-		FSkeletalMeshRenderer& SkeletalMeshes;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;
 	};

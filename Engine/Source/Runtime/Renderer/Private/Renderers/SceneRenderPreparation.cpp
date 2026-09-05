@@ -118,8 +118,6 @@ namespace Durin
 						CasterTable.UniqueEligibleStaticMeshes;
 					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters =
 						CasterTable.UniqueEligibleSplineMeshes;
-					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters =
-						CasterTable.UniqueEligibleSkeletalMeshes;
 					Telemetry.View.DirectionalShadow.ShadowCascadeClassificationTests =
 						CasterTable.CascadeClassificationTests;
 					Telemetry.View.DirectionalShadow.ShadowMembershipPopcount =
@@ -161,8 +159,6 @@ namespace Durin
 							Casters.InvalidBoundsFallbacks;
 						auto& StaticMeshes =
 							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
-						auto& SkeletalMeshes =
-							PreparedView.DirectionalShadow->SkeletalMeshes[CascadeIndex];
 						const auto StaticSplineStart =
 							std::chrono::steady_clock::now();
 						StaticMeshes = PrepareStaticMeshView_RenderThread(
@@ -177,21 +173,8 @@ namespace Durin
 													- StaticSplineStart
 							)
 													.count());
-						const auto SkeletalStart = std::chrono::steady_clock::now();
-						SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
-							CommandList, Casters.SkeletalMeshes, Cascade.CasterView,
-							ERasterMode::Solid, PreparedView.Receiver.SkeletalPalettes,
-							ERenderPreparationMode::ShadowDepth
-						);
-						Telemetry.View.DirectionalShadow.ShadowSkeletalPreparationNanoseconds +=
-							static_cast<uint64>(std::chrono::duration_cast<
-													std::chrono::nanoseconds>(
-													std::chrono::steady_clock::now() - SkeletalStart
-							)
-													.count());
 						Telemetry.View.DirectionalShadow.ShadowSortingBatchingNanoseconds +=
-							StaticMeshes.SortingNanoseconds
-						+ SkeletalMeshes.SortingNanoseconds;
+							StaticMeshes.SortingNanoseconds;
 						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplinePrimitiveFactBuilds +=
 							StaticMeshes.SharedPrimitiveFactBuilds;
@@ -208,14 +191,6 @@ namespace Durin
 						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplineSectionFactReuses +=
 							StaticMeshes.SharedSectionFactReuses;
-						Telemetry.View.DirectionalShadow.ShadowSkeletalPrimitiveFactBuilds +=
-							SkeletalMeshes.SharedPrimitiveFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowSkeletalPrimitiveFactReuses +=
-							SkeletalMeshes.SharedPrimitiveFactReuses;
-						Telemetry.View.DirectionalShadow.ShadowSkeletalSectionFactBuilds +=
-							SkeletalMeshes.SharedSectionFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowSkeletalSectionFactReuses +=
-							SkeletalMeshes.SharedSectionFactReuses;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)
@@ -231,22 +206,16 @@ namespace Durin
 								}
 						};
 						ApplyRasterBias(StaticMeshes);
-						ApplyRasterBias(SkeletalMeshes);
 						CascadeTelemetry.PreparedStaticMeshCasters =
 							StaticMeshes.PreparedLocalPrimitives;
 						CascadeTelemetry.PreparedSplineMeshCasters =
 							StaticMeshes.PreparedSplinePrimitives;
-						CascadeTelemetry.PreparedSkeletalMeshCasters =
-							SkeletalMeshes.Primitives.size();
 					CascadeTelemetry.PreparedTriangles =
-						StaticMeshes.SelectedTriangles
-						+ SkeletalMeshes.SelectedTriangles;
+						StaticMeshes.SelectedTriangles;
 						Telemetry.View.DirectionalShadow.ShadowPreparedStaticMeshCasters +=
 							CascadeTelemetry.PreparedStaticMeshCasters;
 						Telemetry.View.DirectionalShadow.ShadowPreparedSplineMeshCasters +=
 							CascadeTelemetry.PreparedSplineMeshCasters;
-						Telemetry.View.DirectionalShadow.ShadowPreparedSkeletalMeshCasters +=
-							CascadeTelemetry.PreparedSkeletalMeshCasters;
 						Telemetry.View.DirectionalShadow.ShadowPreparedTriangles +=
 							CascadeTelemetry.PreparedTriangles;
 					}
@@ -281,11 +250,6 @@ namespace Durin
 				RenderView,
 				RenderView.Settings.Mode.RasterMode,
 				Visibility.SplineMeshSceneInfos
-			);
-			PreparedView.Receiver.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
-				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
-				RenderView.Settings.Mode.RasterMode,
-				PreparedView.Receiver.SkeletalPalettes
 			);
 		}
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
@@ -339,20 +303,13 @@ namespace Durin
 		Renderer.StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.StaticMeshes,
 			ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
-		Renderer.SkeletalMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.SkeletalPalettes,
-			ResolvedSceneResources.Receiver.SkeletalPalettes,
-			PreparedView.Receiver.SkeletalMeshes,
-			ResolvedSceneResources.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
 			Renderer.DirectionalShadowRenderer.PrepareResources_RenderThread(
-				CommandList, Renderer.StaticMeshRenderer, Renderer.SkeletalMeshRenderer,
+				CommandList, Renderer.StaticMeshRenderer,
 				*PreparedView.DirectionalShadow,
-				*ResolvedSceneResources.DirectionalShadow,
-				PreparedView.Receiver.SkeletalPalettes,
-				ResolvedSceneResources.Receiver.SkeletalPalettes, Telemetry.View);
+				*ResolvedSceneResources.DirectionalShadow, Telemetry.View);
 		}
 
 		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
@@ -364,10 +321,6 @@ namespace Durin
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
-			DirectionalShadowSampler;
-		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowTexture =
-			DirectionalShadowTexture;
-		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowSampler =
 			DirectionalShadowSampler;
 
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(

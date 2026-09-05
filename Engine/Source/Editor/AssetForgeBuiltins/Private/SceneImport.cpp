@@ -1,6 +1,5 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
-#include "Animation/AnimationClip.h"
 #include "DObject/Package.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "Asset/Asset.h"
@@ -13,9 +12,6 @@
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 #include "SceneImportInternal.h"
-#include "SkeletalMesh/SkeletalDerivedData.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuild.h"
@@ -342,28 +338,6 @@ namespace Durin::AssetForge::Builtins
 		const std::string SceneName = SanitizeAssetName(
 			std::filesystem::path(RootSource->Filename)
 				.stem().generic_string(), "Scene");
-		std::unordered_set<std::string> SkeletonNames;
-		for (uint32 SkeletonIndex = 0;
-			SkeletonIndex < OutPlan.Scene.Skeletons.size(); ++SkeletonIndex)
-		{
-			if (CheckCanceled()) return false;
-			const FImportedSkeletonData& Skeleton =
-				OutPlan.Scene.Skeletons[SkeletonIndex];
-			FPackagePath SkeletonPath;
-			if (!MakeSceneOutputPath(DestinationDirectory, "Skeletons",
-				MakeUniqueName(Skeleton.SuggestedName,
-					std::format("Skeleton_{}", SkeletonIndex), SkeletonNames),
-				SkeletonPath, Error)) return false;
-			OutOutputs.push_back({
-				.StableIdentity = Skeleton.StableIdentity,
-				.Role = "Skeleton",
-				.AssetPath = SkeletonPath,
-				.AssetClassName = "Durin::DSkeleton"});
-			OutPlan.Outputs.push_back({
-				.StableIdentity = Skeleton.StableIdentity,
-				.Kind = ESceneOutputKind::Skeleton,
-				.SourceIndex = SkeletonIndex});
-		}
 		FPackagePath MeshPath;
 		if (!MakeSceneOutputPath(DestinationDirectory, "Meshes",
 			SceneName, MeshPath, Error)) return false;
@@ -381,10 +355,6 @@ namespace Durin::AssetForge::Builtins
 		for (const FImportedMaterialSlot& Slot : OutPlan.Scene.MaterialSlots)
 			if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 				MaterialIndices.push_back(Slot.SourceMaterialIndex);
-		for (const FImportedSkeletalMeshData& Mesh : OutPlan.Scene.SkeletalMeshes)
-			for (const FMeshMaterialSlotDefinition& Slot : Mesh.MaterialSlots)
-				if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
-					MaterialIndices.push_back(Slot.SourceMaterialIndex);
 		std::unordered_map<std::string, uint32> MaterialNameCounts;
 		for (const FImportedMaterial& Material : OutPlan.Scene.Materials)
 			++MaterialNameCounts[StringUtils::FoldAscii(Material.SourceName)];
@@ -500,61 +470,6 @@ namespace Durin::AssetForge::Builtins
 			OutPlan.Outputs.push_back(std::move(MaterialOutput));
 		}
 
-		std::unordered_set<std::string> SkeletalMeshNames;
-		for (uint32 MeshIndex = 0;
-			MeshIndex < OutPlan.Scene.SkeletalMeshes.size(); ++MeshIndex)
-		{
-			if (CheckCanceled()) return false;
-			const FImportedSkeletalMeshData& Mesh =
-				OutPlan.Scene.SkeletalMeshes[MeshIndex];
-			if (!Mesh.Payload || Mesh.SkeletonIndex >= OutPlan.Scene.Skeletons.size())
-				return false;
-			const FImportedSkeletonData& Skeleton =
-				OutPlan.Scene.Skeletons[Mesh.SkeletonIndex];
-			FPackagePath MeshPath;
-			if (!MakeSceneOutputPath(DestinationDirectory, "SkeletalMeshes",
-				MakeUniqueName(Mesh.SuggestedName,
-					std::format("SkeletalMesh_{}", MeshIndex), SkeletalMeshNames),
-				MeshPath, Error)) return false;
-			OutOutputs.push_back({
-				.StableIdentity = Mesh.StableIdentity,
-				.Role = "SkeletalMesh",
-				.AssetPath = MeshPath,
-				.AssetClassName = "Durin::DSkeletalMesh"});
-			OutPlan.Outputs.push_back({
-				.StableIdentity = Mesh.StableIdentity,
-				.Kind = ESceneOutputKind::SkeletalMesh,
-				.SourceIndex = MeshIndex,
-				.SkeletonIdentity = Skeleton.StableIdentity});
-		}
-
-		std::unordered_set<std::string> AnimationNames;
-		for (uint32 ClipIndex = 0;
-			ClipIndex < OutPlan.Scene.AnimationClips.size(); ++ClipIndex)
-		{
-			if (CheckCanceled()) return false;
-			const FImportedAnimationClipData& Clip =
-				OutPlan.Scene.AnimationClips[ClipIndex];
-			if (!Clip.Payload || Clip.SkeletonIndex >= OutPlan.Scene.Skeletons.size())
-				return false;
-			const FImportedSkeletonData& Skeleton =
-				OutPlan.Scene.Skeletons[Clip.SkeletonIndex];
-			FPackagePath ClipPath;
-			if (!MakeSceneOutputPath(DestinationDirectory, "Animations",
-				MakeUniqueName(Clip.SuggestedName,
-					std::format("Animation_{}", ClipIndex), AnimationNames),
-				ClipPath, Error)) return false;
-			OutOutputs.push_back({
-				.StableIdentity = Clip.StableIdentity,
-				.Role = std::format("AnimationClip.{:.6g}s", Clip.Payload->DurationSeconds),
-				.AssetPath = ClipPath,
-				.AssetClassName = "Durin::DAnimationClip"});
-			OutPlan.Outputs.push_back({
-				.StableIdentity = Clip.StableIdentity,
-				.Kind = ESceneOutputKind::AnimationClip,
-				.SourceIndex = ClipIndex,
-				.SkeletonIdentity = Skeleton.StableIdentity});
-		}
 		for (const FSceneImportDiagnostic& Diagnostic : OutPlan.Scene.Diagnostics)
 		{
 			if (Diagnostic.Severity != EImportDiagnosticSeverity::Warning) continue;

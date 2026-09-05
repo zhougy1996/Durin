@@ -64,10 +64,6 @@ namespace Durin::Editor::Level
 		uint64 SplineMeshBoundsRejects = 0;
 		uint64 SplineMeshTestedTriangles = 0;
 		uint64 ParityMismatches = 0;
-		uint64 ApplicableSkeletalTargets = 0;
-		uint64 InvalidSkeletalTargets = 0;
-		uint64 SkeletalBoundsRejects = 0;
-		uint64 SkeletalBudgetFailures = 0;
 		uint64 SkinnedVertices = 0;
 		uint64 TestedTriangles = 0;
 	};

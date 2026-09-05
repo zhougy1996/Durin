@@ -99,7 +99,7 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	EDITOR_ONLY
 	KIND integration
-	DOMAINS static-mesh skeletal-mesh
+	DOMAINS static-mesh
 	MODULES engine renderer vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer

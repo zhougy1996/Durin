@@ -286,7 +286,7 @@ dispatches. Contact-shadow statistics carry the actual `Compute`, `Fragment`,
 or inactive route so editor A/B controls cannot confuse a requested preference
 with the producer that completed the view.
 
-Headline triangles count selected main-pass static, spline, and skeletal
+Headline triangles count selected main-pass static and spline
 geometry once at the rendered LOD. Shadow triangle submissions remain
 a separate field so changing shadow cascade count does not redefine scene
 geometric complexity. Failed or incomplete renders do not publish partial

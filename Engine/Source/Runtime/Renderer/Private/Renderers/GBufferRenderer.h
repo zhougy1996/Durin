@@ -19,7 +19,6 @@ namespace Durin
 	{
 		Local,
 		Spline,
-		Skeletal,
 	};
 
 	// Records geometry-buffer work into caller-provided attachments without

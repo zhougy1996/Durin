@@ -6,7 +6,6 @@
 
 namespace Durin
 {
-	class FSkeletalMeshRenderer;
 	class FStaticMeshRenderer;
 	struct FSceneRenderTelemetry;
 
@@ -45,7 +44,6 @@ namespace Durin
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudCompositeGraphOutput& VolumetricCloud;
 		FStaticMeshRenderer& StaticMeshes;
-		FSkeletalMeshRenderer& SkeletalMeshes;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;
 		FSceneColorPassResult& Publication;

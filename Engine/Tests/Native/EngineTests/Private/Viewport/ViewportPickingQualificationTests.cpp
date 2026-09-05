@@ -2,6 +2,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Modules/ModuleManager.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
 
@@ -92,6 +93,7 @@ namespace
 
 	auto CreateGridStaticMesh(Durin::DLevel* Level, uint32 TriangleCount) -> Durin::DStaticMesh*
 	{
+		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		const uint32 CellCount = (TriangleCount + 1) / 2;
 		const uint32 Width = std::max<uint32>(1,
 			static_cast<uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));

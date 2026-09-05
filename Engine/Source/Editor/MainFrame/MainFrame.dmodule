@@ -15,7 +15,6 @@
         "Mona",
         "MonaImGui",
 		"StaticMeshBuild",
-		"SkeletalBuild",
 		"TextureBuild",
         "AssetForgeBuiltins",
         "ContentBrowser",
@@ -23,7 +22,6 @@
         "MaterialEditor",
         "TextureEditor",
         "StaticMeshEditor",
-        "SkeletalMeshEditor",
         "DurinEd"
     ]
 }

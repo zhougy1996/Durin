@@ -54,8 +54,8 @@ or asset loading.
   creates it transactionally, and selects the resulting Actor.
 - Creating, renaming, or deleting supported StaticMesh Actors in the World
   Outliner uses the same service.
-- SkeletalMesh placement and unsupported Actor/component graphs retain their
-  existing explicit non-structural-transaction behavior.
+- Unsupported Actor/component graphs retain their existing explicit
+  non-structural-transaction behavior.
 ## Related code
 
 - `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelMutations.h`

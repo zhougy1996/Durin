@@ -231,7 +231,7 @@ source GPU identities. `ESplineMeshCollisionMode::DeformedTriangleMesh`
 explicitly opts into collision construction; Disabled retains no collision BVH.
 
 The renderer classifies SplineMesh as its own typed primitive family. Prepared
-mesh work carries an explicit Local/Spline/Skeletal vertex-deformation domain
+mesh work carries an explicit Local/Spline vertex-deformation domain
 through shader-map, pipeline, and draw-sort identity. The Spline vertex shader
 borrows StaticMesh LOD streams and applies the CPU-authority Hermite/frame
 translation without copying source geometry per component. Material slots,

@@ -1,4 +1,3 @@
-#include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
@@ -37,7 +36,6 @@
 #include "Renderers/DirectionalShadowView.h"
 #include "RendererModule.h"
 #include "SceneTestAccess.h"
-#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "ViewRenderStatistics.h"
 
@@ -346,8 +344,6 @@ static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderOutcome>);
 static_assert(!CHasDeferredParameters<Durin::FSceneRenderOutcome>);
 static_assert(std::is_default_constructible_v<Durin::FSceneRenderOutcome>);
-static_assert(!CHasUploadRange<Durin::FPreparedSkeletalPaletteTable::FEntry>);
-static_assert(CHasUploadRange<Durin::FResolvedSkeletalPaletteTable::FEntry>);
 static_assert(std::is_copy_constructible_v<Durin::FSceneFrameFeaturePlan>);
 static_assert(std::is_same_v<
 			  Durin::FDirectionalShadowRendering::Result,
@@ -420,15 +416,10 @@ static_assert(!CAcceptsFeatureInputs<
 			  Durin::FDirectionalShadowRendering,
 			  Durin::FSceneRenderPlan>);
 static_assert(CHasResolvedDrawRecords<Durin::FResolvedStaticMeshView>);
-static_assert(CHasResolvedDrawRecords<Durin::FResolvedSkeletalMeshView>);
 static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasReadyDrawHash<Durin::FResolvedSkeletalMeshView>);
 static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasMaterialBindingHash<Durin::FResolvedSkeletalMeshView>);
 static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
-static_assert(CHasRenderObservations<Durin::FResolvedSkeletalMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
-static_assert(!CHasDirectExecutionCounters<Durin::FResolvedSkeletalMeshView>);
 static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 12);
 
 TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
@@ -1435,16 +1426,12 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Telemetry.Visibility.VisiblePrimitives = 8;
 	Telemetry.StaticMesh.PreparedStaticMeshPrimitives = 4;
 	Telemetry.SplineMesh.PreparedSplineMeshPrimitives = 1;
-	Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives = 2;
 	Telemetry.StaticMesh.PreparedStaticMeshTriangles = 120;
 	Telemetry.SplineMesh.PreparedSplineMeshTriangles = 20;
-	Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles = 40;
 	Telemetry.DirectionalShadow.ShadowPreparedTriangles = 500;
 	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 5;
-	Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws = 2;
 	Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws = 3;
 	Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws = 1;
-	Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws = 2;
 	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 7;
 	Telemetry.Lighting.SelectedDirectionalLights = 1;
 	Telemetry.Lighting.SelectedPointLights = 3;
@@ -1474,14 +1461,11 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.Visibility.VisiblePrimitives, 8u);
 	EXPECT_EQ(Statistics.StaticMesh.Primitives, 4u);
 	EXPECT_EQ(Statistics.SplineMesh.Primitives, 1u);
-	EXPECT_EQ(Statistics.SkeletalMesh.Primitives, 2u);
 	EXPECT_EQ(Statistics.StaticMesh.Triangles, 100u);
 	EXPECT_EQ(Statistics.SplineMesh.Triangles, 20u);
-	EXPECT_EQ(Statistics.SkeletalMesh.Triangles, 40u);
-	EXPECT_EQ(Statistics.Summary.Triangles, 160u);
+	EXPECT_EQ(Statistics.Summary.Triangles, 120u);
 	EXPECT_EQ(Statistics.Shadow.Triangles, 500u);
 	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 9u);
-	EXPECT_EQ(Statistics.SkeletalMesh.DrawCalls, 4u);
 	EXPECT_EQ(Statistics.Shadow.DrawCalls, 7u);
 	EXPECT_TRUE(Statistics.Shadow.bEnabled);
 	EXPECT_EQ(Statistics.Shadow.Cascades, 3u);
@@ -2167,42 +2151,6 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	ASSERT_EQ(Observed->first.Local.size(), 1u);
 	EXPECT_EQ(Observed->first.Local.front().Id.Value, 1u);
 	EXPECT_EQ(Observed->second.Lighting.FrustumCulledPointLights, 1u);
-}
-
-TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMembership)
-{
-	FRenderingThreadScope RenderingThread;
-	Durin::FSceneTestOwner SceneOwner;
-	Durin::FScene& Scene = *SceneOwner;
-	Durin::FSkeletalMeshRenderData RenderData;
-	auto FirstPose = std::make_shared<Durin::FSkeletalPosePalette>();
-	FirstPose->Revision = 1;
-	FirstPose->Matrices = {Durin::FMatrix4f(1.0f)};
-	FirstPose->LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
-	const Durin::FPrimitiveSceneId Id(91);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSkeletalMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 1, FirstPose), Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
-	Durin::FlushRenderingCommands();
-	ASSERT_EQ(Scene.GetSkeletalMeshSceneInfos().size(), 1u);
-	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSkeletalMeshSceneInfos().front();
-	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 1u);
-	EXPECT_EQ(Info->GetWorldBounds().Min.x, 2.0);
-
-	auto SecondPose = std::make_shared<Durin::FSkeletalPosePalette>(*FirstPose);
-	SecondPose->Revision = 2;
-	SecondPose->LocalBounds = Durin::FBox({-2.0, -1.0, -1.0}, {3.0, 1.0, 1.0});
-	Scene.UpdateSkeletalMeshDynamicData(Id, SecondPose);
-	Durin::FlushRenderingCommands();
-	Info = Scene.GetSkeletalMeshSceneInfos().front();
-	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 2u);
-	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
-	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
-	Durin::FViewRenderTelemetry Telemetry;
-	Durin::FSceneView View;
-	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-	const Durin::FSceneVisibilityResult Visibility =
-		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
-	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
-	EXPECT_EQ(Telemetry.SkeletalMesh.VisibleSkeletalMeshCandidates, 1u);
 }
 
 TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTypedMembership)

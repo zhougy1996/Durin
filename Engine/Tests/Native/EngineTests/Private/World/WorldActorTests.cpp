@@ -78,12 +78,6 @@ TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
 	EXPECT_EQ(StaticMeshClass->GetDisplayName(), "Static Mesh Actor");
 	EXPECT_EQ(StaticMeshClass->GetDefaultObjectName(), "StaticMeshActor");
 
-	Durin::DClass* SkeletalMeshClass = Durin::ASkeletalMeshActor::StaticClass();
-	EXPECT_EQ(SkeletalMeshClass->GetQualifiedName().ToString(), "Durin::ASkeletalMeshActor");
-	EXPECT_EQ(SkeletalMeshClass->GetShortName(), "ASkeletalMeshActor");
-	EXPECT_EQ(SkeletalMeshClass->GetDisplayName(), "Skeletal Mesh Actor");
-	EXPECT_EQ(SkeletalMeshClass->GetDefaultObjectName(), "SkeletalMeshActor");
-
 	Durin::DClass* CameraClass = Durin::ACameraActor::StaticClass();
 	EXPECT_EQ(CameraClass->GetDisplayName(), "Camera Actor");
 	EXPECT_EQ(CameraClass->GetDefaultObjectName(), "CameraActor");
@@ -218,22 +212,6 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_EQ(Level->GetPackage()->GetEditRevision(), Revision);
 	EXPECT_TRUE(Durin::UnloadPackage(Level->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
-}
-
-TEST(FWorldTests, SkeletalMeshActorOwnsDefaultRootComponent)
-{
-	Durin::DWorld* World = CreateWorld();
-	Durin::ASkeletalMeshActor* Actor = World->SpawnActor<Durin::ASkeletalMeshActor>();
-	ASSERT_NE(Actor, nullptr);
-	ASSERT_NE(Actor->GetSkeletalMeshComponent(), nullptr);
-	EXPECT_EQ(Actor->GetRootComponent(), Actor->GetSkeletalMeshComponent());
-	EXPECT_EQ(Actor->GetSkeletalMeshComponent()->GetOuter(), Actor);
-	EXPECT_EQ(Actor->GetSkeletalMeshComponent()->GetSkeletalMesh(), nullptr);
-	EXPECT_EQ(Actor->GetSkeletalMeshComponent()->GetAnimationClip(), nullptr);
-	EXPECT_FALSE(Actor->GetSkeletalMeshComponent()->IsPlaying());
-	EXPECT_EQ(Actor->GetName(), "SkeletalMeshActor");
-	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, UsesReflectedDefaultNamesWhenNamesAreOmitted)
@@ -451,7 +429,6 @@ TEST(FWorldTests, RuntimeClassConstructionRejectsInvalidClassMetadata)
 	const std::vector<Durin::DClass*> ActorClasses = Durin::GetDerivedClasses(Durin::AActor::StaticClass(), true);
 	EXPECT_NE(std::ranges::find(ActorClasses, Durin::ACameraActor::StaticClass()), ActorClasses.end());
 	EXPECT_NE(std::ranges::find(ActorClasses, Durin::AStaticMeshActor::StaticClass()), ActorClasses.end());
-	EXPECT_NE(std::ranges::find(ActorClasses, Durin::ASkeletalMeshActor::StaticClass()), ActorClasses.end());
 	EXPECT_TRUE(std::ranges::is_sorted(ActorClasses, [](const Durin::DClass* Left, const Durin::DClass* Right) {
 		return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
 	}));

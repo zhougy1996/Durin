@@ -8,10 +8,8 @@
 
 namespace Durin
 {
-	class FSkeletalMeshSceneProxy;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
-	struct FSkeletalPosePalette;
 	struct FSplineMeshRenderDynamicData;
 
 	// Owns one primitive proxy plus Renderer-derived transform and bounds state.
@@ -31,14 +29,11 @@ namespace Durin
 		auto IsVisible() const -> bool { return bVisible; }
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
 		RENDERER_API auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
-		RENDERER_API auto GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&;
 		RENDERER_API auto GetSplineMeshProxy() const -> FSplineMeshSceneProxy&;
 		RENDERER_API auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }
 		RENDERER_API auto UpdateMaterialBinding(
 			const FMaterialRenderProxyBindingUpdate& Update) -> bool;
-		RENDERER_API auto UpdateSkeletalMeshDynamicData(
-			std::shared_ptr<const FSkeletalPosePalette> Pose) -> bool;
 		RENDERER_API auto UpdateSplineMeshDynamicData(
 			FSplineMeshRenderDynamicData DynamicData) -> bool;
 

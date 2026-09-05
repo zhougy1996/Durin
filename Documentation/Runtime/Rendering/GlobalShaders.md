@@ -33,7 +33,7 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 | --- | --- | --- |
 | Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 38 registered types in 19 exact sets, declared by Renderer and mapped by RenderCore |
 | Material | Generated forward, GBuffer, and masked-shadow fragments | RenderCore `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
-| Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, SkeletalMesh, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
+| Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
 | Finite Editor-only | TextureEditor preview and Mona ImGui backend programs | Stable feature-program contributions owned by their defining modules; excluded from Game Cook |
 
 Generated Material programs remain generated rather than global. No eligible

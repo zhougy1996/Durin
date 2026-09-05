@@ -4,9 +4,6 @@ import VertexFactory.LocalVertexFactory;
 #if DURIN_SPLINE_MESH
 import VertexFactory.SplineMeshVertexFactory;
 #endif
-#if DURIN_SKELETAL_MESH
-import VertexFactory.SkeletalMeshVertexFactory;
-#endif
 import Lighting.PBRLighting;
 import Lighting.DirectionalShadow;
 import Lighting.ForwardLightingUniform;
@@ -85,9 +82,6 @@ struct MaterialUniform
 [[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
 [[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
 [[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
-#if DURIN_SKELETAL_MESH
-[[vk::binding(23, 0)]] StructuredBuffer<float4x4> SkinPalette;
-#endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
@@ -95,24 +89,13 @@ struct MaterialUniform
 [[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
 
 [shader("vertex")]
-#if DURIN_SKELETAL_MESH
-#if DURIN_OPAQUE_SHADOW_DEPTH
-OpaqueShadowVSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
-#else
-VSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
-#endif
-#else
 #if DURIN_OPAQUE_SHADOW_DEPTH
 OpaqueShadowVSOutput VertexMain(FLocalVertexFactoryInput input)
 #else
 VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
-#endif
 {
-#if DURIN_SKELETAL_MESH
-    FSkeletalMeshVertexFactoryIntermediates vertex =
-        GetSkeletalMeshVertexFactoryIntermediates(input, SkinPalette);
-#elif DURIN_SPLINE_MESH
+#if DURIN_SPLINE_MESH
     FLocalVertexFactoryIntermediates vertex =
         GetSplineMeshVertexFactoryIntermediates(input, SplineMesh);
 #else

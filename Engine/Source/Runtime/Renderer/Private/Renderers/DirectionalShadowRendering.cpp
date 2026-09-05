@@ -18,7 +18,6 @@ namespace Durin
 			FRHITexture* DirectionalShadowTarget,
 			FDirectionalShadowRenderer& Renderer,
 			FStaticMeshRenderer& StaticMeshes,
-			FSkeletalMeshRenderer& SkeletalMeshes,
 			FResolvedSceneResources& Resolved,
 			FSceneRenderTelemetry& Telemetry
 		) -> FDirectionalShadowPassResult
@@ -27,7 +26,7 @@ namespace Durin
 				|| !Resolved.DirectionalShadow->bEnabled)
 				return {};
 			const bool bRendered = Renderer.Render_RenderThread(CommandList,
-				DirectionalShadowTarget, StaticMeshes, SkeletalMeshes,
+				DirectionalShadowTarget, StaticMeshes,
 				*Shadow, *Resolved.DirectionalShadow, Telemetry.View);
 			return {.Status = bRendered ? EScenePassStatus::Complete
 				: EScenePassStatus::Failed};
@@ -80,7 +79,6 @@ namespace Durin
 		const auto* ShadowRecord = Inputs.ShadowRecord;
 		auto* Renderer = &Inputs.Renderer;
 		auto* StaticMeshes = &Inputs.StaticMeshes;
-		auto* SkeletalMeshes = &Inputs.SkeletalMeshes;
 		auto* Resolved = &Inputs.Resolved;
 		auto* Telemetry = &Inputs.Telemetry;
 		const auto DirectionalShadow =
@@ -94,7 +92,7 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					DirectionalShadowCascadeCount}};
 		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
-			[Renderer, StaticMeshes, SkeletalMeshes, Resolved,
+			[Renderer, StaticMeshes, Resolved,
 				Telemetry, ShadowRecord](FRHICommandListImmediate& Commands,
 				const FDirectionalShadowPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) {
@@ -102,7 +100,7 @@ namespace Durin
 					RecordDirectionalShadow(Commands, ShadowRecord,
 						Resolver.GetDepthStencilAttachment(PassParameters.Resources
 							.DirectionalShadowOutput).Texture, *Renderer,
-						*StaticMeshes, *SkeletalMeshes, *Resolved,
+						*StaticMeshes, *Resolved,
 						*Telemetry);
 			});
 		return {.Completion = DirectionalShadow, .Shadow = Inputs.Shadow};

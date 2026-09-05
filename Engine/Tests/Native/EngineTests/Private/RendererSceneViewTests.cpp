@@ -27,15 +27,10 @@ namespace Durin
 		concept CHasMaterialBinding = requires(T Value) { Value.MaterialBinding; };
 
 		static_assert(!CHasResourcesReady<FPreparedStaticMeshDraw>);
-		static_assert(!CHasResourcesReady<FPreparedSkeletalMeshDraw>);
 		static_assert(!CHasExecutionPhase<FPreparedStaticMeshView>);
-		static_assert(!CHasExecutionPhase<FPreparedSkeletalMeshView>);
 		static_assert(!CHasShadowTarget<FPreparedStaticMeshDraw>);
-		static_assert(!CHasShadowTarget<FPreparedSkeletalMeshDraw>);
 		static_assert(!CHasExecutionCounter<FPreparedStaticMeshView>);
-		static_assert(!CHasExecutionCounter<FPreparedSkeletalMeshView>);
 		static_assert(!CHasMaterialBinding<FPreparedStaticMeshDraw>);
-		static_assert(!CHasMaterialBinding<FPreparedSkeletalMeshDraw>);
 		static_assert(std::is_same_v<
 			decltype(FGBufferPassResult{}.IsComplete()), bool>);
 	} // namespace
@@ -319,30 +314,30 @@ namespace Durin
 		StaticNear.TranslucentDistanceSquared = 10.0;
 		StaticNear.SortKey.PrimitiveId = 20;
 		Prepared.StaticMeshes.Translucent.push_back(StaticNear);
-		FPreparedSkeletalMeshDraw SkeletalFar;
-		SkeletalFar.TranslucentDistanceSquared = 20.0;
-		SkeletalFar.SortKey.PrimitiveId = 30;
-		Prepared.SkeletalMeshes.Translucent.push_back(SkeletalFar);
-		FPreparedSkeletalMeshDraw SkeletalNear;
-		SkeletalNear.TranslucentDistanceSquared = 10.0;
-		SkeletalNear.SortKey.PrimitiveId = 10;
-		Prepared.SkeletalMeshes.Translucent.push_back(SkeletalNear);
-		FPreparedSkeletalMeshDraw ExactTie;
+		FPreparedStaticMeshDraw StaticFar;
+		StaticFar.TranslucentDistanceSquared = 20.0;
+		StaticFar.SortKey.PrimitiveId = 30;
+		Prepared.StaticMeshes.Translucent.push_back(StaticFar);
+		FPreparedStaticMeshDraw StaticEarlier;
+		StaticEarlier.TranslucentDistanceSquared = 10.0;
+		StaticEarlier.SortKey.PrimitiveId = 10;
+		Prepared.StaticMeshes.Translucent.push_back(StaticEarlier);
+		FPreparedStaticMeshDraw ExactTie;
 		ExactTie.TranslucentDistanceSquared = 10.0;
 		ExactTie.SortKey.PrimitiveId = 20;
-		Prepared.SkeletalMeshes.Translucent.push_back(ExactTie);
+		Prepared.StaticMeshes.Translucent.push_back(ExactTie);
 
 		PrepareCombinedTranslucentGeometry(Prepared);
 
 		ASSERT_EQ(Prepared.TranslucentGeometry.size(), 4u);
 		EXPECT_EQ(Prepared.TranslucentGeometry[0].Family,
-			EPreparedTranslucentGeometryFamily::SkeletalMesh);
+			EPreparedTranslucentGeometryFamily::StaticMesh);
 		EXPECT_EQ(Prepared.TranslucentGeometry[0].SortKey.PrimitiveId, 30u);
 		EXPECT_EQ(Prepared.TranslucentGeometry[1].SortKey.PrimitiveId, 10u);
 		EXPECT_EQ(Prepared.TranslucentGeometry[2].Family,
 			EPreparedTranslucentGeometryFamily::StaticMesh);
 		EXPECT_EQ(Prepared.TranslucentGeometry[3].Family,
-			EPreparedTranslucentGeometryFamily::SkeletalMesh);
+			EPreparedTranslucentGeometryFamily::StaticMesh);
 	}
 
 	TEST(FRendererSceneViewTests, FixedAspectViewsAreCenteredPerOutput)

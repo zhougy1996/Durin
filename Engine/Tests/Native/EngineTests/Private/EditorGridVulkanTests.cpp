@@ -191,15 +191,6 @@ namespace Durin
 			Elements[7] = FVertexElement(
 				3, 0, EVertexElementType::UByte4N, 7, 4
 			);
-			if (Domain == EGBufferVertexDomain::Skeletal)
-			{
-				Elements[8] = FVertexElement(
-					4, 0, EVertexElementType::UShort4, 8, 24
-				);
-				Elements[9] = FVertexElement(
-					4, 8, EVertexElementType::Float4, 9, 24
-				);
-			}
 			return GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		}
 
@@ -654,7 +645,7 @@ namespace Durin
 		auto AlternateTargets =
 			std::make_shared<FGBufferRenderer::FTargets>();
 		auto PipelineResults =
-			std::make_shared<std::array<bool, 13>>();
+			std::make_shared<std::array<bool, 11>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
@@ -689,12 +680,11 @@ namespace Durin
 				Depth.bEnableTest = true;
 				Depth.bEnableWrite = true;
 				Depth.CompareOp = ERHIDepthCompareOp::Greater;
-				const std::array<EGBufferVertexDomain, 3> Domains{
+				const std::array<EGBufferVertexDomain, 2> Domains{
 					EGBufferVertexDomain::Local,
-					EGBufferVertexDomain::Spline,
-					EGBufferVertexDomain::Skeletal
+					EGBufferVertexDomain::Spline
 				};
-				std::array<FVertexDeclarationRHIRef, 3> Declarations;
+				std::array<FVertexDeclarationRHIRef, 2> Declarations;
 				for (size_t Index = 0; Index < Domains.size(); ++Index)
 				{
 					Declarations[Index] =
@@ -742,7 +732,7 @@ namespace Durin
 					ERendererResourceInvalidationCause::ShaderChanged,
 					FRendererResourceInvalidationTargets{}
 				);
-				(*PipelineResults)[8] =
+				(*PipelineResults)[6] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeDevice =
 					RecoveredTargets->Material.GetReference();
@@ -752,17 +742,17 @@ namespace Durin
 				);
 				auto DeviceTargets =
 					Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
-				(*PipelineResults)[9] = DeviceTargets.has_value()
+				(*PipelineResults)[7] = DeviceTargets.has_value()
 										&& DeviceTargets->Material.GetReference() != BeforeDevice;
-				(*PipelineResults)[10] =
+				(*PipelineResults)[8] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeRelease = DeviceTargets.has_value() ? DeviceTargets->Material.GetReference() : nullptr;
 				GBuffer.ReleaseResources_RenderThread();
 				auto ReleasedTargets =
 					Tests::FRendererFeatureTargetFixture::CreateGBuffer(64, 32);
-				(*PipelineResults)[11] = ReleasedTargets.has_value()
+				(*PipelineResults)[9] = ReleasedTargets.has_value()
 										 && ReleasedTargets->Material.GetReference() != BeforeRelease;
-				(*PipelineResults)[12] =
+				(*PipelineResults)[10] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 			}
 		);

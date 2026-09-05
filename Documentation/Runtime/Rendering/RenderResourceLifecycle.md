@@ -45,7 +45,7 @@ asset diagnostics are defined by [Texture System](TextureSystem.md).
 
 ## Cooked mesh readiness
 
-StaticMesh and SkeletalMesh CPU residency is independent of render-resource
+StaticMesh CPU residency is independent of render-resource
 readiness. `EnsureRenderDataLoadedBlocking()` waits for CPU residency only;
 `FCookedMeshBlockingResult::Succeeded()` reports that CPU result. It does not
 request GPU initialization. Call `InitResources()` explicitly, then query
@@ -68,7 +68,7 @@ GPU initialization when CPU publication recreates their render state. The asset
 reports the queued state before the rendering thread executes that command and
 advances its resource revision again when initialization reaches Ready or Failed.
 
-A StaticMesh, SplineMesh, or SkeletalMesh SceneProxy may be created from valid
+A StaticMesh or SplineMesh SceneProxy may be created from valid
 CPU data while GPU initialization is queued. Renderer preparation still checks
 the selected LOD's actual resources and rejects or falls back until they are
 ready. Because CPU publication recreates registered component render state, the

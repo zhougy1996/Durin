@@ -109,7 +109,6 @@ namespace Durin
 		FSceneViewMeshStatistics StaticMesh;
 		// Spline draws share the static-mesh route and have no independent count.
 		FSceneViewGeometryStatistics SplineMesh;
-		FSceneViewMeshStatistics SkeletalMesh;
 		FSceneViewShadowStatistics Shadow;
 		FSceneViewLightStatistics Lights;
 		FSceneViewVolumetricCloudStatistics VolumetricCloud;

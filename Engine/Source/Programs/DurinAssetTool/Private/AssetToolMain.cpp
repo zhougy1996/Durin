@@ -12,7 +12,6 @@
 #include "Asset/References.h"
 #include "Asset/Cook.h"
 
-#include "Animation/AnimationClip.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Level.h"
@@ -27,8 +26,6 @@
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
-#include "SkeletalMesh/SkeletalMesh.h"
-#include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2D.h"
@@ -928,7 +925,6 @@ int main(int ArgC, char** ArgV)
 	EditorServices.bStarted = true;
 	{
 		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		if (Options.Operation == EOperation::Cook)

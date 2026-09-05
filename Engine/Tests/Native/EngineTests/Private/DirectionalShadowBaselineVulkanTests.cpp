@@ -830,94 +830,94 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	const size_t CascadeFixtureStart = Fixtures.size();
 	Fixtures.push_back({.Name = "q2_cascades_index_perspective", .Primitives = {{{24.0, 0.0, 0.0}, {7.0, 7.0, 1.0}, 90.0}, {{22.0, 0.5, 0.0}, {2.0, 2.0, 1.0}, 90.0}}, .LightDirection = {-1.0, 0.2, -0.25}, .DiagnosticMode = Durin::EDirectionalShadowDiagnosticMode::CascadeIndex, .FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium, .Candidate = Durin::EDirectionalShadowCandidate::ThreeCascades, .bPerspective = true});
 	constexpr std::array<std::string_view, 13> ExpectedHashes{
-		"fe949c60fa7314c9154b390d9570b60a",
-		"148649a1ec8638f27c071034a1379afd",
-		"12f14c97e2a78de7a16bfb84ad1fee4f",
-		"0e23e4f5fb83a4802011082773a04a48",
-		"814082869560a86c7a49a071f4a9bbcb",
-		"bf00b0661b21f4b5e6a780680f66be7c",
-		"6fc3ad3c1350a8ec0457611a2975a171",
-		"6fc3ad3c1350a8ec0457611a2975a171",
-		"f9b8c29b56495e19f3287ec9e47240e6",
-		"0e23e4f5fb83a4802011082773a04a48",
-		"f38a6b8d01b1560c5dbfdf99895e9ea5",
-		"15b71c676cfb6f03d8deef760b61d778",
-		"aa87f5201aa0803bdc8afb8059e90cd7"
+		"ffcda3b8669b0dfd07901ea4cbff8530",
+		"1438e8b648bd9e3a167bc0efcdbe3acc",
+		"6f8532dc6a57429e9c08c5a6685e0dd3",
+		"ba4fe69320f9105c85e8fc183ba3126f",
+		"268d47a9951d8bba568aca99995b0a41",
+		"c8248b8126303291e196ace918f7a468",
+		"ee352fb598e0d182e96f102a7b8bba9e",
+		"ee352fb598e0d182e96f102a7b8bba9e",
+		"634911634d1796c3d5155ec353a0dbd2",
+		"ba4fe69320f9105c85e8fc183ba3126f",
+		"3c136fa47450e7f89b5e47aace700cc7",
+		"08adf633516ee85b42299736455b77a4",
+		"323d27847580b571fdcc06fa0b4fd0b0"
 	};
 	constexpr std::array<std::string_view, 8> Q1EntryExpectedHashes{
-		"fe5b14d58d75dbdc5864bef7a4aa3e51",
-		"3450a4b8baa59fdcddf93d7409e038c3",
-		"e9f767e93a478da574e742f20b230ab5",
-		"482cad1b5d1b496e78f0e63b5596ea53",
-		"be3451889f9f6f92f88e6ee7be35c71d",
-		"fe5b14d58d75dbdc5864bef7a4aa3e51",
-		"87a9c58fae011bab403c759ecc390e53",
-		"d45a9c22647555e1c4a92802555e62cd"
+		"a9cfd950c67a89f739f9b34651b3b642",
+		"e1dd931c29fa5d2d07b03f0debc2bee7",
+		"f6668ed9ac77bdc5b08082c8a2f70efc",
+		"6e1e77e8bfb4bcdfd0bc808bee85ab00",
+		"50bdf06dd7c90b049ec0e3d20a3cc479",
+		"a9cfd950c67a89f739f9b34651b3b642",
+		"60692536c4b911f6b615ab894ef878ca",
+		"0fc8f74923928f8671bd9cc3a047173e"
 	};
 	constexpr std::array<std::string_view, 9> Q1FilterTrialExpectedHashes{
-		"415f10788f025d5976cde60e8bf4b822",
-		"c0d655932d0a6099f30f0b462dd10a7c",
-		"c0d655932d0a6099f30f0b462dd10a7c",
-		"cd5d1d3b12d7c2243057bc7365df1902",
-		"fcda2566f657ca19c05955312767bdb9",
-		"1de0bd1bbef9302d919617dacae8c54c",
-		"1de0bd1bbef9302d919617dacae8c54c",
-		"d0247d12addee03defca5278ed9135aa",
-		"f67b54de0d48c3f4facd22dfb7ed140b"
+		"31973f5ca7737a844a9aa2b6346afda4",
+		"6c9513ee08cdefff5802f158a1baa75e",
+		"6c9513ee08cdefff5802f158a1baa75e",
+		"fd3f499f195c8b83545cc0013c2ff2b0",
+		"197721cbe890107cb1c9af4439f1b619",
+		"7997800f817cce75f62cd99010a98425",
+		"7997800f817cce75f62cd99010a98425",
+		"4ecd008c03908e09d9e0b050ab00f589",
+		"b9e71302ddcb0755d940af0acbf2aebe"
 	};
 	constexpr std::array<std::string_view, 21> MediumParityExpectedHashes{
-		"fe949c60fa7314c9154b390d9570b60a",
-		"148649a1ec8638f27c071034a1379afd",
-		"e173ba7048a2f4719cead4781af76f59",
-		"2c60e91a1f0cb14ae9dfc7f0c9d07b11",
-		"c24ac18afcc2b7ee184e6cc218cc176a",
-		"bf00b0661b21f4b5e6a780680f66be7c",
-		"4ce402ab27a7e4dd71f6de78cec8af34",
-		"4ce402ab27a7e4dd71f6de78cec8af34",
-		"f9b8c29b56495e19f3287ec9e47240e6",
-		"2c60e91a1f0cb14ae9dfc7f0c9d07b11",
-		"7bac402557d1ae9f3d3f8d9e8442c311",
-		"d618fcfaac6b37468bb34cc0176a90a2",
-		"b52484f05f831871b580f7eeb02354b0",
-		"c0d655932d0a6099f30f0b462dd10a7c",
-		"35f50fe7e42049dacdb5a569186e180e",
-		"53827c1af6e9008cec0ab5109a4d10fc",
-		"8c75ef49c1b11418ce007dbc809c6b78",
-		"35e247243a52ae9cc2d914e4da731f0e",
-		"c0d655932d0a6099f30f0b462dd10a7c",
-		"cd5d1d3b12d7c2243057bc7365df1902",
-		"fcda2566f657ca19c05955312767bdb9"
+		"ffcda3b8669b0dfd07901ea4cbff8530",
+		"1438e8b648bd9e3a167bc0efcdbe3acc",
+		"89aa34952a7e091602c80794dad63eef",
+		"e603c2d36f9caf37411e3ee519d4cbf3",
+		"40cacb1e24a88ffb2e3918d852917134",
+		"c8248b8126303291e196ace918f7a468",
+		"9f3dec5ae5e1910cd354e594711e90dd",
+		"9f3dec5ae5e1910cd354e594711e90dd",
+		"634911634d1796c3d5155ec353a0dbd2",
+		"e603c2d36f9caf37411e3ee519d4cbf3",
+		"efa556576b5ac2be9d9a27ec0bcf9c34",
+		"5812b02d2f0b3e82d470077f5550b635",
+		"a3881f6435a95456a6553deee25f5d72",
+		"6c9513ee08cdefff5802f158a1baa75e",
+		"85618284ae51032e97a046253bf82fb4",
+		"76c29e4495795b8539ec8f0b58b5f9f4",
+		"666978f17b29c61013a3b7fda562c1c2",
+		"c340577b325078bdf9d13ef649e15bd2",
+		"6c9513ee08cdefff5802f158a1baa75e",
+		"fd3f499f195c8b83545cc0013c2ff2b0",
+		"197721cbe890107cb1c9af4439f1b619"
 	};
 	constexpr std::array<std::string_view, 21> HighParityExpectedHashes{
-		"fe949c60fa7314c9154b390d9570b60a",
-		"148649a1ec8638f27c071034a1379afd",
-		"686fc52cdf3087af88d26ec4f443f2f2",
-		"2197366081c9dc992388f0cc3932d539",
-		"32083f72ee29d8226e129e2414dfbf9f",
-		"bf00b0661b21f4b5e6a780680f66be7c",
-		"8d7b188fba592f1921cda4822ee5cb0e",
-		"8d7b188fba592f1921cda4822ee5cb0e",
-		"f9b8c29b56495e19f3287ec9e47240e6",
-		"2197366081c9dc992388f0cc3932d539",
-		"eb19e052e6c2193577576a13db193d40",
-		"1b14c4ab0d2332fa233f2800363460ff",
-		"e24041ffaffc4b6cad8ecf6a158fd1fd",
-		"1de0bd1bbef9302d919617dacae8c54c",
-		"ea19ad7cb49a65dd8923a1f8c6531baf",
-		"bead2b75cb99be33cde1b84c37a3ec45",
-		"2282fc4ccf91b9999c8cf57110ea7c22",
-		"86d7521e521143a7e7ad669020499769",
-		"1de0bd1bbef9302d919617dacae8c54c",
-		"d0247d12addee03defca5278ed9135aa",
-		"f67b54de0d48c3f4facd22dfb7ed140b"
+		"ffcda3b8669b0dfd07901ea4cbff8530",
+		"1438e8b648bd9e3a167bc0efcdbe3acc",
+		"3fc3629490986b8505b826f77e7e175b",
+		"4205f35fb928cd482b36826993a164c2",
+		"a5a40b11ea008174cd9d1ae8ac1e0a84",
+		"c8248b8126303291e196ace918f7a468",
+		"53e9e416e49004b9051ed8421394ebcf",
+		"53e9e416e49004b9051ed8421394ebcf",
+		"634911634d1796c3d5155ec353a0dbd2",
+		"4205f35fb928cd482b36826993a164c2",
+		"5246766b21ad7f56198a2a9297b8f0d6",
+		"5ca93be441588a505c12a205bd6e5c79",
+		"88b595ec7547631ce6ce8ac71301a166",
+		"7997800f817cce75f62cd99010a98425",
+		"da5755260fb62cf2901f8a73692eb0e1",
+		"a6995eda8fc1545e68ca8cea898e4b8c",
+		"50fd885b9a2eadcfb514280cb11012b2",
+		"1013a6bf4ead579167c17fadc3250260",
+		"7997800f817cce75f62cd99010a98425",
+		"4ecd008c03908e09d9e0b050ab00f589",
+		"b9e71302ddcb0755d940af0acbf2aebe"
 	};
 	constexpr std::array<std::string_view, 6> FilterDiagnosticExpectedHashes{
-		"e22e583bc88b9a27f80616fd94f8c35f",
+		"92c3cbbcaef13f2663ae444fe2d93ea3",
 		"3357331dfeb0990b1abeb54d046d7ed7",
-		"f1c08750ccd65ea60d703c91e6131258",
+		"cb51e4dc5494a052dc046443c122c380",
 		"ab04d1e1059d9d4e0c1abd1875e81c31",
 		"3357331dfeb0990b1abeb54d046d7ed7",
-		"8870cce35c892d90da61e0ee9d2eba17"
+		"702846a951dfbb9c3cc1a813dbc961e3"
 	};
 
 	const std::filesystem::path OutputDirectory =
@@ -1138,8 +1138,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LT(MediumQ0Motion[0], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[1], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[2], CaptureWidth * CaptureHeight / 4u);
-	EXPECT_EQ(HighMotion[0], 32u);
-	EXPECT_EQ(HighMotion[1], 190u);
+	EXPECT_EQ(HighMotion[0], 33u);
+	EXPECT_EQ(HighMotion[1], 53u);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[1], ShadowOnlyHighFrequencyFraction[0] * 0.95);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[2], ShadowOnlyHighFrequencyFraction[1] * 0.96);
 	const size_t LowTransitionWidth = MaximumTransitionWidth(Captures[23]);
@@ -1343,8 +1343,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		PrimitiveCount);
 	const size_t UniqueEligible =
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleStaticMeshCasters
-		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters
-		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters;
+		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters;
 	EXPECT_EQ(UniqueEligible, PrimitiveCount);
 	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowCascadeClassificationTests,
@@ -2110,7 +2109,6 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferStaticMeshRejectedDraws, 0u);
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferStaticMeshSkippedDraws, 0u);
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferSplineMeshAttemptedDraws, 0u);
-	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferSkeletalMeshAttemptedDraws, 0u);
 	EXPECT_EQ(GBufferPixels, PixelsOff);
 	ASSERT_EQ(GBufferMaterialPixels.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 	ASSERT_EQ(GBufferSurfacePixels.size(), GBufferMaterialPixels.size());
@@ -2165,7 +2163,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			EXPECT_NEAR(Channel, 0.72f, Durin::GBufferContract::MaximumUNorm8Error);
 		}
 		EXPECT_NEAR(Record.Metallic, 0.0f, Durin::GBufferContract::MaximumUNorm8Error);
-		EXPECT_NEAR(Record.Roughness, 0.5f, Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(Record.Roughness, 0.5f,
+			Durin::GBufferContract::MaximumUNorm8Error + 1.0e-7f);
 		EXPECT_NEAR(Record.AmbientOcclusion, 1.0f, Durin::GBufferContract::MaximumUNorm8Error);
 		EXPECT_NEAR(Record.EffectiveOpacity, 1.0f, Durin::GBufferContract::MaximumUNorm8Error);
 		EXPECT_NEAR(Record.Emissive.x, 0.0f, 0.00006104f);

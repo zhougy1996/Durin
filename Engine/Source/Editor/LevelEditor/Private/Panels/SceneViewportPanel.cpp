@@ -12,9 +12,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Actors/StaticMeshActor.h"
-#include "Actors/SkeletalMeshActor.h"
 #include "Actors/SkyBoxActor.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Math/Vector.h"
@@ -347,21 +345,6 @@ namespace Durin::Editor::Level
 							else if (!ApplyResult.ResultActorNames.empty())
 								Actor = Context.Level->FindActorByName(ApplyResult.ResultActorNames.front());
 						}
-						else if (DSkeletalMesh* SkeletalMesh = Cast<DSkeletalMesh>(Asset))
-						{
-							auto* SkeletalMeshActor = Context.Level->SpawnActor<ASkeletalMeshActor>(FName(AssetPath.GetAssetPath().GetAssetName()));
-							if (SkeletalMeshActor)
-							{
-								std::string BindError;
-								if (SkeletalMeshActor->GetSkeletalMeshComponent()->SetSkeletalMesh(SkeletalMesh, BindError))
-									Actor = SkeletalMeshActor;
-								else
-								{
-									Context.Level->DestroyActor(SkeletalMeshActor);
-									Context.SetError(std::move(BindError));
-								}
-							}
-						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
 							const FSkyBoxPlacementResult Result = FSkyBoxPlacement::PlaceTextureCube(
@@ -376,7 +359,7 @@ namespace Durin::Editor::Level
 								Actor = Result.Actor;
 						}
 						else
-							Context.SetError("Only StaticMesh, SkeletalMesh, and TextureCube assets can be placed in the scene viewport.");
+							Context.SetError("Only StaticMesh and TextureCube assets can be placed in the scene viewport.");
 						if (Actor)
 						{
 							FSceneView View;

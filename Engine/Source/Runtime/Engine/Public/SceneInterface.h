@@ -10,7 +10,6 @@ namespace Durin
 	class DSkyBoxComponent;
 	class DVolumetricCloudComponent;
 	struct FMaterialRenderProxyBindingUpdate;
-	struct FSkeletalPosePalette;
 	struct FSplineMeshRenderDynamicData;
 
 	// Defines the game-thread publication boundary of a renderer-owned scene.
@@ -47,10 +46,6 @@ namespace Durin
 		virtual auto UpdatePrimitiveMaterialBinding(
 			FPrimitiveSceneId PrimitiveId,
 			const FMaterialRenderProxyBindingUpdate& Update
-		) -> void = 0;
-		virtual auto UpdateSkeletalMeshDynamicData(
-			FPrimitiveSceneId PrimitiveId,
-			std::shared_ptr<const FSkeletalPosePalette> Pose
 		) -> void = 0;
 		virtual auto UpdateSplineMeshDynamicData(
 			FPrimitiveSceneId PrimitiveId,

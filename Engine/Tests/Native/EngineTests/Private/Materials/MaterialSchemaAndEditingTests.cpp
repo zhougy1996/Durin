@@ -6,7 +6,6 @@
 #include "Hash/XxHash.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Materials/MaterialCookedProgram.h"
-#include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 #include <cstring>
@@ -70,7 +69,7 @@ namespace
 	}
 }
 
-TEST(FMaterialTests, MeshAssetsShareOneReflectedMaterialSlotSchema)
+TEST(FMaterialTests, StaticMeshUsesReflectedMaterialSlotSchema)
 {
 	InitializeDObjectSystem();
 	const auto GetMaterialSlotStruct = [](Durin::DClass* MeshClass) {
@@ -83,9 +82,7 @@ TEST(FMaterialTests, MeshAssetsShareOneReflectedMaterialSlotSchema)
 	};
 
 	Durin::DStruct* StaticSlot = GetMaterialSlotStruct(Durin::DStaticMesh::StaticClass());
-	Durin::DStruct* SkeletalSlot = GetMaterialSlotStruct(Durin::DSkeletalMesh::StaticClass());
 	ASSERT_NE(StaticSlot, nullptr);
-	EXPECT_EQ(StaticSlot, SkeletalSlot);
 	EXPECT_EQ(StaticSlot, Durin::FMeshMaterialSlotDefinition::StaticStruct());
 	EXPECT_EQ(StaticSlot->GetQualifiedName().ToString(), "Durin::FMeshMaterialSlotDefinition");
 	EXPECT_EQ(Durin::MaximumMeshMaterialSlots, 4096u);

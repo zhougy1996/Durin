@@ -97,7 +97,6 @@ namespace Durin
 		auto& SkyBoxRenderer = Renderer.SkyBoxRenderer;
 		auto& PostProcessRenderer = Renderer.PostProcessRenderer;
 		auto& StaticMeshRenderer = Renderer.StaticMeshRenderer;
-		auto& SkeletalMeshRenderer = Renderer.SkeletalMeshRenderer;
 		auto& ContactShadowRenderer = Renderer.ContactShadowRenderer;
 		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
 		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
@@ -224,14 +223,10 @@ namespace Durin
 			FeaturePlan.RequiresProductionDeferred();
 		Context.Resolved.bHybridRetainedResourcesReady =
 			!bWantsProductionDeferred
-			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
+			|| StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.StaticMeshes,
 					ResolvedSceneResources.Receiver.StaticMeshes
-				)
-				&& SkeletalMeshRenderer.PrepareHybridRetainedResources_RenderThread(
-					PreparedView.Receiver.SkeletalMeshes,
-					ResolvedSceneResources.Receiver.SkeletalMeshes
-				));
+				);
 		const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 		auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;
 		const bool bForceContactShadowVisibilityFragment =
