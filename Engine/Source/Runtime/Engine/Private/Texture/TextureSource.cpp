@@ -469,48 +469,8 @@ namespace Durin
 			: Image::FImageView{};
 	}
 
-	auto FTextureSource::CreateSnapshotBlocking() const -> FTextureSourceSnapshot
-	{
-		const FMipData Mips = GetMipData();
-		if (!Mips.IsValid()) return {};
-		FTextureSourceSnapshot Result{.Blocks = Blocks, .Layers = Layers,
-			.MipData = Mips.GetData(), .Kind = Kind, .GammaSpace = GammaSpace,
-			.Compression = ETextureSourceCompression::Raw,
-			.SourceChannelCount = SourceChannelCount,
-			.TransparencyMask = TransparencyMask, .Identity = GetIdentity()};
-		return Result.IsValid() ? std::move(Result) : FTextureSourceSnapshot{};
-	}
-
 	auto FTextureSource::ReleaseSourceMemory() const -> void
 	{
 		InvalidateMipData();
-	}
-
-	auto FTextureSourceSnapshot::IsValid() const -> bool
-	{
-		FTextureSourceMipInfo Ignored;
-		uint64 Total = 0;
-		return Compression == ETextureSourceCompression::Raw
-			&& !Identity.IsZero()
-			&& ResolveMipInfo(Kind, GammaSpace, Blocks, Layers,
-				0, 0, 0, Ignored, &Total)
-			&& Total == MipData.GetSize();
-	}
-
-	auto FTextureSourceSnapshot::GetMipInfo(uint32 BlockIndex,
-		uint32 LayerIndex, uint32 MipIndex) const -> FTextureSourceMipInfo
-	{
-		FTextureSourceMipInfo Result;
-		return ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, BlockIndex,
-			LayerIndex, MipIndex, Result, nullptr) ? Result : FTextureSourceMipInfo{};
-	}
-
-	auto FTextureSourceSnapshot::GetMipImage(uint32 BlockIndex,
-		uint32 LayerIndex, uint32 MipIndex) const -> Image::FImageView
-	{
-		const FTextureSourceMipInfo Info = GetMipInfo(BlockIndex, LayerIndex, MipIndex);
-		return Info.IsValid()
-			? Image::FImageView(Info.ImageInfo, MipData, Info.PayloadOffset)
-			: Image::FImageView{};
 	}
 } // namespace Durin

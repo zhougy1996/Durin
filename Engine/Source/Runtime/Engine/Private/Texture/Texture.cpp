@@ -119,12 +119,6 @@ namespace Durin
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 	}
 
-	auto DTexture::CreateSourceSnapshotBlocking() const
-		-> FTextureSourceSnapshot
-	{
-		return Source.CreateSnapshotBlocking();
-	}
-
 	auto DTexture::SetAssetImportData(
 		DAssetImportData& Value, std::string& OutError) -> bool
 	{

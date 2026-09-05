@@ -28,9 +28,9 @@ namespace Durin
 			FTextureCubeImportedData Result;
 			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
 				return Result;
-			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking();
-			if (!Snapshot.IsValid()
-				|| !Result.Pixels.UpdatePayload(Snapshot.MipData)) return {};
+			const FTextureSource::FMipData Mips = Source.GetMipData();
+			if (!Mips.IsValid()
+				|| !Result.Pixels.UpdatePayload(Mips.GetData())) return {};
 			Result.FaceDimension = Source.GetWidth();
 			Result.SourceChannelCount = Source.GetSourceChannelCount();
 			Result.TransparencyMask = Source.GetTransparencyMask();
@@ -55,9 +55,8 @@ namespace Durin
 				return true;
 			}
 			if (Source.GetKind() != ETextureSourceKind::LongLatCube) return false;
-			const FTextureSourceSnapshot Snapshot =
-				Texture.CreateSourceSnapshotBlocking();
-			const Image::FImageView View = Snapshot.GetMipImage(0, 0, 0);
+			const FTextureSource::FMipData Mips = Source.GetMipData();
+			const Image::FImageView View = Mips.GetMipImage(0, 0, 0);
 			if (!View.IsValid())
 			{
 				OutError = "TextureCube panorama source payload could not be loaded.";
@@ -85,8 +84,8 @@ namespace Durin
 				FTextureCubePanoramaImage Image;
 				Image.Width = Info.Width;
 				Image.Height = Info.Height;
-				Image.SourceChannelCount = Snapshot.SourceChannelCount;
-				Image.bHasTransparency = Snapshot.TransparencyMask != 0;
+				Image.SourceChannelCount = Source.GetSourceChannelCount();
+				Image.bHasTransparency = Source.HasTransparency();
 				Image.Pixels.assign(View.GetPixels().begin(), View.GetPixels().end());
 				Panorama.Image = std::move(Image);
 			}

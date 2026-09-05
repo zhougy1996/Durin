@@ -55,8 +55,6 @@ namespace Durin
 		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetSource() const -> const FTextureSource& { return Source; }
-		ENGINE_API auto CreateSourceSnapshotBlocking() const
-			-> FTextureSourceSnapshot;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();

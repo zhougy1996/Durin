@@ -27,10 +27,12 @@ cooked-runtime, render-resource, editor, and material boundaries.
   individual mips. `ReleaseSourceMemory` explicitly evicts the cache; existing
   handles remain valid through immutable shared ownership. Source replacement
   installs fresh cache state rather than comparing a separate cache identity.
-- Builds, previews, and thumbnails capture an owned `FTextureSourceSnapshot`.
+- Engine-side texture-family adapters synchronously read `FTextureSource::FMipData`
+  and assemble owned, family-specific build input. Asynchronous builders never
+  retain `FTextureSource`, `FMipData`, or texture objects.
   Family values such as `FTexture2DImportedData` and `FTextureSourceData` are
-  transient recipe adapters and are never reflected on a texture leaf. Snapshot
-  capture resolves package storage once; workers never read the live asset.
+  transient recipe adapters and are never reflected on a texture leaf. Input
+  assembly resolves package storage once; workers never read the live asset.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.

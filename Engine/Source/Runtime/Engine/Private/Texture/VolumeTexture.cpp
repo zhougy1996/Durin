@@ -56,9 +56,9 @@ namespace Durin
 			Result.Depth = Source.GetDepth();
 			Result.Format = *Format;
 			Result.CanonicalSourceIdentity = Source.GetIdentity();
-			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking();
-			if (!Snapshot.IsValid()
-				|| !Result.Voxels.UpdatePayload(Snapshot.MipData)) return {};
+			const FTextureSource::FMipData Mips = Source.GetMipData();
+			if (!Mips.IsValid()
+				|| !Result.Voxels.UpdatePayload(Mips.GetData())) return {};
 			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
 		}
 

@@ -25,12 +25,12 @@ namespace Durin
 			FTexture2DImportedData Result;
 			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D)
 				return Result;
-			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking();
-			if (!Snapshot.IsValid()) return Result;
+			const FTextureSource::FMipData Mips = Source.GetMipData();
+			if (!Mips.IsValid()) return Result;
 			std::vector<FTextureSourceData> CapturedMips;
-			for (uint32 MipIndex = 0; MipIndex < Snapshot.Layers[0].NumMips; ++MipIndex)
+			for (uint32 MipIndex = 0; MipIndex < Source.GetLayers()[0].NumMips; ++MipIndex)
 			{
-				const Image::FImageView View = Snapshot.GetMipImage(0, 0, MipIndex);
+				const Image::FImageView View = Mips.GetMipImage(0, 0, MipIndex);
 				if (!View.IsValid()) return {};
 				const auto& Info = View.GetInfo();
 				FTextureSourceData Mip{.Pixels = FByteArray(

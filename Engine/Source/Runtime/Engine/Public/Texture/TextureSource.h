@@ -105,32 +105,15 @@ namespace Durin
 		}
 	};
 
-	struct FTextureSourceSnapshot
-	{
-		std::vector<FTextureSourceBlock> Blocks;
-		std::vector<FTextureSourceLayer> Layers;
-		FSharedByteBuffer MipData;
-		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
-		ETextureSourceGammaSpace GammaSpace = ETextureSourceGammaSpace::Unknown;
-		ETextureSourceCompression Compression = ETextureSourceCompression::Raw;
-		uint8 SourceChannelCount = 0;
-		uint8 TransparencyMask = 0;
-		FXxHash128 Identity;
-
-		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
-			uint32 MipIndex) const -> FTextureSourceMipInfo;
-		ENGINE_API auto GetMipImage(uint32 BlockIndex, uint32 LayerIndex,
-			uint32 MipIndex) const -> Image::FImageView;
-	};
-
 	// Owns authoritative editor source art independently from family recipes.
 	DSTRUCT()
 	struct FTextureSource
 	{
 		GENERATED_BODY()
 
-		// Read-only decoded mip-chain handle; the source must outlive mip access.
+		// Short-lived read-only decoded mip-chain handle. Family adapters consume it
+		// synchronously while the source remains stable, then pass typed owned input
+		// to asynchronous builders.
 		class FMipData
 		{
 		public:
@@ -273,7 +256,6 @@ namespace Durin
 		{
 			return Payload.GetPayload();
 		}
-		ENGINE_API auto CreateSnapshotBlocking() const -> FTextureSourceSnapshot;
 		ENGINE_API auto ReleaseSourceMemory() const -> void;
 		auto GetOwner() -> DTexture* { return Owner; }
 		auto GetOwner() const -> const DTexture* { return Owner; }
