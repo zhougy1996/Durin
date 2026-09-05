@@ -39,9 +39,11 @@ namespace Durin
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::DThumbnailManager& ThumbnailManager,
-			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
+			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
+			std::function<void()> OpenProjectBrowser) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
+		LEVELEDITOR_API auto RequestOpenProject(std::string ProjectFile) -> bool;
 	private:
 		FAsyncOperationGroup ThumbnailOperations;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;

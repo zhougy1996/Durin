@@ -48,11 +48,12 @@ namespace Durin::Editor::Level
 	{
 	}
 
-	auto FLevelDocumentController::RequestAction(ELevelDocumentAction Action) -> void
+	auto FLevelDocumentController::RequestOpenProject(std::string ProjectFile) -> void
 	{
 		PendingLevelPath.clear();
 		bPendingDocumentOpen = false;
-		PendingAction = Action;
+		PendingProjectFile = std::move(ProjectFile);
+		PendingAction = ELevelDocumentAction::OpenProject;
 		if (Context.Level && Context.Level->GetPackage() && Context.Level->GetPackage()->IsDirty())
 		{
 			QueuedPopup = EQueuedPopup::UnsavedLevel;
@@ -63,6 +64,7 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
+		PendingProjectFile.clear();
 		FObjectPath AssetPath;
 		if (!FObjectPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const FObjectPathResolveResult Resolution =
@@ -108,7 +110,7 @@ namespace Durin::Editor::Level
 		else if (PendingAction == ELevelDocumentAction::OpenProject)
 		{
 			std::string Error;
-			if (!RelaunchEditorForProject({}, &Error))
+			if (!RelaunchEditorForProject(PendingProjectFile, &Error))
 			{
 				SetError(std::move(Error));
 				return ELevelDocumentOpenResult::Rejected;
@@ -138,6 +140,7 @@ namespace Durin::Editor::Level
 			const bool bCancelsDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
 			PendingAction = ELevelDocumentAction::None;
 			PendingLevelPath.clear();
+			PendingProjectFile.clear();
 			if (bCancelsDeferredOpen) CompletePendingDocumentOpen(false);
 			return true;
 		}

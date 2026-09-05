@@ -40,7 +40,8 @@ namespace Durin::Editor::Level
 		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 			FTaskScopeToken InThumbnailTaskScope,
-			FContentBrowserCallbacks InContentBrowserCallbacks);
+			FContentBrowserCallbacks InContentBrowserCallbacks,
+			std::function<void()> InOpenProjectBrowser);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
@@ -83,6 +84,7 @@ namespace Durin::Editor::Level
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
 		auto ApplyFixedUpDefaultLevelPath(const FPackagePath& Path) -> void;
+		auto RequestOpenProject(std::string ProjectFile) -> void;
 		auto SetError(std::string Message) -> void;
 		auto StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
@@ -94,6 +96,7 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		FTaskScopeToken ThumbnailTaskScope;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
+		std::function<void()> OpenProjectBrowser;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;

@@ -48,11 +48,13 @@ namespace Durin::Editor::Level
 	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
 		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 		FTaskScopeToken InThumbnailTaskScope,
-		FContentBrowserCallbacks InContentBrowserCallbacks)
+		FContentBrowserCallbacks InContentBrowserCallbacks,
+		std::function<void()> InOpenProjectBrowser)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
 		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
+		, OpenProjectBrowser(std::move(InOpenProjectBrowser))
 	{
 	}
 
@@ -539,8 +541,15 @@ namespace Durin::Editor::Level
 	{
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
-		if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
+		if (ImGui::MenuItem("Open Project...") && OpenProjectBrowser)
+			OpenProjectBrowser();
 		if (bPlaying) ImGui::EndDisabled();
+	}
+
+	auto MLevelEditor::RequestOpenProject(std::string ProjectFile) -> void
+	{
+		if (DocumentController)
+			DocumentController->RequestOpenProject(std::move(ProjectFile));
 	}
 
 	auto MLevelEditor::DrawEditMenu() -> void

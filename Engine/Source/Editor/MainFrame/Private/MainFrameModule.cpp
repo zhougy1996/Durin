@@ -71,6 +71,7 @@ namespace Durin::Editor::MainFrame
 		EDefaultDocumentState DefaultDocumentState =
 			EDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
+		bool bProjectBrowserOpen = false;
 		std::string FailureMessage;
 		std::shared_ptr<FHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
@@ -288,7 +289,8 @@ namespace Durin::Editor::MainFrame
 						return Context.ContentBrowserTool
 							&& Context.ContentBrowserTool->NotifyMountedContentChanged();
 					},
-				})) return false;
+				},
+				[&Context] { Context.bProjectBrowserOpen = true; })) return false;
 			if (!MaterialEditorModule.RegisterMaterialEditor(
 				WorkspaceManager, ThumbnailManager))
 			{
@@ -1320,14 +1322,44 @@ namespace Durin
 			{100.0f, 100.0f},
 			{static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		Context.ProjectBrowser->SetOpenProject([](
+		const std::weak_ptr<FBootstrapContext> WeakContext =
+			BootstrapContext;
+		Context.ProjectBrowser->SetOpenProject([WeakContext](
 			std::string_view ProjectFile, std::string& OutError) {
+			const std::shared_ptr<FBootstrapContext> Context =
+				WeakContext.lock();
+			if (!Context)
+			{
+				OutError = "The editor main frame is unavailable.";
+				return false;
+			}
+			const FProjectInfo* CurrentProject = GetCurrentProject();
+			if (CurrentProject
+				&& CurrentProject->ProjectFile == NormalizeProjectFile(ProjectFile))
+			{
+				Context->bProjectBrowserOpen = false;
+				return true;
+			}
+			if (Context->LevelEditorModule)
+			{
+				if (!Context->LevelEditorModule->RequestOpenProject(
+					std::string(ProjectFile)))
+				{
+					OutError = "The Level Editor workspace is unavailable.";
+					return false;
+				}
+				Context->bProjectBrowserOpen = false;
+				return true;
+			}
 			return RelaunchEditorForProject(ProjectFile, &OutError);
+		});
+		Context.ProjectBrowser->SetClose([WeakContext] {
+			if (const std::shared_ptr<FBootstrapContext> Context =
+					WeakContext.lock())
+				Context->bProjectBrowserOpen = false;
 		});
 
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		const std::weak_ptr<FBootstrapContext> WeakContext =
-			BootstrapContext;
 		EditorRootWidget->Construct([WeakContext,
 			ViewState = FMainFrameViewState{}]() mutable {
 			const std::shared_ptr<FBootstrapContext> Context =
@@ -1348,10 +1380,10 @@ namespace Durin
 					*Context->RootWindow,
 					BrandTexture,
 					*Context->ProfilingTools,
-					bReadyWorkspace,
+					bReadyWorkspace && !Context->bProjectBrowserOpen,
 					ViewState);
 			}
-			if (bReadyWorkspace)
+			if (bReadyWorkspace && !Context->bProjectBrowserOpen)
 			{
 				DrawWorkspaceHost(
 					*Context->WorkspaceManager,
@@ -1365,10 +1397,11 @@ namespace Durin
 					*Context->Activity);
 				return;
 			}
-			if (!Context->bHasProject
+			if (Context->bProjectBrowserOpen || !Context->bHasProject
 				|| Context->State == EBootstrapState::Failed)
 			{
-				Context->ProjectBrowser->Draw(BrandTexture);
+				Context->ProjectBrowser->Draw(
+					BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
 				return;
 			}
 			DrawLoadingState(*Context);

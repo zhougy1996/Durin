@@ -14,17 +14,19 @@ namespace Durin::Editor::MainFrame
 	{
 	public:
 		using FOpenProject = std::function<bool(std::string_view, std::string&)>;
+		using FClose = std::function<void()>;
 
 		FProjectBrowser();
 
 		auto SetOpenProject(FOpenProject InOpenProject) -> void { OpenProject = std::move(InOpenProject); }
+		auto SetClose(FClose InClose) -> void { Close = std::move(InClose); }
 		auto SetError(std::string InError) -> void { Error = std::move(InError); }
 		auto RecordCurrentProject() -> void;
-		auto Draw(const FRHITexture* BrandTexture) -> void;
+		auto Draw(const FRHITexture* BrandTexture, bool bCanClose = false) -> void;
 
 	private:
 		auto DrawBrandPanel(bool bCompact, const FRHITexture* BrandTexture) -> void;
-		auto DrawProjectContent() -> void;
+		auto DrawProjectContent(bool bCanClose) -> void;
 		auto DrawRecentProjects(float Height) -> void;
 		auto DrawProjectRow(size_t Index, const FRecentProjectInfo& Project) -> bool;
 		auto OpenProjectFile(std::string_view ProjectFile) -> void;
@@ -32,6 +34,7 @@ namespace Durin::Editor::MainFrame
 
 		FProjectHistory History;
 		FOpenProject OpenProject;
+		FClose Close;
 		std::string Error;
 		int32 SelectedProject = -1;
 	};

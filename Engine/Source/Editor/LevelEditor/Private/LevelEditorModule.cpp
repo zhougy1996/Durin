@@ -142,13 +142,14 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::DThumbnailManager&,
-		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool
+		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks,
+		std::function<void()> OpenProjectBrowser) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
 			*SessionSettings, WorkspaceManager, ThumbnailOperations.GetTaskScope(),
-			std::move(ContentBrowserCallbacks));
+			std::move(ContentBrowserCallbacks), std::move(OpenProjectBrowser));
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
@@ -271,6 +272,15 @@ namespace Durin
 	{
 		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
 		return Workspace && Workspace->OpenDefaultDocument();
+	}
+
+	LEVELEDITOR_API auto FLevelEditorModule::RequestOpenProject(
+		std::string ProjectFile) -> bool
+	{
+		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
+		if (!Workspace) return false;
+		Workspace->RequestOpenProject(std::move(ProjectFile));
+		return true;
 	}
 
 }

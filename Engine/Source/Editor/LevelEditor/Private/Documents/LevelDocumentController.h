@@ -46,7 +46,7 @@ namespace Durin::Editor::Level
 			std::function<void(bool)> InCompleteDeferredOpen
 		);
 
-		auto RequestAction(ELevelDocumentAction Action) -> void;
+		auto RequestOpenProject(std::string ProjectFile) -> void;
 		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
 		auto OpenDefaultLevel() -> bool;
@@ -79,6 +79,7 @@ namespace Durin::Editor::Level
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;
+		std::string PendingProjectFile;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		bool bPendingDocumentOpen = false;
 	};

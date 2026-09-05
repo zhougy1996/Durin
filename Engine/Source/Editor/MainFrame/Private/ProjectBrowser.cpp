@@ -56,7 +56,8 @@ namespace Durin::Editor::MainFrame
 		SelectedProject = 0;
 	}
 
-	auto FProjectBrowser::Draw(const FRHITexture* BrandTexture) -> void
+	auto FProjectBrowser::Draw(
+		const FRHITexture* BrandTexture, bool bCanClose) -> void
 	{
 		ImGuiViewport* Viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -84,7 +85,7 @@ namespace Durin::Editor::MainFrame
 			if (ImGui::BeginChild("ProjectBrowserBrand", ImVec2(Available.x, MonaImGui::ScaleUI(CompactBrandHeight)))) DrawBrandPanel(true, BrandTexture);
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
-			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(Available.x, 0.0f))) DrawProjectContent();
+			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(Available.x, 0.0f))) DrawProjectContent(bCanClose);
 			ImGui::EndChild();
 		}
 		else
@@ -94,7 +95,7 @@ namespace Durin::Editor::MainFrame
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
 			ImGui::SameLine(0.0f, 0.0f);
-			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(0.0f, Available.y))) DrawProjectContent();
+			if (ImGui::BeginChild("ProjectBrowserContent", ImVec2(0.0f, Available.y))) DrawProjectContent(bCanClose);
 			ImGui::EndChild();
 		}
 
@@ -135,7 +136,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::TextDisabled("DURIN PROJECT BROWSER");
 	}
 
-	auto FProjectBrowser::DrawProjectContent() -> void
+	auto FProjectBrowser::DrawProjectContent(bool bCanClose) -> void
 	{
 		const float Padding = MonaImGui::ScaleUI(32.0f);
 		const float ButtonWidth = MonaImGui::ScaleUI(168.0f);
@@ -148,6 +149,11 @@ namespace Durin::Editor::MainFrame
 		ImGui::TextDisabled("Select a Durin project to continue.");
 		ImGui::SetCursorPosX(Padding);
 		if (ImGui::Button("Open Other Project...", ImVec2(ButtonWidth, 0.0f))) BrowseForProject();
+		if (bCanClose && Close)
+		{
+			ImGui::SameLine();
+			if (ImGui::Button("Back to Current Project", ImVec2(ButtonWidth, 0.0f))) Close();
+		}
 		ImGui::SetCursorPosX(Padding);
 		ImGui::Dummy(ImVec2(0.0f, MonaImGui::ScaleUI(12.0f)));
 		ImGui::SetCursorPosX(Padding);
@@ -291,7 +297,6 @@ namespace Durin::Editor::MainFrame
 			return;
 		}
 		Error.clear();
-		RecordCurrentProject();
 	}
 
 	auto FProjectBrowser::BrowseForProject() -> void
