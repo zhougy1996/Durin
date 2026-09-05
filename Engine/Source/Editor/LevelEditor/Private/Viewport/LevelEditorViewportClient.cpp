@@ -84,14 +84,6 @@ namespace Durin::Editor::Level
 			for (const FCollisionDebugBody& Body : Snapshot.Bodies)
 			{
 				const FMatrix Transform = Body.Transform.ToMatrix();
-				for (const std::array<FVector3, 2>& Bounds : Body.HeightFieldNodeBoundsSample)
-				{
-					const FVector3 Center = (Bounds[0] + Bounds[1]) * 0.5;
-					const FVector3 Size = Bounds[1] - Bounds[0];
-					SubmitXRayVisibleWireBox(View,
-						Transform * Math::TranslationMatrix(Center)
-							* Math::ScaleMatrix(Size), kCollisionBodyColor);
-				}
 				for (const std::array<FVector3, 3>& Triangle : Body.TriangleSample)
 				{
 					AddCollisionLine(View, Transform, Triangle[0], Triangle[1]);

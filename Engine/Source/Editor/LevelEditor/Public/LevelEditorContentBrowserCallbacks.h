@@ -6,7 +6,6 @@ namespace Durin::Editor::Level
 {
 	enum class EImportDialogType : uint8
 	{
-		TerrainHeightmap,
 		Scene,
 	};
 

@@ -11,7 +11,6 @@ namespace Durin
 	{
 		StaticMesh,
 		SkeletalMesh,
-		Terrain,
 		SplineMesh
 	};
 

@@ -89,8 +89,8 @@ choices. When the engine builds an `FSceneView`, it copies those choices into
 `FSceneView::Settings` before enqueueing the render command.
 
 The renderer consumes only that immutable per-view snapshot. Settings are
-grouped by feature ownership (`Mode`, `PostProcess`, `Terrain`,
-`DirectionalShadow`, and `AmbientOcclusion`) while the outer value remains the
+grouped by feature ownership (`Mode`, `PostProcess`, `DirectionalShadow`, and
+`AmbientOcclusion`) while the outer value remains the
 single submission snapshot. Two viewports may therefore render the same
 `FSceneInterface` with independent Lit/Unlit,
 Solid/Wireframe, FXAA, and Off/HalfResolution/FullResolution GTAO choices, and
@@ -274,10 +274,10 @@ The Level Editor finalizes one scene-view snapshot after all of its panels have 
 ### Viewport Rendering Statistics
 
 Every `IRendererModule::RenderView` invocation may produce one bounded
-`FSceneViewStatistics` value. Its visibility, mesh, terrain, shadow, and light
+`FSceneViewStatistics` value. Its visibility, mesh, shadow, and light
 breakdowns are feature-owned subvalues; headline triangle and draw-call totals
 still describe the complete invocation. Renderer reduces its private
-visibility, geometry, light, terrain, and shadow diagnostics only after command
+visibility, geometry, light, and shadow diagnostics only after command
 recording has completed successfully. RHI supplies the total draw-call value
 from the monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
 that exact invocation; the value therefore includes SkyBox, shadow, scene,
@@ -286,8 +286,8 @@ dispatches. Contact-shadow statistics carry the actual `Compute`, `Fragment`,
 or inactive route so editor A/B controls cannot confuse a requested preference
 with the producer that completed the view.
 
-Headline triangles count selected main-pass static, spline, skeletal, and
-terrain geometry once at the rendered LOD. Shadow triangle submissions remain
+Headline triangles count selected main-pass static, spline, and skeletal
+geometry once at the rendered LOD. Shadow triangle submissions remain
 a separate field so changing shadow cascade count does not redefine scene
 geometric complexity. Failed or incomplete renders do not publish partial
 statistics.
@@ -324,13 +324,9 @@ coefficients. Directional-shadow caster views remain explicitly forward-Z,
 clear to `1`, and compare with `Less`, so shadow bias and comparison sampling
 are isolated from the main-scene migration.
 
-Runtime Cameras serialize near/far clip, Terrain fade start, and Terrain render
-distance in their reflected projection settings. The Level Editor View menu
-exposes independently bounded clip and Terrain distance controls per viewport.
-The defaults are near `0.1`, far `500000`, fade start `180000`, and Terrain
-distance `200000`. The far-plane safety margin is five percent of the clip
-range capped at `10000` world units, preserving older explicitly short camera
-ranges without allowing Terrain distance to meet the projection boundary.
+Runtime Cameras serialize near/far clip in their reflected projection settings.
+The Level Editor View menu exposes bounded clip controls per viewport. The
+defaults are near `0.1` and far `500000`.
 
 All viewport types share the same scene-color, material-pass, sky,
 post-process, and editor-assistance contracts. Fixed-aspect views constrain

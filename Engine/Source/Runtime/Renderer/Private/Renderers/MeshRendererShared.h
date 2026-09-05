@@ -48,12 +48,6 @@ namespace Durin::RendererPrivate
 		return Type;
 	}
 
-	inline auto GetTerrainVertexFactoryShaderType() -> const FVertexFactoryType&
-	{
-		static const FVertexFactoryType Type("TerrainVertexFactory");
-		return Type;
-	}
-
 	inline constexpr uint32 MaterialMeshPassForward = 0;
 	inline constexpr uint32 MaterialMeshPassGBuffer = 1;
 	inline constexpr uint32 MaterialMeshPassShadow = 2;

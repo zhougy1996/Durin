@@ -242,7 +242,6 @@ namespace Durin
 			"OpaqueShadowFragmentMain", "ShadowFragmentMain"};
 		Options.Frequencies.assign(
 			Options.EntryPoints.size(), EShaderFrequency::Fragment);
-		Options.Macros.emplace_back("DURIN_TERRAIN", "0");
 		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "1");
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
 		Options.Macros.emplace_back(

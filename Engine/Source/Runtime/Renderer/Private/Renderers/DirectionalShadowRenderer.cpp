@@ -7,7 +7,6 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
-#include "Renderers/TerrainRenderer.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 
@@ -56,7 +55,6 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
-		FTerrainRenderer& Terrains,
 		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
 		const FPreparedSkeletalPaletteTable& PreparedPalettes,
@@ -160,9 +158,6 @@ namespace Durin
 				CommandList, PreparedPalettes, ResolvedPalettes,
 				Shadow.SkeletalMeshes[Cascade],
 				ResolvedShadow.SkeletalMeshes[Cascade]) && bReady;
-			bReady = Terrains.PrepareShadowResources_RenderThread(
-				CommandList, Shadow.Terrains[Cascade],
-				ResolvedShadow.Terrains[Cascade]) && bReady;
 		}
 		if (!bReady)
 		{
@@ -177,7 +172,6 @@ namespace Durin
 		FRHITexture* Target,
 		FStaticMeshRenderer& StaticMeshes,
 		FSkeletalMeshRenderer& SkeletalMeshes,
-		FTerrainRenderer& Terrains,
 		const FPreparedDirectionalShadow& Shadow,
 		FResolvedDirectionalShadow& ResolvedShadow,
 		FViewRenderTelemetry& Telemetry) -> bool
@@ -222,20 +216,14 @@ namespace Durin
 				CommandList, Cascade.CasterView, State->FallbackLighting,
 				Shadow.SkeletalMeshes[CascadeIndex],
 				ResolvedShadow.SkeletalMeshes[CascadeIndex]);
-			Terrains.ExecuteShadow_RenderThread(
-				CommandList, Cascade.CasterView, State->FallbackLighting,
-				Shadow.Terrains[CascadeIndex],
-				ResolvedShadow.Terrains[CascadeIndex]);
 			CommandList.EndRenderPass();
 			auto& CascadeTelemetry = Telemetry.DirectionalShadow.ShadowCascades[CascadeIndex];
 			CascadeTelemetry.AttemptedDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.AttemptedDraws
-				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.AttemptedDraws
-					+ ResolvedShadow.Terrains[CascadeIndex].Observations.AttemptedDraws;
+					+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.AttemptedDraws;
 			CascadeTelemetry.SuccessfulDraws =
 				ResolvedShadow.StaticMeshes[CascadeIndex].Observations.SuccessfulDraws
-				+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.SuccessfulDraws
-					+ ResolvedShadow.Terrains[CascadeIndex].Observations.SuccessfulDraws;
+					+ ResolvedShadow.SkeletalMeshes[CascadeIndex].Observations.SuccessfulDraws;
 			CascadeTelemetry.RejectedDraws =
 				CascadeTelemetry.AttemptedDraws
 					- CascadeTelemetry.SuccessfulDraws;

@@ -11,7 +11,6 @@ namespace Durin
 	class FSkeletalMeshRenderer;
 	class FSkyBoxRenderer;
 	class FStaticMeshRenderer;
-	class FTerrainRenderer;
 	struct FPreparedEnvironment;
 	struct FPreparedReceiverGeometry;
 	struct FSceneRenderTelemetry;
@@ -71,7 +70,6 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer& DeferredRenderer;
 		FStaticMeshRenderer& StaticMeshes;
 		FSkeletalMeshRenderer& SkeletalMeshes;
-		FTerrainRenderer& Terrains;
 		FSkyBoxRenderer& SkyBox;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;

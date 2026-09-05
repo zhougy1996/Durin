@@ -31,7 +31,6 @@
 #include "Panels/WorldOutlinerPanel.h"
 #include "Profiling/Profiling.h"
 #include "Assets/SceneImportDialog.h"
-#include "Assets/TerrainHeightmapImportDialog.h"
 
 namespace Durin::Editor::Level
 {
@@ -188,8 +187,6 @@ namespace Durin::Editor::Level
 		};
 		SceneImportDialog =
 			MakeImportDialog<FSceneImportDialog>(ImportCallbacks);
-		TerrainHeightmapImportDialog =
-			MakeImportDialog<FTerrainHeightmapImportDialog>(ImportCallbacks);
 	}
 
 	auto MLevelEditor::RequestContentBrowserImport(
@@ -198,10 +195,6 @@ namespace Durin::Editor::Level
 	{
 		switch (Type)
 		{
-		case EImportDialogType::TerrainHeightmap:
-			if (TerrainHeightmapImportDialog)
-				TerrainHeightmapImportDialog->Open(Directory);
-			break;
 		case EImportDialogType::Scene:
 			if (SceneImportDialog) SceneImportDialog->Open(Directory);
 			break;
@@ -213,10 +206,6 @@ namespace Durin::Editor::Level
 	{
 		switch (Type)
 		{
-		case EImportDialogType::TerrainHeightmap:
-			if (TerrainHeightmapImportDialog)
-				TerrainHeightmapImportDialog->Draw(bAllowAssetMutation);
-			break;
 		case EImportDialogType::Scene:
 			if (SceneImportDialog)
 				SceneImportDialog->Draw(bAllowAssetMutation);

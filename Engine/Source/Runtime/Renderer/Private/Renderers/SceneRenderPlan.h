@@ -5,7 +5,6 @@
 #include "Renderers/SceneViewState.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
-#include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
@@ -26,7 +25,6 @@ namespace Durin
 	{
 		StaticMesh,
 		SkeletalMesh,
-		Terrain,
 	};
 
 	struct FPreparedTranslucentSceneDraw
@@ -70,7 +68,6 @@ namespace Durin
 		FPreparedSkeletalPaletteTable SkeletalPalettes;
 		FPreparedStaticMeshView StaticMeshes;
 		FPreparedSkeletalMeshView SkeletalMeshes;
-		FPreparedTerrainView Terrains;
 		std::vector<FPreparedTranslucentSceneDraw> TranslucentGeometry;
 	};
 
@@ -83,8 +80,6 @@ namespace Durin
 			DirectionalShadowCascadeCount> StaticMeshes;
 		std::array<FPreparedSkeletalMeshView,
 			DirectionalShadowCascadeCount> SkeletalMeshes;
-		std::array<FPreparedTerrainView,
-			DirectionalShadowCascadeCount> Terrains;
 	};
 
 	// Owns receiver execution resources separately from immutable logical preparation.
@@ -93,7 +88,6 @@ namespace Durin
 		FResolvedSkeletalPaletteTable SkeletalPalettes;
 		FResolvedStaticMeshView StaticMeshes;
 		FResolvedSkeletalMeshView SkeletalMeshes;
-		FResolvedTerrainView Terrains;
 	};
 
 	// Owns per-cascade execution resources separately from shadow membership.
@@ -104,8 +98,6 @@ namespace Durin
 			DirectionalShadowCascadeCount> StaticMeshes;
 		std::array<FResolvedSkeletalMeshView,
 			DirectionalShadowCascadeCount> SkeletalMeshes;
-		std::array<FResolvedTerrainView,
-			DirectionalShadowCascadeCount> Terrains;
 	};
 
 	// Represents one complete optional cloud preparation.
@@ -151,8 +143,7 @@ namespace Durin
 		Geometry.TranslucentGeometry.clear();
 		Geometry.TranslucentGeometry.reserve(
 			Geometry.StaticMeshes.Translucent.size()
-			+ Geometry.SkeletalMeshes.Translucent.size()
-			+ Geometry.Terrains.Translucent.size());
+			+ Geometry.SkeletalMeshes.Translucent.size());
 		for (uint32 Index = 0;
 			 Index < Geometry.StaticMeshes.Translucent.size(); ++Index)
 		{
@@ -167,14 +158,6 @@ namespace Durin
 			const auto& Draw = Geometry.SkeletalMeshes.Translucent[Index];
 			Geometry.TranslucentGeometry.push_back({
 				EPreparedTranslucentGeometryFamily::SkeletalMesh, Index,
-				Draw.TranslucentDistanceSquared, Draw.SortKey});
-		}
-		for (uint32 Index = 0;
-			 Index < Geometry.Terrains.Translucent.size(); ++Index)
-		{
-			const auto& Draw = Geometry.Terrains.Translucent[Index];
-			Geometry.TranslucentGeometry.push_back({
-				EPreparedTranslucentGeometryFamily::Terrain, Index,
 				Draw.TranslucentDistanceSquared, Draw.SortKey});
 		}
 		std::ranges::sort(Geometry.TranslucentGeometry,

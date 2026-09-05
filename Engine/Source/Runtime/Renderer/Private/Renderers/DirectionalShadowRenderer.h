@@ -11,7 +11,6 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FStaticMeshRenderer;
 	class FSkeletalMeshRenderer;
-	class FTerrainRenderer;
 	struct FPreparedDirectionalShadow;
 	struct FResolvedDirectionalShadow;
 	struct FPreparedSkeletalPaletteTable;
@@ -35,7 +34,6 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			FStaticMeshRenderer& StaticMeshes,
 			FSkeletalMeshRenderer& SkeletalMeshes,
-			FTerrainRenderer& Terrains,
 			const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow,
 			const FPreparedSkeletalPaletteTable& PreparedPalettes,
@@ -46,7 +44,6 @@ namespace Durin
 			FRHITexture* Target,
 			FStaticMeshRenderer& StaticMeshes,
 			FSkeletalMeshRenderer& SkeletalMeshes,
-			FTerrainRenderer& Terrains,
 			const FPreparedDirectionalShadow& Shadow,
 			FResolvedDirectionalShadow& ResolvedShadow,
 			FViewRenderTelemetry& Telemetry) -> bool;

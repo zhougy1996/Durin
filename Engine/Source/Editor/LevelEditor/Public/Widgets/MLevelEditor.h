@@ -30,7 +30,6 @@ namespace Durin::Editor::Level
 	class FSceneViewportPanel;
 	class FRenderingDiagnosticsPanel;
 	class FSceneImportDialog;
-	class FTerrainHeightmapImportDialog;
 	class FDetailsPanel;
 	struct FLevelEditorContext;
 
@@ -98,7 +97,6 @@ namespace Durin::Editor::Level
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;
-		std::unique_ptr<FTerrainHeightmapImportDialog> TerrainHeightmapImportDialog;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		// Panel pointers are non-owning aliases into the Panels collection.
 		FSceneViewportPanel* SceneViewportPanel = nullptr;

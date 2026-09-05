@@ -48,17 +48,17 @@ and stores the result in a bounded membership mask. Cascade-local reserved
 family reference lists are materialized from that table without another scene
 walk. Boundary contact and invalid finite bounds are included conservatively
 and counted per cascade. Static/Spline LOD selection is evaluated against
-the 2048 shadow view; SkeletalMesh remains LOD0 and Terrain remains single LOD.
+the 2048 shadow view; SkeletalMesh remains LOD0.
 The camera's prepared visibility and LOD values are not mutated.
 
 ## Pass and material contract
 
-Opaque and Masked StaticMesh, SplineMesh, SkeletalMesh, and Terrain draws cast;
+Opaque and Masked StaticMesh, SplineMesh, and SkeletalMesh draws cast;
 Translucent draws do not. Shadow-depth preparation filters translucent
 materials before final draw-list sorting and counter accumulation; it does not
 construct and later erase translucent shadow buckets. Shadow preparation reuses normal material snapshots,
 strict opacity-mask threshold behavior, vertex factories, spline deformation,
-skeletal palettes, terrain height resources, two-sided state, and mirrored
+skeletal palettes, two-sided state, and mirrored
 winding. Skeletal shadow draws reuse the base view's matching frame-local
 palette range rather than uploading a second palette.
 
@@ -252,7 +252,7 @@ sinks expose Shadow Depth and Scene Color independently.
 
 An optional view-counter sink publishes render-thread preparation evidence.
 The total logical shadow duration includes cascade fitting, authoritative
-discovery/membership, and Static/Spline, Skeletal, and Terrain family
+discovery/membership, and Static/Spline and Skeletal family
 preparation. The reported
 sorting/batching duration is nested within those family timings and is not an
 additional total component. Shadow resource preparation is measured afterward
@@ -260,8 +260,7 @@ as a disjoint duration. Structural counters distinguish unique submitted and
 eligible casters, per-cascade aggregate submissions, conservative
 classification tests, membership-mask popcount, one scene traversal, and
 frame-local temporary capacity. Family diagnostics also report primitive,
-selected-LOD, section, and Terrain patch fact builds/reuses plus Terrain patch
-classification tests. A build means the current cascade preparation performed
+selected-LOD, and section fact builds/reuses. A build means the current cascade preparation performed
 that logical work; a reuse means a selected frame-local shared owner supplied
 it. Zero reuse is therefore meaningful and does not imply a missing sample.
 
@@ -276,7 +275,7 @@ Production timing gates are listed in
 [Deferred Directional Lighting](DeferredDirectionalLighting.md#memory-and-qualification).
 
 The selected preparation shares caster membership and Skeletal palettes while
-keeping mesh/Terrain logical draws cascade-local. Deeper fact caches did not
+keeping mesh logical draws cascade-local. Deeper fact caches did not
 meet the measured benefit thresholds; the detailed candidates and CPU results
 remain in [Directional Shadow Caster Preparation](../../Plans/Archive/2026-08/DirectionalShadowCasterPreparation.md).
 

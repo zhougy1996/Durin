@@ -2,10 +2,8 @@
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
-#include "Rendering/TerrainSceneProxy.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ForwardLighting.h"
-#include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
 #include "Asset/Asset.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
@@ -122,8 +120,6 @@ namespace Durin
 						CasterTable.UniqueEligibleSplineMeshes;
 					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters =
 						CasterTable.UniqueEligibleSkeletalMeshes;
-					Telemetry.View.DirectionalShadow.ShadowUniqueEligibleTerrainCasters =
-						CasterTable.UniqueEligibleTerrains;
 					Telemetry.View.DirectionalShadow.ShadowCascadeClassificationTests =
 						CasterTable.CascadeClassificationTests;
 					Telemetry.View.DirectionalShadow.ShadowMembershipPopcount =
@@ -167,7 +163,6 @@ namespace Durin
 							PreparedView.DirectionalShadow->StaticMeshes[CascadeIndex];
 						auto& SkeletalMeshes =
 							PreparedView.DirectionalShadow->SkeletalMeshes[CascadeIndex];
-						auto& Terrains = PreparedView.DirectionalShadow->Terrains[CascadeIndex];
 						const auto StaticSplineStart =
 							std::chrono::steady_clock::now();
 						StaticMeshes = PrepareStaticMeshView_RenderThread(
@@ -194,21 +189,9 @@ namespace Durin
 													std::chrono::steady_clock::now() - SkeletalStart
 							)
 													.count());
-						const auto TerrainStart = std::chrono::steady_clock::now();
-						Terrains = PrepareTerrainView_RenderThread(
-							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid,
-							ERenderPreparationMode::ShadowDepth
-						);
-						Telemetry.View.DirectionalShadow.ShadowTerrainLogicalPreparationNanoseconds +=
-							static_cast<uint64>(std::chrono::duration_cast<
-													std::chrono::nanoseconds>(
-													std::chrono::steady_clock::now() - TerrainStart
-							)
-													.count());
 						Telemetry.View.DirectionalShadow.ShadowSortingBatchingNanoseconds +=
 							StaticMeshes.SortingNanoseconds
-							+ SkeletalMeshes.SortingNanoseconds
-							+ Terrains.BatchConstructionNanoseconds;
+						+ SkeletalMeshes.SortingNanoseconds;
 						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplinePrimitiveFactBuilds +=
 							StaticMeshes.SharedPrimitiveFactBuilds;
@@ -233,17 +216,6 @@ namespace Durin
 							SkeletalMeshes.SharedSectionFactBuilds;
 						Telemetry.View.DirectionalShadow.ShadowSkeletalSectionFactReuses +=
 							SkeletalMeshes.SharedSectionFactReuses;
-						Telemetry.View.DirectionalShadow.ShadowTerrainPrimitiveFactBuilds +=
-							Terrains.SharedPrimitiveFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowTerrainPrimitiveFactReuses +=
-							Terrains.SharedPrimitiveFactReuses;
-						Telemetry.View.DirectionalShadow.ShadowTerrainPatchFactBuilds +=
-							Terrains.SharedPatchFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowTerrainPatchFactReuses +=
-							Terrains.SharedPatchFactReuses;
-						Telemetry.View.DirectionalShadow.
-							ShadowTerrainPatchClassificationTests +=
-							Terrains.PatchClassificationTests;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)
@@ -260,30 +232,21 @@ namespace Durin
 						};
 						ApplyRasterBias(StaticMeshes);
 						ApplyRasterBias(SkeletalMeshes);
-						ApplyRasterBias(Terrains);
 						CascadeTelemetry.PreparedStaticMeshCasters =
 							StaticMeshes.PreparedLocalPrimitives;
 						CascadeTelemetry.PreparedSplineMeshCasters =
 							StaticMeshes.PreparedSplinePrimitives;
 						CascadeTelemetry.PreparedSkeletalMeshCasters =
 							SkeletalMeshes.Primitives.size();
-						CascadeTelemetry.PreparedTerrainCasters =
-							Terrains.Opaque.size() + Terrains.Masked.size();
-						size_t TerrainShadowTriangles = 0;
-						for (const auto* Bucket : {&Terrains.Opaque, &Terrains.Masked})
-							for (const FPreparedTerrainDraw& Draw : *Bucket)
-								TerrainShadowTriangles += Draw.TriangleCount;
-						CascadeTelemetry.PreparedTriangles =
-							StaticMeshes.SelectedTriangles
-							+ SkeletalMeshes.SelectedTriangles + TerrainShadowTriangles;
+					CascadeTelemetry.PreparedTriangles =
+						StaticMeshes.SelectedTriangles
+						+ SkeletalMeshes.SelectedTriangles;
 						Telemetry.View.DirectionalShadow.ShadowPreparedStaticMeshCasters +=
 							CascadeTelemetry.PreparedStaticMeshCasters;
 						Telemetry.View.DirectionalShadow.ShadowPreparedSplineMeshCasters +=
 							CascadeTelemetry.PreparedSplineMeshCasters;
 						Telemetry.View.DirectionalShadow.ShadowPreparedSkeletalMeshCasters +=
 							CascadeTelemetry.PreparedSkeletalMeshCasters;
-						Telemetry.View.DirectionalShadow.ShadowPreparedTerrainCasters +=
-							CascadeTelemetry.PreparedTerrainCasters;
 						Telemetry.View.DirectionalShadow.ShadowPreparedTriangles +=
 							CascadeTelemetry.PreparedTriangles;
 					}
@@ -324,61 +287,6 @@ namespace Durin
 				RenderView.Settings.Mode.RasterMode,
 				PreparedView.Receiver.SkeletalPalettes
 			);
-			PreparedView.Receiver.Terrains = PrepareTerrainView_RenderThread(
-				Visibility.TerrainSceneInfos, RenderView,
-				RenderView.Settings.Mode.RasterMode
-			);
-			if (RenderView.Settings.Terrain.bShowLODOverlay)
-			{
-				auto AddTerrainDrawOverlay = [&PreparedView](const FPreparedTerrainDraw& Draw) {
-					if (!Draw.SceneInfo || !Draw.Patch) return;
-					const FBox& Bounds = Draw.Patch->LocalBounds;
-					const FMatrix& Transform = Draw.SceneInfo->GetTransform();
-					if (!Bounds.bIsValid || !Math::IsFinite(Transform)) return;
-					const std::array<FVector3, 4> Local{
-						FVector3{Bounds.Min.x, Bounds.Min.y, Bounds.Max.z},
-						FVector3{Bounds.Max.x, Bounds.Min.y, Bounds.Max.z},
-						FVector3{Bounds.Max.x, Bounds.Max.y, Bounds.Max.z},
-						FVector3{Bounds.Min.x, Bounds.Max.y, Bounds.Max.z}
-					};
-					std::array<FVector3, 4> World;
-					for (size_t Index = 0; Index < 4; ++Index)
-						World[Index] = FVector3(Transform * FVector4(Local[Index], 1.0));
-					const float Level = std::min(1.0f, Draw.ResolvedLOD / 6.0f);
-					const FVector4f LevelColor{Level, 1.0f - Level, 0.2f, 0.9f};
-					for (uint8 Edge = 0; Edge < 4; ++Edge)
-					{
-						const bool bStitched = (Draw.StitchMask & (1u << Edge)) != 0;
-						const FVector4f Color = bStitched
-							? FVector4f{1.0f, 0.1f, 0.1f, 1.0f} : LevelColor;
-						const FSimpleElementLineStyle Style{
-							.WidthPixels = bStitched ? 3.0f : 2.0f};
-						auto AppendLine = [&](ESceneDepthPriorityGroup Depth,
-							ESimpleElementBlendMode Blend, FVector4f DrawColor) {
-							auto& Elements =
-								PreparedView.Context.RendererSimpleElements;
-							Elements.push_back({
-								.Type = ESimpleElementType::Line,
-								.BlendMode = Blend,
-								.DepthPriorityGroup = Depth,
-								.SubmissionOrder = static_cast<uint64>(Elements.size()),
-								.Value = FSimpleElementLine{World[Edge],
-									World[(Edge + 1) % 4], DrawColor, Style},
-							});
-						};
-						FVector4f ForegroundColor = Color;
-						ForegroundColor.w *= 0.32f;
-						AppendLine(ESceneDepthPriorityGroup::Foreground,
-							ESimpleElementBlendMode::Translucent, ForegroundColor);
-						AppendLine(ESceneDepthPriorityGroup::World,
-							Color.w < 1.0f ? ESimpleElementBlendMode::Translucent
-								: ESimpleElementBlendMode::Opaque, Color);
-					}
-				};
-				for (const auto* Bucket : {&PreparedView.Receiver.Terrains.Opaque, &PreparedView.Receiver.Terrains.Masked, &PreparedView.Receiver.Terrains.Translucent})
-					for (const FPreparedTerrainDraw& Draw : *Bucket)
-						AddTerrainDrawOverlay(Draw);
-			}
 		}
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
 		Telemetry.View.CombinedTranslucentGeometryDraws =
@@ -436,16 +344,12 @@ namespace Durin
 			ResolvedSceneResources.Receiver.SkeletalPalettes,
 			PreparedView.Receiver.SkeletalMeshes,
 			ResolvedSceneResources.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
-		Renderer.TerrainRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.Terrains,
-			ResolvedSceneResources.Receiver.Terrains, !bRequiresDeferredOpaque);
-
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();
 			Renderer.DirectionalShadowRenderer.PrepareResources_RenderThread(
 				CommandList, Renderer.StaticMeshRenderer, Renderer.SkeletalMeshRenderer,
-				Renderer.TerrainRenderer, *PreparedView.DirectionalShadow,
+				*PreparedView.DirectionalShadow,
 				*ResolvedSceneResources.DirectionalShadow,
 				PreparedView.Receiver.SkeletalPalettes,
 				ResolvedSceneResources.Receiver.SkeletalPalettes, Telemetry.View);
@@ -464,10 +368,6 @@ namespace Durin
 		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
 		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowSampler =
-			DirectionalShadowSampler;
-		ResolvedSceneResources.Receiver.Terrains.DirectionalShadowTexture =
-			DirectionalShadowTexture;
-		ResolvedSceneResources.Receiver.Terrains.DirectionalShadowSampler =
 			DirectionalShadowSampler;
 
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(

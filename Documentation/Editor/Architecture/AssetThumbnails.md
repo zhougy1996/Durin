@@ -20,7 +20,7 @@ content.
   explicit shutdown.
 - Feature editor modules own their concrete renderer objects and move-only
   `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
-  Texture2D/TextureCube, StaticMesh, SkeletalMesh, and Terrain Heightmap logic
+  Texture2D/TextureCube, StaticMesh, and SkeletalMesh logic
   remains in the corresponding feature module.
 - `FAssetThumbnail` is the UI-facing reference for one canonical asset identity,
   requested presentation size, and pool. It owns no asset, task, preview world,
@@ -58,8 +58,7 @@ texture dependency closure.
 StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
 keys preserve wide environment orientation and visual-contract versions.
 Texture2D derives fixed output from canonical pixels stored in the asset rather
-than following an external reimport hint. Terrain Heightmap derives fixed
-grayscale pixels from its immutable payload and revision.
+than following an external reimport hint.
 
 Every completion revalidates asset identity, request serial, renderer generation,
 key, and captured asset/resource revisions. Save, move, delete, reimport,

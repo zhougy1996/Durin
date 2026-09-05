@@ -211,7 +211,7 @@ not make a module editor-only by itself. Programs such as Cook explicitly
 select the Developer modules they require, while a game root that does not
 select them never receives them through directory discovery. For asset
 authoring, editor roots select `DerivedDataCache` and the needed
-`TextureBuild`/`StaticMeshBuild`/`SkeletalBuild`/`TerrainBuild` recipes explicitly; package audit,
+`TextureBuild`/`StaticMeshBuild`/`SkeletalBuild` recipes explicitly; package audit,
 canonical-resave, and game roots select none of them.
 
 Creation adds the selected relative directory to `ModuleDirs` and appends the

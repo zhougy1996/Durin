@@ -20,21 +20,20 @@ occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
 of the same stack-owned `FSceneFrameContext`, not fields of the logical plan.
 
 Logical geometry is immutable after publication. StaticMesh, SplineMesh,
-SkeletalMesh, and Terrain logical draws contain visibility, LOD, material and
+and SkeletalMesh logical draws contain visibility, LOD, material and
 pipeline identity, geometry facts, sort keys, and shadow membership. Separate
 resolved values own fallible shader, pipeline, material binding, geometry,
-palette, upload, terrain, and directional-shadow resources. Resolution and
+palette, upload, and directional-shadow resources. Resolution and
 execution consume logical values as `const`; they do not write readiness,
 execution phases, target pointers, bindings, or counters back into a logical
 draw.
 
 After each family's final sort, logical draws receive contiguous
 `ResolvedIndex` values shared by receiver, GBuffer, retained-forward, and
-shadow execution. Resolved StaticMesh/SplineMesh, SkeletalMesh, and Terrain
+shadow execution. Resolved StaticMesh/SplineMesh and SkeletalMesh
 views store one index-aligned record per draw; each record co-locates the
 optional material binding and readiness bit. Skeletal palette ranges align
-with prepared primitive indices, while Terrain batches have their own bounded
-contiguous indices. Submission-local geometry performs no pointer-keyed draw,
+with prepared primitive indices. Submission-local geometry performs no pointer-keyed draw,
 primitive, material-binding, palette-range, or batch-readiness lookup.
 
 Preparation/resource/execution measurements live in family-specific

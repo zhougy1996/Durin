@@ -21,7 +21,6 @@ set(_durin_editor_test_modules
 	MonaImGui
 	StaticMeshBuild
 	SkeletalBuild
-	TerrainBuild
 	DerivedDataCache
 	TextureBuild
 	AssetForgeBuiltins
@@ -202,7 +201,7 @@ endfunction()
 # Keep domain fragments in registration order. Each target remains declared once,
 # and registration stays after its complete metadata and dependency setup.
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/AssetAndMaterialTests.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/CMake/TextureAndTerrainTests.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CMake/TextureTests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/LaunchTests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/RenderingAndThumbnailTests.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/WorldPhysicsAndViewportTests.cmake")

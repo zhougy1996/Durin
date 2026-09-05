@@ -553,10 +553,6 @@ namespace Durin
 				Record.Kind = EDirectionalShadowCasterKind::SkeletalMesh;
 				++Result.UniqueEligibleSkeletalMeshes;
 				break;
-			case EPrimitiveSceneProxyKind::Terrain:
-				Record.Kind = EDirectionalShadowCasterKind::Terrain;
-				++Result.UniqueEligibleTerrains;
-				break;
 			}
 			for (uint32 CascadeIndex = 0;
 				 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
@@ -592,7 +588,7 @@ namespace Durin
 			Candidates.Submitted = Result.UniqueSubmitted;
 			Candidates.Hidden = Result.UniqueHidden;
 			const uint8 Bit = static_cast<uint8>(1u << CascadeIndex);
-			std::array<size_t, 4> FamilyMemberships{};
+			std::array<size_t, 3> FamilyMemberships{};
 			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
 			{
 				if ((Record.CascadeMask & Bit) == 0) continue;
@@ -607,15 +603,11 @@ namespace Durin
 				case EDirectionalShadowCasterKind::SkeletalMesh:
 					++FamilyMemberships[2];
 					break;
-				case EDirectionalShadowCasterKind::Terrain:
-					++FamilyMemberships[3];
-					break;
 				}
 			}
 			Candidates.StaticMeshes.reserve(FamilyMemberships[0]);
 			Candidates.SplineMeshes.reserve(FamilyMemberships[1]);
 			Candidates.SkeletalMeshes.reserve(FamilyMemberships[2]);
-			Candidates.Terrains.reserve(FamilyMemberships[3]);
 			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
 			{
 				if ((Record.CascadeMask & Bit) == 0) continue;
@@ -633,14 +625,11 @@ namespace Durin
 				case EDirectionalShadowCasterKind::SkeletalMesh:
 					Candidates.SkeletalMeshes.push_back(Record.SceneInfo);
 					break;
-				case EDirectionalShadowCasterKind::Terrain:
-					Candidates.Terrains.push_back(Record.SceneInfo);
-					break;
 				}
 			}
 			const size_t Memberships = Candidates.StaticMeshes.size()
 				+ Candidates.SplineMeshes.size()
-				+ Candidates.SkeletalMeshes.size() + Candidates.Terrains.size();
+				+ Candidates.SkeletalMeshes.size();
 			Candidates.Culled = Result.Records.size() - Memberships;
 			check(Candidates.Submitted == Candidates.Hidden + Candidates.Culled
 				+ Memberships);
@@ -649,8 +638,6 @@ namespace Durin
 			Result.TemporaryBytes += Candidates.SplineMeshes.capacity()
 				* sizeof(const FPrimitiveSceneInfo*);
 			Result.TemporaryBytes += Candidates.SkeletalMeshes.capacity()
-				* sizeof(const FPrimitiveSceneInfo*);
-			Result.TemporaryBytes += Candidates.Terrains.capacity()
 				* sizeof(const FPrimitiveSceneInfo*);
 		}
 		Result.TemporaryBytes += Result.Records.capacity()

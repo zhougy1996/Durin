@@ -196,7 +196,7 @@ class TestCore:
             cmake='cmake',
             jobs=4,
             environment={},
-            resolved_test_targets=('TerrainRenderQualificationTests',),
+            resolved_test_targets=('RendererQualificationTests',),
         )
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command') as run:
@@ -208,7 +208,7 @@ class TestCore:
             '-L',
             'native-test-qualification',
             '-R',
-            r'^Durin\.NativeTestDirect\.(TerrainRenderQualificationTests)$',
+            r'^Durin\.NativeTestDirect\.(RendererQualificationTests)$',
         ]
     def test_random_batched_mode_injects_and_reports_gtest_seed(self) -> None:
         preset = self.make_preset()

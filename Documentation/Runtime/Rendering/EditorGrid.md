@@ -9,7 +9,7 @@ Last reviewed: 2026-09-03
 ## Purpose and mental model
 
 The Editor Grid is an editor-assistance visualization of one infinite
-horizontal world plane. It is not a finite mesh, Terrain topology, or scene
+horizontal world plane. It is not a finite mesh or scene
 primitive. The Renderer draws one fullscreen triangle and lets every fragment
 reconstruct the view ray that passes through its pixel. A fragment appears only
 when that ray reaches the configured grid plane and the resulting grid line is
@@ -242,7 +242,7 @@ decrements it. For normalized positive floats this is approximately `1.2e-4`
 relative depth.
 
 This bounded priority covers the numerical disagreement observed while a
-camera rotates over coplanar Terrain without moving the plane by a world-space
+camera rotates over coplanar geometry without moving the plane by a world-space
 distance. Geometry with a meaningfully closer depth still occludes the grid,
 and depth writes remain disabled. The design deliberately avoids both a fixed
 normalized offset and a world-space view-ray offset: either can represent an
@@ -302,8 +302,8 @@ A useful rendering isolation order is:
 Focused CPU tests verify mutually inverse camera-relative transforms, relative
 height, finite failure behavior, and positive decimal phases at million-scale
 positive and negative camera coordinates. The hardware-backed Vulkan regression
-compares empty and coplanar-Terrain captures across rotated reversed-Z views,
-then verifies that meaningfully closer Terrain still occludes the grid. The
+compares empty and coplanar-geometry captures across rotated reversed-Z views,
+then verifies that meaningfully closer geometry still occludes the grid. The
 same Vulkan suite renders simple points, lines, and atlas sprites over the
 preserved output and verifies exact recovery after Renderer device
 invalidation. A full
@@ -311,7 +311,7 @@ editor build verifies the C++ uniform layout. Real Vulkan startup must compile
 `/Engine/EditorGrid`, create the demanded pipeline, render a first frame, and
 produce no Shader, Pipeline, or Validation error.
 
-Visual validation should retain the same camera while toggling Terrain or
+Visual validation should retain the same camera while toggling scene
 other geometry, then cover near/far views, large positive and negative world
 coordinates, origin crossing, grazing angles, decade transitions, exact
 coplanarity, geometry slightly in front/behind the plane, Present/Offscreen

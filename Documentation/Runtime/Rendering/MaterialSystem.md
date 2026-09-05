@@ -234,13 +234,13 @@ pass and geometry-domain contract. On the rendering thread they combine the
 shared fixed geometry vertex stage with the accepted generated `FragmentMain`,
 `GeometryFragmentMain`, or `ShadowFragmentMain` artifact and create a complete
 typed shader map transactionally. Opaque shadow retains the fixed material-
-resource-free fragment. StaticMesh, SplineMesh, SkeletalMesh, Terrain, Material
+resource-free fragment. StaticMesh, SplineMesh, SkeletalMesh, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
 none reads the authored graph or IR.
 
 RenderCore represents those sets with `FMaterialShaderMap` and strongly owned
 `TMaterialShaderRef` values. Intrinsic generated fragments derive from
-`FMaterialShader`; Local, Spline, Skeletal, Terrain, GBuffer, and opaque-shadow
+`FMaterialShader`; Local, Spline, Skeletal, GBuffer, and opaque-shadow
 mesh stages derive from `FMeshMaterialShader`. Mesh compatibility adds only a
 registered stable Vertex Factory descriptor, mesh-pass key, frequency, and
 local permutation to the existing Material identity. Runtime factory pointers,
@@ -252,8 +252,8 @@ and eviction domains without demonstrated sharing. Maps retain no Material
 asset or render proxy.
 
 Generated forward evaluation uses the same world normal frame, specular-AA,
-directional/local/environment lighting, shadow, UV transform/rotation, Terrain
-coverage, and exact-v3 binding helpers as the fixed characterization path.
+directional/local/environment lighting, shadow, UV transform/rotation, and
+exact-v3 binding helpers as the fixed characterization path.
 GBuffer uses the same evaluator and publishes the established octahedral
 normal, effective roughness, AO, opacity, and emissive encoding. Shader reload
 rebuilds shader-dependent slots and device invalidation discards then lazily
@@ -285,7 +285,7 @@ result; neither operation reinterprets the authored program.
   is the only GUID-to-layout compilation seam. The renderer consumes the
   validated v3 binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
-- StaticMesh, SkeletalMesh, and Terrain use one Renderer-private material
+- StaticMesh and SkeletalMesh use one Renderer-private material
   binding resolver. It accepts only the exact v3 field table through
   `TryGetMaterialRenderBinding`; an unsupported layout records the shared
   fallback reason, emits a renderer-specific `ShaderBinding` diagnostic, and
@@ -386,7 +386,7 @@ coalescing, stale-update, startup-replay, and counted-resource contracts.
 ## Renderer Surface Execution
 
 `FSceneRenderer` owns one Renderer-private surface-material resource service.
-StaticMesh, SkeletalMesh, and Terrain keep their own geometry preparation,
+StaticMesh and SkeletalMesh keep their own geometry preparation,
 vertex programs, pipelines, batching, counters, and diagnostics, but consume
 one canonical fragment contract. The contract builds the 256-byte aligned PBR
 surface uniform and resolves the eight ordered roles with fallbacks `White`,
@@ -398,9 +398,9 @@ The service owns generation-aware sampler slots keyed by the complete
 `FMaterialSamplerState`; identical states across all three geometry families
 therefore share one device-generation sampler. Device invalidation and
 renderer shutdown release this owner once, while shader maps, pipelines,
-geometry, Terrain topology, and height resources remain family-owned. A failed
+geometry resources remain family-owned. A failed
 sampler or incomplete resolved packet rejects the smallest owning draw or
-Terrain batch, preserving feature-local attempt/result accounting.
+batch, preserving feature-local attempt/result accounting.
 
 Resolution is pass-aware. Opaque shadow draws resolve no material uniform,
 texture, sampler, environment, or receiver-shadow resource. Masked shadow

@@ -28,7 +28,6 @@
 #include "Panels/ConsolePanel.h"
 #include "Widgets/EditorNotificationOverlay.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -166,13 +165,6 @@ namespace Durin::Editor::MainFrame
 				OutFiles.resize(1);
 				return SelectOneReimportFile("Reimport VolumeTexture Atlas From File",
 					{{"PNG", "*.png"}}, OutFiles.front(), OutError);
-			}
-			if (Object.IsA(DTerrainHeightmap::StaticClass()))
-			{
-				OutFiles.resize(1);
-				return SelectOneReimportFile("Reimport Terrain Heightmap From File",
-					{{"Supported Heightmaps", "*.png;*.r16;*.raw"}},
-					OutFiles.front(), OutError);
 			}
 			if (Object.IsA(DStaticMesh::StaticClass()))
 			{
@@ -355,7 +347,6 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
 				FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 				FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
-				FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 				Editor::DThumbnailManager& ThumbnailManager =
 					Editor::GetDefaultThumbnailManager();

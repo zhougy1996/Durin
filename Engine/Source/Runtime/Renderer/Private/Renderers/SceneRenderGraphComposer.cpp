@@ -171,7 +171,6 @@ namespace Durin
 				.Renderer = Renderer.DirectionalShadowRenderer,
 				.StaticMeshes = Renderer.StaticMeshRenderer,
 				.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
-				.Terrains = Renderer.TerrainRenderer,
 				.Resolved = Resolved.Scene, .Telemetry = Telemetry});
 		const auto GBufferOutput = FGBufferRendering::AddPasses({
 			.Graph = Graph, .View = PreparedRenderView,
@@ -180,7 +179,6 @@ namespace Durin
 			.Renderer = Renderer.GBufferRenderer,
 			.StaticMeshes = Renderer.StaticMeshRenderer,
 			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
-			.Terrains = Renderer.TerrainRenderer,
 			.Depth = GraphResources.SceneDepth, .Options = Options,
 			.Width = Width, .Height = Height, .Feature = Features.GBuffer,
 			.DeferredFeature = Features.Deferred});
@@ -257,7 +255,7 @@ namespace Durin
 			.DeferredRenderer = Renderer.DeferredDirectionalLightingRenderer,
 			.StaticMeshes = Renderer.StaticMeshRenderer,
 			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
-			.Terrains = Renderer.TerrainRenderer, .SkyBox = Renderer.SkyBoxRenderer,
+			.SkyBox = Renderer.SkyBoxRenderer,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.DefaultWhite = GraphResources.DefaultWhite,
 			.DefaultShadowArray = GraphResources.DefaultShadowArray,
@@ -308,7 +306,6 @@ namespace Durin
 			.BaseScene = BaseSceneOutput, .VolumetricCloud = CloudCompositeOutput,
 			.StaticMeshes = Renderer.StaticMeshRenderer,
 			.SkeletalMeshes = Renderer.SkeletalMeshRenderer,
-			.Terrains = Renderer.TerrainRenderer,
 			.Resolved = Resolved.Scene, .Telemetry = Telemetry,
 			.Publication = Composition.SceneColorPublication,
 			.DeferredFeature = Features.Deferred,

@@ -9,8 +9,6 @@ namespace Durin
 	struct FPreparedSkeletalMeshView;
 	struct FResolvedSkeletalMeshView;
 	struct FResolvedSkeletalPaletteTable;
-	struct FPreparedTerrainView;
-	struct FResolvedTerrainView;
 
 	// Owns the command-local diagnostic accumulator. Feature preparation and
 	// resolved execution values remain the authoritative sources; this value is
@@ -46,9 +44,5 @@ namespace Durin
 		const FPreparedSkeletalMeshView& Prepared,
 		const FResolvedSkeletalMeshView& Resolved,
 		const FResolvedSkeletalPaletteTable& Palettes,
-		FViewRenderTelemetry& Telemetry) -> void;
-	auto ReduceTerrainTelemetry(
-		const FPreparedTerrainView& Prepared,
-		const FResolvedTerrainView& Resolved,
 		FViewRenderTelemetry& Telemetry) -> void;
 } // namespace Durin

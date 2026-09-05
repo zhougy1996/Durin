@@ -20,7 +20,6 @@ namespace Durin
 	class FSkeletalMeshSceneProxy;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
-	class FTerrainSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
 	struct FVolumetricCloudSceneSnapshot
@@ -66,7 +65,6 @@ namespace Durin
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
 		auto GetSkeletalMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SkeletalMeshSceneInfos; }
-		auto GetTerrainSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return TerrainSceneInfos; }
 		auto GetSplineMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SplineMeshSceneInfos; }
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
@@ -111,7 +109,6 @@ namespace Durin
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
-		std::vector<FPrimitiveSceneInfo*> TerrainSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;

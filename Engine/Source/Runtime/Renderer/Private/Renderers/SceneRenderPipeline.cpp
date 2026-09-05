@@ -98,7 +98,6 @@ namespace Durin
 		auto& PostProcessRenderer = Renderer.PostProcessRenderer;
 		auto& StaticMeshRenderer = Renderer.StaticMeshRenderer;
 		auto& SkeletalMeshRenderer = Renderer.SkeletalMeshRenderer;
-		auto& TerrainRenderer = Renderer.TerrainRenderer;
 		auto& ContactShadowRenderer = Renderer.ContactShadowRenderer;
 		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
 		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
@@ -232,10 +231,6 @@ namespace Durin
 				&& SkeletalMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.SkeletalMeshes,
 					ResolvedSceneResources.Receiver.SkeletalMeshes
-				)
-				&& TerrainRenderer.PrepareHybridRetainedResources_RenderThread(
-					CommandList, PreparedView.Receiver.Terrains,
-					ResolvedSceneResources.Receiver.Terrains
 				));
 		const bool bNeedsGBuffer = FeaturePlan.GBuffer.IsEnabled();
 		auto& PreparedContactRoute = FeaturePlan.ContactVisibility.Decision;

@@ -5,8 +5,7 @@
 	"PrivateDependencies": [
 		"AssetTools",
 		"StaticMeshBuild",
-		"SkeletalBuild",
-		"TerrainBuild"
+		"SkeletalBuild"
 	],
     "PublicDependencies": [
 		"Core",
@@ -17,11 +16,9 @@
 	"ReflectHeaders": [
 		"Public/AssetForge/Builtins/Texture2DFactory.h",
 		"Public/AssetForge/Builtins/TextureCubeFactory.h",
-		"Public/AssetForge/Builtins/TerrainHeightmapFactory.h",
 		"Public/AssetForge/Builtins/VolumeTextureFactory.h",
 		"Public/AssetForge/Builtins/StaticMeshFactory.h",
 		"Public/AssetForge/Builtins/StaticMeshImportData.h",
-		"Public/AssetForge/Builtins/TerrainHeightmapImportData.h",
 		"Public/AssetForge/Builtins/Texture2DImportData.h",
 		"Public/AssetForge/Builtins/TextureCubeImportData.h",
 		"Public/AssetForge/Builtins/VolumeTextureImportData.h"

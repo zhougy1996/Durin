@@ -16,7 +16,7 @@ namespace Durin::SceneViewProjection
 	inline constexpr double MinimumPerspectiveNearClip = 0.001;
 	inline constexpr double DefaultViewFadeStart = 180000.0;
 	inline constexpr double DefaultViewRenderDistance = 200000.0;
-	inline constexpr double MinimumTerrainFarPlaneSafetyMargin = 10000.0;
+	inline constexpr double MaximumFarPlaneSafetyMargin = 10000.0;
 	inline constexpr double MaximumPerspectiveFarClip = 10000000.0;
 	inline auto GetNearDeviceDepth(ESceneDepthConvention DepthConvention) -> double
 	{
@@ -26,9 +26,9 @@ namespace Durin::SceneViewProjection
 	{
 		return 1.0 - GetNearDeviceDepth(DepthConvention);
 	}
-	inline auto GetTerrainFarPlaneSafetyMargin(double FarClip) -> double
+	inline auto GetFarPlaneSafetyMargin(double FarClip) -> double
 	{
-		return std::min(MinimumTerrainFarPlaneSafetyMargin,
+		return std::min(MaximumFarPlaneSafetyMargin,
 			std::max(1.0, FarClip * 0.05));
 	}
 
@@ -36,7 +36,7 @@ namespace Durin::SceneViewProjection
 	// ClampViewDistances so UI bounds and stored values cannot drift apart.
 	inline auto GetMaximumViewRenderDistance(double FarClip) -> double
 	{
-		return std::max(1.0, FarClip - GetTerrainFarPlaneSafetyMargin(FarClip));
+		return std::max(1.0, FarClip - GetFarPlaneSafetyMargin(FarClip));
 	}
 
 	// Normalizes field of view to the bounded policy shared by runtime and editor cameras.

@@ -3,16 +3,11 @@
 #include "DObject/Class.h"
 #include "Math/Operations.h"
 #include "Actors/SplineMeshActor.h"
-#include "Actors/TerrainActor.h"
 #include "Actors/VolumetricCloudActor.h"
 #include "Components/SplineMeshComponent.h"
-#include "Components/TerrainComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
-#include "TerrainDetails.h"
 #include "VolumetricCloudDetails.h"
-#include "TerrainHeightmapThumbnailRenderer.h"
 
 namespace
 {
@@ -61,29 +56,6 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBo
 	Durin::CollectGarbage();
 }
 
-TEST(FTerrainDetailsCustomizationTests, HidesRawStatusAndAddsComponentFactGroups)
-{
-	InitializeDObjectSystem();
-	auto* Actor = Durin::NewObject<Durin::ATerrainActor>(nullptr, "TerrainDetailsActor");
-	auto* Component = Actor->GetTerrainComponent();
-	Durin::Editor::Level::FLevelEditorContext Context;
-	Context.SelectActor(Actor);
-	Context.SelectComponent(Component);
-	Durin::Editor::Level::FObjectPropertyViewBuilder Builder;
-	Durin::Editor::Level::CreateTerrainDetailsCustomization()->CustomizeDetails(
-		Context, Component, Builder);
-	for (std::string_view Name : {"RenderStatus", "LastRenderDiagnostic",
-		"CollisionStatus", "LastCollisionDiagnostic"})
-	{
-		Durin::FProperty* Property = Component->GetClass()->FindPropertyByName(Name);
-		ASSERT_NE(Property, nullptr);
-		EXPECT_TRUE(Builder.IsPropertyHidden(*Property));
-	}
-	EXPECT_EQ(Builder.GetVisibleRowCount(), 2u);
-	Durin::MarkObjectHierarchyAsGarbage(Actor);
-	Durin::CollectGarbage();
-}
-
 TEST(FVolumetricCloudDetailsCustomizationTests,
 	HidesRawEligibilityAndPreservesFrozenPropertyGroups)
 {
@@ -115,28 +87,6 @@ TEST(FVolumetricCloudDetailsCustomizationTests,
 		->GetTypedMetadata().Precision, 6);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
-}
-
-TEST(FTerrainHeightmapThumbnailTests, GeneratesFixedCanonicalOrientationAndMarker)
-{
-	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
-	const std::array<uint16, 6> Samples{0, 10'000, 65'535, 20'000, 30'000, 40'000};
-	std::string Error;
-	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 2, Samples, Payload, Error)) << Error;
-	Durin::FByteArray Pixels;
-	ASSERT_TRUE(Durin::Editor::Level::GenerateTerrainHeightmapThumbnailPixels(
-		*Payload, Pixels, Error)) << Error;
-	EXPECT_EQ(Pixels.size(), 256u * 256u * 4u);
-	const auto Pixel = [&](uint32 X, uint32 Y, uint32 Channel)
-	{
-		return Pixels[(static_cast<size_t>(Y) * 256 + X) * 4 + Channel];
-	};
-	EXPECT_EQ(Pixel(0, 43, 0), std::byte{255});
-	EXPECT_EQ(Pixel(0, 43, 3), std::byte{255});
-	EXPECT_EQ(Pixel(0, 171, 3), std::byte{255});
-	EXPECT_EQ(Pixel(43, 43, 0), std::byte{0});
-	EXPECT_GT(Pixel(220, 43, 0), Pixel(43, 43, 0));
-	EXPECT_GT(Pixel(255, 212, 0), Pixel(43, 43, 0));
 }
 
 TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
@@ -506,49 +456,6 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(0.0f, 50.0f)).Actor, nullptr);
-}
-
-TEST(FLevelEditorViewportClientTests, AppendsBoundedHeightFieldCollisionTriangles)
-{
-	InitializeDObjectSystem();
-	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "HeightFieldOverlayWorld");
-	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "HeightFieldOverlayLevel");
-	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(World, "HeightFieldOverlayAsset");
-	const std::array<uint16, 4> Samples{0, 0, 0, 65535};
-	std::string Error;
-	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
-	auto* Actor = Level->SpawnActor<Durin::ATerrainActor>("HeightFieldOverlayTerrain");
-	ASSERT_NE(Actor, nullptr);
-	auto* Component = Actor->GetTerrainComponent();
-	ASSERT_NE(Component, nullptr);
-	ASSERT_TRUE(Component->SetSampleSpacing(1.0, 1.0));
-	ASSERT_TRUE(Component->SetHeightRange(1.0, 0.0));
-	Component->SetHeightmap(Heightmap);
-	ASSERT_TRUE(Component->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
-	Durin::Editor::Level::FLevelEditorViewportClient Client;
-	Client.InitializeForLevel(Level);
-	Durin::FSceneView View;
-	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	EXPECT_TRUE(View.SimpleElements.GetElements().empty());
-	World->SetCollisionDebugDrawEnabled(true);
-	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
-	EXPECT_EQ(Component->GetCollisionStatus(),
-		Durin::ETerrainCollisionStatus::Ready);
-	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const auto CollisionLines = GetWorldSimpleElements(
-		View, Durin::ESimpleElementType::Line);
-	EXPECT_EQ(CollisionLines.size(), 18u);
-	EXPECT_EQ(std::ranges::count_if(CollisionLines, [](const auto* Element) {
-		return std::get<Durin::FSimpleElementLine>(Element->Value)
-			.Style.WidthPixels == 1.5f;
-	}), 6);
-
-	World->SetCollisionDebugDrawEnabled(false);
-	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	EXPECT_TRUE(View.SimpleElements.GetElements().empty());
-	Durin::MarkObjectHierarchyAsGarbage(World);
-	Durin::CollectGarbage();
 }
 
 TEST(FLevelEditorViewportClientTests, PublishesWorldGridStateToTheSceneView)

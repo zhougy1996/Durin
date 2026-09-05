@@ -1,7 +1,6 @@
 #include "Engine/World.h"
 
 #include "Components/PrimitiveComponent.h"
-#include "Components/TerrainComponent.h"
 #include "Engine/Actor.h"
 
 namespace Durin
@@ -131,24 +130,14 @@ namespace Durin
 			LastCollisionDebugHit.reset();
 			return;
 		}
-		if (!CurrentLevel) return;
-		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
-		{
-			if (!Actor) continue;
-			for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
-				if (auto* Terrain = Cast<DTerrainComponent>(Component.Get()); Terrain && Terrain->IsRegistered())
-					(void)Terrain->RequestPhysicsStateCreation(false);
-		}
 	}
 
 	auto DWorld::CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot
 	{
 		constexpr size_t MaximumDebugBodies = 4096;
 		constexpr uint32 MaximumDebugTriangles = 256;
-		constexpr uint32 MaximumDebugHeightFieldNodes = 64;
 		FCollisionDebugSnapshot Result;
 		uint32 RemainingDebugTriangles = MaximumDebugTriangles;
-		uint32 RemainingDebugHeightFieldNodes = MaximumDebugHeightFieldNodes;
 		if (!bCollisionDebugDrawEnabled) return Result;
 		for (const FPhysicsBodySnapshot& Body : PhysicsScene.CaptureBodies())
 		{
@@ -171,25 +160,6 @@ namespace Durin
 			}
 			Body.Desc.Geometry.GetLocalBounds(DebugBody.LocalBoundsMinimum, DebugBody.LocalBoundsMaximum);
 			DebugBody.TotalTriangles = Body.Desc.Geometry.GetTriangleCount();
-			if (DebugBody.GeometryKind == ECollisionGeometryKind::HeightField)
-			{
-				DebugBody.HeightFieldWidth = Body.Desc.Geometry.GetHeightFieldWidth();
-				DebugBody.HeightFieldHeight = Body.Desc.Geometry.GetHeightFieldHeight();
-				DebugBody.HeightFieldNodes = Body.Desc.Geometry.GetNodeCount();
-				DebugBody.HeightFieldRegions = Body.Desc.Geometry.GetHeightFieldRegionCount();
-				const uint32 NodeSampleCount = std::min(
-					DebugBody.HeightFieldNodes, RemainingDebugHeightFieldNodes);
-				DebugBody.HeightFieldNodeBoundsSample.reserve(NodeSampleCount);
-				for (uint32 Index = 0; Index < NodeSampleCount; ++Index)
-				{
-					const FCollisionGeometryNode* Node = Body.Desc.Geometry.GetNode(Index);
-					if (!Node) break;
-					DebugBody.HeightFieldNodeBoundsSample.push_back({
-						FVector3(Node->Minimum), FVector3(Node->Maximum)});
-				}
-				RemainingDebugHeightFieldNodes -= static_cast<uint32>(
-					DebugBody.HeightFieldNodeBoundsSample.size());
-			}
 			const uint32 SampleCount = std::min(DebugBody.TotalTriangles, RemainingDebugTriangles);
 			DebugBody.TriangleSample.reserve(SampleCount);
 			for (uint32 Index = 0; Index < SampleCount; ++Index)

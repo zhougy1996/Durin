@@ -57,7 +57,7 @@ def registry(tmp_path: Path) -> NativeTestRegistry:
                 backends=("vulkan",),
             ),
             target("LaunchCrashTests", kind="characterization", domains=("launch",)),
-            target("TerrainQualificationTests", kind="qualification", domains=("terrain",)),
+            target("RendererQualificationTests", kind="qualification", domains=("renderer",)),
         ),
     )
 
@@ -111,12 +111,12 @@ def test_qualification_selections_are_explicit(
     registry: NativeTestRegistry,
 ) -> None:
     with pytest.raises(BuildToolError, match="qualification-only"):
-        resolve_selection(registry, "TerrainQualificationTests")
+        resolve_selection(registry, "RendererQualificationTests")
     assert resolve_selection(
         registry,
         "@kind=qualification",
         admit_qualification=True,
-    ).names == ("TerrainQualificationTests",)
+    ).names == ("RendererQualificationTests",)
 
 
 def test_private_source_report_selects_owned_seams(

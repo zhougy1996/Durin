@@ -494,8 +494,7 @@ changes either lifetime.
 Attribution registration survives scheduler restart, while a new scheduler
 lifetime starts with zeroed aggregate slots. The current production pairs are
 `AssetImport/PreparePlan`, `AssetImport/PublishPlan`,
-`SourceImageThumbnail/Decode`, `TerrainCollision/BuildHeightField`, and
-`TerrainHeightmap/LoadPayload`. Their
+and `SourceImageThumbnail/Decode`. Their
 subsystem mailboxes, cancellation,
 request-serial checks, cache policy, and render/RHI ownership remain separate
 from task attribution. Tracy correlation and fixed owner/category plots are

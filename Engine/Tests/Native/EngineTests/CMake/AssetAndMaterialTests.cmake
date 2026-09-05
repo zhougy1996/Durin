@@ -165,7 +165,6 @@ durin_add_engine_functional_test(LevelMutationTests
 		Private/Editor/WorldOutlinerActorAttachmentTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
-		${_durin_level_editor_private}/Operations/TerrainPlacement.cpp
 		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
 	LIBRARIES DurinEd
 )
@@ -345,7 +344,6 @@ set(_durin_texture_test_libraries
 	Engine
 	StaticMeshBuild
 	SkeletalBuild
-	TerrainBuild
 	TextureBuild
 	AssetForgeBuiltins
 	TextureEditor

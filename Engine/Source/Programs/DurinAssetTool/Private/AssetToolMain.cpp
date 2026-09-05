@@ -30,7 +30,6 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -930,7 +929,6 @@ int main(int ArgC, char** ArgV)
 	{
 		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
-		Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		if (Options.Operation == EOperation::Cook)

@@ -6,7 +6,6 @@
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "DynamicRHI.h"
-#include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -30,7 +29,6 @@
 #include "Resources/RendererResourceCoordinator.h"
 #include "SceneTestAccess.h"
 #include "SceneViewProjection.h"
-#include "Terrain/TerrainHeightmap.h"
 #include <vulkan/vulkan.hpp>
 #include "VulkanRHIPrivate.h"
 #include "Window/GenericWindow.h"
@@ -173,13 +171,6 @@ namespace Durin
 		) -> FVertexDeclarationRHIRef
 		{
 			FVertexDeclarationElementList Elements{};
-			if (Domain == EGBufferVertexDomain::Terrain)
-			{
-				Elements[0] = FVertexElement(
-					0, 0, EVertexElementType::UShort2, 0, 4
-				);
-				return GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			}
 			Elements[0] = FVertexElement(
 				0, 0, EVertexElementType::Float3, 0, 12
 			);
@@ -558,90 +549,6 @@ namespace Durin
 		}
 		SetViewRenderTelemetrySink(nullptr);
 
-		const std::array<uint16, 9> Samples{};
-		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-		std::string Error;
-		ASSERT_TRUE(BuildTerrainHeightmapPayload(
-			3, 3, Samples, Payload, Error
-		)) << Error;
-		auto* MaterialObject = NewObject<DMaterial>(
-			nullptr, "EditorGridTerrainMaterial");
-		FMaterialProgramValidationResult MaterialValidation;
-		ASSERT_TRUE(MaterialObject->SetMaterialProgram(
-			MakeCanonicalMaterialProgram(), MaterialValidation));
-		ASSERT_TRUE(MaterialObject->SetStaticProperties(FMaterialStaticProperties{
-			.BlendMode = EMaterialBlendMode::Opaque,
-			.ShadingModel = EMaterialShadingModel::Unlit,
-			.bTwoSided = true
-		}));
-		ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
-			MaterialParameters::BaseColorName(), {0.0f, 0.0f, 0.0f}));
-		auto Material = MaterialObject->GetMaterialRenderProxy();
-		FlushRenderingCommands();
-		constexpr double TerrainExtent = 4000.0;
-		FTerrainPatchDescriptor Patch{
-			.OriginX = 0,
-			.OriginY = 0,
-			.CellCountX = 2,
-			.CellCountY = 2,
-			.LODSteps = {1},
-			.LODErrors = {0.0},
-			.LocalBounds = FBox(
-				{0.0, 0.0, 0.0}, {TerrainExtent, TerrainExtent, 0.0}
-			)
-		};
-		FSceneTestOwner SceneOwner;
-		FScene& Scene = *SceneOwner;
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
-			FPrimitiveSceneId(1),
-			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
-			Math::TranslationMatrix(FVector3{
-				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.0
-			})
-		);
-		FSceneTestOwner OccluderSceneOwner;
-		FScene& OccluderScene = *OccluderSceneOwner;
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OccluderScene,
-			FPrimitiveSceneId(2),
-			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
-			Math::TranslationMatrix(FVector3{
-				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.25
-			})
-		);
-		FlushRenderingCommands();
-
-		const std::array<FVector3, 5> CameraDirections = {{
-			{1.0, 1.0, -0.5},
-			{1.0, 0.85, -0.5},
-			{0.85, 1.0, -0.5},
-			{1.0, 1.0, -0.42},
-			{1.0, 1.0, -0.58},
-		}};
-		for (const FVector3& Forward : CameraDirections)
-		{
-			const Durin::FByteArray EmptyPixels =
-				RenderGridCapture(Renderer, nullptr, Forward);
-			const Durin::FByteArray TerrainPixels =
-				RenderGridCapture(Renderer, &Scene, Forward);
-			ASSERT_EQ(EmptyPixels.size(), 129u * 129u * 4u);
-			ASSERT_EQ(TerrainPixels.size(), EmptyPixels.size());
-			const size_t EmptyVisible = CountVisiblePixels(EmptyPixels);
-			const size_t TerrainVisible = CountVisiblePixels(TerrainPixels);
-			ASSERT_GT(EmptyVisible, 0u);
-			EXPECT_GE(TerrainVisible, EmptyVisible * 99u / 100u);
-		}
-		const Durin::FByteArray OccludedPixels = RenderGridCapture(
-			Renderer, &OccluderScene, CameraDirections.front()
-		);
-		EXPECT_EQ(CountVisiblePixels(OccludedPixels), 0u);
-		SetViewRenderTelemetrySink(CaptureViewTelemetry);
-		const Durin::FByteArray TerrainHybridLit = RenderGridCapture(
-			Renderer, &Scene, CameraDirections.front(), true
-		);
-		SetViewRenderTelemetrySink(nullptr);
-		EXPECT_EQ(TerrainHybridLit.size(), 129u * 129u * 4u);
-		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferTerrainSkippedDraws, 1u);
 		const Durin::FByteArray SimpleElementPixels = RenderGridCapture(
 			Renderer, nullptr, CameraDirections.front(), false, true);
 		ASSERT_EQ(SimpleElementPixels.size(), 129u * 129u * 4u);
@@ -654,8 +561,6 @@ namespace Durin
 				false, true);
 		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);
 
-		OccluderSceneOwner.Reset();
-		SceneOwner.Reset();
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
@@ -784,13 +689,12 @@ namespace Durin
 				Depth.bEnableTest = true;
 				Depth.bEnableWrite = true;
 				Depth.CompareOp = ERHIDepthCompareOp::Greater;
-				const std::array<EGBufferVertexDomain, 4> Domains{
+				const std::array<EGBufferVertexDomain, 3> Domains{
 					EGBufferVertexDomain::Local,
 					EGBufferVertexDomain::Spline,
-					EGBufferVertexDomain::Skeletal,
-					EGBufferVertexDomain::Terrain
+					EGBufferVertexDomain::Skeletal
 				};
-				std::array<FVertexDeclarationRHIRef, 4> Declarations;
+				std::array<FVertexDeclarationRHIRef, 3> Declarations;
 				for (size_t Index = 0; Index < Domains.size(); ++Index)
 				{
 					Declarations[Index] =

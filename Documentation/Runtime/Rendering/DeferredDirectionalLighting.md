@@ -24,7 +24,7 @@ authoritative on failure. Sky, translucency, and editor assistance are outside
 that isolated target.
 
 Production writes only load-preserving `RGBA16_FLOAT` Scene Color; it does not
-allocate or copy the isolated deferred target. Static/Spline, Skeletal, and Terrain cache
+allocate or copy the isolated deferred target. Static/Spline and Skeletal cache
 separate retained-forward pipeline variants against the load-preserving render
 pass ABI, and SkyBox owns a bootstrap-layout pipeline variant for the same
 reason. This keeps Vulkan render-pass dependencies compatible while
@@ -117,8 +117,8 @@ subtotals, not a frame-wide allocation ceiling or a count of every optional
 cloud/contact/debug resource.
 
 [`GBufferQualificationTests`](../../../Engine/Tests/Native/EngineTests/Private/GBufferQualificationTests.cpp)
-qualifies the mixed Static/Spline, Skeletal, and
-Terrain Lit fixture plus retained Unlit/translucent surfaces on NVIDIA GeForce
+qualifies the mixed Static/Spline and Skeletal Lit fixture plus retained
+Unlit/translucent surfaces on NVIDIA GeForce
 RTX 3090, driver 591.86, Vulkan 1.4.325, validation enabled,
 `Win64-Debug-DurinEditor`, 1920x1080, 30 warm-up and 120 measured frames.
 The synchronized production intervals and quiet-GPU requirement follow

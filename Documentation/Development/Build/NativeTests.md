@@ -88,7 +88,7 @@ Execution scenarios keep the routine path short:
 .\DevTool.bat test "@viewport" --mode stress
 .\DevTool.bat test "@viewport" --mode report
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
-.\DevTool.bat test "@kind=qualification,domain=terrain" --mode qualification
+.\DevTool.bat test "@kind=qualification,domain=renderer" --mode qualification
 ```
 
 Isolation requires a bounded selection and case filter. Stress mode randomizes

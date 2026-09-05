@@ -547,37 +547,6 @@ namespace Durin
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 
-	TEST(FShaderReflectionTests, TerrainBasePassUsesExactIntegerHeightBinding)
-	{
-		const std::filesystem::path ShaderPath =
-			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
-			/ "StaticMeshBasePass.slang";
-		FShaderCompileOptions Options;
-		Options.VirtualShaderPath = "/Engine/StaticMeshBasePass";
-		Options.EntryPoints = {"VertexMain", "FragmentMain"};
-		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
-		Options.Macros.emplace_back("DURIN_TERRAIN", "1");
-		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "0");
-		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
-		Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
-		FSlangShaderCompiler Compiler;
-		const FShaderCompilerOutput Output = Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
-		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		const FCompiledShader& Vertex = Output.CompiledShaders[0];
-		EXPECT_EQ(GetSpirvInputLocations(Vertex), (std::set<uint32>{0}));
-		constexpr uint32 SpirvImageFormatR16ui = 38;
-		EXPECT_EQ(GetSpirvImageFormats(Vertex), (std::set<uint32>{SpirvImageFormatR16ui}));
-		ASSERT_EQ(Vertex.Reflection.ResourceBindings.size(), 4u);
-		ExpectBinding(Vertex, "Transform", 0, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(Vertex, "HeightTexture", 23, ERHIBindingType::Texture, EShaderStageFlags::Vertex);
-		ExpectBinding(Vertex, "Terrain", 24, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
-		ExpectBinding(Vertex, "TerrainPatchOrigins", 27, ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
-		EXPECT_EQ(Output.CompiledShaders[1].Reflection.ResourceBindings.size(), 24u);
-		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowTexture", 25, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowSampler", 26, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-	}
-
 	TEST(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
 	{
 		const std::filesystem::path ShaderPath =
@@ -587,7 +556,6 @@ namespace Durin
 			{"Local", nullptr},
 			{"Spline", "DURIN_SPLINE_MESH"},
 			{"Skeletal", "DURIN_SKELETAL_MESH"},
-			{"Terrain", "DURIN_TERRAIN"},
 		}};
 		FSlangShaderCompiler Compiler;
 		for (const auto& [Name, DomainMacro] : Domains)
@@ -628,31 +596,6 @@ namespace Durin
 			ExpectBinding(Fragment, "BaseColorTexture", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 			ExpectBinding(Fragment, "OpacityMaskSampler", 18, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 		}
-	}
-
-	TEST(FShaderReflectionTests, TerrainOpaqueShadowOmitsUnconsumedVertexOutputs)
-	{
-		const std::filesystem::path ShaderPath =
-			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
-			/ "StaticMeshBasePass.slang";
-		FShaderCompileOptions Options;
-		Options.VirtualShaderPath = "/Engine/StaticMeshBasePass";
-		Options.EntryPoints = {"VertexMain", "OpaqueShadowFragmentMain"};
-		Options.Frequencies = {
-			EShaderFrequency::Vertex,
-			EShaderFrequency::Fragment
-		};
-		Options.Macros.emplace_back("DURIN_TERRAIN", "1");
-		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "0");
-		Options.Macros.emplace_back("DURIN_OPAQUE_SHADOW_DEPTH", "1");
-
-		FSlangShaderCompiler Compiler;
-		const FShaderCompilerOutput Output =
-			Compiler.Compile(ShaderPath.string(), Options);
-		ASSERT_TRUE(Output) << Output.ErrorMessage;
-		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
-		EXPECT_TRUE(GetSpirvOutputLocations(Output.CompiledShaders[0]).empty());
-		EXPECT_TRUE(GetSpirvInputLocations(Output.CompiledShaders[1]).empty());
 	}
 
 	TEST(FShaderReflectionTests, GBufferDebugDecodesAllAttachmentsAndDepth)

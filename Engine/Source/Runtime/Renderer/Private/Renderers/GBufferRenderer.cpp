@@ -48,24 +48,9 @@ namespace Durin
 				"VertexMain");
 		};
 
-		class FGBufferTerrainVertexShader final : public FMeshMaterialShader
-		{
-		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferTerrainVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
-				DURIN_SHADER_PARAMETER_TEXTURE(HeightTexture);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Terrain);
-				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(TerrainPatchOrigins);
-			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferTerrainVertexShader, FMeshMaterialShader,
-				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
-				"VertexMain");
-		};
-
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader);
 		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSkeletalVertexShader);
-		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferTerrainVertexShader);
 
 		class FGBufferFragmentShader final : public FMaterialShader
 		{
@@ -135,7 +120,6 @@ namespace Durin
 		TMaterialShaderRef<FGBufferLocalVertexShader> LocalVertex;
 		TMaterialShaderRef<FGBufferSplineVertexShader> SplineVertex;
 		TMaterialShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
-		TMaterialShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
 		TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
@@ -150,7 +134,6 @@ namespace Durin
 			TMaterialShaderRef<FGBufferLocalVertexShader> LocalVertex;
 			TMaterialShaderRef<FGBufferSplineVertexShader> SplineVertex;
 			TMaterialShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
-			TMaterialShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
 			TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		};
 
@@ -230,9 +213,6 @@ namespace Durin
 				case EGBufferVertexDomain::Skeletal:
 					Options.Macros.emplace_back("DURIN_SKELETAL_MESH", "1");
 					break;
-				case EGBufferVertexDomain::Terrain:
-					Options.Macros.emplace_back("DURIN_TERRAIN", "1");
-					break;
 				case EGBufferVertexDomain::Local:
 				default:
 					break;
@@ -246,9 +226,6 @@ namespace Durin
 					break;
 				case EGBufferVertexDomain::Skeletal:
 					VertexType = &FGBufferSkeletalVertexShader::StaticType();
-					break;
-				case EGBufferVertexDomain::Terrain:
-					VertexType = &FGBufferTerrainVertexShader::StaticType();
 					break;
 				case EGBufferVertexDomain::Local:
 				default:
@@ -265,9 +242,7 @@ namespace Durin
 						? RendererPrivate::GetSplineVertexFactoryShaderType()
 						: ShaderKey.VertexDomain == EGBufferVertexDomain::Skeletal
 							? RendererPrivate::GetSkeletalVertexFactoryShaderType()
-							: ShaderKey.VertexDomain == EGBufferVertexDomain::Terrain
-								? RendererPrivate::GetTerrainVertexFactoryShaderType()
-								: RendererPrivate::GetLocalVertexFactoryShaderType(),
+					: RendererPrivate::GetLocalVertexFactoryShaderType(),
 					RendererPrivate::MaterialMeshPassGBuffer, ShaderKey.Material,
 					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
 					Options, ShaderMap, ErrorMessage);
@@ -295,10 +270,6 @@ namespace Durin
 					Candidate.SkeletalVertex =
 						TMaterialShaderRef<FGBufferSkeletalVertexShader>(Candidate.ShaderMap);
 					break;
-				case EGBufferVertexDomain::Terrain:
-					Candidate.TerrainVertex =
-						TMaterialShaderRef<FGBufferTerrainVertexShader>(Candidate.ShaderMap);
-					break;
 				case EGBufferVertexDomain::Local:
 				default:
 					Candidate.LocalVertex =
@@ -315,9 +286,6 @@ namespace Durin
 					break;
 				case EGBufferVertexDomain::Skeletal:
 					VertexRHI = Candidate.SkeletalVertex.GetRHIShader(false);
-					break;
-				case EGBufferVertexDomain::Terrain:
-					VertexRHI = Candidate.TerrainVertex.GetRHIShader(false);
 					break;
 				case EGBufferVertexDomain::Local:
 				default:
@@ -366,7 +334,6 @@ namespace Durin
 				Candidate->LocalVertex = Shaders->LocalVertex;
 				Candidate->SplineVertex = Shaders->SplineVertex;
 				Candidate->SkeletalVertex = Shaders->SkeletalVertex;
-				Candidate->TerrainVertex = Shaders->TerrainVertex;
 				Candidate->Fragment = Shaders->Fragment;
 				Candidate->VertexDeclaration = VertexDeclaration;
 				Candidate->VertexDomain = PipelineKey.VertexDomain;
@@ -382,10 +349,6 @@ namespace Durin
 				case EGBufferVertexDomain::Skeletal:
 					Initializer.BoundShaders.VertexShader =
 						Candidate->SkeletalVertex.GetRHIShader();
-					break;
-				case EGBufferVertexDomain::Terrain:
-					Initializer.BoundShaders.VertexShader =
-						Candidate->TerrainVertex.GetRHIShader();
 					break;
 				case EGBufferVertexDomain::Local:
 				default:
@@ -447,17 +410,6 @@ namespace Durin
 			Parameters.Transform = VertexParameters.Transform;
 			Parameters.SkinPalette = VertexParameters.SkinPalette;
 			SetShaderParameters(CommandList, Pipeline.SkeletalVertex, Parameters);
-			break;
-		}
-		case EGBufferVertexDomain::Terrain:
-		{
-			FGBufferTerrainVertexShader::FParameters Parameters;
-			Parameters.Transform = VertexParameters.Transform;
-			Parameters.HeightTexture = VertexParameters.HeightTexture;
-			Parameters.Terrain = VertexParameters.Terrain;
-			Parameters.TerrainPatchOrigins =
-				VertexParameters.TerrainPatchOrigins;
-			SetShaderParameters(CommandList, Pipeline.TerrainVertex, Parameters);
 			break;
 		}
 		case EGBufferVertexDomain::Local:

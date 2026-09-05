@@ -6,7 +6,6 @@
 #include "Actors/PlayerStart.h"
 #include "Components/ActorComponent.h"
 #include "Components/PrimitiveComponent.h"
-#include "Components/TerrainComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -33,23 +32,6 @@ namespace Durin
 			return PlayFailure(EWorldPlayError::InvalidState, "The World must be stopped before play begins.");
 		if (!CurrentLevel)
 			return PlayFailure(EWorldPlayError::MissingLevel, "The World has no active level.");
-
-		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
-		{
-			if (!Actor || Actor->IsPendingKill() || Actor->IsBeingDestroyed()) continue;
-			for (const TObjectPtr<DActorComponent>& Component : Actor->GetComponents())
-			{
-				auto* Terrain = Cast<DTerrainComponent>(Component.Get());
-				if (!Terrain || !Terrain->IsRegistered()
-					|| Terrain->GetCollisionEnabled() == ECollisionEnabled::NoCollision) continue;
-				if (!Terrain->RequestPhysicsStateCreation(true))
-				{
-					return PlayFailure(EWorldPlayError::CollisionNotReady, std::format(
-						"Terrain collision readiness failed for '{}': {}",
-						Actor->GetName(), Terrain->GetLastCollisionDiagnostic()));
-				}
-			}
-		}
 
 		AGameMode* ExpectedGameMode = nullptr;
 		APlayerController* ExpectedController = nullptr;

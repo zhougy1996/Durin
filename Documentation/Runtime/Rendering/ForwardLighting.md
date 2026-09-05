@@ -14,7 +14,7 @@ retain the behavior documented below.
 ## Production surface ownership
 
 The production hybrid renderer evaluates Lit opaque/masked StaticMesh,
-SplineMesh, SkeletalMesh, and Terrain records after the GBuffer. Forward owns
+SplineMesh and SkeletalMesh records after the GBuffer. Forward owns
 only Unlit opaque/masked surfaces, the globally sorted translucent list,
 wireframe or another explicitly named special mode, and SkyBox bootstrap.
 Dedicated retained-forward pipeline

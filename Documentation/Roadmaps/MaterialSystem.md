@@ -13,7 +13,7 @@ The fixed-schema material stack is production-capable. Material and material-
 instance assets provide stable parameter identities, inheritance, serialization,
 dependency tracking, asset-backed default material selection, an independent
 error terminal, immutable render representations, stable render proxies, and
-coalesced publication. StaticMesh, SkeletalMesh, and Terrain consume the same
+coalesced publication. StaticMesh and SkeletalMesh consume the same
 validated v3 PBR surface representation and shared Renderer-private surface
 material execution contract across forward, GBuffer, and shadow passes.
 
@@ -119,7 +119,7 @@ surface with actionable diagnostics.
   remain derived data or cooked payloads. A plan must lock the exact boundary
   before adding persistent cache or cook formats.
 - New resource fields or surface outputs require an explicit versioned layout
-  transition and qualification across StaticMesh, SkeletalMesh, Terrain,
+transition and qualification across StaticMesh, SkeletalMesh,
   preview, thumbnail, forward, GBuffer, and relevant shadow paths.
 
 ## Current Foundations and Gaps
@@ -136,7 +136,7 @@ surface with actionable diagnostics.
 - Asset-backed DefaultMaterial and asset-independent ErrorMaterial with shared
   whole-material fallback diagnostics.
 - Shared surface uniform/resource resolution and fragment/pass execution for
-  StaticMesh, SkeletalMesh, and Terrain.
+  StaticMesh and SkeletalMesh.
 - RenderCore Slang compilation, reflection, dependency manifests,
   content-addressed shader artifacts, in-process coalescing, bounded caches,
   development reload, and transactional renderer resource replacement.
@@ -158,7 +158,7 @@ surface with actionable diagnostics.
 | 1. Material asset and editor foundation | Complete | None | Runtime-owned parameters and instances, stable mesh binding, MaterialEditor, preview, and thumbnails | Historical | Lasting contracts and archived plans record the landed behavior |
 | 2. Versioned render representation | Complete | M1 | Immutable validated renderer-facing material layouts and proxy publication | Historical | Renderer consumes compact values without reflected-object lookup |
 | 3. Metallic/roughness PBR surface | Complete | M2 | Canonical v3 PBR inputs, texture roles, tangent-space normals, direct lighting, and studio IBL | Historical | Level, preview, and thumbnail output pass focused and Vulkan qualification |
-| 4. Material passes and shared execution | Complete | M3 | Opaque/masked/translucent policy plus shared forward, GBuffer, and shadow material execution across production geometry families | Historical | StaticMesh, SkeletalMesh, and Terrain pass the shared execution matrix |
+| 4. Material passes and shared execution | Complete | M3 | Opaque/masked/translucent policy plus shared forward, GBuffer, and shadow material execution across production geometry families | Historical | StaticMesh and SkeletalMesh pass the shared execution matrix |
 | 5. Material program and synchronous compiler foundation | Complete | M4; landed Shader Cache and Shader Parameters contracts | Persisted bounded program schema, typed validation/IR, deterministic dependency identity, and one synchronous compiled surface vertical slice through the existing v3 boundary | Fixed surface ABI and multi-family execution are stable; generic compiler/cache infrastructure is available | Authored program round-trips, invalid graphs fail deterministically, two materially distinct programs compile and render, dependency edits invalidate identity, and fixed-schema content retains explicit fallback/transition behavior |
 | 6. Asynchronous compilation, derived data, and cooking | Complete | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, bounded diagnostics, non-duplicative cache ownership, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
 | 7. Material graph authoring workflow | Complete | M5 schema; M6 request/diagnostic model | Shared graph inspection/command surface, reflected presentation data, human canvas, structured automation, node/pin operations, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Equivalent canvas and structured authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing without coordinate-based automation or semantic/identity drift |
@@ -195,7 +195,7 @@ program into a human canvas and structured automation workflow.
 | --- | --- |
 | Asset/schema | Deterministic round trip, bounded counts/depth, stable IDs, malformed/cyclic/type-invalid rejection, dependency enumeration, duplication, and strict compatibility behavior |
 | Compiler/IR | Schedule-independent normalization, stable keys, source/IR determinism, compiler/reflection failure diagnostics, dependency invalidation, and no reflected-object access outside the owning thread |
-| Renderer | Exact layout/binding validation, last-known-good or ErrorMaterial fallback, StaticMesh/SkeletalMesh/Terrain parity, forward/GBuffer/shadow coverage, reload, and device recovery |
+| Renderer | Exact layout/binding validation, last-known-good or ErrorMaterial fallback, StaticMesh/SkeletalMesh parity, forward/GBuffer/shadow coverage, reload, and device recovery |
 | Async lifecycle | Coalescing, supersession, cancellation, stale-result rejection, bounded queues/storage, GameThread publication, module unload, and engine shutdown |
 | Cook/runtime | Warm and miss paths, artifact corruption recovery, cooked load without authored-only state, deterministic missing-artifact policy, and package dependency correctness |
 | Editor | Graph operations, Undo/Redo, save/reload, multi-document preview, diagnostic navigation, asset move/delete, and failure recovery |
@@ -248,7 +248,6 @@ targets, fixtures, profiles, budgets, and final evidence.
 - [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)

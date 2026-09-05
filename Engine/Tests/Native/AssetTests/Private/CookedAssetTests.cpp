@@ -24,7 +24,6 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCookedData.h"
@@ -297,7 +296,6 @@ TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 	EXPECT_FALSE(HasPublicAddToCook<DSkeletalMesh>);
 	EXPECT_FALSE(HasPublicAddToCook<DSkeleton>);
 	EXPECT_FALSE(HasPublicAddToCook<DAnimationClip>);
-	EXPECT_FALSE(HasPublicAddToCook<DTerrainHeightmap>);
 	EXPECT_FALSE(HasPublicAddToCook<DMaterial>);
 	EXPECT_FALSE(HasPublicAddToCook<DEnvironmentLighting>);
 }

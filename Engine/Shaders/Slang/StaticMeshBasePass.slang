@@ -1,9 +1,6 @@
 module StaticMeshBasePass;
 
 import VertexFactory.LocalVertexFactory;
-#if DURIN_TERRAIN
-import VertexFactory.TerrainVertexFactory;
-#endif
 #if DURIN_SPLINE_MESH
 import VertexFactory.SplineMeshVertexFactory;
 #endif
@@ -30,9 +27,6 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
-#if DURIN_TERRAIN
-    float terrainTransition : TEXCOORD7;
-#endif
 };
 
 struct OpaqueShadowVSOutput
@@ -94,26 +88,6 @@ struct MaterialUniform
 #if DURIN_SKELETAL_MESH
 [[vk::binding(23, 0)]] StructuredBuffer<float4x4> SkinPalette;
 #endif
-#if DURIN_TERRAIN
-struct TerrainUniform
-{
-    uint4 SamplePatch; // width, height, reserved, reserved
-    float4 SpacingHeight; // spacing x/y, signed height scale, height offset
-    float4 DistanceTransition; // fade start, render distance, reserved, reserved
-};
-[[vk::binding(23, 0)]]
-[[vk::image_format("r16ui")]]
-Texture2D<uint> HeightTexture;
-[[vk::binding(24, 0)]] ConstantBuffer<TerrainUniform> Terrain;
-struct TerrainInstanceData
-{
-    uint2 SampleOrigin;
-    float2 Padding;
-    float4 AnchorClip;
-    float4 AnchorRelativeWorld;
-};
-[[vk::binding(27, 0)]] StructuredBuffer<TerrainInstanceData> TerrainPatchOrigins;
-#endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
@@ -121,13 +95,7 @@ struct TerrainInstanceData
 [[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
 
 [shader("vertex")]
-#if DURIN_TERRAIN
-#if DURIN_OPAQUE_SHADOW_DEPTH
-OpaqueShadowVSOutput VertexMain(FTerrainVertexFactoryInput input, uint instanceID : SV_InstanceID)
-#else
-VSOutput VertexMain(FTerrainVertexFactoryInput input, uint instanceID : SV_InstanceID)
-#endif
-#elif DURIN_SKELETAL_MESH
+#if DURIN_SKELETAL_MESH
 #if DURIN_OPAQUE_SHADOW_DEPTH
 OpaqueShadowVSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
 #else
@@ -141,30 +109,7 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
 #endif
 {
-#if DURIN_TERRAIN
-    TerrainInstanceData instance = TerrainPatchOrigins[instanceID];
-    uint2 sampleCoordinate = instance.SampleOrigin + input.gridCoordinate;
-    uint2 maximumCoordinate = Terrain.SamplePatch.xy - uint2(1u, 1u);
-    uint2 leftCoordinate = uint2(sampleCoordinate.x > 0u ? sampleCoordinate.x - 1u : 0u, sampleCoordinate.y);
-    uint2 rightCoordinate = uint2(min(sampleCoordinate.x + 1u, maximumCoordinate.x), sampleCoordinate.y);
-    uint2 upCoordinate = uint2(sampleCoordinate.x, sampleCoordinate.y > 0u ? sampleCoordinate.y - 1u : 0u);
-    uint2 downCoordinate = uint2(sampleCoordinate.x, min(sampleCoordinate.y + 1u, maximumCoordinate.y));
-    float height = Terrain.SpacingHeight.w
-        + ((float)HeightTexture.Load(int3(sampleCoordinate, 0)) / 65535.0) * Terrain.SpacingHeight.z;
-    float leftHeight = ((float)HeightTexture.Load(int3(leftCoordinate, 0)) / 65535.0) * Terrain.SpacingHeight.z;
-    float rightHeight = ((float)HeightTexture.Load(int3(rightCoordinate, 0)) / 65535.0) * Terrain.SpacingHeight.z;
-    float upHeight = ((float)HeightTexture.Load(int3(upCoordinate, 0)) / 65535.0) * Terrain.SpacingHeight.z;
-    float downHeight = ((float)HeightTexture.Load(int3(downCoordinate, 0)) / 65535.0) * Terrain.SpacingHeight.z;
-    float spanX = max((float)(rightCoordinate.x - leftCoordinate.x) * Terrain.SpacingHeight.x, 1.0e-8);
-    float spanY = max((float)(downCoordinate.y - upCoordinate.y) * Terrain.SpacingHeight.y, 1.0e-8);
-    float3 localNormal = normalize(float3(-(rightHeight - leftHeight) / spanX, -(downHeight - upHeight) / spanY, 1.0));
-    float3 patchLocalPosition = float3(
-        (float)input.gridCoordinate.x * Terrain.SpacingHeight.x,
-        (float)input.gridCoordinate.y * Terrain.SpacingHeight.y, height);
-    float3 localPosition = float3(
-        (float)sampleCoordinate.x * Terrain.SpacingHeight.x,
-        (float)sampleCoordinate.y * Terrain.SpacingHeight.y, height);
-#elif DURIN_SKELETAL_MESH
+#if DURIN_SKELETAL_MESH
     FSkeletalMeshVertexFactoryIntermediates vertex =
         GetSkeletalMeshVertexFactoryIntermediates(input, SkinPalette);
 #elif DURIN_SPLINE_MESH
@@ -176,33 +121,9 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
 #if DURIN_OPAQUE_SHADOW_DEPTH
     OpaqueShadowVSOutput output;
-#if DURIN_TERRAIN
-    output.pos = instance.AnchorClip
-        + mul(Transform.LocalToClip, float4(patchLocalPosition, 0.0));
-#else
     output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
-#endif
 #else
     VSOutput output;
-#if DURIN_TERRAIN
-    output.pos = instance.AnchorClip
-        + mul(Transform.LocalToClip, float4(patchLocalPosition, 0.0));
-    output.color = float4(1.0);
-    output.worldPosition = mul(Transform.LocalToWorld, float4(localPosition, 1.0)).xyz;
-    output.worldNormal = mul(Transform.NormalToWorld, float4(localNormal, 0.0)).xyz;
-    float3 worldTangent = mul(Transform.LocalToWorld, float4(1.0, 0.0, 0.0, 0.0)).xyz;
-    output.worldTangent = float4(worldTangent, Transform.TransformParams.x);
-    float3 relativeWorldPosition = instance.AnchorRelativeWorld.xyz
-        + mul(Transform.LocalToWorld, float4(patchLocalPosition, 0.0)).xyz;
-    output.terrainTransition = saturate(
-        (length(relativeWorldPosition.xy) - Terrain.DistanceTransition.x)
-        / max(Terrain.DistanceTransition.y - Terrain.DistanceTransition.x, 1.0));
-    float2 uv = float2(sampleCoordinate) / float2(maximumCoordinate);
-    output.uv0 = uv;
-    output.uv1 = uv;
-    output.uv2 = uv;
-    output.uv3 = uv;
-#else
     output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
     output.color = vertex.color;
     output.worldPosition = mul(Transform.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
@@ -213,7 +134,6 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];
     output.uv3 = vertex.texCoords[3];
-#endif
 #endif
     return output;
 }
@@ -299,24 +219,6 @@ FResolvedSurfaceShading ResolveSurfaceShading(
     return result;
 }
 
-bool RejectTerrainCoverage(VSOutput input)
-{
-#if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
-    static const float coverageThresholds[16] =
-    {
-        0.03125, 0.53125, 0.15625, 0.65625,
-        0.78125, 0.28125, 0.90625, 0.40625,
-        0.21875, 0.71875, 0.09375, 0.59375,
-        0.96875, 0.46875, 0.84375, 0.34375
-    };
-    uint2 coveragePixel = uint2(input.pos.xy) & uint2(3u, 3u);
-    return input.terrainTransition
-        >= coverageThresholds[coveragePixel.y * 4u + coveragePixel.x];
-#else
-    return false;
-#endif
-}
-
 [shader("fragment")]
 void OpaqueShadowFragmentMain(VSOutput input)
 {
@@ -352,10 +254,6 @@ GeometryPassFragmentOutput GeometryFragmentMain(
     FMaterialSurface surface = EvaluateInputMaterialSurface(input);
     FResolvedSurfaceShading shading = ResolveSurfaceShading(
         input, surface, isFrontFace);
-    // Keep explicit derivatives in uniform control flow before coverage
-    // rejection so masked and Terrain helper lanes have defined quad inputs.
-    if (RejectTerrainCoverage(input))
-        discard;
 #if DURIN_MATERIAL_BLEND_MODE == 1
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
@@ -389,10 +287,6 @@ float4 FragmentMain(
     {
         shading = ResolveSurfaceShading(input, surface, isFrontFace);
     }
-    // Lit derivative work precedes non-uniform coverage rejection. Unlit
-    // surfaces retain their early-out and never evaluate normal derivatives.
-    if (RejectTerrainCoverage(input))
-        discard;
 #if DURIN_MATERIAL_BLEND_MODE == 1
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));

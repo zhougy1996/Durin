@@ -9,7 +9,6 @@
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
-#include "Rendering/TerrainSceneProxy.h"
 
 #include "Math/Operations.h"
 #include "RenderingThread.h"
@@ -289,12 +288,6 @@ namespace Durin
 		return static_cast<FSkeletalMeshSceneProxy&>(*Proxy);
 	}
 
-	auto FPrimitiveSceneInfo::GetTerrainProxy() const -> FTerrainSceneProxy&
-	{
-		check(Kind == EPrimitiveSceneProxyKind::Terrain);
-		return static_cast<FTerrainSceneProxy&>(*Proxy);
-	}
-
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
 	{
 		check(Kind == EPrimitiveSceneProxyKind::SplineMesh);
@@ -341,7 +334,6 @@ namespace Durin
 		{
 		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::SkeletalMesh: std::erase(SkeletalMeshSceneInfos, &Info); break;
-		case EPrimitiveSceneProxyKind::Terrain: std::erase(TerrainSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::SplineMesh: std::erase(SplineMeshSceneInfos, &Info); break;
 		}
 	}
@@ -363,7 +355,6 @@ namespace Durin
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh: SkeletalMeshSceneInfos.push_back(RawInfo); break;
-			case EPrimitiveSceneProxyKind::Terrain: TerrainSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::SplineMesh: SplineMeshSceneInfos.push_back(RawInfo); break;
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
@@ -461,7 +452,7 @@ namespace Durin
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
 			   && StaticMeshSceneInfos.empty() && SkeletalMeshSceneInfos.empty()
-			   && TerrainSceneInfos.empty() && SplineMeshSceneInfos.empty()
+			   && SplineMeshSceneInfos.empty()
 			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
 			   && VolumetricClouds->Num() == 0;
 	}
@@ -472,7 +463,6 @@ namespace Durin
 		PrimitiveSceneInfos.clear();
 		StaticMeshSceneInfos.clear();
 		SkeletalMeshSceneInfos.clear();
-		TerrainSceneInfos.clear();
 		SplineMeshSceneInfos.clear();
 		PrimitiveInfosById.clear();
 		Lights->Clear();

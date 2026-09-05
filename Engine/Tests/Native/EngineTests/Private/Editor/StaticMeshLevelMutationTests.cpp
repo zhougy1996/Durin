@@ -3,8 +3,6 @@
 
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
-#include "Actors/TerrainActor.h"
-#include "Components/TerrainComponent.h"
 #include "Operations/StaticMeshLevelMutationTestHooks.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
@@ -17,9 +15,7 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMeshLevelMutations.h"
-#include "TerrainPlacement.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 
 namespace
 {
@@ -69,73 +65,6 @@ namespace
 			.Desired = {.Transform = Transform},
 		};
 	}
-}
-
-TEST(FTerrainPlacementTests, PlacesOneRevisionAtomicallyAndRestoresSavedState)
-{
-	FLevelFixture Fixture;
-	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "GoldenHeightmap");
-	const std::array<uint16, 6> Samples{0, 10'000, 20'000, 30'000, 65'535, 40'000};
-	std::string Error;
-	ASSERT_TRUE(Heightmap->InitializeFromSamples(3, 2, Samples, Error)) << Error;
-	Durin::Tests::FTestTransactorOwner Transactions;
-	Transactions->EstablishSavedState(*Fixture.Package);
-	auto Request = Durin::Editor::Level::FTerrainPlacement::CaptureTarget(*Fixture.Level);
-	Request.ActorName = "GoldenTerrain";
-	Request.Heightmap = Heightmap;
-	Request.ExpectedHeightmapRevision = Heightmap->GetRevision();
-	Request.SpacingX = 2.0;
-	Request.SpacingY = 3.0;
-	Request.HeightScale = -12.0;
-	Request.HeightOffset = 7.0;
-	Request.Transform.Translation = {4.0, 5.0, 6.0};
-	const auto Plan = Durin::Editor::Level::FTerrainPlacement::Plan(Request);
-	ASSERT_TRUE(Plan) << Plan.Diagnostic.Message;
-	const auto Result = Durin::Editor::Level::FTerrainPlacement::Execute(
-		Plan, {Fixture.Level, Transactions.Get()});
-	ASSERT_TRUE(Result) << Result.Diagnostic.Message;
-	ASSERT_NE(Result.Actor.Get(), nullptr);
-	EXPECT_EQ(Result.Actor->GetTerrainComponent()->GetHeightmap(), Heightmap);
-	EXPECT_DOUBLE_EQ(Result.Actor->GetTerrainComponent()->GetSpacingX(), 2.0);
-	EXPECT_EQ(Result.Actor->GetActorTransform().Translation, Durin::FVector3(4.0, 5.0, 6.0));
-	EXPECT_TRUE(Fixture.Package->IsDirty());
-	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Fixture.Level->FindActorByName("GoldenTerrain"), nullptr);
-	EXPECT_FALSE(Fixture.Package->IsDirty());
-	ASSERT_TRUE(Transactions->Redo());
-	EXPECT_NE(Fixture.Level->FindActorByName("GoldenTerrain"), nullptr);
-	EXPECT_TRUE(Fixture.Package->IsDirty());
-	Transactions->Reset();
-}
-
-TEST(FTerrainPlacementTests, RejectsStaleReadOnlyAndInvalidRequestsWithoutMutation)
-{
-	FLevelFixture Fixture;
-	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "Heightmap");
-	const std::array<uint16, 4> Samples{0, 1, 2, 3};
-	std::string Error;
-	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
-	auto Request = Durin::Editor::Level::FTerrainPlacement::CaptureTarget(*Fixture.Level);
-	Request.ActorName = "Terrain";
-	Request.Heightmap = Heightmap;
-	Request.ExpectedHeightmapRevision = Heightmap->GetRevision();
-	Request.SpacingX = 0.0;
-	EXPECT_EQ(Durin::Editor::Level::FTerrainPlacement::Plan(Request).Diagnostic.Error,
-		Durin::Editor::Level::ETerrainPlacementError::InvalidProperties);
-	Request.SpacingX = 1.0;
-	const auto Plan = Durin::Editor::Level::FTerrainPlacement::Plan(Request);
-	ASSERT_TRUE(Plan);
-	Fixture.Level->SpawnActor<Durin::ATerrainActor>("Other");
-	const auto Stale = Durin::Editor::Level::FTerrainPlacement::Execute(
-		Plan, {Fixture.Level, nullptr});
-	EXPECT_EQ(Stale.Diagnostic.Error, Durin::Editor::Level::ETerrainPlacementError::StaleTarget);
-	EXPECT_EQ(Fixture.Level->FindActorByName("Terrain"), nullptr);
-	Request = Durin::Editor::Level::FTerrainPlacement::CaptureTarget(*Fixture.Level);
-	Request.ActorName = "Terrain";
-	Request.Heightmap = Heightmap;
-	Request.bReadOnly = true;
-	EXPECT_EQ(Durin::Editor::Level::FTerrainPlacement::Plan(Request).Diagnostic.Error,
-		Durin::Editor::Level::ETerrainPlacementError::ReadOnly);
 }
 
 TEST(FStaticMeshLevelMutationTests, AppliesOneAtomicBatchAndRestoresSavedRevision)

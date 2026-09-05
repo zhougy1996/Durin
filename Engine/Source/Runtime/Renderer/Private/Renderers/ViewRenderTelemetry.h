@@ -38,7 +38,6 @@ namespace Durin
 		size_t PreparedStaticMeshCasters = 0;
 		size_t PreparedSplineMeshCasters = 0;
 		size_t PreparedSkeletalMeshCasters = 0;
-		size_t PreparedTerrainCasters = 0;
 		size_t PreparedTriangles = 0;
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
@@ -124,67 +123,6 @@ namespace Durin
 		size_t UploadedSkeletalPaletteBytes = 0;
 	};
 
-	struct FTerrainRenderTelemetry
-	{
-		size_t VisibleTerrainCandidates = 0;
-		size_t TerrainPatchCandidates = 0;
-		size_t VisibleTerrainPatches = 0;
-		size_t CulledTerrainPatches = 0;
-		size_t InnerTerrainPatches = 0;
-		size_t TransitionTerrainPatches = 0;
-		size_t RadialRejectedTerrainPatches = 0;
-		size_t InvalidTerrainDistanceSettingFallbacks = 0;
-		size_t InvalidTerrainPatchBounds = 0;
-		size_t TerrainLODFallbacks = 0;
-		size_t TerrainLODResolutionFallbacks = 0;
-		size_t TerrainAdjacencyPromotions = 0;
-		size_t TerrainAdjacencyIterations = 0;
-		std::vector<size_t> RequestedTerrainLODHistogram;
-		std::vector<size_t> ResolvedTerrainLODHistogram;
-		std::array<size_t, 16> TerrainStitchMaskHistogram{};
-		size_t PreparedTerrainTriangles = 0;
-		size_t OpaqueTerrainPatches = 0;
-		size_t MaskedTerrainPatches = 0;
-		size_t TranslucentTerrainPatches = 0;
-		size_t TerrainResourceAttemptedDraws = 0;
-		size_t TerrainResourceSuccessfulDraws = 0;
-		size_t TerrainResourceRejectedDraws = 0;
-		size_t PreparedTerrainBatches = 0;
-		size_t TerrainBatchChunks = 0;
-		size_t TerrainInstances = 0;
-		size_t TerrainInstanceBytes = 0;
-		size_t TerrainInstanceAllocations = 0;
-		size_t TerrainResourceAttemptedBatches = 0;
-		size_t TerrainResourceSuccessfulBatches = 0;
-		size_t TerrainResourceRejectedBatches = 0;
-		size_t TerrainSubmittedLogicalPatches = 0;
-		size_t TerrainScalarTranslucentDraws = 0;
-		uint64 TerrainLogicalPreparationNanoseconds = 0;
-		uint64 TerrainBatchConstructionNanoseconds = 0;
-		uint64 TerrainResourcePreparationNanoseconds = 0;
-		uint64 TerrainHeightPreparationNanoseconds = 0;
-		uint64 TerrainTopologyPreparationNanoseconds = 0;
-		uint64 TerrainShaderPreparationNanoseconds = 0;
-		uint64 TerrainPipelinePreparationNanoseconds = 0;
-		uint64 TerrainDynamicAllocationNanoseconds = 0;
-		uint64 TerrainCommandRecordingNanoseconds = 0;
-		size_t TerrainAttemptedDraws = 0;
-		size_t TerrainSuccessfulDraws = 0;
-		size_t TerrainRejectedDraws = 0;
-		size_t TerrainHeightUploadBytes = 0;
-		size_t TerrainHeightUploads = 0;
-		size_t TerrainHeightReuses = 0;
-		size_t TerrainTopologyCreations = 0;
-		size_t TerrainTopologyReuses = 0;
-		size_t TerrainTopologyBytes = 0;
-		size_t TerrainShaderLookups = 0;
-		size_t TerrainShaderCreations = 0;
-		size_t TerrainShaderReuses = 0;
-		size_t TerrainPipelineLookups = 0;
-		size_t TerrainPipelineCreations = 0;
-		size_t TerrainPipelineReuses = 0;
-	};
-
 	struct FLightingRenderTelemetry
 	{
 		size_t SubmittedDirectionalLights = 0;
@@ -223,7 +161,6 @@ namespace Durin
 		size_t ShadowUniqueEligibleStaticMeshCasters = 0;
 		size_t ShadowUniqueEligibleSplineMeshCasters = 0;
 		size_t ShadowUniqueEligibleSkeletalMeshCasters = 0;
-		size_t ShadowUniqueEligibleTerrainCasters = 0;
 		size_t ShadowCascadeClassificationTests = 0;
 		size_t ShadowMembershipPopcount = 0;
 		size_t ShadowTemporaryBytes = 0;
@@ -237,22 +174,15 @@ namespace Durin
 		size_t ShadowSkeletalPrimitiveFactReuses = 0;
 		size_t ShadowSkeletalSectionFactBuilds = 0;
 		size_t ShadowSkeletalSectionFactReuses = 0;
-		size_t ShadowTerrainPrimitiveFactBuilds = 0;
-		size_t ShadowTerrainPrimitiveFactReuses = 0;
-		size_t ShadowTerrainPatchFactBuilds = 0;
-		size_t ShadowTerrainPatchFactReuses = 0;
-		size_t ShadowTerrainPatchClassificationTests = 0;
 		uint64 ShadowDiscoveryMembershipNanoseconds = 0;
 		uint64 ShadowStaticSplinePreparationNanoseconds = 0;
 		uint64 ShadowSkeletalPreparationNanoseconds = 0;
-		uint64 ShadowTerrainLogicalPreparationNanoseconds = 0;
 		uint64 ShadowSortingBatchingNanoseconds = 0;
 		uint64 ShadowLogicalPreparationNanoseconds = 0;
 		uint64 ShadowResourcePreparationNanoseconds = 0;
 		size_t ShadowPreparedStaticMeshCasters = 0;
 		size_t ShadowPreparedSplineMeshCasters = 0;
 		size_t ShadowPreparedSkeletalMeshCasters = 0;
-		size_t ShadowPreparedTerrainCasters = 0;
 		size_t ShadowPreparedTriangles = 0;
 		size_t ShadowResourceAttempts = 0;
 		size_t ShadowResourceSuccesses = 0;
@@ -312,10 +242,6 @@ namespace Durin
 		size_t GBufferSkeletalMeshSuccessfulDraws = 0;
 		size_t GBufferSkeletalMeshRejectedDraws = 0;
 		size_t GBufferSkeletalMeshSkippedDraws = 0;
-		size_t GBufferTerrainAttemptedDraws = 0;
-		size_t GBufferTerrainSuccessfulDraws = 0;
-		size_t GBufferTerrainRejectedDraws = 0;
-		size_t GBufferTerrainSkippedDraws = 0;
 	};
 
 	struct FDeferredRenderTelemetry
@@ -390,7 +316,6 @@ namespace Durin
 		FStaticMeshRenderTelemetry StaticMesh;
 		FSplineMeshRenderTelemetry SplineMesh;
 		FSkeletalMeshRenderTelemetry SkeletalMesh;
-		FTerrainRenderTelemetry Terrain;
 		FLightingRenderTelemetry Lighting;
 		FDirectionalShadowRenderTelemetry DirectionalShadow;
 		FContactShadowRenderTelemetry ContactShadow;

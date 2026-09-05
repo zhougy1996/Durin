@@ -3,7 +3,6 @@
 #include "DObject/Package.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -42,11 +41,6 @@ namespace Durin::AssetForge::Builtins
 				&& Texture->HasPlatformData()
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("VolumeTexture");
-		if (const auto* Heightmap = Cast<DTerrainHeightmap>(&Object))
-			return Heightmap->GetPayload()
-				&& Heightmap->GetStatus() == ETerrainHeightmapStatus::Ready
-				? FAssetSaveReadinessFeatureResult{.bHandled = true}
-				: NotReady("TerrainHeightmap");
 		return {};
 	}
 

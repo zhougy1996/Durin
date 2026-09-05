@@ -1620,8 +1620,8 @@ namespace Durin
 		Editor::DThumbnailManager Registry;
 		std::string Error;
 		auto Renderer = std::make_shared<FTestThumbnailRenderer>(Editor::FThumbnailRenderingInfo{
-			.AssetClassName = "DTerrainHeightmap",
-			.RendererName = "TerrainHeightmapCanonicalThumbnail",
+			.AssetClassName = "DGeneratedPixelAsset",
+			.RendererName = "GeneratedPixelThumbnail",
 			.GeneratorSchemaVersion = 1});
 		ASSERT_TRUE(Registry.Register(Renderer, Error)) << Error;
 		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
@@ -1629,7 +1629,7 @@ namespace Durin
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"},
 			{.MaximumRendersPerFrame = 0});
 		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedTerrain", "DTerrainHeightmap", 1);
+			"/ThumbnailTests/GeneratedPixels", "DGeneratedPixelAsset", 1);
 		ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
 		Pipeline.BeginFrame();
 		auto Job = Pipeline.StartNext();
@@ -1649,15 +1649,15 @@ namespace Durin
 		std::string Error;
 		auto Renderer = std::make_shared<FTestThumbnailRenderer>(
 			Editor::FThumbnailRenderingInfo{
-				.AssetClassName = "DTerrainHeightmap",
-				.RendererName = "TerrainHeightmapCanonicalThumbnail",
+				.AssetClassName = "DGeneratedPixelAsset",
+				.RendererName = "GeneratedPixelThumbnail",
 				.GeneratorSchemaVersion = 1},
 			true,
 			true);
 		ASSERT_TRUE(Registry.Register(Renderer, Error)) << Error;
 
 		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedTerrainWarmHit", "DTerrainHeightmap", 1);
+			"/ThumbnailTests/GeneratedPixelsWarmHit", "DGeneratedPixelAsset", 1);
 		{
 			Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
 			Editor::FAssetThumbnailGeneration Pipeline(
@@ -1700,18 +1700,18 @@ namespace Durin
 				.GeneratorSchemaVersion = 1}), Error)) << Error;
 		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailRenderer>(
 			Editor::FThumbnailRenderingInfo{
-				.AssetClassName = "DTerrainHeightmap",
-				.RendererName = "TerrainHeightmapCanonicalThumbnail",
+				.AssetClassName = "DGeneratedPixelAsset",
+				.RendererName = "GeneratedPixelThumbnail",
 				.GeneratorSchemaVersion = 1}, true, true), Error)) << Error;
 		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
 		Editor::FAssetThumbnailGeneration Pipeline(
 			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
 		const Editor::FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
 			"/ThumbnailTests/WaitingRendered", "DWaitingRenderedAsset", 1);
-		const Editor::FAssetThumbnailRequest Terrain = MakeThumbnailRequest(
-			"/ThumbnailTests/GeneratedTerrainFastLane", "DTerrainHeightmap", 1);
+		const Editor::FAssetThumbnailRequest GeneratedRequest = MakeThumbnailRequest(
+			"/ThumbnailTests/GeneratedPixelsFastLane", "DGeneratedPixelAsset", 1);
 		ASSERT_TRUE(Scheduler.Request(Waiting, Error)) << Error;
-		ASSERT_TRUE(Scheduler.Request(Terrain, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(GeneratedRequest, Error)) << Error;
 		Pipeline.BeginFrame();
 		ASSERT_TRUE(Pipeline.StartNext());
 		auto Generated = Pipeline.StartNextGeneratedPixelsDetailed();
@@ -1723,7 +1723,7 @@ namespace Durin
 			Pixels.Pixels, Pixels.Width, Pixels.Height));
 		EXPECT_EQ(Scheduler.Find(Waiting.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::Loading);
-		EXPECT_EQ(Scheduler.Find(Terrain.Asset.AssetPath).State,
+		EXPECT_EQ(Scheduler.Find(GeneratedRequest.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::Ready);
 	}
 

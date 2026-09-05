@@ -36,7 +36,6 @@ namespace Durin
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
-		std::vector<const FPrimitiveSceneInfo*> TerrainSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 	};
 

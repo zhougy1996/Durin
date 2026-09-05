@@ -10,7 +10,6 @@
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
-#include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -38,7 +37,6 @@
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "Terrain/TerrainHeightmap.h"
 #include <vulkan/vulkan.hpp>
 #include "VulkanDynamicRHI.h"
 
@@ -516,7 +514,7 @@ namespace
 	}
 } // namespace
 
-TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemoryGates)
+TEST(FGBufferQualificationTests, ThreeFamilyPassMeetsFrozenRTX3090TimingAndMemoryGates)
 {
 	if (!Durin::GIsGameThreadIdInitialized)
 	{
@@ -588,16 +586,6 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	Pose->Matrices = {Durin::FMatrix4f(1.0f)};
 	Pose->LocalBounds = SkeletalQuad->LocalBounds;
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FSkeletalMeshSceneProxy>(SkeletalQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, Pose), Translate(-1.0, 0.0));
-	const std::array<uint16, 4> Heights{};
-	std::shared_ptr<const Durin::FTerrainHeightmapPayload> HeightPayload;
-	std::string Error;
-	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(
-		2, 2, Heights, HeightPayload, Error
-	)) << Error;
-	Durin::FTerrainPatchDescriptor Patch{
-		.OriginX = 0, .OriginY = 0, .CellCountX = 1, .CellCountY = 1, .LODSteps = {1}, .LODErrors = {0.0}, .LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0})
-	};
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(4), std::make_unique<Durin::FTerrainSceneProxy>(HeightPayload, 1, 1.0, 1.0, 0.0, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1), Durin::FMatrix(1.0));
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.35, 0.2, -1.0};
 	Directional.Color = {1.0f, 1.0f, 1.0f};
@@ -1015,7 +1003,6 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.Lighting.SelectedDirectionalLights, 1u);
 	EXPECT_EQ(GLastTelemetry.Lighting.SelectedPointLights, 2u);
 	EXPECT_EQ(GLastTelemetry.Lighting.SelectedSpotLights, 2u);
@@ -1994,7 +1981,6 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferStaticMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSplineMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws, 1u);
-	EXPECT_EQ(GLastTelemetry.GBuffer.GBufferTerrainSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionEnabledViews, 1u);
 	EXPECT_EQ(GLastTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionActiveBytes,

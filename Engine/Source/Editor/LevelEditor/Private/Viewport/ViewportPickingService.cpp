@@ -2,7 +2,6 @@
 #include "Viewport/ViewportPickingSceneIndex.h"
 
 #include "Components/PrimitiveComponent.h"
-#include "Components/TerrainComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -14,7 +13,6 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor::Level
 {
@@ -456,125 +454,6 @@ namespace Durin::Editor::Level
 			}
 		};
 
-		// Intersects the committed full-resolution height field independently of render LOD and collision state.
-		class FTerrainViewportGeometryProvider final : public IViewportGeometryProvider
-		{
-		public:
-			explicit FTerrainViewportGeometryProvider(bool bInAccelerated)
-				: bAccelerated(bInAccelerated) {}
-
-			auto Query(const FViewportPickingBackendRequest& Request,
-				const FViewportPickingTarget& Target,
-				FViewportGeometryQueryContext& Context) const -> FViewportGeometryQueryResult override
-			{
-				auto* Component = Cast<DTerrainComponent>(Target.Component.Get());
-				if (!Component) return {};
-				++Context.Diagnostics.ApplicableTerrainTargets;
-				FTerrainPickingSnapshot Snapshot;
-				if (!Component->CaptureEditorPickingSnapshot(Snapshot))
-				{
-					++Context.Diagnostics.InvalidTerrainTargets;
-					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-				}
-				const double Determinant = Math::Determinant(Snapshot.LocalToWorld);
-				if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon)
-				{
-					++Context.Diagnostics.InvalidTerrainTargets;
-					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-				}
-				const FMatrix WorldToLocal = Math::Inverse(Snapshot.LocalToWorld);
-				const FVector3 LocalOrigin(WorldToLocal * FVector4(Request.RayOrigin, 1.0));
-				const FVector3 LocalDirection(WorldToLocal * FVector4(Request.RayDirection, 0.0));
-				const auto& Payload = *Snapshot.Payload;
-				auto Height = [&](uint16 Sample)
-				{
-					return Snapshot.HeightOffset
-						+ static_cast<double>(Sample) / 65535.0 * Snapshot.HeightScale;
-				};
-				const double Z0 = Height(Payload.Minimum);
-				const double Z1 = Height(Payload.Maximum);
-				const FBox Bounds({0.0, 0.0, std::min(Z0, Z1)},
-					{(Payload.Width - 1) * Snapshot.SpacingX,
-					 (Payload.Height - 1) * Snapshot.SpacingY, std::max(Z0, Z1)});
-				if (!Math::IsFinite(LocalOrigin) || !Math::IsFinite(LocalDirection)
-					|| !IntersectRayBox(LocalOrigin, LocalDirection, Bounds))
-				{
-					++Context.Diagnostics.TerrainBoundsRejects;
-					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-				}
-
-				std::optional<FViewportPickingBackendHit> Best;
-				auto TestCell = [&](uint32 X, uint32 Y)
-				{
-					++Context.Diagnostics.TerrainVisitedCells;
-					const size_t Row = static_cast<size_t>(Y) * Payload.Width;
-					const FVector3 A(X * Snapshot.SpacingX, Y * Snapshot.SpacingY,
-						Height(Payload.Samples[Row + X]));
-					const FVector3 B((X + 1) * Snapshot.SpacingX, Y * Snapshot.SpacingY,
-						Height(Payload.Samples[Row + X + 1]));
-					const FVector3 C(X * Snapshot.SpacingX, (Y + 1) * Snapshot.SpacingY,
-						Height(Payload.Samples[Row + Payload.Width + X]));
-					const FVector3 D((X + 1) * Snapshot.SpacingX, (Y + 1) * Snapshot.SpacingY,
-						Height(Payload.Samples[Row + Payload.Width + X + 1]));
-					for (const auto& Triangle : std::array<std::array<FVector3, 3>, 2>{{{A, B, C}, {B, D, C}}})
-					{
-						++Context.Diagnostics.TerrainTestedTriangles;
-						double LocalDistance = 0.0;
-						if (!IntersectRayTriangle(LocalOrigin, LocalDirection,
-							Triangle[0], Triangle[1], Triangle[2], LocalDistance)) continue;
-						const FVector3 WorldHit(Snapshot.LocalToWorld
-							* FVector4(LocalOrigin + LocalDirection * LocalDistance, 1.0));
-						const double WorldDistance = Math::Length(WorldHit - Request.RayOrigin);
-						if (std::isfinite(WorldDistance) && WorldDistance >= 0.0
-							&& (!Best || WorldDistance < Best->Distance))
-							Best = FViewportPickingBackendHit{Target.Token, WorldDistance, 0};
-					}
-				};
-
-				if (!bAccelerated || Payload.Levels.empty())
-				{
-					for (uint32 Y = 0; Y + 1 < Payload.Height; ++Y)
-						for (uint32 X = 0; X + 1 < Payload.Width; ++X) TestCell(X, Y);
-				}
-				else
-				{
-					const FTerrainHeightmapLevel& Base = Payload.Levels.front();
-					for (uint32 RegionY = 0; RegionY < Base.Height; ++RegionY)
-						for (uint32 RegionX = 0; RegionX < Base.Width; ++RegionX)
-						{
-							++Context.Diagnostics.TerrainNodeVisits;
-							const size_t NodeIndex = static_cast<size_t>(Base.NodeOffset)
-								+ static_cast<size_t>(RegionY) * Base.Width + RegionX;
-							if (NodeIndex >= Payload.Nodes.size())
-							{
-								++Context.Diagnostics.InvalidTerrainTargets;
-								return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-							}
-							const uint32 MinX = RegionX * Base.SampleRegionSize;
-							const uint32 MinY = RegionY * Base.SampleRegionSize;
-							const uint32 MaxSampleX = std::min(MinX + Base.SampleRegionSize, Payload.Width - 1);
-							const uint32 MaxSampleY = std::min(MinY + Base.SampleRegionSize, Payload.Height - 1);
-							if (MinX >= MaxSampleX || MinY >= MaxSampleY) continue;
-							const auto& Node = Payload.Nodes[NodeIndex];
-							const double NodeZ0 = Height(Node.Minimum);
-							const double NodeZ1 = Height(Node.Maximum);
-							const FBox RegionBounds({MinX * Snapshot.SpacingX, MinY * Snapshot.SpacingY,
-								std::min(NodeZ0, NodeZ1)},
-								{MaxSampleX * Snapshot.SpacingX, MaxSampleY * Snapshot.SpacingY,
-								std::max(NodeZ0, NodeZ1)});
-							if (!IntersectRayBox(LocalOrigin, LocalDirection, RegionBounds)) continue;
-							for (uint32 Y = MinY; Y < MaxSampleY; ++Y)
-								for (uint32 X = MinX; X < MaxSampleX; ++X) TestCell(X, Y);
-						}
-				}
-				return {Best ? EViewportGeometryQueryStatus::Hit
-					: EViewportGeometryQueryStatus::Miss, Best};
-			}
-
-		private:
-			bool bAccelerated = false;
-		};
-
 		// Composes an ordered built-in provider list behind the complete-or-pending backend API.
 		class FReferenceViewportPickingBackend final : public IViewportPickingBackend
 		{
@@ -585,7 +464,6 @@ namespace Durin::Editor::Level
 				Providers.push_back(std::make_unique<FStaticMeshViewportGeometryProvider>(bAccelerated));
 				Providers.push_back(std::make_unique<FSplineMeshViewportGeometryProvider>());
 				Providers.push_back(std::make_unique<FSkeletalMeshViewportGeometryProvider>());
-				Providers.push_back(std::make_unique<FTerrainViewportGeometryProvider>(bAccelerated));
 			}
 
 			auto Submit(FViewportPickingBackendRequest Request) -> FViewportPickingBackendCompletion override
@@ -642,9 +520,6 @@ namespace Durin::Editor::Level
 				if (ReferenceCompletion.Status != AcceleratedCompletion.Status || !bSameHit)
 				{
 					++ReferenceCompletion.Diagnostics.ParityMismatches;
-					if (ReferenceCompletion.Diagnostics.ApplicableTerrainTargets != 0
-						|| AcceleratedCompletion.Diagnostics.ApplicableTerrainTargets != 0)
-						++ReferenceCompletion.Diagnostics.TerrainParityMismatches;
 					return ReferenceCompletion;
 				}
 				return AcceleratedCompletion;

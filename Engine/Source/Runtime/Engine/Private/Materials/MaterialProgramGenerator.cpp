@@ -126,9 +126,6 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
-#if DURIN_TERRAIN
-    float terrainTransition : TEXCOORD7;
-#endif
 };
 struct MaterialUniform
 {
@@ -368,23 +365,6 @@ FResolvedGeneratedSurfaceShading ResolveGeneratedSurfaceShading(
         result.normalFrame.shadingNormal, Material.SurfaceParams.w > 0.5);
     return result;
 }
-bool RejectGeneratedTerrainCoverage(VSOutput input)
-{
-#if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
-    static const float coverageThresholds[16] =
-    {
-        0.03125, 0.53125, 0.15625, 0.65625,
-        0.78125, 0.28125, 0.90625, 0.40625,
-        0.21875, 0.71875, 0.09375, 0.59375,
-        0.96875, 0.46875, 0.84375, 0.34375
-    };
-    uint2 coveragePixel = uint2(input.pos.xy) & uint2(3u, 3u);
-    return input.terrainTransition
-        >= coverageThresholds[coveragePixel.y * 4u + coveragePixel.x];
-#else
-    return false;
-#endif
-}
 struct GeometryPassFragmentOutput
 {
     float4 material : SV_Target0;
@@ -399,8 +379,6 @@ GeometryPassFragmentOutput GeometryFragmentMain(
     FMaterialSurface s = EvaluateGeneratedMaterial(input);
     FResolvedGeneratedSurfaceShading shading =
         ResolveGeneratedSurfaceShading(input, s, isFrontFace);
-    if (RejectGeneratedTerrainCoverage(input))
-        discard;
 #if DURIN_MATERIAL_BLEND_MODE == 1
     if (RejectMaterialMask(s.opacityMask, asfloat(uint(
             DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
@@ -434,8 +412,6 @@ float4 FragmentMain(
     FResolvedGeneratedSurfaceShading shading;
     if (Material.SurfaceParams.z >= 0.5)
         shading = ResolveGeneratedSurfaceShading(input, s, isFrontFace);
-    if (RejectGeneratedTerrainCoverage(input))
-        discard;
 #if DURIN_MATERIAL_BLEND_MODE == 1
     if (RejectMaterialMask(s.opacityMask, asfloat(uint(
             DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
@@ -595,7 +571,6 @@ float4 FragmentMain(
 		Request.EntryPoints = {
 			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
 		Request.Frequencies.assign(3, EShaderFrequency::Fragment);
-		Request.Macros.emplace_back("DURIN_TERRAIN", "0");
 		Request.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE",
 			std::to_string(static_cast<uint8>(Input.StaticProperties.BlendMode)));
 		Request.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL",

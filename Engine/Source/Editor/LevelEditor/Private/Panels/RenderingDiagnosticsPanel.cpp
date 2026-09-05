@@ -304,9 +304,6 @@ namespace Durin::Editor::Level
 			DrawValueRow("Skeletal mesh", std::format("{} tris, {} draws",
 				Statistics.SkeletalMesh.Triangles,
 				Statistics.SkeletalMesh.DrawCalls));
-			DrawValueRow("Terrain", std::format("{} patches, {} tris, {} draws",
-				Statistics.Terrain.VisiblePatches, Statistics.Terrain.Triangles,
-				Statistics.Terrain.DrawCalls));
 			DrawValueRow("Shadow", Statistics.Shadow.bEnabled
 				? std::format("{} cascades, {} tris, {} draws",
 					Statistics.Shadow.Cascades, Statistics.Shadow.Triangles,

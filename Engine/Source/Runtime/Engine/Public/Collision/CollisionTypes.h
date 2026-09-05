@@ -117,11 +117,6 @@ namespace Durin
 		FVector3 LocalBoundsMinimum{0.0};
 		FVector3 LocalBoundsMaximum{0.0};
 		uint32 TotalTriangles = 0;
-		uint32 HeightFieldWidth = 0;
-		uint32 HeightFieldHeight = 0;
-		uint32 HeightFieldNodes = 0;
-		uint32 HeightFieldRegions = 0;
-		std::vector<std::array<FVector3, 2>> HeightFieldNodeBoundsSample;
 		std::vector<std::array<FVector3, 3>> TriangleSample;
 		ECollisionChannel ObjectChannel = ECollisionChannel::WorldDynamic;
 		AActor* Actor = nullptr;

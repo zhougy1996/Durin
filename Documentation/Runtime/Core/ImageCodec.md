@@ -20,7 +20,7 @@ Memory decode is authoritative. File overloads are thin convenience wrappers
 for non-transactional preview and test callers; direct family importers capture an
 immutable byte snapshot first and uses those same bytes for hashing, decoding,
 diagnostics, and build composition. Codec extension capability does not admit a
-source to an asset workflow. Texture2D, TextureCube, Scene, and Terrain each own
+source to an asset workflow. Texture2D, TextureCube, and Scene each own
 an independent family source-policy predicate.
 
 LDR output is top-left-origin RGBA8 with the source channel count and derived

@@ -52,8 +52,6 @@ namespace Durin
 		std::unique_ptr<::Durin::IAssetReferenceStore>
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
-		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle>
-			TerrainThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

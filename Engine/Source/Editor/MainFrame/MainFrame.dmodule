@@ -16,7 +16,6 @@
         "MonaImGui",
 		"StaticMeshBuild",
 		"SkeletalBuild",
-		"TerrainBuild",
 		"TextureBuild",
         "AssetForgeBuiltins",
         "ContentBrowser",

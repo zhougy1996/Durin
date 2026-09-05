@@ -18,8 +18,6 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Texture/TextureCube.h"
 #include "TextureTestSupport.h"
-#include "AssetForge/Builtins/TerrainHeightmapImport.h"
-#include "Terrain/TerrainHeightmapFactoryTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -52,9 +50,6 @@ TEST(FAssetForgeBuiltinsImageSourcePolicyTests, KeepsCodecCapabilitySeparateFrom
 	EXPECT_FALSE(IsTextureCubeFaceSourceExtension(".hdr"));
 	EXPECT_TRUE(IsTextureCubePanoramaSourceExtension(".hdr"));
 	EXPECT_FALSE(IsTextureCubePanoramaSourceExtension(".gif"));
-	EXPECT_TRUE(IsTerrainHeightmapSourceExtension(".png"));
-	EXPECT_TRUE(IsTerrainHeightmapSourceExtension(".RAW"));
-	EXPECT_FALSE(IsTerrainHeightmapSourceExtension(".jpg"));
 	EXPECT_TRUE(IsSceneSurfaceImageEncodingSupported(EImportedImageEncoding::Png));
 	EXPECT_FALSE(IsSceneSurfaceImageEncodingSupported(
 		static_cast<EImportedImageEncoding>(255)));
@@ -90,30 +85,23 @@ TEST(FSingleAssetImportTests, FailedFamilyFactoriesDiscardTheirFormalPackages)
 {
 	const std::filesystem::path Root = InitializeSingleAssetImportTests();
 	const std::array<uint8, 4> InvalidBytes{1, 2, 3, 4};
-	const std::filesystem::path TerrainSource = Root / "Invalid.raw";
 	const std::filesystem::path VolumeSource = Root / "Invalid.png";
 	const std::filesystem::path MeshSource = Root / "Invalid.obj";
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span{InvalidBytes}), TerrainSource));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span{InvalidBytes}), VolumeSource));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span{InvalidBytes}), MeshSource));
 
-	const auto Terrain = Durin::AssetForge::Builtins::ImportTerrainHeightmapForTest(
-		TerrainSource.generic_string(), "/SingleAssetStage2/InvalidTerrain");
 	const auto Volume = Durin::AssetForge::Builtins::ImportVolumeTextureForTest(
 		VolumeSource.generic_string(), "/SingleAssetStage2/InvalidVolume", {
 			.SliceWidth = 1, .SliceHeight = 1, .Depth = 1,
 			.TilesX = 1, .TilesY = 1});
 	const auto Mesh = Durin::AssetForge::Builtins::ImportStaticMeshForTest(
 		MeshSource.generic_string(), "/SingleAssetStage2/InvalidMesh");
-	EXPECT_FALSE(Terrain);
 	EXPECT_FALSE(Volume);
 	EXPECT_FALSE(Mesh);
 
 	for (const std::string_view PathText : {
-		"/SingleAssetStage2/InvalidTerrain",
 		"/SingleAssetStage2/InvalidVolume",
 		"/SingleAssetStage2/InvalidMesh"})
 	{

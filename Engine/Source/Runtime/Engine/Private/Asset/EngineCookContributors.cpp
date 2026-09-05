@@ -7,7 +7,6 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -73,9 +72,6 @@ namespace Durin
 		if (Object.IsA(DAnimationClip::StaticClass()))
 			return static_cast<DAnimationClip&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DTerrainHeightmap::StaticClass()))
-			return static_cast<DTerrainHeightmap&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
 		if (Object.IsA(DMaterial::StaticClass()))
 			return static_cast<DMaterial&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
@@ -99,7 +95,6 @@ namespace Durin
 			&& RegisterFamily<DSkeletalMesh>("skeletal-mesh", OutHandles)
 			&& RegisterFamily<DSkeleton>("skeleton", OutHandles)
 			&& RegisterFamily<DAnimationClip>("animation-clip", OutHandles)
-			&& RegisterFamily<DTerrainHeightmap>("terrain-heightmap", OutHandles)
 			&& RegisterFamily<DMaterial>("material", OutHandles)
 			&& RegisterFamily<DEnvironmentLighting>(
 				"environment-lighting", OutHandles);

@@ -7,8 +7,8 @@ Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 Last reviewed: 2026-09-03
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
-concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, StaticMesh,
-and TerrainHeightmap factories own accepted formats, typed invocation settings,
+concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
+factories own accepted formats, typed invocation settings,
 immutable capture, decode/build invocation, diagnostics, and import-data
 publication. Independently registered `FReimportHandler` implementations and
 `FReimportManager` provide the editor-wide authority for standalone reimport.
@@ -105,7 +105,7 @@ Factories are discovered from reflected immutable CDO descriptors. A dialog
 with non-default settings creates a transient factory instance and configures
 typed fields. `SupportedClass` is authoritative; extension lookup only narrows
 candidates. Extension-only PNG lookup is intentionally ambiguous, while a
-requested Texture2D, TextureCube, VolumeTexture, or TerrainHeightmap class
+requested Texture2D, TextureCube, VolumeTexture, or StaticMesh class
 selects its concrete factory deterministically.
 
 First-import failure discards the disposable package, including a formal object
@@ -175,8 +175,8 @@ roots receive a stable `$DurinRoot`.
 ## Editor Dispatch
 
 Content Browser Import workflows are feature-owned scoped extensions.
-TextureEditor registers Texture, LevelEditor registers Terrain Heightmap and
-Scene, and StaticMeshEditor registers standalone Static Mesh. Stable IDs and
+TextureEditor registers Texture, LevelEditor registers Scene, and StaticMeshEditor
+registers standalone Static Mesh. Stable IDs and
 explicit order values preserve the visible menu independently of module load
 order. ContentBrowser invokes applicable entries directly. Owners unregister extensions
 and finish dispatch before unloading their code; MainFrame has no import-family
@@ -197,9 +197,9 @@ Create and Import invocation share Content Browser's asset-mutation admission
 policy.
 
 Dialogs use ordinary read-only file pickers. Texture and standalone StaticMesh
-dialogs are host presentations owned by their feature modules. Scene and
-Terrain dialogs are owned by the Level Editor workspace and also draw through
-their registered host presenters, independently of the active workspace.
+dialogs are host presentations owned by their feature modules. The Scene dialog
+is owned by the Level Editor workspace and also draws through its registered host
+presenter, independently of the active workspace.
 Standalone dialogs
 configure a concrete factory and call `IAssetTools`; Scene calls its private
 multi-output transaction. Terminal diagnostics and post-save Content Browser

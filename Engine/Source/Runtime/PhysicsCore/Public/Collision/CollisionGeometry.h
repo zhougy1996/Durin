@@ -17,11 +17,10 @@ namespace Durin
 	// Identifies the immutable payload behind a geometry reference without exposing storage.
 	enum class ECollisionGeometryKind : uint8
 	{
-		Primitive,
-		Compound,
-		ConvexHull,
-		TriangleMesh,
-		HeightField
+		Primitive = 0,
+		Compound = 1,
+		ConvexHull = 2,
+		TriangleMesh = 3
 	};
 
 	// Stable indexed triangle retained by hull and mesh resources.
@@ -43,15 +42,6 @@ namespace Durin
 
 		auto IsLeaf() const -> bool { return (CountOrSecond & 0x80000000u) != 0; }
 		auto GetLeafCount() const -> uint32 { return CountOrSecond & 0x7fffffffu; }
-	};
-
-	// Identifies one rectangular HeightField leaf in cell coordinates.
-	struct FCollisionHeightFieldRegion
-	{
-		uint32 OriginX = 0;
-		uint32 OriginY = 0;
-		uint32 CellCountX = 0;
-		uint32 CellCountY = 0;
 	};
 
 	struct FCollisionHullPlane
@@ -134,17 +124,6 @@ namespace Durin
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
-		// Copies one top-left row-major sample plane into a bounded regular-grid query surface.
-		PHYSICSCORE_API static auto BuildHeightField(
-			uint32 Width,
-			uint32 Height,
-			std::span<const uint16> Samples,
-			double SpacingX,
-			double SpacingY,
-			double HeightScale,
-			double HeightOffset,
-			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
-
 		auto IsValid() const -> bool { return Payload != nullptr; }
 		explicit operator bool() const { return IsValid(); }
 		PHYSICSCORE_API auto GetKind() const -> ECollisionGeometryKind;
@@ -162,13 +141,6 @@ namespace Durin
 		PHYSICSCORE_API auto GetNode(uint32 Index) const -> const FCollisionGeometryNode*;
 		PHYSICSCORE_API auto GetLeafTriangleCount() const -> uint32;
 		PHYSICSCORE_API auto GetLeafTriangle(uint32 Index) const -> uint32;
-		PHYSICSCORE_API auto GetHeightFieldWidth() const -> uint32;
-		PHYSICSCORE_API auto GetHeightFieldHeight() const -> uint32;
-		PHYSICSCORE_API auto GetHeightFieldSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
-		PHYSICSCORE_API auto GetHeightFieldSpacing(double& OutX, double& OutY) const -> bool;
-		PHYSICSCORE_API auto GetHeightFieldHeightRange(double& OutScale, double& OutOffset) const -> bool;
-		PHYSICSCORE_API auto GetHeightFieldRegionCount() const -> uint32;
-		PHYSICSCORE_API auto GetHeightFieldRegion(uint32 Index) const -> const FCollisionHeightFieldRegion*;
 		PHYSICSCORE_API auto GetHullPlaneCount() const -> uint32;
 		PHYSICSCORE_API auto GetHullPlane(uint32 Index) const -> const FCollisionHullPlane*;
 		PHYSICSCORE_API auto GetHullHalfEdgeCount() const -> uint32;
@@ -215,8 +187,6 @@ namespace Durin::CollisionGeometry
 		uint64 FeatureTests = 0;
 		uint64 AssetNodeTests = 0;
 		uint64 AssetLeafTests = 0;
-		uint64 HeightFieldCellTests = 0;
-		uint64 HeightFieldTriangleTests = 0;
 		uint64 CompoundChildren = 0;
 		uint64 AnalyticDispatches = 0;
 		uint64 GenericDispatches = 0;

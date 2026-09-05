@@ -22,7 +22,6 @@ namespace Durin
 			FGBufferRenderer& GBufferRenderer,
 			FStaticMeshRenderer& StaticMeshRenderer,
 			FSkeletalMeshRenderer& SkeletalMeshRenderer,
-			FTerrainRenderer& TerrainRenderer,
 			const FPostProcessRenderer::FSceneTargets& SceneTargets,
 			const FGBufferRenderer::FTargets* GBufferTargets,
 			const FSceneViewRenderOptions& Options,
@@ -122,7 +121,6 @@ namespace Durin
 			[&Renderer = Inputs.Renderer,
 				&StaticMeshes = Inputs.StaticMeshes,
 				&SkeletalMeshes = Inputs.SkeletalMeshes,
-				&Terrains = Inputs.Terrains,
 				&Resolved = Inputs.Resolved,
 				&Telemetry = Inputs.Telemetry,
 				&View = Inputs.View, &Receiver = Inputs.Receiver, &Options,
@@ -152,7 +150,7 @@ namespace Durin
 				Resolver.WriteValue(PassParameters.Completion) =
 					RecordGBuffer_RenderThread(
 					Commands, View, Receiver, Resolved, Telemetry, Renderer,
-					StaticMeshes, SkeletalMeshes, Terrains, SceneTargets,
+					StaticMeshes, SkeletalMeshes, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
@@ -172,7 +170,6 @@ namespace Durin
 		FGBufferRenderer& GBufferRenderer,
 		FStaticMeshRenderer& StaticMeshRenderer,
 		FSkeletalMeshRenderer& SkeletalMeshRenderer,
-		FTerrainRenderer& TerrainRenderer,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
 		const FGBufferRenderer::FTargets* GBufferTargets,
 		const FSceneViewRenderOptions& Options,
@@ -249,19 +246,12 @@ namespace Durin
 					Receiver.SkeletalMeshes,
 					ResolvedSceneResources.Receiver.SkeletalMeshes
 				);
-				const FGeometryExecutionResult TerrainResult = TerrainRenderer.ExecuteGBuffer_RenderThread(
-					CommandList, RenderView, GBufferRenderer,
-					Receiver.Terrains,
-					ResolvedSceneResources.Receiver.Terrains
-				);
 				CommandList.EndRenderPass();
 				Result.Status = StaticResult.bComplete && SkeletalResult.bComplete
-					&& TerrainResult.bComplete
 					? EScenePassStatus::Complete
 					: EScenePassStatus::Failed;
 				Result.bRenderedGeometry = StaticResult.bRenderedGeometry
-					|| SkeletalResult.bRenderedGeometry
-					|| TerrainResult.bRenderedGeometry;
+					|| SkeletalResult.bRenderedGeometry;
 				GBufferTiming.Commit();
 				const FGBufferCaptureSink GBufferCaptureSink =
 					GetGBufferCaptureSink();
@@ -281,20 +271,16 @@ namespace Durin
 					FGBufferRenderer::CalculateTargetBytes(Width, Height);
 				Telemetry.View.GBuffer.GBufferAttemptedDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws
-					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws
-					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferAttemptedDraws;
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferSuccessfulDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSuccessfulDraws
-					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws
-					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferRejectedDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferRejectedDraws
-					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws
-					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferRejectedDraws;
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
 				Telemetry.View.GBuffer.GBufferSkippedDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSkippedDraws
-					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws
-					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSkippedDraws;
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshAttemptedDraws =
 					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshSuccessfulDraws =
@@ -319,14 +305,6 @@ namespace Durin
 					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
 				Telemetry.View.GBuffer.GBufferSkeletalMeshSkippedDraws =
 					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
-				Telemetry.View.GBuffer.GBufferTerrainAttemptedDraws =
-					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferAttemptedDraws;
-				Telemetry.View.GBuffer.GBufferTerrainSuccessfulDraws =
-					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
-				Telemetry.View.GBuffer.GBufferTerrainRejectedDraws =
-					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferRejectedDraws;
-				Telemetry.View.GBuffer.GBufferTerrainSkippedDraws =
-					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSkippedDraws;
 			}
 		}
 		return Result;

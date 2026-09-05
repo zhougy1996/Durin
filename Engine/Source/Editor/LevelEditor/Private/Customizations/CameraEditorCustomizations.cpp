@@ -1,7 +1,6 @@
 #include "Customizations/CameraEditorCustomizations.h"
 
 #include "Actors/CameraActor.h"
-#include "Actors/TerrainActor.h"
 #include "Components/CameraComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -137,16 +136,6 @@ namespace Durin::Editor::Level
 				if (Camera.GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
 					DrawValue(PropertyView, ViewContext, Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,
 						0.01f, 0.1f, 10.0f, "%.3f");
-				if (LevelHasTerrain(Context))
-				{
-					ImGui::Separator();
-					DrawViewDistanceValue(PropertyView, ViewContext, Camera, Reflection, "Fade Start", Reflection.FadeStart,
-						100.0f, 0.0f, Camera.GetViewRenderDistance() - 1.0f, "%.1f");
-					DrawViewDistanceValue(PropertyView, ViewContext, Camera, Reflection, "Render Distance", Reflection.RenderDistance,
-						100.0f, Camera.GetViewFadeStart() + 1.0f,
-						static_cast<float>(SceneViewProjection::GetMaximumViewRenderDistance(
-							Camera.GetFarClip())), "%.1f");
-				}
 				ImGui::PopID();
 				return false;
 			}
@@ -202,16 +191,6 @@ namespace Durin::Editor::Level
 				FAspectRatioOption{ECameraAspectRatioMode::Ratio1By1, "1:1"},
 				FAspectRatioOption{ECameraAspectRatioMode::Custom, "Custom"}
 			};
-
-			static auto LevelHasTerrain(const FLevelEditorContext& Context) -> bool
-			{
-				if (!Context.Level) return false;
-				const auto& Actors = Context.Level->GetActors();
-				return std::ranges::any_of(Actors, [](const TObjectPtr<AActor>& Entry) {
-					const AActor* Actor = Entry.Get();
-					return Actor != nullptr && Cast<ATerrainActor>(Actor) != nullptr;
-				});
-			}
 
 			static auto ResolveReflection(DCameraComponent& Camera) -> FReflection
 			{

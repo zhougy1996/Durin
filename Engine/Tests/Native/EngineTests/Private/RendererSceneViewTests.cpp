@@ -28,19 +28,14 @@ namespace Durin
 
 		static_assert(!CHasResourcesReady<FPreparedStaticMeshDraw>);
 		static_assert(!CHasResourcesReady<FPreparedSkeletalMeshDraw>);
-		static_assert(!CHasResourcesReady<FPreparedTerrainDraw>);
 		static_assert(!CHasExecutionPhase<FPreparedStaticMeshView>);
 		static_assert(!CHasExecutionPhase<FPreparedSkeletalMeshView>);
-		static_assert(!CHasExecutionPhase<FPreparedTerrainView>);
 		static_assert(!CHasShadowTarget<FPreparedStaticMeshDraw>);
 		static_assert(!CHasShadowTarget<FPreparedSkeletalMeshDraw>);
-		static_assert(!CHasShadowTarget<FPreparedTerrainDraw>);
 		static_assert(!CHasExecutionCounter<FPreparedStaticMeshView>);
 		static_assert(!CHasExecutionCounter<FPreparedSkeletalMeshView>);
-		static_assert(!CHasExecutionCounter<FPreparedTerrainView>);
 		static_assert(!CHasMaterialBinding<FPreparedStaticMeshDraw>);
 		static_assert(!CHasMaterialBinding<FPreparedSkeletalMeshDraw>);
-		static_assert(!CHasMaterialBinding<FPreparedTerrainDraw>);
 		static_assert(std::is_same_v<
 			decltype(FGBufferPassResult{}.IsComplete()), bool>);
 	} // namespace

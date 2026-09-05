@@ -46,15 +46,6 @@ namespace Durin
 		auto operator==(const FSceneViewMeshStatistics&) const -> bool = default;
 	};
 
-	struct FSceneViewTerrainStatistics
-	{
-		uint64 VisiblePatches = 0;
-		uint64 Triangles = 0;
-		uint64 DrawCalls = 0;
-
-		auto operator==(const FSceneViewTerrainStatistics&) const -> bool = default;
-	};
-
 	struct FSceneViewShadowStatistics
 	{
 		uint64 Triangles = 0;
@@ -119,7 +110,6 @@ namespace Durin
 		// Spline draws share the static-mesh route and have no independent count.
 		FSceneViewGeometryStatistics SplineMesh;
 		FSceneViewMeshStatistics SkeletalMesh;
-		FSceneViewTerrainStatistics Terrain;
 		FSceneViewShadowStatistics Shadow;
 		FSceneViewLightStatistics Lights;
 		FSceneViewVolumetricCloudStatistics VolumetricCloud;

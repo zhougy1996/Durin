@@ -61,7 +61,6 @@ namespace Durin
 		struct FSceneColorRecorder final
 		{
 			FStaticMeshRenderer& StaticMeshRenderer;
-			FTerrainRenderer& TerrainRenderer;
 			FSkeletalMeshRenderer& SkeletalMeshRenderer;
 			FSceneRenderTelemetry& Telemetry;
 			FResolvedSceneResources& ResolvedSceneResources;
@@ -77,7 +76,7 @@ namespace Durin
 		const FSceneColorFeatureInputs& Inputs) -> FSceneColorGraphOutput
 	{
 		auto& Graph = Inputs.Graph;
-		FSceneColorRecorder Recorder{Inputs.StaticMeshes, Inputs.Terrains,
+		FSceneColorRecorder Recorder{Inputs.StaticMeshes,
 			Inputs.SkeletalMeshes, Inputs.Telemetry, Inputs.Resolved};
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque =
@@ -142,8 +141,6 @@ namespace Durin
 				ReduceSkeletalMeshTelemetry(RecordInputs.Receiver.SkeletalMeshes,
 					Recorder.ResolvedSceneResources.Receiver.SkeletalMeshes,
 					Recorder.ResolvedSceneResources.Receiver.SkeletalPalettes, Recorder.Telemetry.View);
-				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
-					Recorder.ResolvedSceneResources.Receiver.Terrains, Recorder.Telemetry.View);
 			});
 		return {.Completion = SceneColorCompletion,
 			.Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth,
@@ -213,14 +210,6 @@ namespace Durin
 					Inputs.Receiver.SkeletalMeshes,
 					ResolvedSceneResources.Receiver.SkeletalMeshes, true
 				);
-			else
-				TerrainRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
-					View.Settings.Mode.RenderMode,
-					Inputs.Receiver.Terrains.Translucent[Draw.DrawIndex],
-					Inputs.Receiver.Terrains,
-					ResolvedSceneResources.Receiver.Terrains, true
-				);
 		}
 		CommandList.EndRenderPass();
 		SortedTranslucencyTiming.Commit();
@@ -231,8 +220,6 @@ namespace Durin
 			ResolvedSceneResources.Receiver.StaticMeshes);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
 			ResolvedSceneResources.Receiver.SkeletalMeshes);
-		TerrainRenderer.FinalizeExecution_RenderThread(
-			ResolvedSceneResources.Receiver.Terrains);
 		++Telemetry.View.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,

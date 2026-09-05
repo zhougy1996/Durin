@@ -7,7 +7,6 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor

@@ -1344,8 +1344,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	const size_t UniqueEligible =
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleStaticMeshCasters
 		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSplineMeshCasters
-		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters
-		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleTerrainCasters;
+		+ ThreeCascades.LastTelemetry.DirectionalShadow.ShadowUniqueEligibleSkeletalMeshCasters;
 	EXPECT_EQ(UniqueEligible, PrimitiveCount);
 	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowCascadeClassificationTests,
@@ -2112,7 +2111,6 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferStaticMeshSkippedDraws, 0u);
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferSplineMeshAttemptedDraws, 0u);
 	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferSkeletalMeshAttemptedDraws, 0u);
-	EXPECT_EQ(GBufferTelemetry.GBuffer.GBufferTerrainAttemptedDraws, 0u);
 	EXPECT_EQ(GBufferPixels, PixelsOff);
 	ASSERT_EQ(GBufferMaterialPixels.size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 	ASSERT_EQ(GBufferSurfacePixels.size(), GBufferMaterialPixels.size());

@@ -42,7 +42,6 @@ if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -58,7 +57,6 @@ if(TARGET TextureBuild)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
 		StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		AssetForgeBuiltins
 		assimp::assimp
 	)
@@ -71,7 +69,6 @@ if(TARGET StaticMeshBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -87,23 +84,6 @@ if(TARGET SkeletalBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(SkeletalBuild
 		StaticMeshBuild
-		TerrainBuild
-		TextureBuild
-		AssetForgeBuiltins
-		assimp::assimp
-		bc7enc_rdo::bc7enc_rdo
-		rgbcx
-	)
-endif()
-
-if(TARGET TerrainBuild)
-	durin_assert_target_dependency_closure_includes(TerrainBuild
-		DerivedDataCache
-		Engine
-	)
-	durin_assert_target_dependency_closure_excludes(TerrainBuild
-		StaticMeshBuild
-		SkeletalBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -120,7 +100,6 @@ if(TARGET DerivedDataCache)
 		Engine
 		StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		TextureBuild
 		DurinEd
 		RHI
@@ -134,7 +113,6 @@ if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
 		StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		assimp::assimp
 	)
 	durin_assert_target_dependency_closure_excludes(AssetForgeBuiltins
@@ -155,7 +133,6 @@ if(DURIN_RUNTIME_VARIANT STREQUAL "DurinGame")
 		# Derived builders and offline compressors.
 		StaticMeshBuild
 		SkeletalBuild
-		TerrainBuild
 		DerivedDataCache
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo

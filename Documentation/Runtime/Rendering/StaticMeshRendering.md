@@ -203,7 +203,7 @@ separate denominator floor that would reshape low-roughness highlights;
 the shared surface material module instead derives a bounded normal variance
 from screen derivatives of the final world-space shading normal and folds it
 into effective perceptual roughness. Opaque and masked StaticMesh, SplineMesh,
-SkeletalMesh, and Terrain records publish that value through the existing
+and SkeletalMesh records publish that value through the existing
 GBuffer roughness channel; retained Lit forward surfaces use the same value for
 directional, local, and environment lighting. Unlit and shadow/depth-only
 paths do not evaluate the filter. Authored roughness and material identities

@@ -421,19 +421,14 @@ static_assert(!CAcceptsFeatureInputs<
 			  Durin::FSceneRenderPlan>);
 static_assert(CHasResolvedDrawRecords<Durin::FResolvedStaticMeshView>);
 static_assert(CHasResolvedDrawRecords<Durin::FResolvedSkeletalMeshView>);
-static_assert(CHasResolvedDrawRecords<Durin::FResolvedTerrainView>);
 static_assert(!CHasReadyDrawHash<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasReadyDrawHash<Durin::FResolvedSkeletalMeshView>);
-static_assert(!CHasReadyDrawHash<Durin::FResolvedTerrainView>);
 static_assert(!CHasMaterialBindingHash<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasMaterialBindingHash<Durin::FResolvedSkeletalMeshView>);
-static_assert(!CHasMaterialBindingHash<Durin::FResolvedTerrainView>);
 static_assert(CHasRenderObservations<Durin::FResolvedStaticMeshView>);
 static_assert(CHasRenderObservations<Durin::FResolvedSkeletalMeshView>);
-static_assert(CHasRenderObservations<Durin::FResolvedTerrainView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedSkeletalMeshView>);
-static_assert(!CHasDirectExecutionCounters<Durin::FResolvedTerrainView>);
 static_assert(static_cast<uint8>(Durin::ERDGAllocationObservation::Count) == 12);
 
 TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
@@ -1441,19 +1436,15 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	Telemetry.StaticMesh.PreparedStaticMeshPrimitives = 4;
 	Telemetry.SplineMesh.PreparedSplineMeshPrimitives = 1;
 	Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives = 2;
-	Telemetry.Terrain.VisibleTerrainPatches = 3;
 	Telemetry.StaticMesh.PreparedStaticMeshTriangles = 120;
 	Telemetry.SplineMesh.PreparedSplineMeshTriangles = 20;
 	Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles = 40;
-	Telemetry.Terrain.PreparedTerrainTriangles = 60;
 	Telemetry.DirectionalShadow.ShadowPreparedTriangles = 500;
 	Telemetry.StaticMesh.StaticMeshSuccessfulDraws = 5;
 	Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws = 2;
-	Telemetry.Terrain.TerrainSuccessfulDraws = 1;
 	Telemetry.GBuffer.GBufferStaticMeshSuccessfulDraws = 3;
 	Telemetry.GBuffer.GBufferSplineMeshSuccessfulDraws = 1;
 	Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws = 2;
-	Telemetry.GBuffer.GBufferTerrainSuccessfulDraws = 4;
 	Telemetry.DirectionalShadow.ShadowSuccessfulDraws = 7;
 	Telemetry.Lighting.SelectedDirectionalLights = 1;
 	Telemetry.Lighting.SelectedPointLights = 3;
@@ -1484,16 +1475,13 @@ TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
 	EXPECT_EQ(Statistics.StaticMesh.Primitives, 4u);
 	EXPECT_EQ(Statistics.SplineMesh.Primitives, 1u);
 	EXPECT_EQ(Statistics.SkeletalMesh.Primitives, 2u);
-	EXPECT_EQ(Statistics.Terrain.VisiblePatches, 3u);
 	EXPECT_EQ(Statistics.StaticMesh.Triangles, 100u);
 	EXPECT_EQ(Statistics.SplineMesh.Triangles, 20u);
 	EXPECT_EQ(Statistics.SkeletalMesh.Triangles, 40u);
-	EXPECT_EQ(Statistics.Terrain.Triangles, 60u);
-	EXPECT_EQ(Statistics.Summary.Triangles, 220u);
+	EXPECT_EQ(Statistics.Summary.Triangles, 160u);
 	EXPECT_EQ(Statistics.Shadow.Triangles, 500u);
 	EXPECT_EQ(Statistics.StaticMesh.DrawCalls, 9u);
 	EXPECT_EQ(Statistics.SkeletalMesh.DrawCalls, 4u);
-	EXPECT_EQ(Statistics.Terrain.DrawCalls, 5u);
 	EXPECT_EQ(Statistics.Shadow.DrawCalls, 7u);
 	EXPECT_TRUE(Statistics.Shadow.bEnabled);
 	EXPECT_EQ(Statistics.Shadow.Cascades, 3u);

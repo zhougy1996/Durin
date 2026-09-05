@@ -2,29 +2,29 @@
 
 Summary: Register feature-owned Content Browser import workflows and retire the fixed built-in asset-family dispatch.
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-09-05
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 0 is complete. The implementation baseline is:
+The import-extension boundary remains active after the retired feature was
+removed on 2026-09-05. The current implementation baseline is:
 
-- The visible menu is `Texture...`, `Terrain Heightmap...`,
-  `Scene Source (FBX/glTF)...`, and `Static Mesh (Geometry Only)...` in that
+- The visible menu is `Texture...`, `Scene Source (FBX/glTF)...`, and
+  `Static Mesh (Geometry Only)...` in that
   order. Each selection forwards the currently selected non-empty virtual
   directory to the existing feature-owned dialog.
 - Content Browser disables the Import submenu while asset mutation is denied.
   Texture and Static Mesh modals are presented by MainFrame through
-  `DrawImportDialogs`; Scene and Terrain Heightmap modals are presented by
+  `DrawImportDialogs`; the Scene modal is presented by
   `MLevelEditor::DrawWorkspace`. All existing dialogs receive the mutation
   policy and keep their existing completion callbacks for mounted-content
   notification and asset or directory reveal.
-- The selected IDs `texture.import-texture`,
-  `level.import-terrain-heightmap`, `level.import-scene`, and
+- The selected IDs `texture.import-texture`, `level.import-scene`, and
   `static-mesh.import-static-mesh` have no repository collision. Their orders
-  100, 200, 300, and 400 preserve the baseline independently of module load
+  100, 300, and 400 preserve the baseline independently of module load
   order.
 - The exact fixed-dispatch removal set is the DurinEd descriptor header, the
   Content Browser construction/panel callbacks and members, MainFrame's family
@@ -39,7 +39,7 @@ Stage 0 is complete. The implementation baseline is:
   `ContentBrowserWorkflowTests` and `EditorAssetWorkflowTests`.
 
 Stages 1 through 3 are implemented. Import is a mutation category in the
-shared registry; the four workflows are scoped registrations owned by
+shared registry; the three workflows are scoped registrations owned by
 TextureEditor, LevelEditor, and StaticMeshEditor; Content Browser invokes the
 ordered live snapshot; and MainFrame no longer contains concrete import
 dispatch or presentation captures. Registration rollback uses the existing
@@ -52,9 +52,8 @@ cases.
 Stage 4 automated qualification is complete: the full Debug Editor `all`
 target builds, a hidden Sandbox editor run completed 120 ticks and shut down
 normally, changed-document validation passes, and the complete active-plan set
-passes validation. A visible Sandbox session confirmed the four Import entries
-appear exactly once in the selected order. Terrain Heightmap opened with the
-current `/Project/` destination and canceled cleanly. The operator stopped UI
+passes validation. A visible Sandbox session confirmed the original Import
+entries appeared exactly once in their selected order. The operator stopped UI
 automation before the remaining Texture, Scene, Static Mesh, Play-mode,
 hidden-browser, and workspace-switch interactions, so those manual checks
 remain open and this plan remains Active.
@@ -74,7 +73,7 @@ Content Browser menu loop, construction-service callback, or MainFrame switch.
 - Add Import as a first-class Content Browser extension category.
 - Treat Import invocation as an asset mutation subject to the same Play-mode
   admission policy as Create.
-- Register the existing Texture, Terrain Heightmap, Scene, and Static Mesh
+- Register the existing Texture, Scene, and Static Mesh
   workflows from their owning feature modules with stable IDs and explicit
   ordering.
 - Route feature-owned import modal presentation through the existing
@@ -152,7 +151,6 @@ The initial registrations preserve the current visible order:
 | Order | Stable ID | Label | Owner |
 | --- | --- | --- | --- |
 | 100 | `texture.import-texture` | `Texture...` | TextureEditor |
-| 200 | `level.import-terrain-heightmap` | `Terrain Heightmap...` | LevelEditor |
 | 300 | `level.import-scene` | `Scene Source (FBX/glTF)...` | LevelEditor |
 | 400 | `static-mesh.import-static-mesh` | `Static Mesh (Geometry Only)...` | StaticMeshEditor |
 
@@ -168,9 +166,9 @@ notification, and error reporting. It queues the invocation until recursive
 menu drawing has completed, matching the existing action-queue rule.
 
 TextureEditor and StaticMeshEditor retain their dialog objects and expose them
-only to module-owned extension callbacks. LevelEditor registers separate Scene
-and Terrain Heightmap entries; each presenter draws only its matching modal.
-The workspace stops drawing those two import modals directly, preventing double
+only to module-owned extension callbacks. LevelEditor registers the Scene entry;
+its presenter draws only its matching modal. The workspace stops drawing the
+import modal directly, preventing double
 submission and making presentation independent of which workspace is active.
 Document and workspace dialogs unrelated to Content Browser import remain on
 their existing path.
@@ -288,11 +286,11 @@ Gaps to close:
   presents its existing dialog.
 - [x] Give StaticMeshEditor one scoped geometry-only import registration that
   opens and presents its existing dialog.
-- [x] Give LevelEditor separate Terrain Heightmap and Scene registrations with
-  matching open and presenter callbacks.
+- [x] Give LevelEditor a Scene registration with matching open and presenter
+  callbacks.
 - [x] Make each feature integration attempt transactional and store handles so
   they reset before the dialog/workspace state they protect.
-- [x] Stop drawing Scene and Terrain Heightmap import dialogs from
+- [x] Stop drawing the Scene import dialog from
   `MLevelEditor::DrawWorkspace`; route them exclusively through registered host
   presenters.
 - [x] Change `DrawImportMenu` to capture applicable Import descriptors, preserve

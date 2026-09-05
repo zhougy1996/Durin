@@ -24,7 +24,6 @@ namespace Durin
 		Unsupported,
 		StaticMesh,
 		SkeletalMesh,
-		Terrain,
 		SplineMesh
 	};
 

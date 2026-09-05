@@ -8,7 +8,6 @@ namespace Durin
 	class FDirectionalShadowRenderer;
 	class FSkeletalMeshRenderer;
 	class FStaticMeshRenderer;
-	class FTerrainRenderer;
 	struct FPreparedDirectionalShadow;
 	struct FSceneRenderTelemetry;
 
@@ -44,7 +43,6 @@ namespace Durin
 		FDirectionalShadowRenderer& Renderer;
 		FStaticMeshRenderer& StaticMeshes;
 		FSkeletalMeshRenderer& SkeletalMeshes;
-		FTerrainRenderer& Terrains;
 		FResolvedSceneResources& Resolved;
 		FSceneRenderTelemetry& Telemetry;
 	};

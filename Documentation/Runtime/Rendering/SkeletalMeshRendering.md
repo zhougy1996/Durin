@@ -71,7 +71,7 @@ sort keys before the render pass.
 palette preparation, execution, invalidation, and release. `FSceneRenderer`'s
 surface-material service owns the generation-aware material sampler slots and
 canonical surface uniform, role fallbacks, and parameter
-binding shared with StaticMesh and Terrain. It is a
+binding shared with StaticMesh. It is a
 private feature owner composed by `FSceneRenderer`, not a parallel frame
 renderer. Opaque and Masked work remains state-grouped within each geometry
 family. One prepared combined list orders all StaticMesh and SkeletalMesh

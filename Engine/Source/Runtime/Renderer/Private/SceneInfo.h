@@ -11,7 +11,6 @@ namespace Durin
 	class FSkeletalMeshSceneProxy;
 	class FSplineMeshSceneProxy;
 	class FStaticMeshSceneProxy;
-	class FTerrainSceneProxy;
 	struct FSkeletalPosePalette;
 	struct FSplineMeshRenderDynamicData;
 
@@ -33,7 +32,6 @@ namespace Durin
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
 		RENDERER_API auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
 		RENDERER_API auto GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&;
-		RENDERER_API auto GetTerrainProxy() const -> FTerrainSceneProxy&;
 		RENDERER_API auto GetSplineMeshProxy() const -> FSplineMeshSceneProxy&;
 		RENDERER_API auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }

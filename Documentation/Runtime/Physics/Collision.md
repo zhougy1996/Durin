@@ -52,25 +52,6 @@ Mesh collision is double-sided; ties use source triangle ordinal. Production
 traversal falls back to the complete Reference path on structural overflow and
 records that exceptional path explicitly.
 
-HeightField payloads retain one exact top-left row-major `uint16` sample plane,
-dimensions, positive XY spacing, finite signed height scale/offset, exact local
-bounds, and a deterministic hierarchy of rectangular cell regions. They never
-retain expanded vertices, indices, or triangles. A cell uses `(A,B,C)` and
-`(B,D,C)` with stable Y-major triangle ordinals. Reference reconstructs cells in
-ordinal order; Production traverses outward-rounded 32-byte nodes and 8x8-cell
-leaves with the same bounded feature kernels. HeightField is a zero-thickness,
-double-sided query surface and accepts the existing positive-scale physics
-transform domain.
-
-An explicit triangle mesh is a bounded topology and Ray oracle, not the
-shipping HeightField representation or the semantic oracle for complex shape
-casts. At multi-triangle ridges the legacy mesh Reference cast advances against
-one global nearest feature and may select a different equal-time contact than
-stable per-triangle HeightField traversal. HeightField Sphere/Capsule/Box Sweep
-and Overlap therefore qualify Production against HeightField Reference; the
-explicit mesh oracle covers exact vertices, diagonals, ordinals, Ray, and
-flat-surface shape contact.
-
 Sweeps report normalized time,
 distance, location, impact point and normal, and bounded initial penetration.
 Equal-time results use the monotonically assigned scene handle as their stable
@@ -124,8 +105,8 @@ Physics-state creation has an explicit primitive/world policy. `Eager` creates
 the body during registration, `OnDemand` leaves registration body-free until a
 tool requests readiness, and `DeferredRequired` schedules immutable CPU work
 while requiring an owning-thread readiness barrier before gameplay. Analytic
-and ordinary mesh primitives remain Eager. Policy selection is a component
-contract rather than a Terrain branch in primitive registration.
+and ordinary mesh primitives remain Eager. Policy selection is a component contract rather than a branch in primitive
+registration.
 
 `DSplineMeshComponent` adds an explicit
 `ESplineMeshCollisionMode::{Disabled,DeformedTriangleMesh}` policy. Disabled is
@@ -151,45 +132,6 @@ bytes, below the 8 ms and 32 MiB gates.
 `DStaticMeshComponent` remains `NoCollision`. `DBoxComponent`,
 `DSphereComponent`, and `DCapsuleComponent` publish analytic geometry without
 render ownership.
-
-`DTerrainComponent` also defaults to `NoCollision`. When enabled, it captures
-one valid `DTerrainHeightmap` payload revision and builds a HeightField through
-the PhysicsCore builder from exact samples and component interpretation. The T2
-collision ceiling is 1025x1025 samples. Editor and Preview worlds select
-`OnDemand`: registration reports `Dormant` and performs no hashing, sample copy,
-tree construction, or scene insertion. Collision debug visualization and other
-explicit tools request an asynchronous transition through `Building` to
-`Ready` or `BuildFailed`. Ordinary World traces do not trigger hidden work and
-therefore query only currently published bodies; exact editor Terrain picking
-continues to use the immutable heightmap directly.
-
-PlayInEditor and Game worlds select `DeferredRequired`. Registration schedules
-worker construction, and `DWorld::BeginPlay` waits at an explicit Terrain
-readiness barrier before dispatching any BeginPlay callback. A required failure
-returns `EWorldPlayError::CollisionNotReady` with the component diagnostic.
-Workers capture only immutable payload and scalar settings. Game-thread
-publication revalidates component and World object handles, registration
-generation, asset and collision revisions, and every scalar setting before
-inserting a body. Assignment, spacing, height range, committed heightmap
-revision, level replacement, unregistration, and shutdown cancel or discard the
-request, remove the prior body immediately, and cannot publish into a retired
-scene. The explicit readiness barrier retains a synchronous fallback when the
-task scheduler is unavailable in an isolated test/runtime boundary.
-
-Bit-identical samples and interpretation remain weakly interned across
-components without Renderer or editor ownership. Build diagnostics separately
-report heightfield hashing, cache matching, sample copying, hierarchy
-construction, cache-hit state, and physics-scene insertion time.
-
-`DTerrainComponent::GetCollisionFacts` exposes bounded read-only status,
-asset/collision revision, resource identity, dimensions/cells/nodes/depth,
-retained and estimated peak bytes, and build status. The diagnostic string is
-separately bounded by the component contract. These facts retain no source,
-Renderer state, expanded triangles, or mutable scene storage.
-
-Cooked Terrain collision is constructed deterministically from the validated
-heightmap payload. It adds no collision slot or duplicate sample plane and requires no
-source, DDC, Renderer resource, or editor module.
 
 ## Profiles, queries, and results
 
@@ -260,9 +202,6 @@ Candidates = IgnoredBodies + FilterRejectedBodies + NarrowPhasePairTests
 RawHits <= NarrowPhasePairTests
 ReturnedResults <= RawHits
 Fallbacks >= CompareMismatches
-
-HeightFieldTriangleTests = 2 * HeightFieldCellTests
-    for every complete HeightField cell visitation
 
 AddCalls = AddSuccesses + AddRejected
 UpdateCalls = UpdateSuccesses + UpdateRejected
@@ -340,28 +279,18 @@ bodies share one resource identity and retained-byte charge. The full Release
 PhysicsScene matrix passes with zero mismatch, false negative, unsupported,
 non-convergence, overflow, or ordinary fallback.
 
-The T2 `Win64-Release-DurinEditor` maximum fixture is 1025x1025 samples with
-32,767 HeightField nodes at depth 15. It retains 3,412,178 bytes and estimates a
-5,513,428-byte builder peak. On the recorded 2026-08-13 host it built in
-6.428 ms; 256 sparse Production rays took 5.611 ms total (21.9 microseconds per
-query), each visiting 64 cells and 128 reconstructed triangles, while one
-Reference full scan took 319.968 ms and first-body publication took 34
-microseconds. Qualification records these measurements
-as test properties and enforces portable byte/work ceilings rather than a
-hardware-specific absolute timing threshold.
-
 ## Debugging and current limits
 
 Collision debugging is disabled by default. When enabled,
 `CaptureCollisionDebugSnapshot` returns at most 4096 current shapes together
-with transforms, channels, owners, resource identity/bytes, HeightField
-dimensions/nodes/regions, and the last blocking hit/normal. When
+with transforms, channels, owners, resource identity/bytes, and the last
+blocking hit/normal. When
 disabled, the capture path returns immediately without walking scene bodies.
 The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
-plus bounded hull/mesh/HeightField feature lines and the latest blocking impact normal without
-exposing mutable scene storage. Feature detail is globally capped at 256
-triangles and 64 HeightField node bounds per snapshot. StaticMesh Inspector reports mode/policy, actual geometry readiness, source
+plus bounded hull/mesh feature lines and the latest blocking impact normal
+without exposing mutable scene storage. Feature detail is globally capped at
+256 triangles per snapshot. StaticMesh Inspector reports mode/policy, actual geometry readiness, source
 and retained counts, nodes/bounds, runtime bytes, versions, and
 revision coherence without retaining or displaying cache-operation history.
 

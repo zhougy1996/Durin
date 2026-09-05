@@ -118,14 +118,6 @@ namespace Durin
 		float ExposureEV = 0.0f;
 	};
 
-	struct FSceneViewTerrainSettings
-	{
-		// Development diagnostic; emits bounded transient terrain patch/LOD lines.
-		bool bShowLODOverlay = false;
-		// Development comparison mode; emits one eligible Terrain patch per batch.
-		bool bDisableBatching = false;
-	};
-
 	struct FSceneViewDirectionalShadowSettings
 	{
 		EDirectionalShadowDiagnosticMode DiagnosticMode =
@@ -164,7 +156,6 @@ namespace Durin
 	{
 		FSceneViewModeSettings Mode;
 		FSceneViewPostProcessSettings PostProcess;
-		FSceneViewTerrainSettings Terrain;
 		FSceneViewDirectionalShadowSettings DirectionalShadow;
 		FSceneViewAmbientOcclusionSettings AmbientOcclusion;
 		FSceneViewVolumetricCloudSettings VolumetricCloud;

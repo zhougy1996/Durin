@@ -2,7 +2,6 @@
 
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
-#include "Renderers/TerrainRenderPreparation.h"
 
 namespace Durin
 {
@@ -41,16 +40,14 @@ namespace Durin
 		Result.StaticMesh.Primitives = Telemetry.StaticMesh.PreparedStaticMeshPrimitives;
 		Result.SplineMesh.Primitives = Telemetry.SplineMesh.PreparedSplineMeshPrimitives;
 		Result.SkeletalMesh.Primitives = Telemetry.SkeletalMesh.PreparedSkeletalMeshPrimitives;
-		Result.Terrain.VisiblePatches = Telemetry.Terrain.VisibleTerrainPatches;
 
 		Result.SplineMesh.Triangles = Telemetry.SplineMesh.PreparedSplineMeshTriangles;
 		Result.StaticMesh.Triangles = Telemetry.StaticMesh.PreparedStaticMeshTriangles
 									  - std::min(Telemetry.StaticMesh.PreparedStaticMeshTriangles, Telemetry.SplineMesh.PreparedSplineMeshTriangles);
 		Result.SkeletalMesh.Triangles = Telemetry.SkeletalMesh.PreparedSkeletalMeshTriangles;
-		Result.Terrain.Triangles = Telemetry.Terrain.PreparedTerrainTriangles;
 		Result.Summary.Triangles = AddSaturated(
 			AddSaturated(Result.StaticMesh.Triangles, Result.SplineMesh.Triangles),
-			AddSaturated(Result.SkeletalMesh.Triangles, Result.Terrain.Triangles)
+			Result.SkeletalMesh.Triangles
 		);
 		Result.Shadow.Triangles = Telemetry.DirectionalShadow.ShadowPreparedTriangles;
 
@@ -62,9 +59,6 @@ namespace Durin
 		Result.SkeletalMesh.DrawCalls = AddSaturated(
 			Telemetry.SkeletalMesh.SkeletalMeshSuccessfulDraws,
 			Telemetry.GBuffer.GBufferSkeletalMeshSuccessfulDraws);
-		Result.Terrain.DrawCalls = AddSaturated(
-			Telemetry.Terrain.TerrainSuccessfulDraws,
-			Telemetry.GBuffer.GBufferTerrainSuccessfulDraws);
 		Result.Shadow.DrawCalls = Telemetry.DirectionalShadow.ShadowSuccessfulDraws;
 		Result.Lights.Directional = Telemetry.Lighting.SelectedDirectionalLights;
 		Result.Lights.Point = Telemetry.Lighting.SelectedPointLights;
@@ -228,68 +222,4 @@ namespace Durin
 		Telemetry.SkeletalMesh.UploadedSkeletalPaletteBytes = Palettes.UploadedBytes;
 	}
 
-	auto ReduceTerrainTelemetry(
-		const FPreparedTerrainView& Terrain,
-		const FResolvedTerrainView& Resolved,
-		FViewRenderTelemetry& Telemetry
-	) -> void
-	{
-		Telemetry.Terrain.TerrainPatchCandidates = Terrain.PatchCandidates;
-		Telemetry.Terrain.VisibleTerrainPatches = Terrain.VisiblePatches;
-		Telemetry.Terrain.CulledTerrainPatches = Terrain.CulledPatches;
-		Telemetry.Terrain.InnerTerrainPatches = Terrain.InnerPatches;
-		Telemetry.Terrain.TransitionTerrainPatches = Terrain.TransitionPatches;
-		Telemetry.Terrain.RadialRejectedTerrainPatches = Terrain.RadialRejectedPatches;
-		Telemetry.Terrain.InvalidTerrainDistanceSettingFallbacks =
-			Terrain.InvalidDistanceSettingFallbacks;
-		Telemetry.Terrain.InvalidTerrainPatchBounds = Terrain.InvalidBoundsFallbacks;
-		Telemetry.Terrain.TerrainLODFallbacks = Terrain.LODFallbacks;
-		Telemetry.Terrain.TerrainLODResolutionFallbacks = Terrain.LODResolutionFallbacks;
-		Telemetry.Terrain.TerrainAdjacencyPromotions = Terrain.AdjacencyPromotions;
-		Telemetry.Terrain.TerrainAdjacencyIterations = Terrain.AdjacencyIterations;
-		Telemetry.Terrain.RequestedTerrainLODHistogram = Terrain.RequestedLODHistogram;
-		Telemetry.Terrain.ResolvedTerrainLODHistogram = Terrain.ResolvedLODHistogram;
-		Telemetry.Terrain.TerrainStitchMaskHistogram = Terrain.StitchMaskHistogram;
-		Telemetry.Terrain.PreparedTerrainTriangles = Terrain.Triangles;
-		Telemetry.Terrain.OpaqueTerrainPatches = Terrain.Opaque.size();
-		Telemetry.Terrain.MaskedTerrainPatches = Terrain.Masked.size();
-		Telemetry.Terrain.TranslucentTerrainPatches = Terrain.Translucent.size();
-		Telemetry.Terrain.TerrainResourceAttemptedDraws = Resolved.Observations.ResourceAttemptedDraws;
-		Telemetry.Terrain.TerrainResourceSuccessfulDraws = Resolved.Observations.ResourceSuccessfulDraws;
-		Telemetry.Terrain.TerrainResourceRejectedDraws = Resolved.Observations.ResourceRejectedDraws;
-		Telemetry.Terrain.PreparedTerrainBatches = Resolved.Observations.PreparedBatches;
-		Telemetry.Terrain.TerrainBatchChunks = Resolved.Observations.BatchChunks;
-		Telemetry.Terrain.TerrainInstances = Resolved.Observations.InstanceCount;
-		Telemetry.Terrain.TerrainInstanceBytes = Resolved.Observations.InstanceBytes;
-		Telemetry.Terrain.TerrainInstanceAllocations = Resolved.Observations.InstanceAllocations;
-		Telemetry.Terrain.TerrainResourceAttemptedBatches = Resolved.Observations.ResourceAttemptedBatches;
-		Telemetry.Terrain.TerrainResourceSuccessfulBatches = Resolved.Observations.ResourceSuccessfulBatches;
-		Telemetry.Terrain.TerrainResourceRejectedBatches = Resolved.Observations.ResourceRejectedBatches;
-		Telemetry.Terrain.TerrainSubmittedLogicalPatches = Resolved.Observations.SubmittedLogicalPatches;
-		Telemetry.Terrain.TerrainScalarTranslucentDraws = Resolved.Observations.ScalarTranslucentDraws;
-		Telemetry.Terrain.TerrainLogicalPreparationNanoseconds = Terrain.LogicalPreparationNanoseconds;
-		Telemetry.Terrain.TerrainBatchConstructionNanoseconds = Terrain.BatchConstructionNanoseconds;
-		Telemetry.Terrain.TerrainResourcePreparationNanoseconds = Resolved.Observations.ResourcePreparationNanoseconds;
-		Telemetry.Terrain.TerrainHeightPreparationNanoseconds = Resolved.Observations.HeightPreparationNanoseconds;
-		Telemetry.Terrain.TerrainTopologyPreparationNanoseconds = Resolved.Observations.TopologyPreparationNanoseconds;
-		Telemetry.Terrain.TerrainShaderPreparationNanoseconds = Resolved.Observations.ShaderPreparationNanoseconds;
-		Telemetry.Terrain.TerrainPipelinePreparationNanoseconds = Resolved.Observations.PipelinePreparationNanoseconds;
-		Telemetry.Terrain.TerrainDynamicAllocationNanoseconds = Resolved.Observations.DynamicAllocationNanoseconds;
-		Telemetry.Terrain.TerrainCommandRecordingNanoseconds = Resolved.Observations.CommandRecordingNanoseconds;
-		Telemetry.Terrain.TerrainAttemptedDraws = Resolved.Observations.AttemptedDraws;
-		Telemetry.Terrain.TerrainSuccessfulDraws = Resolved.Observations.SuccessfulDraws;
-		Telemetry.Terrain.TerrainRejectedDraws = Resolved.Observations.RejectedDraws;
-		Telemetry.Terrain.TerrainHeightUploadBytes = Resolved.Observations.HeightUploadBytes;
-		Telemetry.Terrain.TerrainHeightUploads = Resolved.Observations.HeightUploads;
-		Telemetry.Terrain.TerrainHeightReuses = Resolved.Observations.HeightReuses;
-		Telemetry.Terrain.TerrainTopologyCreations = Resolved.Observations.TopologyCreations;
-		Telemetry.Terrain.TerrainTopologyReuses = Resolved.Observations.TopologyReuses;
-		Telemetry.Terrain.TerrainTopologyBytes = Resolved.Observations.TopologyBytes;
-		Telemetry.Terrain.TerrainShaderLookups = Resolved.Observations.ShaderLookups;
-		Telemetry.Terrain.TerrainShaderCreations = Resolved.Observations.ShaderCreations;
-		Telemetry.Terrain.TerrainShaderReuses = Resolved.Observations.ShaderReuses;
-		Telemetry.Terrain.TerrainPipelineLookups = Resolved.Observations.PipelineLookups;
-		Telemetry.Terrain.TerrainPipelineCreations = Resolved.Observations.PipelineCreations;
-		Telemetry.Terrain.TerrainPipelineReuses = Resolved.Observations.PipelineReuses;
-	}
 } // namespace Durin

@@ -47,7 +47,7 @@ direction.
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
-| `AssetForgeBuiltins` | Direct built-in texture, mesh, Terrain, Scene, skeletal, animation, and material import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
+| `AssetForgeBuiltins` | Direct built-in texture, mesh, Scene, skeletal, animation, and material import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |
 
 ## Developer Modules
@@ -62,7 +62,6 @@ physical root communicates ownership but does not select them for a target.
 | `TextureBuild` | Pure Texture2D/TextureCube/VolumeTexture normalized-value recipes, panorama normalization, offline compression, recipe metrics and versions, and three typed synchronous providers; no DDC, Build Framework, key, payload codec, live Texture object, PostLoad, scheduler, or result-application authority | [source](../../Engine/Source/Developer/TextureBuild) |
 | `StaticMeshBuild` | Pure canonical-geometry reconciliation, render/collision recipes, producer versions, and one bounded typed provider registration; Engine owns keys, caching, PostLoad, and application | [source](../../Engine/Source/Developer/StaticMeshBuild) |
 | `SkeletalBuild` | Pure typed SkeletalMesh/AnimationClip canonical-payload recipes and one module-owned provider; Engine owns keys, cache policy, diagnostics, and asset application | [source](../../Engine/Source/Developer/SkeletalBuild) |
-| `TerrainBuild` | Pure Heightmap sample and Terrain World composition/product recipes with typed provider registration; Engine owns private keys, cache orchestration, generation application, Cook, manifests, and runtime loads | [source](../../Engine/Source/Developer/TerrainBuild) |
 | `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-v9-resave orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
 
 ## Project Modules
@@ -87,8 +86,8 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
-| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine provider contracts for Texture recipes; `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for their typed recipes; plus `Engine` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `Engine` | Engine owns keys, Get/Put, validation, fallback, and application; Developer build modules supply pure typed recipes |
+| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | Engine provider contracts for Texture recipes; `StaticMeshBuild` or `SkeletalBuild` for their typed recipes; plus `Engine` and the destination runtime asset type |
+| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, or skeletal/animation assets | `Engine` | Engine owns keys, Get/Put, validation, fallback, and application; Developer build modules supply pure typed recipes |
 | project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
 
 Engine public headers are a repository-owned module contract rather than an

@@ -20,7 +20,6 @@ namespace Durin
 		Local,
 		Spline,
 		Skeletal,
-		Terrain,
 	};
 
 	// Records geometry-buffer work into caller-provided attachments without
@@ -66,9 +65,6 @@ namespace Durin
 			FRHIUniformBufferRange Transform;
 			FRHIUniformBufferRange SplineMesh;
 			FRHIStorageBufferRange SkinPalette;
-			FRHITexture* HeightTexture = nullptr;
-			FRHIUniformBufferRange Terrain;
-			FRHIStorageBufferRange TerrainPatchOrigins;
 		};
 
 		struct FFragmentParameters

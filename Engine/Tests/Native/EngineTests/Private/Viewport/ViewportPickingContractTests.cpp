@@ -1,17 +1,14 @@
 #include "ViewportTestSupport.h"
 #include "Actors/SkeletalMeshActor.h"
-#include "Actors/TerrainActor.h"
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SplineMeshComponent.h"
-#include "Components/TerrainComponent.h"
 #include "LevelEditorViewportEditing.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "Terrain/TerrainHeightmap.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
 
@@ -231,7 +228,6 @@ namespace
 		return Result;
 	}
 }
-
 TEST(FViewportPickingContractTests, AppliesFrozenCrossFamilyOrdering)
 {
 	Durin::Editor::Level::FViewportPickHit Geometry{.Kind = Durin::Editor::Level::EViewportPickHitKind::SceneGeometry, .Distance = 5.0, .Priority = 0, .StableTieKey = 20};
@@ -843,62 +839,4 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 		EXPECT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
 	}
-}
-
-TEST(FViewportPickingContractTests, TerrainSurfaceMatchesReferenceAcrossMirroredTransform)
-{
-	FPickingFixture Fixture;
-	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("TerrainPicking");
-	ASSERT_NE(Actor, nullptr);
-	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "PickingHeightmap");
-	const std::array<uint16, 6> Samples{0, 0, 0, 0, 65'535, 0};
-	std::string Error;
-	ASSERT_TRUE(Heightmap->InitializeFromSamples(3, 2, Samples, Error)) << Error;
-	auto* Component = Actor->GetTerrainComponent();
-	Component->SetHeightmap(Heightmap);
-	ASSERT_TRUE(Component->SetSampleSpacing(1.0, 1.0));
-	ASSERT_TRUE(Component->SetHeightRange(2.0, -1.0));
-	Component->SetWorldLocation({0.0, 0.0, 4.0});
-	Component->SetWorldScale3D({-2.0, 0.5, 1.5});
-	Durin::Editor::Level::FViewportPickingBackendRequest Request{
-		{1}, {-0.5, 0.25, 10.0}, {0.0, 0.0, -1.0}};
-	Request.Targets.push_back({1, Component->GetPrimitiveSceneId(), Actor, Component, 1,
-		Component->GetRegistrationGeneration()});
-	const auto Reference = Durin::Editor::Level::MakeViewportPickingBackend(
-		Durin::Editor::Level::EViewportPickingBackendPolicy::Reference)->Submit(Request);
-	const auto Accelerated = Durin::Editor::Level::MakeViewportPickingBackend(
-		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
-	const auto Compare = Durin::Editor::Level::MakeViewportPickingBackend(
-		Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(Request);
-	ASSERT_TRUE(Reference.Hit);
-	ASSERT_TRUE(Accelerated.Hit);
-	ASSERT_TRUE(Compare.Hit);
-	EXPECT_NEAR(Reference.Hit->Distance, Accelerated.Hit->Distance, 1.e-8);
-	EXPECT_EQ(Compare.Diagnostics.TerrainParityMismatches, 0u);
-	EXPECT_EQ(Accelerated.Diagnostics.ApplicableTerrainTargets, 1u);
-}
-
-TEST(FViewportPickingContractTests, TerrainAccelerationBoundsSparseMaximumFixture)
-{
-	FPickingFixture Fixture;
-	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("MaximumTerrain");
-	ASSERT_NE(Actor, nullptr);
-	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "MaximumHeightmap");
-	std::vector<uint16> Samples(1025u * 1025u, 0);
-	Samples[512u * 1025u + 512u] = 65'535;
-	std::string Error;
-	ASSERT_TRUE(Heightmap->InitializeFromSamples(1025, 1025, Samples, Error)) << Error;
-	auto* Component = Actor->GetTerrainComponent();
-	Component->SetHeightmap(Heightmap);
-	ASSERT_TRUE(Component->SetSampleSpacing(1.0, 1.0));
-	ASSERT_TRUE(Component->SetHeightRange(1.0, 0.0));
-	Durin::Editor::Level::FViewportPickingBackendRequest Request{
-		{1}, {10.5, 10.5, 4.0}, {0.0, 0.0, -1.0}};
-	Request.Targets.push_back({1, Component->GetPrimitiveSceneId(), Actor, Component, 1,
-		Component->GetRegistrationGeneration()});
-	const auto Completion = Durin::Editor::Level::MakeViewportPickingBackend(
-		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated)->Submit(std::move(Request));
-	ASSERT_TRUE(Completion.Hit);
-	EXPECT_LE(Completion.Diagnostics.TerrainVisitedCells, (1024u * 1024u) / 100u);
-	EXPECT_EQ(Completion.Diagnostics.TerrainParityMismatches, 0u);
 }

@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
+Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TextureBuild, AssetForgeBuiltins
 
 Last reviewed: 2026-09-03
 
@@ -15,8 +15,8 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, and
-`TerrainBuild` own normalized source-independent recipes. Engine owns all
+Developer `TextureBuild`, `StaticMeshBuild`, and `SkeletalBuild` own normalized
+source-independent recipes. Engine owns all
 asset key encoding, editor-only cache lookup/validation/fallback, diagnostics,
 and typed application. AssetForgeBuiltins adapts explicit physical imports to
 canonical inputs and owns editor transactions.
@@ -34,13 +34,10 @@ SPIR-V-plus-reflection values in `Shaders/CompiledOutput`; machine-local
 dependency manifests do not enter portable values.
 
 StaticMeshBuild registers one render/collision provider, SkeletalBuild one
-mesh/clip provider, TerrainBuild one Heightmap and one World provider, and
-TextureBuild three providers. These providers use bounded typed modular-feature invocation.
+mesh/clip provider, and TextureBuild three providers. These providers use bounded typed modular-feature invocation.
 Providers own recipe metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 providers retain no cache keys, origin, persistence diagnostics, or live assets.
-Terrain World additionally keeps independent five-product operation metadata,
-while installed generations contain only runtime product values.
 
 Import translates captured physical sources into canonical authored inputs;
 build transforms detached inputs into derived products; compilation schedules
@@ -104,8 +101,8 @@ Field state, placement, validation, and resource lifetime are defined by
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
 
 Physical source input is not rebuild authority and is not a runtime asset.
-Texture2D, StaticMesh, TextureCube, VolumeTexture, TerrainHeightmap,
-SkeletalMesh, and AnimationClip persist the canonical source data required by
+Texture2D, StaticMesh, TextureCube, VolumeTexture, SkeletalMesh, and
+AnimationClip persist the canonical source data required by
 their builders. Runtime-required metadata remains on assets, while offline-only
 texture build settings are editor-only; no asset also
 persists a generic replay graph or mounted-source request.
@@ -138,7 +135,6 @@ The current import behavior is:
 | TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
-| TerrainHeightmap | Decode canonical uint16 samples and build the terrain payload | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
 | SkeletalMesh | Persist canonical geometry/influences, validate Skeleton compatibility, and build LOD0 | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | AnimationClip | Persist canonical tracks/keys, validate Skeleton compatibility, and build clip data | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
@@ -155,9 +151,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 Runtime Engine owns asset state and typed optional operation contracts:
 `IStaticMeshBuildProvider`,
 `ITexture2DBuildProvider`, `IVolumeTextureBuildProvider`,
-`ITextureCubeBuildProvider`,
-`ITerrainHeightmapDerivedDataLoadFeature`,
-and `ISkeletalDerivedDataFeature`.
+`ITextureCubeBuildProvider`, and `ISkeletalDerivedDataFeature`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
 visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
@@ -179,10 +173,6 @@ save-readiness policy; Engine, Build, and Cook consumers do not acquire an
 importer dependency. Each build module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
 and waits for admitted visitors before provider state is destroyed.
-
-Heightmap PostLoad is synchronous and metadata-first. It reads canonical
-sample bulk only after a miss; no async group or request-generation state is
-retained on the asset. Cooked loads never invoke editor recipe providers.
 
 ### Skeletal Authored State
 
@@ -290,16 +280,6 @@ replacement; authoring callers own dirtying. Assets retain no DDC key, origin,
 or storage diagnostic. SkeletalBuild sees only detached payloads, copied
 validation context, cancellation, and producer identity.
 
-### Terrain Heightmap Derived Data
-
-TerrainHeightmap uses Engine-owned `TerrainHeightmap/Objects`. Persisting direct
-builds query/build/store; explicit non-persisting builds disable both query and
-store. Authored load keys canonical metadata before reading sample bulk.
-A validated hit reads no package range; only a miss requests immutable row-major
-uint16 samples. Runtime serialization validates checksums, layout, extrema, and
-the exact hierarchy. Engine owns synchronous results and bounded diagnostics;
-the pure TerrainBuild provider owns only canonical-sample recipes.
-
 ## Cooked Packages and Bulk Fields
 
 Cook produces a target-qualified runtime projection beneath
@@ -328,7 +308,6 @@ The implemented family projections are:
 | Texture2D, TextureCube, VolumeTexture | `PlatformData` | texture resource upload |
 | StaticMesh | `RenderData`, `CollisionData` | render and physics publication |
 | SkeletalMesh, AnimationClip | `PlatformData` | render or animation setup |
-| TerrainHeightmap | `PlatformData` | terrain render/collision |
 | Material | `ProgramData` | material render-layer publication |
 | EnvironmentLighting | `PlatformData` | lighting resource upload |
 | Skeleton | metadata only | skeleton compatibility lookup |
@@ -395,21 +374,12 @@ resumes through an explicit `EnsureRenderDataLoadedBlocking()` call.
 Package retirement, unload, destruction,
 or a newer generation cannot publish stale candidates.
 
-Terrain World is a manifest-owned opaque-stream exception rather than an asset
-field container. `TWMF` records the exact offset, size, product hash,
-dependencies, region extent, and region hash for each installed product.
-`FCookContext::AddRawPackage` publishes one headerless region segment and CMNF
-records it as `PackageBulk`. Runtime validates region and product bounds and
-hashes before decoding the requested product. It never interprets the region as
-a structured bulk container.
-
 ## Cook and Publication Rules
 
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw
-segment. `AddRawPackage` admits an already laid-out opaque segment such as a
-Terrain region. The ten asset families contribute through class-keyed
-registrations owned by `RegisterEngineCookContributors`; individual family
+segment. `AddRawPackage` admits an already laid-out opaque segment. Asset families
+contribute through class-keyed registrations owned by `RegisterEngineCookContributors`; individual family
 Cook methods are private.
 
 CMNF entries are sorted by normalized cook-relative path and record kind, required
@@ -473,7 +443,7 @@ Package format, family schema, and producer-version policy are defined by
 
 `.bin` is disposable content-addressed DDC storage. A cooked `.dbulk` is a
 manifest-owned deployable raw package segment whose layout is authoritative only
-through its `.dasset` or Terrain manifest. The suffix does not promise one
+through its `.dasset` manifest. The suffix does not promise one
 operating-system file per package after future archive/store integration.
 
 ## Repository Policy

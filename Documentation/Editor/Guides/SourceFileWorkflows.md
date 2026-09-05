@@ -16,7 +16,6 @@ deletion never move, replace, or delete a source file.
 Content Browser exposes a fixed built-in Import menu:
 
 - **Texture...** creates Texture2D, TextureCube, or VolumeTexture assets;
-- **Terrain Heightmap...** creates one TerrainHeightmap;
 - **Scene Source (FBX/glTF)...** creates a set of peer scene outputs;
 - **Static Mesh (Geometry Only)...** creates one geometry asset without Scene
   material or texture outputs.
@@ -57,7 +56,7 @@ whole-scene reimport, generated-output repair, or reconciliation workflow.
 
 ## Reimport
 
-For Texture2D, TextureCube, VolumeTexture, TerrainHeightmap, and standalone
+For Texture2D, TextureCube, VolumeTexture, and standalone
 StaticMesh, **Reimport** resolves the complete retained hint set and reuses the
 current family import interpretation. The action is available only when every
 required role has a hint. **Reimport From File...** is always available for a
