@@ -733,9 +733,13 @@ namespace Durin::AssetForge::Builtins
 			.ImportedData = std::move(SourceData),
 			.Settings = OutProduct.Settings};
 		FTexture2DBuildInputIdentity Identity;
-		if (!InvokeTexture2DBuildProvider(
-			Request, OutProduct.Product, Identity, OutError, &Control))
+		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+			Request, OutProduct.Product, Identity, &Control);
+		if (!BuildResult)
+		{
+			OutError = BuildResult.Diagnostic;
 			return false;
+		}
 		OutProduct.SourceData = Request.ImportedData.ToSourceData();
 		OutError.clear();
 		return true;

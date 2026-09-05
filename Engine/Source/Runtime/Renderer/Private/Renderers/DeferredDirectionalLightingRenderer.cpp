@@ -129,7 +129,8 @@ namespace Durin
 						"DeferredDirectionalLighting", "shader",
 						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable
 					));
 				}
 				Candidate.VertexShader = TShaderMapRef<FDeferredDirectionalVertexShader>(Candidate.ShaderSet);

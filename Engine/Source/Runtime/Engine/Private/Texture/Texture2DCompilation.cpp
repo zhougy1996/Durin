@@ -537,8 +537,13 @@ namespace Durin
 		CheckGameThread();
 		FTexture2DBuildProduct Product;
 		FTexture2DBuildInputIdentity Identity;
-		if (!InvokeTexture2DBuildProvider(
-			Request, Product, Identity, OutError)) return false;
+		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+			Request, Product, Identity);
+		if (!BuildResult)
+		{
+			OutError = BuildResult.Diagnostic;
+			return false;
+		}
 		return ApplyTexture2DBuildResult(Texture, std::move(Request.ImportedData),
 			Request.Settings, std::move(Product), Context, OutError);
 	}

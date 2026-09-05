@@ -384,8 +384,7 @@ namespace Durin
 		{
 			const bool bUnsupported = InspectionResult.Error == EAssetError::UnsupportedVersion;
 			const bool bIo = InspectionResult.Error == EAssetError::IoError
-				|| InspectionResult.Error == EAssetError::NotFound
-				|| InspectionResult.Message.starts_with("File I/O failed");
+				|| InspectionResult.Error == EAssetError::NotFound;
 			AddTerminalFailure(Record, bUnsupported
 				? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
 				: bIo ? EAssetCompatibilityFindingCode::IoFailure

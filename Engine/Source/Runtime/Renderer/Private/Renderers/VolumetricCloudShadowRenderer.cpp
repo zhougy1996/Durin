@@ -84,12 +84,15 @@ namespace Durin
 		static_assert(sizeof(FCloudShadowUniform) == 192);
 
 		auto MakeFailure(const char* Resource, const char* Key, std::string Message,
-			ERenderResourceCreateErrorCategory Category) -> FRenderResourceCreateError
+			ERenderResourceCreateErrorCategory Category,
+			ERenderResourceCreateErrorReason Reason =
+				ERenderResourceCreateErrorReason::Unspecified)
+			-> FRenderResourceCreateError
 		{
 			return MakeRendererResourceCreateError(Category, Resource, Key,
 				std::move(Message), ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device
-				| ERenderResourceGenerationDependency::Manual);
+					| ERenderResourceGenerationDependency::Device
+					| ERenderResourceGenerationDependency::Manual, Reason);
 		}
 	}
 
@@ -188,7 +191,8 @@ namespace Durin
 				if (!Candidate.ShaderSet)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
 						"shader", "Global shader set is unavailable.",
-						ERenderResourceCreateErrorCategory::ShaderCompile));
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.ComputeShader =
 					TShaderMapRef<FCloudShadowComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
@@ -227,7 +231,8 @@ namespace Durin
 				if (!Candidate.ShaderSet)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow",
 						"shader", "Global shader set is unavailable.",
-						ERenderResourceCreateErrorCategory::ShaderCompile));
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "shader",
 						"Typed shaders or fullscreen geometry are unavailable.",

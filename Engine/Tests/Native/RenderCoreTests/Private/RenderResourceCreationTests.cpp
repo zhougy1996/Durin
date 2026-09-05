@@ -11,16 +11,31 @@ namespace Durin
 		using FSlot = TRenderResourceCreationSlot<int>;
 
 		auto MakeError(
-			EDependency RetryDependencies = EDependency::Shader)
+			EDependency RetryDependencies = EDependency::Shader,
+			ERenderResourceCreateErrorReason Reason =
+				ERenderResourceCreateErrorReason::Unspecified)
 			-> FRenderResourceCreateError
 		{
 			return {
 				.Category = ERenderResourceCreateErrorCategory::ShaderCompile,
+				.Reason = Reason,
 				.Context = "TestResource",
 				.Identity = "variant=1",
 				.Message = "injected compile failure",
 				.RetryDependencies = RetryDependencies,
 			};
+		}
+
+		TEST(
+			FRenderResourceCreationTests,
+			StructuredReasonParticipatesInFailureIdentity)
+		{
+			const FRenderResourceCreateError Generic = MakeError();
+			const FRenderResourceCreateError GlobalShaderUnavailable = MakeError(
+				EDependency::Shader,
+				ERenderResourceCreateErrorReason::GlobalShaderUnavailable);
+			EXPECT_NE(Generic.GetFingerprint(),
+				GlobalShaderUnavailable.GetFingerprint());
 		}
 
 		TEST(

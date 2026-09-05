@@ -119,11 +119,13 @@ namespace Durin
 		{
 			FTextureSourceData BuildSource = SourceData.Faces[Index];
 			BuildSource.bHasTransparency = bHasTransparency;
-			if (!TextureBuilder::BuildMipChain(BuildSource, ETextureUsage::Color,
-				Request.bSRGB, PlatformData->Faces[Index], OutError))
+			const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
+				BuildSource, ETextureUsage::Color,
+				Request.bSRGB, PlatformData->Faces[Index]);
+			if (!BuildResult)
 			{
 				OutError = std::format("{} face platform build failed: {}",
-					FaceNames[Index], OutError);
+					FaceNames[Index], BuildResult.Diagnostic);
 				return false;
 			}
 		}

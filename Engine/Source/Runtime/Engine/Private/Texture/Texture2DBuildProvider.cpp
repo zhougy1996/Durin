@@ -31,8 +31,7 @@ namespace Durin
 		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
-		std::string& OutError,
-		const FTexture2DBuildExecutionControl* ExecutionControl) -> bool
+		const FTexture2DBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
 	{
 		OutProduct = {};
 		OutIdentity = {
@@ -42,16 +41,16 @@ namespace Durin
 			.TargetProfile = Request.TargetProfile};
 		OutIdentity.Settings.bSRGB = ResolveTexture2DSRGB(Request.Settings);
 #if !DURIN_WITH_EDITOR
-		OutError = "Texture2D authored build orchestration is unavailable outside editor builds.";
-		return false;
+		return {ETexture2DBuildStatus::Failed,
+			"Texture2D authored build orchestration is unavailable outside editor builds."};
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			ITexture2DBuildProvider>([&](ITexture2DBuildProvider& Provider) {
 				OutIdentity.Provider = Provider.GetDescriptor();
 				if (!OutIdentity.Provider.IsValid())
 				{
-					OutError = "The Texture2D build provider descriptor is invalid.";
-					return false;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
+						"The Texture2D build provider descriptor is invalid."};
 				}
 				const FTexture2DBuildKeyInput KeyInput{
 					.ImportedDataIdentity = OutIdentity.ImportedDataIdentity,
@@ -76,20 +75,20 @@ namespace Durin
 						.DerivedDataKey = Key,
 						.Provider = OutIdentity.Provider,
 						.Origin = ETexture2DBuildProductOrigin::CacheHit};
-					return true;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Succeeded, {}};
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
 				{
-					OutError = "Texture2D build was cancelled.";
-					return false;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
+						"Texture2D build was cancelled."};
 				}
 
 				const FTextureSourceData SourceData = Request.ImportedData.ToSourceData();
 				if (!SourceData.IsValid())
 				{
-					OutError = "Texture2D imported data could not be materialized.";
-					return false;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
+						"Texture2D imported data could not be materialized."};
 				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
 				FTexture2DRecipeMetrics RecipeMetrics;
@@ -97,23 +96,24 @@ namespace Durin
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
-				if (!Provider.Build({
+				const FTexture2DBuildResult RecipeResult = Provider.Build({
 					.SourceData = std::cref(SourceData),
 					.SuppliedMips = Request.ImportedData.SuppliedMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},
-					RecipeProduct, OutError, &RecipeControl)) return false;
+					RecipeProduct, &RecipeControl);
+				if (!RecipeResult) return RecipeResult;
 				if (!RecipeProduct.PlatformData.IsValid())
 				{
-					OutError = "Texture2D provider returned invalid platform data.";
-					return false;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
+						"Texture2D provider returned invalid platform data."};
 				}
 				if (ExecutionControl && ExecutionControl->ShouldCancel
 					&& ExecutionControl->ShouldCancel())
 				{
-					OutError = "Texture2D build was cancelled.";
-					return false;
+					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
+						"Texture2D build was cancelled."};
 				}
 
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
@@ -137,24 +137,26 @@ namespace Durin
 					.Provider = OutIdentity.Provider,
 					.Metrics = RecipeMetrics,
 					.Origin = ETexture2DBuildProductOrigin::Rebuilt};
-				return true;
+				return FTexture2DBuildResult{ETexture2DBuildStatus::Succeeded, {}};
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
-			&& Invocation.Value.has_value() && *Invocation.Value)
+			&& Invocation.Value.has_value())
 		{
-			OutError.clear();
-			return true;
+			if (!*Invocation.Value) OutProduct = {};
+			return std::move(*Invocation.Value);
 		}
 		OutProduct = {};
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-			OutError = "The Texture2D build provider is unavailable.";
+			return {ETexture2DBuildStatus::Failed,
+				"The Texture2D build provider is unavailable."};
 		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-			OutError = "Multiple Texture2D build providers are registered.";
+			return {ETexture2DBuildStatus::Failed,
+				"Multiple Texture2D build providers are registered."};
 		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-			OutError = "The Texture2D build provider invocation failed.";
-		else if (OutError.empty())
-			OutError = "The Texture2D build provider failed without a diagnostic.";
-		return false;
+			return {ETexture2DBuildStatus::Failed,
+				"The Texture2D build provider invocation failed."};
+		return {ETexture2DBuildStatus::Failed,
+			"The Texture2D build provider failed without a diagnostic."};
 #endif
 	}
 }

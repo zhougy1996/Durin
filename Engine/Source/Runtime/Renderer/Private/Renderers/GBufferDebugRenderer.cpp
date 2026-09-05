@@ -137,7 +137,8 @@ namespace Durin
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GBufferDebug", "debug", "Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 				Candidate.VertexShader = TShaderMapRef<FGBufferDebugVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGBufferDebugFragmentShader>(Candidate.ShaderSet);

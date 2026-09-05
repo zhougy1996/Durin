@@ -109,7 +109,8 @@ namespace Durin
 							"default",
 							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual
+								| ERenderResourceGenerationDependency::Manual,
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable
 						)
 					);
 				}

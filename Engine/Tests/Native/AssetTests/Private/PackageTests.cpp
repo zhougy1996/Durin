@@ -132,6 +132,27 @@ namespace Durin
 
 namespace
 {
+	class FFailingPackageReadHandle final : public Durin::FFileHelper::IFileHandle
+	{
+	public:
+		auto GetSize() const -> uint64 override { return 64; }
+
+		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+			Durin::FFileHelper::FFileIoError* OutError) -> bool override
+		{
+			if (OutError)
+			{
+				*OutError = {
+					.Operation = Durin::FFileHelper::EFileIoOperation::Read,
+					.NativeError = std::make_error_code(std::errc::io_error),
+					.Path = "failing-package.dasset",
+					.Offset = Offset,
+					.Size = Output.size_bytes()};
+			}
+			return false;
+		}
+	};
+
 	auto MakeTopLevelObjectPath(const Durin::FPackagePath& PackagePath,
 		std::string_view AssetName) -> Durin::FObjectPath
 	{
@@ -1626,6 +1647,20 @@ namespace
 			}
 	}
 } // namespace
+
+TEST(FPackageAssetTests, SchemaInspectionClassifiesReadFailuresAsIoErrors)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FailingRead", Path));
+	FFailingPackageReadHandle Handle;
+	FPackageSchemaInspection Inspection;
+	const FAssetResult Result = InspectAssetPackageSchema(
+		Handle, Path, FReflectionSchemaCatalog::Capture(), Inspection);
+	EXPECT_EQ(Result.Error, EAssetError::IoError);
+	EXPECT_FALSE(Result.Message.empty());
+}
 
 TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSourceUntilSave)
 {

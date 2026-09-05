@@ -9,7 +9,9 @@ namespace Durin
 		std::string Context,
 		std::string Identity,
 		std::string Message,
-		ERenderResourceGenerationDependency RetryDependencies)
+		ERenderResourceGenerationDependency RetryDependencies,
+		ERenderResourceCreateErrorReason Reason =
+			ERenderResourceCreateErrorReason::Unspecified)
 		-> FRenderResourceCreateError;
 
 	auto ReportRendererResourceCreateDiagnostic(

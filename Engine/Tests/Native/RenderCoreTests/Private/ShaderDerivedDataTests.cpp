@@ -315,12 +315,18 @@ namespace Durin
 		ASSERT_TRUE(Store.Load(
 			"/ShaderDerivedDataTests/Test", Key, Loaded));
 		FFileFingerprintCache Warm;
-		bool bCurrent = false;
-		Error = "stale diagnostic";
-		ASSERT_TRUE(ShaderCompileUtilities::TryReuseMetaData(
-			Loaded, Warm, bCurrent, Error)) << Error;
-		EXPECT_TRUE(bCurrent);
-		EXPECT_TRUE(Error.empty());
+		const ShaderCompileUtilities::FMetaDataReuseResult ReuseResult =
+			ShaderCompileUtilities::TryReuseMetaData(Loaded, Warm);
+		EXPECT_EQ(ReuseResult.Status,
+			ShaderCompileUtilities::EMetaDataReuseStatus::Current);
+		EXPECT_TRUE(ReuseResult.Diagnostic.empty());
 		EXPECT_EQ(Warm.GetContentReadCount(), 0u);
+
+		Loaded.PortableDependencies.front().ContentHash = {};
+		const ShaderCompileUtilities::FMetaDataReuseResult StaleResult =
+			ShaderCompileUtilities::TryReuseMetaData(Loaded, Warm);
+		EXPECT_EQ(StaleResult.Status,
+			ShaderCompileUtilities::EMetaDataReuseStatus::Stale);
+		EXPECT_TRUE(StaleResult.Diagnostic.empty());
 	}
 }

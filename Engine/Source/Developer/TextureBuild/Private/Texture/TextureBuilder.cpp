@@ -45,15 +45,15 @@ namespace Durin::TextureBuilder
 
 		auto CompressTextureMip(const FTexture2DMipData& Source, EPixelFormat Format,
 			ETextureCompressionQuality Quality,
-			FTexture2DMipData& OutMip, std::string& OutError,
-			const FBuildExecutionControl* ExecutionControl) -> bool
+			FTexture2DMipData& OutMip,
+			const FBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
 		{
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
 			if (Layout.DataSize == 0 || Layout.RowPitch > std::numeric_limits<uint32>::max()
 				|| Layout.DataSize > std::numeric_limits<size_t>::max())
 			{
-				OutError = "Compressed texture mip layout exceeds supported limits.";
-				return false;
+				return {ETexture2DBuildStatus::Failed,
+					"Compressed texture mip layout exceeds supported limits."};
 			}
 
 			static std::once_flag EncoderInitFlag;
@@ -83,8 +83,8 @@ namespace Durin::TextureBuilder
 				BC7Params.m_uber_level = 2;
 				break;
 			default:
-				OutError = "Texture compression quality is invalid.";
-				return false;
+				return {ETexture2DBuildStatus::Failed,
+					"Texture compression quality is invalid."};
 			}
 			const uint32 CompressionLevel = GetCompressionLevel(Quality);
 			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
@@ -95,16 +95,16 @@ namespace Durin::TextureBuilder
 			{
 				if (IsCancellationRequested(ExecutionControl))
 				{
-					OutError = "Texture build was cancelled.";
-					return false;
+					return {ETexture2DBuildStatus::Cancelled,
+						"Texture build was cancelled."};
 				}
 				for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
 				{
 					if (BlockX != 0 && BlockX % CancellationBlockInterval == 0
 						&& IsCancellationRequested(ExecutionControl))
 					{
-						OutError = "Texture build was cancelled.";
-						return false;
+						return {ETexture2DBuildStatus::Cancelled,
+							"Texture build was cancelled."};
 					}
 					GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
 					uint8* DestBlock = reinterpret_cast<uint8*>(OutMip.Pixels.data())
@@ -129,13 +129,13 @@ namespace Durin::TextureBuilder
 						bc7enc_compress_block(DestBlock, BlockPixels.data(), &BC7Params);
 						break;
 					default:
-						OutError = std::format("Texture compression is unavailable for pixel format {}.",
-							GetPixelFormatInfo(Format).Name);
-						return false;
+						return {ETexture2DBuildStatus::Failed,
+							std::format("Texture compression is unavailable for pixel format {}.",
+								GetPixelFormatInfo(Format).Name)};
 					}
 				}
 			}
-			return true;
+			return {ETexture2DBuildStatus::Succeeded, {}};
 		}
 
 		auto BuildNextMip(
@@ -313,10 +313,10 @@ namespace Durin::TextureBuilder
 	}
 
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution,
+		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
 		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
-		std::span<const FTextureSourceData> SuppliedMips) -> bool
+		std::span<const FTextureSourceData> SuppliedMips) -> FTexture2DBuildResult
 	{
 		using FClock = std::chrono::steady_clock;
 		auto IsCancelled = [ExecutionControl] {
@@ -328,34 +328,32 @@ namespace Durin::TextureBuilder
 		OutPlatformData = {};
 		if (!SourceData.IsValid())
 		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Texture source data is unavailable or invalid."};
 		}
 		if (!IsValidTextureUsage(Usage))
 		{
-			OutError = "Texture usage preset is invalid.";
-			return false;
+			return {ETexture2DBuildStatus::Failed, "Texture usage preset is invalid."};
 		}
 		if (!IsValidTextureCompressionQuality(CompressionQuality))
 		{
-			OutError = "Texture compression quality is invalid.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Texture compression quality is invalid."};
 		}
 		if (!IsValidTextureAlphaMipMode(AlphaMipMode))
 		{
-			OutError = "Texture alpha mip mode is invalid.";
-			return false;
+			return {ETexture2DBuildStatus::Failed, "Texture alpha mip mode is invalid."};
 		}
 		if (!IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold))
 		{
-			OutError = "Texture alpha coverage threshold must be greater than zero and less than one.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Texture alpha coverage threshold must be greater than zero and less than one."};
 		}
 		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, SourceData.bHasTransparency);
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
-			OutError = "Selected pixel format is not supported by the current RHI backend.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Selected pixel format is not supported by the current RHI backend."};
 		}
 		std::vector<FTexture2DMipData> UncompressedMips;
 		if (!SuppliedMips.empty())
@@ -367,8 +365,8 @@ namespace Durin::TextureBuilder
 					|| Supplied.Width != std::max(1u, SourceData.Width >> std::min<size_t>(Index, 31))
 					|| Supplied.Height != std::max(1u, SourceData.Height >> std::min<size_t>(Index, 31)))
 				{
-					OutError = "Supplied texture mip chain is invalid.";
-					return false;
+					return {ETexture2DBuildStatus::Failed,
+						"Supplied texture mip chain is invalid."};
 				}
 				UncompressedMips.push_back({.Pixels = Supplied.Pixels,
 					.Width = Supplied.Width, .Height = Supplied.Height,
@@ -394,8 +392,7 @@ namespace Durin::TextureBuilder
 				ExecutionControl))
 		{
 			OutPlatformData = {};
-			OutError = "Texture build was cancelled.";
-			return false;
+			return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 		}
 		const FClock::time_point MipStart = FClock::now();
 		while (SuppliedMips.empty()
@@ -404,16 +401,14 @@ namespace Durin::TextureBuilder
 			if (IsCancelled())
 			{
 				OutPlatformData = {};
-				OutError = "Texture build was cancelled.";
-				return false;
+				return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 			}
 			FTexture2DMipData NextMip;
 			if (!BuildNextMip(
 				UncompressedMips.back(), Usage, bSRGB, NextMip, ExecutionControl))
 			{
 				OutPlatformData = {};
-				OutError = "Texture build was cancelled.";
-				return false;
+				return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 			}
 			UncompressedMips.push_back(std::move(NextMip));
 			if (bPreserveAlphaCoverage)
@@ -425,8 +420,7 @@ namespace Durin::TextureBuilder
 					ExecutionControl))
 				{
 					OutPlatformData = {};
-					OutError = "Texture build was cancelled.";
-					return false;
+					return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 				}
 			}
 		}
@@ -456,15 +450,16 @@ namespace Durin::TextureBuilder
 			if (IsCancelled())
 			{
 				OutPlatformData = {};
-				OutError = "Texture build was cancelled.";
-				return false;
+				return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 			}
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
-			if (!CompressTextureMip(UncompressedMips[MipIndex], OutPlatformData.PixelFormat,
-				CompressionQuality, CompressedMip, OutError, ExecutionControl))
+			const FTexture2DBuildResult CompressionResult = CompressTextureMip(
+				UncompressedMips[MipIndex], OutPlatformData.PixelFormat,
+				CompressionQuality, CompressedMip, ExecutionControl);
+			if (!CompressionResult)
 			{
 				OutPlatformData = {};
-				return false;
+				return CompressionResult;
 			}
 		}
 		if (ExecutionControl && ExecutionControl->Metrics)
@@ -475,11 +470,10 @@ namespace Durin::TextureBuilder
 		}
 		if (OutPlatformData.IsValid())
 		{
-			OutError.clear();
-			return true;
+			return {ETexture2DBuildStatus::Succeeded, {}};
 		}
 		OutPlatformData = {};
-		OutError = "Failed to build texture platform data.";
-		return false;
+		return {ETexture2DBuildStatus::Failed,
+			"Failed to build texture platform data."};
 	}
 }

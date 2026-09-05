@@ -9,11 +9,13 @@ namespace Durin
 		std::string Context,
 		std::string Identity,
 		std::string Message,
-		ERenderResourceGenerationDependency RetryDependencies)
+		ERenderResourceGenerationDependency RetryDependencies,
+		ERenderResourceCreateErrorReason Reason)
 		-> FRenderResourceCreateError
 	{
 		return {
 			.Category = Category,
+			.Reason = Reason,
 			.Context = std::move(Context),
 			.Identity = std::move(Identity),
 			.Message = std::move(Message),
@@ -56,7 +58,8 @@ namespace Durin
 		const FRenderResourceCreateDiagnostic& Diagnostic) -> void
 	{
 		if (Diagnostic.Error
-			&& Diagnostic.Error->Message == "Global shader set is unavailable.")
+			&& Diagnostic.Error->Reason
+				== ERenderResourceCreateErrorReason::GlobalShaderUnavailable)
 		{
 			return;
 		}

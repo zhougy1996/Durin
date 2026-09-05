@@ -86,13 +86,13 @@ namespace Durin
 		return true;
 	}
 
-	auto FFileFingerprintCache::TryReuse(const FFileFingerprint& StoredFingerprint, bool& bOutCurrent, std::string& OutErrorMessage) -> bool
+	auto FFileFingerprintCache::TryReuse(const FFileFingerprint& StoredFingerprint)
+		-> FFileFingerprintReuseResult
 	{
-		bOutCurrent = false;
 		const std::string NormalizedPath = NormalizePath(std::filesystem::path(StoredFingerprint.NormalizedPath));
 		if (NormalizedPath != StoredFingerprint.NormalizedPath)
 		{
-			return true;
+			return {.Status = EFileFingerprintReuseStatus::Stale};
 		}
 
 		std::error_code ErrorCode;
@@ -100,29 +100,32 @@ namespace Durin
 		{
 			if (ErrorCode)
 			{
-				OutErrorMessage = std::format("Failed to stat file {}: {}", NormalizedPath, ErrorCode.message());
-				return false;
+				return {.Status = EFileFingerprintReuseStatus::Failed,
+					.Diagnostic = std::format(
+						"Failed to stat file {}: {}", NormalizedPath, ErrorCode.message())};
 			}
-			return true;
+			return {.Status = EFileFingerprintReuseStatus::Stale};
 		}
 
 		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			OutErrorMessage = std::format("Failed to query file timestamp {}: {}", NormalizedPath, ErrorCode.message());
-			return false;
+			return {.Status = EFileFingerprintReuseStatus::Failed,
+				.Diagnostic = std::format(
+					"Failed to query file timestamp {}: {}", NormalizedPath, ErrorCode.message())};
 		}
 
 		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
 		if (ErrorCode)
 		{
-			OutErrorMessage = std::format("Failed to query file size {}: {}", NormalizedPath, ErrorCode.message());
-			return false;
+			return {.Status = EFileFingerprintReuseStatus::Failed,
+				.Diagnostic = std::format(
+					"Failed to query file size {}: {}", NormalizedPath, ErrorCode.message())};
 		}
 
 		if (LastWriteTime != StoredFingerprint.LastWriteTime || FileSize != StoredFingerprint.FileSize)
 		{
-			return true;
+			return {.Status = EFileFingerprintReuseStatus::Stale};
 		}
 
 		{
@@ -133,8 +136,7 @@ namespace Durin
 				.ContentHash = StoredFingerprint.ContentHash
 			});
 		}
-		bOutCurrent = true;
-		return true;
+		return {.Status = EFileFingerprintReuseStatus::Current};
 	}
 
 	auto FFileFingerprintCache::GetContentReadCount() const -> uint64

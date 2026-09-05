@@ -22,6 +22,13 @@ namespace Durin
 		InvalidConfiguration,
 	};
 
+	// Identifies control-flow-relevant causes independently from diagnostic text.
+	enum class ERenderResourceCreateErrorReason : uint8
+	{
+		Unspecified,
+		GlobalShaderUnavailable,
+	};
+
 	enum class ERenderResourceGenerationDependency : uint8
 	{
 		None = 0,
@@ -117,6 +124,8 @@ namespace Durin
 	{
 		ERenderResourceCreateErrorCategory Category =
 			ERenderResourceCreateErrorCategory::InvalidConfiguration;
+		ERenderResourceCreateErrorReason Reason =
+			ERenderResourceCreateErrorReason::Unspecified;
 		std::string Context;
 		std::string Identity;
 		std::string Message;
@@ -132,6 +141,7 @@ namespace Durin
 				Fingerprint ^= Value + 0x9e3779b9 + (Fingerprint << 6)
 					+ (Fingerprint >> 2);
 			};
+			Combine(static_cast<size_t>(Reason));
 			Combine(std::hash<std::string>{}(Context));
 			Combine(std::hash<std::string>{}(Identity));
 			Combine(std::hash<std::string>{}(Message));

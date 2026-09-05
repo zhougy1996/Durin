@@ -299,14 +299,18 @@ namespace Durin
 			BuildRequest.TargetPlatform = Job->Request.TargetPlatform;
 			BuildRequest.TargetProfile = Job->Request.TargetProfile;
 			BuildRequest.bPersistDerivedData = Job->Request.bPersistDerivedData;
-			if (!InvokeTexture2DBuildProvider(BuildRequest,
-				Product, Result.InputIdentity, Result.Error, &Control))
+			const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
+				BuildRequest, Product, Result.InputIdentity, &Control);
+			if (!BuildResult)
 			{
+				Result.Error = BuildResult.Diagnostic;
 				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
 				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
 				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
 				Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
-				Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed;
+				Result.Phase = BuildResult.Status == ETexture2DBuildStatus::Cancelled
+					? ETexture2DCompilationPhase::Cancelled
+					: ETexture2DCompilationPhase::Failed;
 				if (Result.Phase == ETexture2DCompilationPhase::Failed)
 					Result.FailurePhase = bEnteredPersisting
 						? ETexture2DCompilationPhase::Persisting : ETexture2DCompilationPhase::Building;

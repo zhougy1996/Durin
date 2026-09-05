@@ -167,30 +167,28 @@ namespace Durin::ShaderCompileUtilities
 
 	auto TryReuseMetaData(
 		const FShaderMetaData& CachedMetaData,
-		FFileFingerprintCache& FileFingerprintCache,
-		bool& bOutCurrent,
-		std::string& OutErrorMessage
-	) -> bool
+		FFileFingerprintCache& FileFingerprintCache
+	) -> FMetaDataReuseResult
 	{
-		bOutCurrent = false;
-		OutErrorMessage.clear();
 		if (CachedMetaData.SourceTreeSignature.IsZero()
 			|| CachedMetaData.Dependencies.size()
 				!= CachedMetaData.PortableDependencies.size())
 		{
-			return true;
+			return {.Status = EMetaDataReuseStatus::Stale};
 		}
 
 		for (const FFileFingerprint& Fingerprint : CachedMetaData.Dependencies)
 		{
-			bool bFingerprintCurrent = false;
-			if (!FileFingerprintCache.TryReuse(Fingerprint, bFingerprintCurrent, OutErrorMessage))
+			FFileFingerprintReuseResult ReuseResult =
+				FileFingerprintCache.TryReuse(Fingerprint);
+			if (ReuseResult.Status == EFileFingerprintReuseStatus::Failed)
 			{
-				return false;
+				return {.Status = EMetaDataReuseStatus::Failed,
+					.Diagnostic = std::move(ReuseResult.Diagnostic)};
 			}
-			if (!bFingerprintCurrent)
+			if (ReuseResult.Status == EFileFingerprintReuseStatus::Stale)
 			{
-				return true;
+				return {.Status = EMetaDataReuseStatus::Stale};
 			}
 		}
 
@@ -204,16 +202,16 @@ namespace Durin::ShaderCompileUtilities
 			const FShaderPortableDependency& Dependency =
 				CachedMetaData.PortableDependencies[Index];
 			if (Dependency.ContentHash
-				!= CachedMetaData.Dependencies[Index].ContentHash) return true;
+				!= CachedMetaData.Dependencies[Index].ContentHash)
+				return {.Status = EMetaDataReuseStatus::Stale};
 			UpdateHashStringField(SignatureBuilder, Dependency.VirtualPath);
 			SignatureBuilder.UpdateValue(Dependency.ContentHash);
 		}
 		if (SignatureBuilder.Finalize() != CachedMetaData.SourceTreeSignature)
 		{
-			return true;
+			return {.Status = EMetaDataReuseStatus::Stale};
 		}
 
-		bOutCurrent = true;
-		return true;
+		return {.Status = EMetaDataReuseStatus::Current};
 	}
 } // namespace Durin::ShaderCompileUtilities

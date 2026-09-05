@@ -173,7 +173,8 @@ namespace Durin
 							"copy",
 							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual,
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 				Candidate.FXAAShaderSet = GetGlobalShaderMap().ResolveShaderSet(
 					"PostProcess.FXAA", FXAAShaderTypes, true,
@@ -187,7 +188,8 @@ namespace Durin
 							"fxaa",
 							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual,
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 
 				Candidate.CopyVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.CopyShaderSet);

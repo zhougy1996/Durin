@@ -9,6 +9,19 @@ namespace Durin
 
 	namespace ShaderCompileUtilities
 	{
+		enum class EMetaDataReuseStatus : uint8
+		{
+			Current,
+			Stale,
+			Failed
+		};
+
+		struct FMetaDataReuseResult
+		{
+			EMetaDataReuseStatus Status = EMetaDataReuseStatus::Failed;
+			std::string Diagnostic;
+		};
+
 		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) -> bool;
 
 		auto BuildShaderMetaData(
@@ -35,9 +48,7 @@ namespace Durin
 
 		auto TryReuseMetaData(
 			const FShaderMetaData& CachedMetaData,
-			FFileFingerprintCache& FileFingerprintCache,
-			bool& bOutCurrent,
-			std::string& OutErrorMessage
-		) -> bool;
+			FFileFingerprintCache& FileFingerprintCache
+		) -> FMetaDataReuseResult;
 	} // namespace ShaderCompileUtilities
 } // namespace Durin

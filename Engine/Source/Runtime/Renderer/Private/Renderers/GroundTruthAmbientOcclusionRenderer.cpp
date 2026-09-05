@@ -207,7 +207,8 @@ namespace Durin
 						"GroundTruthAmbientOcclusion", "raw-shader",
 						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 				Candidate.FilterShaderSet = GetGlobalShaderMap().ResolveShaderSet(
 					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
@@ -219,7 +220,8 @@ namespace Durin
 						"GroundTruthAmbientOcclusion", "filter-shader",
 						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
 				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);

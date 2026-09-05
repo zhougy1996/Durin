@@ -186,7 +186,8 @@ namespace Durin
 						"ContactVisibilityCompute", "shader",
 						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.ComputeShader =
 					TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 				FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
@@ -236,7 +237,8 @@ namespace Durin
 						"ContactVisibility", "shader",
 						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.VertexShader =
 					TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =

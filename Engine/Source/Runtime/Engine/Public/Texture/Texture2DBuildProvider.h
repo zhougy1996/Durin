@@ -79,6 +79,24 @@ namespace Durin
 		FTexture2DRecipeMetrics Metrics;
 	};
 
+	enum class ETexture2DBuildStatus : uint8
+	{
+		Succeeded,
+		Failed,
+		Cancelled
+	};
+
+	struct FTexture2DBuildResult
+	{
+		ETexture2DBuildStatus Status = ETexture2DBuildStatus::Failed;
+		std::string Diagnostic;
+
+		explicit operator bool() const
+		{
+			return Status == ETexture2DBuildStatus::Succeeded;
+		}
+	};
+
 	// Identifies whether the provider returned cached data or ran the local recipe.
 	enum class ETexture2DBuildProductOrigin : uint8
 	{
@@ -123,14 +141,13 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(
 			const FTexture2DRecipeBuildRequest& Request,
 			FTexture2DRecipeBuildProduct& OutProduct,
-			std::string& OutError,
-			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> bool = 0;
+			const FTexture2DRecipeExecutionControl* ExecutionControl = nullptr) -> FTexture2DBuildResult = 0;
 	};
 
 	// Invokes the single registered provider under its module-owned invocation
@@ -139,6 +156,5 @@ namespace Durin
 		const FTexture2DBuildRequest& Request,
 		FTexture2DBuildProduct& OutProduct,
 		FTexture2DBuildInputIdentity& OutIdentity,
-		std::string& OutError,
-		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> bool;
+		const FTexture2DBuildExecutionControl* ExecutionControl = nullptr) -> FTexture2DBuildResult;
 }

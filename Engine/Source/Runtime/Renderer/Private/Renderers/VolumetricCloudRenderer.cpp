@@ -160,10 +160,16 @@ namespace Durin
 		};
 		static_assert(sizeof(FCloudTemporalUniform) == 192);
 
-		auto MakeFailure(const char* Resource, const char* Key, std::string Message, ERenderResourceCreateErrorCategory Category)
+		auto MakeFailure(const char* Resource, const char* Key, std::string Message,
+			ERenderResourceCreateErrorCategory Category,
+			ERenderResourceCreateErrorReason Reason =
+				ERenderResourceCreateErrorReason::Unspecified)
 			-> FRenderResourceCreateError
 		{
-			return MakeRendererResourceCreateError(Category, Resource, Key, std::move(Message), ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device | ERenderResourceGenerationDependency::Manual);
+			return MakeRendererResourceCreateError(Category, Resource, Key,
+				std::move(Message), ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device
+					| ERenderResourceGenerationDependency::Manual, Reason);
 		}
 	} // namespace
 
@@ -318,7 +324,8 @@ namespace Durin
 				if (!Candidate.ShaderSet)
 					return FResult::Failure(MakeFailure("VolumetricCloudCompute",
 						"shader", "Global shader set is unavailable.",
-						ERenderResourceCreateErrorCategory::ShaderCompile));
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.ComputeShader =
 					TShaderMapRef<FCloudComputeShader>(Candidate.ShaderSet);
 				FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
@@ -357,7 +364,8 @@ namespace Durin
 				if (!Candidate.ShaderSet)
 					return FResult::Failure(MakeFailure("VolumetricCloudFragment",
 						"shader", "Global shader set is unavailable.",
-						ERenderResourceCreateErrorCategory::ShaderCompile));
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.VertexShader =
 					TShaderMapRef<FCloudVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader =
@@ -796,7 +804,8 @@ namespace Durin
 				{
 					return FCreateResult::Failure(MakeFailure(
 						"VolumetricCloudTemporal", "shader", "Global shader set is unavailable.",
-						ERenderResourceCreateErrorCategory::ShaderCompile
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable
 					));
 				}
 				CandidatePayload.VertexShader = TShaderMapRef<FCloudTemporalVertexShader>(CandidatePayload.ShaderSet);
@@ -960,7 +969,10 @@ namespace Durin
 					"VolumetricCloud.Composite", Types, true,
 					ReportRendererResourceCreateDiagnostic);
 				if (!Candidate.ShaderSet)
-					return FResult::Failure(MakeFailure("VolumetricCloudComposite", "shader", "Global shader set is unavailable.", ERenderResourceCreateErrorCategory::ShaderCompile));
+					return FResult::Failure(MakeFailure("VolumetricCloudComposite",
+						"shader", "Global shader set is unavailable.",
+						ERenderResourceCreateErrorCategory::ShaderCompile,
+						ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				Candidate.VertexShader = TShaderMapRef<FCloudCompositeVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FCloudCompositeFragmentShader>(Candidate.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))

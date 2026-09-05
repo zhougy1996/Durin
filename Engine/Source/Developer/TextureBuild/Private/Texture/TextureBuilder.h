@@ -1,7 +1,7 @@
 #pragma once
 
 #include "TextureBuildAPI.h"
-#include "Texture/Texture2D.h"
+#include "Texture/Texture2DBuildProvider.h"
 
 namespace Durin::TextureBuilder
 {
@@ -27,10 +27,10 @@ namespace Durin::TextureBuilder
 
 	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.
 	TEXTUREBUILD_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution = 0,
+		FTexturePlatformData& OutPlatformData, uint32 MaxResolution = 0,
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
 		float AlphaCoverageThreshold = 0.5f,
 		const FBuildExecutionControl* ExecutionControl = nullptr,
-		std::span<const FTextureSourceData> SuppliedMips = {}) -> bool;
+		std::span<const FTextureSourceData> SuppliedMips = {}) -> FTexture2DBuildResult;
 }

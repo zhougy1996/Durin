@@ -183,8 +183,7 @@ namespace
 	{
 		Durin::FTexture2DBuildProduct Product;
 		Durin::FTexture2DBuildInputIdentity Identity;
-		std::string Error;
-		const bool bBuilt = Durin::InvokeTexture2DBuildProvider({
+		const Durin::FTexture2DBuildResult BuildResult = Durin::InvokeTexture2DBuildProvider({
 			.ImportedData = Texture.CreateBuildInput(),
 			.Settings = {
 				.Usage = Texture.GetUsage(),
@@ -193,8 +192,8 @@ namespace
 				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
 				.MaxResolution = Texture.GetMaxResolution(),
 				.bSRGB = Texture.IsSRGB()},
-			.bPersistDerivedData = false}, Product, Identity, Error);
-		EXPECT_TRUE(bBuilt) << Error;
+			.bPersistDerivedData = false}, Product, Identity);
+		EXPECT_TRUE(BuildResult) << BuildResult.Diagnostic;
 		return Product.DerivedDataKey;
 	}
 

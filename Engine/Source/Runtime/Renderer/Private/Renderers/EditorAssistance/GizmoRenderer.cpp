@@ -324,7 +324,8 @@ namespace Durin
 							"base",
 							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual,
+							ERenderResourceCreateErrorReason::GlobalShaderUnavailable));
 				}
 				Candidate.VertexShader = TShaderMapRef<FGizmoVertexShader>(Candidate.ShaderSet);
 				Candidate.FragmentShader = TShaderMapRef<FGizmoFragmentShader>(Candidate.ShaderSet);

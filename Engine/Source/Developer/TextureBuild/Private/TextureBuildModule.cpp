@@ -20,10 +20,9 @@ namespace Durin
 		auto Build(
 			const FTexture2DRecipeBuildRequest& Request,
 			FTexture2DRecipeBuildProduct& OutProduct,
-			std::string& OutError,
-			const FTexture2DRecipeExecutionControl* ExecutionControl) -> bool override
+			const FTexture2DRecipeExecutionControl* ExecutionControl) -> FTexture2DBuildResult override
 		{
-			return BuildTexture2D(Request, OutProduct, OutError, ExecutionControl);
+			return BuildTexture2D(Request, OutProduct, ExecutionControl);
 		}
 	};
 

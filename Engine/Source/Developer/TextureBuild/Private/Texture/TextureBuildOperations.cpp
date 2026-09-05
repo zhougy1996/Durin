@@ -7,22 +7,23 @@ namespace Durin
 	auto BuildTexture2D(
 		const FTexture2DRecipeBuildRequest& Request,
 		FTexture2DRecipeBuildProduct& OutProduct,
-		std::string& OutError,
-		const FTexture2DRecipeExecutionControl* ExecutionControl) -> bool
+		const FTexture2DRecipeExecutionControl* ExecutionControl) -> FTexture2DBuildResult
 	{
 		OutProduct = {};
 		const FTextureSourceData& SourceData = Request.SourceData.get();
 		if (!SourceData.IsValid())
 		{
-			OutError = "Texture2D build requires valid normalized RGBA8 source data.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Texture2D build requires valid normalized RGBA8 source data."};
 		}
-		if (!ValidateTexture2DBuildSettings(Request.Settings, OutError)) return false;
+		std::string ValidationError;
+		if (!ValidateTexture2DBuildSettings(Request.Settings, ValidationError))
+			return {ETexture2DBuildStatus::Failed, std::move(ValidationError)};
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game)
 		{
-			OutError = "Texture2D build target is unsupported.";
-			return false;
+			return {ETexture2DBuildStatus::Failed,
+				"Texture2D build target is unsupported."};
 		}
 
 		TextureBuilder::FBuildMipChainMetrics RecipeMetrics;
@@ -30,18 +31,19 @@ namespace Durin
 			.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 				: std::function<bool()>{},
 			.Metrics = &RecipeMetrics};
-		if (!TextureBuilder::BuildMipChain(SourceData, Request.Settings.Usage,
-			ResolveTexture2DSRGB(Request.Settings), OutProduct.PlatformData, OutError,
+		const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
+			SourceData, Request.Settings.Usage,
+			ResolveTexture2DSRGB(Request.Settings), OutProduct.PlatformData,
 			Request.Settings.MaxResolution, Request.Settings.CompressionQuality,
 			Request.Settings.AlphaMipMode, Request.Settings.AlphaCoverageThreshold,
-			&Control, Request.SuppliedMips)) return false;
+			&Control, Request.SuppliedMips);
+		if (!BuildResult) return BuildResult;
 		OutProduct.Metrics = {
 			.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds,
 			.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds,
 			.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes};
 		if (ExecutionControl && ExecutionControl->Metrics)
 			*ExecutionControl->Metrics = OutProduct.Metrics;
-		OutError.clear();
-		return true;
+		return {ETexture2DBuildStatus::Succeeded, {}};
 	}
 }

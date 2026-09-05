@@ -132,7 +132,7 @@ namespace Durin::AssetPrivate
 		FByteArray Prefix(PrefixBytes);
 		std::string ReadError;
 		if (!Source.ReadAt(0, Prefix, &ReadError))
-			return {EAssetError::NotFound, std::move(ReadError)};
+			return {EAssetError::IoError, std::move(ReadError)};
 		if (Prefix.size() < sizeof(uint32))
 			return {EAssetError::CorruptFile, "Truncated asset header."};
 		uint32 Magic = 0;
@@ -155,7 +155,7 @@ namespace Durin::AssetPrivate
 			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 		FByteArray Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
-			return {EAssetError::CorruptFile, std::move(ReadError)};
+			return {EAssetError::IoError, std::move(ReadError)};
 		uint32 Version = 0;
 		if (FAssetResult Result = ReadAssetPackageFormatVersion(
 			Header, Version, Source.GetSize()); !Result) return Result;

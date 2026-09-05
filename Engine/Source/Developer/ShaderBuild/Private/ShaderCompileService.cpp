@@ -367,14 +367,17 @@ namespace Durin
 				if (ManifestStore.Load(
 					CachePath, DependencyKey, DependencyMetaData))
 				{
-					std::string ManifestError;
-					if (!ShaderCompileUtilities::TryReuseMetaData(
-						DependencyMetaData, FileFingerprintCache,
-						bManifestCurrent, ManifestError))
+					const ShaderCompileUtilities::FMetaDataReuseResult ReuseResult =
+						ShaderCompileUtilities::TryReuseMetaData(
+							DependencyMetaData, FileFingerprintCache);
+					bManifestCurrent = ReuseResult.Status
+						== ShaderCompileUtilities::EMetaDataReuseStatus::Current;
+					if (ReuseResult.Status
+						== ShaderCompileUtilities::EMetaDataReuseStatus::Failed)
 					{
 						DURIN_WARN(
 							"Failed to validate generated shader dependency manifest for {}: {}",
-							Request.VirtualPath, ManifestError);
+							Request.VirtualPath, ReuseResult.Diagnostic);
 					}
 				}
 
@@ -587,14 +590,17 @@ namespace Durin
 				if (ManifestStore.Load(
 					VirtualShaderPath, DependencyKey, OutMetaData))
 				{
-					std::string ManifestError;
-					if (!ShaderCompileUtilities::TryReuseMetaData(
-						OutMetaData, FileFingerprintCache,
-						bManifestCurrent, ManifestError))
+					const ShaderCompileUtilities::FMetaDataReuseResult ReuseResult =
+						ShaderCompileUtilities::TryReuseMetaData(
+							OutMetaData, FileFingerprintCache);
+					bManifestCurrent = ReuseResult.Status
+						== ShaderCompileUtilities::EMetaDataReuseStatus::Current;
+					if (ReuseResult.Status
+						== ShaderCompileUtilities::EMetaDataReuseStatus::Failed)
 					{
 						DURIN_WARN(
 							"Failed to validate shader dependency manifest for {}: {}",
-							VirtualShaderPath, ManifestError);
+							VirtualShaderPath, ReuseResult.Diagnostic);
 					}
 					if (bManifestCurrent)
 						ManifestHits.fetch_add(1, std::memory_order_relaxed);
