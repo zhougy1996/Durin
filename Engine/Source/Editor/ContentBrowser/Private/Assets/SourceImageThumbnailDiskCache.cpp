@@ -51,7 +51,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Absolute.generic_string();
 		}
 
-		auto DecodeCachedPng(std::span<const std::byte> Bytes, uint32 MaximumDimension,
+		auto DecodeCachedPng(FByteView Bytes, uint32 MaximumDimension,
 			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
@@ -152,7 +152,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Desired.Key = MakeKey(Desired);
 		if (!Desired.SourceIdentity.empty())
 		{
-			FByteArray EncodedBytes;
+			FByteBuffer EncodedBytes;
 			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == ::Durin::Editor::EThumbnailObjectLoadResult::Hit)
 			{
 				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
@@ -168,7 +168,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!DecodeSourceImageThumbnail(PhysicalPath, Impl->Settings.MaximumDimension, OutThumbnail, OutError)) return false;
 		if (Desired.SourceIdentity.empty()) return true;
 
-		FByteArray EncodedBytes;
+		FByteBuffer EncodedBytes;
 		if (!Image::EncodeRgba8Png(
 				OutThumbnail.Pixels, OutThumbnail.Width, OutThumbnail.Height, EncodedBytes)) return true;
 		Impl->ObjectStore.Store(Desired.Key, EncodedBytes);

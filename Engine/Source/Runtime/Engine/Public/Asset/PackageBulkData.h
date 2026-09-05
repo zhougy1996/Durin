@@ -51,6 +51,6 @@ namespace Durin
 	ENGINE_API auto ValidatePackageBulkDataSegment(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
-		std::span<const std::byte> Segment,
+		FByteView Segment,
 		std::string* OutError = nullptr) -> bool;
 }

@@ -54,7 +54,7 @@ namespace Durin
 		return {.Kind = EAuthoredOverridePathTokenKind::ArrayElement, .Index = Index};
 	}
 
-	auto FAuthoredOverridePathToken::MapValue(FByteArray CanonicalKeyToken)
+	auto FAuthoredOverridePathToken::MapValue(FByteBuffer CanonicalKeyToken)
 		-> FAuthoredOverridePathToken
 	{
 		return {.Kind = EAuthoredOverridePathTokenKind::MapValue,

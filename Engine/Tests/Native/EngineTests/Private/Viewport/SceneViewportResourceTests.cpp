@@ -73,13 +73,13 @@ namespace Durin
 			auto RHICopyBufferToTexture(FRHIBuffer*, FRHITexture*, std::span<const FRHIBufferTextureCopyRegion>) -> void override {}
 			auto RHICopyTextureToBuffer(FRHITexture*, FRHIBuffer*, std::span<const FRHIBufferTextureCopyRegion>) -> void override {}
 			auto RHICopyTexture(FRHITexture*, FRHITexture*, std::span<const FRHITextureCopyRegion>) -> void override {}
-			auto RHIWriteBuffer(FRHIBuffer*, uint32, std::span<const std::byte>) -> void override { ++UploadCount; }
+			auto RHIWriteBuffer(FRHIBuffer*, uint32, Durin::FByteView) -> void override { ++UploadCount; }
 			auto RHIInitializeTexture(FRHITexture*) -> void override {}
 			auto RHIUpdateTexture2D(FRHITexture*, uint32, uint32, const FUpdateTextureRegion2D&,
-				uint32, std::span<const std::byte>) -> void override {}
+				uint32, Durin::FByteView) -> void override {}
 			auto RHIUpdateTexture3D(FRHITexture*, uint32, const FUpdateTextureRegion3D&,
-				uint32, uint32, std::span<const std::byte>) -> void override {}
-			auto RHIReadTexture2D(FRHITexture*, uint32, uint32, FByteArray&) -> bool override { return false; }
+				uint32, uint32, Durin::FByteView) -> void override {}
+			auto RHIReadTexture2D(FRHITexture*, uint32, uint32, FByteBuffer&) -> bool override { return false; }
 			auto RHIAllocateDynamicUniformBuffer(const void*, uint32) -> FRHIUniformBufferRange override { return {}; }
 			auto RHIAllocateDynamicStorageBuffer(const void*, uint32) -> FRHIStorageBufferRange override { return {}; }
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override {}

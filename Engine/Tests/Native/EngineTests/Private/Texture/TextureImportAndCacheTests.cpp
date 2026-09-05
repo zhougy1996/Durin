@@ -315,7 +315,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		std::ofstream Stream(CachePath, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
-	Durin::FByteArray PackageBytesBeforeRecovery;
+	Durin::FByteBuffer PackageBytesBeforeRecovery;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		PackageBytesBeforeRecovery, CachedAssetData->PhysicalPath));
 	const auto PackageTimeBeforeRecovery =
@@ -331,7 +331,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);
 	EXPECT_GT(std::filesystem::file_size(CachePath), 7u);
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
-	Durin::FByteArray PackageBytesAfterRecovery;
+	Durin::FByteBuffer PackageBytesAfterRecovery;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		PackageBytesAfterRecovery, CachedAssetData->PhysicalPath));
 	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);

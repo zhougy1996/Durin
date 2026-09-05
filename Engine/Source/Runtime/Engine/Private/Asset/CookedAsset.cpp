@@ -270,7 +270,7 @@ namespace Durin
 		return true;
 	}
 
-	auto EncodeCookManifest(const FCookManifest& Manifest, FByteArray& OutBytes, std::string* OutError) -> bool
+	auto EncodeCookManifest(const FCookManifest& Manifest, FByteBuffer& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (!IsValidTarget(Manifest.TargetPlatform, Manifest.TargetProfile))
@@ -306,7 +306,7 @@ namespace Durin
 		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
 		const uint64 RecordBytes = Records.Tell();
 		uint64 FileSize = 0;
-		FByteArray Candidate;
+		FByteBuffer Candidate;
 		if (!BulkContainer::TryAdd(
 				ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize
 			))
@@ -331,7 +331,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeCookManifest(std::span<const std::byte> Bytes, FCookManifest& OutManifest, std::string* OutError) -> bool
+	auto DecodeCookManifest(FByteView Bytes, FCookManifest& OutManifest, std::string* OutError) -> bool
 	{
 		OutManifest = {};
 		if (Bytes.size() < ManifestHeaderSize) return Fail("Cook manifest is truncated.", OutError);
@@ -349,7 +349,7 @@ namespace Durin
 			|| Header.RecordBytes != Bytes.size() - ManifestHeaderSize
 			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform), static_cast<ECookTargetProfile>(Header.Profile)))
 			return Fail("Cook manifest header is invalid.", OutError);
-		const std::span<const std::byte> Records = Bytes.subspan(ManifestHeaderSize);
+		const FByteView Records = Bytes.subspan(ManifestHeaderSize);
 		if (FXxHash64::HashBuffer(Records).HashValue != Header.RecordHash)
 			return Fail("Cook manifest record checksum is invalid.", OutError);
 		BulkContainer::FBoundedReader RecordReader(Records, MaximumManifestRecordBytes);
@@ -363,7 +363,7 @@ namespace Durin
 				|| RecordHeader.Reserved != 0 || RecordHeader.PathBytes == 0
 				|| RecordHeader.PathBytes > 1024)
 				return Fail("Cook manifest record is invalid.", OutError);
-			std::span<const std::byte> Path;
+			FByteView Path;
 			if (!RecordReader.ReadBytes(RecordHeader.PathBytes, Path))
 				return Fail("Cook manifest path is truncated.", OutError);
 			Entry.Kind = static_cast<ECookManifestEntryKind>(RecordHeader.Kind);
@@ -442,7 +442,7 @@ namespace Durin
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		FByteArray PackageBytes,
+		FByteBuffer PackageBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -458,7 +458,7 @@ namespace Durin
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		const FPackagePath& SourcePackagePath,
-		FByteArray PackageBytes,
+		FByteBuffer PackageBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -496,8 +496,8 @@ namespace Durin
 			})) return Fail("Cook package path is duplicated.", OutError);
 
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
-		FByteArray PackageBytes;
-		FByteArray Segment;
+		FByteBuffer PackageBytes;
+		FByteBuffer Segment;
 		const FAssetResult Result = SerializeAssetPackageClosure(
 			Package, PackageBytes, Segment, Options);
 		if (!Result)
@@ -520,8 +520,8 @@ namespace Durin
 
 	auto FCookContext::AddRawPackage(
 		std::string VirtualPackagePath,
-		FByteArray PackageBytes,
-		FByteArray RawSegmentBytes,
+		FByteBuffer PackageBytes,
+		FByteBuffer RawSegmentBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -555,8 +555,8 @@ namespace Durin
 		{
 			if (!Plan.bOpaqueRawSegment)
 			{
-				FByteArray CanonicalBytes;
-				FByteArray CanonicalBulkBytes;
+				FByteBuffer CanonicalBytes;
+				FByteBuffer CanonicalBulkBytes;
 				FPackagePath PackagePath;
 				if (!FPackagePath::TryCreate(Plan.VirtualPath, PackagePath)
 					&& !FPackagePath::TryCreateProjectContent(

@@ -88,7 +88,7 @@ namespace Durin
 
 	// Returns bounded prefix values without reading or interpreting format-owned bytes.
 	CORE_API auto ParseBinaryEnvelopePrefix(
-		std::span<const std::byte> PrefixBytes,
+		FByteView PrefixBytes,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& Limits,
 		FBinaryEnvelopePreamble& OutPreamble,
@@ -97,7 +97,7 @@ namespace Durin
 	// Publishes an encoded preamble only after all values and destination bounds validate.
 	CORE_API auto EncodeBinaryEnvelopePreamble(
 		const FBinaryEnvelopePreamble& Preamble,
-		std::span<std::byte> Destination,
+		FMutableByteView Destination,
 		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	// Holds validated common values and non-owning views into the caller-owned front matter.
@@ -105,13 +105,13 @@ namespace Durin
 	{
 		FBinaryEnvelopePreamble Preamble;
 		const FBinaryFormatDescriptor* Descriptor = nullptr;
-		std::span<const std::byte> HeaderBytes;
-		std::span<const std::byte> FormatHeaderBytes;
+		FByteView HeaderBytes;
+		FByteView FormatHeaderBytes;
 	};
 
 	// Validates exact bounded front matter, explicit registry policy, and the zeroed-field hash.
 	CORE_API auto ValidateBinaryEnvelopeHeader(
-		std::span<const std::byte> FrontMatter,
+		FByteView FrontMatter,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& DiscoveryLimits,
 		const FBinaryFormatRegistry& Registry,
@@ -120,7 +120,7 @@ namespace Durin
 
 	// Writes only the hash field after the complete declared front matter validates.
 	CORE_API auto FinalizeBinaryEnvelopeHeader(
-		std::span<std::byte> FrontMatter,
+		FMutableByteView FrontMatter,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& Limits,
 		FBinaryEnvelopeDiagnostic* OutDiagnostic = nullptr) -> bool;

@@ -35,8 +35,8 @@ namespace Durin
 	// Worker-safe codecs. Every input is detached from managed objects and every
 	// output owns the CPU state required for later GameThread publication.
 	ENGINE_API auto DecodeStaticMeshCookedProduct(
-		std::span<const std::byte> RenderBytes,
-		std::span<const std::byte> CollisionBytes,
+		FByteView RenderBytes,
+		FByteView CollisionBytes,
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,

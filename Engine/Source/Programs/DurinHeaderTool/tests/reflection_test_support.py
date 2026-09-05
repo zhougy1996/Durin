@@ -271,7 +271,7 @@ namespace Fixture
 		std::byte FixedBytes[2]{};
 
 		DPROPERTY()
-		Durin::FByteArray Blob;
+		Durin::FByteBuffer Blob;
 
         DPROPERTY()
         FFloatVector AliasedScores;

@@ -13,9 +13,9 @@
 namespace Durin
 {
 	ENGINE_API auto ValidateAssetPackageBytes(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		const FPackagePath& PackagePath,
-		std::span<const std::byte> BulkBytes = {}
+		FByteView BulkBytes = {}
 	) -> FAssetResult;
 
 	enum class EAssetPackageObjectReferenceKind : uint8
@@ -38,7 +38,7 @@ namespace Durin
 		std::string Name;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
-		FByteArray Payload;
+		FByteBuffer Payload;
 		uint32 SourceFormatVersion = 0;
 
 		ENGINE_API auto TryReadString(std::string& OutValue) const -> bool;

@@ -213,7 +213,7 @@ namespace Durin::Tests
 			return Pool.SetView(View, OutError) && Pool.BeginCapture(OutError);
 		}
 
-		auto PollCapture(Durin::FByteArray& OutPixels, std::string& OutError)
+		auto PollCapture(Durin::FByteBuffer& OutPixels, std::string& OutError)
 			-> Editor::EThumbnailCaptureState
 		{
 			return Pool.PollCapture(OutPixels, OutError);

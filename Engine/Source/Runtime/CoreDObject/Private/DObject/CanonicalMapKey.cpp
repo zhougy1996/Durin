@@ -5,14 +5,14 @@ namespace Durin::ObjectPackage
 	namespace
 	{
 		template<std::unsigned_integral T>
-		auto AppendBigEndian(FByteArray& Out, T Value) -> void
+		auto AppendBigEndian(FByteBuffer& Out, T Value) -> void
 		{
 			for (size_t Index = sizeof(T); Index > 0; --Index)
 				Out.push_back(static_cast<std::byte>(Value >> ((Index - 1) * 8)));
 		}
 
 		template<std::integral T>
-		auto AppendSortableInteger(FByteArray& Out, T Value) -> void
+		auto AppendSortableInteger(FByteBuffer& Out, T Value) -> void
 		{
 			using U = std::make_unsigned_t<T>;
 			U Bits = std::bit_cast<U>(Value);
@@ -21,7 +21,7 @@ namespace Durin::ObjectPackage
 		}
 
 		template<std::unsigned_integral T>
-		auto AppendSortableFloatBits(FByteArray& Out, T Bits) -> void
+		auto AppendSortableFloatBits(FByteBuffer& Out, T Bits) -> void
 		{
 			constexpr T Sign = T(1) << (sizeof(T) * 8 - 1);
 			if ((Bits & ~Sign) == 0) Bits = 0;
@@ -295,7 +295,7 @@ namespace Durin::ObjectPackage
 	}
 
 	auto BuildCanonicalMapKeyToken(const FSerializedType& Type, const FSerializedValue& Value,
-		FByteArray& OutToken, std::string* OutError) -> bool
+		FByteBuffer& OutToken, std::string* OutError) -> bool
 	{
 		if (OutError) OutError->clear();
 		FCanonicalMapKeyWriter Writer;

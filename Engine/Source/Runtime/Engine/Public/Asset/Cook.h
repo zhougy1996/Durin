@@ -46,11 +46,11 @@ namespace Durin
 
 	ENGINE_API auto EncodeCookManifest(
 		const FCookManifest& Manifest,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string* OutError = nullptr
 	) -> bool;
 	ENGINE_API auto DecodeCookManifest(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		FCookManifest& OutManifest,
 		std::string* OutError = nullptr
 	) -> bool;
@@ -111,8 +111,8 @@ namespace Durin
 	{
 		std::string VirtualPath;
 		FPackagePath SourcePackagePath;
-		FByteArray PackageBytes;
-		FByteArray BulkBytes;
+		FByteBuffer PackageBytes;
+		FByteBuffer BulkBytes;
 		FPackageBulkSegmentSummary BulkSummary;
 		FXxHash128 InputFingerprint;
 		FXxHash128 PackageDigest;
@@ -214,12 +214,12 @@ namespace Durin
 	{
 		ECookManifestEntryKind Kind = ECookManifestEntryKind::ShaderLibrary;
 		std::string RelativePath;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FXxHash128 Digest;
 	};
 
-	ENGINE_API auto EncodeCookState(const FCookState& State, FByteArray& OutBytes, std::string* OutError = nullptr) -> bool;
-	ENGINE_API auto DecodeCookState(std::span<const std::byte> Bytes, FCookState& OutState, std::string* OutError = nullptr) -> bool;
+	ENGINE_API auto EncodeCookState(const FCookState& State, FByteBuffer& OutBytes, std::string* OutError = nullptr) -> bool;
+	ENGINE_API auto DecodeCookState(FByteView Bytes, FCookState& OutState, std::string* OutError = nullptr) -> bool;
 
 	using FCookFailureInjection = std::function<bool(
 		ECookOperationStage, size_t, std::string&
@@ -282,13 +282,13 @@ namespace Durin
 		);
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			FByteArray PackageBytes,
+			FByteBuffer PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
 			const FPackagePath& SourcePackagePath,
-			FByteArray PackageBytes,
+			FByteBuffer PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto AddPackage(
@@ -300,8 +300,8 @@ namespace Durin
 		// manifest rather than by reflected package fields.
 		ENGINE_API auto AddRawPackage(
 			std::string VirtualPackagePath,
-			FByteArray PackageBytes,
-			FByteArray RawSegmentBytes,
+			FByteBuffer PackageBytes,
+			FByteBuffer RawSegmentBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;

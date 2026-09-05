@@ -54,7 +54,7 @@ namespace Durin
 
 		auto EncodeRenderData(
 			const FStaticMeshRenderData& RenderData,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool
 		{
 			FStaticMeshPayloadData Payload;
@@ -69,7 +69,7 @@ namespace Durin
 		}
 
 		auto DecodeRenderData(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 			std::string& OutError) -> bool
@@ -90,7 +90,7 @@ namespace Durin
 		auto EncodeCollision(
 			const FCollisionGeometryRef& Geometry,
 			EBodySetupCollisionQueryPolicy Policy,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool
 		{
 			FStaticMeshCollisionPayloadData Payload;
@@ -106,7 +106,7 @@ namespace Durin
 		}
 
 		auto DecodeCollision(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FCollisionGeometryRef& OutGeometry,
@@ -173,7 +173,7 @@ namespace Durin
 			FCacheKeyProxy Key = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
 			if (!Key.IsValid()) return false;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			if (AssetDerivedDataCache::Load(
 				Key, MaximumStaticMeshPayloadBytes,
 				Bytes, LoadDiagnostic) == AssetDerivedDataCache::ELoadResult::Hit)
@@ -298,7 +298,7 @@ namespace Durin
 			const FCacheKeyProxy Key = BuildStaticMeshCollisionDerivedDataKey(
 				KeyInput, OutError);
 			if (!Key.IsValid()) return false;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			AssetDerivedDataCache::FOperationDiagnostic LoadDiagnostic;
 			FCollisionGeometryRef Geometry;
 			AssetDerivedDataCache::FOperationDiagnostic StoreDiagnostic;

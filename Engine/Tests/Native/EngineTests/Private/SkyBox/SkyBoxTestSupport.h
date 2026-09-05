@@ -205,7 +205,7 @@ namespace
 	}
 
 	auto ExpectRgbNear(
-		const Durin::FByteArray& Pixels,
+		const Durin::FByteBuffer& Pixels,
 		uint32 Width,
 		uint32 X,
 		uint32 Y,
@@ -222,8 +222,8 @@ namespace
 	}
 
 	auto ExpectRgbMatch(
-		const Durin::FByteArray& Actual,
-		const Durin::FByteArray& Expected,
+		const Durin::FByteBuffer& Actual,
+		const Durin::FByteBuffer& Expected,
 		uint32 Width,
 		uint32 X,
 		uint32 Y,
@@ -240,8 +240,8 @@ namespace
 	}
 
 	auto FindClosestCenterRgb(
-		const Durin::FByteArray& Actual,
-		const std::array<Durin::FByteArray, Durin::TextureCubeFaceCount>& Candidates,
+		const Durin::FByteBuffer& Actual,
+		const std::array<Durin::FByteBuffer, Durin::TextureCubeFaceCount>& Candidates,
 		uint32 Width
 	) -> size_t
 	{

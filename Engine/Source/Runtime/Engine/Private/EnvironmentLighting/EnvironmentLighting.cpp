@@ -31,7 +31,7 @@ namespace Durin
 			return Count;
 		}
 
-		auto AppendHalfBytes(FByteArray& Bytes, const std::vector<uint16>& Values) -> void
+		auto AppendHalfBytes(FByteBuffer& Bytes, const std::vector<uint16>& Values) -> void
 		{
 			const size_t Offset = Bytes.size();
 			Bytes.resize(Offset + Values.size() * sizeof(uint16));
@@ -39,7 +39,7 @@ namespace Durin
 		}
 
 		auto ReadHalfValues(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			size_t& Offset,
 			size_t Count,
 			std::vector<uint16>& OutValues) -> bool
@@ -54,7 +54,7 @@ namespace Durin
 
 		auto LoadAuthoredPayload(
 			std::string_view VirtualPackagePath,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool
 		{
 			const std::filesystem::path PayloadPath =
@@ -89,7 +89,7 @@ namespace Durin
 
 	static auto BuildEnvironmentLightingSerializedValue(
 		const FEnvironmentLightingData& Data,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -97,7 +97,7 @@ namespace Durin
 		if (!Data.IsValid())
 			return Fail("Environment-lighting data is incomplete or malformed.", &OutError);
 
-		FByteArray Body;
+		FByteBuffer Body;
 		Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
 		for (const std::vector<uint16>& Face : Data.Irradiance) AppendHalfBytes(Body, Face);
 		for (const auto& Mip : Data.Prefiltered)
@@ -122,7 +122,7 @@ namespace Durin
 	}
 
 	static auto ParseEnvironmentLightingSerializedValue(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		FEnvironmentLightingData& OutData) -> FDecodeResult
 	{
 		auto Reject = [](EDecodeError Code, std::string Message) {
@@ -177,7 +177,7 @@ namespace Durin
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
 			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting payload size is invalid.");
-		FByteArray Body;
+		FByteBuffer Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
@@ -224,10 +224,10 @@ namespace Durin
 			{ExpectedElementCount() * sizeof(uint16) + 64,
 				"Environment-lighting payload"},
 			[](const FEnvironmentLightingData& Value,
-				FByteArray& Bytes, std::string& Error) {
+				FByteBuffer& Bytes, std::string& Error) {
 				return BuildEnvironmentLightingSerializedValue(Value, Bytes, Error);
 			},
-			[](std::span<const std::byte> Bytes, FEnvironmentLightingData& Candidate) {
+			[](FByteView Bytes, FEnvironmentLightingData& Candidate) {
 				return ParseEnvironmentLightingSerializedValue(Bytes, Candidate);
 			});
 	}
@@ -250,7 +250,7 @@ namespace Durin
 
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
-		FByteArray PayloadBytes;
+		FByteBuffer PayloadBytes;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
@@ -286,7 +286,7 @@ namespace Durin
 		if (!Data && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
-			std::span<const std::byte> Bytes;
+			FByteView Bytes;
 			std::string Error;
 			DEnvironmentLighting* Mutable = const_cast<DEnvironmentLighting*>(this);
 			if (Mutable->CookedPlatformData.LockReadOnly(Bytes, &Error))
@@ -321,7 +321,7 @@ namespace Durin
 					"EnvironmentLighting cooked platform data is unavailable.");
 				return;
 			}
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FEnvironmentLightingData&>(*Data).Serialize(Writer);
 			std::string Error;
@@ -351,7 +351,7 @@ namespace Durin
 			return Fail("Environment lighting supports only the Win64 game cook target.", &OutError);
 		}
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
-		FByteArray PayloadBytes;
+		FByteBuffer PayloadBytes;
 		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		auto Validated = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);

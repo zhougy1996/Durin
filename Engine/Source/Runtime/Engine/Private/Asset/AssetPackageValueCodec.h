@@ -9,7 +9,7 @@ namespace Durin::AssetPrivate
 
 	struct FByteWriter
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 
 		template<typename T> auto Write(const T& Value) -> void
 		{
@@ -23,7 +23,7 @@ namespace Durin::AssetPrivate
 			Bytes.insert(Bytes.end(), Source, Source + Size);
 		}
 
-		auto WriteBytes(std::span<const std::byte> Value) -> void
+		auto WriteBytes(FByteView Value) -> void
 		{
 			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 		}
@@ -37,7 +37,7 @@ namespace Durin::AssetPrivate
 
 	struct FByteReader
 	{
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		size_t Offset = 0;
 
 		template<typename T> auto Read(T& Value) -> bool
@@ -67,7 +67,7 @@ namespace Durin::AssetPrivate
 			return true;
 		}
 
-		auto ReadSpan(size_t Size, std::span<const std::byte>& Out) -> bool
+		auto ReadSpan(size_t Size, FByteView& Out) -> bool
 		{
 			if (Offset > Bytes.size() || Size > Bytes.size() - Offset) return false;
 			Out = Bytes.subspan(Offset, Size);

@@ -10,7 +10,7 @@ namespace Durin::AssetPrivate
 	public:
 		virtual ~IAssetPackageByteSource() = default;
 		virtual auto GetSize() const -> uint64 = 0;
-		virtual auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+		virtual auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool = 0;
 	};
 
@@ -20,7 +20,7 @@ namespace Durin::AssetPrivate
 		explicit FFileAssetPackageByteSource(std::unique_ptr<FFileHelper::IFileHandle> InHandle)
 			: Handle(std::move(InHandle)) {}
 		auto GetSize() const -> uint64 override { return Handle ? Handle->GetSize() : 0; }
-		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
 			FFileHelper::FFileIoError Error;
@@ -38,7 +38,7 @@ namespace Durin::AssetPrivate
 		explicit FBorrowedFileAssetPackageByteSource(FFileHelper::IFileHandle& InHandle)
 			: Handle(InHandle) {}
 		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
-		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
 			FFileHelper::FFileIoError Error;
@@ -53,10 +53,10 @@ namespace Durin::AssetPrivate
 	class FMemoryAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
-		explicit FMemoryAssetPackageByteSource(std::span<const std::byte> InBytes)
+		explicit FMemoryAssetPackageByteSource(FByteView InBytes)
 			: Bytes(InBytes) {}
 		auto GetSize() const -> uint64 override { return Bytes.size(); }
-		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
 			if (Offset > Bytes.size() || Output.size_bytes() > Bytes.size() - Offset)
@@ -68,7 +68,7 @@ namespace Durin::AssetPrivate
 			return true;
 		}
 	private:
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 	};
 
 	class FCountingAssetPackageByteSource final : public IAssetPackageByteSource
@@ -78,7 +78,7 @@ namespace Durin::AssetPrivate
 			FPackageSchemaReadStats& InStats)
 			: Inner(InInner), Stats(InStats) {}
 		auto GetSize() const -> uint64 override { return Inner.GetSize(); }
-		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+		auto ReadAt(uint64 Offset, FMutableByteView Output,
 			std::string* OutError = nullptr) -> bool override
 		{
 			if (!Inner.ReadAt(Offset, Output, OutError)) return false;

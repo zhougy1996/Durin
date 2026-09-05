@@ -216,7 +216,7 @@ namespace Durin
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		RHICmdList.UpdateTexture2D(
 			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
@@ -229,7 +229,7 @@ namespace Durin
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		RHICmdList.UpdateTexture3D(Texture, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch, SourceData);
@@ -240,7 +240,7 @@ namespace Durin
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		FByteArray& OutData) -> bool
+		FByteBuffer& OutData) -> bool
 	{
 		return RHICmdList.ReadTexture2D(
 			Texture, MipIndex, ArraySlice, OutData);

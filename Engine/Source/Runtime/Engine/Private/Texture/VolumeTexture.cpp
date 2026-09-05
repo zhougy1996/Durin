@@ -92,7 +92,7 @@ namespace Durin
 			&& Voxels.GetPayloadSize() == Texels * Info.BytesPerBlock;
 	}
 
-	auto FVolumeTextureSourceData::SetVoxelBytes(std::span<const std::byte> Bytes) -> bool
+	auto FVolumeTextureSourceData::SetVoxelBytes(FByteView Bytes) -> bool
 	{
 		if (!Voxels.UpdatePayload(Bytes)) return false;
 		FTextureSource Canonical;

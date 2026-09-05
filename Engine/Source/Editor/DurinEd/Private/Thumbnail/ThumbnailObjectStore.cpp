@@ -71,7 +71,7 @@ namespace Durin::Editor
 
 		auto LoadIndex() -> void
 		{
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			std::error_code Error;
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)
 				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath()))
@@ -155,7 +155,7 @@ namespace Durin::Editor
 		if (Impl->UnsavedAccesses != 0) Impl->SaveIndex();
 	}
 
-	auto FThumbnailObjectStore::Load(std::string_view Key, FByteArray& OutBytes)
+	auto FThumbnailObjectStore::Load(std::string_view Key, FByteBuffer& OutBytes)
 		-> EThumbnailObjectLoadResult
 	{
 		OutBytes.clear();
@@ -200,7 +200,7 @@ namespace Durin::Editor
 		return EThumbnailObjectLoadResult::Invalid;
 	}
 
-	auto FThumbnailObjectStore::Store(std::string_view Key, std::span<const std::byte> Bytes) -> bool
+	auto FThumbnailObjectStore::Store(std::string_view Key, FByteView Bytes) -> bool
 	{
 		if (!IsSafeKey(Key) || Bytes.empty() || Bytes.size() > Impl->Settings.MaximumObjectBytes) return false;
 		const std::filesystem::path ObjectPath = Impl->ObjectPath(Key);

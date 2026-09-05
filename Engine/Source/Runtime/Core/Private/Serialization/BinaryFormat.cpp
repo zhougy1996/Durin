@@ -88,13 +88,13 @@ namespace Durin
 		Archive.WriteBytes(std::as_bytes(std::span(Value)));
 	}
 
-	auto FBinaryWriter::WriteBytes(std::span<const std::byte> Value) -> void
+	auto FBinaryWriter::WriteBytes(FByteView Value) -> void
 	{
 		if (!CanWrite(Value.size(), Value.size())) return;
 		Archive.WriteBytes(Value);
 	}
 
-	auto FBinaryWriter::TakeBytes() -> FByteArray
+	auto FBinaryWriter::TakeBytes() -> FByteBuffer
 	{
 		bLimitError = false;
 		return std::exchange(Bytes, {});
@@ -118,12 +118,12 @@ namespace Durin
 
 	auto FBinaryReader::ReadU16(uint16& Value) -> bool { return ReadInteger(Value); }
 
-	auto FBinaryReader::ReadBytes(FByteArray& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+	auto FBinaryReader::ReadBytes(FByteBuffer& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		if (HasError() || ByteCount > MaximumBytes || ByteCount > Limits.MaximumFieldBytes
 			|| ByteCount > GetRemainingBytes()
-			|| ByteCount > static_cast<uint64>(FByteArray().max_size())) return false;
-		FByteArray Loaded(static_cast<size_t>(ByteCount));
+			|| ByteCount > static_cast<uint64>(FByteBuffer().max_size())) return false;
+		FByteBuffer Loaded(static_cast<size_t>(ByteCount));
 		if (ByteCount != 0) Archive.ReadBytes(Loaded);
 		if (Archive.HasError()) return false;
 		Value = std::move(Loaded);
@@ -131,7 +131,7 @@ namespace Durin
 	}
 
 	auto FBinaryReader::ReadRegion(
-		std::span<const std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+		FByteView& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		Value = {};
 		if (HasError() || ByteCount > MaximumBytes || ByteCount > Limits.MaximumFieldBytes) return false;
@@ -209,7 +209,7 @@ namespace Durin
 		uint64 Size = 0;
 		if (!ReadU64(Size) || Size > MaximumBytes || Size > Limits.MaximumFieldBytes
 			|| Size > GetRemainingBytes() || Size > static_cast<uint64>(std::string().max_size())) return false;
-		std::span<const std::byte> Encoded;
+		FByteView Encoded;
 		if (!Archive.ReadRegion(Size, Encoded)) return false;
 		Value.assign(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 		return true;

@@ -22,7 +22,7 @@ namespace
 		return Material;
 	}
 
-	auto ReadFloat(std::span<const std::byte> Bytes, uint32 Offset) -> float
+	auto ReadFloat(Durin::FByteView Bytes, uint32 Offset) -> float
 	{
 		float Value = 0.0f;
 		std::memcpy(&Value, Bytes.data() + Offset, sizeof(Value));

@@ -229,7 +229,7 @@ namespace Durin
 	auto FStaticMeshImportedData::CaptureDecodedData(std::string& OutError) -> bool
 	{
 		if (!ValidateDecodedStaticMeshImportedData(*this, OutError)) return false;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshImportedValue(Ar, *this);
 		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
@@ -255,7 +255,7 @@ namespace Durin
 	{
 		FStaticMeshImportedData Result;
 		const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
-		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
+		const FByteView Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != StaticMeshImportedDataSchemaVersion
 			|| !Payload || Bytes.empty()
 			|| Bytes.size() > MaximumStaticMeshImportedDataBytes)

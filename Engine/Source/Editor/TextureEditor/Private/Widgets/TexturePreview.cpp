@@ -343,7 +343,7 @@ namespace Durin::Editor::Texture
 	}
 
 	auto FTexturePreview::UploadPixels(EPixelFormat Format, uint32 Width, uint32 Height, uint32 RowPitch,
-		std::span<const std::byte> Pixels) -> void
+		FByteView Pixels) -> void
 	{
 		Release();
 
@@ -353,7 +353,7 @@ namespace Durin::Editor::Texture
 		const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Width, Height);
 		if (Layout.DataSize == 0 || Layout.DataSize > Pixels.size()) return;
 		const size_t PixelCount = static_cast<size_t>(Layout.DataSize);
-		auto PixelSnapshot = std::make_shared<FByteArray>(
+		auto PixelSnapshot = std::make_shared<FByteBuffer>(
 			Pixels.begin(), Pixels.begin() + static_cast<ptrdiff_t>(PixelCount));
 
 		FTextureRHIRef NewTexture;
@@ -401,7 +401,7 @@ namespace Durin::Editor::Texture
 	}
 
 	auto FTexturePreview::UploadRGBA8(uint32 Width, uint32 Height,
-		std::span<const std::byte> Pixels, ETexturePreviewChannel Channel) -> void
+		FByteView Pixels, ETexturePreviewChannel Channel) -> void
 	{
 		if (Width == 0 || Height == 0
 			|| Pixels.size() != static_cast<uint64>(Width) * Height * 4) return;

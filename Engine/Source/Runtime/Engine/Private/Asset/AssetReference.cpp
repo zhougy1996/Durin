@@ -154,7 +154,7 @@ namespace Durin
 		return CompareReferenceRoute(Left.Route, Right.Route) < 0;
 	}
 
-	auto AppendMapTokenDisplay(std::string& Path, std::span<const std::byte> Token) -> void
+	auto AppendMapTokenDisplay(std::string& Path, FByteView Token) -> void
 	{
 		Path.append("[key:");
 		for (const std::byte Byte : Token)
@@ -183,7 +183,7 @@ namespace Durin
 
 	auto ExtractReferencePropertyValues(
 		FProperty* Property,
-		std::span<const std::byte> Payload,
+		FByteView Payload,
 		const FReferenceExtractionContext& Context,
 		std::vector<FAssetReferenceRouteSegment>& Route,
 		const std::string& PropertyPath,
@@ -380,7 +380,7 @@ namespace Durin
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
 					return KeyResult;
 				}
-				FByteArray KeyToken;
+				FByteBuffer KeyToken;
 				if (!BuildCanonicalMapKeyToken(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
 					return Error(EAssetError::TypeMismatch, std::move(StorageError));
@@ -420,7 +420,7 @@ namespace Durin
 				std::string Signature;
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
-				std::span<const std::byte> FieldPayload;
+				FByteView FieldPayload;
 				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
 					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
@@ -642,9 +642,9 @@ namespace Durin
 
 	auto RewriteSerializedReferenceProperty(
 		FProperty* Property,
-		std::span<const std::byte> Payload,
+		FByteView Payload,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
-		FByteArray& OutPayload,
+		FByteBuffer& OutPayload,
 		uint64& RewriteCount,
 		uint32 ContainerDepth = 0) -> FAssetResult
 	{
@@ -810,7 +810,7 @@ namespace Durin
 				std::string Signature;
 				uint8 Kind = 0;
 				uint64 PayloadSize = 0;
-				std::span<const std::byte> FieldPayload;
+				FByteView FieldPayload;
 				if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
 					|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
 					|| !Reader.Read(Kind)
@@ -836,7 +836,7 @@ namespace Durin
 					|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 					return Error(EAssetError::TypeMismatch,
 						"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
-				FByteArray RewrittenPayload;
+				FByteBuffer RewrittenPayload;
 				FAssetResult Result = RewriteSerializedReferenceProperty(
 					Field, FieldPayload, Mappings, RewrittenPayload,
 					RewriteCount, ContainerDepth);
@@ -853,12 +853,12 @@ namespace Durin
 	}
 
 	auto RewritePackageReferences(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteArray& OutBytes) -> FAssetResult
+		FByteBuffer& OutBytes) -> FAssetResult
 	{
 		const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -880,8 +880,8 @@ namespace Durin
 	}
 
 	auto ReadPackageMetadata(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		FPackageFile& OutFile) -> FAssetResult
 	{
@@ -909,12 +909,12 @@ namespace Durin
 	namespace AssetPrivate
 	{
 		auto RewritePackageReferencesForMutation(
-			std::span<const std::byte> Bytes,
-			std::span<const std::byte> BulkBytes,
+			FByteView Bytes,
+			FByteView BulkBytes,
 			const FPackagePath& PackagePath,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
-			FByteArray& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetResult
 		{
 			return RewritePackageReferences(
 				Bytes, BulkBytes, PackagePath, Mappings,
@@ -922,8 +922,8 @@ namespace Durin
 		}
 
 		auto ReadMutationPackageMetadata(
-			std::span<const std::byte> Bytes,
-			std::span<const std::byte> BulkBytes,
+			FByteView Bytes,
+			FByteView BulkBytes,
 			const FPackagePath& PackagePath,
 			FMutationPackageMetadata& OutMetadata) -> FAssetResult
 		{

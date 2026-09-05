@@ -451,7 +451,7 @@ namespace Durin::VulkanRHI
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
@@ -538,7 +538,7 @@ namespace Durin::VulkanRHI
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture3D requires a texture.");
@@ -626,7 +626,7 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		FByteArray& OutData
+		FByteBuffer& OutData
 	) -> bool
 	{
 		CheckVulkanRHIThread();

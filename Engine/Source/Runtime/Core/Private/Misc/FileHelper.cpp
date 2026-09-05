@@ -44,7 +44,7 @@ namespace Durin
 					: Handle(InHandle), Size(InSize), Path(std::move(InPath)) {}
 				~FNativeFileHandle() override { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(Handle); }
 				auto GetSize() const -> uint64 override { return Size; }
-				auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+				auto ReadAt(uint64 Offset, FMutableByteView Output,
 					FFileIoError* OutError) -> bool override
 				{
 					if (OutError) *OutError = {};
@@ -97,7 +97,7 @@ namespace Durin
 					: File(InFile), Size(InSize), Path(std::move(InPath)) {}
 				~FNativeFileHandle() override { if (File >= 0) close(File); }
 				auto GetSize() const -> uint64 override { return Size; }
-				auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+				auto ReadAt(uint64 Offset, FMutableByteView Output,
 					FFileIoError* OutError) -> bool override
 				{
 					if (OutError) *OutError = {};
@@ -186,7 +186,7 @@ namespace Durin
 #if defined(_WIN32)
 			auto WriteTemporaryFile(
 				const std::filesystem::path& TemporaryPath,
-				std::span<const std::byte> Array,
+				FByteView Array,
 				FAtomicFileError* OutError
 			) -> bool
 			{
@@ -257,7 +257,7 @@ namespace Durin
 #else
 			auto WriteTemporaryFile(
 				const std::filesystem::path& TemporaryPath,
-				std::span<const std::byte> Array,
+				FByteView Array,
 				FAtomicFileError* OutError
 			) -> bool
 			{
@@ -432,7 +432,7 @@ namespace Durin
 			return false;
 		};
 
-		bool LoadFileToArray(FByteArray& Result, const std::filesystem::path& FilePath)
+		bool LoadFileToArray(FByteBuffer& Result, const std::filesystem::path& FilePath)
 		{
 			return LoadFileToArrayInternal(Result, FilePath);
 		}
@@ -515,7 +515,7 @@ namespace Durin
 			return true;
 		}
 
-		bool SaveArrayToFile(const std::span<const std::byte>& Array, const std::filesystem::path& FilePath)
+		bool SaveArrayToFile(const FByteView& Array, const std::filesystem::path& FilePath)
 		{
 			// Ensure the parent directory exists
 			if (FilePath.has_parent_path())
@@ -563,7 +563,7 @@ namespace Durin
 		}
 
 		auto SaveArrayToFileAtomically(
-			std::span<const std::byte> Array,
+			FByteView Array,
 			const std::filesystem::path& FilePath,
 			FAtomicFileError* OutError
 		) -> bool

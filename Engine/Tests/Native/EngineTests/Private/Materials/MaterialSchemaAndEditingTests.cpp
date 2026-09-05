@@ -626,7 +626,7 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
 		? std::string("no diagnostic") : Compiled.Diagnostics.front().Message);
 	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
-	Durin::FByteArray CookedBytes;
+	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
@@ -872,7 +872,7 @@ TEST(FMaterialProgramCompilerTests,
 		ASSERT_TRUE(Compiled.CompiledShaders[Index].Code);
 		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
 	}
-	Durin::FByteArray CookedBytes;
+	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game, CookedBytes, Error)) << Error;

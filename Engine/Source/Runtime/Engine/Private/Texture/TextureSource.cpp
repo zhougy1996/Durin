@@ -77,9 +77,9 @@ namespace Durin
 			}
 		}
 
-		auto EncodeRunLength(std::span<const std::byte> Bytes) -> FByteArray
+		auto EncodeRunLength(FByteView Bytes) -> FByteBuffer
 		{
-			FByteArray Result;
+			FByteBuffer Result;
 			Result.reserve(Bytes.size());
 			for (size_t Offset = 0; Offset < Bytes.size();)
 			{
@@ -93,12 +93,12 @@ namespace Durin
 			return Result;
 		}
 
-		auto DecodeRunLength(std::span<const std::byte> Bytes, uint64 DecodedSize,
-			FByteArray& OutBytes) -> bool
+		auto DecodeRunLength(FByteView Bytes, uint64 DecodedSize,
+			FByteBuffer& OutBytes) -> bool
 		{
 			if ((Bytes.size() & 1u) != 0 || DecodedSize > MaximumTextureSourceBytes)
 				return false;
-			FByteArray Result;
+			FByteBuffer Result;
 			Result.reserve(static_cast<size_t>(DecodedSize));
 			for (size_t Offset = 0; Offset < Bytes.size(); Offset += 2)
 			{
@@ -206,7 +206,7 @@ namespace Durin
 		std::span<const FTextureSourceBlock> InBlocks,
 		std::span<const FTextureSourceLayer> InLayers,
 		ETextureSourceGammaSpace InGammaSpace,
-		std::span<const std::byte> DecodedPayload,
+		FByteView DecodedPayload,
 		uint8 InSourceChannelCount, uint8 InTransparencyMask,
 		ETextureSourceCompression PreferredCompression) -> bool
 	{
@@ -219,7 +219,7 @@ namespace Durin
 		std::span<const FTextureSourceBlock> InBlocks,
 		std::span<const FTextureSourceLayer> InLayers,
 		ETextureSourceGammaSpace InGammaSpace,
-		std::span<const std::byte> DecodedPayload,
+		FByteView DecodedPayload,
 		uint8 InSourceChannelCount, uint8 InTransparencyMask,
 		ETextureSourceCompression PreferredCompression) -> bool
 	{
@@ -248,7 +248,7 @@ namespace Durin
 		const FXxHash128 PayloadHash = FXxHash128::HashBuffer(DecodedPayload);
 		NewSource.CanonicalPayloadHashLow = PayloadHash.HashLow;
 		NewSource.CanonicalPayloadHashHigh = PayloadHash.HashHigh;
-		FByteArray Stored;
+		FByteBuffer Stored;
 		if (PreferredCompression == ETextureSourceCompression::RunLength)
 			Stored = EncodeRunLength(DecodedPayload);
 		if (PreferredCompression == ETextureSourceCompression::RunLength
@@ -292,7 +292,7 @@ namespace Durin
 		const Image::FImageInfo Info = Faces[0].GetInfo();
 		if (Info.Width != Info.Height || Info.Depth != 1 || Info.SliceCount != 1)
 			return false;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		uint64 FaceSize = 0;
 		if (!Info.GetByteSize(FaceSize) || FaceSize > MaximumTextureSourceBytes / 6)
 			return false;
@@ -433,7 +433,7 @@ namespace Durin
 			if (SchemaVersion == TextureSourceSchemaVersion
 				&& Compression == ETextureSourceCompression::RunLength)
 			{
-				FByteArray Bytes;
+				FByteBuffer Bytes;
 				if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
 					return {};
 				Decoded = FSharedByteBuffer::Take(std::move(Bytes));

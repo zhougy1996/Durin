@@ -300,7 +300,7 @@ namespace Durin::VulkanRHI
 		GDynamicRHI->RHIResetMemoryStatistics();
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		constexpr uint32 PageSize = 8 * 1024 * 1024;
-		Durin::FByteArray Bytes(PageSize, std::byte{0x5a});
+		Durin::FByteBuffer Bytes(PageSize, std::byte{0x5a});
 		std::vector<FBufferRHIRef> Destinations;
 		for (uint32 Index = 0; Index < 5; ++Index)
 		{
@@ -361,12 +361,12 @@ namespace Durin::VulkanRHI
 			std::as_bytes(std::span{Expected}));
 		for (uint32 ReadIndex = 0; ReadIndex < 3; ++ReadIndex)
 		{
-			Durin::FByteArray Actual;
+			Durin::FByteBuffer Actual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, Texture, 0, 0, Actual));
-			const std::span<const std::byte> ExpectedBytes =
+			const Durin::FByteView ExpectedBytes =
 				std::as_bytes(std::span{Expected});
-			EXPECT_EQ(Actual, (Durin::FByteArray(
+			EXPECT_EQ(Actual, (Durin::FByteBuffer(
 				ExpectedBytes.begin(), ExpectedBytes.end())));
 		}
 		const FRHIMemoryStatistics ReadbackStatistics =

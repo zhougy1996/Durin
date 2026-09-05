@@ -144,7 +144,7 @@ def _synthetic_parser_prelude(
         "using int8 = signed char; using int16 = short; using int32 = int; using int64 = long long;",
         "using uint8 = unsigned char; using uint16 = unsigned short; using uint32 = unsigned int; "
         "using uint64 = unsigned long long;",
-        "class FName {}; struct FGuid {}; class FObjectInitializer {}; class FByteArray {};",
+        "class FName {}; struct FGuid {}; class FObjectInitializer {}; class FByteBuffer {};",
         "template<class T> class TObjectPtr {}; template<class T> class TSoftObjectPtr {};",
         "}",
     ]

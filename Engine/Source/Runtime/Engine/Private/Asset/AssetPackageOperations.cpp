@@ -176,7 +176,7 @@ namespace Durin
 	{
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			const FPackagePath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
@@ -291,13 +291,13 @@ namespace Durin
 			uint64 ObjectCount = 0;
 			uint64 BulkSegmentExtent = 0;
 			FXxHash128 BulkSegmentDigest;
-			FByteArray BulkBytes;
+			FByteBuffer BulkBytes;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
 		auto LoadPackageBulkBytes(std::string_view PhysicalPath,
-			FByteArray& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetResult
 		{
 			OutBytes.clear();
 			std::filesystem::path BulkPath(PhysicalPath);
@@ -326,8 +326,8 @@ namespace Durin
 				Classified.NormalizedVirtualPath, OutPath);
 		}
 
-		auto ValidateAssetPackageClosure(std::span<const std::byte> Bytes,
-			std::span<const std::byte> BulkBytes, const FPackagePath& PackagePath)
+		auto ValidateAssetPackageClosure(FByteView Bytes,
+			FByteView BulkBytes, const FPackagePath& PackagePath)
 			-> FAssetResult
 		{
 			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
@@ -469,7 +469,7 @@ namespace Durin
 			const std::filesystem::path& PackagePath,
 			FXxHash128 ContainerHash,
 			uint64 Extent,
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			FEditorBulkDataCompanionTransaction& OutTransaction,
 			std::string& OutError) -> bool
 		{
@@ -494,7 +494,7 @@ namespace Durin
 			}
 			if (OutTransaction.bHadFinal)
 			{
-				FByteArray PriorBytes;
+				FByteBuffer PriorBytes;
 				if (!FFileHelper::LoadFileToArray(PriorBytes, OutTransaction.FinalPath))
 				{
 					OutError = "Prior authored bulk companion is unreadable.";
@@ -534,7 +534,7 @@ namespace Durin
 			}
 			else
 			{
-				FByteArray PriorBytes;
+				FByteBuffer PriorBytes;
 				if (!FFileHelper::LoadFileToArray(PriorBytes, Transaction.BackupPath))
 				{
 					OutError = "Authored bulk rollback backup is missing or unreadable.";
@@ -565,7 +565,7 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			if (!Transaction.bPublished) return true;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
 				|| Bytes.size() != Transaction.Extent
 				|| FXxHash128::HashBuffer(Bytes) != Transaction.ContainerHash)
@@ -744,7 +744,7 @@ namespace Durin
 					std::string DeclaringStruct, FieldName, Signature;
 					uint8 Kind = 0;
 					uint64 PayloadSize = 0;
-					std::span<const std::byte> Payload;
+					FByteView Payload;
 					if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
 						return Error(EAssetError::CorruptFile, "Invalid struct field record.");
 					if (DeclaringStruct != StructName) continue;
@@ -944,7 +944,7 @@ namespace Durin
 
 		auto BuildPackageBytes(
 			DPackage* Package,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
@@ -1042,15 +1042,15 @@ namespace Durin
 
 	}
 
-	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes,
-		const FPackagePath& PackagePath, std::span<const std::byte> BulkBytes) -> FAssetResult
+	auto ValidateAssetPackageBytes(FByteView Bytes,
+		const FPackagePath& PackagePath, FByteView BulkBytes) -> FAssetResult
 	{
 		return ValidateAssetPackageClosure(Bytes, BulkBytes, PackagePath);
 	}
 
 	auto SerializeAssetPackageBytes(
 		DPackage* Package,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
@@ -1058,8 +1058,8 @@ namespace Durin
 
 	auto SerializeAssetPackageClosure(
 		DPackage* Package,
-		FByteArray& OutBytes,
-		FByteArray& OutBulkBytes,
+		FByteBuffer& OutBytes,
+		FByteBuffer& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		FPackageFile File;
@@ -1086,7 +1086,7 @@ namespace Durin
 			DPackage* Package = nullptr;
 			FPackagePath Path;
 			FPackageFile File;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			std::filesystem::path Destination;
 			std::filesystem::path Staged;
 			std::filesystem::path Backup;
@@ -1226,7 +1226,7 @@ namespace Durin
 					return Error(EAssetError::IoError,
 						"Injected asset-bundle companion publication failure.");
 				}
-				FByteArray CompanionBytes;
+				FByteBuffer CompanionBytes;
 				FPackageBulkSegmentSummary SegmentSummary;
 				std::string CompanionError;
 				CompanionBytes = Staged.File.BulkBytes;
@@ -1428,11 +1428,11 @@ namespace Durin
 		if (FAssetRegistryResult Result = ReadAssetPackageHeader(
 			PhysicalPath, Path, Header); !Result)
 			return AssetPrivate::ToAssetResult(std::move(Result));
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
 				"The asset package could not be read for admission validation.");
-		FByteArray BulkBytes;
+		FByteBuffer BulkBytes;
 		if (FAssetResult Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 			return Result;
 		if (FAssetResult Result = ValidateAssetPackageBytes(Bytes, Path, BulkBytes); !Result)
@@ -1558,7 +1558,7 @@ namespace Durin
 			|| Reader.Offset > Payload.size()
 			|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
 		return FXxHash128::HashBuffer(
-			std::span<const std::byte>(Payload).subspan(Reader.Offset))
+			FByteView(Payload).subspan(Reader.Offset))
 			== OutValue.ContentHash;
 	}
 
@@ -1626,7 +1626,7 @@ namespace Durin
 	{
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			const FPackagePath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
@@ -1639,7 +1639,7 @@ namespace Durin
 			if (!PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
 					"DAST v9 inspection requires a mounted package identity.");
-			FByteArray BulkBytes;
+			FByteBuffer BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
 			const AssetPrivate::FAssetPackageReadContext Context{
@@ -1669,7 +1669,7 @@ namespace Durin
 		FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
 		return InspectAssetPackageBytes(PhysicalPath, Bytes, PackagePath, OutInspection);
@@ -1677,23 +1677,23 @@ namespace Durin
 
 
 	auto CanonicalizeAssetPackageForCook(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
-		FByteArray& OutBytes,
-		FByteArray& OutBulkBytes) -> FAssetResult
+		FByteBuffer& OutBytes,
+		FByteBuffer& OutBulkBytes) -> FAssetResult
 	{
 		return CanonicalizeAssetPackageForCook(
 			Bytes, BulkBytes, PackagePath, PackagePath, OutBytes, OutBulkBytes);
 	}
 
 	auto CanonicalizeAssetPackageForCook(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& SourcePackagePath,
 		const FPackagePath& OutputPackagePath,
-		FByteArray& OutBytes,
-		FByteArray& OutBulkBytes) -> FAssetResult
+		FByteBuffer& OutBytes,
+		FByteBuffer& OutBulkBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		OutBulkBytes.clear();
@@ -1703,8 +1703,8 @@ namespace Durin
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
 				"Cook canonicalization requires package mutation capability.");
-		FByteArray RelocatedBytes;
-		FByteArray RelocatedBulkBytes;
+		FByteBuffer RelocatedBytes;
+		FByteBuffer RelocatedBulkBytes;
 		if (SourcePackagePath != OutputPackagePath)
 		{
 			const AssetPrivate::FAssetPackageReadContext SourceContext{

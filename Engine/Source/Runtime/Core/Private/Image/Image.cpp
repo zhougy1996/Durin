@@ -176,7 +176,7 @@ namespace Durin::Image
 		else PixelSize = Expected;
 	}
 
-	auto FImage::TryCreate(FImageInfo Info, FByteArray Pixels, FImage& OutImage,
+	auto FImage::TryCreate(FImageInfo Info, FByteBuffer Pixels, FImage& OutImage,
 		std::string* OutError) -> bool
 	{
 		return TryCreate(Info, FSharedByteBuffer::Take(std::move(Pixels)), OutImage, OutError);
@@ -217,7 +217,7 @@ namespace Durin::Image
 		const auto SourceFormat = GetRawImageFormatInfo(SourceInfo.Format);
 		const auto DestFormat = GetRawImageFormatInfo(DestinationFormat);
 		const uint64 PixelCount = Source.GetPixels().size() / SourceFormat.BytesPerPixel;
-		FByteArray Bytes(static_cast<size_t>(DestinationBytes));
+		FByteBuffer Bytes(static_cast<size_t>(DestinationBytes));
 		for (uint64 Index = 0; Index < PixelCount; ++Index)
 		{
 			std::array<double, 4> Pixel;
@@ -275,13 +275,13 @@ namespace Durin::Image
 	{
 		return FImage::TryCreate({.Width = Width, .Height = Height,
 			.Format = ERawImageFormat::RGBA8, .GammaSpace = GammaSpace},
-			FByteArray(Pixels), OutImage, OutError);
+			FByteBuffer(Pixels), OutImage, OutError);
 	}
 
 	auto FDecodedGrayscale16Image::ToImage(EImageGammaSpace GammaSpace,
 		FImage& OutImage, std::string* OutError) const -> bool
 	{
-		FByteArray Bytes(Samples.size() * sizeof(uint16));
+		FByteBuffer Bytes(Samples.size() * sizeof(uint16));
 		if (!Bytes.empty()) std::memcpy(Bytes.data(), Samples.data(), Bytes.size());
 		return FImage::TryCreate({.Width = Width, .Height = Height,
 			.Format = ERawImageFormat::G16, .GammaSpace = GammaSpace},
@@ -294,7 +294,7 @@ namespace Durin::Image
 		if (PixelCount > std::numeric_limits<size_t>::max() / 4
 			|| Pixels.size() != PixelCount * 3)
 			return Fail("Decoded HDR image dimensions and pixels do not match.", OutError);
-		FByteArray Bytes(static_cast<size_t>(PixelCount) * 4 * sizeof(float));
+		FByteBuffer Bytes(static_cast<size_t>(PixelCount) * 4 * sizeof(float));
 		for (size_t Index = 0; Index < static_cast<size_t>(PixelCount); ++Index)
 		{
 			std::memcpy(Bytes.data() + Index * 4 * sizeof(float),

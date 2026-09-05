@@ -46,7 +46,7 @@ namespace Durin::Editor::Texture
 
 		// Uploads one editor-generated RGBA8 inspection image.
 		auto UploadRGBA8(uint32 Width, uint32 Height,
-			std::span<const std::byte> Pixels,
+			FByteView Pixels,
 			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA) -> void;
 
 		// Select the displayed channel without re-uploading the source texture.
@@ -65,7 +65,7 @@ namespace Durin::Editor::Texture
 
 	private:
 		auto UploadPixels(EPixelFormat Format, uint32 Width, uint32 Height, uint32 RowPitch,
-			std::span<const std::byte> Pixels) -> void;
+			FByteView Pixels) -> void;
 		auto RefreshDisplayTexture() -> void;
 		auto UnregisterDisplayTexture() -> void;
 

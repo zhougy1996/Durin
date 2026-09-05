@@ -980,7 +980,7 @@ namespace Durin
 
 			EShaderStageFlags StageFlags;
 			uint32 Offset;
-			FByteArray Data;
+			FByteBuffer Data;
 		};
 
 		struct FWriteBufferCommand
@@ -1014,7 +1014,7 @@ namespace Durin
 
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
-			FByteArray Data;
+			FByteBuffer Data;
 		};
 
 		struct FInitializeTextureCommand
@@ -1061,7 +1061,7 @@ namespace Durin
 				uint32 InArraySlice,
 				const FUpdateTextureRegion2D& InRegion,
 				uint32 InSourcePitch,
-				std::span<const std::byte> InSourceData)
+				FByteView InSourceData)
 				: Texture(InTexture)
 				, MipIndex(InMipIndex)
 				, ArraySlice(InArraySlice)
@@ -1130,7 +1130,7 @@ namespace Durin
 			uint32 ArraySlice;
 			FUpdateTextureRegion2D Region;
 			uint32 SourcePitch = 0;
-			FByteArray Data;
+			FByteBuffer Data;
 		};
 
 		struct FUpdateTexture3DCommand
@@ -1141,7 +1141,7 @@ namespace Durin
 				const FUpdateTextureRegion3D& InRegion,
 				uint32 InSourceRowPitch,
 				uint32 InSourceDepthPitch,
-				std::span<const std::byte> InSourceData)
+				FByteView InSourceData)
 				: Texture(InTexture), MipIndex(InMipIndex), Region(InRegion)
 			{
 				check(Texture && !InSourceData.empty());
@@ -1213,7 +1213,7 @@ namespace Durin
 			FUpdateTextureRegion3D Region;
 			uint32 SourceRowPitch = 0;
 			uint32 SourceDepthPitch = 0;
-			FByteArray Data;
+			FByteBuffer Data;
 		};
 
 		struct FSetShaderParametersCommand
@@ -1408,7 +1408,7 @@ namespace Durin
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
-			FByteArray Data;
+			FByteBuffer Data;
 		};
 
 		std::unordered_map<FRHIBuffer*, std::unique_ptr<FPendingLock>> PendingLocks;
@@ -1898,7 +1898,7 @@ namespace Durin
 		uint32 ArraySlice,
 		const FUpdateTextureRegion2D& UpdateRegion,
 		uint32 SourcePitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		RecordCommand<FUpdateTexture2DCommand>(
 			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
@@ -1910,7 +1910,7 @@ namespace Durin
 		const FUpdateTextureRegion3D& UpdateRegion,
 		uint32 SourceRowPitch,
 		uint32 SourceDepthPitch,
-		std::span<const std::byte> SourceData) -> void
+		FByteView SourceData) -> void
 	{
 		RecordCommand<FUpdateTexture3DCommand>(Texture, MipIndex, UpdateRegion,
 			SourceRowPitch, SourceDepthPitch, SourceData);
@@ -2075,7 +2075,7 @@ namespace Durin
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		FByteArray& OutData) -> bool
+		FByteBuffer& OutData) -> bool
 	{
 		bool bSucceeded = false;
 		Executor->ExecuteSynchronousContextOperation(true,

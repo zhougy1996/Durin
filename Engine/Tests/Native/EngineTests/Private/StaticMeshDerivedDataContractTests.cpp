@@ -34,12 +34,12 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 {
 	const Durin::FStaticMeshBuildKeyInput Input = MakeKeyInput();
 	std::string Error;
-	const Durin::FByteArray First =
+	const Durin::FByteBuffer First =
 		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	const Durin::FByteArray Second =
+	const Durin::FByteBuffer Second =
 		Durin::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
-	const Durin::FByteArray Expected = [] {
+	const Durin::FByteBuffer Expected = [] {
 		const uint8 Values[]{
 		0x04, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
@@ -49,8 +49,8 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		0x04, 0x00, 0x00, 0x00,
 		0x05, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00};
-		const std::span<const std::byte> Bytes = std::as_bytes(std::span{Values});
-		return Durin::FByteArray(Bytes.begin(), Bytes.end());
+		const Durin::FByteView Bytes = std::as_bytes(std::span{Values});
+		return Durin::FByteBuffer(Bytes.begin(), Bytes.end());
 	}();
 
 	EXPECT_EQ(First, Second);
@@ -85,10 +85,10 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	const Durin::FStaticMeshCollisionBuildKeyInput Baseline =
 		MakeCollisionKeyInput();
 	std::string Error;
-	const Durin::FByteArray Bytes =
+	const Durin::FByteBuffer Bytes =
 		Durin::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	const Durin::FByteArray Expected = [] {
+	const Durin::FByteBuffer Expected = [] {
 		const uint8 Values[]{
 			0x03, 0x00, 0x00, 0x00,
 			0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
@@ -98,8 +98,8 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 			0x02, 0x00, 0x00, 0x00,
 			0x02, 0x00, 0x00, 0x00,
 			0x01, 0x00, 0x00, 0x00};
-		const std::span<const std::byte> View = std::as_bytes(std::span{Values});
-		return Durin::FByteArray(View.begin(), View.end());
+		const Durin::FByteView View = std::as_bytes(std::span{Values});
+		return Durin::FByteBuffer(View.begin(), View.end());
 	}();
 	EXPECT_EQ(Bytes, Expected);
 	const Durin::FCacheKeyProxy BaselineKey =

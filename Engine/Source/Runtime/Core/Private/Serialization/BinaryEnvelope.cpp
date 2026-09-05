@@ -23,7 +23,7 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto ReadLittleEndian(std::span<const std::byte> Bytes, size_t Offset, T& OutValue) -> bool
+		auto ReadLittleEndian(FByteView Bytes, size_t Offset, T& OutValue) -> bool
 		{
 			if (Offset > Bytes.size() || sizeof(T) > Bytes.size() - Offset) return false;
 			T Value = 0;
@@ -34,7 +34,7 @@ namespace Durin
 		}
 
 		template<typename T>
-		auto WriteLittleEndian(std::span<std::byte> Bytes, size_t Offset, T Value) -> void
+		auto WriteLittleEndian(FMutableByteView Bytes, size_t Offset, T Value) -> void
 		{
 			for (size_t Index = 0; Index < sizeof(T); ++Index)
 				Bytes[Offset + Index] = static_cast<std::byte>((Value >> (Index * 8)) & 0xff);
@@ -68,7 +68,7 @@ namespace Durin
 			return true;
 		}
 
-		auto HashHeaderWithZeroedField(std::span<const std::byte> Header) -> FXxHash128
+		auto HashHeaderWithZeroedField(FByteView Header) -> FXxHash128
 		{
 			FXxHash128Builder Builder;
 			Builder.Update(Header.first(HeaderHashOffset));
@@ -122,7 +122,7 @@ namespace Durin
 	}
 
 	auto ParseBinaryEnvelopePrefix(
-		std::span<const std::byte> PrefixBytes,
+		FByteView PrefixBytes,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& Limits,
 		FBinaryEnvelopePreamble& OutPreamble,
@@ -173,7 +173,7 @@ namespace Durin
 
 	auto EncodeBinaryEnvelopePreamble(
 		const FBinaryEnvelopePreamble& Preamble,
-		std::span<std::byte> Destination,
+		FMutableByteView Destination,
 		FBinaryEnvelopeDiagnostic* OutDiagnostic) -> bool
 	{
 		if (Destination.size() < BinaryEnvelopePreambleBytes)
@@ -200,7 +200,7 @@ namespace Durin
 	}
 
 	auto ValidateBinaryEnvelopeHeader(
-		std::span<const std::byte> FrontMatter,
+		FByteView FrontMatter,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& DiscoveryLimits,
 		const FBinaryFormatRegistry& Registry,
@@ -245,13 +245,13 @@ namespace Durin
 	}
 
 	auto FinalizeBinaryEnvelopeHeader(
-		std::span<std::byte> FrontMatter,
+		FMutableByteView FrontMatter,
 		uint64 PhysicalFileBytes,
 		const FBinaryEnvelopeLimits& Limits,
 		FBinaryEnvelopeDiagnostic* OutDiagnostic) -> bool
 	{
 		FBinaryEnvelopePreamble Preamble;
-		const std::span<const std::byte> ReadOnly(FrontMatter);
+		const FByteView ReadOnly(FrontMatter);
 		if (!ParseBinaryEnvelopePrefix(ReadOnly, PhysicalFileBytes, Limits, Preamble, OutDiagnostic))
 			return false;
 		if (Preamble.HeaderBytes != FrontMatter.size())

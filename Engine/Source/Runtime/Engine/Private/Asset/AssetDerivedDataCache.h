@@ -67,7 +67,7 @@ namespace Durin::AssetDerivedDataCache
 	}
 
 	inline auto Load(const FCacheKeyProxy& Key,
-		uint64 MaximumValueBytes, FByteArray& OutBytes,
+		uint64 MaximumValueBytes, FByteBuffer& OutBytes,
 		FOperationDiagnostic& OutDiagnostic) -> ELoadResult
 	{
 		OutBytes.clear();
@@ -81,7 +81,7 @@ namespace Durin::AssetDerivedDataCache
 
 	inline auto Store(
 		const FCacheKeyProxy& Key,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		uint64 MaximumValueBytes,
 		FOperationDiagnostic& OutDiagnostic) -> bool
 	{

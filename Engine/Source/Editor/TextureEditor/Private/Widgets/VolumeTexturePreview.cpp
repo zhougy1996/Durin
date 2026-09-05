@@ -4,7 +4,7 @@ namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		auto Extract(std::span<const std::byte> Voxels, uint32 Width, uint32 Height,
+		auto Extract(FByteView Voxels, uint32 Width, uint32 Height,
 			uint32 Depth, uint32 RowPitch, uint32 DepthPitch,
 			uint32 BytesPerVoxel, EVolumeTexturePreviewAxis Axis, uint32 SliceIndex)
 			-> FVolumeTexturePreviewSlice

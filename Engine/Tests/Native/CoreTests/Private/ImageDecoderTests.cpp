@@ -13,7 +13,7 @@ namespace Durin::Image
 			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
 
-		auto WriteFixture(std::string_view Name, std::span<const std::byte> Bytes) -> std::filesystem::path
+		auto WriteFixture(std::string_view Name, Durin::FByteView Bytes) -> std::filesystem::path
 		{
 			const std::filesystem::path Path = Durin::Testing::GetTestWorkDirectory() / Name;
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
@@ -21,23 +21,23 @@ namespace Durin::Image
 			return Path;
 		}
 
-		auto MakeOldRadianceFixture() -> Durin::FByteArray
+		auto MakeOldRadianceFixture() -> Durin::FByteBuffer
 		{
 			constexpr std::string_view Header =
 				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 2\n";
 			const auto HeaderBytes = std::as_bytes(std::span{Header});
-			Durin::FByteArray Result(HeaderBytes.begin(), HeaderBytes.end());
+			Durin::FByteBuffer Result(HeaderBytes.begin(), HeaderBytes.end());
 			Result.insert(Result.end(), {std::byte{128}, std::byte{64}, std::byte{32}, std::byte{131},
 				std::byte{32}, std::byte{64}, std::byte{16}, std::byte{130}});
 			return Result;
 		}
 
-		auto MakeNewRadianceFixture() -> Durin::FByteArray
+		auto MakeNewRadianceFixture() -> Durin::FByteBuffer
 		{
 			constexpr std::string_view Header =
 				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
 			const auto HeaderBytes = std::as_bytes(std::span{Header});
-			Durin::FByteArray Result(HeaderBytes.begin(), HeaderBytes.end());
+			Durin::FByteBuffer Result(HeaderBytes.begin(), HeaderBytes.end());
 			Result.insert(Result.end(), {std::byte{2}, std::byte{2}, std::byte{0}, std::byte{8}});
 			for (uint8 Value : {32, 64, 128, 131})
 				Result.insert(Result.end(), {std::byte{128 + 8}, static_cast<std::byte>(Value)});
@@ -69,7 +69,7 @@ namespace Durin::Image
 		EXPECT_EQ(ByteSize, 8u);
 		FImage Image;
 		std::string Error;
-		ASSERT_TRUE(FImage::TryCreate(Info, FByteArray(8, std::byte{7}), Image, &Error)) << Error;
+		ASSERT_TRUE(FImage::TryCreate(Info, FByteBuffer(8, std::byte{7}), Image, &Error)) << Error;
 		const FImageView View = Image.GetView();
 		Image.Reset();
 		ASSERT_TRUE(View.IsValid());
@@ -161,7 +161,7 @@ namespace Durin::Image
 		EXPECT_EQ(Error, "The encoded image is too large.");
 
 		const auto TransparentBytes = std::as_bytes(std::span{TransparentPngBytes});
-		Durin::FByteArray OversizedPng(TransparentBytes.begin(), TransparentBytes.end());
+		Durin::FByteBuffer OversizedPng(TransparentBytes.begin(), TransparentBytes.end());
 		// The IHDR advertises 8192 x 8192 pixels; stbi_info reads it without allocating the decoded image.
 		OversizedPng[16] = std::byte{0};
 		OversizedPng[17] = std::byte{0};
@@ -182,7 +182,7 @@ namespace Durin::Image
 	{
 		constexpr uint32 Width = 64;
 		constexpr uint32 Height = 64;
-		Durin::FByteArray Pixels(static_cast<size_t>(Width) * Height * 4);
+		Durin::FByteBuffer Pixels(static_cast<size_t>(Width) * Height * 4);
 		for (size_t Pixel = 0; Pixel < Pixels.size() / 4; ++Pixel)
 		{
 			Pixels[Pixel * 4] = std::byte{24};
@@ -191,7 +191,7 @@ namespace Durin::Image
 			Pixels[Pixel * 4 + 3] = std::byte{255};
 		}
 
-		Durin::FByteArray Encoded;
+		Durin::FByteBuffer Encoded;
 		ASSERT_TRUE(EncodeRgba8Png(Pixels, Width, Height, Encoded));
 		EXPECT_LT(Encoded.size(), Pixels.size() / 4);
 
@@ -205,7 +205,7 @@ namespace Durin::Image
 
 	TEST(FImageEncoderTests, RejectsInvalidRgba8AndClearsOutput)
 	{
-		Durin::FByteArray Encoded = {std::byte{1}};
+		Durin::FByteBuffer Encoded = {std::byte{1}};
 		EXPECT_FALSE(EncodeRgba8Png({}, 0, 1, Encoded));
 		EXPECT_TRUE(Encoded.empty());
 
@@ -220,7 +220,7 @@ namespace Durin::Image
 	{
 		FDecodedFloatImage Image;
 		std::string Error;
-		const Durin::FByteArray OldFixture = MakeOldRadianceFixture();
+		const Durin::FByteBuffer OldFixture = MakeOldRadianceFixture();
 		ASSERT_TRUE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error)) << Error;
 		ASSERT_EQ(Image.Pixels.size(), 6u);
 		EXPECT_EQ(Image.Width, 2u);
@@ -232,7 +232,7 @@ namespace Durin::Image
 		EXPECT_FLOAT_EQ(Image.Pixels[4], 1.0f);
 		EXPECT_FLOAT_EQ(Image.Pixels[5], 0.25f);
 
-		const Durin::FByteArray NewFixture = MakeNewRadianceFixture();
+		const Durin::FByteBuffer NewFixture = MakeNewRadianceFixture();
 		ASSERT_TRUE(DecodeRadianceHDRFromMemory(NewFixture, Image, Error)) << Error;
 		ASSERT_EQ(Image.Pixels.size(), 24u);
 		for (size_t Pixel = 0; Pixel < 8; ++Pixel)
@@ -255,7 +255,7 @@ namespace Durin::Image
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_NE(Error.find("signature"), std::string::npos);
 
-		Durin::FByteArray Truncated = MakeNewRadianceFixture();
+		Durin::FByteBuffer Truncated = MakeNewRadianceFixture();
 		Truncated.pop_back();
 		EXPECT_FALSE(DecodeRadianceHDRFromMemory(Truncated, Image, Error));
 		EXPECT_TRUE(Image.Pixels.empty());
@@ -263,7 +263,7 @@ namespace Durin::Image
 
 		FRadianceHDRDecodeLimits Limits;
 		Limits.MaximumDecodedPixels = 1;
-		const Durin::FByteArray OldFixture = MakeOldRadianceFixture();
+		const Durin::FByteBuffer OldFixture = MakeOldRadianceFixture();
 		EXPECT_FALSE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error, Limits));
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_NE(Error.find("configured limit"), std::string::npos);

@@ -651,12 +651,12 @@ class TestReflectionProperties:
         symbols = self.symbols
         byte = _make_property_from_spelling("Value", "std::byte", symbols)
         blob = _make_property_from_spelling("Data", "std::vector<std::byte>", symbols)
-        byte_array = _make_property_from_spelling("Data", "FByteArray", symbols)
-        qualified_byte_array = _make_property_from_spelling("Data", "Durin::FByteArray", symbols)
+        byte_buffer = _make_property_from_spelling("Data", "FByteBuffer", symbols)
+        qualified_byte_buffer = _make_property_from_spelling("Data", "Durin::FByteBuffer", symbols)
         assert byte is not None and byte.kind == "Byte"
         assert blob is None
-        assert byte_array is not None and byte_array.kind == "Blob" and byte_array.inner is None
-        assert qualified_byte_array is not None and qualified_byte_array.kind == "Blob"
+        assert byte_buffer is not None and byte_buffer.kind == "Blob" and byte_buffer.inner is None
+        assert qualified_byte_buffer is not None and qualified_byte_buffer.kind == "Blob"
         bulk = _make_property_from_spelling(
             "Payload", "Durin::FEditorBulkData", symbols
         )
@@ -665,7 +665,7 @@ class TestReflectionProperties:
             "Nested", "std::vector<std::vector<std::byte>>", symbols
         ) is None
         assert _make_property_from_spelling(
-            "NestedAlias", "std::vector<FByteArray>", symbols
+            "NestedAlias", "std::vector<FByteBuffer>", symbols
         ) is None
 
         assert _make_property_from_spelling("Bits", "std::vector<bool>", symbols) is None

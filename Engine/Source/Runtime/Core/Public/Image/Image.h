@@ -61,7 +61,7 @@ namespace Durin::Image
 
 		auto IsValid() const -> bool { return Info.IsValid() && Pixels.GetSize() > 0; }
 		auto GetInfo() const -> const FImageInfo& { return Info; }
-		auto GetPixels() const -> std::span<const std::byte>
+		auto GetPixels() const -> FByteView
 		{
 			return Pixels.GetBytes().subspan(
 				static_cast<size_t>(PixelOffset), static_cast<size_t>(PixelSize));
@@ -80,14 +80,14 @@ namespace Durin::Image
 	{
 	public:
 		FImage() = default;
-		CORE_API static auto TryCreate(FImageInfo Info, FByteArray Pixels,
+		CORE_API static auto TryCreate(FImageInfo Info, FByteBuffer Pixels,
 			FImage& OutImage, std::string* OutError = nullptr) -> bool;
 		CORE_API static auto TryCreate(FImageInfo Info, FSharedByteBuffer Pixels,
 			FImage& OutImage, std::string* OutError = nullptr) -> bool;
 
 		auto IsValid() const -> bool { return View.IsValid(); }
 		auto GetInfo() const -> const FImageInfo& { return View.GetInfo(); }
-		auto GetPixels() const -> std::span<const std::byte> { return View.GetPixels(); }
+		auto GetPixels() const -> FByteView { return View.GetPixels(); }
 		auto GetView() const -> FImageView { return View; }
 		void Reset() { View = {}; }
 
@@ -107,7 +107,7 @@ namespace Durin::Image
 	// the common immutable FImage value.
 	struct FDecodedImage
 	{
-		FByteArray Pixels;
+		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint8 SourceChannelCount = 0;

@@ -48,7 +48,7 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DBuildProduct Product;
 		FXxHash128 EncodedSourceHash;
 		std::string SourceFilename;
-		FByteArray GeneratedSourceBytes;
+		FByteBuffer GeneratedSourceBytes;
 		uint64 SourceFileSize = 0;
 	};
 

@@ -15,7 +15,7 @@ namespace Durin
 	namespace
 	{
 		auto MakeDerivedDataKey(
-			std::string_view BucketName, std::span<const std::byte> Bytes)
+			std::string_view BucketName, FByteView Bytes)
 			-> FCacheKeyProxy
 		{
 #if DURIN_WITH_EDITOR
@@ -214,9 +214,9 @@ namespace Durin
 	}
 
 	auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DBuildKeyInput& Input) -> FByteArray
+		const FTexture2DBuildKeyInput& Input) -> FByteBuffer
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
 		return Bytes;
@@ -230,9 +230,9 @@ namespace Durin
 	}
 
 	auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteArray
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTextureCubeBuildKeyInput&>(Input).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -243,15 +243,15 @@ namespace Durin
 	auto BuildTextureCubeDerivedDataKey(
 		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
 	{
-		const FByteArray Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
+		const FByteBuffer Bytes = BuildTextureCubeDerivedDataKeyBytes(Input, OutError);
 		return Bytes.empty() ? FCacheKeyProxy{}
 			: MakeDerivedDataKey(TextureCubeCacheBucket, Bytes);
 	}
 
 	auto BuildVolumeTextureDerivedDataKeyBytes(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteArray
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteBuffer
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FVolumeTextureBuildKeyInput&>(Input).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -262,7 +262,7 @@ namespace Durin
 	auto BuildVolumeTextureDerivedDataKey(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy
 	{
-		const FByteArray Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
+		const FByteBuffer Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
 		return Bytes.empty() ? FCacheKeyProxy{}
 			: MakeDerivedDataKey(VolumeTextureCacheBucket, Bytes);
 	}
@@ -271,7 +271,7 @@ namespace Durin
 		const FTexturePlatformData& PlatformData,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -295,7 +295,7 @@ namespace Durin
 					.Width = Mip.Width,
 					.Height = Mip.Height,
 					.RowPitch = Mip.RowPitch},
-				.Data = std::span<const std::byte>(Mip.Pixels)});
+				.Data = FByteView(Mip.Pixels)});
 		}
 		return TexturePayloadContainer::Build({
 			.ProducerVersion = Texture2DPayloadProducerVersion,
@@ -309,7 +309,7 @@ namespace Durin
 	}
 
 	auto ParseTexture2DSerializedValue(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FTexturePlatformData& OutPlatformData) -> FDecodeResult
@@ -367,7 +367,7 @@ namespace Durin
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
-			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const FByteView Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteMipChain(Candidate))
@@ -386,11 +386,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Texture platform data"},
 			[&](const FTexturePlatformData& Value,
-				FByteArray& Bytes, std::string& Error) {
+				FByteBuffer& Bytes, std::string& Error) {
 				return BuildTexture2DSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const std::byte> Bytes, FTexturePlatformData& Candidate) {
+			[&](FByteView Bytes, FTexturePlatformData& Candidate) {
 				return ParseTexture2DSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});
@@ -400,7 +400,7 @@ namespace Durin
 		const FTextureCubePlatformData& PlatformData,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -428,7 +428,7 @@ namespace Durin
 						.Width = Mip.Width,
 						.Height = Mip.Height,
 						.RowPitch = Mip.RowPitch},
-					.Data = std::span<const std::byte>(Mip.Pixels)});
+					.Data = FByteView(Mip.Pixels)});
 			}
 		}
 		return TexturePayloadContainer::Build({
@@ -442,7 +442,7 @@ namespace Durin
 	}
 
 	auto ParseTextureCubeSerializedValue(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FTextureCubePlatformData& OutPlatformData) -> FDecodeResult
@@ -519,7 +519,7 @@ namespace Durin
 			Mip.Width = Record.Width;
 			Mip.Height = Record.Height;
 			Mip.RowPitch = Record.RowPitch;
-			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const FByteView Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteCubeMipChain(Candidate))
@@ -538,11 +538,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "TextureCube platform data"},
 			[&](const FTextureCubePlatformData& Value,
-				FByteArray& Bytes, std::string& Error) {
+				FByteBuffer& Bytes, std::string& Error) {
 				return BuildTextureCubeSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const std::byte> Bytes, FTextureCubePlatformData& Candidate) {
+			[&](FByteView Bytes, FTextureCubePlatformData& Candidate) {
 				return ParseTextureCubeSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});

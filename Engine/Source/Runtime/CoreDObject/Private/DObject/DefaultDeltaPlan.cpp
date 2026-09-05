@@ -83,7 +83,7 @@ namespace Durin
 				return true;
 			}
 
-			auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override
+			auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 			{
 				FDefaultDeltaNode* Node = CurrentNode();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::Bytes)
@@ -212,7 +212,7 @@ namespace Durin
 				PushContainerElement(Index, true);
 			}
 
-			auto OnCanonicalMapKey(uint64 Index, std::span<const std::byte> Token) -> void override
+			auto OnCanonicalMapKey(uint64 Index, FByteView Token) -> void override
 			{
 				FDefaultDeltaNode* Node = CurrentNode();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::Map)
@@ -316,7 +316,7 @@ namespace Durin
 			std::vector<FDefaultDeltaNode*> NodeStack;
 			std::unordered_map<FDefaultDeltaNode*, FCaptureState> CaptureStates;
 			std::unordered_map<FDefaultDeltaNode*,
-				std::unordered_map<uint64, FByteArray>> MapKeyTokens;
+				std::unordered_map<uint64, FByteBuffer>> MapKeyTokens;
 
 			auto CurrentNode() -> FDefaultDeltaNode*
 			{

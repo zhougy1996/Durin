@@ -60,8 +60,8 @@ namespace Durin
 	struct FAssetReferenceStorePackageRewrite
 	{
 		FPackagePath PackagePath;
-		FByteArray PreBytes;
-		FByteArray PostBytes;
+		FByteBuffer PreBytes;
+		FByteBuffer PostBytes;
 	};
 
 	struct FAssetReferenceStoreRewriteContribution

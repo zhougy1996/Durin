@@ -152,7 +152,7 @@ namespace Durin
 			return View;
 		}
 
-		auto CountVisiblePixels(const Durin::FByteArray& Pixels) -> size_t
+		auto CountVisiblePixels(const Durin::FByteBuffer& Pixels) -> size_t
 		{
 			size_t Result = 0;
 			for (size_t Offset = 0; Offset + 3 < Pixels.size(); Offset += 4)
@@ -200,9 +200,9 @@ namespace Durin
 			const FVector3& Forward,
 			bool bLit = false,
 			bool bSimpleElements = false
-		) -> Durin::FByteArray
+		) -> Durin::FByteBuffer
 		{
-			auto Pixels = std::make_shared<Durin::FByteArray>();
+			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			EnqueueRenderCommand<FRenderEditorGridCapture>(
 				[&Renderer, Scene, Forward, Pixels, bLit, bSimpleElements](
 					FRHICommandListImmediate& CommandList
@@ -270,8 +270,8 @@ namespace Durin
 
 		auto FailureResults = std::make_shared<
 			std::array<ERenderViewResult, 2>>();
-		auto FailurePixelsBefore = std::make_shared<Durin::FByteArray>();
-		auto FailurePixelsAfter = std::make_shared<Durin::FByteArray>();
+		auto FailurePixelsBefore = std::make_shared<Durin::FByteBuffer>();
+		auto FailurePixelsAfter = std::make_shared<Durin::FByteBuffer>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
@@ -329,9 +329,9 @@ namespace Durin
 						.bSuccess);
 		FlushRenderingCommands();
 
-		auto HDRPixels = std::make_shared<Durin::FByteArray>();
-		auto DefaultExposurePixels = std::make_shared<Durin::FByteArray>();
-		auto LowExposurePixels = std::make_shared<Durin::FByteArray>();
+		auto HDRPixels = std::make_shared<Durin::FByteBuffer>();
+		auto DefaultExposurePixels = std::make_shared<Durin::FByteBuffer>();
+		auto LowExposurePixels = std::make_shared<Durin::FByteBuffer>();
 		std::vector<FGPUTimingQueryRHIRef> PostProcessTimingQueries;
 		GPostProcessTimingQueries = &PostProcessTimingQueries;
 		SetPostProcessTimingQuerySink(CapturePostProcessTiming);
@@ -362,7 +362,7 @@ namespace Durin
 				));
 
 				auto CaptureDisplay = [&](const char* Name, float ExposureEV,
-										  Durin::FByteArray& Pixels) {
+										  Durin::FByteBuffer& Pixels) {
 					const auto OutputDesc = FRHITextureCreateDesc::Create2D(
 												Name, 1, 1, EPixelFormat::SRGBA8_UNORM
 					)
@@ -453,7 +453,7 @@ namespace Durin
 			FViewRouteCase{"AssetThumbnail", 96, 96, 0.0f, true}
 		};
 		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route, bool bGBufferDebug = false) {
-			auto Pixels = std::make_shared<Durin::FByteArray>();
+			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[&Renderer, Route, Pixels, bGBufferDebug](
 					FRHICommandListImmediate& CommandList
@@ -491,7 +491,7 @@ namespace Durin
 			return std::move(*Pixels);
 		};
 		SetViewRenderTelemetrySink(CaptureViewTelemetry);
-		std::array<Durin::FByteArray, 4> RoutePixels;
+		std::array<Durin::FByteBuffer, 4> RoutePixels;
 		for (size_t Index = 0; Index < ViewRouteCases.size(); ++Index)
 		{
 			RoutePixels[Index] = CaptureViewRoute(ViewRouteCases[Index]);
@@ -506,17 +506,17 @@ namespace Durin
 		EXPECT_EQ(RoutePixels[3][0], RoutePixels[0][0]);
 		EXPECT_EQ(RoutePixels[3][1], RoutePixels[0][1]);
 		EXPECT_EQ(RoutePixels[3][2], RoutePixels[0][2]);
-		const Durin::FByteArray MainAfterOtherViews =
+		const Durin::FByteBuffer MainAfterOtherViews =
 			CaptureViewRoute(ViewRouteCases.front());
 		EXPECT_EQ(MainAfterOtherViews, RoutePixels.front());
 		const std::array<size_t, 5> GBufferRouteOrder{3u, 1u, 2u, 0u, 3u};
-		Durin::FByteArray FirstThumbnailDebug;
+		Durin::FByteBuffer FirstThumbnailDebug;
 		for (size_t OrderIndex = 0;
 			 OrderIndex < GBufferRouteOrder.size(); ++OrderIndex)
 		{
 			const FViewRouteCase& Route =
 				ViewRouteCases[GBufferRouteOrder[OrderIndex]];
-			const Durin::FByteArray DebugPixels =
+			const Durin::FByteBuffer DebugPixels =
 				CaptureViewRoute(Route, true);
 			EXPECT_EQ(DebugPixels.size(), static_cast<size_t>(Route.Width) * Route.Height * 4u);
 			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferEnabledViews, 1u);
@@ -540,14 +540,14 @@ namespace Durin
 		}
 		SetViewRenderTelemetrySink(nullptr);
 
-		const Durin::FByteArray SimpleElementPixels = RenderGridCapture(
+		const Durin::FByteBuffer SimpleElementPixels = RenderGridCapture(
 			Renderer, nullptr, CameraDirections.front(), false, true);
 		ASSERT_EQ(SimpleElementPixels.size(), 129u * 129u * 4u);
 		EXPECT_GT(CountVisiblePixels(SimpleElementPixels), 100u);
 		ASSERT_TRUE(Renderer.RequestResourceInvalidation(
 			ERendererResourceInvalidationCause::Device).bSuccess);
 		FlushRenderingCommands();
-		const Durin::FByteArray RecoveredSimpleElementPixels =
+		const Durin::FByteBuffer RecoveredSimpleElementPixels =
 			RenderGridCapture(Renderer, nullptr, CameraDirections.front(),
 				false, true);
 		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);

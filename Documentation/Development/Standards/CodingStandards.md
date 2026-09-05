@@ -11,10 +11,14 @@ only when the translation unit requires it.
 
 Use `std::byte` for repository-owned untyped byte storage and views, including
 serialized payloads, file contents, hashes, encoded images, derived data,
-shader code, and GPU transfer data. Use `Durin::FByteArray` for owned storage
-and `std::span<const std::byte>` or `std::span<std::byte>` for borrowed views.
-`FByteArray` is the engine's mutable, uniquely owned byte container and is an
-alias of `std::vector<std::byte>`; use the alias in repository-owned code.
+shader code, and GPU transfer data. Use `Durin::FByteBuffer` for owned storage
+and `FByteView` or `FMutableByteView` for borrowed views. `FByteBuffer` is the
+engine's mutable, value-owned byte container and is an alias of
+`std::vector<std::byte>`; `FByteView` is the default read-only view, while
+`FMutableByteView` explicitly permits mutation. Use these aliases in
+repository-owned code. Keep fixed-extent byte spans in their explicit
+`std::span<const std::byte, Extent>` or `std::span<std::byte, Extent>` form so
+the extent remains visible.
 
 Use `std::as_bytes` or `std::as_writable_bytes` to view typed storage as bytes.
 Use `std::to_integer` when byte contents must participate in arithmetic, and

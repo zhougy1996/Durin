@@ -11,14 +11,14 @@ namespace
 	constexpr FBinaryEnvelopeLimits TestLimits{4096, 16384};
 
 	template<typename T>
-	auto ReferenceWrite(std::span<std::byte> Bytes, size_t Offset, T Value) -> void
+	auto ReferenceWrite(Durin::FMutableByteView Bytes, size_t Offset, T Value) -> void
 	{
 		for (size_t Index = 0; Index < sizeof(T); ++Index)
 			Bytes[Offset + Index] = static_cast<std::byte>((Value >> (Index * 8)) & 0xff);
 	}
 
 	template<typename T>
-	auto ReferenceRead(std::span<const std::byte> Bytes, size_t Offset) -> T
+	auto ReferenceRead(Durin::FByteView Bytes, size_t Offset) -> T
 	{
 		T Value = 0;
 		for (size_t Index = 0; Index < sizeof(T); ++Index)
@@ -27,9 +27,9 @@ namespace
 	}
 
 	auto ReferenceEncode(FGuid FormatId, uint32 FormatVersion, uint32 RequiredFeatures,
-		std::span<const std::byte> FormatHeader, uint64 FileBytes) -> Durin::FByteArray
+		Durin::FByteView FormatHeader, uint64 FileBytes) -> Durin::FByteBuffer
 	{
-		Durin::FByteArray Bytes(64 + FormatHeader.size());
+		Durin::FByteBuffer Bytes(64 + FormatHeader.size());
 		Bytes[0] = std::byte{0x44};
 		Bytes[1] = std::byte{0x55};
 		Bytes[2] = std::byte{0x52};
@@ -51,7 +51,7 @@ namespace
 		return Bytes;
 	}
 
-	auto ReferenceParse(std::span<const std::byte> Bytes, uint64 PhysicalFileBytes,
+	auto ReferenceParse(Durin::FByteView Bytes, uint64 PhysicalFileBytes,
 		FBinaryEnvelopePreamble& OutPreamble) -> bool
 	{
 		if (Bytes.size() < 64 || Bytes[0] != std::byte{0x44} || Bytes[1] != std::byte{0x55}
@@ -72,21 +72,21 @@ namespace
 			|| Parsed.HeaderBytes != Bytes.size() || Parsed.HeaderBytes < 64
 			|| Parsed.HeaderBytes > Parsed.FileBytes || Parsed.FileBytes != PhysicalFileBytes)
 			return false;
-		Durin::FByteArray Zeroed(Bytes.begin(), Bytes.end());
+		Durin::FByteBuffer Zeroed(Bytes.begin(), Bytes.end());
 		std::ranges::fill(std::span(Zeroed).subspan(48, 16), std::byte{});
 		if (FXxHash128::HashBuffer(Zeroed) != Parsed.HeaderHash) return false;
 		OutPreamble = Parsed;
 		return true;
 	}
 
-	auto Hex(std::span<const std::byte> Bytes) -> std::string
+	auto Hex(Durin::FByteView Bytes) -> std::string
 	{
 		std::string Result;
 		for (std::byte Byte : Bytes) Result += std::format("{:02x}", std::to_integer<uint8>(Byte));
 		return Result;
 	}
 
-	auto ReferenceRehash(Durin::FByteArray& Bytes) -> void
+	auto ReferenceRehash(Durin::FByteBuffer& Bytes) -> void
 	{
 		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
@@ -120,11 +120,11 @@ TEST(FBinaryEnvelopeTests, FieldTableAndIndependentGoldensFreezeTheWireContract)
 	EXPECT_EQ(BinaryEnvelopeHeaderVersion, 1);
 	EXPECT_EQ(BinaryEnvelopePreambleBytes, 64);
 
-	const Durin::FByteArray Minimal = ReferenceEncode(FirstFormatId, 2, 0, {}, 64);
+	const Durin::FByteBuffer Minimal = ReferenceEncode(FirstFormatId, 2, 0, {}, 64);
 	const std::array FormatHeader{
 		std::byte{0xde}, std::byte{0xad}, std::byte{0xbe}, std::byte{0xef},
 		std::byte{0x31}, std::byte{0x41}, std::byte{0x59}};
-	const Durin::FByteArray Extended = ReferenceEncode(
+	const Durin::FByteBuffer Extended = ReferenceEncode(
 		FirstFormatId, 0x01020304, 0xa1b2c3d4, FormatHeader, 0x0000000100000047ull);
 
 	EXPECT_EQ(Hex(Minimal),
@@ -145,8 +145,8 @@ TEST(FBinaryEnvelopeTests, ProductionEncodingFinalizationAndReferenceParserAgree
 {
 	const std::array FormatHeader{
 		std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
-	const Durin::FByteArray Reference = ReferenceEncode(FirstFormatId, 3, 1, FormatHeader, 96);
-	Durin::FByteArray Production(Reference.size(), std::byte{0x7b});
+	const Durin::FByteBuffer Reference = ReferenceEncode(FirstFormatId, 3, 1, FormatHeader, 96);
+	Durin::FByteBuffer Production(Reference.size(), std::byte{0x7b});
 	const FBinaryEnvelopePreamble Preamble{
 		.FormatId = FirstFormatId,
 		.FormatVersion = 3,
@@ -173,7 +173,7 @@ TEST(FBinaryEnvelopeTests, ProductionEncodingFinalizationAndReferenceParserAgree
 
 TEST(FBinaryEnvelopeTests, PrefixAndCompleteValidationAreSuccessAtomicAndBounded)
 {
-	const Durin::FByteArray Bytes = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
+	const Durin::FByteBuffer Bytes = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
 	const FBinaryEnvelopePreamble PreambleSentinel{
 		.FormatId = SecondFormatId, .FormatVersion = 99, .HeaderBytes = 64, .FileBytes = 64};
 	FBinaryEnvelopePreamble Preamble = PreambleSentinel;
@@ -190,7 +190,7 @@ TEST(FBinaryEnvelopeTests, PrefixAndCompleteValidationAreSuccessAtomicAndBounded
 	const std::array Descriptors{MakeDescriptor()};
 	const FBinaryFormatRegistry Registry = MakeRegistry(Descriptors);
 	FValidatedBinaryEnvelope Output{.Preamble = PreambleSentinel};
-	Durin::FByteArray Corrupt = Bytes;
+	Durin::FByteBuffer Corrupt = Bytes;
 	Corrupt[0] ^= std::byte{1};
 	EXPECT_FALSE(ValidateBinaryEnvelopeHeader(
 		Corrupt, 64, TestLimits, Registry, Output, &Diagnostic));
@@ -274,7 +274,7 @@ TEST(FBinaryEnvelopeTests, PrefixDiagnosticsCoverVersionsLimitsIdentityAndExtrem
 	FBinaryEnvelopePreamble Output{
 		.FormatId = SecondFormatId, .FormatVersion = 99, .HeaderBytes = 64, .FileBytes = 64};
 	const FBinaryEnvelopePreamble Sentinel = Output;
-	auto ExpectError = [&](const Durin::FByteArray& Bytes, uint64 PhysicalBytes,
+	auto ExpectError = [&](const Durin::FByteBuffer& Bytes, uint64 PhysicalBytes,
 		const FBinaryEnvelopeLimits& Limits, EBinaryEnvelopeError Error) {
 		Output = Sentinel;
 		EXPECT_FALSE(ParseBinaryEnvelopePrefix(Bytes, PhysicalBytes, Limits, Output, &Diagnostic));
@@ -282,7 +282,7 @@ TEST(FBinaryEnvelopeTests, PrefixDiagnosticsCoverVersionsLimitsIdentityAndExtrem
 		EXPECT_EQ(Output.FormatId, Sentinel.FormatId);
 	};
 
-	Durin::FByteArray Bytes = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
+	Durin::FByteBuffer Bytes = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
 	Bytes[4] = std::byte{2};
 	ExpectError(Bytes, 64, TestLimits, EBinaryEnvelopeError::UnsupportedHeaderVersion);
 	Bytes = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
@@ -314,7 +314,7 @@ TEST(FBinaryEnvelopeTests, VersionFeaturesExtentsIdentityAndHashFailClosed)
 	FBinaryEnvelopeDiagnostic Diagnostic;
 	FValidatedBinaryEnvelope Output;
 
-	auto ExpectError = [&](const Durin::FByteArray& Bytes, uint64 PhysicalBytes,
+	auto ExpectError = [&](const Durin::FByteBuffer& Bytes, uint64 PhysicalBytes,
 		EBinaryEnvelopeError Error) {
 		EXPECT_FALSE(ValidateBinaryEnvelopeHeader(
 			Bytes, PhysicalBytes, TestLimits, Registry, Output, &Diagnostic));
@@ -330,10 +330,10 @@ TEST(FBinaryEnvelopeTests, VersionFeaturesExtentsIdentityAndHashFailClosed)
 	ExpectError(ReferenceEncode(FirstFormatId, 3, 0, {}, 65), 64,
 		EBinaryEnvelopeError::FileSizeMismatch);
 
-	Durin::FByteArray BadHash = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
+	Durin::FByteBuffer BadHash = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
 	BadHash[48] ^= std::byte{1};
 	ExpectError(BadHash, 64, EBinaryEnvelopeError::HeaderHashMismatch);
-	Durin::FByteArray ProtectedMutation = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
+	Durin::FByteBuffer ProtectedMutation = ReferenceEncode(FirstFormatId, 3, 0, {}, 64);
 	ProtectedMutation[28] ^= std::byte{1};
 	ExpectError(ProtectedMutation, 64, EBinaryEnvelopeError::HeaderHashMismatch);
 }
@@ -342,12 +342,12 @@ TEST(FBinaryEnvelopeTests, DeterministicPreambleMutationIsBoundedAndStable)
 {
 	const std::array Descriptors{MakeDescriptor()};
 	const FBinaryFormatRegistry Registry = MakeRegistry(Descriptors);
-	const Durin::FByteArray Golden = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
+	const Durin::FByteBuffer Golden = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
 	const FValidatedBinaryEnvelope Sentinel{.Preamble = {.FormatId = SecondFormatId}};
 
 	for (size_t Offset = 0; Offset < Golden.size(); ++Offset)
 	{
-		Durin::FByteArray Mutated = Golden;
+		Durin::FByteBuffer Mutated = Golden;
 		Mutated[Offset] ^= std::byte{0x5a};
 		FBinaryEnvelopeDiagnostic FirstDiagnostic;
 		FBinaryEnvelopeDiagnostic SecondDiagnostic;
@@ -374,7 +374,7 @@ TEST(FBinaryEnvelopeTests, ExtendedFrontMatterMutationAndFinalizationRemainBound
 	std::array<std::byte, 192> FormatHeader{};
 	for (size_t Index = 0; Index < FormatHeader.size(); ++Index)
 		FormatHeader[Index] = static_cast<std::byte>((Index * 37 + 11) & 0xff);
-	const Durin::FByteArray Golden = ReferenceEncode(
+	const Durin::FByteBuffer Golden = ReferenceEncode(
 		FirstFormatId, 3, 1, FormatHeader, 512);
 	uint64 State = 0x9e3779b97f4a7c15ull;
 	for (size_t Mutation = 0; Mutation < 512; ++Mutation)
@@ -382,7 +382,7 @@ TEST(FBinaryEnvelopeTests, ExtendedFrontMatterMutationAndFinalizationRemainBound
 		State ^= State << 7;
 		State ^= State >> 9;
 		State ^= State << 8;
-		Durin::FByteArray Bytes = Golden;
+		Durin::FByteBuffer Bytes = Golden;
 		const size_t Offset = static_cast<size_t>(State % Bytes.size());
 		Bytes[Offset] ^= static_cast<std::byte>((State >> 24) | 1);
 		FValidatedBinaryEnvelope First;
@@ -397,9 +397,9 @@ TEST(FBinaryEnvelopeTests, ExtendedFrontMatterMutationAndFinalizationRemainBound
 		EXPECT_EQ(FirstDiagnostic.Error, SecondDiagnostic.Error);
 	}
 
-	Durin::FByteArray FailedFinalization = Golden;
+	Durin::FByteBuffer FailedFinalization = Golden;
 	ReferenceWrite<uint64>(FailedFinalization, 40, 513);
-	const Durin::FByteArray Sentinel = FailedFinalization;
+	const Durin::FByteBuffer Sentinel = FailedFinalization;
 	FBinaryEnvelopeDiagnostic Diagnostic;
 	EXPECT_FALSE(FinalizeBinaryEnvelopeHeader(
 		FailedFinalization, 512, TestLimits, &Diagnostic));
@@ -410,11 +410,11 @@ TEST(FBinaryEnvelopeTests, HeaderValidationCostIsBoundedForSmallAndMaximumPolicy
 {
 	const std::array Descriptors{MakeDescriptor()};
 	const FBinaryFormatRegistry Registry = MakeRegistry(Descriptors);
-	const Durin::FByteArray Small = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
-	const Durin::FByteArray Maximum = ReferenceEncode(
-		FirstFormatId, 3, 1, Durin::FByteArray(4096 - 64), 4096);
+	const Durin::FByteBuffer Small = ReferenceEncode(FirstFormatId, 3, 1, {}, 64);
+	const Durin::FByteBuffer Maximum = ReferenceEncode(
+		FirstFormatId, 3, 1, Durin::FByteBuffer(4096 - 64), 4096);
 
-	auto Measure = [&](std::span<const std::byte> Bytes, uint64 PhysicalBytes) {
+	auto Measure = [&](Durin::FByteView Bytes, uint64 PhysicalBytes) {
 		constexpr size_t Iterations = 2000;
 		const auto Begin = std::chrono::steady_clock::now();
 		for (size_t Index = 0; Index < Iterations; ++Index)

@@ -74,7 +74,7 @@ namespace Durin
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult;
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
 		auto ObjectPathResolutionError(
@@ -359,7 +359,7 @@ namespace Durin
 		}
 		FAssetLoadReport LocalReport{.PackagePath = Path};
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;

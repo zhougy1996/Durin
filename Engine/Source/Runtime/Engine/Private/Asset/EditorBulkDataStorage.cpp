@@ -8,7 +8,7 @@ namespace Durin
 	{
 		auto CollectDescriptors(
 			DurinCodeGen::EPropertyGenFlags Kind,
-			std::span<const std::byte> Payload,
+			FByteView Payload,
 			std::vector<FEditorBulkDataStorageDescriptor>& Out,
 			uint32 Depth,
 			uint32 SourceFormatVersion,
@@ -21,7 +21,7 @@ namespace Durin
 				if (SourceFormatVersion != ObjectPackage::DastV9FormatVersion)
 					return Fail("Authored bulk inspection requires DAST v9 field metadata.", OutError);
 				FAssetPackageField Field{.Kind = Kind,
-					.Payload = FByteArray(Payload.begin(), Payload.end()),
+					.Payload = FByteBuffer(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};
 				FEditorBulkDataStorageDescriptor Descriptor;
 				if (!Field.TryReadEditorBulkDataStorageDescriptor(Descriptor))
@@ -45,7 +45,7 @@ namespace Durin
 				Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
 				if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
 					return Fail("Inspected authored struct field is truncated.", OutError);
-				FByteArray FieldPayload(static_cast<size_t>(PayloadSize));
+				FByteBuffer FieldPayload(static_cast<size_t>(PayloadSize));
 				if (PayloadSize != 0)
 					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
 				if (Reader.HasError() || !CollectDescriptors(

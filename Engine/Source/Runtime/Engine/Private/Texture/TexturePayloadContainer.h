@@ -30,7 +30,7 @@ namespace Durin::TexturePayloadContainer
 	struct FBuildRecord
 	{
 		FRecord Record;
-		std::span<const std::byte> Data;
+		FByteView Data;
 	};
 
 	struct FDecodedContainer
@@ -42,17 +42,17 @@ namespace Durin::TexturePayloadContainer
 	auto Build(
 		const FDescriptor& Descriptor,
 		std::span<const FBuildRecord> Records,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 
 	auto Parse(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FDecodedContainer& OutContainer) -> FDecodeResult;
 
-	inline auto GetData(std::span<const std::byte> Bytes, const FRecord& Record)
-		-> std::span<const std::byte>
+	inline auto GetData(FByteView Bytes, const FRecord& Record)
+		-> FByteView
 	{
 		return Bytes.subspan(static_cast<size_t>(Record.DataOffset),
 			static_cast<size_t>(Record.ByteCount));

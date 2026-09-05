@@ -51,7 +51,7 @@ namespace Durin
 		virtual auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool = 0;
 	};
 
@@ -60,6 +60,6 @@ namespace Durin
 	RENDERCORE_API auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 }

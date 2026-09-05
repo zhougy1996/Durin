@@ -139,7 +139,7 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderCookedLibraryRecord> Records,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 
 	// Owns preflight-qualified library bytes and returns value-owned decoded data.
@@ -155,7 +155,7 @@ namespace Durin
 			FShaderCookedLibrary& OutLibrary,
 			std::string& OutError) -> bool;
 		RENDERCORE_API static auto OpenBytes(
-			std::shared_ptr<const FByteArray> Bytes,
+			std::shared_ptr<const FByteBuffer> Bytes,
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			std::span<const FShaderRuntimeRequest> RequiredRequests,

@@ -390,7 +390,7 @@ TEST(FVolumetricCloudSceneContractTests, ActorGraphRoundTripsAuthoredIntentAndPe
 	Component->SetLayer(900.0, 4100.0, 75000.0);
 	Component->SetOpticalProperties(0.7f, 0.2f, 0.004f, 0.006f, 0.3f);
 	const Durin::FGuid PersistentId = Component->GetVolumetricCloudSceneId();
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
 	auto* Loaded = Durin::Cast<Durin::AVolumetricCloudActor>(
 		Durin::LoadObjectGraphFromMemory(Bytes)

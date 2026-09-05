@@ -49,13 +49,13 @@ namespace Durin
 			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void = 0;
 		virtual auto RHICopyTexture(FRHITexture* Source, FRHITexture* Destination,
 			std::span<const FRHITextureCopyRegion> Regions) -> void = 0;
-		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const std::byte> Data) -> void = 0;
+		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void = 0;
 		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
-		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const std::byte> SourceData) -> void = 0;
+		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void = 0;
 		virtual auto RHIUpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
-			uint32 SourceDepthPitch, std::span<const std::byte> SourceData) -> void = 0;
-		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteArray& OutData) -> bool = 0;
+			uint32 SourceDepthPitch, FByteView SourceData) -> void = 0;
+		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool = 0;
 		virtual auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange = 0;
 		virtual auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
 			-> FRHIStorageBufferRange = 0;

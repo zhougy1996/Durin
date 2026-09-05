@@ -13,14 +13,14 @@ namespace Durin
 			return false;
 		}
 
-		auto WriteFloat(FByteArray& Bytes, uint32 Offset, float Value) -> void
+		auto WriteFloat(FByteBuffer& Bytes, uint32 Offset, float Value) -> void
 		{
 			std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value));
 		}
 
-		auto MakeErrorUniformPayload() -> FByteArray
+		auto MakeErrorUniformPayload() -> FByteBuffer
 		{
-			FByteArray Result(416, std::byte{0});
+			FByteBuffer Result(416, std::byte{0});
 			WriteFloat(Result, 0, 1.0f); WriteFloat(Result, 8, 1.0f);
 			WriteFloat(Result, 12, 1.0f); WriteFloat(Result, 40, 1.0f);
 			WriteFloat(Result, 44, 0.5f); WriteFloat(Result, 48, 1.0f);
@@ -44,7 +44,7 @@ namespace Durin
 
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation(
 		FMaterialRenderLayout InLayout,
-		FByteArray InUniformPayload,
+		FByteBuffer InUniformPayload,
 		std::vector<FRHITextureReferenceRef> InResources,
 		bool bInError)
 		: Layout(std::move(InLayout))
@@ -142,7 +142,7 @@ namespace Durin
 	}
 
 	auto FMaterialRenderRepresentation::GetUniformPayload() const
-		-> std::span<const std::byte>
+		-> FByteView
 	{
 		return UniformPayload;
 	}

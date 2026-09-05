@@ -19,12 +19,12 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 
 	// Validates a complete bounded target payload before publishing an immutable program.
 	ENGINE_API auto DecodeMaterialCookedProgram(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,

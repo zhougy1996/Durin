@@ -655,7 +655,7 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, ObjectStorePersistsAndRejectsUnsafeKeys)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("Persistence");
-		const Durin::FByteArray Payload = {
+		const Durin::FByteBuffer Payload = {
 			std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}, std::byte{5}};
 		{
 			Editor::FThumbnailObjectStore Store({
@@ -667,7 +667,7 @@ namespace Durin
 		Editor::FThumbnailObjectStore WarmStore({
 			.CacheRoot = Root,
 			.ObjectExtension = ".bin"});
-		Durin::FByteArray Loaded;
+		Durin::FByteBuffer Loaded;
 		EXPECT_EQ(WarmStore.Load("material-key-01", Loaded), Editor::EThumbnailObjectLoadResult::Hit);
 		EXPECT_EQ(Loaded, Payload);
 		EXPECT_EQ(WarmStore.GetStats().CacheHits, 1u);
@@ -677,7 +677,7 @@ namespace Durin
 	TEST(FAssetThumbnailContractTests, ObjectStoreCleansMissingObjectsAndHonorsDiskBudget)
 	{
 		const std::filesystem::path Root = MakeObjectStoreRoot("Cleanup");
-		const Durin::FByteArray Payload(80, std::byte{7});
+		const Durin::FByteBuffer Payload(80, std::byte{7});
 		{
 			Editor::FThumbnailObjectStore Store({
 				.CacheRoot = Root,
@@ -686,7 +686,7 @@ namespace Durin
 			ASSERT_TRUE(Store.Store("object-key-01", Payload));
 			ASSERT_TRUE(Store.Store("object-key-02", Payload));
 			EXPECT_EQ(Store.GetStats().Evictions, 1u);
-			Durin::FByteArray Loaded;
+			Durin::FByteBuffer Loaded;
 			EXPECT_EQ(Store.Load("object-key-01", Loaded), Editor::EThumbnailObjectLoadResult::Miss);
 			EXPECT_EQ(Store.Load("object-key-02", Loaded), Editor::EThumbnailObjectLoadResult::Hit);
 		}
@@ -696,7 +696,7 @@ namespace Durin
 			.CacheRoot = Root,
 			.DiskBudgetBytes = 100,
 			.ObjectExtension = ".bin"});
-		Durin::FByteArray MissingBytes;
+		Durin::FByteBuffer MissingBytes;
 		EXPECT_EQ(MissingObjectStore.Load("object-key-02", MissingBytes),
 			Editor::EThumbnailObjectLoadResult::Invalid);
 		EXPECT_GE(MissingObjectStore.GetStats().Regenerations, 1u);
@@ -916,7 +916,7 @@ namespace Durin
 		EXPECT_EQ(Pool.Find(Request.Asset.AssetPath).State,
 			Editor::EAssetThumbnailState::Queued);
 		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		EXPECT_EQ(Store.Load(CacheKey, Bytes), Editor::EThumbnailObjectLoadResult::Miss);
 	}
 
@@ -1147,7 +1147,7 @@ namespace Durin
 		EXPECT_FALSE(Warm.ColdJob);
 		ASSERT_TRUE(Warm.WarmJob);
 		const auto EncodedBytes = std::as_bytes(std::span{Encoded});
-		EXPECT_EQ(Warm.EncodedBytes, Durin::FByteArray(
+		EXPECT_EQ(Warm.EncodedBytes, Durin::FByteBuffer(
 			EncodedBytes.begin(), EncodedBytes.end()));
 		EXPECT_EQ(State->Captures, 2u);
 		EXPECT_EQ(State->Sessions, 1u);
@@ -1512,7 +1512,7 @@ namespace Durin
 			ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
 			ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
 			ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
-			const Durin::FByteArray Encoded = {
+			const Durin::FByteBuffer Encoded = {
 				std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
 			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, 10, 20, Encoded));
 			EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Ready);
@@ -1561,14 +1561,14 @@ namespace Durin
 		Editor::FThumbnailObjectStore Store({
 			.CacheRoot = Root,
 			.ObjectExtension = ".png"});
-		Durin::FByteArray Encoded;
+		Durin::FByteBuffer Encoded;
 		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Hit);
 		Image::FDecodedImage Decoded;
 		ASSERT_TRUE(Image::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
 		const auto ExpectedPixels = std::as_bytes(std::span{Pixels});
-		EXPECT_EQ(Decoded.Pixels, Durin::FByteArray(
+		EXPECT_EQ(Decoded.Pixels, Durin::FByteBuffer(
 			ExpectedPixels.begin(), ExpectedPixels.end()));
 	}
 
@@ -1610,7 +1610,7 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Request.Asset.AssetPath).State, Editor::EAssetThumbnailState::Failed);
 
 		Editor::FThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
-		Durin::FByteArray Encoded;
+		Durin::FByteBuffer Encoded;
 		EXPECT_EQ(Store.Load(CacheKey, Encoded), Editor::EThumbnailObjectLoadResult::Miss);
 	}
 

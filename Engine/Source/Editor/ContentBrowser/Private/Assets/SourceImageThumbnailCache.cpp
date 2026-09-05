@@ -193,7 +193,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				const uint32 Width = Result.Thumbnail.Width;
 				const uint32 Height = Result.Thumbnail.Height;
 				const bool bHasTransparency = Result.Thumbnail.bHasTransparency;
-				auto Pixels = std::make_shared<FByteArray>(std::move(Result.Thumbnail.Pixels));
+				auto Pixels = std::make_shared<FByteBuffer>(std::move(Result.Thumbnail.Pixels));
 				ENQUEUE_RENDER_COMMAND(UploadSourceImageThumbnail)([WeakState, PhysicalPath, Serial, Width, Height, bHasTransparency, Pixels](FRHICommandListImmediate& CommandList) {
 					FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SourceImageThumbnail", Width, Height, EPixelFormat::SRGBA8_UNORM);
 					Desc.AddFlags(ETextureCreateFlags::ShaderResource);

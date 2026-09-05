@@ -16,15 +16,15 @@ namespace Durin::AssetPrivate
 	};
 
 	auto RewritePackageReferencesForMutation(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		FByteArray& OutBytes) -> FAssetResult;
+		FByteBuffer& OutBytes) -> FAssetResult;
 	auto ReadMutationPackageMetadata(
-		std::span<const std::byte> Bytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView Bytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		FMutationPackageMetadata& OutMetadata) -> FAssetResult;
 	auto ValidateMutationPackageMetadata(

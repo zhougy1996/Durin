@@ -99,7 +99,7 @@ namespace Durin::DerivedData
 			|| FileSize > Request.MaximumValueBytes + CacheEntryHeaderBytes)
 			return {ECacheGetStatus::ValueTooLarge, {}, "Cache entry exceeds its configured size limit."};
 
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath))
 			return {ECacheGetStatus::StorageFailure, {}, "Failed to read cache entry."};
 		FBinaryReader Reader(Bytes, {
@@ -107,7 +107,7 @@ namespace Durin::DerivedData
 			.MaximumFieldBytes = std::max<uint64>(Request.MaximumValueBytes, 16)});
 		uint64 ValueSize = 0;
 		FXxHash128 ExpectedHash;
-		std::span<const std::byte> Value;
+		FByteView Value;
 		if (!Reader.ReadAndValidateHeader(
 			CacheEntryMagic, CacheEntrySchemaVersion, CacheEntryFormatVersion)
 			|| !Reader.ReadU64(ValueSize)

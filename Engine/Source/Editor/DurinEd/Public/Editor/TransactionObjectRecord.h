@@ -13,7 +13,7 @@ namespace Durin::Editor
 		const FProperty* Property = nullptr;
 		EPropertyPathSelector Selector = EPropertyPathSelector::None;
 		uint64 Index = 0;
-		FByteArray MapKeyData;
+		FByteBuffer MapKeyData;
 		FPropertyValueSnapshotPayload MapKey;
 
 		DURINED_API auto TryGetAllocatedSize(size_t& OutBytes) const -> bool;
@@ -50,7 +50,7 @@ namespace Durin::Editor
 		FTransactionMemberLocator SnapshotMember;
 		const FProperty* LeafProperty = nullptr;
 		std::vector<FTransactionPropertyPathSegment> Path;
-		FByteArray LogicalIdentity;
+		FByteBuffer LogicalIdentity;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 		FPropertyValueSnapshotPayload Before;
 		FPropertyValueSnapshotPayload After;

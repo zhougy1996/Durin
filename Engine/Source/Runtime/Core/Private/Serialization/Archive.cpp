@@ -114,7 +114,7 @@ namespace Durin
 		return FormattedFailure;
 	}
 
-	auto FArchive::SerializeRawBytes(std::span<std::byte>) -> void
+	auto FArchive::SerializeRawBytes(FMutableByteView) -> void
 	{
 		Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support RawBytes.");
 	}
@@ -134,7 +134,7 @@ namespace Durin
 		SerializeRawBytes({static_cast<std::byte*>(Data), static_cast<size_t>(Size)});
 	}
 
-	auto FArchive::WriteBytes(std::span<const std::byte> Bytes) -> void
+	auto FArchive::WriteBytes(FByteView Bytes) -> void
 	{
 		if (!IsSaving())
 		{
@@ -144,7 +144,7 @@ namespace Durin
 		Serialize(const_cast<std::byte*>(Bytes.data()), static_cast<uint64>(Bytes.size()));
 	}
 
-	auto FArchive::ReadBytes(std::span<std::byte> Bytes) -> void
+	auto FArchive::ReadBytes(FMutableByteView Bytes) -> void
 	{
 		if (!IsLoading())
 		{
@@ -154,7 +154,7 @@ namespace Durin
 		Serialize(Bytes.data(), static_cast<uint64>(Bytes.size()));
 	}
 
-	auto FArchive::SerializeByteBlob(FByteArray& Bytes) -> void
+	auto FArchive::SerializeByteBlob(FByteBuffer& Bytes) -> void
 	{
 		constexpr uint64 MaximumBlobBytes = 1024ull * 1024 * 1024;
 		uint64 Size = IsSaving() ? static_cast<uint64>(Bytes.size()) : 0;
@@ -180,7 +180,7 @@ namespace Durin
 			WriteBytes(Bytes);
 			return;
 		}
-		FByteArray Candidate(static_cast<size_t>(Size));
+		FByteBuffer Candidate(static_cast<size_t>(Size));
 		ReadBytes(Candidate);
 		if (!HasError()) Bytes = std::move(Candidate);
 	}
@@ -236,7 +236,7 @@ namespace Durin
 
 		if (IsSaving())
 		{
-			const std::span<const std::byte> Bytes = Value.Buffer.GetBytes();
+			const FByteView Bytes = Value.Buffer.GetBytes();
 			if (LogicalSize != Bytes.size() || StoredSize != Bytes.size()
 				|| FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 			{
@@ -244,12 +244,12 @@ namespace Durin
 					"Inline bulk descriptor size or content hash does not match its resident bytes.");
 				return;
 			}
-			FByteArray Candidate(Bytes.begin(), Bytes.end());
+			FByteBuffer Candidate(Bytes.begin(), Bytes.end());
 			SerializeByteBlob(Candidate);
 			return;
 		}
 
-		FByteArray Candidate;
+		FByteBuffer Candidate;
 		SerializeByteBlob(Candidate);
 		if (HasError()) return;
 		if (LogicalSize != Candidate.size() || StoredSize != Candidate.size()
@@ -334,14 +334,14 @@ namespace Durin
 	}
 
 	FCanonicalMemoryWriter::FCanonicalMemoryWriter(
-		FByteArray& InBytes, EArchivePurpose Purpose, FArchiveState Context,
+		FByteBuffer& InBytes, EArchivePurpose Purpose, FArchiveState Context,
 		FArchiveVersionContext Versions)
 		: FArchive(MakeMemoryState(EArchiveDirection::Save, Purpose, std::move(Context)),
 			std::move(Versions)), Bytes(InBytes)
 	{
 	}
 
-	auto FCanonicalMemoryWriter::SerializeRawBytes(std::span<std::byte> Data) -> void
+	auto FCanonicalMemoryWriter::SerializeRawBytes(FMutableByteView Data) -> void
 	{
 		if (HasError()) return;
 		if (Data.empty()) return;
@@ -349,14 +349,14 @@ namespace Durin
 	}
 
 	FCanonicalMemoryReader::FCanonicalMemoryReader(
-		std::span<const std::byte> InBytes, EArchivePurpose Purpose, FArchiveState Context,
+		FByteView InBytes, EArchivePurpose Purpose, FArchiveState Context,
 		FArchiveVersionContext Versions)
 		: FArchive(MakeMemoryState(EArchiveDirection::Load, Purpose, std::move(Context)),
 			std::move(Versions)), Bytes(InBytes)
 	{
 	}
 
-	auto FCanonicalMemoryReader::SerializeRawBytes(std::span<std::byte> Data) -> void
+	auto FCanonicalMemoryReader::SerializeRawBytes(FMutableByteView Data) -> void
 	{
 		if (HasError()) return;
 		if (Data.size() > GetRemainingPayloadBytes())
@@ -369,7 +369,7 @@ namespace Durin
 	}
 
 	auto FCanonicalMemoryReader::ReadRegion(
-		uint64 Size, std::span<const std::byte>& OutRegion) -> bool
+		uint64 Size, FByteView& OutRegion) -> bool
 	{
 		OutRegion = {};
 		if (HasError()) return false;
@@ -388,7 +388,7 @@ namespace Durin
 	{
 	}
 
-	auto FCountingArchive::SerializeRawBytes(std::span<std::byte> Bytes) -> void
+	auto FCountingArchive::SerializeRawBytes(FMutableByteView Bytes) -> void
 	{
 		if (HasError()) return;
 		if (Bytes.size() > std::numeric_limits<uint64>::max() - Count)
@@ -404,7 +404,7 @@ namespace Durin
 	{
 	}
 
-	auto FHashingArchive::SerializeRawBytes(std::span<std::byte> Bytes) -> void
+	auto FHashingArchive::SerializeRawBytes(FMutableByteView Bytes) -> void
 	{
 		if (HasError()) return;
 		if (Bytes.size() > std::numeric_limits<uint64>::max() - Count)
@@ -416,12 +416,12 @@ namespace Durin
 		Count += static_cast<uint64>(Bytes.size());
 	}
 
-	auto SerializeByteBuffer(FArchive& Ar, FByteArray& Value, uint64 MaximumBytes) -> void
+	auto SerializeByteBuffer(FArchive& Ar, FByteBuffer& Value, uint64 MaximumBytes) -> void
 	{
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
 		if (Ar.HasError()) return;
-		if (Size > MaximumBytes || Size > static_cast<uint64>(FByteArray().max_size()))
+		if (Size > MaximumBytes || Size > static_cast<uint64>(FByteBuffer().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Byte buffer exceeds its serialization limit.");
 			return;
@@ -433,7 +433,7 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::TruncatedPayload, "Byte buffer is truncated.");
 				return;
 			}
-			FByteArray Loaded(static_cast<size_t>(Size));
+			FByteBuffer Loaded(static_cast<size_t>(Size));
 			if (Size != 0) Ar.ReadBytes(Loaded);
 			if (!Ar.HasError()) Value = std::move(Loaded);
 		}
@@ -488,14 +488,14 @@ namespace Durin
 		}
 		if (Ar.IsLoading())
 		{
-			Ar.ReadBytes(std::span<std::byte>(Buffer).first(static_cast<size_t>(Padding)));
+			Ar.ReadBytes(FMutableByteView(Buffer).first(static_cast<size_t>(Padding)));
 			if (!Ar.HasError() && std::ranges::any_of(Buffer.begin(), Buffer.begin() + static_cast<ptrdiff_t>(Padding),
 				[](std::byte Byte) { return Byte != std::byte{}; }))
 				Ar.Fail(EArchiveFailureCode::NonZeroPadding, "Archive alignment padding must be zero.");
 		}
 		else
 		{
-			Ar.WriteBytes(std::span<const std::byte>(Buffer).first(static_cast<size_t>(Padding)));
+			Ar.WriteBytes(FByteView(Buffer).first(static_cast<size_t>(Padding)));
 		}
 	}
 

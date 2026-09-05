@@ -73,16 +73,16 @@ namespace Durin::VulkanRHI
 		auto RHICopyTexture(FRHITexture* Source, FRHITexture* Destination,
 			std::span<const FRHITextureCopyRegion> Regions) -> void override;
 
-		auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const std::byte> Data) -> void override;
+		auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, FByteView Data) -> void override;
 
 		auto RHIInitializeTexture(FRHITexture* Texture) -> void override;
 
-		auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const std::byte> SourceData) -> void override;
+		auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void override;
 		auto RHIUpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
-			uint32 SourceDepthPitch, std::span<const std::byte> SourceData) -> void override;
+			uint32 SourceDepthPitch, FByteView SourceData) -> void override;
 
-		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteArray& OutData) -> bool override;
+		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool override;
 
 		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
 		auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)

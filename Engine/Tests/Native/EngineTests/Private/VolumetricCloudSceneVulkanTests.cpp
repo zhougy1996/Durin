@@ -213,7 +213,7 @@ namespace Durin
 		auto RenderOffscreen = [&Renderer, Scene](
 								   bool bForceFragment
 							   ) {
-			auto Pixels = std::make_shared<Durin::FByteArray>();
+			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);

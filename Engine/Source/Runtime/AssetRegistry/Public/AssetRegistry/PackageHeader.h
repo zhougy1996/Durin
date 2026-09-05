@@ -42,7 +42,7 @@ namespace Durin
 
 	// Supplies the mounted identity and exact raw-bulk extent required by DAST Registry validation.
 	ASSETREGISTRY_API auto ReadAssetPackageHeaderBytes(
-		std::span<const std::byte> FrontMatter,
+		FByteView FrontMatter,
 		uint64 PhysicalFileBytes,
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,

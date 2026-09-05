@@ -58,7 +58,7 @@ namespace Durin
 		auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool override
 		{
 			return ProduceCookedShaderLibrary(

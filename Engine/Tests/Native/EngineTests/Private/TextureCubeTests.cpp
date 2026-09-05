@@ -481,7 +481,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 {
 	InitializeCubeMount();
 	Durin::FTextureCubePanoramaImage Panorama{
-		.Pixels = Durin::FByteArray(4u * 2u * 4u, std::byte{127}),
+		.Pixels = Durin::FByteBuffer(4u * 2u * 4u, std::byte{127}),
 		.Width = 4,
 		.Height = 2,
 		.SourceChannelCount = 4};
@@ -591,7 +591,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 
 	const uint64 ValidRevision = Texture->GetBuildRevision();
-	const Durin::FByteArray ValidPixels =
+	const Durin::FByteBuffer ValidPixels =
 		Texture->GetPlatformData()->Faces[0].Mips[0].Pixels;
 	const std::filesystem::path Corrupt = Root / "CorruptReplacement.hdr";
 	{
@@ -687,8 +687,8 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 		*Import.Asset, "/Game/CookedCube", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
-	Durin::FByteArray FirstPackage;
-	Durin::FByteArray SecondPackage;
+	Durin::FByteBuffer FirstPackage;
+	Durin::FByteBuffer SecondPackage;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (FirstRoot / "Game/CookedCube.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(

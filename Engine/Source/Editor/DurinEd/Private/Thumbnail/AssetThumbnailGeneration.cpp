@@ -195,7 +195,7 @@ namespace Durin::Editor
 		const FAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
-		std::span<const std::byte> EncodedBytes,
+		FByteView EncodedBytes,
 		std::string_view Error
 	) -> bool
 	{
@@ -225,7 +225,7 @@ namespace Durin::Editor
 		const FAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
-		std::span<const std::byte> Pixels,
+		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
 		std::string_view Error,
@@ -233,7 +233,7 @@ namespace Durin::Editor
 	{
 		if (!Error.empty())
 			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
-		FByteArray EncodedBytes;
+		FByteBuffer EncodedBytes;
 		if (!Image::EncodeRgba8Png(Pixels, Width, Height, EncodedBytes))
 			return CompleteEncoding(
 				Job,
@@ -255,7 +255,7 @@ namespace Durin::Editor
 	auto FAssetThumbnailGeneration::CompleteGeneratedPixels(
 		FAssetThumbnailJob& Job,
 		uint64 AssetRevision,
-		std::span<const std::byte> Pixels,
+		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
 		std::string_view Error) -> bool

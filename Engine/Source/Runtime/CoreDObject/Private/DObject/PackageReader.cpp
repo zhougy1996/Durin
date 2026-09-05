@@ -21,7 +21,7 @@ namespace Durin::ObjectPackage
 			uint32 FormatVersion = 0;
 			bool bRedirect = false;
 			std::array<FDirectoryEntry, DastV8SectionCount> Entries;
-			std::span<const std::byte> AvailableBytes;
+			FByteView AvailableBytes;
 		};
 
 		struct FRawType
@@ -87,7 +87,7 @@ namespace Durin::ObjectPackage
 		}
 
 		template<std::unsigned_integral T>
-		auto ReadAt(std::span<const std::byte> Bytes, uint64 Offset, T& Out) -> bool
+		auto ReadAt(FByteView Bytes, uint64 Offset, T& Out) -> bool
 		{
 			return ReadLittleEndianAt(Bytes, Offset, Out);
 		}
@@ -108,7 +108,7 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto ParseLayout(std::span<const std::byte> Available, uint64 PhysicalBytes,
+		auto ParseLayout(FByteView Available, uint64 PhysicalBytes,
 			bool bComplete, uint32 FormatVersion, const FPackageReaderLimits& Limits, FParsedLayout& Out,
 			FPackageReaderDiagnostic* Diagnostic) -> bool
 		{
@@ -197,7 +197,7 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto Section(const FParsedLayout& Layout, EDastV8Section Kind) -> std::span<const std::byte>
+		auto Section(const FParsedLayout& Layout, EDastV8Section Kind) -> FByteView
 		{
 			const FDirectoryEntry& Entry = Layout.Entries[static_cast<size_t>(Kind) - 1];
 			return Layout.AvailableBytes.subspan(static_cast<size_t>(Entry.Offset), static_cast<size_t>(Entry.Size));
@@ -432,7 +432,7 @@ namespace Durin::ObjectPackage
 				if (!Reader.ReadVarUInt(RecordBytes) || RecordBytes > Reader.GetRemainingBytes())
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidType,
 						"A DAST v9 type record extent is invalid.", "Types[" + std::to_string(Index) + "]");
-				std::span<const std::byte> RecordSpan;
+				FByteView RecordSpan;
 				if (!Reader.ReadRegion(RecordSpan, RecordBytes, Layout.Entries[4].Size)) return false;
 				FBinaryReader Record(RecordSpan);
 				uint8 Tag = 0;
@@ -677,7 +677,7 @@ namespace Durin::ObjectPackage
 			{ uint8 V = 0; if (!Reader.ReadU8(V)) return false; Value.Unsigned = V; break; }
 			case EValueKind::Bytes:
 			{
-				uint64 Count = 0; std::span<const std::byte> Bytes;
+				uint64 Count = 0; FByteView Bytes;
 				if (!Reader.ReadVarUInt(Count) || Count > Limits.MaximumPackageBytes
 					|| !Reader.ReadRegion(Bytes, Count, Limits.MaximumPackageBytes)) return false;
 				Value.Bytes.assign(Bytes.begin(), Bytes.end()); break;
@@ -765,7 +765,7 @@ namespace Durin::ObjectPackage
 		auto BindBulkValue(FSerializedValue& Value, const FSerializedType& Type,
 			std::string Path, uint32 ExportId, uint32 SchemaId, uint32 FieldId,
 			const std::vector<std::string>& Names, const std::vector<FBulkEntry>& Entries,
-			std::span<const std::byte> Inline, std::span<const std::byte> External,
+			FByteView Inline, FByteView External,
 			uint64 ExternalExtent, bool bExternalPayloadAvailable,
 			std::array<uint64, 2>& Cursors, size_t& Used, FPackageReaderDiagnostic* Diagnostic) -> bool
 		{
@@ -783,7 +783,7 @@ namespace Durin::ObjectPackage
 						"A BulkData directory owner or shape is invalid.", Path);
 				const size_t SegmentIndex = Entry.Storage == EBulkStorageKind::Inline ? 0 : 1;
 				const bool bPayloadAvailable = SegmentIndex == 0 || bExternalPayloadAvailable;
-				const std::span<const std::byte> Segment = SegmentIndex == 0 ? Inline : External;
+				const FByteView Segment = SegmentIndex == 0 ? Inline : External;
 				const uint64 SegmentSize = SegmentIndex == 0 ? Inline.size() : ExternalExtent;
 				const uint64 Mask = Entry.Alignment - 1;
 				if (Cursors[SegmentIndex] > std::numeric_limits<uint64>::max() - Mask) return false;
@@ -849,7 +849,7 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto ReadPackageV9Registry(std::span<const std::byte> FrontMatter,
+	auto ReadPackageV9Registry(FByteView FrontMatter,
 		uint64 PhysicalPackageBytes, uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath, FPackageV9RegistryData& OutRegistry,
 		FPackageReaderDiagnostic* OutDiagnostic, const FPackageReaderLimits& Limits) -> bool
@@ -871,8 +871,8 @@ namespace Durin::ObjectPackage
 
 	namespace
 	{
-		auto ReadPackageV9Impl(std::span<const std::byte> PackageBytes,
-			std::span<const std::byte> BulkBytes, uint64 PhysicalBulkBytes,
+		auto ReadPackageV9Impl(FByteView PackageBytes,
+			FByteView BulkBytes, uint64 PhysicalBulkBytes,
 			bool bExternalPayloadAvailable, const FPackagePath& PackagePath,
 			FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
 			const FPackageReaderLimits& Limits) -> bool
@@ -978,9 +978,9 @@ namespace Durin::ObjectPackage
 					"DAST v9 bulk entries do not consume their exact inline/external segments.",
 					"BulkDirectory");
 
-			FByteArray CanonicalMain;
+			FByteBuffer CanonicalMain;
 			FPackageWriterDiagnostic WriterDiagnostic;
-			FByteArray CanonicalBulk;
+			FByteBuffer CanonicalBulk;
 			const bool bCanonical = bExternalPayloadAvailable
 				? WritePackageV9(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
 				: WritePackageV9Main(Linker, Registry.ExternalBulkBytes,
@@ -998,8 +998,8 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto ReadPackageV9(std::span<const std::byte> PackageBytes,
-		std::span<const std::byte> BulkBytes, const FPackagePath& PackagePath,
+	auto ReadPackageV9(FByteView PackageBytes,
+		FByteView BulkBytes, const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool
 	{
@@ -1007,7 +1007,7 @@ namespace Durin::ObjectPackage
 			PackagePath, OutLinker, OutDiagnostic, Limits);
 	}
 
-	auto ReadPackageV9Metadata(std::span<const std::byte> PackageBytes,
+	auto ReadPackageV9Metadata(FByteView PackageBytes,
 		uint64 PhysicalBulkBytes, const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
 		const FPackageReaderLimits& Limits) -> bool

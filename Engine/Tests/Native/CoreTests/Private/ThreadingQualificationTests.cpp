@@ -187,10 +187,10 @@ namespace Durin
 			std::vector<FTaskHandle> Sinks;
 			for (uint32 Index = 0; Index < ResultCount; ++Index)
 			{
-				auto Producer = LaunchTask<Durin::FByteArray>("SharedTransferQualification", []() {
-					return Durin::FByteArray(ResultBytes, std::byte{1});
+				auto Producer = LaunchTask<Durin::FByteBuffer>("SharedTransferQualification", []() {
+					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				});
-				Sinks.emplace_back(Then(Producer, "SharedTransferSink", [&ResultBytesObserved](const Durin::FByteArray& Value) {
+				Sinks.emplace_back(Then(Producer, "SharedTransferSink", [&ResultBytesObserved](const Durin::FByteBuffer& Value) {
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 				}));
 			}
@@ -200,11 +200,11 @@ namespace Durin
 			std::vector<FTaskHandle> Sinks;
 			for (uint32 Index = 0; Index < ResultCount; ++Index)
 			{
-				auto Producer = LaunchUniqueTask<Durin::FByteArray>("UniqueTransferQualification", []() {
-					return Durin::FByteArray(ResultBytes, std::byte{1});
+				auto Producer = LaunchUniqueTask<Durin::FByteBuffer>("UniqueTransferQualification", []() {
+					return Durin::FByteBuffer(ResultBytes, std::byte{1});
 				}, {}, ResultBytes);
 				Sinks.emplace_back(ConsumeThen(std::move(Producer), "UniqueTransferSink",
-					[&ResultBytesObserved](Durin::FByteArray&& Value) {
+					[&ResultBytesObserved](Durin::FByteBuffer&& Value) {
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 					}));
 			}

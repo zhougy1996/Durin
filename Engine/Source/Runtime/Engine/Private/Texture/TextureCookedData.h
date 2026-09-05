@@ -35,7 +35,7 @@ namespace Durin::TexturePrivate
 					std::format("{} cooked platform data is unavailable.", Family));
 				return;
 			}
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
 				.TargetPlatform = ECookTargetPlatform::Win64,
@@ -66,7 +66,7 @@ namespace Durin::TexturePrivate
 				Family, Texture.GetObjectPath(), Message);
 			return false;
 		};
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		if (!CookedData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
 		auto Candidate = std::make_unique<TPlatformData>();

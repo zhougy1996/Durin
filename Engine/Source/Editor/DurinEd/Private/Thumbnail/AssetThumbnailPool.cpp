@@ -146,7 +146,7 @@ namespace Durin::Editor
 
 		auto QueueUpload(
 			const FAssetThumbnailGenerationRequest& Request,
-			FByteArray Pixels,
+			FByteBuffer Pixels,
 			uint32 Width,
 			uint32 Height) -> void
 		{
@@ -160,7 +160,7 @@ namespace Durin::Editor
 			It->second.bHasTransparency = Request.bHasTransparency;
 			++UploadsQueued;
 			const std::weak_ptr<FAssetThumbnailAsyncState> WeakState = AsyncState;
-			auto SharedPixels = std::make_shared<FByteArray>(std::move(Pixels));
+			auto SharedPixels = std::make_shared<FByteBuffer>(std::move(Pixels));
 			const std::string AssetClassName = Request.KeyInput.Asset.AssetClassName;
 			const FAssetThumbnailCancellation Cancellation = Request.Cancellation;
 			const uint64 RendererGeneration = Request.RendererGeneration;
@@ -256,7 +256,7 @@ namespace Durin::Editor
 
 		auto DecodeAndQueueUpload(
 			const FAssetThumbnailGenerationRequest& Request,
-			std::span<const std::byte> EncodedBytes) -> bool
+			FByteView EncodedBytes) -> bool
 		{
 			const uint64 ExpectedPixels =
 				static_cast<uint64>(Request.KeyInput.Output.Width)
@@ -346,7 +346,7 @@ namespace Durin::Editor
 		auto FinishCapture() -> void
 		{
 			if (!ActiveJob || ScenePool == nullptr) return;
-			FByteArray Pixels;
+			FByteBuffer Pixels;
 			std::string Error;
 			const EThumbnailCaptureState State =
 				ScenePool->PollCapture(Pixels, Error);

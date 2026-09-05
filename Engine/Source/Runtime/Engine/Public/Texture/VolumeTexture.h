@@ -80,7 +80,7 @@ namespace Durin
 		{
 			return Voxels.GetPayload().Wait().Buffer;
 		}
-		ENGINE_API auto SetVoxelBytes(std::span<const std::byte> Bytes) -> bool;
+		ENGINE_API auto SetVoxelBytes(FByteView Bytes) -> bool;
 	};
 
 	// Freezes deterministic mip filtering and output format policy.
@@ -101,7 +101,7 @@ namespace Durin
 	// Owns one exact volume mip with explicit row and depth pitches.
 	struct FVolumeTextureMipData
 	{
-		FByteArray Voxels;
+		FByteBuffer Voxels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 Depth = 0;

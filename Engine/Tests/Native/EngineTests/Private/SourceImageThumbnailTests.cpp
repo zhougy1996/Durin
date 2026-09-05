@@ -10,7 +10,7 @@ namespace Durin::Editor::ContentBrowser::Private
 {
 	namespace
 	{
-		auto WriteBinaryFixture(std::string_view Name, std::span<const std::byte> Bytes) -> std::filesystem::path
+		auto WriteBinaryFixture(std::string_view Name, Durin::FByteView Bytes) -> std::filesystem::path
 		{
 			const std::filesystem::path Path = Testing::GetTestWorkDirectory() / Name;
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
@@ -18,7 +18,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Path;
 		}
 
-		auto TransparentPngBytes() -> std::span<const std::byte>
+		auto TransparentPngBytes() -> Durin::FByteView
 		{
 			static constexpr uint8 Bytes[] = {
 				137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
@@ -346,7 +346,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		constexpr uint32 Width = 512;
 		constexpr uint32 Height = 256;
-		Durin::FByteArray TgaBytes(
+		Durin::FByteBuffer TgaBytes(
 			18 + static_cast<size_t>(Width) * Height * 3, std::byte{0});
 		TgaBytes[2] = std::byte{2};
 		TgaBytes[12] = static_cast<std::byte>(Width & 0xff);

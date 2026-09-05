@@ -41,7 +41,7 @@ namespace
 
 	auto SerializeEnvironmentLighting(
 		Durin::FEnvironmentLightingData& Data,
-		Durin::FByteArray& OutBytes,
+		Durin::FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		Durin::FCanonicalMemoryWriter Ar(
@@ -53,7 +53,7 @@ namespace
 	}
 
 	auto DeserializeEnvironmentLighting(
-		std::span<const std::byte> Bytes,
+		Durin::FByteView Bytes,
 		Durin::FEnvironmentLightingData& OutData,
 		std::string& OutError) -> bool
 	{
@@ -70,8 +70,8 @@ TEST(FEnvironmentLightingTests, PayloadRoundTripsDeterministicallyAndRejectsCorr
 {
 	Durin::FEnvironmentLightingData Expected = MakeEnvironmentLightingFixture();
 	ASSERT_TRUE(Expected.IsValid());
-	Durin::FByteArray First;
-	Durin::FByteArray Second;
+	Durin::FByteBuffer First;
+	Durin::FByteBuffer Second;
 	std::string Error;
 	ASSERT_TRUE(SerializeEnvironmentLighting(Expected, First, Error)) << Error;
 	ASSERT_TRUE(SerializeEnvironmentLighting(Expected, Second, Error)) << Error;
@@ -80,7 +80,7 @@ TEST(FEnvironmentLightingTests, PayloadRoundTripsDeterministicallyAndRejectsCorr
 	Durin::FEnvironmentLightingData Decoded;
 	ASSERT_TRUE(DeserializeEnvironmentLighting(First, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded, Expected);
-	Durin::FByteArray DifferentProducer = First;
+	Durin::FByteBuffer DifferentProducer = First;
 	DifferentProducer[8] ^= std::byte{0x40};
 	ASSERT_TRUE(DeserializeEnvironmentLighting(DifferentProducer, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded, Expected);
@@ -96,7 +96,7 @@ TEST(FEnvironmentLightingTests, CheckedInStudioPayloadIsValid)
 	const std::filesystem::path PayloadPath =
 		std::filesystem::path(Durin::FPaths::EngineContentDir())
 		/ "Renderer/DefaultStudioEnvironment.iblbulk";
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PayloadPath));
 	Durin::FEnvironmentLightingData Data;
 	std::string Error;
@@ -121,7 +121,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Asset));
 	ASSERT_NE(Asset, nullptr);
 
-	Durin::FByteArray SourceBytes;
+	Durin::FByteBuffer SourceBytes;
 	std::string Error;
 	Durin::FEnvironmentLightingData SourceData = MakeEnvironmentLightingFixture();
 	ASSERT_TRUE(SerializeEnvironmentLighting(SourceData, SourceBytes, Error)) << Error;
@@ -148,7 +148,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(),
 		CookedPath, Inspection));
 	EXPECT_NE(Inspection.FindField("PlatformData"), nullptr);
-	Durin::FByteArray CookedBytes;
+	Durin::FByteBuffer CookedBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		CookedBytes, CookRoot / "Game/StudioEnvironment.dbulk"));
 	EXPECT_EQ(CookedBytes, SourceBytes);

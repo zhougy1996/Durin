@@ -29,7 +29,7 @@ namespace Durin
 		ENGINE_API auto GetPayloadSize() const -> uint64;
 		ENGINE_API auto IsMemoryResident() const -> bool;
 		ENGINE_API auto GetPayload() const -> FPackageResourceRequest;
-		ENGINE_API auto UpdatePayload(std::span<const std::byte> Bytes) -> bool;
+		ENGINE_API auto UpdatePayload(FByteView Bytes) -> bool;
 		ENGINE_API auto UpdatePayload(FSharedByteBuffer Buffer) -> bool;
 		ENGINE_API static auto TryCreatePackageBacked(
 			FGuid InstanceId,
@@ -40,8 +40,8 @@ namespace Durin
 			std::string* OutError = nullptr) -> bool;
 
 		// Transitional v6 reader/import adapter; authored callers migrate to UpdatePayload.
-		ENGINE_API auto ReplaceBytes(std::span<const std::byte> Bytes) -> bool;
-		ENGINE_API auto ReplaceBytes(FGuid LegacyInstanceId, std::span<const std::byte> Bytes) -> bool;
+		ENGINE_API auto ReplaceBytes(FByteView Bytes) -> bool;
+		ENGINE_API auto ReplaceBytes(FGuid LegacyInstanceId, FByteView Bytes) -> bool;
 
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;

@@ -27,7 +27,7 @@ namespace
 		return Result;
 	}
 
-	auto WriteU32(Durin::FByteArray& Bytes, size_t Offset, uint32 Value) -> void
+	auto WriteU32(Durin::FByteBuffer& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
@@ -48,7 +48,7 @@ namespace
 
 	auto StorePlatformDataValue(
 		const Durin::FTexturePlatformData& PlatformData,
-		Durin::FByteArray& OutBytes,
+		Durin::FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -62,7 +62,7 @@ namespace
 	}
 
 	auto LoadPlatformDataValue(
-		std::span<const std::byte> Bytes,
+		Durin::FByteView Bytes,
 		std::unique_ptr<Durin::FTexturePlatformData>& OutPlatformData)
 		-> Durin::FDecodeResult
 	{
@@ -162,8 +162,8 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 	{
 		const Durin::EPixelFormat Format = Formats[FormatIndex];
 		const Durin::FTexturePlatformData Expected = MakePlatformData(Format);
-		Durin::FByteArray First;
-		Durin::FByteArray Second;
+		Durin::FByteBuffer First;
+		Durin::FByteBuffer Second;
 		std::string Error;
 		ASSERT_TRUE(StorePlatformDataValue(Expected, First, Error)) << Error;
 		ASSERT_TRUE(StorePlatformDataValue(Expected, Second, Error)) << Error;
@@ -186,7 +186,7 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 {
 	Durin::FTexturePlatformData Expected = MakePlatformData();
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Expected.Serialize(Writer, {
@@ -208,7 +208,7 @@ TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
 TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 {
 	const Durin::FTexturePlatformData Expected = MakePlatformData();
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	std::string Error;
 	ASSERT_TRUE(StorePlatformDataValue(Expected, Bytes, Error)) << Error;
 	auto Existing = std::make_unique<Durin::FTexturePlatformData>(Expected);
@@ -311,8 +311,8 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterministically)
 {
 	const Durin::FTextureCubePlatformData Expected = MakeCubePlatformData();
-	Durin::FByteArray First;
-	Durin::FByteArray Second;
+	Durin::FByteBuffer First;
+	Durin::FByteBuffer Second;
 	const Durin::FTexturePlatformSerializationContext Context{
 		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::ECookTargetProfile::Game};

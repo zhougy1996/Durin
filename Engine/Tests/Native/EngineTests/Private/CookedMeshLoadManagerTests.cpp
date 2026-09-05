@@ -37,7 +37,7 @@ namespace
 					.Message = "controlled cancellation"};
 			return {.Status = EPackageResourceReadStatus::Success,
 				.Buffer = FSharedByteBuffer::Take(
-					Durin::FByteArray(static_cast<size_t>(Size), std::byte{0x2a}))};
+					Durin::FByteBuffer(static_cast<size_t>(Size), std::byte{0x2a}))};
 		}
 
 		std::binary_semaphore Gate{0};

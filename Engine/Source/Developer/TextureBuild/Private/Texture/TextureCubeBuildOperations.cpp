@@ -63,7 +63,7 @@ namespace Durin
 					FTextureCubePanoramaFloatImage>
 					? Durin::Image::EImageGammaSpace::Linear
 					: Durin::Image::EImageGammaSpace::SRGB};
-			FByteArray AuthoredBytes;
+			FByteBuffer AuthoredBytes;
 			if constexpr (std::is_same_v<std::decay_t<decltype(Image)>,
 				FTextureCubePanoramaFloatImage>)
 			{

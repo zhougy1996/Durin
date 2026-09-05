@@ -53,9 +53,9 @@ namespace Durin
 		template<typename T>
 		auto BuildKeyBytes(
 			const T& Input,
-			std::string& OutError) -> FByteArray
+			std::string& OutError) -> FByteBuffer
 		{
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 			const_cast<T&>(Input).Serialize(Ar);
 			OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -88,7 +88,7 @@ namespace Durin
 
 	auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FByteArray
+		std::string& OutError) -> FByteBuffer
 	{
 		return BuildKeyBytes(Input, OutError);
 	}
@@ -97,7 +97,7 @@ namespace Durin
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> FCacheKeyProxy
 	{
-		const FByteArray Bytes = BuildKeyBytes(Input, OutError);
+		const FByteBuffer Bytes = BuildKeyBytes(Input, OutError);
 		return Bytes.empty() ? FCacheKeyProxy{}
 			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
 				DerivedData::FCacheBucket::FromString(StaticMeshCacheBucket),
@@ -106,7 +106,7 @@ namespace Durin
 
 	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FByteArray
+		std::string& OutError) -> FByteBuffer
 	{
 		return BuildKeyBytes(Input, OutError);
 	}
@@ -115,7 +115,7 @@ namespace Durin
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> FCacheKeyProxy
 	{
-		const FByteArray Bytes = BuildKeyBytes(Input, OutError);
+		const FByteBuffer Bytes = BuildKeyBytes(Input, OutError);
 		return Bytes.empty() ? FCacheKeyProxy{}
 			: FCacheKeyProxy(DerivedData::FCacheKey::FromHash(
 				DerivedData::FCacheBucket::FromString(

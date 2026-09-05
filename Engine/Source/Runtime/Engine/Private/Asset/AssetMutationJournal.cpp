@@ -88,7 +88,7 @@ namespace Durin::AssetPrivate
 			std::error_code ErrorCode;
 			if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
 				continue;
-			FByteArray OwnerBytes;
+			FByteBuffer OwnerBytes;
 			if (!FFileHelper::LoadFileToArray(
 					OwnerBytes, (Root / "owner"))
 				|| std::string_view(
@@ -108,7 +108,7 @@ namespace Durin::AssetPrivate
 
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 	{
 		std::error_code ErrorCode;
@@ -151,7 +151,7 @@ namespace Durin::AssetPrivate
 
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteArray& OutBytes) -> FAssetResult
+		FByteBuffer& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
@@ -162,7 +162,7 @@ namespace Durin::AssetPrivate
 
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		std::span<const std::byte> Bytes) -> FAssetResult
+		FByteView Bytes) -> FAssetResult
 	{
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
@@ -178,7 +178,7 @@ namespace Durin::AssetPrivate
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FAssetResult Result = LoadRelocationBytes(Path, Bytes);
 		if (!Result) return Result;
 		return MakePackageFingerprint(
@@ -530,7 +530,7 @@ namespace Durin::AssetPrivate
 			std::string& OutText
 		) -> FAssetResult
 		{
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Path))
 				return Error(EAssetError::IoError, std::format("Could not read asset mutation recovery record {}.", Path.generic_string()));
 			OutText.assign(
@@ -931,7 +931,7 @@ namespace Durin::AssetPrivate
 			);
 			if (ExistsError || bExists != bExpectedExists) return false;
 			if (!bExpectedExists) return true;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			if (!LoadRelocationBytes(Entry.PhysicalPath, Bytes)) return false;
 			const FXxHash128 Expected =
 				bPost ? Entry.StagedPostHash : Entry.StagedPreHash;
@@ -1276,7 +1276,7 @@ namespace Durin::AssetPrivate
 					RemoveError.message()));
 			return {};
 		}
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FAssetResult Result = LoadRelocationBytes(Entry.StagedPostPath, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;

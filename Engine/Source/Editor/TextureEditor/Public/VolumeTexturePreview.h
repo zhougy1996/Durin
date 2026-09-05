@@ -9,7 +9,7 @@ namespace Durin::Editor::Texture
 
 	struct FVolumeTexturePreviewSlice
 	{
-		FByteArray Pixels;
+		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 

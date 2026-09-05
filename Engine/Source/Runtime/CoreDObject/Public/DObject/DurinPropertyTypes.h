@@ -398,7 +398,7 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FByteArray& OutToken,
+		FByteBuffer& OutToken,
 		std::string* OutError = nullptr
 	) -> bool;
 	COREDOBJECT_API auto ValidateCanonicalMapKeyProperty(

@@ -30,8 +30,8 @@ namespace Durin::Editor
 		FThumbnailObjectStore(const FThumbnailObjectStore&) = delete;
 		FThumbnailObjectStore& operator=(const FThumbnailObjectStore&) = delete;
 
-		auto Load(std::string_view Key, FByteArray& OutBytes) -> EThumbnailObjectLoadResult;
-		auto Store(std::string_view Key, std::span<const std::byte> Bytes) -> bool;
+		auto Load(std::string_view Key, FByteBuffer& OutBytes) -> EThumbnailObjectLoadResult;
+		auto Store(std::string_view Key, FByteView Bytes) -> bool;
 		auto Invalidate(std::string_view Key) -> void;
 		auto GetStats() const -> FThumbnailObjectStoreStats;
 

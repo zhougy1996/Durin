@@ -34,7 +34,7 @@ namespace Durin
 		ENGINE_API auto operator=(FBulkData&& Other) noexcept -> FBulkData&;
 
 		ENGINE_API static auto TryCreateDetached(
-			std::span<const std::byte> Bytes, FBulkData& OutValue,
+			FByteView Bytes, FBulkData& OutValue,
 			std::string* OutError = nullptr) -> bool;
 		ENGINE_API static auto TryAttach(
 			FBulkDataMetadata Metadata, FBulkData& OutValue,
@@ -44,12 +44,12 @@ namespace Durin
 		ENGINE_API auto GetMetadata() const -> FBulkDataMetadata;
 		ENGINE_API auto HasData() const -> bool;
 		ENGINE_API auto LockReadOnly(
-			std::span<const std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+			FByteView& OutBytes, std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto UnlockReadOnly(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto LockReadWrite(
-			std::span<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+			FMutableByteView& OutBytes, std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto Resize(
-			uint64 Size, std::span<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+			uint64 Size, FMutableByteView& OutBytes, std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto UnlockWrite(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto Unload(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto ReloadAsync() -> FPackageResourceRequest;

@@ -42,8 +42,8 @@ namespace Durin
 	}
 
 	auto DecodeStaticMeshCookedProduct(
-		std::span<const std::byte> RenderBytes,
-		std::span<const std::byte> CollisionBytes,
+		FByteView RenderBytes,
+		FByteView CollisionBytes,
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		EBodySetupCollisionSourceMode CollisionMode,
 		EBodySetupCollisionQueryPolicy CollisionPolicy,

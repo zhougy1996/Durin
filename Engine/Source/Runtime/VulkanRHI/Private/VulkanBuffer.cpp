@@ -85,7 +85,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanBuffer::Write(
 		FVulkanCommandListContext& Context,
 		uint32 Offset,
-		std::span<const std::byte> Data) -> void
+		FByteView Data) -> void
 	{
 		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);

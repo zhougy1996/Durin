@@ -177,7 +177,7 @@ namespace Durin::AssetForge::Builtins
 
 		template<typename FVisitor>
 		auto VisitGltfUris(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			FVisitor&& Visitor) -> bool
 		{
 			const std::string Text(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
@@ -204,7 +204,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto DiscoverGltfUris(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			FDependencyRequestSink& Sink) -> bool
 		{
 			return VisitGltfUris(Bytes,
@@ -502,7 +502,7 @@ namespace Durin::AssetForge::Builtins
 			const FSourceSnapshot& Snapshot,
 			const FImportedSceneData& Scene,
 			const FImportedImage& Image,
-			std::span<const std::byte>& OutBytes,
+			FByteView& OutBytes,
 			std::string& OutFilename) -> bool
 		{
 			if (!Image.EmbeddedEncodedBytes.empty())
@@ -544,7 +544,7 @@ namespace Durin::AssetForge::Builtins
 			std::string_view RootSource,
 			const FImportedImage& Image,
 			std::string_view TextureIdentity,
-			std::span<const std::byte> Bytes) -> std::string
+			FByteView Bytes) -> std::string
 		{
 			const std::filesystem::path RootPath(RootSource);
 			const std::string FileName = std::format(
@@ -558,11 +558,11 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto BuildDerivedTextureBytes(
-			std::span<const std::byte> EncodedBytes,
+			FByteView EncodedBytes,
 			ESceneTextureDerivation Derivation,
 			float Scale,
 			const FVector3f& ColorScale,
-			FByteArray& OutBytes,
+			FByteBuffer& OutBytes,
 			std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
@@ -573,7 +573,7 @@ namespace Durin::AssetForge::Builtins
 				OutError = "Derived Scene texture exceeds the TGA dimension limit.";
 				return false;
 			}
-			FByteArray Pixels(Image.Pixels.size());
+			FByteBuffer Pixels(Image.Pixels.size());
 			for (size_t Offset = 0; Offset < Image.Pixels.size(); Offset += 4)
 			{
 				uint8 Red = std::to_integer<uint8>(Image.Pixels[Offset + 0]);
@@ -640,7 +640,7 @@ namespace Durin::AssetForge::Builtins
 		auto MakeDerivedImageSourcePath(
 			std::string_view RootSource,
 			std::string_view TextureIdentity,
-			std::span<const std::byte> Bytes) -> std::string
+			FByteView Bytes) -> std::string
 		{
 			const std::filesystem::path RootPath(RootSource);
 			return (RootPath.parent_path()
@@ -691,7 +691,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		const FImportedImage& Image = Data.Scene.Images[Descriptor.SourceIndex];
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		std::string SourceFilename;
 		if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding)
 			|| !FindSnapshotImageBytes(Snapshot, Data.Scene, Image, Bytes, SourceFilename))

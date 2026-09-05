@@ -565,7 +565,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			bool bForceLOD0 = false,
 			Durin::Editor::EThumbnailCaptureState ExpectedState =
 				Durin::Editor::EThumbnailCaptureState::Ready) {
-			Durin::FByteArray Pixels;
+			Durin::FByteBuffer Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
 				Mesh, Material, Durin::FTransform(), Error)) << Error;
@@ -578,15 +578,15 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			return Pixels;
 		};
 
-		const Durin::FByteArray ImportedPixels =
+		const Durin::FByteBuffer ImportedPixels =
 			Capture(ReloadedMesh, ReloadedMaterial);
-		const Durin::FByteArray TextureOnlyPixels =
+		const Durin::FByteBuffer TextureOnlyPixels =
 			Capture(ReloadedMesh, TextureOnly);
-		const Durin::FByteArray FactorOnlyPixels =
+		const Durin::FByteBuffer FactorOnlyPixels =
 			Capture(ReloadedMesh, FactorOnly);
-		const Durin::FByteArray AutomaticLODPixels =
+		const Durin::FByteBuffer AutomaticLODPixels =
 			Capture(LODContractMesh, ReloadedMaterial);
-		const Durin::FByteArray ForcedLOD0Pixels =
+		const Durin::FByteBuffer ForcedLOD0Pixels =
 			Capture(LODContractMesh, ReloadedMaterial, true);
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
@@ -613,7 +613,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			"52fd6459e2beedd91682296b55f560c0");
 		Durin::VulkanRHI::ArmVulkanCreateFailure(
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
-		const Durin::FByteArray FailedResourcePixels =
+		const Durin::FByteBuffer FailedResourcePixels =
 			Capture(ReloadedMesh, FailedResourceMaterial, false,
 				Durin::Editor::EThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedResourcePixels.empty());

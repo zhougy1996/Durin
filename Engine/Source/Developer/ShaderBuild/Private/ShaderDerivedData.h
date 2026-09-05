@@ -21,13 +21,13 @@ namespace Durin::ShaderDerivedData
 	inline auto Encode(
 		const FShaderCompileOptions& Options,
 		const FShaderCompilerOutput& Output,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		return ShaderCompiledOutput::Encode(Options, Output, OutBytes, OutError);
 	}
 	inline auto Decode(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		const FShaderCompileOptions& Options,
 		FShaderCompilerOutput& OutOutput,
 		std::string& OutError) -> bool

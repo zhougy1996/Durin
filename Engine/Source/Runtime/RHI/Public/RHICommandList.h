@@ -110,10 +110,10 @@ namespace Durin
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;
-		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const std::byte> SourceData) -> void;
+		RHI_API auto UpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, FByteView SourceData) -> void;
 		RHI_API auto UpdateTexture3D(FRHITexture* Texture, uint32 MipIndex,
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
-			uint32 SourceDepthPitch, std::span<const std::byte> SourceData) -> void;
+			uint32 SourceDepthPitch, FByteView SourceData) -> void;
 		RHI_API auto PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void;
 		RHI_API auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
 
@@ -290,7 +290,7 @@ namespace Durin
 		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 		RHI_API auto AllocateDynamicStorageBuffer(const void* Data, uint32 Size)
 			-> FRHIStorageBufferRange;
-		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteArray& OutData) -> bool;
+		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteBuffer& OutData) -> bool;
 		RHI_API auto AcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 		RHI_API auto AcquireBackBufferSynchronously(FRHITexture* BackBuffer) -> void;
 		RHI_API auto BlockUntilGPUIdle() -> void;

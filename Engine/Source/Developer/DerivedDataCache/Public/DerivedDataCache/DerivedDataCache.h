@@ -81,7 +81,7 @@ namespace Durin::DerivedData
 	struct FCachePutRequest
 	{
 		FCacheKey Key;
-		std::span<const std::byte> Value;
+		FByteView Value;
 		uint64 MaximumValueBytes = 0;
 	};
 

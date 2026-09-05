@@ -101,9 +101,9 @@ namespace
 			});
 	}
 
-	auto LoadThumbnailPngBytes() -> Durin::FByteArray
+	auto LoadThumbnailPngBytes() -> Durin::FByteBuffer
 	{
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(
 			Bytes,
 			std::filesystem::path(Durin::FPaths::EngineContentDir())
@@ -503,7 +503,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 			Durin::Editor::FThumbnailObjectStore Store({
 				.CacheRoot = CacheRoot,
 				.ObjectExtension = ".png"});
-			Durin::FByteArray Encoded;
+			Durin::FByteBuffer Encoded;
 			EXPECT_EQ(
 				Store.Load(CacheKey, Encoded),
 				Durin::Editor::EThumbnailObjectLoadResult::Miss);

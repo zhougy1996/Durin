@@ -9,9 +9,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Thumbnail requests run concurrently, so bound the full-resolution intermediate rather than relying on the much larger import limit.
 		constexpr Image::FImageDecodeLimits ThumbnailDecodeLimits{32ull * 1024ull * 1024ull, 16ull * 1024ull * 1024ull};
 
-		auto ResizeBilinear(const std::byte* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> FByteArray
+		auto ResizeBilinear(const std::byte* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> FByteBuffer
 		{
-			FByteArray Result(static_cast<size_t>(DestinationWidth) * DestinationHeight * 4);
+			FByteBuffer Result(static_cast<size_t>(DestinationWidth) * DestinationHeight * 4);
 			for (uint32 Y = 0; Y < DestinationHeight; ++Y)
 			{
 				const float SourceY = (static_cast<float>(Y) + 0.5f) * static_cast<float>(SourceHeight) / static_cast<float>(DestinationHeight) - 0.5f;

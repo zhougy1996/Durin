@@ -37,7 +37,7 @@ namespace
 		Value.AddToCook(Context, std::string_view{}, Error);
 	};
 
-	auto MakePackageBytes() -> Durin::FByteArray
+	auto MakePackageBytes() -> Durin::FByteBuffer
 	{
 		static const bool bInitialized = [] {
 			Testing::InitializeDObjectSystemForTests();
@@ -62,7 +62,7 @@ namespace
 		DObject* Asset = NewObject<DObject>(Package, "Root");
 		EXPECT_NE(Asset, nullptr);
 		EXPECT_EQ(Package->FindTopLevelAsset(Asset->GetFName()), Asset);
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		const FAssetResult Result = SerializeAssetPackageBytes(Package, Bytes);
 		EXPECT_TRUE(Result) << Result.Message;
 		EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
@@ -80,18 +80,18 @@ namespace
 			<< Error;
 		const auto* Installed = Texture->GetPlatformData();
 		const uint64 Revision = Texture->GetBuildRevision();
-		FByteArray ValidBytes;
+		FByteBuffer ValidBytes;
 		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload);
 		PlatformData.Serialize(Writer, {.TargetPlatform = ECookTargetPlatform::Win64,
 			.TargetProfile = ECookTargetProfile::Game});
 		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
-		FByteArray TrailingBytes = ValidBytes;
+		FByteBuffer TrailingBytes = ValidBytes;
 		TrailingBytes.push_back(std::byte{0x7f});
 
 		FBulkData Bulk;
 		EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
 			*Texture, Bulk, Family, Error));
-		for (const FByteArray& InvalidBytes : {FByteArray{std::byte{0xff}}, TrailingBytes})
+		for (const FByteBuffer& InvalidBytes : {FByteBuffer{std::byte{0xff}}, TrailingBytes})
 		{
 			ASSERT_TRUE(FBulkData::TryCreateDetached(InvalidBytes, Bulk, &Error)) << Error;
 			EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
@@ -101,7 +101,7 @@ namespace
 			EXPECT_EQ(Texture->GetPlatformData(), Installed);
 			EXPECT_EQ(Texture->GetBuildRevision(), Revision);
 			// A failed decoder must release its lock so the payload can be retried.
-			std::span<const std::byte> LockedBytes;
+			Durin::FByteView LockedBytes;
 			ASSERT_TRUE(Bulk.LockReadOnly(LockedBytes, &Error)) << Error;
 			ASSERT_TRUE(Bulk.UnlockReadOnly(&Error)) << Error;
 		}
@@ -208,7 +208,7 @@ TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndPreservesInstalledFamil
 	Texture2D.PixelFormat = EPixelFormat::BC1_UNORM;
 	const FPixelFormatLayout Texture2DLayout =
 		GetPixelFormatLayout(Texture2D.PixelFormat, 1, 1);
-	Texture2D.Mips.push_back({FByteArray(Texture2DLayout.DataSize, std::byte{0x7f}),
+	Texture2D.Mips.push_back({FByteBuffer(Texture2DLayout.DataSize, std::byte{0x7f}),
 		1, 1, static_cast<uint32>(Texture2DLayout.RowPitch)});
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTexture2D>(Texture2D, "Texture2D"));
 	FTextureCubePlatformData Cube;
@@ -217,7 +217,7 @@ TEST(FCookedTextureDataTests, DecodeFailureUnlocksBulkAndPreservesInstalledFamil
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DTextureCube>(Cube, "TextureCube"));
 	FVolumeTexturePlatformData Volume;
 	Volume.PixelFormat = EPixelFormat::R8_UNORM;
-	Volume.Mips.push_back({FByteArray(1, std::byte{0x7f}), 1, 1, 1, 1, 1});
+	Volume.Mips.push_back({FByteBuffer(1, std::byte{0x7f}), 1, 1, 1, 1, 1});
 	ASSERT_NO_FATAL_FAILURE(ExpectCookedTextureDecodeBoundaries<DVolumeTexture>(Volume, "volume texture"));
 	CollectGarbage();
 }
@@ -230,7 +230,7 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 		{{ECookManifestEntryKind::CookedBulk, 1, "Game/B.dbulk", 2, 3, 4},
 		 {ECookManifestEntryKind::CookedPackage, 1, "Game/A.dasset", 1, 5, 6}}
 	};
-	Durin::FByteArray First, Second;
+	Durin::FByteBuffer First, Second;
 	ASSERT_TRUE(EncodeCookManifest(Manifest, First));
 	ASSERT_TRUE(EncodeCookManifest(Manifest, Second));
 	EXPECT_EQ(First, Second);
@@ -254,7 +254,7 @@ TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 		{{"/Game/B", {1, 2}, {3, 4}, {5, 6}, 12, 8, 2, 3, "texture", "ddc-hit"},
 		 {"/Game/A", {7, 8}, {9, 10}, {}, 11, 0, 4, 5, "generic", "captured"}}
 	};
-	Durin::FByteArray First, Second;
+	Durin::FByteBuffer First, Second;
 	std::string Error;
 	ASSERT_TRUE(EncodeCookState(State, First, &Error)) << Error;
 	ASSERT_TRUE(EncodeCookState(State, Second, &Error)) << Error;
@@ -299,7 +299,7 @@ TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)
 	std::string Error;
 	FCookContext First({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookContext Second({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	const Durin::FByteArray PackageBytes = MakePackageBytes();
+	const Durin::FByteBuffer PackageBytes = MakePackageBytes();
 	ASSERT_TRUE(First.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
 	ASSERT_TRUE(Second.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
 	std::vector<FCookSavePlan> FirstPlans, SecondPlans;
@@ -321,7 +321,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	std::string Error;
 	auto Capture = [&](std::initializer_list<std::byte> Segment) {
 		FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-		EXPECT_TRUE(Context.AddRawPackage("/Game/Transactional", MakePackageBytes(), Durin::FByteArray(Segment), &Error)) << Error;
+		EXPECT_TRUE(Context.AddRawPackage("/Game/Transactional", MakePackageBytes(), Durin::FByteBuffer(Segment), &Error)) << Error;
 		std::vector<FCookSavePlan> Plans;
 		EXPECT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
 		Plans[0].Contributor = "opaque-test";
@@ -341,7 +341,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	FCookPublishResult PublishResult = Store->Publish(
 		First, FirstAuxiliary, MakeState(First[0]), Result, {}, {});
 	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
-	Durin::FByteArray PriorPackage, PriorSegment, PriorLibrary, PriorManifest, PriorState;
+	Durin::FByteBuffer PriorPackage, PriorSegment, PriorLibrary, PriorManifest, PriorState;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorPackage, Root / "Game/Transactional.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorSegment, Root / "Game/Transactional.dbulk"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorLibrary, Root / "Shaders/ShaderLibrary.dslb"));
@@ -368,7 +368,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 				return true; });
 		EXPECT_FALSE(PublishResult);
 		EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Failed);
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
 		EXPECT_EQ(Bytes, PriorPackage);
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
@@ -388,7 +388,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	EXPECT_FALSE(PublishResult);
 	EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Cancelled);
 	EXPECT_NE(PublishResult.Diagnostic.find("CookCancelledDuringCommit"), std::string::npos);
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
 	EXPECT_EQ(Bytes, PriorPackage);
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
@@ -424,7 +424,7 @@ TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
 	Plans[0].bReuseExistingOutput = true;
 	PublishResult = Store->Publish(Plans, State, Result, {}, {});
 	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
-	Durin::FByteArray Repaired;
+	Durin::FByteBuffer Repaired;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Repaired, Root / "Game/Repair.dbulk"));
 	EXPECT_EQ(Repaired, Plans[0].BulkBytes);
 

@@ -63,7 +63,7 @@ namespace Durin::ShaderCompiledOutput
 			return true;
 		}
 
-		auto ValidateCode(std::span<const std::byte> Code) -> bool
+		auto ValidateCode(FByteView Code) -> bool
 		{
 			if (Code.size() < 5 * sizeof(uint32)
 				|| Code.size() > GMaximumCodeBytes
@@ -81,7 +81,7 @@ namespace Durin::ShaderCompiledOutput
 	}
 
 	auto Encode(const FShaderCompileOptions& Options,
-		const FShaderCompilerOutput& Output, FByteArray& OutBytes,
+		const FShaderCompilerOutput& Output, FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -163,7 +163,7 @@ namespace Durin::ShaderCompiledOutput
 		return true;
 	}
 
-	auto Decode(std::span<const std::byte> Bytes,
+	auto Decode(FByteView Bytes,
 		const FShaderCompileOptions& Options, FShaderCompilerOutput& OutOutput,
 		std::string& OutError) -> bool
 	{
@@ -205,7 +205,7 @@ namespace Durin::ShaderCompiledOutput
 				|| Shader.SourceEntryPoint != EntryPoint(Options.EntryPoints[Index])
 				|| Shader.BinaryEntryPoint.empty())
 				return Fail(OutError, "Shader payload entry identity is invalid.");
-			FByteArray Code;
+			FByteBuffer Code;
 			if (!Reader.ReadBytes(Code, CodeBytes, GMaximumCodeBytes)
 				|| !ValidateCode(Code))
 				return Fail(OutError, "Shader payload SPIR-V is invalid.");
@@ -213,7 +213,7 @@ namespace Durin::ShaderCompiledOutput
 			Shader.Hash = {HashLow, HashHigh};
 			if (FXxHash128::HashBuffer(Code) != Shader.Hash)
 				return Fail(OutError, "Shader payload SPIR-V hash is invalid.");
-			Shader.Code = std::make_shared<FByteArray>(std::move(Code));
+			Shader.Code = std::make_shared<FByteBuffer>(std::move(Code));
 
 			uint32 BindingCount = 0;
 			if (!Reader.ReadU32(BindingCount)

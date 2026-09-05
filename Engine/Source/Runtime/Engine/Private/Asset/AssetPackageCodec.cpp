@@ -41,7 +41,7 @@ namespace Durin::AssetPrivate
 				std::string(Diagnostic.Message)};
 		}
 		auto ReadAssetPackageFormatVersion(
-			std::span<const std::byte> Bytes, uint32& OutFormatVersion,
+			FByteView Bytes, uint32& OutFormatVersion,
 			uint64 PhysicalFileBytes) -> FAssetResult
 		{
 			OutFormatVersion = 0;
@@ -99,7 +99,7 @@ namespace Durin::AssetPrivate
 	}
 
 	auto ResolveAssetPackageReader(
-		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
+		FByteView Bytes, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion, uint64 PhysicalFileBytes) -> FAssetResult
 	{
 		OutCodec = nullptr;
@@ -129,7 +129,7 @@ namespace Durin::AssetPrivate
 			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 		const size_t PrefixBytes = static_cast<size_t>(std::min<uint64>(
 			Source.GetSize(), BinaryEnvelopePreambleBytes));
-		FByteArray Prefix(PrefixBytes);
+		FByteBuffer Prefix(PrefixBytes);
 		std::string ReadError;
 		if (!Source.ReadAt(0, Prefix, &ReadError))
 			return {EAssetError::IoError, std::move(ReadError)};
@@ -153,7 +153,7 @@ namespace Durin::AssetPrivate
 			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
 		if (IsCancelled && IsCancelled())
 			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
-		FByteArray Header(static_cast<size_t>(Preamble.HeaderBytes));
+		FByteBuffer Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
 			return {EAssetError::IoError, std::move(ReadError)};
 		uint32 Version = 0;

@@ -47,7 +47,7 @@ namespace Durin::TextureDerivedDataCache
 		FOperationDiagnostic& OutDiagnostic) -> bool
 	{
 		OutDiagnostic = {};
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		PlatformData.Serialize(Ar, {
 			.TargetPlatform = TargetPlatform,

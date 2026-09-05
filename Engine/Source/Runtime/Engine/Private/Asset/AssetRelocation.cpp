@@ -77,11 +77,11 @@ namespace Durin
 		};
 
 		auto BuildMovedPackageBytes(
-			std::span<const std::byte> SourceBytes,
+			FByteView SourceBytes,
 			const FPackagePath& SourcePath,
-			std::span<const std::byte> SourceBulkBytes,
+			FByteView SourceBulkBytes,
 			const FPackagePath& DestinationPath,
-			FByteArray& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetResult
 		{
 			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
 			if (FAssetResult Result = AssetPrivate::ResolveAssetPackageReader(
@@ -112,7 +112,7 @@ namespace Durin
 			const FPackagePath& SourcePath,
 			std::span<const AssetPrivate::FAssetRedirectorWriteMapping> Mappings,
 			uint32 FormatVersion,
-			FByteArray& OutBytes) -> FAssetResult
+			FByteBuffer& OutBytes) -> FAssetResult
 		{
 			const AssetPrivate::FAssetPackageCodec* Codec =
 				AssetPrivate::FindAssetPackageWriter(FormatVersion);
@@ -178,8 +178,8 @@ namespace Durin
 		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
-			std::optional<FByteArray> PreBytes,
-			std::optional<FByteArray> PostBytes) -> FAssetResult {
+			std::optional<FByteBuffer> PreBytes,
+			std::optional<FByteBuffer> PostBytes) -> FAssetResult {
 			if (AssetPrivate::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
 				return Error(EAssetError::IoError,
@@ -192,11 +192,11 @@ namespace Durin
 				.bPreExists = PreBytes.has_value(),
 				.bPostExists = PostBytes.has_value(),
 				.PreBytes = PreBytes
-					? std::span<const std::byte>(*PreBytes)
-					: std::span<const std::byte>{},
+					? FByteView(*PreBytes)
+					: FByteView{},
 				.PostBytes = PostBytes
-					? std::span<const std::byte>(*PostBytes)
-					: std::span<const std::byte>{},
+					? FByteView(*PostBytes)
+					: FByteView{},
 				.DuplicatePolicy =
 					EMutationJournalDuplicatePolicy::Reject}, IgnoredIndex);
 		};
@@ -264,10 +264,10 @@ namespace Durin
 			const std::filesystem::path DestinationFile =
 				NormalizePhysicalPath(
 					GetRelocationPhysicalPath(Mapping.DestinationPath));
-			FByteArray SourceBytes;
+			FByteBuffer SourceBytes;
 			FAssetResult Result = LoadRelocationBytes(SourceFile, SourceBytes);
 			if (!Result) return Result;
-			FByteArray DestinationPreBytes;
+			FByteBuffer DestinationPreBytes;
 			if (bReclaimDestinationRedirector)
 			{
 				Result = LoadRelocationBytes(
@@ -279,8 +279,8 @@ namespace Durin
 					"Relocation destination file {} already exists.",
 					DestinationFile.generic_string()));
 
-			FByteArray MovedBytes;
-			FByteArray SourceBulkBytes;
+			FByteBuffer MovedBytes;
+			FByteBuffer SourceBulkBytes;
 			std::filesystem::path SourceBulkFile = SourceFile;
 			SourceBulkFile.replace_extension(".dbulk");
 			if (std::filesystem::is_regular_file(SourceBulkFile)
@@ -291,7 +291,7 @@ namespace Durin
 				SourceBytes, Mapping.SourcePath, SourceBulkBytes,
 				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
-			FByteArray SourceRedirectorBytes;
+			FByteBuffer SourceRedirectorBytes;
 			std::vector<AssetPrivate::FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
 			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
@@ -317,7 +317,7 @@ namespace Durin
 				Mapping.DestinationPath,
 				EAssetMutationPublicationRole::RealAsset,
 				bReclaimDestinationRedirector
-					? std::optional<FByteArray>(DestinationPreBytes)
+					? std::optional<FByteBuffer>(DestinationPreBytes)
 					: std::nullopt,
 				std::move(MovedBytes));
 			if (!Result) return Result;
@@ -345,7 +345,7 @@ namespace Durin
 					BulkError.empty() ? "Authored bulk relocation inspection failed." : BulkError);
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
 			{
-				FByteArray PayloadBytes;
+				FByteBuffer PayloadBytes;
 				Result = LoadRelocationBytes(SourceBulkFiles[BulkIndex], PayloadBytes);
 				if (!Result) return Result;
 				if (std::filesystem::exists(DestinationBulkFiles[BulkIndex]))
@@ -407,7 +407,7 @@ namespace Durin
 					if (SourcePayload == DestinationPayload)
 						return Error(EAssetError::InvalidPath,
 							"An owned payload relocation has identical paths.");
-					FByteArray PayloadBytes;
+					FByteBuffer PayloadBytes;
 					Result = LoadRelocationBytes(SourcePayload, PayloadBytes);
 					if (!Result) return Result;
 					if (std::filesystem::exists(DestinationPayload))
@@ -536,7 +536,7 @@ namespace Durin
 				? Entry.StagedPreHash : Entry.StagedPostHash;
 			if (bOutputExists)
 			{
-				FByteArray StagedBytes;
+				FByteBuffer StagedBytes;
 				FAssetResult Result = LoadRelocationBytes(Staged, StagedBytes);
 				if (!Result || FXxHash128::HashBuffer(StagedBytes) != ExpectedHash)
 					return Error(EAssetError::StaleData,

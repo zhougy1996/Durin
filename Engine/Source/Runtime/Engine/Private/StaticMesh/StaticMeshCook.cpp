@@ -96,7 +96,7 @@ namespace Durin
 				return;
 			}
 			FStaticMeshPayloadData Payload;
-			FByteArray RenderBytes;
+			FByteBuffer RenderBytes;
 			std::string Error;
 			if (!MakeStaticMeshPayloadData(*RenderData, Payload, Error)
 				|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
@@ -129,7 +129,7 @@ namespace Durin
 					BodySetup->GetCollisionSourceMode()
 						== EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Simple : Complex;
 				FStaticMeshCollisionPayloadData CollisionPayload;
-				FByteArray CollisionBytes;
+				FByteBuffer CollisionBytes;
 				if (!Geometry || !MakeStaticMeshCollisionPayloadData(
 					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload, Error))
 				{
@@ -222,10 +222,10 @@ namespace Durin
 
 		const bool bRequiresCollision = BodySetup
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		if (!CookedRenderData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		std::span<const std::byte> CollisionBytes;
+		FByteView CollisionBytes;
 		if (bRequiresCollision)
 		{
 			if (!CookedCollisionData.LockReadOnly(CollisionBytes, &OutError))
@@ -316,8 +316,8 @@ namespace Durin
 					return {.Message = "StaticMesh cooked field count is invalid."};
 				auto Result = std::make_unique<FStaticMeshManagerProduct>();
 				FCookedMeshProductError Error;
-				const std::span<const std::byte> CollisionBytes = bRequiresCollision
-					? Buffers[1].GetBytes() : std::span<const std::byte>{};
+				const FByteView CollisionBytes = bRequiresCollision
+					? Buffers[1].GetBytes() : FByteView{};
 				if (!DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
 					CollisionBytes, SlotSnapshot, CollisionMode, CollisionPolicy,
 					Result->Product, Error))

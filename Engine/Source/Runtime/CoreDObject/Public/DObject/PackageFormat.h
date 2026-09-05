@@ -160,19 +160,19 @@ namespace Durin::ObjectPackage
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 	COREDOBJECT_API auto WritePackageV9(
 		const FLinkerTables& Linker,
-		FByteArray& OutPackageBytes,
-		FByteArray& OutBulkBytes,
+		FByteBuffer& OutPackageBytes,
+		FByteBuffer& OutBulkBytes,
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 	COREDOBJECT_API auto WritePackageV9Main(
 		const FLinkerTables& Linker,
 		uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash,
-		FByteArray& OutPackageBytes,
+		FByteBuffer& OutPackageBytes,
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	// Validates exactly the declared front matter and publishes package-level Registry data.
 	COREDOBJECT_API auto ReadPackageV9Registry(
-		std::span<const std::byte> FrontMatter,
+		FByteView FrontMatter,
 		uint64 PhysicalPackageBytes,
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,
@@ -180,14 +180,14 @@ namespace Durin::ObjectPackage
 		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
 		const FPackageReaderLimits& Limits = {}) -> bool;
 	COREDOBJECT_API auto ReadPackageV9(
-		std::span<const std::byte> PackageBytes,
-		std::span<const std::byte> BulkBytes,
+		FByteView PackageBytes,
+		FByteView BulkBytes,
 		const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker,
 		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
 		const FPackageReaderLimits& Limits = {}) -> bool;
 	COREDOBJECT_API auto ReadPackageV9Metadata(
-		std::span<const std::byte> PackageBytes,
+		FByteView PackageBytes,
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker,

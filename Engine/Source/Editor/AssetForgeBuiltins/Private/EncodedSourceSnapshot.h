@@ -10,14 +10,14 @@ namespace Durin::AssetForge::Builtins
 	{
 		std::string Filename;
 		std::filesystem::path PhysicalPath;
-		std::shared_ptr<const FByteArray> Bytes;
+		std::shared_ptr<const FByteBuffer> Bytes;
 		FXxHash128 ContentHash{};
 		uint64 FileSize = 0;
 		int64 LastWriteTime = 0;
 
-		auto GetBytes() const -> std::span<const std::byte>
+		auto GetBytes() const -> FByteView
 		{
-			return Bytes ? std::span<const std::byte>(*Bytes) : std::span<const std::byte>{};
+			return Bytes ? FByteView(*Bytes) : FByteView{};
 		}
 	};
 

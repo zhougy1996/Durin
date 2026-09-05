@@ -57,8 +57,8 @@ namespace Durin
 				Ar, Shader.BinaryEntryPoint, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
 				Ar, Shader.DebugName, MaterialCookedProgramMaxStringBytes);
-			FByteArray Code = Ar.IsSaving() && Shader.Code
-				? *Shader.Code : FByteArray{};
+			FByteBuffer Code = Ar.IsSaving() && Shader.Code
+				? *Shader.Code : FByteBuffer{};
 			SerializeByteBuffer(Ar, Code, MaterialCookedProgramMaxPayloadBytes);
 			SerializeHash(Ar, Shader.Hash);
 			SerializeBoundedSequence(
@@ -74,7 +74,7 @@ namespace Durin
 					SerializePushRange(Inner, Range);
 				});
 			if (Ar.IsLoading() && !Ar.HasError())
-				Shader.Code = std::make_shared<FByteArray>(
+				Shader.Code = std::make_shared<FByteBuffer>(
 					std::move(Code));
 		}
 
@@ -170,7 +170,7 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -198,7 +198,7 @@ namespace Durin
 	}
 
 	auto DecodeMaterialCookedProgram(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FMaterialStaticProperties& OutStaticProperties,

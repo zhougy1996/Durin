@@ -39,7 +39,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto AppendPixel(const Image::FDecodedImage& Image, size_t Pixel,
-			EVolumeTextureSourceChannels Channels, FByteArray& OutVoxels) -> void
+			EVolumeTextureSourceChannels Channels, FByteBuffer& OutVoxels) -> void
 		{
 			if (Channels == EVolumeTextureSourceChannels::RGBA)
 			{
@@ -275,7 +275,7 @@ namespace Durin::AssetForge::Builtins
 			== EVolumeTextureFormat::RGBA8_UNORM ? 4u : 1u;
 		const uint64 TotalBytes = static_cast<uint64>(Settings.SliceWidth)
 			* Settings.SliceHeight * Settings.Depth * BytesPerVoxel;
-		FByteArray Voxels;
+		FByteBuffer Voxels;
 		Voxels.reserve(static_cast<size_t>(TotalBytes));
 		for (uint32 Z = 0; Z < Settings.Depth; ++Z)
 		{

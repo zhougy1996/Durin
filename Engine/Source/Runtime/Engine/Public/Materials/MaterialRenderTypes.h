@@ -83,7 +83,7 @@ namespace Durin
 	struct FMaterialRenderRepresentationInput
 	{
 		FMaterialRenderLayout Layout;
-		FByteArray UniformPayload;
+		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
 	};
 
@@ -101,7 +101,7 @@ namespace Durin
 		) -> bool;
 
 		ENGINE_API auto GetLayout() const -> const FMaterialRenderLayout&;
-		ENGINE_API auto GetUniformPayload() const -> std::span<const std::byte>;
+		ENGINE_API auto GetUniformPayload() const -> FByteView;
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
 		ENGINE_API auto IsError() const -> bool;
@@ -109,12 +109,12 @@ namespace Durin
 	private:
 		FMaterialRenderRepresentation(
 			FMaterialRenderLayout InLayout,
-			FByteArray InUniformPayload,
+			FByteBuffer InUniformPayload,
 			std::vector<FRHITextureReferenceRef> InResources,
 			bool bInError);
 
 		FMaterialRenderLayout Layout;
-		FByteArray UniformPayload;
+		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
 		bool bError = false;
 	};

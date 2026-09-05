@@ -101,7 +101,7 @@ TEST(FProjectGameSettingsTests, RejectsWrongNodeShapesWithoutMutatingTheFile)
 	const Durin::FProjectGameSettingsResult Result =
 		Durin::FProjectGameSettingsStore(File).Load(Settings);
 	EXPECT_EQ(Result.Error, Durin::EProjectGameSettingsError::InvalidGameSection);
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	const Durin::FProjectGameSettingsResult Update =
 		Durin::FProjectGameSettingsStore(File).BuildDefaultLevelUpdate(
 			"/Game/Levels/New", Bytes);

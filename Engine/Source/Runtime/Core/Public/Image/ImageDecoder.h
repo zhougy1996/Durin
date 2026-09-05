@@ -26,12 +26,12 @@ namespace Durin::Image
 
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
 	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
-	CORE_API auto DecodeImageFromMemory(std::span<const std::byte> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
+	CORE_API auto DecodeImageFromMemory(FByteView EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeGrayscale16PngFromMemory(
-		std::span<const std::byte> EncodedBytes,
+		FByteView EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
@@ -40,7 +40,7 @@ namespace Durin::Image
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	CORE_API auto DecodeRadianceHDRFromMemory(std::span<const std::byte> EncodedBytes, FDecodedFloatImage& OutImage,
+	CORE_API auto DecodeRadianceHDRFromMemory(FByteView EncodedBytes, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
 	CORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;

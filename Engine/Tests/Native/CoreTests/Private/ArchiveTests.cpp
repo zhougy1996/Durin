@@ -27,7 +27,7 @@ namespace ArchiveCustomizationTest
 
 TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 {
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	uint16 U16 = 0x1234;
 	int32 I32 = -2;
@@ -35,7 +35,7 @@ TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 	bool Boolean = true;
 	Writer << U16 << I32 << Float << Boolean;
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
-	EXPECT_EQ(Bytes, (Durin::FByteArray{
+	EXPECT_EQ(Bytes, (Durin::FByteBuffer{
 		std::byte{0x34}, std::byte{0x12}, std::byte{0xfe}, std::byte{0xff},
 		std::byte{0xff}, std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
 		std::byte{0x80}, std::byte{0x3f}, std::byte{0x01}}));
@@ -58,7 +58,7 @@ TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 	const std::array<std::byte, 5> Bytes{
 		std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}, std::byte{5}};
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::CookedPayload);
-	std::span<const std::byte> Region;
+	Durin::FByteView Region;
 	ASSERT_TRUE(Reader.ReadRegion(3, Region));
 	EXPECT_TRUE(std::ranges::equal(Region, std::span(Bytes).first(3)));
 	EXPECT_FALSE(Reader.ReadRegion(3, Region));
@@ -72,7 +72,7 @@ TEST(FArchiveTests, SpanRegionsBoundsAndFailureAreTransactionalAndSticky)
 
 TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 {
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::CookedPayload);
 	std::string Label = "abc";
 	Durin::SerializeBoundedString(Writer, Label, 3);
@@ -102,7 +102,7 @@ TEST(FArchiveTests, BoundedValuesAlignmentAndTrailingBytesRejectHostileInput)
 TEST(FArchiveTests, CountingAndHashingArchivesMatchCanonicalMemory)
 {
 	FArchiveFixtureValue Expected{17, "archive"};
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataKey);
 	Writer << Expected;
 
@@ -122,7 +122,7 @@ TEST(FArchiveTests, MemberAndFreeSerializeCustomizationsShareOneProtocol)
 {
 	FArchiveFixtureValue Member{9, "member"};
 	ArchiveCustomizationTest::FFreeValue Free{0x1234};
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Writer << Member << Free;
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -145,7 +145,7 @@ TEST(FArchiveTests, ContextAndVersionsRemainOrthogonal)
 	Durin::FArchiveVersionContext Versions{
 		.Formats = {{Durin::FName("TXPL"), 3}},
 		.CustomVersions = {{{1, 2, 3, 4}, 7}}};
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(
 		Bytes, Durin::EArchivePurpose::CookedPayload, State, Versions);
 	EXPECT_TRUE(Writer.IsSaving());
@@ -164,7 +164,7 @@ TEST(FArchiveTests, SharedByteBuffersShareImmutableStorageAndReplaceByCandidate)
 	const Durin::FSharedByteBuffer First = Durin::FSharedByteBuffer::Copy(Source);
 	const Durin::FSharedByteBuffer Shared = First;
 	const Durin::FSharedByteBuffer Replacement = Durin::FSharedByteBuffer::Copy(
-		std::span<const std::byte>(Source).first(2));
+		Durin::FByteView(Source).first(2));
 
 	EXPECT_TRUE(First.SharesStorageWith(Shared));
 	EXPECT_FALSE(First.SharesStorageWith(Replacement));
@@ -182,7 +182,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 		.ContentHash = Durin::FXxHash128::HashBuffer(Payload),
 		.Buffer = Durin::FSharedByteBuffer::Copy(Payload)};
 
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
 	Writer.SerializeBulkData(Source, {});
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -227,7 +227,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 
 	Durin::FArchiveState SkipState;
 	SkipState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::Skip;
-	Durin::FByteArray Bytes;
+	Durin::FByteBuffer Bytes;
 	Durin::FCanonicalMemoryWriter Skip(
 		Bytes, Durin::EArchivePurpose::BulkData, SkipState);
 	Skip.SerializeBulkData(Value, {});

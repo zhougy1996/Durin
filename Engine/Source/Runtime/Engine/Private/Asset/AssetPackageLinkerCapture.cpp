@@ -30,9 +30,9 @@ namespace Durin::AssetPrivate
 			uint64 Index = 0;
 			FArchiveFieldDescriptor Field;
 			FProperty* ReflectedProperty = nullptr;
-			FByteArray Raw;
+			FByteBuffer Raw;
 			std::vector<FCapturedNode> Children;
-			FByteArray BulkBytes;
+			FByteBuffer BulkBytes;
 			uint64 BulkElementSize = 1;
 			uint32 BulkAlignment = 1;
 			uint8 BulkStorage = 0;
@@ -260,7 +260,7 @@ namespace Durin::AssetPrivate
 					? std::span<const FName>{} : std::span<const FName>(It->second);
 			}
 
-			auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override
+			auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 			{
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				FLoadScope& Scope = Stack.back();
@@ -326,7 +326,7 @@ namespace Durin::AssetPrivate
 					.Alignment = Alignment};
 				if (Placement == 0)
 				{
-					FByteArray Bytes(static_cast<size_t>(StoredSize));
+					FByteBuffer Bytes(static_cast<size_t>(StoredSize));
 					ReadBytes(Bytes);
 					if (HasError()) return;
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
@@ -787,7 +787,7 @@ namespace Durin::AssetPrivate
 				return std::move(Package);
 			}
 
-			auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override
+			auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 			{
 				if (NodeStack.empty() || !NodeStack.back())
 				{
@@ -1303,7 +1303,7 @@ namespace Durin::AssetPrivate
 				return Payload->Descriptor.PayloadId;
 			});
 			if (Sorted.empty()) return {};
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::BulkData);
 			uint64 Count = Sorted.size();
 			Writer << Count;
@@ -1505,13 +1505,13 @@ namespace Durin::AssetPrivate
 		}
 
 		template<typename T>
-		auto ReadCaptured(std::span<const std::byte> Bytes, size_t& Offset, T& Out) -> bool
+		auto ReadCaptured(FByteView Bytes, size_t& Offset, T& Out) -> bool
 		{
 			if (sizeof(T) > Bytes.size() - Offset) return false;
 			std::memcpy(&Out, Bytes.data() + Offset, sizeof(T)); Offset += sizeof(T); return true;
 		}
 
-		auto ReadCapturedString(std::span<const std::byte> Bytes, size_t& Offset, std::string& Out) -> bool
+		auto ReadCapturedString(FByteView Bytes, size_t& Offset, std::string& Out) -> bool
 		{
 			uint64 Size = 0;
 			if (!ReadCaptured(Bytes, Offset, Size) || Size > Bytes.size() - Offset) return false;

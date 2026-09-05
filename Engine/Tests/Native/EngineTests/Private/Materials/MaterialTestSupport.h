@@ -56,7 +56,7 @@ namespace
 	}
 
 	auto RewriteSerializedFieldAsLegacyMap(
-		Durin::FByteArray& Bytes,
+		Durin::FByteBuffer& Bytes,
 		const Durin::FPackagePath& PackagePath,
 		std::string_view CurrentName,
 		std::string_view LegacyName
@@ -99,15 +99,15 @@ namespace
 			}
 		}
 		if (Rewritten == 0) return false;
-		Durin::FByteArray Main;
-		Durin::FByteArray Bulk;
+		Durin::FByteBuffer Main;
+		Durin::FByteBuffer Bulk;
 		if (!Durin::ObjectPackage::WritePackageV9(Linker, Main, Bulk) || !Bulk.empty())
 			return false;
 		Bytes = std::move(Main);
 		return true;
 	}
 
-	auto ContainsSerializedField(std::span<const std::byte> Bytes,
+	auto ContainsSerializedField(Durin::FByteView Bytes,
 		const Durin::FPackagePath& PackagePath, std::string_view Name) -> bool
 	{
 		Durin::ObjectPackage::FLinkerTables Linker;

@@ -45,13 +45,13 @@ namespace Durin
 
 	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> FByteArray;
+		std::string& OutError) -> FByteBuffer;
 	ENGINE_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> FCacheKeyProxy;
 	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> FByteArray;
+		std::string& OutError) -> FByteBuffer;
 	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKey(
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> FCacheKeyProxy;

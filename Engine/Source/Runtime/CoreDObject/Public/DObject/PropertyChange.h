@@ -55,7 +55,7 @@ namespace Durin
 		// Index is meaningful only for fixed and dynamic array selectors. Map keys
 		// use serialized bytes because an unordered-map iteration index is unstable.
 		uint64 Index = 0;
-		std::span<const std::byte> MapKeyData;
+		FByteView MapKeyData;
 	};
 
 	// Reports a completed reflected edit using synchronous borrowed path storage.

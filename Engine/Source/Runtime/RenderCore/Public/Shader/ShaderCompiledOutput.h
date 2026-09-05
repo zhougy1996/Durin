@@ -10,9 +10,9 @@ namespace Durin::ShaderCompiledOutput
 	inline constexpr uint32 MaximumEntryPoints = 32;
 	inline constexpr uint64 MaximumValueBytes = 256ull * 1024ull * 1024ull;
 	RENDERCORE_API auto Encode(const FShaderCompileOptions& Options,
-		const FShaderCompilerOutput& Output, FByteArray& OutBytes,
+		const FShaderCompilerOutput& Output, FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
-	RENDERCORE_API auto Decode(std::span<const std::byte> Bytes,
+	RENDERCORE_API auto Decode(FByteView Bytes,
 		const FShaderCompileOptions& Options, FShaderCompilerOutput& OutOutput,
 		std::string& OutError) -> bool;
 }

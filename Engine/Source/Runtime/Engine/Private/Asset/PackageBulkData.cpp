@@ -74,7 +74,7 @@ namespace Durin
 	auto ValidatePackageBulkDataSegment(
 		const FPackageBulkSegmentSummary& Summary,
 		std::span<const FPackageBulkDataEntry> Entries,
-		std::span<const std::byte> Segment,
+		FByteView Segment,
 		std::string* OutError) -> bool
 	{
 		if (!ValidatePackageBulkDataMetadata(Summary, Entries, OutError)) return false;

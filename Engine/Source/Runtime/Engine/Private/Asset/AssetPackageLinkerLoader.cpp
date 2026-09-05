@@ -168,7 +168,7 @@ namespace Durin::AssetPrivate
 
 		auto WriteProjectedField(AssetPrivate::FByteWriter& Writer, std::string_view Owner,
 			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
-			std::string Signature, FByteArray Payload) -> void
+			std::string Signature, FByteBuffer Payload) -> void
 		{
 			Writer.WriteString(Owner); Writer.WriteString(Name); Writer.Write(uint8(Kind));
 			Writer.WriteString(Signature); Writer.Write(uint64(Payload.size())); Writer.WriteBytes(Payload);
@@ -215,7 +215,7 @@ namespace Durin::AssetPrivate
 		}
 
 		auto MakeBulkDescriptor(const ObjectPackage::FSerializedValue& Value,
-			uint64 FieldIndex) -> FByteArray
+			uint64 FieldIndex) -> FByteBuffer
 		{
 			const uint64 StoredSize = Value.bBulkPayloadAvailable
 				? Value.Bytes.size() : Value.BulkStoredSize;
@@ -428,7 +428,7 @@ namespace Durin::AssetPrivate
 				if (Value.Elements.size() % 2 != 0) return false;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					FByteArray Token;
+					FByteBuffer Token;
 					std::string Error;
 					if (!ObjectPackage::BuildCanonicalMapKeyToken(
 						Type.Children[0], Value.Elements[Index], Token, &Error))

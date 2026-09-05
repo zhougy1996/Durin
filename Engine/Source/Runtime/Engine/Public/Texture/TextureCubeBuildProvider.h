@@ -26,7 +26,7 @@ namespace Durin
 
 	struct FTextureCubePanoramaImage
 	{
-		FByteArray Pixels;
+		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint8 SourceChannelCount = 0;

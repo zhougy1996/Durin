@@ -37,13 +37,13 @@ namespace
 			.Diagnostic = std::move(ManagerResult.Message)};
 	}
 
-	void AppendBigEndian32(Durin::FByteArray& Bytes, uint32 Value)
+	void AppendBigEndian32(Durin::FByteBuffer& Bytes, uint32 Value)
 	{
 		for (int Shift : {24, 16, 8, 0})
 			Bytes.push_back(static_cast<std::byte>(Value >> Shift));
 	}
 
-	uint32 PngCrc32(std::span<const std::byte> Bytes)
+	uint32 PngCrc32(Durin::FByteView Bytes)
 	{
 		uint32 Crc = 0xffffffffu;
 		for (std::byte Byte : Bytes)
@@ -55,23 +55,23 @@ namespace
 		return ~Crc;
 	}
 
-	void AppendPngChunk(Durin::FByteArray& Bytes, std::string_view Type,
-		std::span<const std::byte> Payload)
+	void AppendPngChunk(Durin::FByteBuffer& Bytes, std::string_view Type,
+		Durin::FByteView Payload)
 	{
 		AppendBigEndian32(Bytes, static_cast<uint32>(Payload.size()));
 		const size_t CrcStart = Bytes.size();
-		const std::span<const std::byte> TypeBytes =
+		const Durin::FByteView TypeBytes =
 			std::as_bytes(std::span{Type.data(), Type.size()});
 		Bytes.insert(Bytes.end(), TypeBytes.begin(), TypeBytes.end());
 		Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
 		AppendBigEndian32(Bytes, PngCrc32(std::span(Bytes).subspan(CrcStart)));
 	}
 
-	Durin::FByteArray MakeHorizontal128CubedAtlasPng()
+	Durin::FByteBuffer MakeHorizontal128CubedAtlasPng()
 	{
 		constexpr uint32 Width = 16384;
 		constexpr uint32 Height = 128;
-		Durin::FByteArray Scanlines;
+		Durin::FByteBuffer Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
@@ -84,7 +84,7 @@ namespace
 			}
 		}
 
-		Durin::FByteArray Deflate{std::byte{0x78}, std::byte{0x01}};
+		Durin::FByteBuffer Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
@@ -110,7 +110,7 @@ namespace
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		Durin::FByteArray Png{
+		Durin::FByteBuffer Png{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
@@ -130,9 +130,9 @@ namespace
 		return Png;
 	}
 
-	Durin::FByteArray MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
+	Durin::FByteBuffer MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
 	{
-		Durin::FByteArray Scanlines;
+		Durin::FByteBuffer Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
@@ -146,7 +146,7 @@ namespace
 			}
 		}
 
-		Durin::FByteArray Deflate{std::byte{0x78}, std::byte{0x01}};
+		Durin::FByteBuffer Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
@@ -172,7 +172,7 @@ namespace
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		Durin::FByteArray Png{
+		Durin::FByteBuffer Png{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
@@ -199,7 +199,7 @@ TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngCo
 		Testing::GetTestWorkDirectory() / "VolumeTextureInspection";
 	std::filesystem::create_directories(Directory);
 	const std::filesystem::path AtlasPath = Directory / "Atlas.png";
-	const Durin::FByteArray Png = MakeGrayscaleRgbaPng(512, 512);
+	const Durin::FByteBuffer Png = MakeGrayscaleRgbaPng(512, 512);
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());
@@ -249,7 +249,7 @@ TEST(FVolumeTextureSourceImportTests, ValidatesDirectPngAtlasSettings)
 
 TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 {
-	const std::span<const std::byte> TransparentPngData =
+	const Durin::FByteView TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
 	const FVolumeTextureCapturedSource Atlas{
 		.Filename = "/Test/Noise.png",
@@ -420,7 +420,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		Testing::GetTestWorkDirectory() / "TextureImports/Content/ProductionVolume";
 	std::filesystem::create_directories(SourceDirectory);
 	const std::filesystem::path AtlasPath = SourceDirectory / "Noise128.png";
-	const Durin::FByteArray Png = MakeHorizontal128CubedAtlasPng();
+	const Durin::FByteBuffer Png = MakeHorizontal128CubedAtlasPng();
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());
@@ -443,7 +443,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 			static_cast<std::byte>(Slice));
 
 	const FXxHash128 SourceContentId = Imported.Asset->GetSource().GetBulkData().GetPayloadId();
-	const Durin::FByteArray V6SourceBytes(
+	const Durin::FByteBuffer V6SourceBytes(
 		ImportedVoxels.begin(), ImportedVoxels.end());
 	FPackagePath AssetPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
@@ -477,15 +477,15 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
-	Durin::FByteArray V6CookedPackage;
-	Durin::FByteArray V6CookedBulk;
+	Durin::FByteBuffer V6CookedPackage;
+	Durin::FByteBuffer V6CookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		V6CookedPackage, CookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		V6CookedBulk, CookRoot / "Game/ProductionVolume.dbulk"));
 
 	ASSERT_TRUE(UnloadPackage(AssetPath));
-	Durin::FByteArray CompanionBytes;
+	Durin::FByteBuffer CompanionBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, V6Companions.front()));
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
@@ -517,8 +517,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(ContributeEngineCookAsset(
 		*Reloaded, "/Game/ProductionVolume", RollbackCook, Error)) << Error;
 	ASSERT_TRUE(RollbackCook.Publish(&Error)) << Error;
-	Durin::FByteArray RepeatedCookedPackage;
-	Durin::FByteArray RepeatedCookedBulk;
+	Durin::FByteBuffer RepeatedCookedPackage;
+	Durin::FByteBuffer RepeatedCookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		RepeatedCookedPackage, RollbackCookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(

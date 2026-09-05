@@ -74,10 +74,10 @@ namespace Durin
 		CORE_API auto WriteGuid(const FGuid& Value) -> void;
 		CORE_API auto WriteHash128(const FXxHash128& Value) -> void;
 		CORE_API auto WriteString(std::string_view Value) -> void;
-		CORE_API auto WriteBytes(std::span<const std::byte> Value) -> void;
+		CORE_API auto WriteBytes(FByteView Value) -> void;
 		CORE_API auto WriteHeader(const FBinaryFormatHeader& Header) -> void;
-		auto GetBytes() const -> const FByteArray& { return Bytes; }
-		CORE_API auto TakeBytes() -> FByteArray;
+		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
+		CORE_API auto TakeBytes() -> FByteBuffer;
 		auto Tell() const -> uint64 { return static_cast<uint64>(Bytes.size()); }
 		auto HasError() const -> bool { return bLimitError || Archive.HasError(); }
 
@@ -94,7 +94,7 @@ namespace Durin
 			return true;
 		}
 
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FBinaryCursorLimits Limits;
 		bool bLimitError = false;
 		FCanonicalMemoryWriter Archive;
@@ -105,7 +105,7 @@ namespace Durin
 	class FBinaryReader
 	{
 	public:
-		explicit FBinaryReader(std::span<const std::byte> InBytes, FBinaryCursorLimits InLimits = {})
+		explicit FBinaryReader(FByteView InBytes, FBinaryCursorLimits InLimits = {})
 			: Limits(InLimits), bLimitError(static_cast<uint64>(InBytes.size()) > Limits.MaximumTotalBytes),
 			  Archive(InBytes, EArchivePurpose::DerivedDataPayload) {}
 
@@ -113,7 +113,7 @@ namespace Durin
 		template<CBinaryInteger T>
 		auto ReadInteger(T& Value, EBinaryByteOrder ByteOrder = EBinaryByteOrder::LittleEndian) -> bool
 		{
-			std::span<const std::byte> Raw;
+			FByteView Raw;
 			if (!ReadRegion(Raw, sizeof(T), sizeof(T))) return false;
 			using Unsigned = std::make_unsigned_t<T>;
 			Unsigned Encoded = 0;
@@ -144,10 +144,10 @@ namespace Durin
 		CORE_API auto ReadGuid(FGuid& Value) -> bool;
 		CORE_API auto ReadHash128(FXxHash128& Value) -> bool;
 		CORE_API auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumBinaryStringBytes) -> bool;
-		CORE_API auto ReadBytes(FByteArray& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
+		CORE_API auto ReadBytes(FByteBuffer& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
 		// Returns a non-owning region whose lifetime is bounded by the reader source.
 		CORE_API auto ReadRegion(
-			std::span<const std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
+			FByteView& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
 		CORE_API auto ReadAndValidateHeader(uint32 ExpectedMagic, uint32 ExpectedSchemaVersion,
 			uint32 ExpectedFormatVersion, FBinaryFormatHeader* OutHeader = nullptr) -> bool;
 		auto IsAtEnd() const -> bool { return !HasError() && Archive.GetRemainingPayloadBytes() == 0; }
@@ -168,7 +168,7 @@ namespace Durin
 	template<typename T>
 	requires std::is_unsigned_v<T>
 	[[nodiscard]] auto ReadLittleEndianAt(
-		std::span<const std::byte> Bytes, uint64 Offset, T& OutValue) -> bool
+		FByteView Bytes, uint64 Offset, T& OutValue) -> bool
 	{
 		if (Offset > static_cast<uint64>(Bytes.size())) return false;
 		const size_t LocalOffset = static_cast<size_t>(Offset);

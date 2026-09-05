@@ -49,7 +49,7 @@ namespace Durin::ObjectPackage
 		struct FSection
 		{
 			EDastV8Section Kind{};
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			uint64 Offset = 0;
 			FXxHash128 Hash;
 		};
@@ -372,11 +372,11 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
 						"A Map has an invalid entry count.", std::move(Path));
 				{
-					struct FEntry { size_t Index; FByteArray Token; };
+					struct FEntry { size_t Index; FByteBuffer Token; };
 					std::vector<FEntry> Entries;
 					for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 					{
-						FByteArray Token;
+						FByteBuffer Token;
 						std::string Error;
 						if (!BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token, &Error))
 							return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, std::move(Error), Path);
@@ -746,11 +746,11 @@ namespace Durin::ObjectPackage
 				break;
 			case EValueKind::Map:
 			{
-				struct FEntry { size_t Index; FByteArray Token; };
+				struct FEntry { size_t Index; FByteBuffer Token; };
 				std::vector<FEntry> Entries;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					FByteArray Token;
+					FByteBuffer Token;
 					std::string Error;
 					if (!BuildCanonicalMapKeyToken(Type.Children[0], Value.Elements[Index], Token, &Error))
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue, std::move(Error), std::string(Path));
@@ -800,7 +800,7 @@ namespace Durin::ObjectPackage
 				"A value section exceeded its writer limit.", std::string(Path));
 		}
 
-		auto AlignPayload(FByteArray& Bytes, uint32 Alignment,
+		auto AlignPayload(FByteBuffer& Bytes, uint32 Alignment,
 			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
 		{
 			const uint64 Current = Bytes.size();
@@ -836,8 +836,8 @@ namespace Durin::ObjectPackage
 			FXxHash128 Hash;
 		};
 
-		auto PlaceBulk(const FFrozenPackage& Frozen, FByteArray& Inline,
-			FByteArray* External, uint64& ExternalExtent,
+		auto PlaceBulk(const FFrozenPackage& Frozen, FByteBuffer& Inline,
+			FByteBuffer* External, uint64& ExternalExtent,
 			std::vector<FPlacedBulk>& Placed,
 			FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
@@ -896,10 +896,10 @@ namespace Durin::ObjectPackage
 		}
 
 		auto EncodeSections(const FFrozenPackage& Frozen, std::vector<FSection>& Sections,
-			FByteArray* External, uint64 BoundExternalExtent,
+			FByteBuffer* External, uint64 BoundExternalExtent,
 			FXxHash128 BoundExternalHash, FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
-			FByteArray Inline;
+			FByteBuffer Inline;
 			std::vector<FPlacedBulk> Placed;
 			uint64 ExternalExtent = 0;
 			if (!PlaceBulk(Frozen, Inline, External, ExternalExtent, Placed, Diagnostic)) return false;
@@ -1081,13 +1081,13 @@ namespace Durin::ObjectPackage
 		}
 
 		template<std::unsigned_integral T>
-		auto WriteLittleEndianAt(FByteArray& Bytes, uint64 Offset, T Value) -> void
+		auto WriteLittleEndianAt(FByteBuffer& Bytes, uint64 Offset, T Value) -> void
 		{
 			for (size_t Index = 0; Index < sizeof(T); ++Index)
 				Bytes[static_cast<size_t>(Offset + Index)] = static_cast<std::byte>(Value >> (Index * 8));
 		}
 
-		auto Assemble(std::vector<FSection>& Sections, FByteArray& Out,
+		auto Assemble(std::vector<FSection>& Sections, FByteBuffer& Out,
 			FPackageWriterDiagnostic* Diagnostic, uint32 FormatVersion,
 			bool bRedirect) -> bool
 		{
@@ -1105,7 +1105,7 @@ namespace Durin::ObjectPackage
 			if (HeaderBytes > DastV8MaximumHeaderBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					"The discovery header exceeds its limit.");
-			FByteArray Bytes(static_cast<size_t>(Cursor), std::byte{0});
+			FByteBuffer Bytes(static_cast<size_t>(Cursor), std::byte{0});
 			FBinaryEnvelopePreamble Preamble{
 				.FormatId = DastFormatId, .FormatVersion = FormatVersion,
 				.RequiredFeatures = 0, .HeaderBytes = HeaderBytes, .FileBytes = Cursor};
@@ -1153,8 +1153,8 @@ namespace Durin::ObjectPackage
 	}
 
 	auto WritePackageV9(const FLinkerTables& Linker,
-		FByteArray& OutPackageBytes,
-		FByteArray& OutBulkBytes,
+		FByteBuffer& OutPackageBytes,
+		FByteBuffer& OutBulkBytes,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1164,9 +1164,9 @@ namespace Durin::ObjectPackage
 		FFrozenPackage Frozen;
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
-		FByteArray BulkBytes;
+		FByteBuffer BulkBytes;
 		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
-		FByteArray PackageBytes;
+		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			DastV9FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);
@@ -1175,7 +1175,7 @@ namespace Durin::ObjectPackage
 	}
 
 	auto WritePackageV9Main(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash, FByteArray& OutPackageBytes,
+		FXxHash128 ExternalBulkHash, FByteBuffer& OutPackageBytes,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
@@ -1188,7 +1188,7 @@ namespace Durin::ObjectPackage
 		std::vector<FSection> Sections;
 		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
 			ExternalBulkHash, OutDiagnostic)) return false;
-		FByteArray PackageBytes;
+		FByteBuffer PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
 			DastV9FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);

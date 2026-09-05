@@ -97,7 +97,7 @@ namespace Durin::AssetForge::Builtins
 		EImportedImageEncoding Encoding = EImportedImageEncoding::Png;
 		uint64 EncodedByteCount = 0;
 		std::optional<uint32> ExternalDependencyIndex;
-		FByteArray EmbeddedEncodedBytes;
+		FByteBuffer EmbeddedEncodedBytes;
 	};
 
 	struct FImportedDependency
@@ -174,7 +174,7 @@ namespace Durin::AssetForge::Builtins
 	// Geometry-only single-asset import from an immutable captured source. The
 	// extension hint selects the Assimp decoder without reopening the source.
 	ASSETFORGEBUILTINS_API auto ImportGeometryFromMemory(
-		std::span<const std::byte> EncodedBytes,
+		FByteView EncodedBytes,
 		std::string_view ExtensionHint,
 		FImportedSceneData& OutData,
 		const FMeshImportOptions& Options = {}) -> bool;

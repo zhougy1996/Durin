@@ -248,7 +248,7 @@ namespace Durin
 				(*Results)[7] = Fragment.Counters.Dispatches == 0
 								&& Fragment.Counters.Draws == 1
 								&& Fragment.Counters.Copies == 0;
-				Durin::FByteArray FragmentPixels;
+				Durin::FByteBuffer FragmentPixels;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 
@@ -287,7 +287,7 @@ namespace Durin
 										== FVolumetricCloudShadowRenderer::ERoute::Fragment;
 				(*Results)[31] = FragmentShadow.SampleCount == 6
 								 && FragmentShadow.TargetBytes == 64u * 32u;
-				Durin::FByteArray FragmentShadowPixels;
+				Durin::FByteBuffer FragmentShadowPixels;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				const bool bFragmentShadowRead = GDynamicRHI->RHIReadTexture2D(
 					CommandList, FragmentShadow.Visibility, 0, 0, FragmentShadowPixels
@@ -303,7 +303,7 @@ namespace Durin
 				(*Results)[33] = ShadowFragmentTargets && ShadowComputeTargets
 					&& FVolumetricCloudShadowRenderer::CalculateTargetBytes(64, 32)
 						== 64u * 32u;
-				Durin::FByteArray ComputeShadowPixels;
+				Durin::FByteBuffer ComputeShadowPixels;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				const bool bComputeShadowRead = GDynamicRHI->RHIReadTexture2D(
 					CommandList, ComputeShadow.Visibility, 0, 0, ComputeShadowPixels
@@ -334,7 +334,7 @@ namespace Durin
 				(*Results)[34] = !InvalidShadow.Visibility
 								 && InvalidShadow.Reason
 										== FVolumetricCloudShadowRenderer::ERouteReason::InvalidInputs;
-				Durin::FByteArray ComputePixels;
+				Durin::FByteBuffer ComputePixels;
 				FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
 					CommandList,
 					FRHITextureCreateDesc::Create2D(
@@ -386,7 +386,7 @@ namespace Durin
 							  <= 2.0f / 1024.0f;
 				}
 				(*Results)[14] = bParity;
-				Durin::FByteArray CompositePixels;
+				Durin::FByteBuffer CompositePixels;
 				(*Results)[16] = GDynamicRHI->RHIReadTexture2D(
 									 CommandList, Composite, 0, 0, CompositePixels
 								 )
@@ -417,7 +417,7 @@ namespace Durin
 
 				auto ReadDebug = [&](EVolumetricCloudDebugMode Mode,
 					FRHITexture* ShadowVisibility, bool bHistoryAvailable,
-					bool bHistoryAccepted, Durin::FByteArray& Pixels) {
+					bool bHistoryAccepted, Durin::FByteBuffer& Pixels) {
 					View.Settings.VolumetricCloud.DebugMode = Mode;
 					FRHITexture* Output = Clouds.Composite_RenderThread(
 						CommandList, *CompositeTargets, SceneColor, Compute.Cloud, Depth,
@@ -426,7 +426,7 @@ namespace Durin
 					return Output && GDynamicRHI->RHIReadTexture2D(
 						CommandList, Output, 0, 0, Pixels);
 				};
-				Durin::FByteArray DebugPixels;
+				Durin::FByteBuffer DebugPixels;
 				(*Results)[37] = ReadDebug(EVolumetricCloudDebugMode::Radiance,
 					nullptr, false, false, DebugPixels)
 					&& DebugPixels.size() >= Center + 8u
@@ -498,7 +498,7 @@ namespace Durin
 						CommandList, *CompositeTargets, SceneColor, EdgeCloudTexture,
 						EdgeDepthTexture, EdgeView
 					);
-					Durin::FByteArray EdgePixels;
+					Durin::FByteBuffer EdgePixels;
 					(*Results)[22] = EdgeComposite
 									 && GDynamicRHI->RHIReadTexture2D(
 										 CommandList, EdgeComposite, 0, 0, EdgePixels

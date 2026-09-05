@@ -19,7 +19,7 @@ namespace Durin
 		struct FCanonicalResaveFileSnapshot
 		{
 			std::filesystem::path Path;
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			bool bExisted = false;
 		};
 
@@ -107,13 +107,13 @@ namespace Durin
 			});
 		}
 
-		auto LoadBytes(std::string_view Path, FByteArray& OutBytes) -> bool
+		auto LoadBytes(std::string_view Path, FByteBuffer& OutBytes) -> bool
 		{
 			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
 
 		auto FingerprintMatches(const FAssetPackageFingerprint& Fingerprint,
-			std::span<const std::byte> Bytes, std::string_view PhysicalPath) -> bool
+			FByteView Bytes, std::string_view PhysicalPath) -> bool
 		{
 			std::error_code Error;
 			const auto Time = std::filesystem::last_write_time(PhysicalPath, Error);
@@ -268,7 +268,7 @@ namespace Durin
 				Result.Diagnostic = "Injected canonical-resave revalidation failure.";
 				return Result;
 			}
-			FByteArray BeforeBytes;
+			FByteBuffer BeforeBytes;
 			if (!LoadBytes(PackagePlan.PhysicalPath, BeforeBytes)
 				|| !FingerprintMatches(PackagePlan.Fingerprint, BeforeBytes, PackagePlan.PhysicalPath))
 			{
@@ -401,7 +401,7 @@ namespace Durin
 				return Result;
 			}
 
-			FByteArray AfterBytes;
+			FByteBuffer AfterBytes;
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);

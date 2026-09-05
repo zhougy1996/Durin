@@ -16,7 +16,7 @@ namespace Durin
 			OutError = MaterialCookDiagnostic;
 			return false;
 		};
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		if (!CookedProgramData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
 
@@ -85,7 +85,7 @@ namespace Durin
 					"Material cooked program data is unavailable.");
 				return;
 			}
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
 					*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,

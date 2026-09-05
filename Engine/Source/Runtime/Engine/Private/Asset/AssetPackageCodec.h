@@ -16,8 +16,8 @@ namespace Durin::AssetPrivate
 
 	struct FAssetPackageReadContext
 	{
-		std::span<const std::byte> PackageBytes;
-		std::span<const std::byte> BulkBytes;
+		FByteView PackageBytes;
+		FByteView BulkBytes;
 		FPackagePath PackagePath;
 		uint64 PhysicalPackageBytes = 0;
 		uint64 PhysicalBulkBytes = 0;
@@ -27,8 +27,8 @@ namespace Durin::AssetPrivate
 
 	struct FAssetPackageEncodedClosure
 	{
-		FByteArray PackageBytes;
-		FByteArray BulkBytes;
+		FByteBuffer PackageBytes;
+		FByteBuffer BulkBytes;
 	};
 
 	struct FAssetRedirectorWriteMapping
@@ -82,7 +82,7 @@ namespace Durin::AssetPrivate
 	ENGINE_API auto FindAssetPackageWriter(
 		uint32 FormatVersion) -> const FAssetPackageCodec*;
 	ENGINE_API auto ResolveAssetPackageReader(
-		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
+		FByteView Bytes, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
 		uint64 PhysicalFileBytes = 0) -> FAssetResult;
 	auto ResolveAssetPackageReader(

@@ -64,15 +64,15 @@ namespace Durin
 	};
 
 	ENGINE_API auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DBuildKeyInput& Input) -> FByteArray;
+		const FTexture2DBuildKeyInput& Input) -> FByteBuffer;
 	ENGINE_API auto BuildTexture2DDerivedDataKey(
 		const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy;
 	ENGINE_API auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteArray;
+		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FByteBuffer;
 	ENGINE_API auto BuildTextureCubeDerivedDataKey(
 		const FTextureCubeBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy;
 	ENGINE_API auto BuildVolumeTextureDerivedDataKeyBytes(
-		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteArray;
+		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FByteBuffer;
 	ENGINE_API auto BuildVolumeTextureDerivedDataKey(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError) -> FCacheKeyProxy;
 }

@@ -35,7 +35,7 @@ namespace Durin
 			virtual auto GetSize() const -> uint64 = 0;
 			virtual auto ReadAt(
 				uint64 Offset,
-				std::span<std::byte> Output,
+				FMutableByteView Output,
 				FFileIoError* OutError = nullptr) -> bool = 0;
 		};
 
@@ -70,7 +70,7 @@ namespace Durin
 
 		CORE_API bool FileExists(std::string_view FileName);
 
-		CORE_API bool LoadFileToArray(FByteArray& Result, const std::filesystem::path& FilePath);
+		CORE_API bool LoadFileToArray(FByteBuffer& Result, const std::filesystem::path& FilePath);
 
 		CORE_API bool LoadFileToArray(std::vector<uint32>& Result, const std::filesystem::path& FilePath);
 
@@ -83,14 +83,14 @@ namespace Durin
 			FXxHash128& OutHash,
 			std::error_code& OutError) -> bool;
 
-		CORE_API bool SaveArrayToFile(const std::span<const std::byte>& Array, const std::filesystem::path& FilePath);
+		CORE_API bool SaveArrayToFile(const FByteView& Array, const std::filesystem::path& FilePath);
 
 		CORE_API bool SaveArrayToFile(const std::span<const uint32>& Array, const std::filesystem::path& FilePath);
 
 		// Publishes complete bytes through a fixed-length sibling temporary file.
 		// Concurrent publishers are last-writer-wins and never expose partial bytes.
 		CORE_API auto SaveArrayToFileAtomically(
-			std::span<const std::byte> Array,
+			FByteView Array,
 			const std::filesystem::path& FilePath,
 			FAtomicFileError* OutError = nullptr
 		) -> bool;

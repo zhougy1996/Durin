@@ -140,7 +140,7 @@ namespace Durin
 		COREDOBJECT_API auto EnterMapKey(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto EnterMapValue(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto NotifyCanonicalMapKey(
-			uint64 Index, std::span<const std::byte> Token) -> void;
+			uint64 Index, FByteView Token) -> void;
 		COREDOBJECT_API auto MarkBaseReflectedFieldsSerialized() -> void;
 		COREDOBJECT_API auto NotifyReflectedPropertyValue(
 			FProperty& Property,
@@ -166,7 +166,7 @@ namespace Durin
 		virtual COREDOBJECT_API auto OnEnterMapKey(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnEnterMapValue(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnCanonicalMapKey(
-			uint64 Index, std::span<const std::byte> Token) -> void;
+			uint64 Index, FByteView Token) -> void;
 		virtual COREDOBJECT_API auto OnLeavePath() -> void;
 		virtual COREDOBJECT_API auto OnReflectedPropertyValue(
 			FProperty& Property,
@@ -202,12 +202,12 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectMemoryWriter(
-			FByteArray& InBytes,
+			FByteBuffer& InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
-		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		COREDOBJECT_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 	private:
-		FByteArray& Bytes;
+		FByteBuffer& Bytes;
 	};
 
 	// Object-aware canonical memory reader used by graph and reflection adapters.
@@ -215,16 +215,16 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectMemoryReader(
-			std::span<const std::byte> InBytes,
+			FByteView InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
-		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		COREDOBJECT_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto GetRemainingPayloadBytes() const -> uint64 override
 		{
 			return static_cast<uint64>(Bytes.size()) - Offset;
 		}
 		auto Tell() const -> uint64 override { return Offset; }
 	private:
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		uint64 Offset = 0;
 	};
 
@@ -242,7 +242,7 @@ namespace Durin
 	COREDOBJECT_API auto EnterArchiveMapKey(FArchive& Ar, uint64 Index) -> FArchivePathScope;
 	COREDOBJECT_API auto EnterArchiveMapValue(FArchive& Ar, uint64 Index) -> FArchivePathScope;
 	COREDOBJECT_API auto NotifyArchiveCanonicalMapKey(
-		FArchive& Ar, uint64 Index, std::span<const std::byte> Token) -> void;
+		FArchive& Ar, uint64 Index, FByteView Token) -> void;
 	COREDOBJECT_API auto MarkArchiveBaseReflectedFieldsSerialized(FArchive& Ar) -> void;
 	COREDOBJECT_API auto NotifyArchiveReflectedPropertyValue(
 		FArchive& Ar, FProperty& Property, const void* Container, uint32 ArrayIndex) -> void;
@@ -257,7 +257,7 @@ namespace Durin
 		FPropertyValueSnapshotPayload() = default;
 		auto IsValid() const -> bool { return Property != nullptr; }
 		auto GetProperty() const -> const FProperty* { return Property; }
-		auto GetBytes() const -> const FByteArray& { return Bytes; }
+		auto GetBytes() const -> const FByteBuffer& { return Bytes; }
 		auto GetReferencedObjectHandles() const -> const std::vector<FObjectHandle>&
 		{
 			return ReferencedObjectHandles;
@@ -268,7 +268,7 @@ namespace Durin
 
 	private:
 		const FProperty* Property = nullptr;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		std::vector<FObjectHandle> ReferencedObjectHandles;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
 			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, std::string*) -> bool;
@@ -288,7 +288,7 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&;
 		auto IsValid() const -> bool { return Payload.IsValid(); }
 		auto GetProperty() const -> const FProperty* { return Payload.GetProperty(); }
-		auto GetBytes() const -> const FByteArray& { return Payload.GetBytes(); }
+		auto GetBytes() const -> const FByteBuffer& { return Payload.GetBytes(); }
 		auto GetReferencedObjects() const -> const std::vector<DObject*>& { return ReferencedObjects; }
 		auto GetPayload() const -> const FPropertyValueSnapshotPayload& { return Payload; }
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshot& Other) const -> bool;
@@ -310,8 +310,8 @@ namespace Durin
 	COREDOBJECT_API auto RestorePropertyValue(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshot& Snapshot, std::string* OutError = nullptr) -> bool;
 	COREDOBJECT_API auto SerializeReflectedPropertyValue(FArchive& Ar, FProperty& Property, void* Container, uint32 ArrayIndex = 0, bool bIncludeRawObjectReferences = false) -> void;
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
-	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteArray& OutBytes) -> bool;
-	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteArray& Bytes) -> DObject*;
+	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> bool;
+	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> DObject*;
 	// Duplicates the source Outer tree and optionally returns its object mapping.
 	COREDOBJECT_API auto DuplicateObject(
 		const DObject* SourceObject,

@@ -207,7 +207,7 @@ namespace Durin
 		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
 		const std::string MaterialFile =
 			FindAssetExact(MaterialPath)->PhysicalPath;
-		Durin::FByteArray BeforeSave;
+		Durin::FByteBuffer BeforeSave;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
 		Editor::FWorkspaceManager WorkspaceManager;
@@ -229,7 +229,7 @@ namespace Durin
 		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());
 		EXPECT_TRUE(MaterialWorkspace->SaveActiveDocument());
 		EXPECT_FALSE(LoadedMaterial->GetPackage()->IsDirty());
-		Durin::FByteArray AfterSave;
+		Durin::FByteBuffer AfterSave;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			AfterSave, MaterialFile));
 		EXPECT_EQ(AfterSave, BeforeSave);

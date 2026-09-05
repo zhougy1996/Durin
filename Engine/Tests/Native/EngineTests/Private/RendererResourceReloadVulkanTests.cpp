@@ -120,7 +120,7 @@ float4 FragmentMain() : SV_Target
 		}
 
 		auto ExpectReloadColor(
-			const Durin::FByteArray& Pixels,
+			const Durin::FByteBuffer& Pixels,
 			uint8 ExpectedRed,
 			uint8 ExpectedGreen) -> void
 		{
@@ -381,7 +381,7 @@ float4 FragmentMain() : SV_Target
 		};
 		auto RenderPipeline =
 			[](FGraphicsPipelineStateRHIRef PipelineState) {
-				auto Pixels = std::make_shared<Durin::FByteArray>();
+				auto Pixels = std::make_shared<Durin::FByteBuffer>();
 				struct FRenderReloadValidationResource
 				{
 					static constexpr auto GetName() -> const char*

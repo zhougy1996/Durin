@@ -49,7 +49,7 @@ namespace Durin
 		}
 
 		template <typename TValue>
-		auto AppendLittleEndian(FByteArray& Bytes, TValue Value)
+		auto AppendLittleEndian(FByteBuffer& Bytes, TValue Value)
 			-> void
 			requires std::is_integral_v<TValue> || std::is_enum_v<TValue>
 		{
@@ -65,15 +65,15 @@ namespace Durin
 		}
 
 		auto AppendBytes(
-			FByteArray& Bytes,
-			std::span<const std::byte> Value) -> void
+			FByteBuffer& Bytes,
+			FByteView Value) -> void
 		{
 			AppendLittleEndian(Bytes, static_cast<uint64>(Value.size()));
 			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 		}
 
 		auto AppendString(
-			FByteArray& Bytes,
+			FByteBuffer& Bytes,
 			std::string_view Value) -> void
 		{
 			AppendLittleEndian(Bytes, static_cast<uint64>(Value.size()));
@@ -82,7 +82,7 @@ namespace Durin
 				reinterpret_cast<const std::byte*>(Value.data() + Value.size()));
 		}
 
-		auto AppendGuid(FByteArray& Bytes, const FGuid& Guid) -> void
+		auto AppendGuid(FByteBuffer& Bytes, const FGuid& Guid) -> void
 		{
 			AppendLittleEndian(Bytes, Guid.A);
 			AppendLittleEndian(Bytes, Guid.B);
@@ -96,7 +96,7 @@ namespace Durin
 		}
 
 		auto AppendLiteral(
-			FByteArray& Bytes,
+			FByteBuffer& Bytes,
 			const FMaterialProgramLiteral& Literal) -> void
 		{
 			AppendLittleEndian(Bytes, CanonicalFloatBits(Literal.X));
@@ -106,7 +106,7 @@ namespace Durin
 		}
 
 		auto AppendIRNode(
-			FByteArray& Bytes,
+			FByteBuffer& Bytes,
 			const FMaterialIRNode& Node) -> void
 		{
 			AppendLittleEndian(Bytes, Node.Opcode);
@@ -356,11 +356,11 @@ namespace Durin
 		std::unordered_map<FGuid, uint32> NormalizedIndices;
 		NormalizedIndices.reserve(IR.Nodes.capacity());
 
-		std::unordered_map<FGuid, FByteArray> StructuralKeys;
+		std::unordered_map<FGuid, FByteBuffer> StructuralKeys;
 		StructuralKeys.reserve(IR.Nodes.capacity());
-		std::function<const FByteArray&(const FGuid&)>
+		std::function<const FByteBuffer&(const FGuid&)>
 			BuildStructuralKey = [&](const FGuid& Id)
-				-> const FByteArray& {
+				-> const FByteBuffer& {
 			if (const auto Existing = StructuralKeys.find(Id);
 				Existing != StructuralKeys.end()) return Existing->second;
 			const FMaterialProgramNode& Node =
@@ -369,9 +369,9 @@ namespace Durin
 			Header.Opcode = Node.Opcode;
 			Header.ResultType = Node.ResultType;
 			CopyRelevantImmediates(Node, Header);
-			FByteArray Key;
+			FByteBuffer Key;
 			AppendIRNode(Key, Header);
-			std::vector<FByteArray> InputKeys;
+			std::vector<FByteBuffer> InputKeys;
 			InputKeys.reserve(Node.Inputs.size());
 			for (const FMaterialProgramLink& Link : Node.Inputs)
 				InputKeys.push_back(BuildStructuralKey(Link.SourceNodeId));
@@ -456,7 +456,7 @@ namespace Durin
 
 	auto EncodeMaterialIRCanonical(
 		const FMaterialIR& IR,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -515,10 +515,10 @@ namespace Durin
 
 	auto BuildMaterialProgramIdentity(
 		const FMaterialCompilerInput& Input,
-		std::span<const std::byte> CanonicalIR)
+		FByteView CanonicalIR)
 		-> FMaterialProgramIdentity
 	{
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		Bytes.reserve(CanonicalIR.size() + 512);
 		AppendString(Bytes, "DurinMaterialProgramIdentity");
 		AppendBytes(Bytes, CanonicalIR);

@@ -262,7 +262,7 @@ namespace Durin
 	// Extends shader identity with non-owning compiled-code input used during creation.
 	struct FRHIShaderCreateDesc : public FRHIShaderDesc
 	{
-		using FCodeView = std::span<const std::byte>;
+		using FCodeView = FByteView;
 
 		static auto Create(const char* InDebugName, EShaderFrequency InFrequency, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{

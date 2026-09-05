@@ -60,7 +60,7 @@ namespace Durin
 			Shader.SourceEntryPoint = EntryPoint;
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = std::string(EntryPoint) + "Debug";
-			Shader.Code = std::make_shared<Durin::FByteArray>(
+			Shader.Code = std::make_shared<Durin::FByteBuffer>(
 				sizeof(Words));
 			std::memcpy(Shader.Code->data(), Words.data(), sizeof(Words));
 			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
@@ -89,7 +89,7 @@ namespace Durin
 			return Output;
 		}
 
-		auto WriteU32At(Durin::FByteArray& Bytes,
+		auto WriteU32At(Durin::FByteBuffer& Bytes,
 			size_t Offset, uint32 Value) -> void
 		{
 			ASSERT_LE(Offset + sizeof(Value), Bytes.size());
@@ -98,7 +98,7 @@ namespace Durin
 					(Value >> (Index * 8)) & 0xffu);
 		}
 
-		auto ToHex(std::span<const std::byte> Bytes) -> std::string
+		auto ToHex(Durin::FByteView Bytes) -> std::string
 		{
 			std::string Result;
 			Result.reserve(Bytes.size() * 2);
@@ -126,8 +126,8 @@ namespace Durin
 	{
 		const FShaderCompileOptions Options = MakeOptions();
 		const FShaderCompilerOutput Expected = MakeOutput();
-		Durin::FByteArray First;
-		Durin::FByteArray Second;
+		Durin::FByteBuffer First;
+		Durin::FByteBuffer Second;
 		std::string Error;
 		ASSERT_TRUE(ShaderDerivedData::Encode(
 			Options, Expected, First, Error)) << Error;
@@ -173,7 +173,7 @@ namespace Durin
 		Options.Frequencies.resize(1);
 		FShaderCompilerOutput Output = MakeOutput();
 		Output.CompiledShaders.resize(1);
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		std::string Error;
 		ASSERT_TRUE(ShaderDerivedData::Encode(
 			Options, Output, Bytes, Error)) << Error;
@@ -184,11 +184,11 @@ namespace Durin
 	TEST_F(FShaderDerivedDataTests, RejectsMalformedValuesWithoutPartialOutput)
 	{
 		const FShaderCompileOptions Options = MakeOptions();
-		Durin::FByteArray Bytes;
+		Durin::FByteBuffer Bytes;
 		std::string Error;
 		ASSERT_TRUE(ShaderDerivedData::Encode(
 			Options, MakeOutput(), Bytes, Error)) << Error;
-		auto ExpectRejected = [&](Durin::FByteArray Candidate) {
+		auto ExpectRejected = [&](Durin::FByteBuffer Candidate) {
 			FShaderCompilerOutput Loaded;
 			Loaded.bSucceeded = true;
 			Loaded.CompiledShaders.push_back(MakeShader(
@@ -199,37 +199,37 @@ namespace Durin
 			EXPECT_TRUE(Loaded.CompiledShaders.empty());
 		};
 
-		Durin::FByteArray BadMagic = Bytes;
+		Durin::FByteBuffer BadMagic = Bytes;
 		BadMagic[0] = std::byte{0};
 		ExpectRejected(std::move(BadMagic));
-		Durin::FByteArray BadVersion = Bytes;
+		Durin::FByteBuffer BadVersion = Bytes;
 		WriteU32At(BadVersion, 4,
 			ShaderDerivedData::PayloadSchemaVersion + 1);
 		ExpectRejected(std::move(BadVersion));
-		Durin::FByteArray Reserved = Bytes;
+		Durin::FByteBuffer Reserved = Bytes;
 		Reserved[16] = std::byte{1};
 		ExpectRejected(std::move(Reserved));
-		Durin::FByteArray Truncated = Bytes;
+		Durin::FByteBuffer Truncated = Bytes;
 		Truncated.pop_back();
 		ExpectRejected(std::move(Truncated));
-		Durin::FByteArray Trailing = Bytes;
+		Durin::FByteBuffer Trailing = Bytes;
 		Trailing.push_back(std::byte{0});
 		ExpectRejected(std::move(Trailing));
-		Durin::FByteArray CorruptCode = Bytes;
+		Durin::FByteBuffer CorruptCode = Bytes;
 		const auto It = std::ranges::search(CorruptCode,
 			std::array{std::byte{0x03}, std::byte{0x02},
 				std::byte{0x23}, std::byte{0x07}});
 		ASSERT_NE(It.begin(), CorruptCode.end());
 		*It.begin() = std::byte{0};
 		ExpectRejected(std::move(CorruptCode));
-		Durin::FByteArray BadFrequency = Bytes;
+		Durin::FByteBuffer BadFrequency = Bytes;
 		WriteU32At(BadFrequency, 54,
 			static_cast<uint32>(EShaderFrequency::RayMiss) + 1);
 		ExpectRejected(std::move(BadFrequency));
-		Durin::FByteArray BadHash = Bytes;
+		Durin::FByteBuffer BadHash = Bytes;
 		BadHash[85] ^= std::byte{1};
 		ExpectRejected(std::move(BadHash));
-		Durin::FByteArray BadBindingCount = Bytes;
+		Durin::FByteBuffer BadBindingCount = Bytes;
 		WriteU32At(BadBindingCount, 129, 65537);
 		ExpectRejected(std::move(BadBindingCount));
 

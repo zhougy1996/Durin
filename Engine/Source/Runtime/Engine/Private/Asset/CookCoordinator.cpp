@@ -48,7 +48,7 @@ namespace Durin
 		class FStateReader
 		{
 		public:
-			explicit FStateReader(std::span<const std::byte> InBytes)
+			explicit FStateReader(FByteView InBytes)
 				: Reader(InBytes, {MaximumCookStateBytes, 4096})
 			{
 			}
@@ -64,7 +64,7 @@ namespace Durin
 				uint32 Size = 0;
 				if (!Read(Size) || Size == 0 || Size > 4096
 					|| Size > Reader.GetRemainingBytes()) return false;
-				std::span<const std::byte> Encoded;
+				FByteView Encoded;
 				if (!Reader.ReadRegion(Encoded, Size, 4096)) return false;
 				OutValue.assign(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 				return OutValue.find('\0') == std::string::npos;
@@ -239,7 +239,7 @@ namespace Durin
 			ECookManifestEntryKind Kind = ECookManifestEntryKind::CookedPackage;
 			uint8 Flags = CookManifestEntryPresent;
 			std::string RelativePath;
-			std::span<const std::byte> Bytes;
+			FByteView Bytes;
 			uint64 Size = 0;
 			FXxHash128 Digest;
 			ECookOperationStage Stage = ECookOperationStage::StagePackage;
@@ -373,7 +373,7 @@ namespace Durin
 				} TransactionCleanup{TransactionRoot};
 
 				FCookManifest PreviousManifest;
-				FByteArray PreviousManifestBytes;
+				FByteBuffer PreviousManifestBytes;
 				const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(
 													  PreviousManifestBytes, Root / "CookManifest.bin"
 												  )
@@ -402,13 +402,13 @@ namespace Durin
 						return Left.CommitStage < Right.CommitStage;
 					return Left.RelativePath < Right.RelativePath;
 				});
-				FByteArray ManifestBytes;
-				FByteArray StateBytes;
+				FByteBuffer ManifestBytes;
+				FByteBuffer StateBytes;
 				if (!EncodeCookManifest(Manifest, ManifestBytes, &OutError)
 					|| !EncodeCookState(State, StateBytes, &OutError)) return false;
 
 				auto StageBytes = [&](std::string_view Relative,
-									  std::span<const std::byte> Bytes, ECookOperationStage Stage,
+									  FByteView Bytes, ECookOperationStage Stage,
 									  size_t Index) -> bool {
 					if (IsCancelled(Cancellation))
 					{
@@ -420,7 +420,7 @@ namespace Durin
 					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
 					if (ErrorCode || !FFileHelper::SaveArrayToFile(Bytes, Staged))
 						return CookFail(std::format("CookStageWriteFailed: {}", Relative), &OutError);
-					FByteArray Validation;
+					FByteBuffer Validation;
 					if (!FFileHelper::LoadFileToArray(Validation, Staged)
 						|| !std::ranges::equal(Validation, Bytes))
 						return CookFail(std::format("CookStageValidationFailed: {}", Relative), &OutError);
@@ -590,7 +590,7 @@ namespace Durin
 		return "discovery";
 	}
 
-	auto EncodeCookState(const FCookState& State, FByteArray& OutBytes, std::string* OutError) -> bool
+	auto EncodeCookState(const FCookState& State, FByteBuffer& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (State.TargetPlatform == ECookTargetPlatform::Invalid
@@ -634,7 +634,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeCookState(std::span<const std::byte> Bytes, FCookState& OutState, std::string* OutError) -> bool
+	auto DecodeCookState(FByteView Bytes, FCookState& OutState, std::string* OutError) -> bool
 	{
 		OutState = {};
 		if (Bytes.size() > MaximumCookStateBytes)
@@ -771,7 +771,7 @@ namespace Durin
 		if (Request.IncrementalPolicy == ECookIncrementalPolicy::Enabled
 			&& !Request.OutputRoot.empty())
 		{
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			bHasPreviousState = FFileHelper::LoadFileToArray(
 									Bytes, Request.OutputRoot / "CookState.bin"
 								)
@@ -821,8 +821,8 @@ namespace Durin
 							&& Prior->second->FamilyProducerVersion
 								   == Contributor.Registration.FamilyProducerVersion
 							&& ValidateCookHit(Request.OutputRoot, *Prior->second);
-			FByteArray ExistingPackageBytes;
-			FByteArray ExistingSegmentBytes;
+			FByteBuffer ExistingPackageBytes;
+			FByteBuffer ExistingSegmentBytes;
 			if (bCookHit)
 			{
 				bCookHit = FFileHelper::LoadFileToArray(ExistingPackageBytes, Request.OutputRoot / RelativePackagePath(Path.GetView()));
@@ -856,7 +856,7 @@ namespace Durin
 			if (!AuthoredPackage)
 				return Finish(ECookRunStatus::Failed, "missing-package", std::format("CookMissingPackage: package={}, contributor={}", Path.ToString(), Contributor.Registration.Name));
 			const bool bWasDirty = AuthoredPackage->IsDirty();
-			FByteArray AuthoredBytesBefore;
+			FByteBuffer AuthoredBytesBefore;
 			const FAssetResult BeforeResult = SerializeAssetPackageBytes(
 				AuthoredPackage, AuthoredBytesBefore
 			);
@@ -867,7 +867,7 @@ namespace Durin
 			);
 			if (!Contribution)
 				return Finish(ECookRunStatus::Failed, "contribution-failed", std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Path.ToString(), Contributor.Registration.Name, Contribution.Message));
-			FByteArray AuthoredBytesAfter;
+			FByteBuffer AuthoredBytesAfter;
 			const FAssetResult AfterResult = SerializeAssetPackageBytes(
 				AuthoredPackage, AuthoredBytesAfter
 			);
@@ -903,7 +903,7 @@ namespace Durin
 		if (Request.bDryRun)
 			return Finish(ECookRunStatus::Succeeded, "dry-run", "Cook dry-run captured the complete plan.");
 		std::vector<FCookAuxiliaryOutput> AuxiliaryOutputs;
-		FByteArray ShaderLibraryBytes;
+		FByteBuffer ShaderLibraryBytes;
 		std::string ShaderLibraryError;
 		if (!BuildCookedShaderLibrary(
 				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,

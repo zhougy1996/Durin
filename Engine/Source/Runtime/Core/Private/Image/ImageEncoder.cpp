@@ -2,7 +2,7 @@
 
 namespace Durin::Image
 {
-	auto EncodeRgba8Png(FImageView Image, FByteArray& OutEncodedBytes) -> bool
+	auto EncodeRgba8Png(FImageView Image, FByteBuffer& OutEncodedBytes) -> bool
 	{
 		if (!Image.IsValid() || Image.GetInfo().Format != ERawImageFormat::RGBA8
 			|| Image.GetInfo().Depth != 1 || Image.GetInfo().SliceCount != 1)
@@ -30,7 +30,7 @@ namespace Durin::Image
 		class FBitWriter
 		{
 		public:
-			explicit FBitWriter(FByteArray& InBytes)
+			explicit FBitWriter(FByteBuffer& InBytes)
 				: Bytes(InBytes)
 			{
 			}
@@ -55,12 +55,12 @@ namespace Durin::Image
 			}
 
 		private:
-			FByteArray& Bytes;
+			FByteBuffer& Bytes;
 			uint64 PendingBits = 0;
 			uint32 PendingBitCount = 0;
 		};
 
-		auto AppendBigEndian(FByteArray& Bytes, uint32 Value) -> void
+		auto AppendBigEndian(FByteBuffer& Bytes, uint32 Value) -> void
 		{
 			Bytes.push_back(static_cast<std::byte>(Value >> 24));
 			Bytes.push_back(static_cast<std::byte>(Value >> 16));
@@ -126,7 +126,7 @@ namespace Durin::Image
 			return {};
 		}
 
-		auto HashBytes(std::span<const std::byte> Bytes, size_t Offset) -> size_t
+		auto HashBytes(FByteView Bytes, size_t Offset) -> size_t
 		{
 			const uint32 Value = static_cast<uint32>(std::to_integer<uint8>(Bytes[Offset])) << 16
 				| static_cast<uint32>(std::to_integer<uint8>(Bytes[Offset + 1])) << 8
@@ -134,7 +134,7 @@ namespace Durin::Image
 			return (Value * 2'654'435'761u) >> 17;
 		}
 
-		auto AppendCompressedDeflate(std::span<const std::byte> Bytes, FByteArray& OutBytes) -> void
+		auto AppendCompressedDeflate(FByteView Bytes, FByteBuffer& OutBytes) -> void
 		{
 			OutBytes.push_back(std::byte{0x78});
 			OutBytes.push_back(std::byte{0x9c});
@@ -196,7 +196,7 @@ namespace Durin::Image
 			AppendBigEndian(OutBytes, (S2 << 16) | S1);
 		}
 
-		auto Crc32(std::span<const std::byte> Bytes) -> uint32
+		auto Crc32(FByteView Bytes) -> uint32
 		{
 			uint32 Crc = 0xffffffffu;
 			for (const std::byte Byte : Bytes)
@@ -209,9 +209,9 @@ namespace Durin::Image
 		}
 
 		auto WritePngChunk(
-			FByteArray& Bytes,
+			FByteBuffer& Bytes,
 			std::string_view Type,
-			std::span<const std::byte> Payload) -> void
+			FByteView Payload) -> void
 		{
 			AppendBigEndian(Bytes, static_cast<uint32>(Payload.size()));
 			const size_t CrcStart = Bytes.size();
@@ -223,10 +223,10 @@ namespace Durin::Image
 	} // namespace
 
 	auto EncodeRgba8Png(
-		std::span<const std::byte> Pixels,
+		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
-		FByteArray& OutEncodedBytes) -> bool
+		FByteBuffer& OutEncodedBytes) -> bool
 	{
 		OutEncodedBytes.clear();
 		if (Width == 0 || Height == 0 || Width > 0x7fffffffu || Height > 0x7fffffffu) return false;
@@ -237,7 +237,7 @@ namespace Durin::Image
 			|| ExpectedBytes + Height > std::numeric_limits<uint32>::max())
 			return false;
 
-		FByteArray Scanlines;
+		FByteBuffer Scanlines;
 		Scanlines.reserve(static_cast<size_t>(ExpectedBytes) + Height);
 		const size_t RowBytes = static_cast<size_t>(Width) * 4;
 		for (uint32 Y = 0; Y < Height; ++Y)
@@ -252,13 +252,13 @@ namespace Durin::Image
 			}
 		}
 
-		FByteArray Deflate;
+		FByteBuffer Deflate;
 		Deflate.reserve(Scanlines.size() / 2);
 		AppendCompressedDeflate(Scanlines, Deflate);
 
 		OutEncodedBytes = {std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
-		FByteArray Header;
+		FByteBuffer Header;
 		AppendBigEndian(Header, Width);
 		AppendBigEndian(Header, Height);
 		Header.insert(Header.end(), {

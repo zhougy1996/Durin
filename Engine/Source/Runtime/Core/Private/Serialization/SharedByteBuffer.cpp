@@ -2,14 +2,14 @@
 
 namespace Durin
 {
-	auto FSharedByteBuffer::Copy(std::span<const std::byte> Bytes) -> FSharedByteBuffer
+	auto FSharedByteBuffer::Copy(FByteView Bytes) -> FSharedByteBuffer
 	{
-		return Take(FByteArray(Bytes.begin(), Bytes.end()));
+		return Take(FByteBuffer(Bytes.begin(), Bytes.end()));
 	}
 
-	auto FSharedByteBuffer::Take(FByteArray Bytes) -> FSharedByteBuffer
+	auto FSharedByteBuffer::Take(FByteBuffer Bytes) -> FSharedByteBuffer
 	{
 		if (Bytes.empty()) return {};
-		return FSharedByteBuffer(std::make_shared<const FByteArray>(std::move(Bytes)));
+		return FSharedByteBuffer(std::make_shared<const FByteBuffer>(std::move(Bytes)));
 	}
 }

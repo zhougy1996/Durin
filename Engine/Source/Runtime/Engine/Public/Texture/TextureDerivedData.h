@@ -58,11 +58,11 @@ namespace Durin
 		const FVolumeTexturePlatformData& PlatformData,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 	// Decodes into detached storage and preserves the prior output on every failure.
 	ENGINE_API auto ParseVolumeTextureSerializedValue(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult;

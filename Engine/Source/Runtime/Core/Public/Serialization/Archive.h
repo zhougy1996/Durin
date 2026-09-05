@@ -210,13 +210,13 @@ namespace Durin
 		CORE_API auto Fail(EArchiveFailureCode Code, std::string_view Message) -> void;
 		auto SetError(std::string_view Message) -> void { Fail(EArchiveFailureCode::InvalidData, Message); }
 
-		virtual CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void;
+		virtual CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void;
 		CORE_API auto Serialize(void* Data, uint64 Size) -> void;
-		CORE_API auto WriteBytes(std::span<const std::byte> Bytes) -> void;
-		CORE_API auto ReadBytes(std::span<std::byte> Bytes) -> void;
+		CORE_API auto WriteBytes(FByteView Bytes) -> void;
+		CORE_API auto ReadBytes(FMutableByteView Bytes) -> void;
 		// Transfers an owned byte Blob as a bounded count followed by exact bytes.
 		// Loads commit only after the complete payload has been validated and read.
-		CORE_API auto SerializeByteBlob(FByteArray& Bytes) -> void;
+		CORE_API auto SerializeByteBlob(FByteBuffer& Bytes) -> void;
 		// Transfers one atomic bulk value according to the selected physical policy.
 		// Loading commits only a completely read and hash-verified resident candidate.
 		virtual CORE_API auto SerializeBulkData(
@@ -277,15 +277,15 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCanonicalMemoryWriter(
-			FByteArray& Bytes,
+			FByteBuffer& Bytes,
 			EArchivePurpose Purpose = EArchivePurpose::DerivedDataPayload,
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
-		CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 
 	private:
-		FByteArray& Bytes;
+		FByteBuffer& Bytes;
 	};
 
 	// Loads persistent canonical bytes from a non-owning bounded span.
@@ -293,12 +293,12 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCanonicalMemoryReader(
-			std::span<const std::byte> Bytes,
+			FByteView Bytes,
 			EArchivePurpose Purpose = EArchivePurpose::DerivedDataPayload,
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
-		CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
-		CORE_API auto ReadRegion(uint64 Size, std::span<const std::byte>& OutRegion) -> bool;
+		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
+		CORE_API auto ReadRegion(uint64 Size, FByteView& OutRegion) -> bool;
 		auto Tell() const -> uint64 override { return Offset; }
 		auto GetRemainingPayloadBytes() const -> uint64 override
 		{
@@ -306,7 +306,7 @@ namespace Durin
 		}
 
 	private:
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		uint64 Offset = 0;
 	};
 
@@ -315,7 +315,7 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCountingArchive(EArchivePurpose Purpose);
-		CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return Count; }
 
 	private:
@@ -327,7 +327,7 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FHashingArchive(EArchivePurpose Purpose);
-		CORE_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return Count; }
 		auto Finalize() const -> FXxHash128 { return Builder.Finalize(); }
 
@@ -336,7 +336,7 @@ namespace Durin
 		uint64 Count = 0;
 	};
 
-	CORE_API auto SerializeByteBuffer(FArchive& Ar, FByteArray& Value, uint64 MaximumBytes) -> void;
+	CORE_API auto SerializeByteBuffer(FArchive& Ar, FByteBuffer& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeBoundedString(FArchive& Ar, std::string& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeAlignment(FArchive& Ar, uint64 Alignment) -> void;
 	CORE_API auto RequireArchiveEnd(FArchive& Ar) -> bool;

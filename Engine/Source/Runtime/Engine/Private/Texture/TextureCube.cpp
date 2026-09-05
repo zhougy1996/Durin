@@ -155,7 +155,7 @@ namespace Durin
 		const FTextureCubeSourceData& Source) -> bool
 	{
 		if (!Source.IsValid()) return false;
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].Pixels.size())
 			* TextureCubeFaceCount;
 		if (TotalBytes > MaximumTextureCubeImportedPixelBytes) return false;
@@ -189,13 +189,13 @@ namespace Durin
 		FTextureCubeSourceData Result;
 		if (!IsValid()) return Result;
 		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
-		const std::span<const std::byte> Bytes = Payload.GetBytes();
+		const FByteView Bytes = Payload.GetBytes();
 		const size_t FaceBytes = static_cast<size_t>(FaceDimension) * FaceDimension * 4;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			const auto Face = Bytes.subspan(Index * FaceBytes, FaceBytes);
 			Result.Faces[Index] = {
-				.Pixels = FByteArray(Face.begin(), Face.end()),
+				.Pixels = FByteBuffer(Face.begin(), Face.end()),
 				.Width = FaceDimension,
 				.Height = FaceDimension,
 				.SourceChannelCount = SourceChannelCount,

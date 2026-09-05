@@ -55,7 +55,7 @@ namespace Durin
 		const FVolumeTexturePlatformData& PlatformData,
 		ECookTargetPlatform TargetPlatform,
 		ECookTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -80,7 +80,7 @@ namespace Durin
 					.Height = Mip.Height,
 					.RowPitch = Mip.RowPitch,
 					.LayerPitch = Mip.DepthPitch},
-				.Data = std::span<const std::byte>(Mip.Voxels)});
+				.Data = FByteView(Mip.Voxels)});
 		}
 		return TexturePayloadContainer::Build({
 			.ProducerVersion = VolumeTextureBuilderVersion,
@@ -94,7 +94,7 @@ namespace Durin
 	}
 
 	auto ParseVolumeTextureSerializedValue(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		ECookTargetPlatform ExpectedPlatform,
 		ECookTargetProfile ExpectedProfile,
 		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult
@@ -155,7 +155,7 @@ namespace Durin
 			Mip.Depth = Record.Coordinate;
 			Mip.RowPitch = Record.RowPitch;
 			Mip.DepthPitch = Record.LayerPitch;
-			const std::span<const std::byte> Data = TexturePayloadContainer::GetData(Bytes, Record);
+			const FByteView Data = TexturePayloadContainer::GetData(Bytes, Record);
 			Mip.Voxels.assign(Data.begin(), Data.end());
 		}
 		if (!Candidate.IsValid())
@@ -173,11 +173,11 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Volume texture platform data"},
 			[&](const FVolumeTexturePlatformData& Value,
-				FByteArray& Bytes, std::string& Error) {
+				FByteBuffer& Bytes, std::string& Error) {
 				return BuildVolumeTextureSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
-			[&](std::span<const std::byte> Bytes, FVolumeTexturePlatformData& Candidate) {
+			[&](FByteView Bytes, FVolumeTexturePlatformData& Candidate) {
 				return ParseVolumeTextureSerializedValue(Bytes,
 					Context.TargetPlatform, Context.TargetProfile, Candidate);
 			});

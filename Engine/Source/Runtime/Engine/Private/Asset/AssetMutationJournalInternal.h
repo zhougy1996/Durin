@@ -53,8 +53,8 @@ namespace Durin::AssetPrivate
 			EAssetMutationPublicationRole::RealAsset;
 		bool bPreExists = false;
 		bool bPostExists = false;
-		std::span<const std::byte> PreBytes;
-		std::span<const std::byte> PostBytes;
+		FByteView PreBytes;
+		FByteView PostBytes;
 		EMutationJournalDuplicatePolicy DuplicatePolicy =
 			EMutationJournalDuplicatePolicy::Reject;
 	};
@@ -119,16 +119,16 @@ namespace Durin::AssetPrivate
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		FByteArray& OutBytes) -> FAssetResult;
+		FByteBuffer& OutBytes) -> FAssetResult;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
-		std::span<const std::byte> Bytes) -> FAssetResult;
+		FByteView Bytes) -> FAssetResult;
 	auto FingerprintRelocationFile(
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
 	auto MakePackageFingerprint(
 		std::string_view PhysicalPath,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,

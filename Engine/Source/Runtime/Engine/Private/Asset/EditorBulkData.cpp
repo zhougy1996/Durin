@@ -21,7 +21,7 @@ namespace Durin
 		auto MakeEmptyState() -> std::shared_ptr<const FState>
 		{
 			static const auto Empty = std::make_shared<const FState>(FState{
-				.ContentId = FXxHash128::HashBuffer(std::span<const std::byte>{}),
+				.ContentId = FXxHash128::HashBuffer(FByteView{}),
 				.Source = FSharedByteBuffer{}});
 			return Empty;
 		}
@@ -73,7 +73,7 @@ namespace Durin
 
 	FEditorBulkData::FEditorBulkData(FGuid InInstanceId)
 		: State(MakeMemoryState(InInstanceId,
-			FXxHash128::HashBuffer(std::span<const std::byte>{}), FSharedByteBuffer{}))
+			FXxHash128::HashBuffer(FByteView{}), FSharedByteBuffer{}))
 	{
 	}
 
@@ -133,7 +133,7 @@ namespace Durin
 		return RequestPayload(std::atomic_load_explicit(&State, std::memory_order_acquire));
 	}
 
-	auto FEditorBulkData::UpdatePayload(std::span<const std::byte> Bytes) -> bool
+	auto FEditorBulkData::UpdatePayload(FByteView Bytes) -> bool
 	{
 		return UpdatePayload(FSharedByteBuffer::Copy(Bytes));
 	}
@@ -178,13 +178,13 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorBulkData::ReplaceBytes(std::span<const std::byte> Bytes) -> bool
+	auto FEditorBulkData::ReplaceBytes(FByteView Bytes) -> bool
 	{
 		return UpdatePayload(Bytes);
 	}
 
 	auto FEditorBulkData::ReplaceBytes(
-		FGuid LegacyInstanceId, std::span<const std::byte> Bytes) -> bool
+		FGuid LegacyInstanceId, FByteView Bytes) -> bool
 	{
 		if (!LegacyInstanceId.IsValid() || Bytes.size() > MaximumAuthoredBulkBytes) return false;
 		const FSharedByteBuffer Buffer = FSharedByteBuffer::Copy(Bytes);

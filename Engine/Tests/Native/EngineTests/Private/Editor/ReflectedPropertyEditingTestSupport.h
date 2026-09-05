@@ -92,7 +92,7 @@ namespace
 		const Durin::FProperty* LeafProperty = nullptr;
 		std::vector<Durin::EPropertyPathSelector> Selectors;
 		std::vector<uint64> Indices;
-		Durin::FByteArray MapKeyData;
+		Durin::FByteBuffer MapKeyData;
 	};
 
 	class DEditObserver : public Durin::DObject

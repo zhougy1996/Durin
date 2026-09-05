@@ -101,21 +101,21 @@ namespace
 			/ std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
 	}
 
-	auto WriteU32(Durin::FByteArray& Bytes, size_t Offset, uint32 Value) -> void
+	auto WriteU32(Durin::FByteBuffer& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Bytes.size());
 		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto WriteU64(Durin::FByteArray& Bytes, size_t Offset, uint64 Value) -> void
+	auto WriteU64(Durin::FByteBuffer& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		ASSERT_LE(Offset + 8, Bytes.size());
 		for (uint32 Byte = 0; Byte < 8; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto ReadU64(const Durin::FByteArray& Bytes, size_t Offset) -> uint64
+	auto ReadU64(const Durin::FByteBuffer& Bytes, size_t Offset) -> uint64
 	{
 		uint64 Value = 0;
 		for (uint32 Byte = 0; Byte < 8; ++Byte)
@@ -123,7 +123,7 @@ namespace
 		return Value;
 	}
 
-	auto RefreshEnvelopeHeaderHash(Durin::FByteArray& Bytes) -> void
+	auto RefreshEnvelopeHeaderHash(Durin::FByteBuffer& Bytes) -> void
 	{
 		const uint64 HeaderBytes = ReadU64(Bytes, 32);
 		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
@@ -310,7 +310,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	const std::array<uint8, 4> Corrupt{1, 2, 3, 4};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), ObjectPath));
 	const std::filesystem::path PackagePath = Fixture.Root / "Content" / "Mesh.dasset";
-	Durin::FByteArray PackageBytesBeforeRecovery;
+	Durin::FByteBuffer PackageBytesBeforeRecovery;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		PackageBytesBeforeRecovery, PackagePath));
 	const auto PackageTimeBeforeRecovery =
@@ -322,7 +322,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	const Durin::FStaticMeshRenderData* CompleteRenderData = Fixture.Mesh->GetRenderData();
 	ASSERT_NE(CompleteRenderData, nullptr);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
-	Durin::FByteArray PackageBytesAfterRecovery;
+	Durin::FByteBuffer PackageBytesAfterRecovery;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		PackageBytesAfterRecovery, PackagePath));
 	EXPECT_EQ(PackageBytesAfterRecovery, PackageBytesBeforeRecovery);
@@ -370,7 +370,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 			*Fixture.Mesh, "/Game/CookedCollisionMesh", Context, Error)) << Error;
 		ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	}
-	Durin::FByteArray FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
+	Durin::FByteBuffer FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondPackage, (SecondCookRoot / "Game/CookedCollisionMesh.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstManifest, (CookRoot / "CookManifest.bin")));
@@ -445,10 +445,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Fixture.Mesh, "/Game/CookedMesh", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
-	Durin::FByteArray FirstPackage;
-	Durin::FByteArray SecondPackage;
-	Durin::FByteArray FirstBulk;
-	Durin::FByteArray SecondBulk;
+	Durin::FByteBuffer FirstPackage;
+	Durin::FByteBuffer SecondPackage;
+	Durin::FByteBuffer FirstBulk;
+	Durin::FByteBuffer SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (CookRoot / "Game/CookedMesh.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(

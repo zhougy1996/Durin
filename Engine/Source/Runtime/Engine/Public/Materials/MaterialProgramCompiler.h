@@ -106,7 +106,7 @@ namespace Durin
 	{
 		bool bSucceeded = false;
 		FMaterialIR IR;
-		FByteArray CanonicalBytes;
+		FByteBuffer CanonicalBytes;
 		FMaterialProgramIdentity Identity;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 
@@ -153,12 +153,12 @@ namespace Durin
 
 	ENGINE_API auto EncodeMaterialIRCanonical(
 		const FMaterialIR& IR,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 
 	ENGINE_API auto BuildMaterialProgramIdentity(
 		const FMaterialCompilerInput& Input,
-		std::span<const std::byte> CanonicalIR)
+		FByteView CanonicalIR)
 		-> FMaterialProgramIdentity;
 	ENGINE_API auto GenerateMaterialProgramSlang(
 		const FMaterialIR& IR, std::string& OutSource,

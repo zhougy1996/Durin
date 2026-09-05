@@ -248,7 +248,7 @@ namespace Durin
 			return true;
 		}
 
-		auto HexToken(std::span<const std::byte> Token) -> std::string
+		auto HexToken(FByteView Token) -> std::string
 		{
 			static constexpr char Digits[] = "0123456789abcdef";
 			std::string Result;
@@ -268,7 +268,7 @@ namespace Durin
 		{
 			const void* Key = nullptr;
 			const void* Value = nullptr;
-			FByteArray KeyToken;
+			FByteBuffer KeyToken;
 		};
 
 		struct FIdentityMapCollectContext
@@ -357,9 +357,9 @@ namespace Durin
 				}
 			case DurinCodeGen::EPropertyGenFlags::Blob:
 				{
-					const auto& Left = *static_cast<const FByteArray*>(
+					const auto& Left = *static_cast<const FByteBuffer*>(
 						Property->GetValuePtr(LeftContainer, LeftArrayIndex));
-					const auto& Right = *static_cast<const FByteArray*>(
+					const auto& Right = *static_cast<const FByteBuffer*>(
 						Property->GetValuePtr(RightContainer, RightArrayIndex));
 					return Left == Right ? Identical
 						: SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
@@ -1843,7 +1843,7 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		FByteArray& OutToken,
+		FByteBuffer& OutToken,
 		std::string* OutError
 	) -> bool
 	{

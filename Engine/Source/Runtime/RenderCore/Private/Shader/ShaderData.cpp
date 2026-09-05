@@ -247,7 +247,7 @@ namespace Durin
 	auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {

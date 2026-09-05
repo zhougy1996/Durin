@@ -9,11 +9,11 @@ namespace Durin::Image
 	// Encodes tightly packed, top-left-origin RGBA8 pixels as a compressed PNG.
 	// Failure clears OutEncodedBytes.
 	CORE_API auto EncodeRgba8Png(
-		std::span<const std::byte> Pixels,
+		FByteView Pixels,
 		uint32 Width,
 		uint32 Height,
-		FByteArray& OutEncodedBytes) -> bool;
+		FByteBuffer& OutEncodedBytes) -> bool;
 	CORE_API auto EncodeRgba8Png(
 		FImageView Image,
-		FByteArray& OutEncodedBytes) -> bool;
+		FByteBuffer& OutEncodedBytes) -> bool;
 } // namespace Durin::Image

@@ -84,7 +84,7 @@ namespace Durin::AssetForge::Builtins::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		std::error_code ErrorCode;
@@ -138,7 +138,7 @@ namespace Durin::AssetForge::Builtins::Private
 		EImportedDependencyRole Role,
 		std::string StableIdentity,
 		std::string SourcePath,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		uint32* OutIndex) -> bool
 	{
 		if (Scene.Dependencies.size() >= MaxImportedDependencies) return false;
@@ -261,7 +261,7 @@ namespace Durin::AssetForge::Builtins::Private
 
 	auto ValidateImageBytes(
 		EImportedImageEncoding Encoding,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		std::string& OutError) -> bool
 	{
 		if (Bytes.size() > MaxImportedImageEncodedBytes)

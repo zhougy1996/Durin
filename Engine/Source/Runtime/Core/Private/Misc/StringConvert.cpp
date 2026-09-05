@@ -171,7 +171,7 @@ namespace Durin::StringUtils
 		return true;
 	}
 
-	auto BytesToHex(std::span<const std::byte> Bytes) -> std::string
+	auto BytesToHex(FByteView Bytes) -> std::string
 	{
 		std::string Result;
 		Result.reserve(Bytes.size() * 2);
@@ -207,7 +207,7 @@ namespace Durin::StringUtils
 		return Result.empty() ? std::string(Fallback) : Result;
 	}
 
-	auto HexToBytes(std::string_view Hex, std::span<std::byte> OutBytes) -> void
+	auto HexToBytes(std::string_view Hex, FMutableByteView OutBytes) -> void
 	{
 		check(Hex.size() == OutBytes.size() * 2);
 

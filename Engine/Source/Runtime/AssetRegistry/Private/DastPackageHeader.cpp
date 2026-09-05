@@ -29,7 +29,7 @@ namespace Durin
 		}
 	}
 
-	auto ReadAssetPackageHeaderBytes(std::span<const std::byte> FrontMatter,
+	auto ReadAssetPackageHeaderBytes(FByteView FrontMatter,
 		uint64 PhysicalFileBytes, uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
 		-> FAssetRegistryResult
@@ -110,7 +110,7 @@ namespace Durin
 		Stream.seekg(0);
 		const uint64 InitialSize = std::min<uint64>(
 			FileSize, BinaryEnvelopePreambleBytes);
-		FByteArray Bytes(static_cast<size_t>(InitialSize));
+		FByteBuffer Bytes(static_cast<size_t>(InitialSize));
 		if (InitialSize != 0)
 		{
 			Stream.read(reinterpret_cast<char*>(Bytes.data()),

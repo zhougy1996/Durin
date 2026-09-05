@@ -44,7 +44,7 @@ namespace Durin::Editor
 		DURINED_API auto BeginCapture(std::string& OutError) -> bool;
 		// Moves completed tightly-packed SRGBA8 pixels to the game thread.
 		DURINED_API auto PollCapture(
-			FByteArray& OutPixels,
+			FByteBuffer& OutPixels,
 			std::string& OutError) -> EThumbnailCaptureState;
 		DURINED_API auto Reset() -> void;
 

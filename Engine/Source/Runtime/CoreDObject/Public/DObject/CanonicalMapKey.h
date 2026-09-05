@@ -50,17 +50,17 @@ namespace Durin::ObjectPackage
 		COREDOBJECT_API auto WriteGuid(const FGuid& Value) -> void;
 		COREDOBJECT_API auto WriteStructField(uint32 Ordinal, uint32 ArrayIndex) -> void;
 
-		auto GetBytes() const -> std::span<const std::byte> { return Bytes; }
-		auto TakeBytes() -> FByteArray { return std::move(Bytes); }
+		auto GetBytes() const -> FByteView { return Bytes; }
+		auto TakeBytes() -> FByteBuffer { return std::move(Bytes); }
 
 	private:
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 	};
 
 	// Builds one detached canonical token and replaces output only after complete success.
 	COREDOBJECT_API auto BuildCanonicalMapKeyToken(
 		const FSerializedType& Type,
 		const FSerializedValue& Value,
-		FByteArray& OutToken,
+		FByteBuffer& OutToken,
 		std::string* OutError = nullptr) -> bool;
 }

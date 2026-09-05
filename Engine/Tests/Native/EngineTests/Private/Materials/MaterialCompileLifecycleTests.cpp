@@ -209,8 +209,8 @@ TEST(FMaterialCompileLifecycleTests,
 		nullptr, "CookedProgramRoundTrip");
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 
-	Durin::FByteArray FirstBytes;
-	Durin::FByteArray SecondBytes;
+	Durin::FByteBuffer FirstBytes;
+	Durin::FByteBuffer SecondBytes;
 	std::string Error;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(
 		*Material->GetAcceptedCompiledProgram(), Material->GetStaticProperties(),
@@ -259,7 +259,7 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FMaterialCompilerResult WrongEnvironment =
 		*Material->GetAcceptedCompiledProgram();
 	WrongEnvironment.CompilerIdentity = "incompatible-compiler";
-	Durin::FByteArray WrongEnvironmentBytes;
+	Durin::FByteBuffer WrongEnvironmentBytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(
 		WrongEnvironment, Material->GetStaticProperties(),
 		Durin::ECookTargetPlatform::Win64,
@@ -280,7 +280,7 @@ TEST(FMaterialCompileLifecycleTests,
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		DecodedProperties, DecodedProgram, Error));
-	Durin::FByteArray TrailingBytes = FirstBytes;
+	Durin::FByteBuffer TrailingBytes = FirstBytes;
 	TrailingBytes.push_back(std::byte{0});
 	EXPECT_FALSE(Durin::DecodeMaterialCookedProgram(
 		TrailingBytes, Durin::ECookTargetPlatform::Win64,

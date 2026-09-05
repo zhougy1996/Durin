@@ -38,7 +38,7 @@ namespace Durin::AssetForge::Builtins::Private
 	{
 		const std::filesystem::path& RootPath;
 		std::string_view RootSourcePath;
-		std::span<const std::byte> RootBytes;
+		FByteView RootBytes;
 		const FMeshImportOptions& Options;
 		FSceneDecodeResult& Result;
 	};
@@ -62,14 +62,14 @@ namespace Durin::AssetForge::Builtins::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool;
 	auto AppendDependency(
 		FImportedSceneData& Scene,
 		EImportedDependencyRole Role,
 		std::string StableIdentity,
 		std::string SourcePath,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		uint32* OutIndex = nullptr) -> bool;
 	auto MakeDependencySourcePath(
 		std::string_view RootSourcePath,
@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins::Private
 		EImportedImageEncoding& OutEncoding) -> bool;
 	auto ValidateImageBytes(
 		EImportedImageEncoding Encoding,
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		std::string& OutError) -> bool;
 	auto MakeUniqueName(
 		std::string Name,
@@ -101,7 +101,7 @@ namespace Durin::AssetForge::Builtins::Private
 		const FImportedSceneContext& Context,
 		bool bGlb,
 		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
-		FByteArray& OutAssimpProjection) -> bool;
+		FByteBuffer& OutAssimpProjection) -> bool;
 	auto ImportAssimpFormat(
 		const aiScene& Scene,
 		const FImportedSceneContext& Context) -> bool;

@@ -11,7 +11,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		std::string Filename;
 		FXxHash128 ContentHash{};
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 	};
 
 	struct FVolumeTextureImportSettings

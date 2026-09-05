@@ -16,7 +16,7 @@ namespace Durin
 		class FSha256
 		{
 		public:
-			auto Update(std::span<const std::byte> Data) -> void
+			auto Update(FByteView Data) -> void
 			{
 				TotalBytes += Data.size();
 				while (!Data.empty())

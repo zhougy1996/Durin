@@ -33,7 +33,7 @@ namespace Durin
 				const Image::FImageView View = Mips.GetMipImage(0, 0, MipIndex);
 				if (!View.IsValid()) return {};
 				const auto& Info = View.GetInfo();
-				FTextureSourceData Mip{.Pixels = FByteArray(
+				FTextureSourceData Mip{.Pixels = FByteBuffer(
 					View.GetPixels().begin(), View.GetPixels().end()),
 					.Width = Info.Width, .Height = Info.Height,
 					.SourceChannelCount = Source.GetSourceChannelCount(),
@@ -153,9 +153,9 @@ namespace Durin
 	auto FTexture2DImportedData::ToSourceData() const -> FTextureSourceData
 	{
 		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
-		const std::span<const std::byte> Bytes = Payload.GetBytes();
+		const FByteView Bytes = Payload.GetBytes();
 		return {
-			.Pixels = FByteArray(Bytes.begin(), Bytes.end()),
+			.Pixels = FByteBuffer(Bytes.begin(), Bytes.end()),
 			.Width = Width,
 			.Height = Height,
 			.SourceChannelCount = SourceChannelCount,
@@ -345,7 +345,7 @@ namespace Durin
 			return false;
 		}
 		FTextureSource NewSource;
-		FByteArray Decoded(Read.Buffer.GetBytes().begin(), Read.Buffer.GetBytes().end());
+		FByteBuffer Decoded(Read.Buffer.GetBytes().begin(), Read.Buffer.GetBytes().end());
 		if (!Value.SuppliedMips.empty())
 		{
 			Decoded.clear();
@@ -378,7 +378,7 @@ namespace Durin
 			return false;
 		}
 		const Image::FImageInfo Base = Mips[0].GetInfo();
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		for (size_t Index = 0; Index < Mips.size(); ++Index)
 		{
 			const auto& Info = Mips[Index].GetInfo();

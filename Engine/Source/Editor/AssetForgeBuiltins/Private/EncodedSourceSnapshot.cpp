@@ -31,7 +31,7 @@ namespace Durin::AssetForge::Builtins
 			OutError = Error.message();
 			return false;
 		}
-		auto Bytes = std::make_shared<FByteArray>();
+		auto Bytes = std::make_shared<FByteBuffer>();
 		if (!FFileHelper::LoadFileToArray(*Bytes, PhysicalPath))
 		{
 			OutError = std::format("Failed to read source file '{}'.", Filename);

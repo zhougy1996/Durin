@@ -248,7 +248,7 @@ namespace Durin::RendererPrivate
 			static_cast<uint32>(PipelineKey.ColorBlend.AlphaOp),
 			static_cast<uint32>(PipelineKey.ColorBlend.ColorWriteMask)
 		};
-		const std::span<const std::byte> UniformPayload =
+		const FByteView UniformPayload =
 			Representation.GetUniformPayload();
 		Result.MaterialUniform.reserve(UniformPayload.size());
 		for (const std::byte Byte : UniformPayload)

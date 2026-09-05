@@ -64,7 +64,7 @@ namespace Durin
 	{
 		uint32 Type = 0;
 		uint32 Flags = 0;
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		uint64 DecodedSize = 0;
 	};
 
@@ -72,7 +72,7 @@ namespace Durin
 	{
 		uint32 Type = 0;
 		uint32 Flags = 0;
-		std::span<const std::byte> Bytes;
+		FByteView Bytes;
 		uint64 DecodedSize = 0;
 	};
 
@@ -80,7 +80,7 @@ namespace Durin
 	{
 		std::array<uint32, 8> HeaderWords{};
 		std::vector<FChunkedPayloadView> Chunks;
-		std::vector<std::span<const std::byte>> RequiredChunks;
+		std::vector<FByteView> RequiredChunks;
 	};
 
 	struct FChunkedPayloadResult
@@ -97,11 +97,11 @@ namespace Durin
 		std::array<uint32, 8> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
-		FByteArray& OutBytes) -> FChunkedPayloadResult;
+		FByteBuffer& OutBytes) -> FChunkedPayloadResult;
 
 	// Validates and projects an envelope without interpreting chunk contents.
 	ENGINE_API auto DecodeChunkedPayload(
-		std::span<const std::byte> Bytes,
+		FByteView Bytes,
 		const FChunkedPayloadFormat& Format,
 		FDecodedChunkedPayload& OutPayload) -> FChunkedPayloadResult;
 

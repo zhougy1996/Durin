@@ -68,21 +68,21 @@ namespace
 		}
 	}
 
-	auto WriteU32(Durin::FByteArray& Bytes, size_t Offset, uint32 Value) -> void
+	auto WriteU32(Durin::FByteBuffer& Bytes, size_t Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Bytes.size());
 		for (uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto WriteU64(Durin::FByteArray& Bytes, size_t Offset, uint64 Value) -> void
+	auto WriteU64(Durin::FByteBuffer& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		ASSERT_LE(Offset + 8, Bytes.size());
 		for (uint32 Byte = 0; Byte < 8; ++Byte)
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
-	auto ReadU64(const Durin::FByteArray& Bytes, size_t Offset) -> uint64
+	auto ReadU64(const Durin::FByteBuffer& Bytes, size_t Offset) -> uint64
 	{
 		uint64 Value = 0;
 		for (uint32 Byte = 0; Byte < 8; ++Byte)
@@ -90,7 +90,7 @@ namespace
 		return Value;
 	}
 
-	auto RefreshEnvelopeHeaderHash(Durin::FByteArray& Bytes) -> void
+	auto RefreshEnvelopeHeaderHash(Durin::FByteBuffer& Bytes) -> void
 	{
 		const uint64 HeaderBytes = ReadU64(Bytes, 32);
 		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
@@ -100,9 +100,9 @@ namespace
 		WriteU64(Bytes, 56, Hash.HashHigh);
 	}
 
-	auto ContainsText(std::span<const std::byte> Bytes, std::string_view Text) -> bool
+	auto ContainsText(Durin::FByteView Bytes, std::string_view Text) -> bool
 	{
-		const std::span<const std::byte> TextBytes =
+		const Durin::FByteView TextBytes =
 			std::as_bytes(std::span{Text.data(), Text.size()});
 		return std::search(Bytes.begin(), Bytes.end(),
 			TextBytes.begin(), TextBytes.end()) != Bytes.end();
@@ -228,11 +228,11 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_EQ(*ImportedSource, SourceBeforeCook);
 	EXPECT_EQ(Import.Asset->GetPackage()->IsDirty(), bPackageDirtyBeforeCook);
 
-	Durin::FByteArray FirstPackage;
-	Durin::FByteArray SecondPackage;
-	Durin::FByteArray FirstBulk;
-	Durin::FByteArray SecondBulk;
-	Durin::FByteArray DiagnosticPackage;
+	Durin::FByteBuffer FirstPackage;
+	Durin::FByteBuffer SecondPackage;
+	Durin::FByteBuffer FirstBulk;
+	Durin::FByteBuffer SecondBulk;
+	Durin::FByteBuffer DiagnosticPackage;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (CookRoot / "Game/CookedTexture.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -270,7 +270,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		std::filesystem::absolute(Root / "CookCorrupt");
 	std::filesystem::copy(CookRoot, CorruptRoot,
 		std::filesystem::copy_options::recursive);
-	Durin::FByteArray CorruptBulk = FirstBulk;
+	Durin::FByteBuffer CorruptBulk = FirstBulk;
 	CorruptBulk.back() ^= std::byte{0x80};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CorruptBulk)),
@@ -386,7 +386,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	{
 		bool bSucceeded = true;
 		std::string Error;
-		Durin::FByteArray SamplePixels;
+		Durin::FByteBuffer SamplePixels;
 	};
 	auto UploadResult = std::make_shared<FTextureCookUploadResult>();
 	struct FValidateCookedTextureUpload

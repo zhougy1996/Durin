@@ -312,7 +312,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto TranslateTexture2DSource(
-		std::span<const std::byte> EncodedBytes,
+		FByteView EncodedBytes,
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool
 	{

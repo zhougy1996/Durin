@@ -393,7 +393,7 @@ namespace
 						{
 							Item.CompanionPath = Input.PhysicalPath;
 							Item.CompanionPath.replace_extension(".dbulk");
-							FByteArray Segment;
+							FByteBuffer Segment;
 							if (!FFileHelper::LoadFileToArray(Segment, Item.CompanionPath)
 								|| Descriptor.SegmentOffset > Segment.size()
 								|| Descriptor.StoredByteCount
@@ -404,7 +404,7 @@ namespace
 							}
 							else
 							{
-								const auto Bytes = std::span<const std::byte>(Segment).subspan(
+								const auto Bytes = Durin::FByteView(Segment).subspan(
 									static_cast<size_t>(Descriptor.SegmentOffset),
 									static_cast<size_t>(Descriptor.StoredByteCount));
 								if (FXxHash128::HashBuffer(Bytes) != Descriptor.ContentHash)

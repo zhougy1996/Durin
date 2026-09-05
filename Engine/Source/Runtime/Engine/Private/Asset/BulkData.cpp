@@ -8,7 +8,7 @@ namespace Durin
 		{
 			mutable std::mutex Mutex;
 			FBulkDataMetadata Metadata;
-			std::shared_ptr<FByteArray> Allocation;
+			std::shared_ptr<FByteBuffer> Allocation;
 			EBulkDataState State = EBulkDataState::Empty;
 			uint32 ReadLocks = 0;
 		};
@@ -81,14 +81,14 @@ namespace Durin
 	}
 
 	auto FBulkData::TryCreateDetached(
-		std::span<const std::byte> Bytes, FBulkData& OutValue, std::string* OutError) -> bool
+		FByteView Bytes, FBulkData& OutValue, std::string* OutError) -> bool
 	{
 		if (Bytes.size() > MaximumBulkDataBytes)
 			return BulkDataFail("Detached bulk data exceeds the 1 GiB limit.", OutError);
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
 		Candidate->Metadata.Range.StoredSize = Bytes.size();
-		Candidate->Allocation = std::make_shared<FByteArray>(Bytes.begin(), Bytes.end());
+		Candidate->Allocation = std::make_shared<FByteBuffer>(Bytes.begin(), Bytes.end());
 		Candidate->State = EBulkDataState::Detached;
 		OutValue = FBulkData(std::move(Candidate));
 		if (OutError) OutError->clear();
@@ -127,7 +127,7 @@ namespace Durin
 	}
 
 	auto FBulkData::LockReadOnly(
-		std::span<const std::byte>& OutBytes, std::string* OutError) -> bool
+		FByteView& OutBytes, std::string* OutError) -> bool
 	{
 		std::unique_lock Lock(State->Mutex);
 		if (State->State == EBulkDataState::Attached || State->State == EBulkDataState::Failed)
@@ -144,7 +144,7 @@ namespace Durin
 					? EBulkDataState::Retired : EBulkDataState::Failed;
 				return BulkDataFail(Result.Message.empty() ? "Bulk data range load failed." : Result.Message, OutError);
 			}
-			State->Allocation = std::make_shared<FByteArray>(
+			State->Allocation = std::make_shared<FByteBuffer>(
 				Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
 			State->State = EBulkDataState::Resident;
 		}
@@ -172,14 +172,14 @@ namespace Durin
 	}
 
 	auto FBulkData::LockReadWrite(
-		std::span<std::byte>& OutBytes, std::string* OutError) -> bool
+		FMutableByteView& OutBytes, std::string* OutError) -> bool
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::Detached && State->State != EBulkDataState::Empty)
 			return BulkDataFail("Bulk data write locks require detached storage.", OutError);
-		if (!State->Allocation) State->Allocation = std::make_shared<FByteArray>();
+		if (!State->Allocation) State->Allocation = std::make_shared<FByteBuffer>();
 		else if (State->Allocation.use_count() != 1)
-			State->Allocation = std::make_shared<FByteArray>(*State->Allocation);
+			State->Allocation = std::make_shared<FByteBuffer>(*State->Allocation);
 		State->Metadata.Range.Resource.reset();
 		State->State = EBulkDataState::WriteLocked;
 		OutBytes = *State->Allocation;
@@ -188,7 +188,7 @@ namespace Durin
 	}
 
 	auto FBulkData::Resize(
-		uint64 Size, std::span<std::byte>& OutBytes, std::string* OutError) -> bool
+		uint64 Size, FMutableByteView& OutBytes, std::string* OutError) -> bool
 	{
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::WriteLocked)
@@ -255,7 +255,7 @@ namespace Durin
 			if (Target->State != EBulkDataState::Loading) return Result;
 			if (Result && Result.Buffer.GetSize() == Metadata.LogicalSize)
 			{
-				Target->Allocation = std::make_shared<FByteArray>(
+				Target->Allocation = std::make_shared<FByteBuffer>(
 					Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
 				Target->State = EBulkDataState::Resident;
 			}
@@ -272,7 +272,7 @@ namespace Durin
 		if (Ar.IsSaving())
 		{
 			FBulkDataMetadata Metadata;
-			std::shared_ptr<FByteArray> Allocation;
+			std::shared_ptr<FByteBuffer> Allocation;
 			{
 				std::lock_guard Lock(State->Mutex);
 				Metadata = State->Metadata;

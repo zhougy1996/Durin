@@ -885,7 +885,7 @@ namespace Durin::VulkanRHI
 			return std::filesystem::path(FPaths::LaunchSavedDir()) / "Vulkan" / "PipelineCache-v1.bin";
 		}
 
-		auto ReadU32(const std::span<const std::byte> Bytes, const size_t Offset) -> uint32
+		auto ReadU32(const FByteView Bytes, const size_t Offset) -> uint32
 		{
 			uint32 Value = 0;
 			if (Offset + sizeof(Value) <= Bytes.size()) std::memcpy(&Value, Bytes.data() + Offset, sizeof(Value));
@@ -895,8 +895,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineManager::InitializeDriverPipelineCache() -> void
 	{
-		FByteArray FileBytes;
-		std::span<const std::byte> InitialData;
+		FByteBuffer FileBytes;
+		FByteView InitialData;
 		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
 		const auto& Properties = Device.GetGpuProperties();
 		const std::filesystem::path Path = PipelineCachePath();
@@ -914,7 +914,7 @@ namespace Durin::VulkanRHI
 				&& std::memcmp(FileBytes.data() + 20, Properties.pipelineCacheUUID.data(), VK_UUID_SIZE) == 0;
 			if (bCompatible)
 			{
-				InitialData = std::span<const std::byte>(FileBytes).subspan(PipelineCachePrefixBytes);
+				InitialData = FByteView(FileBytes).subspan(PipelineCachePrefixBytes);
 				bCompatible = InitialData.size() >= 32
 					&& ReadU32(InitialData, 0) >= 32
 					&& ReadU32(InitialData, 4) == VK_PIPELINE_CACHE_HEADER_VERSION_ONE
@@ -966,7 +966,7 @@ namespace Durin::VulkanRHI
 				DURIN_WARN("Not saving Vulkan pipeline cache because its payload is empty or exceeds {} bytes.", PipelineCacheMaximumBytes);
 				return;
 			}
-			FByteArray Bytes(PipelineCachePrefixBytes + Payload.size());
+			FByteBuffer Bytes(PipelineCachePrefixBytes + Payload.size());
 			const auto WriteU32 = [&Bytes](size_t Offset, uint32 Value) { std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value)); };
 			const auto& Properties = Device.GetGpuProperties();
 			WriteU32(0, PipelineCacheMagic);

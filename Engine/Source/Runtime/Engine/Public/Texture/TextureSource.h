@@ -243,7 +243,7 @@ namespace Durin
 			std::span<const FTextureSourceBlock> InBlocks,
 			std::span<const FTextureSourceLayer> InLayers,
 			ETextureSourceGammaSpace InGammaSpace,
-			std::span<const std::byte> DecodedPayload,
+			FByteView DecodedPayload,
 			uint8 InSourceChannelCount = 0, uint8 InTransparencyMask = 0,
 			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
 		ENGINE_API auto Reset() -> void;
@@ -270,7 +270,7 @@ namespace Durin
 			std::span<const FTextureSourceBlock> InBlocks,
 			std::span<const FTextureSourceLayer> InLayers,
 			ETextureSourceGammaSpace InGammaSpace,
-			std::span<const std::byte> DecodedPayload,
+			FByteView DecodedPayload,
 			uint8 InSourceChannelCount, uint8 InTransparencyMask,
 			ETextureSourceCompression PreferredCompression) -> bool;
 		auto InvalidateMipData() const -> void

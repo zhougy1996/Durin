@@ -85,7 +85,7 @@ namespace Durin::AssetPrivate
 			OutWarning = std::format("Ignoring invalid asset registry cache {}.", Path.generic_string());
 			return false;
 		}
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, Path))
 		{
 			OutWarning = std::format("Failed to read asset registry cache {}.", Path.generic_string());

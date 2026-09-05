@@ -111,7 +111,7 @@ namespace Durin
 		}
 
 		auto HashWithZeroedFileDigest(
-			std::span<const std::byte> Bytes) -> FXxHash128
+			FByteView Bytes) -> FXxHash128
 		{
 			FXxHash128Builder Builder;
 			Builder.Update(Bytes.first(FileDigestOffset));
@@ -155,7 +155,7 @@ namespace Durin
 
 	struct FShaderCookedLibrary::FState
 	{
-		std::shared_ptr<const FByteArray> Bytes;
+		std::shared_ptr<const FByteBuffer> Bytes;
 		std::vector<FDirectoryRecord> Directory;
 		EShaderTargetPlatform TargetPlatform = EShaderTargetPlatform::Invalid;
 		EShaderTargetProfile TargetProfile = EShaderTargetProfile::Invalid;
@@ -453,7 +453,7 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderCookedLibraryRecord> Records,
-		FByteArray& OutBytes,
+		FByteBuffer& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -463,7 +463,7 @@ namespace Durin
 		struct FEncoded
 		{
 			FDirectoryRecord Directory;
-			FByteArray Payload;
+			FByteBuffer Payload;
 		};
 		std::vector<FEncoded> Encoded;
 		Encoded.reserve(Records.size());
@@ -548,7 +548,7 @@ namespace Durin
 			Writer.WriteU32(0);
 			Writer.WriteU64(0);
 		}
-		FByteArray Candidate = Writer.TakeBytes();
+		FByteBuffer Candidate = Writer.TakeBytes();
 		Candidate.resize(static_cast<size_t>(Cursor));
 		for (const FEncoded& Item : Encoded)
 			std::ranges::copy(Item.Payload,
@@ -575,7 +575,7 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		OutLibrary = {};
-		auto Bytes = std::make_shared<FByteArray>();
+		auto Bytes = std::make_shared<FByteBuffer>();
 		if (!FFileHelper::LoadFileToArray(*Bytes, Path))
 			return Fail(OutError, std::format(
 				"Shader library could not be read: {}", Path.generic_string()));
@@ -584,7 +584,7 @@ namespace Durin
 	}
 
 	auto FShaderCookedLibrary::OpenBytes(
-		std::shared_ptr<const FByteArray> Bytes,
+		std::shared_ptr<const FByteBuffer> Bytes,
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderRuntimeRequest> RequiredRequests,
@@ -726,7 +726,7 @@ namespace Durin
 			|| Found->RuntimeIdentity != Identity
 			|| Found->MemberCount != Request.Members.size())
 			return Fail(OutError, "Shader library request is unavailable.");
-		const std::span<const std::byte> Payload(
+		const FByteView Payload(
 			State->Bytes->data() + static_cast<size_t>(Found->Offset),
 			static_cast<size_t>(Found->Size));
 		if (FXxHash128::HashBuffer(Payload) != Found->PayloadDigest)

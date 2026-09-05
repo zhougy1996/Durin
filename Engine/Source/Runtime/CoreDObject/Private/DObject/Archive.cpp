@@ -247,7 +247,7 @@ namespace Durin
 
 		struct FArchiveMapEntry
 		{
-			FByteArray Token;
+			FByteBuffer Token;
 			const void* Key = nullptr;
 			const void* Value = nullptr;
 		};
@@ -359,7 +359,7 @@ namespace Durin
 			}
 			case DurinCodeGen::EPropertyGenFlags::Blob:
 			{
-				auto* Value = static_cast<FByteArray*>(
+				auto* Value = static_cast<FByteBuffer*>(
 					Property->GetValuePtr(Container, ArrayIndex));
 				Ar.SerializeByteBlob(*Value);
 				break;
@@ -904,7 +904,7 @@ namespace Durin
 			{
 			}
 
-			auto SerializeRawBytes(std::span<std::byte>) -> void override
+			auto SerializeRawBytes(FMutableByteView) -> void override
 			{
 			}
 
@@ -923,7 +923,7 @@ namespace Durin
 		class FObjectGraphWriter : public FObjectMemoryWriter
 		{
 		public:
-			FObjectGraphWriter(FByteArray& InBytes, FObjectGraphContext& InContext)
+			FObjectGraphWriter(FByteBuffer& InBytes, FObjectGraphContext& InContext)
 				: FObjectMemoryWriter(InBytes, EArchivePurpose::ObjectGraph)
 				, Context(InContext)
 			{
@@ -959,7 +959,7 @@ namespace Durin
 		class FObjectGraphReader : public FObjectMemoryReader
 		{
 		public:
-			FObjectGraphReader(const FByteArray& InBytes, FObjectGraphContext& InContext)
+			FObjectGraphReader(const FByteBuffer& InBytes, FObjectGraphContext& InContext)
 				: FObjectMemoryReader(InBytes, EArchivePurpose::ObjectGraph)
 				, Context(InContext)
 			{
@@ -1121,7 +1121,7 @@ namespace Durin
 		return FArchivePathScope(this);
 	}
 
-	auto FObjectArchive::NotifyCanonicalMapKey(uint64 Index, std::span<const std::byte> Token) -> void
+	auto FObjectArchive::NotifyCanonicalMapKey(uint64 Index, FByteView Token) -> void
 	{
 		if (!HasError()) OnCanonicalMapKey(Index, Token);
 	}
@@ -1199,7 +1199,7 @@ namespace Durin
 	auto FObjectArchive::OnEnterArrayElement(uint64) -> void {}
 	auto FObjectArchive::OnEnterMapKey(uint64) -> void {}
 	auto FObjectArchive::OnEnterMapValue(uint64) -> void {}
-	auto FObjectArchive::OnCanonicalMapKey(uint64, std::span<const std::byte>) -> void {}
+	auto FObjectArchive::OnCanonicalMapKey(uint64, FByteView) -> void {}
 	auto FObjectArchive::OnLeavePath() -> void {}
 	auto FObjectArchive::OnReflectedPropertyValue(FProperty&, const void*, uint32) -> void {}
 	auto FObjectArchive::OnResolvePropertySaveValue(
@@ -1269,7 +1269,7 @@ namespace Durin
 		if (IsLoading() && !HasError()) Value.SetObject(Object);
 	}
 
-	FObjectMemoryWriter::FObjectMemoryWriter(FByteArray& InBytes, EArchivePurpose Purpose)
+	FObjectMemoryWriter::FObjectMemoryWriter(FByteBuffer& InBytes, EArchivePurpose Purpose)
 		: FObjectArchive({EArchiveDirection::Save, Purpose,
 			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 			| EArchiveCapability::Position
@@ -1279,13 +1279,13 @@ namespace Durin
 	{
 	}
 
-	auto FObjectMemoryWriter::SerializeRawBytes(std::span<std::byte> Data) -> void
+	auto FObjectMemoryWriter::SerializeRawBytes(FMutableByteView Data) -> void
 	{
 		if (HasError()) return;
 		Bytes.insert(Bytes.end(), Data.begin(), Data.end());
 	}
 
-	FObjectMemoryReader::FObjectMemoryReader(std::span<const std::byte> InBytes, EArchivePurpose Purpose)
+	FObjectMemoryReader::FObjectMemoryReader(FByteView InBytes, EArchivePurpose Purpose)
 		: FObjectArchive({EArchiveDirection::Load, Purpose,
 			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 			| EArchiveCapability::Position
@@ -1296,7 +1296,7 @@ namespace Durin
 	{
 	}
 
-	auto FObjectMemoryReader::SerializeRawBytes(std::span<std::byte> Data) -> void
+	auto FObjectMemoryReader::SerializeRawBytes(FMutableByteView Data) -> void
 	{
 		if (HasError()) return;
 		if (Data.size() > GetRemainingPayloadBytes())
@@ -1354,7 +1354,7 @@ namespace Durin
 	}
 
 	auto NotifyArchiveCanonicalMapKey(
-		FArchive& Ar, uint64 Index, std::span<const std::byte> Token) -> void
+		FArchive& Ar, uint64 Index, FByteView Token) -> void
 	{
 		if (auto* ObjectArchive = RequireObjectArchive(Ar))
 			ObjectArchive->NotifyCanonicalMapKey(Index, Token);
@@ -1550,7 +1550,7 @@ namespace Durin
 		class FSnapshotWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FSnapshotWriter(FByteArray& InBytes, std::vector<FObjectHandle>& InReferences)
+			FSnapshotWriter(FByteBuffer& InBytes, std::vector<FObjectHandle>& InReferences)
 				: FObjectMemoryWriter(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
@@ -1645,7 +1645,7 @@ namespace Durin
 			class FSnapshotReader final : public FObjectMemoryReader
 		{
 		public:
-			FSnapshotReader(const FByteArray& InBytes, const std::vector<FObjectHandle>& InReferences)
+			FSnapshotReader(const FByteBuffer& InBytes, const std::vector<FObjectHandle>& InReferences)
 				: FObjectMemoryReader(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
@@ -1775,7 +1775,7 @@ namespace Durin
 		);
 	}
 
-	auto SaveObjectGraphToMemory(DObject* RootObject, FByteArray& OutBytes) -> bool
+	auto SaveObjectGraphToMemory(DObject* RootObject, FByteBuffer& OutBytes) -> bool
 	{
 		if (!RootObject || RootObject->IsTemplateObject())
 		{
@@ -1794,7 +1794,7 @@ namespace Durin
 		if (DiscoveryArchive.HasError()) return false;
 		Context.Freeze();
 
-		FByteArray Bytes;
+		FByteBuffer Bytes;
 		FObjectMemoryWriter HeaderWriter(Bytes, EArchivePurpose::ObjectGraph);
 		uint32 Magic = ObjectGraphMagic;
 		uint32 Version = ObjectGraphVersion;
@@ -1814,7 +1814,7 @@ namespace Durin
 			}
 			std::string ClassName = Metadata.ClassName;
 			std::string ObjectName = Metadata.ObjectName;
-			FByteArray PropertyBytes;
+			FByteBuffer PropertyBytes;
 			FObjectGraphWriter PropertyWriter(PropertyBytes, Context);
 			{
 				auto ObjectScope = PropertyWriter.EnterObject(*Object);
@@ -1830,7 +1830,7 @@ namespace Durin
 			if (PropertySize > 0)
 			{
 				HeaderWriter.SerializeRawBytes(std::as_writable_bytes(
-					std::span<std::byte>(PropertyBytes.data(), PropertyBytes.size())));
+					FMutableByteView(PropertyBytes.data(), PropertyBytes.size())));
 			}
 		}
 
@@ -1839,7 +1839,7 @@ namespace Durin
 		return true;
 	}
 
-	auto LoadObjectGraphFromMemory(const FByteArray& Bytes) -> DObject*
+	auto LoadObjectGraphFromMemory(const FByteBuffer& Bytes) -> DObject*
 	{
 		FObjectMemoryReader Reader(Bytes);
 		uint32 Magic = 0;
@@ -1859,7 +1859,7 @@ namespace Durin
 			uint64 OuterId = 0;
 			std::string ClassName;
 			std::string ObjectName;
-			FByteArray PropertyBytes;
+			FByteBuffer PropertyBytes;
 		};
 
 		std::vector<FLoadedObjectRecord> Records;
@@ -1879,7 +1879,7 @@ namespace Durin
 			Reader << Record.ObjectName;
 			Reader << PropertySize;
 			if (Reader.HasError() || PropertySize > Reader.GetRemainingPayloadBytes()
-				|| PropertySize > FByteArray().max_size())
+				|| PropertySize > FByteBuffer().max_size())
 			{
 				DiscardLoadedObjects();
 				return nullptr;
@@ -1888,7 +1888,7 @@ namespace Durin
 			if (PropertySize > 0)
 			{
 				Reader.SerializeRawBytes(std::as_writable_bytes(
-					std::span<std::byte>(Record.PropertyBytes.data(), Record.PropertyBytes.size())));
+					FMutableByteView(Record.PropertyBytes.data(), Record.PropertyBytes.size())));
 			}
 			if (Reader.HasError() || Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
 				|| Record.OuterId > ObjectCount)
@@ -2047,7 +2047,7 @@ namespace Durin
 			class FDuplicateWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FDuplicateWriter(FByteArray& Bytes,
+			FDuplicateWriter(FByteBuffer& Bytes,
 				const std::unordered_map<DObject*, uint64>& InSourceIds,
 				std::vector<DObject*>& InExternalReferences)
 				: FObjectMemoryWriter(Bytes, EArchivePurpose::Duplicate)
@@ -2096,7 +2096,7 @@ namespace Durin
 			class FDuplicateReader final : public FObjectMemoryReader
 		{
 		public:
-			FDuplicateReader(const FByteArray& Bytes,
+			FDuplicateReader(const FByteBuffer& Bytes,
 				const std::vector<DObject*>& InDuplicates,
 				const std::vector<DObject*>& InExternalReferences)
 				: FObjectMemoryReader(Bytes, EArchivePurpose::Duplicate)
@@ -2152,7 +2152,7 @@ namespace Durin
 
 		for (DObject* Source : Sources)
 		{
-			FByteArray Bytes;
+			FByteBuffer Bytes;
 			FDuplicateWriter Writer(Bytes, SourceIds, ExternalReferences);
 			{
 				auto ObjectScope = Writer.EnterObject(*Source);
@@ -2218,7 +2218,7 @@ namespace Durin
 		class FEditableCopyWriter final : public FObjectMemoryWriter
 		{
 		public:
-			FEditableCopyWriter(FByteArray& Bytes, std::vector<DObject*>& InReferences)
+			FEditableCopyWriter(FByteBuffer& Bytes, std::vector<DObject*>& InReferences)
 				: FObjectMemoryWriter(Bytes, EArchivePurpose::EditableCopy), References(InReferences)
 			{
 				EnableCapabilities(EArchiveCapability::ObjectReferences);
@@ -2245,7 +2245,7 @@ namespace Durin
 		class FRemappingReader final : public FObjectMemoryReader
 		{
 		public:
-			FRemappingReader(const FByteArray& Bytes,
+			FRemappingReader(const FByteBuffer& Bytes,
 				const std::vector<DObject*>& InReferences,
 				const std::unordered_map<DObject*, DObject*>& InReferenceMap)
 				: FObjectMemoryReader(Bytes, EArchivePurpose::EditableCopy)
@@ -2302,7 +2302,7 @@ namespace Durin
 				}
 				OriginalValues.push_back(std::move(Original));
 
-				FByteArray Bytes;
+				FByteBuffer Bytes;
 				std::vector<DObject*> References;
 				FEditableCopyWriter Writer(Bytes, References);
 				SerializeReflectedPropertyValue(Writer, *Property, Source, Index);

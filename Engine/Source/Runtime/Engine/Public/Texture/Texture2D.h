@@ -56,7 +56,7 @@ namespace Durin
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{
-		FByteArray Pixels;
+		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint8 SourceChannelCount = 0;
@@ -110,7 +110,7 @@ namespace Durin
 	// Owns one tightly described platform mip and its byte row pitch.
 	struct FTexture2DMipData
 	{
-		FByteArray Pixels;
+		FByteBuffer Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 RowPitch = 0;

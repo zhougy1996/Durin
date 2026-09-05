@@ -198,7 +198,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			AlignedContract);
 		ASSERT_TRUE(AlignedPool.IsAvailable()) << AlignedPool.GetDiagnostic();
 		auto CaptureAligned = [&](float Roughness) {
-			Durin::FByteArray Pixels;
+			Durin::FByteBuffer Pixels;
 			EXPECT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
 				Durin::MaterialParameters::RoughnessName(), Roughness));
 			EXPECT_TRUE(AlignedPool.SetMaterial(
@@ -221,7 +221,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		std::array<uint32, 5> SaturatedPixelCounts{};
 		for (size_t Index = 0; Index < RoughnessSweep.size(); ++Index)
 		{
-			const Durin::FByteArray Pixels =
+			const Durin::FByteBuffer Pixels =
 				CaptureAligned(RoughnessSweep[Index]);
 			for (size_t Pixel = 0; Pixel < Pixels.size(); Pixel += 4)
 			{
@@ -328,7 +328,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::DMaterialInterface* Material,
 			const Durin::FTransform& Transform = Durin::FTransform()) {
 			FinishMaterialCompilation(Material);
-			Durin::FByteArray Pixels;
+			Durin::FByteBuffer Pixels;
 			EXPECT_TRUE(Pool.SetMaterial(
 				CaptureMesh, Material, Transform, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
@@ -339,31 +339,31 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
-		const Durin::FByteArray MaterialPixels =
+		const Durin::FByteBuffer MaterialPixels =
 			Capture(CaptureMaterial);
 		ASSERT_EQ(ErrorFallbackMaterial->GetAcceptedCompiledProgram(), nullptr);
-		const Durin::FByteArray ErrorFallbackPixels =
+		const Durin::FByteBuffer ErrorFallbackPixels =
 			Capture(ErrorFallbackMaterial);
 		Durin::FMaterialStaticProperties TwoSidedProperties =
 			CaptureMaterial->GetStaticProperties();
 		TwoSidedProperties.bTwoSided = true;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
-		const Durin::FByteArray TwoSidedFrontPixels =
+		const Durin::FByteBuffer TwoSidedFrontPixels =
 			Capture(CaptureMaterial);
 		Durin::FTransform BackFaceTransform;
 		BackFaceTransform.Scale3D.z = -1.0;
-		const Durin::FByteArray TwoSidedBackPixels =
+		const Durin::FByteBuffer TwoSidedBackPixels =
 			Capture(CaptureMaterial, BackFaceTransform);
 		TwoSidedProperties.bTwoSided = false;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
-		const Durin::FByteArray InstancePixels =
+		const Durin::FByteBuffer InstancePixels =
 			Capture(CaptureInstance);
-		const Durin::FByteArray InheritedBeforePixels =
+		const Durin::FByteBuffer InheritedBeforePixels =
 			Capture(InheritedInstance);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.15, 0.7, 0.2)));
-		const Durin::FByteArray InheritedAfterPixels =
+		const Durin::FByteBuffer InheritedAfterPixels =
 			Capture(InheritedInstance);
 
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
@@ -414,7 +414,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			StaticMeshView,
 			Error)) << Error;
 		auto CaptureStaticMesh = [&] {
-			Durin::FByteArray Pixels;
+			Durin::FByteBuffer Pixels;
 			EXPECT_TRUE(Pool.SetStaticMesh(
 				StaticMeshFixture, StaticMeshView, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(
@@ -427,11 +427,11 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
-		const Durin::FByteArray StaticMeshPixels = CaptureStaticMesh();
+		const Durin::FByteBuffer StaticMeshPixels = CaptureStaticMesh();
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.85, 0.12, 0.18)));
-		const Durin::FByteArray RecoloredStaticMeshPixels = CaptureStaticMesh();
+		const Durin::FByteBuffer RecoloredStaticMeshPixels = CaptureStaticMesh();
 		ASSERT_EQ(StaticMeshPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(RecoloredStaticMeshPixels.size(), StaticMeshPixels.size());
 		EXPECT_NE(StaticMeshPixels, RecoloredStaticMeshPixels);
@@ -562,7 +562,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
-		const Durin::FByteArray UntexturedPixels =
+		const Durin::FByteBuffer UntexturedPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
@@ -572,16 +572,16 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.0, 0.0)));
 		Durin::DStaticMesh* TriangleCaptureMesh = CaptureMesh;
 		CaptureMesh = CaptureSphere;
-		const Durin::FByteArray UV0Pixels = Capture(CaptureMaterial);
+		const Durin::FByteBuffer UV0Pixels = Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVChannel"), 3.0f));
-		const Durin::FByteArray MissingUVFallbackPixels =
+		const Durin::FByteBuffer MissingUVFallbackPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVScale"), Durin::FVector2(-1.0, 1.0)));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(1.0, 0.0)));
-		const Durin::FByteArray TransformedUVPixels =
+		const Durin::FByteBuffer TransformedUVPixels =
 			Capture(CaptureMaterial);
 		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
@@ -609,7 +609,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::EncodeMaterialSamplerState(RepeatSampler)));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVRotation"), 1.57079633f));
-		const Durin::FByteArray RotatedUVPixels = Capture(CaptureMaterial);
+		const Durin::FByteBuffer RotatedUVPixels = Capture(CaptureMaterial);
 		EXPECT_NE(RotatedUVPixels, UV0Pixels);
 		EXPECT_FLOAT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).UVRotations[0],
@@ -624,14 +624,14 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorSamplerState"),
 			Durin::EncodeMaterialSamplerState(RepeatSampler)));
-		const Durin::FByteArray RepeatPixels = Capture(CaptureMaterial);
+		const Durin::FByteBuffer RepeatPixels = Capture(CaptureMaterial);
 		Durin::FMaterialSamplerState ClampSampler = RepeatSampler;
 		ClampSampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorSamplerState"),
 			Durin::EncodeMaterialSamplerState(ClampSampler)));
-		const Durin::FByteArray ClampPixels = Capture(CaptureMaterial);
+		const Durin::FByteBuffer ClampPixels = Capture(CaptureMaterial);
 		EXPECT_NE(RepeatPixels, ClampPixels);
 		EXPECT_EQ(
 			GetMaterialBinding(CaptureMaterial->GetRenderData()).Samplers[0],
@@ -719,7 +719,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(),
 			Durin::FVector3(0.0)));
-		const Durin::FByteArray PbrBaselinePixels =
+		const Durin::FByteBuffer PbrBaselinePixels =
 			Capture(CaptureMaterial);
 		const Durin::FMaterialProgram CanonicalProgram =
 			*CaptureMaterial->GetMaterialProgram();
@@ -744,7 +744,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			CaptureMaterial->GetRenderData()
 				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
 		EXPECT_NE(EditedProgramIdentity, CanonicalProgramIdentity);
-		const Durin::FByteArray EditedProgramPixels =
+		const Durin::FByteBuffer EditedProgramPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
 			CanonicalProgram, ProgramValidation));
@@ -752,24 +752,24 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_EQ(CaptureMaterial->GetRenderData()
 			.PlanningPassIdentity.ShaderMap.ProgramIdentity,
 			CanonicalProgramIdentity);
-		const Durin::FByteArray RestoredProgramPixels =
+		const Durin::FByteBuffer RestoredProgramPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::MetallicName(), 1.0f));
-		const Durin::FByteArray MetallicOnlyPixels =
+		const Durin::FByteBuffer MetallicOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::MetallicName(), 0.0f));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::RoughnessName(), 0.1f));
-		const Durin::FByteArray RoughnessOnlyPixels =
+		const Durin::FByteBuffer RoughnessOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::RoughnessName(), 0.5f));
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::NormalName(),
 			Durin::FVector3(0.6, 0.0, 0.8)));
-		const Durin::FByteArray NormalOnlyPixels =
+		const Durin::FByteBuffer NormalOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::NormalName(),
@@ -777,7 +777,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(),
 			Durin::FVector3(0.15, 0.05, 0.0)));
-		const Durin::FByteArray EmissiveOnlyPixels =
+		const Durin::FByteBuffer EmissiveOnlyPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
@@ -789,7 +789,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::MaterialParameters::OpacityName(), 0.4f));
 		const Durin::FMaterialPlanningPassIdentity LitPlanningPassIdentity =
 			CaptureMaterial->GetRenderData().PlanningPassIdentity;
-		const Durin::FByteArray LitEmissivePixels =
+		const Durin::FByteBuffer LitEmissivePixels =
 			Capture(CaptureMaterial);
 		Durin::FMaterialStaticProperties StaticProperties;
 		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
@@ -798,37 +798,37 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_NE(
 			CaptureMaterial->GetRenderData().PlanningPassIdentity,
 			LitPlanningPassIdentity);
-		const Durin::FByteArray StaticIdentityPixels =
+		const Durin::FByteBuffer StaticIdentityPixels =
 			Capture(CaptureMaterial);
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
 		StaticProperties.OpacityMaskThreshold = 0.4f;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.39f));
-		const Durin::FByteArray MaskedBelowPixels =
+		const Durin::FByteBuffer MaskedBelowPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.4f));
-		const Durin::FByteArray MaskedEqualPixels =
+		const Durin::FByteBuffer MaskedEqualPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.41f));
-		const Durin::FByteArray MaskedAbovePixels =
+		const Durin::FByteBuffer MaskedAbovePixels =
 			Capture(CaptureMaterial);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.0f));
-		const Durin::FByteArray TranslucentZeroPixels =
+		const Durin::FByteBuffer TranslucentZeroPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.4f));
-		const Durin::FByteArray TranslucentPartialPixels =
+		const Durin::FByteBuffer TranslucentPartialPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 1.0f));
-		const Durin::FByteArray TranslucentFullPixels =
+		const Durin::FByteBuffer TranslucentFullPixels =
 			Capture(CaptureMaterial);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Opaque;
@@ -841,7 +841,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FConsoleCommandRegistry::Get().Execute(
 				"renderer.reload-shaders all");
 		ASSERT_TRUE(ReloadResult.bSuccess) << ReloadResult.Message;
-		const Durin::FByteArray ReloadedPixels =
+		const Durin::FByteBuffer ReloadedPixels =
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
@@ -888,7 +888,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		Durin::FByteArray DirectEnvironmentPixels;
+		Durin::FByteBuffer DirectEnvironmentPixels;
 		ASSERT_EQ(
 			Pool.PollCapture(DirectEnvironmentPixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
@@ -917,7 +917,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_NE(OriginalCubeTarget, nullptr);
 		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		Durin::FByteArray RetargetedEnvironmentPixels;
+		Durin::FByteBuffer RetargetedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(RetargetedEnvironmentPixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
@@ -959,7 +959,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::FlushRenderingCommands();
 		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		Durin::FByteArray UnavailableEnvironmentPixels;
+		Durin::FByteBuffer UnavailableEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(UnavailableEnvironmentPixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Failed);
@@ -970,7 +970,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		Durin::FByteArray EmptyScenePixels;
+		Durin::FByteBuffer EmptyScenePixels;
 		ASSERT_EQ(
 			Pool.PollCapture(EmptyScenePixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
@@ -981,7 +981,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
-		Durin::FByteArray FailedEnvironmentPixels;
+		Durin::FByteBuffer FailedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(FailedEnvironmentPixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Failed);
@@ -1029,14 +1029,14 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_TRUE(bCancelledCaptureStarted) << Error;
 		EXPECT_GT(QueuedReferenceCount, CubeReferenceBaseline);
 		EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
-		Durin::FByteArray CancelledPixels;
+		Durin::FByteBuffer CancelledPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(CancelledPixels, Error),
 			Durin::Editor::EThumbnailCaptureState::Idle);
 		EXPECT_TRUE(CancelledPixels.empty());
 		EXPECT_TRUE(Error.empty());
 
-		Durin::FByteArray CubePixels;
+		Durin::FByteBuffer CubePixels;
 		ASSERT_TRUE(Pool.SetTextureCube(CubeResult.Asset, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
