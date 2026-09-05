@@ -6,6 +6,8 @@
 
 #include "TextureSource.gen.h"
 
+#include <mutex>
+
 namespace Durin
 {
 	class DTexture;
@@ -96,13 +98,18 @@ namespace Durin
 		Image::FImageInfo ImageInfo;
 		uint64 PayloadOffset = 0;
 		uint64 PayloadSize = 0;
+
+		auto IsValid() const -> bool
+		{
+			return ImageInfo.IsValid() && PayloadSize > 0;
+		}
 	};
 
 	struct FTextureSourceSnapshot
 	{
 		std::vector<FTextureSourceBlock> Blocks;
 		std::vector<FTextureSourceLayer> Layers;
-		FSharedByteBuffer Payload;
+		FSharedByteBuffer MipData;
 		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
 		ETextureSourceGammaSpace GammaSpace = ETextureSourceGammaSpace::Unknown;
 		ETextureSourceCompression Compression = ETextureSourceCompression::Raw;
@@ -111,13 +118,11 @@ namespace Durin
 		FXxHash128 Identity;
 		uint64 Generation = 0;
 
-		ENGINE_API auto IsValid(std::string* OutError = nullptr) const -> bool;
+		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
-			uint32 MipIndex, FTextureSourceMipInfo& OutInfo,
-			std::string* OutError = nullptr) const -> bool;
+			uint32 MipIndex) const -> FTextureSourceMipInfo;
 		ENGINE_API auto GetMipImage(uint32 BlockIndex, uint32 LayerIndex,
-			uint32 MipIndex, Image::FImageView& OutImage,
-			std::string* OutError = nullptr) const -> bool;
+			uint32 MipIndex) const -> Image::FImageView;
 	};
 
 	// Owns authoritative editor source art independently from family recipes.
@@ -126,9 +131,42 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
+		// Read-only decoded mip-chain handle; the source must outlive mip access.
+		class FMipData
+		{
+		public:
+			FMipData() = default;
+			auto IsValid() const -> bool { return Source && !MipData.IsEmpty(); }
+			auto GetData() const -> FSharedByteBuffer { return MipData; }
+			ENGINE_API auto GetMipData(uint32 BlockIndex, uint32 LayerIndex,
+				uint32 MipIndex) const -> FSharedByteBuffer;
+			ENGINE_API auto GetMipImage(uint32 BlockIndex, uint32 LayerIndex,
+				uint32 MipIndex) const -> Image::FImageView;
+
+		private:
+			friend struct FTextureSource;
+			FMipData(const FTextureSource& InSource, FSharedByteBuffer InMipData)
+				: Source(&InSource), MipData(std::move(InMipData))
+			{
+			}
+
+			const FTextureSource* Source = nullptr;
+			FSharedByteBuffer MipData;
+		};
+
 	private:
+		struct FMipDataState
+		{
+			std::mutex Mutex;
+			FSharedByteBuffer LockedMipData;
+		};
+
 		DPROPERTY()
 		FEditorBulkData Payload;
+
+		// Non-persistent decoded source residency, shared by read-only mip handles.
+		mutable std::shared_ptr<FMipDataState> MipDataState =
+			std::make_shared<FMipDataState>();
 
 		// Legacy v1 mirrors remain reflected so existing DAST v9 packages load.
 		DPROPERTY()
@@ -230,15 +268,15 @@ namespace Durin
 		ENGINE_API auto MigrateLegacy() -> bool;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
-			uint32 MipIndex, FTextureSourceMipInfo& OutInfo,
-			std::string* OutError = nullptr) const -> bool;
+			uint32 MipIndex) const -> FTextureSourceMipInfo;
+		ENGINE_API auto GetMipData() const -> FMipData;
 		auto ReadPayloadAsync() const -> FPackageResourceRequest
 		{
 			return Payload.GetPayload();
 		}
-		ENGINE_API auto CreateSnapshotBlocking(uint64 Generation,
-			FTextureSourceSnapshot& OutSnapshot,
-			std::string* OutError = nullptr) const -> bool;
+		ENGINE_API auto CreateSnapshotBlocking(uint64 Generation) const
+			-> FTextureSourceSnapshot;
+		ENGINE_API auto ReleaseSourceMemory() const -> void;
 		auto GetOwner() -> DTexture* { return Owner; }
 		auto GetOwner() const -> const DTexture* { return Owner; }
 
@@ -255,6 +293,12 @@ namespace Durin
 			std::span<const std::byte> DecodedPayload,
 			uint8 InSourceChannelCount, uint8 InTransparencyMask,
 			ETextureSourceCompression PreferredCompression) -> bool;
+		auto InvalidateMipData() const -> void
+		{
+			const std::shared_ptr<FMipDataState> State = MipDataState;
+			std::lock_guard Lock(State->Mutex);
+			State->LockedMipData = {};
+		}
 		// Non-owning runtime back-reference; reflection and source identity exclude it.
 		DTexture* Owner = nullptr;
 	};

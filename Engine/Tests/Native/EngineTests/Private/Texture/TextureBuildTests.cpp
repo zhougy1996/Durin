@@ -50,26 +50,25 @@ TEST(FTextureSourceTests, ValidatesVolumeMipsIdentityAndSnapshotIsolation)
 		.Format = Durin::ETextureSourceFormat::R8_UNORM, .NumMips = 3};
 	Durin::FTextureSourceSnapshot Snapshot{
 		.Blocks = {Block}, .Layers = {Layer},
-		.Payload = Durin::FSharedByteBuffer::Take(Durin::FByteArray(37, std::byte{3})),
+		.MipData = Durin::FSharedByteBuffer::Take(Durin::FByteArray(37, std::byte{3})),
 		.Kind = Durin::ETextureSourceKind::Volume,
 		.GammaSpace = Durin::ETextureSourceGammaSpace::Linear,
 		.SourceChannelCount = 1, .Identity = {1, 2}, .Generation = 17};
-	std::string Error;
-	ASSERT_TRUE(Snapshot.IsValid(&Error)) << Error;
+	ASSERT_TRUE(Snapshot.IsValid());
 
-	Durin::FTextureSourceMipInfo Mip;
-	ASSERT_TRUE(Snapshot.GetMipInfo(0, 0, 1, Mip, &Error)) << Error;
+	Durin::FTextureSourceMipInfo Mip = Snapshot.GetMipInfo(0, 0, 1);
+	ASSERT_TRUE(Mip.IsValid());
 	EXPECT_EQ(Mip.ImageInfo.Width, 2u);
 	EXPECT_EQ(Mip.ImageInfo.Height, 1u);
 	EXPECT_EQ(Mip.ImageInfo.Depth, 2u);
 	EXPECT_EQ(Mip.PayloadOffset, 32u);
 	EXPECT_EQ(Mip.PayloadSize, 4u);
-	EXPECT_FALSE(Snapshot.GetMipInfo(1, 0, 0, Mip, &Error));
+	EXPECT_FALSE(Snapshot.GetMipInfo(1, 0, 0).IsValid());
 
-	Durin::Image::FImageView View;
-	ASSERT_TRUE(Snapshot.GetMipImage(0, 0, 2, View, &Error)) << Error;
+	const Durin::Image::FImageView View = Snapshot.GetMipImage(0, 0, 2);
+	ASSERT_TRUE(View.IsValid());
 	ASSERT_EQ(View.GetPixels().size(), 1u);
-	Snapshot.Payload = {};
+	Snapshot.MipData = {};
 	EXPECT_EQ(View.GetPixels()[0], std::byte{3});
 	EXPECT_EQ(Snapshot.Generation, 17u);
 }
@@ -92,11 +91,35 @@ TEST(FTextureSourceTests, InitApisKeepCanonicalIdentityAcrossLosslessStorage)
 		Durin::ETextureSourceCompression::RunLength);
 	EXPECT_LT(Compressed.GetBulkData().GetPayloadSize(), Pixels.size());
 	EXPECT_EQ(Raw.GetIdentity(), Compressed.GetIdentity());
-	Durin::FTextureSourceSnapshot Snapshot;
-	std::string Error;
-	ASSERT_TRUE(Compressed.CreateSnapshotBlocking(9, Snapshot, &Error)) << Error;
-	EXPECT_TRUE(std::ranges::equal(Snapshot.Payload.GetBytes(), Pixels));
+	const Durin::FTextureSource::FMipData FirstMips = Compressed.GetMipData();
+	const Durin::FTextureSource::FMipData SharedMips = Compressed.GetMipData();
+	ASSERT_TRUE(FirstMips.IsValid());
+	EXPECT_TRUE(FirstMips.GetData().SharesStorageWith(SharedMips.GetData()));
+	const Durin::FSharedByteBuffer BaseMip = FirstMips.GetMipData(0, 0, 0);
+	EXPECT_EQ(BaseMip.GetSize(), Pixels.size());
+	EXPECT_TRUE(BaseMip.SharesStorageWith(FirstMips.GetData()));
+	Compressed.ReleaseSourceMemory();
+	const Durin::FTextureSource::FMipData ReloadedMips = Compressed.GetMipData();
+	ASSERT_TRUE(ReloadedMips.IsValid());
+	EXPECT_FALSE(FirstMips.GetData().SharesStorageWith(ReloadedMips.GetData()));
+	EXPECT_TRUE(std::ranges::equal(FirstMips.GetData().GetBytes(), Pixels));
+
+	const Durin::FTextureSourceSnapshot Snapshot =
+		Compressed.CreateSnapshotBlocking(9);
+	ASSERT_TRUE(Snapshot.IsValid());
+	EXPECT_TRUE(std::ranges::equal(Snapshot.MipData.GetBytes(), Pixels));
 	EXPECT_EQ(Snapshot.Generation, 9u);
+
+	Durin::Image::FImage UpdatedImage;
+	const Durin::FByteArray UpdatedPixels(4 * 4 * 4, std::byte{0x33});
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate(Image.GetInfo(),
+		UpdatedPixels, UpdatedImage));
+	ASSERT_TRUE(Compressed.Init2D(UpdatedImage.GetView(), 4));
+	const Durin::FTextureSource::FMipData UpdatedMips = Compressed.GetMipData();
+	ASSERT_TRUE(UpdatedMips.IsValid());
+	EXPECT_FALSE(FirstMips.GetData().SharesStorageWith(UpdatedMips.GetData()));
+	EXPECT_TRUE(std::ranges::equal(UpdatedMips.GetData().GetBytes(), UpdatedPixels));
+	EXPECT_TRUE(std::ranges::equal(FirstMips.GetData().GetBytes(), Pixels));
 }
 
 TEST(FTextureSourceTests, Texture2DPreservesSuppliedMipChainForRecipeBuild)
@@ -161,18 +184,18 @@ TEST(FTextureSourceTests, ResolvesBlockLayerMipOrderingAndRejectsOversizedLayout
 		{.Format = Durin::ETextureSourceFormat::RG8_UNORM, .NumMips = 1}};
 	Durin::FTextureSourceSnapshot Snapshot{
 		.Blocks = Blocks, .Layers = Layers,
-		.Payload = Durin::FSharedByteBuffer::Take(Durin::FByteArray(15, std::byte{4})),
+		.MipData = Durin::FSharedByteBuffer::Take(Durin::FByteArray(15, std::byte{4})),
 		.Kind = Durin::ETextureSourceKind::TextureArray,
 		.GammaSpace = Durin::ETextureSourceGammaSpace::Linear,
 		.SourceChannelCount = 2, .Identity = {3, 4}};
-	std::string Error;
-	ASSERT_TRUE(Snapshot.IsValid(&Error)) << Error;
-	Durin::FTextureSourceMipInfo Mip;
-	ASSERT_TRUE(Snapshot.GetMipInfo(1, 0, 1, Mip, &Error)) << Error;
+	ASSERT_TRUE(Snapshot.IsValid());
+	Durin::FTextureSourceMipInfo Mip = Snapshot.GetMipInfo(1, 0, 1);
+	ASSERT_TRUE(Mip.IsValid());
 	EXPECT_EQ(Mip.PayloadOffset, 9u);
 	EXPECT_EQ(Mip.PayloadSize, 2u);
 	EXPECT_EQ(Mip.ImageInfo.SliceCount, 2u);
-	ASSERT_TRUE(Snapshot.GetMipInfo(1, 1, 0, Mip, &Error)) << Error;
+	Mip = Snapshot.GetMipInfo(1, 1, 0);
+	ASSERT_TRUE(Mip.IsValid());
 	EXPECT_EQ(Mip.PayloadOffset, 11u);
 	EXPECT_EQ(Mip.PayloadSize, 4u);
 
@@ -182,8 +205,8 @@ TEST(FTextureSourceTests, ResolvesBlockLayerMipOrderingAndRejectsOversizedLayout
 	Snapshot.Blocks = {Oversized};
 	Snapshot.Layers = {{.Format = Durin::ETextureSourceFormat::RGBA32_FLOAT}};
 	Snapshot.Kind = Durin::ETextureSourceKind::Texture2D;
-	Snapshot.Payload = {};
-	EXPECT_FALSE(Snapshot.IsValid(&Error));
+	Snapshot.MipData = {};
+	EXPECT_FALSE(Snapshot.IsValid());
 }
 
 TEST(FTextureSourceTests, TextureOwnsSourceAndAdvancesAuthoredGeneration)
@@ -203,8 +226,9 @@ TEST(FTextureSourceTests, TextureOwnsSourceAndAdvancesAuthoredGeneration)
 	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
 	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
 	EXPECT_EQ(Texture->GetAuthoredGeneration(), InitialGeneration + 1);
-	Durin::FTextureSourceSnapshot Snapshot;
-	ASSERT_TRUE(Texture->CreateSourceSnapshotBlocking(Snapshot, &Error)) << Error;
+	const Durin::FTextureSourceSnapshot Snapshot =
+		Texture->CreateSourceSnapshotBlocking();
+	ASSERT_TRUE(Snapshot.IsValid());
 	EXPECT_EQ(Snapshot.Generation, Texture->GetAuthoredGeneration());
 	EXPECT_EQ(Snapshot.Identity, Texture->GetSource().GetIdentity());
 	ASSERT_TRUE(Texture->SetBuildSettings(Durin::ETextureUsage::Color, true, 0,

@@ -101,8 +101,10 @@ size/hash metadata during PostLoad;
 unsupported values fail domain validation. Import provenance remains on the
 texture's import-data object rather than participating in source identity.
 The source identity accessor performs no I/O and excludes raw versus lossless
-storage encoding. Build capture obtains one immutable decoded snapshot and
-recipe code never consults the live asset. Import and
+storage encoding. The first `FMipData` request reads and decodes the source into
+the non-persistent, locally locked `LockedMipData` cache; build capture shares
+that immutable allocation in a detached snapshot and recipe code never consults
+the live asset. Import and
 reimport replace the complete payload atomically. The VolumeTexture fields
 define voxel meaning and require a tightly
 packed row-major depth-slice encoding whose exact byte width comes from

@@ -118,10 +118,10 @@ namespace Durin
 		++AuthoredGeneration;
 	}
 
-	auto DTexture::CreateSourceSnapshotBlocking(
-		FTextureSourceSnapshot& OutSnapshot, std::string* OutError) const -> bool
+	auto DTexture::CreateSourceSnapshotBlocking() const
+		-> FTextureSourceSnapshot
 	{
-		return Source.CreateSnapshotBlocking(AuthoredGeneration, OutSnapshot, OutError);
+		return Source.CreateSnapshotBlocking(AuthoredGeneration);
 	}
 
 	auto DTexture::SetAssetImportData(

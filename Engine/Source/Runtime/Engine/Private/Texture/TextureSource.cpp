@@ -6,12 +6,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto SetError(std::string_view Message, std::string* OutError) -> bool
-		{
-			if (OutError) *OutError = Message;
-			return false;
-		}
-
 		auto BytesPerTexel(ETextureSourceFormat Format) -> uint32
 		{
 			switch (Format)
@@ -128,25 +122,24 @@ namespace Durin
 			std::span<const FTextureSourceBlock> Blocks,
 			std::span<const FTextureSourceLayer> Layers,
 			uint32 WantedBlock, uint32 WantedLayer, uint32 WantedMip,
-			FTextureSourceMipInfo& OutInfo, uint64* OutTotal,
-			std::string* OutError) -> bool
+			FTextureSourceMipInfo& OutInfo, uint64* OutTotal) -> bool
 		{
 			OutInfo = {};
 			if (!IsKindValid(Kind) || GammaSpace > ETextureSourceGammaSpace::SRGB
 				|| Blocks.empty() || Layers.empty())
-				return SetError("Texture source descriptors are empty or invalid.", OutError);
+				return false;
 			uint64 Offset = 0;
 			for (uint32 BlockIndex = 0; BlockIndex < Blocks.size(); ++BlockIndex)
 			{
 				const FTextureSourceBlock& Block = Blocks[BlockIndex];
 				if (Block.Width == 0 || Block.Height == 0 || Block.Depth == 0
 					|| Block.NumSlices == 0)
-					return SetError("Texture source block dimensions and slice count must be nonzero.", OutError);
+					return false;
 				for (uint32 LayerIndex = 0; LayerIndex < Layers.size(); ++LayerIndex)
 				{
 					const FTextureSourceLayer& Layer = Layers[LayerIndex];
 					if (BytesPerTexel(Layer.Format) == 0 || Layer.NumMips == 0)
-						return SetError("Texture source layer format or mip count is invalid.", OutError);
+						return false;
 					for (uint32 MipIndex = 0; MipIndex < Layer.NumMips; ++MipIndex)
 					{
 						const uint32 Width = std::max(1u, Block.Width >> std::min(MipIndex, 31u));
@@ -160,7 +153,7 @@ namespace Durin
 						uint64 Size = 0;
 						if (!ImageInfo.GetByteSize(Size) || Offset > MaximumTextureSourceBytes
 							|| Size > MaximumTextureSourceBytes - Offset)
-							return SetError("Texture source layout exceeds the bounded payload size.", OutError);
+							return false;
 						if (BlockIndex == WantedBlock && LayerIndex == WantedLayer
 							&& MipIndex == WantedMip)
 							OutInfo = {.ImageInfo = ImageInfo, .PayloadOffset = Offset,
@@ -172,8 +165,7 @@ namespace Durin
 			if (OutTotal) *OutTotal = Offset;
 			if (WantedBlock >= Blocks.size() || WantedLayer >= Layers.size()
 				|| WantedMip >= Layers[WantedLayer].NumMips)
-				return SetError("Texture source subresource index is out of range.", OutError);
-			if (OutError) OutError->clear();
+				return false;
 			return true;
 		}
 	}
@@ -198,7 +190,7 @@ namespace Durin
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
 		if (!ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, 0, 0, 0,
-			Ignored, &Total, nullptr)) return false;
+			Ignored, &Total)) return false;
 		if (SourceChannelCount > 4) return false;
 		if (SchemaVersion == DescriptorTextureSourceSchemaVersion)
 			return Total == Payload.GetPayloadSize();
@@ -272,6 +264,7 @@ namespace Durin
 		}
 		if (!NewSource.IsValid()) return false;
 		DTexture* PreviousOwner = Owner;
+		InvalidateMipData();
 		*this = std::move(NewSource);
 		Owner = PreviousOwner;
 		return true;
@@ -350,6 +343,7 @@ namespace Durin
 	auto FTextureSource::Reset() -> void
 	{
 		DTexture* PreviousOwner = Owner;
+		InvalidateMipData();
 		*this = {};
 		Owner = PreviousOwner;
 	}
@@ -376,6 +370,7 @@ namespace Durin
 		Migrated.Compression = ETextureSourceCompression::Raw;
 		Migrated.SchemaVersion = TextureSourceSchemaVersion;
 		if (!Migrated.IsValid()) return false;
+		InvalidateMipData();
 		*this = std::move(Migrated);
 		return true;
 	}
@@ -416,79 +411,108 @@ namespace Durin
 	}
 
 	auto FTextureSource::GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
-		uint32 MipIndex, FTextureSourceMipInfo& OutInfo,
-		std::string* OutError) const -> bool
+		uint32 MipIndex) const -> FTextureSourceMipInfo
 	{
-		if (SchemaVersion != TextureSourceSchemaVersion)
-			return SetError("Legacy texture source must be migrated before subresource access.", OutError);
-		return ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, BlockIndex,
-			LayerIndex, MipIndex, OutInfo, nullptr, OutError);
+		FTextureSourceMipInfo Result;
+		if (SchemaVersion != TextureSourceSchemaVersion
+			|| !ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, BlockIndex,
+				LayerIndex, MipIndex, Result, nullptr)) return {};
+		return Result;
 	}
 
-	auto FTextureSource::CreateSnapshotBlocking(uint64 Generation,
-		FTextureSourceSnapshot& OutSnapshot, std::string* OutError) const -> bool
+	auto FTextureSource::GetMipData() const -> FMipData
 	{
-		OutSnapshot = {};
-		if (!IsValid()) return SetError("Texture source is invalid.", OutError);
-		const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
-		if (!Read)
-			return SetError(Read.Message.empty() ? "Texture source payload read failed."
-				: Read.Message, OutError);
-		FSharedByteBuffer Decoded = Read.Buffer;
-		if (SchemaVersion == TextureSourceSchemaVersion
-			&& Compression == ETextureSourceCompression::RunLength)
+		if (!IsValid()) return {};
+		const std::shared_ptr<FMipDataState> State = MipDataState;
+		std::lock_guard Lock(State->Mutex);
+		if (State->LockedMipData.IsEmpty())
 		{
-			FByteArray Bytes;
-			if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
-				return SetError("Texture source compressed payload is corrupt.", OutError);
-			Decoded = FSharedByteBuffer::Take(std::move(Bytes));
+			const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
+			if (!Read) return {};
+			FSharedByteBuffer Decoded = Read.Buffer;
+			if (SchemaVersion == TextureSourceSchemaVersion
+				&& Compression == ETextureSourceCompression::RunLength)
+			{
+				FByteArray Bytes;
+				if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
+					return {};
+				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
+			}
+			if (SchemaVersion == TextureSourceSchemaVersion
+				&& FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{
+					.HashLow = CanonicalPayloadHashLow,
+					.HashHigh = CanonicalPayloadHashHigh}) return {};
+			State->LockedMipData = std::move(Decoded);
 		}
-		if (SchemaVersion == TextureSourceSchemaVersion
-			&& FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{
-				.HashLow = CanonicalPayloadHashLow, .HashHigh = CanonicalPayloadHashHigh})
-			return SetError("Texture source decoded payload identity does not match.", OutError);
-		FTextureSourceSnapshot NewSnapshot{.Blocks = Blocks, .Layers = Layers,
-			.Payload = Decoded, .Kind = Kind, .GammaSpace = GammaSpace,
+		return FMipData(*this, State->LockedMipData);
+	}
+
+	auto FTextureSource::FMipData::GetMipData(uint32 BlockIndex,
+		uint32 LayerIndex, uint32 MipIndex) const -> FSharedByteBuffer
+	{
+		if (!IsValid()) return {};
+		const FTextureSourceMipInfo Info =
+			Source->GetMipInfo(BlockIndex, LayerIndex, MipIndex);
+		return Info.IsValid()
+			? MipData.MakeView(Info.PayloadOffset, Info.PayloadSize)
+			: FSharedByteBuffer{};
+	}
+
+	auto FTextureSource::FMipData::GetMipImage(uint32 BlockIndex,
+		uint32 LayerIndex, uint32 MipIndex) const -> Image::FImageView
+	{
+		if (!IsValid()) return {};
+		const FTextureSourceMipInfo Info =
+			Source->GetMipInfo(BlockIndex, LayerIndex, MipIndex);
+		return Info.IsValid()
+			? Image::FImageView(Info.ImageInfo, MipData, Info.PayloadOffset)
+			: Image::FImageView{};
+	}
+
+	auto FTextureSource::CreateSnapshotBlocking(uint64 Generation) const
+		-> FTextureSourceSnapshot
+	{
+		const FMipData Mips = GetMipData();
+		if (!Mips.IsValid()) return {};
+		FTextureSourceSnapshot Result{.Blocks = Blocks, .Layers = Layers,
+			.MipData = Mips.GetData(), .Kind = Kind, .GammaSpace = GammaSpace,
 			.Compression = ETextureSourceCompression::Raw,
 			.SourceChannelCount = SourceChannelCount,
 			.TransparencyMask = TransparencyMask, .Identity = GetIdentity(),
 			.Generation = Generation};
-		if (!NewSnapshot.IsValid(OutError)) return false;
-		OutSnapshot = std::move(NewSnapshot);
-		return true;
+		return Result.IsValid() ? std::move(Result) : FTextureSourceSnapshot{};
 	}
 
-	auto FTextureSourceSnapshot::IsValid(std::string* OutError) const -> bool
+	auto FTextureSource::ReleaseSourceMemory() const -> void
+	{
+		InvalidateMipData();
+	}
+
+	auto FTextureSourceSnapshot::IsValid() const -> bool
 	{
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
-		if (Compression != ETextureSourceCompression::Raw)
-			return SetError("Texture source snapshots must expose decoded payload bytes.", OutError);
-		if (Identity.IsZero() || !ResolveMipInfo(Kind, GammaSpace, Blocks, Layers,
-			0, 0, 0, Ignored, &Total, OutError)) return false;
-		if (Total != Payload.GetSize())
-			return SetError("Texture source snapshot payload size is invalid.", OutError);
-		if (OutError) OutError->clear();
-		return true;
+		return Compression == ETextureSourceCompression::Raw
+			&& !Identity.IsZero()
+			&& ResolveMipInfo(Kind, GammaSpace, Blocks, Layers,
+				0, 0, 0, Ignored, &Total)
+			&& Total == MipData.GetSize();
 	}
 
-	auto FTextureSourceSnapshot::GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
-		uint32 MipIndex, FTextureSourceMipInfo& OutInfo,
-		std::string* OutError) const -> bool
+	auto FTextureSourceSnapshot::GetMipInfo(uint32 BlockIndex,
+		uint32 LayerIndex, uint32 MipIndex) const -> FTextureSourceMipInfo
 	{
+		FTextureSourceMipInfo Result;
 		return ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, BlockIndex,
-			LayerIndex, MipIndex, OutInfo, nullptr, OutError);
+			LayerIndex, MipIndex, Result, nullptr) ? Result : FTextureSourceMipInfo{};
 	}
 
-	auto FTextureSourceSnapshot::GetMipImage(uint32 BlockIndex, uint32 LayerIndex,
-		uint32 MipIndex, Image::FImageView& OutImage, std::string* OutError) const -> bool
+	auto FTextureSourceSnapshot::GetMipImage(uint32 BlockIndex,
+		uint32 LayerIndex, uint32 MipIndex) const -> Image::FImageView
 	{
-		OutImage = {};
-		FTextureSourceMipInfo Info;
-		if (!GetMipInfo(BlockIndex, LayerIndex, MipIndex, Info, OutError)) return false;
-		OutImage = Image::FImageView(Info.ImageInfo, Payload, Info.PayloadOffset);
-		if (!OutImage.IsValid()) return SetError("Texture source mip view is invalid.", OutError);
-		if (OutError) OutError->clear();
-		return true;
+		const FTextureSourceMipInfo Info = GetMipInfo(BlockIndex, LayerIndex, MipIndex);
+		return Info.IsValid()
+			? Image::FImageView(Info.ImageInfo, MipData, Info.PayloadOffset)
+			: Image::FImageView{};
 	}
 } // namespace Durin

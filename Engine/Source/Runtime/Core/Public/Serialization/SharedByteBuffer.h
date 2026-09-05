@@ -24,7 +24,8 @@ namespace Durin
 
 		auto GetBytes() const -> std::span<const std::byte>
 		{
-			return Storage ? std::span<const std::byte>(*Storage) : std::span<const std::byte>();
+			return Storage ? std::span<const std::byte>(*Storage).subspan(Offset, Size)
+				: std::span<const std::byte>();
 		}
 		auto GetSize() const -> uint64 { return static_cast<uint64>(GetBytes().size()); }
 		auto size() const -> size_t { return GetBytes().size(); }
@@ -38,13 +39,26 @@ namespace Durin
 		{
 			return Storage == Other.Storage;
 		}
+		auto MakeView(uint64 InOffset, uint64 InSize) const -> FSharedByteBuffer
+		{
+			if (!Storage || InOffset > Size || InSize > Size - InOffset) return {};
+			return FSharedByteBuffer(Storage, Offset + static_cast<size_t>(InOffset),
+				static_cast<size_t>(InSize));
+		}
 
 	private:
 		explicit FSharedByteBuffer(std::shared_ptr<const FByteArray> InStorage)
-			: Storage(std::move(InStorage))
+			: Size(InStorage ? InStorage->size() : 0), Storage(std::move(InStorage))
+		{
+		}
+		FSharedByteBuffer(std::shared_ptr<const FByteArray> InStorage,
+			size_t InOffset, size_t InSize)
+			: Offset(InOffset), Size(InSize), Storage(std::move(InStorage))
 		{
 		}
 
+		size_t Offset = 0;
+		size_t Size = 0;
 		std::shared_ptr<const FByteArray> Storage;
 	};
 }

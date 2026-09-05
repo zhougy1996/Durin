@@ -21,6 +21,12 @@ cooked-runtime, render-resource, editor, and material boundaries.
 - `Usage` and `bSRGB` remain runtime-authored metadata. `MaxResolution`,
   `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` are
   editor-only build settings.
+- `FTextureSource` retains a non-persistent, locally locked `LockedMipData`
+  cache after the first payload read/decompression. Its `FMipData` handle
+  exposes the complete decoded chain and checked shared-buffer views for
+  individual mips. `ReleaseSourceMemory` explicitly evicts the cache; existing
+  handles remain valid through immutable shared ownership. Source replacement
+  installs fresh cache state rather than comparing a separate cache identity.
 - Builds, previews, and thumbnails capture an owned `FTextureSourceSnapshot`.
   Family values such as `FTexture2DImportedData` and `FTextureSourceData` are
   transient recipe adapters and are never reflected on a texture leaf. Snapshot
@@ -355,15 +361,19 @@ Directory placement. Explicit initialization may select bounded byte-run
 lossless compression when it produces a smaller value. Metadata records decoded
 size and the canonical decoded XXH3-128 hash, so raw and compressed storage have
 the same content identity. Snapshot creation verifies decompression and the
-canonical hash before publishing an immutable decoded buffer.
+canonical hash before publishing an immutable decoded buffer. Successful reads
+retain that buffer as non-persistent `LockedMipData`; subsequent `FMipData`
+handles and snapshots share it without another package read or decompression.
 
 The qualification fixtures freeze behavioral rather than machine-time budgets:
-metadata access performs zero payload reads; an uncompressed first snapshot
-performs at most one package read; snapshot copies share their backing allocation
-and add zero payload bytes; stored plus decoded source bytes are each capped at
-512 MiB. Texture2D recipe peak intermediates remain reported by the compiling
-manager and bounded by its 1 GiB admission estimate. These invariants remain
-portable across developer machines where a millisecond threshold would not.
+metadata access performs zero payload reads; the first mip-data request performs
+at most one package read; later handles and snapshot copies share their backing
+allocation and add zero payload bytes. Explicit source-memory release evicts the
+cache without invalidating existing handles, and the next request performs one
+reload. Stored plus decoded source bytes are each capped at 512 MiB. Texture2D
+recipe peak intermediates remain reported by the compiling manager and bounded
+by its 1 GiB admission estimate. These invariants remain portable across
+developer machines where a millisecond threshold would not.
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 

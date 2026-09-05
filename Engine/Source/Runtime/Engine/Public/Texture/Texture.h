@@ -56,9 +56,8 @@ namespace Durin
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetAuthoredGeneration() const -> uint64 { return AuthoredGeneration; }
 		auto GetSource() const -> const FTextureSource& { return Source; }
-		ENGINE_API auto CreateSourceSnapshotBlocking(
-			FTextureSourceSnapshot& OutSnapshot,
-			std::string* OutError = nullptr) const -> bool;
+		ENGINE_API auto CreateSourceSnapshotBlocking() const
+			-> FTextureSourceSnapshot;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();

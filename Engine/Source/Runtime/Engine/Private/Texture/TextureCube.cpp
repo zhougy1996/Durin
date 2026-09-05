@@ -28,9 +28,9 @@ namespace Durin
 			FTextureCubeImportedData Result;
 			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
 				return Result;
-			FTextureSourceSnapshot Snapshot;
-			if (!Source.CreateSnapshotBlocking(0, Snapshot)
-				|| !Result.Pixels.UpdatePayload(Snapshot.Payload)) return {};
+			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking(0);
+			if (!Snapshot.IsValid()
+				|| !Result.Pixels.UpdatePayload(Snapshot.MipData)) return {};
 			Result.FaceDimension = Source.GetWidth();
 			Result.SourceChannelCount = Source.GetSourceChannelCount();
 			Result.TransparencyMask = Source.GetTransparencyMask();
@@ -55,10 +55,14 @@ namespace Durin
 				return true;
 			}
 			if (Source.GetKind() != ETextureSourceKind::LongLatCube) return false;
-			FTextureSourceSnapshot Snapshot;
-			Image::FImageView View;
-			if (!Texture.CreateSourceSnapshotBlocking(Snapshot, &OutError)
-				|| !Snapshot.GetMipImage(0, 0, 0, View, &OutError)) return false;
+			const FTextureSourceSnapshot Snapshot =
+				Texture.CreateSourceSnapshotBlocking();
+			const Image::FImageView View = Snapshot.GetMipImage(0, 0, 0);
+			if (!View.IsValid())
+			{
+				OutError = "TextureCube panorama source payload could not be loaded.";
+				return false;
+			}
 			const auto& Info = View.GetInfo();
 			FTextureCubePanoramaBuildInput Panorama;
 			Panorama.Settings = {.FaceDimension = Texture.GetPanoramaFaceDimension(),
