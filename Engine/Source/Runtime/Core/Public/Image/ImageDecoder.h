@@ -2,6 +2,7 @@
 
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
+#include "Image/Image.h"
 
 namespace Durin::Image
 {
@@ -15,40 +16,12 @@ namespace Durin::Image
 		uint64 MaximumDecodedPixels = 256ull * 1024ull * 1024ull;
 	};
 
-	// Stores decoded RGBA8 pixels and source-image metadata.
-	struct FDecodedImage
-	{
-		FByteArray Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
-
-		// Channel count reported by the source before conversion to RGBA8.
-		uint8 SourceChannelCount = 0;
-		bool bHasTransparency = false;
-	};
-
-	// Stores exact top-left-origin grayscale samples from a non-interlaced 16-bit PNG.
-	struct FDecodedGrayscale16Image
-	{
-		std::vector<uint16> Samples;
-		uint32 Width = 0;
-		uint32 Height = 0;
-	};
-
 	// Bounds Radiance HDR input and its decoded linear RGB working set.
 	struct FRadianceHDRDecodeLimits
 	{
 		uint64 MaximumEncodedBytes = 512ull * 1024ull * 1024ull;
 		uint64 MaximumDecodedPixels = 32ull * 1024ull * 1024ull;
 		uint32 MaximumDimension = 16384;
-	};
-
-	// Stores top-left-origin, linear RGB float pixels decoded from Radiance HDR.
-	struct FDecodedFloatImage
-	{
-		std::vector<float> Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
 	};
 
 	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;

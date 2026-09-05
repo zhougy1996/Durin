@@ -9,11 +9,77 @@ Completed:
 
 ## Current Status
 
-Planning only; no implementation stages have started. `DTexture` already owns
-one EditorOnly `FTextureSource`. Its current representation stores a single
-uncompressed mip, restricts 2D and Cube to RGBA8, and adapts back to three
-family-specific source inputs for builds. Core already provides LDR,
-Radiance HDR, grayscale16 PNG decoding, and RGBA8 PNG encoding.
+Stages 0 through 2 are complete. Core now owns the shared image value,
+conversion, analysis, and codec-facing decoded values. Engine owns the generic
+private `FTextureSource` descriptor/payload boundary with a `DTexture` owner,
+checked subresource reads, content identity, detached snapshots, and authored
+generation. Legacy v1 source fields migrate to the descriptor schema in
+PostLoad. Family build/import consumers still use their typed adapters; their
+snapshot migration and HDR panorama preservation begin in Stage 3.
+
+## Frozen Source Contract
+
+Source texels use top-left origin and little-endian scalar encoding. Payload
+order is block, layer, mip, slice, row, texel, channel. Blocks and layers retain
+declaration order. Mips are largest to smallest. A 2D or array slice has depth
+one; volume mip depth is `max(1, base depth >> mip)`, while array slice and cube
+face counts never shrink. Cube slices use `+X, -X, +Y, -Y, +Z, -Z`. A long/lat
+cube block has one 2D slice and is distinguished by its interpretation; it does
+not pretend to contain six faces. Layer is an independent channel plane and is
+never an array slice.
+
+Every dimension, count, index, multiplication, addition, and narrowing is
+checked before allocation or subspan creation. Empty descriptor collections,
+zero dimensions/counts, overlapping or non-canonical ranges, incomplete mip
+chains, trailing bytes, and payloads above 512 MiB are invalid. Metadata
+validation performs no payload read. A read returns an owned immutable buffer
+view whose backing allocation outlives the view.
+
+The initial source formats are `G8`, `G16`, `RG8`, `RGBA8`, `RGBA16`, `R16F`,
+`RGBA16F`, `R32F`, and `RGBA32F`. `G16` and `RGBA16` are unsigned normalized;
+float formats require finite values at provider admission where the recipe
+depends on that property. BGRA8 is converted explicitly to RGBA8 on import.
+Radiance RGBE is decoded to `RGBA32F` with alpha one; packed RGBE is not a
+native source format. This leaves UE parity gaps for deprecated formats,
+single-channel signed/integer formats, half-float RGB, and BGRA storage; none is
+silently reinterpreted.
+
+Gamma is source interpretation metadata, not a pixel format. It is one of
+Linear, sRGB, or Unknown; importers must select it explicitly from codec facts
+and family policy. Source content identity is XXH3-128 over a versioned
+canonical encoding of interpretation, ordered descriptors, and canonical
+decoded bytes. It excludes package paths, import hints, and bulk instance GUIDs.
+Build identity additionally includes resolved build settings, target/profile,
+provider recipe versions, and payload schema versions.
+
+`DTexture` owns the authoritative monotonically increasing source generation.
+An edit supplies one complete value that is validated before `DTexture`
+atomically replaces Source and advances its generation on the GameThread. A failed edit preserves source,
+identity, generation, platform data, and render state. Build capture snapshots
+source, gamma, settings, and generation together; workers never read the live
+asset, and completion publishes only when the captured generation and settings
+generation still match.
+
+### Consumer And Migration Inventory
+
+- Core decoders and encoder currently own three decoded structs; previews,
+  branding, thumbnails, Texture2D/Volume import, Scene import, and cube import
+  consume them. Stage 1 moves those values to `Image.h` and keeps codec APIs as
+  operations over the shared representation.
+- Texture2D build/compile, cube normalize/build, volume build, editor previews,
+  thumbnails, payload inspection, PostLoad, Cook, and reimport rollback all read
+  or reconstruct family-specific source values. Stage 3 switches them to one
+  detached generic snapshot; typed values remain only at recipe boundaries.
+- Texture2D compilation already applies revisioned completion. Cube and volume
+  builds are synchronous. All result application remains last-known-good and
+  generation checked when asynchronous work is used.
+- DAST v9 reflected field signatures are strict. Therefore the existing
+  `DTexture::Source` v1 fields remain readable as a legacy struct and migrate in
+  `PostLoad` to the new descriptor form; new saves emit only the new schema.
+  Existing RGBA8 2D, projected RGBA8 cube, and five volume formats migrate
+  losslessly. A legacy projected cube remains a six-face source. Recovering its
+  pre-projection HDR panorama, or precision already discarded by an old import,
+  requires explicit reimport and an available source hint.
 
 ## Goal
 
@@ -45,7 +111,7 @@ Durin's immutable EditorBulkData and package ownership boundaries.
   admission independently rejects unsupported topology or formats with an
   explicit diagnostic, never silently discarding layers, blocks, or mips.
 - Reuse immutable `FEditorBulkData` and package-resource requests. Read views
-  retain buffer ownership. Editing uses a private candidate and atomic commit;
+  retain buffer ownership. Editing uses complete-value validation and atomic replacement;
   failed edits preserve the previous source, identity, and accepted build state.
   Do not introduce mutable editor bulk locks merely to copy UE API names.
 - Source identity covers canonical content and its interpretation/layout.
@@ -74,17 +140,17 @@ must name any supported source formats the current build recipes still reject.
 
 ### Stage 0: Freeze layout, format, and migration contracts
 
-- [ ] Audit current source consumers, family identities, asynchronous completion,
+- [x] Audit current source consumers, family identities, asynchronous completion,
   reflection/schema loading, source preview, and import rollback paths.
-- [ ] Freeze block/layer/mip/slice byte ordering, top-left origin, cube face
+- [x] Freeze block/layer/mip/slice byte ordering, top-left origin, cube face
   order, volume interpretation, index bounds, and checked size/offset arithmetic.
-- [ ] Freeze the initial format table: retain current R8/RG8/RGBA8/R16F/RGBA16F;
+- [x] Freeze the initial format table: retain current R8/RG8/RGBA8/R16F/RGBA16F;
   add G16, RGBA16 UNORM, R32F, and RGBA32F equivalents. Decide whether BGRA8 and
   packed RGBE need native storage or explicit import conversion; document any
   remaining UE format gap without copying deprecated enum values.
-- [ ] Specify source content identity versus build identity, gamma ownership,
+- [x] Specify source content identity versus build identity, gamma ownership,
   edit failure behavior, and authoritative source generation.
-- [ ] Resolve old schema admission and migration through the existing package
+- [x] Resolve old schema admission and migration through the existing package
   compatibility mechanism; identify assets requiring external-source reimport.
 
 Completion: one unambiguous layout/format/migration contract and a consumer
@@ -94,14 +160,14 @@ inventory with no unresolved choices blocking Stage 1.
 
 Depends on Stage 0.
 
-- [ ] Add `Image.h` types with checked byte sizes, format information, gamma,
+- [x] Add `Image.h` types with checked byte sizes, format information, gamma,
   slice count, buffer ownership, and safe view lifetimes.
-- [ ] Supply required integer/float conversions, gamma-aware conversion, and
+- [x] Supply required integer/float conversions, gamma-aware conversion, and
   channel analysis without coupling to texture build settings.
-- [ ] Move shared decoded image representation out of `ImageDecoder.h`; migrate
+- [x] Move shared decoded image representation out of `ImageDecoder.h`; migrate
   decoder/encoder, preview, importer, and recipe callers while preserving exact
   grayscale16 samples and HDR values.
-- [ ] Validate malformed sizes, overflow, format conversion, gamma behavior,
+- [x] Validate malformed sizes, overflow, format conversion, gamma behavior,
   view ownership, grayscale16 fidelity, and existing codec round trips.
 
 Completion: current codec consumers compile against the common image values;
@@ -111,16 +177,16 @@ existing decoding behavior and error contracts remain covered.
 
 Depends on Stage 1.
 
-- [ ] Extract source declarations from `Texture.h`; implement block/layer/mip
+- [x] Extract source declarations from `Texture.h`; implement block/layer/mip
   descriptors, 32-bit slice counts, long/lat interpretation, and bounded payloads.
-- [ ] Add atomic initialization, reset, metadata validation, mip image info,
+- [x] Add atomic initialization, reset, metadata validation, mip image info,
   checked offsets/sizes, owned read views, and explicit asynchronous/ blocking
   read APIs that preserve package failure diagnostics.
-- [ ] Implement generic identity and detached immutable snapshots; remove
+- [x] Implement generic identity and detached immutable snapshots; remove
   public mutation paths that can leave descriptors inconsistent with payloads.
-- [ ] Implement candidate-based editing and source generation integration with
+- [x] Implement complete-value editing and source generation integration with
   `DTexture`; invalid kind, invalid indices, and arithmetic overflow fail safely.
-- [ ] Verify multi-block/layer/mip layouts, volume depth reduction, fixed array
+- [x] Verify multi-block/layer/mip layouts, volume depth reduction, fixed array
   slice counts, metadata-only identity, snapshot isolation, and failed edits.
 
 Completion: source storage and access work independently of family recipes;

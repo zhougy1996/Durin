@@ -7,82 +7,12 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "RHIResources.h"
+#include "Texture/TextureSource.h"
 
 #include "Texture.gen.h"
 
 namespace Durin
 {
-	inline constexpr uint32 TextureSourceSchemaVersion = 1;
-	inline constexpr uint64 MaximumTextureSourceBytes = 512ull * 1024ull * 1024ull;
-
-	// Identifies the dimensional interpretation of persistent texture source art.
-	DENUM()
-	enum class ETextureSourceKind : uint8
-	{
-		Texture2D,
-		TextureCube,
-		Volume
-	};
-
-	// Identifies the stored texel representation of persistent texture source art.
-	DENUM()
-	enum class ETextureSourceFormat : uint8
-	{
-		Invalid,
-		RGBA8,
-		R8_UNORM,
-		RG8_UNORM,
-		R16_FLOAT,
-		RGBA16_FLOAT
-	};
-
-	// Owns editor source art independently from family-specific build inputs.
-	DSTRUCT()
-	struct FTextureSource
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FEditorBulkData Payload;
-
-		DPROPERTY()
-		uint32 Width = 0;
-
-		DPROPERTY()
-		uint32 Height = 0;
-
-		DPROPERTY()
-		uint32 Depth = 1;
-
-		DPROPERTY()
-		uint8 NumSlices = 1;
-
-		DPROPERTY()
-		uint8 SourceChannelCount = 0;
-
-		DPROPERTY()
-		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
-
-		DPROPERTY()
-		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
-
-		DPROPERTY()
-		bool bHasTransparency = false;
-
-		DPROPERTY()
-		uint8 TransparencyMask = 0;
-
-		DPROPERTY()
-		uint32 SchemaVersion = TextureSourceSchemaVersion;
-
-		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto SetPayload(std::span<const std::byte> Bytes) -> bool;
-		auto GetPayload() const -> FSharedByteBuffer
-		{
-			return Payload.GetPayload().Wait().Buffer;
-		}
-	};
-
 	class FTextureAssetResource;
 	class FTextureReference;
 	class FTextureResourceCompletion;
@@ -124,7 +54,11 @@ namespace Durin
 		ENGINE_API auto GetRenderFailure() const -> ETextureRenderFailure;
 		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
+		auto GetAuthoredGeneration() const -> uint64 { return AuthoredGeneration; }
 		auto GetSource() const -> const FTextureSource& { return Source; }
+		ENGINE_API auto CreateSourceSnapshotBlocking(
+			FTextureSourceSnapshot& OutSnapshot,
+			std::string* OutError = nullptr) const -> bool;
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
@@ -153,6 +87,9 @@ namespace Durin
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
+		ENGINE_API auto ResetSource() -> void;
+		ENGINE_API auto AdvanceAuthoredGeneration() -> void;
+		ENGINE_API auto BindTextureSourceOwner() -> void;
 		// Restricted to family serializers and blocking loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
 		{
@@ -176,6 +113,7 @@ namespace Durin
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;
 		uint64 BuildRevision = 0;
+		uint64 AuthoredGeneration = 0;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

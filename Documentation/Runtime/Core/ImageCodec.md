@@ -4,15 +4,19 @@ Summary: Defines the asset-independent encoded-image codec boundary owned by Cor
 
 Modules: Core
 
-`Image/ImageDecoder.h` is the only public bytes-to-pixels boundary for built-in
-LDR images, Radiance HDR, and exact grayscale16 PNG input. Its declarations and
-owned decoded values live in `Durin::Image`. Core does not attach asset,
+`Image/Image.h` owns the shared raw-image vocabulary: checked image descriptions,
+format and gamma metadata, owning images, immutable lifetime-safe views,
+conversion, and channel analysis. `Image/ImageDecoder.h` is the public
+bytes-to-pixels boundary for built-in LDR images, Radiance HDR, and exact
+grayscale16 PNG input. Its compatibility decoded result shapes also live in
+`Image/Image.h` and convert to the shared image value. Core does not attach asset,
 package, source-provenance, import, DDC, Cook, or publication policy to those
 values, and stb headers remain private to one Core implementation translation
 unit.
 
 `Image/ImageEncoder.h` owns the inverse asset-independent boundary for tightly
-packed, top-left-origin RGBA8 pixels. `EncodeRgba8Png` produces a compressed
+packed, top-left-origin RGBA8 pixels or an equivalent checked image view.
+`EncodeRgba8Png` produces a compressed
 RGBA PNG and clears its output on invalid dimensions or byte counts. PNG chunk,
 checksum, filtering, and DEFLATE details remain private to Core.
 
@@ -29,6 +33,12 @@ RGB float data and accepts only `-Y height +X width`. Grayscale16 PNG output is
 top-left-origin row-major unsigned samples and requires color type 0, 16-bit
 samples, standard compression/filtering, and non-interlaced rows. Every failure
 clears the output value before returning a diagnostic.
+
+Raw image formats cover G8, G16, RG8, RGBA8, RGBA16, R16F, RGBA16F, R32F,
+and RGBA32F. Byte-size computation rejects zero or overflowing extents and
+values above 512 MiB. Conversion performs explicit normalized/float channel
+mapping and sRGB/linear transfer; a view retains its shared backing buffer so a
+subresource remains valid after its source container is reset.
 
 Default decode admission limits are 512 MiB encoded input, 256 million decoded LDR or
 grayscale pixels, and 32 million Radiance pixels with a 16,384 dimension bound.

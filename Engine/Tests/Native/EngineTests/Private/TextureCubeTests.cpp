@@ -214,10 +214,10 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	auto* SourceOnly = Durin::NewObject<Durin::DTextureCube>(nullptr, "SourceOnlyCube");
 	const auto& Source = Result.Asset->GetSource();
 	Durin::FTextureCubeImportedData ImportedData;
-	ImportedData.Pixels = Source.Payload;
-	ImportedData.FaceDimension = Source.Width;
-	ImportedData.SourceChannelCount = Source.SourceChannelCount;
-	ImportedData.TransparencyMask = Source.TransparencyMask;
+	ImportedData.Pixels = Source.GetBulkData();
+	ImportedData.FaceDimension = Source.GetWidth();
+	ImportedData.SourceChannelCount = Source.GetSourceChannelCount();
+	ImportedData.TransparencyMask = Source.GetTransparencyMask();
 	std::string SourceError;
 	ASSERT_TRUE(SourceOnly->SetSourceData(ImportedData, SourceError)) << SourceError;
 	ASSERT_TRUE(SourceOnly->GetSource().IsValid());
@@ -353,7 +353,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	const Durin::FXxHash128 InitialSourceId =
-		Texture->GetSource().Payload.GetPayloadId();
+		Texture->GetSource().GetBulkData().GetPayloadId();
 	const uint64 InitialRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Transparent =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceTransparent.tga";
@@ -366,7 +366,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 			Reimported = std::move(ResultValue);
 		});
 	ASSERT_TRUE(Reimported) << Reimported.Message;
-	EXPECT_NE(Texture->GetSource().Payload.GetPayloadId(), InitialSourceId);
+	EXPECT_NE(Texture->GetSource().GetBulkData().GetPayloadId(), InitialSourceId);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ExpectCubeSourcePath(*Texture,
@@ -375,7 +375,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Transparent));
 
 	const Durin::FXxHash128 ValidSourceId =
-		Texture->GetSource().Payload.GetPayloadId();
+		Texture->GetSource().GetBulkData().GetPayloadId();
 	const uint64 ValidRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Corrupt =
 		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceCorrupt.png";
@@ -390,7 +390,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 			Reimported = std::move(ResultValue);
 		});
 	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
-	EXPECT_EQ(Texture->GetSource().Payload.GetPayloadId(), ValidSourceId);
+	EXPECT_EQ(Texture->GetSource().GetBulkData().GetPayloadId(), ValidSourceId);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);

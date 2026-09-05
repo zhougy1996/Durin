@@ -59,6 +59,52 @@ namespace Durin::Image
 		EXPECT_FALSE(IsRadianceHDRExtension(".png"));
 	}
 
+	TEST(FImageTests, ValidatesSizesAndKeepsViewStorageAlive)
+	{
+		FImageInfo Info{.Width = 2, .Height = 1,
+			.Format = ERawImageFormat::RGBA8,
+			.GammaSpace = EImageGammaSpace::SRGB};
+		uint64 ByteSize = 0;
+		ASSERT_TRUE(Info.GetByteSize(ByteSize));
+		EXPECT_EQ(ByteSize, 8u);
+		FImage Image;
+		std::string Error;
+		ASSERT_TRUE(FImage::TryCreate(Info, FByteArray(8, std::byte{7}), Image, &Error)) << Error;
+		const FImageView View = Image.GetView();
+		Image.Reset();
+		ASSERT_TRUE(View.IsValid());
+		EXPECT_EQ(View.GetPixels()[0], std::byte{7});
+
+		Info.Width = std::numeric_limits<uint32>::max();
+		Info.Height = std::numeric_limits<uint32>::max();
+		EXPECT_FALSE(Info.GetByteSize(ByteSize));
+	}
+
+	TEST(FImageTests, ConvertsGammaAndPreservesGrayscale16Samples)
+	{
+		FDecodedGrayscale16Image Gray{
+			.Samples = {0x0000u, 0x1234u, 0xffffu}, .Width = 3, .Height = 1};
+		FImage GrayImage;
+		std::string Error;
+		ASSERT_TRUE(Gray.ToImage(EImageGammaSpace::Linear, GrayImage, &Error)) << Error;
+		EXPECT_EQ(GrayImage.GetInfo().Format, ERawImageFormat::G16);
+		ASSERT_EQ(GrayImage.GetPixels().size(), Gray.Samples.size() * sizeof(uint16));
+		EXPECT_EQ(std::memcmp(GrayImage.GetPixels().data(), Gray.Samples.data(),
+			GrayImage.GetPixels().size()), 0);
+
+		FDecodedImage Encoded{.Pixels = {std::byte{128}, std::byte{128},
+			std::byte{128}, std::byte{255}}, .Width = 1, .Height = 1,
+			.SourceChannelCount = 4};
+		FImage SRGB;
+		ASSERT_TRUE(Encoded.ToImage(EImageGammaSpace::SRGB, SRGB, &Error)) << Error;
+		FImage Linear;
+		ASSERT_TRUE(ConvertImage(SRGB.GetView(), ERawImageFormat::RGBA32F,
+			EImageGammaSpace::Linear, Linear, Error)) << Error;
+		float First = 0.0f;
+		std::memcpy(&First, Linear.GetPixels().data(), sizeof(First));
+		EXPECT_NEAR(First, 0.21586f, 0.0001f);
+	}
+
 	TEST(FImageDecoderTests, DecodesMemoryToUnscaledRgba8)
 	{
 		FDecodedImage Image;

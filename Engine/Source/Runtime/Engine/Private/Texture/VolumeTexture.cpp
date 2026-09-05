@@ -47,16 +47,14 @@ namespace Durin
 			-> FTextureSource
 		{
 			if (!Input.IsValid()) return {};
-			FTextureSource Result{
-				.Payload = Input.Voxels,
-				.Width = Input.Width,
-				.Height = Input.Height,
-				.Depth = Input.Depth,
-				.NumSlices = 1,
-				.SourceChannelCount = 0,
-				.Format = ToTextureSourceFormat(Input.Format),
-				.Kind = ETextureSourceKind::Volume};
-			return Result.IsValid() ? std::move(Result) : FTextureSource{};
+			FTextureSource Result;
+			const FTextureSourceBlock Block{.Width = Input.Width, .Height = Input.Height,
+				.Depth = Input.Depth};
+			const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Input.Format)};
+			return FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
+				.Payload = Input.Voxels, .Kind = ETextureSourceKind::Volume,
+				.GammaSpace = ETextureSourceGammaSpace::Linear}, Result)
+				? std::move(Result) : FTextureSource{};
 		}
 
 		auto MakeVolumeTextureBuildInput(const FTextureSource& Source)
@@ -64,14 +62,14 @@ namespace Durin
 		{
 			FVolumeTextureSourceData Result;
 			const std::optional<EVolumeTextureFormat> Format =
-				ToVolumeTextureFormat(Source.Format);
-			if (!Source.IsValid() || Source.Kind != ETextureSourceKind::Volume
+				ToVolumeTextureFormat(Source.GetFormat());
+			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Volume
 				|| !Format) return Result;
-			Result.Width = Source.Width;
-			Result.Height = Source.Height;
-			Result.Depth = Source.Depth;
+			Result.Width = Source.GetWidth();
+			Result.Height = Source.GetHeight();
+			Result.Depth = Source.GetDepth();
 			Result.Format = *Format;
-			Result.Voxels = Source.Payload;
+			Result.Voxels = Source.GetBulkData();
 			return Result.IsValid() ? std::move(Result) : FVolumeTextureSourceData{};
 		}
 
@@ -214,6 +212,7 @@ namespace Durin
 
 	auto DVolumeTexture::PostLoad(std::string& OutError) -> bool
 	{
+		BindTextureSourceOwner();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
@@ -226,6 +225,12 @@ namespace Durin
 			PlatformData.reset();
 			OutError.clear();
 			return true;
+		}
+		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
+		{
+			FTextureSource Migrated = GetSource();
+			if (!Migrated.MigrateLegacy(&OutError)
+				|| !SetSource(std::move(Migrated), OutError)) return false;
 		}
 		FVolumeTextureSourceData BuildInput =
 			MakeVolumeTextureBuildInput(GetSource());
@@ -288,6 +293,7 @@ namespace Durin
 			return false;
 		}
 		BuildSettings = Value;
+		AdvanceAuthoredGeneration();
 		OutError.clear();
 		return true;
 	}

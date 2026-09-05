@@ -304,8 +304,8 @@ namespace Durin::Editor::Texture
 		}
 		if (Source.IsValid())
 		{
-			DrawFact("Source dimensions", std::format("{} x {} x {}", Source.Width, Source.Height, Source.Depth));
-			DrawFact("Source voxels", StringUtils::FormatByteSize(Source.Payload.GetPayloadSize()));
+			DrawFact("Source dimensions", std::format("{} x {} x {}", Source.GetWidth(), Source.GetHeight(), Source.GetDepth()));
+			DrawFact("Source voxels", StringUtils::FormatByteSize(Source.GetBulkData().GetPayloadSize()));
 		}
 		const auto* Import = dynamic_cast<const AssetForge::Builtins::DVolumeTextureImportData*>(
 			Texture->GetAssetImportData());

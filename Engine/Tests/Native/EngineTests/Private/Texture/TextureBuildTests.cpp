@@ -42,6 +42,120 @@ namespace
 	};
 }
 
+TEST(FTextureSourceTests, ValidatesVolumeMipsIdentityAndSnapshotIsolation)
+{
+	const Durin::FTextureSourceBlock Block{
+		.Width = 4, .Height = 2, .Depth = 4, .NumSlices = 1};
+	const Durin::FTextureSourceLayer Layer{
+		.Format = Durin::ETextureSourceFormat::R8_UNORM, .NumMips = 3};
+	Durin::FByteArray Bytes(37, std::byte{3});
+	Durin::FTextureSource Source;
+	std::string Error;
+	ASSERT_TRUE(Durin::FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
+		.Kind = Durin::ETextureSourceKind::Volume,
+		.GammaSpace = Durin::ETextureSourceGammaSpace::Linear,
+		.SourceChannelCount = 1}, Bytes, Source, &Error)) << Error;
+	const Durin::FXxHash128 Identity = Source.GetIdentity();
+	EXPECT_FALSE(Identity.IsZero());
+
+	Durin::FTextureSourceMipInfo Mip;
+	ASSERT_TRUE(Source.GetMipInfo(0, 0, 1, Mip, &Error)) << Error;
+	EXPECT_EQ(Mip.ImageInfo.Width, 2u);
+	EXPECT_EQ(Mip.ImageInfo.Height, 1u);
+	EXPECT_EQ(Mip.ImageInfo.Depth, 2u);
+	EXPECT_EQ(Mip.PayloadOffset, 32u);
+	EXPECT_EQ(Mip.PayloadSize, 4u);
+	EXPECT_FALSE(Source.GetMipInfo(1, 0, 0, Mip, &Error));
+
+	Durin::FTextureSourceSnapshot Snapshot;
+	ASSERT_TRUE(Source.CreateSnapshotBlocking(17, Snapshot, &Error)) << Error;
+	Durin::Image::FImageView View;
+	ASSERT_TRUE(Snapshot.GetMipImage(0, 0, 2, View, &Error)) << Error;
+	ASSERT_EQ(View.GetPixels().size(), 1u);
+	Source.Reset();
+	EXPECT_EQ(View.GetPixels()[0], std::byte{3});
+	EXPECT_EQ(Snapshot.Generation, 17u);
+	EXPECT_EQ(Snapshot.Identity, Identity);
+}
+
+TEST(FTextureSourceTests, FailedInitializationPreservesAcceptedState)
+{
+	const Durin::FTextureSourceBlock Block{.Width = 1, .Height = 1};
+	const Durin::FTextureSourceLayer Layer{
+		.Format = Durin::ETextureSourceFormat::RGBA8};
+	Durin::FTextureSource Source;
+	std::string Error;
+	ASSERT_TRUE(Durin::FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
+		.Kind = Durin::ETextureSourceKind::Texture2D,
+		.GammaSpace = Durin::ETextureSourceGammaSpace::SRGB,
+		.SourceChannelCount = 4}, Durin::FByteArray(4, std::byte{1}), Source, &Error));
+	const Durin::FXxHash128 Identity = Source.GetIdentity();
+	EXPECT_FALSE(Durin::FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
+		.Kind = Durin::ETextureSourceKind::Texture2D,
+		.GammaSpace = Durin::ETextureSourceGammaSpace::SRGB,
+		.SourceChannelCount = 4}, Durin::FByteArray(3, std::byte{2}), Source, &Error));
+	EXPECT_EQ(Source.GetIdentity(), Identity);
+}
+
+TEST(FTextureSourceTests, ResolvesBlockLayerMipOrderingAndRejectsOversizedLayouts)
+{
+	const std::vector<Durin::FTextureSourceBlock> Blocks = {
+		{.Width = 2, .Height = 1},
+		{.Width = 1, .Height = 1, .NumSlices = 2}};
+	const std::vector<Durin::FTextureSourceLayer> Layers = {
+		{.Format = Durin::ETextureSourceFormat::R8_UNORM, .NumMips = 2},
+		{.Format = Durin::ETextureSourceFormat::RG8_UNORM, .NumMips = 1}};
+	Durin::FTextureSource Source;
+	std::string Error;
+	ASSERT_TRUE(Durin::FTextureSource::TryCreate({.Blocks = Blocks, .Layers = Layers,
+		.Kind = Durin::ETextureSourceKind::TextureArray,
+		.GammaSpace = Durin::ETextureSourceGammaSpace::Linear,
+		.SourceChannelCount = 2}, Durin::FByteArray(15, std::byte{4}), Source, &Error)) << Error;
+	Durin::FTextureSourceMipInfo Mip;
+	ASSERT_TRUE(Source.GetMipInfo(1, 0, 1, Mip, &Error)) << Error;
+	EXPECT_EQ(Mip.PayloadOffset, 9u);
+	EXPECT_EQ(Mip.PayloadSize, 2u);
+	EXPECT_EQ(Mip.ImageInfo.SliceCount, 2u);
+	ASSERT_TRUE(Source.GetMipInfo(1, 1, 0, Mip, &Error)) << Error;
+	EXPECT_EQ(Mip.PayloadOffset, 11u);
+	EXPECT_EQ(Mip.PayloadSize, 4u);
+
+	const Durin::FTextureSourceBlock Oversized{
+		.Width = std::numeric_limits<uint32>::max(),
+		.Height = std::numeric_limits<uint32>::max()};
+	const Durin::FTextureSourceLayer Wide{
+		.Format = Durin::ETextureSourceFormat::RGBA32_FLOAT};
+	EXPECT_FALSE(Durin::FTextureSource::TryCreate({.Blocks = {Oversized}, .Layers = {Wide},
+		.Kind = Durin::ETextureSourceKind::Texture2D}, {}, Source, &Error));
+}
+
+TEST(FTextureSourceTests, TextureOwnsSourceAndAdvancesAuthoredGeneration)
+{
+	InitializeDObjectSystem();
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "OwnedTextureSource");
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
+	const uint64 InitialGeneration = Texture->GetAuthoredGeneration();
+	Durin::FTexture2DImportedData Imported;
+	Imported.Width = 1;
+	Imported.Height = 1;
+	Imported.SourceChannelCount = 4;
+	Imported.Format = Durin::ETextureSourceFormat::RGBA8;
+	Imported.Pixels.UpdatePayload(Durin::FByteArray(4, std::byte{8}));
+	std::string Error;
+	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
+	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
+	EXPECT_EQ(Texture->GetAuthoredGeneration(), InitialGeneration + 1);
+	Durin::FTextureSourceSnapshot Snapshot;
+	ASSERT_TRUE(Texture->CreateSourceSnapshotBlocking(Snapshot, &Error)) << Error;
+	EXPECT_EQ(Snapshot.Generation, Texture->GetAuthoredGeneration());
+	EXPECT_EQ(Snapshot.Identity, Texture->GetSource().GetIdentity());
+	ASSERT_TRUE(Texture->SetBuildSettings(Durin::ETextureUsage::Color, true, 0,
+		Durin::ETextureCompressionQuality::High,
+		Durin::ETextureAlphaMipMode::Average, 0.5f, Error)) << Error;
+	EXPECT_EQ(Texture->GetAuthoredGeneration(), InitialGeneration + 2);
+}
+
 TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
 {
 	InitializeDObjectSystem();
@@ -615,7 +729,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(SourceEntry->State, Durin::ETexturePayloadState::Available);
 	EXPECT_EQ(SourceEntry->Repair, Durin::ETexturePayloadRepairAction::None);
 	EXPECT_EQ(SourceEntry->DomainSchemaVersion,
-		Durin::VolumeTextureSourcePayloadSchemaVersion);
+		Durin::TextureSourceSchemaVersion);
 	EXPECT_EQ(SourceEntry->LogicalElementCount, Voxels.size());
 	EXPECT_EQ(SourceEntry->LogicalByteCount, Voxels.size());
 	EXPECT_EQ(SourceEntry->Placement, "EditorPackageCompanion");
@@ -812,7 +926,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	const Durin::FXxHash128 ImportedIdentity =
 		Imported.Asset->GetImportedDataIdentity();
 	EXPECT_FALSE(ImportedIdentity.IsZero());
-	EXPECT_TRUE(Imported.Asset->GetSource().Payload.GetInstanceId().IsValid());
+	EXPECT_TRUE(Imported.Asset->GetSource().GetBulkData().GetInstanceId().IsValid());
 
 	const Durin::FAssetCatalogEntry Entry =
 		Durin::FindAssetExact(AssetPath);
@@ -830,7 +944,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 		Durin::EEditorBulkDataStorageKind::External);
 	EXPECT_TRUE(Descriptors.front().PayloadId.IsValid());
 	EXPECT_EQ(Descriptors.front().ContentHash,
-		Imported.Asset->GetSource().Payload.GetPayloadId());
+		Imported.Asset->GetSource().GetBulkData().GetPayloadId());
 	std::vector<std::filesystem::path> Companions;
 	ASSERT_TRUE(Durin::InspectEditorBulkDataCompanionPaths(
 		Entry->PhysicalPath, Inspection, Companions, &Error)) << Error;

@@ -2,6 +2,7 @@
 
 #include "CoreAPI.h"
 #include "HAL/Platform.h"
+#include "Image/Image.h"
 
 namespace Durin::Image
 {
@@ -11,5 +12,8 @@ namespace Durin::Image
 		std::span<const std::byte> Pixels,
 		uint32 Width,
 		uint32 Height,
+		FByteArray& OutEncodedBytes) -> bool;
+	CORE_API auto EncodeRgba8Png(
+		FImageView Image,
 		FByteArray& OutEncodedBytes) -> bool;
 } // namespace Durin::Image

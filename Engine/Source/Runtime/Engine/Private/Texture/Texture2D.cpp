@@ -23,33 +23,30 @@ namespace Durin
 			-> FTextureSource
 		{
 			if (!Input.IsValid()) return {};
-			FTextureSource Result{
-				.Payload = Input.Pixels,
-				.Width = Input.Width,
-				.Height = Input.Height,
-				.Depth = 1,
-				.NumSlices = 1,
+			FTextureSource Result;
+			const FTextureSourceBlock Block{.Width = Input.Width, .Height = Input.Height};
+			const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
+			return FTextureSource::TryCreate({.Blocks = {Block}, .Layers = {Layer},
+				.Payload = Input.Pixels, .Kind = ETextureSourceKind::Texture2D,
+				.GammaSpace = ETextureSourceGammaSpace::Unknown,
 				.SourceChannelCount = Input.SourceChannelCount,
-				.Format = ETextureSourceFormat::RGBA8,
-				.Kind = ETextureSourceKind::Texture2D,
-				.bHasTransparency = Input.bHasTransparency,
-				.TransparencyMask = static_cast<uint8>(
-					Input.bHasTransparency ? 1u : 0u)};
-			return Result.IsValid() ? std::move(Result) : FTextureSource{};
+				.TransparencyMask = static_cast<uint8>(Input.bHasTransparency ? 1u : 0u)},
+				Result)
+				? std::move(Result) : FTextureSource{};
 		}
 
 		auto MakeTexture2DBuildInput(const FTextureSource& Source)
 			-> FTexture2DImportedData
 		{
 			FTexture2DImportedData Result;
-			if (!Source.IsValid() || Source.Kind != ETextureSourceKind::Texture2D)
+			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D)
 				return Result;
-			Result.Pixels = Source.Payload;
-			Result.Width = Source.Width;
-			Result.Height = Source.Height;
-			Result.SourceChannelCount = Source.SourceChannelCount;
+			Result.Pixels = Source.GetBulkData();
+			Result.Width = Source.GetWidth();
+			Result.Height = Source.GetHeight();
+			Result.SourceChannelCount = Source.GetSourceChannelCount();
 			Result.Format = ETextureSourceFormat::RGBA8;
-			Result.bHasTransparency = Source.bHasTransparency;
+			Result.bHasTransparency = Source.HasTransparency();
 			return Result;
 		}
 	} // namespace
@@ -237,6 +234,7 @@ namespace Durin
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
+		BindTextureSourceOwner();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
@@ -249,6 +247,12 @@ namespace Durin
 			PlatformData.reset();
 			OutError.clear();
 			return true;
+		}
+		if (GetSource().GetSchemaVersion() == LegacyTextureSourceSchemaVersion)
+		{
+			FTextureSource Migrated = GetSource();
+			if (!Migrated.MigrateLegacy(&OutError)
+				|| !SetSource(std::move(Migrated), OutError)) return false;
 		}
 		if (!GetSource().IsValid())
 		{
@@ -337,6 +341,7 @@ namespace Durin
 		CompressionQuality = InCompressionQuality;
 		AlphaMipMode = InAlphaMipMode;
 		AlphaCoverageThreshold = InAlphaCoverageThreshold;
+		AdvanceAuthoredGeneration();
 		OutError.clear();
 		return true;
 	}

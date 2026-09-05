@@ -2,6 +2,18 @@
 
 namespace Durin::Image
 {
+	auto EncodeRgba8Png(FImageView Image, FByteArray& OutEncodedBytes) -> bool
+	{
+		if (!Image.IsValid() || Image.GetInfo().Format != ERawImageFormat::RGBA8
+			|| Image.GetInfo().Depth != 1 || Image.GetInfo().SliceCount != 1)
+		{
+			OutEncodedBytes.clear();
+			return false;
+		}
+		return EncodeRgba8Png(Image.GetPixels(), Image.GetInfo().Width,
+			Image.GetInfo().Height, OutEncodedBytes);
+	}
+
 	namespace
 	{
 		constexpr size_t DeflateWindowSize = 32 * 1024;

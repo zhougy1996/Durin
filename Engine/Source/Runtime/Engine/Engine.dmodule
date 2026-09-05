@@ -61,6 +61,7 @@
 		"Public/Components/SplineMeshComponent.h",
         "Public/StaticMesh/StaticMesh.h",
         "Public/Asset/AssetImportData.h",
+		"Public/Texture/TextureSource.h",
         "Public/Texture/Texture.h",
         "Public/Texture/Texture2D.h",
 		"Public/Texture/TextureCube.h",

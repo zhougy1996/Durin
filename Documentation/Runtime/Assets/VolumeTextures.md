@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-05
 
 ## Asset boundary
 
@@ -19,7 +19,8 @@ Dimensions are nonzero and no greater than 2048; the common texture payload byte
 ceiling is authoritative. Materials, streaming, and volume-rendering algorithms
 are outside this boundary.
 
-The source payload is one atomic reflected `BulkData` value. Its default-planning
+The source payload is one atomic reflected `FEditorBulkData` value inside the
+generic texture-source descriptor. Its default-planning
 cost is independent of voxel count, while package and allocation byte ceilings
 still apply. The supported baseline contains only this current schema; the
 historical `Array<UInt8>` and byte-Blob voxel fields are no longer registered or
@@ -90,11 +91,14 @@ on the GameThread. TextureBuild never receives cache policy or mutates a
 
 ## Authored source bulk data
 
-Normalized source voxels use `FEditorBulkData` with stable storage
+Normalized source voxels use the base-owned generic `FTextureSource` schema 2
+and `FEditorBulkData` with stable storage
 payload id words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`. Source payload
-schema version 1, dimensions, portable voxel format, and import provenance are
-ordinary reflected VolumeTexture fields. Old packages that predate the schema
-field receive its v1 default; unsupported values fail domain validation.
+descriptors record one volume block and one layer for the current family adapter;
+the layer format carries the portable voxel format. Legacy schema 1 dimensions
+and format remain loadable and migrate to descriptors during PostLoad;
+unsupported values fail domain validation. Import provenance remains on the
+texture's import-data object rather than participating in source identity.
 The source identity accessor performs no I/O. Build keys use that identity
 before bytes are requested; a validated DDC hit reads no package range, while a
 miss obtains one immutable owned snapshot through `GetPayload()`. Import and

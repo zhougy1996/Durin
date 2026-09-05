@@ -306,7 +306,7 @@ namespace Durin
 			.Repair = bImportedDataValid
 				? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RestoreEditorCompanion,
-			.LogicalElementCount = Multiply(Texture.GetSource().Width, Texture.GetSource().Height),
+			.LogicalElementCount = Multiply(Texture.GetSource().GetWidth(), Texture.GetSource().GetHeight()),
 			.LogicalByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
 			.StoredByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
 			.Placement = "EditorBulkData",
@@ -376,11 +376,11 @@ namespace Durin
 			.State = Source.IsValid() ? ETexturePayloadState::Available : ETexturePayloadState::Corrupt,
 			.Repair = Source.IsValid() ? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::ReimportSource,
-			.DomainSchemaVersion = Source.SchemaVersion,
-			.LogicalElementCount = Multiply(Multiply(Source.Width, Source.Height), Source.Depth),
-			.LogicalByteCount = Source.Payload.GetPayloadSize(),
-			.StoredByteCount = Source.Payload.GetPayloadSize(),
-			.PayloadId = Source.Payload.GetInstanceId(),
+			.DomainSchemaVersion = Source.GetSchemaVersion(),
+			.LogicalElementCount = Multiply(Multiply(Source.GetWidth(), Source.GetHeight()), Source.GetDepth()),
+			.LogicalByteCount = Source.GetBulkData().GetPayloadSize(),
+			.StoredByteCount = Source.GetBulkData().GetPayloadSize(),
+			.PayloadId = Source.GetBulkData().GetInstanceId(),
 			.Placement = "EditorPackage",
 			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{}});
 		const FVolumeTexturePlatformData* PlatformData =

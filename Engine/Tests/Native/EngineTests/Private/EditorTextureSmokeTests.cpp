@@ -264,7 +264,7 @@ namespace Durin
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_TRUE(TextureImport.Asset->GetSource().IsValid());
-		EXPECT_EQ(TextureImport.Asset->GetSource().Payload.GetPayloadSize(), 8u);
+		EXPECT_EQ(TextureImport.Asset->GetSource().GetBulkData().GetPayloadSize(), 8u);
 		ASSERT_TRUE(WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";

@@ -333,7 +333,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	auto Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
 	ASSERT_TRUE(Executed.bSucceeded) << Executed.Diagnostic;
 	const Durin::FXxHash128 LastKnownGoodSourceId =
-		Imported.Asset->GetSource().Payload.GetPayloadId();
+		Imported.Asset->GetSource().GetBulkData().GetPayloadId();
 
 	{
 		std::ofstream Corrupt(AtlasPath, std::ios::binary | std::ios::trunc);
@@ -341,7 +341,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	}
 	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
 	EXPECT_FALSE(Executed.bSucceeded);
-	EXPECT_EQ(Imported.Asset->GetSource().Payload.GetPayloadId(), LastKnownGoodSourceId);
+	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), LastKnownGoodSourceId);
 	EXPECT_TRUE(Imported.Asset->HasPlatformData());
 
 	WriteTextureFixture(AtlasPath);
@@ -442,7 +442,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		EXPECT_EQ(ImportedVoxels[Slice * 128ull * 128],
 			static_cast<std::byte>(Slice));
 
-	const FXxHash128 SourceContentId = Imported.Asset->GetSource().Payload.GetPayloadId();
+	const FXxHash128 SourceContentId = Imported.Asset->GetSource().GetBulkData().GetPayloadId();
 	const Durin::FByteArray V6SourceBytes(
 		ImportedVoxels.begin(), ImportedVoxels.end());
 	FPackagePath AssetPath;
@@ -465,7 +465,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
 	ASSERT_TRUE(Reimported.bSucceeded) << Reimported.Diagnostic;
-	EXPECT_EQ(Imported.Asset->GetSource().Payload.GetPayloadId(), SourceContentId);
+	EXPECT_EQ(Imported.Asset->GetSource().GetBulkData().GetPayloadId(), SourceContentId);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasCook");
@@ -503,7 +503,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(ReloadedVoxels.size(), 128ull * 128 * 128);
 	EXPECT_TRUE(std::ranges::equal(
 		ReloadedVoxels, V6SourceBytes));
-	EXPECT_EQ(Reloaded->GetSource().Payload.GetPayloadId(), SourceContentId);
+	EXPECT_EQ(Reloaded->GetSource().GetBulkData().GetPayloadId(), SourceContentId);
 	ASSERT_TRUE(SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(FindAssetExact(AssetPath)->FormatVersion,
 		ObjectPackage::DastV9FormatVersion);

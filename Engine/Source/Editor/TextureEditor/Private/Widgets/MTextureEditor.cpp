@@ -758,10 +758,10 @@ namespace Durin::Editor::Texture
 		const FTextureSource& Source = Texture->GetSource();
 		if (Source.IsValid())
 		{
-			DrawInfoRow("Dimensions", FormatDimensions(Source.Width, Source.Height));
-			DrawInfoRow("Source Channels", std::format("{}", Source.SourceChannelCount));
-			DrawInfoRow("Transparency", Source.bHasTransparency ? "Present" : "Opaque");
-			DrawInfoRow("Decoded Format", Source.Format == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
+			DrawInfoRow("Dimensions", FormatDimensions(Source.GetWidth(), Source.GetHeight()));
+			DrawInfoRow("Source Channels", std::format("{}", Source.GetSourceChannelCount()));
+			DrawInfoRow("Transparency", Source.HasTransparency() ? "Present" : "Opaque");
+			DrawInfoRow("Decoded Format", Source.GetFormat() == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
 		}
 		else
 		{
