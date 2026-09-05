@@ -328,8 +328,8 @@ namespace Durin
 			.Repair = bImportedDataValid
 				? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RestoreEditorCompanion,
-			.LogicalElementCount = Multiply(Texture.GetSource().GetWidth(), Texture.GetSource().GetHeight()),
 			.DomainSchemaVersion = Texture.GetSource().GetSchemaVersion(),
+			.LogicalElementCount = Multiply(Texture.GetSource().GetWidth(), Texture.GetSource().GetHeight()),
 			.LogicalByteCount = Texture.GetSource().GetDecodedPayloadSize(),
 			.StoredByteCount = Texture.GetSource().GetBulkData().GetPayloadSize(),
 			.PayloadId = Texture.GetSource().GetBulkData().GetInstanceId(),
