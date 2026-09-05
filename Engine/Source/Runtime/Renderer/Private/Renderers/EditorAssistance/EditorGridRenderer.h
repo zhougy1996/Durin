@@ -23,6 +23,7 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			RenderTargetLayouts::EViewportOutput Output,
+			EPixelFormat OutputFormat,
 			RendererEditorAssistance::FPrepared& Prepared) -> void;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,

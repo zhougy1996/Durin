@@ -45,7 +45,8 @@ namespace Durin
 		auto Prepare_RenderThread(FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			RenderTargetLayouts::EViewportOutput Output,
-			std::span<const FSimpleElement> AdditionalElements = {})
+			std::span<const FSimpleElement> AdditionalElements = {},
+			EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
 			-> FPreparedSimpleElementRendering;
 		auto Draw_RenderThread(FRHICommandListImmediate& CommandList,
 			const FPreparedSimpleElementRendering& Prepared,

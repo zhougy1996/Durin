@@ -291,8 +291,10 @@ namespace Durin
 
 		FRHIRenderPassInfo PostProcessPassInfo{};
 		PostProcessPassInfo.RenderTargetLayout = bEditorAssistanceFollows
-			? RenderTargetLayouts::MakeScenePostProcessOutput()
-			: RenderTargetLayouts::MakeFinalScenePostProcessOutput(ViewportOutput);
+			? RenderTargetLayouts::MakeScenePostProcessOutput(
+				OutputTarget->GetFormat())
+			: RenderTargetLayouts::MakeFinalScenePostProcessOutput(
+				ViewportOutput, OutputTarget->GetFormat());
 		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
 		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
 			View.ClearColor.r,
@@ -317,6 +319,7 @@ namespace Durin
 			bPresentOutput,
 			View.Settings.PostProcess.bEnableFXAA,
 			bEditorAssistanceFollows,
+			OutputTarget->GetFormat(),
 			RenderView.Settings.PostProcess.ExposureEV
 		);
 		CommandList.EndRenderPass();

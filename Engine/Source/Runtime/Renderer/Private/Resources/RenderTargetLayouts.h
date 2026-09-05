@@ -20,7 +20,9 @@ namespace Durin::RenderTargetLayouts
 	// One D32 depth attachment that is cleared for shadow rendering and
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeScenePostProcessOutput(
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
+		-> FRHIRenderTargetLayout;
 	// One cleared R8_UNORM contact-visibility target published for sampling.
 	RENDERER_API auto MakeContactVisibilityOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeVolumetricCloudShadowOutput() -> FRHIRenderTargetLayout;
@@ -41,7 +43,10 @@ namespace Durin::RenderTargetLayouts
 	RENDERER_API auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeHybridSortedTranslucency() -> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
+	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output,
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
 		-> FRHIRenderTargetLayout;
-	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output,
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM)
+		-> FRHIRenderTargetLayout;
 } // namespace Durin::RenderTargetLayouts

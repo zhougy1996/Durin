@@ -45,6 +45,7 @@ namespace Durin::RendererEditorAssistance
 		EFeature Feature = EFeature::EditorGrid;
 		RenderTargetLayouts::EViewportOutput Output =
 			RenderTargetLayouts::EViewportOutput::Offscreen;
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM;
 		EDepthMode DepthMode = EDepthMode::Visible;
 		ESceneDepthConvention DepthConvention =
 			ESceneDepthConvention::ForwardZ;
@@ -57,6 +58,7 @@ namespace Durin::RendererEditorAssistance
 	{
 		RenderTargetLayouts::EViewportOutput Output =
 			RenderTargetLayouts::EViewportOutput::Offscreen;
+		EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM;
 		ESceneDepthConvention DepthConvention =
 			ESceneDepthConvention::ForwardZ;
 		bool bEditorGrid = false;
@@ -132,7 +134,8 @@ namespace Durin
 		RENDERER_API static auto AnalyzeRequest(
 			const FSceneView& View,
 			RenderTargetLayouts::EViewportOutput Output,
-			std::span<const FSimpleElement> AdditionalElements = {}) -> FRequest;
+			std::span<const FSimpleElement> AdditionalElements = {},
+			EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM) -> FRequest;
 		RENDERER_API static auto GetRequiredPipelineKeys(
 			const FRequest& Request) -> std::vector<FPipelineKey>;
 		RENDERER_API static auto BuildDrawableOperations(

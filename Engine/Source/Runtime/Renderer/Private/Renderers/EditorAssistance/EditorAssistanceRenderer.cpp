@@ -30,6 +30,7 @@ namespace Durin
 			return {
 				.Feature = Feature,
 				.Output = Request.Output,
+				.OutputFormat = Request.OutputFormat,
 				.DepthMode = DepthMode,
 				.DepthConvention = Request.DepthConvention,
 				.GizmoTopology = GizmoTopology,
@@ -53,10 +54,12 @@ namespace Durin
 	auto FEditorAssistanceRenderer::AnalyzeRequest(
 		const FSceneView& View,
 		RenderTargetLayouts::EViewportOutput Output,
-		std::span<const FSimpleElement> AdditionalElements) -> FRequest
+		std::span<const FSimpleElement> AdditionalElements,
+		EPixelFormat OutputFormat) -> FRequest
 	{
 		FRequest Request;
 		Request.Output = Output;
+		Request.OutputFormat = OutputFormat;
 		Request.DepthConvention = View.DepthConvention;
 		Request.bEditorGrid = View.EditorGrid.bVisible;
 		Request.bSimpleElements = !View.SimpleElements.GetElements().empty()
@@ -162,7 +165,7 @@ namespace Durin
 		if (Request.bEditorGrid)
 		{
 			EditorGridRenderer->Prepare_RenderThread(
-				CommandList, View, Request.Output, Prepared);
+				CommandList, View, Request.Output, Request.OutputFormat, Prepared);
 		}
 		if (Request.bSolidGizmos)
 		{
@@ -172,7 +175,8 @@ namespace Durin
 		if (Request.bSimpleElements)
 		{
 			Prepared.SimpleElements = SimpleElementRenderer->Prepare_RenderThread(
-				CommandList, View, Request.Output, AdditionalElements);
+				CommandList, View, Request.Output, AdditionalElements,
+				Request.OutputFormat);
 		}
 		return Prepared;
 	}

@@ -541,6 +541,21 @@ namespace Durin
 		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::Present);
 	}
 
+	TEST(FRendererRenderTargetLayoutTests, ViewportOutputLayoutsUseTheActualBackBufferFormat)
+	{
+		const FRHIRenderTargetLayout PostProcess =
+			MakeFinalScenePostProcessOutput(
+				EViewportOutput::Present, EPixelFormat::SBGRA8_UNORM);
+		const FRHIRenderTargetLayout EditorAssistance =
+			MakeEditorAssistanceOutput(
+				EViewportOutput::Present, EPixelFormat::SBGRA8_UNORM);
+
+		EXPECT_EQ(PostProcess.ColorAttachments[0].RenderTarget.Format,
+			EPixelFormat::SBGRA8_UNORM);
+		EXPECT_EQ(EditorAssistance.ColorAttachments[0].RenderTarget.Format,
+			EPixelFormat::SBGRA8_UNORM);
+	}
+
 	TEST(FRendererRenderTargetLayoutTests, EditorAssistanceOutputLoadsPreservedColorAndDepth)
 	{
 		for (const EViewportOutput Output : {EViewportOutput::Offscreen, EViewportOutput::Present})

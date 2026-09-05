@@ -58,6 +58,7 @@ namespace Durin
 			bool bPresentOutput,
 			bool bEnableFXAA,
 			bool bHasEditorAssistance,
+			EPixelFormat OutputFormat,
 			float ExposureEV) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 

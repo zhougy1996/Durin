@@ -136,7 +136,8 @@ namespace Durin
 			GetViewportOutput(bPresentOutput);
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
 		EditorAssistancePassInfo.RenderTargetLayout =
-			RenderTargetLayouts::MakeEditorAssistanceOutput(ViewportOutput);
+			RenderTargetLayouts::MakeEditorAssistanceOutput(
+				ViewportOutput, OutputTarget->GetFormat());
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget =
 			DepthTarget;

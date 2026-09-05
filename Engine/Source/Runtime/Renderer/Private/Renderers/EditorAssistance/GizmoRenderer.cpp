@@ -426,6 +426,7 @@ namespace Durin
 				const FPipelineKey Key{
 					.Feature = EFeature::Gizmo,
 					.Output = Request.Output,
+					.OutputFormat = Request.OutputFormat,
 					.DepthMode = DepthMode,
 					.DepthConvention = Request.DepthConvention,
 					.GizmoTopology = Topology,
@@ -450,8 +451,8 @@ namespace Durin
 					[Base, Key, PipelineName]() -> FPipelineResult {
 						FGraphicsPipelineStateInitializer Initializer;
 						Initializer.RenderTargetLayout =
-							RenderTargetLayouts::
-								MakeEditorAssistanceOutput(Key.Output);
+							RenderTargetLayouts::MakeEditorAssistanceOutput(
+								Key.Output, Key.OutputFormat);
 						Initializer.BoundShaders.VertexShader =
 							Base->VertexShader.GetRHIShader();
 						Initializer.BoundShaders.FragmentShader =

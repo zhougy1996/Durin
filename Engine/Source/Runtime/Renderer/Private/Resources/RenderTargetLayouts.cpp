@@ -277,12 +277,13 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout
+	auto MakeScenePostProcessOutput(EPixelFormat OutputFormat)
+		-> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::SRGBA8_UNORM,
+			OutputFormat,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -292,14 +293,15 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
+	auto MakeFinalScenePostProcessOutput(EViewportOutput Output,
+		EPixelFormat OutputFormat)
 		-> FRHIRenderTargetLayout
 	{
 		const bool bPresent = Output == EViewportOutput::Present;
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::SRGBA8_UNORM,
+			OutputFormat,
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
@@ -309,13 +311,14 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout
+	auto MakeEditorAssistanceOutput(EViewportOutput Output,
+		EPixelFormat OutputFormat) -> FRHIRenderTargetLayout
 	{
 		const bool bPresent = Output == EViewportOutput::Present;
 		FRHIRenderTargetLayout Layout;
 		Layout.NumColorRenderTargets = 1;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
-			EPixelFormat::SRGBA8_UNORM,
+			OutputFormat,
 			ERHIRenderTargetLoadAction::Load,
 			ERHITextureLayout::ColorAttachment,
 			ERHIAccess::ColorAttachmentReadWrite,

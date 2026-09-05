@@ -98,6 +98,7 @@ namespace Durin
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
 		RenderTargetLayouts::EViewportOutput Output,
+		EPixelFormat OutputFormat,
 		FPrepared& Prepared) -> void
 	{
 		check(IsInRenderingThread());
@@ -122,6 +123,7 @@ namespace Durin
 		const FPipelineKey Key{
 			.Feature = EFeature::EditorGrid,
 			.Output = Output,
+			.OutputFormat = OutputFormat,
 			.DepthMode = EDepthMode::Visible,
 			.DepthConvention = View.DepthConvention,
 		};
@@ -140,7 +142,7 @@ namespace Durin
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeEditorAssistanceOutput(
-						Key.Output);
+						Key.Output, Key.OutputFormat);
 				Initializer.BoundShaders.VertexShader =
 					VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader =

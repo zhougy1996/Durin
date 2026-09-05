@@ -85,11 +85,13 @@ namespace Durin
 				ESceneDepthConvention::ForwardZ;
 			RenderTargetLayouts::EViewportOutput Output =
 				RenderTargetLayouts::EViewportOutput::Offscreen;
+			EPixelFormat OutputFormat = EPixelFormat::SRGBA8_UNORM;
 
 			auto operator==(const FSimplePipelineKey&) const -> bool = default;
 		};
 
-		auto MakePipelineKey(const FSimpleElementBatchKey& Key)
+		auto MakePipelineKey(const FSimpleElementBatchKey& Key,
+			EPixelFormat OutputFormat)
 			-> FSimplePipelineKey
 		{
 			return {
@@ -98,6 +100,7 @@ namespace Durin
 				.DepthPriorityGroup = Key.DepthPriorityGroup,
 				.DepthConvention = Key.DepthConvention,
 				.Output = Key.Output,
+				.OutputFormat = OutputFormat,
 			};
 		}
 
@@ -169,7 +172,8 @@ namespace Durin
 	auto FSimpleElementRenderer::Prepare_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
 		RenderTargetLayouts::EViewportOutput Output,
-		std::span<const FSimpleElement> AdditionalElements)
+		std::span<const FSimpleElement> AdditionalElements,
+		EPixelFormat OutputFormat)
 		-> FPreparedSimpleElementRendering
 	{
 		check(IsInRenderingThread());
@@ -404,7 +408,8 @@ namespace Durin
 		for (const FPendingDraw& Pending : PendingDraws)
 		{
 			const FPreparedSimpleElementBatch& Batch = *Pending.Batch;
-			const FSimplePipelineKey Key = MakePipelineKey(Batch.Key);
+			const FSimplePipelineKey Key = MakePipelineKey(
+				Batch.Key, OutputFormat);
 			auto EntryIt = std::ranges::find(
 				State->Pipelines, Key, &FState::FPipelineEntry::Key);
 			if (EntryIt == State->Pipelines.end())
@@ -422,7 +427,8 @@ namespace Durin
 				[Base, Key, ShaderSet, PipelineName]() -> FPipelineResult {
 					FGraphicsPipelineStateInitializer Initializer;
 					Initializer.RenderTargetLayout =
-						RenderTargetLayouts::MakeEditorAssistanceOutput(Key.Output);
+						RenderTargetLayouts::MakeEditorAssistanceOutput(
+							Key.Output, Key.OutputFormat);
 					if (Key.ShaderClass == ESimpleElementShaderClass::Textured)
 					{
 						Initializer.BoundShaders.VertexShader =

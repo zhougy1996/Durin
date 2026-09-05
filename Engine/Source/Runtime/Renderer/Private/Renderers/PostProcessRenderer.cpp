@@ -116,10 +116,16 @@ namespace Durin
 			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
 			FGraphicsPipelineStateRHIRef CopyIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef FXAAIntermediatePipelineState;
+			FGraphicsPipelineStateRHIRef CopyBGRAIntermediatePipelineState;
+			FGraphicsPipelineStateRHIRef FXAABGRAIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
+			FGraphicsPipelineStateRHIRef CopyBGRAOffscreenPipelineState;
 			FGraphicsPipelineStateRHIRef CopyPresentPipelineState;
+			FGraphicsPipelineStateRHIRef CopyBGRAPresentPipelineState;
 			FGraphicsPipelineStateRHIRef FXAAOffscreenPipelineState;
+			FGraphicsPipelineStateRHIRef FXAABGRAOffscreenPipelineState;
 			FGraphicsPipelineStateRHIRef FXAAPresentPipelineState;
+			FGraphicsPipelineStateRHIRef FXAABGRAPresentPipelineState;
 			FSamplerRHIRef SceneColorSampler;
 		};
 
@@ -255,6 +261,20 @@ namespace Durin
 					FXAAFragmentRHI,
 					Candidate.FXAAShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeScenePostProcessOutput());
+				Candidate.CopyBGRAIntermediatePipelineState = MakePipeline(
+					"PostProcessCopyBGRAIntermediatePipeline",
+					CopyVertexRHI,
+					CopyFragmentRHI,
+					Candidate.CopyShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeScenePostProcessOutput(
+						EPixelFormat::SBGRA8_UNORM));
+				Candidate.FXAABGRAIntermediatePipelineState = MakePipeline(
+					"PostProcessFXAABGRAIntermediatePipeline",
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeScenePostProcessOutput(
+						EPixelFormat::SBGRA8_UNORM));
 				Candidate.CopyOffscreenPipelineState = MakePipeline(
 					"PostProcessCopyOffscreenPipeline",
 					CopyVertexRHI,
@@ -269,6 +289,14 @@ namespace Durin
 					Candidate.CopyShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
+				Candidate.CopyBGRAOffscreenPipelineState = MakePipeline(
+					"PostProcessCopyBGRAOffscreenPipeline",
+					CopyVertexRHI,
+					CopyFragmentRHI,
+					Candidate.CopyShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
+						RenderTargetLayouts::EViewportOutput::Offscreen,
+						EPixelFormat::SBGRA8_UNORM));
 				Candidate.FXAAOffscreenPipelineState = MakePipeline(
 					"PostProcessFXAAOffscreenPipeline",
 					FXAAVertexRHI,
@@ -283,12 +311,42 @@ namespace Durin
 					Candidate.FXAAShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
+				Candidate.FXAABGRAOffscreenPipelineState = MakePipeline(
+					"PostProcessFXAABGRAOffscreenPipeline",
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
+						RenderTargetLayouts::EViewportOutput::Offscreen,
+						EPixelFormat::SBGRA8_UNORM));
+				Candidate.CopyBGRAPresentPipelineState = MakePipeline(
+					"PostProcessCopyBGRAPresentPipeline",
+					CopyVertexRHI,
+					CopyFragmentRHI,
+					Candidate.CopyShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
+						RenderTargetLayouts::EViewportOutput::Present,
+						EPixelFormat::SBGRA8_UNORM));
+				Candidate.FXAABGRAPresentPipelineState = MakePipeline(
+					"PostProcessFXAABGRAPresentPipeline",
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
+					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
+						RenderTargetLayouts::EViewportOutput::Present,
+						EPixelFormat::SBGRA8_UNORM));
 				if (Candidate.CopyIntermediatePipelineState == nullptr
 					|| Candidate.FXAAIntermediatePipelineState == nullptr
+					|| Candidate.CopyBGRAIntermediatePipelineState == nullptr
+					|| Candidate.FXAABGRAIntermediatePipelineState == nullptr
 					|| Candidate.CopyOffscreenPipelineState == nullptr
+					|| Candidate.CopyBGRAOffscreenPipelineState == nullptr
 					|| Candidate.CopyPresentPipelineState == nullptr
+					|| Candidate.CopyBGRAPresentPipelineState == nullptr
 					|| Candidate.FXAAOffscreenPipelineState == nullptr
-					|| Candidate.FXAAPresentPipelineState == nullptr)
+					|| Candidate.FXAABGRAOffscreenPipelineState == nullptr
+					|| Candidate.FXAAPresentPipelineState == nullptr
+					|| Candidate.FXAABGRAPresentPipelineState == nullptr)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -331,6 +389,7 @@ namespace Durin
 		bool bPresentOutput,
 		bool bEnableFXAA,
 		bool bHasEditorAssistance,
+		EPixelFormat OutputFormat,
 		float ExposureEV) -> void
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
@@ -339,22 +398,29 @@ namespace Durin
 			return;
 		}
 
+		const bool bBGRAOutput = OutputFormat == EPixelFormat::SBGRA8_UNORM;
 		FGraphicsPipelineStateRHIRef PipelineState;
 		if (bHasEditorAssistance)
 		{
 			PipelineState = bEnableFXAA
-				? Payload->FXAAIntermediatePipelineState
-				: Payload->CopyIntermediatePipelineState;
+				? (bBGRAOutput ? Payload->FXAABGRAIntermediatePipelineState
+					: Payload->FXAAIntermediatePipelineState)
+				: (bBGRAOutput ? Payload->CopyBGRAIntermediatePipelineState
+					: Payload->CopyIntermediatePipelineState);
 		}
 		else
 		{
 			PipelineState = bEnableFXAA
 				? (bPresentOutput
-					? Payload->FXAAPresentPipelineState
-					: Payload->FXAAOffscreenPipelineState)
+					? (bBGRAOutput ? Payload->FXAABGRAPresentPipelineState
+						: Payload->FXAAPresentPipelineState)
+					: (bBGRAOutput ? Payload->FXAABGRAOffscreenPipelineState
+						: Payload->FXAAOffscreenPipelineState))
 				: (bPresentOutput
-					? Payload->CopyPresentPipelineState
-					: Payload->CopyOffscreenPipelineState);
+					? (bBGRAOutput ? Payload->CopyBGRAPresentPipelineState
+						: Payload->CopyPresentPipelineState)
+					: (bBGRAOutput ? Payload->CopyBGRAOffscreenPipelineState
+						: Payload->CopyOffscreenPipelineState));
 		}
 		if (PipelineState == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr

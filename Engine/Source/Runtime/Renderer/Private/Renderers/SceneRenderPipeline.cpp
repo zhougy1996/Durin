@@ -207,7 +207,8 @@ namespace Durin
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
-				PreparedView.Context.RendererSimpleElements);
+				PreparedView.Context.RendererSimpleElements,
+				OutputTarget->GetFormat());
 		RendererEditorAssistance::FPrepared& PreparedEditorAssistance =
 			Context.Logical.EditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
