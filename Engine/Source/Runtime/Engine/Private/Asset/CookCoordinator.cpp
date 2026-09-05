@@ -257,8 +257,33 @@ namespace Durin
 			{
 			}
 
-			auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& Cancellation, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool override
+			auto Publish(std::span<const FCookSavePlan> Plans,
+				std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs,
+				const FCookState& State,
+				FCookRunResult& InOutResult,
+				const FCookCancellationCheck& Cancellation,
+				const FCookFailureInjection& ShouldFail) -> FCookPublishResult override
 			{
+				std::string Error;
+				bool bCancelled = false;
+				if (PublishInternal(Plans, AuxiliaryOutputs, State, InOutResult,
+					Cancellation, ShouldFail, Error, bCancelled))
+					return {ECookPublishStatus::Succeeded, {}};
+				return {bCancelled ? ECookPublishStatus::Cancelled
+					: ECookPublishStatus::Failed, std::move(Error)};
+			}
+
+		private:
+			auto PublishInternal(std::span<const FCookSavePlan> Plans,
+				std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs,
+				const FCookState& State,
+				FCookRunResult& InOutResult,
+				const FCookCancellationCheck& Cancellation,
+				const FCookFailureInjection& ShouldFail,
+				std::string& OutError,
+				bool& bOutCancelled) -> bool
+			{
+				bOutCancelled = false;
 				const auto CommitStart = std::chrono::steady_clock::now();
 				if (Root.empty() || !Root.is_absolute()
 					|| State.TargetPlatform != Platform || State.TargetProfile != Profile)
@@ -385,7 +410,11 @@ namespace Durin
 				auto StageBytes = [&](std::string_view Relative,
 									  std::span<const std::byte> Bytes, ECookOperationStage Stage,
 									  size_t Index) -> bool {
-					if (IsCancelled(Cancellation)) return CookFail("CookCancelledDuringStaging", &OutError);
+					if (IsCancelled(Cancellation))
+					{
+						bOutCancelled = true;
+						return CookFail("CookCancelledDuringStaging", &OutError);
+					}
 					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
 					const std::filesystem::path Staged = StagedRoot / Relative;
 					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
@@ -442,7 +471,10 @@ namespace Durin
 				auto CommitFile = [&](std::string_view Relative,
 									  ECookOperationStage Stage, size_t Index) -> bool {
 					if (IsCancelled(Cancellation))
+					{
+						bOutCancelled = true;
 						return CookFail("CookCancelledDuringCommit", &OutError);
+					}
 					if (ShouldFail && ShouldFail(Stage, Index, OutError)) return false;
 					const std::filesystem::path Destination = Root / Relative;
 					const std::filesystem::path Staged = StagedRoot / Relative;
@@ -502,7 +534,6 @@ namespace Durin
 				return true;
 			}
 
-		private:
 			std::filesystem::path Root;
 			ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
 			ECookTargetProfile Profile = ECookTargetProfile::Invalid;
@@ -890,13 +921,15 @@ namespace Durin
 			OwnedStore = CreateLocalLooseCookOutputStore(Request.OutputRoot, Request.TargetPlatform, Request.TargetProfile);
 			OutputStore = OwnedStore.get();
 		}
-		std::string PublishError;
-		if (!OutputStore->Publish(Plans, AuxiliaryOutputs, NewState, OutResult, Request.IsCancelled, ShouldFail, PublishError))
+		FCookPublishResult PublishResult = OutputStore->Publish(
+			Plans, AuxiliaryOutputs, NewState, OutResult, Request.IsCancelled, ShouldFail);
+		if (!PublishResult)
 		{
-			if (IsCancelled(Request.IsCancelled)
-				|| PublishError.starts_with("CookCancelled"))
-				return Finish(ECookRunStatus::Cancelled, "cancelled", PublishError);
-			return Finish(ECookRunStatus::Failed, "publication-failed", PublishError);
+			if (PublishResult.Status == ECookPublishStatus::Cancelled)
+				return Finish(ECookRunStatus::Cancelled, "cancelled",
+					std::move(PublishResult.Diagnostic));
+			return Finish(ECookRunStatus::Failed, "publication-failed",
+				std::move(PublishResult.Diagnostic));
 		}
 		return Finish(ECookRunStatus::Succeeded, "succeeded", "Cook published a validated manifest-last output generation.");
 	}

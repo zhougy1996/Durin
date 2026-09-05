@@ -473,7 +473,11 @@ namespace Durin::TextureBuilder
 				std::chrono::duration_cast<std::chrono::nanoseconds>(
 					FClock::now() - CompressionStart).count());
 		}
-		if (OutPlatformData.IsValid()) return true;
+		if (OutPlatformData.IsValid())
+		{
+			OutError.clear();
+			return true;
+		}
 		OutPlatformData = {};
 		OutError = "Failed to build texture platform data.";
 		return false;

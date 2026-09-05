@@ -173,6 +173,7 @@ namespace Durin::ShaderCompileUtilities
 	) -> bool
 	{
 		bOutCurrent = false;
+		OutErrorMessage.clear();
 		if (CachedMetaData.SourceTreeSignature.IsZero()
 			|| CachedMetaData.Dependencies.size()
 				!= CachedMetaData.PortableDependencies.size())

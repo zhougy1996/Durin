@@ -225,15 +225,43 @@ namespace Durin
 		ECookOperationStage, size_t, std::string&
 	)>;
 
+	// Classifies publication independently from its human-readable diagnostic.
+	enum class ECookPublishStatus : uint8
+	{
+		Succeeded,
+		Failed,
+		Cancelled
+	};
+
+	struct FCookPublishResult
+	{
+		ECookPublishStatus Status = ECookPublishStatus::Failed;
+		std::string Diagnostic;
+
+		explicit operator bool() const
+		{
+			return Status == ECookPublishStatus::Succeeded;
+		}
+	};
+
 	// Store transaction boundary; contributors never receive a store or path.
 	class ICookOutputStore
 	{
 	public:
 		virtual ~ICookOutputStore() = default;
-		virtual auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& IsCancelled, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool = 0;
-		auto Publish(std::span<const FCookSavePlan> Plans, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& IsCancelled, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool
+		virtual auto Publish(std::span<const FCookSavePlan> Plans,
+			std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs,
+			const FCookState& State,
+			FCookRunResult& InOutResult,
+			const FCookCancellationCheck& IsCancelled,
+			const FCookFailureInjection& ShouldFail) -> FCookPublishResult = 0;
+		auto Publish(std::span<const FCookSavePlan> Plans,
+			const FCookState& State,
+			FCookRunResult& InOutResult,
+			const FCookCancellationCheck& IsCancelled,
+			const FCookFailureInjection& ShouldFail) -> FCookPublishResult
 		{
-			return Publish(Plans, {}, State, InOutResult, IsCancelled, ShouldFail, OutError);
+			return Publish(Plans, {}, State, InOutResult, IsCancelled, ShouldFail);
 		}
 	};
 

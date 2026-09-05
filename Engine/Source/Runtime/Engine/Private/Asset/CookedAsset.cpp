@@ -610,14 +610,12 @@ namespace Durin
 		std::unique_ptr<ICookOutputStore> Store = CreateLocalLooseCookOutputStore(
 			CookRoot, TargetPlatform, TargetProfile
 		);
-		std::string Error;
-		const bool bPublished = Store->Publish(
-			Plans, {}, State, Result, {}, {}, Error
-		);
-		if (!bPublished && OutError)
-			*OutError = std::move(Error);
+		FCookPublishResult PublishResult = Store->Publish(
+			Plans, {}, State, Result, {}, {});
+		if (!PublishResult && OutError)
+			*OutError = std::move(PublishResult.Diagnostic);
 		else if (OutError)
 			OutError->clear();
-		return bPublished;
+		return static_cast<bool>(PublishResult);
 	}
 } // namespace Durin

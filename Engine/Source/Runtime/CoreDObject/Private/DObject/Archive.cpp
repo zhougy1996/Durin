@@ -495,7 +495,7 @@ namespace Durin
 				if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
 					|| !Struct->CanCopyAssign())
 				{
-					Ar.SetError(std::format(
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, std::format(
 						"DStructOperationUnavailable: transactional loading requires "
 						"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
 						Struct->GetQualifiedName().ToString()));
@@ -513,7 +513,7 @@ namespace Durin
 				FReflectedValueStorage Storage;
 				if (!Storage.DefaultConstruct(StorageProperty, 0, &OperationError))
 				{
-					Ar.SetError(OperationError);
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 					break;
 				}
 				SerializeStructValue(Storage.GetValue());
@@ -543,7 +543,7 @@ namespace Durin
 				}
 				if (!Property->CopyAssignValue(
 					Property->GetValuePtr(Container, ArrayIndex), Storage.GetValue(), &OperationError))
-					Ar.SetError(OperationError);
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation, OperationError);
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -553,7 +553,8 @@ namespace Durin
 				if (!Inner || !ArrayProperty->HasArrayOps()
 					|| !ArrayProperty->HasCapability(EArrayOpsFlags::Count))
 				{
-					Ar.SetError("ArrayOperationUnavailable: Count is required.");
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+						"ArrayOperationUnavailable: Count is required.");
 					break;
 				}
 
@@ -574,7 +575,8 @@ namespace Durin
 				{
 					if (!ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal))
 					{
-						Ar.SetError("ArrayOperationUnavailable: ConstTraversal is required for save.");
+						Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+							"ArrayOperationUnavailable: ConstTraversal is required for save.");
 						break;
 					}
 					FArchiveArrayVisitContext Context{Ar, Inner, bIncludeRawObjectReferences};
@@ -588,7 +590,8 @@ namespace Durin
 				if (!ArrayProperty->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
 					| EArrayOpsFlags::RandomAccess) || (Num > 0 && !ArrayProperty->HasCapability(EArrayOpsFlags::DefaultGrow)))
 				{
-					Ar.SetError("ArrayOperationUnavailable: transactional load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+						"ArrayOperationUnavailable: transactional load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
 					break;
 				}
 				FDetachedContainerStorage Detached;
@@ -625,7 +628,8 @@ namespace Durin
 				if (!MapProperty->HasMapOps() || !MapProperty->GetKeyProp() || !MapProperty->GetValueProp()
 					|| !MapProperty->HasCapability(EMapOpsFlags::Count))
 				{
-					Ar.SetError("MapOperationUnavailable: Count is required.");
+					Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+						"MapOperationUnavailable: Count is required.");
 					break;
 				}
 				uint64 Num = 0;
@@ -645,7 +649,8 @@ namespace Durin
 				{
 					if (!MapProperty->HasCapability(EMapOpsFlags::ConstTraversal))
 					{
-						Ar.SetError("MapOperationUnavailable: ConstTraversal is required for save.");
+						Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+							"MapOperationUnavailable: ConstTraversal is required for save.");
 						break;
 					}
 					FArchiveMapVisitContext Context{Ar, MapProperty, bIncludeRawObjectReferences,
@@ -677,7 +682,8 @@ namespace Durin
 				{
 					if (!MapProperty->HasCapability(EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit | EMapOpsFlags::Insert))
 					{
-						Ar.SetError("MapOperationUnavailable: transactional load requires DetachedStorage, Insert, and TransactionalCommit.");
+						Ar.Fail(EArchiveFailureCode::UnsupportedOperation,
+							"MapOperationUnavailable: transactional load requires DetachedStorage, Insert, and TransactionalCommit.");
 						break;
 					}
 					const FMapOps& Ops = MapProperty->GetOps();
@@ -700,7 +706,7 @@ namespace Durin
 						&& (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
 							|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error)))
 					{
-						Ar.SetError(Error);
+						Ar.Fail(EArchiveFailureCode::UnsupportedOperation, Error);
 						return;
 					}
 					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
@@ -712,7 +718,7 @@ namespace Durin
 							if (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
 								|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error))
 							{
-								Ar.SetError(Error);
+								Ar.Fail(EArchiveFailureCode::UnsupportedOperation, Error);
 								return;
 							}
 						}

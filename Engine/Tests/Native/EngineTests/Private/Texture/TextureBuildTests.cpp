@@ -1361,10 +1361,11 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 
 	Durin::FTexturePlatformData Average;
 	Durin::FTexturePlatformData Preserved;
-	std::string Error;
+	std::string Error = "stale diagnostic";
 	ASSERT_TRUE(Durin::TextureBuilder::BuildMipChain(Source, Durin::ETextureUsage::Color, false,
 		Average, Error, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::Average, 0.5f)) << Error;
+	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(Durin::TextureBuilder::BuildMipChain(Source, Durin::ETextureUsage::Color, false,
 		Preserved, Error, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::PreserveCoverage, 0.5f)) << Error;

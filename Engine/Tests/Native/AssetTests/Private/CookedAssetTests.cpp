@@ -338,7 +338,9 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	FirstAuxiliary[0].Digest = FXxHash128::HashBuffer(FirstAuxiliary[0].Bytes);
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookRunResult Result;
-	ASSERT_TRUE(Store->Publish(First, FirstAuxiliary, MakeState(First[0]), Result, {}, {}, Error)) << Error;
+	FCookPublishResult PublishResult = Store->Publish(
+		First, FirstAuxiliary, MakeState(First[0]), Result, {}, {});
+	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
 	Durin::FByteArray PriorPackage, PriorSegment, PriorLibrary, PriorManifest, PriorState;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorPackage, Root / "Game/Transactional.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorSegment, Root / "Game/Transactional.dbulk"));
@@ -360,10 +362,12 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 			 ECookOperationStage::CommitManifest
 		 })
 	{
-		EXPECT_FALSE(Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, {}, [FailureStage](ECookOperationStage Stage, size_t, std::string& OutError) {
+		PublishResult = Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, {}, [FailureStage](ECookOperationStage Stage, size_t, std::string& OutError) {
 				if (Stage != FailureStage) return false;
 				OutError = "injected commit failure";
-				return true; }, Error));
+				return true; });
+		EXPECT_FALSE(PublishResult);
+		EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Failed);
 		Durin::FByteArray Bytes;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
 		EXPECT_EQ(Bytes, PriorPackage);
@@ -378,10 +382,12 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	}
 
 	bool bCancelled = false;
-	EXPECT_FALSE(Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, [&bCancelled] { return bCancelled; }, [&bCancelled](ECookOperationStage Stage, size_t, std::string&) {
+	PublishResult = Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, [&bCancelled] { return bCancelled; }, [&bCancelled](ECookOperationStage Stage, size_t, std::string&) {
 			if (Stage == ECookOperationStage::CommitSegment) bCancelled = true;
-			return false; }, Error));
-	EXPECT_NE(Error.find("CookCancelledDuringCommit"), std::string::npos);
+			return false; });
+	EXPECT_FALSE(PublishResult);
+	EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Cancelled);
+	EXPECT_NE(PublishResult.Diagnostic.find("CookCancelledDuringCommit"), std::string::npos);
 	Durin::FByteArray Bytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
 	EXPECT_EQ(Bytes, PriorPackage);
@@ -411,18 +417,22 @@ TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
 	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plans[0].VirtualPath, Plans[0].InputFingerprint, Plans[0].PackageDigest, Plans[0].SegmentDigest, Plans[0].PackageFileSize, Plans[0].SegmentFileSize, Plans[0].ContributorVersion, Plans[0].FamilyProducerVersion, Plans[0].Contributor, Plans[0].BuildProvenance}}};
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookRunResult Result;
-	ASSERT_TRUE(Store->Publish(Plans, State, Result, {}, {}, Error)) << Error;
+	FCookPublishResult PublishResult = Store->Publish(Plans, State, Result, {}, {});
+	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
 	const std::array<std::byte, 1> Corrupt{std::byte{0}};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, Root / "Game/Repair.dbulk"));
 	Plans[0].bReuseExistingOutput = true;
-	ASSERT_TRUE(Store->Publish(Plans, State, Result, {}, {}, Error)) << Error;
+	PublishResult = Store->Publish(Plans, State, Result, {}, {});
+	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
 	Durin::FByteArray Repaired;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Repaired, Root / "Game/Repair.dbulk"));
 	EXPECT_EQ(Repaired, Plans[0].BulkBytes);
 
 	ASSERT_TRUE(std::filesystem::create_directory(Root / ".durin-cook-writer"));
-	EXPECT_FALSE(Store->Publish(Plans, State, Result, {}, {}, Error));
-	EXPECT_NE(Error.find("CookCompetingWriter"), std::string::npos);
+	PublishResult = Store->Publish(Plans, State, Result, {}, {});
+	EXPECT_FALSE(PublishResult);
+	EXPECT_EQ(PublishResult.Status, ECookPublishStatus::Failed);
+	EXPECT_NE(PublishResult.Diagnostic.find("CookCompetingWriter"), std::string::npos);
 	std::filesystem::remove(Root / ".durin-cook-writer");
 }
 
@@ -453,12 +463,13 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 	std::vector<FCookSavePlan> First{Keep, Stale};
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookRunResult Result;
-	std::string Error;
-	ASSERT_TRUE(Store->Publish(First, StateFor(First), Result, {}, {}, Error)) << Error;
+	FCookPublishResult PublishResult = Store->Publish(First, StateFor(First), Result, {}, {});
+	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
 	const std::array<std::byte, 1> UnownedBytes{std::byte{9}};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(UnownedBytes, Root / "unowned.bin"));
 	std::vector<FCookSavePlan> Second{Keep};
-	ASSERT_TRUE(Store->Publish(Second, StateFor(Second), Result, {}, {}, Error)) << Error;
+	PublishResult = Store->Publish(Second, StateFor(Second), Result, {}, {});
+	ASSERT_TRUE(PublishResult) << PublishResult.Diagnostic;
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Stale.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Stale.dbulk"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Game/Keep.dasset"));

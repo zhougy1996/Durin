@@ -143,6 +143,7 @@ namespace Durin
 	{
 		UnsupportedCapability,
 		UnsupportedType,
+		UnsupportedOperation,
 		InvalidData,
 		TruncatedPayload,
 		UnbalancedScope,

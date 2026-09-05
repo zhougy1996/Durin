@@ -240,9 +240,9 @@ namespace Durin::AssetPrivate
 				if (bAssetErrorSet) return AssetError;
 				const FArchiveFailure* Failure = GetFailure();
 				if (Failure && (Failure->Code == EArchiveFailureCode::UnsupportedType
+					|| Failure->Code == EArchiveFailureCode::UnsupportedOperation
 					|| Failure->Code == EArchiveFailureCode::MalformedSerializer
-					|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields
-					|| Failure->Message.find("OperationUnavailable") != std::string::npos))
+					|| Failure->Code == EArchiveFailureCode::MissingBaseReflectedFields))
 					return EAssetError::UnsupportedProperty;
 				return EAssetError::CorruptFile;
 			}
