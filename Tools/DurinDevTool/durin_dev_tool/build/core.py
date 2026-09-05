@@ -88,7 +88,12 @@ def cache_is_usable(cache_file: Path) -> bool:
         content = cache_file.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return "CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND" not in content
+    if "CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND" in content:
+        return False
+    # Every registered Durin preset uses Ninja. CMake writes its cache before
+    # generation completes, so a failed configure can leave a plausible cache
+    # without the build graph that cmake --build requires.
+    return (cache_file.parent / "build.ninja").is_file()
 
 
 def ninja_uses_english_msvc_prefix(build_directory: Path) -> bool:

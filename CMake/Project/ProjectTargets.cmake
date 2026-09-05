@@ -565,9 +565,11 @@ function(_durin_finalize_native_test target_name)
 			cmake_path(ABSOLUTE_PATH _durin_source BASE_DIRECTORY "${_durin_source_dir}"
 				NORMALIZE OUTPUT_VARIABLE _durin_source_absolute)
 		endif()
+		file(REAL_PATH "${_durin_source_absolute}" _durin_source_canonical)
 		set(_durin_is_test_owned_source FALSE)
 		if(DEFINED DURIN_PROJECT_TESTS_DIR)
-			cmake_path(IS_PREFIX DURIN_PROJECT_TESTS_DIR "${_durin_source_absolute}"
+			file(REAL_PATH "${DURIN_PROJECT_TESTS_DIR}" _durin_project_tests_canonical)
+			cmake_path(IS_PREFIX _durin_project_tests_canonical "${_durin_source_canonical}"
 				NORMALIZE _durin_is_test_owned_source)
 		endif()
 		if(_durin_is_test_owned_source OR NOT _durin_source_absolute MATCHES "[/\\\\]Private[/\\\\].*\\.(c|cc|cpp|cxx)$")
@@ -595,8 +597,8 @@ function(_durin_finalize_native_test target_name)
 		endif()
 		get_target_property(_durin_owner_source_dir
 			${DURIN_METADATA_PRIVATE_SOURCE_OWNER} SOURCE_DIR)
-		set(_durin_owner_private_dir "${_durin_owner_source_dir}/Private")
-		cmake_path(IS_PREFIX _durin_owner_private_dir "${_durin_source_absolute}"
+		file(REAL_PATH "${_durin_owner_source_dir}/Private" _durin_owner_private_canonical)
+		cmake_path(IS_PREFIX _durin_owner_private_canonical "${_durin_source_canonical}"
 			NORMALIZE _durin_is_owned_private_source)
 		if(NOT _durin_is_owned_private_source)
 			message(FATAL_ERROR

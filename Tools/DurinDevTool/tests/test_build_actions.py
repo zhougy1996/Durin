@@ -341,6 +341,7 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = Path(tmp_path_factory.mktemp('case'))
         (directory / 'CMakeCache.txt').write_text('CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8')
+        (directory / 'build.ninja').touch()
         context = build_context.BuildContext(request_fixtures.command_request(models.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL')), models.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
         with mock.patch.object(build_core, 'preset_build_directory', return_value=directory), mock.patch.object(build_core, 'ninja_uses_english_msvc_prefix', return_value=True), mock.patch.object(build_core, 'run_command') as run:
             build_core.perform_action(context, output)
@@ -351,7 +352,42 @@ class TestCore:
         cache.write_text('CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n', encoding='utf-8')
         assert not build_core.cache_is_usable(cache)
         cache.write_text('CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8')
+        assert not build_core.cache_is_usable(cache)
+        (Path(directory) / 'build.ninja').touch()
         assert build_core.cache_is_usable(cache)
+    def test_build_fresh_configures_cache_without_ninja_graph(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        preset = self.make_preset()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        directory = Path(tmp_path_factory.mktemp('case'))
+        (directory / 'CMakeCache.txt').write_text(
+            'CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8'
+        )
+        context = build_context.BuildContext(
+            request_fixtures.command_request(
+                models.Action.BUILD,
+                options=request_fixtures.BuildActionOptions(target='all'),
+            ),
+            models.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=4,
+            environment={},
+        )
+        with mock.patch.object(
+            build_core, 'preset_build_directory', return_value=directory
+        ), mock.patch.object(
+            build_core, 'prepare_configure_dependencies'
+        ), mock.patch.object(
+            build_core, 'require_english_msvc_ninja_prefix'
+        ), mock.patch.object(build_core, 'run_command') as run:
+            build_core.perform_action(context, output)
+        assert run.call_args_list[0].args[0] == ['cmake', '--fresh', '--preset', 'debug']
+        assert run.call_args_list[1].args[0] == [
+            'cmake', '--build', str(directory), '--target', 'all', '-j', '4'
+        ]
     def test_ninja_msvc_prefix_requires_english(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         build_directory = Path(directory)
