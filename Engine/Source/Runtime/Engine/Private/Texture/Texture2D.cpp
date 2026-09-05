@@ -25,7 +25,7 @@ namespace Durin
 			FTexture2DImportedData Result;
 			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D)
 				return Result;
-			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking(0);
+			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking();
 			if (!Snapshot.IsValid()) return Result;
 			std::vector<FTextureSourceData> CapturedMips;
 			for (uint32 MipIndex = 0; MipIndex < Snapshot.Layers[0].NumMips; ++MipIndex)
@@ -449,7 +449,7 @@ namespace Durin
 		CompressionQuality = InCompressionQuality;
 		AlphaMipMode = InAlphaMipMode;
 		AlphaCoverageThreshold = InAlphaCoverageThreshold;
-		AdvanceAuthoredGeneration();
+		InvalidateAuthoredBuild();
 		OutError.clear();
 		return true;
 	}

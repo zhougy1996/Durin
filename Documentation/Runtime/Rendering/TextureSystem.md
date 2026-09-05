@@ -173,14 +173,15 @@ the queue.
 
 Each request carries detached source bytes derived from one generic source snapshot, content
 identity, all build settings, Win64/Game target identity, scheduling identity,
-the captured authored generation, and a manager-owned monotonic request serial. Key computation and a warm DDC
+and a manager-owned monotonic request serial. Key computation and a warm DDC
 lookup use source metadata and content identity only. A miss materializes the
 bulk payload into `FTextureSourceData`, then workers generate mips, compress,
 validate, and atomically persist DDC data before placing a move-only result in
 the manager mailbox. The Texture compiling manager commits on the GameThread
-only when request id, serial, weak object identity, source identity, authored generation, and
-complete settings still match. Cancellation is cooperative; this comparison
-is the live-object mutation boundary.
+only when request id, serial, weak object identity, and complete captured input
+identity match the manager-owned candidate. Accepted external source or settings
+edits explicitly cancel outstanding work; cancellation plus serial validation is
+the live-object mutation boundary.
 
 Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame budget. The manager mailbox
@@ -188,12 +189,12 @@ remains the durable owner of large move-only results and does not depend on
 deferred-executor admission for wakeup. `WaitForTexture2DCompilation` waits until its
 request reaches the mailbox and then pumps without the normal-frame item budget.
 Shutdown likewise drains all callbacks before the process task scheduler
-closes. Every callback is GameThread-only and the compiling manager's request/
-generation/identity/settings comparison prevents stale publication.
+closes. Every callback is GameThread-only and the compiling manager's request
+serial and input-identity comparison prevent stale publication.
 
 Cancellation is checked every eight generated or alpha-processing scanlines,
-between mips, and every 64 compression blocks. New requests cancel the older
-generation. Unload, destruction, document close, failed startup unwind, and
+between mips, and every 64 compression blocks. New requests and accepted
+authored edits cancel older work. Unload, destruction, document close, failed startup unwind, and
 normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
 queued and running set, waits for worker quiescence, drains GameThread
 completions, and then destroys the manager-owned queue. Request state and
@@ -394,7 +395,7 @@ so simultaneously visible documents cannot reuse or overwrite one another's
 image. Missing or invalid platform data falls back to canonical imported pixels
 when available; otherwise the preview is released.
 Persistent canonical-data, build, upload, and format status is shown with retry
-controls. Pending diagnostics show phase, request, generation, elapsed
+controls. Pending diagnostics show phase, request, elapsed
 queue/worker time, and memory estimates, with Cancel Build and Wait for Build
 controls. Reimport resolves the persisted explicit hint only when invoked;
 Reimport From File adopts a newly selected hint after a successful candidate

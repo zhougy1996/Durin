@@ -27,7 +27,6 @@ namespace Durin
 			uint64 RequestSerial = 0;
 			uint64 ActiveRequestId = 0;
 			uint64 LastRequestId = 0;
-			uint64 CapturedGeneration = 0;
 			bool bLastRequestFailed = false;
 			FTexture2DResultApplicationContext ResultApplicationContext;
 			FTexture2DBuildInputIdentity InputIdentity;
@@ -167,13 +166,11 @@ namespace Durin
 				.Diagnostic = "The Texture2D compilation target is unavailable."});
 			return;
 		}
-		if (bInputMismatch || Texture->GetAuthoredGeneration() != Result.CapturedGeneration)
+		if (bInputMismatch)
 		{
 			if (Completion) Completion({
 				.Status = ETexture2DCompilationStatus::Failed,
-				.Diagnostic = bInputMismatch
-					? "The Texture2D build input identity changed before result application."
-					: "The Texture2D source or settings generation changed before result application."});
+				.Diagnostic = "The Texture2D build input identity changed before result application."});
 			return;
 		}
 		if (Result.Phase != ETexture2DCompilationPhase::UploadPending
@@ -364,7 +361,6 @@ namespace Durin
 						.bSRGB = bSRGB},
 					.TargetPlatform = Request.Build.TargetPlatform,
 					.TargetProfile = Request.Build.TargetProfile};
-			State.CapturedGeneration = Texture.GetAuthoredGeneration();
 			State.Completion = std::move(Completion);
 		}
 		if (PreviousRequestId != 0) CancelWork(PreviousRequestId);
@@ -384,7 +380,6 @@ namespace Durin
 				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold},
 			.Owner = Owner,
 			.RequestSerial = RequestSerial,
-			.CapturedGeneration = Texture.GetAuthoredGeneration(),
 			.EstimatedWidth = Width,
 			.EstimatedHeight = Height,
 			.Priority = Request.Priority,

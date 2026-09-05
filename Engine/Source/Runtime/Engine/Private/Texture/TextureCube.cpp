@@ -28,7 +28,7 @@ namespace Durin
 			FTextureCubeImportedData Result;
 			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
 				return Result;
-			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking(0);
+			const FTextureSourceSnapshot Snapshot = Source.CreateSnapshotBlocking();
 			if (!Snapshot.IsValid()
 				|| !Result.Pixels.UpdatePayload(Snapshot.MipData)) return {};
 			Result.FaceDimension = Source.GetWidth();
@@ -470,7 +470,7 @@ namespace Durin
 		OriginalSourceWidth = InOriginalSourceWidth;
 		OriginalSourceHeight = InOriginalSourceHeight;
 		bSRGB = bInSRGB;
-		AdvanceAuthoredGeneration();
+		InvalidateAuthoredBuild();
 		OutError.clear();
 		return true;
 	}

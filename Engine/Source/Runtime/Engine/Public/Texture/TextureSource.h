@@ -116,7 +116,6 @@ namespace Durin
 		uint8 SourceChannelCount = 0;
 		uint8 TransparencyMask = 0;
 		FXxHash128 Identity;
-		uint64 Generation = 0;
 
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
@@ -274,8 +273,7 @@ namespace Durin
 		{
 			return Payload.GetPayload();
 		}
-		ENGINE_API auto CreateSnapshotBlocking(uint64 Generation) const
-			-> FTextureSourceSnapshot;
+		ENGINE_API auto CreateSnapshotBlocking() const -> FTextureSourceSnapshot;
 		ENGINE_API auto ReleaseSourceMemory() const -> void;
 		auto GetOwner() -> DTexture* { return Owner; }
 		auto GetOwner() const -> const DTexture* { return Owner; }

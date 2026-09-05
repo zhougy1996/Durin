@@ -54,7 +54,6 @@ namespace Durin
 		ENGINE_API auto GetRenderFailure() const -> ETextureRenderFailure;
 		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
-		auto GetAuthoredGeneration() const -> uint64 { return AuthoredGeneration; }
 		auto GetSource() const -> const FTextureSource& { return Source; }
 		ENGINE_API auto CreateSourceSnapshotBlocking() const
 			-> FTextureSourceSnapshot;
@@ -87,7 +86,7 @@ namespace Durin
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
 		ENGINE_API auto ResetSource() -> void;
-		ENGINE_API auto AdvanceAuthoredGeneration() -> void;
+		ENGINE_API auto InvalidateAuthoredBuild() -> void;
 		ENGINE_API auto BindTextureSourceOwner() -> void;
 		virtual auto ValidateSettingsAfterImportOrEdit(
 			const FTextureSource& ProposedSource) const -> bool = 0;
@@ -114,7 +113,6 @@ namespace Durin
 		bool bTextureReferenceInitializationQueued = false;
 		bool bAcceptingRenderResourceBuilds = true;
 		uint64 BuildRevision = 0;
-		uint64 AuthoredGeneration = 0;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

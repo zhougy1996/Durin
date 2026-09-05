@@ -2,6 +2,7 @@
 
 #include "DObject/Package.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
 #include "Asset/BulkData.h"
 
@@ -94,7 +95,7 @@ namespace Durin
 		Value.BindOwner(this);
 		Source = std::move(Value);
 		Source.BindOwner(this);
-		++AuthoredGeneration;
+		InvalidateAuthoredBuild();
 		OutError.clear();
 		return true;
 	}
@@ -104,7 +105,7 @@ namespace Durin
 		CheckGameThread();
 		Source.Reset();
 		Source.BindOwner(this);
-		++AuthoredGeneration;
+		InvalidateAuthoredBuild();
 	}
 
 	auto DTexture::BindTextureSourceOwner() -> void
@@ -112,16 +113,16 @@ namespace Durin
 		Source.BindOwner(this);
 	}
 
-	auto DTexture::AdvanceAuthoredGeneration() -> void
+	auto DTexture::InvalidateAuthoredBuild() -> void
 	{
 		CheckGameThread();
-		++AuthoredGeneration;
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 	}
 
 	auto DTexture::CreateSourceSnapshotBlocking() const
 		-> FTextureSourceSnapshot
 	{
-		return Source.CreateSnapshotBlocking(AuthoredGeneration);
+		return Source.CreateSnapshotBlocking();
 	}
 
 	auto DTexture::SetAssetImportData(

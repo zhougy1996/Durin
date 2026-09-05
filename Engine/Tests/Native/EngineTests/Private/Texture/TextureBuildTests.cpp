@@ -53,7 +53,7 @@ TEST(FTextureSourceTests, ValidatesVolumeMipsIdentityAndSnapshotIsolation)
 		.MipData = Durin::FSharedByteBuffer::Take(Durin::FByteArray(37, std::byte{3})),
 		.Kind = Durin::ETextureSourceKind::Volume,
 		.GammaSpace = Durin::ETextureSourceGammaSpace::Linear,
-		.SourceChannelCount = 1, .Identity = {1, 2}, .Generation = 17};
+		.SourceChannelCount = 1, .Identity = {1, 2}};
 	ASSERT_TRUE(Snapshot.IsValid());
 
 	Durin::FTextureSourceMipInfo Mip = Snapshot.GetMipInfo(0, 0, 1);
@@ -70,7 +70,6 @@ TEST(FTextureSourceTests, ValidatesVolumeMipsIdentityAndSnapshotIsolation)
 	ASSERT_EQ(View.GetPixels().size(), 1u);
 	Snapshot.MipData = {};
 	EXPECT_EQ(View.GetPixels()[0], std::byte{3});
-	EXPECT_EQ(Snapshot.Generation, 17u);
 }
 
 TEST(FTextureSourceTests, InitApisKeepCanonicalIdentityAcrossLosslessStorage)
@@ -105,10 +104,9 @@ TEST(FTextureSourceTests, InitApisKeepCanonicalIdentityAcrossLosslessStorage)
 	EXPECT_TRUE(std::ranges::equal(FirstMips.GetData().GetBytes(), Pixels));
 
 	const Durin::FTextureSourceSnapshot Snapshot =
-		Compressed.CreateSnapshotBlocking(9);
+		Compressed.CreateSnapshotBlocking();
 	ASSERT_TRUE(Snapshot.IsValid());
 	EXPECT_TRUE(std::ranges::equal(Snapshot.MipData.GetBytes(), Pixels));
-	EXPECT_EQ(Snapshot.Generation, 9u);
 
 	Durin::Image::FImage UpdatedImage;
 	const Durin::FByteArray UpdatedPixels(4 * 4 * 4, std::byte{0x33});
@@ -167,11 +165,9 @@ TEST(FTextureSourceTests, FailedFamilyEditPreservesAcceptedState)
 	std::string Error;
 	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
 	const Durin::FXxHash128 Identity = Texture->GetSource().GetIdentity();
-	const uint64 Generation = Texture->GetAuthoredGeneration();
 	Imported.Pixels.UpdatePayload(Durin::FByteArray(3, std::byte{2}));
 	EXPECT_FALSE(Texture->SetSourceData(Imported, Error));
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
-	EXPECT_EQ(Texture->GetAuthoredGeneration(), Generation);
 }
 
 TEST(FTextureSourceTests, ResolvesBlockLayerMipOrderingAndRejectsOversizedLayouts)
@@ -209,13 +205,12 @@ TEST(FTextureSourceTests, ResolvesBlockLayerMipOrderingAndRejectsOversizedLayout
 	EXPECT_FALSE(Snapshot.IsValid());
 }
 
-TEST(FTextureSourceTests, TextureOwnsSourceAndAdvancesAuthoredGeneration)
+TEST(FTextureSourceTests, TextureOwnsSourceAndCapturesIdentity)
 {
 	InitializeDObjectSystem();
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "OwnedTextureSource");
 	ASSERT_NE(Texture, nullptr);
 	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
-	const uint64 InitialGeneration = Texture->GetAuthoredGeneration();
 	Durin::FTexture2DImportedData Imported;
 	Imported.Width = 1;
 	Imported.Height = 1;
@@ -225,16 +220,13 @@ TEST(FTextureSourceTests, TextureOwnsSourceAndAdvancesAuthoredGeneration)
 	std::string Error;
 	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
 	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
-	EXPECT_EQ(Texture->GetAuthoredGeneration(), InitialGeneration + 1);
 	const Durin::FTextureSourceSnapshot Snapshot =
 		Texture->CreateSourceSnapshotBlocking();
 	ASSERT_TRUE(Snapshot.IsValid());
-	EXPECT_EQ(Snapshot.Generation, Texture->GetAuthoredGeneration());
 	EXPECT_EQ(Snapshot.Identity, Texture->GetSource().GetIdentity());
 	ASSERT_TRUE(Texture->SetBuildSettings(Durin::ETextureUsage::Color, true, 0,
 		Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::Average, 0.5f, Error)) << Error;
-	EXPECT_EQ(Texture->GetAuthoredGeneration(), InitialGeneration + 2);
 }
 
 TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
@@ -1745,7 +1737,9 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(Transactions->CanUndo());
-	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
+	ASSERT_TRUE(Texture->SetBuildSettings(Texture->GetUsage(), Texture->IsSRGB(),
+		Texture->GetMaxResolution(), Texture->GetCompressionQuality(),
+		Texture->GetAlphaMipMode(), Texture->GetAlphaCoverageThreshold(), Error)) << Error;
 	{
 		std::lock_guard Lock(Mutex);
 		bRelease = true;

@@ -469,8 +469,7 @@ namespace Durin
 			: Image::FImageView{};
 	}
 
-	auto FTextureSource::CreateSnapshotBlocking(uint64 Generation) const
-		-> FTextureSourceSnapshot
+	auto FTextureSource::CreateSnapshotBlocking() const -> FTextureSourceSnapshot
 	{
 		const FMipData Mips = GetMipData();
 		if (!Mips.IsValid()) return {};
@@ -478,8 +477,7 @@ namespace Durin
 			.MipData = Mips.GetData(), .Kind = Kind, .GammaSpace = GammaSpace,
 			.Compression = ETextureSourceCompression::Raw,
 			.SourceChannelCount = SourceChannelCount,
-			.TransparencyMask = TransparencyMask, .Identity = GetIdentity(),
-			.Generation = Generation};
+			.TransparencyMask = TransparencyMask, .Identity = GetIdentity()};
 		return Result.IsValid() ? std::move(Result) : FTextureSourceSnapshot{};
 	}
 

@@ -16,7 +16,8 @@ decoded snapshots and retain typed values only at recipe boundaries. HDR cube
 panoramas remain RGBA32F long/lat Source and rebuild without their imported
 file; supplied Texture2D mips are preserved. Canonical decoded identity is
 independent of raw or optional run-length storage, legacy schemas migrate in
-PostLoad, and Texture2D completion rejects stale authored generations.
+PostLoad, and Texture2D completion admits only its current request serial and
+captured build-input identity.
 
 Qualification on 2026-09-05 passed 88 `TextureTests`, the affected 28-target
 native selection, and a full macOS Debug DurinEditor `all` build. The affected
@@ -59,13 +60,13 @@ decoded bytes. It excludes package paths, import hints, and bulk instance GUIDs.
 Build identity additionally includes resolved build settings, target/profile,
 provider recipe versions, and payload schema versions.
 
-`DTexture` owns the authoritative monotonically increasing source generation.
 An edit supplies one complete value that is validated before `DTexture`
-atomically replaces Source and advances its generation on the GameThread. A failed edit preserves source,
-identity, generation, platform data, and render state. Build capture snapshots
-source, gamma, settings, and generation together; workers never read the live
-asset, and completion publishes only when the captured generation and settings
-generation still match.
+atomically replaces Source on the GameThread. A failed edit preserves source,
+identity, platform data, and render state. Build capture snapshots source,
+gamma, settings, and canonical identity together; workers never read the live
+asset. The compiling manager owns candidate state until completion, uses a
+monotonic request serial for latest-wins publication, and accepted external
+source or settings edits explicitly cancel outstanding work.
 
 ### Consumer And Migration Inventory
 
@@ -77,9 +78,10 @@ generation still match.
   thumbnails, payload inspection, PostLoad, Cook, and reimport rollback all read
   or reconstruct family-specific source values. Stage 3 switches them to one
   detached generic snapshot; typed values remain only at recipe boundaries.
-- Texture2D compilation already applies revisioned completion. Cube and volume
-  builds are synchronous. All result application remains last-known-good and
-  generation checked when asynchronous work is used.
+- Texture2D compilation already applies serial-checked completion. Cube and
+  volume builds are synchronous. All result application remains
+  last-known-good, with superseded or explicitly canceled asynchronous work
+  unable to publish.
 - DAST v9 reflected field signatures are strict. Therefore the existing
   `DTexture::Source` v1 fields remain readable as a legacy struct and migrate in
   `PostLoad` to the new descriptor form; new saves emit only the new schema.
@@ -127,9 +129,10 @@ Durin's immutable EditorBulkData and package ownership boundaries.
 - Source identity covers canonical content and its interpretation/layout.
   Build keys additionally cover settings, target, and recipe version. Package
   paths and bulk instance GUIDs do not become content identity.
-- Capture source, gamma interpretation, settings, and generation together on
-  the owning thread. Workers use immutable detached values and never consult a
-  live texture. Completion validates the captured generation before publishing.
+- Capture source, gamma interpretation, settings, and canonical identity
+  together on the owning thread. Workers use immutable detached values and
+  never consult a live texture. Completion validates the manager-owned request
+  serial and captured input identity before publishing.
 - Keep projection, exposure, mip generation, and platform encoding in build
   recipes. Preserve decoded HDR panoramas in Source rather than persisting only
   projected RGBA8 faces. Import file hints and hashes remain in import data.
@@ -159,7 +162,7 @@ must name any supported source formats the current build recipes still reject.
   packed RGBE need native storage or explicit import conversion; document any
   remaining UE format gap without copying deprecated enum values.
 - [x] Specify source content identity versus build identity, gamma ownership,
-  edit failure behavior, and authoritative source generation.
+  edit failure behavior, and asynchronous request invalidation.
 - [x] Resolve old schema admission and migration through the existing package
   compatibility mechanism; identify assets requiring external-source reimport.
 
@@ -194,8 +197,8 @@ Depends on Stage 1.
   read APIs that preserve package failure diagnostics.
 - [x] Implement generic identity and detached immutable snapshots; remove
   public mutation paths that can leave descriptors inconsistent with payloads.
-- [x] Implement complete-value editing and source generation integration with
-  `DTexture`; invalid kind, invalid indices, and arithmetic overflow fail safely.
+- [x] Implement complete-value editing and compilation invalidation integration
+  with `DTexture`; invalid kind, invalid indices, and arithmetic overflow fail safely.
 - [x] Verify multi-block/layer/mip layouts, volume depth reduction, fixed array
   slice counts, metadata-only identity, snapshot isolation, and failed edits.
 
@@ -216,8 +219,8 @@ Depends on Stage 2.
   in the recipe. Rebuild after parameter changes without imported-file access.
 - [x] Define supplied-mip preservation versus mip generation explicitly. Publish
   a tested source-format/provider capability matrix with actionable rejection.
-- [x] Update DDC keys/recipe versions and completion validation so old results
-  cannot overwrite a newer source/settings generation.
+- [x] Update DDC keys/recipe versions and completion validation so superseded or
+  canceled results cannot overwrite newer source/settings state.
 - [x] Validate all three families, HDR panorama rebuild with the original file
   unavailable, preserved source mips, cache hit/miss behavior, and stale completion.
 

@@ -28,7 +28,6 @@ namespace Durin
 		FTexture2DBuildSettingsSnapshot Settings;
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
-		uint64 CapturedGeneration = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
@@ -43,7 +42,6 @@ namespace Durin
 		uint64 RequestId = 0;
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
-		uint64 CapturedGeneration = 0;
 		std::string AssetIdentity;
 		FXxHash128 ImportedDataIdentity;
 		FTexture2DBuildSettingsSnapshot Settings;
