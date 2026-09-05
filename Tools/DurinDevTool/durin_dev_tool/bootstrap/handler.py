@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +11,7 @@ from typing import Callable, TextIO
 
 from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
+from ..python_environment import restart_prepared_shell
 from .models import BootstrapError, DependencyRequest
 from . import application
 from .preflight import PreflightError
@@ -72,40 +72,6 @@ class _BootstrapOutput:
         return bool(getattr(self.stream, "isatty", lambda: False)())
 
 
-def _restart_prepared_shell(
-    repository_root: Path,
-    python: Path,
-    session_state: dict[str, object],
-    command_io: CommandIO,
-) -> None:
-    try:
-        same_interpreter = python.samefile(Path(sys.executable))
-    except OSError:
-        same_interpreter = python.resolve() == Path(sys.executable).resolve()
-    if same_interpreter:
-        return
-    entrypoint = (
-        repository_root
-        / "Tools"
-        / "DurinDevTool"
-        / "durin_dev_tool"
-        / "__main__.py"
-    )
-    command_io.out("Restarting the interactive shell in Durin's prepared environment...")
-    result = subprocess.run(
-        [str(python), str(entrypoint), "shell"],
-        cwd=repository_root,
-        check=False,
-        stdout=command_io.stdout,
-        stderr=command_io.stderr,
-    )
-    if result.returncode != 0:
-        raise BootstrapError(
-            f"Prepared shell exited with code {result.returncode}."
-        )
-    session_state["exit_requested"] = True
-
-
 @dataclass(frozen=True)
 class _BootstrapCommand:
     namespace: argparse.Namespace
@@ -123,7 +89,7 @@ def _run_setup(command: _BootstrapCommand) -> None:
     )
     python = application.setup_checkout(command.repository, command.command_io, interactive=interactive)
     if command.session_state is not None:
-        _restart_prepared_shell(
+        restart_prepared_shell(
             command.repository.root,
             python,
             command.session_state,

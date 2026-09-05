@@ -8,6 +8,7 @@ from typing import Callable, TextIO
 
 from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
+from ..python_environment import prepared_python_path, restart_prepared_shell
 from . import git as worktree_git
 from . import terminal
 from .models import WorktreeToolError
@@ -81,6 +82,7 @@ def run(
     stderr: TextIO,
     repository_context: RepositoryContext | None = None,
     command_io: CommandIO | None = None,
+    session_state: dict[str, object] | None = None,
     **_: object,
 ) -> int:
     repository = repository_context or RepositoryContext.load(repository_root)
@@ -92,6 +94,26 @@ def run(
                 f"Unsupported worktree action: {namespace.worktree_action}"
             )
         action(namespace, repository, io)
+        if (
+            namespace.worktree_action == "prepare"
+            and session_state is not None
+            and not namespace.dry_run
+        ):
+            target = (
+                Path(namespace.path).expanduser().absolute()
+                if namespace.path
+                else repository.root
+            )
+            if worktree_git.same_path(target, repository.root):
+                restart_prepared_shell(
+                    repository.root,
+                    prepared_python_path(
+                        repository.root,
+                        repository.config.worktrees.python_environment,
+                    ),
+                    session_state,
+                    io,
+                )
     except WorktreeToolError:
         raise
     except (OSError, ValueError) as exc:

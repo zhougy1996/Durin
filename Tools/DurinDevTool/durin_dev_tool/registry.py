@@ -9,7 +9,11 @@ from typing import Sequence, TextIO
 from .context import CommandIO, RepositoryContext
 from .configuration import RepositoryConfigError
 from .errors import DevToolError
-from .python_environment import launcher_command, prepared_python_path
+from .python_environment import (
+    launcher_command,
+    prepared_environment_is_active,
+    prepared_python_path,
+)
 from .commands.asset_specs import COMMAND_SPEC as ASSET_COMMAND_SPEC
 from .commands.bootstrap_specs import DEPENDENCY_COMMAND_SPEC, SETUP_COMMAND_SPEC
 from .commands.build_specs import COMMAND_SPECS as BUILD_COMMAND_SPECS, SCAFFOLDING_COMMAND_SPEC
@@ -268,11 +272,7 @@ def require_prepared_environment(
             "'DevTool worktree prepare' in a linked worktree."
         )
     active_interpreter = Path(sys.executable)
-    try:
-        interpreter_matches = interpreter.samefile(active_interpreter)
-    except OSError:
-        interpreter_matches = interpreter.resolve() == active_interpreter.resolve()
-    if not interpreter_matches:
+    if not prepared_environment_is_active(interpreter):
         raise DevToolError(
             "Durin's prepared Python environment exists, but DevTool is "
             f'running with "{active_interpreter}". Restart through '

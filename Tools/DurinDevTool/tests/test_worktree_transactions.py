@@ -6,7 +6,9 @@ from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 from durin_dev_tool.bootstrap import agent_config, application as bootstrap_application, handler, manifests as dependency_manifests, preflight, setup, toolchain_selection
 from durin_dev_tool.context import CommandIO, RepositoryContext
+from durin_dev_tool.python_environment import prepared_python_path
 from durin_dev_tool.worktree import git as worktree_git
+from durin_dev_tool.worktree import handler as worktree_handler
 from durin_dev_tool.worktree import links as worktree_links
 from durin_dev_tool.worktree import transactions as worktree_transactions
 from durin_dev_tool.worktree.models import DetachedLink, Worktree, WorktreeToolError
@@ -15,6 +17,37 @@ REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 
 class TestWorktreeTool:
+
+    def test_prepare_current_worktree_restarts_an_interactive_shell(self) -> None:
+        namespace = argparse.Namespace(
+            worktree_action='prepare',
+            path=None,
+            source=None,
+            link_type='auto',
+            dry_run=False,
+            plain=True,
+        )
+        session: dict[str, object] = {}
+        with mock.patch.object(worktree_transactions, 'prepare_worktree'), mock.patch.object(
+            worktree_handler, 'restart_prepared_shell'
+        ) as restart:
+            assert worktree_handler.run(
+                namespace,
+                repository_root=REPOSITORY_ROOT,
+                stdout=mock.Mock(),
+                stderr=mock.Mock(),
+                repository_context=REPOSITORY,
+                session_state=session,
+            ) == 0
+        restart.assert_called_once_with(
+            REPOSITORY.root,
+            prepared_python_path(
+                REPOSITORY.root,
+                REPOSITORY.config.worktrees.python_environment,
+            ),
+            session,
+            mock.ANY,
+        )
 
     def test_remove_refuses_main_worktree(self) -> None:
         main = Path('C:/repo')

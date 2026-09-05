@@ -8,7 +8,7 @@ from unittest import mock
 PRODUCT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PRODUCT_ROOT.parents[1]
 from durin_dev_tool import cli
-from durin_dev_tool.python_environment import launcher_command, prepared_python_path
+from durin_dev_tool.python_environment import launcher_command, prepared_environment_is_active, prepared_python_path
 from durin_dev_tool.registry import CommandRegistry, require_prepared_environment
 from durin_dev_tool.repository import find_repository_root
 
@@ -71,9 +71,32 @@ class TestCommandRegistry:
         interpreter.parent.mkdir(parents=True)
         interpreter.touch()
         expected_launcher = launcher_command().replace('.', r'\.')
-        with mock.patch('durin_dev_tool.registry.sys.executable', str(root / 'system-python.exe')), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match=rf'Restart through.*{expected_launcher}'):
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(root / 'system-python.exe')), mock.patch('durin_dev_tool.registry.prepared_environment_is_active', return_value=False), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match=rf'Restart through.*{expected_launcher}'):
             cli.run(['build'], repository_root=root)
         import_module.assert_not_called()
+
+    def test_base_interpreter_is_not_mistaken_for_its_virtual_environment(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        python = prepared_python_path(root, Path('.venv'))
+        python.parent.mkdir(parents=True)
+        python.touch()
+        system_prefix = root / 'python-installation'
+        assert not prepared_environment_is_active(
+            python,
+            active_prefix=system_prefix,
+            base_prefix=system_prefix,
+        )
+
+    def test_prepared_environment_accepts_its_active_prefix(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        environment = root / '.venv'
+        environment.mkdir()
+        python = prepared_python_path(root, Path('.venv'))
+        assert prepared_environment_is_active(
+            python,
+            active_prefix=environment,
+            base_prefix=root / 'python-installation',
+        )
 
     def test_incomplete_environment_is_rejected_before_handler_import(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -81,7 +104,7 @@ class TestCommandRegistry:
         interpreter = prepared_python_path(root, Path('.venv'))
         interpreter.parent.mkdir(parents=True)
         interpreter.touch()
-        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=None), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match='incomplete.*DevTool setup'):
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.prepared_environment_is_active', return_value=True), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=None), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match='incomplete.*DevTool setup'):
             cli.run(['build'], repository_root=root)
         import_module.assert_not_called()
 
@@ -91,7 +114,7 @@ class TestCommandRegistry:
         interpreter = prepared_python_path(root, Path('.venv'))
         interpreter.parent.mkdir(parents=True)
         interpreter.touch()
-        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=object()):
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.prepared_environment_is_active', return_value=True), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=object()):
             require_prepared_environment(root, required_modules=('rich',))
 
     def test_no_arguments_selects_shell(self) -> None:

@@ -11,6 +11,7 @@ from durin_dev_tool.bootstrap import agent_config, application as bootstrap_appl
 from durin_dev_tool.bootstrap.models import BootstrapError
 from durin_dev_tool.build import models, settings
 from durin_dev_tool.context import CommandIO, RepositoryContext
+from durin_dev_tool import python_environment
 from durin_dev_tool.registry import CommandRegistry
 from durin_dev_tool.worktree import transactions as worktree_transactions
 
@@ -292,7 +293,7 @@ class TestSetupOrchestration:
         session: dict[str, object] = {}
         prepared_python = Path(sys.executable).with_name('prepared-python.exe')
         completed = mock.Mock(returncode=0)
-        with mock.patch.object(bootstrap_application, 'setup_checkout', return_value=prepared_python), mock.patch.object(handler.subprocess, 'run', return_value=completed) as run:
+        with mock.patch.object(bootstrap_application, 'setup_checkout', return_value=prepared_python), mock.patch.object(python_environment, 'prepared_environment_is_active', return_value=False), mock.patch.object(python_environment.subprocess, 'run', return_value=completed) as run:
             result = handler.run(namespace, repository_root=REPOSITORY_ROOT, stdout=io.StringIO(), stderr=io.StringIO(), session_state=session)
         assert result == 0
         assert session['exit_requested']
