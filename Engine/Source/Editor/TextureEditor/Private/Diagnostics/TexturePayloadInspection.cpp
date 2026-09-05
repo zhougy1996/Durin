@@ -1,4 +1,4 @@
-#include "Texture/TexturePayloadInspection.h"
+#include "Diagnostics/TexturePayloadInspection.h"
 
 #include "Asset/CookedAsset.h"
 #include "Asset/EditorBulkDataStorage.h"

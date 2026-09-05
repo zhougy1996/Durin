@@ -5,7 +5,7 @@
 #include "Asset/SourceHint.h"
 #include "Misc/FileHelper.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/TexturePayloadInspection.h"
+#include "Diagnostics/TexturePayloadInspection.h"
 
 namespace
 {

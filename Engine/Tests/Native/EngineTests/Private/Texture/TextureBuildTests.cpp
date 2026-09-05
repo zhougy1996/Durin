@@ -11,7 +11,7 @@
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureDerivedData.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"
-#include "Texture/TexturePayloadInspection.h"
+#include "Diagnostics/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
 #include "Texture/VolumeTextureBuildProvider.h"
 #include "Texture/TextureBuilder.h"

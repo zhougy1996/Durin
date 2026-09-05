@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Asset/PackageInspection.h"
-#include "EngineAPI.h"
 #include "Misc/Guid.h"
+#include "TextureEditorAPI.h"
 
 namespace Durin
 {
@@ -69,17 +69,17 @@ namespace Durin
 
 	// Reads reflected package fields only. It never constructs an asset object,
 	// opens a source file/DDC record, or mutates package/companion state.
-	ENGINE_API auto InspectTexturePayloadPackage(
+	TEXTUREEDITOR_API auto InspectTexturePayloadPackage(
 		const FAssetPackageInspection& Package,
 		FTexturePayloadInspection& OutInspection,
 		std::string* OutError = nullptr) -> bool;
 
 	// Joins live source, derived, cooked, decoded, and render-resource state.
 	// These overloads are read-only and do not perform repair or fallback.
-	ENGINE_API auto InspectTexturePayloads(const DTexture2D& Texture)
+	TEXTUREEDITOR_API auto InspectTexturePayloads(const DTexture2D& Texture)
 		-> FTexturePayloadInspection;
-	ENGINE_API auto InspectTexturePayloads(const DTextureCube& Texture)
+	TEXTUREEDITOR_API auto InspectTexturePayloads(const DTextureCube& Texture)
 		-> FTexturePayloadInspection;
-	ENGINE_API auto InspectTexturePayloads(const DVolumeTexture& Texture)
+	TEXTUREEDITOR_API auto InspectTexturePayloads(const DVolumeTexture& Texture)
 		-> FTexturePayloadInspection;
 }
