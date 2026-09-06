@@ -36,6 +36,8 @@ namespace Durin::VulkanRHI
 		explicit FVulkanBufferStateTracker(uint64 Size);
 
 		auto Validate(uint64 Offset, uint64 Size, ERHIAccess Expected, ERHIAccess& OutTracked) const -> bool;
+		// Combines synchronization scopes across every overlapping tracked interval.
+		auto GetBarrierSource(uint64 Offset, uint64 Size) const -> FVulkanResourceStateMapping;
 		auto Apply(uint64 Offset, uint64 Size, ERHIAccess Access) -> void;
 		auto GetIntervals() const -> const std::vector<FInterval>& { return Intervals; }
 
@@ -50,6 +52,9 @@ namespace Durin::VulkanRHI
 
 		auto Validate(const FRHITextureSubresourceRange& Range, ERHIAccess Expected,
 			ERHIAccess& OutTracked) const -> bool;
+		// Discard affects only the old layout; all selected access scopes survive.
+		auto GetBarrierSource(const FRHITextureSubresourceRange& Range,
+			bool bDiscardContents) const -> FVulkanResourceStateMapping;
 		auto Apply(const FRHITextureSubresourceRange& Range, ERHIAccess Access) -> void;
 		auto Get(ERHITextureAspect Aspect, uint32 Mip, uint32 Layer) const -> ERHIAccess;
 

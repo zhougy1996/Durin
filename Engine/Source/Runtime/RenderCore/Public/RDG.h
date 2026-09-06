@@ -951,6 +951,7 @@ namespace Durin
 		uint64 BufferOffset = 0;
 		uint64 BufferSize = 0;
 		bool bFinal = false;
+		bool bDiscardContents = false;
 	};
 
 	// Reports the retained scheduled interval of one declared resource.

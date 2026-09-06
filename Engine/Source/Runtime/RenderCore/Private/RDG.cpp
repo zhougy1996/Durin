@@ -2267,43 +2267,47 @@ namespace Durin
 				for (auto& Cell : ExecutionCells)
 				{
 					if (!ContainsRange(Use, Cell.Use)) continue;
-					const ERHIAccess Before = Use.bDiscard ? ERHIAccess::Discard : Cell.Access;
+					const ERHIAccess Before = Cell.Access;
+					// Equal access states still need a memory dependency when the
+					// preceding access can write (for example, consecutive UAV uses).
+					const bool bNeedsBarrier = Before != Use.Access
+						|| AccessHasWrite(Before) || Use.bDiscard;
 					if (Use.Kind != ERDGResourceKind::Token
 						&& !Use.bPassManagedTransition
-						&& (Before != Use.Access || Use.bDiscard))
+						&& bNeedsBarrier)
 					{
 						if (Use.Kind == ERDGResourceKind::Texture)
 						{
-							CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access});
+							CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access, Use.bDiscard});
 							Runtime.TextureTransitionResources.push_back(Use.ResourceIndex);
 						}
 						else
 						{
-							CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
+							CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access, Use.bDiscard});
 							Runtime.BufferTransitionResources.push_back(Use.ResourceIndex);
 						}
 						CompiledState->TransitionCaptures.push_back({Use.ResourceIndex,
 							CompiledPassIndex, Before, Use.Access, Cell.Use.TextureRange,
-							Cell.Use.BufferOffset, Cell.Use.BufferSize, false});
+							Cell.Use.BufferOffset, Cell.Use.BufferSize, false, Use.bDiscard});
 					}
 					else if (Use.bPassManagedTransition)
 					{
-						if (!Use.bDiscard && Before != Use.Access)
+						if (bNeedsBarrier)
 						{
 							if (Use.Kind == ERDGResourceKind::Texture)
 							{
-								CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access});
+								CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access, Use.bDiscard});
 								Runtime.TextureTransitionResources.push_back(Use.ResourceIndex);
 							}
 							else
 							{
-								CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
+								CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access, Use.bDiscard});
 								Runtime.BufferTransitionResources.push_back(Use.ResourceIndex);
 							}
 						}
 						CompiledState->TransitionCaptures.push_back({Use.ResourceIndex,
 							CompiledPassIndex, Before, Use.Access, Cell.Use.TextureRange,
-							Cell.Use.BufferOffset, Cell.Use.BufferSize, false});
+							Cell.Use.BufferOffset, Cell.Use.BufferSize, false, Use.bDiscard});
 						CompiledState->TransitionCaptures.push_back({Use.ResourceIndex,
 							CompiledPassIndex, Use.Access, Use.ResultAccess,
 							Cell.Use.TextureRange, Cell.Use.BufferOffset,
@@ -2317,9 +2321,8 @@ namespace Durin
 						std::string(Use.ShaderBindingName),
 						Use.ShaderBindingType});
 					Cell.Access = Use.Kind == ERDGResourceKind::Token
-						? ERHIAccess::None : (Use.bStore
-							? (Use.bPassManagedTransition ? Use.ResultAccess : Use.Access)
-							: ERHIAccess::Discard);
+						? ERHIAccess::None
+						: (Use.bPassManagedTransition ? Use.ResultAccess : Use.Access);
 					Cell.bProduced = Use.bStore && (Cell.bProduced || IsWriteUse(Use.Use));
 				}
 			}
@@ -2640,6 +2643,7 @@ namespace Durin
 				<< Transition.TextureRange.FirstArrayLayer << '+'
 				<< Transition.TextureRange.NumArrayLayers << " offset="
 				<< Transition.BufferOffset << " size=" << Transition.BufferSize
+				<< " discard=" << Transition.bDiscardContents
 				<< " final=" << Transition.bFinal << '\n';
 		return Output.str();
 	}

@@ -18,8 +18,12 @@ attachment access, presentation, and discard.
 Compatible read-only intents may be combined. Write intents are exclusive,
 apart from the deliberately named shader read/write states. `None` represents
 an uninitialized tracked state. `Discard` is valid only as an expected state:
-it declares that prior contents and dependencies are irrelevant, but does not
-become the resource's resulting state.
+it is a compatibility wildcard that discards prior contents while retaining
+all tracked source stages and accesses, and never becomes the resulting state.
+New transitions express content discard independently with
+`bDiscardContents`, keeping an exact `ExpectedBefore`. Vulkan may use an
+undefined old image layout for discard, but still waits for every overlapping
+tracked access, including mixed ranges in resources reused across graphs.
 
 `ExpectedBefore` is a checked precondition, not a hint. Replay fails with a
 resource-qualified diagnostic when the tracked state for any selected range

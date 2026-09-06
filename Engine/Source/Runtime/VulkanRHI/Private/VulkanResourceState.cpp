@@ -9,6 +9,15 @@ namespace Durin::VulkanRHI
 			| ERHIAccess::GraphicsShaderRead | ERHIAccess::ComputeShaderRead
 			| ERHIAccess::TransferRead | ERHIAccess::HostRead;
 
+		auto MergeSource(FVulkanResourceStateMapping& Result, ERHIAccess Access) -> void
+		{
+			const auto Source = MapVulkanResourceState(Access);
+			Result.StageMask2 |= Source.StageMask2;
+			Result.AccessMask2 |= Source.AccessMask2;
+			Result.LegacyStageMask |= Source.LegacyStageMask;
+			Result.LegacyAccessMask |= Source.LegacyAccessMask;
+		}
+
 		auto ForEachAspect(ERHITextureAspect Aspects, const auto& Function) -> void
 		{
 			for (ERHITextureAspect Aspect : {ERHITextureAspect::Color, ERHITextureAspect::Depth, ERHITextureAspect::Stencil})
@@ -165,6 +174,16 @@ namespace Durin::VulkanRHI
 		return bFound;
 	}
 
+	auto FVulkanBufferStateTracker::GetBarrierSource(uint64 Offset, uint64 Size) const
+		-> FVulkanResourceStateMapping
+	{
+		FVulkanResourceStateMapping Result;
+		for (const auto& Interval : Intervals)
+			if (Interval.Offset < Offset + Size && Offset < Interval.Offset + Interval.Size)
+				MergeSource(Result, Interval.Access);
+		return Result;
+	}
+
 	auto FVulkanBufferStateTracker::Apply(uint64 Offset, uint64 Size, ERHIAccess Access) -> void
 	{
 		std::vector<FInterval> Result;
@@ -219,6 +238,23 @@ namespace Durin::VulkanRHI
 				}
 		});
 		return bFound && bValid;
+	}
+
+	auto FVulkanTextureStateTracker::GetBarrierSource(
+		const FRHITextureSubresourceRange& Range, bool bDiscardContents) const
+		-> FVulkanResourceStateMapping
+	{
+		FVulkanResourceStateMapping Result;
+		ForEachAspect(Range.Aspects, [&](ERHITextureAspect Aspect) {
+			for (uint32 Layer = Range.FirstArrayLayer; Layer < Range.FirstArrayLayer + Range.NumArrayLayers; ++Layer)
+				for (uint32 Mip = Range.FirstMip; Mip < Range.FirstMip + Range.NumMips; ++Mip)
+				{
+					const ERHIAccess Access = Get(Aspect, Mip, Layer);
+					MergeSource(Result, Access);
+					if (!bDiscardContents) Result.Layout = MapVulkanResourceState(Access).Layout;
+				}
+		});
+		return Result;
 	}
 
 	auto FVulkanTextureStateTracker::Apply(const FRHITextureSubresourceRange& Range, ERHIAccess Access) -> void

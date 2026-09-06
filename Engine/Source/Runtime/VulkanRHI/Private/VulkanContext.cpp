@@ -501,9 +501,8 @@ namespace Durin::VulkanRHI
 					static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
 					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
 					static_cast<uint32>(Transition.RequiredAfter));
-				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-					? ERHIAccess::None : Tracked;
-				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const auto Source = Buffer->GetStateTracker().GetBarrierSource(
+					Transition.Offset, Transition.Size);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
 				Barriers.push_back(vk::BufferMemoryBarrier2()
 					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
@@ -532,9 +531,8 @@ namespace Durin::VulkanRHI
 					static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
 					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
 					static_cast<uint32>(Transition.RequiredAfter));
-				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-					? ERHIAccess::None : Tracked;
-				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const auto Source = Buffer->GetStateTracker().GetBarrierSource(
+					Transition.Offset, Transition.Size);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
 				Barriers.push_back(vk::BufferMemoryBarrier()
 					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
@@ -585,9 +583,9 @@ namespace Durin::VulkanRHI
 					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
 					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
 					static_cast<uint32>(Transition.RequiredAfter));
-				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-					? ERHIAccess::None : Tracked;
-				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const auto Source = Texture->GetStateTracker().GetBarrierSource(
+					Transition.Range, Transition.bDiscardContents
+						|| Transition.ExpectedBefore == ERHIAccess::Discard);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
 				const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
 					Transition.Range.FirstMip, Transition.Range.NumMips,
@@ -621,9 +619,9 @@ namespace Durin::VulkanRHI
 					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
 					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
 					static_cast<uint32>(Transition.RequiredAfter));
-				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-					? ERHIAccess::None : Tracked;
-				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const auto Source = Texture->GetStateTracker().GetBarrierSource(
+					Transition.Range, Transition.bDiscardContents
+						|| Transition.ExpectedBefore == ERHIAccess::Discard);
 				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
 				const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
 					Transition.Range.FirstMip, Transition.Range.NumMips,

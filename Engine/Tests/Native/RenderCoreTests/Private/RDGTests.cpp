@@ -1676,7 +1676,7 @@ namespace Durin
 			(FRDGDependency{1, 2, "SceneColor",
 				ERDGDependencyKind::Value}));
 		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
-		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::Discard, ERHIAccess::ColorAttachmentReadWrite}));
+		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::Discard, ERHIAccess::ColorAttachmentReadWrite, true}));
 		ASSERT_EQ(Result.Graph->GetPasses()[2].TextureTransitions.size(), 1u);
 		EXPECT_EQ(Result.Graph->GetPasses()[2].TextureTransitions[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::ComputeShaderRead}));
 		ASSERT_EQ(Result.Graph->GetFinalTextureTransitions().size(), 1u);
@@ -1698,7 +1698,7 @@ namespace Durin
 			ERHIAccess::TransferRead);
 		const auto Rewrite = Builder.AddPass("Rewrite", ERDGPassType::Compute);
 		Builder.UseBuffer(Rewrite, Work, 0, 64, ERDGUse::Write,
-			ERHIAccess::ComputeShaderReadWrite);
+			ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1713,6 +1713,95 @@ namespace Durin
 			ERHIAccess::ComputeShaderReadWrite);
 		EXPECT_EQ(Result.Graph->GetPasses()[2].BufferTransitions[0].ExpectedBefore,
 			ERHIAccess::TransferRead);
+		EXPECT_TRUE(Result.Graph->GetPasses()[2].BufferTransitions[0].bDiscardContents);
+	}
+
+	TEST_F(FRDGTests, SameStateWritesSynchronizeExactBufferAndTextureRanges)
+	{
+		for (const ERDGUse NextUse : {ERDGUse::Write, ERDGUse::ReadWrite})
+		{
+			SCOPED_TRACE(static_cast<uint32>(NextUse));
+			FRDGBuilder Builder;
+			const auto Buffer = Builder.CreateBuffer({.Buffer =
+				FRHIBufferCreateDesc::Create("Work", 64, 4,
+					EBufferUsageFlags::UnorderedAccess)}, "Work");
+			const auto Texture = CreateTestTexture(Builder, "Image",
+				MakeGraphTexture("Image", 2));
+			const FRHITextureSubresourceRange Mip{ERHITextureAspect::Color, 1, 1, 0, 1};
+			const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+			Builder.UseBuffer(Write, Buffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			Builder.UseTexture(Write, Texture, WholeColor(2), ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			const auto Consume = Builder.AddPass("Consume", ERDGPassType::Compute);
+			Builder.UseBuffer(Consume, Buffer, 16, 16, NextUse,
+				ERHIAccess::ComputeShaderReadWrite);
+			Builder.UseTexture(Consume, Texture, Mip, NextUse,
+				ERHIAccess::ComputeShaderReadWrite);
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			const auto& Pass = Result.Graph->GetPasses()[1];
+			ASSERT_EQ(Pass.BufferTransitions.size(), 1u);
+			EXPECT_EQ(Pass.BufferTransitions[0], (FRHIBufferTransition{
+				nullptr, 16, 16, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}));
+			ASSERT_EQ(Pass.TextureTransitions.size(), 1u);
+			EXPECT_EQ(Pass.TextureTransitions[0], (FRHITextureTransition{
+				nullptr, Mip, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}));
+			const auto Capture = Result.Graph->Capture();
+			EXPECT_EQ(Capture.Statistics.BufferTransitions, 4u);
+			EXPECT_EQ(Capture.Statistics.TextureTransitions, 3u);
+		}
+	}
+
+	TEST_F(FRDGTests, SameStateReadsDoNotAddBufferOrTextureBarriers)
+	{
+		FRDGBuilder Builder;
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Read", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		const auto Input = Builder.RegisterExternalBuffer(Buffer, "Read",
+			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto Texture = Builder.RegisterExternalTexture(MakeGraphTexture("Read"),
+			"ReadTexture", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		for (const char* Name : {"ReadA", "ReadB"})
+		{
+			const auto Pass = Builder.AddPass(Name, ERDGPassType::Compute);
+			Builder.UseBuffer(Pass, Input, 0, 64, ERDGUse::Read,
+				ERHIAccess::ComputeShaderRead);
+			Builder.UseTexture(Pass, Texture, WholeColor(), ERDGUse::Read,
+				ERHIAccess::ComputeShaderRead);
+		}
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		for (const auto& Pass : Result.Graph->GetPasses())
+		{
+			EXPECT_TRUE(Pass.BufferTransitions.empty());
+			EXPECT_TRUE(Pass.TextureTransitions.empty());
+		}
+		EXPECT_TRUE(Result.Graph->Capture().Transitions.empty());
+	}
+
+	TEST_F(FRDGTests, ManagedAttachmentLoadSynchronizesSameStateWrites)
+	{
+		FRDGBuilder Builder;
+		const auto Texture = CreateTestTexture(Builder, "Color", MakeGraphTexture("Color"));
+		const auto Clear = Builder.AddPass("Clear", ERDGPassType::Graphics);
+		Builder.UseManagedColorAttachment(Clear, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store,
+			ERHIAccess::ColorAttachmentReadWrite);
+		const auto Load = Builder.AddPass("Load", ERDGPassType::Graphics);
+		Builder.UseManagedColorAttachment(Load, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Load, ERHIRenderTargetStoreAction::Store,
+			ERHIAccess::ColorAttachmentReadWrite);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetPasses()[0].TextureTransitions.size(), 1u);
+		EXPECT_TRUE(Result.Graph->GetPasses()[0].TextureTransitions[0].bDiscardContents);
+		const auto& Transitions = Result.Graph->GetPasses()[1].TextureTransitions;
+		ASSERT_EQ(Transitions.size(), 1u);
+		EXPECT_EQ(Transitions[0], (FRHITextureTransition{nullptr, WholeColor(),
+			ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::ColorAttachmentReadWrite}));
 	}
 
 	TEST_F(FRDGTests, RejectsMissingProducerForeignHandleAndCycle)
@@ -1986,6 +2075,38 @@ namespace Durin
 			std::string::npos);
 	}
 
+	TEST_F(FRDGTests, DiscardAndDontCareStorePreserveRetainedTextureAccess)
+	{
+		auto Texture = MakeGraphTexture("DiscardSync");
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Target = Builder.RegisterExternalTexture(Texture, "DiscardSync",
+			ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Read = Builder.AddPass("Read", ERDGPassType::Compute);
+		Builder.UseTexture(Read, Target, WholeColor(), ERDGUse::Read,
+			ERHIAccess::ComputeShaderRead);
+		Builder.MarkPassRoot(Read, "read effect");
+		const auto Clear = Builder.AddPass("Clear", ERDGPassType::Graphics);
+		Builder.UseColorAttachment(Clear, Target, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::DontCare);
+		Builder.MarkPassRoot(Clear, "write effect");
+		const auto Rewrite = Builder.AddPass("Rewrite", ERDGPassType::Compute);
+		Builder.UseTexture(Rewrite, Target, WholeColor(), ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.MarkPassRoot(Rewrite, "replacement");
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 3u);
+		const auto& ClearTransitions = Result.Graph->GetPasses()[1].TextureTransitions;
+		ASSERT_EQ(ClearTransitions.size(), 1u);
+		EXPECT_EQ(ClearTransitions[0].ExpectedBefore, ERHIAccess::ComputeShaderRead);
+		EXPECT_TRUE(ClearTransitions[0].bDiscardContents);
+		const auto& RewriteTransitions = Result.Graph->GetPasses()[2].TextureTransitions;
+		ASSERT_EQ(RewriteTransitions.size(), 1u);
+		EXPECT_EQ(RewriteTransitions[0].ExpectedBefore, ERHIAccess::ColorAttachmentReadWrite);
+		EXPECT_TRUE(RewriteTransitions[0].bDiscardContents);
+	}
+
 	TEST_F(FRDGTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
 	{
 		auto Texture = MakeGraphTexture("Versioned");
@@ -2069,7 +2190,8 @@ namespace Durin
 			ERHIAccess::ComputeShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_TRUE(Result.Graph->GetPasses()[0].TextureTransitions.empty());
+		ASSERT_EQ(Result.Graph->GetPasses()[0].TextureTransitions.size(), 1u);
+		EXPECT_TRUE(Result.Graph->GetPasses()[0].TextureTransitions[0].bDiscardContents);
 		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0].ExpectedBefore,
 			ERHIAccess::GraphicsShaderRead);
@@ -2493,7 +2615,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Statistics.DeclaredPasses, 1u);
 		EXPECT_EQ(Capture.Statistics.ScheduledPasses, 1u);
 		EXPECT_EQ(Capture.Statistics.Dependencies, 0u);
-		EXPECT_EQ(Capture.Statistics.TextureTransitions, 0u);
+		EXPECT_EQ(Capture.Statistics.TextureTransitions, 5u);
 		ASSERT_EQ(Capture.Uses.size(), 6u);
 		EXPECT_EQ(Capture.Uses[0].ResourceId, 5u);
 		EXPECT_EQ(Capture.Uses[0].Use, ERDGUse::Write);

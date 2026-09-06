@@ -750,6 +750,7 @@ namespace Durin
 		TransferWrite = 1u << 12,
 		HostWrite = 1u << 13,
 		Present = 1u << 14,
+		// Legacy expected-state wildcard: discard contents, but retain tracked synchronization.
 		Discard = 1u << 31,
 	};
 	ENUM_CLASS_FLAGS(ERHIAccess);
@@ -784,6 +785,8 @@ namespace Durin
 		uint64 Size = 0;
 		ERHIAccess ExpectedBefore = ERHIAccess::None;
 		ERHIAccess RequiredAfter = ERHIAccess::None;
+		// Contents may be discarded without removing prior access dependencies.
+		bool bDiscardContents = false;
 
 		RHI_API static auto Whole(FRHIBuffer* Buffer, ERHIAccess ExpectedBefore,
 			ERHIAccess RequiredAfter) -> FRHIBufferTransition;
@@ -797,6 +800,8 @@ namespace Durin
 		FRHITextureSubresourceRange Range{};
 		ERHIAccess ExpectedBefore = ERHIAccess::None;
 		ERHIAccess RequiredAfter = ERHIAccess::None;
+		// Contents may be discarded without removing prior access dependencies.
+		bool bDiscardContents = false;
 
 		RHI_API static auto Whole(FRHITexture* Texture, ERHIAccess ExpectedBefore,
 			ERHIAccess RequiredAfter) -> FRHITextureTransition;

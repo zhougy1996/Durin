@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 ## Ownership Boundary
 
@@ -50,7 +50,7 @@ execution state. Compilation never mutates a command list.
   declarations into exact buffer intervals and texture aspect/mip/layer cells;
   disjoint cells remain independent.
 - Required access cannot contain `Discard`. Discard is producer intent and
-  affects only the expected-before state.
+  is carried separately from the expected-before access state.
 - An attachment `Load` requires prior contents. A `DontCare` store invalidates
   its contents and cannot satisfy a later producer requirement.
 
@@ -90,8 +90,11 @@ do not authorize physical aliasing.
 
 Each compiled pass owns the buffer and texture transition batches that precede
 its callback. State is tracked per exact declared range. A discard producer
-uses `ERHIAccess::Discard` as its expected-before access; otherwise the prior
-compiled access is exact. Final transition batches restore each used imported
+sets `bDiscardContents` and preserves the prior compiled access, including
+after a `DontCare` store. Content validity and value reachability are separate
+from execution dependencies and access state. Only a logical resource's first
+use carries the compatibility `Discard` wildcard so the backend can recover
+the physical allocation's prior accesses on pool reuse. Final transition batches restore each used imported
 or explicitly finalized range after the last pass.
 
 `FRDGCompiledGraph::Execute` records each pre-pass batch, invokes the pass
@@ -112,9 +115,10 @@ contract; no raw-pointer backing publication path remains.
 
 Render-pass bodies that already own validated attachment initial/final layouts
 use the managed-attachment declaration. The graph records the attachment
-intent and exit access, emits only an entry handoff needed for a load, and
-continues state tracking from the render pass's declared final access. This
-avoids a second explicit barrier competing with RHI render-pass state.
+intent and exit access, emits an entry handoff for prior accesses even when
+the attachment is cleared or discarded, and continues state tracking from the
+render pass's declared final access. The render pass still owns its internal
+attachment transitions.
 
 ## Graph-Owned Typed Values
 

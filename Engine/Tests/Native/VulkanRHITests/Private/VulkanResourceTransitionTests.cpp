@@ -105,6 +105,36 @@ namespace Durin::VulkanRHI
 			vk::ImageLayout::eTransferDstOptimal);
 	}
 
+	TEST(FVulkanResourceTransitionTests, DiscardRetainsAllTrackedSourceScopes)
+	{
+		FVulkanBufferStateTracker Buffer(64);
+		Buffer.Apply(0, 16, ERHIAccess::ComputeShaderRead);
+		Buffer.Apply(16, 16, ERHIAccess::TransferWrite);
+		Buffer.Apply(32, 32, ERHIAccess::VertexBufferRead);
+		const auto BufferSource = Buffer.GetBarrierSource(0, 32);
+		const auto Compute = MapVulkanResourceState(ERHIAccess::ComputeShaderRead);
+		const auto Transfer = MapVulkanResourceState(ERHIAccess::TransferWrite);
+		EXPECT_EQ(BufferSource.StageMask2, Compute.StageMask2 | Transfer.StageMask2);
+		EXPECT_EQ(BufferSource.AccessMask2, Compute.AccessMask2 | Transfer.AccessMask2);
+		EXPECT_EQ(BufferSource.LegacyStageMask, Compute.LegacyStageMask | Transfer.LegacyStageMask);
+		EXPECT_EQ(BufferSource.LegacyAccessMask, Compute.LegacyAccessMask | Transfer.LegacyAccessMask);
+
+		FVulkanTextureStateTracker Texture(3, 1);
+		Texture.Apply({ERHITextureAspect::Color, 0, 1, 0, 1}, ERHIAccess::ComputeShaderRead);
+		Texture.Apply({ERHITextureAspect::Color, 1, 1, 0, 1}, ERHIAccess::TransferWrite);
+		Texture.Apply({ERHITextureAspect::Color, 2, 1, 0, 1}, ERHIAccess::GraphicsShaderRead);
+		const auto TextureSource = Texture.GetBarrierSource(
+			{ERHITextureAspect::Color, 0, 2, 0, 1}, true);
+		EXPECT_EQ(TextureSource.StageMask2, BufferSource.StageMask2);
+		EXPECT_EQ(TextureSource.AccessMask2, BufferSource.AccessMask2);
+		EXPECT_EQ(TextureSource.LegacyStageMask, BufferSource.LegacyStageMask);
+		EXPECT_EQ(TextureSource.LegacyAccessMask, BufferSource.LegacyAccessMask);
+		EXPECT_EQ(TextureSource.Layout, vk::ImageLayout::eUndefined);
+		EXPECT_EQ(Texture.GetBarrierSource(
+			{ERHITextureAspect::Color, 0, 1, 0, 1}, false).Layout,
+			vk::ImageLayout::eShaderReadOnlyOptimal);
+	}
+
 	TEST(FVulkanResourceTransitionTests, BufferIntervalsSplitAndMergeDeterministically)
 	{
 		FVulkanBufferStateTracker Tracker(64);
