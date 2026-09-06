@@ -3,9 +3,149 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
 #include "Panels/ContentBrowserItemView.h"
+#include "Panels/AssetCreationDialog.h"
+#include "Asset/Asset.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetTools/IAssetTools.h"
+#include "Engine/Level.h"
+#include "EngineTestSupport.h"
+#include "NativeTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
+
 
 namespace Durin::Editor::ContentBrowser
 {
+	TEST(FContentBrowserExtensionRegistryTests, RegisteredAssetCreationOnlyRequestsNamingOnInvoke)
+	{
+		int Creations = 0;
+		std::string Error;
+		auto Registration = RegisterAssetCreation({
+			.Id = "test.registered-creation", .Label = "Asset", .DefaultName = "NewAsset",
+			.Create = [&](const auto&, auto&) { ++Creations; return true; }}, Error);
+		ASSERT_TRUE(Registration.IsValid()) << Error;
+		const auto Entries = CaptureExtensions(EExtensionCategory::Create);
+		const auto Entry = std::ranges::find(Entries, "test.registered-creation", &FExtensionDescriptor::Id);
+		ASSERT_NE(Entry, Entries.end());
+		ASSERT_TRUE(Entry->DrawHostPresentation);
+		EXPECT_FALSE(InvokeExtension(*Entry, {
+			.Context = {.VirtualDirectory = "/Project"}, .bAllowAssetMutation = false}));
+		EXPECT_TRUE(InvokeExtension(*Entry, {.Context = {.VirtualDirectory = "/Project"}}));
+		EXPECT_EQ(Creations, 0);
+		Registration.Reset();
+		const auto Presenters = CaptureHostPresenters();
+		EXPECT_EQ(std::ranges::find(Presenters, "test.registered-creation", &FExtensionDescriptor::Id),
+			Presenters.end());
+		EXPECT_EQ(Creations, 0);
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, AssetCreationDefersPersistenceUntilFinalNameConfirmed)
+	{
+		InitializeDObjectSystem();
+		const auto Root = Testing::CreateTestFixtureDirectory("DeferredAssetCreation");
+		const std::array Definitions{FMountPoint{
+			.VirtualRoot = "/DeferredCreation/", .Owner = EMountOwner::Test,
+			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Definitions);
+		ASSERT_TRUE(Registry.IsValid());
+		int Creations = 0;
+		int Notifications = 0;
+		std::string Revealed;
+		DPackage* CreatedPackage = nullptr;
+		struct FPackageCleanup
+		{
+			DPackage*& Package;
+			~FPackageCleanup() { if (Package) IAssetTools::Get().DiscardPackage(Package); }
+		} Cleanup{CreatedPackage};
+		Private::FAssetCreationDialog Dialog({
+			.Id = "test.deferred-creation", .Label = "Level", .DefaultName = "NewLevel",
+			.Create = [&](const FTopLevelAssetPath& Path, std::string& Error) {
+				++Creations;
+				const auto Created = IAssetTools::Get().CreateAsset(Path, DLevel::StaticClass());
+				if (!Created) { Error = Created.Message; return false; }
+				CreatedPackage = Created.Package;
+				const auto Saved = SavePackage(Created.Package);
+				Error = Saved.Message;
+				return Saved.Succeeded();
+			}});
+		const FExtensionInvocation Invocation{
+			.Context = {.VirtualDirectory = "/DeferredCreation"},
+			.RevealAsset = [&](std::string_view Path) { Revealed = Path; return true; },
+			.NotifyMountedContentChanged = [&] { ++Notifications; }};
+		Dialog.Open(Invocation);
+		EXPECT_EQ(Creations, 0);
+		EXPECT_TRUE(std::filesystem::is_empty(Root));
+		Dialog.Cancel();
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_EQ(Creations, 0);
+		EXPECT_TRUE(std::filesystem::is_empty(Root));
+
+		Dialog.Open(Invocation);
+		Dialog.SetName("FinalLevel");
+		EXPECT_FALSE(Dialog.Confirm(false));
+		EXPECT_EQ(Creations, 0);
+		ASSERT_TRUE(Dialog.Confirm(true)) << Dialog.GetError();
+		EXPECT_FALSE(Dialog.IsPending());
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_EQ(Creations, 1);
+		EXPECT_EQ(Notifications, 1);
+		EXPECT_EQ(Revealed, "/DeferredCreation/FinalLevel");
+		EXPECT_TRUE(std::filesystem::is_regular_file(Root / "FinalLevel.dasset"));
+		EXPECT_FALSE(std::filesystem::exists(Root / "NewLevel.dasset"));
+		FPackagePath DefaultPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/DeferredCreation/NewLevel", DefaultPath));
+		EXPECT_FALSE(FindAssetExact(DefaultPath));
+		EXPECT_EQ(FindResidentPackage(DefaultPath), nullptr);
+
+		Dialog.Open(Invocation);
+		Dialog.SetName("FinalLevel");
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_TRUE(Dialog.IsPending());
+		EXPECT_FALSE(Dialog.GetError().empty());
+		EXPECT_EQ(Creations, 1);
+		Dialog.Cancel();
+	}
+
+	TEST(FContentBrowserExtensionRegistryTests, AssetCreationRejectsInvalidNamesAndRetainsFailedRequest)
+	{
+		InitializeDObjectSystem();
+		const auto Root = Testing::CreateTestFixtureDirectory("AssetCreationRetry");
+		const std::array Definitions{FMountPoint{
+			.VirtualRoot = "/CreationRetry/", .Owner = EMountOwner::Test,
+			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Definitions);
+		ASSERT_TRUE(Registry.IsValid());
+		int Attempts = 0;
+		int Notifications = 0;
+		std::string LastPath;
+		Private::FAssetCreationDialog Dialog({
+			.Id = "test.creation-retry", .Label = "Asset", .DefaultName = "NewAsset",
+			.Create = [&](const FTopLevelAssetPath& Path, std::string& Error) {
+				++Attempts;
+				LastPath = Path.ToString();
+				Error = "Injected save failure";
+				return false;
+			}});
+		Dialog.Open({.Context = {.VirtualDirectory = "/CreationRetry"},
+			.NotifyMountedContentChanged = [&] { ++Notifications; }});
+		for (const auto* Name : {"", "../Escape", "Folder/Asset", "Asset.dasset"})
+		{
+			Dialog.SetName(Name);
+			EXPECT_FALSE(Dialog.Confirm(true));
+			EXPECT_FALSE(Dialog.GetError().empty());
+		}
+		EXPECT_EQ(Attempts, 0);
+		Dialog.SetName("ChosenName");
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_EQ(LastPath, "/CreationRetry/ChosenName.ChosenName");
+		EXPECT_EQ(Dialog.GetError(), "Injected save failure");
+		EXPECT_TRUE(Dialog.IsPending());
+		EXPECT_FALSE(Dialog.Confirm(true));
+		EXPECT_EQ(Attempts, 2);
+		EXPECT_EQ(Notifications, 0);
+		Dialog.Cancel();
+		EXPECT_TRUE(std::filesystem::is_empty(Root));
+	}
+
 	TEST(FContentBrowserExtensionRegistryTests, OrdersByOrderThenStableId)
 	{
 		std::string Error;

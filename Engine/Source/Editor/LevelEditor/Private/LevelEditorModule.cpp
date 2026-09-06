@@ -34,42 +34,24 @@ namespace Durin
 	using namespace Editor::Level;
 	namespace
 	{
-		auto CreateLevelAsset(std::string_view VirtualDirectory,
-			std::string& OutPath, std::string& OutError) -> bool
+		auto CreateLevelAsset(const FTopLevelAssetPath& AssetPath, std::string& OutError) -> bool
 		{
-			std::string Directory(VirtualDirectory);
-			if (!Directory.ends_with('/')) Directory += '/';
-			FPackagePath Path;
-			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+			const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
+				AssetPath, DLevel::StaticClass());
+			if (!Created)
 			{
-				const std::string Name = Suffix == 0
-					? "NewLevel" : std::format("NewLevel{}", Suffix + 1);
-				if (!FPackagePath::TryCreate(Directory + Name, Path)
-					|| FindAssetExact(Path)
-					|| FindResidentPackage(Path)) continue;
-				FTopLevelAssetPath AssetPath;
-				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
-				const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
-					AssetPath, DLevel::StaticClass());
-				DLevel* Level = Cast<DLevel>(Created.Asset);
-				if (!Created || !Level)
-				{
-					OutError = Created.Message.empty()
-						? "Could not create the level asset." : Created.Message;
-					return false;
-				}
-				const FAssetResult Result = SavePackage(Level->GetPackage());
-				if (!Result)
-				{
-					UnloadPackage(Path);
-					OutError = Result.Message;
-					return false;
-				}
-				OutPath = Path.ToString();
-				return true;
+				OutError = Created.Message;
+				return false;
 			}
-			OutError = "Could not find a unique level asset name in this folder.";
-			return false;
+			const FAssetResult Result = SavePackage(Created.Package);
+			if (!Result)
+			{
+				OutError = Result.Message;
+				if (!IAssetTools::Get().DiscardPackage(Created.Package))
+					OutError += " The unsaved level package could not be discarded.";
+				return false;
+			}
+			return true;
 		}
 
 	}
@@ -186,29 +168,12 @@ namespace Durin
 		LevelEditorWorkspace = Workspace;
 		{
 			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterExtension({
+			auto Handle = Editor::ContentBrowser::RegisterAssetCreation({
 				.Id = "level.create-level",
 				.Label = "Level",
-				.Category = Editor::ContentBrowser::EExtensionCategory::Create,
+				.DefaultName = "NewLevel",
 				.Order = 100,
-				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [](const auto& Invocation) {
-					std::string Path;
-					std::string Error;
-					if (!CreateLevelAsset(
-						Invocation.Context.VirtualDirectory, Path, Error))
-					{
-						if (Invocation.ReportError)
-							Invocation.ReportError(std::move(Error));
-						return;
-					}
-					if (Invocation.NotifyMountedContentChanged)
-						Invocation.NotifyMountedContentChanged();
-					if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
-				},
+				.Create = CreateLevelAsset,
 				}, Error);
 			if (!Handle.IsValid())
 			{

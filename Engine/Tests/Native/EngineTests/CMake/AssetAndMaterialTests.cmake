@@ -110,6 +110,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_content_browser_private}/ContentBrowserExtensionRegistry.cpp
+		${_durin_content_browser_private}/Panels/AssetCreationDialog.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserItemView.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserExtensionPresentation.cpp

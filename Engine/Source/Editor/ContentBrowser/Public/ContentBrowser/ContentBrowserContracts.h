@@ -141,6 +141,23 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void()> Release;
 	};
 
+	// Creates an asset only after the browser confirms its final name. The callback
+	// must persist exactly this destination and report failure without publishing success.
+	struct FAssetCreationDescriptor
+	{
+		std::string Id;
+		std::string Label;
+		std::string DefaultName;
+		int32 Order = 0;
+		std::function<bool(const FTopLevelAssetPath&, std::string&)> Create;
+		// If provided, open this asset editor after successful creation and reveal.
+		std::string AssetClassNameToOpen;
+	};
+
+	CONTENTBROWSER_API auto RegisterAssetCreation(
+		FAssetCreationDescriptor Descriptor, std::string& OutError)
+		-> FScopedExtensionRegistration;
+
 	struct FAssetMove
 	{
 		FPackagePath OldPath;

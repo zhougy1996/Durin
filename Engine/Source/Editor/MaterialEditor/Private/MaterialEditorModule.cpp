@@ -23,54 +23,38 @@ namespace Durin
 	namespace
 	{
 		template<typename TMaterial>
-		auto CreateMaterialAsset(std::string_view VirtualDirectory,
-			std::string_view BaseName, std::string& OutPath,
-			std::string& OutClassName, std::string& OutError) -> bool
+		auto CreateMaterialAsset(const FTopLevelAssetPath& AssetPath,
+			std::string& OutError) -> bool
 		{
-			std::string Directory(VirtualDirectory);
-			if (!Directory.ends_with('/')) Directory += '/';
-			FPackagePath Path;
-			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+			const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
+				AssetPath, TMaterial::StaticClass());
+			if (!Created)
 			{
-				const std::string Name = Suffix == 0
-					? std::string(BaseName)
-					: std::format("{}{}", BaseName, Suffix + 1);
-				if (!FPackagePath::TryCreate(Directory + Name, Path)
-					|| FindAssetExact(Path)
-					|| FindResidentPackage(Path)) continue;
-				FTopLevelAssetPath AssetPath;
-				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
-				const FAssetToolsResult Created = IAssetTools::Get().CreateAsset(
-					AssetPath, TMaterial::StaticClass());
-				TMaterial* Material = Cast<TMaterial>(Created.Asset);
-				if (!Created || !Material)
-				{
-					OutError = Created.Message.empty()
-						? "Could not create the material asset." : Created.Message;
-					return false;
-				}
-				if constexpr (std::same_as<TMaterial, DMaterial>)
-				{
-					if (!PrepareNewMaterialForEditing(*Material, OutError))
-					{
-						UnloadPackage(Path);
-						return false;
-					}
-				}
-				const FAssetResult Result = SavePackage(Material->GetPackage());
-				if (!Result)
-				{
-					UnloadPackage(Path);
-					OutError = Result.Message;
-					return false;
-				}
-				OutPath = Path.ToString();
-				OutClassName = Material->GetClass()->GetQualifiedName().ToString();
-				return true;
+				OutError = Created.Message;
+				return false;
 			}
-			OutError = "Could not find a unique material asset name in this folder.";
-			return false;
+			const auto Discard = [&] {
+				if (!IAssetTools::Get().DiscardPackage(Created.Package))
+					OutError += " The unsaved material package could not be discarded.";
+			};
+			if constexpr (std::same_as<TMaterial, DMaterial>)
+			{
+				if (!PrepareNewMaterialForEditing(*Cast<DMaterial>(Created.Asset), OutError))
+				{
+					Discard();
+					return false;
+				}
+			}
+			const FAssetResult Result = SavePackage(Created.Package);
+			if (!Result)
+			{
+				OutError = Result.Message;
+				Discard();
+				return false;
+			}
+			return true;
 		}
+
 	}
 
 	IMPLEMENT_MODULE(FMaterialEditorModule, MaterialEditor)
@@ -171,40 +155,15 @@ namespace Durin
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {
 			std::string Error;
-			auto Handle = ::Durin::Editor::ContentBrowser::RegisterExtension({
+			auto Handle = ::Durin::Editor::ContentBrowser::RegisterAssetCreation({
 				.Id = std::move(Id),
 				.Label = std::move(Label),
-				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Create,
+				.DefaultName = std::move(BaseName),
 				.Order = bInstance ? 210 : 200,
-				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [BaseName = std::move(BaseName), bInstance](const auto& Invocation) {
-					std::string Path;
-					std::string ClassName;
-					std::string Error;
-					const bool bCreated = bInstance
-						? CreateMaterialAsset<DMaterialInstance>(
-							Invocation.Context.VirtualDirectory, BaseName,
-							Path, ClassName, Error)
-						: CreateMaterialAsset<DMaterial>(
-							Invocation.Context.VirtualDirectory, BaseName,
-							Path, ClassName, Error);
-					if (!bCreated)
-					{
-						if (Invocation.ReportError)
-							Invocation.ReportError(std::move(Error));
-						return;
-					}
-					if (Invocation.NotifyMountedContentChanged)
-						Invocation.NotifyMountedContentChanged();
-					if (Invocation.RevealAsset) Invocation.RevealAsset(Path);
-					if (Invocation.OpenAsset && !Invocation.OpenAsset(Path, ClassName)
-						&& Invocation.ReportError)
-						Invocation.ReportError(
-							"The material was created, but its editor could not be opened.");
-				},
+				.Create = bInstance ? CreateMaterialAsset<DMaterialInstance>
+					: CreateMaterialAsset<DMaterial>,
+				.AssetClassNameToOpen = (bInstance ? DMaterialInstance::StaticClass()
+					: DMaterial::StaticClass())->GetQualifiedName().ToString(),
 				}, Error);
 			if (!Handle.IsValid())
 			{
