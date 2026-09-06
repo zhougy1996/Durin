@@ -11,6 +11,7 @@
 #include "Misc/Name.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "World/WorldServiceTestSupport.h"
 #include "Threading/Task.h"
 
 inline auto InitializeDObjectSystem() -> void
@@ -21,6 +22,7 @@ inline auto InitializeDObjectSystem() -> void
 		// hardware thread count across every Engine test executable.
 		Durin::InitializeTaskScheduler(2);
 		Durin::Testing::InitializeDObjectSystemForTests();
+		RegisterWorldServicesForTests();
 		return true;
 	}();
 	(void)bInitialized;

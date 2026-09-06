@@ -81,6 +81,7 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Durin::FScene* Scene = Engine.CreateTestScene();
 	Durin::GEngine = &Engine;
 	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "LiveSkyBoxWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(
 		Durin::NewObject<Durin::DLevel>(World, "LiveSkyBoxLevel")));
 	Engine.SetWorld(World);
@@ -135,6 +136,7 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	Durin::GEngine = &Engine;
 
 	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "AuxiliarySkyBoxWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	World->SetRenderScene(AuxiliaryScene.get());
 	ASSERT_TRUE(World->SetCurrentLevel(
 		Durin::NewObject<Durin::DLevel>(World, "AuxiliarySkyBoxLevel")));

@@ -417,6 +417,7 @@ TEST(FVolumetricCloudSceneContractTests, ComponentRegistrationPublishesCompleteI
 	Durin::FScene* Scene = Engine.InstallScene(Factory.CreateScene());
 	Durin::GEngine = &Engine;
 	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "CloudContractWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	ASSERT_TRUE(World->SetCurrentLevel(
 		Durin::NewObject<Durin::DLevel>(World, "CloudContractLevel")
 	));

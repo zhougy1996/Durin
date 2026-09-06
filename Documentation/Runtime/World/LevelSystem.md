@@ -4,7 +4,7 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-07
 
 `DLevel` is the persistent scene asset. A packaged level is a top-level asset
 in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
@@ -30,6 +30,10 @@ publish and retire their query bodies with the same registration lifecycle as
 their World membership, independently from render-scene presence. Gameplay
 uses the World trace, sweep, and overlap facade rather than enumerating
 components or borrowing scene storage. See [Runtime Collision](../Physics/Collision.md).
+
+Hosts explicitly initialize [World subsystems](WorldSubsystems.md) before
+Level attachment. Services survive Level changes; attachment notifications
+precede component registration and detachment notifications follow unregistration.
 
 A world starts without an active level. Actor operations safely return empty or fail until a level is activated. The editor supports this empty state: scene panels remain available, while level-dependent editing actions are disabled.
 
@@ -72,7 +76,7 @@ BeginPlay, Actor and Component BeginPlay, admitted Tick, Actor and Component
 EndPlay, then component uninitialization and unregistration.
 
 `HasBegunPlay()` is a compatibility query. It is true while beginning or
-playing and false while ending, so EndPlay callbacks cannot create a newly
+playing (after subsystem BeginPlay dispatch) and false while ending, so EndPlay callbacks cannot create a newly
 playing Actor. Spawn is accepted while stopped, beginning, or playing. A Spawn
 while beginning or playing dispatches Actor BeginPlay exactly once through the
 Spawn path. Spawn is rejected before allocation while the World is ending.
@@ -90,7 +94,7 @@ transactionally creates one game mode, one local `APlayerController`, and one
 default `APawn` through `DLevel`. The first live `APlayerStart` in stable Actor
 order supplies the pawn transform. The World places and possesses the pawn,
 publishes its private gameplay-session roles, and only then dispatches the
-normal forward BeginPlay pass.
+subsystem callbacks followed by the normal forward Actor BeginPlay pass.
 
 Any class, start, spawn, placement, possession, or view-target failure returns
 an `FWorldPlayResult`, destroys partial runtime Actors in reverse creation
@@ -157,7 +161,9 @@ active native game-mode class. The next World tick ends the old play session,
 activates the requested Level, and resumes play. Only one pending transition is
 applied per tick, so a transition requested by EndPlay or BeginPlay remains
 deferred to a later safe point. A pending transition suppresses the remainder
-of the current gameplay tick.
+of the current gameplay tick. It also interrupts subsequent World BeginPlay
+callbacks: BeginPlay reports `PlayAborted`, pairs entered callbacks through
+EndPlay, and leaves the pending transition for the next tick.
 
 ### Actor And Component Dispatch
 

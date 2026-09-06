@@ -4,6 +4,7 @@
 #include "DObject/ObjectPtr.h"
 #include "Input/GameInputState.h"
 #include "SceneOwnership.h"
+#include "Engine/World.h"
 
 #include "Engine.gen.h"
 
@@ -68,6 +69,7 @@ namespace Durin
 		ENGINE_API explicit DEngine(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DEngine() override;
 
+		virtual auto GetInitialWorldType() const -> EWorldType { return EWorldType::Game; }
 		ENGINE_API virtual auto Init(const FEngineInitContext& Context)
 			-> FEngineInitializationResult;
 

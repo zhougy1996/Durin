@@ -66,6 +66,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingContractWorld");
+			EXPECT_TRUE(World->InitializeSubsystems());
 			Level = Durin::NewObject<Durin::DLevel>(World, "PickingContractLevel");
 			expect_true(World->SetCurrentLevel(Level));
 			Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);

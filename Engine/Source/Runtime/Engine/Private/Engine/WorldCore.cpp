@@ -6,21 +6,83 @@
 #include "Actors/PlayerController.h"
 #include "Components/ActorComponent.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
 	DWorld::DWorld(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
+		: Super(ObjectInitializer), Subsystems(*this)
 	{
+	}
+
+	auto DWorld::SetWorldType(EWorldType InType) -> bool
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		if (GetSubsystemState() != EWorldSubsystemState::Uninitialized) return false;
+		WorldType = InType;
+		return true;
+	}
+
+	auto DWorld::InitializeSubsystems() -> FWorldSubsystemResult
+	{
+		TStrongObjectPtr<DWorld> InitializationGuard(this);
+		auto Result = Subsystems.Initialize();
+		FlushSubsystemRequests();
+		return Result;
+	}
+
+	auto DWorld::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		Subsystems.AddReferencedObjects(Collector);
+		if (PendingLevelTransition)
+		{
+			DObject* Level = PendingLevelTransition->Level.Get();
+			Collector.AddReferencedObject(Level);
+		}
+	}
+
+	auto DWorld::CanDispatchSubsystems() const -> bool
+	{
+		return !IsPendingKill() && GetSubsystemState() == EWorldSubsystemState::Ready && !bShutdownRequested
+			&& !bEndPlayRequested && !PendingLevelTransition;
+	}
+
+	auto DWorld::FlushSubsystemRequests() -> void
+	{
+		if (SubsystemCallbackDepth || bChangingLevel) return;
+		if (bShutdownRequested) Shutdown();
+		else if (std::exchange(bEndPlayRequested, false)) EndPlay();
+	}
+
+	auto DWorld::Shutdown() -> void
+	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		bShutdownRequested = true;
+		Subsystems.CloseWork();
+		if (SubsystemCallbackDepth || bChangingLevel || bShuttingDown || IsEndingPlay()) return;
+		if (GetSubsystemState() == EWorldSubsystemState::ShuttingDown || GetSubsystemState() == EWorldSubsystemState::Shutdown) return;
+		bShuttingDown = true;
+		EndPlay();
+		PendingLevelTransition.reset();
+		SetCurrentLevel(nullptr);
+		Subsystems.Shutdown();
+		RenderScene = nullptr;
+		bShuttingDown = false;
+	}
+
+	auto DWorld::IsReadyForFinishDestroy() -> bool
+	{
+		return SubsystemCallbackDepth == 0 && !bChangingLevel && !bShuttingDown;
 	}
 
 	auto DWorld::BeginDestroy() -> void
 	{
-		EndPlay();
-		SetCurrentLevel(nullptr);
-		RenderScene = nullptr;
+		Shutdown();
 		Super::BeginDestroy();
 	}
 
@@ -57,12 +119,19 @@ namespace Durin
 
 	auto DWorld::SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		if (SubsystemCallbackDepth || bChangingLevel) return false;
+		if (Level && GetSubsystemState() != EWorldSubsystemState::Ready) return false;
+		if (Level && bShutdownRequested) return false;
 		if (Level == CurrentLevel.Get()) return true;
 		if (PlayState != EWorldPlayState::Stopped) return false;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
+		TStrongObjectPtr<DLevel> AttachmentGuard(Level);
 		EndPlay();
+		bChangingLevel = true;
 		DLevel* Previous = CurrentLevel.Get();
+		TStrongObjectPtr<DLevel> PreviousGuard(Previous);
 		if (Previous)
 		{
 			for (const TObjectPtr<AActor>& Actor : Previous->GetActors())
@@ -82,6 +151,7 @@ namespace Durin
 			{
 				if (Component && Component->IsRegistered()) Component->UnregisterComponent();
 			}
+			Subsystems.LevelChanged(*Previous, false);
 			Previous->TickRegistry.Reset();
 			Previous->SetOwningWorld(nullptr);
 		}
@@ -89,21 +159,27 @@ namespace Durin
 		if (Level)
 		{
 			Level->SetOwningWorld(this);
+			Subsystems.LevelChanged(*Level, true);
 			const std::vector<TObjectPtr<AActor>> Actors = Level->GetActors();
 			for (const TObjectPtr<AActor>& Actor : Actors)
 			{
-				if (CurrentLevel.Get() != Level) break;
+				if (CurrentLevel.Get() != Level || !CanDispatchSubsystems()) break;
 				if (Actor && !Actor->IsPendingKill() && Actor->GetOuter() == Level
 					&& !Actor->IsBeingDestroyed()) Level->OnActorAdded(Actor.Get());
 			}
 		}
 		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this)
 			MarkObjectHierarchyAsGarbage(Previous);
-		return true;
+		bChangingLevel = false;
+		FlushSubsystemRequests();
+		return !bShutdownRequested;
 	}
 
 	auto DWorld::RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
+		require(!GIsGameThreadIdInitialized || IsInGameThread());
+		if (bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return false;
+		if (bChangingLevel && Level == CurrentLevel.Get()) return true;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		PendingLevelTransition = FPendingLevelTransition{
@@ -111,7 +187,7 @@ namespace Durin
 			.GameModeClass = GameplaySession && GameplaySession->GameMode
 				? GameplaySession->GameMode->GetClass() : nullptr,
 			.bDestroyPreviousOwnedLevel = bDestroyPreviousOwnedLevel,
-			.bResumePlay = HasBegunPlay()};
+			.bResumePlay = PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing};
 		return true;
 	}
 

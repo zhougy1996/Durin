@@ -7,6 +7,7 @@
 #include "Asset/Asset.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
 #include "Components/SceneComponent.h"
@@ -63,7 +64,7 @@ namespace Durin
 		if (FEngineInitializationResult Result = DEngine::Init(InitContext); !Result)
 			return Result;
 		EditorWorld = GetWorld();
-		EditorWorld->SetWorldType(EWorldType::Editor);
+
 
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
@@ -167,16 +168,22 @@ namespace Durin
 				StopPlaySession();
 			}
 		}
+		if (EditorWorld && EditorWorld.Get() != GetWorld()) EditorWorld->Tick({.DeltaSeconds = DeltaSeconds});
 		DEngine::Tick(DeltaSeconds, bIdleMode);
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void
 	{
+		TeardownPlaySession();
+		if (EditorWorld) EditorWorld->Shutdown();
+		DEngine::PrepareForShutdown();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 	}
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
+		TeardownPlaySession();
+		if (EditorWorld) EditorWorld->Shutdown();
 		if (EditorHost)
 			EditorHost->DestroyEditorHost();
 		TeardownPlaySession();
@@ -242,7 +249,17 @@ namespace Durin
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
 		DWorld* NewPlayWorld = NewObject<DWorld>(this, "PlayWorld");
+		TStrongObjectPtr<DWorld> ConstructionGuard(NewPlayWorld);
 		NewPlayWorld->SetWorldType(EWorldType::PlayInEditor);
+		NewPlayWorld->SetRenderScene(GetMainScene());
+		if (auto Result = NewPlayWorld->InitializeSubsystems(); !Result)
+		{
+			NewPlayWorld->Shutdown();
+			MarkObjectHierarchyAsGarbage(NewPlayWorld);
+			PlayState = Editor::EPlayState::Stopped;
+			if (OutError) *OutError = Result.Message;
+			return false;
+		}
 		EditorToPlayObjects.clear();
 		DLevel* PlayLevel = DuplicateObject(
 			SourceLevel, NewPlayWorld,
@@ -250,6 +267,7 @@ namespace Durin
 			&EditorToPlayObjects);
 		if (!PlayLevel)
 		{
+			NewPlayWorld->Shutdown();
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = "Could not duplicate the level for Play.";
@@ -266,6 +284,7 @@ namespace Durin
 				if (!SettingsResult)
 				{
 					EditorToPlayObjects.clear();
+					NewPlayWorld->Shutdown();
 					MarkObjectHierarchyAsGarbage(NewPlayWorld);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = SettingsResult.Message;
@@ -275,6 +294,7 @@ namespace Durin
 				if (!Resolution)
 				{
 					EditorToPlayObjects.clear();
+					NewPlayWorld->Shutdown();
 					MarkObjectHierarchyAsGarbage(NewPlayWorld);
 					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = Resolution.Result.Message;
@@ -299,6 +319,7 @@ namespace Durin
 			EditorLevel = nullptr;
 			EditorToPlayObjects.clear();
 			PlayToEditorObjects.clear();
+			NewPlayWorld->Shutdown();
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
@@ -373,6 +394,7 @@ namespace Durin
 		{
 			WorldToDestroy->EndPlay();
 			WorldToDestroy->SetCurrentLevel(nullptr, false);
+			WorldToDestroy->Shutdown();
 		}
 		std::unique_ptr<FRenderCommandFence> RetirementFence;
 		if (WorldToDestroy && GRenderingThread)

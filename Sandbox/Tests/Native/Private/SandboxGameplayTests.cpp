@@ -94,7 +94,9 @@ namespace
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		ResolveSandboxGameMode();
+		EXPECT_NE(Durin::FModuleManager::Get().LoadModule("Engine"), nullptr);
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SandboxGameplayWorld");
+		EXPECT_TRUE(World->InitializeSubsystems());
 		auto* Level = Durin::NewObject<Durin::DLevel>(World, "SandboxGameplayLevel");
 		EXPECT_TRUE(World->SetCurrentLevel(Level));
 		auto* Start = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");

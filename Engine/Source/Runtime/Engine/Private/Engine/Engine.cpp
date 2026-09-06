@@ -124,6 +124,8 @@ namespace Durin
 
 	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
 	{
+		if (!FModuleManager::Get().LoadModule("Engine"))
+			return FEngineInitializationResult::Failure("Engine subsystem providers could not start.");
 		if (!InitializeCookedMeshLoadManager())
 			return FEngineInitializationResult::Failure(
 				"Cooked mesh load manager could not start.");
@@ -164,7 +166,16 @@ namespace Durin
 					Viewport->InitializeViewState(RendererModule);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
-		SetWorld(NewObject<DWorld>(this, "MainWorld"));
+		auto* World = NewObject<DWorld>(this, "MainWorld");
+		World->SetWorldType(GetInitialWorldType());
+		World->SetRenderScene(MainScene.get());
+		if (auto Result = World->InitializeSubsystems(); !Result)
+		{
+			World->Shutdown();
+			MarkObjectHierarchyAsGarbage(World);
+			return FEngineInitializationResult::Failure(Result.Message);
+		}
+		SetWorld(World);
 		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
 		return FEngineInitializationResult::Success();
 	}
@@ -172,6 +183,7 @@ namespace Durin
 	auto DEngine::BeginDestroy() -> void
 	{
 		ClearGameInputWindow();
+		if (MainWorld) MainWorld->Shutdown();
 		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
 		SetWorld(nullptr);
@@ -214,6 +226,7 @@ namespace Durin
 
 	auto DEngine::PrepareForShutdown() -> void
 	{
+		if (MainWorld) MainWorld->Shutdown();
 		if (MainSceneViewport)
 			MainSceneViewport->ReleaseViewState();
 		for (const std::shared_ptr<FSceneViewport>& Viewport : AuxiliarySceneViewports)

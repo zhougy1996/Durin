@@ -14,6 +14,11 @@ and opaque user tokens and never includes Engine objects. Engine owns body
 setups, body instances, profiles, gameplay results, component synchronization,
 and the `DWorld` query facade.
 
+Collision debug enablement and last-hit state belong to the registered
+[World collision debug subsystem](../World/WorldSubsystems.md). The public
+World facade remains the query entry point. Detachment clears old-Level hits
+while preserving debug enablement; shutdown clears both.
+
 Each `DWorld` constructs one game-thread-owned `FPhysicsScene`. Components
 publish bodies only into their owning Level's current World and remove them
 before unregistering. Level replacement, component destruction, and World

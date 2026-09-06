@@ -326,6 +326,7 @@ namespace
 			Scene = Engine.CreateTestScene();
 			Durin::GEngine = &Engine;
 			World = Durin::NewObject<Durin::DWorld>(&Engine, "MaterialTestWorld");
+			EXPECT_TRUE(World->InitializeSubsystems());
 			Durin::AddToRoot(World.Get());
 			World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World.Get(), "MaterialTestLevel"));
 			Engine.SetWorld(World.Get());

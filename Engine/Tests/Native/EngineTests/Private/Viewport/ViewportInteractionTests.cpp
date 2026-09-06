@@ -164,6 +164,7 @@ TEST(FLevelEditorViewportClientTests, SmoothsCombinedFlyNavigationConsistentlyAc
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SmoothFlyWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SmoothFlyLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::Editor::Level::FLevelEditorViewportClient SixtyHzClient;
@@ -193,6 +194,7 @@ TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "LongFlyFrameWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "LongFlyFrameLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
@@ -249,6 +251,7 @@ TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
 	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>())};
 	ASSERT_TRUE(Guard.Handle);
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizerPickingWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizerPickingLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
@@ -271,6 +274,7 @@ TEST(FLevelEditorViewportClientTests, PicksPlayerStartActorVisualizerWithoutScen
 		Durin::APlayerStart::StaticClass(), Durin::Editor::Level::CreatePlayerStartActorVisualizer())};
 	ASSERT_TRUE(Guard.Handle);
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PlayerStartVisualizerPickingWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PlayerStartVisualizerPickingLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
@@ -292,6 +296,7 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ViewportResetWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportResetLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -325,6 +330,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	InitializeDObjectSystem();
 	Durin::DPackage* Package = MakeRevisionTestPackage("GizmoPackage");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Package, "GizmoWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	ASSERT_EQ(Package->FindTopLevelAsset(World->GetFName()), World);
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -454,6 +460,7 @@ TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SelectionBoundsWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SelectionBoundsLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
@@ -509,6 +516,7 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PickingLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
@@ -576,6 +584,7 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 		Durin::ERenderMode::Lit);
 
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ViewportTestWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportTestLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -629,6 +638,7 @@ TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)
 	InitializeDObjectSystem();
 	FTestEngine Engine;
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ConstrainedViewportWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ConstrainedViewportLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -658,6 +668,7 @@ TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMi
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "CameraPreviewWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "CameraPreviewLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("PreviewCamera");

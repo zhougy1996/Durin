@@ -1,6 +1,7 @@
 set(_durin_world_test_sources
 	Private/World/NewLevelBaselineTests.cpp
 	Private/World/WorldPlayTests.cpp
+	Private/World/WorldSubsystemTests.cpp
 	Private/World/WorldLifecycleMutationTests.cpp
 	Private/World/WorldTickSchedulingTests.cpp
 	Private/World/WorldActorIteratorTests.cpp

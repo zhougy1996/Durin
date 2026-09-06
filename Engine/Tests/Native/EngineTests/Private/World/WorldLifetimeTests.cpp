@@ -1,4 +1,6 @@
 #include "WorldTestSupport.h"
+#include "Preview/PreviewScene.h"
+#include "IRendererModule.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/SkyBoxSceneProxy.h"
@@ -210,6 +212,7 @@ TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
 	InitializeDObjectSystem();
 	Durin::DEngine* Engine = Durin::NewObject<Durin::DEngine>(nullptr, "TestEngine");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Engine, "MainWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::TObjectPtr<Durin::DEngine> EnginePtr = Engine;
 	Durin::TObjectPtr<Durin::DWorld> WorldPtr = World;
 
@@ -250,4 +253,74 @@ TEST(FEngineObjectTests, GameEngineHasConcreteRuntimeClass)
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	Durin::CollectGarbage();
+}
+
+namespace
+{
+	// Supplies CPU-only scene ownership so preview retirement can be tested without a GPU host.
+	class FPreviewLifecycleRenderer : public Durin::IRendererModule
+	{
+	public:
+		auto CreateScene() -> Durin::FScenePtr override
+		{
+			return {new FWorldSceneLifecycleTestScene(), Durin::FSceneDeleter([](Durin::FSceneInterface* Scene) { delete Scene; })};
+		}
+		auto CreateViewState() -> Durin::FSceneViewStateOwner override { return {}; }
+		auto InvalidateViewState(Durin::FSceneViewStateId) -> void override {}
+		auto InvalidateAllViewStates() -> void override {}
+		auto RenderView(Durin::FRHICommandListImmediate&, Durin::FSceneInterface*, const Durin::FSceneView&,
+			Durin::FRHITexture*, bool, const Durin::FSceneViewRenderOptions&, Durin::FSceneViewStatistics*, Durin::FRDGCapture*) -> Durin::ERenderViewResult override
+		{
+			return Durin::ERenderViewResult::Success;
+		}
+	};
+	class FPreviewLifecycleEngine : public Durin::DEngine
+	{
+	public:
+		FPreviewLifecycleEngine(Durin::IRendererModule& Renderer) : DEngine(Durin::FObjectInitializer::Get()) { RendererModule = &Renderer; }
+	};
+}
+
+TEST(FWorldTests, PreviewHostInitializesAndRetiresServicesWithoutAPlayLifetime)
+{
+	InitializeDObjectSystem();
+	FPreviewLifecycleRenderer Renderer;
+	FPreviewLifecycleEngine Engine(Renderer);
+	auto* PreviousEngine = std::exchange(Durin::GEngine, &Engine);
+	std::shared_ptr<const Durin::FWorldSubsystemWorkGate> Gate;
+	{
+		Durin::Editor::FPreviewScene Preview("SubsystemPreview");
+		EXPECT_TRUE(Preview.IsAvailable()) << Preview.GetDiagnostic();
+		if (Preview.IsAvailable())
+		{
+			EXPECT_EQ(Preview.GetWorld()->GetWorldType(), Durin::EWorldType::Preview);
+			EXPECT_EQ(Preview.GetWorld()->GetSubsystemState(), Durin::EWorldSubsystemState::Ready);
+			EXPECT_FALSE(Preview.GetWorld()->HasBegunPlay());
+			auto* Debug = Preview.GetWorld()->GetSubsystem<Durin::DCollisionDebugSubsystem>();
+			EXPECT_NE(Debug, nullptr);
+			if (Debug) Gate = Debug->GetWorkGate();
+		}
+	}
+	EXPECT_TRUE(Gate && !Gate->IsOpen());
+	Durin::CollectGarbage();
+	Durin::GEngine = PreviousEngine;
+}
+
+TEST(FWorldTests, PreviewHostReportsInitializationFailureAndClosesItsWorld)
+{
+	InitializeDObjectSystem();
+	FPreviewLifecycleRenderer Renderer;
+	FPreviewLifecycleEngine Engine(Renderer);
+	auto* PreviousEngine = std::exchange(Durin::GEngine, &Engine);
+	{
+		Durin::FWorldSubsystemRegistration Invalid({.Type = Durin::AActor::StaticClass(), .WorldTypes = {Durin::EWorldType::Preview}});
+		Durin::Editor::FPreviewScene Preview("FailedSubsystemPreview");
+		EXPECT_FALSE(Preview.IsAvailable());
+		EXPECT_FALSE(Preview.GetDiagnostic().empty());
+		EXPECT_EQ(Preview.GetWorld()->GetSubsystemState(), Durin::EWorldSubsystemState::Shutdown);
+		EXPECT_EQ(Preview.GetWorld()->GetCurrentLevel(), nullptr);
+		EXPECT_EQ(Preview.GetWorld()->GetRenderScene(), nullptr);
+	}
+	Durin::CollectGarbage();
+	Durin::GEngine = PreviousEngine;
 }

@@ -63,6 +63,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingQualificationWorld");
+			EXPECT_TRUE(World->InitializeSubsystems());
 			Level = Durin::NewObject<Durin::DLevel>(World, "PickingQualificationLevel");
 			if (!World->SetCurrentLevel(Level)) throw std::runtime_error("fixture setup failed");
 			Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);

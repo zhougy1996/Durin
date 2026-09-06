@@ -4,14 +4,22 @@ Summary: Introduce per-World subsystem ownership, deterministic lifecycle and op
 
 Last reviewed: 2026-09-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-07
 
 ## Current Status
 
-Stage 0 source audit is complete. The contracts below freeze the implementation
-boundaries; Stage 1 is next. Runtime implementation and native validation remain
-outstanding.
+Stages 0–3 are complete. Native registration, deterministic collection ownership,
+module code leases, host initialization/retirement, play and Level notifications,
+optional Tick, and the collision debug migration are implemented. Lasting
+contracts are in [World subsystems](../Runtime/World/WorldSubsystems.md).
+
+Validation on `MacOS-arm64-Debug-DurinEditor`: all 51 affected native targets
+passed. The final Level/PIE GC lifetime protection was then verified by all 122
+World tests, and the complete `all` build passed. Changed-document and all-plan
+validation pass. Application-hosted/macOS GUI smoke was not run; preview host
+success, initialization failure, and retirement are covered with CPU scene
+substitutes. No GPU behavior or performance change is claimed.
 
 ## Goal
 
@@ -200,11 +208,11 @@ touchpoints and no unresolved ordering or ownership choice for Stage 1.
 
 Depends on Stage 0.
 
-- [ ] Add subsystem base, descriptor registration, World-owned collection,
+- [x] Add subsystem base, descriptor registration, World-owned collection,
   explicit initialization states, and non-creating typed lookup.
-- [ ] Implement World-type filtering, deterministic dependency resolution,
+- [x] Implement World-type filtering, deterministic dependency resolution,
   diagnostics, rollback, reverse shutdown, and module lifetime enforcement.
-- [ ] Add focused fixtures covering separate World instances, filtered and
+- [x] Add focused fixtures covering separate World instances, filtered and
   missing dependencies, duplicates, cycles, failure cleanup, GC retention,
   repeated shutdown, and provider retirement with live instances.
 
@@ -215,13 +223,13 @@ handling without changing existing gameplay or physics behavior.
 
 Depends on Stage 1.
 
-- [ ] Wire explicit initialization and shutdown through all identified hosts,
+- [x] Wire explicit initialization and shutdown through all identified hosts,
   including failed PIE startup and preview construction failure.
-- [ ] Add play and Level notifications without weakening existing bootstrap
+- [x] Add play and Level notifications without weakening existing bootstrap
   rollback, component registration, or deferred transition semantics.
-- [ ] Add World-owned optional Tick dispatch and admission rules; retain the
+- [x] Add World-owned optional Tick dispatch and admission rules; retain the
   existing Level Actor/Component scheduler contract.
-- [ ] Verify callback reentrancy, shutdown/transition during dispatch, repeated
+- [x] Verify callback reentrancy, shutdown/transition during dispatch, repeated
   play, Level replacement, empty Worlds, pause/single step, and late async
   completion after World retirement with focused fixtures.
 
@@ -233,21 +241,60 @@ to the selected policy without stale callbacks or duplicate play notifications.
 
 Depends on Stage 2.
 
-- [ ] Introduce a registered collision debug subsystem for enablement and
+- [x] Introduce a registered collision debug subsystem for enablement and
   last-hit state, preserving existing World facade results and defaults.
-- [ ] Define and test last-hit clearing at Level detachment and shutdown so a
+- [x] Define and test last-hit clearing at Level detachment and shutdown so a
   surviving World does not expose collision state from its previous Level.
-- [ ] Verify editor, PIE, and preview services coexist with distinct state;
+- [x] Verify editor, PIE, and preview services coexist with distinct state;
   retiring PIE or preview leaves remaining Worlds intact.
-- [ ] Run the relevant collision, World lifecycle, Tick, and editor/preview
+- [x] Run the relevant collision, World lifecycle, Tick, and editor/preview
   regression checks; add coverage only for new behavior or uncovered risks.
-- [ ] Document implemented subsystem contracts under Runtime/World, update the
+- [x] Document implemented subsystem contracts under Runtime/World, update the
   relevant Level/Tick contracts and documentation routing, and record validation
   evidence and any limitations here before completing the plan.
 
 Completion: a real service is supplied by registration without dedicated World
 storage, existing public collision APIs remain compatible, required regressions
 pass, and long-lived contracts live outside this plan.
+
+## Implementation And Validation Evidence
+
+- Collection fixtures cover separate Worlds, exact lookup, frozen registration,
+  deterministic dependency order, filtering, missing dependencies, duplicate
+  types, cycles, failed-service cleanup, reverse teardown, and repeated shutdown.
+  GC fixtures cover service retention, initialization before host publication,
+  both Levels during switching, and transient exclusion from World duplication.
+- Core module retirement rejects code leases before changing state. Live
+  subsystem objects and retained closed work gates block provider retirement;
+  releasing them permits a later shutdown. Gates retain provider and Engine
+  code through detached completion storage lifetime.
+- Runtime base Init starts Engine providers and consults the virtual initial
+  World-type policy. Editor/PIE/preview paths explicitly initialize and close,
+  including failed publication. PIE construction holds a native strong reference
+  across duplication; Level switching retains both Levels across callbacks.
+- Play fixtures verify failed native bootstrap emits no subsystem BeginPlay,
+  service-spawned Actors wait until all services begin, repeated play pairing,
+  deferred EndPlay/shutdown, interrupted Tick, and next-tick Level transitions.
+  The old Actor transition fixture now expects no later BeginPlay callback after
+  a queued transition, matching this plan's callback-boundary contract.
+- Tick fixtures cover stopped/empty preview Worlds, gameplay pause/single step,
+  stable same-phase service ordering, and next-frame enablement changes. Detached
+  Worker completion is held until after World shutdown, then rejected by its
+  closed publication gate without waiting on GameThread-dependent work.
+- Collision state is distinct across Editor, PIE, and Preview Worlds; detachment
+  clears hits while retaining enablement, and retirement leaves other Worlds
+  intact. Direct test hosts explicitly initialize Worlds; Sandbox loads the real
+  Engine provider module before its gameplay fixtures.
+- `./DevTool test affected`: 51/51 targets passed, including CoreConcurrencyTests,
+  PhysicsSceneTests, WorldTests, SandboxGameplayTests, editor/thumbnail/viewport
+  tests and the selected integration targets.
+  Log: `Build/.agent-state/logs/20260907-053645-877181-68360-ctest.log`.
+- After final GC guard changes, `./DevTool test WorldTests`: 122/122 tests passed.
+  Log: `Build/.agent-state/logs/20260907-053820-021841-69278-WorldTests.log`.
+- `./DevTool build --target all`: passed.
+  Log: `Build/.agent-state/logs/20260907-053852-841094-69382-cmake.log`.
+- `./DevTool doc validate --scope changed` and
+  `./DevTool doc plan validate --scope all`: passed at handoff.
 
 ## Validation And Handoff
 

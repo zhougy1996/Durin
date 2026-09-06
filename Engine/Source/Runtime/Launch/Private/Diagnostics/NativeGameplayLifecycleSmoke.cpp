@@ -18,10 +18,11 @@ namespace Durin
 		if (!GEngine || !OriginalWorld) return;
 
 		auto* SmokeWorld = NewObject<DWorld>(GEngine, "NativeGameplayLifecycleSmokeWorld");
+		if (!SmokeWorld->InitializeSubsystems()) { SmokeWorld->Shutdown(); MarkObjectHierarchyAsGarbage(SmokeWorld); return; }
 		auto* SmokeLevel = NewObject<DLevel>(SmokeWorld, "NativeGameplayLifecycleSmokeLevel");
 		GEngine->SetWorld(SmokeWorld);
 		const auto Restore = [&] {
-			SmokeWorld->EndPlay();
+			SmokeWorld->Shutdown();
 			GEngine->SetWorld(OriginalWorld);
 			MarkObjectHierarchyAsGarbage(SmokeWorld);
 		};

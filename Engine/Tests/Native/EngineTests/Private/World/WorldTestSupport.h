@@ -47,10 +47,13 @@
 
 namespace
 {
-	auto CreateEmptyWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
+	auto CreateEmptyWorld(Durin::DObject* Outer = nullptr, Durin::EWorldType Type = Durin::EWorldType::Game) -> Durin::DWorld*
 	{
 		InitializeDObjectSystem();
-		return Durin::NewObject<Durin::DWorld>(Outer, "TestWorld");
+		auto* World = Durin::NewObject<Durin::DWorld>(Outer, "TestWorld");
+		World->SetWorldType(Type);
+		EXPECT_TRUE(World->InitializeSubsystems());
+		return World;
 	}
 
 	auto CreateWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*

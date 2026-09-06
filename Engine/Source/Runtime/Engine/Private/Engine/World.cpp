@@ -28,7 +28,7 @@ namespace Durin
 
 	auto DWorld::BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult
 	{
-		if (PlayState != EWorldPlayState::Stopped)
+		if (SubsystemCallbackDepth || !CanDispatchSubsystems() || PlayState != EWorldPlayState::Stopped)
 			return PlayFailure(EWorldPlayError::InvalidState, "The World must be stopped before play begins.");
 		if (!CurrentLevel)
 			return PlayFailure(EWorldPlayError::MissingLevel, "The World has no active level.");
@@ -120,11 +120,20 @@ namespace Durin
 		}
 
 		DLevel* CapturedLevel = CurrentLevel.Get();
-		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
 		PlayState = EWorldPlayState::BeginningPlay;
+		bBeginningSubsystemPlay = true;
+		Subsystems.BeginPlay();
+		bBeginningSubsystemPlay = false;
+		FlushSubsystemRequests();
+		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay)
+		{
+			EndPlay();
+			return PlayFailure(EWorldPlayError::PlayAborted, "Subsystem BeginPlay interrupted play.");
+		}
+		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
 		for (const TObjectPtr<AActor>& Actor : Actors)
 		{
-			if (PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel) break;
+			if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel) break;
 			if (Actor
 				&& !Actor->IsPendingKill()
 				&& Actor->GetOuter() == CapturedLevel
@@ -134,8 +143,11 @@ namespace Durin
 				Actor->DispatchBeginPlay();
 			}
 		}
-		if (PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel)
+		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel)
+		{
+			EndPlay();
 			return PlayFailure(EWorldPlayError::PlayAborted, "Play was interrupted by a gameplay callback.");
+		}
 		if (Request.GameModeClass
 			&& (!GameplaySession
 				|| GameplaySession->GameMode.Get() != ExpectedGameMode
@@ -156,36 +168,42 @@ namespace Durin
 
 	auto DWorld::Tick(const FWorldTickContext& Context) -> void
 	{
+		if (SubsystemCallbackDepth || bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return;
 		ProcessPendingLevelTransition();
-		if (!HasBegunPlay() || !CurrentLevel || PendingLevelTransition) return;
+		if (!CanDispatchSubsystems()) return;
+		Subsystems.StartTick();
 		DLevel* CapturedLevel = CurrentLevel.Get();
-		if (bPaused && !std::exchange(bSingleStepRequested, false))
+		bool bGameplay = HasBegunPlay() && CapturedLevel;
+		if (bGameplay && bPaused && !std::exchange(bSingleStepRequested, false))
 		{
 			ClearPendingGameplayIntent();
-			return;
+			bGameplay = false;
 		}
-		if (GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
-		{
+		if (bGameplay && GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
-		}
-		if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel || PendingLevelTransition) return;
-		CapturedLevel->TickRegistry.StartFrame(Context.DeltaSeconds);
+		if (bGameplay) CapturedLevel->TickRegistry.StartFrame(Context.DeltaSeconds);
 		for (const ETickingGroup Group : {ETickingGroup::PrePhysics, ETickingGroup::Physics, ETickingGroup::PostPhysics})
 		{
-			if (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group)) break;
+			if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) break;
+			Subsystems.Tick(Group, Context.DeltaSeconds, bGameplay);
+			if (!CanDispatchSubsystems()) break;
+			if (bGameplay && (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group))) break;
 		}
-		CapturedLevel->TickRegistry.EndFrame();
+		if (bGameplay) CapturedLevel->TickRegistry.EndFrame();
+		FlushSubsystemRequests();
 	}
 
 	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool
 	{
-		return HasBegunPlay()
+		return CanDispatchSubsystems() && HasBegunPlay()
 			&& CurrentLevel.Get() == Level
 			&& !PendingLevelTransition;
 	}
 
 	auto DWorld::EndPlay() -> void
 	{
+		if (SubsystemCallbackDepth) { bEndPlayRequested = true; return; }
+		bEndPlayRequested = false;
 		if (PlayState == EWorldPlayState::Stopped || PlayState == EWorldPlayState::EndingPlay) return;
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		std::vector<TObjectPtr<AActor>> Actors;
@@ -214,7 +232,9 @@ namespace Durin
 			}
 		}
 		GameplaySession.reset();
+		Subsystems.EndPlay();
 		if (PlayState == EWorldPlayState::EndingPlay) PlayState = EWorldPlayState::Stopped;
+		FlushSubsystemRequests();
 	}
 
 	auto DWorld::RestartPlayer(const FPlayerRestartRequest& Request) -> FPlayerRestartResult

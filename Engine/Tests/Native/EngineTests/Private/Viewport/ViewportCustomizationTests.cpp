@@ -234,6 +234,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineModeWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SplineModeLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");
@@ -292,6 +293,7 @@ TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancel
 {
 	InitializeDObjectSystem();
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineMeshViewportWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SplineMeshViewportLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
@@ -400,6 +402,7 @@ TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraC
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PropertyCustomizationWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PropertyCustomizationLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -433,6 +436,7 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizationWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizationLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -478,6 +482,7 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "IconVisualizationWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "IconVisualizationLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -507,6 +512,7 @@ TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPick
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "BoxVisualizationWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "BoxVisualizationLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -541,6 +547,7 @@ TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegener
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "HoverColorWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "HoverColorLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -579,6 +586,7 @@ TEST(FEditorVisualizationCollectorTests, PreservesExactComponentAndSubElementHit
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ElementHitWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ElementHitLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -610,6 +618,7 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 		Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>(&DrawCount))};
 	ASSERT_TRUE(Guard.Handle);
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ViewportSnapshotWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportSnapshotLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -647,6 +656,7 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "CameraVisualizerWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "CameraVisualizerLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -688,6 +698,7 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "TruncatedCameraVisualizerWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "TruncatedCameraVisualizerLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
@@ -718,6 +729,7 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "DirectionalLightVisualizerWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "DirectionalLightVisualizerLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
@@ -757,6 +769,7 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PlayerStartVisualizerWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PlayerStartVisualizerLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* PlayerStart = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");

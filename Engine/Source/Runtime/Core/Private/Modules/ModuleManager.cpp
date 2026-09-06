@@ -264,6 +264,15 @@ namespace Durin
 		};
 	}
 
+	auto FModuleManager::AcquireCodeLease(FName ModuleName) -> std::shared_ptr<void>
+	{
+		if (!IsControlThread()) return {};
+		auto Info = FindModule(ModuleName);
+		if (!Info || Info->State.load() != EModuleState::Active) return {};
+		++Info->CodeLeaseCount;
+		return std::shared_ptr<void>(Info.get(), [Info](void*) { --Info->CodeLeaseCount; });
+	}
+
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult
 	{
 		const auto ModuleInfo = FindModule(InModuleName);
@@ -293,6 +302,9 @@ namespace Durin
 			return {EModuleOperationStatus::NotLoaded, InModuleName, State, "Module does not have an active instance.", {}};
 		}
 
+		if (ModuleInfo->CodeLeaseCount.load() != 0)
+			return {EModuleOperationStatus::OutstandingCodeLease, InModuleName, State,
+				"Module code is retained by live consumers; retire them and retry shutdown.", {}};
 		ModuleInfo->State = EModuleState::Retiring;
 		auto Retirement = FModularFeatureRegistry::Get().RetireOwner(ModuleInfo->ModuleOwner, FeatureRetirementTimeout);
 		if (Retirement.Status == EModularFeatureRetirementStatus::SelfWait)

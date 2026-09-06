@@ -76,8 +76,7 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	const auto SourceSegments = SourceActor->FindComponentsByClass<Durin::DSplineMeshComponent>();
 	ASSERT_EQ(SourceSegments.size(), 2u);
 
-	Durin::DWorld* PlayWorld = CreateEmptyWorld();
-	PlayWorld->SetWorldType(Durin::EWorldType::PlayInEditor);
+	Durin::DWorld* PlayWorld = CreateEmptyWorld(nullptr, Durin::EWorldType::PlayInEditor);
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
 	auto* PlayLevel = Durin::DuplicateObject(
 		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay);
@@ -307,6 +306,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
 	Package->InitializeAssetPackage(Path);
 	auto* World = Durin::NewObject<Durin::DWorld>(Package, "World");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	ASSERT_EQ(Package->FindTopLevelAsset(World->GetFName()), World);
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "Level");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));

@@ -1,6 +1,7 @@
 #include "Engine/World.h"
 
 #include "Components/PrimitiveComponent.h"
+#include "Collision/CollisionDebugSubsystem.h"
 #include "Engine/Actor.h"
 
 namespace Durin
@@ -68,7 +69,8 @@ namespace Durin
 			if (!IsIgnoredByOwner(Component, QueryParams))
 			{
 				const bool bMapped = MapPhysicsHit(Hit, OutHit);
-				if (bMapped && bCollisionDebugDrawEnabled) LastCollisionDebugHit = OutHit;
+				if (bMapped)
+					if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
 				return bMapped;
 			}
 			Filter.IgnoredActors.push_back(Hit.ActorHandle);
@@ -94,7 +96,8 @@ namespace Durin
 			if (!IsIgnoredByOwner(Component, QueryParams))
 			{
 				const bool bMapped = MapPhysicsHit(Hit, OutHit);
-				if (bMapped && bCollisionDebugDrawEnabled) LastCollisionDebugHit = OutHit;
+				if (bMapped)
+					if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->RecordHit(OutHit);
 				return bMapped;
 			}
 			Filter.IgnoredActors.push_back(Hit.ActorHandle);
@@ -122,14 +125,15 @@ namespace Durin
 		return !OutOverlaps.empty();
 	}
 
+	auto DWorld::IsCollisionDebugDrawEnabled() const -> bool
+	{
+		const auto* Debug = GetSubsystem<DCollisionDebugSubsystem>();
+		return Debug && Debug->IsEnabled();
+	}
+
 	auto DWorld::SetCollisionDebugDrawEnabled(bool bEnabled) -> void
 	{
-		bCollisionDebugDrawEnabled = bEnabled;
-		if (!bEnabled)
-		{
-			LastCollisionDebugHit.reset();
-			return;
-		}
+		if (auto* Debug = GetSubsystem<DCollisionDebugSubsystem>()) Debug->SetEnabled(bEnabled);
 	}
 
 	auto DWorld::CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot
@@ -138,7 +142,7 @@ namespace Durin
 		constexpr uint32 MaximumDebugTriangles = 256;
 		FCollisionDebugSnapshot Result;
 		uint32 RemainingDebugTriangles = MaximumDebugTriangles;
-		if (!bCollisionDebugDrawEnabled) return Result;
+		if (!IsCollisionDebugDrawEnabled()) return Result;
 		for (const FPhysicsBodySnapshot& Body : PhysicsScene.CaptureBodies())
 		{
 			if (Result.Bodies.size() >= MaximumDebugBodies) break;
@@ -172,7 +176,7 @@ namespace Durin
 			RemainingDebugTriangles -= static_cast<uint32>(DebugBody.TriangleSample.size());
 			Result.Bodies.push_back(std::move(DebugBody));
 		}
-		Result.LastBlockingHit = LastCollisionDebugHit;
+		Result.LastBlockingHit = GetSubsystem<DCollisionDebugSubsystem>()->GetLastHit();
 		return Result;
 	}
 }

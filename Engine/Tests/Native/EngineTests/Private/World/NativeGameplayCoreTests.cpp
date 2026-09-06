@@ -954,6 +954,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "NativeGameplayPIETestEngine");
 	auto* EditorWorld = Durin::NewObject<Durin::DWorld>(Engine, "EditorWorld");
 	EditorWorld->SetWorldType(Durin::EWorldType::Editor);
+	EXPECT_TRUE(EditorWorld->InitializeSubsystems());
 	auto* EditorLevel = Durin::NewObject<Durin::DLevel>(EditorWorld, "EditorLevel");
 	ASSERT_TRUE(EditorWorld->SetCurrentLevel(EditorLevel));
 	ASSERT_NE(EditorLevel->SpawnActor<Durin::APlayerStart>("Start"), nullptr);

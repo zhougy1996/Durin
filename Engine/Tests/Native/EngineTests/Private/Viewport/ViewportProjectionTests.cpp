@@ -76,6 +76,7 @@ TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "FocusWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "FocusLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("FocusTarget");

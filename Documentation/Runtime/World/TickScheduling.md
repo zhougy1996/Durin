@@ -45,6 +45,12 @@ input preparation
     -> return from DWorld::Tick
 ```
 
+World-owned optional [subsystems](WorldSubsystems.md) dispatch before the
+Level registry in each selected phase. Their enabled flags are captured at World
+Tick entry and their membership survives Level detachment. Explicit Editor/Preview
+policies may run with an empty or stopped World; the rules below describe the
+Actor/Component registry.
+
 A group is a serial completion barrier, not a worker thread. Every admitted
 Tick in one group completes before the next group begins.
 

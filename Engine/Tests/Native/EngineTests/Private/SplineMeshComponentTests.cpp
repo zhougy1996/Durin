@@ -300,6 +300,7 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshCollisionWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineMeshCollisionLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<AActor>("SplineMeshCollisionActor");
@@ -507,6 +508,7 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshTopologyWorld");
+	EXPECT_TRUE(World->InitializeSubsystems());
 	auto* Level = NewObject<DLevel>(World, "SplineMeshTopologyLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");

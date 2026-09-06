@@ -39,8 +39,11 @@ namespace Durin::Editor
 		AddToRoot(World.Get());
 		World->SetWorldType(EWorldType::Preview);
 		World->SetRenderScene(RenderScene.get());
-		if (!World->SetCurrentLevel(Level.Get(), false))
+		if (auto Result = World->InitializeSubsystems(); !Result)
+			Error = Result.Message;
+		else if (!World->SetCurrentLevel(Level.Get(), false))
 			Error = "The preview level could not be attached to its world.";
+		if (!Error.empty()) World->Shutdown();
 	}
 
 	FPreviewScene::~FPreviewScene()
@@ -48,9 +51,7 @@ namespace Durin::Editor
 		checkf(IsInGameThread(), "Preview scenes must be destroyed on the game thread.");
 		if (World)
 		{
-			World->EndPlay();
-			World->SetCurrentLevel(nullptr);
-			World->SetRenderScene(nullptr);
+			World->Shutdown();
 		}
 		Level = nullptr;
 

@@ -1,3 +1,4 @@
+#include "World/WorldServiceTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
@@ -51,7 +52,9 @@ namespace
 	auto CreatePhysicsWorld() -> Durin::DWorld*
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
+		RegisterWorldServicesForTests();
 		auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PhysicsWorld");
+		EXPECT_TRUE(World->InitializeSubsystems());
 		EXPECT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "PhysicsLevel")));
 		return World;
 	}

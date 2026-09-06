@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
 #include "Engine/Level.h"
+#include "Engine/WorldSubsystem.h"
 #include "Collision/CollisionTypes.h"
 #include "Physics/PhysicsScene.h"
 
@@ -113,7 +114,14 @@ namespace Durin
 	public:
 		ENGINE_API explicit DWorld(const FObjectInitializer& ObjectInitializer);
 		~DWorld() override = default;
+		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
+		ENGINE_API auto InitializeSubsystems() -> FWorldSubsystemResult;
+		ENGINE_API auto Shutdown() -> void;
+		auto GetSubsystemState() const -> EWorldSubsystemState { return Subsystems.GetState(); }
+		template<typename T> auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
@@ -136,7 +144,7 @@ namespace Durin
 		ENGINE_API auto EndPlay() -> void;
 		ENGINE_API auto RestartPlayer(const FPlayerRestartRequest& Request = {}) -> FPlayerRestartResult;
 		ENGINE_API auto SetRenderScene(FSceneInterface* InRenderScene) -> void;
-		auto HasBegunPlay() const -> bool { return PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing; }
+		auto HasBegunPlay() const -> bool { return !bBeginningSubsystemPlay && (PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing); }
 		auto IsEndingPlay() const -> bool { return PlayState == EWorldPlayState::EndingPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
 		ENGINE_API auto SetPaused(bool bInPaused) -> void;
@@ -144,7 +152,7 @@ namespace Durin
 		auto IsPhysicsSimulationEnabled() const -> bool { return bPhysicsSimulationEnabled; }
 		auto SetPhysicsSimulationEnabled(bool bEnabled) -> void { bPhysicsSimulationEnabled = bEnabled; }
 		auto GetWorldType() const -> EWorldType { return WorldType; }
-		auto SetWorldType(EWorldType InType) -> void { WorldType = InType; }
+		ENGINE_API auto SetWorldType(EWorldType InType) -> bool;
 		auto GetRenderScene() const -> FSceneInterface* { return RenderScene; }
 		// A world is valid without an active level. Editor and runtime callers must handle nullptr.
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
@@ -153,7 +161,7 @@ namespace Durin
 		ENGINE_API auto GetDefaultPawn() const -> APawn*;
 		auto GetPhysicsScene() -> FPhysicsScene& { return PhysicsScene; }
 		auto GetPhysicsScene() const -> const FPhysicsScene& { return PhysicsScene; }
-		auto IsCollisionDebugDrawEnabled() const -> bool { return bCollisionDebugDrawEnabled; }
+		ENGINE_API auto IsCollisionDebugDrawEnabled() const -> bool;
 		ENGINE_API auto SetCollisionDebugDrawEnabled(bool bEnabled) -> void;
 		ENGINE_API auto CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot;
 		ENGINE_API auto LineTraceSingleByChannel(
@@ -216,8 +224,17 @@ namespace Durin
 		std::optional<FNativeGameplaySession> GameplaySession;
 		std::optional<FPendingLevelTransition> PendingLevelTransition;
 		FPhysicsScene PhysicsScene;
-		bool bCollisionDebugDrawEnabled = false;
-		mutable std::optional<FHitResult> LastCollisionDebugHit;
+		FWorldSubsystemCollection Subsystems;
+		uint32 SubsystemCallbackDepth = 0;
+		bool bShutdownRequested = false;
+		bool bEndPlayRequested = false;
+		bool bChangingLevel = false;
+		bool bShuttingDown = false;
+		bool bBeginningSubsystemPlay = false;
+		auto CanDispatchSubsystems() const -> bool;
+		auto FlushSubsystemRequests() -> void;
+		friend class FWorldSubsystemCollection;
+
 
 		friend class DLevel;
 		friend class FTickRegistry;

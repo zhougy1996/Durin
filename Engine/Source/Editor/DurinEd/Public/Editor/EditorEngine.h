@@ -80,6 +80,7 @@ namespace Durin
 	public:
 		DURINED_API explicit DEditorEngine(const FObjectInitializer& ObjectInitializer);
 		DURINED_API ~DEditorEngine() override;
+		auto GetInitialWorldType() const -> EWorldType override { return EWorldType::Editor; }
 		DURINED_API auto Init(const FEngineInitContext& Context)
 			-> FEngineInitializationResult override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;

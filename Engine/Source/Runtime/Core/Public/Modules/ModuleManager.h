@@ -79,6 +79,7 @@ namespace Durin
 		AsyncOperationUnsupportedThread,
 		OutstandingAsyncOperationAudit,
 		OutstandingFeatureAudit,
+		OutstandingCodeLease,
 		UnloadBlocked,
 	};
 
@@ -122,6 +123,7 @@ namespace Durin
 		std::atomic<EModuleState> State = EModuleState::Registered;
 		uint32 LoadOrder = 0;
 		uint64 OwnerGeneration = 0;
+		std::atomic<uint64> CodeLeaseCount = 0;
 		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
 	};
 
@@ -152,6 +154,8 @@ namespace Durin
 		CORE_API auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
 		CORE_API auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
 		CORE_API auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
+		// Pins an active load generation until every copy is released. Control-thread admission only.
+		CORE_API auto AcquireCodeLease(FName ModuleName) -> std::shared_ptr<void>;
 		CORE_API auto IsModuleLoaded(const FName& InModuleName) -> bool;
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
 		// Caller must establish a control-thread safe point: no specialized callback

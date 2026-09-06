@@ -482,12 +482,12 @@ TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTi
 			}
 		};
 
-	ASSERT_TRUE(World->BeginPlay({}));
+	EXPECT_EQ(World->BeginPlay({}).Error, Durin::EWorldPlayError::PlayAborted);
 	EXPECT_NE(World->GetCurrentLevel(), Replacement);
 	World->Tick({});
 
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
-	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 1);
+	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 0);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
