@@ -210,7 +210,7 @@ namespace Durin
 		if (!BuildStaticMeshDerivedData({
 			.Reconciliation = CaptureStaticMeshReconciliation(*this),
 			.ImportedData = ImportedData}, Product, OutError)) return false;
-		return ApplyStaticMeshBuildResult(*this, std::move(Product), OutError, false);
+		return ApplyStaticMeshBuildResult(*this, ImportedData, std::move(Product), OutError, false);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
 	{

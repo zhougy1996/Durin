@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -100,6 +100,16 @@ Field state, placement, validation, and resource lifetime are defined by
 [Package Bulk Data](BulkData.md). Optional source-hint resolution is defined by
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
 
+StaticMesh separates persistent `FStaticMeshImportedData` from detached
+`FStaticMeshDecodedGeometry`. `Initialize` validates a complete replacement;
+`AcquireGeometry` returns a shared const handle that survives source replacement,
+release and asset destruction. `ReleaseGeometry` drops only that source value's
+decoded ownership. Asset publication releases decoded residency; detached build
+requests release it with their operation lifetime. Explicit readers and source
+copies may retain it longer. Canonical unsaved bulk remains owned throughout.
+The source and codec contracts are detailed in
+[StaticMesh rendering](../Rendering/StaticMeshRendering.md#source-and-payload-compatibility).
+
 Physical source input is not rebuild authority and is not a runtime asset.
 Texture2D, StaticMesh, TextureCube, and VolumeTexture persist the canonical source data required by
 their builders. Runtime-required metadata remains on assets, while offline-only
@@ -158,8 +168,11 @@ PostLoad, import/Scene build, cache lookup/validation/fallback, and result
 application. StaticMesh keys are editor-only Engine-private values; operation
 results carry key, origin, descriptor, timings, payload bytes, and bounded
 persistence diagnostics without copying them onto `DStaticMesh` or `DBodySetup`.
-Metadata-only warm loads do not read authored geometry; a miss decodes canonical
-bulk before calling the recipe. `SetImportedRenderData` and `SetRenderData`
+Metadata-only warm loads do not read authored geometry; a miss acquires an
+immutable decoded geometry handle before calling the recipe. Fresh source
+initialization encodes once and seeds the same handle without a decode round trip.
+The authored replacement is passed separately to application; build results do
+not own source storage. `SetImportedRenderData` and `SetRenderData`
 validate candidates before rollback-safe resource replacement; Engine
 application separately decides dirtying and material-slot upgrade notification.
 Cook reports existing payload capture rather than inferring an old build origin

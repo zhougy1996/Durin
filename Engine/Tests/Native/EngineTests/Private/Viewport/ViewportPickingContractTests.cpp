@@ -106,7 +106,7 @@ namespace
 		const uint32 Width = std::max<uint32>(1,
 			static_cast<uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
 		const uint32 Height = (CellCount + Width - 1) / Width;
-		Durin::FStaticMeshImportedData Imported;
+		Durin::FStaticMeshDecodedGeometry Imported;
 		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		auto& Mesh = Imported.Meshes.emplace_back();
 		Mesh.Name = "PickingGrid";
@@ -131,7 +131,7 @@ namespace
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
 		if (!Durin::BuildStaticMeshSynchronously(
-			*Result, Imported, Error)) throw std::runtime_error(Error);
+			*Result, std::move(Imported), Error)) throw std::runtime_error(Error);
 		return Result;
 	}
 }

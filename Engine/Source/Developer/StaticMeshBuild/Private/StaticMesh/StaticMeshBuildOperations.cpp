@@ -154,7 +154,7 @@ namespace Durin
 		auto BuildRenderDataCandidate(
 		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots,
 		float NormalizedSize,
-		const FStaticMeshImportedData& ImportedData,
+		const FStaticMeshDecodedGeometry& ImportedData,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
@@ -449,10 +449,15 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (!Request.Geometry)
+		{
+			OutError = "StaticMesh recipe requires decoded geometry.";
+			return false;
+		}
 		return BuildRenderDataCandidate(
 			Request.PreviousMaterialSlots,
 			Request.NormalizedSize,
-			Request.ImportedData.get(),
+			*Request.Geometry,
 			OutProduct.RenderData,
 			OutProduct.MaterialSlots,
 			OutProduct.bSlotMetadataChanged,

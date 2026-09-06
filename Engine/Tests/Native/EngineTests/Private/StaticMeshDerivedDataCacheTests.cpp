@@ -8,6 +8,8 @@
 #include "Asset/AssetCook.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/Property.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -19,6 +21,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -30,6 +33,15 @@
 
 namespace
 {
+	class FScopedStaticMeshProviderRestore
+	{
+	public:
+		~FScopedStaticMeshProviderRestore()
+		{
+			Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		}
+	};
+
 	class FScopedDerivedDataCacheRestore
 	{
 	public:
@@ -148,20 +160,20 @@ TEST(FStaticMeshDerivedDataCacheTests, EngineProviderPathPreservesKeysAndRecover
 	FStaticMeshBuildResult Product;
 	std::string Error;
 	// The runtime loader carries only authored metadata until a cache miss.
-	Request.ImportedData.Meshes.clear();
-	Request.ImportedData.MaterialSlots.clear();
+	Request.ImportedData.ReleaseGeometry();
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
 	EXPECT_EQ(Product.DerivedDataKey.ToString(), BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::CacheHit);
 	EXPECT_TRUE(Product.DiagnosticMessage.empty());
-	EXPECT_TRUE(Product.ImportedData.IsValid());
+	EXPECT_TRUE(Request.ImportedData.IsValid());
 	ASSERT_NE(Product.RenderData, nullptr);
 	const std::array<std::byte, 4> Corrupt{};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, GetObjectPath(Fixture, BaselineKey)));
+	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
 	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
 	EXPECT_EQ(Product.DerivedDataKey.ToString(), BaselineKey);
 	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::Rebuilt);
-	EXPECT_TRUE(Product.ImportedData.IsValid());
+	EXPECT_TRUE(Request.ImportedData.IsValid());
 	EXPECT_FALSE(Product.DiagnosticMessage.empty());
 	EXPECT_TRUE(Error.empty());
 	Request.Reconciliation.MaterialSlots.clear();
@@ -229,7 +241,7 @@ TEST(FStaticMeshDerivedDataCacheTests, InvalidDetachedReplacementPreservesLiveSt
 	ASSERT_FALSE(Result.RenderData->LODResources.empty());
 	Result.RenderData->LODResources.front().IndexBuffer.GetMutableIndices().front() =
 		std::numeric_limits<uint32>::max();
-	EXPECT_FALSE(ApplyStaticMeshBuildResult(*Fixture.Mesh, std::move(Result), Error));
+	EXPECT_FALSE(ApplyStaticMeshBuildResult(*Fixture.Mesh, Fixture.Mesh->GetImportedData(), std::move(Result), Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Fixture.Mesh->GetRenderData(), Original);
 	EXPECT_EQ(Fixture.Mesh->GetImportedData().GetIdentity(), ImportedIdentity);
@@ -359,6 +371,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	const uint32 AuthoredNodes = AuthoredGeometry.GetNodeCount();
 	const uint64 AuthoredBytes = AuthoredGeometry.GetRetainedBytes();
 
+	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "CookCollision");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionSecond");
 	for (const std::filesystem::path& Root : {CookRoot, SecondCookRoot})
@@ -393,6 +406,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_NE(Inspection.FindField("CollisionData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
+		const FScopedStaticMeshProviderRestore ProviderRestore;
+		ASSERT_TRUE(Durin::FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
 		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
@@ -402,6 +417,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCollisionMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
+		ASSERT_FALSE(Durin::FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
 		const Durin::FAssetResult Loaded =
 			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
@@ -469,6 +485,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_NE(Inspection.FindField("RenderData"), nullptr);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
+		const FScopedStaticMeshProviderRestore ProviderRestore;
+		ASSERT_TRUE(Durin::FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
 		Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 		ASSERT_TRUE(AssetRuntime.RestartCooked(CookRoot));
 		Durin::Testing::RegisterMountPointForTests(
@@ -478,6 +496,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
+		ASSERT_FALSE(Durin::FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
 		const Durin::FAssetResult Loaded =
 			Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
 				Path, Fixture.AssetPath.GetPackageName()), CookedMesh);
@@ -523,9 +542,293 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		ASSERT_NE(SplineConsumer->CreateSceneProxy(), nullptr);
 		Durin::ShutdownCookedMeshLoadManager();
 		EXPECT_EQ(CookedMesh->GetAssetImportData(), nullptr);
+		EXPECT_FALSE(CookedMesh->GetImportedData().IsValid());
+		EXPECT_FALSE(CookedMesh->GetImportedData().IsGeometryResident());
 		EXPECT_NE(CookedMesh->GetCookedRenderData().GetMetadata().LogicalSize, 0u);
 		ASSERT_TRUE(Durin::UnloadPackage(Path));
 		ASSERT_TRUE(AssetRuntime.Restore());
 		return;
 	}
+}
+
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#endif
+TEST(FStaticMeshSourceResidencyTests, RepresentativeGeometry)
+{
+	using namespace Durin;
+	for (const uint32 Triangles : {1u, 100000u})
+	{
+		#if defined(__APPLE__)
+		std::atomic<size_t> PeakBytes{0};
+		std::jthread Sampler([&](std::stop_token Stop) {
+			while (!Stop.stop_requested())
+			{
+				malloc_statistics_t Stats{};
+				malloc_zone_statistics(malloc_default_zone(), &Stats);
+				PeakBytes.store(std::max(PeakBytes.load(), Stats.size_in_use));
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+		});
+#endif
+		FStaticMeshDecodedGeometry Input;
+		Input.MaterialSlots.push_back({"Material", 0, "Material"});
+		auto& Mesh = Input.Meshes.emplace_back();
+		Mesh.Name = "Fixture";
+		for (uint32 Triangle = 0; Triangle < Triangles; ++Triangle)
+		{
+			const float X = static_cast<float>(Triangle);
+			Mesh.Positions.insert(Mesh.Positions.end(), {{X, 0, 0}, {X + 1, 0, 0}, {X, 1, 0}});
+			Mesh.Indices.insert(Mesh.Indices.end(), {Triangle * 3, Triangle * 3 + 1, Triangle * 3 + 2});
+		}
+		std::string Error;
+		FStaticMeshImportedData Source;
+		ASSERT_TRUE(Source.Initialize(std::move(Input), Error)) << Error;
+		auto Decoded = Source.AcquireGeometry(Error);
+		ASSERT_TRUE(Error.empty()) << Error;
+		EXPECT_EQ(Decoded->Meshes.front().Positions.size(), Triangles * 3);
+		EXPECT_EQ(Source.AcquireGeometry(Error), Decoded);
+		EXPECT_EQ(Source.GetGeometryBulk().GetPayloadSize(), Triangles == 1 ? 195u : 4800147u);
+		EXPECT_EQ(Source.GetIdentity().HashLow, Triangles == 1 ? 4982799754724307949ull : 17565407108445809865ull);
+		EXPECT_EQ(Source.GetIdentity().HashHigh, Triangles == 1 ? 10298414200299834774ull : 892654471079648671ull);
+		FStaticMeshBuildResult Product;
+		ASSERT_TRUE(BuildStaticMeshDerivedData({.ImportedData = Source, .bPersistDerivedData = false}, Product, Error)) << Error;
+		const uint64 Retained = Mesh.Positions.capacity() * sizeof(FVector3f)
+			+ Mesh.Indices.capacity() * sizeof(uint32);
+		std::cout << "residency_fixture triangles=" << Triangles << " retained_array_capacity_bytes=" << Retained
+			<< " payload_bytes=" << Source.GetGeometryBulk().GetPayloadSize()
+			<< " identity=" << Source.GetIdentity().HashLow << ":" << Source.GetIdentity().HashHigh;
+#if defined(__APPLE__)
+		Sampler.request_stop();
+		Sampler.join();
+		std::cout << " process_sampled_peak_allocated_bytes=" << PeakBytes.load();
+#endif
+		std::cout << std::endl;
+	}
+}
+
+namespace
+{
+	auto MakeResidencyGeometry() -> Durin::FStaticMeshDecodedGeometry
+	{
+		Durin::FStaticMeshDecodedGeometry Geometry;
+		Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
+		auto& Mesh = Geometry.Meshes.emplace_back();
+		Mesh.Name = "Fixture";
+		Mesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+		Mesh.Indices = {0, 1, 2};
+		return Geometry;
+	}
+
+	// Exercises the persisted field boundary without exposing mutable bulk in the source API.
+	auto GetReflectedSourceBulk(Durin::FStaticMeshImportedData& Source) -> Durin::FEditorBulkData&
+	{
+		auto* Property = Durin::FStaticMeshImportedData::StaticStruct()->FindPropertyByName("Geometry");
+		return *Property->ContainerPtrToValuePtr<Durin::FEditorBulkData>(&Source);
+	}
+
+	class FResidencyReadProbe final : public Durin::FPackageResource
+	{
+	public:
+		explicit FResidencyReadProbe(Durin::FSharedByteBuffer InBytes, bool InFail = false)
+			: FPackageResource(InBytes.GetSize()), Bytes(std::move(InBytes)), bFail(InFail) {}
+
+	private:
+		auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool&)
+			-> Durin::FPackageResourceReadResult override
+		{
+			if (bFail) return {.Status = Durin::EPackageResourceReadStatus::IoError,
+				.Message = "Deliberate residency source read failure."};
+			return {.Status = Durin::EPackageResourceReadStatus::Success,
+				.Buffer = Bytes.MakeView(Offset, Size)};
+		}
+		Durin::FSharedByteBuffer Bytes;
+		bool bFail;
+	};
+
+	auto AttachResidencyProbe(Durin::FStaticMeshImportedData& Source, bool bFail = false)
+		-> std::shared_ptr<FResidencyReadProbe>
+	{
+		const auto& Bulk = Source.GetGeometryBulk();
+		auto Resource = std::make_shared<FResidencyReadProbe>(Bulk.GetPayload().Wait().Buffer, bFail);
+		Durin::FEditorBulkData Attached;
+		std::string Error;
+		EXPECT_TRUE(Durin::FEditorBulkData::TryCreatePackageBacked(Bulk.GetInstanceId(),
+			Bulk.GetPayloadId(), Bulk.GetPayloadSize(),
+			{.Resource = Resource, .StoredSize = Bulk.GetPayloadSize()}, Attached, &Error)) << Error;
+		Source.ReleaseGeometry();
+		GetReflectedSourceBulk(Source) = std::move(Attached);
+		return Resource;
+	}
+}
+
+TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FStaticMeshImportedData Source;
+	std::string Error;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry(), Error)) << Error;
+	ASSERT_TRUE(Source.IsGeometryResident());
+	const auto Resource = AttachResidencyProbe(Source);
+	const auto Identity = Source.GetIdentity();
+	EXPECT_TRUE(Source.IsValid());
+	EXPECT_EQ(Source.GetMeshCount(), 1u);
+	EXPECT_EQ(Source.GetMaterialSlotCount(), 1u);
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
+	std::array<FStaticMeshGeometryReadHandle, 16> Handles;
+	std::vector<std::jthread> Readers;
+	for (auto& Handle : Handles)
+		Readers.emplace_back([&Source, &Handle] {
+			std::string ReadError;
+			Handle = Source.AcquireGeometry(ReadError);
+			EXPECT_TRUE(ReadError.empty()) << ReadError;
+		});
+	Readers.clear();
+	ASSERT_TRUE(Handles.front());
+	for (const auto& Handle : Handles) EXPECT_EQ(Handle, Handles.front());
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
+	FStaticMeshImportedData Copy = Source;
+	Source.ReleaseGeometry();
+	EXPECT_FALSE(Source.IsGeometryResident());
+	EXPECT_EQ(Copy.AcquireGeometry(Error), Handles.front());
+	const auto Reload = Source.AcquireGeometry(Error);
+	ASSERT_TRUE(Reload) << Error;
+	EXPECT_NE(Reload, Handles.front());
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 2u);
+	EXPECT_EQ(Source.GetIdentity(), Identity);
+	std::weak_ptr<const FStaticMeshDecodedGeometry> Weak = Handles.front();
+	Handles.fill({});
+	EXPECT_FALSE(Weak.expired());
+	Copy.ReleaseGeometry();
+	EXPECT_TRUE(Weak.expired());
+	const auto Old = Source.AcquireGeometry(Error);
+	auto Replacement = MakeResidencyGeometry();
+	Replacement.Meshes.front().Positions.front().x = 7;
+	ASSERT_TRUE(Source.Initialize(std::move(Replacement), Error)) << Error;
+	EXPECT_NE(Source.GetIdentity(), Identity);
+	EXPECT_EQ(Old->Meshes.front().Positions.front().x, 0);
+	EXPECT_EQ(Source.AcquireGeometry(Error)->Meshes.front().Positions.front().x, 7);
+	std::jthread Releaser([&] { for (int Index = 0; Index < 32; ++Index) Source.ReleaseGeometry(); });
+	for (int Index = 0; Index < 32; ++Index)
+	{
+		const auto Handle = Source.AcquireGeometry(Error);
+		ASSERT_TRUE(Handle) << Error;
+		EXPECT_EQ(Handle->Meshes.front().Positions.front().x, 7);
+	}
+}
+
+TEST(FStaticMeshSourceResidencyTests, InvalidCompleteInitializationPreservesIdentityAndReaders)
+{
+	using namespace Durin;
+	FStaticMeshImportedData Source;
+	std::string Error;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry(), Error)) << Error;
+	const auto Original = Source.AcquireGeometry(Error);
+	const auto Identity = Source.GetIdentity();
+	for (uint32 Case = 0; Case < 7; ++Case)
+	{
+		auto Invalid = MakeResidencyGeometry();
+		auto& Mesh = Invalid.Meshes.front();
+		switch (Case)
+		{
+		case 0: Mesh.Indices.front() = 3; break;
+		case 1: Mesh.Normals.resize(1); break;
+		case 2: Mesh.UVChannels[3].resize(2); break;
+		case 3: Mesh.Colors.resize(1); break;
+		case 4: Mesh.Tangents.resize(1); break;
+		case 5: Mesh.Name.resize(4097); break;
+		case 6: Invalid.MaterialSlots.clear(); break;
+		}
+		EXPECT_FALSE(Source.Initialize(std::move(Invalid), Error));
+		EXPECT_FALSE(Error.empty());
+		EXPECT_EQ(Source.GetIdentity(), Identity);
+		EXPECT_EQ(Source.AcquireGeometry(Error), Original);
+	}
+}
+
+TEST(FStaticMeshSourceResidencyTests, MalformedCanonicalBytesNeverPublishPartialResidency)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FStaticMeshImportedData Source;
+	std::string Error;
+	ASSERT_TRUE(Source.Initialize(MakeResidencyGeometry(), Error)) << Error;
+	const auto Payload = Source.GetGeometryBulk().GetPayload().Wait();
+	const FByteBuffer Original(Payload.Buffer.begin(), Payload.Buffer.end());
+	ASSERT_EQ(Original.size(), 195u);
+	for (uint32 Case = 0; Case < 6; ++Case)
+	{
+		FByteBuffer Bytes = Original;
+		switch (Case)
+		{
+		case 0: Bytes.pop_back(); break;
+		case 1: Bytes.push_back(std::byte{}); break;
+		case 2: WriteU64(Bytes, 75, 50'000'000); break;
+		case 3: WriteU32(Bytes, Bytes.size() - 4, 3); break;
+		case 5: WriteU64(Bytes, 75, std::numeric_limits<uint64>::max()); break;
+		case 4:
+			WriteU64(Bytes, 119, 1);
+			Bytes.insert(Bytes.begin() + 127, 12, std::byte{});
+			break;
+		}
+		ASSERT_TRUE(GetReflectedSourceBulk(Source).UpdatePayload(Bytes));
+		Error = "stale diagnostic";
+		EXPECT_FALSE(Source.AcquireGeometry(Error));
+		EXPECT_FALSE(Error.empty());
+		EXPECT_NE(Error, "stale diagnostic");
+		EXPECT_FALSE(Source.IsGeometryResident());
+	}
+	ASSERT_TRUE(GetReflectedSourceBulk(Source).UpdatePayload(Original));
+	ASSERT_TRUE(Source.AcquireGeometry(Error)) << Error;
+}
+
+TEST(FStaticMeshSourceResidencyTests, WarmCacheSkipsUnreadableBulkAndMissPreservesReadDiagnostic)
+{
+	using namespace Durin;
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	const auto Fixture = ImportCacheFixture("StaticMeshUnreadableResidency");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	EXPECT_FALSE(Fixture.Mesh->GetImportedData().IsGeometryResident());
+	FStaticMeshBuildRequest Request{.Reconciliation = CaptureStaticMeshReconciliation(*Fixture.Mesh),
+		.ImportedData = Fixture.Mesh->GetImportedData()};
+	const auto Resource = AttachResidencyProbe(Request.ImportedData, true);
+	FStaticMeshBuildResult Product;
+	std::string Error;
+	ASSERT_TRUE(BuildStaticMeshDerivedData(Request, Product, Error)) << Error;
+	EXPECT_EQ(Product.Origin, EStaticMeshBuildOrigin::CacheHit);
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
+	ASSERT_TRUE(std::filesystem::remove(GetObjectPath(Fixture, GetStaticMeshKey(*Fixture.Mesh))));
+	EXPECT_FALSE(BuildStaticMeshDerivedData(Request, Product, Error));
+	EXPECT_EQ(Error, "Deliberate residency source read failure.");
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
+	EXPECT_FALSE(Request.ImportedData.IsGeometryResident());
+	EXPECT_FALSE(BuildStaticMeshDerivedData(Request, Product, Error));
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 2u);
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+}
+
+TEST(FStaticMeshSourceResidencyTests, ExistingAuthoredPackageAndDuplicateRetainCanonicalSource)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	FMountPaths::InitDefaultMountPoints();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/Box", Path));
+	DStaticMesh* Mesh = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh));
+	ASSERT_NE(Mesh, nullptr);
+	std::string Error;
+	const auto Geometry = Mesh->GetImportedData().AcquireGeometry(Error);
+	ASSERT_TRUE(Geometry) << Error;
+	auto* Duplicate = Cast<DStaticMesh>(DuplicateObject(Mesh, nullptr, "ResidencyDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(Duplicate->GetImportedData().GetIdentity(), Mesh->GetImportedData().GetIdentity());
+	Mesh->GetImportedData().ReleaseGeometry();
+	const auto Copied = Duplicate->GetImportedData().AcquireGeometry(Error);
+	ASSERT_TRUE(Copied) << Error;
+	EXPECT_EQ(Copied->Meshes.size(), Geometry->Meshes.size());
+	EXPECT_EQ(Copied->Meshes.front().Indices, Geometry->Meshes.front().Indices);
 }

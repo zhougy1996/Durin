@@ -417,7 +417,7 @@ namespace Durin::Tests
 
 		Created = CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Created) return Fail(Created.Message);
-		FStaticMeshImportedData ImportedMesh;
+		FStaticMeshDecodedGeometry ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
@@ -436,7 +436,7 @@ namespace Durin::Tests
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
 		if (!BuildStaticMeshSynchronously(
-				*OutFixtures.StaticMesh, ImportedMesh,
+				*OutFixtures.StaticMesh, std::move(ImportedMesh),
 				OutError)
 			|| !OutFixtures.StaticMesh->SetImportedDefaultMaterial(
 				0, OutFixtures.Material, OutError))

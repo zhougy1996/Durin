@@ -3,6 +3,7 @@
 #include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
+#include "StaticMesh/StaticMesh.h"
 
 namespace Durin
 {
@@ -32,7 +33,6 @@ namespace Durin
 	{
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
-		FStaticMeshImportedData ImportedData;
 		float NormalizedSize = 1.5f;
 		FCacheKeyProxy DerivedDataKey;
 		bool bSlotMetadataChanged = false;
@@ -75,9 +75,13 @@ namespace Durin
 		-> FStaticMeshReconciliationSnapshot;
 	// Applies on the owner thread; candidate failure preserves existing resources.
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
-		FStaticMeshBuildResult Product, std::string& OutError,
+		FStaticMeshImportedData Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty = true) -> bool;
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
 		const FStaticMeshImportedData& ImportedData,
+		std::string& OutError) -> bool;
+	// Fresh authored input boundary: capture once, build from seeded residency, then release.
+	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
+		FStaticMeshDecodedGeometry Geometry,
 		std::string& OutError) -> bool;
 }

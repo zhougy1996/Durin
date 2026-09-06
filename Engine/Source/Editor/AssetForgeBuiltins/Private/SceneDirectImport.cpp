@@ -33,6 +33,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FSceneOutputData* Descriptor = nullptr;
 			FPackagePath AssetPath;
+			FStaticMeshImportedData StaticMeshSource;
 			FStaticMeshBuildResult StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			DObject* Candidate = nullptr;
@@ -303,8 +304,9 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				if (!BuildStaticMeshDerivedData({
-					.ImportedData = MakeStaticMeshImportedData(Data.Scene)},
+				if (!Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene), Error)
+					|| !BuildStaticMeshDerivedData({
+					.ImportedData = Output.StaticMeshSource},
 					Output.StaticMesh, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
@@ -402,7 +404,8 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
 				&& !ApplyStaticMeshBuildResult(
-					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMesh), Error))
+					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMeshSource),
+					std::move(Output.StaticMesh), Error))
 			{
 				Abandon(Prepared);
 				return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,

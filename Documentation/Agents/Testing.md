@@ -67,6 +67,21 @@ useful and report application execution as not run. Do not leave the current
 sandbox, change machine authorization, relocate artifacts, or substitute the
 product application merely to make this optional lane pass.
 
+GPU qualification is not implicit validation for CPU changes or migrated test
+fixtures. `test affected` already excludes qualification targets. Do not append
+GPU qualification solely because a changed fixture belongs to such a target;
+build that target when compile coverage is needed. Run GPU qualification only
+when the changed GPU behavior, an explicit user request, a selected acceptance
+gate, or the active CI job requires it.
+
+If the current session is known to lack GPU access, do not retry GPU execution
+without evidence that access changed. Report it as unavailable/not run, retain
+any prior failure diagnostic, and continue the supported validation. Optional
+GPU coverage must not become a new completion or downstream-plan gate. Explicit
+GPU acceptance gates remain outstanding until validated in a capable environment.
+Keep GPU tests registered for those environments; do not turn initialization
+failures into unconditional passes.
+
 ## Performance Qualification and Concurrent Agents
 
 Ordinary correctness builds and tests may run while other agents are active,

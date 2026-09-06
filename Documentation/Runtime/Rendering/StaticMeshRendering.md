@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -372,6 +372,42 @@ The terminal contains the same validated v3 contract and is not recursively
 validated as another fallback, so no partial payload can reach a draw.
 
 ## Source and Payload Compatibility
+
+`StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
+`StaticMeshGeometry.h` defines detached decoded sections and material mappings.
+The reflected `FStaticMeshImportedData` retains `Geometry: FEditorBulkData`,
+`MaterialSlotCount: uint32`, `MeshCount: uint32`, and `SchemaVersion: uint32`.
+The owning `DStaticMesh::ImportedData` remains EditorOnly. Schema 1 canonical bytes,
+XXH3-128 content hashing, source identity and DDC keys are unchanged.
+
+`Initialize` validates complete geometry before installing canonical bytes and
+seeding one immutable `FStaticMeshGeometryReadHandle`. It checks source mapping,
+indices, finite positions, optional channel lengths, bounded names/counts and
+aggregate canonical size before byte allocation. `AcquireGeometry` first uses
+resident geometry; otherwise it reads canonical bulk, validates bounds before
+array allocation, checks archive end and reflected counts, and publishes only a
+complete decoded value. Read/archive failures retain their diagnostics and are
+not cached. `IsValid`, `GetIdentity` and metadata access do no payload I/O.
+
+A source has its own residency mutex and shared const geometry reference.
+Concurrent acquire, release and copying a stable source are supported; copies
+share existing immutable allocations but release independently. A copy made
+before acquisition has its own lazy cache. `ReleaseGeometry` drops source-owned
+decoded retention, while outstanding handles remain readable. Complete source
+mutation, reflection loading and asset application require exclusive owner
+access; shared decoded values must never be edited in place. A reflected change
+in identity prevents reuse of the previous cache. Existing cooked-load, GPU and
+collision revisions continue to qualify runtime state independently.
+
+Fresh standalone/Scene import initializes source once before Engine DDC lookup.
+Recipes receive only an owning decoded handle and recipe settings. A warm hit
+uses source identity even with unreadable canonical bulk; a miss acquires geometry.
+Application receives the source separately from build output and validates before
+render/collision replacement. Assets release decoded residency at publication;
+operation-owned copies expire at operation completion. Explicit source readers
+may cache until `ReleaseGeometry`. Neither release nor successful publication
+removes unsaved authoritative bulk bytes. Cooked projection strips source, and
+cooked loading uses neither source acquisition nor a build provider.
 
 StaticMesh source provenance stores one normalized project-relative or external
 absolute filename plus the exact source hash, Assimp importer version, and

@@ -372,7 +372,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(
 			StaticMeshFixturePath, StaticMeshFixture)) << Error;
 		ASSERT_NE(StaticMeshFixture, nullptr);
-		Durin::FStaticMeshImportedData ImportedMesh;
+		Durin::FStaticMeshDecodedGeometry ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
@@ -392,7 +392,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			2, 0, 3};
 		ImportedSection.SourceMaterialIndex = 0;
 		ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
-			*StaticMeshFixture, ImportedMesh,
+			*StaticMeshFixture, std::move(ImportedMesh),
 			Error)) << Error;
 		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
 			0, CaptureMaterial, Error)) << Error;

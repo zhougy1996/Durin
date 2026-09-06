@@ -5,11 +5,11 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	inline auto MakeStaticMeshImportedData(
+	inline auto MakeStaticMeshDecodedGeometry(
 		const FImportedSceneData& Scene)
-		-> FStaticMeshImportedData
+		-> FStaticMeshDecodedGeometry
 	{
-		FStaticMeshImportedData Result;
+		FStaticMeshDecodedGeometry Result;
 		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
 		for (const FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{

@@ -293,7 +293,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
-	Durin::FStaticMeshImportedData Imported;
+	Durin::FStaticMeshDecodedGeometry Imported;
 	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
 	Durin::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
 	ImportedMesh.Name = "Tetrahedron";
@@ -301,7 +301,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
 	ASSERT_TRUE(Durin::BuildStaticMeshSynchronously(
-		*Mesh, Imported, Error)) << Error;
+		*Mesh, std::move(Imported), Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {

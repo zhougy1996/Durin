@@ -3,7 +3,7 @@
 #include "EngineAPI.h"
 #include "Modules/ModularFeature.h"
 #include "Physics/BodySetup.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshGeometry.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
@@ -32,7 +32,7 @@ namespace Durin
 
 	struct FStaticMeshRecipeBuildRequest
 	{
-		std::reference_wrapper<const FStaticMeshImportedData> ImportedData;
+		FStaticMeshGeometryReadHandle Geometry;
 		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots;
 		float NormalizedSize = 1.5f;
 	};

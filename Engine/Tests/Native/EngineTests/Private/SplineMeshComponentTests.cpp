@@ -39,7 +39,7 @@ namespace
 		-> DStaticMesh*
 	{
 		auto* Mesh = NewObject<DStaticMesh>(Outer, FName(Name));
-		FStaticMeshImportedData Imported;
+		FStaticMeshDecodedGeometry Imported;
 		Imported.MaterialSlots.push_back({
 			.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		FStaticMeshImportedMesh& Section = Imported.Meshes.emplace_back();
@@ -52,7 +52,7 @@ namespace
 		Section.SourceMaterialIndex = 0;
 		std::string Error;
 		if (!BuildStaticMeshSynchronously(
-			*Mesh, Imported, Error))
+			*Mesh, std::move(Imported), Error))
 		{
 			ADD_FAILURE() << Error;
 			return nullptr;

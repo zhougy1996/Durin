@@ -5,7 +5,7 @@
 #include "Asset/AssetImportData.h"
 #include "Asset/BulkData.h"
 #include "Asset/Cook.h"
-#include "Asset/EditorBulkData.h"
+#include "StaticMesh/StaticMeshSource.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
@@ -16,12 +16,6 @@
 
 namespace Durin
 {
-	inline constexpr FGuid StaticMeshImportedGeometryPayloadId{
-		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
-	inline constexpr uint32 StaticMeshImportedDataSchemaVersion = 1;
-	inline constexpr uint64 MaximumStaticMeshImportedDataBytes =
-		1024ull * 1024ull * 1024ull;
-	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
 
 	class DBodySetup;
 	class FCollisionGeometryRef;
@@ -88,52 +82,6 @@ namespace Durin
 		ENGINE_API static auto MakeYUpNegativeZForward() -> FStaticMeshImportSettings;
 
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
-	};
-
-	struct FStaticMeshImportedMaterialSlot
-	{
-		std::string Name;
-		uint32 SourceMaterialIndex = 0;
-		std::string SourceName;
-	};
-
-	struct FStaticMeshImportedMesh
-	{
-		std::string Name;
-		std::vector<FVector3f> Positions;
-		std::vector<FVector3f> Normals;
-		std::vector<FVector4f> Tangents;
-		std::array<std::vector<FVector2f>, MaximumStaticMeshImportedUVChannels> UVChannels;
-		std::vector<FVector4f> Colors;
-		std::vector<uint32> Indices;
-		uint32 SourceMaterialIndex = 0;
-	};
-
-	// Owns canonical imported geometry and material-source mapping in authored bulk.
-	DSTRUCT()
-	struct FStaticMeshImportedData
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FEditorBulkData Geometry;
-
-		DPROPERTY()
-		uint32 MaterialSlotCount = 0;
-
-		DPROPERTY()
-		uint32 MeshCount = 0;
-
-		DPROPERTY()
-		uint32 SchemaVersion = StaticMeshImportedDataSchemaVersion;
-
-		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
-		std::vector<FStaticMeshImportedMesh> Meshes;
-
-		ENGINE_API auto CaptureDecodedData(std::string& OutError) -> bool;
-		ENGINE_API auto Decode(std::string& OutError) const -> FStaticMeshImportedData;
-		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
 	struct FStaticMeshBuildData;

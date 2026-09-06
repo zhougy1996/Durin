@@ -151,10 +151,6 @@ namespace Durin
 		OutError = "StaticMesh authored build orchestration is unavailable outside editor builds.";
 		return false;
 #else
-		// Fresh imports have decoded arrays but no captured bulk identity yet.
-		// Metadata-only PostLoad requests must not read authored bulk before Get.
-		if (!Request.ImportedData.Meshes.empty()
-			&& !Request.ImportedData.CaptureDecodedData(OutError)) return false;
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			IStaticMeshBuildProvider>([&](IStaticMeshBuildProvider& Provider) {
 			const FStaticMeshBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
@@ -185,7 +181,6 @@ namespace Durin
 					OutProduct = {
 						.RenderData = std::move(RenderData),
 						.MaterialSlots = Request.Reconciliation.MaterialSlots,
-						.ImportedData = std::move(Request.ImportedData),
 						.NormalizedSize = Request.Reconciliation.NormalizedSize,
 						.DerivedDataKey = Key,
 						.Origin = EStaticMeshBuildOrigin::CacheHit,
@@ -195,14 +190,14 @@ namespace Durin
 					return true;
 				}
 			}
-			FStaticMeshImportedData Decoded = Request.ImportedData.Decode(OutError);
-			if (!OutError.empty()) return false;
+			auto Decoded = Request.ImportedData.AcquireGeometry(OutError);
+			if (!Decoded) return false;
 			std::vector<FStaticMeshRecipeMaterialSlot> RecipeSlots;
 			for (const auto& Slot : Request.Reconciliation.MaterialSlots)
 				RecipeSlots.push_back({Slot.Name, Slot.SourceName, Slot.SourceMaterialIndex});
 			FStaticMeshRecipeBuildProduct RecipeProduct;
 			if (!Provider.BuildRender({
-				.ImportedData = std::cref(Decoded),
+				.Geometry = std::move(Decoded),
 				.PreviousMaterialSlots = RecipeSlots,
 				.NormalizedSize = Request.Reconciliation.NormalizedSize}, RecipeProduct, OutError)) return false;
 			if (!RecipeProduct.RenderData
@@ -229,7 +224,6 @@ namespace Durin
 			OutProduct = {
 				.RenderData = std::move(RecipeProduct.RenderData),
 				.MaterialSlots = std::move(MaterialSlots),
-				.ImportedData = std::move(Request.ImportedData),
 				.NormalizedSize = Request.Reconciliation.NormalizedSize,
 				.DerivedDataKey = Key,
 				.bSlotMetadataChanged = RecipeProduct.bSlotMetadataChanged,

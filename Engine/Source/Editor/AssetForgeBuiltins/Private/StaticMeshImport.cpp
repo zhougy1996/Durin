@@ -147,16 +147,18 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format("Failed to decode StaticMesh source {}.", Filename);
 				return false;
 			}
+			FStaticMeshImportedData Source;
+			if (!Source.Initialize(MakeStaticMeshDecodedGeometry(Scene), OutError)) return false;
 			FStaticMeshBuildResult Product;
 			if (!BuildStaticMeshDerivedData({
 				.Reconciliation = CaptureStaticMeshReconciliation(Mesh),
-				.ImportedData = MakeStaticMeshImportedData(Scene)}, Product, OutError))
+				.ImportedData = Source}, Product, OutError))
 				return false;
 			DStaticMeshImportData* ImportData = nullptr;
 			if (!PrepareImportData(Mesh, Filename, HintBase, PhysicalPath, Snapshot,
 				Settings, ImportData, OutError)
 				|| !ApplyStaticMeshBuildResult(
-					Mesh, std::move(Product), OutError)
+					Mesh, std::move(Source), std::move(Product), OutError)
 				|| !Mesh.PublishAssetImportData(*ImportData, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Mesh.GetPackage();

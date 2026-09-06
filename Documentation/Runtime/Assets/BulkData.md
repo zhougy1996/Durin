@@ -64,6 +64,12 @@ GUID while replacing content identity.
 may complete inline, but package sources use the same terminal contract through
 the resource manager. A failure never erases content identity or size.
 
+StaticMesh decoded residency is family-owned and separate from `FEditorBulkData`.
+Releasing a geometry handle/cache never discards canonical memory-backed source
+bytes. The persistent source retains its original reflected type and four wire
+fields; moving their C++ declarations does not rename package declaring identity.
+See [StaticMesh source ownership](../Rendering/StaticMeshRendering.md#source-and-payload-compatibility).
+
 ## Package-Resource Ownership
 
 `FPackageResourceRange` stores a ref-counted logical resource handle, offset,
