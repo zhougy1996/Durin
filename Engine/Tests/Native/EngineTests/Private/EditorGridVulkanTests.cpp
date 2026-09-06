@@ -558,7 +558,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, RDGAllocatorReusesDescriptorAcrossDiagnosticNameChanges)
+	TEST(FEditorGridVulkanTests, RDGAllocatorDetachesExportsAndReusesTransientDescriptors)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -571,13 +571,16 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
-		auto Captures = std::make_shared<std::array<FRDGCapture, 2>>();
+		auto Captures = std::make_shared<std::array<FRDGCapture, 4>>();
 		EnqueueRenderCommand<FRDGDescriptorReuseContract>(
 			[Captures](FRHICommandListImmediate& CommandList) {
 				FRendererResourceCoordinator Coordinator;
 				FRendererRDGAllocator Allocator(Coordinator);
-				const std::array<std::string_view, 2> Names{
-					"Diagnostic.First", "Diagnostic.Renamed"};
+				FTextureRHIRef ExportedTexture;
+				FBufferRHIRef ExportedBuffer;
+				const std::array<std::string_view, 4> Names{
+					"Diagnostic.First", "Diagnostic.Export",
+					"Diagnostic.AfterExport", "Diagnostic.Renamed"};
 				for (size_t Index = 0; Index < Names.size(); ++Index)
 				{
 					FRDGBuilder Builder;
@@ -593,6 +596,19 @@ namespace Durin
 						{ERHITextureAspect::Color, 0, 1, 0, 1},
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store);
+					const auto Buffer = Builder.CreateBuffer(
+						FRDGBufferDesc{.Buffer = FRHIBufferDesc(
+							64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+					const auto Compute = Builder.AddPass("Compute", ERDGPassType::Compute);
+					Builder.UseBuffer(Compute, Buffer, 0, 64, ERDGUse::Write,
+						ERHIAccess::ComputeShaderReadWrite, true);
+					if (Index == 1)
+					{
+						Builder.QueueTextureExtraction(Texture, &ExportedTexture,
+							ERHIAccess::ColorAttachmentReadWrite);
+						Builder.QueueBufferExtraction(Buffer, &ExportedBuffer,
+							ERHIAccess::ComputeShaderReadWrite);
+					}
 					auto Result = Builder.Compile();
 					ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 					FRDGExecutionContext Context{Allocator};
@@ -606,13 +622,27 @@ namespace Durin
 		FlushRenderingCommands();
 		for (const auto& Capture : *Captures)
 		{
-			ASSERT_EQ(Capture.Resources.size(), 1u);
+			ASSERT_EQ(Capture.Resources.size(), 2u);
 			EXPECT_NE(Capture.Resources[0].PhysicalAllocationId, 0u);
 		}
 		EXPECT_EQ((*Captures)[0].Resources[0].AllocationDisposition, "reuse-miss");
 		EXPECT_EQ((*Captures)[1].Resources[0].AllocationDisposition, "reuse-hit");
 		EXPECT_EQ((*Captures)[0].Resources[0].PhysicalAllocationId,
 			(*Captures)[1].Resources[0].PhysicalAllocationId);
+
+		EXPECT_EQ((*Captures)[1].AllocationStatistics.RetainedResources, 0u);
+		EXPECT_EQ((*Captures)[1].AllocationStatistics.RetainedBytes, 0u);
+		for (size_t Resource = 0; Resource < 2; ++Resource)
+		{
+			EXPECT_EQ((*Captures)[0].Resources[Resource].PhysicalAllocationId,
+				(*Captures)[1].Resources[Resource].PhysicalAllocationId);
+			EXPECT_NE((*Captures)[1].Resources[Resource].PhysicalAllocationId,
+				(*Captures)[2].Resources[Resource].PhysicalAllocationId);
+			EXPECT_EQ((*Captures)[2].Resources[Resource].AllocationDisposition, "reuse-miss");
+			EXPECT_EQ((*Captures)[3].Resources[Resource].AllocationDisposition, "reuse-hit");
+			EXPECT_EQ((*Captures)[2].Resources[Resource].PhysicalAllocationId,
+				(*Captures)[3].Resources[Resource].PhysicalAllocationId);
+		}
 
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);

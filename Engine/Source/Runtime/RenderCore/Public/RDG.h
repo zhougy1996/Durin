@@ -811,6 +811,9 @@ namespace Durin
 		uint32 FirstPass = 0;
 		uint32 LastPass = 0;
 		uint32 ObservationTag = 0;
+		// Exported allocations must leave the reusable pool before Allocate returns.
+		// Their counted references own them thereafter; no implicit pool return.
+		bool bExtracted = false;
 	};
 
 	struct FRDGAllocationStatistics final
@@ -852,7 +855,11 @@ namespace Durin
 	};
 
 	// Allocates one retained batch atomically. Implementations must not publish a
-	// partial result when returning failure.
+	// partial result when returning failure. bExtracted resources transfer out of
+	// reusable ownership even if subsequent recording fails. Other allocations
+	// are borrowed for one ordered Execute; retaining a reference is not an export.
+	// Reuse requires ordered GPU uses on the same RHI timeline, or explicit GPU
+	// completion/synchronization across timelines. CPU return is not GPU completion.
 	class RENDERCORE_API FRDGAllocator
 	{
 	public:
@@ -1138,8 +1145,11 @@ namespace Durin
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
+		// Exports the complete resource through a terminal consumer. Every subresource
+		// must have valid stored contents; Destination is published only after success.
 		auto QueueTextureExtraction(FRDGTextureHandle Texture,
 			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
+		// Requires valid contents across the entire buffer and publishes only after success.
 		auto QueueBufferExtraction(FRDGBufferHandle Buffer,
 			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>

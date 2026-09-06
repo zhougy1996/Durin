@@ -130,6 +130,7 @@ namespace Durin
 			bool bFail = false;
 			bool bOmitResources = false;
 			uint32 AllocationCount = 0;
+			std::vector<FRDGAllocationRequest> LastRequests;
 			std::vector<FTextureRHIRef> CreatedTextures;
 			FTextureRHIRef TextureOverride;
 			FBufferRHIRef BufferOverride;
@@ -140,6 +141,7 @@ namespace Durin
 				FRDGAllocatedResources& OutResources, std::string& OutError)
 				-> bool override
 			{
+				LastRequests.assign(Requests.begin(), Requests.end());
 				if (bFail)
 				{
 					OutError = "injected allocation failure";
@@ -2253,7 +2255,7 @@ namespace Durin
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		EXPECT_FALSE(FirstExtraction);
 		EXPECT_FALSE(SecondExtraction);
-		ASSERT_EQ(Result.Graph->GetPasses().size(), 2u);
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 3u);
 
 		FTestRDGAllocator Allocator;
 		FRDGExecutionContext Context{Allocator};
@@ -2269,6 +2271,45 @@ namespace Durin
 		EXPECT_NE(Capture.Resources[0].PhysicalAllocationId, 0u);
 		EXPECT_NE(Capture.Resources[0].PhysicalAllocationId,
 			Capture.Resources[1].PhysicalAllocationId);
+	}
+
+
+	TEST_F(FRDGTests, AllocationRequestsDistinguishExportsFromTransientResources)
+	{
+		FTextureRHIRef ExportedTexture;
+		FBufferRHIRef ExportedBuffer;
+		FRDGBuilder Builder;
+		const auto Texture = Builder.CreateTexture(
+			FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				"Export", 8, 8, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable)}, "Export");
+		const FRDGBufferDesc BufferDesc{.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)};
+		const auto Buffer = Builder.CreateBuffer(BufferDesc, "ExportBuffer");
+		const auto Transient = Builder.CreateBuffer(BufferDesc, "Transient");
+		const auto Graphics = Builder.AddPass("Graphics", ERDGPassType::Graphics);
+		Builder.UseColorAttachment(Graphics, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
+		const auto Compute = Builder.AddPass("Compute", ERDGPassType::Compute);
+		Builder.UseBuffer(Compute, Buffer, 0, 64, ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.UseBuffer(Compute, Transient, 0, 64, ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.QueueTextureExtraction(Texture, &ExportedTexture,
+			ERHIAccess::ColorAttachmentReadWrite);
+		Builder.QueueBufferExtraction(Buffer, &ExportedBuffer,
+			ERHIAccess::ComputeShaderReadWrite);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		FRDGExecutionContext Context{Allocator};
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
+		ASSERT_EQ(Allocator.LastRequests.size(), 3u);
+		EXPECT_TRUE(Allocator.LastRequests[0].bExtracted);
+		EXPECT_TRUE(Allocator.LastRequests[1].bExtracted);
+		EXPECT_FALSE(Allocator.LastRequests[2].bExtracted);
+		EXPECT_TRUE(ExportedTexture);
+		EXPECT_TRUE(ExportedBuffer);
 	}
 
 	TEST_F(FRDGTests, RDGAllocationFailurePublishesNoExtractionOrPass)
@@ -2367,6 +2408,132 @@ namespace Durin
 		EXPECT_NE(ExecutedCapture.Resources[1].PhysicalAllocationId, 0u);
 	}
 
+	TEST_F(FRDGTests, ExtractionRequiresCompleteStoredTextureContents)
+	{
+		for (bool Cull : {false, true})
+			for (uint32 Mode = 0; Mode < 3; ++Mode)
+			{
+				FRDGBuilder Builder;
+				if (Cull) Builder.EnablePassCulling();
+				FTextureRHIRef Destination = MakeRefCount<FRHITexture>(
+					FRHITextureCreateDesc::Create2D("Previous", 8, 8, EPixelFormat::RGBA8_UNORM));
+				const auto* Previous = Destination.GetReference();
+				const auto Texture = Builder.CreateTexture(FRDGTextureDesc{
+					.Texture = FRHITextureCreateDesc::Create2D(
+						"Output", 8, 8, EPixelFormat::RGBA8_UNORM)
+						.SetNumMips(2).SetFlags(ETextureCreateFlags::RenderTargetable)},
+					"Output");
+				Builder.QueueTextureExtraction(Texture, &Destination,
+					ERHIAccess::GraphicsShaderRead);
+				if (Mode != 0)
+				{
+					const auto Pass = Builder.AddPass("Write", ERDGPassType::Graphics);
+					Builder.UseColorAttachment(Pass, Texture, WholeColor(Mode == 1 ? 1 : 2),
+						ERHIRenderTargetLoadAction::Clear,
+						Mode == 1 ? ERHIRenderTargetStoreAction::Store
+							: ERHIRenderTargetStoreAction::DontCare);
+				}
+				const auto Result = Builder.Compile();
+				EXPECT_FALSE(Result.IsSuccess());
+				EXPECT_NE(Result.Error.find("RDG.Export"), std::string::npos);
+				EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
+				EXPECT_EQ(Destination.GetReference(), Previous);
+			}
+	}
+
+	TEST_F(FRDGTests, ExtractionRequiresCompleteBufferContents)
+	{
+		for (bool Cull : {false, true})
+			for (uint64 WrittenSize : {0u, 32u, 64u})
+			{
+				FRDGBuilder Builder;
+				if (Cull) Builder.EnablePassCulling();
+				FBufferRHIRef Destination;
+				const auto Buffer = Builder.CreateBuffer(FRDGBufferDesc{
+					.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)},
+					"Output");
+				Builder.QueueBufferExtraction(Buffer, &Destination,
+					ERHIAccess::ComputeShaderReadWrite);
+				if (WrittenSize != 0)
+				{
+					const auto Pass = Builder.AddPass("Write", ERDGPassType::Compute);
+					Builder.UseBuffer(Pass, Buffer, 0, WrittenSize, ERDGUse::Write,
+						ERHIAccess::ComputeShaderReadWrite, true);
+				}
+				const auto Result = Builder.Compile();
+				EXPECT_EQ(Result.IsSuccess(), WrittenSize == 64) << Result.Error;
+				if (Result.IsSuccess())
+				{
+					EXPECT_EQ(Result.Graph->GetPasses().back().Name, "RDG.Export");
+					EXPECT_EQ(Result.Graph->GetResourceLifetimes()[0].LastPass, 1u);
+					EXPECT_EQ(Result.Graph->GetDependencies().size(), 1u);
+					FTestRDGAllocator Allocator;
+					FRDGExecutionContext Context{Allocator};
+					ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
+					EXPECT_TRUE(Destination);
+				}
+				else
+					EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
+			}
+	}
+
+	TEST_F(FRDGTests, ExtractionRetainsOnlyFinalRangeProducers)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		FBufferRHIRef Destination;
+		const auto Buffer = Builder.CreateBuffer(FRDGBufferDesc{
+			.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)}, "Output");
+		for (uint32 Index = 0; Index < 3; ++Index)
+		{
+			const auto Pass = Builder.AddPass("Write" + std::to_string(Index), ERDGPassType::Compute);
+			Builder.UseBuffer(Pass, Buffer, Index == 2 ? 32 : 0, Index == 0 ? 64 : 32,
+				ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		}
+		Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
+		const auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 3u);
+		EXPECT_EQ(Result.Graph->GetPasses()[0].Name, "Write1");
+		EXPECT_EQ(Result.Graph->GetPasses()[1].Name, "Write2");
+		EXPECT_EQ(Result.Graph->GetResourceLifetimes()[0].LastPass, 2u);
+		EXPECT_EQ(Result.Graph->GetDependencies().size(), 2u);
+	}
+
+	TEST_F(FRDGTests, ExtractionRejectsInvalidFinalAccess)
+	{
+		for (const auto Access : {ERHIAccess::None, ERHIAccess::Discard,
+			ERHIAccess::Present, static_cast<ERHIAccess>(1u << 30)})
+		{
+			FRDGBuilder Builder;
+			FBufferRHIRef Destination;
+			const auto Buffer = Builder.CreateBuffer(FRDGBufferDesc{
+				.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)}, "Output");
+			const auto Pass = Builder.AddPass("Write", ERDGPassType::Compute);
+			Builder.UseBuffer(Pass, Buffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			Builder.QueueBufferExtraction(Buffer, &Destination, Access);
+			const auto Result = Builder.Compile();
+			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_NE(Result.Error.find("final access"), std::string::npos);
+			EXPECT_FALSE(Destination);
+		}
+	}
+
+	TEST_F(FRDGTests, ExtractionRejectsDiscardedExternalContents)
+	{
+		auto Texture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+			"External", 8, 8, EPixelFormat::RGBA8_UNORM));
+		FTextureRHIRef Destination;
+		FRDGBuilder Builder;
+		const auto Handle = Builder.RegisterExternalTexture(Texture, "External",
+			ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead);
+		Builder.QueueTextureExtraction(Handle, &Destination, ERHIAccess::GraphicsShaderRead);
+		const auto Result = Builder.Compile();
+		EXPECT_FALSE(Result.IsSuccess());
+		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
+	}
+
 	TEST_F(FRDGTests, ExternalExtractionRoundTripPublishesAfterExecution)
 	{
 		auto Texture = MakeRefCount<FRHITexture>(
@@ -2379,9 +2546,14 @@ namespace Durin
 			"External", ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
 		Builder.QueueTextureExtraction(External, &Extracted,
-			ERHIAccess::GraphicsShaderRead);
+			ERHIAccess::ComputeShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 1u);
+		const auto& Export = Result.Graph->GetPasses()[0];
+		ASSERT_EQ(Export.TextureTransitions.size(), 1u);
+		EXPECT_EQ(Export.TextureTransitions[0].RequiredAfter, ERHIAccess::ComputeShaderRead);
+		EXPECT_FALSE(Result.Graph->GetResourceLifetimes()[0].bCulled);
 		EXPECT_FALSE(Extracted);
 		ASSERT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_EQ(Extracted.GetReference(), Texture.GetReference());

@@ -205,6 +205,7 @@ namespace Durin
 			FBufferRHIRef Buffer;
 			uint64 AllocationId = 0;
 			bool bReuseHit = false;
+			bool bExtracted = false;
 		};
 		std::vector<FCandidate> Candidates;
 		Candidates.reserve(Requests.size());
@@ -291,7 +292,8 @@ namespace Durin
 
 		for (const FRDGAllocationRequest& Request : Requests)
 		{
-			FCandidate Candidate{.ResourceId = Request.ResourceId};
+			FCandidate Candidate{.ResourceId = Request.ResourceId,
+				.bExtracted = Request.bExtracted};
 			bool bReserved = false;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
@@ -334,6 +336,26 @@ namespace Durin
 			if (!bPublished)
 				return Fail("RDG allocator could not publish resource id="
 					+ std::to_string(Candidate.ResourceId));
+		}
+
+		// Detach exports before any graph callback can allocate another batch.
+		// Failure after this point releases through RHI ownership, never pool reuse.
+		std::unordered_set<uint64> ExportedAllocationIds;
+		for (const auto& Candidate : Candidates)
+			if (Candidate.bExtracted)
+				ExportedAllocationIds.insert(Candidate.AllocationId);
+		auto DetachExports = [&](auto& Entries) {
+			std::erase_if(Entries, [&](const auto& Entry) {
+				if (!ExportedAllocationIds.contains(Entry.Sequence + 1)) return false;
+				State->RetainedBytes -= Entry.LogicalBytes;
+				--State->RetainedResources;
+				return true;
+			});
+		};
+		if (!ExportedAllocationIds.empty())
+		{
+			DetachExports(State->Textures);
+			DetachExports(State->Buffers);
 		}
 
 		while (State->RetainedBytes

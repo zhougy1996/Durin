@@ -40,9 +40,14 @@ execution state. Compilation never mutates a command list.
   producer before any read or load, and may omit a final state when their
   contents do not cross the graph boundary.
 - `QueueTextureExtraction` and `QueueBufferExtraction` make a resource an
-  explicit culling root, apply its requested final access, and publish a
-  counted reference to the destination only after complete successful
-  execution. Compile, preparation, allocation, or recording failure leaves
+  explicit terminal consumer (`RDG.Export`) of its complete byte or
+  aspect/mip/layer range. This node requires valid stored contents in every
+  cell, retains the final producers through ordinary value dependencies,
+  extends allocation lifetimes through export, and applies the requested final
+  access. It appears in scheduled passes, captures, and structural budgets;
+  an output-free graph has no export node. External resources with discarded
+  initial contents also require a stored producer. A counted reference is
+  published to the destination only after complete successful execution. Compile, preparation, allocation, or recording failure leaves
   every destination unchanged. Duplicate resource or destination extraction
   is a deterministic declaration error.
 - Every use declares one nonempty exact byte range or texture
@@ -107,7 +112,22 @@ access families.
 An optional execution-preparation callback runs after successful compile.
 The execution allocator then receives immutable `FRDGAllocationRequest`
 records containing only resource ID, kind, exact description, and retained
-lifetime. Allocation is atomic: returning false, omitting one resource, or
+lifetime, observation tag, and explicit `bExtracted` ownership intent.
+Allocators detach extracted allocations from reusable storage before returning
+success; counted references then own the exported resource, with no implicit
+return to the pool when those references expire. Renderer may promote an
+existing compatible pool entry into an export. A later recording failure still
+leaves that allocation detached and does not publish the extraction destination.
+Ordinary allocations are borrowed for one ordered execution; preserving their
+contents across executions requires extraction, not merely a strong reference.
+
+Pool reuse on the immediate RHI timeline relies on ordered command recording
+and backend transitions. Across independent timelines, reuse requires explicit
+GPU completion or synchronization. Neither an `Execute` return nor extraction
+publication proves GPU completion; external consumers must order their GPU uses
+and RHI retains responsibility for native resource retirement.
+
+Allocation is atomic: returning false, omitting one resource, or
 publishing an incompatible description records nothing, publishes no
 extraction destination, and invokes no pass. Culled logical resources never
 enter the batch. Tests and production use this same counted-reference allocator

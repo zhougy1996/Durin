@@ -18,18 +18,24 @@ namespace Durin
 			ERHIAccess InitialAccess = ERHIAccess::Discard;
 			ERHIAccess FinalAccess = ERHIAccess::None;
 			bool bExternal = false;
+			// Caller-owned publication slots are written only after successful execution.
+			FTextureRHIRef* TextureDestination = nullptr;
+			FBufferRHIRef* BufferDestination = nullptr;
+
 			const void* ValueTypeIdentity = nullptr;
 			std::string ValueTypeName;
 			uint32 ValueStorageIndex = std::numeric_limits<uint32>::max();
-		};
 
-		struct FGraphExtraction
-		{
-			uint32 ResourceIndex = 0;
-			ERDGResourceKind Kind = ERDGResourceKind::Texture;
-			FTextureRHIRef* TextureDestination = nullptr;
-			FBufferRHIRef* BufferDestination = nullptr;
-			ERHIAccess FinalAccess = ERHIAccess::None;
+			auto IsExported() const -> bool
+			{
+				return TextureDestination != nullptr || BufferDestination != nullptr;
+			}
+
+			auto HasInitialContents() const -> bool
+			{
+				return bExternal && InitialAccess != ERHIAccess::None
+					&& !EnumHasAnyFlags(InitialAccess, ERHIAccess::Discard);
+			}
 		};
 
 		struct FGraphUse
@@ -97,6 +103,8 @@ namespace Durin
 			FRDGPassExecute Execute;
 			FRDGParameterizedPassExecute ParameterizedExecute;
 			bool bRoot = false;
+			// Terminal exports consume contents but may hand off a writable access state.
+			bool bExport = false;
 			std::string RootReason;
 			bool bParameterized = false;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
@@ -427,6 +435,26 @@ namespace Durin
 			}
 			return !EnumHasAnyFlags(Access, static_cast<ERHIAccess>(
 				static_cast<uint32>(~static_cast<uint32>(Allowed))));
+		}
+
+		auto IsExportAccessAllowed(ERDGResourceKind Kind, ERHIAccess Access) -> bool
+		{
+			constexpr ERHIAccess Allowed = ERHIAccess::VertexBufferRead
+				| ERHIAccess::IndexBufferRead | ERHIAccess::GraphicsUniformRead
+				| ERHIAccess::ComputeUniformRead | ERHIAccess::GraphicsShaderRead
+				| ERHIAccess::ComputeShaderRead | ERHIAccess::TransferRead
+				| ERHIAccess::HostRead | ERHIAccess::ColorAttachmentReadWrite
+				| ERHIAccess::DepthStencilReadWrite | ERHIAccess::GraphicsShaderReadWrite
+				| ERHIAccess::ComputeShaderReadWrite | ERHIAccess::TransferWrite
+				| ERHIAccess::HostWrite | ERHIAccess::Present;
+			const ERHIAccess TextureOnly = ERHIAccess::Present
+				| ERHIAccess::ColorAttachmentReadWrite | ERHIAccess::DepthStencilReadWrite;
+			const ERHIAccess BufferOnly = ERHIAccess::VertexBufferRead
+				| ERHIAccess::IndexBufferRead | ERHIAccess::GraphicsUniformRead
+				| ERHIAccess::ComputeUniformRead;
+			return Access != ERHIAccess::None && EnumHasAllFlags(Allowed, Access)
+				&& !EnumHasAnyFlags(Access,
+					Kind == ERDGResourceKind::Texture ? BufferOnly : TextureOnly);
 		}
 
 		auto BufferRangesOverlap(const FGraphUse& A, const FGraphUse& B) -> bool
@@ -907,6 +935,12 @@ namespace Durin
 					return false;
 				}
 				const auto& Resource = Resources[Use.ResourceIndex];
+				if (Pass.bExport && !IsExportAccessAllowed(Use.Kind, Use.Access))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' has invalid final access";
+					return false;
+				}
 				if (Use.Kind != ERDGResourceKind::Token
 					&& (Use.Access == ERHIAccess::None
 						|| EnumHasAnyFlags(Use.Access, ERHIAccess::Discard)))
@@ -916,14 +950,14 @@ namespace Durin
 					return false;
 				}
 				if (Use.Kind != ERDGResourceKind::Token
-					&& !IsAccessAllowed(Pass.Type, Use.Access))
+					&& !Pass.bExport && !IsAccessAllowed(Pass.Type, Use.Access))
 				{
 					OutError = Prefix + " resource '" + Resource.Name
 						+ "' access is incompatible with pass domain";
 					return false;
 				}
 				if (Use.Kind != ERDGResourceKind::Token
-					&& ((Use.Use == ERDGUse::Read
+					&& !Pass.bExport && ((Use.Use == ERDGUse::Read
 							&& AccessHasWrite(Use.Access))
 						|| (Use.Use == ERDGUse::Write
 							&& !AccessHasWrite(Use.Access))))
@@ -1134,7 +1168,7 @@ namespace Durin
 				{
 					FRangeState Cell;
 					Cell.Use = *Uses.front();
-					Cell.bProduced = Resource.bExternal;
+					Cell.bProduced = Resource.HasInitialContents();
 					Cell.Access = Resource.InitialAccess;
 					Cells.push_back(std::move(Cell));
 					continue;
@@ -1161,7 +1195,7 @@ namespace Durin
 							continue;
 						FRangeState Cell;
 						Cell.Use = CellUse;
-						Cell.bProduced = Resource.bExternal;
+						Cell.bProduced = Resource.HasInitialContents();
 						Cell.Access = Resource.InitialAccess;
 						Cells.push_back(std::move(Cell));
 					}
@@ -1203,7 +1237,7 @@ namespace Durin
 								continue;
 							FRangeState Cell;
 							Cell.Use = CellUse;
-							Cell.bProduced = Resource.bExternal;
+							Cell.bProduced = Resource.HasInitialContents();
 							Cell.Access = Resource.InitialAccess;
 							Cells.push_back(std::move(Cell));
 						}
@@ -1283,8 +1317,6 @@ namespace Durin
 		}
 
 		auto FindRetainedPasses(std::span<const FGraphPass> Passes,
-			std::span<const FGraphExtraction> Extractions,
-			std::span<const FRangeState> Cells,
 			std::span<const FRDGDependency> Dependencies, bool bEnableCulling)
 			-> std::vector<bool>
 		{
@@ -1299,15 +1331,6 @@ namespace Durin
 					Retained[Index] = true;
 					Pending.push_back(Index);
 				}
-			for (const FGraphExtraction& Extraction : Extractions)
-				for (const FRangeState& Cell : Cells)
-					if (Cell.Use.ResourceIndex == Extraction.ResourceIndex
-						&& Cell.Producer != std::numeric_limits<uint32>::max()
-						&& !Retained[Cell.Producer])
-					{
-						Retained[Cell.Producer] = true;
-						Pending.push_back(Cell.Producer);
-					}
 			while (!Pending.empty())
 			{
 				const uint32 After = Pending.back();
@@ -1427,7 +1450,6 @@ namespace Durin
 		std::unordered_map<const void*, uint32> ExternalResources;
 		std::vector<FGraphPass> Passes;
 		std::vector<std::string> DeclarationErrors;
-		std::vector<FGraphExtraction> Extractions;
 		bool bEnableCulling = false;
 		FRDGBudget Budget;
 		mutable FGraphParameterStorage ParameterStorage;
@@ -1468,7 +1490,6 @@ namespace Durin
 		std::vector<FRDGUseCapture> UseCaptures;
 		std::vector<FRDGTransitionCapture> TransitionCaptures;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
-		std::vector<FGraphExtraction> Extractions;
 		FRDGBudget Budget;
 		FGraphParameterStorage ParameterStorage;
 		FGraphParameterStorage ValueStorage;
@@ -1726,9 +1747,10 @@ namespace Durin
 				"texture extraction requires a destination and valid final access");
 			return;
 		}
-		if (std::ranges::any_of(State->Extractions,
-			[&](const FGraphExtraction& Existing) {
-				return Existing.ResourceIndex == Texture.Index
+		if (std::ranges::any_of(State->Resources,
+			[&](const FGraphResource& Existing) {
+				return (&Existing == &State->Resources[Texture.Index]
+						&& Existing.IsExported())
 					|| Existing.TextureDestination == Destination;
 			}))
 		{
@@ -1737,8 +1759,7 @@ namespace Durin
 			return;
 		}
 		State->Resources[Texture.Index].FinalAccess = FinalAccess;
-		State->Extractions.push_back({Texture.Index,
-			ERDGResourceKind::Texture, Destination, nullptr, FinalAccess});
+		State->Resources[Texture.Index].TextureDestination = Destination;
 	}
 
 	auto FRDGBuilder::QueueBufferExtraction(
@@ -1760,9 +1781,10 @@ namespace Durin
 				"buffer extraction requires a destination and valid final access");
 			return;
 		}
-		if (std::ranges::any_of(State->Extractions,
-			[&](const FGraphExtraction& Existing) {
-				return Existing.ResourceIndex == Buffer.Index
+		if (std::ranges::any_of(State->Resources,
+			[&](const FGraphResource& Existing) {
+				return (&Existing == &State->Resources[Buffer.Index]
+						&& Existing.IsExported())
 					|| Existing.BufferDestination == Destination;
 			}))
 		{
@@ -1771,8 +1793,7 @@ namespace Durin
 			return;
 		}
 		State->Resources[Buffer.Index].FinalAccess = FinalAccess;
-		State->Extractions.push_back({Buffer.Index,
-			ERDGResourceKind::Buffer, nullptr, Destination, FinalAccess});
+		State->Resources[Buffer.Index].BufferDestination = Destination;
 	}
 
 	auto FRDGBuilder::AddPass(std::string_view Name,
@@ -2136,11 +2157,41 @@ namespace Durin
 			!Error.empty())
 			return Fail(std::move(Error));
 
-		const uint32 PassCount = static_cast<uint32>(State->Passes.size());
+		std::vector<FGraphPass> Passes = State->Passes;
+		FGraphPass Export;
+		Export.Name = "RDG.Export";
+		Export.bRoot = true;
+		Export.bExport = true;
+		Export.RootReason = "graph output";
+		for (uint32 Index = 0; Index < State->Resources.size(); ++Index)
+		{
+			const auto& Resource = State->Resources[Index];
+			if (!Resource.IsExported()) continue;
+			FGraphUse Use;
+			Use.ResourceIndex = Index;
+			Use.Kind = Resource.Kind;
+			Use.Access = Resource.FinalAccess;
+			if (Resource.Kind == ERDGResourceKind::Texture)
+				Use.TextureRange = {GetTextureAspects(Resource.TextureDesc.Format),
+					0, Resource.TextureDesc.NumMips, 0, Resource.TextureDesc.ArraySize};
+			else
+				Use.BufferSize = Resource.BufferDesc.Size;
+			Export.Uses.push_back(Use);
+		}
+		if (!Export.Uses.empty())
+		{
+			while (std::ranges::any_of(Passes, [&](const FGraphPass& Pass) {
+				return Pass.Name == Export.Name;
+			}))
+				Export.Name += ".Output";
+			Passes.push_back(std::move(Export));
+		}
+
+		const uint32 PassCount = static_cast<uint32>(Passes.size());
 		const uint32 ResourceCount = static_cast<uint32>(State->Resources.size());
 		size_t DeclaredUseCount = 0;
 		size_t ExplicitDependencyCount = 0;
-		for (const auto& Pass : State->Passes)
+		for (const auto& Pass : Passes)
 		{
 			DeclaredUseCount += Pass.Uses.size();
 			ExplicitDependencyCount += Pass.Prerequisites.size();
@@ -2154,12 +2205,12 @@ namespace Durin
 		};
 		DependencyGraph.Dependencies.reserve(
 			ExplicitDependencyCount + DeclaredUseCount);
-		if (std::string Error = ValidateGraphPasses(State->Passes,
+		if (std::string Error = ValidateGraphPasses(Passes,
 			State->Resources, DependencyGraph); !Error.empty())
 			return Fail(std::move(Error));
 
 		const FResourceUseTable ResourceUses = BuildResourceUseTable(
-			State->Passes, ResourceCount);
+			Passes, ResourceCount);
 		if (std::string Error = ValidateTypedValueWriters(State->Resources,
 			ResourceUses); !Error.empty())
 			return Fail(std::move(Error));
@@ -2167,7 +2218,7 @@ namespace Durin
 		std::vector<FRangeState> Cells = BuildRangeCells(State->Resources,
 			ResourceUses, DeclaredUseCount);
 
-		if (std::string Error = BuildHazardDependencies(State->Passes,
+		if (std::string Error = BuildHazardDependencies(Passes,
 			State->Resources, Cells, DependencyGraph); !Error.empty())
 			return Fail(std::move(Error));
 
@@ -2176,14 +2227,13 @@ namespace Durin
 			PassCount, Order); !Error.empty())
 			return Fail(std::move(Error));
 
-		const std::vector<bool> Retained = FindRetainedPasses(State->Passes,
-			State->Extractions, Cells, DependencyGraph.Dependencies,
+		const std::vector<bool> Retained = FindRetainedPasses(Passes,
+			DependencyGraph.Dependencies,
 			State->bEnableCulling);
 
 		auto CompiledState = std::make_unique<FRDGCompiledGraph::FState>();
 		CompiledState->Owner = State->Owner;
 		CompiledState->Resources = State->Resources;
-		CompiledState->Extractions = State->Extractions;
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
 		CompiledState->RuntimePasses.reserve(PassCount);
@@ -2192,7 +2242,7 @@ namespace Durin
 		CompiledState->ResourceLifetimes.reserve(ResourceCount);
 		CompiledState->CullingDecisions.reserve(PassCount);
 		CompiledState->ResourceCaptures.reserve(ResourceCount);
-		for (const auto& Pass : State->Passes)
+		for (const auto& Pass : Passes)
 			CompiledState->ParameterCaptures.insert(
 				CompiledState->ParameterCaptures.end(),
 				Pass.ParameterCaptures.begin(), Pass.ParameterCaptures.end());
@@ -2217,9 +2267,9 @@ namespace Durin
 			Capture.BufferStride = Resource.BufferDesc.Stride;
 		}
 		for (uint32 Index = 0; Index < PassCount; ++Index)
-			CompiledState->CullingDecisions.push_back({State->Passes[Index].Name,
+			CompiledState->CullingDecisions.push_back({Passes[Index].Name,
 				!Retained[Index], Retained[Index]
-					? (State->Passes[Index].bRoot ? State->Passes[Index].RootReason : "value dependency")
+					? (Passes[Index].bRoot ? Passes[Index].RootReason : "value dependency")
 					: "unreachable from an explicit root"});
 
 		std::vector<FRangeState> ExecutionCells = Cells;
@@ -2227,13 +2277,13 @@ namespace Durin
 		{
 			const auto& Resource = State->Resources[Cell.Use.ResourceIndex];
 			Cell.Access = Resource.InitialAccess;
-			Cell.bProduced = Resource.bExternal;
+			Cell.bProduced = Resource.HasInitialContents();
 			Cell.Version = 0;
 		}
 		for (uint32 ScheduledIndex : Order)
 		{
 			if (!Retained[ScheduledIndex]) continue;
-			const auto& Pass = State->Passes[ScheduledIndex];
+			const auto& Pass = Passes[ScheduledIndex];
 			const uint32 CompiledPassIndex = static_cast<uint32>(CompiledState->Passes.size());
 			FRDGCompiledPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
 				.DeclarationIndex = ScheduledIndex,
@@ -2385,7 +2435,8 @@ namespace Durin
 					.BufferDesc = Resource.BufferDesc,
 					.FirstPass = Lifetime.FirstPass,
 					.LastPass = Lifetime.LastPass,
-					.ObservationTag = Resource.ObservationTag});
+					.ObservationTag = Resource.ObservationTag,
+					.bExtracted = Resource.IsExported()});
 			}
 		}
 		std::ranges::sort(CompiledState->Dependencies,
@@ -2784,13 +2835,12 @@ namespace Durin
 			CommandList.TransitionBuffers(State->FinalBufferTransitions);
 		if (!State->FinalTextureTransitions.empty())
 			CommandList.TransitionTextures(State->FinalTextureTransitions);
-		for (const FGraphExtraction& Extraction : State->Extractions)
+		for (const auto& Resource : State->Resources)
 		{
-			const auto& Resource = State->Resources[Extraction.ResourceIndex];
-			if (Extraction.Kind == ERDGResourceKind::Texture)
-				*Extraction.TextureDestination = Resource.Texture;
-			else
-				*Extraction.BufferDestination = Resource.Buffer;
+			if (Resource.TextureDestination != nullptr)
+				*Resource.TextureDestination = Resource.Texture;
+			if (Resource.BufferDestination != nullptr)
+				*Resource.BufferDestination = Resource.Buffer;
 		}
 		if (OutError != nullptr) OutError->clear();
 		RecordDuration();
