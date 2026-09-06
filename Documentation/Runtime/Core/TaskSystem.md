@@ -4,7 +4,7 @@ Summary: Define task scheduling, dependencies, cancellation, waiting, and worker
 
 Modules: Core
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-07
 
 Durin's CPU task system provides process-wide bounded background execution for
 runtime and editor subsystems. It owns task admission, dependencies, typed
@@ -288,10 +288,14 @@ Workers never help by executing themselves or a dependency that is still in
 idle as a substitute.
 
 GameThread must not use ordinary `WaitTask()` on a nonterminal
-`GameThreadDeferred` node; the wait result is `UnsupportedThread` and its task
-state is only the current snapshot. Workers never help by executing that
-target. Build a continuation graph instead; the cross-executor shutdown
-coordinator is the only pump-until-quiescent path.
+`GameThreadDeferred` node or a task with an unfinished deferred ancestor, even
+through multiple Worker dependencies. The wait result is `UnsupportedThread`
+and its task state is only the current snapshot. The graph walk pins ancestors,
+holds one node lock at a time and skips terminal ancestors. Ordinary waits never
+pump deferred callbacks; Workers never help by executing that target. External
+Worker-only programs need not initialize a GameThread identity. Build a
+continuation graph instead; the cross-executor shutdown coordinator is the only
+pump-until-quiescent path.
 
 ## GameThread Deferred Executor
 

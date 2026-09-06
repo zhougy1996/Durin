@@ -250,11 +250,15 @@ namespace Durin
 			if (State->bTerminal) return State->Result;
 			Task = State->Task;
 		}
-		const ETaskState TaskState = WaitTask(Task).TaskState;
+		const FTaskWaitResult WaitResult = WaitTask(Task);
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->bTerminal) return State->Result;
 		}
+		if (WaitResult.WaitStatus != ETaskWaitStatus::Completed)
+			return Result(EPackageResourceReadStatus::IoError,
+				"Package request wait was rejected; the request outcome is unchanged.");
+		const ETaskState TaskState = WaitResult.TaskState;
 		if (TaskState == ETaskState::Canceled)
 			State->Complete(Result(EPackageResourceReadStatus::Cancelled,
 				"Package request task was cancelled."));

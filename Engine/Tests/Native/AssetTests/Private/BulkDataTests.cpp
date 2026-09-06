@@ -7,6 +7,9 @@
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
+#include "Threading/Runnable.h"
+#include "Threading/RunnableThread.h"
+#include "Threading/ThreadEvent.h"
 
 namespace
 {
@@ -57,6 +60,40 @@ namespace
 
 	private:
 		bool bOwnsScheduler = false;
+	};
+
+	// Holds a read open across an unsupported wait; the timeout keeps failure
+	// cleanup bounded even if an assertion exits before explicit release.
+	class FBlockedPackageResource final : public FPackageResource
+	{
+	public:
+		FBlockedPackageResource() : FPackageResource(4) {}
+		FThreadEvent Started;
+		FThreadEvent Release;
+
+	private:
+		auto ReadRangeImpl(uint64, uint64 Size, const std::atomic_bool&)
+			-> FPackageResourceReadResult override
+		{
+			Started.Trigger();
+			if (!Release.WaitFor(2.0)) return {.Status = EPackageResourceReadStatus::IoError};
+			return {.Status = EPackageResourceReadStatus::Success,
+				.Buffer = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{0x31}))};
+		}
+	};
+
+	class FPackageWaitRunnable final : public FRunnable
+	{
+	public:
+		explicit FPackageWaitRunnable(FPackageResourceRequest InRequest)
+			: Request(std::move(InRequest)) {}
+		auto Run() -> uint32 override
+		{
+			Result = Request.Wait();
+			return 0;
+		}
+		FPackageResourceRequest Request;
+		FPackageResourceReadResult Result;
 	};
 
 	[[maybe_unused]] testing::Environment* GPackageTaskEnvironment =
@@ -244,6 +281,26 @@ TEST(FPackageResourceTests, SchedulerRejectionReturnsTerminalRequests)
 	EXPECT_TRUE(Transform.IsReady());
 	EXPECT_EQ(Transform.Wait().Status, EPackageResourceReadStatus::IoError);
 	EXPECT_TRUE(InitializeTaskScheduler(2));
+}
+
+TEST(FPackageResourceTests, RejectedRenderingWaitDoesNotPublishRequestCompletion)
+{
+	auto Resource = std::make_shared<FBlockedPackageResource>();
+	FPackageResourceRequest Request = Resource->ReadRangeAsync(0, 4);
+	ASSERT_TRUE(Resource->Started.WaitFor(1.0));
+	FPackageWaitRunnable Runnable(Request);
+	std::unique_ptr<FRunnableThread> Thread(FRunnableThread::Create(&Runnable,
+		"PackageRejectedWait", 0, EThreadPriority::Normal, EThreadRole::RenderingThread));
+	ASSERT_NE(Thread, nullptr);
+	Thread->WaitForCompletion();
+	EXPECT_EQ(Runnable.Result.Status, EPackageResourceReadStatus::IoError);
+	EXPECT_NE(Runnable.Result.Message.find("wait was rejected"), std::string::npos);
+	EXPECT_FALSE(Request.IsReady());
+	Resource->Release.Trigger();
+	const auto Result = Request.Wait();
+	ASSERT_TRUE(Result);
+	EXPECT_EQ(Result.Buffer.GetSize(), 4u);
+	EXPECT_EQ(Result.Buffer.GetBytes().front(), std::byte{0x31});
 }
 
 TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)

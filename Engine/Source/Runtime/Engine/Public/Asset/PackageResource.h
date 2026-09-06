@@ -48,6 +48,8 @@ namespace Durin
 
 		ENGINE_API auto IsReady() const -> bool;
 		ENGINE_API auto Cancel() -> void;
+		// A rejected thread/dependency wait returns a caller-local IoError; it
+		// does not terminalize the request or prevent a later authorized wait.
 		ENGINE_API auto Wait() const -> FPackageResourceReadResult;
 
 		ENGINE_API static auto Completed(FPackageResourceReadResult Result)

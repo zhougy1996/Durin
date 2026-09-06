@@ -733,6 +733,29 @@ namespace Durin
 			return false;
 		}
 
+		// Inspect one node lock at a time. Terminal ancestors impose no executor
+		// requirement; pinning each frontier keeps concurrent publication safe.
+		auto RequiresGameThread() const -> bool
+		{
+			std::vector<std::shared_ptr<const FTaskStateData>> Pending{shared_from_this()};
+			std::unordered_set<const FTaskStateData*> Visited;
+			while (!Pending.empty())
+			{
+				auto Current = std::move(Pending.back());
+				Pending.pop_back();
+				if (!Visited.emplace(Current.get()).second) continue;
+				std::lock_guard Lock(Current->Mutex);
+				if (IsTerminalState(Current->State) && Current->bTerminalPublicationFinished) continue;
+				if (Current->Target == ETaskTarget::GameThreadDeferred) return true;
+				for (const auto& WeakPrerequisite : Current->Prerequisites)
+				{
+					if (auto Prerequisite = WeakPrerequisite.lock())
+						Pending.emplace_back(std::move(Prerequisite));
+				}
+			}
+			return false;
+		}
+
 		auto RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::CancellationRequested, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto MarkSucceeded() -> void;
 		auto MarkFailed(std::string InDiagnostic) -> void;
@@ -3341,7 +3364,7 @@ namespace Durin
 			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
 			return {ETaskWaitStatus::UnsupportedThread, State};
 		}
-		if (Task.State->GetTarget() == ETaskTarget::GameThreadDeferred && IsInGameThread())
+		if (GIsGameThreadIdInitialized && IsInGameThread() && Task.State->RequiresGameThread())
 		{
 			DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
 			return {ETaskWaitStatus::UnsupportedThread, State};

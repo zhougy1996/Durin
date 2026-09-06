@@ -3824,7 +3824,7 @@ namespace Durin
 		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
 	}
 
-	TEST(FGameThreadDeferredTaskTests, TransitiveGameThreadWaitBaselineHasBoundedRecovery)
+	TEST(FGameThreadDeferredTaskTests, TransitiveGameThreadWaitIsRejectedWithBoundedRecovery)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -3843,13 +3843,16 @@ namespace Durin
 			return Value;
 		}, Options);
 		auto Tail = Then(Deferred, "TransitiveWaitWorker", [](const int& Value) { return Value + 1; });
+		auto Middle = Then(Tail, "TransitiveWaitMiddle", [](const int& Value) { return Value + 1; });
+		auto Deep = Then(Middle, "TransitiveWaitDeep", [](const int& Value) { return Value + 1; });
 		ASSERT_TRUE(Deferred.IsValid());
 		ASSERT_TRUE(Tail.IsValid());
+		ASSERT_TRUE(Deep.IsValid());
 		ASSERT_FALSE(Deferred.IsComplete());
 		ASSERT_FALSE(Tail.IsComplete());
 
-		// Stage 0 characterizes the old bug. Cancel an unstarted ancestor so the
-		// ordinary wait terminates without pumping or detaching a stuck thread.
+		// Preserve the baseline escape path: a regression must fail instead of
+		// hanging the test process or requiring GameThread callback pumping.
 		FThreadEvent WaitReturned;
 		std::atomic<bool> bRecoveryRequired = false;
 		std::thread Watchdog([&]() {
@@ -3860,13 +3863,54 @@ namespace Durin
 			}
 		});
 		const FTaskWaitResult Result = WaitTask(Tail.GetTaskHandle());
+		const FTaskWaitResult DeepResult = WaitTask(Deep.GetTaskHandle());
 		WaitReturned.Trigger();
 		Watchdog.join();
 
-		EXPECT_TRUE(bRecoveryRequired.load(std::memory_order::acquire));
-		EXPECT_EQ(ETaskWaitStatus::Completed, Result.WaitStatus);
-		EXPECT_EQ(ETaskState::Canceled, Result.TaskState);
+		EXPECT_FALSE(bRecoveryRequired.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskWaitStatus::UnsupportedThread, Result.WaitStatus);
+		EXPECT_EQ(ETaskState::Waiting, Result.TaskState);
+		EXPECT_EQ(ETaskWaitStatus::UnsupportedThread, DeepResult.WaitStatus);
+		EXPECT_EQ(ETaskState::Waiting, DeepResult.TaskState);
 		EXPECT_FALSE(bDeferredRan.load(std::memory_order::acquire));
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+	}
+
+	TEST(FGameThreadDeferredTaskTests, TerminalDeferredAncestorDoesNotRejectWorkerWait)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FThreadEvent Started;
+		FThreadEvent Release;
+		FThreadEvent WaitReturned;
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Root = LaunchTask<int>("TerminalAncestorRoot", [] { return 1; });
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root.GetTaskHandle()).TaskState);
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 32;
+		auto Deferred = Then(Root, "TerminalAncestorDeferred", [](const int& Value) { return Value; }, Options);
+		ASSERT_EQ(1u, PumpGameThreadDeferredWork({.bUnlimited = true}).ExecutedCallbacks);
+		ASSERT_TRUE(Deferred.IsComplete());
+		EXPECT_EQ(ETaskWaitStatus::Completed, WaitTask(Deferred.GetTaskHandle()).WaitStatus);
+
+		auto Tail = Then(Deferred, "TerminalAncestorWorker", [&](const int&) {
+			Started.Trigger();
+			return Release.WaitFor(1.0);
+		});
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		ASSERT_FALSE(Tail.IsComplete());
+		std::thread Releaser([&] {
+			WaitReturned.WaitFor(0.02);
+			Release.Trigger();
+		});
+		const FTaskWaitResult Result = WaitTask(Tail.GetTaskHandle());
+		WaitReturned.Trigger();
+		Releaser.join();
+		EXPECT_EQ(ETaskWaitStatus::Completed, Result.WaitStatus);
+		EXPECT_EQ(ETaskState::Succeeded, Result.TaskState);
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 	}
 

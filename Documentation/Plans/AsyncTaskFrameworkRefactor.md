@@ -9,19 +9,19 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete: the caller inventory, bounded deadlock reproduction,
-frozen source-level contracts, proposed pilot call-site bodies and first Release
-performance baseline are recorded below. The new qualification target exercises
-real file I/O through package request/transform composition and Texture2D builds
-through successful owner-thread commit. Stage 1 is next; production task APIs
-and the waiting defect are unchanged by Stage 0. The small fixed workloads are
-comparison baselines, not production-scale performance claims.
+Stage 0 is complete and committed as `c7b56dbae`. Stage 1 is in progress:
+transitive GameThread waits now reject without pumping, and package requests
+no longer publish a false terminal result after a rejected wait. Structured
+admission errors and new construction wrappers remain open. The small fixed
+Release pilot workloads are comparison baselines, not production-scale
+performance claims.
 
 Observed starting points:
 
-- `WaitTask` rejects a direct GameThreadDeferred target on GameThread but does
+- Before Stage 1, `WaitTask` rejected a direct GameThreadDeferred target on
+  GameThread but did
   not reject a Worker target with an unfinished GameThreadDeferred ancestor.
-  The Worker -> GameThreadDeferred -> Worker graph can therefore block its pump.
+  The Worker -> GameThreadDeferred -> Worker graph could therefore block its pump.
 - Unique consumers require a void callback, preventing ownership-preserving
   multi-stage result transformations. Continuation return values are stored
   directly; returning another task does not flatten its completion relationship.
@@ -574,17 +574,62 @@ commit would violate the frozen contract and must fail Stage 3/5 acceptance.
 
 Depends on Stage 0.
 
-- [ ] Reject transitive GameThread waits; cover direct, multi-hop, terminal,
+- [x] Reject transitive GameThread waits; cover direct, multi-hop, terminal,
   self-wait, and Worker-helping cases without introducing callback pumping.
 - [ ] Add structured admission errors for capacity, closed lifetime/group,
   invalid prerequisite, unsupported executor, and invalid payload declarations.
 - [ ] Keep legacy launch wrappers; route new graph construction through the
   explicit admission result and preserve unique inputs after rejection.
-- [ ] Audit affected wait callers for ignored WaitStatus, beginning with
+- [x] Audit affected wait callers for ignored WaitStatus, beginning with
   package requests; rejected waits must not synthesize a false task completion.
 
 Acceptance: the Stage 0 deadlock regression passes, rejected construction is
 locally diagnosable, and all accepted nodes retain exactly-once terminal state.
+
+#### Stage 1 waiting handoff
+
+`FTaskStateData::RequiresGameThread` now visits the pinned unfinished dependency
+graph, holding only one state mutex at a time. Completed ancestors are skipped;
+ordinary waits do not pump. The GameThread check is conditional on identity
+initialization so standalone Worker-only programs retain their wait behavior.
+Self-wait, dependency-cycle and rendering-thread rejection still precede this
+check; Worker helping is unchanged.
+
+The Stage 0 test is now named
+`TransitiveGameThreadWaitIsRejectedWithBoundedRecovery`. Its 250 ms watchdog is
+still present, but successful validation requires that it never performs
+recovery. The test checks both one-hop and multi-hop Worker tails.
+`TerminalDeferredAncestorDoesNotRejectWorkerWait` verifies terminal deferred
+observation and a nonterminal Worker tail after that ancestor completes.
+Existing direct, self/cycle and Worker-helping cases remain in the full suite.
+
+`FPackageResourceRequest::Wait` now returns a local IoError on a rejected wait
+without invoking `State->Complete`. The bounded
+`RejectedRenderingWaitDoesNotPublishRequestCompletion` test holds a read open,
+rejects its rendering-thread wait, checks that the request is still pending,
+then releases the producer and observes the successful bytes. Its isolated
+execution also exposed and verified the uninitialized-GameThread compatibility
+case. Structured admission and construction wrappers keep Stage 1 open; this
+handoff does not claim the new composition/group APIs are available.
+
+The affected caller audit also checked the inventory against current edges:
+environment lighting already checks both `WaitStatus` and terminal success;
+audit-model teardown waits its Worker producer, not its deferred publisher;
+source-reference service and thumbnails wait Worker-only roots; texture queue
+shutdown waits Worker roots and then checks scope quiescence. Cooked-mesh and
+material owners use their existing scope waits. Lifecycle smoke's Worker
+qualification waits precede its deferred graph. None of those current graphs
+acquires a new transitive rejection from this change. Their legacy ignored
+wait results remain a compatibility limitation for any later graph migration;
+the present audit does not authorize adding deferred ancestors to them.
+
+Validation: the complete Core concurrency suite passed 142 tests; the isolated
+package rejected-wait regression passed. `test affected` then passed all 31
+selected Debug targets, including package/texture and lifecycle integration
+coverage (`Build/.agent-state/logs/20260907-031217-131984-18353-ctest.log`).
+Changed Runtime contracts and all plans validate. No post-change performance
+claim is made by this waiting handoff; the Stage 0 baseline remains the
+comparison reference for later qualification.
 
 ### Stage 2: Implement ownership-preserving composition
 
