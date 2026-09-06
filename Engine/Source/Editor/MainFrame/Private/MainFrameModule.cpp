@@ -325,24 +325,7 @@ namespace Durin::Editor::MainFrame
 								GEditor->GetTransactor()
 									->NotifyMountedContentMutation();
 						},
-						.MoveAssets = [](
-							std::span<const ContentBrowser::FAssetMove> Moves) {
-							return GEditor
-								? ContentBrowser::ExecuteAssetMoves(Moves)
-								: ContentBrowser::FActionResult{
-									false, "The editor transactor is unavailable."};
-						},
-						.FixUpRedirectors = [](
-							std::span<const FPackagePath> Redirectors) {
-							if (!GEditor)
-								return ContentBrowser::FActionResult{
-									false, "The editor transactor is unavailable."};
-							const FAssetOperationResult Result =
-								IAssetTools::Get().FixUpRedirectors({
-									.Redirectors = {Redirectors.begin(), Redirectors.end()}});
-							return ContentBrowser::FActionResult{
-								static_cast<bool>(Result), Result.Message};
-						},
+						.CanMutateContent = [] { return GEditor && !GEditor->IsPlaying(); },
 						.QueryReimport = [](std::string_view AssetClassName) {
 							const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
 							return ContentBrowser::FReimportAvailability{

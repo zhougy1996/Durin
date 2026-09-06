@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Panels/ContentBrowserDataSource.h"
+#include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
 
 #include <filesystem>
@@ -35,24 +36,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::filesystem::path&,
 			std::error_code&)>;
 
-		// Maps one virtual mount to its source and imported physical roots.
-		struct FMountSnapshot
-		{
-			std::string VirtualRoot;
-			std::string SourcePhysicalRoot;
-			std::string PhysicalRoot;
-			bool bContentWritable = false;
-		};
-
-		struct FMountPath
-		{
-			const FMountSnapshot* Mount = nullptr;
-			std::string NormalizedPhysicalPath;
-			std::string VirtualPath;
-
-			explicit operator bool() const { return Mount != nullptr; }
-		};
-
+		using FMountSnapshot = FContentBrowserPaths::FMountSnapshot;
+		using FMountPath = FContentBrowserPaths::FMountPath;
 		auto RefreshMountSnapshot() -> void;
 		auto RescanRegistry() -> FAssetResult;
 		// Async mode replaces the pending request and clears actionable rows immediately.

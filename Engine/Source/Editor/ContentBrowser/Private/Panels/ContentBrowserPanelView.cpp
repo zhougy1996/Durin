@@ -856,7 +856,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (PackagePath.IsValid())
 			{
 				DPackage* LoadedPackage = FindResidentPackage(PackagePath);
-				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
+				const bool bCanSave = static_cast<bool>(Operations.QuerySave(Item.PackagePath));
 				ImGui::BeginDisabled(!bAllowAssetMutation);
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
 					QueueContentAction([this, PackagePath] { SaveAssetPackage(PackagePath); });
@@ -1155,11 +1155,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					const FEditorAssetMove Move{OldPath, NewPath};
 					QueueContentAction([this, Move] {
-						const FAssetResult Result = Operations.Move(std::span{&Move, 1});
+						const auto Result = Operations.Move(std::span{&Move, 1});
 						if (!Result)
-							SetError(Result.Message);
-						else
-							PublishMountedContentMutation();
+							SetError(Result.Status.Message);
 					});
 				}
 			}
@@ -1216,6 +1214,12 @@ namespace Durin::Editor::ContentBrowser::Private
 					Directory = Model.GetCurrentVirtualPath()] {
 					FixUpFolder(Directory);
 				});
+			if (const auto Pending = Operations.GetPendingDeletion(); Pending
+				&& ImGui::MenuItem("Retry Pending Deletion"))
+			{
+				PendingDeletionPlan = Pending;
+				bDeletePopupRequested = true;
+			}
 			if (ImGui::MenuItem("Fix Up All Redirectors"))
 				QueueContentAction([this] { FixUpProject(); });
 			ImGui::EndDisabled();
@@ -1318,7 +1322,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const bool bBlocked = !bAllowAssetMutation || !Plan || !Plan->CanExecute();
 			const bool bDeletesFolder = Plan && Plan->Summary.FolderCount != 0;
 			ImGui::BeginDisabled(bBlocked);
-			if (MonaImGui::DialogButton(bDeletesFolder ? "Delete Folder" : "Delete"))
+			if (MonaImGui::DialogButton(Operations.GetPendingDeletion() == PendingDeletionPlan ? "Retry Deletion" : bDeletesFolder ? "Delete Folder" : "Delete"))
 			{
 				DeleteSelection();
 				if (!PendingDeletionPlan) ImGui::CloseCurrentPopup();
@@ -1327,6 +1331,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			ImGui::SameLine();
 			if (MonaImGui::DialogButton("Cancel"))
 			{
+				Operations.DismissDeletion(PendingDeletionPlan);
 				PendingDeletionPlan.reset();
 				bDeletionPlanRefreshed = false;
 				ImGui::CloseCurrentPopup();

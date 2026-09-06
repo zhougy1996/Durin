@@ -1,4 +1,4 @@
-#include "Panels/ContentBrowserOperations.h"
+#include "Operations/ContentBrowserOperationService.h"
 
 #include "Misc/FileHelper.h"
 
@@ -18,20 +18,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Error;
 		}
 
-		auto IsSameOrDescendant(
-			const std::filesystem::path& Path,
-			const std::filesystem::path& Root) -> bool
-		{
-			const std::filesystem::path Relative = Path.lexically_relative(Root);
-			return !Relative.empty()
-				&& (Relative == "." || *Relative.begin() != "..");
-		}
 	}
 
 	FContentDeletionOperation::FContentDeletionOperation(
 		FContentDeletionPlanPtr InPlan,
-		FContentDeletionHooks InHooks)
-		: Plan(std::move(InPlan)), Hooks(std::move(InHooks))
+		FAssetDeletionOperation InAssetOperation)
+		: Plan(std::move(InPlan)), AssetOperation(std::move(InAssetOperation))
 	{
 		if (!Hooks.RemoveAll) Hooks.RemoveAll = DefaultRemoveAll;
 	}
@@ -46,32 +38,27 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (!Plan) return Fail("The deletion plan is unavailable.");
 		std::unordered_set<std::string> ExpectedPaths;
-		std::vector<std::filesystem::path> CompletedRoots;
-		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
-		{
-			const std::filesystem::path Path = Normalize(Root.OriginalPath);
-			std::error_code Error;
-			if (!std::filesystem::exists(Path, Error) && !Error)
-				CompletedRoots.push_back(Path);
-			else if (Error)
-				return Fail(std::format(
-					"Could not inspect deletion source {}: {}",
-					Path.generic_string(), Error.message()));
-		}
 		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
 		{
 			const std::filesystem::path Path = Normalize(Entry.PhysicalPath);
 			ExpectedPaths.insert(Path.generic_string());
-			if (std::ranges::any_of(CompletedRoots,
-				[&](const std::filesystem::path& Root) {
-					return IsSameOrDescendant(Path, Root);
-				}))
-				continue;
 			std::error_code Error;
+			if (RemovedPaths.contains(Path.generic_string()))
+			{
+				const auto Status = std::filesystem::symlink_status(Path, Error);
+				if ((!Error || Error == std::errc::no_such_file_or_directory)
+					&& Status.type() == std::filesystem::file_type::not_found) continue;
+				return Fail(std::format("Deleted path was replaced: {}.", Path.generic_string()));
+			}
 			const auto Status = std::filesystem::symlink_status(Path, Error);
 			if (Error || std::filesystem::is_symlink(Status))
 				return Fail(std::format(
 					"Deletion source changed: {}.", Path.generic_string()));
+#ifdef _WIN32
+			const DWORD Attributes = GetFileAttributesW(Path.c_str());
+			if (Attributes == INVALID_FILE_ATTRIBUTES || (Attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+				return Fail(std::format("Deletion source became a reparse point: {}.", Path.generic_string()));
+#endif
 			const bool bDirectory =
 				Entry.Kind == EContentDeletionEntryKind::Directory;
 			if (bDirectory != std::filesystem::is_directory(Status))
@@ -90,8 +77,8 @@ namespace Durin::Editor::ContentBrowser::Private
 						"Deletion source bytes changed: {}.", Path.generic_string()));
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Path, Error);
-			if (Error || static_cast<int64>(WriteTime.time_since_epoch().count())
-				!= Entry.LastWriteTimeTicks)
+			if (Error || (!(bStarted && bDirectory)
+				&& static_cast<int64>(WriteTime.time_since_epoch().count()) != Entry.LastWriteTimeTicks))
 				return Fail(std::format(
 					"Deletion source changed: {}.", Path.generic_string()));
 		}
@@ -121,7 +108,17 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (const FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
 			const std::filesystem::path Path = Normalize(Root.OriginalPath);
+			if (RemovedPaths.contains(Path.generic_string())) continue;
+			bStarted = true;
 			const std::error_code Error = Hooks.RemoveAll(Path);
+			for (const auto& Entry : Plan->Entries)
+			{
+				std::error_code ProbeError;
+				const auto Status = std::filesystem::symlink_status(Entry.PhysicalPath, ProbeError);
+				if ((!ProbeError || ProbeError == std::errc::no_such_file_or_directory)
+					&& Status.type() == std::filesystem::file_type::not_found)
+					RemovedPaths.insert(Normalize(Entry.PhysicalPath).generic_string());
+			}
 			if (Error)
 				return {EAssetError::IoError, std::format(
 					"Could not permanently delete {}: {}",
@@ -130,18 +127,20 @@ namespace Durin::Editor::ContentBrowser::Private
 		return {};
 	}
 
-	auto FContentDeletionOperation::Execute() -> bool
+	auto FContentDeletionOperation::Execute(FContentDeletionHooks InHooks) -> FAssetOperationResult
 	{
+		if (InHooks.RemoveAll) Hooks = std::move(InHooks);
 		Details.clear();
 		if (!Plan || !Plan->CanExecute())
-			return Fail("The deletion plan is blocked or unavailable.");
-		if (!ValidatePhysicalState()) return false;
-		const FAssetOperationResult Result = Plan->AssetOperation.Delete({
-			.Delete = [this] { return DeletePhysicalRoots(); },
-		});
-		if (!Result) return Fail(Result.Message);
-		Details = std::format(
-			"Permanently deleted {} root(s).", Plan->MaximalRoots.size());
-		return true;
+			return {.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = "Deletion is blocked or unavailable."};
+		if (!ValidatePhysicalState())
+		{
+			FAssetOperationResult Failure{.Kind = EAssetOperationKind::Delete, .State = EAssetOperationTerminalState::Rejected, .Message = Details};
+			if (bStarted) Failure.State = EAssetOperationTerminalState::ForwardPending;
+			return Failure;
+		}
+		Result = AssetOperation.Delete({.Delete = [this] { return DeletePhysicalRoots(); }});
+		Details = Result.Message;
+		return Result;
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

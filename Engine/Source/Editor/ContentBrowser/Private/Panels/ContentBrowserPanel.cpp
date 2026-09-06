@@ -1,10 +1,12 @@
+#ifdef _WIN32
+#include <shellapi.h>
+#endif
 #include "Panels/ContentBrowserPanel.h"
 #include "DObject/Package.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
-#include "AssetTools/IAssetTools.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -29,33 +31,23 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SaveAssetPackage(const FPackagePath& Path) -> void
 	{
-		const FAssetOperationResult Save = IAssetTools::Get().SaveAssets({
-			.AssetPaths = {Path},
-			.Publish = [this](const FAssetOperationNotification&) {
-				PublishMountedContentMutation();
-			}});
-		if (!Save) SetError(Save.Message);
+		const auto Result = Operations.Save({Path});
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
+		if (!Result) SetError(Result.Status.Message);
 	}
 
 	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void
 	{
-		std::ranges::sort(Paths, {}, &FPackagePath::ToString);
-		Paths.erase(std::unique(Paths.begin(), Paths.end()), Paths.end());
-		const FAssetOperationResult Result = IAssetTools::Get().SaveAssets({
-			.AssetPaths = std::move(Paths),
-			.Mode = EAssetSaveMode::CanonicalResave,
-			.Publish = [this](const FAssetOperationNotification&) {
-				PublishMountedContentMutation();
-			}});
-		if (!Result) SetError(Result.Message);
+		const auto Result = Operations.Save(std::move(Paths), EAssetSaveMode::CanonicalResave);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
+		if (!Result) SetError(Result.Status.Message);
 	}
 
 	FContentBrowserPanel::FContentBrowserPanel(
 		::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
 		::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
 		FOpenAsset InOpenAsset,
-		FMoveAssets InMoveAssets,
-		FFixUpAssets InFixUpRedirectors,
+		std::function<bool()> InCanMutate,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
 		FQueryReimport InQueryReimport,
@@ -78,8 +70,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model(true, InThumbnailTaskScope)
-		, Operations(Model, std::move(InMoveAssets), {},
-			std::move(InFixUpRedirectors), std::move(InNotifyMountedContentMutation))
+		, Operations(FContentBrowserPaths{}, {}, {}, {},
+			std::move(InNotifyMountedContentMutation), std::move(InCanMutate))
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
@@ -370,7 +362,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		RenameTarget.clear();
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		PublishMountedContentMutation();
 		Selection.clear();
 		if (!Result.RevealAssetPath.empty())
 		{
@@ -386,6 +377,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FContentBrowserItem& Item) -> void
 	{
 		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
 			SetError(Result.Status.Message);
@@ -418,6 +410,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			: DestinationDirectory;
 		const FContentBrowserOperationResult Result = Operations.Duplicate(
 			SourcePath, Directory);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
 			SetError(Result.Status.Message);
@@ -430,9 +423,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
-		const FTopLevelAssetCatalogEntry Entry =
-			FindTopLevelAssetExact(SourcePath);
-		return Entry && !Entry->IsRedirector();
+		return static_cast<bool>(Operations.QueryDuplicate(SourcePath));
 	}
 
 	auto FContentBrowserPanel::CreateFolder(
@@ -441,6 +432,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string Directory(PhysicalDirectory);
 		const FContentBrowserOperationResult Result =
 			Operations.CreateFolder(Directory);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
 			SetError(Result.Status.Message);
@@ -490,11 +482,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			Redirectors.push_back(Item.PackagePath);
 		}
-		const FAssetResult Result =
+		const auto Result =
 			Operations.FixUpRedirectors(Redirectors);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
-			SetError(Result.Message);
+			SetError(Result.Status.Message);
 			return;
 		}
 	}
@@ -502,24 +495,25 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::FixUpFolder(
 		std::string_view VirtualDirectory) -> void
 	{
-		const FAssetResult Result =
+		const auto Result =
 			Operations.FixUpRedirectorsInFolder(VirtualDirectory);
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
-			SetError(Result.Message);
+			SetError(Result.Status.Message);
 			return;
 		}
 	}
 
 	auto FContentBrowserPanel::FixUpProject() -> void
 	{
-		const FAssetResult Result = Operations.FixUpAllRedirectors();
+		const auto Result = Operations.FixUpAllRedirectors();
+		if (!Result.Warning.empty()) SetWarning(Result.Warning);
 		if (!Result)
 		{
-			SetError(Result.Message);
+			SetError(Result.Status.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(
@@ -565,9 +559,16 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
+		if (const auto Pending = Operations.GetPendingDeletion())
+		{
+			PendingDeletionPlan = Pending;
+			bDeletePopupRequested = true;
+			return;
+		}
 		if (Selection.empty()) return;
+		Operations.DismissDeletion(PendingDeletionPlan);
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
-			ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection);
+			ContentBrowserQuery::CopySelection(Model.GetItems(), Selection));
 		bDeletionPlanRefreshed = false;
 		bDeletePopupRequested = true;
 	}
@@ -579,21 +580,20 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError("Content deletion is unavailable.");
 			return;
 		}
-		if (!Operations.IsDeletionPlanCurrent(*PendingDeletionPlan))
+		const auto Result = Operations.ExecuteDeletion(PendingDeletionPlan);
+		if (Result.ReplacementConfirmation)
 		{
-			PendingDeletionPlan = Operations.BuildDeletionPlan(
-				ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection);
+			PendingDeletionPlan = Result.ReplacementConfirmation;
 			bDeletionPlanRefreshed = true;
 			return;
 		}
-		if (!PendingDeletionPlan->CanExecute()) return;
-
-		FContentDeletionOperation Deletion(PendingDeletionPlan);
-		if (!Deletion.Execute())
+		if (!Result && (!Result.AssetResult || Result.AssetResult->State !=
+			EAssetOperationTerminalState::ContentCommittedProjectionPending))
 		{
-			SetError(Deletion.GetDetails());
+			SetError(Result.Status.Message);
 			return;
 		}
+		if (!Result.Status.Message.empty()) SetWarning(Result.Status.Message);
 		Selection.clear();
 		SelectionAnchor.clear();
 		PendingDeletionPlan.reset();
@@ -648,6 +648,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (AdmissionState == ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped)
 			return;
 		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopping;
+		Operations.StopRequestAdmission();
 		Model.CancelPendingSnapshots();
 		PendingItemAction.reset();
 		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();
@@ -657,13 +658,31 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::ShowInExplorer(
 		std::string_view PhysicalPath) const -> void
 	{
-		Operations.ShowInExplorer(PhysicalPath);
+#ifdef _WIN32
+		const std::filesystem::path Path(PhysicalPath);
+		std::filesystem::path PreferredPath = Path;
+		const std::wstring WidePath = PreferredPath.make_preferred().wstring();
+		if (ContentBrowserFilesystem::Probe(Path).IsDirectory())
+			ShellExecuteW(
+				nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOW);
+		else
+		{
+			const std::wstring Args = L"/select,\"" + WidePath + L"\"";
+			ShellExecuteW(
+				nullptr,
+				L"open",
+				L"explorer.exe",
+				Args.c_str(),
+				nullptr,
+				SW_SHOW);
+		}
+#endif
 	}
 
 	auto FContentBrowserPanel::CopyToClipboard(std::string_view Text) const
 		-> void
 	{
-		Operations.CopyToClipboard(Text);
+		ImGui::SetClipboardText(std::string(Text).c_str());
 	}
 
 	auto FContentBrowserPanel::SetError(std::string Message) -> void

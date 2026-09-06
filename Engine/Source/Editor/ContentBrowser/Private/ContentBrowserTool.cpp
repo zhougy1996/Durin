@@ -12,32 +12,9 @@ namespace Durin::Editor::ContentBrowser
 		FSavePresentationSettings SaveSettings)
 		-> std::unique_ptr<IContentBrowserTool>
 	{
-		auto MoveAssets = [Move = std::move(Services.MoveAssets)](
-			std::span<const ::Durin::Editor::ContentBrowser::Private::FEditorAssetMove> Moves) {
-			if (!Move)
-				return FAssetResult{
-					EAssetError::ShuttingDown,
-					"Asset relocation is unavailable."};
-			const FActionResult Result = Move(Moves);
-			return Result.bSucceeded
-				? FAssetResult{}
-				: FAssetResult{
-					EAssetError::IoError, Result.Message};
-		};
-		auto FixUpRedirectors = [FixUp = std::move(Services.FixUpRedirectors)](
-			std::span<const FPackagePath> Redirectors) {
-			if (!FixUp)
-				return FAssetResult{
-					EAssetError::ShuttingDown,
-					"Redirector fix-up is unavailable."};
-			const FActionResult Result = FixUp(Redirectors);
-			return Result.bSucceeded ? FAssetResult{}
-				: FAssetResult{EAssetError::IoError, Result.Message};
-		};
 		return std::make_unique<::Durin::Editor::ContentBrowser::Private::FContentBrowserPanel>(
 			std::move(Settings), std::move(SaveSettings),
-			std::move(Services.OpenAsset), std::move(MoveAssets),
-			std::move(FixUpRedirectors),
+			std::move(Services.OpenAsset), std::move(Services.CanMutateContent),
 			std::move(Services.GetMountedContentMutationRevision),
 			std::move(Services.NotifyMountedContentMutation),
 			std::move(Services.QueryReimport),
@@ -46,17 +23,4 @@ namespace Durin::Editor::ContentBrowser
 			std::move(Services.ThumbnailTaskScope));
 	}
 
-	auto ExecuteAssetMoves(std::span<const FAssetMove> Moves)
-		-> FActionResult
-	{
-		std::vector<FAssetRelocation> Mappings;
-		Mappings.reserve(Moves.size());
-		for (const FAssetMove& Move : Moves)
-			Mappings.push_back({Move.OldPath, Move.NewPath});
-		const FAssetOperationResult Result = IAssetTools::Get().RelocateAssets({
-			.Mappings = std::move(Mappings)});
-		return {
-			.bSucceeded = static_cast<bool>(Result),
-			.Message = Result.Message};
-	}
 } // namespace Durin::Editor::ContentBrowser

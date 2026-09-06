@@ -2,7 +2,7 @@
 
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Panels/ContentBrowserModel.h"
-#include "Panels/ContentBrowserOperations.h"
+#include "Operations/ContentBrowserOperationService.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "Threading/Task.h"
@@ -27,9 +27,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
-		using FMoveAssets = std::function<FAssetResult(std::span<const FEditorAssetMove>)>;
-		using FFixUpAssets =
-			std::function<FAssetResult(std::span<const FPackagePath>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FQueryReimport = std::function<
@@ -41,8 +38,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
 			::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
 			FOpenAsset InOpenAsset,
-			FMoveAssets InMoveAssets,
-			FFixUpAssets InFixUpRedirectors,
+			std::function<bool()> InCanMutate,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
 			FQueryReimport InQueryReimport,
@@ -149,7 +145,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FReimport Reimport;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
-		FContentBrowserOperations Operations;
+		FContentBrowserOperationService Operations;
 		std::unordered_set<std::string> Selection;
 		std::string SelectionAnchor;
 		std::array<char, 256> SearchBuffer{};

@@ -121,9 +121,9 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserQuery.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserDataSource.cpp
-		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
+		${_durin_content_browser_private}/Operations/ContentBrowserOperationService.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
-		${_durin_content_browser_private}/Panels/ContentDeletionOperation.cpp
+		${_durin_content_browser_private}/Operations/ContentDeletionOperation.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

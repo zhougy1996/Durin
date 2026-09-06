@@ -56,7 +56,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid());
-		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {}, {},
+		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
 			std::make_shared<FMountedContentReconciliationState>(), {});
 		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
 		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
@@ -89,7 +89,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		int Width, Height;
 		IO.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 
-		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {}, {},
+		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {},
 			std::make_shared<FMountedContentReconciliationState>(), {});
 		std::string Error;
 		int TypeDetailCalls = 0;

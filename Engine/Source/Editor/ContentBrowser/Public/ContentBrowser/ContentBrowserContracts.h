@@ -166,8 +166,7 @@ namespace Durin::Editor::ContentBrowser
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
 		std::function<uint64()> GetMountedContentMutationRevision;
 		std::function<void()> NotifyMountedContentMutation;
-		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
-		std::function<FActionResult(std::span<const FPackagePath>)> FixUpRedirectors;
+		std::function<bool()> CanMutateContent;
 		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;

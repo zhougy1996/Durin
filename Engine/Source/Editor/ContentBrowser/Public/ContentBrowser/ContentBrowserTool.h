@@ -43,8 +43,6 @@ namespace Durin::Editor::ContentBrowser
 		FSavePresentationSettings SaveSettings)
 		-> std::unique_ptr<IContentBrowserTool>;
 
-	CONTENTBROWSER_API auto ExecuteAssetMoves(std::span<const FAssetMove> Moves)
-		-> FActionResult;
 
 	CONTENTBROWSER_API auto LoadPresentationSettings(
 		FPresentationSettings& Settings, std::string* OutWarning = nullptr)

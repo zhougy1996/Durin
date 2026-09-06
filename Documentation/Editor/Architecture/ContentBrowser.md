@@ -127,11 +127,24 @@ explicit choices and advanced fields stay editable. Import submission failures
 remain inline in the open modal so the complete form can be corrected and
 retried without re-entry.
 
-Assets open through registered asset editors. ContentBrowser owns selection,
-dialogs, clipboard, mixed ordinary-file coordination, physical deletion
-staging, refresh, and reveal; it sends package-backed duplicate, save,
-relocation, deletion-preflight, and Fix Up requests to `IAssetTools` rather
-than sequencing Engine mutation phases. **Duplicate** and `Ctrl+D` clone one
+Assets open through registered asset editors. ContentBrowser's private
+`FContentBrowserOperationService` owns browser mutation orchestration. Panel
+captures intent, confirms destructive scope, and presents results; clipboard and
+Explorer remain presentation/platform actions. Menu, shortcut, and drag/drop
+mutations enter the service after the active view traversal completes. The
+service owns a mount/path snapshot independent of Model, queries current host
+mutation policy and its own admission state, and injects the required save,
+duplicate, relocation, deletion, and Fix Up capabilities. AssetTools continues to
+own asset mutation phases. Availability is advisory; execution rechecks policy.
+Save requests deduplicate package identity; duplicate uses top-level asset
+identity. Folder Fix Up rejects empty scope instead of falling through to project.
+
+Structured AssetTools results survive the browser boundary, including warnings,
+persistence, recovery identity, forward-pending state, and projection-pending
+state. The service alone notifies the host about scoped content mutations; a
+lower-level catalog publication flag does not mean the host revision was advanced.
+The service never refreshes Model. RefreshCoordinator consumes the notification
+and owns reconciliation and derived-view refresh. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
   complete persistent object graph is copied and published as a clean package.
@@ -242,8 +255,11 @@ ordinary file or silently omitted.
 Preflight produces one immutable deletion plan shared by the confirmation modal
 and command. The plan contains the registry revision, deterministic
 physical fingerprints, sorted entries, and the minimal set of maximal roots to
-remove. Its destructive AssetTools operation is move-only, so copying a plan
-cannot create another handle to the same deletion job. File fingerprints include
+remove. A versioned session identifier binds the confirmation to its service-owned
+execution session. Copying confirmation data cannot grant execution authority:
+submission requires the exact retained confirmation owner. The session alone
+owns the move-only AssetTools operation; confirmation contains no mutable
+execution capability. File fingerprints include
 a bounded-memory streamed 128-bit byte identity;
 directory identities deterministically aggregate their sorted descendants.
 Confirmation and execution revalidate those identities. If
@@ -280,12 +296,31 @@ is wrapped or exposed to ContentBrowser.
 No quarantine directory, pre-image, Restore/Purge API, editor history entry, or
 automatic retention policy exists.
 
-If deletion stops after removing an earlier root, it does not recreate that
-root. The result is forward-pending, affected Registry paths are fenced against
-stale resolution, and the same operation can retry remaining content. Mutation
-disposition is structured state rather than an English diagnostic prefix. A Registry
-failure after physical removal is `ContentCommittedProjectionPending`; manual
-or automatic Registry reconciliation converges from mounted authored files.
+If deletion stops after removing an earlier root or part of a directory, it does
+not recreate deleted content. The service retains the same execution session,
+including confirmed remaining byte identities and paths removed during its own
+callback. Recreated deleted paths, changed remaining bytes, and new descendants
+block retry. Initial stale confirmation is replaced from the captured request
+and requires another confirmation; forward retry never reconstructs scope from
+current UI selection. Closing the modal keeps destructive progress; the background
+menu exposes `Retry Pending Deletion`. A hidden browser retains its service, and
+shutdown stops admission before the host services retire. Sessions are in-memory
+and do not promise recovery across process restart.
+
+Affected Registry paths remain fenced while deletion is forward-pending. AssetTools
+retains the original catalog/reference/companion safety snapshot and byte identities
+for asset files. Retry permits already-recorded removals but rejects outside
+metadata, reference-store, reference-warning, or companion-ownership changes and
+loading/dirty participants. It can tolerate reconciliation of its own removed
+packages without treating new content as confirmed. Such outside changes leave
+the same session blocked rather than broadening destructive scope.
+
+Mutation disposition is structured state rather than an English diagnostic
+prefix. The service does not automatically reconcile partial deletion; it publishes
+one mounted-content notification after physical completion. A Registry failure
+after physical removal remains `ContentCommittedProjectionPending`: the physical
+session is retired, and manual or automatic RefreshCoordinator reconciliation
+converges from mounted authored files. It never calls physical deletion again.
 
 Successful relocation and Delete declare that they mutate mounted content
 discovery and advance the monotonic mounted-content mutation revision once.
