@@ -133,6 +133,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		Model.RefreshRequestedDirectoryChildrenSnapshots();
+		if (Model.PumpPendingSnapshots()) RepairSelection();
+		CompletePendingItemAction();
 	}
 
 	auto FContentBrowserPanel::QueueTreeAction(std::function<void()> Action) -> void
@@ -395,10 +397,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			Model.HasDirectoryChildrenSnapshot(Physical);
 		if (!bHasChildrenSnapshot)
 			Model.RequestDirectoryChildrenSnapshot(Physical);
-		// Tree actions cannot clear or mutate observed entries until traversal ends;
-		// inserting distinct cache entries does not invalidate this span.
-		const std::span<const std::filesystem::path> Children =
-			Model.GetDirectoryChildren(Physical);
+		const auto ChildrenSnapshot = Model.GetDirectorySnapshot(Physical);
+		const std::span<const std::filesystem::path> Children = ChildrenSnapshot
+			? std::span<const std::filesystem::path>(ChildrenSnapshot->Children)
+			: std::span<const std::filesystem::path>{};
 		const bool bHasChildren = !bHasChildrenSnapshot
 			|| std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -450,7 +452,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
 		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
 			RenameTarget.clear();
-		if (Model.GetItems().empty())
+		if (Model.IsLoading())
+			ImGui::TextDisabled("Loading content...");
+		else if (!Model.GetEnumerationDiagnostics().empty())
+			ImGui::TextWrapped("%s", Model.GetEnumerationDiagnostics().front().Message.c_str());
+		else if (Model.GetItems().empty())
 		{
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 24.0f);
 			ImGui::TextDisabled(SearchBuffer[0] ? "No matching assets or folders." : "This folder is empty.");
@@ -1014,7 +1020,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view TargetPhysicalDirectory, std::string_view TargetVirtualDirectory) const
 		-> FExtensionContext
 	{
-		auto Context = BuildExtensionContext(Model.GetItems(), Selection,
+		auto Context = BuildExtensionContext(ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection,
 			Model.GetCurrentPhysicalPath(), Model.GetCurrentVirtualPath(), PrimaryItem,
 			TargetPhysicalDirectory, TargetVirtualDirectory);
 		Context.CatalogRevision = GetAssetCatalogRevision();
@@ -1093,12 +1099,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		ImGui::BeginDisabled(bMountRoot);
 		if (ImGui::MenuItem("Rename", "F2"))
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
-				if (const FContentBrowserItem* Item = FocusFolderInParent(Directory))
-					BeginRename(*Item);
+				FocusFolderInParent(Directory, false);
 			});
 		if (ImGui::MenuItem("Delete", "Delete"))
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
-				if (FocusFolderInParent(Directory)) RequestDeleteSelection();
+				FocusFolderInParent(Directory, true);
 			});
 		ImGui::EndDisabled();
 		ImGui::EndDisabled();

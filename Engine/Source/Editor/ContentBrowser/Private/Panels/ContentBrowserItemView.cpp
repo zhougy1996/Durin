@@ -9,16 +9,6 @@
 
 namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 {
-	auto ClassLeaf(std::string_view QualifiedName) -> std::string
-	{
-		const size_t Separator = QualifiedName.rfind("::");
-		std::string Name = Separator == std::string_view::npos
-			? std::string(QualifiedName)
-			: std::string(QualifiedName.substr(Separator + 2));
-		if (Name.starts_with('D') && Name.size() > 1) Name.erase(Name.begin());
-		return Name;
-	}
-
 	auto FGridMetrics::FromPreviewExtent(float InPreviewExtent) -> FGridMetrics
 	{
 		FGridMetrics Metrics;
@@ -114,7 +104,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 
 	auto TypeLabel(const FContentBrowserItem& Item) -> std::string
 	{
-		return ContentBrowserModel::TypeLabel(Item);
+		return ContentBrowserQuery::TypeLabel(Item);
 	}
 
 	auto Icon(const FContentBrowserItem& Item) -> std::string

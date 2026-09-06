@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Asset/AssetDefinitions.h"
-#include "AssetRegistry/Catalog.h"
+#include "Panels/ContentBrowserDataSource.h"
+#include "Panels/ContentBrowserSession.h"
 
 #include <filesystem>
 #include <unordered_map>
@@ -9,92 +9,28 @@
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	// Distinguishes folders, registered assets, and ordinary files.
-	enum class EContentBrowserItemKind : uint8
-	{
-		Folder,
-		Asset,
-		Redirector,
-		File
-	};
-
-	// Selects the content category shown without changing directory navigation.
-	enum class EContentBrowserTypeFilter : uint8
-	{
-		All,
-		Assets,
-		Files,
-		Levels,
-		StaticMeshes,
-		Materials,
-		Textures,
-		OtherAssets,
-		Redirectors
-	};
-
-	// Identifies the active content-browser sort key.
-	enum class EContentBrowserSortColumn : uint8
-	{
-		Name,
-		Type,
-		Size,
-		Modified
-	};
-
-	// Captures one mounted content item and its searchable metadata.
-	struct FContentBrowserItem
-	{
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
-		std::string Name;
-		std::string VirtualPath;
-		FPackagePath PackagePath;
-		std::string PhysicalPath;
-		std::string AssetClassName;
-		std::string Extension;
-		FObjectPath RedirectDestination;
-		std::string ThumbnailIdentity;
-		std::string ThumbnailSourcePath;
-		uintmax_t ThumbnailFileSize = 0;
-		std::filesystem::file_time_type ThumbnailLastWriteTime{};
-		uint32 ThumbnailPackageFormatVersion = 0;
-		int64 ThumbnailLastWriteTimeTicks = 0;
-		uintmax_t FileSize = 0;
-		std::filesystem::file_time_type LastWriteTime{};
-
-		auto StableId() const -> const std::string&
-		{
-			return Kind == EContentBrowserItemKind::Asset
-				|| Kind == EContentBrowserItemKind::Redirector
-				? VirtualPath : PhysicalPath;
-		}
-	};
-
-	namespace ContentBrowserModel
-	{
-		// Returns the searchable, user-facing type name derived from item metadata.
-		auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
-	}
-
-	// Owns the content browser's mounted-location snapshot and deterministic item projection.
+	// Coordinates capture publication with the browser session and indexed query projection.
 	class FContentBrowserModel
 	{
 	public:
-		enum class EEnumerationDiagnosticKind : uint8
-		{
-			Entry,
-			Traversal,
-		};
+		// Standalone synchronous mode supports callers without a frame pump.
+		// Editor panels opt into asynchronous mode and pump before drawing.
+		explicit FContentBrowserModel(bool bAsync = false, FTaskScopeToken Scope = {});
+		~FContentBrowserModel();
+		// Owner-thread, nonblocking frame pump; true means item publication or failure
+		// completed and the panel may repair its selection against current rows.
+		auto PumpPendingSnapshots() -> bool;
+		auto IsLoading() const -> bool { return bItemsLoading; }
+		auto GetNavigationRevision() const -> uint64 { return Session.NavigationRevision; }
+		auto GetRequestGeneration() const -> uint64 { return ItemsGeneration; }
+		// Invalidates publication and requests cooperative cancellation without waiting.
+		auto CancelPendingSnapshots() -> void;
+		auto WaitForPendingSnapshotsForTesting() -> void;
 
-		struct FEnumerationDiagnostic
-		{
-			EEnumerationDiagnosticKind Kind = EEnumerationDiagnosticKind::Entry;
-			std::string PhysicalPath;
-			std::string Message;
-		};
+		using EEnumerationDiagnosticKind = Private::EEnumerationDiagnosticKind;
+		using FEnumerationDiagnostic = Private::FEnumerationDiagnostic;
+		using FEntryStatusQuery = Private::FEntryStatusQuery;
 
-		using FEntryStatusQuery = std::function<std::filesystem::file_status(
-			const std::filesystem::directory_entry&,
-			std::error_code&)>;
 		using FPathStatusQuery = std::function<std::filesystem::file_status(
 			const std::filesystem::path&,
 			std::error_code&)>;
@@ -119,6 +55,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto RefreshMountSnapshot() -> void;
 		auto RescanRegistry() -> FAssetResult;
+		// Async mode replaces the pending request and clears actionable rows immediately.
 		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
@@ -134,22 +71,24 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
 		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
+		// Async mode returns the accepted identity; visibility is resolved after publication.
 		auto RevealPhysicalItem(std::string_view PhysicalPath) -> std::string;
 		auto RevealAsset(std::string_view AssetPath) -> std::string;
 
-		auto GetCurrentPhysicalPath() const -> const std::string& { return CurrentPhysicalPath; }
-		auto GetCurrentVirtualPath() const -> const std::string& { return CurrentVirtualPath; }
+		auto GetCurrentPhysicalPath() const -> const std::string& { return Session.CurrentPhysicalPath; }
+		auto GetCurrentVirtualPath() const -> const std::string& { return Session.CurrentVirtualPath; }
 		auto GetMounts() const -> std::span<const FMountSnapshot> { return MountSnapshot; }
-		auto GetItems() const -> std::span<const FContentBrowserItem> { return Items; }
-		auto GetItemsSnapshot() const -> std::span<const FContentBrowserItem> { return ItemsSnapshot; }
-		auto GetHistory() const -> std::span<const std::string> { return NavigationHistory; }
-		auto GetHistoryIndex() const -> int32 { return HistoryIndex; }
-		auto GetSearch() const -> const std::string& { return Search; }
-		auto GetTypeFilter() const -> EContentBrowserTypeFilter { return TypeFilter; }
-		auto GetSortColumn() const -> EContentBrowserSortColumn { return SortColumn; }
-		auto IsSortAscending() const -> bool { return bSortAscending; }
-		auto IsShowingHiddenFiles() const -> bool { return bShowHiddenFiles; }
-		auto IsShowingRedirectors() const -> bool { return bShowRedirectors; }
+		// Copy the range to retain its snapshot and ordering across a refresh.
+		auto GetItems() const -> const FContentBrowserItemRange& { return Items; }
+		auto GetItemsSnapshot() const -> std::span<const FContentBrowserItem> { return PublishedSnapshot->Items; }
+		auto GetHistory() const -> std::span<const std::string> { return Session.NavigationHistory; }
+		auto GetHistoryIndex() const -> int32 { return Session.HistoryIndex; }
+		auto GetSearch() const -> const std::string& { return Session.Query.Search; }
+		auto GetTypeFilter() const -> EContentBrowserTypeFilter { return Session.Query.TypeFilter; }
+		auto GetSortColumn() const -> EContentBrowserSortColumn { return Session.Query.SortColumn; }
+		auto IsSortAscending() const -> bool { return Session.Query.bSortAscending; }
+		auto IsShowingHiddenFiles() const -> bool { return Session.Query.bShowHiddenFiles; }
+		auto IsShowingRedirectors() const -> bool { return Session.Query.bShowRedirectors; }
 		auto GetEnumerationDiagnostics() const
 			-> std::span<const FEnumerationDiagnostic> { return EnumerationDiagnostics; }
 		auto GetSuppressedEnumerationDiagnosticCount() const -> size_t
@@ -157,13 +96,16 @@ namespace Durin::Editor::ContentBrowser::Private
 			return SuppressedEnumerationDiagnosticCount;
 		}
 
-		// The returned span survives insertion of distinct cache entries, but not
-		// invalidation or mutation of its published entry.
+		// Retaining this owner keeps children valid across cache invalidation.
+		auto GetDirectorySnapshot(std::string_view PhysicalDirectory) const
+			-> std::shared_ptr<const FContentBrowserDirectorySnapshot>;
+		auto GetSnapshotVersion() const -> uint64 { return PublishedSnapshot->Version; }
+		// Borrowed view for immediate use; retain GetDirectorySnapshot during traversal.
 		auto GetDirectoryChildren(std::string_view PhysicalDirectory) const
 			-> std::span<const std::filesystem::path>;
 		auto HasDirectoryChildrenSnapshot(std::string_view PhysicalDirectory) const
 			-> bool;
-		// Queues tree-node I/O for the next pre-draw model refresh.
+		// Queues tree-node I/O for the frame pump (or explicit synchronous refresh).
 		auto RequestDirectoryChildrenSnapshot(std::string_view PhysicalDirectory)
 			-> void;
 		auto RefreshRequestedDirectoryChildrenSnapshots() -> void;
@@ -175,6 +117,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::string CurrentDirectory,
 			std::vector<FContentBrowserItem> Snapshot
 		) -> void;
+		// Async capture copies this hook; its captures must be safe on worker threads.
 		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void
 		{
 			EntryStatusQuery = std::move(Query);
@@ -185,49 +128,52 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 	private:
-		struct FIndexedAsset
-		{
-			const FPackagePath* Path = nullptr;
-			const FAssetData* Data = nullptr;
-		};
-
-		auto QueryEntryStatus(
-			const std::filesystem::directory_entry& Entry,
-			std::error_code& Error) const -> std::filesystem::file_status;
+		auto PublishItems(FContentBrowserItemsSnapshot Snapshot) -> void;
+		auto PublishDirectory(const std::string& Physical,
+			FContentBrowserDirectorySnapshot Snapshot) -> void;
+		auto InvalidateDirectoryTree() -> void;
+		auto ReportTaskFailure(std::string Message) -> void;
 		auto QueryPathStatus(
 			const std::filesystem::path& Path,
 			std::error_code& Error) const -> std::filesystem::file_status;
 		auto IsDirectoryAvailable(const std::filesystem::path& Path) const -> bool;
-		auto RefreshAssetDirectoryIndex() -> void;
-		auto AppendAssetItem(const FPackagePath& Path, const FAssetData& Data)
-			-> void;
-		auto AddEnumerationDiagnostic(
-			EEnumerationDiagnosticKind Kind,
-			const std::filesystem::path& Path,
-			std::string Message) -> void;
-		auto MatchesTypeFilter(const FContentBrowserItem& Item) const -> bool;
 
-		std::string CurrentPhysicalPath;
-		std::string CurrentVirtualPath;
+		FContentBrowserSession Session;
 		std::vector<FMountSnapshot> MountSnapshot;
-		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
+		std::unordered_map<std::string, std::shared_ptr<const FContentBrowserDirectorySnapshot>> DirectoryChildrenCache;
 		std::unordered_set<std::string> RequestedDirectoryChildrenSnapshots;
-		FAssetCatalogSnapshot AssetCatalogSnapshot;
-		std::unordered_map<std::string, std::vector<FIndexedAsset>> AssetDirectoryIndex;
-		std::vector<FContentBrowserItem> ItemsSnapshot;
-		std::vector<FContentBrowserItem> Items;
+		// Only the serial item worker touches its collector; captures pin its lifetime.
+		std::shared_ptr<FContentBrowserDataSource> DataSource =
+			std::make_shared<FContentBrowserDataSource>();
+		std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
+		FEntryStatusQuery EntryStatusQuery;
+		bool bAsync = false;
+		bool bItemsLoading = false;
+		FTaskScopeToken TaskScope;
+		uint64 SnapshotVersion = 0;
+		uint64 ItemsGeneration = 0;
+		uint64 TreeGeneration = 0;
+		uint64 ActiveItemsGeneration = 0;
+		uint64 ActiveTreeGeneration = 0;
+		// Latest pending request owns all inputs needed after the active worker exits.
+		struct FItemsRequest
+		{
+			std::string Directory;
+			bool bRecursive = false;
+			std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
+		};
+		std::optional<FItemsRequest> PendingItemsRequest;
+		// The model alone consumes these move-only results after worker completion.
+		TTaskHandle<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
+		TTaskHandle<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
+		std::string ActiveTreeDirectory;
+
+		std::shared_ptr<const FContentBrowserItemsSnapshot> PublishedSnapshot =
+			std::make_shared<const FContentBrowserItemsSnapshot>();
+		FContentBrowserItemRange Items;
 		std::vector<FEnumerationDiagnostic> EnumerationDiagnostics;
 		size_t SuppressedEnumerationDiagnosticCount = 0;
-		FEntryStatusQuery EntryStatusQuery;
 		FPathStatusQuery PathStatusQuery;
-		std::vector<std::string> NavigationHistory;
-		int32 HistoryIndex = -1;
-		std::string Search;
-		EContentBrowserTypeFilter TypeFilter = EContentBrowserTypeFilter::All;
-		EContentBrowserSortColumn SortColumn = EContentBrowserSortColumn::Name;
-		bool bSortAscending = true;
-		bool bShowHiddenFiles = false;
-		bool bShowRedirectors = false;
 		bool bSnapshotInjectedForTesting = false;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

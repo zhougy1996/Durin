@@ -120,7 +120,16 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
 		auto FixUpProject() -> void;
-		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
+		auto FocusFolderInParent(std::string_view PhysicalDirectory, bool bDelete) -> void;
+		auto CompletePendingItemAction() -> void;
+		// Deferred mutations are tied to navigation, not a replaceable capture request.
+		struct FPendingItemAction
+		{
+			std::string PhysicalPath;
+			uint64 NavigationRevision = 0;
+			bool bDelete = false;
+		};
+		std::optional<FPendingItemAction> PendingItemAction;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
 		auto SynchronizeMountedContentMutation() -> void;

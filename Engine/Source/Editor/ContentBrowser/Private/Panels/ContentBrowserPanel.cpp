@@ -77,7 +77,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				: uint64{0},
 			GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
-		, Model()
+		, Model(true, InThumbnailTaskScope)
 		, Operations(Model, std::move(InMoveAssets), {},
 			std::move(InFixUpRedirectors), std::move(InNotifyMountedContentMutation))
 		, IconSize(PresentationSettings.IconSize)
@@ -237,7 +237,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RepairSelection() -> void
 	{
-		const std::span<const FContentBrowserItem> Items = Model.GetItems();
+		if (Model.IsLoading()) return;
+		const auto Items = Model.GetItems();
 		std::erase_if(
 			Selection,
 			[&](const std::string& Id) {
@@ -253,7 +254,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SelectItem(size_t Index) -> void
 	{
-		const std::span<const FContentBrowserItem> Items = Model.GetItems();
+		const auto Items = Model.GetItems();
 		if (Index >= Items.size()) return;
 		const std::string& Id = Items[Index].StableId();
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -460,13 +461,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			bResetContentScroll = true;
 		}
 
-		const std::span<const FContentBrowserItem> Items = Model.GetItems();
-		auto It = std::ranges::find(
-			Items, FocusPhysicalPath, &FContentBrowserItem::PhysicalPath);
-		if (It == Items.end()) return;
-		Selection.clear();
-		Selection.insert(It->StableId());
-		BeginRename(*It);
+		PendingItemAction = FPendingItemAction{FocusPhysicalPath, Model.GetNavigationRevision(), false};
+		CompletePendingItemAction();
 	}
 
 	auto FContentBrowserPanel::FixUpRedirector(
@@ -527,41 +523,51 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(
-		std::string_view PhysicalDirectory) -> const FContentBrowserItem*
+		std::string_view PhysicalDirectory, bool bDelete) -> void
 	{
-		const std::string NormalizedDirectory =
-			ContentBrowserFilesystem::NormalizePath(PhysicalDirectory);
-		const std::filesystem::path Parent =
-			std::filesystem::path(NormalizedDirectory).parent_path();
-		if (!NavigateToPhysical(Parent.generic_string()))
+		const std::string Physical = Model.RevealPhysicalItem(PhysicalDirectory);
+		SearchBuffer.fill('\0');
+		if (Physical.empty())
 		{
-			SetError("The folder's parent is outside the mounted content roots.");
-			return nullptr;
+			SetError("The folder could not be shown in its mounted parent directory.");
+			return;
 		}
-		const std::span<const FContentBrowserItem> Items = Model.GetItems();
-		auto It = std::ranges::find_if(
-			Items,
-			[&](const FContentBrowserItem& Item) {
-				return Item.Kind == EContentBrowserItemKind::Folder
-					&& Item.PhysicalPath == NormalizedDirectory;
-			});
+		ThumbnailReferences->CancelPendingRequests();
+		bResetContentScroll = true;
+		PendingItemAction = FPendingItemAction{Physical, Model.GetNavigationRevision(), bDelete};
+		CompletePendingItemAction();
+	}
+
+	auto FContentBrowserPanel::CompletePendingItemAction() -> void
+	{
+		if (!PendingItemAction) return;
+		if (PendingItemAction->NavigationRevision != Model.GetNavigationRevision())
+		{
+			PendingItemAction.reset();
+			return;
+		}
+		if (Model.IsLoading()) return;
+		auto Action = std::move(*PendingItemAction);
+		PendingItemAction.reset();
+		const auto Items = Model.GetItems();
+		const auto It = std::ranges::find(Items, Action.PhysicalPath, &FContentBrowserItem::PhysicalPath);
 		if (It == Items.end())
 		{
-			SetError(
-				"The folder could not be found after refreshing its parent directory.");
-			return nullptr;
+			SetError("The folder could not be found after refreshing its parent directory.");
+			return;
 		}
 		Selection.clear();
 		Selection.insert(It->StableId());
 		SelectionAnchor = It->StableId();
-		return &*It;
+		if (Action.bDelete) RequestDeleteSelection();
+		else BeginRename(*It);
 	}
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
 		if (Selection.empty()) return;
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
-			Model.GetItems(), Selection);
+			ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection);
 		bDeletionPlanRefreshed = false;
 		bDeletePopupRequested = true;
 	}
@@ -576,7 +582,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Operations.IsDeletionPlanCurrent(*PendingDeletionPlan))
 		{
 			PendingDeletionPlan = Operations.BuildDeletionPlan(
-				Model.GetItems(), Selection);
+				ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection);
 			bDeletionPlanRefreshed = true;
 			return;
 		}
@@ -614,6 +620,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return false;
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
+		PendingItemAction.reset();
 		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
 		if (PhysicalPath.empty()) return false;
 		SearchBuffer.fill('\0');
@@ -641,6 +648,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (AdmissionState == ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped)
 			return;
 		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopping;
+		Model.CancelPendingSnapshots();
+		PendingItemAction.reset();
 		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();
 		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped;
 	}

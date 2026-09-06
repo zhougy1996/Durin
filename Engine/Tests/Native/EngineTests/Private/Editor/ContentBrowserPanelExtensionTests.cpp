@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
 #include "imgui_internal.h"
 
 #include <gtest/gtest.h>
@@ -10,6 +11,25 @@ namespace Durin::Editor::ContentBrowser::Private
 	// Exercises production UI entrypoints without creating an OS window or starting a renderer.
 	struct FContentBrowserPanelTestAccess
 	{
+		static auto CreateFolder(FContentBrowserPanel& Panel, const std::string& Root) -> void
+		{
+			Panel.CreateFolder(Root);
+		}
+		static auto FinishCapture(FContentBrowserPanel& Panel) -> void
+		{
+			Panel.Model.WaitForPendingSnapshotsForTesting();
+			Panel.RepairSelection();
+			Panel.CompletePendingItemAction();
+		}
+		static auto RenameTarget(const FContentBrowserPanel& Panel) -> std::string { return Panel.RenameTarget; }
+		static auto IsSelected(const FContentBrowserPanel& Panel, const std::string& Path) -> bool
+		{
+			return Panel.Selection.contains(Path);
+		}
+		static auto Navigate(FContentBrowserPanel& Panel, const std::string& Directory) -> bool
+		{
+			return Panel.NavigateToPhysical(Directory);
+		}
 		static auto SetSelection(FContentBrowserPanel& Panel, const std::string& Root,
 			std::vector<FContentBrowserItem> Items) -> void
 		{
@@ -25,6 +45,31 @@ namespace Durin::Editor::ContentBrowser::Private
 			Panel.DrawItemContextMenu(Panel.Model.GetItems().front());
 		}
 	};
+
+	TEST(FContentBrowserPanelExtensionTests, DeferredFolderRenameWaitsForCaptureAndIsCanceledByNavigation)
+	{
+		InitializeDObjectSystem();
+		const auto Root = Testing::CreateTestFixtureDirectory("BrowserDeferredRename");
+		std::filesystem::create_directory(Root / "Other");
+		const std::array Definitions{FMountPoint{
+			.VirtualRoot = "/BrowserDeferredRename/", .Owner = EMountOwner::Test,
+			.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+		Testing::FScopedMountRegistryFixture Registry(Definitions);
+		ASSERT_TRUE(Registry.IsValid());
+		FContentBrowserPanel Panel({}, {}, {}, {}, {}, {}, {}, {}, {},
+			std::make_shared<FMountedContentReconciliationState>(), {});
+		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::RenameTarget(Panel).empty());
+		FContentBrowserPanelTestAccess::FinishCapture(Panel);
+		const auto Created = (Root / "New Folder").generic_string();
+		EXPECT_EQ(FContentBrowserPanelTestAccess::RenameTarget(Panel), Created);
+		EXPECT_TRUE(FContentBrowserPanelTestAccess::IsSelected(Panel, Created));
+		FContentBrowserPanelTestAccess::CreateFolder(Panel, Root.generic_string());
+		ASSERT_TRUE(FContentBrowserPanelTestAccess::Navigate(Panel, (Root / "Other").generic_string()));
+		FContentBrowserPanelTestAccess::FinishCapture(Panel);
+		EXPECT_NE(FContentBrowserPanelTestAccess::RenameTarget(Panel), (Root / "New Folder (2)").generic_string());
+		EXPECT_FALSE(FContentBrowserPanelTestAccess::IsSelected(Panel, (Root / "New Folder (2)").generic_string()));
+	}
 
 	TEST(FContentBrowserPanelExtensionTests, DrawsRegisteredDetailsAndContextMenuInRealPanel)
 	{
