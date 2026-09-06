@@ -98,6 +98,20 @@ target_include_directories(AssetBulkContainerTests PRIVATE
 )
 
 if(DURIN_WITH_EDITOR)
+	# The allocator replacement is qualified against Mach-O symbol interposition.
+	if(APPLE)
+		durin_add_asset_functional_test(AsyncTaskPilotQualificationTests
+			KIND qualification
+			DOMAINS async-task-pilot
+			MODULES engine texture-build
+			LIBRARIES TextureBuild
+			SOURCES Private/AsyncTaskPilotQualificationTests.cpp
+		)
+	else()
+		durin_exclude_native_test_sources(
+			RATIONALE "The pilot allocation probe currently qualifies Mach-O C++ allocation interposition only."
+			SOURCES Private/AsyncTaskPilotQualificationTests.cpp)
+	endif()
 	durin_add_asset_functional_test(AssetImportDataTests
 		KIND contract
 		DOMAINS asset-import
@@ -119,6 +133,7 @@ else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Asset import services and their test fixtures are editor-only."
 		SOURCES
+			Private/AsyncTaskPilotQualificationTests.cpp
 			Private/AssetImportDataTests.cpp
 			Private/AssetImportTests.cpp
 	)

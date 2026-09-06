@@ -3824,6 +3824,52 @@ namespace Durin
 		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
 	}
 
+	TEST(FGameThreadDeferredTaskTests, TransitiveGameThreadWaitBaselineHasBoundedRecovery)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		auto Root = LaunchTask<int>("TransitiveWaitRoot", []() { return 12; });
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root.GetTaskHandle()).TaskState);
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 32;
+		std::atomic<bool> bDeferredRan = false;
+		auto Deferred = Then(Root, "TransitiveWaitDeferred", [&](const int& Value) {
+			bDeferredRan.store(true, std::memory_order::release);
+			return Value;
+		}, Options);
+		auto Tail = Then(Deferred, "TransitiveWaitWorker", [](const int& Value) { return Value + 1; });
+		ASSERT_TRUE(Deferred.IsValid());
+		ASSERT_TRUE(Tail.IsValid());
+		ASSERT_FALSE(Deferred.IsComplete());
+		ASSERT_FALSE(Tail.IsComplete());
+
+		// Stage 0 characterizes the old bug. Cancel an unstarted ancestor so the
+		// ordinary wait terminates without pumping or detaching a stuck thread.
+		FThreadEvent WaitReturned;
+		std::atomic<bool> bRecoveryRequired = false;
+		std::thread Watchdog([&]() {
+			if (!WaitReturned.WaitFor(0.25))
+			{
+				bRecoveryRequired.store(true, std::memory_order::release);
+				CancelTask(Deferred.GetTaskHandle());
+			}
+		});
+		const FTaskWaitResult Result = WaitTask(Tail.GetTaskHandle());
+		WaitReturned.Trigger();
+		Watchdog.join();
+
+		EXPECT_TRUE(bRecoveryRequired.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskWaitStatus::Completed, Result.WaitStatus);
+		EXPECT_EQ(ETaskState::Canceled, Result.TaskState);
+		EXPECT_FALSE(bDeferredRan.load(std::memory_order::acquire));
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+	}
+
 	TEST(FGameThreadDeferredTaskTests, TypedFanInRunsOnlyFromGameThreadPump)
 	{
 		EnsureGameThreadForTaskTest();
