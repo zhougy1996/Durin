@@ -1,6 +1,8 @@
 #include "TextureEditorModule.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
+#include "Icons/FontAwesomeIcons.h"
+#include "ContentBrowser/TextureCubeDetails.h"
 #include "Editor/WorkspaceManager.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture/Texture2D.h"
@@ -23,6 +25,7 @@ namespace Durin
 
 	struct FTextureEditorModule::FIntegrationState
 	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<Editor::Texture::FTextureImportDialog> ImportDialog;
 	};
@@ -136,6 +139,7 @@ namespace Durin
 			.Label = "Texture...",
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 100,
+			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -156,11 +160,60 @@ namespace Durin
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
+		std::string PresentationError;
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Texture2D",
+				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
+				.Icon = Icons::FileLines,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterTextureEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Texture Cube",
+				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
+				.Icon = Icons::Cube,
+				.ThumbnailBadgeIcon = Icons::Cube,
+				.Details = Editor::Texture::MakeTextureCubeDetailsProvider(),
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterTextureEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DVolumeTexture::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Volume Texture",
+				.Category = Editor::ContentBrowser::EAssetCategory::Texture,
+				.Icon = Icons::Cube,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterTextureEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
 		return true;
 	}
 
 	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
+		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		TextureCubeThumbnailRegistration.reset();

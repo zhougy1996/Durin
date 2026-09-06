@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserModel.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Panels/ContentBrowserItemView.h"
 
@@ -25,9 +26,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Redirector) return "Redirector";
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const std::string ClassName = ClassLeaf(Item.AssetClassName);
-			if (ClassName == "TextureCube") return "Texture Cube";
-			return ClassName;
+			if (const auto Type = FindAssetTypePresentation(Item.AssetClassName)) return Type->DisplayName;
+			return ClassLeaf(Item.AssetClassName);
 		}
 		return Item.Extension.empty()
 			? "File"
@@ -451,18 +451,16 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (TypeFilter == EContentBrowserTypeFilter::Redirectors)
 			return Item.Kind == EContentBrowserItemKind::Redirector;
 		if (Item.Kind != EContentBrowserItemKind::Asset) return false;
-		const std::string Type = ContentBrowserModel::TypeLabel(Item);
-		if (TypeFilter == EContentBrowserTypeFilter::Levels)
-			return Type == "Level";
-		if (TypeFilter == EContentBrowserTypeFilter::StaticMeshes)
-			return Type == "StaticMesh";
-		if (TypeFilter == EContentBrowserTypeFilter::Materials)
-			return Type.find("Material") != std::string::npos;
-		if (TypeFilter == EContentBrowserTypeFilter::Textures)
-			return Type == "Texture2D" || Type == "Texture Cube";
-		return Type != "Level" && Type != "StaticMesh"
-			&& Type.find("Material") == std::string::npos
-			&& Type != "Texture2D" && Type != "Texture Cube";
+		const auto Type = FindAssetTypePresentation(Item.AssetClassName);
+		const EAssetCategory Category = Type ? Type->Category : EAssetCategory::Other;
+		switch (TypeFilter)
+		{
+		case EContentBrowserTypeFilter::Levels: return Category == EAssetCategory::Level;
+		case EContentBrowserTypeFilter::StaticMeshes: return Category == EAssetCategory::StaticMesh;
+		case EContentBrowserTypeFilter::Materials: return Category == EAssetCategory::Material;
+		case EContentBrowserTypeFilter::Textures: return Category == EAssetCategory::Texture;
+		default: return Category == EAssetCategory::Other;
+		}
 	}
 
 	auto FContentBrowserModel::RebuildItems() -> void

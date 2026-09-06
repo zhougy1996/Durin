@@ -1,12 +1,11 @@
 #include "Panels/ContentBrowserItemView.h"
 
-#include "Asset/PackageInspection.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
 #include "Misc/StringHelper.h"
-#include "Texture/TextureCube.h"
 
 namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 {
@@ -18,166 +17,6 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			: std::string(QualifiedName.substr(Separator + 2));
 		if (Name.starts_with('D') && Name.size() > 1) Name.erase(Name.begin());
 		return Name;
-	}
-
-	namespace
-	{
-		template<typename T>
-		auto ReadScalar(
-			const FAssetPackageInspection& Inspection,
-			std::string_view Name,
-			T& OutValue) -> bool
-		{
-			const FAssetPackageField* Field = Inspection.FindField(Name);
-			return Field && Field->TryReadScalar(OutValue);
-		}
-
-		auto QuickFileFingerprint(
-			std::string_view PhysicalPath,
-			uintmax_t& OutSize,
-			int64& OutLastWriteTimeTicks) -> bool
-		{
-			std::error_code Error;
-			OutSize = std::filesystem::file_size(PhysicalPath, Error);
-			if (Error) return false;
-			const std::filesystem::file_time_type LastWrite =
-				std::filesystem::last_write_time(PhysicalPath, Error);
-			if (Error) return false;
-			OutLastWriteTimeTicks = static_cast<int64>(
-				LastWrite.time_since_epoch().count());
-			return true;
-		}
-	}
-
-	FTextureCubeDetailsCache::FTextureCubeDetailsCache(FBuilder InBuilder)
-		: Builder(InBuilder
-			? std::move(InBuilder)
-			: FBuilder(BuildTextureCubeDetailsSnapshot))
-	{
-	}
-
-	auto FTextureCubeDetailsCache::Get(
-		std::string_view PhysicalPath,
-		uint64 RegistryRevision) -> const FTextureCubeDetailsSnapshot&
-	{
-		uintmax_t FileSize = 0;
-		int64 LastWriteTimeTicks = 0;
-		const bool bFileStatValid = QuickFileFingerprint(
-			PhysicalPath, FileSize, LastWriteTimeTicks);
-		if (!CachedSnapshot
-			|| CachedPhysicalPath != PhysicalPath
-			|| CachedRegistryRevision != RegistryRevision
-			|| bCachedFileStatValid != bFileStatValid
-			|| (bFileStatValid
-				&& (CachedFileSize != FileSize
-					|| CachedLastWriteTimeTicks != LastWriteTimeTicks)))
-		{
-			CachedSnapshot = Builder(PhysicalPath);
-			CachedPhysicalPath = PhysicalPath;
-			CachedRegistryRevision = RegistryRevision;
-			CachedFileSize = FileSize;
-			CachedLastWriteTimeTicks = LastWriteTimeTicks;
-			bCachedFileStatValid = bFileStatValid;
-		}
-		return *CachedSnapshot;
-	}
-
-	auto FTextureCubeDetailsCache::Invalidate() -> void
-	{
-		CachedSnapshot.reset();
-		CachedPhysicalPath.clear();
-		CachedRegistryRevision = std::numeric_limits<uint64>::max();
-		CachedFileSize = 0;
-		CachedLastWriteTimeTicks = 0;
-		bCachedFileStatValid = false;
-	}
-
-	auto BuildTextureCubeDetailsSnapshot(std::string_view PhysicalPath)
-		-> FTextureCubeDetailsSnapshot
-	{
-		FTextureCubeDetailsSnapshot Snapshot;
-		FAssetPackageInspection Inspection;
-		const FAssetResult Result =
-			InspectAssetPackage(PhysicalPath, Inspection);
-		if (!Result)
-		{
-			Snapshot.BuildDiagnostic = Result.Message.empty()
-				? "Package metadata could not be inspected."
-				: Result.Message;
-			return Snapshot;
-		}
-
-		Snapshot.bAvailable = true;
-		Snapshot.PackageHashLow = Inspection.Fingerprint.ContentHash.HashLow;
-		Snapshot.PackageHashHigh = Inspection.Fingerprint.ContentHash.HashHigh;
-		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		const bool bHasLayout = ReadScalar(Inspection, "SourceLayout", SourceLayout);
-		Snapshot.bPanorama = bHasLayout
-			&& SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama;
-		Snapshot.SourceLayout = !bHasLayout
-			? "-"
-			: Snapshot.bPanorama
-			? "Equirectangular Panorama"
-			: "Six Faces";
-
-		FAssetImportInfo ImportInfo;
-		std::string ImportError;
-		if (InspectAssetImportInfo(
-			Inspection, ImportInfo, ImportError))
-		{
-			if (Snapshot.bPanorama)
-			{
-				const auto It = std::ranges::find(
-					ImportInfo.Sources, "panorama", &FSourceFile::Role);
-				Snapshot.Source = It == ImportInfo.Sources.end()
-					? "-"
-					: It->Hint;
-			}
-			else
-			{
-				const size_t SourceCount = ImportInfo.Sources.size();
-				Snapshot.Source = SourceCount == 0
-					? "-"
-					: std::format("{} of {} face sources", SourceCount, TextureCubeFaceCount);
-			}
-		}
-
-		uint32 SourceWidth = 0;
-		uint32 SourceHeight = 0;
-		const bool bHasSourceWidth =
-			ReadScalar(Inspection, "OriginalSourceWidth", SourceWidth);
-		const bool bHasSourceHeight =
-			ReadScalar(Inspection, "OriginalSourceHeight", SourceHeight);
-		if (bHasSourceWidth && bHasSourceHeight
-			&& SourceWidth != 0 && SourceHeight != 0)
-			Snapshot.SourceSize = std::format("{}x{}", SourceWidth, SourceHeight);
-
-		uint32 FaceDimension = 0;
-		if (ReadScalar(Inspection, "PanoramaFaceDimension", FaceDimension))
-			Snapshot.FaceOverride = FaceDimension == 0
-				? "Auto"
-				: std::format("{} px", FaceDimension);
-		float Exposure = 0.0f;
-		if (ReadScalar(Inspection, "PanoramaExposureEV", Exposure))
-			Snapshot.Exposure = std::format("{:+.1f} EV", Exposure);
-		if (Snapshot.bPanorama && Snapshot.Source != "-")
-		{
-			const std::string Extension = StringUtils::FoldAscii(
-				std::filesystem::path(Snapshot.Source).extension().generic_string());
-			Snapshot.InputRange = Extension == ".hdr" ? "Radiance HDR" : "LDR";
-		}
-
-		FEditorBulkDataStorageDescriptor CookedPayload;
-		const FAssetPackageField* CookedField =
-			Inspection.FindField("PlatformData");
-		if (CookedField
-			&& CookedField->TryReadBulkDataStorageDescriptor(CookedPayload)
-			&& CookedPayload.StoredByteCount != 0)
-			Snapshot.Output = std::format(
-				"Cooked payload ({} bytes)", CookedPayload.StoredByteCount);
-		Snapshot.BuildDiagnostic =
-			"Runtime platform data and build diagnostics are not serialized in this package.";
-		return Snapshot;
 	}
 
 	auto FGridMetrics::FromPreviewExtent(float InPreviewExtent) -> FGridMetrics
@@ -278,15 +117,13 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		return ContentBrowserModel::TypeLabel(Item);
 	}
 
-	auto Icon(const FContentBrowserItem& Item) -> const char*
+	auto Icon(const FContentBrowserItem& Item) -> std::string
 	{
 		if (Item.Kind == EContentBrowserItemKind::Folder) return Icons::Folder;
 		if (Item.Kind == EContentBrowserItemKind::File) return Icons::File;
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 			return Icons::ArrowRight;
-		const std::string Type = TypeLabel(Item);
-		if (Type == "StaticMesh" || Type == "Texture Cube") return Icons::Cube;
-		if (Type == "Level") return Icons::Home;
+		if (const auto Type = FindAssetTypePresentation(Item.AssetClassName)) return Type->Icon;
 		return Icons::FileLines;
 	}
 
@@ -343,10 +180,10 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		DrawList.PopClipRect();
 	}
 
-	auto DrawTextureCubeBadge(
+	auto DrawThumbnailBadge(
 		ImDrawList& DrawList,
 		const FGridMetrics& Metrics,
-		const ImVec2& PreviewMax) -> void
+		const ImVec2& PreviewMax, const char* BadgeIcon) -> void
 	{
 		const ImVec2 BadgeMax(
 			PreviewMax.x - Metrics.BadgeInset,
@@ -362,7 +199,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		const float IconSize =
 			MonaImGui::QuantizeDynamicFontSize(Metrics.BadgeSize * 0.58f);
 		const ImVec2 IconExtent =
-			ImGui::GetFont()->CalcTextSizeA(IconSize, FLT_MAX, 0.0f, Icons::Cube);
+			ImGui::GetFont()->CalcTextSizeA(IconSize, FLT_MAX, 0.0f, BadgeIcon);
 		const ImVec2 IconPosition(
 			BadgeMin.x + (Metrics.BadgeSize - IconExtent.x) * 0.5f,
 			BadgeMin.y + (Metrics.BadgeSize - IconExtent.y) * 0.5f);
@@ -371,7 +208,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			IconSize,
 			IconPosition,
 			ImGui::GetColorU32(ImVec4(0.90f, 0.94f, 1.0f, 1.0f)),
-			Icons::Cube);
+			BadgeIcon);
 	}
 
 	auto DrawThumbnail(
@@ -404,9 +241,10 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
 		ImGui::SetCursorScreenPos(CursorAfterTile);
 		DrawList->PopClipRect();
-		if (bDrewThumbnail && Item.Kind == EContentBrowserItemKind::Asset
-			&& ContentBrowserModel::TypeLabel(Item) == "Texture Cube")
-			DrawTextureCubeBadge(*DrawList, Metrics, PreviewMax);
+		if (bDrewThumbnail && Item.Kind == EContentBrowserItemKind::Asset)
+			if (const auto Type = FindAssetTypePresentation(Item.AssetClassName);
+				Type && !Type->ThumbnailBadgeIcon.empty())
+				DrawThumbnailBadge(*DrawList, Metrics, PreviewMax, Type->ThumbnailBadgeIcon.c_str());
 		return bDrewThumbnail;
 	}
 
@@ -426,7 +264,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			? MonaImGui::EUIThemeColor::Warning
 			: MonaImGui::EUIThemeColor::SourceFile;
 		const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(
-			Metrics.IconFontSize, FLT_MAX, 0.0f, Icon(Item));
+			Metrics.IconFontSize, FLT_MAX, 0.0f, Icon(Item).c_str());
 		const ImVec2 IconPosition(
 			PreviewMin.x + (Metrics.PreviewExtent - IconExtent.x) * 0.5f,
 			PreviewMin.y + (Metrics.PreviewExtent - IconExtent.y) * 0.5f);
@@ -436,7 +274,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Metrics.IconFontSize,
 			IconPosition,
 			MonaImGui::GetThemeColorU32(IconColorRole),
-			Icon(Item));
+			Icon(Item).c_str());
 		if (ThumbnailPresentation == EThumbnailPresentation::Loading)
 			DrawList->AddText(
 				ImVec2(

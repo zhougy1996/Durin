@@ -19,48 +19,6 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 		Failed
 	};
 
-	struct FTextureCubeDetailsSnapshot
-	{
-		bool bAvailable = false;
-		bool bPanorama = false;
-		std::string SourceLayout = "-";
-		std::string Source = "-";
-		std::string SourceSize = "-";
-		std::string FaceOverride = "-";
-		std::string InputRange = "-";
-		std::string Exposure = "-";
-		std::string Dimensions = "-";
-		std::string Faces = "-";
-		std::string Mips = "-";
-		std::string Output = "-";
-		std::string BuildDiagnostic = "Metadata is unavailable.";
-		uint64 PackageHashLow = 0;
-		uint64 PackageHashHigh = 0;
-	};
-
-	class FTextureCubeDetailsCache
-	{
-	public:
-		using FBuilder = std::function<FTextureCubeDetailsSnapshot(std::string_view)>;
-
-		explicit FTextureCubeDetailsCache(FBuilder InBuilder = {});
-		auto Get(std::string_view PhysicalPath, uint64 RegistryRevision)
-			-> const FTextureCubeDetailsSnapshot&;
-		auto Invalidate() -> void;
-
-	private:
-		FBuilder Builder;
-		std::string CachedPhysicalPath;
-		uint64 CachedRegistryRevision = std::numeric_limits<uint64>::max();
-		uintmax_t CachedFileSize = 0;
-		int64 CachedLastWriteTimeTicks = 0;
-		bool bCachedFileStatValid = false;
-		std::optional<FTextureCubeDetailsSnapshot> CachedSnapshot;
-	};
-
-	auto BuildTextureCubeDetailsSnapshot(std::string_view PhysicalPath)
-		-> FTextureCubeDetailsSnapshot;
-
 	// Derives every grid-card region from the requested square preview extent.
 	struct FGridMetrics
 	{
@@ -90,14 +48,14 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 	auto ResolveThumbnailPresentation(const ::Durin::Editor::FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation;
 	auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
-	auto Icon(const FContentBrowserItem& Item) -> const char*;
+	auto Icon(const FContentBrowserItem& Item) -> std::string;
 	auto FormatFileSize(uintmax_t Bytes) -> std::string;
 	auto FormatFileTime(const std::filesystem::file_time_type& Time) -> std::string;
 	auto DrawTransparencyGrid(ImDrawList& DrawList, const ImVec2& Min, const ImVec2& Size) -> void;
-	auto DrawTextureCubeBadge(
+	auto DrawThumbnailBadge(
 		ImDrawList& DrawList,
 		const FGridMetrics& Metrics,
-		const ImVec2& PreviewMax) -> void;
+		const ImVec2& PreviewMax, const char* BadgeIcon) -> void;
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
 		const ::Durin::Editor::FAssetThumbnailView& Thumbnail,

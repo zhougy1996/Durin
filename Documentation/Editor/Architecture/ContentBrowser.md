@@ -30,9 +30,38 @@ dispatch and releases captured descriptors before unloading feature code. An ext
 contribute one host presenter for its feature-owned modal state. MainFrame
 draws those presenters through the browser tool without depending on concrete
 asset-editor modules, and supplies the current asset-mutation policy to both
-command invocation and modal submission. Create and Import are both mutation
-categories: invocation is rejected while Play denies asset mutation, while an
-already-open presenter still draws with submission disabled.
+command invocation and modal submission. Commands explicitly declare `ReadOnly`
+or `MutatesContent`, independently of their menu category; registration rejects
+unspecified policies. Mutating commands are disabled while Play denies content
+mutation, and dispatch checks the current policy again. An already-open presenter
+still draws with submission disabled. Queued commands retain owned context and
+registration identity rather than provider callbacks; unregistering or replacing
+an entry prevents an old queued click from invoking it.
+
+Asset-family editor modules register presentation by the complete qualified class
+identity: display name, stable category, fallback icon, optional thumbnail badge,
+and optional read-only details provider. Filtering uses category IDs, never display
+text or class-name substrings. Texture2D, TextureCube, and VolumeTexture all belong
+to Textures. Unknown classes use their class leaf for display, the generic asset
+icon, and OtherAssets. Registration changes invalidate the browser projection.
+Opening, thumbnail rendering, and Reimport keep their existing registries.
+
+Production item, directory-tree, and background menus consume applicable Context
+Menu extensions through the same presenter used by Create and Import. Context owns
+the mixed selection (assets, redirectors, ordinary files, and directories), the
+primary clicked item, current location, target physical/virtual directories, and
+catalog revision. Right-clicking an unselected item replaces the selection;
+right-clicking a selected item preserves multi-selection. A directory-tree target
+supplies that directory as the selection and destination; a background menu has
+an empty selection and targets the current directory. A physical directory need
+not have a virtual mount.
+
+Details extensions use `Details` instead of `Invoke` and must declare `ReadOnly`.
+The selection panel prepares owned label/value rows, then draws them without
+retaining provider callbacks. For a single asset it first asks the exact-class
+details provider, then appends applicable Details extensions in `(Order, Id)`
+order. Multi-selection details come from extensions that explicitly accept that
+context; the browser does not arbitrarily invoke the first asset's type provider.
 
 Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
 absent, the browser uses defaults and writes the new file; the retired Level
@@ -162,8 +191,8 @@ drains any admitted import and ordinary-file cache before workspace state and ho
 notification surfaces disappear. Concrete modules unload only after this
 host-owned teardown.
 
-Selection details are presentation snapshots. TextureCube details inspect
-serialized package metadata through a bounded cache keyed by asset identity,
+Selection details are presentation snapshots. TextureEditor owns TextureCube
+metadata inspection and its bounded cache keyed by asset identity,
 registry revision, and file metadata; drawing details never loads the package.
 Runtime-only platform or build fields are shown as unavailable when they are not
 serialized.

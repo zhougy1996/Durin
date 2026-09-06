@@ -1,6 +1,7 @@
 #include "StaticMeshEditorModule.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -16,6 +17,7 @@ namespace Durin
 
 	struct FStaticMeshEditorModule::FIntegrationState
 	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
 	};
@@ -95,6 +97,7 @@ namespace Durin
 			.Label = "Static Mesh (Geometry Only)...",
 			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 			.Order = 400,
+			.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -115,11 +118,28 @@ namespace Durin
 			return false;
 		}
 		Integration->ImportExtension = std::move(ImportExtension);
+		std::string PresentationError;
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "StaticMesh",
+				.Category = Editor::ContentBrowser::EAssetCategory::StaticMesh,
+				.Icon = Icons::Cube,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterStaticMeshEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
 		return true;
 	}
 
 	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
 	{
+		Integration->TypePresentations.clear();
 		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		ThumbnailRegistration.reset();

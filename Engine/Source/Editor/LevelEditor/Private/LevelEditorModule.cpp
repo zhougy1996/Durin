@@ -1,6 +1,7 @@
 #include "LevelEditorModule.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
+#include "Icons/FontAwesomeIcons.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
@@ -77,6 +78,7 @@ namespace Durin
 
 	struct FLevelEditorModule::FIntegrationState
 	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
@@ -189,6 +191,7 @@ namespace Durin
 				.Label = "Level",
 				.Category = Editor::ContentBrowser::EExtensionCategory::Create,
 				.Order = 100,
+				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},
@@ -225,6 +228,7 @@ namespace Durin
 				.Label = std::move(Label),
 				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
 				.Order = Order,
+				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},
@@ -258,11 +262,28 @@ namespace Durin
 			UnregisterLevelEditorWorkspace();
 			return false;
 		}
+		std::string PresentationError;
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Level",
+				.Category = Editor::ContentBrowser::EAssetCategory::Level,
+				.Icon = Icons::Home,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterLevelEditorWorkspace();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
 		return true;
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
 	{
+		Integration->TypePresentations.clear();
 		Integration->ContentBrowserExtensions.clear();
 		WorkspaceRegistration.reset();
 		LevelEditorWorkspace.reset();

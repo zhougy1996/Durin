@@ -1,6 +1,7 @@
 #include "MaterialEditorModule.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
+#include "Icons/FontAwesomeIcons.h"
 
 #include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
@@ -76,6 +77,7 @@ namespace Durin
 
 	struct FMaterialEditorModule::FIntegrationState
 	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration> TypePresentations;
 		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
 			ContentBrowserExtensions;
 	};
@@ -174,6 +176,7 @@ namespace Durin
 				.Label = std::move(Label),
 				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Create,
 				.Order = bInstance ? 210 : 200,
+				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},
@@ -221,11 +224,43 @@ namespace Durin
 			WorkspaceRegistration.reset();
 			return false;
 		}
+		std::string PresentationError;
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Material",
+				.Category = Editor::ContentBrowser::EAssetCategory::Material,
+				.Icon = Icons::FileLines,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterMaterialEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
+		{
+			auto Handle = Editor::ContentBrowser::RegisterAssetTypePresentation({
+				.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
+				.DisplayName = "Material Instance",
+				.Category = Editor::ContentBrowser::EAssetCategory::Material,
+				.Icon = Icons::FileLines,
+			}, PresentationError);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register browser type presentation: {}", PresentationError);
+				UnregisterMaterialEditor();
+				return false;
+			}
+			Integration->TypePresentations.push_back(std::move(Handle));
+		}
 		return true;
 	}
 
 	auto FMaterialEditorModule::UnregisterMaterialEditor() -> void
 	{
+		Integration->TypePresentations.clear();
 		Integration->ContentBrowserExtensions.clear();
 		MaterialInstanceThumbnailRegistration.reset();
 		MaterialThumbnailRegistration.reset();

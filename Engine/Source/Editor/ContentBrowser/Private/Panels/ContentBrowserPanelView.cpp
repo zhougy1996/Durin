@@ -1,3 +1,4 @@
+#include "Panels/ContentBrowserExtensionPresentation.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
@@ -25,7 +26,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	namespace
 	{
 		using ContentBrowserFilesystem::NormalizePath;
-		using ContentBrowserItemView::ClassLeaf;
 
 		enum class EToolbarLayout : uint8
 		{
@@ -167,6 +167,11 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawBrowserContents() -> void
 	{
+		if (const uint64 Revision = GetPresentationRevision(); Revision != PresentationRevision)
+		{
+			PresentationRevision = Revision;
+			RebuildItems();
+		}
 		DrawToolbar();
 
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
@@ -430,7 +435,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f),
 				::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize,
 				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
-		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
+		const bool bReserveDetails = bShowSelectionDetails && !Selection.empty();
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		if (bResetContentScroll) ImGui::SetScrollY(0.0f);
 		bContentItemHovered = false;
@@ -498,19 +503,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::PrepareSelectionDetails() -> void
 	{
-		TextureCubeDetailsSnapshot = nullptr;
-		const auto It = std::ranges::find_if(
-			Model.GetItems(),
-			[&](const FContentBrowserItem& Item) {
-				return Selection.contains(Item.StableId());
-			});
-		if (It == Model.GetItems().end()
-			|| It->Kind != EContentBrowserItemKind::Asset
-			|| ClassLeaf(It->AssetClassName) != "TextureCube")
-			return;
-		TextureCubeDetailsSnapshot = &TextureCubeDetailsCache.Get(
-			It->PhysicalPath,
-			GetAssetCatalogRevision());
+		SelectionDetails = CaptureSelectionDetails(MakeExtensionContext());
 	}
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
@@ -532,87 +525,67 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (ImGui::IsItemHovered() && ImGui::CalcTextSize(DisplayValue.c_str()).x > ImGui::GetContentRegionAvail().x)
 					ImGui::SetTooltip("%s", DisplayValue.c_str());
 			};
-			Row("Type", ContentBrowserItemView::TypeLabel(Item));
-			Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
-			Row("Physical", Item.PhysicalPath);
-			if (Item.Kind == EContentBrowserItemKind::Asset
-				|| Item.Kind == EContentBrowserItemKind::Redirector)
+			if (Selection.size() > 1)
+				Row("Selected", std::format("{} items", Selection.size()));
+			else
 			{
-				const FPackagePath& Path = Item.PackagePath;
-				if (Path.IsValid())
-				{
-					if (const FAssetCatalogEntry Data =
-						FindAssetExact(Path))
-					{
-						Row("Hard dependencies", std::format("{}", Data->Dependencies.size()));
-						Row("Soft dependencies", std::format("{}", Data->SoftDependencies.size()));
-						const FAssetReferenceIndex ReferenceIndex =
-							CaptureAssetReferenceIndex();
-						size_t HardReferencers = 0;
-						size_t SoftReferencers = 0;
-						size_t RedirectReferencers = 0;
-						for (const FAssetPackageReferenceEdge& Edge :
-							 ReferenceIndex.FindReferencers(Path))
-							switch (Edge.Kind)
-							{
-							case EAssetReferenceKind::HardObject:
-								++HardReferencers; break;
-							case EAssetReferenceKind::SoftObject:
-								++SoftReferencers; break;
-							case EAssetReferenceKind::Redirect:
-								++RedirectReferencers; break;
-							}
-						Row("Hard refs", std::format("{}", HardReferencers));
-						Row("Soft refs", std::format("{}", SoftReferencers));
-						Row("Redirect refs", std::format("{}", RedirectReferencers));
-						Row("Reference index", ReferenceIndex.IsComplete()
-							? "Complete"
-							: std::format(
-								"Incomplete ({} error{})",
-								ReferenceIndex.GetErrors().size(),
-								ReferenceIndex.GetErrors().size() == 1 ? "" : "s"));
-						if (Item.Kind == EContentBrowserItemKind::Redirector)
-						{
-							Row("Destination", Item.RedirectDestination.ToString());
-							FObjectPath ObjectPath;
-							FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
-							const FObjectPathResolveResult Resolution =
-								ResolveAssetObjectPath(ObjectPath);
-							Row("State", ResolveStateLabel(Resolution.State));
-							Row("Final", Resolution.FinalPath.IsValid()
-								? Resolution.FinalPath.ToString()
-								: "-");
-							Row("Chain", std::format("{}", Resolution.RedirectChain.size()));
-						}
-					}
-				}
+				Row("Type", ContentBrowserItemView::TypeLabel(Item));
+				Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
+				Row("Physical", Item.PhysicalPath);
 				if (Item.Kind == EContentBrowserItemKind::Asset
-					&& ClassLeaf(Item.AssetClassName) == "TextureCube")
+					|| Item.Kind == EContentBrowserItemKind::Redirector)
 				{
-					const ContentBrowserItemView::FTextureCubeDetailsSnapshot Unavailable;
-					const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
-						TextureCubeDetailsSnapshot
-						? *TextureCubeDetailsSnapshot
-						: Unavailable;
-					if (Details.bAvailable)
+					const FPackagePath& Path = Item.PackagePath;
+					if (Path.IsValid())
 					{
-						Row("Source Layout", Details.SourceLayout);
-						Row("Source", Details.Source);
-						Row("Source Size", Details.SourceSize);
-						if (Details.bPanorama)
+						if (const FAssetCatalogEntry Data =
+							FindAssetExact(Path))
 						{
-							Row("Face Override", Details.FaceOverride);
-							Row("Input Range", Details.InputRange);
-							Row("Exposure", Details.Exposure);
+							Row("Hard dependencies", std::format("{}", Data->Dependencies.size()));
+							Row("Soft dependencies", std::format("{}", Data->SoftDependencies.size()));
+							const FAssetReferenceIndex ReferenceIndex =
+								CaptureAssetReferenceIndex();
+							size_t HardReferencers = 0;
+							size_t SoftReferencers = 0;
+							size_t RedirectReferencers = 0;
+							for (const FAssetPackageReferenceEdge& Edge :
+								 ReferenceIndex.FindReferencers(Path))
+								switch (Edge.Kind)
+								{
+								case EAssetReferenceKind::HardObject:
+									++HardReferencers; break;
+								case EAssetReferenceKind::SoftObject:
+									++SoftReferencers; break;
+								case EAssetReferenceKind::Redirect:
+									++RedirectReferencers; break;
+								}
+							Row("Hard refs", std::format("{}", HardReferencers));
+							Row("Soft refs", std::format("{}", SoftReferencers));
+							Row("Redirect refs", std::format("{}", RedirectReferencers));
+							Row("Reference index", ReferenceIndex.IsComplete()
+								? "Complete"
+								: std::format(
+									"Incomplete ({} error{})",
+									ReferenceIndex.GetErrors().size(),
+									ReferenceIndex.GetErrors().size() == 1 ? "" : "s"));
+							if (Item.Kind == EContentBrowserItemKind::Redirector)
+							{
+								Row("Destination", Item.RedirectDestination.ToString());
+								FObjectPath ObjectPath;
+								FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
+								const FObjectPathResolveResult Resolution =
+									ResolveAssetObjectPath(ObjectPath);
+								Row("State", ResolveStateLabel(Resolution.State));
+								Row("Final", Resolution.FinalPath.IsValid()
+									? Resolution.FinalPath.ToString()
+									: "-");
+								Row("Chain", std::format("{}", Resolution.RedirectChain.size()));
+							}
 						}
-						Row("Dimensions", Details.Dimensions);
-						Row("Faces", Details.Faces);
-						Row("Mips", Details.Mips);
-						Row("Output", Details.Output);
 					}
-					Row("Build", Details.BuildDiagnostic);
 				}
 			}
+			for (const auto& Detail : SelectionDetails) Row(Detail.Label.c_str(), Detail.Value);
 			ImGui::EndTable();
 		}
 	}
@@ -864,6 +837,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
+		DrawExtensionMenu(EExtensionCategory::ContextMenu, MakeExtensionContext(&Item));
 		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder
 			? "Open Folder"
 			: Item.Kind == EContentBrowserItemKind::Redirector
@@ -939,7 +913,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
-			ImGui::BeginDisabled(!bAllowAssetMutation);
 			if (ImGui::BeginMenu("Create"))
 			{
 				DrawCreateMenu(Item.PhysicalPath, Item.VirtualPath);
@@ -947,10 +920,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			if (ImGui::BeginMenu("Import"))
 			{
-				DrawImportMenu(Item.VirtualPath);
+				DrawImportMenu(Item.PhysicalPath, Item.VirtualPath);
 				ImGui::EndMenu();
 			}
-			ImGui::EndDisabled();
 			ImGui::Separator();
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset
@@ -1038,93 +1010,74 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Item.PhysicalPath);
 	}
 
+	auto FContentBrowserPanel::MakeExtensionContext(const FContentBrowserItem* PrimaryItem,
+		std::string_view TargetPhysicalDirectory, std::string_view TargetVirtualDirectory) const
+		-> FExtensionContext
+	{
+		auto Context = BuildExtensionContext(Model.GetItems(), Selection,
+			Model.GetCurrentPhysicalPath(), Model.GetCurrentVirtualPath(), PrimaryItem,
+			TargetPhysicalDirectory, TargetVirtualDirectory);
+		Context.CatalogRevision = GetAssetCatalogRevision();
+		return Context;
+	}
+
+	auto FContentBrowserPanel::DrawExtensionMenu(EExtensionCategory Category,
+		const FExtensionContext& Context) -> void
+	{
+		PresentExtensionMenu(Category, Context, bAllowAssetMutation,
+			[](const FExtensionDescriptor& Extension, bool bEnabled) {
+				ImGui::PushID(Extension.Id.c_str());
+				const bool bClicked = ImGui::MenuItem(Extension.Label.c_str(), nullptr, false, bEnabled);
+				ImGui::PopID();
+				return bClicked;
+			},
+			[this](const FExtensionDescriptor& Extension, const FExtensionContext& Context) {
+				// Keep only identity and owned context in the queue, not unloadable provider callbacks.
+				QueueContentAction([this, Id = Extension.Id, Serial = Extension.RegistrationSerial, Category = Extension.Category, Context] {
+					if (AdmissionState != EAdmissionState::Accepting) return;
+					const auto Entries = CaptureExtensions(Category);
+					const auto Entry = std::ranges::find(Entries, Id, &FExtensionDescriptor::Id);
+					if (Entry == Entries.end() || Entry->RegistrationSerial != Serial) return;
+					InvokeExtension(*Entry, {
+						.Context = Context,
+						.bAllowAssetMutation = bAllowAssetMutation,
+						.RevealAsset = [this](std::string_view Path) { return RevealAsset(Path); },
+						.RevealDirectory = [this](std::string_view Path) { return RevealDirectory(Path); },
+						.OpenAsset = [this](std::string_view Path, std::string_view Class) {
+							return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
+						},
+						.NotifyMountedContentChanged = [this] { PublishMountedContentMutation(); },
+						.ReportError = [this](std::string Message) { SetError(std::move(Message)); },
+					});
+				});
+			});
+	}
+
 	auto FContentBrowserPanel::DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void
 	{
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem("New Folder", "Ctrl+Shift+N"))
 			QueueContentAction([this, Directory = std::string(PhysicalDirectory)] { CreateFolder(Directory); });
-		ImGui::SeparatorText("Assets");
-		const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
-			.VirtualDirectory = std::string(VirtualDirectory)};
-		for (const auto& Extension :
-			::Durin::Editor::ContentBrowser::CaptureExtensions(
-				::Durin::Editor::ContentBrowser::EExtensionCategory::Create))
-		{
-			if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
-			if (ImGui::MenuItem(Extension.Label.c_str()))
-				QueueContentAction([this, Extension, Context] {
-					::Durin::Editor::ContentBrowser::InvokeExtension(
-						Extension, {
-							.Context = Context,
-							.bAllowAssetMutation = bAllowAssetMutation,
-							.RevealAsset = [this](std::string_view Path) {
-								return RevealAsset(Path);
-							},
-							.RevealDirectory = [this](std::string_view Path) {
-								return RevealDirectory(Path);
-							},
-							.OpenAsset = [this](std::string_view Path, std::string_view Class) {
-								return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
-							},
-							.NotifyMountedContentChanged = [this] {
-								PublishMountedContentMutation();
-							},
-							.ReportError = [this](std::string Message) {
-								SetError(std::move(Message));
-							},
-						});
-				});
-		}
 		ImGui::EndDisabled();
+		ImGui::SeparatorText("Assets");
+		DrawExtensionMenu(EExtensionCategory::Create, MakeExtensionContext(nullptr, PhysicalDirectory, VirtualDirectory));
 	}
 
-	auto FContentBrowserPanel::DrawImportMenu(std::string_view VirtualDirectory) -> void
+	auto FContentBrowserPanel::DrawImportMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void
 	{
-		ImGui::BeginDisabled(!bAllowAssetMutation);
-		const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
-			.VirtualDirectory = std::string(VirtualDirectory)};
-		for (const auto& Extension :
-			::Durin::Editor::ContentBrowser::CaptureExtensions(
-				::Durin::Editor::ContentBrowser::EExtensionCategory::Import))
-		{
-			if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
-			if (ImGui::MenuItem(Extension.Label.c_str()))
-				QueueContentAction([this, Extension, Context] {
-					::Durin::Editor::ContentBrowser::InvokeExtension(
-						Extension, {
-							.Context = Context,
-							.bAllowAssetMutation = bAllowAssetMutation,
-							.RevealAsset = [this](std::string_view Path) {
-								return RevealAsset(Path);
-							},
-							.RevealDirectory = [this](std::string_view Path) {
-								return RevealDirectory(Path);
-							},
-							.OpenAsset = [this](std::string_view Path, std::string_view Class) {
-								return OpenAsset && OpenAsset(
-									std::string(Path), std::string(Class));
-							},
-							.NotifyMountedContentChanged = [this] {
-								PublishMountedContentMutation();
-							},
-							.ReportError = [this](std::string Message) {
-								SetError(std::move(Message));
-							},
-						});
-				});
-		}
-		ImGui::EndDisabled();
+		DrawExtensionMenu(EExtensionCategory::Import, MakeExtensionContext(nullptr, PhysicalDirectory, VirtualDirectory));
 	}
 
 	auto FContentBrowserPanel::DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void
 	{
 		const std::string VirtualDirectory = PhysicalToVirtualDirectory(PhysicalDirectory);
+		DrawExtensionMenu(EExtensionCategory::ContextMenu,
+			MakeExtensionContext(nullptr, PhysicalDirectory, VirtualDirectory));
 		const bool bIsCurrent = NormalizePath(PhysicalDirectory) == Model.GetCurrentPhysicalPath();
 		if (ImGui::MenuItem("Open Folder", nullptr, false, !bIsCurrent))
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
 				NavigateToPhysical(Directory);
 			});
-		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::BeginMenu("Create", !VirtualDirectory.empty()))
 		{
 			DrawCreateMenu(PhysicalDirectory, VirtualDirectory);
@@ -1132,10 +1085,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (ImGui::BeginMenu("Import", !VirtualDirectory.empty()))
 		{
-			DrawImportMenu(VirtualDirectory);
+			DrawImportMenu(PhysicalDirectory, VirtualDirectory);
 			ImGui::EndMenu();
 		}
 		ImGui::Separator();
+		ImGui::BeginDisabled(!bAllowAssetMutation);
 		ImGui::BeginDisabled(bMountRoot);
 		if (ImGui::MenuItem("Rename", "F2"))
 			QueueTreeAction([this, Directory = std::string(PhysicalDirectory)] {
@@ -1169,7 +1123,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::memcpy(Payload.AssetPath.data(), Item.VirtualPath.data(), std::min(Item.VirtualPath.size(), Payload.AssetPath.size() - 1));
 		std::memcpy(Payload.AssetClassName.data(), Item.AssetClassName.data(), std::min(Item.AssetClassName.size(), Payload.AssetClassName.size() - 1));
 		ImGui::SetDragDropPayload(::Durin::Editor::AssetDragDropPayloadType, &Payload, sizeof(Payload));
-		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item), Item.Name.c_str());
+		ImGui::Text("%s %s", ContentBrowserItemView::Icon(Item).c_str(), Item.Name.c_str());
 		ImGui::EndDragDropSource();
 	}
 
@@ -1234,7 +1188,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (ImGui::BeginPopup("ContentBrowserBackground"))
 		{
-			ImGui::BeginDisabled(!bAllowAssetMutation);
+			DrawExtensionMenu(EExtensionCategory::ContextMenu, MakeExtensionContext());
 			if (ImGui::BeginMenu("Create"))
 			{
 				DrawCreateMenu(Model.GetCurrentPhysicalPath(), Model.GetCurrentVirtualPath());
@@ -1242,9 +1196,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 			if (ImGui::BeginMenu("Import"))
 			{
-				DrawImportMenu(Model.GetCurrentVirtualPath());
+				DrawImportMenu(Model.GetCurrentPhysicalPath(), Model.GetCurrentVirtualPath());
 				ImGui::EndMenu();
 			}
+			ImGui::BeginDisabled(!bAllowAssetMutation);
 			ImGui::Separator();
 			if (ImGui::MenuItem(
 				"Paste Asset", "Ctrl+V", false, HasAssetClipboard()))

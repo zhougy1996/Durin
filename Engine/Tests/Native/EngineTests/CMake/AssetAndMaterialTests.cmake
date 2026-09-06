@@ -67,24 +67,26 @@ durin_add_engine_functional_test(EditorOperationTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES asset-maintenance asset-tools durin-ed main-frame texture-editor
+	MODULES asset-maintenance asset-tools content-browser durin-ed main-frame texture-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
-		"TextureEditor-owned import-form state remains private while its reset and inactive-form behavior is white-box tested."
+		"TextureEditor-owned import forms and browser detail cache remain private while their state and metadata inspection are white-box tested."
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
 		Private/Editor/AssetMaintenanceContractTests.cpp
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp
+		Private/Editor/TextureCubeDetailsTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureImportDialogState.cpp
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/ContentBrowser/TextureCubeDetails.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetMaintenance AssetTools DurinEd MainFrame StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetMaintenance AssetTools ContentBrowser DurinEd MainFrame StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -102,6 +104,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		"Exercises ContentBrowser asset workflows across Engine Asset, DurinEd, and Mona UI models."
 	SOURCES
 		Private/Editor/ContentBrowserExtensionRegistryTests.cpp
+		Private/Editor/ContentBrowserPanelExtensionTests.cpp
 		Private/Editor/ContentBrowserItemViewTests.cpp
 		Private/Editor/ContentBrowserModelTests.cpp
 		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
@@ -109,6 +112,12 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/ContentBrowserExtensionRegistry.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserItemView.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserExtensionPresentation.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserPanel.cpp
+		${_durin_content_browser_private}/Panels/ContentBrowserPanelView.cpp
+		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailReferences.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserModel.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp

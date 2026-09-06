@@ -67,6 +67,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 
 	private:
+		friend struct FContentBrowserPanelTestAccess;
 		auto PrepareForDraw() -> void;
 		auto DrawBrowserContents() -> void;
 		auto Refresh(bool bRescanRegistry) -> void;
@@ -90,8 +91,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto DrawGrid() -> void;
 		auto DrawDetails() -> void;
 		auto DrawItemContextMenu(const FContentBrowserItem& Item) -> void;
+		auto MakeExtensionContext(const FContentBrowserItem* PrimaryItem = nullptr,
+			std::string_view TargetPhysicalDirectory = {}, std::string_view TargetVirtualDirectory = {}) const
+			-> FExtensionContext;
+		auto DrawExtensionMenu(EExtensionCategory Category, const FExtensionContext& Context) -> void;
 		auto DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void;
-		auto DrawImportMenu(std::string_view VirtualDirectory) -> void;
+		auto DrawImportMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void;
 		auto DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void;
 		auto DrawBackgroundContextMenu() -> void;
 		auto PrepareSelectionDetails() -> void;
@@ -161,9 +166,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string ErrorMessage;
 		std::string WarningMessage;
 		std::unique_ptr<FContentBrowserThumbnailReferences> ThumbnailReferences;
-		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;
-		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*
-			TextureCubeDetailsSnapshot = nullptr;
+		std::vector<FDetailRow> SelectionDetails;
+		uint64 PresentationRevision = 0;
 		::Durin::Editor::ContentBrowser::EAdmissionState AdmissionState =
 			::Durin::Editor::ContentBrowser::EAdmissionState::Accepting;
 		bool bAllowAssetMutation = true;

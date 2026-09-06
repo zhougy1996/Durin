@@ -1,23 +1,8 @@
 #include "Panels/ContentBrowserItemView.h"
-#include "Settings/LevelEditorSessionSettings.h"
-
-#include "Asset/PackageSerialization.h"
-#include "Asset/Mutation.h"
-#include "Asset/AssetCook.h"
-#include "EngineTestSupport.h"
+#include "ContentBrowser/ContentBrowserTool.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "Misc/Paths.h"
-#include "Misc/MountPaths.h"
-#include "Misc/MountPathTestSupport.h"
-#include "Modules/ModuleManager.h"
-#include "NativeTestSupport.h"
-#include "Texture/TextureCube.h"
-#include "AssetForge/Builtins/TextureCubeImport.h"
-#include "Texture/TextureCubeFactoryTestSupport.h"
 
 #include <gtest/gtest.h>
-
-#include "ContentBrowser/ContentBrowserTool.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -61,6 +46,11 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	TEST(FContentBrowserItemViewTests, PreservesMixedItemLabelsAndFormatting)
 	{
+		std::string Error;
+		auto Registration = RegisterAssetTypePresentation({
+			.AssetClassName = "Durin::DTextureCube", .DisplayName = "Texture Cube",
+			.Category = EAssetCategory::Texture, .Icon = Icons::Cube}, Error);
+		ASSERT_TRUE(Registration.IsValid());
 		FContentBrowserItem Folder{
 			.Kind = EContentBrowserItemKind::Folder,
 			.Name = "Textures"};
@@ -80,118 +70,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Asset), "Texture Cube");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Source), "hdr file");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Redirector), "Redirector");
-		EXPECT_STREQ(ContentBrowserItemView::Icon(Redirector), Icons::ArrowRight);
+		EXPECT_EQ(ContentBrowserItemView::Icon(Redirector), Icons::ArrowRight);
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(512), "512 B");
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(1536), "1.50 KiB");
-	}
-
-	TEST(FContentBrowserItemViewTests, InspectsTextureCubeDetailsWithoutLoadingPackage)
-	{
-		InitializeDObjectSystem();
-		FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		const std::filesystem::path Root =
-			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeDetails";
-		std::error_code Error;
-		Testing::RemoveTestWorkDirectory(Root, Error);
-		std::filesystem::create_directories(Root / "Content");
-		const std::array Definitions{
-			FMountPoint{
-				.VirtualRoot = "/ContentBrowserTextureCubeDetails/",
-				.Owner = EMountOwner::Test,
-				.Root = Root / "Content",
-				.bAutoScan = true,
-				.bContentWritable = true}};
-		Testing::FScopedMountRegistryFixture Registry(Definitions);
-		ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-		FPackagePath CubePath;
-		ASSERT_TRUE(FPackagePath::TryCreate(
-			"/ContentBrowserTextureCubeDetails/Sky", CubePath));
-		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
-			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
-		std::array<std::string, TextureCubeFaceCount> FaceFiles;
-		for (size_t Index = 0; Index < FaceFiles.size(); ++Index)
-			FaceFiles[Index] = (std::filesystem::path(DURIN_TEST_DATA_DIR)
-				/ "SkyBoxConvention" / std::format("{}.png", FaceNames[Index])).generic_string();
-		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Imported =
-			AssetForge::Builtins::ImportTextureCubeFacesForTest(
-				FaceFiles, CubePath.ToString());
-		ASSERT_TRUE(Imported) << Imported.Message;
-		const std::filesystem::path PackagePath = Root / "Content/Sky.dasset";
-		ASSERT_TRUE(UnloadPackage(CubePath));
-		ASSERT_EQ(FindResidentPackage(CubePath), nullptr);
-
-		ContentBrowserItemView::FTextureCubeDetailsCache Cache;
-		const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
-			Cache.Get(PackagePath.generic_string(),
-				GetAssetCatalogRevision());
-		EXPECT_TRUE(Details.bAvailable);
-		EXPECT_EQ(Details.SourceLayout, "Six Faces");
-		EXPECT_EQ(Details.Source, "6 of 6 face sources");
-		EXPECT_NE(Details.SourceSize, "-");
-		EXPECT_EQ(Details.Dimensions, "-");
-		EXPECT_FALSE(Details.BuildDiagnostic.empty());
-		EXPECT_EQ(FindResidentPackage(CubePath), nullptr);
-		Cache.Get(PackagePath.generic_string(),
-			GetAssetCatalogRevision());
-		EXPECT_EQ(FindResidentPackage(CubePath), nullptr);
-	}
-
-	TEST(FContentBrowserItemViewTests, InvalidatesTextureCubeDetailsCache)
-	{
-		const std::filesystem::path Root =
-			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeCache";
-		std::error_code Error;
-		Testing::RemoveTestWorkDirectory(Root, Error);
-		std::filesystem::create_directories(Root);
-		const std::filesystem::path PackagePath = Root / "Sky.dasset";
-		{
-			std::ofstream File(PackagePath);
-			File << "a";
-		}
-		size_t BuildCount = 0;
-		ContentBrowserItemView::FTextureCubeDetailsCache Cache(
-			[&](std::string_view) {
-				ContentBrowserItemView::FTextureCubeDetailsSnapshot Snapshot;
-				Snapshot.BuildDiagnostic = std::format("build {}", ++BuildCount);
-				return Snapshot;
-			});
-		EXPECT_EQ(Cache.Get(PackagePath.generic_string(), 10).BuildDiagnostic, "build 1");
-		EXPECT_EQ(Cache.Get(PackagePath.generic_string(), 10).BuildDiagnostic, "build 1");
-		EXPECT_EQ(BuildCount, 1);
-		{
-			std::ofstream File(PackagePath, std::ios::trunc);
-			File << "larger package";
-		}
-		EXPECT_EQ(Cache.Get(PackagePath.generic_string(), 10).BuildDiagnostic, "build 2");
-		EXPECT_EQ(Cache.Get(PackagePath.generic_string(), 11).BuildDiagnostic, "build 3");
-		Cache.Invalidate();
-		EXPECT_EQ(Cache.Get(PackagePath.generic_string(), 11).BuildDiagnostic, "build 4");
-	}
-
-	TEST(FContentBrowserItemViewTests, ReportsUnavailableAndCorruptTextureCubeMetadata)
-	{
-		const std::filesystem::path Root =
-			Testing::GetTestWorkDirectory() / "ContentBrowserTextureCubeInvalid";
-		std::error_code Error;
-		Testing::RemoveTestWorkDirectory(Root, Error);
-		std::filesystem::create_directories(Root);
-		const std::filesystem::path Missing = Root / "Missing.dasset";
-		const ContentBrowserItemView::FTextureCubeDetailsSnapshot Unavailable =
-			ContentBrowserItemView::BuildTextureCubeDetailsSnapshot(
-				Missing.generic_string());
-		EXPECT_FALSE(Unavailable.bAvailable);
-		EXPECT_FALSE(Unavailable.BuildDiagnostic.empty());
-
-		const std::filesystem::path Corrupt = Root / "Corrupt.dasset";
-		{
-			std::ofstream File(Corrupt, std::ios::binary);
-			File << "not a package";
-		}
-		const ContentBrowserItemView::FTextureCubeDetailsSnapshot Invalid =
-			ContentBrowserItemView::BuildTextureCubeDetailsSnapshot(
-				Corrupt.generic_string());
-		EXPECT_FALSE(Invalid.bAvailable);
-		EXPECT_FALSE(Invalid.BuildDiagnostic.empty());
 	}
 
 	TEST(FContentBrowserItemViewTests, DerivesMonotonicMetricsAtSupportedSizes)
