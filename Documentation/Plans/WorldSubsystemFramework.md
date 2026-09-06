@@ -9,11 +9,9 @@ Completed:
 
 ## Current Status
 
-Planning only; no runtime implementation has started. `DWorld` directly owns
-`FPhysicsScene`, native gameplay-session roles, and collision debug state.
-Editor, PIE, and preview hosts already create distinct Worlds. Module and
-ModularFeature registration provide process-level extension discovery but do
-not own per-World service instances. Stage 0 is the first open stage.
+Stage 0 source audit is complete. The contracts below freeze the implementation
+boundaries; Stage 1 is next. Runtime implementation and native validation remain
+outstanding.
 
 ## Goal
 
@@ -127,20 +125,76 @@ from the task API available at implementation time.
 
 ### Stage 0: Resolve Lifecycle And Module Integration Contracts
 
-- [ ] Trace all runtime/editor/PIE/preview construction, publication, failure,
+- [x] Trace all runtime/editor/PIE/preview construction, publication, failure,
   Level switching, and retirement paths; record insertion points.
-- [ ] Verify reflected object retention, transient duplication exclusions,
+- [x] Verify reflected object retention, transient duplication exclusions,
   factory identity, and provider-module lifetime enforcement.
-- [ ] Specify initialization/shutdown states, error propagation, partial-service
+- [x] Specify initialization/shutdown states, error propagation, partial-service
   cleanup, play callback ordering/rollback, and Level notification ordering.
-- [ ] Specify Tick admission for empty, stopped, paused, stepped, editor, and
+- [x] Specify Tick admission for empty, stopped, paused, stepped, editor, and
   preview Worlds, including host update placement and mutation behavior.
-- [ ] Select asynchronous retirement mechanics, checking the active
+- [x] Select asynchronous retirement mechanics, checking the active
   [Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md) for API overlap;
   record any actual implementation dependency before proceeding.
 
 Completion: the above decisions are recorded in this plan with concrete source
 touchpoints and no unresolved ordering or ownership choice for Stage 1.
+
+### Stage 0 contract handoff
+
+- `Engine.cpp::Init` must select the initial World type through a virtual host
+  policy before initializing and publishing MainWorld. Editor currently changes
+  the type after base Init; replace that ordering. `PrepareForShutdown` and
+  `BeginDestroy` retire the World before viewport/scene release. `SetWorld` is
+  also used to suspend/restore EditorWorld for PIE and must not retire it.
+- `EditorEngine.cpp::StartPlaySession` initializes the PIE World before Level
+  duplication and publication; every pre-publication failure shuts it down.
+  `TeardownPlaySession` shuts down before its render fence and SetWorld(nullptr).
+  The stopped EditorWorld receives host ticks even while PIE is active.
+  `PreviewScene.cpp` initializes after its renderer endpoint is set, before
+  attaching its Level; construction failure and destruction explicitly retire.
+- Use native reference enumeration on DWorld for collection objects. Objects
+  carry Transient and are absent from reflected serialization/duplication
+  fields. Factories use concrete DClass native construction and qualified class
+  names for ordering, without reflected-class discovery. A move-only descriptor
+  registration belongs to its provider; collections snapshot registered values.
+- Core's reflected pre-shutdown callback drains class defaults, not all escaped
+  runtime instances (`ObjectLifecycle.cpp::ReleaseClassDefaultObjectsForModule`).
+  Add an explicit module code lease acquired from the active load generation.
+  Module shutdown rejects outstanding leases before entering Retiring and may
+  be retried after release. Frozen descriptors and constructed subsystem objects
+  retain leases; object leases last through physical destruction, including GC
+  delay. An empty provider is allowed only for statically linked native fixtures.
+- Collection states: Uninitialized, Initializing, Ready, ShuttingDown, Shutdown,
+  Failed. Initialize returns a categorized error and message; failure is terminal.
+  A failed service receives Deinitialize even if Initialize returns failure.
+  Completed predecessors unwind in reverse order. Lookup exposes only completed
+  initialization and remains available during Actor EndPlay/unregistration.
+- World callback depth defers EndPlay/shutdown/Level replacement requested by a
+  subsystem until the callback unwinds. Pending requests stop later callbacks.
+  Native gameplay bootstrap completes before subsystem BeginPlay; then snapshot
+  Actors (including service-spawned Actors) and dispatch Actor BeginPlay. Mark
+  each service entered before its callback, pair reverse EndPlay only with those
+  entered, and roll back aborted play through normal World EndPlay.
+- Level attachment sets World membership then notifies services before component
+  registration; detachment unregisters components while lookup is available,
+  notifies services while the old Level remains identifiable, then clears
+  membership. A Level callback may request a deferred transition, not recursively
+  replace the active Level. Render-scene replacement does not recreate services.
+- Gameplay Tick requires play and the existing pause/single-step admission.
+  Explicit Editor/Preview policy admits stopped and empty editor/preview Worlds.
+  Snapshot enabled flags at World Tick entry; changes apply next World Tick.
+  Within each existing phase dispatch services in initialization order before
+  the Level registry; recheck shutdown, pending transition and play state after
+  each callback. Services retain their Tick policy independently of Levels.
+- The active async refactor has only its transitive-wait repair implemented; its
+  proposed task groups/completion tickets are unavailable. Use current cancellation
+  tokens and detached shared completion state with a closed generation gate.
+  Worker captures cannot access DObjects or raw World endpoints. Retirement
+  closes the gate and cancels before Deinitialize; later GameThread publication
+  must validate the gate. Provider work must additionally use existing module
+  operation scopes. No wait on GameThread-dependent work and no dependency on
+  future async-refactor stages is introduced.
 
 ### Stage 1: Implement Collection And Native Registration
 
