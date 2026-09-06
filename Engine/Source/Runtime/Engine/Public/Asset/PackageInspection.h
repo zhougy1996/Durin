@@ -52,8 +52,9 @@ namespace Durin
 		ENGINE_API auto TryReadEditorBulkDataStorageDescriptor(
 			FEditorBulkDataStorageDescriptor& OutValue
 		) const -> bool;
+		// False parses placement only and skips inline payload hashing. Neither mode opens bulk storage.
 		ENGINE_API auto TryReadBulkDataStorageDescriptor(
-			FEditorBulkDataStorageDescriptor& OutValue
+			FEditorBulkDataStorageDescriptor& OutValue, bool bValidateInlinePayload = true
 		) const -> bool;
 		// Decodes the tagged fields of one reflected struct without constructing its
 		// C++ value or resolving nested bulk storage.

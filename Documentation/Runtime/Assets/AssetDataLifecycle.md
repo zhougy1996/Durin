@@ -423,6 +423,15 @@ resource state. Placement labels are capability descriptions such as `SourceFile
 `EditorPackageCompanion`, `DerivedDataCache`, and `CookedPackageCompanion`, not
 backend paths supplied to domain callers.
 
+StaticMeshEditor owns StaticMesh payload inspection and package-field
+interpretation. Engine retains only const source, residency, resource and
+BodySetup facts plus bounded manager observations. StaticMesh inspection never
+opens bulk storage, acquires source handles, probes cache/providers or creates
+primitive geometry. Metadata presence is not physical validation. Operation
+history is request-qualified and never presented as proof of current settings
+or source/collision coherence. See the [StaticMesh Inspector](../../Editor/Guides/StaticMeshInspector.md)
+for fields and explicit workflows.
+
 Repair classifications name the owning explicit workflow:
 
 | Finding | Action owner |

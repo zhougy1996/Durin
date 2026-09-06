@@ -91,25 +91,6 @@ namespace Durin
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 
-	// Bounded value-only collision facts for diagnostics and the read-only Inspector.
-	struct FStaticMeshCollisionInspection
-	{
-		EBodySetupCollisionSourceMode Mode;
-		EBodySetupCollisionQueryPolicy Policy;
-		ECollisionGeometryKind GeometryKind;
-		bool bHasGeometry = false;
-		uint32 SourceTriangles = 0;
-		uint32 RetainedTriangles = 0;
-		uint32 RemovedTriangles = 0;
-		uint32 Nodes = 0;
-		std::optional<FBox> Bounds;
-		uint64 RuntimeBytes = 0;
-		uint32 BuilderVersion = 0;
-		uint32 SchemaVersion = 0;
-		uint64 BuildRevision = 0;
-		bool bRevisionCoherent = false;
-	};
-
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
 	class DStaticMesh : public DObject
@@ -173,7 +154,8 @@ namespace Durin
 		ENGINE_API auto GetMaterialIndex(FName Name) const -> std::optional<uint32>;
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
-		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
+		// Owner-thread observation only; never submits or retries loading.
+		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
 		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
@@ -264,7 +246,6 @@ namespace Durin
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
 			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
-		auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
 		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
 		auto BuildCollisionCandidate(

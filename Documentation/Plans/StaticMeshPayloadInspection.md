@@ -9,18 +9,32 @@ Completed:
 
 ## Current Status
 
-Planning only. Stage 0 can begin independently; the Stage 1 prerequisite
-[StaticMesh source residency](StaticMeshSourceResidency.md) API is complete.
-Its supplementary GPU validation does not block this plan. Stage 2 still
-requires the bounded operation diagnostics from
-[StaticMesh authored compilation](StaticMeshAuthoredCompilation.md).
+Stages 0–1 are complete. Stage 2 implementation and routine CPU coverage are
+complete; its GPU failure/retry gate and Stage 3 interactive layout qualification
+remain open because the current session has no Metal access and the Mac is locked. Both prerequisite APIs are complete. No runtime
+consumer needs the old Inspector aggregation: its only production caller was
+MStaticMeshInspector, plus the StaticMesh collision native fixture.
 
-DStaticMesh::InspectCollision currently assembles an Inspector-oriented value in
-Engine. MStaticMeshInspector displays LOD/material/collision and GPU statistics,
-but does not assemble domain-qualified authored source, DDC, cooked payload,
-and CPU residency information. Texture payload inspection has already moved
-its aggregation into TextureEditor and is a reference for ownership, not a
-requirement to introduce a shared cross-family inspection framework.
+### Inspection field, owner, and state contract
+
+| Field / consumer | Owner and query | State / effect |
+| --- | --- | --- |
+| Former InspectCollision UI and native fixture | StaticMeshEditor `InspectStaticMeshCollision` | Migrate both; remove Engine aggregation/type. Runtime keeps BodySetup getters. |
+| ImportedData.Geometry package descriptor | StaticMeshEditor, supplied tagged field tree | Absent, malformed, unsupported, or metadata present; inline/companion placement does not establish readability. |
+| Live source identity / canonical bytes / decoded residency | Engine const source getters, editor snapshot | Metadata validity and residency separate; no AcquireGeometry or GetPayload. |
+| RenderData / CollisionData package fields | StaticMeshEditor, supplied descriptors | Separate fields and byte counts; no companion existence/integrity probe. |
+| Authored operation | Engine bounded manager snapshot, editor presentation | Request 0 means never observed/evicted. Queued, building, mailbox, succeeded, failed, cancelled, superseded are operation history, not live readiness. Source match alone does not establish settings coherence. |
+| Render/collision DDC | Optional operation observations | Origin/key/read/write costs only when observed. Successful product does not imply persistence. No cache calls or backend paths. |
+| CPU / cooked load | Engine const load snapshot | Resident render data is independent of authored-source residency. Unloaded, I/O queued, reading, decoding, ready, failed, cancelled; generation qualifies observation. |
+| GPU | Engine resource snapshot | Unavailable, queued, ready, failed, with revision. Failure guidance names explicit resource retry. |
+| Collision statistics | Editor aggregates installed immutable BodySetup geometry | No BuildSimpleGeometry: it can allocate/cache primitives. Revision is displayed but coherence stays unavailable because no source correspondence is stored. |
+| Repair guidance | StaticMeshEditor | Restore/reimport source, rebuild disposable derived output, recook cooked data, explicitly retry resources. No automatic repair. |
+
+All live queries run on the owner thread. Diagnostic messages are capped at
+4096 bytes. Package queries consume already supplied metadata; the caller's
+package acquisition is a separate operation. The shared descriptor reader's
+new metadata mode skips inline payload hashing. Tagged-struct parsing copies
+in-memory field records but does not resolve objects or open bulk storage.
 
 ## Goal
 
@@ -57,12 +71,12 @@ in StaticMeshEditor.
 
 ### Stage 0: Audit consumers and freeze inspection semantics
 
-- [ ] Inventory InspectCollision callers and determine the minimal Engine facts
+- [x] Inventory InspectCollision callers and determine the minimal Engine facts
   used by runtime versus editor consumers; record a migration map.
-- [ ] Specify live and construct-free snapshot fields, placement/readability
+- [x] Specify live and construct-free snapshot fields, placement/readability
   distinctions, unavailable states, collision coherence meaning, and bounded
   diagnostic strings. Verify metadata inspection APIs have no hidden I/O.
-- [ ] Define the UI grouping and messages for pending, absent, failed, cancelled,
+- [x] Define the UI grouping and messages for pending, absent, failed, cancelled,
   and ready CPU/GPU states, and the explicit workflow for each repair category.
 
 Completion: one field/owner/state table with no ambiguity about query effects.
@@ -71,14 +85,14 @@ Completion: one field/owner/state table with no ambiguity about query effects.
 
 Depends on Stage 0 and completion of the source residency plan.
 
-- [ ] Add StaticMeshEditor inspection APIs and move editor-only aggregation out
+- [x] Add StaticMeshEditor inspection APIs and move editor-only aggregation out
   of DStaticMesh; migrate callers and remove obsolete Engine exports after
   runtime consumers have narrow replacements.
-- [ ] Implement construct-free package field inspection for ImportedData,
+- [x] Implement construct-free package field inspection for ImportedData,
   RenderData, and CollisionData plus metadata-only live source/residency facts.
-- [ ] Preserve package/field-qualified diagnostics and explicit unavailable
+- [x] Preserve package/field-qualified diagnostics and explicit unavailable
   states for unsupported, absent, or malformed descriptors.
-- [ ] Test authored and cooked fixtures, absent companions, malformed metadata,
+- [x] Test authored and cooked fixtures, absent companions, malformed metadata,
   missing live data, and collision statistics. Instrument/assert zero bulk
   reads, object construction, cache calls, provider calls, and mutation.
 
@@ -88,13 +102,13 @@ Completion: snapshots describe metadata truthfully and queries are observational
 
 Depends on Stage 1 and completion of the authored compilation plan.
 
-- [ ] Join bounded manager observations with live source, cooked-load, CPU/GPU,
+- [x] Join bounded manager observations with live source, cooked-load, CPU/GPU,
   and collision facts; qualify request identity and prevent old diagnostics
   from appearing as the current asset state.
-- [ ] Update MStaticMeshInspector with source placement/identity, current or
+- [x] Update MStaticMeshInspector with source placement/identity, current or
   unavailable build diagnostics, CPU/GPU phases, and separate render/collision
   payload facts while preserving LOD and material editing behavior.
-- [ ] Add actionable workflow guidance with no implicit repair. Distinguish
+- [x] Add actionable workflow guidance with no implicit repair. Distinguish
   metadata presence from validated/read data and keep evicted history explicit.
 - [ ] Test pending/current/superseded/failed/cancelled operations, DDC hit versus
   rebuilt observations, cache persistence failure, cooked CPU failure, and GPU
@@ -110,13 +124,53 @@ Depends on Stage 2.
 - [ ] Run inspection and affected StaticMesh editor/native coverage under the
   repository workflows; exercise narrow/wide Inspector layouts and long error
   messages using available UI verification, recording any unavailable lane.
-- [ ] Verify Engine/Game has no new StaticMeshEditor dependency and that the
+- [x] Verify Engine/Game has no new StaticMeshEditor dependency and that the
   editor-only aggregation is absent from runtime-only targets.
 - [ ] Update StaticMesh Inspector guidance and asset lifecycle inspection
   ownership; record actual validation evidence and complete only after gates
   pass. Do not describe metadata inspection as physical payload validation.
 
 Completion: read-only behavior, module boundaries, UI, and documentation agree.
+
+## Validation Evidence And Remaining Qualification
+
+- `test StaticMeshTests`: 111/111 tests passed, including four new inspection
+  cases. Existing authored manager scenarios now read through the editor
+  snapshot: queued/current/superseded/failed/cancelled, retained-history eviction,
+  cold/warm DDC and persistence failure. Cooked cancellation polling also uses
+  the snapshot and preserves generation and absence of CPU data.
+- The unreadable source probe received zero requests during 100 inspections;
+  object count, CPU pointer, source identity, GPU revision, package dirty state
+  and manager accounting were unchanged. The build provider was unloaded during
+  polling and stayed unloaded. The inspection call graph contains no DDC calls.
+- Authored/cooked fixtures preserve separate field presence. A nonexistent
+  physical path does not change supplied metadata; malformed and unsupported
+  fields remain distinct. Deliberately incorrect inline payload hashes are
+  accepted only in metadata mode, demonstrating that this mode is not payload
+  validation. The default existing descriptor API still rejects bad hashes.
+- `test affected` passed all 28 selected routine targets on macOS arm64 Debug.
+  The full `all` build passed on MacOS-arm64-Debug-DurinEditor. Final reruns
+  after value-initializing empty snapshot enums also passed: affected build
+  3.48 s / tests 24.95 s (28/28 targets), full `all` build 0.20 s.
+  Final logs: `Build/.agent-state/logs/20260907-051849-402897-61906-ctest.log`
+  and `Build/.agent-state/logs/20260907-051935-549937-62161-cmake.log`.
+- Source/module audit found no runtime consumer of removed `InspectCollision`
+  and no Runtime `.dmodule` dependency on StaticMeshEditor. Aggregation now
+  exists only under the Editor module. No Game configuration was added.
+- GPU qualification target compiled, but
+  `FStaticMeshRenderPreparationVulkanTests.BlockingMeshCpuResidencyDoesNotInitializeGpuResources`
+  failed before assertions at RHI initialization: `VK_ERROR_INCOMPATIBLE_DRIVER`,
+  Metal unavailable. Log: `Build/.agent-state/logs/20260907-051830-929284-61887-ctest.log`.
+  This is an outstanding GPU gate, not a passing failure/retry test. Do not
+  retry in the same environment without evidence of restored device access.
+- Computer-use inventory reported the Mac locked. Narrow/wide layouts and long
+  messages therefore have code review/compile coverage only; wrapped value and
+  diagnostic text is implemented but interactive verification is outstanding.
+  No application smoke was launched.
+- Inspector guidance and lifecycle ownership were updated; changed-document
+  validation and all-plan validation passed. The plan stays Active until the
+  GPU and interactive layout lanes pass. Resume those lanes in a capable,
+  unlocked session, then complete Stage 2/3 checklists and lifecycle metadata.
 
 ## Validation And Contract Owners
 

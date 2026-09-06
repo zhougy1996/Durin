@@ -314,43 +314,6 @@ namespace Durin
 		return Bounds;
 	}
 
-	auto DStaticMesh::InspectCollision() const -> FStaticMeshCollisionInspection
-	{
-		FStaticMeshCollisionInspection Result{};
-		Result.Mode = EBodySetupCollisionSourceMode::None;
-		Result.Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		Result.GeometryKind = ECollisionGeometryKind::Primitive;
-		Result.BuilderVersion = StaticMeshCollisionBuilderVersion;
-		Result.SchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
-		if (!BodySetup) return Result;
-		Result.Mode = BodySetup->GetCollisionSourceMode();
-		Result.Policy = BodySetup->GetCollisionQueryPolicy();
-		Result.BuildRevision = BodySetup->GetCollisionBuildRevision();
-		if (RenderData && !RenderData->LODResources.empty())
-			Result.SourceTriangles = static_cast<uint32>(
-				RenderData->LODResources.front().IndexBuffer.GetIndices().size() / 3);
-		FCollisionGeometryRef Geometry;
-		if (!BodySetup->BuildSimpleGeometry(Geometry))
-			BodySetup->BuildComplexGeometry(Geometry);
-		if (!Geometry)
-		{
-			Result.bRevisionCoherent = Result.Mode == EBodySetupCollisionSourceMode::None;
-			return Result;
-		}
-		Result.GeometryKind = Geometry.GetKind();
-		Result.bHasGeometry = true;
-		Result.RetainedTriangles = Geometry.GetTriangleCount();
-		Result.RemovedTriangles = Result.SourceTriangles >= Result.RetainedTriangles
-			? Result.SourceTriangles - Result.RetainedTriangles : 0;
-		Result.Nodes = Geometry.GetNodeCount();
-		Result.RuntimeBytes = Geometry.GetRetainedBytes();
-		FVector3 Minimum;
-		FVector3 Maximum;
-		if (Geometry.GetLocalBounds(Minimum, Maximum)) Result.Bounds = FBox(Minimum, Maximum);
-		Result.bRevisionCoherent = Result.BuildRevision != 0;
-		return Result;
-	}
-
 	auto DStaticMesh::LoadRenderResourceState() const
 		-> EStaticMeshRenderResourceState
 	{

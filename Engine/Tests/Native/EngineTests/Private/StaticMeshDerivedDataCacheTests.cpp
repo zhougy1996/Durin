@@ -1,3 +1,4 @@
+#include "Diagnostics/StaticMeshPayloadInspection.h"
 #include <gtest/gtest.h>
 #include "NativeAssetRuntimeTestSupport.h"
 
@@ -8,6 +9,7 @@
 #include "Asset/AssetCook.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Property.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -69,6 +71,15 @@ namespace
 	private:
 		std::string PreviousDirectory;
 	};
+
+	auto InspectCompilationOperation(const Durin::DStaticMesh& Mesh) -> Durin::FStaticMeshCompilationDiagnostic
+	{
+		const auto Snapshot = Durin::InspectStaticMeshPayloads(Mesh);
+		EXPECT_EQ(Snapshot.bOperationSourceMatches, Snapshot.Operation.RequestId != 0
+			&& Snapshot.Operation.SourceIdentity == Mesh.GetImportedData().GetIdentity());
+		EXPECT_LE(Snapshot.Operation.Message.size(), 4096u);
+		return Snapshot.Operation;
+	}
 
 	struct FStaticMeshCacheFixture
 	{
@@ -532,6 +543,13 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::ShutdownCookedMeshLoadManager();
 		const auto CancelledStatus = CookedMesh->RequestRenderDataAndResources();
 		EXPECT_EQ(CancelledStatus.CpuPhase, Durin::ECookedMeshCpuPhase::Cancelled);
+		for (int Poll = 0; Poll < 10; ++Poll)
+		{
+			const auto Snapshot = Durin::InspectStaticMeshPayloads(*CookedMesh);
+			EXPECT_EQ(Snapshot.CookedLoad.CpuPhase, CancelledStatus.CpuPhase);
+			EXPECT_EQ(Snapshot.CookedLoad.Generation, CancelledStatus.Generation);
+			EXPECT_FALSE(Snapshot.bCpuResident);
+		}
 		ASSERT_TRUE(Durin::InitializeCookedMeshLoadManager());
 		const Durin::FCookedMeshBlockingResult RetryResult =
 			CookedMesh->EnsureRenderDataLoadedBlocking();
@@ -1418,9 +1436,9 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerBoundsAcceptedRecordsAndDefersC
 			[&](const FStaticMeshCompilationDiagnostic&) { ++Completions; })) << Error;
 	EXPECT_EQ(0u, Completions);
 	EXPECT_EQ(32u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
-	const auto Latest = GetStaticMeshCompilationDiagnostic(*Mesh).RequestId;
+	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
 	EXPECT_FALSE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source}, Error));
-	EXPECT_EQ(Latest, GetStaticMeshCompilationDiagnostic(*Mesh).RequestId);
+	EXPECT_EQ(Latest, InspectCompilationOperation(*Mesh).RequestId);
 	CancelStaticMeshCompilation(*Mesh);
 	EXPECT_EQ(0u, Completions);
 	const auto Batch = FAssetCompilingManager::Get().ProcessAsyncTasks();
@@ -1503,12 +1521,12 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerEnforcesByteReservationBeforeSu
 	const auto State = GetStaticMeshCompilationManagerDiagnostics();
 	EXPECT_EQ(Accepted, State.OutstandingRecords);
 	EXPECT_LE(State.ReservedBytes, 1024ull * 1024 * 1024);
-	const auto Latest = GetStaticMeshCompilationDiagnostic(*Mesh).RequestId;
+	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
 	Geometry.Meshes.front().Positions.resize(800000);
 	FStaticMeshImportedData Oversized;
 	ASSERT_TRUE(Oversized.Initialize(std::move(Geometry), Error));
 	EXPECT_FALSE(SubmitStaticMeshCompilation(*Mesh, {.Source = Oversized}, Error));
-	EXPECT_EQ(Latest, GetStaticMeshCompilationDiagnostic(*Mesh).RequestId);
+	EXPECT_EQ(Latest, InspectCompilationOperation(*Mesh).RequestId);
 	CancelStaticMeshCompilation(*Mesh);
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
@@ -1542,7 +1560,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerShutdownDrainsAndCanRestart)
 	ASSERT_TRUE(AssetPrivate::CreateStaticMeshCompilingManager()->Start(&Error));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source}, Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Mesh).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
@@ -1565,7 +1583,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 			ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index],
 				{.Source = Source, .Priority = EStaticMeshCompilationPriority::Interactive}, Error));
 		ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[7], {.Source = Source}, Error));
-		const uint64 BackgroundId = GetStaticMeshCompilationDiagnostic(*Meshes[7]).RequestId;
+		const uint64 BackgroundId = InspectCompilationOperation(*Meshes[7]).RequestId;
 		AssetPrivate::SetStaticMeshCompilationPhaseHookForTests([&](uint64 Id, EStaticMeshCompilationPhase Phase) {
 			if (Phase == EStaticMeshCompilationPhase::Queued) Dispatches.push_back(Id);
 		});
@@ -1581,7 +1599,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerFairnessAndHistoryStayBounded)
 	}
 	const auto Diagnostics = GetStaticMeshCompilationManagerDiagnostics();
 	EXPECT_EQ(128u, Diagnostics.RetainedDiagnostics);
-	EXPECT_EQ(0u, GetStaticMeshCompilationDiagnostic(*Meshes[7]).RequestId);
+	EXPECT_EQ(0u, InspectCompilationOperation(*Meshes[7]).RequestId);
 	EXPECT_EQ(0u, Diagnostics.OutstandingRecords);
 	EXPECT_EQ(0u, Diagnostics.ReservedBytes);
 }
@@ -1630,7 +1648,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRecapturesReflectedFactsAndInit
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_TRUE(Terminal.has_value());
 	EXPECT_EQ(EStaticMeshCompilationStatus::Superseded, *Terminal);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Mesh).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 	EXPECT_FLOAT_EQ(3.0f, Mesh->GetNormalizedSize());
 	EXPECT_NE(nullptr, Mesh->GetRenderData());
 
@@ -1641,7 +1659,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerRecapturesReflectedFactsAndInit
 	FCollisionGeometryRef Collision;
 	ASSERT_NE(nullptr, Initial->GetBodySetup());
 	EXPECT_TRUE(Initial->GetBodySetup()->BuildComplexGeometry(Collision));
-	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Initial).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Initial).Status);
 }
 
 TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscardingResidentData)
@@ -1657,15 +1675,15 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	FStaticMeshWorkerBarrier Barrier;
 	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
 	ASSERT_TRUE(Barrier.Wait(1));
-	const auto Request = GetStaticMeshCompilationDiagnostic(*Fixture.Mesh).RequestId;
+	const auto Request = InspectCompilationOperation(*Fixture.Mesh).RequestId;
 	EXPECT_TRUE(HasPendingStaticMeshCompilation(*Fixture.Mesh));
 	EXPECT_EQ(Original, Fixture.Mesh->GetRenderData());
 	EXPECT_FALSE(Fixture.Mesh->GetImportedData().IsGeometryResident());
 	EXPECT_TRUE(Fixture.Mesh->PostLoad(Error));
-	EXPECT_EQ(Request, GetStaticMeshCompilationDiagnostic(*Fixture.Mesh).RequestId);
+	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	Barrier.Release();
 	EXPECT_TRUE(BuildStaticMeshSynchronously(*Fixture.Mesh, Fixture.Mesh->GetImportedData(), Error)) << Error;
-	EXPECT_EQ(Request, GetStaticMeshCompilationDiagnostic(*Fixture.Mesh).RequestId);
+	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	EXPECT_EQ(Identity, Fixture.Mesh->GetImportedData().GetIdentity());
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 }
@@ -1868,7 +1886,7 @@ TEST(FStaticMeshAuthoredCompilationTests, InitialMutationRequeuesAtCapacityAndEx
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_NE(nullptr, Meshes[0]->GetRenderData());
-	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Meshes[0]).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Meshes[0]).Status);
 	EXPECT_EQ(nullptr, Meshes[1]->GetRenderData());
 	EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords);
 	EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
@@ -1881,21 +1899,21 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	FScopedDerivedDataCacheRestore RestoreCache;
 	auto Fixture = ImportCacheFixture("ManagerObservationContract");
 	ASSERT_NE(nullptr, Fixture.Mesh);
-	const auto Cold = GetStaticMeshCompilationDiagnostic(*Fixture.Mesh);
+	const auto Cold = InspectCompilationOperation(*Fixture.Mesh);
 	ASSERT_TRUE(Cold.Render.has_value());
 	EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, Cold.Render->Origin);
 	EXPECT_EQ(Fixture.Mesh->GetImportedData().GetIdentity(), Cold.SourceIdentity);
 	std::string Error;
 	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
-	const auto Warm = GetStaticMeshCompilationDiagnostic(*Fixture.Mesh);
+	const auto Warm = InspectCompilationOperation(*Fixture.Mesh);
 	ASSERT_TRUE(Warm.Render.has_value());
 	EXPECT_EQ(EStaticMeshBuildOrigin::CacheHit, Warm.Render->Origin);
 	EXPECT_TRUE(Warm.Message.empty());
 	EXPECT_EQ(Cold.Render->DerivedDataKey, Warm.Render->DerivedDataKey);
 	const auto Revision = Fixture.Mesh->GetPackage()->GetEditRevision();
 	for (uint32 Index = 0; Index < 10; ++Index)
-		EXPECT_EQ(Warm.RequestId, GetStaticMeshCompilationDiagnostic(*Fixture.Mesh).RequestId);
+		EXPECT_EQ(Warm.RequestId, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	EXPECT_EQ(Revision, Fixture.Mesh->GetPackage()->GetEditRevision());
 	EXPECT_FALSE(Fixture.Mesh->GetImportedData().IsGeometryResident());
 	EXPECT_FALSE(HasPendingStaticMeshCompilation(*Fixture.Mesh));
@@ -1904,7 +1922,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	FPaths::SetDerivedDataCacheDirForTests(CacheFile.generic_string());
 	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
-	const auto FailedCache = GetStaticMeshCompilationDiagnostic(*Fixture.Mesh);
+	const auto FailedCache = InspectCompilationOperation(*Fixture.Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, FailedCache.Status);
 	ASSERT_TRUE(FailedCache.Render.has_value());
 	EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, FailedCache.Render->Origin);
@@ -1936,7 +1954,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("AllChannelManagerFixture"));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source, .bPersistDerivedData = false}, Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-	ASSERT_EQ(EStaticMeshCompilationStatus::Succeeded, GetStaticMeshCompilationDiagnostic(*Mesh).Status);
+	ASSERT_EQ(EStaticMeshCompilationStatus::Succeeded, InspectCompilationOperation(*Mesh).Status);
 	ASSERT_NE(nullptr, Mesh->GetRenderData());
 	const auto* Original = Mesh->GetRenderData();
 	EXPECT_EQ(MaxStaticMeshUVChannels, Original->LODResources.front().NumTexCoords);
@@ -1946,7 +1964,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	ASSERT_TRUE(Mesh->SetBodySetup(Body));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source, .bPersistDerivedData = false}, Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-	EXPECT_EQ(EStaticMeshCompilationStatus::Failed, GetStaticMeshCompilationDiagnostic(*Mesh).Status);
+	EXPECT_EQ(EStaticMeshCompilationStatus::Failed, InspectCompilationOperation(*Mesh).Status);
 	EXPECT_EQ(Original, Mesh->GetRenderData());
 	EXPECT_EQ(0u, GetStaticMeshCompilationManagerDiagnostics().ReservedBytes);
 }
@@ -1963,15 +1981,15 @@ TEST(FStaticMeshAuthoredCompilationTests, LatestCompletedObservationWinsOverReta
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source}, Error));
 	ASSERT_TRUE(Barrier.Wait(1));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source}, Error));
-	const auto Latest = GetStaticMeshCompilationDiagnostic(*Mesh).RequestId;
+	const auto Latest = InspectCompilationOperation(*Mesh).RequestId;
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-	while (GetStaticMeshCompilationDiagnostic(*Mesh).Phase != EStaticMeshCompilationPhase::Terminal
+	while (InspectCompilationOperation(*Mesh).Phase != EStaticMeshCompilationPhase::Terminal
 		&& std::chrono::steady_clock::now() < Deadline)
 	{
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	const auto Completed = GetStaticMeshCompilationDiagnostic(*Mesh);
+	const auto Completed = InspectCompilationOperation(*Mesh);
 	EXPECT_EQ(Latest, Completed.RequestId);
 	EXPECT_EQ(EStaticMeshCompilationPhase::Terminal, Completed.Phase);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, Completed.Status);
@@ -1980,5 +1998,126 @@ TEST(FStaticMeshAuthoredCompilationTests, LatestCompletedObservationWinsOverReta
 	EXPECT_NE(nullptr, Mesh->GetRenderData());
 	Barrier.Release();
 	FAssetCompilingManager::Get().FinishAllCompilation();
-	EXPECT_EQ(Latest, GetStaticMeshCompilationDiagnostic(*Mesh).RequestId);
+	EXPECT_EQ(Latest, InspectCompilationOperation(*Mesh).RequestId);
+}
+
+TEST(FStaticMeshPayloadInspectionTests, UnreadableSourcePollingDoesNotAcquireOrMutate)
+{
+	using namespace Durin;
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	const auto Fixture = ImportCacheFixture("StaticMeshInspectionReadProbe");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	auto& Source = const_cast<FStaticMeshImportedData&>(Fixture.Mesh->GetImportedData());
+	const auto Resource = AttachResidencyProbe(Source, true);
+	const auto Identity = Source.GetIdentity();
+	const auto Revision = Fixture.Mesh->GetRenderResourceStatus().Revision;
+	const auto* Cpu = Fixture.Mesh->GetRenderData();
+	const auto Dirty = Fixture.Mesh->GetPackage()->IsDirty();
+	const auto Before = GetStaticMeshCompilationManagerDiagnostics();
+	const auto ObjectCount = GDObjectArray.GetNum();
+	const FScopedStaticMeshProviderRestore ProviderRestore;
+	ASSERT_TRUE(FModuleManager::Get().UnloadModule("StaticMeshBuild").Succeeded());
+	for (int Index = 0; Index < 100; ++Index)
+	{
+		const auto Snapshot = InspectStaticMeshPayloads(*Fixture.Mesh);
+		EXPECT_FALSE(Snapshot.bSourceResident);
+		EXPECT_EQ(Snapshot.Fields[0].Identity, Identity);
+		EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
+		EXPECT_EQ(Snapshot.Gpu.Revision, Revision);
+		EXPECT_TRUE(Snapshot.bCpuResident);
+	}
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
+	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+	EXPECT_FALSE(FModuleManager::Get().IsModuleLoaded("StaticMeshBuild"));
+	EXPECT_EQ(Fixture.Mesh->GetRenderData(), Cpu);
+	EXPECT_EQ(Fixture.Mesh->GetPackage()->IsDirty(), Dirty);
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().OutstandingRecords, Before.OutstandingRecords);
+	EXPECT_EQ(GetStaticMeshCompilationManagerDiagnostics().ReservedBytes, Before.ReservedBytes);
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath));
+}
+
+TEST(FStaticMeshPayloadInspectionTests, PackageInspectionPreservesAbsentMalformedAndUnsupportedStates)
+{
+	using namespace Durin;
+	FAssetPackageInspection Package;
+	Package.Header.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString();
+	Package.PhysicalPath = "/nonexistent/metadata-only/Mesh.dasset";
+	Package.Objects.emplace_back();
+	FStaticMeshPayloadInspection Snapshot;
+	const auto ObjectCount = GDObjectArray.GetNum();
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+	ASSERT_EQ(Snapshot.Fields.size(), 3u);
+	EXPECT_TRUE(Snapshot.bConstructFree);
+	for (const auto& Field : Snapshot.Fields) EXPECT_EQ(Field.State, "Absent");
+	Package.Objects[0].Fields.push_back({.Name = "RenderData", .SourceFormatVersion = 9});
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(Snapshot.Fields[1].State, "Malformed");
+	Package.Objects[0].Fields[0].SourceFormatVersion = 8;
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(Snapshot.Fields[1].State, "Unsupported");
+	Package.Objects[0].Fields.push_back({.Name = "ImportedData", .SourceFormatVersion = 9});
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(Snapshot.Fields[0].State, "Malformed");
+	Package.Header.AssetClassName = "Unsupported";
+	std::string Error;
+	EXPECT_FALSE(InspectStaticMeshPayloadPackage(Package, Snapshot, &Error));
+	EXPECT_FALSE(Error.empty());
+}
+
+TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOnCompanionAvailability)
+{
+	using namespace Durin;
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	const auto Fixture = ImportCacheFixture("StaticMeshInspectionPackages");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	FAssetPackageInspection Package;
+	ASSERT_TRUE(InspectAssetPackage((Fixture.Root / "Content/Mesh.dasset").generic_string(), Fixture.AssetPath, Package));
+	FStaticMeshPayloadInspection Snapshot;
+	const auto ObjectCount = GDObjectArray.GetNum();
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(GDObjectArray.GetNum(), ObjectCount);
+	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
+	EXPECT_EQ(Snapshot.Fields[1].State, "Absent");
+	const auto Identity = Snapshot.Fields[0].Identity;
+	Package.PhysicalPath = "/nonexistent/absent-companion/Mesh.dasset";
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(Snapshot.Fields[0].Identity, Identity);
+	EXPECT_EQ(Snapshot.Fields[0].State, "Metadata present");
+	std::string Error;
+	ASSERT_TRUE(Fixture.Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
+	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
+	FCookContext Context(CookRoot, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(ContributeEngineCookAsset(*Fixture.Mesh, "/Game/InspectionMesh", Context, Error)) << Error;
+	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	FPackagePath CookedPath;
+	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/InspectionMesh", CookedPath));
+	ASSERT_TRUE(InspectAssetPackage((CookRoot / "Game/InspectionMesh.dasset").generic_string(), CookedPath, Package));
+	Package.PhysicalPath = "/nonexistent/cooked/Mesh.dasset";
+	ASSERT_TRUE(InspectStaticMeshPayloadPackage(Package, Snapshot));
+	EXPECT_EQ(Snapshot.Fields[0].State, "Absent");
+	EXPECT_EQ(Snapshot.Fields[1].State, "Metadata present");
+	EXPECT_EQ(Snapshot.Fields[2].State, "Metadata present");
+	ASSERT_TRUE(UnloadPackage(Fixture.AssetPath, EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(FStaticMeshPayloadInspectionTests, MetadataModeDoesNotHashInlinePayloadOrRequireExternalStorage)
+{
+	using namespace Durin;
+	FAssetPackageField Field{.Name = "RenderData", .Kind = DurinCodeGen::EPropertyGenFlags::BulkData, .SourceFormatVersion = 9};
+	auto Append = [&](const auto& Value) {
+		const auto Bytes = std::as_bytes(std::span(&Value, 1));
+		Field.Payload.insert(Field.Payload.end(), Bytes.begin(), Bytes.end());
+	};
+	Append(uint32{1}); Append(uint8{0}); Append(uint8{0}); Append(uint16{1});
+	Append(uint32{1}); Append(uint64{1}); Append(FGuid{1, 2, 3, 4});
+	Append(uint64{1}); Append(uint64{2}); Append(uint64{1}); Append(uint64{1}); Append(uint64{0});
+	Field.Payload.push_back(std::byte{0x42});
+	FEditorBulkDataStorageDescriptor Descriptor;
+	EXPECT_FALSE(Field.TryReadBulkDataStorageDescriptor(Descriptor));
+	EXPECT_TRUE(Field.TryReadBulkDataStorageDescriptor(Descriptor, false));
+	Field.Payload[4] = std::byte{1};
+	Field.Payload.pop_back();
+	EXPECT_TRUE(Field.TryReadBulkDataStorageDescriptor(Descriptor, false));
+	EXPECT_EQ(Descriptor.StorageKind, EEditorBulkDataStorageKind::External);
 }

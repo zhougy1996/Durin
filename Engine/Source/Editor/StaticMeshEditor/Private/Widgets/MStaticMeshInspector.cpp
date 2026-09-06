@@ -1,6 +1,7 @@
 #include "Widgets/MStaticMeshInspector.h"
 
 #include "Asset/Asset.h"
+#include "Diagnostics/StaticMeshPayloadInspection.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
@@ -40,7 +41,9 @@ namespace Durin::Editor::StaticMesh
 			ImGui::TableSetColumnIndex(0);
 			ImGui::TextDisabled("%s", Label);
 			ImGui::TableSetColumnIndex(1);
+			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextUnformatted(Value.data(), Value.data() + Value.size());
+			ImGui::PopTextWrapPos();
 		}
 
 		auto FormatVector(const FVector3& Value) -> std::string
@@ -170,13 +173,6 @@ namespace Durin::Editor::StaticMesh
 			ImGui::TextWrapped("StaticMesh unavailable: the asset is no longer loaded.");
 			return;
 		}
-		if (HasPendingStaticMeshCompilation(*Mesh)) ImGui::TextDisabled("Building mesh...");
-		else
-		{
-			const auto Diagnostic = GetStaticMeshCompilationDiagnostic(*Mesh);
-			if (Diagnostic.RequestId && Diagnostic.Status != EStaticMeshCompilationStatus::Succeeded
-				&& !Diagnostic.Message.empty()) ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
-		}
 		const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 		const uint32 LODCount = RenderData ? static_cast<uint32>(RenderData->LODResources.size()) : 0;
 		if (LODCount == 0) State.SelectedLOD = 0;
@@ -258,6 +254,88 @@ namespace Durin::Editor::StaticMesh
 			ImGui::EndTable();
 		}
 
+		if (Mesh)
+		{
+			const auto Inspection = InspectStaticMeshPayloads(*Mesh);
+			ImGui::SeparatorText("Payload storage");
+			ImGui::TextWrapped("Metadata presence does not prove readable payloads. Inspection never loads or repairs data.");
+			for (const auto& Field : Inspection.Fields)
+			{
+				ImGui::PushID(Field.Field.c_str());
+				if (ImGui::BeginTable("Payload", 2, ImGuiTableFlags_SizingStretchProp))
+				{
+					DrawInfoRow("Field", Field.Field);
+					DrawInfoRow("State / placement", Field.State + " / " + Field.Placement);
+					DrawInfoRow("Logical / stored bytes", std::format("{} / {}", Field.LogicalBytes, Field.StoredBytes));
+					DrawInfoRow("Source identity", Field.Identity.IsZero() ? "Unavailable" : Field.Identity.ToString());
+					DrawInfoRow("Workflow", Field.Diagnostic);
+					ImGui::EndTable();
+				}
+				ImGui::PopID();
+			}
+			ImGui::SeparatorText("CPU residency and cooked loading");
+			ImGui::TextWrapped("Decoded authored source: %s. Render CPU data: %s.",
+				Inspection.bSourceResident ? "resident" : "not resident",
+				Inspection.bCpuResident ? "resident" : "absent");
+			const char* CpuPhase = "Unloaded";
+			switch (Inspection.CookedLoad.CpuPhase)
+			{
+			case ECookedMeshCpuPhase::Unloaded: break;
+			case ECookedMeshCpuPhase::IoQueued: CpuPhase = "I/O queued"; break;
+			case ECookedMeshCpuPhase::Reading: CpuPhase = "Reading"; break;
+			case ECookedMeshCpuPhase::Decoding: CpuPhase = "Decoding"; break;
+			case ECookedMeshCpuPhase::CpuReady: CpuPhase = "CPU ready"; break;
+			case ECookedMeshCpuPhase::Failed: CpuPhase = "Failed; restore or recook cooked data before explicitly retrying loading"; break;
+			case ECookedMeshCpuPhase::Cancelled: CpuPhase = "Cancelled; explicitly request loading when needed"; break;
+			}
+			ImGui::TextWrapped("Load phase: %s (generation %llu).", CpuPhase,
+				static_cast<unsigned long long>(Inspection.CookedLoad.Generation));
+			if (Inspection.Gpu.Readiness == EStaticMeshRenderResourceReadiness::Failed)
+				ImGui::TextWrapped("GPU initialization failed. Retry resource initialization explicitly after correcting the resource failure.");
+			ImGui::SeparatorText("Authored build operation");
+			const auto& Operation = Inspection.Operation;
+			if (!Operation.RequestId)
+				ImGui::TextWrapped("Operation history unavailable (never observed or evicted). DDC origin, key, timings and persistence are unavailable.");
+			else
+			{
+				const char* Phase = "Queued";
+				if (Operation.Phase == EStaticMeshCompilationPhase::Building) Phase = "Building";
+				else if (Operation.Phase == EStaticMeshCompilationPhase::Mailbox) Phase = "Awaiting publication";
+				else if (Operation.Phase == EStaticMeshCompilationPhase::Terminal)
+				{
+					switch (Operation.Status)
+					{
+					case EStaticMeshCompilationStatus::Succeeded: Phase = "Succeeded"; break;
+					case EStaticMeshCompilationStatus::Failed: Phase = "Failed"; break;
+					case EStaticMeshCompilationStatus::Cancelled: Phase = "Cancelled"; break;
+					case EStaticMeshCompilationStatus::Superseded: Phase = "Superseded"; break;
+					}
+				}
+				ImGui::TextWrapped("Request %llu: %s. %s. This operation record does not establish current settings or payload coherence.",
+					static_cast<unsigned long long>(Operation.RequestId), Phase,
+					Inspection.bOperationSourceMatches ? "Source identity matches" : "Different source identity");
+				ImGui::TextWrapped("Capture / worker / publication: %llu / %llu / %llu ns",
+					static_cast<unsigned long long>(Operation.CaptureNanoseconds),
+					static_cast<unsigned long long>(Operation.WorkerNanoseconds),
+					static_cast<unsigned long long>(Operation.PublicationNanoseconds));
+				for (const auto& [Name, Observation] : {std::pair{"Render", &Operation.Render}, std::pair{"Collision", &Operation.Collision}})
+				{
+					ImGui::TextWrapped("%s derived product: %s", Name, !*Observation ? "Observation unavailable" :
+						(*Observation)->Origin == EStaticMeshBuildOrigin::CacheHit ? "Observed DDC hit" : "Observed rebuild");
+					if (*Observation)
+					{
+						ImGui::TextWrapped("Key: %s", (*Observation)->DerivedDataKey.ToString().c_str());
+						ImGui::TextWrapped("Payload %llu bytes; cache read / write %llu / %llu ns",
+							static_cast<unsigned long long>((*Observation)->PayloadBytes),
+							static_cast<unsigned long long>((*Observation)->CacheReadNanoseconds),
+							static_cast<unsigned long long>((*Observation)->CacheWriteNanoseconds));
+					}
+				}
+				if (!Operation.Message.empty()) ImGui::TextWrapped("%s", Operation.Message.c_str());
+				ImGui::TextWrapped("Persistence is reported only by the operation diagnostic; a successful product does not prove a cache write. For build failure, restore/reimport source or explicitly rebuild disposable derived output. Cancelled or superseded work is not retried by inspection.");
+			}
+		}
+
 		ImGui::SeparatorText("LOD Statistics");
 		if (LODCount == 0)
 		{
@@ -286,15 +364,16 @@ namespace Durin::Editor::StaticMesh
 
 		ImGui::SeparatorText("Collision");
 		const FStaticMeshCollisionInspection Collision = Mesh
-			? Mesh->InspectCollision() : FStaticMeshCollisionInspection{};
+			? InspectStaticMeshCollision(*Mesh) : FStaticMeshCollisionInspection{};
 		if (ImGui::BeginTable("StaticMeshCollisionInfo", 2, ImGuiTableFlags_SizingStretchProp))
 		{
 			DrawInfoRow("Mode", CollisionModeLabel(Collision.Mode));
 			DrawInfoRow("Policy", CollisionPolicyLabel(Collision.Policy));
-			DrawInfoRow("Geometry readiness", Collision.bHasGeometry ? "Ready" : "Unavailable");
+			DrawInfoRow("Resident derived geometry", Collision.bHasGeometry ? "Ready" : "Unavailable");
 			DrawInfoRow("Source triangles", std::to_string(Collision.SourceTriangles));
 			DrawInfoRow("Retained triangles", std::to_string(Collision.RetainedTriangles));
-			DrawInfoRow("Removed triangles", std::to_string(Collision.RemovedTriangles));
+			DrawInfoRow("Triangle count difference", Collision.bTriangleCountsComparable
+				? std::to_string(Collision.RemovedTriangles) : "Unavailable");
 			DrawInfoRow("BVH nodes", std::to_string(Collision.Nodes));
 			DrawInfoRow("Runtime bytes", std::to_string(Collision.RuntimeBytes));
 			DrawInfoRow("Builder / schema", std::format("{} / {}", Collision.BuilderVersion, Collision.SchemaVersion));

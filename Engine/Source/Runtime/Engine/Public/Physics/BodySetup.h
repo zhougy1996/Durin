@@ -57,6 +57,9 @@ namespace Durin
 			const FCollisionGeometryRef& Complex) -> bool;
 		ENGINE_API auto ClearCollisionGeometry() -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
+		// Borrow installed geometry without constructing or refreshing primitive caches.
+		auto GetResidentSimpleGeometry() const -> const FCollisionGeometryRef& { return CachedSimpleCollision; }
+		auto GetResidentComplexGeometry() const -> const FCollisionGeometryRef& { return CachedComplexCollision; }
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetDimensions() const -> FVector3 { return Dimensions; }
 		auto GetCenter() const -> FVector3 { return Center; }

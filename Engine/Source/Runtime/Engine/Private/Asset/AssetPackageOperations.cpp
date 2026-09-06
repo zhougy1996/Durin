@@ -1518,7 +1518,7 @@ namespace Durin
 	}
 
 	auto FAssetPackageField::TryReadBulkDataStorageDescriptor(
-		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
+		FEditorBulkDataStorageDescriptor& OutValue, bool bValidateInlinePayload) const -> bool
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
@@ -1557,7 +1557,7 @@ namespace Durin
 		if (Alignment != 1 || OutValue.SegmentOffset != 0
 			|| Reader.Offset > Payload.size()
 			|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
-		return FXxHash128::HashBuffer(
+		return !bValidateInlinePayload || FXxHash128::HashBuffer(
 			FByteView(Payload).subspan(Reader.Offset))
 			== OutValue.ContentHash;
 	}

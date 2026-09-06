@@ -1,5 +1,8 @@
 # StaticMesh Inspector
 
+Summary: Inspect StaticMesh source placement, operation history, CPU/GPU readiness and collision without repair.
+Modules: StaticMeshEditor
+
 The StaticMesh Inspector provides a read-only view of a StaticMesh asset. Use it
 to inspect rendered data and independently cooked collision state without
 changing the asset.
@@ -37,14 +40,31 @@ The details pane reports the asset path, render-resource state, LOD count,
 selected LOD, vertex, index, triangle, section and material-slot counts, plus
 local bounds.
 
-The **Collision** section reports the authored source mode, Simple/Complex query
-policy, build/load status, source and retained triangle counts, removed
-degenerates, BVH node/depth and local bounds, derived/cooked payload bytes,
-runtime retained bytes, builder/schema/platform versions, BodySetup revision,
-derived-data key, and the latest diagnostic. These facts describe an immutable
-collision payload that does not depend on preview or render-resource readiness.
-`None` means collision was not explicitly authored; a failure status includes
-the reason instead of showing stale facts.
+The **Payload storage** section separates canonical authored geometry from cooked
+RenderData and CollisionData. Metadata presence, identity and byte counts do
+not prove backing files are readable. Inspection does not acquire source,
+read companions, probe DDC or initialize resources. Decoded authored residency
+and render CPU residency are independent.
+
+**Authored build operation** shows the latest retained request, source-identity
+match, phase/outcome, optional render/collision DDC origins and keys, cache
+costs, and capture/worker/publication times. This is operation history, even
+when its source matches: it cannot prove current settings or collision
+coherence. Never-observed or evicted history is explicitly unavailable.
+Persistence is known only from operation diagnostics, not inferred from a
+successful build. Pending, failed, cancelled and superseded work can coexist
+with previously installed CPU data.
+
+The **Collision** section reports installed derived geometry statistics, source
+mode and query policy, triangle counts, BVH nodes, local bounds, retained bytes,
+builder/schema versions and BodySetup build revision. It never constructs
+primitive geometry just to display statistics. Revision coherence is unavailable:
+a nonzero revision does not establish correspondence with current source.
+
+Use the domain-specific explicit workflow: restore/reimport authored data,
+rebuild disposable derived output, recook invalid cooked data, or retry GPU
+resource initialization after correcting its failure. Polling does none of these.
+Cooked CPU load phases and GPU readiness remain separately visible.
 
 The inspector does not edit topology, collision, sockets, LODs, import settings,
 or material assignments. Author or change collision through the asset/import

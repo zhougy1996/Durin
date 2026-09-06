@@ -1,3 +1,4 @@
+#include "Diagnostics/StaticMeshPayloadInspection.h"
 #include <gtest/gtest.h>
 
 #include "DObject/ObjectLifecycle.h"
@@ -1019,7 +1020,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	ASSERT_NE(Mesh, nullptr) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
-	const FStaticMeshCollisionInspection Inspection = Mesh->InspectCollision();
+	const FStaticMeshCollisionInspection Inspection = InspectStaticMeshCollision(*Mesh);
 	EXPECT_EQ(Inspection.Mode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	EXPECT_EQ(Inspection.Policy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
 	EXPECT_TRUE(Inspection.bHasGeometry);
@@ -1034,7 +1035,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage5Tests, Ins
 	EXPECT_EQ(Inspection.BuilderVersion, StaticMeshCollisionBuilderVersion);
 	EXPECT_EQ(Inspection.SchemaVersion, StaticMeshCollisionPayloadSchemaVersion);
 	EXPECT_GT(Inspection.BuildRevision, 0u);
-	EXPECT_TRUE(Inspection.bRevisionCoherent);
+	EXPECT_FALSE(Inspection.bRevisionCoherent);
 
 	const FStaticMeshCollisionInspection Frozen = Inspection;
 	EXPECT_EQ(Frozen.RetainedTriangles, Inspection.RetainedTriangles);
