@@ -143,22 +143,6 @@ namespace Durin
 		struct FGraphParameterStorage final
 		{
 			FGraphParameterStorage() = default;
-			FGraphParameterStorage(FGraphParameterStorage&& Other) noexcept
-				: Allocations(std::move(Other.Allocations))
-			{
-				Other.Allocations.clear();
-			}
-			auto operator=(FGraphParameterStorage&& Other) noexcept
-				-> FGraphParameterStorage&
-			{
-				if (this != &Other)
-				{
-					Reset();
-					Allocations = std::move(Other.Allocations);
-					Other.Allocations.clear();
-				}
-				return *this;
-			}
 			~FGraphParameterStorage() { Reset(); }
 
 			FGraphParameterStorage(const FGraphParameterStorage&) = delete;
@@ -1452,19 +1436,21 @@ namespace Durin
 		std::vector<std::string> DeclarationErrors;
 		bool bEnableCulling = false;
 		FRDGBudget Budget;
-		mutable FGraphParameterStorage ParameterStorage;
-		mutable bool bParameterStorageTransferred = false;
-		mutable FGraphParameterStorage ValueStorage;
-		mutable bool bValueStorageTransferred = false;
+		ERDGBuilderState Lifecycle = ERDGBuilderState::Building;
+		FRDGExecutionResult ExecutionResult;
+		bool bCompiled = false;
+		uint32 PendingConstructions = 0;
+		FGraphParameterStorage ParameterStorage;
+		FGraphParameterStorage ValueStorage;
 	};
 
-	struct FRDGCompiledGraph::FState
+	struct FRDGBuilder::FCompiledState
 	{
 		// Keeps all execution-only state for one scheduled pass in one record.
 		struct FCompiledPassRuntime final
 		{
-			FRDGPassExecute Execute;
-			FRDGParameterizedPassExecute ParameterizedExecute;
+			const FRDGPassExecute* Execute = nullptr;
+			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
 			FOptionalAliasTable OptionalAliases;
@@ -1491,15 +1477,13 @@ namespace Durin
 		std::vector<FRDGTransitionCapture> TransitionCaptures;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		FRDGBudget Budget;
-		FGraphParameterStorage ParameterStorage;
-		FGraphParameterStorage ValueStorage;
 		uint64 CompileMicroseconds = 0;
-		mutable std::atomic<uint64> ExecuteMicroseconds = 0;
-		mutable FRDGAllocationStatistics AllocationStatistics;
+		uint64 ExecuteMicroseconds = 0;
+		FRDGAllocationStatistics AllocationStatistics;
 	};
 
 	FRDGBuilder::FRDGBuilder()
-		: State(std::make_unique<FState>())
+		: Compiled(std::make_unique<FCompiledState>()), State(std::make_unique<FState>())
 	{
 		static std::atomic<uint64> NextOwner{1};
 		State->Owner = NextOwner.fetch_add(1, std::memory_order_relaxed);
@@ -1507,17 +1491,85 @@ namespace Durin
 
 	FRDGBuilder::~FRDGBuilder() = default;
 
+	auto FRDGBuilder::RequireBuilding() const -> void
+	{
+		requiref(State->Lifecycle == ERDGBuilderState::Building,
+			"render graph declarations require Building state");
+	}
+
+	auto FRDGBuilder::BeginStorageConstruction() -> void
+	{
+		RequireBuilding();
+		++State->PendingConstructions;
+	}
+
+	auto FRDGBuilder::EndStorageConstruction() -> void
+	{
+		--State->PendingConstructions;
+	}
+
+	auto FRDGBuilder::GetState() const -> ERDGBuilderState
+	{ return State->Lifecycle; }
+
+	auto FRDGBuilder::GetExecutionResult() const -> const FRDGExecutionResult&
+	{ return State->ExecutionResult; }
+
+	auto FRDGBuilder::HasCompiledPlan() const -> bool
+	{ return State->bCompiled; }
+
+	auto FRDGBuilder::CompileForTesting() -> std::string
+	{
+		if (State->Lifecycle != ERDGBuilderState::Building)
+			return "render graph is already consumed";
+		State->Lifecycle = ERDGBuilderState::Compiling;
+		struct FFailureGuard
+		{
+			ERDGBuilderState& State;
+			~FFailureGuard()
+			{
+				if (State == ERDGBuilderState::Compiling) State = ERDGBuilderState::Failed;
+			}
+		} Guard{State->Lifecycle};
+		std::string Error = Compile();
+		State->Lifecycle = Error.empty() ? ERDGBuilderState::Preparing : ERDGBuilderState::Failed;
+		return Error;
+	}
+
+	auto FRDGBuilder::Execute(FRHICommandListImmediate& CommandList,
+		FRDGExecutionContext* Context) -> FRDGExecutionResult
+	{
+		if (State->Lifecycle != ERDGBuilderState::Building)
+			return {ERDGExecutionStatus::InvalidState, "render graph is already consumed"};
+		State->Lifecycle = ERDGBuilderState::Compiling;
+		// Preserve terminal state during supported unwinding without swallowing exceptions.
+		struct FFailureGuard
+		{
+			ERDGBuilderState& State;
+			~FFailureGuard()
+			{
+				if (State != ERDGBuilderState::Recorded) State = ERDGBuilderState::Failed;
+			}
+		} Guard{State->Lifecycle};
+		State->ExecutionResult = {ERDGExecutionStatus::CompileFailed,
+			"render graph compilation did not complete"};
+		State->ExecutionResult.Error = Compile();
+		if (!State->ExecutionResult.Error.empty()) return State->ExecutionResult;
+		State->Lifecycle = ERDGBuilderState::Preparing;
+		State->ExecutionResult.Status = ERDGExecutionStatus::PreparationFailed;
+		State->ExecutionResult.Error = "render graph preparation did not complete";
+		if (!Record(CommandList, Context, &State->ExecutionResult.Error))
+			return State->ExecutionResult;
+		State->Lifecycle = ERDGBuilderState::Recorded;
+		State->ExecutionResult.Status = ERDGExecutionStatus::Recorded;
+		return State->ExecutionResult;
+	}
+
 	auto FRDGBuilder::AllocateParameterStorage(size_t Size,
 		size_t Alignment, const FRDGParametersMetadata* Metadata,
 		const FRDGParameterLayoutBuildResult& LayoutResult,
 		void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*
 	{
-		if (State->bParameterStorageTransferred)
-		{
-			State->DeclarationErrors.emplace_back(
-				"render graph parameter storage was already transferred");
-			return nullptr;
-		}
+		RequireBuilding();
 		if (LayoutResult.Layout == nullptr)
 		{
 			State->DeclarationErrors.push_back(LayoutResult.Error);
@@ -1559,12 +1611,7 @@ namespace Durin
 		std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
 		size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*
 	{
-		if (State->bValueStorageTransferred)
-		{
-			State->DeclarationErrors.emplace_back(
-				"render graph value storage was already transferred");
-			return nullptr;
-		}
+		RequireBuilding();
 		if (Name.empty() || StableTypeName.empty() || TypeIdentity == nullptr
 			|| Size == 0 || Alignment == 0 || Destroy == nullptr)
 		{
@@ -1623,6 +1670,7 @@ namespace Durin
 		ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 		-> FRDGTextureHandle
 	{
+		RequireBuilding();
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERDGResourceKind::Texture;
@@ -1657,6 +1705,7 @@ namespace Durin
 		const FRDGTextureDesc& Desc, std::string_view Name,
 		ERHIAccess FinalAccess) -> FRDGTextureHandle
 	{
+		RequireBuilding();
 		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		FGraphResource Resource;
 		Resource.Name = Name;
@@ -1672,6 +1721,7 @@ namespace Durin
 		std::string_view Name, ERHIAccess InitialAccess,
 		ERHIAccess FinalAccess) -> FRDGBufferHandle
 	{
+		RequireBuilding();
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERDGResourceKind::Buffer;
@@ -1706,6 +1756,7 @@ namespace Durin
 		std::string_view Name, ERHIAccess FinalAccess)
 		-> FRDGBufferHandle
 	{
+		RequireBuilding();
 		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		FGraphResource Resource;
 		Resource.Name = Name;
@@ -1720,6 +1771,7 @@ namespace Durin
 	auto FRDGBuilder::CreateToken(std::string_view Name)
 		-> FRDGTokenHandle
 	{
+		RequireBuilding();
 		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		FGraphResource Resource;
 		Resource.Name = Name;
@@ -1732,6 +1784,7 @@ namespace Durin
 		FRDGTextureHandle Texture, FTextureRHIRef* Destination,
 		ERHIAccess FinalAccess) -> void
 	{
+		RequireBuilding();
 		if (Texture.Owner != State->Owner || Texture.Index >= State->Resources.size()
 			|| State->Resources[Texture.Index].Kind
 				!= ERDGResourceKind::Texture)
@@ -1766,6 +1819,7 @@ namespace Durin
 		FRDGBufferHandle Buffer, FBufferRHIRef* Destination,
 		ERHIAccess FinalAccess) -> void
 	{
+		RequireBuilding();
 		if (Buffer.Owner != State->Owner || Buffer.Index >= State->Resources.size()
 			|| State->Resources[Buffer.Index].Kind
 				!= ERDGResourceKind::Buffer)
@@ -1800,6 +1854,7 @@ namespace Durin
 		ERDGPassType Type, FRDGPassExecute Execute)
 		-> FRDGPassHandle
 	{
+		RequireBuilding();
 		const uint32 Index = static_cast<uint32>(State->Passes.size());
 		FGraphPass Pass;
 		Pass.Name = Name;
@@ -1816,6 +1871,7 @@ namespace Durin
 		FRDGParameterizedPassExecute ParameterizedExecute)
 		-> FRDGPassHandle
 	{
+		RequireBuilding();
 		const FRDGParametersMetadata* Metadata = Layout != nullptr
 			? Layout->Metadata : nullptr;
 		const std::string StructName = Metadata != nullptr
@@ -1933,6 +1989,7 @@ namespace Durin
 	auto FRDGBuilder::CanDeclareManualUse(FRDGPassHandle Pass,
 		std::string_view InvalidHandleError) -> bool
 	{
+		RequireBuilding();
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
 		{
 			State->DeclarationErrors.emplace_back(InvalidHandleError);
@@ -1951,6 +2008,7 @@ namespace Durin
 	auto FRDGBuilder::MarkPassRoot(FRDGPassHandle Pass,
 		std::string_view Reason) -> void
 	{
+		RequireBuilding();
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
 		{
 			State->DeclarationErrors.emplace_back("root has an invalid pass handle");
@@ -1962,17 +2020,20 @@ namespace Durin
 
 	auto FRDGBuilder::EnablePassCulling() -> void
 	{
+		RequireBuilding();
 		State->bEnableCulling = true;
 	}
 
 	auto FRDGBuilder::SetBudget(const FRDGBudget& Budget) -> void
 	{
+		RequireBuilding();
 		State->Budget = Budget;
 	}
 
 	auto FRDGBuilder::AddDependency(FRDGPassHandle Pass,
 		FRDGPassHandle Prerequisite) -> void
 	{
+		RequireBuilding();
 		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
 		{
 			State->DeclarationErrors.emplace_back(
@@ -1989,6 +2050,7 @@ namespace Durin
 		const FRHITextureSubresourceRange& Range, ERDGUse Use,
 		ERHIAccess Access, bool bDiscard) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		State->Passes[Pass.Index].Uses.push_back({
@@ -2001,6 +2063,7 @@ namespace Durin
 		FRDGBufferHandle Buffer, uint64 Offset, uint64 Size,
 		ERDGUse Use, ERHIAccess Access, bool bDiscard) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"buffer use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
@@ -2021,6 +2084,7 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, ERDGUse::ReadWrite,
@@ -2037,6 +2101,7 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, ERDGUse::ReadWrite,
@@ -2053,6 +2118,7 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		UseColorAttachment(Pass, Texture, Range, LoadAction, StoreAction);
@@ -2070,6 +2136,7 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		UseDepthStencilAttachment(Pass, Texture, Range, LoadAction, StoreAction);
@@ -2086,6 +2153,7 @@ namespace Durin
 		const FRHITextureSubresourceRange& Range, ERDGUse Use,
 		ERHIAccess EntryAccess, ERHIAccess ResultAccess, bool bDiscard) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, Use, EntryAccess, bDiscard);
@@ -2100,6 +2168,7 @@ namespace Durin
 	auto FRDGBuilder::UseToken(FRDGPassHandle Pass,
 		FRDGTokenHandle Token, ERDGUse Use) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"token use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
@@ -2115,6 +2184,7 @@ namespace Durin
 		uint64 Owner, uint32 Index, const void* TypeIdentity,
 		ERDGUse Use) -> void
 	{
+		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"typed value use has an invalid pass handle")) return;
 		if (Use != ERDGUse::Read && Use != ERDGUse::Write)
@@ -2141,23 +2211,31 @@ namespace Durin
 		State->Passes[Pass.Index].Uses.push_back(std::move(DeclaredUse));
 	}
 
-	auto FRDGBuilder::Compile() const -> FRDGCompileResult
+	auto FRDGBuilder::Compile() -> std::string
 	{
+		if (State->PendingConstructions != 0)
+			return "render graph storage construction is incomplete";
 		const auto Started = std::chrono::steady_clock::now();
 		auto Fail = [](std::string Error) {
-			return FRDGCompileResult{nullptr, std::move(Error)};
+			return Error;
 		};
 		if (!State->DeclarationErrors.empty())
 			return Fail(State->DeclarationErrors.front());
-		if (State->bParameterStorageTransferred)
-			return Fail("render graph parameter storage was already transferred");
-		if (State->bValueStorageTransferred)
-			return Fail("render graph value storage was already transferred");
 		if (std::string Error = ValidateGraphResources(State->Resources);
 			!Error.empty())
 			return Fail(std::move(Error));
 
-		std::vector<FGraphPass> Passes = State->Passes;
+		// Compiler scratch copies declarations only; callbacks keep one owner.
+		std::vector<FGraphPass> Passes;
+		Passes.reserve(State->Passes.size() + 1);
+		for (const auto& Pass : State->Passes)
+			Passes.push_back({.Name = Pass.Name, .Type = Pass.Type,
+				.Uses = Pass.Uses, .Prerequisites = Pass.Prerequisites,
+				.bRoot = Pass.bRoot, .bExport = Pass.bExport,
+				.RootReason = Pass.RootReason, .bParameterized = Pass.bParameterized,
+				.ParameterLayout = Pass.ParameterLayout, .Parameters = Pass.Parameters,
+				.OptionalAliases = Pass.OptionalAliases,
+				.ParameterCaptures = Pass.ParameterCaptures});
 		FGraphPass Export;
 		Export.Name = "RDG.Export";
 		Export.bRoot = true;
@@ -2231,7 +2309,7 @@ namespace Durin
 			DependencyGraph.Dependencies,
 			State->bEnableCulling);
 
-		auto CompiledState = std::make_unique<FRDGCompiledGraph::FState>();
+		auto CompiledState = std::make_unique<FRDGBuilder::FCompiledState>();
 		CompiledState->Owner = State->Owner;
 		CompiledState->Resources = State->Resources;
 		CompiledState->Budget = State->Budget;
@@ -2290,9 +2368,11 @@ namespace Durin
 				.ParameterStructName = Pass.ParameterLayout != nullptr
 					&& Pass.ParameterLayout->Metadata->StructName != nullptr
 					? Pass.ParameterLayout->Metadata->StructName : ""};
-			FRDGCompiledGraph::FState::FCompiledPassRuntime Runtime{
-				.Execute = Pass.Execute,
-				.ParameterizedExecute = Pass.ParameterizedExecute,
+			FRDGBuilder::FCompiledState::FCompiledPassRuntime Runtime{
+				.Execute = ScheduledIndex < State->Passes.size()
+					? &State->Passes[ScheduledIndex].Execute : nullptr,
+				.ParameterizedExecute = ScheduledIndex < State->Passes.size()
+					? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
 				.ParameterLayout = Pass.ParameterLayout,
 				.Parameters = Pass.Parameters,
 				.OptionalAliases = Pass.OptionalAliases};
@@ -2457,7 +2537,7 @@ namespace Durin
 			TextureTransitionCount += static_cast<uint32>(Pass.TextureTransitions.size());
 		}
 		auto CheckLimit = [&](std::string_view Name, uint32 Actual, uint32 Limit)
-			-> FRDGCompileResult {
+			-> std::string {
 			return Fail("render graph safety limit exceeded: " + std::string(Name)
 				+ " actual=" + std::to_string(Actual) + " limit="
 				+ std::to_string(Limit));
@@ -2472,108 +2552,90 @@ namespace Durin
 		if (TextureTransitionCount > State->Budget.MaxTextureTransitions)
 			return CheckLimit("texture-transitions", TextureTransitionCount,
 				State->Budget.MaxTextureTransitions);
-		if (!State->ParameterStorage.Allocations.empty())
-		{
-			CompiledState->ParameterStorage = std::move(State->ParameterStorage);
-			State->bParameterStorageTransferred = true;
-		}
-		if (!State->ValueStorage.Allocations.empty())
-		{
-			CompiledState->ValueStorage = std::move(State->ValueStorage);
-			State->bValueStorageTransferred = true;
-		}
-		return {std::unique_ptr<FRDGCompiledGraph>(
-			new FRDGCompiledGraph(std::move(CompiledState))), {}};
+		Compiled = std::move(CompiledState);
+		State->bCompiled = true;
+		return {};
 	}
 
-	FRDGCompiledGraph::FRDGCompiledGraph(std::unique_ptr<FState> InState)
-		: State(std::move(InState))
-	{
-	}
-
-	FRDGCompiledGraph::FRDGCompiledGraph(FRDGCompiledGraph&&) noexcept = default;
-	auto FRDGCompiledGraph::operator=(FRDGCompiledGraph&&) noexcept
-		-> FRDGCompiledGraph& = default;
-	FRDGCompiledGraph::~FRDGCompiledGraph() = default;
-
-	auto FRDGCompiledGraph::GetPasses() const
-		-> std::span<const FRDGCompiledPass> { return State->Passes; }
-	auto FRDGCompiledGraph::GetDependencies() const
-		-> std::span<const FRDGDependency> { return State->Dependencies; }
-	auto FRDGCompiledGraph::GetResourceLifetimes() const
+	auto FRDGBuilder::GetPasses() const
+		-> std::span<const FRDGCompiledPass> { return Compiled->Passes; }
+	auto FRDGBuilder::GetDependencies() const
+		-> std::span<const FRDGDependency> { return Compiled->Dependencies; }
+	auto FRDGBuilder::GetResourceLifetimes() const
 		-> std::span<const FRDGResourceLifetime>
 	{
-		return State->ResourceLifetimes;
+		return Compiled->ResourceLifetimes;
 	}
-	auto FRDGCompiledGraph::GetCullingDecisions() const
+	auto FRDGBuilder::GetCullingDecisions() const
 		-> std::span<const FRDGCullingDecision>
 	{
-		return State->CullingDecisions;
+		return Compiled->CullingDecisions;
 	}
-	auto FRDGCompiledGraph::GetFinalBufferTransitions() const
-		-> std::span<const FRHIBufferTransition> { return State->FinalBufferTransitions; }
-	auto FRDGCompiledGraph::GetFinalTextureTransitions() const
-		-> std::span<const FRHITextureTransition> { return State->FinalTextureTransitions; }
-	auto FRDGCompiledGraph::GetCompileMicroseconds() const -> uint64
+	auto FRDGBuilder::GetFinalBufferTransitions() const
+		-> std::span<const FRHIBufferTransition> { return Compiled->FinalBufferTransitions; }
+	auto FRDGBuilder::GetFinalTextureTransitions() const
+		-> std::span<const FRHITextureTransition> { return Compiled->FinalTextureTransitions; }
+	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
 	{
-		return State->CompileMicroseconds;
+		return Compiled->CompileMicroseconds;
 	}
 
-	auto FRDGCompiledGraph::GetBudget() const -> const FRDGBudget&
+	auto FRDGBuilder::GetBudget() const -> const FRDGBudget&
 	{
 		return State->Budget;
 	}
 
-	auto FRDGCompiledGraph::GetStatistics() const -> FRDGStatistics
+	auto FRDGBuilder::GetStatistics() const -> FRDGStatistics
 	{
 		FRDGStatistics Result;
-		Result.DeclaredPasses = static_cast<uint32>(State->CullingDecisions.size());
-		Result.ScheduledPasses = static_cast<uint32>(State->Passes.size());
+		Result.DeclaredPasses = static_cast<uint32>(Compiled->CullingDecisions.size());
+		Result.ScheduledPasses = static_cast<uint32>(Compiled->Passes.size());
 		Result.CulledPasses = Result.DeclaredPasses - Result.ScheduledPasses;
-		Result.Dependencies = static_cast<uint32>(State->Dependencies.size());
+		Result.Dependencies = static_cast<uint32>(Compiled->Dependencies.size());
 		Result.BufferTransitions = static_cast<uint32>(
-			State->FinalBufferTransitions.size());
+			Compiled->FinalBufferTransitions.size());
 		Result.TextureTransitions = static_cast<uint32>(
-			State->FinalTextureTransitions.size());
-		for (const auto& Pass : State->Passes)
+			Compiled->FinalTextureTransitions.size());
+		for (const auto& Pass : Compiled->Passes)
 		{
 			Result.BufferTransitions += static_cast<uint32>(Pass.BufferTransitions.size());
 			Result.TextureTransitions += static_cast<uint32>(Pass.TextureTransitions.size());
 		}
-		Result.CompileMicroseconds = State->CompileMicroseconds;
+		Result.CompileMicroseconds = Compiled->CompileMicroseconds;
 		Result.ExecuteMicroseconds =
-			State->ExecuteMicroseconds.load(std::memory_order_relaxed);
+			Compiled->ExecuteMicroseconds;
 		Result.bPassRegressionBudgetExceeded = Result.DeclaredPasses
-			> State->Budget.RegressionMaxPasses;
+			> Compiled->Budget.RegressionMaxPasses;
 		Result.bDependencyRegressionBudgetExceeded = Result.Dependencies
-			> State->Budget.RegressionMaxDependencies;
+			> Compiled->Budget.RegressionMaxDependencies;
 		Result.bBufferTransitionRegressionBudgetExceeded = Result.BufferTransitions
-			> State->Budget.RegressionMaxBufferTransitions;
+			> Compiled->Budget.RegressionMaxBufferTransitions;
 		Result.bTextureTransitionRegressionBudgetExceeded = Result.TextureTransitions
-			> State->Budget.RegressionMaxTextureTransitions;
+			> Compiled->Budget.RegressionMaxTextureTransitions;
 		Result.bCompileBudgetExceeded = Result.CompileMicroseconds
-			> State->Budget.MaxCompileMicroseconds;
+			> Compiled->Budget.MaxCompileMicroseconds;
 		Result.bExecuteBudgetExceeded = Result.ExecuteMicroseconds
-			> State->Budget.MaxExecuteMicroseconds;
+			> Compiled->Budget.MaxExecuteMicroseconds;
 		return Result;
 	}
 
-	auto FRDGCompiledGraph::Capture() const -> FRDGCapture
+	auto FRDGBuilder::Capture() const -> FRDGCapture
 	{
 		FRDGCapture Result;
+		Result.bCompiled = State->bCompiled;
 		Result.Budget = State->Budget;
 		Result.Statistics = GetStatistics();
-		Result.AllocationStatistics = State->AllocationStatistics;
-		Result.Resources = State->ResourceCaptures;
-		Result.Parameters = State->ParameterCaptures;
-		Result.Uses = State->UseCaptures;
-		Result.Transitions = State->TransitionCaptures;
-		Result.Dependencies = State->Dependencies;
-		Result.ResourceLifetimes = State->ResourceLifetimes;
-		Result.CullingDecisions = State->CullingDecisions;
+		Result.AllocationStatistics = Compiled->AllocationStatistics;
+		Result.Resources = Compiled->ResourceCaptures;
+		Result.Parameters = Compiled->ParameterCaptures;
+		Result.Uses = Compiled->UseCaptures;
+		Result.Transitions = Compiled->TransitionCaptures;
+		Result.Dependencies = Compiled->Dependencies;
+		Result.ResourceLifetimes = Compiled->ResourceLifetimes;
+		Result.CullingDecisions = Compiled->CullingDecisions;
 		Result.Dump = Dump();
-		Result.Passes.reserve(State->Passes.size());
-		for (const auto& Pass : State->Passes)
+		Result.Passes.reserve(Compiled->Passes.size());
+		for (const auto& Pass : Compiled->Passes)
 			Result.Passes.push_back({Pass.Name, Pass.Type, Pass.DeclarationIndex,
 				Pass.ParameterStructName,
 				static_cast<uint32>(Pass.BufferTransitions.size()),
@@ -2581,26 +2643,27 @@ namespace Durin
 		return Result;
 	}
 
-	auto FRDGCompiledGraph::Dump() const -> std::string
+	auto FRDGBuilder::Dump() const -> std::string
 	{
+		if (!State->bCompiled) return "render-graph: no compiled plan";
 		std::ostringstream Output;
-		Output << "render-graph passes=" << State->Passes.size()
-			<< " edges=" << State->Dependencies.size() << '\n';
+		Output << "render-graph passes=" << Compiled->Passes.size()
+			<< " edges=" << Compiled->Dependencies.size() << '\n';
 		Output << "allocation active-resources="
-			<< State->AllocationStatistics.ActiveResources
+			<< Compiled->AllocationStatistics.ActiveResources
 			<< " retained-resources="
-			<< State->AllocationStatistics.RetainedResources
-			<< " active-bytes=" << State->AllocationStatistics.ActiveBytes
-			<< " retained-bytes=" << State->AllocationStatistics.RetainedBytes
+			<< Compiled->AllocationStatistics.RetainedResources
+			<< " active-bytes=" << Compiled->AllocationStatistics.ActiveBytes
+			<< " retained-bytes=" << Compiled->AllocationStatistics.RetainedBytes
 			<< " peak-active-bytes="
-			<< State->AllocationStatistics.PeakActiveBytes
-			<< " hits=" << State->AllocationStatistics.ReuseHits
-			<< " misses=" << State->AllocationStatistics.ReuseMisses
-			<< " evictions=" << State->AllocationStatistics.Evictions
-			<< " failures=" << State->AllocationStatistics.Failures << '\n';
-		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
+			<< Compiled->AllocationStatistics.PeakActiveBytes
+			<< " hits=" << Compiled->AllocationStatistics.ReuseHits
+			<< " misses=" << Compiled->AllocationStatistics.ReuseMisses
+			<< " evictions=" << Compiled->AllocationStatistics.Evictions
+			<< " failures=" << Compiled->AllocationStatistics.Failures << '\n';
+		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
 		{
-			const auto& Pass = State->Passes[Index];
+			const auto& Pass = Compiled->Passes[Index];
 			Output << "pass " << Index << " decl=" << Pass.DeclarationIndex
 				<< " type=" << PassTypeName(Pass.Type) << " name=" << Pass.Name
 				<< " buffers=" << Pass.BufferTransitions.size()
@@ -2609,21 +2672,21 @@ namespace Durin
 				Output << " parameters=" << Pass.ParameterStructName;
 			Output << '\n';
 		}
-		for (const auto& Edge : State->Dependencies)
+		for (const auto& Edge : Compiled->Dependencies)
 			Output << "edge " << Edge.BeforePass << "->" << Edge.AfterPass
 				<< " kind=" << DependencyKindName(Edge.Kind)
 				<< " cause=" << Edge.Cause << '\n';
-		Output << "final buffers=" << State->FinalBufferTransitions.size()
-			<< " textures=" << State->FinalTextureTransitions.size() << '\n';
-		for (const auto& Lifetime : State->ResourceLifetimes)
+		Output << "final buffers=" << Compiled->FinalBufferTransitions.size()
+			<< " textures=" << Compiled->FinalTextureTransitions.size() << '\n';
+		for (const auto& Lifetime : Compiled->ResourceLifetimes)
 			Output << "lifetime name=" << Lifetime.Name << " first="
 				   << Lifetime.FirstPass << " last=" << Lifetime.LastPass
 				   << " external=" << Lifetime.bExternal
 				   << " culled=" << Lifetime.bCulled << '\n';
-		for (const auto& Decision : State->CullingDecisions)
+		for (const auto& Decision : Compiled->CullingDecisions)
 			Output << "culling name=" << Decision.Name << " culled="
 				<< Decision.bCulled << " reason=" << Decision.Reason << '\n';
-		for (const auto& Resource : State->ResourceCaptures)
+		for (const auto& Resource : Compiled->ResourceCaptures)
 			Output << "resource id=" << Resource.ResourceId << " name="
 				   << Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
 				   << " external=" << Resource.bExternal << " preparation="
@@ -2636,7 +2699,7 @@ namespace Durin
 				   << " layers=" << Resource.TextureArraySize << " mips="
 				   << static_cast<uint32>(Resource.TextureMips) << " buffer-size="
 				   << Resource.BufferSize << " stride=" << Resource.BufferStride << '\n';
-		for (const auto& Parameter : State->ParameterCaptures)
+		for (const auto& Parameter : Compiled->ParameterCaptures)
 		{
 			Output << "parameter pass=" << Parameter.PassDeclarationIndex
 				<< " field=" << Parameter.FieldPath << " kind="
@@ -2663,7 +2726,7 @@ namespace Durin
 					<< static_cast<uint32>(Parameter.ShaderBindingType);
 			Output << '\n';
 		}
-		for (const auto& Use : State->UseCaptures)
+		for (const auto& Use : Compiled->UseCaptures)
 		{
 			Output << "use pass=" << Use.PassDeclarationIndex << " resource="
 				<< Use.ResourceId << " direction=" << GraphUseName(Use.Use)
@@ -2683,7 +2746,7 @@ namespace Durin
 					<< static_cast<uint32>(Use.ShaderBindingType);
 			Output << '\n';
 		}
-		for (const auto& Transition : State->TransitionCaptures)
+		for (const auto& Transition : Compiled->TransitionCaptures)
 			Output << "transition resource=" << Transition.ResourceId << " pass="
 				<< Transition.PassIndex << " before="
 				<< static_cast<uint32>(Transition.Before) << " after="
@@ -2699,44 +2762,31 @@ namespace Durin
 		return Output.str();
 	}
 
-	auto FRDGCompiledGraph::Execute(FRHICommandListImmediate& CommandList,
-		std::string* OutError) const -> bool
-	{
-		return ExecuteInternal(CommandList, nullptr, OutError);
-	}
-
-	auto FRDGCompiledGraph::Execute(FRHICommandListImmediate& CommandList,
-		FRDGExecutionContext& Context, std::string* OutError) const -> bool
-	{
-		return ExecuteInternal(CommandList, &Context, OutError);
-	}
-
-	auto FRDGCompiledGraph::ExecuteInternal(
+	auto FRDGBuilder::Record(
 		FRHICommandListImmediate& CommandList, FRDGExecutionContext* Context,
-		std::string* OutError) const -> bool
+		std::string* OutError) -> bool
 	{
 		const auto Started = std::chrono::steady_clock::now();
 		auto RecordDuration = [&] {
-			State->ExecuteMicroseconds.store(static_cast<uint64>(
+			Compiled->ExecuteMicroseconds = static_cast<uint64>(
 				std::chrono::duration_cast<std::chrono::microseconds>(
-					std::chrono::steady_clock::now() - Started).count()),
-				std::memory_order_relaxed);
+					std::chrono::steady_clock::now() - Started).count());
 		};
-		if (Context != nullptr && !State->AllocationRequests.empty())
+		if (Context != nullptr && !Compiled->AllocationRequests.empty())
 		{
 			FRDGAllocatedResources Candidate(
-				static_cast<uint32>(State->Resources.size()));
+				static_cast<uint32>(Compiled->Resources.size()));
 			std::string Error;
 			const bool bAllocated = Context->Allocator.Allocate(
-				State->AllocationRequests, Candidate, Error);
-			State->AllocationStatistics = Candidate.Statistics;
+				Compiled->AllocationRequests, Candidate, Error);
+			Compiled->AllocationStatistics = Candidate.Statistics;
 			if (!bAllocated)
 			{
 				if (OutError != nullptr) *OutError = std::move(Error);
 				RecordDuration();
 				return false;
 			}
-			for (const FRDGAllocationRequest& Request : State->AllocationRequests)
+			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
 			{
 				const bool bReady = Request.Kind == ERDGResourceKind::Texture
 					? static_cast<bool>(Candidate.Textures[Request.ResourceId])
@@ -2773,10 +2823,10 @@ namespace Durin
 					return false;
 				}
 			}
-			for (const FRDGAllocationRequest& Request : State->AllocationRequests)
+			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
 			{
-				auto& Resource = State->Resources[Request.ResourceId];
-				auto& Capture = State->ResourceCaptures[Request.ResourceId];
+				auto& Resource = Compiled->Resources[Request.ResourceId];
+				auto& Capture = Compiled->ResourceCaptures[Request.ResourceId];
 				Capture.AllocationDisposition =
 					Candidate.AllocationDispositions[Request.ResourceId];
 				Capture.PhysicalAllocationId =
@@ -2791,51 +2841,54 @@ namespace Durin
 					);
 			}
 		}
-		else if (!State->AllocationRequests.empty())
+		else if (!Compiled->AllocationRequests.empty())
 		{
 			if (OutError != nullptr)
 				*OutError = "retained graph resources require an RDG execution allocator";
 			RecordDuration();
 			return false;
 		}
-		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
+		State->Lifecycle = ERDGBuilderState::Recording;
+		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
+		State->ExecutionResult.Error = "render graph recording did not complete";
+		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
 		{
-			auto& Pass = State->Passes[Index];
-			auto& Runtime = State->RuntimePasses[Index];
+			auto& Pass = Compiled->Passes[Index];
+			auto& Runtime = Compiled->RuntimePasses[Index];
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.BufferTransitions.size(); ++TransitionIndex)
-				Pass.BufferTransitions[TransitionIndex].Buffer = State->Resources[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
+				Pass.BufferTransitions[TransitionIndex].Buffer = Compiled->Resources[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.TextureTransitions.size(); ++TransitionIndex)
-				Pass.TextureTransitions[TransitionIndex].Texture = State->Resources[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
+				Pass.TextureTransitions[TransitionIndex].Texture = Compiled->Resources[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
 			if (!Pass.BufferTransitions.empty())
 				CommandList.TransitionBuffers(Pass.BufferTransitions);
 			if (!Pass.TextureTransitions.empty())
 				CommandList.TransitionTextures(Pass.TextureTransitions);
-			if (Runtime.ParameterizedExecute)
+			if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
 			{
 				const FRDGPassResources Resources(*this, Index);
 				const FRDGParameterResolver Resolver(Resources,
 					Runtime.ParameterLayout, Runtime.OptionalAliases.View(),
 					Runtime.Parameters,
 					Pass.Name, Pass.Type);
-				Runtime.ParameterizedExecute(CommandList, Resolver);
+				(*Runtime.ParameterizedExecute)(CommandList, Resolver);
 			}
-			else if (Runtime.Execute)
+			else if (Runtime.Execute != nullptr && *Runtime.Execute)
 			{
 				const FRDGPassResources Resources(*this, Index);
-				Runtime.Execute(CommandList, Resources);
+				(*Runtime.Execute)(CommandList, Resources);
 			}
 		}
-		for (uint32 Index = 0; Index < State->FinalBufferTransitions.size(); ++Index)
-			State->FinalBufferTransitions[Index].Buffer = State->Resources[State->FinalBufferTransitionResources[Index]].Buffer.GetReference();
-		for (uint32 Index = 0; Index < State->FinalTextureTransitions.size(); ++Index)
-			State->FinalTextureTransitions[Index].Texture = State->Resources[State->FinalTextureTransitionResources[Index]].Texture.GetReference();
-		if (!State->FinalBufferTransitions.empty())
-			CommandList.TransitionBuffers(State->FinalBufferTransitions);
-		if (!State->FinalTextureTransitions.empty())
-			CommandList.TransitionTextures(State->FinalTextureTransitions);
-		for (const auto& Resource : State->Resources)
+		for (uint32 Index = 0; Index < Compiled->FinalBufferTransitions.size(); ++Index)
+			Compiled->FinalBufferTransitions[Index].Buffer = Compiled->Resources[Compiled->FinalBufferTransitionResources[Index]].Buffer.GetReference();
+		for (uint32 Index = 0; Index < Compiled->FinalTextureTransitions.size(); ++Index)
+			Compiled->FinalTextureTransitions[Index].Texture = Compiled->Resources[Compiled->FinalTextureTransitionResources[Index]].Texture.GetReference();
+		if (!Compiled->FinalBufferTransitions.empty())
+			CommandList.TransitionBuffers(Compiled->FinalBufferTransitions);
+		if (!Compiled->FinalTextureTransitions.empty())
+			CommandList.TransitionTextures(Compiled->FinalTextureTransitions);
+		for (const auto& Resource : Compiled->Resources)
 		{
 			if (Resource.TextureDestination != nullptr)
 				*Resource.TextureDestination = Resource.Texture;
@@ -2850,18 +2903,18 @@ namespace Durin
 	auto FRDGPassResources::GetTexture(
 		FRDGTextureHandle Handle) const -> FRHITexture*
 	{
-		requiref(Handle.Owner == Graph.State->Owner
-			&& Handle.Index < Graph.State->Resources.size(),
+		requiref(Handle.Owner == Graph.Compiled->Owner
+			&& Handle.Index < Graph.Compiled->Resources.size(),
 			"Render graph callback used an invalid texture handle.");
-		requiref(PassIndex < Graph.State->RuntimePasses.size()
-			&& std::ranges::find(Graph.State->RuntimePasses[PassIndex].ResourceIndices,
-				Handle.Index) != Graph.State->RuntimePasses[PassIndex].ResourceIndices.end(),
+		requiref(PassIndex < Graph.Compiled->RuntimePasses.size()
+			&& std::ranges::find(Graph.Compiled->RuntimePasses[PassIndex].ResourceIndices,
+				Handle.Index) != Graph.Compiled->RuntimePasses[PassIndex].ResourceIndices.end(),
 			"Render graph pass '{}' accessed undeclared texture resource {} ('{}').",
-			PassIndex < Graph.State->Passes.size()
-				? Graph.State->Passes[PassIndex].Name : "<invalid>", Handle.Index,
-			Handle.Index < Graph.State->Resources.size()
-				? Graph.State->Resources[Handle.Index].Name : "<invalid>");
-		const auto& Resource = Graph.State->Resources[Handle.Index];
+			PassIndex < Graph.Compiled->Passes.size()
+				? Graph.Compiled->Passes[PassIndex].Name : "<invalid>", Handle.Index,
+			Handle.Index < Graph.Compiled->Resources.size()
+				? Graph.Compiled->Resources[Handle.Index].Name : "<invalid>");
+		const auto& Resource = Graph.Compiled->Resources[Handle.Index];
 		requiref(Resource.Kind == ERDGResourceKind::Texture && Resource.Texture, "Render graph callback resolved an unavailable texture.");
 		return Resource.Texture.GetReference();
 	}
@@ -2869,18 +2922,18 @@ namespace Durin
 	auto FRDGPassResources::GetBuffer(
 		FRDGBufferHandle Handle) const -> FRHIBuffer*
 	{
-		requiref(Handle.Owner == Graph.State->Owner
-			&& Handle.Index < Graph.State->Resources.size(),
+		requiref(Handle.Owner == Graph.Compiled->Owner
+			&& Handle.Index < Graph.Compiled->Resources.size(),
 			"Render graph callback used an invalid buffer handle.");
-		requiref(PassIndex < Graph.State->RuntimePasses.size()
-			&& std::ranges::find(Graph.State->RuntimePasses[PassIndex].ResourceIndices,
-				Handle.Index) != Graph.State->RuntimePasses[PassIndex].ResourceIndices.end(),
+		requiref(PassIndex < Graph.Compiled->RuntimePasses.size()
+			&& std::ranges::find(Graph.Compiled->RuntimePasses[PassIndex].ResourceIndices,
+				Handle.Index) != Graph.Compiled->RuntimePasses[PassIndex].ResourceIndices.end(),
 			"Render graph pass '{}' accessed undeclared buffer resource {} ('{}').",
-			PassIndex < Graph.State->Passes.size()
-				? Graph.State->Passes[PassIndex].Name : "<invalid>", Handle.Index,
-			Handle.Index < Graph.State->Resources.size()
-				? Graph.State->Resources[Handle.Index].Name : "<invalid>");
-		const auto& Resource = Graph.State->Resources[Handle.Index];
+			PassIndex < Graph.Compiled->Passes.size()
+				? Graph.Compiled->Passes[PassIndex].Name : "<invalid>", Handle.Index,
+			Handle.Index < Graph.Compiled->Resources.size()
+				? Graph.Compiled->Resources[Handle.Index].Name : "<invalid>");
+		const auto& Resource = Graph.Compiled->Resources[Handle.Index];
 		requiref(Resource.Kind == ERDGResourceKind::Buffer && Resource.Buffer, "Render graph callback resolved an unavailable buffer.");
 		return Resource.Buffer.GetReference();
 	}
@@ -2888,23 +2941,23 @@ namespace Durin
 	auto FRDGPassResources::ResolveValue(uint64 Owner, uint32 Index,
 		const void* TypeIdentity, bool bWrite) const -> void*
 	{
-		requiref(Owner == Graph.State->Owner
-			&& Index < Graph.State->Resources.size(),
+		requiref(Owner == Graph.Compiled->Owner
+			&& Index < Graph.Compiled->Resources.size(),
 			"Render graph callback used an invalid typed value handle.");
-		const auto& Resource = Graph.State->Resources[Index];
+		const auto& Resource = Graph.Compiled->Resources[Index];
 		requiref(Resource.ValueTypeIdentity != nullptr
 			&& Resource.ValueTypeIdentity == TypeIdentity,
 			"Render graph callback used a wrongly typed value handle.");
-		requiref(PassIndex < Graph.State->RuntimePasses.size()
-			&& std::ranges::any_of(Graph.State->RuntimePasses[PassIndex].ValueUses,
+		requiref(PassIndex < Graph.Compiled->RuntimePasses.size()
+			&& std::ranges::any_of(Graph.Compiled->RuntimePasses[PassIndex].ValueUses,
 				[&](const auto& Use) {
 					return Use.first == Index && Use.second == (bWrite
 						? ERDGUse::Write : ERDGUse::Read);
 				}),
 			"Render graph pass '{}' accessed typed value '{}' with an undeclared "
 			"or wrong-direction capability.",
-			PassIndex < Graph.State->Passes.size()
-				? Graph.State->Passes[PassIndex].Name : "<invalid>", Resource.Name);
+			PassIndex < Graph.Compiled->Passes.size()
+				? Graph.Compiled->Passes[PassIndex].Name : "<invalid>", Resource.Name);
 		requiref(Resource.ValueStorageIndex
 			< Graph.State->ValueStorage.Allocations.size(),
 			"Render graph callback resolved unavailable typed value storage.");

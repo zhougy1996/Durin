@@ -323,72 +323,90 @@ namespace Durin::VulkanRHI
 		FTextureRHIRef Texture = RHICreateTexture(TextureDesc);
 		ASSERT_TRUE(Buffer && Texture);
 		bool bExecuted = false;
-		FRDGBuilder RejectedBuilder;
-		RejectedBuilder.EnablePassCulling();
-		const auto RejectedBuffer = RejectedBuilder.CreateBuffer(
-			FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "RejectedBuffer");
-		const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
-			ERDGPassType::Copy,
-			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
-				bExecuted = true;
-			});
-		RejectedBuilder.UseBuffer(RejectedPass, RejectedBuffer, 0, 64,
-			ERDGUse::Write, ERHIAccess::TransferWrite, true);
-		RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
-		auto Rejected = RejectedBuilder.Compile();
-		ASSERT_TRUE(Rejected.IsSuccess()) << Rejected.Error;
-		std::string AllocationError;
 		{
-			FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
-			FRDGExecutionContext RejectedContext{RejectedAllocator};
-			EXPECT_FALSE(Rejected.Graph->Execute(
-				Commands, RejectedContext, &AllocationError));
+			FRDGBuilder RejectedBuilder;
+			RejectedBuilder.EnablePassCulling();
+			const auto RejectedBuffer = RejectedBuilder.CreateBuffer(
+				FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "RejectedBuffer");
+			const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
+				ERDGPassType::Copy,
+				[&](FRHICommandListImmediate&, const FRDGPassResources&) {
+					bExecuted = true;
+				});
+			RejectedBuilder.UseBuffer(RejectedPass, RejectedBuffer, 0, 64,
+				ERDGUse::Write, ERHIAccess::TransferWrite, true);
+			RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
+			std::string AllocationError;
+			{
+				FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
+				FRDGExecutionContext RejectedContext{RejectedAllocator};
+				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedContext);
+				EXPECT_EQ(Rejected.Status, ERDGExecutionStatus::PreparationFailed);
+				AllocationError = Rejected.Error;
+			}
+			EXPECT_FALSE(bExecuted);
+			EXPECT_EQ(AllocationError, "injected allocation failure");
+
+			FRDGBuilder Builder;
+			const auto GraphBuffer = Builder.CreateBuffer(
+				FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "GraphBuffer",
+				ERHIAccess::VertexBufferRead);
+			const auto GraphTexture = Builder.CreateTexture(
+				FRDGTextureDesc{.Texture = TextureDesc}, "GraphTexture",
+				ERHIAccess::GraphicsShaderRead);
+			const auto Copy = Builder.AddPass("Copy", ERDGPassType::Copy);
+			Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::TransferWrite, true);
+			Builder.UseTexture(Copy, GraphTexture,
+				{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Write,
+				ERHIAccess::TransferWrite, true);
+			const auto Consume = Builder.AddPass(
+				"Consume", ERDGPassType::Graphics);
+			Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERDGUse::Read,
+				ERHIAccess::VertexBufferRead);
+			Builder.UseTexture(Consume, GraphTexture,
+				{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+			{
+				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
+				FRDGExecutionContext Context{Allocator};
+				const auto Result = Builder.Execute(Commands, &Context);
+				ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+				EXPECT_EQ(Builder.Execute(Commands, &Context).Status, ERDGExecutionStatus::InvalidState);
+			}
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::SubmitToGPU);
+
+			auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
+			auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
+			EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),
+				(std::vector<FVulkanBufferStateTracker::FInterval>{
+					{0, 64, ERHIAccess::VertexBufferRead}}));
+			EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
+				ERHITextureAspect::Color, 1, 0), ERHIAccess::GraphicsShaderRead);
+			EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
+				ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
+
+			FRDGBuilder Next;
+			const auto External = Next.RegisterExternalBuffer(Buffer, "ExternalHandoff",
+				ERHIAccess::VertexBufferRead, ERHIAccess::TransferWrite);
+			const auto Rewrite = Next.AddPass("Rewrite", ERDGPassType::Copy);
+			Next.UseBuffer(Rewrite, External, 0, 64, ERDGUse::Write,
+				ERHIAccess::TransferWrite, true);
+			const auto Handoff = Next.Execute(Commands);
+			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Error;
+			ASSERT_EQ(Next.GetPasses()[0].BufferTransitions.size(), 1u);
+			EXPECT_EQ(Next.GetPasses()[0].BufferTransitions[0].ExpectedBefore,
+				ERHIAccess::VertexBufferRead);
+			const auto CommandCount = Commands.GetNumRecordedCommands();
+			EXPECT_EQ(Next.Execute(Commands).Status, ERDGExecutionStatus::InvalidState);
+			EXPECT_EQ(Commands.GetNumRecordedCommands(), CommandCount);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::SubmitToGPU);
+			EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),
+				(std::vector<FVulkanBufferStateTracker::FInterval>{
+					{0, 64, ERHIAccess::TransferWrite}}));
 		}
-		EXPECT_FALSE(bExecuted);
-		EXPECT_EQ(AllocationError, "injected allocation failure");
-
-		FRDGBuilder Builder;
-		const auto GraphBuffer = Builder.CreateBuffer(
-			FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "GraphBuffer",
-			ERHIAccess::VertexBufferRead);
-		const auto GraphTexture = Builder.CreateTexture(
-			FRDGTextureDesc{.Texture = TextureDesc}, "GraphTexture",
-			ERHIAccess::GraphicsShaderRead);
-		const auto Copy = Builder.AddPass("Copy", ERDGPassType::Copy);
-		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERDGUse::Write,
-			ERHIAccess::TransferWrite, true);
-		Builder.UseTexture(Copy, GraphTexture,
-			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Write,
-			ERHIAccess::TransferWrite, true);
-		const auto Consume = Builder.AddPass(
-			"Consume", ERDGPassType::Graphics);
-		Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERDGUse::Read,
-			ERHIAccess::VertexBufferRead);
-		Builder.UseTexture(Consume, GraphTexture,
-			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
-			ERHIAccess::GraphicsShaderRead);
-		auto Compiled = Builder.Compile();
-		ASSERT_TRUE(Compiled.IsSuccess()) << Compiled.Error;
-		{
-			FTransitionTestRDGAllocator Allocator(Buffer, Texture);
-			FRDGExecutionContext Context{Allocator};
-			std::string Error;
-			ASSERT_TRUE(Compiled.Graph->Execute(Commands, Context, &Error)) << Error;
-		}
-		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
-			ERHISubmitFlags::SubmitToGPU);
-
-		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
-		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
-		EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),
-			(std::vector<FVulkanBufferStateTracker::FInterval>{
-				{0, 64, ERHIAccess::VertexBufferRead}}));
-		EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
-			ERHITextureAspect::Color, 1, 0), ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
-			ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
-
-		Compiled.Graph.reset();
 		Buffer = nullptr;
 		Texture = nullptr;
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);

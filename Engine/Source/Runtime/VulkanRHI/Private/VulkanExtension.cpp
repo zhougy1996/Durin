@@ -54,15 +54,13 @@ namespace Durin::VulkanRHI
 		-> FVulkanInstanceExtensionRequest
 	{
 		FVulkanInstanceExtensionRequest Result;
+		// The renderer prebuilds presentation-compatible pipelines even for a
+		// headless device. VK_KHR_swapchain therefore requires this base instance
+		// extension; native surface extensions still come only from the provider.
+		AddUnique(Result.RequiredExtensions, VK_KHR_SURFACE_EXTENSION_NAME);
 		for (const std::string& Extension : Input.SurfaceProviderRequiredExtensions)
 		{
 			if (!Extension.empty()) AddUnique(Result.RequiredExtensions, Extension);
-		}
-		if (Result.RequiredExtensions.empty())
-		{
-			Result.Diagnostic =
-				"Vulkan surface provider reported no required instance extensions.";
-			return Result;
 		}
 		Result.bEnablePortabilityEnumeration = Input.bRequirePortabilityEnumeration;
 		if (Input.bRequirePortabilityEnumeration)
@@ -126,7 +124,10 @@ namespace Durin::VulkanRHI
 			Input.AvailableExtensions, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
 		const bool bHasSurfaceMaintenance = ContainsName(
 			Input.AvailableExtensions, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
-		const bool bEnableSurfaceMaintenance = bHasSurfaceCapabilities2 && bHasSurfaceMaintenance;
+		const bool bHasEnabledSurface = ContainsName(
+			Input.PlatformRequiredExtensions, VK_KHR_SURFACE_EXTENSION_NAME);
+		const bool bEnableSurfaceMaintenance = bHasEnabledSurface
+			&& bHasSurfaceCapabilities2 && bHasSurfaceMaintenance;
 		AddRequirement(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			EVulkanRequirementClass::OptionalFeature, true, bEnableSurfaceMaintenance);
 		AddRequirement(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,

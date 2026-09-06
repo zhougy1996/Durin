@@ -186,11 +186,11 @@ namespace Durin
 				Source.Pixels = MakeSolidMip(Size, Colors[MipIndex]);
 
 				FTexturePlatformData Built;
-				std::string Error;
-				if (!TextureBuilder::BuildMipChain(
-					Source, Usage, bSrgb, Built, Error))
+				const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
+					Source, Usage, bSrgb, Built);
+				if (!BuildResult)
 				{
-					ADD_FAILURE() << Error;
+					ADD_FAILURE() << BuildResult.Diagnostic;
 					return {};
 				}
 				if (MipIndex == 0)

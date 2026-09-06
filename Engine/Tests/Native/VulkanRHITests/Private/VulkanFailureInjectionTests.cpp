@@ -264,7 +264,10 @@ namespace Durin::VulkanRHI
 		BuildsDeterministicSurfaceAndPortabilityRequirements)
 	{
 		FVulkanInstanceExtensionRequestInput Input;
-		EXPECT_FALSE(BuildVulkanInstanceExtensionRequest(Input).IsSuccess());
+		const auto Headless = BuildVulkanInstanceExtensionRequest(Input);
+		ASSERT_TRUE(Headless.IsSuccess());
+		EXPECT_EQ(Headless.RequiredExtensions,
+			(std::vector<std::string>{VK_KHR_SURFACE_EXTENSION_NAME}));
 
 		Input.SurfaceProviderRequiredExtensions = {
 			VK_KHR_SURFACE_EXTENSION_NAME,
@@ -316,6 +319,18 @@ namespace Durin::VulkanRHI
 			std::string(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)), 1);
 		EXPECT_EQ(std::ranges::count(Result.EnabledExtensions,
 			std::string(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME)), 1);
+	}
+
+	TEST(FVulkanInstanceNegotiationTests, SurfaceMaintenanceRequiresEnabledSurface)
+	{
+		FVulkanInstanceNegotiationInput Input = MakeInstanceNegotiationInput();
+		Input.PlatformRequiredExtensions.clear();
+		Input.AvailableExtensions.insert(Input.AvailableExtensions.end(), {
+			VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+			VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME});
+		const auto Result = NegotiateVulkanInstance(Input);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		EXPECT_TRUE(Result.EnabledExtensions.empty());
 	}
 
 	TEST(FVulkanInstanceNegotiationTests, OptionalDiagnosticsActivateIndependently)

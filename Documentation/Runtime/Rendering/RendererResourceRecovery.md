@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-07
 
 ## Complete-Or-Null Construction
 
@@ -79,7 +79,7 @@ construction eligible without moving shaders, PSOs, samplers, or committed
 view history into transient ownership.
 
 The graph frame executor derives one immutable requirements value after logical
-preparation and persistent-resource resolution, then the compiled graph sends
+preparation and persistent-resource resolution, then the single-use graph builder sends
 one retained descriptor batch to `FRDGAllocator` before the first consuming
 pass. The pool key contains the complete allocation-compatible descriptor and
 excludes diagnostic names, observation tags, and feature identity. Texture and
@@ -88,7 +88,9 @@ rollback, publication, and error reporting; only typed RHI creation differs.
 A failed batch reconciles newly created candidates, retains only the failed
 generation marker needed to suppress an identical retry, and publishes no
 graph allocation or extraction destination. Device or manual generation change
-permits a new attempt. Pass execution receives counted resources and never
+permits a new attempt in a newly authored builder. Compile or preparation
+failure consumes the current builder; retrying the same builder returns
+InvalidState without consulting the allocator. Pass execution receives counted resources and never
 performs target lookup, creation, or recovery policy itself.
 
 Qualification policy does not participate in generation state or mutate a

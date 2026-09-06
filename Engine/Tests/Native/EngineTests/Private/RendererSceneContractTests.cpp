@@ -1341,9 +1341,10 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 			std::move(Parameters)
 		);
 		Builder.MarkPassRoot(Final, "offscreen-output");
-		auto Result = Builder.Compile();
+		Durin::FRHICommandListExecutor Executor;
+		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		Durin::PublishSceneRenderGraphCapture(*Result.Graph, &ExplicitCapture);
+		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	GObservedRenderGraphCaptures = nullptr;

@@ -191,6 +191,6 @@ namespace Durin
 	auto GetGroundTruthAmbientOcclusionCaptureSink()
 		-> FGroundTruthAmbientOcclusionCaptureSink;
 	RENDERER_API auto PublishSceneRenderGraphCapture(
-		const FRDGCompiledGraph& Graph,
+		const FRDGBuilder& Graph,
 		FRDGCapture* OutCapture = nullptr) -> void;
 }

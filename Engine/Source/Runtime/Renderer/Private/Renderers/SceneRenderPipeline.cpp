@@ -330,18 +330,19 @@ namespace Durin
 		FSceneFrameContext::FObservation& Observation
 	) -> ESceneRenderGraphExecutionStatus
 	{
-		auto CompiledGraph = Graph.Compile();
-		if (!CompiledGraph.IsSuccess())
+		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
+		const auto Result = Graph.Execute(CommandList, &ExecutionContext);
+		if (Result.Status == ERDGExecutionStatus::CompileFailed)
 		{
 			DURIN_WARN("Scene render graph compilation failed: {}",
-				CompiledGraph.Error);
+				Result.Error);
 			return ESceneRenderGraphExecutionStatus::CompileFailed;
 		}
-		const FRDGStatistics Statistics = CompiledGraph.Graph->GetStatistics();
+		const FRDGStatistics Statistics = Graph.GetStatistics();
 		if (Statistics.IsStructuralRegressionBudgetExceeded()
 			&& !Observation.bReportedRegressionOverage)
 		{
-			const FRDGBudget& Budget = CompiledGraph.Graph->GetBudget();
+			const FRDGBudget& Budget = Graph.GetBudget();
 			DURIN_WARN(
 				"Scene render graph regression budget exceeded: passes={}/{} "
 				"dependencies={}/{} buffer-transitions={}/{} "
@@ -354,18 +355,15 @@ namespace Durin
 				Budget.RegressionMaxTextureTransitions);
 			Observation.bReportedRegressionOverage = true;
 		}
-		std::string ExecutionError;
-		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
-		const bool Executed = CompiledGraph.Graph->Execute(
-			CommandList, ExecutionContext, &ExecutionError);
+		const bool Executed = Result.IsSuccess();
 		if (!Executed
 			&& !std::exchange(Observation.bReportedExecutionFailure, true))
 		{
 			DURIN_WARN("Scene render graph execution failed: {}",
-				ExecutionError.empty() ? "unspecified error" : ExecutionError);
+				Result.Error.empty() ? "unspecified error" : Result.Error);
 		}
 		PublishSceneRenderGraphCapture(
-			*CompiledGraph.Graph, OutRenderGraphCapture);
+			Graph, OutRenderGraphCapture);
 		return Executed ? ESceneRenderGraphExecutionStatus::Executed
 			: ESceneRenderGraphExecutionStatus::ExecutionFailed;
 	}

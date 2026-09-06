@@ -540,15 +540,16 @@ namespace Durin
 		}
 		SetViewRenderTelemetrySink(nullptr);
 
+		const FVector3 SimpleElementForward{1.0, 1.0, -0.5};
 		const Durin::FByteBuffer SimpleElementPixels = RenderGridCapture(
-			Renderer, nullptr, CameraDirections.front(), false, true);
+			Renderer, nullptr, SimpleElementForward, false, true);
 		ASSERT_EQ(SimpleElementPixels.size(), 129u * 129u * 4u);
 		EXPECT_GT(CountVisiblePixels(SimpleElementPixels), 100u);
 		ASSERT_TRUE(Renderer.RequestResourceInvalidation(
 			ERendererResourceInvalidationCause::Device).bSuccess);
 		FlushRenderingCommands();
 		const Durin::FByteBuffer RecoveredSimpleElementPixels =
-			RenderGridCapture(Renderer, nullptr, CameraDirections.front(),
+			RenderGridCapture(Renderer, nullptr, SimpleElementForward,
 				false, true);
 		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);
 
@@ -609,13 +610,10 @@ namespace Durin
 						Builder.QueueBufferExtraction(Buffer, &ExportedBuffer,
 							ERHIAccess::ComputeShaderReadWrite);
 					}
-					auto Result = Builder.Compile();
-					ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 					FRDGExecutionContext Context{Allocator};
-					std::string Error;
-					ASSERT_TRUE(Result.Graph->Execute(CommandList, Context, &Error))
-						<< Error;
-					(*Captures)[Index] = Result.Graph->Capture();
+					const auto Result = Builder.Execute(CommandList, &Context);
+					ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+					(*Captures)[Index] = Builder.Capture();
 				}
 				Allocator.Release_RenderThread();
 			});

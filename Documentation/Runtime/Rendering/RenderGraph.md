@@ -8,17 +8,53 @@ Last reviewed: 2026-09-07
 
 ## Ownership Boundary
 
-`FRDGBuilder` owns declarations for one graph. Texture, buffer, and
-pass handles are valid only for the builder that created them. A successful
-compile transfers immutable resource views, pass callbacks, dependencies, and
-transition batches into `FRDGCompiledGraph`; external owners retain the
-physical RHI resources themselves. Graph-created textures and buffers use the
-description-first `CreateTexture`/`CreateBuffer` API with
-`FRDGTextureDesc`/`FRDGBufferDesc` and no
-physical pointer. Compilation computes retained lifetimes first;
-`FRDGCompiledGraph::Execute` passes one name-free batch of exact descriptors
-to the `FRDGAllocator` in `FRDGExecutionContext`. The complete returned table
-is held through counted RHI references for the compiled execution lifetime.
+`FRDGBuilder` owns declarations, parameters, typed values, callbacks, compiled
+records, and retained resource references for one graph execution. Handles are
+valid only for their originating builder. There is no public compile operation
+or independently owned executable graph. Graph-created textures and buffers
+use description-first `CreateTexture`/`CreateBuffer` declarations.
+
+Non-const `Execute(CommandList, ExecutionContext)` compiles, prepares retained
+resources, records passes, and publishes extraction outputs. The optional
+context pointer supplies `FRDGAllocator`; omitting it is valid only when no
+retained logical RHI resource requires allocation. The allocator receives one
+name-free batch of exact retained descriptors. The builder holds the complete
+returned reference table through its own lifetime; allocator borrowing and RHI
+retirement rules still apply.
+
+The thread-confined lifecycle is Building -> Compiling -> Preparing -> Recording
+-> Recorded, with terminal Failed on supported failures or C++ unwinding. Every
+execution attempt consumes Building, including compile and preparation failure.
+`FRDGExecutionResult` distinguishes CompileFailed, PreparationFailed, Recorded,
+and InvalidState. Recorded means CPU recording succeeded, not GPU completion.
+A second or reentrant Execute returns InvalidState before allocations, commands,
+callbacks, or extraction, without changing the original execution report or
+compiler evidence. Supported exceptions propagate with terminal Failed state;
+interrupted recording retains an InvalidState report and incomplete-recording
+error. Fatal authoring assertions are not recovered.
+
+Reentry from parameter/value constructors consumes the builder with CompileFailed
+while storage construction is incomplete; storage cleanup still occurs exactly
+once at builder destruction.
+
+All declaration and mutation methods require Building through release-enabled
+`requiref`, including parameter submission and allocation, resource/value/token
+creation, extraction, uses, dependencies, roots, culling, and budget edits.
+Callbacks and allocators cannot reopen authoring. The state gate does not make
+concurrent calls thread-safe. A retry requires a fresh builder and fresh graph
+declarations. External initial access must match the actual ordered entrance
+state; a fresh builder cannot discover unrelated external uses or infer the
+previous graph's final access.
+
+Capture, Dump, statistics, budgets, and compiler records remain inspectable on
+the builder. Before compilation or after compile failure, Capture has
+`bCompiled = false`, empty compiler records, and the declared budget; Dump
+reports no compiled plan. Partial compiler output is never published.
+Successful compilation retains `bCompiled = true` evidence after preparation
+failure. An owning `FRDGCapture` survives builder destruction. Native compiler
+tests use a test-only friend accessor defined in the native fixture that returns only diagnostic
+success/error evidence and seals the builder; production has no compile-only
+entry point.
 
 The graph is the declaration and scheduling authority. It emits existing
 `FRHIBufferTransition` and `FRHITextureTransition` descriptors, while RHI and
@@ -102,15 +138,14 @@ use carries the compatibility `Discard` wildcard so the backend can recover
 the physical allocation's prior accesses on pool reuse. Final transition batches restore each used imported
 or explicitly finalized range after the last pass.
 
-`FRDGCompiledGraph::Execute` records each pre-pass batch, invokes the pass
+`FRDGBuilder::Execute` records each pre-pass batch, invokes the pass
 callback with a pass-scoped resource view, and then records final batches.
 Lookup of a foreign, undeclared, incorrectly typed, or unavailable handle is
 an unrecoverable authoring-contract failure. Graphics, compute, and copy passes
 accept only their corresponding graphics/attachment, compute, and transfer
 access families.
 
-An optional execution-preparation callback runs after successful compile.
-The execution allocator then receives immutable `FRDGAllocationRequest`
+After successful private compilation, the execution allocator receives immutable `FRDGAllocationRequest`
 records containing only resource ID, kind, exact description, and retained
 lifetime, observation tag, and explicit `bExtracted` ownership intent.
 Allocators detach extracted allocations from reusable storage before returning
@@ -156,10 +191,10 @@ wrong C++ types, reads before the producer, and invalid directions fail
 deterministically before recording. Values lower to token-shaped compiler uses
 and therefore do not create a second dependency scheduler.
 
-Successful compilation transfers value payloads and destructor records to the
-compiled graph. Builder destruction and every compile/execute exit path destroy
-each constructed payload exactly once. Culling does not shorten storage
-lifetime, and no payload may outlive its builder or compiled graph.
+Value payloads and destructor records remain owned by the builder throughout
+compilation and recording. Builder destruction destroys each constructed payload
+exactly once. Compile failure, preparation failure, recording success or
+unwinding, and culling do not shorten storage lifetime.
 `FRDGPassResources::ReadValue`/`WriteValue` and the corresponding
 parameter-resolver methods enforce the executing pass's exact declared
 direction. Parameter resolution additionally requires the exact submitted
@@ -197,10 +232,9 @@ pass callback nor a partial use set. A parameterized pass cannot accept manual
 uses or a second parameter object. The legacy `AddPass` and `Use*` surface
 remains a compatibility path only for passes not yet migrated.
 
-Successful compilation transfers parameter storage and destructor records to
-the compiled graph. Objects are destroyed in reverse allocation order when the
-owning builder or compiled graph dies, not when a pass is culled or execution
-returns early. Compile, retained-backing, callback, and normal execution paths
+Parameter storage and destructor records remain owned by the builder. Objects
+are destroyed in reverse allocation order when the builder dies, not when a
+pass is culled or execution returns early. Compile, retained-backing, callback, and normal execution paths
 therefore observe one stable immutable parameter object for its complete graph
 lifetime.
 
@@ -339,7 +373,7 @@ New renderer work that crosses pass boundaries must use the graph path:
 - Keep manual transitions out of migrated edges. A feature-owned render pass
   may describe attachment layout, but its graph declarations own the outer
   access handoff.
-- Extend `RenderGraphTests` for compiler semantics and the owning capture, then
+- Extend `RenderContractTests` for compiler semantics and the owning capture, then
   add a renderer integration test for production wiring and a Vulkan gate for
   transition/backend equivalence.
 

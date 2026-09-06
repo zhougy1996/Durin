@@ -160,7 +160,7 @@ namespace Durin
 	}
 
 	auto PublishSceneRenderGraphCapture(
-		const FRDGCompiledGraph& Graph, FRDGCapture* OutCapture) -> void
+		const FRDGBuilder& Graph, FRDGCapture* OutCapture) -> void
 	{
 		const auto Sink =
 			GSceneRenderGraphCaptureSink.load(std::memory_order_acquire);

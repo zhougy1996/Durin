@@ -7,7 +7,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRDGBuilder;
-	class FRDGCompiledGraph;
+	class FRDGBuilderTestAccessor;
 	class FRDGParameterResolver;
 	class FRDGShaderParameterScope;
 
@@ -91,7 +91,6 @@ namespace Durin
 
 	private:
 		friend class FRDGBuilder;
-		friend class FRDGCompiledGraph;
 		friend class FRDGPassResources;
 		FRDGTextureHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
@@ -109,7 +108,6 @@ namespace Durin
 
 	private:
 		friend class FRDGBuilder;
-		friend class FRDGCompiledGraph;
 		friend class FRDGPassResources;
 		FRDGBufferHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
@@ -598,11 +596,13 @@ namespace Durin
 	};
 
 	// Exposes only resources declared by the executing graph to pass callbacks.
-	class RENDERCORE_API FRDGPassResources final
+	class FRDGPassResources final
 	{
 	public:
-		auto GetTexture(FRDGTextureHandle Handle) const -> FRHITexture*;
-		auto GetBuffer(FRDGBufferHandle Handle) const -> FRHIBuffer*;
+		FRDGPassResources(const FRDGPassResources&) = delete;
+		auto operator=(const FRDGPassResources&) -> FRDGPassResources& = delete;
+		RENDERCORE_API auto GetTexture(FRDGTextureHandle Handle) const -> FRHITexture*;
+		RENDERCORE_API auto GetBuffer(FRDGBufferHandle Handle) const -> FRHIBuffer*;
 		template<typename T>
 		auto ReadValue(TRDGValueHandle<T> Handle) const -> const T&
 		{
@@ -617,16 +617,16 @@ namespace Durin
 		}
 
 	private:
-		friend class FRDGCompiledGraph;
-		explicit FRDGPassResources(const FRDGCompiledGraph& InGraph,
+		friend class FRDGBuilder;
+		explicit FRDGPassResources(const FRDGBuilder& InGraph,
 			uint32 InPassIndex)
 			: Graph(InGraph), PassIndex(InPassIndex)
 		{
 		}
-		auto ResolveValue(uint64 Owner, uint32 Index, const void* TypeIdentity,
+		RENDERCORE_API auto ResolveValue(uint64 Owner, uint32 Index, const void* TypeIdentity,
 			bool bWrite) const -> void*;
 
-		const FRDGCompiledGraph& Graph;
+		const FRDGBuilder& Graph;
 		uint32 PassIndex = 0;
 	};
 
@@ -722,7 +722,7 @@ namespace Durin
 		}
 
 	private:
-		friend class FRDGCompiledGraph;
+		friend class FRDGBuilder;
 		friend class FRDGShaderParameterScope;
 		explicit FRDGParameterResolver(
 			const FRDGPassResources& InResources,
@@ -845,7 +845,7 @@ namespace Durin
 		}
 
 	private:
-		friend class FRDGCompiledGraph;
+		friend class FRDGBuilder;
 		explicit FRDGAllocatedResources(uint32 Count);
 		std::vector<FTextureRHIRef> Textures;
 		std::vector<FBufferRHIRef> Buffers;
@@ -1037,6 +1037,8 @@ namespace Durin
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
 	struct FRDGCapture final
 	{
+		// False before execution or after compilation failure; compiled arrays are empty.
+		bool bCompiled = false;
 		FRDGBudget Budget;
 		FRDGStatistics Statistics;
 		FRDGAllocationStatistics AllocationStatistics;
@@ -1062,66 +1064,33 @@ namespace Durin
 		std::vector<FRHITextureTransition> TextureTransitions;
 	};
 
-	// Immutable executable result produced only after complete graph validation.
-	class RENDERCORE_API FRDGCompiledGraph final
+	// CPU recording outcome; Recorded does not imply GPU completion.
+	enum class ERDGExecutionStatus : uint8
 	{
-	public:
-		FRDGCompiledGraph(FRDGCompiledGraph&&) noexcept;
-		auto operator=(FRDGCompiledGraph&&) noexcept
-			-> FRDGCompiledGraph&;
-		~FRDGCompiledGraph();
-
-		FRDGCompiledGraph(const FRDGCompiledGraph&) = delete;
-		auto operator=(const FRDGCompiledGraph&)
-			-> FRDGCompiledGraph& = delete;
-
-		auto GetPasses() const -> std::span<const FRDGCompiledPass>;
-		auto GetDependencies() const -> std::span<const FRDGDependency>;
-		auto GetResourceLifetimes() const
-			-> std::span<const FRDGResourceLifetime>;
-		auto GetCullingDecisions() const
-			-> std::span<const FRDGCullingDecision>;
-		auto GetFinalBufferTransitions() const
-			-> std::span<const FRHIBufferTransition>;
-		auto GetFinalTextureTransitions() const
-			-> std::span<const FRHITextureTransition>;
-		auto GetCompileMicroseconds() const -> uint64;
-		auto GetBudget() const -> const FRDGBudget&;
-		auto GetStatistics() const -> FRDGStatistics;
-		auto Capture() const -> FRDGCapture;
-		auto Dump() const -> std::string;
-		// Runs complete resource preparation before recording any pass command.
-		auto Execute(FRHICommandListImmediate& CommandList,
-			std::string* OutError = nullptr) const -> bool;
-		auto Execute(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext& Context,
-			std::string* OutError = nullptr) const -> bool;
-
-	private:
-		friend class FRDGBuilder;
-		friend class FRDGPassResources;
-		struct FState;
-		explicit FRDGCompiledGraph(std::unique_ptr<FState> InState);
-		auto ExecuteInternal(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context, std::string* OutError) const -> bool;
-		std::unique_ptr<FState> State;
+		CompileFailed, PreparationFailed, Recorded, InvalidState
 	};
 
-	// Publishes either one complete graph or one deterministic compile failure.
-	struct FRDGCompileResult final
+	// Thread-confined, single-use graph lifecycle; failure is terminal.
+	enum class ERDGBuilderState : uint8
 	{
-		std::unique_ptr<FRDGCompiledGraph> Graph;
+		Building, Compiling, Preparing, Recording, Recorded, Failed
+	};
+
+	// Owns the recoverable result of one execution attempt.
+	struct FRDGExecutionResult final
+	{
+		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
 		std::string Error;
-
-		auto IsSuccess() const -> bool { return Graph != nullptr; }
+		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 
-	// Collects frame-local resources and passes before deterministic compilation.
-	class RENDERCORE_API FRDGBuilder final
+	// Owns declarations, storage and private compilation records for one graph execution.
+	// Thread-confined; all declaration methods require Building in every configuration.
+	class FRDGBuilder final
 	{
 	public:
-		FRDGBuilder();
-		~FRDGBuilder();
+		RENDERCORE_API FRDGBuilder();
+		RENDERCORE_API ~FRDGBuilder();
 
 		FRDGBuilder(const FRDGBuilder&) = delete;
 		auto operator=(const FRDGBuilder&)
@@ -1130,33 +1099,34 @@ namespace Durin
 		auto operator=(FRDGBuilder&&)
 			-> FRDGBuilder& = delete;
 
-		auto RegisterExternalTexture(const FTextureRHIRef& Texture,
+		RENDERCORE_API auto RegisterExternalTexture(const FTextureRHIRef& Texture,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGTextureHandle;
-		auto CreateTexture(const FRDGTextureDesc& Desc,
+		RENDERCORE_API auto CreateTexture(const FRDGTextureDesc& Desc,
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGTextureHandle;
-		auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
+		RENDERCORE_API auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGBufferHandle;
-		auto CreateBuffer(const FRDGBufferDesc& Desc,
+		RENDERCORE_API auto CreateBuffer(const FRDGBufferDesc& Desc,
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGBufferHandle;
-		auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
+		RENDERCORE_API auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
 		// Exports the complete resource through a terminal consumer. Every subresource
 		// must have valid stored contents; Destination is published only after success.
-		auto QueueTextureExtraction(FRDGTextureHandle Texture,
+		RENDERCORE_API auto QueueTextureExtraction(FRDGTextureHandle Texture,
 			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		// Requires valid contents across the entire buffer and publishes only after success.
-		auto QueueBufferExtraction(FRDGBufferHandle Buffer,
+		RENDERCORE_API auto QueueBufferExtraction(FRDGBufferHandle Buffer,
 			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>
 		requires std::constructible_from<T, Args...> && std::destructible<T>
 		auto CreateValue(std::string_view Name, std::string_view StableTypeName,
 			Args&&... ConstructorArgs) -> TRDGValueHandle<T>
 		{
+			RequireBuilding();
 			static_assert(std::is_object_v<T> && !std::is_const_v<T>
 				&& !std::is_volatile_v<T>,
 				"Render graph values require an unqualified object type");
@@ -1165,13 +1135,14 @@ namespace Durin
 				&RDGPrivate::GValueTypeIdentity<T>, sizeof(T), alignof(T),
 				[](void* Value) { std::destroy_at(static_cast<T*>(Value)); }, Index);
 			if (Storage == nullptr) return {};
+			FStorageConstructionScope Construction(*this);
 			std::construct_at(static_cast<T*>(Storage),
 				std::forward<Args>(ConstructorArgs)...);
 			MarkValueStorageConstructed(Index);
 			return {StateOwner(), Index};
 		}
 
-		auto AddPass(std::string_view Name, ERDGPassType Type,
+		RENDERCORE_API auto AddPass(std::string_view Name, ERDGPassType Type,
 			FRDGPassExecute Execute = {}) -> FRDGPassHandle;
 		template<typename ParameterStruct>
 		requires CRDGParameters<ParameterStruct>
@@ -1179,6 +1150,7 @@ namespace Durin
 			TRDGParametersRef<ParameterStruct>&& Parameters,
 			FRDGPassExecute Execute = {}) -> FRDGPassHandle
 		{
+			RequireBuilding();
 			auto Lifetime = Parameters.Lifetime.lock();
 			void* Data = std::exchange(Parameters.Data, nullptr);
 			const FRDGParameterLayout* Layout =
@@ -1198,6 +1170,7 @@ namespace Durin
 			TRDGParametersRef<ParameterStruct>&& Parameters,
 			Execute&& ExecuteCallback) -> FRDGPassHandle
 		{
+			RequireBuilding();
 			ParameterStruct* TypedData = Parameters.Data;
 			FRDGParameterizedPassExecute ErasedExecute =
 				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
@@ -1206,6 +1179,7 @@ namespace Durin
 					std::invoke(Callback, CommandList,
 						static_cast<const ParameterStruct&>(*TypedData), Resolver);
 				};
+			RequireBuilding();
 			auto Lifetime = Parameters.Lifetime.lock();
 			void* Data = std::exchange(Parameters.Data, nullptr);
 			const FRDGParameterLayout* Layout =
@@ -1217,17 +1191,18 @@ namespace Durin
 				Layout, Data,
 				std::move(Lifetime), {}, std::move(ErasedExecute));
 		}
-		auto AddDependency(FRDGPassHandle Pass,
+		RENDERCORE_API auto AddDependency(FRDGPassHandle Pass,
 			FRDGPassHandle Prerequisite) -> void;
-		auto MarkPassRoot(FRDGPassHandle Pass,
+		RENDERCORE_API auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
-		auto EnablePassCulling() -> void;
-		auto SetBudget(const FRDGBudget& Budget) -> void;
+		RENDERCORE_API auto EnablePassCulling() -> void;
+		RENDERCORE_API auto SetBudget(const FRDGBudget& Budget) -> void;
 
 		template<typename ParameterStruct>
 		requires CRDGParameters<ParameterStruct>
 		auto AllocParameters() -> TRDGParametersRef<ParameterStruct>
 		{
+			RequireBuilding();
 			static_assert(std::is_standard_layout_v<ParameterStruct>,
 				"Render graph parameter structs must use standard layout");
 			static_assert(std::default_initializable<ParameterStruct>,
@@ -1244,50 +1219,51 @@ namespace Durin
 				[](void* Value) { std::destroy_at(
 					static_cast<ParameterStruct*>(Value)); }, Lifetime);
 			if (Storage == nullptr) return {};
+			FStorageConstructionScope Construction(*this);
 			auto* Parameters = std::construct_at(
 				static_cast<ParameterStruct*>(Storage));
 			MarkParameterStorageConstructed(Storage);
 			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get()};
 		}
 
-		auto UseTexture(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseTexture(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range, ERDGUse Use,
 			ERHIAccess Access, bool bDiscard = false) -> void;
-		auto UseBuffer(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseBuffer(FRDGPassHandle Pass,
 			FRDGBufferHandle Buffer, uint64 Offset, uint64 Size,
 			ERDGUse Use, ERHIAccess Access,
 			bool bDiscard = false) -> void;
-		auto UseColorAttachment(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseColorAttachment(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction) -> void;
-		auto UseDepthStencilAttachment(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseDepthStencilAttachment(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction) -> void;
 		// Declares an attachment whose render-pass body performs its own RHI
 		// entry/final layout transitions and publishes ResultAccess on exit.
-		auto UseManagedColorAttachment(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseManagedColorAttachment(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction,
 			ERHIAccess ResultAccess) -> void;
-		auto UseManagedDepthStencilAttachment(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseManagedDepthStencilAttachment(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction,
 			ERHIAccess ResultAccess) -> void;
-		auto UseManagedTexture(FRDGPassHandle Pass,
+		RENDERCORE_API auto UseManagedTexture(FRDGPassHandle Pass,
 			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range, ERDGUse Use,
 			ERHIAccess EntryAccess, ERHIAccess ResultAccess,
 			bool bDiscard = false) -> void;
-		auto UseToken(FRDGPassHandle Pass, FRDGTokenHandle Token,
+		RENDERCORE_API auto UseToken(FRDGPassHandle Pass, FRDGTokenHandle Token,
 			ERDGUse Use) -> void;
 		template<typename T>
 		auto UseValue(FRDGPassHandle Pass,
@@ -1297,29 +1273,72 @@ namespace Durin
 				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
 		}
 
-		auto Compile() const -> FRDGCompileResult;
+		// Consumes this builder even on failure. Retrying requires a newly authored graph.
+		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
+			FRDGExecutionContext* Context = nullptr) -> FRDGExecutionResult;
+		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
+		// Duplicate execution leaves this original report unchanged.
+		RENDERCORE_API auto GetExecutionResult() const -> const FRDGExecutionResult&;
+		RENDERCORE_API auto HasCompiledPlan() const -> bool;
+		RENDERCORE_API auto GetPasses() const -> std::span<const FRDGCompiledPass>;
+		RENDERCORE_API auto GetDependencies() const -> std::span<const FRDGDependency>;
+		RENDERCORE_API auto GetResourceLifetimes() const
+			-> std::span<const FRDGResourceLifetime>;
+		RENDERCORE_API auto GetCullingDecisions() const
+			-> std::span<const FRDGCullingDecision>;
+		RENDERCORE_API auto GetFinalBufferTransitions() const
+			-> std::span<const FRHIBufferTransition>;
+		RENDERCORE_API auto GetFinalTextureTransitions() const
+			-> std::span<const FRHITextureTransition>;
+		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
+		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
+		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
+		// Owning pointer-free evidence survives builder destruction and preparation failure.
+		RENDERCORE_API auto Capture() const -> FRDGCapture;
+		RENDERCORE_API auto Dump() const -> std::string;
 
 	private:
-		auto AddParameterizedPass(std::string_view Name,
+		friend class FRDGBuilderTestAccessor;
+		friend class FRDGPassResources;
+		RENDERCORE_API auto RequireBuilding() const -> void;
+		auto Compile() -> std::string;
+		RENDERCORE_API auto CompileForTesting() -> std::string;
+		auto Record(FRHICommandListImmediate& CommandList,
+			FRDGExecutionContext* Context, std::string* OutError) -> bool;
+		struct FCompiledState;
+		std::unique_ptr<FCompiledState> Compiled;
+
+		RENDERCORE_API auto BeginStorageConstruction() -> void;
+		RENDERCORE_API auto EndStorageConstruction() -> void;
+		// User constructors may call back into the builder before storage is ready.
+		struct FStorageConstructionScope final
+		{
+			explicit FStorageConstructionScope(FRDGBuilder& InBuilder) : Builder(InBuilder)
+			{ Builder.BeginStorageConstruction(); }
+			~FStorageConstructionScope() { Builder.EndStorageConstruction(); }
+			FRDGBuilder& Builder;
+		};
+
+		RENDERCORE_API auto AddParameterizedPass(std::string_view Name,
 			ERDGPassType Type,
 			const FRDGParameterLayout* Layout, void* Parameters,
 			std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
 			FRDGParameterizedPassExecute ParameterizedExecute)
 			-> FRDGPassHandle;
-		auto CanDeclareManualUse(FRDGPassHandle Pass,
+		RENDERCORE_API auto CanDeclareManualUse(FRDGPassHandle Pass,
 			std::string_view InvalidHandleError) -> bool;
-		auto AllocateParameterStorage(size_t Size, size_t Alignment,
+		RENDERCORE_API auto AllocateParameterStorage(size_t Size, size_t Alignment,
 			const FRDGParametersMetadata* Metadata,
 			const FRDGParameterLayoutBuildResult& LayoutResult,
 			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
-		auto MarkParameterStorageConstructed(void* Storage) -> void;
-		auto AllocateValueStorage(std::string_view Name,
+		RENDERCORE_API auto MarkParameterStorageConstructed(void* Storage) -> void;
+		RENDERCORE_API auto AllocateValueStorage(std::string_view Name,
 			std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
 			size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*;
-		auto MarkValueStorageConstructed(uint32 ResourceIndex) -> void;
-		auto UseValueErased(FRDGPassHandle Pass, uint64 Owner,
+		RENDERCORE_API auto MarkValueStorageConstructed(uint32 ResourceIndex) -> void;
+		RENDERCORE_API auto UseValueErased(FRDGPassHandle Pass, uint64 Owner,
 			uint32 Index, const void* TypeIdentity, ERDGUse Use) -> void;
-		auto StateOwner() const -> uint64;
+		RENDERCORE_API auto StateOwner() const -> uint64;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};

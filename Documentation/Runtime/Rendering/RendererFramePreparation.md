@@ -95,7 +95,7 @@ allocation IDs are tracked directly, retained bytes are updated incrementally,
 and stable allocator sequence IDs preserve deterministic reuse and eviction. A
 successful allocation publishes a nonzero ID across graph executions;
 external resources remain outside that identity and publish ID zero. Allocation
-publishes only after the entire batch succeeds, and the compiled graph keeps
+publishes only after the entire batch succeeds, and the single-use builder keeps
 every returned RHI reference alive through recording.
 
 Feature release clears feature-local views and persistent payloads; the allocator
@@ -108,7 +108,7 @@ introduce synchronization.
 
 `FSceneRenderer::RenderView_RenderThread` creates one temporary
 `FSceneRenderPipeline`. The pipeline owns preparation, the stack-local
-five-part `FSceneFrameContext`, compile/execute/capture, and final transaction
+five-part `FSceneFrameContext`, execution/capture, and final transaction
 publication. `FSceneRenderGraphComposer` constructs the sole production graph
 in stable order through renderer-private, feature-owned `AddPasses` entries:
 
@@ -176,7 +176,12 @@ publication into `FSceneRenderGraphComposition`; intermediate payloads never
 leave graph storage. Editor assistance reads the post-process value and
 publishes its adjusted final result without becoming a second writer. The
 pipeline commits view state and telemetry only from these final publications
-after successful graph execution.
+after successful graph execution. Compilation failure maps to the existing
+compile-failure status; preparation failure maps to execution failure. The
+pipeline reads compiler diagnostics and observational budgets from the builder
+after Execute, publishes a capture only when requested and compilation succeeded,
+and leaves temporal/output transactions uncommitted on failure. A later frame
+authors a new builder; it never retries a consumed graph.
 
 Required output, Scene targets, required environment, or required production
 resources fail the view. Optional compute routes may fall back to fragment;
