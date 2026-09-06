@@ -229,6 +229,21 @@ namespace Durin::AssetForge::Builtins
 		return Texture;
 	}
 
+	auto DTexture2DFactory::QueryReimportActions(std::string_view AssetClassName) const
+		-> FReimportActions
+	{
+		if (AssetClassName != DTexture2D::StaticClass()->GetQualifiedName().ToString())
+			return {};
+		return {.bSupportsReimport = true, .bSupportsReimportFromFile = true};
+	}
+
+	auto DTexture2DFactory::GetSourceFileDialogs(const DObject& Object) const
+		-> std::vector<FReimportSourceFileDialog>
+	{
+		if (!Cast<DTexture2D>(&Object)) return {};
+		return {{"Reimport Texture2D From File", "Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}};
+	}
+
 	auto DTexture2DFactory::GetReimportCapabilities(const DObject& Object) const
 		-> FReimportCapabilities
 	{

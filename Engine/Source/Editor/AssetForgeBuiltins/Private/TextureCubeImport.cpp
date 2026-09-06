@@ -251,6 +251,29 @@ namespace Durin::AssetForge::Builtins
 		return Texture;
 	}
 
+	auto DTextureCubeFactory::QueryReimportActions(std::string_view AssetClassName) const
+		-> FReimportActions
+	{
+		if (AssetClassName != DTextureCube::StaticClass()->GetQualifiedName().ToString())
+			return {};
+		return {.bSupportsReimport = true, .bSupportsReimportFromFile = true};
+	}
+
+	auto DTextureCubeFactory::GetSourceFileDialogs(const DObject& Object) const
+		-> std::vector<FReimportSourceFileDialog>
+	{
+		const auto* Cube = Cast<DTextureCube>(&Object);
+		if (!Cube) return {};
+		const std::string Pattern = "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr";
+		if (Cube->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
+			return {{"Reimport TextureCube Panorama From File", "Supported Images", Pattern}};
+		std::vector<FReimportSourceFileDialog> Dialogs;
+		for (const auto Face : FaceNames)
+			Dialogs.push_back({std::format("Reimport TextureCube {} Face From File", Face),
+				"Supported Images", Pattern});
+		return Dialogs;
+	}
+
 	auto DTextureCubeFactory::GetReimportCapabilities(
 		const DObject& Object) const -> FReimportCapabilities
 	{

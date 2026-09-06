@@ -26,16 +26,10 @@
 #include "Settings/HostSettings.h"
 #include "Panels/ConsolePanel.h"
 #include "Widgets/EditorNotificationOverlay.h"
-#include "StaticMesh/StaticMesh.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureCube.h"
-#include "Texture/VolumeTexture.h"
 #include "Asset/Asset.h"
-#include "Asset/AssetImportData.h"
 #include "AssetTools/IAssetTools.h"
 #include "EditorReimportHandler.h"
 #include "Dialogs/FileDialog.h"
-#include "DObject/Package.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -108,70 +102,26 @@ namespace Durin::Editor::MainFrame
 			return true;
 		}
 
-		auto SelectOneReimportFile(std::string Title,
-			std::vector<FFileDialogFilter> Filters, std::string& OutFile,
-			std::string& OutError) -> bool
-		{
-			FFileDialogRequest Request;
-			Request.Title = std::move(Title);
-			Request.Filters = std::move(Filters);
-			const FFileDialogResult Selection = OpenFileDialog(Request);
-			if (Selection.Status == EFileDialogStatus::Cancelled) return false;
-			if (Selection.Status == EFileDialogStatus::Error)
-			{
-				OutError = Selection.ErrorMessage;
-				return false;
-			}
-			OutFile = Selection.FilePath;
-			return true;
-		}
-
 		auto SelectReimportFiles(DObject& Object, std::vector<std::string>& OutFiles,
 			std::string& OutError) -> bool
 		{
-			if (Object.IsA(DTexture2D::StaticClass()))
+			const auto Dialogs = FReimportManager::GetSourceFileDialogs(Object, OutError);
+			if (Dialogs.empty()) return false;
+			for (const auto& Dialog : Dialogs)
 			{
-				OutFiles.resize(1);
-				return SelectOneReimportFile("Reimport Texture2D From File",
-					{{"Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}},
-					OutFiles.front(), OutError);
-			}
-			if (auto* Cube = Cast<DTextureCube>(&Object))
-			{
-				const std::vector<FFileDialogFilter> Filters{
-					{"Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr"}};
-				if (Cube->GetSourceLayout()
-					== ETextureCubeSourceLayout::EquirectangularPanorama)
+				FFileDialogRequest Request;
+				Request.Title = Dialog.Title;
+				Request.Filters = {{Dialog.FilterName, Dialog.Pattern}};
+				const auto Selection = OpenFileDialog(Request);
+				if (Selection.Status == EFileDialogStatus::Cancelled) return false;
+				if (Selection.Status == EFileDialogStatus::Error)
 				{
-					OutFiles.resize(1);
-					return SelectOneReimportFile("Reimport TextureCube Panorama From File",
-						Filters, OutFiles.front(), OutError);
+					OutError = Selection.ErrorMessage;
+					return false;
 				}
-				constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
-					"Positive X", "Negative X", "Positive Y", "Negative Y",
-					"Positive Z", "Negative Z"};
-				OutFiles.resize(TextureCubeFaceCount);
-				for (size_t Index = 0; Index < OutFiles.size(); ++Index)
-					if (!SelectOneReimportFile(std::format(
-						"Reimport TextureCube {} Face From File", FaceNames[Index]),
-						Filters, OutFiles[Index], OutError)) return false;
-				return true;
+				OutFiles.push_back(Selection.FilePath);
 			}
-			if (Object.IsA(DVolumeTexture::StaticClass()))
-			{
-				OutFiles.resize(1);
-				return SelectOneReimportFile("Reimport VolumeTexture Atlas From File",
-					{{"PNG", "*.png"}}, OutFiles.front(), OutError);
-			}
-			if (Object.IsA(DStaticMesh::StaticClass()))
-			{
-				OutFiles.resize(1);
-				return SelectOneReimportFile("Reimport StaticMesh From File",
-					{{"Supported Geometry", "*.fbx;*.gltf;*.glb;*.obj;*.dae;*.3ds;*.ply;*.stl"}},
-					OutFiles.front(), OutError);
-			}
-			OutError = "The selected asset does not support reimport from file.";
-			return false;
+			return true;
 		}
 
 		auto ExecuteReimport(bool bFromFile, std::string AssetPath,
@@ -393,23 +343,10 @@ namespace Durin::Editor::MainFrame
 							return ContentBrowser::FActionResult{
 								static_cast<bool>(Result), Result.Message};
 						},
-						.QueryReimport = [](std::string_view AssetPath) {
-							FObjectPath Path;
-							if (!FObjectPath::TryCreate(AssetPath, Path))
-								return ContentBrowser::FReimportAvailability{};
-							DPackage* ExistingPackage = FindResidentPackage(
-								Path.GetPackagePath());
-							DObject* Object = nullptr;
-							std::string Error;
-							if (!LoadReimportObject(AssetPath, Path, Object, Error))
-								return ContentBrowser::FReimportAvailability{};
-							const FReimportCapabilities Capabilities =
-								FReimportManager::GetCapabilities(*Object);
-							if (!ExistingPackage)
-								(void)UnloadPackage(Path.GetPackagePath());
+						.QueryReimport = [](std::string_view AssetClassName) {
+							const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
 							return ContentBrowser::FReimportAvailability{
-								Capabilities.bCanReimport,
-								Capabilities.bCanReimportFromFile};
+								Actions.bSupportsReimport, Actions.bSupportsReimportFromFile};
 						},
 						.Reimport = [](bool bFromFile, std::string AssetPath,
 							std::function<void(std::string)> ReportError) {

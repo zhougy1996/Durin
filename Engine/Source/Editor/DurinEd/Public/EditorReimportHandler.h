@@ -14,6 +14,21 @@ namespace Durin
 		std::string Diagnostic;
 	};
 
+	// Type-level actions for menus. Per-asset source availability remains unknown.
+	struct FReimportActions
+	{
+		bool bSupportsReimport = false;
+		bool bSupportsReimportFromFile = false;
+	};
+
+	// Type-owned source slot description; dialogs are presented only during a command.
+	struct FReimportSourceFileDialog
+	{
+		std::string Title;
+		std::string FilterName;
+		std::string Pattern;
+	};
+
 	// Identifies one terminal reimport outcome independently from persistence.
 	enum class EReimportStatus : uint8
 	{
@@ -52,6 +67,12 @@ namespace Durin
 		auto operator=(FReimportHandler&&) -> FReimportHandler& = delete;
 
 		virtual auto GetPriority() const -> int32 { return 0; }
+		// Metadata-only candidate actions. Never load assets or inspect source files here.
+		// Source availability is unknown until command execution validates the object.
+		virtual auto QueryReimportActions(std::string_view AssetClassName) const
+			-> FReimportActions { return {}; }
+		virtual auto GetSourceFileDialogs(const DObject& Object) const
+			-> std::vector<FReimportSourceFileDialog> { return {}; }
 		virtual auto GetReimportCapabilities(
 			const DObject& Object) const -> FReimportCapabilities = 0;
 		virtual auto Reimport(
@@ -75,6 +96,12 @@ namespace Durin
 		DURINED_API static auto RegisterHandler(FReimportHandler& Handler) -> void;
 		DURINED_API static auto UnregisterHandler(FReimportHandler& Handler) -> void;
 
+		// For UI queries: reads class metadata only; results are candidates, not validation.
+		DURINED_API static auto QueryReimportActions(std::string_view AssetClassName)
+			-> FReimportActions;
+		// Command-only: validates the loaded object and delegates source layout to its handler.
+		DURINED_API static auto GetSourceFileDialogs(const DObject& Object,
+			std::string& OutError) -> std::vector<FReimportSourceFileDialog>;
 		DURINED_API static auto GetCapabilities(const DObject& Object)
 			-> FReimportCapabilities;
 		DURINED_API static auto Reimport(

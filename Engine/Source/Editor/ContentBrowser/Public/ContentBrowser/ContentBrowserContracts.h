@@ -104,6 +104,7 @@ namespace Durin::Editor::ContentBrowser
 		std::string Message;
 	};
 
+	// Candidate actions from class metadata; source availability is checked on execution.
 	struct FReimportAvailability
 	{
 		bool bCanReimport = false;
@@ -118,6 +119,7 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
 		std::function<FActionResult(std::span<const FPackagePath>)> FixUpRedirectors;
+		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		FTaskScopeToken ThumbnailTaskScope;

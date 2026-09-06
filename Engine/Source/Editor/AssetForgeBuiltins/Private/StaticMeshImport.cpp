@@ -210,6 +210,21 @@ namespace Durin::AssetForge::Builtins
 		return Mesh;
 	}
 
+	auto DStaticMeshFactory::QueryReimportActions(std::string_view AssetClassName) const
+		-> FReimportActions
+	{
+		if (AssetClassName != DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+			return {};
+		return {.bSupportsReimport = true, .bSupportsReimportFromFile = true};
+	}
+
+	auto DStaticMeshFactory::GetSourceFileDialogs(const DObject& Object) const
+		-> std::vector<FReimportSourceFileDialog>
+	{
+		if (!Cast<DStaticMesh>(&Object)) return {};
+		return {{"Reimport StaticMesh From File", "Supported Geometry", "*.fbx;*.gltf;*.glb;*.obj;*.dae;*.3ds;*.ply;*.stl"}};
+	}
+
 	auto DStaticMeshFactory::GetReimportCapabilities(
 		const DObject& Object) const -> FReimportCapabilities
 	{

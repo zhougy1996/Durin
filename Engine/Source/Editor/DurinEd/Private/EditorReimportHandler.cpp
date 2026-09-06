@@ -113,6 +113,37 @@ namespace Durin
 		std::erase(Registry.Handlers, &Handler);
 	}
 
+	auto FReimportManager::QueryReimportActions(std::string_view AssetClassName)
+		-> FReimportActions
+	{
+		check(IsInGameThread());
+		FReimportActions Result;
+		for (const FReimportHandler* Handler : GetSortedHandlers())
+		{
+			const auto Actions = Handler->QueryReimportActions(AssetClassName);
+			Result.bSupportsReimport |= Actions.bSupportsReimport;
+			Result.bSupportsReimportFromFile |= Actions.bSupportsReimportFromFile;
+		}
+		return Result;
+	}
+
+	auto FReimportManager::GetSourceFileDialogs(const DObject& Object,
+		std::string& OutError) -> std::vector<FReimportSourceFileDialog>
+	{
+		check(IsInGameThread());
+		FReimportCapabilities Capabilities;
+		const auto* Handler = SelectReimportHandler(Object, true, Capabilities);
+		if (!Handler)
+		{
+			OutError = std::move(Capabilities.Diagnostic);
+			return {};
+		}
+		auto Dialogs = Handler->GetSourceFileDialogs(Object);
+		OutError = Dialogs.empty()
+			? "The selected handler does not provide source file selection." : "";
+		return Dialogs;
+	}
+
 	auto FReimportManager::GetCapabilities(const DObject& Object)
 		-> FReimportCapabilities
 	{

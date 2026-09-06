@@ -436,6 +436,21 @@ namespace Durin::AssetForge::Builtins
 		return Texture;
 	}
 
+	auto DVolumeTextureFactory::QueryReimportActions(std::string_view AssetClassName) const
+		-> FReimportActions
+	{
+		if (AssetClassName != DVolumeTexture::StaticClass()->GetQualifiedName().ToString())
+			return {};
+		return {.bSupportsReimport = true, .bSupportsReimportFromFile = true};
+	}
+
+	auto DVolumeTextureFactory::GetSourceFileDialogs(const DObject& Object) const
+		-> std::vector<FReimportSourceFileDialog>
+	{
+		if (!Cast<DVolumeTexture>(&Object)) return {};
+		return {{"Reimport VolumeTexture Atlas From File", "PNG", "*.png"}};
+	}
+
 	auto DVolumeTextureFactory::GetReimportCapabilities(
 		const DObject& Object) const -> FReimportCapabilities
 	{

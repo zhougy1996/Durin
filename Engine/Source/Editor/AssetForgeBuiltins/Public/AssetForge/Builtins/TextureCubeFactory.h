@@ -43,6 +43,10 @@ namespace Durin::AssetForge::Builtins
 			std::string_view Filename,
 			DObject* Context,
 			FFactoryDiagnostics* Diagnostics) const -> DObject* override;
+		ASSETFORGEBUILTINS_API auto QueryReimportActions(std::string_view AssetClassName) const
+			-> FReimportActions override;
+		ASSETFORGEBUILTINS_API auto GetSourceFileDialogs(const DObject& Object) const
+			-> std::vector<FReimportSourceFileDialog> override;
 		ASSETFORGEBUILTINS_API auto GetReimportCapabilities(
 			const DObject& Object) const -> FReimportCapabilities override;
 		ASSETFORGEBUILTINS_API auto Reimport(

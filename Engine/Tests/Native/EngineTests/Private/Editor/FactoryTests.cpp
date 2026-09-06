@@ -156,9 +156,28 @@ namespace
 
 		auto GetPriority() const -> int32 override { return Priority; }
 
+		auto QueryReimportActions(std::string_view ClassName) const
+			-> Durin::FReimportActions override
+		{
+			if (ClassName != "MetadataOnlyAsset") return {};
+			return {.bSupportsReimport = true, .bSupportsReimportFromFile = true};
+		}
+
+		auto GetSourceFileDialogs(const Durin::DObject&) const
+			-> std::vector<Durin::FReimportSourceFileDialog> override
+		{
+			return {{std::to_string(Priority), "Test source", "*.test"}};
+		}
+
+		mutable int ObjectQueryCount = 0;
+		bool bSupportsObject = true;
+
 		auto GetReimportCapabilities(const Durin::DObject& Object) const
 			-> Durin::FReimportCapabilities override
 		{
+			++ObjectQueryCount;
+			if (!bSupportsObject) return {};
+
 			if (Object.GetClass() != DFactoryAssetForTest::StaticClass()) return {};
 			return {.bCanReimport = true, .bCanReimportFromFile = true};
 		}
@@ -312,6 +331,31 @@ TEST(DFactoryTests, KeepsConfiguredStateOnTransientInvocationInstance)
 	EXPECT_EQ(Configured->Mode, DAssetToolsFactoryForTest::EMode::Fail);
 }
 
+TEST(DFactoryTests, MetadataQueriesDoNotInspectObjectsAndCommandsRevalidate)
+{
+	InitializeFactoryTestGameThread();
+	FStandaloneReimportHandlerForTest Handler(100);
+	Handler.bSupportsObject = false;
+	for (int Frame = 0; Frame < 100; ++Frame)
+	{
+		const auto Actions = Durin::FReimportManager::QueryReimportActions("MetadataOnlyAsset");
+		EXPECT_TRUE(Actions.bSupportsReimport);
+		EXPECT_TRUE(Actions.bSupportsReimportFromFile);
+	}
+	EXPECT_EQ(Handler.ObjectQueryCount, 0);
+	EXPECT_FALSE(Durin::FReimportManager::QueryReimportActions("UnknownAsset").bSupportsReimport);
+	auto* Object = Durin::NewObject<DFactoryAssetForTest>(
+		nullptr, Durin::FName("RevalidatedReimportObject"), Durin::EObjectFlags::Transient);
+	std::string Error;
+	EXPECT_TRUE(Durin::FReimportManager::GetSourceFileDialogs(*Object, Error).empty());
+	EXPECT_FALSE(Error.empty());
+	Durin::FReimportResult Result;
+	Durin::FReimportManager::Reimport(*Object, {.bSave = false},
+		[&](Durin::FReimportResult Completed) { Result = std::move(Completed); });
+	EXPECT_EQ(Result.Status, Durin::EReimportStatus::Unsupported);
+	EXPECT_GT(Handler.ObjectQueryCount, 0);
+}
+
 TEST(DFactoryTests, ReimportHandlersRegisterIndependentlyAndUsePriority)
 {
 	InitializeFactoryTestGameThread();
@@ -325,6 +369,12 @@ TEST(DFactoryTests, ReimportHandlersRegisterIndependentlyAndUsePriority)
 		const Durin::FReimportCapabilities Capabilities =
 			Durin::FReimportManager::GetCapabilities(*Object);
 		EXPECT_TRUE(Capabilities.bCanReimport);
+
+		std::string Error;
+		const auto Dialogs = Durin::FReimportManager::GetSourceFileDialogs(*Object, Error);
+		ASSERT_EQ(Dialogs.size(), 1u);
+		EXPECT_EQ(Dialogs.front().Title, "20");
+		EXPECT_TRUE(Error.empty());
 
 		Durin::FReimportResult Result;
 		Durin::FReimportManager::Reimport(*Object, {.bSave = false},

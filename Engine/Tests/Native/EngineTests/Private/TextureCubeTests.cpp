@@ -352,6 +352,10 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		Faces, "/TextureCubeTests/ReimportFaces");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
+	std::string DialogError;
+	const auto Dialogs = Durin::FReimportManager::GetSourceFileDialogs(*Texture, DialogError);
+	ASSERT_EQ(Dialogs.size(), 6u) << DialogError;
+	EXPECT_EQ(Dialogs.front().Title, "Reimport TextureCube PositiveX Face From File");
 	const Durin::FXxHash128 InitialSourceId =
 		Texture->GetSource().GetBulkData().GetPayloadId();
 	const uint64 InitialRevision = Texture->GetBuildRevision();
@@ -569,6 +573,10 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(), "/TextureCubeTests/ReimportPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
+	std::string DialogError;
+	const auto Dialogs = Durin::FReimportManager::GetSourceFileDialogs(*Texture, DialogError);
+	ASSERT_EQ(Dialogs.size(), 1u) << DialogError;
+	EXPECT_EQ(Dialogs.front().Title, "Reimport TextureCube Panorama From File");
 	const uint64 InitialRevision = Texture->GetBuildRevision();
 
 	std::string Error;

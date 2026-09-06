@@ -906,14 +906,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const auto Availability = QueryReimport
-				? QueryReimport(Item.VirtualPath)
+				? QueryReimport(Item.AssetClassName)
 				: ::Durin::Editor::ContentBrowser::FReimportAvailability{};
 			if (Availability.bCanReimport || Availability.bCanReimportFromFile)
 			{
 				if (Availability.bCanReimport)
 				{
 					ImGui::BeginDisabled(!bAllowAssetMutation);
-					if (ImGui::MenuItem("Reimport"))
+					if (ImGui::MenuItem("Reimport (source unverified)"))
 						QueueContentAction([this, Path = Item.VirtualPath] {
 							if (Reimport)
 								Reimport(false, Path, [this](std::string Message) {
