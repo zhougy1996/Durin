@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include <gtest/gtest.h>
 
 #include "NativeDObjectTestSupport.h"
@@ -141,6 +142,8 @@ namespace Durin
 			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedMaterial,
 				&MaterialReport));
 			EXPECT_TRUE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh, &MeshReport));
+			if (Mesh)
+				FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 			if (LoadedMaterial)
 			{
 				RequestMaterialRecompile(*LoadedMaterial);

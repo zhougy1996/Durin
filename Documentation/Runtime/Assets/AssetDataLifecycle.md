@@ -146,9 +146,10 @@ The current import behavior is:
 | VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
-StaticMesh and texture import currently build the
-Win64 Game platform/profile variant eagerly so the editor has immediately
-usable data. This is a platform build stored under rebuildable DDC ownership;
+StaticMesh and texture import request the
+Win64 Game platform/profile variant for editor use. StaticMesh interactive import
+and reimport await asynchronous CPU completion before save; object-returning
+factories and explicit bool APIs use a selected completion barrier. This is a platform build stored under rebuildable DDC ownership;
 it is not cooked publication. Cook may later validate and reuse equivalent
 payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 
@@ -164,8 +165,14 @@ visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
 `StaticMeshBuild` owns only detached render/collision recipes. Engine owns its
-PostLoad, import/Scene build, cache lookup/validation/fallback, and result
-application. StaticMesh keys are editor-only Engine-private values; operation
+PostLoad scheduling, import/Scene build, cache lookup/validation/fallback, and result
+application. Authored PostLoad returns after metadata admission; source decoding,
+render/ray and collision construction run in the typed worker domain. Cook
+constructs a detached projection, even when authored CPU data is absent, without
+changing authored bytes, source residency, render revision or dirty state. Only
+pending source mutations require a selected wait before cook capture. See
+[Asset Compilation](AssetCompilation.md#staticmesh-completion) for bounds,
+publication and observational diagnostics. StaticMesh keys are editor-only Engine-private values; operation
 results carry key, origin, descriptor, timings, payload bytes, and bounded
 persistence diagnostics without copying them onto `DStaticMesh` or `DBodySetup`.
 Metadata-only warm loads do not read authored geometry; a miss acquires an

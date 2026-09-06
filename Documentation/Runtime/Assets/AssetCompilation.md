@@ -2,9 +2,9 @@
 
 Summary: Define the Engine-owned object-aware compilation aggregate, class routing, and compiler lifetime contract.
 
-Modules: Engine, Launch, TextureBuild
+Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -15,7 +15,8 @@ typeless compiler payload, DDC key, queue, or result-application policy;
 each Engine-owned typed manager retains its values and invariants.
 
 The built-in compilers are `Durin.Material`, routed from `DMaterial`, and
-`Durin.Texture`, routed from `DTexture2D`. Optional modules may register additional
+`Durin.Texture`, routed from `DTexture2D`, and `Durin.StaticMesh`, routed from
+`DStaticMesh`. Optional modules may register additional
 compilers and class routes while the aggregate is accepting requests. Runtime Engine does not require
 TextureBuild or DerivedDataCache in Game: editor-enabled Engine optionally links
 DDC, and authoring targets register a synchronous
@@ -153,7 +154,7 @@ and DDC producer identity, cook target/profile, CPU payload readiness, GPU or
 physics resource readiness, mutation transaction state, and
 cancellation/shutdown/module-owner state remain orthogonal. Package loading is
 not an asset compiler, and Durin has no global composite asset-status
-enum. A later Mesh or other asset-family migration requires its own plan once
+enum. Another asset-family migration requires its own plan once
 its owner, producer boundary, publication transaction, and readiness semantics
 are known.
 
@@ -164,3 +165,72 @@ are known.
 - [Texture System](../Rendering/TextureSystem.md)
 - [Material System](../Rendering/MaterialSystem.md)
 - [Modular Features And Module Retirement](../Core/ModularFeaturesAndModuleRetirement.md)
+
+## StaticMesh Completion
+
+`SubmitStaticMeshCompilation` accepts canonical source values and returns before
+recipe work. Rejection does not supersede earlier work or call completion.
+Accepted requests deliver one `Succeeded`, `Failed`, `Cancelled`, or `Superseded`
+terminal result on GameThread. Worker captures contain no object bindings.
+Owner records use generation-safe handles and recheck source, normalization,
+ordered material bindings, body parameters/revision, provenance identity and
+provider registration before applying the sealed candidate. Provider replacement
+cannot reuse an older request even when its builder versions are unchanged.
+
+The manager allows two workers, 32 outstanding records, 1 GiB total reservation
+and at most 512 MiB per request. Admission uses checked arithmetic for
+`1 MiB + 64 * canonical bytes + 1024 * mesh count + 32768 * slot count`.
+Detached decoding/recipes/finalization check conservative working-set envelopes
+before expansion; cache reads are bounded by the reservation and complete
+candidate capacities are checked before mailbox publication. Recipe providers
+must honor the borrowed working-set limit before allocating their products.
+Cancellation delivery does not release a still-running task's record or bytes.
+History retains at most 128 value-only diagnostics with 4096-byte messages.
+
+Background and interactive queues are FIFO, with at most four interactive
+dispatches before an eligible background request. Each aggregate pump admits
+at most two StaticMesh terminals within a 2 ms soft deadline. `PumpIdentity`
+shares this budget across aggregate quota-reclamation passes. Once application
+starts, resource preparation and the atomic consumer refresh may exceed that
+soft deadline. Explicit selected finish drains only matching records.
+
+Accepted owner edits invalidate publication immediately; reflected changes are
+also detected at application. Initial pending edits and stale reflected facts
+requeue valid current input. Destruction cancels before resource release; queue
+ownership does not prevent package GC. Stop-admission cancels accepted work;
+shutdown drains worker scope and callbacks before releasing them. A drained typed
+StaticMesh manager can restart; the process aggregate's terminal shutdown
+contract is unchanged. Cooked residency remains a separate manager.
+
+Authored `PostLoad` validates metadata and schedules background work without
+acquiring canonical geometry. Repeated identical current requests join;
+`BuildStaticMeshSynchronously` submits or joins through the same manager and
+finishes only that mesh. Missing admission/provider capacity is an explicit
+failure, with no inline recipe fallback. Interactive reimport prepares physical
+input synchronously, then submits at interactive priority. Source, render,
+collision, material bindings and prevalidated provenance become current within
+one consumer-refresh boundary. No recipe or metadata validation runs after its
+first live mutation. Cook finishes a pending source mutation only when needed,
+then builds a detached target projection without publishing authored CPU data.
+
+`GetStaticMeshCompilationDiagnostic` and
+`GetStaticMeshCompilationManagerDiagnostics` are owner-thread, value-only reads.
+They neither pump work nor perform source/cache I/O or initialize resources.
+Request ID zero means no available observation, including evicted history.
+A nonzero observation describes its captured source identity and provider
+registration, not proof that the live asset still matches it. Match these facts
+before presenting it as current. `Render` and `Collision` are optional completed
+product observations with opaque DDC key, hit/rebuilt origin, payload bytes and
+cache read/write durations; absent values mean unavailable, never a cache miss.
+Persistence diagnostics survive successful publication. The retained text budget
+is 4096 bytes per record including a producer identity capped at 256 bytes.
+`CaptureNanoseconds`, `WorkerNanoseconds` and `PublicationNanoseconds` separate
+owner capture, detached construction and owner application. Zero denotes an
+unmeasured/not-reached phase. Publication includes provenance preparation,
+resource preparation and consumer refresh; CPU completion is independent of GPU
+readiness. Diagnostics own no source, payload, component or callback.
+
+Initial-edit replacement waits for the retiring worker's storage to be released
+before reclaiming that record's admission capacity. Explicit cancellation or a
+new accepted request suppresses that replacement. Late cancellation remains
+accounted until worker completion even after terminal delivery.

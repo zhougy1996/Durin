@@ -58,6 +58,18 @@ Equal-time results use the monotonically assigned scene handle as their stable
 tie-break. Compound closest hits first select `(Time, child index)`; Overlap
 selects the lowest overlapping child and still emits one result per body.
 
+`FCollisionGeometryRef::BuildConvexHull` and `BuildTriangleMesh` accept an
+optional borrowed cancellation predicate for synchronous authored construction.
+Cancellation returns no geometry and reports `ECollisionGeometryBuildStatus::Cancelled`;
+it does not change scene query outcomes. Triangle cleanup and BVH construction
+check during linear work, sort comparisons and recursive partitions. Callers
+must keep the predicate valid for the invocation; no callback is retained by the
+immutable geometry. `MakeConvexHull`, `MakeTriangleMesh` and
+`MakeCookedTriangleMesh` also accept borrowed predicates and return empty on
+cancellation. Final topology/BVH validation and immutable triangle/bounds packing
+check every 256 work units. Contiguous allocation/copy calls remain synchronous;
+cooperative cancellation does not promise a hard wall-clock deadline.
+
 ## Assets and components
 
 `DBodySetup` owns collision source mode, Simple/Complex query policy, build

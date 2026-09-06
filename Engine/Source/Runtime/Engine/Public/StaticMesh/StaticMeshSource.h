@@ -27,7 +27,9 @@ namespace Durin
 		// Validates the complete candidate before replacement and seeds residency without decoding.
 		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value, std::string& OutError) -> bool;
 		// May read bulk and block. Concurrent callers share one successful decode; failures are not cached.
-		ENGINE_API auto AcquireGeometry(std::string& OutError) const -> FStaticMeshGeometryReadHandle;
+		// Cancellation is borrowed under the residency lock and must not reenter this source.
+		ENGINE_API auto AcquireGeometry(std::string& OutError,
+			const std::function<bool()>& ShouldCancel = {}) const -> FStaticMeshGeometryReadHandle;
 		// Drops only this value's decoded ownership, never canonical bulk or outstanding readers.
 		ENGINE_API auto ReleaseGeometry() const -> void;
 		ENGINE_API auto IsGeometryResident() const -> bool;

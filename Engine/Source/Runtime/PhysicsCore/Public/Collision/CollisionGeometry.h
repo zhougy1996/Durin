@@ -73,7 +73,8 @@ namespace Durin
 		EmptyAfterCleanup,
 		LimitExceeded,
 		DepthExceeded,
-		AllocationFailed
+		AllocationFailed,
+		Cancelled
 	};
 
 	struct FCollisionGeometryBuildDiagnostics
@@ -106,24 +107,30 @@ namespace Durin
 		PHYSICSCORE_API static auto MakeCompound(std::span<const FCollisionGeometryChild> Children) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakeConvexHull(
 			std::span<const FVector3> Vertices,
-			std::span<const uint32> Indices) -> FCollisionGeometryRef;
+			std::span<const uint32> Indices,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakeTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
-			std::span<const uint32> SourceOrdinals = {}) -> FCollisionGeometryRef;
+			std::span<const uint32> SourceOrdinals = {},
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto MakeCookedTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			std::span<const uint32> SourceOrdinals,
 			std::span<const FCollisionGeometryNode> Nodes,
-			std::span<const uint32> LeafTriangles) -> FCollisionGeometryRef;
+			std::span<const uint32> LeafTriangles,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
+		// Cancellation is borrowed for this synchronous call; cancellation never returns partial geometry.
 		PHYSICSCORE_API static auto BuildConvexHull(
 			std::span<const FVector3> Points,
-			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
 		PHYSICSCORE_API static auto BuildTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
-			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr,
+			const std::function<bool()>& ShouldCancel = {}) -> FCollisionGeometryRef;
 		auto IsValid() const -> bool { return Payload != nullptr; }
 		explicit operator bool() const { return IsValid(); }
 		PHYSICSCORE_API auto GetKind() const -> ECollisionGeometryKind;

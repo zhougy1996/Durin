@@ -8,6 +8,7 @@
 #include "Threading/RunnableThread.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCompilingManager.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 #include <algorithm>
 #include <limits>
@@ -328,7 +329,7 @@ namespace Durin
 				- Aggregate.ProcessedCompletionCount;
 			const uint32 RemainingCompilers = static_cast<uint32>(Entries.size() - Offset);
 			FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
-				std::max(1u, Remaining / RemainingCompilers), Params.Deadline});
+				std::max(1u, Remaining / RemainingCompilers), Params.Deadline, Cursor + 1});
 			Accumulate(Entry.CompilerName, std::move(Item));
 		}
 		while (Aggregate.ProcessedCompletionCount < Params.MaximumCompletions)
@@ -340,7 +341,7 @@ namespace Durin
 				if (Params.Deadline && std::chrono::steady_clock::now() >= *Params.Deadline) break;
 				FAssetCompileProcessResult Item = Entry.Manager->ProcessAsyncTasks({
 					Params.MaximumCompletions - Aggregate.ProcessedCompletionCount,
-					Params.Deadline});
+					Params.Deadline, Cursor + 1});
 				bMadeProgress |= Item.ProcessedCompletionCount != 0;
 				Accumulate(Entry.CompilerName, std::move(Item));
 			}
@@ -498,6 +499,17 @@ namespace Durin
 			Aggregate.Shutdown();
 			return false;
 		}
+		auto StaticMeshRegistration = Aggregate.RegisterCompiler({
+			.Name = FName("Durin.StaticMesh"),
+			.AssetClasses = {DStaticMesh::StaticClass()},
+			.Manager = AssetPrivate::CreateStaticMeshCompilingManager()}, &Error);
+		if (!StaticMeshRegistration.IsValid())
+		{
+			DURIN_ERROR("StaticMesh compiling manager failed to register: {}", Error);
+			Aggregate.Shutdown();
+			return false;
+		}
+		StaticMeshRegistration.Generation = 0;
 		MaterialRegistration.Generation = 0;
 		TextureRegistration.Generation = 0;
 		return true;

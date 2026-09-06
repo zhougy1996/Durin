@@ -94,7 +94,8 @@ namespace Durin
 
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform) -> void;
+			EStaticMeshTargetPlatform TargetPlatform,
+			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
 	struct FStaticMeshCollisionPayloadData
@@ -109,7 +110,8 @@ namespace Durin
 
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform) -> void;
+			EStaticMeshTargetPlatform TargetPlatform,
+			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
 
@@ -117,21 +119,25 @@ namespace Durin
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel = {}) -> bool;
 	ENGINE_API auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel = {}) -> bool;
 
 	// Copies serializable CPU data from runtime render data into the explicit payload model.
 	ENGINE_API auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel = {}) -> bool;
 
 	// Reconstructs CPU render data; runtime-only names and source material indices remain empty.
 	ENGINE_API auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel = {}) -> bool;
 }

@@ -11,6 +11,25 @@ namespace Durin
 {
 	namespace
 	{
+		struct FPayloadBuildCancelled {};
+
+		// Borrowed for this call only; cancellation never crosses the public codec boundary.
+		struct FPayloadBuildControl
+		{
+			const std::function<bool()>& ShouldCancel;
+			uint32 WorkSinceCheckpoint = 0;
+			auto Check() const -> void
+			{
+				if (ShouldCancel && ShouldCancel()) throw FPayloadBuildCancelled{};
+			}
+			auto Tick() -> void
+			{
+				if (++WorkSinceCheckpoint < 256) return;
+				WorkSinceCheckpoint = 0;
+				Check();
+			}
+		};
+
 		inline constexpr uint32 StaticMeshPayloadRequiredChunkCount = 6;
 		inline constexpr uint32 StaticMeshPayloadFlagCompressed = 1;
 		inline constexpr uint32 StaticMeshChunkCompressionMask = 0x0000ff00;
@@ -50,7 +69,7 @@ namespace Durin
 				&& static_cast<double>(static_cast<float>(Bounds.Max.z)) == Bounds.Max.z;
 		}
 
-		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError) -> bool
+		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError, FPayloadBuildControl& Control) -> bool
 		{
 			if (!IsValidBounds(Payload.LocalBounds)) return Fail("Static-mesh payload bounds are invalid or not exactly representable as float32.", &OutError);
 			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumMeshMaterialSlots)
@@ -66,6 +85,7 @@ namespace Durin
 				+ 4ull + static_cast<uint64>(Payload.LODs.size()) * 44ull;
 			for (size_t LODIndex = 0; LODIndex < Payload.LODs.size(); ++LODIndex)
 			{
+				Control.Tick();
 				const FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
 				if (!std::isfinite(LOD.ScreenSize)
 					|| LOD.ScreenSize < 0.0f || LOD.ScreenSize > 1.0f
@@ -104,6 +124,7 @@ namespace Durin
 					return Fail(std::format("Static-mesh payload LOD {} vertex-stream counts do not match.", LODIndex), &OutError);
 				for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 				{
+					Control.Tick();
 					const size_t ExpectedCount = Channel < LOD.NumTexCoords ? VertexCount : 0;
 					if (LOD.TexCoords[Channel].size() != ExpectedCount)
 						return Fail(std::format(
@@ -112,22 +133,24 @@ namespace Durin
 				}
 				if (LOD.Colors.size() != (LOD.bHasVertexColors ? VertexCount : 0))
 					return Fail(std::format("Static-mesh payload LOD {} color-stream count does not match its flags.", LODIndex), &OutError);
-				if (std::ranges::any_of(LOD.Positions, [](const FVector3f& Value) { return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Normals, [](const FVector3f& Value) { return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Tangents, [](const FVector4f& Value) { return !IsFinite(Value); })
-					|| std::ranges::any_of(LOD.Colors, [](const FVector4f& Value) { return !IsFinite(Value); }))
+				if (std::ranges::any_of(LOD.Positions, [&Control](const FVector3f& Value) { Control.Tick(); return !IsFinite(Value); })
+					|| std::ranges::any_of(LOD.Normals, [&Control](const FVector3f& Value) { Control.Tick(); return !IsFinite(Value); })
+					|| std::ranges::any_of(LOD.Tangents, [&Control](const FVector4f& Value) { Control.Tick(); return !IsFinite(Value); })
+					|| std::ranges::any_of(LOD.Colors, [&Control](const FVector4f& Value) { Control.Tick(); return !IsFinite(Value); }))
 					return Fail(std::format("Static-mesh payload LOD {} contains a non-finite vertex attribute.", LODIndex), &OutError);
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 				{
-					if (std::ranges::any_of(LOD.TexCoords[Channel], [](const FVector2f& Value) { return !IsFinite(Value); }))
+					Control.Tick();
+					if (std::ranges::any_of(LOD.TexCoords[Channel], [&Control](const FVector2f& Value) { Control.Tick(); return !IsFinite(Value); }))
 						return Fail(std::format("Static-mesh payload LOD {} contains a non-finite UV.", LODIndex), &OutError);
 				}
-				if (std::ranges::any_of(LOD.Indices, [VertexCount](uint32 Index) { return Index >= VertexCount; }))
+				if (std::ranges::any_of(LOD.Indices, [VertexCount, &Control](uint32 Index) { Control.Tick(); return Index >= VertexCount; }))
 					return Fail(std::format("Static-mesh payload LOD {} contains an out-of-range index.", LODIndex), &OutError);
 
 				uint64 CoveredIndices = 0;
 				for (const FStaticMeshPayloadSection& Section : LOD.Sections)
 				{
+					Control.Tick();
 					const uint64 SectionEnd = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
 					if (Section.IndexCount == 0 || Section.FirstIndex != CoveredIndices || SectionEnd > IndexCount)
 						return Fail(std::format("Static-mesh payload LOD {} sections do not exactly cover its index buffer.", LODIndex), &OutError);
@@ -142,6 +165,7 @@ namespace Durin
 					uint32 ActualMaximum = 0;
 					for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < SectionEnd; ++IndexOffset)
 					{
+						Control.Tick();
 						ActualMinimum = std::min(ActualMinimum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
 						ActualMaximum = std::max(ActualMaximum, LOD.Indices[static_cast<size_t>(IndexOffset)]);
 					}
@@ -178,7 +202,7 @@ namespace Durin
 			return Bounds.bIsValid;
 		}
 
-		auto BuildPayloadChunks(const FStaticMeshPayloadData& Payload) -> std::array<FByteBuffer, StaticMeshPayloadRequiredChunkCount>
+		auto BuildPayloadChunks(const FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> std::array<FByteBuffer, StaticMeshPayloadRequiredChunkCount>
 		{
 			std::array<FByteBuffer, StaticMeshPayloadRequiredChunkCount> Chunks;
 
@@ -194,6 +218,7 @@ namespace Durin
 			LODs.WriteU32(static_cast<uint32>(Payload.LODs.size()));
 			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
+				Control.Tick();
 				LODs.WriteU32(static_cast<uint32>(LOD.Positions.size()));
 				LODs.WriteU32(static_cast<uint32>(LOD.Indices.size()));
 				LODs.WriteU32(static_cast<uint32>(LOD.Sections.size()));
@@ -208,9 +233,11 @@ namespace Durin
 			FPayloadWriter Sections;
 			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
+				Control.Tick();
 				Sections.WriteU32(static_cast<uint32>(LOD.Sections.size()));
 				for (const FStaticMeshPayloadSection& Section : LOD.Sections)
 				{
+					Control.Tick();
 					Sections.WriteU32(Section.FirstIndex);
 					Sections.WriteU32(Section.IndexCount);
 					Sections.WriteU32(Section.MinVertexIndex);
@@ -224,24 +251,25 @@ namespace Durin
 			FPayloadWriter VertexStreams;
 			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
+				Control.Tick();
 				for (const FVector3f& Value : LOD.Positions)
-					for (uint32 Component = 0; Component < 3; ++Component) VertexStreams.WriteFloat(Value[Component]);
+					for (uint32 Component = 0; Component < 3; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
 				for (const FVector3f& Value : LOD.Normals)
-					for (uint32 Component = 0; Component < 3; ++Component) VertexStreams.WriteFloat(Value[Component]);
+					for (uint32 Component = 0; Component < 3; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
 				for (const FVector4f& Value : LOD.Tangents)
-					for (uint32 Component = 0; Component < 4; ++Component) VertexStreams.WriteFloat(Value[Component]);
+					for (uint32 Component = 0; Component < 4; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 					for (const FVector2f& Value : LOD.TexCoords[Channel])
-						for (uint32 Component = 0; Component < 2; ++Component) VertexStreams.WriteFloat(Value[Component]);
+						for (uint32 Component = 0; Component < 2; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
 				if (LOD.bHasVertexColors)
 					for (const FVector4f& Value : LOD.Colors)
-						for (uint32 Component = 0; Component < 4; ++Component) VertexStreams.WriteFloat(Value[Component]);
+						for (uint32 Component = 0; Component < 4; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
 			}
 			Chunks[4] = VertexStreams.TakeBytes();
 
 			FPayloadWriter IndexBuffers;
 			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
-				for (uint32 Index : LOD.Indices) IndexBuffers.WriteU32(Index);
+				for (uint32 Index : LOD.Indices) { Control.Tick(); IndexBuffers.WriteU32(Index); }
 			Chunks[5] = IndexBuffers.TakeBytes();
 			return Chunks;
 		}
@@ -249,7 +277,7 @@ namespace Durin
 		auto ReadPayloadChunks(
 			const std::array<FByteView, StaticMeshPayloadRequiredChunkCount>& Chunks,
 			FStaticMeshPayloadData& OutPayload,
-			std::string& OutError) -> bool
+			std::string& OutError, FPayloadBuildControl& Control) -> bool
 		{
 			FStaticMeshPayloadData Payload;
 
@@ -280,6 +308,7 @@ namespace Durin
 			uint64 ExpectedIndexBytes = 0;
 			for (uint32 LODIndex = 0; LODIndex < LODCount; ++LODIndex)
 			{
+				Control.Tick();
 				FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
 				uint32& VertexCount = VertexCounts[LODIndex];
 				uint32& IndexCount = IndexCounts[LODIndex];
@@ -317,10 +346,14 @@ namespace Durin
 				return Fail("Static-mesh payload stream chunk sizes do not match the LOD metadata.", &OutError);
 			for (uint32 LODIndex = 0; LODIndex < LODCount; ++LODIndex)
 			{
+				Control.Tick();
 				FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
 				const uint32 VertexCount = VertexCounts[LODIndex];
+				Control.Check();
 				LOD.Positions.resize(VertexCount);
+				Control.Check();
 				LOD.Normals.resize(VertexCount);
+				Control.Check();
 				LOD.Tangents.resize(VertexCount);
 				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel) LOD.TexCoords[Channel].resize(VertexCount);
 				if (LOD.bHasVertexColors) LOD.Colors.resize(VertexCount);
@@ -331,11 +364,13 @@ namespace Durin
 			FPayloadReader Sections(Chunks[3]);
 			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
+				Control.Tick();
 				uint32 SectionCount = 0;
 				if (!Sections.ReadU32(SectionCount) || SectionCount != LOD.Sections.size())
 					return Fail("Static-mesh section chunk count does not match its LOD.", &OutError);
 				for (FStaticMeshPayloadSection& Section : LOD.Sections)
 				{
+					Control.Tick();
 					if (!Sections.ReadU32(Section.FirstIndex) || !Sections.ReadU32(Section.IndexCount)
 						|| !Sections.ReadU32(Section.MinVertexIndex) || !Sections.ReadU32(Section.MaxVertexIndex)
 						|| !Sections.ReadU32(Section.MaterialSlotIndex) || !ReadBounds(Sections, Section.LocalBounds))
@@ -345,14 +380,16 @@ namespace Durin
 			if (!Sections.IsAtEnd()) return Fail("Static-mesh section chunk contains trailing bytes.", &OutError);
 
 			FPayloadReader VertexStreams(Chunks[4]);
-			auto ReadVector = [&VertexStreams]<typename TVector>(TVector& Value, uint32 ComponentCount) -> bool
+			auto ReadVector = [&VertexStreams, &Control]<typename TVector>(TVector& Value, uint32 ComponentCount) -> bool
 			{
+				Control.Tick();
 				for (uint32 Component = 0; Component < ComponentCount; ++Component)
 					if (!VertexStreams.ReadFloat(Value[Component]) || !std::isfinite(Value[Component])) return false;
 				return true;
 			};
 			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
 			{
+				Control.Tick();
 				for (FVector3f& Value : LOD.Positions) if (!ReadVector(Value, 3)) return Fail("Static-mesh positions contain invalid data.", &OutError);
 				for (FVector3f& Value : LOD.Normals) if (!ReadVector(Value, 3)) return Fail("Static-mesh normals contain invalid data.", &OutError);
 				for (FVector4f& Value : LOD.Tangents) if (!ReadVector(Value, 4)) return Fail("Static-mesh tangents contain invalid data.", &OutError);
@@ -366,10 +403,13 @@ namespace Durin
 			FPayloadReader IndexBuffers(Chunks[5]);
 			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
 				for (uint32& Index : LOD.Indices)
+				{
+					Control.Tick();
 					if (!IndexBuffers.ReadU32(Index)) return Fail("Static-mesh index-buffer chunk is truncated.", &OutError);
+				}
 			if (!IndexBuffers.IsAtEnd()) return Fail("Static-mesh index-buffer chunk contains trailing bytes.", &OutError);
 
-			if (!ValidatePayload(Payload, OutError)) return false;
+			if (!ValidatePayload(Payload, OutError, Control)) return false;
 			OutPayload = std::move(Payload);
 			return true;
 		}
@@ -411,14 +451,14 @@ namespace Durin
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
 		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		std::string& OutError, FPayloadBuildControl& Control) -> bool
 	{
 		OutError.clear();
 		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
 			return Fail("A concrete target platform is required to encode a static-mesh payload.", &OutError);
-		if (!ValidatePayload(Payload, OutError)) return false;
+		if (!ValidatePayload(Payload, OutError, Control)) return false;
 
-		const auto ChunkBytes = BuildPayloadChunks(Payload);
+		const auto ChunkBytes = BuildPayloadChunks(Payload, Control);
 		std::array<FChunkedPayloadInput, StaticMeshPayloadRequiredChunkCount> Chunks;
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
 			Chunks[Index] = {
@@ -427,12 +467,14 @@ namespace Durin
 				.Bytes = ChunkBytes[Index],
 				.DecodedSize = ChunkBytes[Index].size()};
 
+		Control.Check();
 		const FChunkedPayloadResult Result = EncodeChunkedPayload(
 			{0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
 				static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize,
 				StaticMeshPayloadRequiredChunkCount, 0},
 			Chunks, GetStaticMeshChunkedPayloadFormat(), OutBytes);
 		if (!Result) return FailChunkedPayload(Result, OutError);
+		Control.Check();
 		return true;
 	}
 
@@ -441,7 +483,7 @@ namespace Durin
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshPayloadData& OutPayload,
 		std::string& OutError,
-		EDecodeError& OutCode) -> bool
+		EDecodeError& OutCode, FPayloadBuildControl& Control) -> bool
 	{
 		OutError.clear();
 		OutCode = EDecodeError::Corrupt;
@@ -477,6 +519,7 @@ namespace Durin
 		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || Reserved != 0)
 			return Fail("Static-mesh payload header contains invalid flags, sizes, or reserved values.", &OutError);
 		FDecodedChunkedPayload Container;
+		Control.Check();
 		const FChunkedPayloadResult ContainerResult = DecodeChunkedPayload(
 			Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
 		if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
@@ -484,7 +527,7 @@ namespace Durin
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
 			RequiredChunks[Index] = Container.RequiredChunks[Index];
 		FStaticMeshPayloadData Decoded;
-		if (!ReadPayloadChunks(RequiredChunks, Decoded, OutError)) return false;
+		if (!ReadPayloadChunks(RequiredChunks, Decoded, OutError, Control)) return false;
 		OutPayload = std::move(Decoded);
 		return true;
 	}
@@ -492,11 +535,11 @@ namespace Durin
 	auto ParseStaticMeshSerializedValue(
 		FByteView Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload) -> FDecodeResult
+		FStaticMeshPayloadData& OutPayload, FPayloadBuildControl& Control) -> FDecodeResult
 	{
 		FDecodeResult Result;
 		if (!ParseStaticMeshSerializedValueImpl(
-			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code))
+			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code, Control))
 			return Result;
 		return {};
 	}
@@ -504,28 +547,39 @@ namespace Durin
 	auto MakeStaticMeshPayloadData(
 		const FStaticMeshRenderData& RenderData,
 		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel) -> bool
+	try
 	{
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
 		FStaticMeshPayloadData Payload;
 		Payload.LocalBounds = RenderData.LocalBounds;
 		Payload.MaterialSlotCount = static_cast<uint32>(RenderData.MaterialSlots.size());
 		Payload.LODs.reserve(RenderData.LODResources.size());
 		for (const FStaticMeshLODResources& SourceLOD : RenderData.LODResources)
 		{
+			Control.Tick();
 			FStaticMeshPayloadLOD& LOD = Payload.LODs.emplace_back();
+			Control.Check();
 			LOD.Positions =
 				SourceLOD.VertexBuffers.PositionVertexBuffer
 					.GetPositions();
+			Control.Check();
 			LOD.Normals =
 				SourceLOD.VertexBuffers.StaticMeshVertexBuffer
 					.TangentsVertexBuffer.GetNormals();
+			Control.Check();
 			LOD.Tangents =
 				SourceLOD.VertexBuffers.StaticMeshVertexBuffer
 					.TangentsVertexBuffer.GetTangents();
+			Control.Check();
 			LOD.Indices = SourceLOD.IndexBuffer.GetIndices();
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
+			if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
+				return Fail("Static-mesh runtime UV-channel count is invalid.", &OutError);
 			LOD.bHasVertexColors =
 				SourceLOD.bHasColorVertexData;
 			const auto& SourceTexCoords =
@@ -533,6 +587,7 @@ namespace Durin
 					.TexCoordVertexBuffer.GetTexCoords();
 			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
 			{
+				Control.Tick();
 				LOD.TexCoords[Channel] = SourceTexCoords[Channel];
 			}
 			if (LOD.bHasVertexColors)
@@ -544,6 +599,7 @@ namespace Durin
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshSection& SourceSection : SourceLOD.Sections)
 			{
+				Control.Tick();
 				LOD.Sections.push_back({
 					.FirstIndex = SourceSection.FirstIndex,
 					.IndexCount = SourceSection.IndexCount,
@@ -553,26 +609,38 @@ namespace Durin
 					.LocalBounds = SourceSection.LocalBounds});
 			}
 		}
-		if (!ValidatePayload(Payload, OutError)) return false;
+		if (!ValidatePayload(Payload, OutError, Control)) return false;
+		Control.Check();
 		OutPayload = std::move(Payload);
 		return true;
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		return Fail("StaticMesh payload operation was cancelled.", &OutError);
 	}
 
 	auto MakeStaticMeshRenderData(
 		const FStaticMeshPayloadData& Payload,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel) -> bool
+	try
 	{
-		if (!ValidatePayload(Payload, OutError)) return false;
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (!ValidatePayload(Payload, OutError, Control)) return false;
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->LocalBounds = Payload.LocalBounds;
 		RenderData->MaterialSlots.resize(Payload.MaterialSlotCount);
 		RenderData->LODResources.reserve(Payload.LODs.size());
 		for (const FStaticMeshPayloadLOD& SourceLOD : Payload.LODs)
 		{
+			Control.Tick();
 			FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+			Control.Check();
 			LOD.VertexBuffers.PositionVertexBuffer.Init(
 				SourceLOD.Positions);
+			Control.Check();
 			LOD.VertexBuffers.ColorVertexBuffer.Init(
 				SourceLOD.Colors,
 				static_cast<uint32>(
@@ -587,18 +655,21 @@ namespace Durin
 					static_cast<uint32>(
 						SourceLOD.Positions.size()),
 					SourceLOD.NumTexCoords);
+			Control.Check();
 			LOD.IndexBuffer.Init(SourceLOD.Indices);
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			LOD.bHasColorVertexData =
 				SourceLOD.bHasVertexColors;
+			Control.Check();
 			LOD.VertexBuffers.Finalize(
 				LOD.NumTexCoords,
 				LOD.bHasColorVertexData);
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshPayloadSection& SourceSection : SourceLOD.Sections)
 			{
+				Control.Tick();
 				LOD.Sections.push_back({
 					.FirstIndex = SourceSection.FirstIndex,
 					.IndexCount = SourceSection.IndexCount,
@@ -608,8 +679,13 @@ namespace Durin
 					.LocalBounds = SourceSection.LocalBounds});
 			}
 		}
+		Control.Check();
 		OutRenderData = std::move(RenderData);
 		return true;
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		return Fail("StaticMesh payload operation was cancelled.", &OutError);
 	}
 
 	namespace
@@ -643,8 +719,12 @@ namespace Durin
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
 		FStaticMeshCollisionPayloadData& OutPayload,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel) -> bool
+	try
 	{
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
 		if (!Geometry || (Geometry.GetKind() != ECollisionGeometryKind::ConvexHull
 			&& Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh))
 			return Fail("Collision payload requires one valid hull or triangle mesh.", &OutError);
@@ -656,6 +736,7 @@ namespace Durin
 		Candidate.Positions.reserve(Geometry.GetVertexCount());
 		for (uint32 Index = 0; Index < Geometry.GetVertexCount(); ++Index)
 		{
+			Control.Tick();
 			const FVector3* Vertex = Geometry.GetVertex(Index);
 			if (!Vertex || !Math::IsFinite(*Vertex))
 				return Fail("Collision geometry contains an invalid vertex.", &OutError);
@@ -668,6 +749,7 @@ namespace Durin
 		Candidate.SourceOrdinals.reserve(Geometry.GetTriangleCount());
 		for (uint32 Index = 0; Index < Geometry.GetTriangleCount(); ++Index)
 		{
+			Control.Tick();
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
 			if (!Triangle) return Fail("Collision geometry has an invalid triangle.", &OutError);
 			Candidate.Indices.insert(Candidate.Indices.end(),
@@ -677,6 +759,7 @@ namespace Durin
 		Candidate.Nodes.reserve(Geometry.GetNodeCount());
 		for (uint32 Index = 0; Index < Geometry.GetNodeCount(); ++Index)
 		{
+			Control.Tick();
 			const FCollisionGeometryNode* Node = Geometry.GetNode(Index);
 			if (!Node) return Fail("Collision geometry has an invalid BVH node.", &OutError);
 			Candidate.Nodes.push_back(*Node);
@@ -684,21 +767,31 @@ namespace Durin
 		Candidate.LeafTriangles.reserve(Geometry.GetLeafTriangleCount());
 		for (uint32 Index = 0; Index < Geometry.GetLeafTriangleCount(); ++Index)
 		{
+			Control.Tick();
 			const uint32 TriangleIndex = Geometry.GetLeafTriangle(Index);
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(TriangleIndex);
 			if (!Triangle) return Fail("Collision geometry has an invalid BVH membership.", &OutError);
 			Candidate.LeafTriangles.push_back(Triangle->SourceOrdinal);
 		}
+		Control.Check();
 		OutPayload = std::move(Candidate);
 		OutError.clear();
 		return true;
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		return Fail("StaticMesh payload operation was cancelled.", &OutError);
 	}
 
 	auto MakeStaticMeshCollisionGeometry(
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		const std::function<bool()>& ShouldCancel) -> bool
+	try
 	{
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
 		if (Payload.Positions.empty() || Payload.Indices.empty()
 			|| Payload.Indices.size() % 3 != 0
 			|| Payload.SourceOrdinals.size() != Payload.Indices.size() / 3)
@@ -707,6 +800,7 @@ namespace Durin
 		Vertices.reserve(Payload.Positions.size());
 		for (const FVector3f& Position : Payload.Positions)
 		{
+			Control.Tick();
 			if (!Math::IsFinite(Position)) return Fail("Collision payload contains a non-finite position.", &OutError);
 			Vertices.emplace_back(Position);
 		}
@@ -715,54 +809,64 @@ namespace Durin
 		{
 			if (!Payload.Nodes.empty() || !Payload.LeafTriangles.empty())
 				return Fail("Convex collision payload must not contain a BVH.", &OutError);
-			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices);
+			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices, ShouldCancel);
 		}
 		else if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 		{
 			std::map<uint32, uint32> OrdinalToTriangle;
 			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
+			{
+				Control.Tick();
 				if (!OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle).second)
 					return Fail("Collision payload source ordinals are not unique.", &OutError);
+			}
 			std::vector<uint32> LeafTriangles;
 			LeafTriangles.reserve(Payload.LeafTriangles.size());
 			for (uint32 Ordinal : Payload.LeafTriangles)
 			{
+				Control.Tick();
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
 					return Fail("Collision BVH references an unknown source ordinal.", &OutError);
 				LeafTriangles.push_back(Found->second);
 			}
 			Candidate = FCollisionGeometryRef::MakeCookedTriangleMesh(
-				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles);
+				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles, ShouldCancel);
 		}
 		else return Fail("Collision payload source mode is invalid.", &OutError);
 		if (!Candidate) return Fail("Collision payload topology or BVH is invalid.", &OutError);
+		Control.Check();
 		OutGeometry = Candidate;
 		OutError.clear();
 		return true;
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		return Fail("StaticMesh payload operation was cancelled.", &OutError);
 	}
 
 	auto BuildStaticMeshCollisionSerializedValue(
 		const FStaticMeshCollisionPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
 		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		std::string& OutError, FPayloadBuildControl& Control) -> bool
 	{
 		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
 			return Fail("A concrete target platform is required for DCOL encoding.", &OutError);
 		FCollisionGeometryRef ValidationGeometry;
-		if (!MakeStaticMeshCollisionGeometry(Payload, ValidationGeometry, OutError)) return false;
+		if (!MakeStaticMeshCollisionGeometry(Payload, ValidationGeometry, OutError, Control.ShouldCancel)) return false;
 		std::vector<uint32> StoredIndices;
 		std::vector<uint32> StoredOrdinals;
 		if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 		{
 			std::map<uint32, uint32> OrdinalToTriangle;
 			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
-				OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle);
+				{ Control.Tick(); OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle); }
 			StoredIndices.reserve(Payload.Indices.size());
 			StoredOrdinals.reserve(Payload.LeafTriangles.size());
 			for (uint32 Ordinal : Payload.LeafTriangles)
 			{
+				Control.Tick();
 				const auto Found = OrdinalToTriangle.find(Ordinal);
 				if (Found == OrdinalToTriangle.end())
 					return Fail("DCOL leaf ordering references an unknown source ordinal.", &OutError);
@@ -780,17 +884,18 @@ namespace Durin
 		std::array<FByteBuffer, 4> Chunks;
 		FPayloadWriter Positions;
 		for (const FVector3f& Position : Payload.Positions)
-			for (uint32 Axis = 0; Axis < 3; ++Axis) Positions.WriteFloat(Position[Axis]);
+			for (uint32 Axis = 0; Axis < 3; ++Axis) { Control.Tick(); Positions.WriteFloat(Position[Axis]); }
 		Chunks[0] = Positions.TakeBytes();
 		FPayloadWriter Indices;
-		for (uint32 Index : StoredIndices) Indices.WriteU32(Index);
+		for (uint32 Index : StoredIndices) { Control.Tick(); Indices.WriteU32(Index); }
 		Chunks[1] = Indices.TakeBytes();
 		FPayloadWriter Ordinals;
-		for (uint32 Ordinal : StoredOrdinals) Ordinals.WriteU32(Ordinal);
+		for (uint32 Ordinal : StoredOrdinals) { Control.Tick(); Ordinals.WriteU32(Ordinal); }
 		Chunks[2] = Ordinals.TakeBytes();
 		FPayloadWriter Nodes;
 		for (const FCollisionGeometryNode& Node : Payload.Nodes)
 		{
+			Control.Tick();
 			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Minimum[Axis]);
 			Nodes.WriteU32(Node.First);
 			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Maximum[Axis]);
@@ -803,6 +908,7 @@ namespace Durin
 			+ Chunks.size() * StaticMeshCollisionPayloadChunkEntrySize, std::byte{0});
 		for (uint32 Chunk = 0; Chunk < Chunks.size(); ++Chunk)
 		{
+			Control.Tick();
 			const uint64 Offset = AlignCollisionOffset(Bytes.size());
 			if (Offset > MaximumStaticMeshCollisionPayloadBytes
 				|| Chunks[Chunk].size() > MaximumStaticMeshCollisionPayloadBytes - Offset)
@@ -817,6 +923,7 @@ namespace Durin
 			WriteCollisionU64(Bytes, Entry + 24, Counts[Chunk]);
 			Bytes.insert(Bytes.end(), Chunks[Chunk].begin(), Chunks[Chunk].end());
 		}
+		Control.Check();
 		const uint64 LogicalBytes = Payload.Positions.size() * sizeof(FVector3f)
 			+ Payload.Indices.size() * sizeof(uint32)
 			+ Payload.SourceOrdinals.size() * sizeof(uint32)
@@ -837,13 +944,14 @@ namespace Durin
 		WriteCollisionU32(Bytes, 60, 0);
 		OutBytes = std::move(Bytes);
 		OutError.clear();
+		Control.Check();
 		return true;
 	}
 
 	auto ParseStaticMeshCollisionSerializedValue(
 		FByteView Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshCollisionPayloadData& OutPayload) -> FDecodeResult
+		FStaticMeshCollisionPayloadData& OutPayload, FPayloadBuildControl& Control) -> FDecodeResult
 	{
 		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
 		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
@@ -874,6 +982,7 @@ namespace Durin
 			+ ChunkCount * StaticMeshCollisionPayloadChunkEntrySize;
 		for (uint32 Chunk = 0; Chunk < ChunkCount; ++Chunk)
 		{
+			Control.Tick();
 			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
 				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
 			uint32 Type = 0, Flags = 0;
@@ -886,8 +995,11 @@ namespace Durin
 				|| Count * ElementSizes[Chunk] != Size)
 				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL chunk table is invalid.");
 			for (uint64 Padding = PreviousEnd; Padding < Offset; ++Padding)
+			{
+				Control.Tick();
 				if (Bytes[Padding] != std::byte{0})
 					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL alignment padding is non-zero.");
+			}
 			Chunks[Chunk] = Bytes.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size));
 			Counts[Chunk] = Count;
 			PreviousEnd = Offset + Size;
@@ -903,25 +1015,36 @@ namespace Durin
 			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
 			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
 		Candidate.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		Control.Check();
 		FPayloadReader PositionReader(Chunks[0]);
 		Candidate.Positions.resize(static_cast<size_t>(Counts[0]));
 		for (FVector3f& Position : Candidate.Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
+			{
+				Control.Tick();
 				if (!PositionReader.ReadFloat(Position[Axis]) || !std::isfinite(Position[Axis]))
 					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL position data is invalid.");
-		auto ReadU32Chunk = [](FByteView Bytes, uint64 Count, std::vector<uint32>& Out) {
+			}
+		auto ReadU32Chunk = [&Control](FByteView Bytes, uint64 Count, std::vector<uint32>& Out) {
 			FPayloadReader Reader(Bytes);
+			Control.Check();
 			Out.resize(static_cast<size_t>(Count));
-			for (uint32& Value : Out) if (!Reader.ReadU32(Value)) return false;
+			for (uint32& Value : Out)
+			{
+				Control.Tick();
+				if (!Reader.ReadU32(Value)) return false;
+			}
 			return Reader.IsAtEnd();
 		};
 		if (!ReadU32Chunk(Chunks[1], Counts[1], Candidate.Indices)
 			|| !ReadU32Chunk(Chunks[2], Counts[2], Candidate.SourceOrdinals))
 			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL index or ordinal data is invalid.");
 		FPayloadReader NodeReader(Chunks[3]);
+		Control.Check();
 		Candidate.Nodes.resize(static_cast<size_t>(Counts[3]));
 		for (FCollisionGeometryNode& Node : Candidate.Nodes)
 		{
+			Control.Tick();
 			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Minimum[Axis]))
 				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
 			if (!NodeReader.ReadU32(Node.First))
@@ -935,7 +1058,7 @@ namespace Durin
 			Candidate.LeafTriangles = Candidate.SourceOrdinals;
 		FCollisionGeometryRef Geometry;
 		std::string Error;
-		if (!MakeStaticMeshCollisionGeometry(Candidate, Geometry, Error))
+		if (!MakeStaticMeshCollisionGeometry(Candidate, Geometry, Error, Control.ShouldCancel))
 			return CollisionDecodeFailure(EDecodeError::Corrupt, std::move(Error));
 		OutPayload = std::move(Candidate);
 		return {};
@@ -943,8 +1066,12 @@ namespace Durin
 
 	auto FStaticMeshPayloadData::Serialize(
 		FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform) -> void
+		EStaticMeshTargetPlatform TargetPlatform,
+		const std::function<bool()>& ShouldCancel) -> void
+	try
 	{
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
 		SerializeBoundedArchivePayload(
 			Ar,
 			*this,
@@ -952,17 +1079,25 @@ namespace Durin
 			[&](const FStaticMeshPayloadData& Value,
 				FByteBuffer& Bytes, std::string& Error) {
 				return BuildStaticMeshSerializedValue(
-					Value, TargetPlatform, Bytes, Error);
+					Value, TargetPlatform, Bytes, Error, Control);
 			},
 			[&](FByteView Bytes, FStaticMeshPayloadData& Candidate) {
-				return ParseStaticMeshSerializedValue(Bytes, TargetPlatform, Candidate);
+				return ParseStaticMeshSerializedValue(Bytes, TargetPlatform, Candidate, Control);
 			});
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		Ar.Fail(EArchiveFailureCode::InvalidData, "StaticMesh payload operation was cancelled.");
 	}
 
 	auto FStaticMeshCollisionPayloadData::Serialize(
 		FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform) -> void
+		EStaticMeshTargetPlatform TargetPlatform,
+		const std::function<bool()>& ShouldCancel) -> void
+	try
 	{
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
 		SerializeBoundedArchivePayload(
 			Ar,
 			*this,
@@ -970,12 +1105,16 @@ namespace Durin
 			[&](const FStaticMeshCollisionPayloadData& Value,
 				FByteBuffer& Bytes, std::string& Error) {
 				return BuildStaticMeshCollisionSerializedValue(
-					Value, TargetPlatform, Bytes, Error);
+					Value, TargetPlatform, Bytes, Error, Control);
 			},
 			[&](FByteView Bytes,
 				FStaticMeshCollisionPayloadData& Candidate) {
 				return ParseStaticMeshCollisionSerializedValue(
-					Bytes, TargetPlatform, Candidate);
+					Bytes, TargetPlatform, Candidate, Control);
 			});
+	}
+	catch (const FPayloadBuildCancelled&)
+	{
+		Ar.Fail(EArchiveFailureCode::InvalidData, "StaticMesh payload operation was cancelled.");
 	}
 }

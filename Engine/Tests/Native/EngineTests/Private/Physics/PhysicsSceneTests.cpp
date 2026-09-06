@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
 #include "Collision/CollisionGeometry.h"
@@ -291,6 +292,9 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
 	Durin::DWorld* FirstWorld = CreatePhysicsWorld();
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
+	if (!Durin::IsTaskSchedulerRunning()) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
 	Durin::FStaticMeshDecodedGeometry Imported;

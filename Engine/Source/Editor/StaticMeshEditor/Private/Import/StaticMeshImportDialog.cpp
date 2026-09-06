@@ -12,6 +12,7 @@
 #include "MonaImGui.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
+#include "DObject/Package.h"
 
 namespace Durin::Editor::StaticMesh
 {
@@ -33,8 +34,29 @@ namespace Durin::Editor::StaticMesh
 	{
 	}
 
+	struct FStaticMeshImportDialog::FOperationState
+	{
+		FObjectHandle Owner;
+		FPackagePath Package;
+		std::optional<FStaticMeshCompilationDiagnostic> Result;
+		bool bSaveFailed = false;
+	};
+
+	FStaticMeshImportDialog::~FStaticMeshImportDialog()
+	{
+		auto Detached = std::move(Operation);
+		if (Detached && !Detached->Result)
+			if (auto* Mesh = Cast<DStaticMesh>(ResolveObjectHandle(Detached->Owner)))
+			{
+				CancelStaticMeshCompilation(*Mesh);
+				// Module/widget retirement releases the callback code before the owning DLL can unload.
+				FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+			}
+	}
+
 	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
+		if (Operation) return;
 		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
 		Destination.Reset(DestinationDirectory);
@@ -52,6 +74,25 @@ namespace Durin::Editor::StaticMesh
 				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
+		if (bAllowAssetMutation && Operation && Operation->Result && !Operation->bSaveFailed && FinishImport())
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+		const bool bBusy = Operation && !Operation->Result;
+		if (bBusy) ImGui::TextDisabled("Building mesh...");
+		if (Operation && Operation->bSaveFailed)
+		{
+			ImGui::TextWrapped("The mesh is ready, but its package could not be saved. Retry saving or close and keep the dirty asset.");
+			if (ImGui::Button("Retry Save") && bAllowAssetMutation && FinishImport())
+			{
+				ImGui::CloseCurrentPopup();
+				ImGui::EndPopup();
+				return;
+			}
+		}
+		ImGui::BeginDisabled(Operation != nullptr);
 		ImGui::TextUnformatted("Create one geometry-only StaticMesh from a model file.");
 		ImGui::TextDisabled("Materials and textures are not created; use Scene Source for a complete FBX or glTF scene.");
 		ImGui::Spacing();
@@ -119,7 +160,10 @@ namespace Durin::Editor::StaticMesh
 			ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
+		ImGui::EndDisabled();
+		ImGui::BeginDisabled(Operation && !Operation->Result);
+		if (MonaImGui::DialogButton("Cancel", true)) { Operation.reset(); ImGui::CloseCurrentPopup(); }
+		ImGui::EndDisabled();
 		ImGui::EndPopup();
 	}
 
@@ -203,15 +247,37 @@ namespace Durin::Editor::StaticMesh
 		auto* Factory = NewObject<AssetForge::Builtins::DStaticMeshFactory>(
 			nullptr, "StaticMeshDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Coordinates.GetSettings());
+		Operation = std::make_shared<FOperationState>();
+		Operation->Package = AssetPath;
+		Factory->SetAsyncImportCompletion([Weak = std::weak_ptr<FOperationState>(Operation)](const auto& Result) {
+			if (auto State = Weak.lock()) State->Result = Result;
+		});
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			TopLevelAssetPath, DStaticMesh::StaticClass(),
 			SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
+			Operation.reset();
 			SetError(Result.Message.empty()
 				? "StaticMesh import failed." : Result.Message);
 			return false;
 		}
+		Operation->Owner = MakeObjectHandle(Result.Asset);
+		return false; // Keep the modal open until completion and save.
+	}
+
+	auto FStaticMeshImportDialog::FinishImport() -> bool
+	{
+		if (!Operation || !Operation->Result) return false;
+		if (Operation->Result->Status != EStaticMeshCompilationStatus::Succeeded)
+		{
+			SetError(Operation->Result->Message.empty() ? "StaticMesh import did not complete." : Operation->Result->Message);
+			const auto Package = Operation->Package;
+			Operation.reset();
+			UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return false;
+		}
+		const auto AssetPath = Operation->Package;
 		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
 				.Publish = [this, &AssetPath](const FAssetOperationNotification&) {
@@ -219,11 +285,13 @@ namespace Durin::Editor::StaticMesh
 				}});
 			!Saved)
 		{
+			Operation->bSaveFailed = true;
 			SetError(Saved.Message.empty()
 				? "StaticMesh was created but its package could not be saved."
 				: Saved.Message);
 			return false;
 		}
+		Operation.reset();
 		UnloadPackage(AssetPath);
 		return true;
 	}

@@ -10,6 +10,7 @@ namespace Durin::Editor::StaticMesh
 	{
 	public:
 		explicit FStaticMeshImportDialog(FImportDialogCallbacks InCallbacks);
+		~FStaticMeshImportDialog();
 		FStaticMeshImportDialog(const FStaticMeshImportDialog&) = delete;
 		auto operator=(const FStaticMeshImportDialog&) -> FStaticMeshImportDialog& = delete;
 
@@ -21,6 +22,9 @@ namespace Durin::Editor::StaticMesh
 		auto BrowseDestination() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
+		auto FinishImport() -> bool;
+		struct FOperationState;
+		std::shared_ptr<FOperationState> Operation;
 
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;

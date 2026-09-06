@@ -9,6 +9,27 @@ namespace Durin
 	{
 		constexpr float VectorTolerance = 1.0e-10f;
 
+		struct FRecipeCancelled {};
+
+		// Unwinds only the synchronous recipe stack; no exception crosses the provider ABI.
+		struct FRecipeControl
+		{
+			const FStaticMeshBuildExecutionControl& Execution;
+			uint32 WorkSinceCheckpoint = 0;
+
+			auto Check() const -> void
+			{
+				if (Execution.IsCancelled()) throw FRecipeCancelled{};
+			}
+
+			auto Tick() -> void
+			{
+				if (++WorkSinceCheckpoint < 256) return;
+				WorkSinceCheckpoint = 0;
+				Check();
+			}
+		};
+
 		auto SlotDefinitionsEqual(
 			std::span<const FStaticMeshRecipeMaterialSlot> A,
 			std::span<const FStaticMeshRecipeMaterialSlot> B) -> bool
@@ -34,11 +55,12 @@ namespace Durin
 			return SafeNormalize(Math::Cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
 		}
 
-		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices) -> std::vector<FVector3f>
+		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices, FRecipeControl& Control) -> std::vector<FVector3f>
 		{
 			std::vector<FVector3f> Normals(Positions.size(), FVector3f(0.0f));
 			for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
 			{
+				Control.Tick();
 				const uint32 I0 = Indices[Index];
 				const uint32 I1 = Indices[Index + 1];
 				const uint32 I2 = Indices[Index + 2];
@@ -48,7 +70,11 @@ namespace Durin
 				Normals[I1] += FaceNormal;
 				Normals[I2] += FaceNormal;
 			}
-			for (FVector3f& Normal : Normals) Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+			for (FVector3f& Normal : Normals)
+			{
+				Control.Tick();
+				Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+			}
 			return Normals;
 		}
 
@@ -56,7 +82,7 @@ namespace Durin
 			const std::vector<FVector3f>& Positions,
 			const std::vector<FVector3f>& Normals,
 			const std::vector<FVector2f>& UV0,
-			const std::vector<uint32>& Indices) -> std::vector<FVector4f>
+			const std::vector<uint32>& Indices, FRecipeControl& Control) -> std::vector<FVector4f>
 		{
 			std::vector<FVector3f> TangentAccum(Positions.size(), FVector3f(0.0f));
 			std::vector<FVector3f> BitangentAccum(Positions.size(), FVector3f(0.0f));
@@ -65,6 +91,7 @@ namespace Durin
 			{
 				for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
 				{
+					Control.Tick();
 					const uint32 I0 = Indices[Index];
 					const uint32 I1 = Indices[Index + 1];
 					const uint32 I2 = Indices[Index + 2];
@@ -80,6 +107,7 @@ namespace Durin
 					if (!Math::IsFinite(Tangent) || !Math::IsFinite(Bitangent)) continue;
 					for (uint32 VertexIndex : {I0, I1, I2})
 					{
+						Control.Tick();
 						TangentAccum[VertexIndex] += Tangent;
 						BitangentAccum[VertexIndex] += Bitangent;
 					}
@@ -89,6 +117,7 @@ namespace Durin
 			std::vector<FVector4f> Tangents(Positions.size());
 			for (size_t VertexIndex = 0; VertexIndex < Positions.size(); ++VertexIndex)
 			{
+				Control.Tick();
 				const FVector3f& Normal = Normals[VertexIndex];
 				const FVector3f Orthogonalized = TangentAccum[VertexIndex] - Normal * Math::Dot(Normal, TangentAccum[VertexIndex]);
 				const FVector3f Tangent = SafeNormalize(Orthogonalized, MakeStableTangent(Normal));
@@ -98,22 +127,24 @@ namespace Durin
 			return Tangents;
 		}
 
-		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices) -> bool
+		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices, FRecipeControl& Control) -> bool
 		{
-			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [](const FVector3f& Normal) {
+			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [&Control](const FVector3f& Normal) {
+				Control.Tick();
 				return Math::IsFinite(Normal) && Math::LengthSquared(Normal) > VectorTolerance;
 			});
 		}
 
-		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices) -> bool
+		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices, FRecipeControl& Control) -> bool
 		{
-			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [](const FVector4f& Tangent) {
+			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [&Control](const FVector4f& Tangent) {
+				Control.Tick();
 				const FVector3f Direction(Tangent);
 				return Math::IsFinite(Tangent) && Math::LengthSquared(Direction) > VectorTolerance && std::abs(Tangent.w) > 0.5f;
 			});
 		}
 
-		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, std::string& OutError) -> bool
+		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, std::string& OutError, FRecipeControl& Control) -> bool
 		{
 			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
 			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
@@ -126,13 +157,14 @@ namespace Durin
 				OutError = std::format("Mesh '{}' index count is not a triangle list.", Mesh.Name);
 				return false;
 			}
-			if (!std::ranges::all_of(Mesh.Positions, [](const FVector3f& Position) { return Math::IsFinite(Position); }))
+			if (!std::ranges::all_of(Mesh.Positions, [&Control](const FVector3f& Position) { Control.Tick(); return Math::IsFinite(Position); }))
 			{
 				OutError = std::format("Mesh '{}' contains a non-finite position.", Mesh.Name);
 				return false;
 			}
 			for (uint32 Index : Mesh.Indices)
 			{
+				Control.Tick();
 				if (Index >= Mesh.Positions.size())
 				{
 					OutError = std::format("Mesh '{}' contains an out-of-range index {}.", Mesh.Name, Index);
@@ -158,8 +190,22 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
-		std::string& OutError) -> bool
+		std::string& OutError, FRecipeControl& Control) -> bool
 	{
+		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
+		bool bFits = Memory.Add(1, 1024 * 1024)
+			&& Memory.Add(ImportedData.Meshes.size(), 1024)
+			&& Memory.Add(std::max(PreviousMaterialSlots.size(), ImportedData.MaterialSlots.size()), 32768);
+		for (const auto& Mesh : ImportedData.Meshes)
+		{
+			Control.Tick();
+			bFits = bFits && Memory.Add(Mesh.Positions.size(), 512) && Memory.Add(Mesh.Indices.size(), 192);
+		}
+		if (!bFits)
+		{
+			OutError = "StaticMesh predicted render working set exceeds its reservation.";
+			return false;
+		}
 		const std::vector<FStaticMeshRecipeMaterialSlot> PreviousSlots(
 			PreviousMaterialSlots.begin(), PreviousMaterialSlots.end());
 		std::vector<FStaticMeshRecipeMaterialSlot> ReconciledSlots = PreviousSlots;
@@ -187,21 +233,27 @@ namespace Durin
 
 		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
+			Control.Tick();
 			const std::string& SourceName = ImportedData.MaterialSlots[NewIndex].SourceName;
 			if (SourceName.empty()) continue;
 			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
-			const auto It = std::ranges::find(PreviousSlots, SourceName, &FStaticMeshRecipeMaterialSlot::SourceName);
+			const auto It = std::ranges::find_if(PreviousSlots, [&](const auto& Slot) {
+				Control.Tick();
+				return Slot.SourceName == SourceName;
+			});
 			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
 		}
 
 		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
+			Control.Tick();
 			if (NewMatched[NewIndex]) continue;
 			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			if (OldSourceIndexCounts[Imported.SourceMaterialIndex] != 1
 				|| NewSourceIndexCounts[Imported.SourceMaterialIndex] != 1) continue;
 			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
 			{
+				Control.Tick();
 				const FStaticMeshRecipeMaterialSlot& Previous = PreviousSlots[OldIndex];
 				if (OldConsumed[OldIndex]
 					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
@@ -215,7 +267,10 @@ namespace Durin
 			if (BaseName.empty() || FName(BaseName).IsNone()) BaseName = "Material";
 			FName Candidate(BaseName);
 			uint32 Suffix = 1;
-			while (std::ranges::find(ReconciledSlots, Candidate, &FStaticMeshRecipeMaterialSlot::Name)
+			while (std::ranges::find_if(ReconciledSlots, [&](const auto& Slot) {
+				Control.Tick();
+				return Slot.Name == Candidate;
+			})
 				!= ReconciledSlots.end())
 			{
 				Candidate = FName(std::format("{}_{}", BaseName, Suffix++));
@@ -225,6 +280,7 @@ namespace Durin
 
 		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
+			Control.Tick();
 			if (NewMatched[NewIndex]) continue;
 			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			FStaticMeshRecipeMaterialSlot& Definition = ReconciledSlots.emplace_back();
@@ -249,6 +305,7 @@ namespace Durin
 		uint32 RetiredSourceIndex = 0;
 		for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
 		{
+			Control.Tick();
 			if (OldConsumed[OldIndex]) continue;
 			while (AssignedSourceIndices.contains(RetiredSourceIndex))
 				++RetiredSourceIndex;
@@ -263,11 +320,13 @@ namespace Durin
 		RenderData->MaterialSlots.reserve(ReconciledSlots.size());
 		for (const FStaticMeshRecipeMaterialSlot& Slot : ReconciledSlots)
 		{
+			Control.Tick();
 			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
 		}
 		std::unordered_map<uint32, uint32> ImportedSourceToIndex;
 		for (uint32 ImportedIndex = 0; ImportedIndex < ImportedData.MaterialSlots.size(); ++ImportedIndex)
 		{
+			Control.Tick();
 			const uint32 SourceIndex = ImportedData.MaterialSlots[ImportedIndex].SourceMaterialIndex;
 			if (!ImportedSourceToIndex.emplace(SourceIndex, ImportedIndex).second)
 			{
@@ -296,7 +355,8 @@ namespace Durin
 		std::unordered_map<std::string, uint32> SectionNameCounts;
 		for (const FStaticMeshImportedMesh& ImportedMesh : ImportedData.Meshes)
 		{
-			if (!ValidateImportedMesh(ImportedMesh, OutError))
+			Control.Tick();
+			if (!ValidateImportedMesh(ImportedMesh, OutError, Control))
 			{
 				if (!OutError.empty()) return false;
 				continue;
@@ -315,19 +375,24 @@ namespace Durin
 				ImportedMesh.Positions.begin(),
 				ImportedMesh.Positions.end());
 
-			std::vector<FVector3f> MeshNormals = HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size())
+			std::vector<FVector3f> MeshNormals = HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size(), Control)
 				? ImportedMesh.Normals
-				: BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices);
-			for (FVector3f& Normal : MeshNormals) Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+				: BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices, Control);
+			for (FVector3f& Normal : MeshNormals)
+			{
+				Control.Tick();
+				Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+			}
 			Normals.insert(
 				Normals.end(), MeshNormals.begin(), MeshNormals.end());
 
 			std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> MeshTexCoords;
 			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 			{
+				Control.Tick();
 				const auto& ImportedTexCoords = ImportedMesh.UVChannels[Channel];
 				const bool bValidChannel = ImportedTexCoords.size() == ImportedMesh.Positions.size()
-					&& std::ranges::all_of(ImportedTexCoords, [](const FVector2f& UV) { return Math::IsFinite(UV); });
+					&& std::ranges::all_of(ImportedTexCoords, [&Control](const FVector2f& UV) { Control.Tick(); return Math::IsFinite(UV); });
 				if (bValidChannel)
 				{
 					MeshTexCoords[Channel] = ImportedTexCoords;
@@ -344,11 +409,12 @@ namespace Durin
 			}
 
 			std::vector<FVector4f> MeshTangents;
-			if (HasValidTangents(ImportedMesh.Tangents, ImportedMesh.Positions.size()))
+			if (HasValidTangents(ImportedMesh.Tangents, ImportedMesh.Positions.size(), Control))
 			{
 				MeshTangents.reserve(ImportedMesh.Tangents.size());
 				for (size_t VertexIndex = 0; VertexIndex < ImportedMesh.Tangents.size(); ++VertexIndex)
 				{
+					Control.Tick();
 					const FVector3f& Normal = MeshNormals[VertexIndex];
 					const FVector3f SourceTangent(ImportedMesh.Tangents[VertexIndex]);
 					const FVector3f Tangent = SafeNormalize(SourceTangent - Normal * Math::Dot(Normal, SourceTangent), MakeStableTangent(Normal));
@@ -357,7 +423,7 @@ namespace Durin
 			}
 			else
 			{
-				MeshTangents = BuildTangents(ImportedMesh.Positions, MeshNormals, MeshTexCoords[0], ImportedMesh.Indices);
+				MeshTangents = BuildTangents(ImportedMesh.Positions, MeshNormals, MeshTexCoords[0], ImportedMesh.Indices, Control);
 			}
 			Tangents.insert(
 				Tangents.end(),
@@ -365,7 +431,7 @@ namespace Durin
 				MeshTangents.end());
 
 			const bool bValidColors = ImportedMesh.Colors.size() == ImportedMesh.Positions.size()
-				&& std::ranges::all_of(ImportedMesh.Colors, [](const FVector4f& Color) { return Math::IsFinite(Color); });
+				&& std::ranges::all_of(ImportedMesh.Colors, [&Control](const FVector4f& Color) { Control.Tick(); return Math::IsFinite(Color); });
 			if (bValidColors)
 			{
 				Colors.insert(
@@ -384,8 +450,13 @@ namespace Durin
 
 			Indices.reserve(
 				Indices.size() + ImportedMesh.Indices.size());
+			uint32 MinimumIndex = std::numeric_limits<uint32>::max();
+			uint32 MaximumIndex = 0;
 			for (uint32 Index : ImportedMesh.Indices)
 			{
+				Control.Tick();
+				MinimumIndex = std::min(MinimumIndex, Index);
+				MaximumIndex = std::max(MaximumIndex, Index);
 				Indices.push_back(BaseVertexIndex + Index);
 			}
 
@@ -393,8 +464,8 @@ namespace Durin
 			Section.Name = MakeUniqueSectionName(ImportedMesh.Name, static_cast<uint32>(LOD.Sections.size()), SectionNameCounts);
 			Section.FirstIndex = FirstIndex;
 			Section.IndexCount = static_cast<uint32>(ImportedMesh.Indices.size());
-			Section.MinVertexIndex = BaseVertexIndex + *std::ranges::min_element(ImportedMesh.Indices);
-			Section.MaxVertexIndex = BaseVertexIndex + *std::ranges::max_element(ImportedMesh.Indices);
+			Section.MinVertexIndex = BaseVertexIndex + MinimumIndex;
+			Section.MaxVertexIndex = BaseVertexIndex + MaximumIndex;
 			const auto ImportedSlot = ImportedSourceToIndex.find(ImportedMesh.SourceMaterialIndex);
 			if (ImportedSlot == ImportedSourceToIndex.end())
 			{
@@ -412,7 +483,8 @@ namespace Durin
 			return false;
 		}
 
-		RenderData->RecalculateBounds();
+		if (!RenderData->RecalculateBounds([&] { return Control.Execution.IsCancelled(); }))
+			throw FRecipeCancelled{};
 		const FVector3f BoundsMin(RenderData->LocalBounds.Min);
 		const FVector3f BoundsMax(RenderData->LocalBounds.Max);
 
@@ -428,11 +500,13 @@ namespace Durin
 		const float Scale = NormalizedSize / MaxDimension;
 		for (FVector3f& Position : Positions)
 		{
+			Control.Tick();
 			Position = (Position - BoundsCenter) * Scale;
 		}
 		LOD.VertexBuffers.Finalize(
 			LOD.NumTexCoords, LOD.bHasColorVertexData);
-		RenderData->RecalculateBounds();
+		if (!RenderData->RecalculateBounds([&] { return Control.Execution.IsCancelled(); }))
+			throw FRecipeCancelled{};
 
 		OutRenderData = std::move(RenderData);
 		OutMaterialSlots = std::move(ReconciledSlots);
@@ -443,12 +517,13 @@ namespace Durin
 
 	}
 
-	auto FStaticMeshBuildOperations::BuildRenderRecipe(
+	static auto BuildRenderRecipeInternal(
 		const FStaticMeshRecipeBuildRequest& Request,
 		FStaticMeshRecipeBuildProduct& OutProduct,
-		std::string& OutError) -> bool
+		std::string& OutError, FRecipeControl& Control) -> bool
 	{
 		OutProduct = {};
+		Control.Check();
 		if (!Request.Geometry)
 		{
 			OutError = "StaticMesh recipe requires decoded geometry.";
@@ -461,19 +536,26 @@ namespace Durin
 			OutProduct.RenderData,
 			OutProduct.MaterialSlots,
 			OutProduct.bSlotMetadataChanged,
-			OutError);
+			OutError, Control);
 	}
 
-	auto FStaticMeshBuildOperations::BuildCollisionRecipe(
+	static auto BuildCollisionRecipeInternal(
 		const FStaticMeshCollisionRecipeRequest& Request,
 		FStaticMeshCollisionRecipeProduct& OutProduct,
-		std::string& OutError) -> bool
+		std::string& OutError, FRecipeControl& Control) -> bool
 	{
 		OutProduct = {};
+		Control.Check();
 		if (Request.Mode == EBodySetupCollisionSourceMode::None)
 		{
 			OutError.clear();
 			return true;
+		}
+		if (Request.Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			&& Request.Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		{
+			OutError = "StaticMesh collision source mode is invalid.";
+			return false;
 		}
 		if (Request.Positions.empty() || Request.Indices.empty()
 			|| Request.Indices.size() % 3 != 0)
@@ -481,16 +563,29 @@ namespace Durin
 			OutError = "StaticMesh collision recipe input is empty or malformed.";
 			return false;
 		}
+		FStaticMeshBuildMemoryEstimate Memory{Control.Execution.MaximumWorkingSetBytes};
+		if (!Memory.Add(1, 1024 * 1024) || !Memory.Add(Request.Positions.size(), 512)
+			|| !Memory.Add(Request.Indices.size(), 192))
+		{
+			OutError = "StaticMesh predicted collision working set exceeds its reservation.";
+			return false;
+		}
 		FCollisionGeometryBuildDiagnostics Diagnostics;
 		std::vector<FVector3> CollisionPositions;
 		CollisionPositions.reserve(Request.Positions.size());
 		for (const FVector3f& Position : Request.Positions)
+		{
+			Control.Tick();
 			CollisionPositions.emplace_back(Position);
+		}
+		Control.Check();
+		const std::function<bool()> ShouldCancel = [&] { return Control.Execution.IsCancelled(); };
 		OutProduct.Geometry =
 			Request.Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			? FCollisionGeometryRef::BuildConvexHull(CollisionPositions, &Diagnostics)
+			? FCollisionGeometryRef::BuildConvexHull(CollisionPositions, &Diagnostics, ShouldCancel)
 			: FCollisionGeometryRef::BuildTriangleMesh(
-				CollisionPositions, Request.Indices, &Diagnostics);
+				CollisionPositions, Request.Indices, &Diagnostics, ShouldCancel);
+		if (Diagnostics.Status == ECollisionGeometryBuildStatus::Cancelled) throw FRecipeCancelled{};
 		if (!OutProduct.Geometry)
 		{
 			OutError = std::format(
@@ -502,4 +597,50 @@ namespace Durin
 		return true;
 	}
 
+
+	auto FStaticMeshBuildOperations::BuildRenderRecipe(const FStaticMeshRecipeBuildRequest& Request,
+		FStaticMeshRecipeBuildProduct& OutProduct, std::string& OutError,
+		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshBuildOutcome
+	{
+		OutProduct = {};
+		OutError.clear();
+		FRecipeControl Control{Execution};
+		try
+		{
+			const bool bSucceeded = BuildRenderRecipeInternal(Request, OutProduct, OutError, Control);
+			Control.Check();
+			if (!bSucceeded) OutProduct = {};
+			OutError.resize(std::min(OutError.size(), MaximumStaticMeshBuildDiagnosticBytes));
+			return {bSucceeded ? EStaticMeshBuildStatus::Succeeded : EStaticMeshBuildStatus::Failed, OutError};
+		}
+		catch (const FRecipeCancelled&)
+		{
+			OutProduct = {};
+			OutError = "StaticMesh render recipe was cancelled.";
+			return {EStaticMeshBuildStatus::Cancelled, OutError};
+		}
+	}
+
+	auto FStaticMeshBuildOperations::BuildCollisionRecipe(const FStaticMeshCollisionRecipeRequest& Request,
+		FStaticMeshCollisionRecipeProduct& OutProduct, std::string& OutError,
+		const FStaticMeshBuildExecutionControl& Execution) -> FStaticMeshBuildOutcome
+	{
+		OutProduct = {};
+		OutError.clear();
+		FRecipeControl Control{Execution};
+		try
+		{
+			const bool bSucceeded = BuildCollisionRecipeInternal(Request, OutProduct, OutError, Control);
+			Control.Check();
+			if (!bSucceeded) OutProduct = {};
+			OutError.resize(std::min(OutError.size(), MaximumStaticMeshBuildDiagnosticBytes));
+			return {bSucceeded ? EStaticMeshBuildStatus::Succeeded : EStaticMeshBuildStatus::Failed, OutError};
+		}
+		catch (const FRecipeCancelled&)
+		{
+			OutProduct = {};
+			OutError = "StaticMesh collision recipe was cancelled.";
+			return {EStaticMeshBuildStatus::Cancelled, OutError};
+		}
+	}
 }

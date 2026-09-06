@@ -4,6 +4,7 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Materials/Material.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -24,8 +25,12 @@ namespace Durin
 						if (!Object.IsA(T::StaticClass()))
 							return {EAssetError::TypeMismatch,
 								"Cook contributor received an incompatible object."};
-						(void)FAssetCompilingManager::Get()
-							.FinishCompilationForObject(Object);
+						if constexpr (std::is_same_v<T, DStaticMesh>)
+						{
+							if (HasPendingStaticMeshSourceMutation(static_cast<DStaticMesh&>(Object)))
+								FAssetCompilingManager::Get().FinishCompilationForObject(Object);
+						}
+						else FAssetCompilingManager::Get().FinishCompilationForObject(Object);
 						std::string Error;
 						if (!ContributeEngineCookAsset(
 								Object, VirtualPath, Context, Error))

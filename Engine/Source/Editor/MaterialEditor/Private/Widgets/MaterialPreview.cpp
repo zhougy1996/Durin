@@ -1,3 +1,4 @@
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "Widgets/MaterialPreview.h"
 
 #include "Asset/AssetRetention.h"
@@ -212,9 +213,11 @@ namespace Durin::Editor::Material
 				DStaticMesh* Mesh = GetSelectedMesh();
 				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
 				{
-					Error = "The selected material preview mesh has no render data.";
+					Error = Mesh && HasPendingStaticMeshCompilation(*Mesh)
+						? "Building preview mesh..." : "The selected material preview mesh has no render data.";
 					return;
 				}
+				Error.clear();
 				PreviewMesh->SetStaticMesh(Mesh);
 				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
 					PreviewMesh->SetMaterial(SlotIndex, Material);

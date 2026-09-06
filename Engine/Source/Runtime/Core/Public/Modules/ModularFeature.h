@@ -61,6 +61,8 @@ namespace Durin
 		EFeatureInvokeStatus Status = EFeatureInvokeStatus::Unavailable;
 		std::optional<std::remove_cvref_t<TResult>> Value;
 		uint32 MatchingRegistrationCount = 0;
+		// Process-local identity of the pinned registration; never a persistent cache key.
+		uint64 RegistrationIdentity = 0;
 
 		[[nodiscard]] auto WasInvoked() const -> bool { return Status == EFeatureInvokeStatus::Invoked; }
 	};
@@ -71,6 +73,8 @@ namespace Durin
 	{
 		EFeatureInvokeStatus Status = EFeatureInvokeStatus::Unavailable;
 		uint32 MatchingRegistrationCount = 0;
+		// Process-local identity of the pinned registration; never a persistent cache key.
+		uint64 RegistrationIdentity = 0;
 
 		[[nodiscard]] auto WasInvoked() const -> bool { return Status == EFeatureInvokeStatus::Invoked; }
 	};
@@ -132,6 +136,7 @@ namespace Durin
 
 			[[nodiscard]] auto IsValid() const -> bool { return Entry != nullptr; }
 			CORE_API auto GetImplementation() const -> IModularFeature*;
+			CORE_API auto GetRegistrationIdentity() const -> uint64;
 			CORE_API auto Enter() -> void;
 			CORE_API auto Leave() -> void;
 
@@ -175,7 +180,7 @@ namespace Durin
 		CORE_API static auto Get() -> FModularFeatureRegistry&;
 
 		template<CModularFeature T, typename F>
-		auto InvokeSingle(F&& Visitor) -> TFeatureInvokeResult<std::invoke_result_t<F, T&>>
+		auto InvokeSingle(F&& Visitor, uint64 ExpectedRegistrationIdentity = 0) -> TFeatureInvokeResult<std::invoke_result_t<F, T&>>
 		{
 			using TResult = std::invoke_result_t<F, T&>;
 			TFeatureInvokeResult<TResult> Result;
@@ -189,6 +194,9 @@ namespace Durin
 			}
 
 			auto& Invocation = Invocations.front();
+			Result.RegistrationIdentity = Invocation.GetRegistrationIdentity();
+			if (ExpectedRegistrationIdentity != 0
+				&& ExpectedRegistrationIdentity != Result.RegistrationIdentity) return Result;
 			Invocation.Enter();
 			try
 			{
@@ -222,6 +230,7 @@ namespace Durin
 			{
 				TFeatureInvokeResult<TResult> Item;
 				Item.MatchingRegistrationCount = 1;
+				Item.RegistrationIdentity = Invocation.GetRegistrationIdentity();
 				Invocation.Enter();
 				try
 				{

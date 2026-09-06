@@ -144,6 +144,11 @@ namespace Durin
 		return Entry ? Entry->Implementation : nullptr;
 	}
 
+	auto Detail::FModularFeatureInvocation::GetRegistrationIdentity() const -> uint64
+	{
+		return Entry ? Entry->Identity : 0;
+	}
+
 	auto Detail::FModularFeatureInvocation::Enter() -> void
 	{
 		if (!Entry || bEntered) return;

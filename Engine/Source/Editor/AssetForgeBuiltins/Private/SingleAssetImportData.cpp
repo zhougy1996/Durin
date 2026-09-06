@@ -1,3 +1,4 @@
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
 
@@ -77,7 +78,10 @@ namespace Durin::AssetForge::Builtins
 		if (!ValidateState(State, OutError)) return false;
 		FAssetImportDataState BaseState = State;
 		if (!DAssetImportData::SetState(std::move(BaseState), OutError)) return false;
+		const bool bChanged = ImportSettings != State.ImportSettings;
 		ImportSettings = State.ImportSettings;
+		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); bChanged && Mesh && Mesh->GetAssetImportData() == this)
+			NotifyStaticMeshCompilationMutation(*Mesh);
 		OutError.clear();
 		return true;
 	}
@@ -89,6 +93,16 @@ namespace Durin::AssetForge::Builtins
 		static_cast<FAssetImportDataState&>(State) = DAssetImportData::GetState();
 		State.ImportSettings = ImportSettings;
 		return State;
+	}
+
+	auto DStaticMeshImportData::GetCompilationIdentity() const -> FXxHash128
+	{
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(Super::GetCompilationIdentity());
+		Builder.UpdateValue(ImportSettings.ForwardAxis);
+		Builder.UpdateValue(ImportSettings.RightAxis);
+		Builder.UpdateValue(ImportSettings.UpAxis);
+		return Builder.Finalize();
 	}
 
 	auto DStaticMeshImportData::Validate(std::string& OutError) const -> bool

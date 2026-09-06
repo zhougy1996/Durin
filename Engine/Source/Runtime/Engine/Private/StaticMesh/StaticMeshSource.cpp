@@ -7,6 +7,22 @@ namespace Durin
 {
 	namespace
 	{
+		struct FSourceReadCancelled {};
+		struct FSourceReadControl
+		{
+			const std::function<bool()>& ShouldCancel;
+			uint32 Work = 0;
+			auto Check() const -> void
+			{
+				if (ShouldCancel && ShouldCancel()) throw FSourceReadCancelled{};
+			}
+			auto Tick() -> void
+			{
+				if (++Work < 256) return;
+				Work = 0;
+				Check();
+			}
+		};
 		auto SerializeImportedString(FArchive& Ar, std::string& Value) -> void
 		{
 			SerializeBoundedString(Ar, Value, 4096);
@@ -14,7 +30,7 @@ namespace Durin
 
 		template<typename TValue, typename FSerializeValue>
 		auto SerializeImportedArray(FArchive& Ar, std::vector<TValue>& Values,
-			uint64 MaximumCount, FSerializeValue&& SerializeValue) -> void
+			uint64 MaximumCount, FSerializeValue&& SerializeValue, FSourceReadControl* Control = nullptr) -> void
 		{
 			uint64 Count = Values.size();
 			Ar << Count;
@@ -35,17 +51,19 @@ namespace Durin
 						"StaticMesh imported array exceeds its element limit.");
 					return;
 				}
+				if (Control) Control->Check();
 				Values.resize(static_cast<size_t>(Count));
 			}
 			for (TValue& Value : Values)
 			{
+				if (Control) Control->Tick();
 				SerializeValue(Ar, Value);
 				if (Ar.HasError()) return;
 			}
 		}
 
 		auto SerializeStaticMeshImportedValue(
-			FArchive& Ar, FStaticMeshDecodedGeometry& Value) -> void
+			FArchive& Ar, FStaticMeshDecodedGeometry& Value, FSourceReadControl* Control = nullptr) -> void
 		{
 			uint32 Schema = StaticMeshImportedDataSchemaVersion;
 			Ar << Schema;
@@ -60,28 +78,28 @@ namespace Durin
 					SerializeImportedString(Inner, Slot.Name);
 					Inner << Slot.SourceMaterialIndex;
 					SerializeImportedString(Inner, Slot.SourceName);
-				});
+				}, Control);
 			SerializeImportedArray(Ar, Value.Meshes, 65536,
-				[](FArchive& Inner, FStaticMeshImportedMesh& Mesh) {
+				[Control](FArchive& Inner, FStaticMeshImportedMesh& Mesh) {
 					SerializeImportedString(Inner, Mesh.Name);
 					Inner << Mesh.SourceMaterialIndex;
 					auto Vector2 = [](FArchive& A, FVector2f& V) { A << V.x << V.y; };
 					auto Vector3 = [](FArchive& A, FVector3f& V) { A << V.x << V.y << V.z; };
 					auto Vector4 = [](FArchive& A, FVector4f& V) { A << V.x << V.y << V.z << V.w; };
-					SerializeImportedArray(Inner, Mesh.Positions, 50'000'000, Vector3);
-					SerializeImportedArray(Inner, Mesh.Normals, 50'000'000, Vector3);
-					SerializeImportedArray(Inner, Mesh.Tangents, 50'000'000, Vector4);
+					SerializeImportedArray(Inner, Mesh.Positions, 50'000'000, Vector3, Control);
+					SerializeImportedArray(Inner, Mesh.Normals, 50'000'000, Vector3, Control);
+					SerializeImportedArray(Inner, Mesh.Tangents, 50'000'000, Vector4, Control);
 					for (auto& UVs : Mesh.UVChannels)
-						SerializeImportedArray(Inner, UVs, 50'000'000, Vector2);
-					SerializeImportedArray(Inner, Mesh.Colors, 50'000'000, Vector4);
+						SerializeImportedArray(Inner, UVs, 50'000'000, Vector2, Control);
+					SerializeImportedArray(Inner, Mesh.Colors, 50'000'000, Vector4, Control);
 					SerializeImportedArray(Inner, Mesh.Indices, 150'000'000,
-						[](FArchive& A, uint32& Index) { A << Index; });
-				});
+						[](FArchive& A, uint32& Index) { A << Index; }, Control);
+				}, Control);
 		}
 
 		auto ValidateStaticMeshDecodedGeometry(
 			const FStaticMeshDecodedGeometry& Value, std::string& OutError,
-			uint64* OutWireBytes = nullptr) -> bool
+			uint64* OutWireBytes = nullptr, FSourceReadControl* Control = nullptr) -> bool
 		{
 			if (Value.MaterialSlots.empty() || Value.MaterialSlots.size() > MaximumMeshMaterialSlots
 				|| Value.Meshes.empty() || Value.Meshes.size() > 65536)
@@ -124,7 +142,7 @@ namespace Durin
 					|| Mesh.Positions.empty() || Mesh.Indices.empty()
 					|| Mesh.Indices.size() % 3 != 0
 					|| !std::ranges::all_of(Mesh.Positions,
-						[](const FVector3f& Position) { return Math::IsFinite(Position); }))
+						[Control](const FVector3f& Position) { if (Control) Control->Tick(); return Math::IsFinite(Position); }))
 				{
 					OutError = "StaticMesh canonical geometry is malformed.";
 					return false;
@@ -140,11 +158,14 @@ namespace Durin
 					return false;
 				}
 				for (uint32 Index : Mesh.Indices)
+				{
+					if (Control) Control->Tick();
 					if (Index >= Mesh.Positions.size())
 					{
 						OutError = "StaticMesh canonical geometry contains an out-of-range index.";
 						return false;
 					}
+				}
 			}
 			if (OutWireBytes) *OutWireBytes = WireBytes;
 			OutError.clear();
@@ -203,48 +224,61 @@ namespace Durin
 		return true;
 	}
 
-	auto FStaticMeshImportedData::AcquireGeometry(std::string& OutError) const
+	auto FStaticMeshImportedData::AcquireGeometry(std::string& OutError,
+		const std::function<bool()>& ShouldCancel) const
 		-> FStaticMeshGeometryReadHandle
 	{
 		std::lock_guard Lock(ResidencyMutex);
 		OutError.clear();
-		const FXxHash128 Identity = GetIdentity();
-		if (ResidentGeometry && ResidentIdentity == Identity) return ResidentGeometry;
-		ResidentGeometry.reset();
-		if (!IsValid())
+		FSourceReadControl Control{ShouldCancel};
+		try
 		{
-			OutError = "StaticMesh canonical imported-data header is missing or invalid.";
+			Control.Check();
+			const FXxHash128 Identity = GetIdentity();
+			if (ResidentGeometry && ResidentIdentity == Identity) return ResidentGeometry;
+			ResidentGeometry.reset();
+			if (!IsValid())
+			{
+				OutError = "StaticMesh canonical imported-data header is missing or invalid.";
+				return {};
+			}
+			const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
+			Control.Check();
+			if (!Payload)
+			{
+				OutError = Payload.Message.empty() ? "StaticMesh canonical geometry read failed." : Payload.Message;
+				return {};
+			}
+			const FByteView Bytes = Payload.Buffer.GetBytes();
+			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
+			{
+				OutError = "StaticMesh canonical geometry payload size does not match metadata.";
+				return {};
+			}
+			auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
+			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
+			SerializeStaticMeshImportedValue(Ar, *Decoded, &Control);
+			if (Ar.HasError() || !RequireArchiveEnd(Ar))
+			{
+				OutError = Ar.GetFailure()->Message;
+				return {};
+			}
+			if (Decoded->MaterialSlots.size() != MaterialSlotCount || Decoded->Meshes.size() != MeshCount)
+			{
+				OutError = "StaticMesh canonical imported-data counts are invalid.";
+				return {};
+			}
+			if (!ValidateStaticMeshDecodedGeometry(*Decoded, OutError, nullptr, &Control)) return {};
+			Control.Check();
+			ResidentIdentity = Identity;
+			ResidentGeometry = std::move(Decoded);
+			return ResidentGeometry;
+		}
+		catch (const FSourceReadCancelled&)
+		{
+			OutError = "StaticMesh canonical geometry read was cancelled.";
 			return {};
 		}
-		const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
-		if (!Payload)
-		{
-			OutError = Payload.Message.empty() ? "StaticMesh canonical geometry read failed." : Payload.Message;
-			return {};
-		}
-		const FByteView Bytes = Payload.Buffer.GetBytes();
-		if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
-		{
-			OutError = "StaticMesh canonical geometry payload size does not match metadata.";
-			return {};
-		}
-		auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
-		SerializeStaticMeshImportedValue(Ar, *Decoded);
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
-		{
-			OutError = Ar.GetFailure()->Message;
-			return {};
-		}
-		if (Decoded->MaterialSlots.size() != MaterialSlotCount || Decoded->Meshes.size() != MeshCount)
-		{
-			OutError = "StaticMesh canonical imported-data counts are invalid.";
-			return {};
-		}
-		if (!ValidateStaticMeshDecodedGeometry(*Decoded, OutError)) return {};
-		ResidentIdentity = Identity;
-		ResidentGeometry = std::move(Decoded);
-		return ResidentGeometry;
 	}
 
 	auto FStaticMeshImportedData::ReleaseGeometry() const -> void

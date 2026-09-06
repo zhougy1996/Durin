@@ -58,6 +58,8 @@ namespace Durin
 		ENGINE_API auto ClearCollisionGeometry() -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		auto GetRevision() const -> uint64 { return Revision; }
+		auto GetDimensions() const -> FVector3 { return Dimensions; }
+		auto GetCenter() const -> FVector3 { return Center; }
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
 		auto GetCollisionSourceMode() const -> EBodySetupCollisionSourceMode { return CollisionSourceMode; }
 		auto GetCollisionQueryPolicy() const -> EBodySetupCollisionQueryPolicy { return CollisionQueryPolicy; }

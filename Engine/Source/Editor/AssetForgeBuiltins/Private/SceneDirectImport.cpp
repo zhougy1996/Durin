@@ -34,7 +34,7 @@ namespace Durin::AssetForge::Builtins
 			const FSceneOutputData* Descriptor = nullptr;
 			FPackagePath AssetPath;
 			FStaticMeshImportedData StaticMeshSource;
-			FStaticMeshBuildResult StaticMesh;
+			std::unique_ptr<FStaticMeshAuthoredCandidate> StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			DObject* Candidate = nullptr;
 			DPackage* Package = nullptr;
@@ -304,12 +304,16 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				if (!Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene), Error)
-					|| !BuildStaticMeshDerivedData({
-					.ImportedData = Output.StaticMeshSource},
-					Output.StaticMesh, Error))
+				if (!Output.StaticMeshSource.Initialize(MakeStaticMeshDecodedGeometry(Data.Scene), Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
+				const FStaticMeshBuildOutcome Outcome = BuildStaticMeshAuthoredCandidate({
+					.Source = Output.StaticMeshSource}, Output.StaticMesh, Error,
+					{.ShouldCancel = IsCancellationRequested});
+				if (!Outcome)
+					return AddError(OutResult, Outcome.Status == EStaticMeshBuildStatus::Cancelled
+						? EImportDiagnosticCategory::Canceled : EImportDiagnosticCategory::CandidateFailure,
+						"scene-build", Outcome.Diagnostic, Descriptor.StableIdentity);
 			}
 		}
 
@@ -403,9 +407,9 @@ namespace Durin::AssetForge::Builtins
 				Output.Candidate->MarkPackageDirty();
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh
-				&& !ApplyStaticMeshBuildResult(
-					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMeshSource),
-					std::move(Output.StaticMesh), Error))
+				&& !ApplyStaticMeshAuthoredCandidate(
+					*Cast<DStaticMesh>(Output.Candidate), std::move(Output.StaticMesh),
+					CaptureStaticMeshReconciliation(*Cast<DStaticMesh>(Output.Candidate)), Error))
 			{
 				Abandon(Prepared);
 				return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,

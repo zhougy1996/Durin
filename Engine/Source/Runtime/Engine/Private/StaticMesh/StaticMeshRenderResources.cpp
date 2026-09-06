@@ -531,24 +531,40 @@ namespace Durin
 
 	auto FStaticMeshRenderData::RecalculateBounds() -> void
 	{
+		RecalculateBounds({});
+	}
+
+	auto FStaticMeshRenderData::RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool
+	{
+		if (ShouldCancel && ShouldCancel()) return false;
+		uint32 Work = 0;
+		const auto IsCancelled = [&] {
+			if (++Work < 256) return false;
+			Work = 0;
+			return ShouldCancel && ShouldCancel();
+		};
 		LocalBounds.Reset();
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
+			if (IsCancelled()) return false;
 			const auto& Positions =
 				LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
 			const auto& Indices = LOD.IndexBuffer.GetIndices();
 			LOD.LocalBounds.Reset();
 			for (const FVector3f& Position : Positions)
 			{
+				if (IsCancelled()) return false;
 				LOD.LocalBounds.AddPoint(FVector3(Position));
 			}
 			for (FStaticMeshSection& Section : LOD.Sections)
 			{
+				if (IsCancelled()) return false;
 				Section.LocalBounds.Reset();
 				const uint64 EndIndex = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
 				if (EndIndex > Indices.size()) continue;
 				for (uint32 IndexOffset = 0; IndexOffset < Section.IndexCount; ++IndexOffset)
 				{
+					if (IsCancelled()) return false;
 					const uint32 VertexIndex =
 						Indices[Section.FirstIndex + IndexOffset];
 					if (VertexIndex < Positions.size())
@@ -560,9 +576,11 @@ namespace Durin
 			}
 			for (const FVector3f& Position : Positions)
 			{
+				if (IsCancelled()) return false;
 				LocalBounds.AddPoint(FVector3(Position));
 			}
 		}
+		return !ShouldCancel || !ShouldCancel();
 	}
 
 	auto GenerateDefaultStaticMeshLODScreenSizes(

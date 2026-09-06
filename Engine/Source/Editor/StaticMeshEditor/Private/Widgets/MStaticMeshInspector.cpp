@@ -8,6 +8,7 @@
 #include "MonaImGui.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
 
@@ -168,6 +169,13 @@ namespace Durin::Editor::StaticMesh
 		{
 			ImGui::TextWrapped("StaticMesh unavailable: the asset is no longer loaded.");
 			return;
+		}
+		if (HasPendingStaticMeshCompilation(*Mesh)) ImGui::TextDisabled("Building mesh...");
+		else
+		{
+			const auto Diagnostic = GetStaticMeshCompilationDiagnostic(*Mesh);
+			if (Diagnostic.RequestId && Diagnostic.Status != EStaticMeshCompilationStatus::Succeeded
+				&& !Diagnostic.Message.empty()) ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
 		}
 		const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 		const uint32 LODCount = RenderData ? static_cast<uint32>(RenderData->LODResources.size()) : 0;

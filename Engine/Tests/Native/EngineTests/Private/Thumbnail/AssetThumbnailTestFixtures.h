@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #pragma once
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -311,6 +312,11 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
+		if (!FAssetCompilingManager::Get().IsAcceptingRequests() && !InitializeAssetCompilingManager())
+		{
+			OutError = "Could not initialize asset compilation.";
+			return false;
+		}
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
@@ -336,6 +342,7 @@ namespace Durin::Tests
 					return false;
 				}
 			}
+			FAssetCompilingManager::Get().FinishCompilationForObject(*It->second.StaticMesh);
 			OutFixtures = It->second;
 			OutError.clear();
 			return true;

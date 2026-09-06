@@ -4,6 +4,7 @@
 #include "EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 #include "StaticMeshFactory.gen.h"
 
@@ -15,6 +16,12 @@ namespace Durin::AssetForge::Builtins
 		GENERATED_BODY()
 
 	public:
+		// Explicit editor adapter; ordinary object-returning factory calls remain synchronous.
+		auto SetAsyncImportCompletion(FStaticMeshCompilationCompletion Completion) -> void
+		{
+			AsyncImportCompletion = std::move(Completion);
+			bAsyncImport = true;
+		}
 		auto SetImportSettings(const FStaticMeshImportSettings& InSettings) -> void
 		{
 			Settings = InSettings;
@@ -49,5 +56,7 @@ namespace Durin::AssetForge::Builtins
 			const FObjectInitializer& ObjectInitializer);
 
 		FStaticMeshImportSettings Settings;
+		FStaticMeshCompilationCompletion AsyncImportCompletion;
+		bool bAsyncImport = false;
 	};
 }

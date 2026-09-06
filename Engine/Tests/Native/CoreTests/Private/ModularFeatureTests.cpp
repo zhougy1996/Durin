@@ -209,6 +209,34 @@ namespace Durin::Tests
 		EXPECT_EQ(6, *V2Result.Value);
 	}
 
+	TEST(FModularFeatureTests, ExpectedRegistrationRejectsReplacementBeforeEnteringVisitor)
+	{
+		FModuleTestOwner Context("FeatureExactRegistration");
+		FArithmeticFeature Feature;
+		auto Registration = Context.RegisterFeature(Feature);
+		const auto First = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
+			[](IArithmeticFeature& Value) { return Value.AddOne(1); });
+		ASSERT_TRUE(First.WasInvoked());
+		ASSERT_NE(0u, First.RegistrationIdentity);
+		EXPECT_TRUE(Registration.Reset().Succeeded());
+		Registration = Context.RegisterFeature(Feature);
+		bool bEntered = false;
+		const auto Stale = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
+			[&](IArithmeticFeature&) { bEntered = true; }, First.RegistrationIdentity);
+		EXPECT_FALSE(Stale.WasInvoked());
+		EXPECT_FALSE(bEntered);
+		EXPECT_NE(First.RegistrationIdentity, Stale.RegistrationIdentity);
+		const auto Current = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>(
+			[&](IArithmeticFeature&) { bEntered = true; }, Stale.RegistrationIdentity);
+		EXPECT_TRUE(Current.WasInvoked());
+		EXPECT_TRUE(bEntered);
+		const auto All = FModularFeatureRegistry::Get().InvokeAll<IArithmeticFeature>(
+			[](IArithmeticFeature& Value) { return Value.AddOne(2); });
+		ASSERT_EQ(1u, All.Invocations.size());
+		EXPECT_EQ(Current.RegistrationIdentity, All.Invocations.front().RegistrationIdentity);
+		EXPECT_TRUE(Registration.Reset().Succeeded());
+	}
+
 	TEST(FModularFeatureTests, ReportsUnavailableAmbiguousAndInvokesPinnedSet)
 	{
 		FModuleTestOwner FirstContext("FeatureCardinalityA");

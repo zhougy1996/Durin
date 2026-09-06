@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
@@ -75,6 +76,7 @@ TEST(FSingleAssetImportTests, ReimportsGeometryDirectlyFromFamilyImportData)
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*Imported.Asset, {},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Imported.Asset);
 	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
 	ASSERT_NE(Imported.Asset->GetAssetImportData(), nullptr);

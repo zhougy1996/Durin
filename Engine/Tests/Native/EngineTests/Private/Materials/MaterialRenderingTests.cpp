@@ -1,3 +1,4 @@
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Console/ConsoleCommand.h"
@@ -27,6 +28,24 @@
 
 namespace
 {
+	class FScopedPreviewMeshCompiler
+	{
+	public:
+		FScopedPreviewMeshCompiler()
+		{
+			InitializeDObjectSystem();
+			if (Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests) return;
+			auto& Aggregate = Durin::FAssetCompilingManager::Get();
+			if (!Aggregate.Start()) return;
+			Registration = Aggregate.RegisterCompiler({
+				.Name = Durin::FName("Durin.StaticMesh"),
+				.AssetClasses = {Durin::DStaticMesh::StaticClass()},
+				.Manager = Durin::AssetPrivate::CreateStaticMeshCompilingManager()});
+		}
+	private:
+		Durin::FAssetCompilerRegistrationHandle Registration;
+	};
+
 	auto MakeExpandedMaterial(Durin::DObject* Outer, const char* Name)
 		-> Durin::DMaterial*
 	{
@@ -569,6 +588,9 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
+	InitializeDObjectSystem();
+	FScopedPreviewMeshCompiler MeshCompiler;
+	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	InitializeDObjectSystem();
@@ -589,6 +611,7 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 		EXPECT_EQ(First.Get(), Second.Get());
 		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
 		ASSERT_NE(Mesh, nullptr) << Error;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 		const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 		ASSERT_NE(RenderData, nullptr);
 		ASSERT_EQ(RenderData->LODResources.size(), 1u);
@@ -607,6 +630,9 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
+	InitializeDObjectSystem();
+	FScopedPreviewMeshCompiler MeshCompiler;
+	ASSERT_TRUE(Durin::GetStaticMeshCompilationManagerDiagnostics().bAcceptingRequests);
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;

@@ -1,7 +1,16 @@
 #include "Physics/BodySetup.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto NotifyBodyMutation(DBodySetup& Body) -> void
+		{
+			if (auto* Mesh = Cast<DStaticMesh>(Body.GetOuter()); Mesh && Mesh->GetBodySetup() == &Body)
+				NotifyStaticMeshCompilationMutation(*Mesh);
+		}
+	}
 	DBodySetup::DBodySetup(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -11,10 +20,12 @@ namespace Durin
 	{
 		const FCollisionShape Candidate = FCollisionShape::MakeBox(HalfExtent);
 		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
+		if (ShapeType == EBodySetupShapeType::Box && Dimensions == HalfExtent && Center == InCenter) return true;
 		ShapeType = EBodySetupShapeType::Box;
 		Dimensions = HalfExtent;
 		Center = InCenter;
 		++Revision;
+		NotifyBodyMutation(*this);
 		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
@@ -24,10 +35,12 @@ namespace Durin
 	{
 		const FCollisionShape Candidate = FCollisionShape::MakeSphere(Radius);
 		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
+		if (ShapeType == EBodySetupShapeType::Sphere && Dimensions == FVector3(Radius) && Center == InCenter) return true;
 		ShapeType = EBodySetupShapeType::Sphere;
 		Dimensions = FVector3(Radius);
 		Center = InCenter;
 		++Revision;
+		NotifyBodyMutation(*this);
 		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
@@ -37,10 +50,12 @@ namespace Durin
 	{
 		const FCollisionShape Candidate = FCollisionShape::MakeCapsule(Radius, HalfHeight);
 		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
+		if (ShapeType == EBodySetupShapeType::Capsule && Dimensions == FVector3(Radius, Radius, HalfHeight) && Center == InCenter) return true;
 		ShapeType = EBodySetupShapeType::Capsule;
 		Dimensions = FVector3(Radius, Radius, HalfHeight);
 		Center = InCenter;
 		++Revision;
+		NotifyBodyMutation(*this);
 		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
@@ -109,6 +124,7 @@ namespace Durin
 		CachedSimpleCollision = {};
 		CachedComplexCollision = {};
 		++Revision;
+		NotifyBodyMutation(*this);
 		MarkPackageDirty();
 		return true;
 	}
@@ -121,6 +137,7 @@ namespace Durin
 		if (CollisionQueryPolicy == Policy) return true;
 		CollisionQueryPolicy = Policy;
 		++Revision;
+		NotifyBodyMutation(*this);
 		MarkPackageDirty();
 		return true;
 	}
@@ -140,6 +157,7 @@ namespace Durin
 		CachedComplexCollision = Complex;
 		++CollisionBuildRevision;
 		++Revision;
+		NotifyBodyMutation(*this);
 		return true;
 	}
 
@@ -149,6 +167,7 @@ namespace Durin
 		CachedComplexCollision = {};
 		++CollisionBuildRevision;
 		++Revision;
+		NotifyBodyMutation(*this);
 	}
 
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool

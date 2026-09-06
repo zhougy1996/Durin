@@ -4,7 +4,7 @@ Summary: Define typed feature invocation, owner-bound asynchronous drain, and fa
 
 Modules: Core
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 ## Feature Contract
 
@@ -30,6 +30,12 @@ stored. `InvokeSingle` reports unavailable, invoked, ambiguous, or visitor
 failure. `InvokeAll` admits the exact published set as one snapshot and reports
 each invocation independently. The registry never selects the first provider
 implicitly and exposes no raw lookup or lease API.
+
+Invocation results also report the exact process-local `RegistrationIdentity`.
+`InvokeSingle` accepts an optional expected identity and rejects a replacement
+before entering its visitor. The identity survives token moves, changes on every
+registration (including the same implementation and owner), and is never a
+persistent recipe or cache key. `InvokeAll` reports it per admitted entry.
 
 ## Synchronous Invocation Gate
 

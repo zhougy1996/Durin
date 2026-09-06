@@ -20,6 +20,8 @@ namespace Durin
 	{
 		uint32 MaximumCompletions = 64;
 		std::optional<std::chrono::steady_clock::time_point> Deadline;
+		// Shared by all passes of one aggregate pump; zero denotes a direct invocation.
+		uint64 PumpIdentity = 0;
 	};
 
 	struct FAssetCompileProcessResult

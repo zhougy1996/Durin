@@ -375,7 +375,8 @@ namespace Durin
 	inline constexpr uint64 MaximumStaticMeshRayQueryAccelerationBytes = 256ull * 1024ull * 1024ull;
 
 	// Builds a complete immutable hierarchy or returns null so callers can use exact reference traversal.
-	ENGINE_API auto BuildStaticMeshRayQueryAcceleration(const FStaticMeshLODResources& LOD)
+	ENGINE_API auto BuildStaticMeshRayQueryAcceleration(const FStaticMeshLODResources& LOD,
+		const std::function<bool()>& ShouldCancel = {})
 		-> std::shared_ptr<const FStaticMeshLODResources::FRayQueryAcceleration>;
 
 	class FRHICommandListImmediate;
@@ -402,6 +403,8 @@ namespace Durin
 		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
+		// Detached construction only: false leaves partial bounds that must not be published.
+		ENGINE_API auto RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool;
 	};
 
 	// Produces the deterministic policy used by builders without authored thresholds.

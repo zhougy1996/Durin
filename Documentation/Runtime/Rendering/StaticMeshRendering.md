@@ -402,12 +402,54 @@ collision revisions continue to qualify runtime state independently.
 Fresh standalone/Scene import initializes source once before Engine DDC lookup.
 Recipes receive only an owning decoded handle and recipe settings. A warm hit
 uses source identity even with unreadable canonical bulk; a miss acquires geometry.
-Application receives the source separately from build output and validates before
-render/collision replacement. Assets release decoded residency at publication;
-operation-owned copies expire at operation completion. Explicit source readers
-may cache until `ReleaseGeometry`. Neither release nor successful publication
-removes unsaved authoritative bulk bytes. Cooked projection strips source, and
-cooked loading uses neither source acquisition nor a build provider.
+`BuildStaticMeshAuthoredCandidate` accepts value-only source, normalization,
+slot metadata and collision settings and constructs a sealed combined render,
+ray and collision product. `ApplyStaticMeshAuthoredCandidate` consumes it on the
+owner thread after checking the captured source/material/body facts and final
+cancellation state. It restores material object bindings from the owner-thread
+snapshot and performs no CPU collision, ray-tree or bounds construction.
+Source, normalization, slots, render and collision become current before one
+registered-consumer refresh, including initial authored publication. Resource
+initialization and its targeted fence remain separate from detached CPU recipes.
+The older mutable `ApplyStaticMeshBuildResult` is a synchronous compatibility
+boundary that still validates/rebuilds; it is not the sealed application API.
+
+Authored PostLoad schedules this combined path through `Durin.StaticMesh`.
+Interactive standalone import/reimport await completion; explicit synchronous
+entrypoints join or finish only the selected mesh. Scene retains detached
+synchronous all-or-nothing orchestration. Cook builds a detached target product
+without replacing the authored CPU mesh. Cooked loading remains a separate
+residency domain. Bounds/getters/scene preparation never finish authored work.
+
+Preview/components retain the previous accepted mesh until publication. An
+initially empty preview waits for CPU data; thumbnail readiness returns pending
+while authored compilation is active, then requests resources through the
+independent GPU path. Inspector and material preview report pending work without
+a build barrier. Closing an Inspector does not cancel background compilation.
+The manager's bounded read-only observations are documented in
+[Asset Compilation](../Assets/AssetCompilation.md#staticmesh-completion).
+
+Assets release decoded residency at
+publication; operation-owned copies expire at operation completion. Explicit
+source readers may cache until `ReleaseGeometry`. Neither release nor successful
+publication removes unsaved authoritative bulk bytes. Cooked projection strips
+source, and cooked loading uses neither source acquisition nor a build provider.
+
+Source acquisition supports a borrowed cancellation predicate under its residency
+lock; the predicate must not reenter that source. A canceled decode never publishes
+partial residency. Ray construction supports borrowed cancellation through its
+triangle/bounds loops and sort/partition work. Null optional ray acceleration
+retains exact reference traversal. Render/collision payload conversion, encoding,
+decoding and validation also accept borrowed predicates and check at most every
+256 scalar/record work units. Cancellation leaves caller-owned output values
+unchanged; archive serialization reports an error and does not publish a decoded
+value. The authored wrapper latches cancellation, so an interrupted cache decode
+cannot fall through to a recipe or become a successful cache hit. The cancellable
+bounds overload is for detached construction only: false can leave partial bounds,
+and the caller must discard that candidate. No callback survives its synchronous
+call. Contiguous allocation/copy, container hashing/packing, archive I/O and
+compression remain indivisible library calls; cooperative cancellation has no
+hard wall-clock deadline and includes scratch destruction before return.
 
 StaticMesh source provenance stores one normalized project-relative or external
 absolute filename plus the exact source hash, Assimp importer version, and

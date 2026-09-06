@@ -439,6 +439,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 		Loaded->GetAssetImportData());
 	ASSERT_NE(LoadedImportData, nullptr);
 	EXPECT_EQ(LoadedImportData->GetImportSettings(), Settings);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Loaded);
 	ASSERT_NE(Loaded->GetRenderData(), nullptr);
 	ASSERT_EQ(Loaded->GetRenderData()->LODResources.size(), 1u);
 	const auto& ReloadedPositions =
@@ -511,6 +512,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_NE(Loaded->GetStaticMesh(), nullptr);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Loaded->GetStaticMesh());
 	ASSERT_NE(Loaded->GetStaticMesh()->GetRenderData(), nullptr);
 	EXPECT_EQ(Loaded->GetNumMaterials(), 2u);
 	ASSERT_NE(Loaded->GetMaterial(0), nullptr);

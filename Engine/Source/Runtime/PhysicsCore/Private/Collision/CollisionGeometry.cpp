@@ -34,6 +34,25 @@ namespace Durin
 	namespace
 	{
 		std::atomic<uint64> GNextCollisionGeometryIdentity = 1;
+		struct FCollisionBuildCancelled {};
+
+		// Local stack unwinding lets nested BVH partitions abandon all scratch ownership.
+		struct FCollisionBuildControl
+		{
+			const std::function<bool()>& ShouldCancel;
+			uint32 WorkSinceCheckpoint = 0;
+			auto Check() const -> void
+			{
+				if (ShouldCancel && ShouldCancel()) throw FCollisionBuildCancelled{};
+			}
+			auto Tick() -> void
+			{
+				if (++WorkSinceCheckpoint < 256) return;
+				WorkSinceCheckpoint = 0;
+				Check();
+			}
+		};
+
 		constexpr uint32 MaximumConvexHullVertices = 256;
 		constexpr uint32 MaximumCollisionTriangles = 2'000'000;
 		constexpr double FeatureTolerance = 1.0e-10;
@@ -65,18 +84,25 @@ namespace Durin
 		auto ValidateFeatureInput(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
-			std::span<const uint32> SourceOrdinals) -> bool
+			std::span<const uint32> SourceOrdinals, FCollisionBuildControl& Control) -> bool
 		{
 			if (Vertices.empty() || Indices.empty() || Indices.size() % 3 != 0) return false;
 			const size_t TriangleCount = Indices.size() / 3;
 			if (TriangleCount > MaximumCollisionTriangles
 				|| (!SourceOrdinals.empty() && SourceOrdinals.size() != TriangleCount)) return false;
 			for (const FVector3& Vertex : Vertices)
+			{
+				Control.Tick();
 				if (!Math::IsFinite(Vertex)) return false;
+			}
 			for (uint32 Index : Indices)
+			{
+				Control.Tick();
 				if (Index >= Vertices.size()) return false;
+			}
 			for (size_t Triangle = 0; Triangle < TriangleCount; ++Triangle)
 			{
+				Control.Tick();
 				const uint32 A = Indices[Triangle * 3];
 				const uint32 B = Indices[Triangle * 3 + 1];
 				const uint32 C = Indices[Triangle * 3 + 2];
@@ -89,20 +115,22 @@ namespace Durin
 
 		auto ValidateConvexHull(
 			std::span<const FVector3> Vertices,
-			std::span<const uint32> Indices) -> bool
+			std::span<const uint32> Indices, FCollisionBuildControl& Control) -> bool
 		{
 			if (Vertices.size() < 4 || Vertices.size() > MaximumConvexHullVertices
-				|| Indices.size() < 12 || !ValidateFeatureInput(Vertices, Indices, {})) return false;
+				|| Indices.size() < 12 || !ValidateFeatureInput(Vertices, Indices, {}, Control)) return false;
 			std::map<std::pair<uint32, uint32>, std::pair<uint32, int32>> Edges;
 			double SignedVolume = 0.0;
 			for (size_t Offset = 0; Offset < Indices.size(); Offset += 3)
 			{
+				Control.Tick();
 				const uint32 A = Indices[Offset];
 				const uint32 B = Indices[Offset + 1];
 				const uint32 C = Indices[Offset + 2];
 				SignedVolume += Math::Dot(Vertices[A], Math::Cross(Vertices[B], Vertices[C]));
 				for (const auto [From, To] : {std::pair{A, B}, std::pair{B, C}, std::pair{C, A}})
 				{
+					Control.Tick();
 					const auto Key = std::minmax(From, To);
 					auto& Edge = Edges[{Key.first, Key.second}];
 					++Edge.first;
@@ -111,16 +139,23 @@ namespace Durin
 			}
 			if (std::abs(SignedVolume) <= FeatureTolerance) return false;
 			for (const auto& [Key, Edge] : Edges)
+			{
+				Control.Tick();
 				if (Edge.first != 2 || Edge.second != 0) return false;
+			}
 
 			const double Orientation = SignedVolume > 0.0 ? 1.0 : -1.0;
 			for (size_t Offset = 0; Offset < Indices.size(); Offset += 3)
 			{
+				Control.Tick();
 				const FVector3& A = Vertices[Indices[Offset]];
 				const FVector3 Normal = Math::Cross(
 					Vertices[Indices[Offset + 1]] - A, Vertices[Indices[Offset + 2]] - A) * Orientation;
 				for (const FVector3& Vertex : Vertices)
+				{
+					Control.Tick();
 					if (Math::Dot(Normal, Vertex - A) > FeatureTolerance) return false;
+				}
 			}
 			return true;
 		}
@@ -130,17 +165,21 @@ namespace Durin
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			std::span<const uint32> SourceOrdinals,
-			std::span<const FCollisionGeometryNode> Nodes = {},
-			std::span<const uint32> LeafTriangles = {}) -> std::shared_ptr<const FCollisionGeometry>
+			std::span<const FCollisionGeometryNode> Nodes,
+			std::span<const uint32> LeafTriangles, FCollisionBuildControl& Control) -> std::shared_ptr<const FCollisionGeometry>
 		{
 			auto Payload = std::make_shared<FFeatureCollisionGeometry>();
 			Payload->Kind = Kind;
+			Control.Check();
 			Payload->Vertices.assign(Vertices.begin(), Vertices.end());
 			Payload->Triangles.reserve(Indices.size() / 3);
+			Control.Check();
 			Payload->Nodes.assign(Nodes.begin(), Nodes.end());
+			Control.Check();
 			Payload->LeafTriangles.assign(LeafTriangles.begin(), LeafTriangles.end());
 			for (size_t Triangle = 0; Triangle < Indices.size() / 3; ++Triangle)
 			{
+				Control.Tick();
 				Payload->Triangles.push_back({Indices[Triangle * 3], Indices[Triangle * 3 + 1],
 					Indices[Triangle * 3 + 2], SourceOrdinals.empty()
 						? static_cast<uint32>(Triangle) : SourceOrdinals[Triangle]});
@@ -153,6 +192,7 @@ namespace Durin
 				std::map<std::pair<uint32, uint32>, uint32> DirectedEdges;
 				for (uint32 Triangle = 0; Triangle < Payload->Triangles.size(); ++Triangle)
 				{
+					Control.Tick();
 					const FCollisionGeometryTriangle& Face = Payload->Triangles[Triangle];
 					const FVector3 Normal = Math::Normalize(Math::Cross(
 						Payload->Vertices[Face.Second] - Payload->Vertices[Face.First],
@@ -164,6 +204,7 @@ namespace Durin
 					const std::array<uint32, 3> FaceVertices{Face.First, Face.Second, Face.Third};
 					for (uint32 Edge = 0; Edge < 3; ++Edge)
 					{
+						Control.Tick();
 						const uint32 Index = FirstEdge + Edge;
 						const uint32 From = FaceVertices[Edge];
 						const uint32 To = FaceVertices[(Edge + 1) % 3];
@@ -179,6 +220,7 @@ namespace Durin
 			Payload->LocalMax = Payload->Vertices.front();
 			for (const FVector3& Vertex : Payload->Vertices)
 			{
+				Control.Tick();
 				Payload->LocalMin = Math::Min(Payload->LocalMin, Vertex);
 				Payload->LocalMax = Math::Max(Payload->LocalMax, Vertex);
 			}
@@ -191,6 +233,7 @@ namespace Durin
 				+ Payload->HullPlanes.capacity() * sizeof(FCollisionHullPlane)
 				+ Payload->HullHalfEdges.capacity() * sizeof(FCollisionHullHalfEdge)
 				+ Payload->HullFaces.capacity() * sizeof(FCollisionHullFace);
+			Control.Check();
 			return Payload;
 		}
 
@@ -259,12 +302,13 @@ namespace Durin
 			std::span<const uint32> Ordinals,
 			std::vector<FCollisionGeometryNode>& OutNodes,
 			std::vector<uint32>& OutLeafTriangles,
-			uint32& OutMaximumDepth) -> bool
+			uint32& OutMaximumDepth, FCollisionBuildControl& Control) -> bool
 		{
 			std::vector<FTriangleBuildRecord> Records;
 			Records.reserve(Indices.size() / 3);
 			for (uint32 Triangle = 0; Triangle < Indices.size() / 3; ++Triangle)
 			{
+				Control.Tick();
 				const FVector3& A = Vertices[Indices[Triangle * 3]];
 				const FVector3& B = Vertices[Indices[Triangle * 3 + 1]];
 				const FVector3& C = Vertices[Indices[Triangle * 3 + 2]];
@@ -280,6 +324,7 @@ namespace Durin
 			std::function<uint32(size_t, size_t, uint32)> Build =
 				[&](size_t First, size_t Count, uint32 Depth) -> uint32
 			{
+					Control.Check();
 					OutMaximumDepth = std::max(OutMaximumDepth, Depth);
 					const uint32 NodeIndex = static_cast<uint32>(OutNodes.size());
 					OutNodes.emplace_back();
@@ -289,6 +334,7 @@ namespace Durin
 					FVector3 CentroidMaximum = Records[First].Centroid;
 					for (size_t Offset = 1; Offset < Count; ++Offset)
 					{
+						Control.Tick();
 						const FTriangleBuildRecord& Record = Records[First + Offset];
 						Minimum = Math::Min(Minimum, Record.Minimum);
 						Maximum = Math::Max(Maximum, Record.Maximum);
@@ -298,6 +344,7 @@ namespace Durin
 					auto WriteBounds = [&](FCollisionGeometryNode& Node) {
 						for (uint32 Axis = 0; Axis < 3; ++Axis)
 						{
+							Control.Tick();
 							Node.Minimum[Axis] = OutwardMinimum(Minimum[Axis]);
 							Node.Maximum[Axis] = OutwardMaximum(Maximum[Axis]);
 						}
@@ -321,7 +368,8 @@ namespace Durin
 					uint32 Axis = Extent.y > Extent.x ? 1u : 0u;
 					if (Extent.z > Extent[Axis]) Axis = 2u;
 					std::stable_sort(Records.begin() + First, Records.begin() + First + Count,
-						[Axis](const FTriangleBuildRecord& Left, const FTriangleBuildRecord& Right) {
+						[Axis, &Control](const FTriangleBuildRecord& Left, const FTriangleBuildRecord& Right) {
+							Control.Tick();
 							if (Left.Centroid[Axis] != Right.Centroid[Axis])
 								return Left.Centroid[Axis] < Right.Centroid[Axis];
 							if (Left.Ordinal != Right.Ordinal) return Left.Ordinal < Right.Ordinal;
@@ -380,9 +428,13 @@ namespace Durin
 
 	auto FCollisionGeometryRef::MakeConvexHull(
 		std::span<const FVector3> Vertices,
-		std::span<const uint32> Indices) -> FCollisionGeometryRef
+		std::span<const uint32> Indices,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	try
 	{
-		if (!ValidateConvexHull(Vertices, Indices)) return {};
+		FCollisionBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (!ValidateConvexHull(Vertices, Indices, Control)) return {};
 		std::vector<uint32> OutwardIndices(Indices.begin(), Indices.end());
 		double SignedVolume = 0.0;
 		for (size_t Offset = 0; Offset < Indices.size(); Offset += 3)
@@ -392,12 +444,17 @@ namespace Durin
 			for (size_t Offset = 0; Offset < OutwardIndices.size(); Offset += 3)
 				std::swap(OutwardIndices[Offset + 1], OutwardIndices[Offset + 2]);
 		return FCollisionGeometryRef(MakeFeatureGeometry(
-			ECollisionGeometryKind::ConvexHull, Vertices, OutwardIndices, {}));
+			ECollisionGeometryKind::ConvexHull, Vertices, OutwardIndices, {}, {}, {}, Control));
+	}
+	catch (const FCollisionBuildCancelled&)
+	{
+		return {};
 	}
 
 	auto FCollisionGeometryRef::BuildConvexHull(
 		std::span<const FVector3> Points,
-		FCollisionGeometryBuildDiagnostics* Diagnostics) -> FCollisionGeometryRef
+		FCollisionGeometryBuildDiagnostics* Diagnostics,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
 	{
 		FCollisionGeometryBuildDiagnostics Result;
 		Result.SourceVertices = Points.size() <= std::numeric_limits<uint32>::max()
@@ -419,14 +476,19 @@ namespace Durin
 		}
 		try
 		{
+			FCollisionBuildControl Control{ShouldCancel};
+			Control.Check();
 			std::vector<FVector3> Vertices(Points.begin(), Points.end());
 			for (const FVector3& Point : Vertices)
+			{
+				Control.Tick();
 				if (!Math::IsFinite(Point))
 				{
 					Result.Status = ECollisionGeometryBuildStatus::InvalidInput;
 					Finish(Result);
 					return {};
 				}
+			}
 			std::ranges::sort(Vertices, [](const FVector3& Left, const FVector3& Right) {
 				if (Left.x != Right.x) return Left.x < Right.x;
 				if (Left.y != Right.y) return Left.y < Right.y;
@@ -444,6 +506,7 @@ namespace Durin
 			double BestDistance = 0.0;
 			for (uint32 Index = 1; Index < Vertices.size(); ++Index)
 			{
+				Control.Tick();
 				const double Distance = Math::LengthSquared(Vertices[Index] - Vertices[First]);
 				if (Distance > BestDistance)
 				{
@@ -456,6 +519,7 @@ namespace Durin
 			const FVector3 Line = Vertices[Second] - Vertices[First];
 			for (uint32 Index = 0; Index < Vertices.size(); ++Index)
 			{
+				Control.Tick();
 				const double Distance = Math::LengthSquared(Math::Cross(Line, Vertices[Index] - Vertices[First]));
 				if (Distance > BestDistance)
 				{
@@ -475,6 +539,7 @@ namespace Durin
 				Vertices[Second] - Vertices[First], Vertices[Third] - Vertices[First]);
 			for (uint32 Index = 0; Index < Vertices.size(); ++Index)
 			{
+				Control.Tick();
 				const double Distance = std::abs(Math::Dot(PlaneNormal, Vertices[Index] - Vertices[First]));
 				if (Distance > BestDistance)
 				{
@@ -504,10 +569,12 @@ namespace Durin
 			const std::set<uint32> Seed{First, Second, Third, Fourth};
 			for (uint32 Point = 0; Point < Vertices.size(); ++Point)
 			{
+				Control.Tick();
 				if (Seed.contains(Point)) continue;
 				std::vector<uint32> Visible;
 				for (uint32 FaceIndex = 0; FaceIndex < Faces.size(); ++FaceIndex)
 				{
+					Control.Tick();
 					const FFace& Face = Faces[FaceIndex];
 					if (Face.bDeleted) continue;
 					const FVector3 Normal = Math::Cross(
@@ -520,6 +587,7 @@ namespace Durin
 				std::map<std::pair<uint32, uint32>, FHorizonEdge> Horizon;
 				for (uint32 FaceIndex : Visible)
 				{
+					Control.Tick();
 					FFace& Face = Faces[FaceIndex];
 					for (const auto [From, To] : {std::pair{Face.A, Face.B},
 						std::pair{Face.B, Face.C}, std::pair{Face.C, Face.A}})
@@ -532,6 +600,7 @@ namespace Durin
 				}
 				for (const auto& [Key, Edge] : Horizon)
 				{
+					Control.Tick();
 					if (Edge.Count != 1) continue;
 					FFace Face{Edge.To, Edge.From, Point};
 					Orient(Face);
@@ -549,6 +618,7 @@ namespace Durin
 			std::vector<uint32> Remap(Vertices.size(), std::numeric_limits<uint32>::max());
 			for (uint32 Old : Used)
 			{
+				Control.Tick();
 				Remap[Old] = static_cast<uint32>(HullVertices.size());
 				HullVertices.push_back(Vertices[Old]);
 			}
@@ -556,13 +626,19 @@ namespace Durin
 			HullIndices.reserve(FinalFaces.size() * 3);
 			for (const FFace& Face : FinalFaces)
 				HullIndices.insert(HullIndices.end(), {Remap[Face.A], Remap[Face.B], Remap[Face.C]});
-			FCollisionGeometryRef Geometry = MakeConvexHull(HullVertices, HullIndices);
+			bool bFinalizationCancelled = false;
+			FCollisionGeometryRef Geometry = MakeConvexHull(HullVertices, HullIndices, [&] {
+				bFinalizationCancelled = bFinalizationCancelled || (ShouldCancel && ShouldCancel());
+				return bFinalizationCancelled;
+			});
+			if (bFinalizationCancelled) throw FCollisionBuildCancelled{};
 			if (!Geometry)
 			{
 				Result.Status = ECollisionGeometryBuildStatus::InvalidInput;
 				Finish(Result);
 				return {};
 			}
+			Control.Check();
 			Result.Status = ECollisionGeometryBuildStatus::Success;
 			Result.RetainedVertices = static_cast<uint32>(HullVertices.size());
 			Result.SourceTriangles = static_cast<uint32>(FinalFaces.size());
@@ -576,6 +652,12 @@ namespace Durin
 			Finish(Result);
 			return Geometry;
 		}
+		catch (const FCollisionBuildCancelled&)
+		{
+			Result.Status = ECollisionGeometryBuildStatus::Cancelled;
+			Finish(Result);
+			return {};
+		}
 		catch (const std::bad_alloc&)
 		{
 			Result.Status = ECollisionGeometryBuildStatus::AllocationFailed;
@@ -587,11 +669,19 @@ namespace Durin
 	auto FCollisionGeometryRef::MakeTriangleMesh(
 		std::span<const FVector3> Vertices,
 		std::span<const uint32> Indices,
-		std::span<const uint32> SourceOrdinals) -> FCollisionGeometryRef
+		std::span<const uint32> SourceOrdinals,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	try
 	{
-		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals)) return {};
+		FCollisionBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals, Control)) return {};
 		return FCollisionGeometryRef(MakeFeatureGeometry(
-			ECollisionGeometryKind::TriangleMesh, Vertices, Indices, SourceOrdinals));
+			ECollisionGeometryKind::TriangleMesh, Vertices, Indices, SourceOrdinals, {}, {}, Control));
+	}
+	catch (const FCollisionBuildCancelled&)
+	{
+		return {};
 	}
 
 	auto FCollisionGeometryRef::MakeCookedTriangleMesh(
@@ -599,9 +689,13 @@ namespace Durin
 		std::span<const uint32> Indices,
 		std::span<const uint32> SourceOrdinals,
 		std::span<const FCollisionGeometryNode> Nodes,
-		std::span<const uint32> LeafTriangles) -> FCollisionGeometryRef
+		std::span<const uint32> LeafTriangles,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
+	try
 	{
-		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals)
+		FCollisionBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (!ValidateFeatureInput(Vertices, Indices, SourceOrdinals, Control)
 			|| Nodes.empty() || Nodes.size() > Indices.size() / 3 * 2
 			|| LeafTriangles.size() != Indices.size() / 3) return {};
 		std::vector<bool> VisitedNodes(Nodes.size(), false);
@@ -611,6 +705,7 @@ namespace Durin
 		Stack[0] = 0;
 		while (StackCount > 0)
 		{
+			Control.Tick();
 			const uint32 NodeIndex = Stack[--StackCount];
 			if (NodeIndex >= Nodes.size() || VisitedNodes[NodeIndex]) return {};
 			VisitedNodes[NodeIndex] = true;
@@ -625,11 +720,13 @@ namespace Durin
 					|| Count > LeafTriangles.size() - Node.First) return {};
 				for (uint32 Offset = 0; Offset < Count; ++Offset)
 				{
+					Control.Tick();
 					const uint32 Triangle = LeafTriangles[Node.First + Offset];
 					if (Triangle >= VisitedTriangles.size() || VisitedTriangles[Triangle]) return {};
 					VisitedTriangles[Triangle] = true;
 					for (uint32 Corner = 0; Corner < 3; ++Corner)
 					{
+						Control.Tick();
 						const FVector3& Vertex = Vertices[Indices[Triangle * 3 + Corner]];
 						for (uint32 Axis = 0; Axis < 3; ++Axis)
 							if (Vertex[Axis] < Node.Minimum[Axis] || Vertex[Axis] > Node.Maximum[Axis]) return {};
@@ -642,16 +739,21 @@ namespace Durin
 			Stack[StackCount++] = Node.CountOrSecond;
 			Stack[StackCount++] = Node.First;
 		}
-		if (!std::ranges::all_of(VisitedNodes, std::identity{})
-			|| !std::ranges::all_of(VisitedTriangles, std::identity{})) return {};
+		if (!std::ranges::all_of(VisitedNodes, [&Control](bool Value) { Control.Tick(); return Value; })
+			|| !std::ranges::all_of(VisitedTriangles, [&Control](bool Value) { Control.Tick(); return Value; })) return {};
 		return FCollisionGeometryRef(MakeFeatureGeometry(ECollisionGeometryKind::TriangleMesh,
-			Vertices, Indices, SourceOrdinals, Nodes, LeafTriangles));
+			Vertices, Indices, SourceOrdinals, Nodes, LeafTriangles, Control));
+	}
+	catch (const FCollisionBuildCancelled&)
+	{
+		return {};
 	}
 
 	auto FCollisionGeometryRef::BuildTriangleMesh(
 		std::span<const FVector3> Vertices,
 		std::span<const uint32> Indices,
-		FCollisionGeometryBuildDiagnostics* Diagnostics) -> FCollisionGeometryRef
+		FCollisionGeometryBuildDiagnostics* Diagnostics,
+		const std::function<bool()>& ShouldCancel) -> FCollisionGeometryRef
 	{
 		FCollisionGeometryBuildDiagnostics Result;
 		Result.SourceVertices = Vertices.size() <= std::numeric_limits<uint32>::max()
@@ -675,13 +777,18 @@ namespace Durin
 		}
 		try
 		{
+			FCollisionBuildControl Control{ShouldCancel};
+			Control.Check();
 			for (const FVector3& Vertex : Vertices)
+			{
+				Control.Tick();
 				if (!Math::IsFinite(Vertex))
 				{
 					Result.Status = ECollisionGeometryBuildStatus::InvalidInput;
 					Finish(Result);
 					return {};
 				}
+			}
 			std::vector<uint32> RetainedIndices;
 			std::vector<uint32> RetainedOrdinals;
 			RetainedIndices.reserve(Indices.size());
@@ -689,6 +796,7 @@ namespace Durin
 			std::set<std::array<uint32, 3>> Membership;
 			for (uint32 Triangle = 0; Triangle < Indices.size() / 3; ++Triangle)
 			{
+				Control.Tick();
 				const uint32 A = Indices[Triangle * 3];
 				const uint32 B = Indices[Triangle * 3 + 1];
 				const uint32 C = Indices[Triangle * 3 + 2];
@@ -720,14 +828,15 @@ namespace Durin
 			std::vector<FCollisionGeometryNode> Nodes;
 			std::vector<uint32> LeafTriangles;
 			if (!BuildDeterministicBvh(
-				Vertices, RetainedIndices, RetainedOrdinals, Nodes, LeafTriangles, Result.MaximumDepth))
+				Vertices, RetainedIndices, RetainedOrdinals, Nodes, LeafTriangles, Result.MaximumDepth, Control))
 			{
 				Result.Status = ECollisionGeometryBuildStatus::DepthExceeded;
 				Finish(Result);
 				return {};
 			}
 			FCollisionGeometryRef Geometry(MakeFeatureGeometry(ECollisionGeometryKind::TriangleMesh,
-				Vertices, RetainedIndices, RetainedOrdinals, Nodes, LeafTriangles));
+				Vertices, RetainedIndices, RetainedOrdinals, Nodes, LeafTriangles, Control));
+			Control.Check();
 			Result.Status = ECollisionGeometryBuildStatus::Success;
 			Result.RetainedVertices = static_cast<uint32>(Vertices.size());
 			Result.RetainedTriangles = static_cast<uint32>(RetainedOrdinals.size());
@@ -742,6 +851,12 @@ namespace Durin
 				+ RetainedOrdinals.size() * sizeof(FTriangleBuildRecord);
 			Finish(Result);
 			return Geometry;
+		}
+		catch (const FCollisionBuildCancelled&)
+		{
+			Result.Status = ECollisionGeometryBuildStatus::Cancelled;
+			Finish(Result);
+			return {};
 		}
 		catch (const std::bad_alloc&)
 		{

@@ -3,6 +3,7 @@
 #include "Math/Operations.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
 namespace Durin
@@ -18,6 +19,7 @@ namespace Durin
 		if (BodySetup == InBodySetup) return true;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
 		BodySetup = InBodySetup;
+		NotifyStaticMeshCompilationMutation(*this);
 		MarkPackageDirty();
 		return true;
 	}
@@ -48,6 +50,18 @@ namespace Durin
 		{
 			OutError = "Static-mesh collision source mode is invalid.";
 			return false;
+		}
+		if (!RenderData && HasPendingStaticMeshCompilation(*this))
+		{
+			if (!BodySetup)
+			{
+				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
+				NotifyStaticMeshCompilationMutation(*this);
+			}
+			const bool bAccepted = BodySetup->SetCollisionSourceMode(Mode);
+			OutError.clear();
+			return bAccepted;
 		}
 		if (Mode == EBodySetupCollisionSourceMode::None)
 		{
@@ -92,6 +106,19 @@ namespace Durin
 		EBodySetupCollisionQueryPolicy Policy,
 		std::string& OutError) -> bool
 	{
+		if (Policy != EBodySetupCollisionQueryPolicy::SimpleOnly
+			&& Policy != EBodySetupCollisionQueryPolicy::ComplexOnly
+			&& Policy != EBodySetupCollisionQueryPolicy::SimpleAndComplex)
+		{
+			OutError = "Static-mesh collision query policy is invalid.";
+			return false;
+		}
+		if (!RenderData && BodySetup && HasPendingStaticMeshCompilation(*this))
+		{
+			const bool bAccepted = BodySetup->SetCollisionQueryPolicy(Policy);
+			OutError.clear();
+			return bAccepted;
+		}
 		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
 		{
 			if (!BodySetup)

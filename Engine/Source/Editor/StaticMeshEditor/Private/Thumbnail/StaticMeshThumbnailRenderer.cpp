@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 namespace Durin::Editor::StaticMesh
 {
@@ -97,6 +98,8 @@ namespace Durin::Editor::StaticMesh
 			auto PollStaticMeshReadiness()
 				-> ::Durin::Editor::FThumbnailRendererSessionUpdate
 			{
+				if (HasPendingStaticMeshCompilation(*StaticMesh))
+					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
 				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)

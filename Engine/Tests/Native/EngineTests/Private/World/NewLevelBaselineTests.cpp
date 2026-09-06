@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
@@ -102,6 +103,8 @@ namespace
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	const std::filesystem::path Root =
@@ -130,6 +133,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::DStaticMesh* Mesh = nullptr;
 	const Durin::FAssetResult MeshLoad = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh);
 	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 
 	Durin::FPackagePath LevelPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(

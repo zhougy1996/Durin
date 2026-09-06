@@ -19,16 +19,18 @@ namespace Durin
 
 		auto BuildRender(const FStaticMeshRecipeBuildRequest& Request,
 			FStaticMeshRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool override
+			std::string& OutError,
+			const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshBuildOutcome override
 		{
-			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, OutProduct, OutError);
+			return FStaticMeshBuildOperations::BuildRenderRecipe(Request, OutProduct, OutError, Control);
 		}
 
 		auto BuildCollision(const FStaticMeshCollisionRecipeRequest& Request,
 			FStaticMeshCollisionRecipeProduct& OutProduct,
-			std::string& OutError) -> bool override
+			std::string& OutError,
+			const FStaticMeshBuildExecutionControl& Control) -> FStaticMeshBuildOutcome override
 		{
-			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, OutProduct, OutError);
+			return FStaticMeshBuildOperations::BuildCollisionRecipe(Request, OutProduct, OutError, Control);
 		}
 
 		auto StartupModule() -> void override

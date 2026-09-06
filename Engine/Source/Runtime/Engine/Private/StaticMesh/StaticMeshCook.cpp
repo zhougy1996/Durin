@@ -10,6 +10,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
@@ -89,7 +90,21 @@ namespace Durin
 		FBulkData* CollisionField = &CookedCollisionData;
 		if (Ar.IsSaving())
 		{
-			if (!RenderData)
+			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
+			const FStaticMeshRenderData* Projection = RenderData.get();
+			std::string Error;
+			if (ImportedData.IsValid())
+			{
+				auto Request = MakeStaticMeshAuthoredBuildRequest(ImportedData, CaptureStaticMeshReconciliation(*this));
+				Request.bPersistDerivedData = false;
+				if (!BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate, Error))
+				{
+					Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
+					return;
+				}
+				Projection = Candidate->GetRenderData();
+			}
+			if (!Projection)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"StaticMesh cooked render data is unavailable.");
@@ -97,8 +112,7 @@ namespace Durin
 			}
 			FStaticMeshPayloadData Payload;
 			FByteBuffer RenderBytes;
-			std::string Error;
-			if (!MakeStaticMeshPayloadData(*RenderData, Payload, Error)
+			if (!MakeStaticMeshPayloadData(*Projection, Payload, Error)
 				|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
@@ -119,7 +133,12 @@ namespace Durin
 				&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
 			{
 				FCollisionGeometryRef Simple, Complex;
-				if (!BuildCollisionCandidate(*RenderData, BodySetup->GetCollisionSourceMode(),
+				if (Candidate)
+				{
+					Simple = Candidate->GetCollision().Simple;
+					Complex = Candidate->GetCollision().Complex;
+				}
+				else if (!BuildCollisionCandidate(*Projection, BodySetup->GetCollisionSourceMode(),
 					BodySetup->GetCollisionQueryPolicy(), Simple, Complex, Error))
 				{
 					Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
@@ -206,11 +225,8 @@ namespace Durin
 			OutError = "StaticMesh canonical imported geometry is missing or invalid.";
 			return false;
 		}
-		FStaticMeshBuildResult Product;
-		if (!BuildStaticMeshDerivedData({
-			.Reconciliation = CaptureStaticMeshReconciliation(*this),
-			.ImportedData = ImportedData}, Product, OutError)) return false;
-		return ApplyStaticMeshBuildResult(*this, ImportedData, std::move(Product), OutError, false);
+		if (CanJoinStaticMeshCompilation(*this, ImportedData)) { OutError.clear(); return true; }
+		return SubmitStaticMeshCompilation(*this, {.Source = ImportedData, .bMarkPackageDirty = false}, OutError);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
 	{
@@ -413,8 +429,7 @@ namespace Durin
 				"Static mesh '{}' supports only the Win64 game cook target.", GetObjectPath());
 			return false;
 		}
-		if (!RenderData && !PostLoad(OutError)) return false;
-		if (!RenderData)
+		if (!RenderData && !ImportedData.IsValid())
 		{
 			OutError = std::format("Static mesh '{}' has no render data to cook.", GetObjectPath());
 			return false;

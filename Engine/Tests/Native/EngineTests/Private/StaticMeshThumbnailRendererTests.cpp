@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "Thumbnail/StaticMeshThumbnailRenderer.h"
 
 #include "Assets/ContentBrowserThumbnailReferences.h"
@@ -147,6 +148,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MissingDerivedDataRebuildsBeforeThumbnailReadiness)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
@@ -167,6 +170,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 
@@ -590,6 +594,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MixedEditorModulesUnloadQueuedThumbnailsWithoutCrossModuleLoss)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))

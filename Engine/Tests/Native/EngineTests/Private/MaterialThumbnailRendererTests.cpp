@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "Thumbnail/MaterialThumbnailRenderer.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "MaterialEditorModule.h"
@@ -82,6 +83,8 @@ namespace
 TEST(FMaterialThumbnailRendererTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecycle)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FMaterialEditorModule Module;
@@ -108,6 +111,8 @@ TEST(FMaterialThumbnailRendererTests, ModuleOwnsBothExactRenderersAndWorkspaceLi
 TEST(FMaterialThumbnailRendererTests, RendererConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	std::string Error;
@@ -221,6 +226,8 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(
 		nullptr, "MaterialThumbnailPreviewComponent");
 	Component->SetStaticMesh(Mesh);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Fixtures.Material);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Fixtures.MaterialInstance);
 	Component->SetMaterial(Fixtures.Material);
 	std::unique_ptr<Durin::FPrimitiveSceneProxy> MaterialPrimitive =
 		Component->CreateSceneProxy();
@@ -311,6 +318,8 @@ TEST(FMaterialThumbnailRendererTests,
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;
@@ -360,7 +369,10 @@ TEST(FMaterialThumbnailRendererTests,
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	if (!Durin::IsMaterialCompilationAcceptingRequests())
+		if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::FMountPaths::InitDefaultMountPoints();

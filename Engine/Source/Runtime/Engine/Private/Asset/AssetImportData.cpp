@@ -1,5 +1,6 @@
 #include "Asset/AssetImportData.h"
 #include "Asset/SourceHint.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
@@ -293,13 +294,24 @@ namespace Durin
 		return ValidateBaseState(GetState(), OutError);
 	}
 
+	auto DAssetImportData::GetCompilationIdentity() const -> FXxHash128
+	{
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(SourceData.GetFingerprint());
+		return Builder.Finalize();
+	}
+
 	auto DAssetImportData::SetState(
 		FAssetImportDataState State, std::string& OutError) -> bool
 	{
 		State.SourceData.Normalize();
 		if (!ValidateBaseState(State, OutError)) return false;
+		if (GetState() == State) { OutError.clear(); return true; }
 		SchemaVersion = State.SchemaVersion;
 		SourceData = std::move(State.SourceData);
+		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); Mesh && Mesh->GetAssetImportData() == this)
+			NotifyStaticMeshCompilationMutation(*Mesh);
 		OutError.clear();
 		return true;
 	}

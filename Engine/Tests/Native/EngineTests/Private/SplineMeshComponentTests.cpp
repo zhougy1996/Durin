@@ -1,3 +1,4 @@
+#include "Asset/AssetCompilingManager.h"
 #include "Components/SplineMeshComponent.h"
 #include "Components/SplineComponent.h"
 
@@ -98,6 +99,8 @@ TEST(FSplineMeshComponentTests, PlanarStaticMeshPublishesZeroThicknessLocalBound
 TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationSections)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Testing::FScopedMountRegistryFixture MountRegistry;
 	FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(RefreshAssetRegistry());
@@ -109,6 +112,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	const FAssetResult LoadResult = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 	ASSERT_NE(RenderData, nullptr);
 	ASSERT_FALSE(RenderData->LODResources.empty());
@@ -293,6 +297,8 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHandles)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshCollisionWorld");
 	auto* Level = NewObject<DLevel>(World, "SplineMeshCollisionLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -339,6 +345,8 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsDerivedState)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "SplineMeshComponentAssets";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
@@ -387,6 +395,8 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "SplineMeshActorAssets";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
@@ -494,6 +504,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* World = NewObject<DWorld>(nullptr, "SplineMeshTopologyWorld");
 	auto* Level = NewObject<DLevel>(World, "SplineMeshTopologyLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
@@ -540,6 +552,8 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 TEST(FSplineComponentMutationTests, ListenerRemovalDuringPublicationIsSafe)
 {
 	InitializeDObjectSystem();
+	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	auto* Spline = NewObject<DSplineComponent>(nullptr, "SplineMutationListeners");
 	uint32 FirstCalls = 0;
 	uint32 RemovedCalls = 0;

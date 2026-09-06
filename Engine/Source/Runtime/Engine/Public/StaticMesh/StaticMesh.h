@@ -18,6 +18,10 @@ namespace Durin
 {
 
 	class DBodySetup;
+	class FStaticMeshAuthoredCandidate;
+	struct FStaticMeshReconciliationSnapshot;
+	struct FStaticMeshBuildExecutionControl;
+	struct FStaticMeshBuildOutcome;
 	class FCollisionGeometryRef;
 	enum class EBodySetupCollisionSourceMode : uint8;
 	enum class EBodySetupCollisionQueryPolicy : uint8;
@@ -253,7 +257,12 @@ namespace Durin
 			std::vector<FMeshMaterialSlotDefinition>*
 				InMaterialSlots,
 			std::string& OutError,
-			bool bBuildAuthoredCollision = true) -> bool;
+			bool bBuildAuthoredCollision = true,
+			FStaticMeshAuthoredCandidate* AuthoredCandidate = nullptr,
+			DAssetImportData* PreparedImportData = nullptr) -> bool;
+		friend auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
+			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
+			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
 		auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
 		auto SubmitCookedRenderDataRequest(bool bInitializeResources) -> bool;

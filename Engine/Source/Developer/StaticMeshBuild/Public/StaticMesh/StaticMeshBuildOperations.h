@@ -12,10 +12,12 @@ namespace Durin
 		STATICMESHBUILD_API static auto BuildRenderRecipe(
 			const FStaticMeshRecipeBuildRequest& Request,
 			FStaticMeshRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool;
+			std::string& OutError,
+			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshBuildOutcome;
 		STATICMESHBUILD_API static auto BuildCollisionRecipe(
 			const FStaticMeshCollisionRecipeRequest& Request,
 			FStaticMeshCollisionRecipeProduct& OutProduct,
-			std::string& OutError) -> bool;
+			std::string& OutError,
+			const FStaticMeshBuildExecutionControl& Control = {}) -> FStaticMeshBuildOutcome;
 	};
 }

@@ -2,9 +2,9 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, Engine
+Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 ## Ownership Layers
 
@@ -75,6 +75,31 @@ real prepare/rollback/compensate transaction. Direct import itself does not use
 this utility: each family captures and validates detached state before its
 narrow setter/update seam, then reports synchronous rejection or typed build
 completion through its owning module.
+
+## Standalone StaticMesh Operations
+
+StaticMesh import/reimport captures and decodes physical input into canonical
+values synchronously, then submits Engine compilation. Default object-returning
+factories and bool/save APIs explicitly finish the selected object. The import
+dialog opts into deferred completion; factory reimport uses it by default.
+Neither path finishes unrelated assets or delegates Scene's transaction to the
+manager.
+
+Provenance is prepared as a private owned inner. Engine validates it and all
+captured mesh facts before mutation, then installs its pointer with the complete
+source/render/collision candidate before one registered-consumer refresh.
+Cancellation, supersession and failure preserve old provenance and never save.
+Successful application marks the package dirty before the adapter saves it;
+save failure retains the applied state and reports a retryable save failure.
+The dialog's Retry Save performs only persistence, without rebuilding.
+
+The dialog disables conflicting input/import controls and explicit close while
+its request is pending. It defers persistence when asset mutation is disallowed.
+Its completion captures weak operation state, never a Widget pointer. Destruction
+detaches UI ownership, cancels its own request and explicitly drains the selected
+completion before callback code can unload. Factory reimport callbacks capture
+no factory pointer. This is direct apply-then-save sequencing; it does not use
+the compensating utility or roll back a successfully applied mesh.
 
 ## Related Documentation
 

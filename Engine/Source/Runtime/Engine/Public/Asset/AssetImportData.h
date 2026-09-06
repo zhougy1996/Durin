@@ -94,6 +94,7 @@ namespace Durin
 		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
 		auto GetSourceData() const -> const FAssetImportInfo& { return SourceData; }
 
+		ENGINE_API virtual auto GetCompilationIdentity() const -> FXxHash128;
 		ENGINE_API virtual auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto SetState(
 			FAssetImportDataState State, std::string& OutError) -> bool;
