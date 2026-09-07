@@ -395,6 +395,8 @@ namespace Durin::VulkanRHI
 		DeviceFeatures.depthClamp = AvailableFeatures.depthClamp;
 		DeviceFeatures.depthBiasClamp = AvailableFeatures.depthBiasClamp;
 		DeviceFeatures.wideLines = AvailableFeatures.wideLines;
+		// Fragment storage-image writes require explicit logical-device enablement.
+		DeviceFeatures.fragmentStoresAndAtomics = AvailableFeatures.fragmentStoresAndAtomics;
 		vk::DeviceCreateInfo DeviceInfo;
 		vk::PhysicalDeviceVulkan11Features Vulkan11Features;
 		vk::PhysicalDeviceVulkan13Features Vulkan13Features;

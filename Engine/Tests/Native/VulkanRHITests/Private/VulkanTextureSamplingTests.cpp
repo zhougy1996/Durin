@@ -1712,17 +1712,40 @@ namespace Durin
 			SCOPED_TRACE(Mode);
 			struct FRHIScope
 			{
+				std::optional<std::string> PreviousExecution;
+				std::optional<std::string> PreviousValidation;
 				explicit FRHIScope(const char* Value)
 				{
+					if (const char* Existing = std::getenv("DURIN_RHI_EXECUTION"))
+						PreviousExecution = Existing;
+					if (const char* Existing = std::getenv("DURIN_VULKAN_VALIDATION"))
+						PreviousValidation = Existing;
 					_putenv_s("DURIN_RHI_EXECUTION", Value);
+					_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 				}
 				~FRHIScope()
 				{
 					if (GDynamicRHI) RHIExit();
-					_putenv_s("DURIN_RHI_EXECUTION", "");
+					_putenv_s("DURIN_RHI_EXECUTION",
+						PreviousExecution ? PreviousExecution->c_str() : "");
+					_putenv_s("DURIN_VULKAN_VALIDATION",
+						PreviousValidation ? PreviousValidation->c_str() : "");
 				}
 			} Scope(Mode);
 			ASSERT_TRUE(RHIInit(VulkanRHI::GetVulkanTestInitializationContext()));
+			const auto& Backend = VulkanRHI::FVulkanDynamicRHI::Get();
+			ASSERT_TRUE(Backend.GetDiagnosticAvailability().bValidationLayerActive);
+			ASSERT_TRUE(Backend.GetDiagnosticAvailability().bMessengerActive);
+			bool bFragmentStoresSupported = false;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				VkPhysicalDeviceFeatures Features{};
+				vkGetPhysicalDeviceFeatures(
+					static_cast<VulkanRHI::IVulkanDynamicRHI*>(GDynamicRHI)->RHIGetVkPhysicalDevice(),
+					&Features);
+				bFragmentStoresSupported = Features.fragmentStoresAndAtomics == VK_TRUE;
+			});
+			if (!bFragmentStoresSupported)
+				GTEST_SKIP() << "The physical device does not support fragment storage writes.";
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 			auto MakeShader = [&](uint32 Index) {
 				const FCompiledShader& Shader = Compiled.CompiledShaders[Index];
@@ -1844,6 +1867,7 @@ namespace Durin
 			EXPECT_NEAR(std::to_integer<uint8>(Pixels[2]), 191, 1);
 			EXPECT_EQ(Pixels[3], std::byte{255});
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+			EXPECT_EQ(Backend.GetDebugMessageStatistics().ErrorCount, 0u);
 		}
 	}
 }
