@@ -99,7 +99,7 @@ namespace Durin::RoadNet
 	}
 
 	auto FRoadAlignment::Build(const FRoad& Road, const FRoadSurface& InSurface,
-		uint64 InAssetRevision, std::shared_ptr<const FRoadAlignment>& OutSnapshot, std::string& OutError) -> bool
+		std::shared_ptr<const FRoadAlignment>& OutSnapshot, std::string& OutError) -> bool
 	{
 		OutError.clear();
 		if (!ValidateSurface(InSurface, OutError)) return false;
@@ -117,7 +117,6 @@ namespace Durin::RoadNet
 		if (!ValidateDefinition(Definition, OutError)) return false;
 		auto Result = std::make_shared<FRoadAlignment>();
 		Result->Surface = InSurface;
-		Result->AssetRevision = InAssetRevision;
 		Result->Sections = Road.LaneSections;
 		const auto Source = Road.ReferenceLine.BuildEvaluationData();
 		auto Fail = [&](std::string_view Reason) {

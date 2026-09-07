@@ -266,7 +266,7 @@ namespace Durin::RoadNet
 		if (!ValidateDefinition(InDefinition, OutError)) return false;
 		Definition = std::move(InDefinition);
 		MarkPackageDirty();
-		PublishRevision();
+		NotifyMutation();
 		OutError.clear();
 		return true;
 	}
@@ -286,7 +286,7 @@ namespace Durin::RoadNet
 			return false;
 		}
 		SchemaVersion = RoadNetSchemaVersion;
-		PublishRevision();
+		NotifyMutation();
 		return true;
 	}
 
@@ -312,7 +312,7 @@ namespace Durin::RoadNet
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Definition")
 			&& !(Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit))
-			PublishRevision();
+			NotifyMutation();
 	}
 
 	auto DRoadNet::AddMutationListener(std::function<void()> Listener) -> uint64
@@ -324,9 +324,8 @@ namespace Durin::RoadNet
 
 	auto DRoadNet::RemoveMutationListener(uint64 Id) -> void { Listeners.erase(Id); }
 
-	auto DRoadNet::PublishRevision() -> void
+	auto DRoadNet::NotifyMutation() -> void
 	{
-		++Revision;
 		bPublishing = true;
 		std::vector<uint64> Ids;
 		for (const auto& [Id, Listener] : Listeners) Ids.push_back(Id);

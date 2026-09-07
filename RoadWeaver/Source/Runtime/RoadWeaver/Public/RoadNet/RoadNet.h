@@ -37,7 +37,6 @@ namespace Durin::RoadNet
 		ROADWEAVER_API explicit DRoadNet(const FObjectInitializer& ObjectInitializer);
 
 		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
-		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetDefinition() const -> const FDefinition& { return Definition; }
 		auto GetNodes() const -> const std::vector<FNode>& { return Definition.Nodes; }
 		auto GetRoads() const -> const std::vector<FRoad>& { return Definition.Roads; }
@@ -55,16 +54,13 @@ namespace Durin::RoadNet
 		ROADWEAVER_API auto RemoveMutationListener(uint64 Id) -> void;
 
 	private:
-		auto PublishRevision() -> void;
+		auto NotifyMutation() -> void;
 		std::map<uint64, std::function<void()>> Listeners;
 		uint64 NextListenerId = 1;
 		bool bPublishing = false;
 
 		DPROPERTY()
 		uint32 SchemaVersion = RoadNetSchemaVersion;
-
-		DPROPERTY()
-		uint64 Revision = 0;
 
 		DPROPERTY(Edit)
 		FDefinition Definition;

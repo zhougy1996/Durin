@@ -92,7 +92,6 @@ TEST(RoadSceneIntegration, ReuseStaleRecoveryAndDetach)
 	auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	ASSERT_EQ(Components.size(), 1);
 	const auto OriginalState = Components[0]->GetDerivedState();
-	const auto Revision = Actor->GetAlignments().front()->GetAssetRevision();
 	const auto OriginalAlignment = Actor->GetAlignments().front();
 	FRoadSurface InactiveEdit;
 	InactiveEdit.RadiusMeters = 42;
@@ -112,21 +111,27 @@ TEST(RoadSceneIntegration, ReuseStaleRecoveryAndDetach)
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
 	FRoadSurface Surface;
+	const auto LastValidAlignment = Actor->GetAlignments().front();
 	Surface.Mode = ERoadSurfaceMode::Sphere;
 	Surface.RadiusMeters = -1;
 	Actor->SetSurface(Surface);
 	EXPECT_EQ(Actor->GetGenerationState(), "Stale");
 	ASSERT_FALSE(Actor->GetAlignments().empty());
-	EXPECT_EQ(Actor->GetAlignments().front()->GetAssetRevision(), Revision);
+	EXPECT_EQ(Actor->GetAlignments().front(), LastValidAlignment);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
 	EXPECT_EQ(Components[0]->GetDerivedState()->DeformedLOD0Positions, OriginalState->DeformedLOD0Positions);
 	Actor->SetSurface({});
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	auto Changed = Asset->GetDefinition();
+	const auto BeforeMutation = Actor->GetAlignments().front();
 	Changed.Roads[0].Name = "Revised";
+	Changed.Roads[0].LaneSections[0].Lanes[0].WidthMeters = 5;
 	ASSERT_TRUE(Asset->SetDefinition(Changed, Error));
 	ASSERT_FALSE(Actor->GetAlignments().empty());
-	EXPECT_EQ(Actor->GetAlignments().front()->GetAssetRevision(), Asset->GetRevision());
+	EXPECT_NE(Actor->GetAlignments().front(), BeforeMutation);
+	FRoadSample UpdatedSample;
+	ASSERT_TRUE(Actor->GetAlignments().front()->Sample(0, UpdatedSample, Error));
+	EXPECT_EQ(UpdatedSample.Lanes.front().MaximumMeters, 5);
 	Actor->SetRoadNet(nullptr);
 	EXPECT_EQ(Actor->GetGenerationState(), "Empty");
 	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
@@ -146,13 +151,12 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 	std::string Error;
 	ASSERT_TRUE(Asset->SetDefinition(Value, Error));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	const auto Revision = Asset->GetRevision();
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
 	auto Invalid = Value;
 	Invalid.Roads[0].LaneSections[0].Lanes[1].Id = Invalid.Roads[0].LaneSections[0].Lanes[0].Id;
 	EXPECT_FALSE(Asset->SetDefinition(Invalid, Error));
 	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
-	EXPECT_EQ(Asset->GetRevision(), Revision);
+	EXPECT_EQ(Asset->GetRoads()[0].LaneSections[0].Lanes[1].Id, Value.Roads[0].LaneSections[0].Lanes[1].Id);
 	ASSERT_TRUE(UnloadPackage(Path));
 	DObject* Loaded = nullptr;
 	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
@@ -164,7 +168,7 @@ TEST(RoadSceneIntegration, AssetRoundTripPreservesIdsAndRejectedMutationDirtySta
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 
-TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayPublishesRevision)
+TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 {
 	auto* Asset = NewObject<DRoadNet>(nullptr, "ReflectedRoad");
 	auto* Draft = NewObject<DRoadNet>(nullptr, "RoadDraft");
@@ -177,9 +181,11 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayPublishesRev
 	Candidate->Roads[0].LaneSections[0].StartDistanceMeters = 1;
 	FPropertyEditProposal Proposal{.MemberProperty = Property, .LeafProperty = Property,
 		.DraftRootProperty = Property, .DraftRootContainer = Draft, .DraftLeafContainer = Draft};
-	const auto Revision = Asset->GetRevision();
+	int Notifications = 0;
+	const auto Listener = Asset->AddMutationListener([&] { ++Notifications; });
 	EXPECT_FALSE(Asset->PreEditChangeProperty(Proposal, Error));
-	EXPECT_EQ(Asset->GetRevision(), Revision);
+	EXPECT_EQ(Notifications, 0);
+	EXPECT_EQ(Asset->GetRoads()[0].LaneSections[0].StartDistanceMeters, 0);
 	for (auto Origin : {EPropertyChangeOrigin::Undo, EPropertyChangeOrigin::Redo})
 	{
 		Proposal.Origin = Origin;
@@ -188,7 +194,8 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayPublishesRev
 	*Candidate = Asset->GetDefinition();
 	ASSERT_TRUE(Asset->PreEditChangeProperty(Proposal, Error));
 	Asset->PostEditChangeProperty({.MemberProperty = Property, .Origin = EPropertyChangeOrigin::Undo});
-	EXPECT_EQ(Asset->GetRevision(), Revision + 1);
+	EXPECT_EQ(Notifications, 1);
 	Asset->PostEditChangeProperty({.MemberProperty = Property, .Origin = EPropertyChangeOrigin::Redo});
-	EXPECT_EQ(Asset->GetRevision(), Revision + 2);
+	EXPECT_EQ(Notifications, 2);
+	Asset->RemoveMutationListener(Listener);
 }

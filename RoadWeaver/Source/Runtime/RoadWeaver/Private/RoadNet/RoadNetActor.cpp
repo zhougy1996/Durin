@@ -120,7 +120,7 @@ namespace Durin::RoadNet
 		for (const auto& Road : RoadNet->GetRoads())
 		{
 			std::shared_ptr<const FRoadAlignment> Alignment;
-			if (!FRoadAlignment::Build(Road, Surface, RoadNet->GetRevision(), Alignment, OutError)) return Fail(OutError);
+			if (!FRoadAlignment::Build(Road, Surface, Alignment, OutError)) return Fail(OutError);
 			FRoadSample Start;
 			if (!Alignment->Sample(0, Start, OutError)) return Fail(OutError);
 			double Left = 0, Right = 0;

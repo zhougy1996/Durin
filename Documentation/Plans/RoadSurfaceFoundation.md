@@ -20,6 +20,12 @@ or revision counters; tests cover inactive edits preserving snapshots and small
 active edits rebuilding them. Existing Spline/SplineMesh coverage does not qualify
 the remaining road integration gates.
 
+Road assets and alignment snapshots also omit mutation revision counters.
+Accepted asset changes notify observers directly; stale preview state retains
+the last valid snapshot. Tests verify notification delivery, rejected-edit
+silence, snapshot retention and rebuilt lane widths. SchemaVersion remains the
+file-format compatibility discriminator.
+
 Checkpoint validation (Win64-Debug-DurinEditor, 2026-09-07):
 `DevTool.bat test affected` passed (including RoadWeaver contract and integration
 targets); `DevTool.bat build` completed target `all`; changed-document validation
@@ -67,7 +73,7 @@ does not generate junction surfaces or modify production terrain.
   P0 generation is synchronous on the owning thread, with immutable query
   snapshots. No background workers or streaming are introduced in this phase.
 - On failure, reject authored mutation atomically. A failed derived rebuild
-  retains any last valid result explicitly marked stale with its revision and
+  retains any last valid snapshot explicitly marked stale with its
   diagnostic; with no prior result it publishes no geometry. Never report the
   previous result as current. Asset unload/detachment releases preview state.
 
@@ -170,8 +176,8 @@ Depends on Stage 0.
   effective nonzero geometry, endpoint agreement, and section invariants;
   validate explicit section-to-section lane mappings and enum values.
 - [ ] Route setters, reflected editing, load, and Undo/Redo through consistent
-  validation and revision publication. Failed candidates leave authored state,
-  package dirty state, and published revision unchanged.
+  validation and mutation notification. Failed candidates leave authored state
+  and package dirty state unchanged and do not notify observers.
 - [ ] Add schema compatibility handling selected in Stage 0 and diagnostics
   identifying the offending road/lane/section/connection.
 - [ ] Qualify disconnected junction references, reversed flow, mismatched
@@ -217,14 +223,14 @@ Depends on Stage 2.
   deformation between endpoints meets the surface/frame error budget; subdivide
   further or diagnose unsupported geometry when it does not.
 - [ ] Rebuild on asset/surface changes through explicit notifications or an
-  existing revision mechanism; reuse components when identities survive and
+  mutation notification mechanism; reuse components when identities survive and
   remove obsolete components without serializing derived state.
-- [ ] Expose ready/stale/error state and diagnostics. Read generation asset
-  revisions from alignment snapshots for debugging; do not duplicate or expose
-  a revision property on the scene actor.
+- [ ] Expose ready/stale/error state and diagnostics. Assets and snapshots have
+  no mutation revision counters: accepted changes notify the actor, successful
+  rebuilds replace snapshots, and failed rebuilds retain the last valid snapshot.
   Verify replacement, invalid rebuild, missing mesh/provider, detach, and
   unload behavior. Keep picking and any enabled collision tied to the displayed
-  geometry revision.
+  geometry snapshot.
 
 Completion: plane and sphere scenes display roads from `DRoadNet`; rebuilding
 does not create duplicate components or dirty assets just to regenerate them;

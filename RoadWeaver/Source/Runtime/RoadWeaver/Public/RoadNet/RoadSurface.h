@@ -67,7 +67,7 @@ namespace Durin::RoadNet
 	{
 	public:
 		ROADWEAVER_API static auto Build(const FRoad& Road, const FRoadSurface& Surface,
-			uint64 AssetRevision, std::shared_ptr<const FRoadAlignment>& OutSnapshot,
+			std::shared_ptr<const FRoadAlignment>& OutSnapshot,
 			std::string& OutError) -> bool;
 		// Rejects non-finite/out-of-range stations; does not clamp authored stationing.
 		ROADWEAVER_API auto Sample(double DistanceMeters, FRoadSample& OutSample,
@@ -76,12 +76,10 @@ namespace Durin::RoadNet
 			FRoadSample& OutSample, std::string& OutError) const -> bool;
 		auto GetLengthMeters() const -> double { return Evaluation->GetLocalLength(); }
 		auto GetIntervals() const -> const std::vector<FRoadInterval>& { return Intervals; }
-		auto GetAssetRevision() const -> uint64 { return AssetRevision; }
 		auto GetSurface() const -> const FRoadSurface& { return Surface; }
 
 	private:
 		FRoadSurface Surface;
-		uint64 AssetRevision = 0;
 		std::vector<FLaneSection> Sections;
 		std::vector<FRoadInterval> Intervals;
 		std::shared_ptr<const FSplineEvaluationData> Evaluation;
