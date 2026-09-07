@@ -15,11 +15,15 @@ Expected creation failure returns null without failing the RHI executor; device
 loss, command replay, submission, presentation, and invariant failures remain
 terminal.
 
-`RHICreateGraphicsPipelineState` is a creation-only factory. Its `DebugName`
-labels diagnostics and captures but does not select, reuse, or retain a PSO.
-Every successful request returns a distinct complete pipeline. Renderer slots
-and explicit Renderer-owned payloads hold logical ownership; recorded draws may
-retain transient references until replay completes.
+`RHICreateGraphicsPipelineState` returns a complete pipeline or null; it does
+not promise a distinct object on every call. Vulkan reuses a strongly retained
+pipeline for an equal normalized graphics-pipeline key. `DebugName` labels
+diagnostics and captures and is excluded from that key. Changing the name does
+not require a new pipeline, while changing semantic pipeline state can select
+a different pipeline even with the same name. Compute pipelines follow the
+same Vulkan cache policy. Renderer slots and explicit Renderer-owned payloads
+hold logical ownership; the backend cache and recorded commands can also retain
+references. Cache eviction selects only entries with no external references.
 
 ## Transactional Resource Slots
 
