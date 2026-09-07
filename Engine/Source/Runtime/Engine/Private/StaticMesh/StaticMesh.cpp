@@ -759,23 +759,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::PublishAssetImportData(
-		DAssetImportData& Value, std::string& OutError) -> bool
-	{
-		if (Value.GetOuter() != this)
-		{
-			OutError = "StaticMesh import data must be an owned inner object.";
-			return false;
-		}
-		if (!Value.Validate(OutError)) return false;
-		if (AssetImportData == &Value) { OutError.clear(); return true; }
-		AssetImportData = &Value;
-		NotifyStaticMeshCompilationMutation(*this);
-		MarkPackageDirty();
-		OutError.clear();
-		return true;
-	}
-
 	auto DStaticMesh::SetImportedDefaultMaterial(
 		uint32 SourceMaterialIndex,
 		DMaterialInterface* Material,

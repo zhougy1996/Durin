@@ -144,8 +144,6 @@ namespace Durin
 		{
 			return AssetImportData.Get();
 		}
-		ENGINE_API auto PublishAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*;
