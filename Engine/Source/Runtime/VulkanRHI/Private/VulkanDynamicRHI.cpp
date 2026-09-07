@@ -172,6 +172,15 @@ namespace Durin::VulkanRHI
 		DiagnosticAvailability = {};
 	}
 
+	auto FVulkanDynamicRHI::RHICollectCompletedResources() -> void
+	{
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [this] {
+			RHIFlushDeferredResources();
+			Device->GetCompletionTracker().Poll();
+			Device->GetDeferredDeletionQueue().ReleaseResources(false);
+		});
+	}
+
 	auto FVulkanDynamicRHI::RHIBeginFrame(
 		const FRHIBeginFrameArgs& Args) -> void
 	{

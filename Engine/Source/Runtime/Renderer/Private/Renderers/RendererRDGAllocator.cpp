@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <limits>
 #include <unordered_set>
@@ -105,6 +106,9 @@ namespace Durin
 			uint64 Sequence = 0;
 			uint64 LogicalBytes = 0;
 			std::optional<FRenderResourceGeneration> FailedGeneration;
+			ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
+			uint32 RetryFailures = 0;
+			std::chrono::steady_clock::time_point NextRetryTime{};
 			uint32 ObservationTag = 0;
 		};
 
@@ -114,6 +118,9 @@ namespace Durin
 		std::vector<FBufferEntry> Buffers;
 		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
+		std::optional<FRenderResourceGeneration> RetryGeneration;
+		std::chrono::steady_clock::time_point NextRetryTime{};
+		bool bNeedsCollection = false;
 		uint64 PeakActiveBytes = 0;
 		uint64 ReuseHits = 0;
 		uint64 ReuseMisses = 0;
@@ -154,6 +161,9 @@ namespace Durin
 		State->Buffers.clear();
 		State->DeviceGeneration.reset();
 		State->NextSequence = 0;
+		State->RetryGeneration.reset();
+		State->NextRetryTime = {};
+		State->bNeedsCollection = false;
 		State->RetainedBytes = 0;
 		State->RetainedResources = 0;
 	}
@@ -169,6 +179,15 @@ namespace Durin
 		{
 			Release_RenderThread();
 			State->DeviceGeneration = Generation.Device;
+		}
+		const auto Now = std::chrono::steady_clock::now();
+		constexpr auto RetryDependencies = ERenderResourceGenerationDependency::Device
+			| ERenderResourceGenerationDependency::Manual;
+		if (!State->RetryGeneration || HasSelectedRenderResourceGenerationChanged(
+			*State->RetryGeneration, Generation, RetryDependencies))
+		{
+			State->NextRetryTime = {};
+			State->RetryGeneration = Generation;
 		}
 		auto PublishStatistics = [&](uint64 ActiveBytes, uint32 ActiveResources) {
 			State->PeakActiveBytes = std::max(State->PeakActiveBytes, ActiveBytes);
@@ -220,18 +239,21 @@ namespace Durin
 		Candidates.reserve(Requests.size());
 		std::unordered_set<uint64> ActiveAllocationIds;
 		ActiveAllocationIds.reserve(Requests.size());
+		std::unordered_set<uint64> CreatedAllocationIds;
 		const uint64 FirstNewSequence = State->NextSequence;
 
 		auto RemoveNewEntries = [&](auto& Entries, uint64 PreserveSequence) {
-			std::erase_if(Entries, [&](const auto& Entry) {
-				if (Entry.Sequence < FirstNewSequence
-					|| Entry.Sequence == PreserveSequence) return false;
-				if (Entry.Physical)
+			// A successful retry can materialize an entry older than this batch.
+			for (auto& Entry : Entries)
+				if (Entry.Physical && CreatedAllocationIds.contains(Entry.Sequence + 1))
 				{
 					State->RetainedBytes -= Entry.LogicalBytes;
 					--State->RetainedResources;
+					Entry.Physical = {};
 				}
-				return true;
+			std::erase_if(Entries, [&](const auto& Entry) {
+				return Entry.Sequence >= FirstNewSequence
+					&& Entry.Sequence != PreserveSequence;
 			});
 		};
 		auto Rollback = [&](uint64 PreserveSequence =
@@ -248,13 +270,106 @@ namespace Durin
 			return false;
 		};
 
+		// Reserve the entire reusable set before eviction, including later requests
+		// with duplicate descriptors. Allocation IDs survive vector compaction.
+		std::vector<uint64> PlannedAllocationIds;
+		PlannedAllocationIds.reserve(Requests.size());
+		uint64 MissingBytes = 0;
+		auto PlanCandidate = [&](const auto& Entries, const auto& Key,
+			uint64 LogicalBytes) -> bool {
+			const auto It = std::ranges::find_if(Entries, [&](const auto& Entry) {
+				return Entry.Key == Key && Entry.Physical
+					&& !ActiveAllocationIds.contains(Entry.Sequence + 1);
+			});
+			if (It != Entries.end())
+			{
+				PlannedAllocationIds.push_back(It->Sequence + 1);
+				ActiveAllocationIds.insert(It->Sequence + 1);
+				return true;
+			}
+			const auto Failed = std::ranges::find_if(Entries, [&](const auto& Entry) {
+				return Entry.Key == Key && !Entry.Physical && Entry.FailedGeneration;
+			});
+			if (Failed != Entries.end() && !HasSelectedRenderResourceGenerationChanged(
+				*Failed->FailedGeneration, Generation, RetryDependencies)
+				&& (Failed->Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
+					|| Now < Failed->NextRetryTime))
+				return Fail("RDG allocation retry is suppressed for an unavailable descriptor");
+			PlannedAllocationIds.push_back(0);
+			MissingBytes = AddSaturated(MissingBytes, LogicalBytes);
+			return true;
+		};
+		for (const auto& Request : Requests)
+		{
+			bool bPlanned = false;
+			if (Request.Kind == ERDGResourceKind::Texture)
+			{
+				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
+				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+				bPlanned = PlanCandidate(State->Textures, MakeDescriptorKey(Desc),
+					GetLogicalTextureBytes(Desc));
+			}
+			else if (Request.Kind == ERDGResourceKind::Buffer)
+				bPlanned = PlanCandidate(State->Buffers,
+					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
+						Request.BufferDesc.Usage}, Request.BufferDesc.Size);
+			else return Fail("RDG allocator received a non-physical resource");
+			if (!bPlanned) return false;
+		}
+		if (MissingBytes != 0 && Now < State->NextRetryTime)
+			return Fail("RDG allocation is waiting for the memory-pressure retry interval");
+
+		auto EvictUntil = [&](uint64 Limit) {
+			while (State->RetainedBytes > Limit)
+			{
+				uint64 OldestSequence = std::numeric_limits<uint64>::max();
+				bool bTexture = false;
+				size_t OldestIndex = 0;
+				auto SelectOldest = [&](const auto& Entries, bool bEntriesAreTextures) {
+					for (size_t Index = 0; Index < Entries.size(); ++Index)
+						if (Entries[Index].Physical
+							&& !ActiveAllocationIds.contains(Entries[Index].Sequence + 1)
+							&& Entries[Index].Sequence < OldestSequence)
+						{
+							OldestSequence = Entries[Index].Sequence;
+							OldestIndex = Index;
+							bTexture = bEntriesAreTextures;
+						}
+				};
+				SelectOldest(State->Textures, true);
+				SelectOldest(State->Buffers, false);
+				if (OldestSequence == std::numeric_limits<uint64>::max()) break;
+				if (bTexture)
+				{
+					State->RetainedBytes -= State->Textures[OldestIndex].LogicalBytes;
+					State->Textures.erase(State->Textures.begin() + OldestIndex);
+				}
+				else
+				{
+					State->RetainedBytes -= State->Buffers[OldestIndex].LogicalBytes;
+					State->Buffers.erase(State->Buffers.begin() + OldestIndex);
+				}
+				--State->RetainedResources;
+				++State->Evictions;
+			}
+		};
+		const auto PreviousEvictions = State->Evictions;
+		EvictUntil(FRendererRDGAllocationPolicy::MaximumRetainedBytes - MissingBytes);
+		if (MissingBytes != 0
+			&& (State->Evictions != PreviousEvictions || State->bNeedsCollection))
+		{
+			// Erasing pool references alone does not free native allocations.
+			// Only completed GPU deletions may be reclaimed here; never wait idle.
+			GDynamicRHI->RHICollectCompletedResources();
+			State->bNeedsCollection = false;
+		}
+
 		auto ReserveCandidate = [&](auto& Entries, const auto& Key,
 			uint64 LogicalBytes, std::string_view Kind,
 			const FRDGAllocationRequest& Request, auto CreatePhysical,
 			auto AssignPhysical, FCandidate& Candidate) -> bool {
 			auto It = std::ranges::find_if(Entries, [&](const auto& Entry) {
-				return Entry.Key == Key && Entry.Physical
-					&& !ActiveAllocationIds.contains(Entry.Sequence + 1);
+				return Entry.Physical && Entry.Sequence + 1 == Candidate.AllocationId;
 			});
 			Candidate.bReuseHit = It != Entries.end();
 			if (Candidate.bReuseHit) ++State->ReuseHits;
@@ -264,29 +379,37 @@ namespace Durin
 				It = std::ranges::find_if(Entries, [&](const auto& Entry) {
 					return Entry.Key == Key && !Entry.Physical;
 				});
-				if (It != Entries.end() && It->FailedGeneration
-					&& !HasSelectedRenderResourceGenerationChanged(
-						*It->FailedGeneration, Generation,
-						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual))
-					return Fail("RDG " + std::string(Kind)
-						+ " allocation remains unavailable for resource id="
-						+ std::to_string(Request.ResourceId), It->Sequence);
 				if (It == Entries.end())
 					It = Entries.emplace(Entries.end(),
 						typename std::remove_reference_t<decltype(Entries)>::value_type{
-							Key, {}, State->NextSequence++, LogicalBytes, {},
-							Request.ObservationTag});
-				auto Physical = CreatePhysical();
+							.Key = Key, .Sequence = State->NextSequence++,
+							.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
+				if (It->FailedGeneration && HasSelectedRenderResourceGenerationChanged(
+					*It->FailedGeneration, Generation, RetryDependencies))
+					It->RetryFailures = 0;
+				ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::Unknown;
+				auto Physical = CreatePhysical(Failure);
 				if (!Physical)
 				{
 					It->FailedGeneration = Generation;
+					It->Failure = Failure;
+					if (Failure != ERHIResourceCreationFailure::UnsupportedDescriptor)
+					{
+						It->RetryFailures = std::min(It->RetryFailures + 1, 6u);
+						const auto Delay = std::chrono::milliseconds(
+							std::min(100u << (It->RetryFailures - 1), 2000u));
+						It->NextRetryTime = std::chrono::steady_clock::now() + Delay;
+						State->NextRetryTime = It->NextRetryTime;
+					}
 					return Fail("RDG " + std::string(Kind)
 						+ " allocation failed for resource id="
 						+ std::to_string(Request.ResourceId), It->Sequence);
 				}
+				CreatedAllocationIds.insert(It->Sequence + 1);
 				It->Physical = std::move(Physical);
 				It->FailedGeneration.reset();
+				It->RetryFailures = 0;
+				It->Failure = ERHIResourceCreationFailure::None;
 				State->RetainedBytes = AddSaturated(
 					State->RetainedBytes, It->LogicalBytes);
 				++State->RetainedResources;
@@ -301,6 +424,7 @@ namespace Durin
 		for (const FRDGAllocationRequest& Request : Requests)
 		{
 			FCandidate Candidate{.ResourceId = Request.ResourceId,
+				.AllocationId = PlannedAllocationIds[Candidates.size()],
 				.bExtracted = Request.bExtracted};
 			bool bReserved = false;
 			if (Request.Kind == ERDGResourceKind::Texture)
@@ -310,7 +434,10 @@ namespace Durin
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
 				bReserved = ReserveCandidate(State->Textures,
 					MakeDescriptorKey(Desc), GetLogicalTextureBytes(Desc), "texture",
-					Request, [&] { return RHICreateTexture(Desc); },
+					Request, [&](ERHIResourceCreationFailure& Failure) {
+						return GDynamicRHI->RHITryCreateTexture(
+							FRHICommandListImmediate::Get(), Desc, Failure);
+					},
 					[](FCandidate& OutCandidate, const FTextureRHIRef& Texture) {
 						OutCandidate.Texture = Texture;
 					}, Candidate);
@@ -321,14 +448,24 @@ namespace Durin
 					Request.BufferDesc.Stride, Request.BufferDesc.Usage};
 				bReserved = ReserveCandidate(State->Buffers, Key,
 					Request.BufferDesc.Size, "buffer", Request,
-					[&] { return RHICreateBuffer(FRHIBufferCreateDesc::Create(
-						"RDGBuffer", Request.BufferDesc)); },
+					[&](ERHIResourceCreationFailure& Failure) {
+						return GDynamicRHI->RHITryCreateBuffer(FRHICommandListImmediate::Get(),
+							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc), Failure);
+					},
 					[](FCandidate& OutCandidate, const FBufferRHIRef& Buffer) {
 						OutCandidate.Buffer = Buffer;
 					}, Candidate);
 			}
 			else return Fail("RDG allocator received a non-physical resource");
-			if (!bReserved) return false;
+			if (!bReserved)
+			{
+				// Pressure may come from outside this pool even below its ceiling.
+				// Drop idle cache now and collect retirement before the next attempt.
+				EvictUntil(0);
+				State->bNeedsCollection = true;
+				PublishStatistics(0, 0);
+				return false;
+			}
 			Candidates.push_back(std::move(Candidate));
 		}
 
@@ -366,39 +503,6 @@ namespace Durin
 			DetachExports(State->Buffers);
 		}
 
-		while (State->RetainedBytes
-			> FRendererRDGAllocationPolicy::MaximumRetainedBytes)
-		{
-			uint64 OldestSequence = std::numeric_limits<uint64>::max();
-			bool bTexture = false;
-			size_t OldestIndex = 0;
-			auto SelectOldest = [&](const auto& Entries, bool bEntriesAreTextures) {
-				for (size_t Index = 0; Index < Entries.size(); ++Index)
-					if (Entries[Index].Physical
-						&& !ActiveAllocationIds.contains(Entries[Index].Sequence + 1)
-						&& Entries[Index].Sequence < OldestSequence)
-					{
-						OldestSequence = Entries[Index].Sequence;
-						OldestIndex = Index;
-						bTexture = bEntriesAreTextures;
-					}
-			};
-			SelectOldest(State->Textures, true);
-			SelectOldest(State->Buffers, false);
-			if (OldestSequence == std::numeric_limits<uint64>::max()) break;
-			if (bTexture)
-			{
-				State->RetainedBytes -= State->Textures[OldestIndex].LogicalBytes;
-				State->Textures.erase(State->Textures.begin() + OldestIndex);
-			}
-			else
-			{
-				State->RetainedBytes -= State->Buffers[OldestIndex].LogicalBytes;
-				State->Buffers.erase(State->Buffers.begin() + OldestIndex);
-			}
-			--State->RetainedResources;
-			++State->Evictions;
-		}
 		PublishStatistics(RequestedBytes, static_cast<uint32>(Requests.size()));
 		OutError.clear();
 		return true;

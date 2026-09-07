@@ -2510,6 +2510,7 @@ namespace Durin
 				{
 					Result->bSucceeded = false;
 					Result->Diagnostic = Exception.what();
+					Result->Failure = Exception.Failure;
 				}
 			};
 

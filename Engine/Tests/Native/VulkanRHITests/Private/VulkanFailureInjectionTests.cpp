@@ -1220,6 +1220,12 @@ namespace Durin::VulkanRHI
 					throw vk::OutOfDeviceMemoryError("expected allocation failure");
 				}, 0);
 				EXPECT_FALSE(Recoverable.IsSuccess());
+				EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
+				const auto Unsupported = ExecuteFallibleVulkanCreationOperation([] {
+					throw vk::FormatNotSupportedError("unsupported descriptor");
+				});
+				EXPECT_EQ(Unsupported.Failure,
+					ERHIResourceCreationFailure::UnsupportedDescriptor);
 				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
 					throw vk::DeviceLostError("terminal device loss");
 				}, 0), vk::DeviceLostError);

@@ -478,6 +478,15 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
+		ERHIResourceCreationFailure Failure;
+		return RHITryCreateBuffer(RHICmdList, CreateDesc, Failure);
+	}
+
+	auto FVulkanDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
+		const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		-> FBufferRHIRef
+	{
+		OutFailure = ERHIResourceCreationFailure::None;
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
 			|| NormalizedDesc.InitialData.Data != nullptr)
@@ -492,6 +501,7 @@ namespace Durin::VulkanRHI
 				});
 		if (!CreationResult.IsSuccess())
 		{
+			OutFailure = CreationResult.Failure;
 			DURIN_ERROR("Failed to create Vulkan RHI buffer '{}': {}",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
 				CreationResult.Diagnostic);

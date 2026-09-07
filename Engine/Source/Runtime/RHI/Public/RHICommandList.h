@@ -265,12 +265,17 @@ namespace Durin
 	{
 	public:
 		using std::runtime_error::runtime_error;
+		FRHIRecoverableCreationError(const char* Diagnostic,
+			ERHIResourceCreationFailure InFailure)
+			: std::runtime_error(Diagnostic), Failure(InFailure) {}
+		ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::Unknown;
 	};
 
 	struct FRHIFallibleOperationResult
 	{
 		bool bSucceeded = true;
 		std::string Diagnostic;
+		ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
 
 		auto IsSuccess() const -> bool { return bSucceeded; }
 	};

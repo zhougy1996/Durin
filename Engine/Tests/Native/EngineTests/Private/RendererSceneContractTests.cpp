@@ -28,6 +28,7 @@
 #include "Renderers/SceneColorRendering.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/RendererRDGAllocator.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "SceneInfo.h"
@@ -2295,4 +2296,243 @@ TEST(FRendererSceneContractTests, PrimitiveCollectionHasAnEmptyDefault)
 	FMeshBatchCollector Collector(EMeshCollectionPurpose::Receiver);
 	Proxy.CollectMeshBatches(FMeshCollectionContext{}, Collector);
 	EXPECT_TRUE(Collector.GetBatches().empty());
+}
+
+namespace Durin::Tests
+{
+	namespace
+	{
+		constexpr uint64 MiB = 1024ull * 1024ull;
+		struct FRDGAllocatorTestCommand final
+		{
+			static constexpr auto GetName() -> const char* { return "RDGAllocatorTest"; }
+		};
+
+		// Account native lifetime separately from pool lifetime without consuming VRAM.
+		template<typename Resource>
+		class TAccountedRDGResource final : public Resource
+		{
+		public:
+			template<typename Desc>
+			TAccountedRDGResource(const Desc& InDesc, uint64 InBytes, uint64& InLiveBytes)
+				: Resource(InDesc), Bytes(InBytes), LiveBytes(InLiveBytes)
+			{
+				LiveBytes += Bytes;
+			}
+			~TAccountedRDGResource() override { LiveBytes -= Bytes; }
+		private:
+			uint64 Bytes;
+			uint64& LiveBytes;
+		};
+
+		// A scoped CPU backend exercises the production allocator and graph transaction.
+		class FRDGAllocationTestRHI final : public FDynamicRHI
+		{
+		public:
+			FRDGAllocationTestRHI() : Previous(GDynamicRHI) { GDynamicRHI = this; }
+			~FRDGAllocationTestRHI() override
+			{
+				RHIFlushDeferredResources();
+				EXPECT_EQ(LiveBytes, 0u);
+				GDynamicRHI = Previous;
+			}
+			uint64 LiveBytes = 0, PeakBytes = 0;
+			uint32 Creates = 0, Collections = 0;
+			ERHIResourceCreationFailure Failure = ERHIResourceCreationFailure::None;
+			uint32 FailOnCreate = 0;
+			auto Init(const FRHIInitializationContext&) -> void override {}
+			auto Shutdown() -> void override {}
+			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
+			auto RHIEndFrame() -> void override {}
+			auto RHICreateViewport(const FRHIViewportCreateInfo&) -> FViewportRHIRef override { return {}; }
+			auto RHIResizeViewport(FRHIViewport*, uint32, uint32, bool) -> void override {}
+			auto RHICreateGraphicsPipelineState(FName, const FGraphicsPipelineStateInitializer&)
+				-> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
+			auto RHIGetDefaultContext() -> IRHICommandContext* override { return nullptr; }
+			auto RHIGetViewportBackBuffer(FRHIViewport*) -> FTextureRHIRef override { return {}; }
+			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
+				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
+			auto RHIIsTextureSupported(const FRHITextureCreateDesc&) const -> bool override { return true; }
+			auto RHICreateSampler(const FRHISamplerDesc&) -> TRefCountPtr<FRHISampler> override { return {}; }
+			auto RHICreateShader(const FRHIShaderCreateDesc&) -> FShaderRHIRef override { return {}; }
+			auto RHICreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc&)
+				-> FTextureRHIRef override { return {}; }
+			auto RHICreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc&)
+				-> FBufferRHIRef override { return {}; }
+			auto RHITryCreateTexture(FRHICommandListBase&, const FRHITextureCreateDesc& Desc,
+				ERHIResourceCreationFailure& OutFailure) -> FTextureRHIRef override
+			{
+				if (ShouldFail(OutFailure)) return {};
+				auto Resource = MakeRefCount<TAccountedRDGResource<FRHITexture>>(
+					Desc, uint64(Desc.Extent.x) * Desc.Extent.y * 4, LiveBytes);
+				PeakBytes = std::max(PeakBytes, LiveBytes);
+				return Resource;
+			}
+			auto RHITryCreateBuffer(FRHICommandListImmediate&, const FRHIBufferCreateDesc& Desc,
+				ERHIResourceCreationFailure& OutFailure) -> FBufferRHIRef override
+			{
+				if (ShouldFail(OutFailure)) return {};
+				auto Resource = MakeRefCount<TAccountedRDGResource<FRHIBuffer>>(
+					Desc, Desc.Size, LiveBytes);
+				PeakBytes = std::max(PeakBytes, LiveBytes);
+				return Resource;
+			}
+			auto RHICollectCompletedResources() -> void override
+			{
+				++Collections;
+				RHIFlushDeferredResources();
+			}
+		private:
+			auto ShouldFail(ERHIResourceCreationFailure& OutFailure) -> bool
+			{
+				++Creates;
+				OutFailure = Creates == FailOnCreate ? Failure : ERHIResourceCreationFailure::None;
+				return OutFailure != ERHIResourceCreationFailure::None;
+			}
+			FDynamicRHI* Previous;
+		};
+
+		struct FRDGTestRequest final
+		{
+			bool bTexture;
+			uint32 Megabytes;
+		};
+
+		auto ExecuteAllocationBatch(FRendererRDGAllocator& Allocator,
+			std::initializer_list<FRDGTestRequest> Requests) -> FRDGCapture
+		{
+			FRHICommandListExecutor Executor;
+			FRDGBuilder Builder;
+			uint32 Index = 0;
+			for (const auto& Request : Requests)
+			{
+				const auto Name = "Resource" + std::to_string(Index++);
+				if (Request.bTexture)
+				{
+					const auto Texture = Builder.CreateTexture({.Texture =
+						FRHITextureCreateDesc::Create2D("BudgetTest", 8192,
+							Request.Megabytes * 32, EPixelFormat::RGBA8_UNORM)
+							.SetFlags(ETextureCreateFlags::RenderTargetable)}, Name);
+					const auto Pass = Builder.AddPass("Write" + Name, ERDGPassType::Graphics);
+					Builder.UseColorAttachment(Pass, Texture,
+						{ERHITextureAspect::Color, 0, 1, 0, 1},
+						ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
+				}
+				else
+				{
+					const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+						Request.Megabytes * uint32(MiB), 4, EBufferUsageFlags::UnorderedAccess)}, Name);
+					const auto Pass = Builder.AddPass("Write" + Name, ERDGPassType::Compute);
+					Builder.UseBuffer(Pass, Buffer, 0, Request.Megabytes * MiB,
+						ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+				}
+			}
+			FRDGExecutionContext Context{Allocator};
+			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Context);
+			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << Result.Error;
+			return Builder.Capture();
+		}
+	}
+
+	TEST(FRendererSceneContractTests, RDGReservesWholeBatchAndCollectsBeforeCreating)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			const auto First = ExecuteAllocationBatch(Allocator,
+				{{true, 200}, {true, 200}, {false, 200}});
+			ASSERT_EQ(First.AllocationStatistics.ActiveBytes, 600 * MiB);
+			const auto Second = ExecuteAllocationBatch(Allocator,
+				{{false, 240}, {true, 200}, {true, 200}});
+			EXPECT_EQ(Second.AllocationStatistics.ActiveBytes, 640 * MiB);
+			EXPECT_EQ(RHI.Creates, 4u);
+			EXPECT_EQ(RHI.Collections, 1u);
+			EXPECT_LE(RHI.PeakBytes, 640 * MiB);
+			EXPECT_EQ(Second.AllocationStatistics.Evictions, 1u);
+			EXPECT_EQ(First.Resources[0].PhysicalAllocationId, Second.Resources[1].PhysicalAllocationId);
+			EXPECT_EQ(First.Resources[1].PhysicalAllocationId, Second.Resources[2].PhysicalAllocationId);
+			EXPECT_NE(Second.Resources[1].PhysicalAllocationId, Second.Resources[2].PhysicalAllocationId);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGTemporaryFailureRetriesWithoutInvalidationAndSuppressesWholeBatch)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
+			RHI.FailOnCreate = 2;
+			const auto Failed = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			EXPECT_EQ(Failed.AllocationStatistics.ActiveBytes, 0u);
+			EXPECT_EQ(Failed.AllocationStatistics.RetainedBytes, 0u);
+			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			ExecuteAllocationBatch(Allocator, {{true, 2}});
+			EXPECT_EQ(RHI.Creates, 2u);
+			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, 2 * MiB);
+			EXPECT_EQ(RHI.Creates, 4u);
+			EXPECT_EQ(RHI.Collections, 1u);
+			EXPECT_EQ(RHI.LiveBytes, 2 * MiB);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGUnsupportedDescriptorRequiresRelevantInvalidation)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
+			RHI.FailOnCreate = 1;
+			ExecuteAllocationBatch(Allocator, {{true, 1}});
+			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			ExecuteAllocationBatch(Allocator, {{true, 1}});
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ShaderChanged, {});
+			ExecuteAllocationBatch(Allocator, {{true, 1}});
+			EXPECT_EQ(RHI.Creates, 1u);
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}});
+			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, MiB);
+			EXPECT_EQ(RHI.Creates, 2u);
+		});
+		FlushRenderingCommands();
+	}
+	TEST(FRendererSceneContractTests, RDGRollsBackMaterializedRetryAndAllowsReuseDuringCooldown)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			RHI.Failure = ERHIResourceCreationFailure::OutOfMemory;
+			RHI.FailOnCreate = 3;
+			const auto Failed = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 2}});
+			EXPECT_EQ(Failed.AllocationStatistics.RetainedBytes, MiB);
+			EXPECT_EQ(Failed.AllocationStatistics.ActiveBytes, 0u);
+			const auto Reused = ExecuteAllocationBatch(Allocator, {{true, 1}});
+			EXPECT_EQ(Reused.AllocationStatistics.ActiveBytes, MiB);
+			EXPECT_EQ(RHI.Creates, 3u);
+			std::this_thread::sleep_for(std::chrono::milliseconds(120));
+			RHI.FailOnCreate = 5;
+			const auto RetryFailed = ExecuteAllocationBatch(Allocator, {{true, 2}, {false, 2}});
+			EXPECT_EQ(RHI.Creates, 5u);
+			EXPECT_EQ(RetryFailed.AllocationStatistics.RetainedBytes, 0u);
+			EXPECT_EQ(RetryFailed.AllocationStatistics.ActiveBytes, 0u);
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 2}, {false, 2}});
+			EXPECT_EQ(Recovered.AllocationStatistics.ActiveBytes, 4 * MiB);
+			EXPECT_EQ(RHI.LiveBytes, 4 * MiB);
+		});
+		FlushRenderingCommands();
+	}
+
 }

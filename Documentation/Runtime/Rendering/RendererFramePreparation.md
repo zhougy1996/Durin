@@ -89,8 +89,14 @@ mip/sample counts, and clear binding/value for textures, or size, stride, and
 usage for buffers. Debug names, graph IDs, pass names, and feature routes are
 excluded. Equal descriptions reserve distinct entries within one execution;
 inactive compatible entries may be reused by a later execution. The 640 MiB
-named graph-wide structural policy rejects an oversized active batch and evicts
-the oldest inactive entries when retained storage exceeds the ceiling. Active
+named graph-wide structural policy rejects an oversized active batch. Before any
+creation, the allocator reserves all reusable entries for the complete batch,
+then evicts the oldest unreserved entries until retained bytes plus missing
+allocation bytes fit the ceiling. Texture and buffer requests share this budget.
+After eviction, RHI processes CPU retirement and completed native deletions
+before creation; it never waits for GPU idle. This is a logical pool budget,
+not a hard bound on device memory: in-flight deletions, exports, other owners,
+and backend allocation overhead remain outside the retained-byte count. Active
 allocation IDs are tracked directly, retained bytes are updated incrementally,
 and stable allocator sequence IDs preserve deterministic reuse and eviction. A
 successful allocation publishes a nonzero ID across graph executions;

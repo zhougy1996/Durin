@@ -1003,7 +1003,8 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError("intentional creation failure");
+				throw FRHIRecoverableCreationError("intentional creation failure",
+					ERHIResourceCreationFailure::OutOfMemory);
 			});
 
 		bool bLaterWorkExecuted = false;
@@ -1012,6 +1013,7 @@ namespace Durin
 				[&bLaterWorkExecuted]() { bLaterWorkExecuted = true; });
 
 		EXPECT_FALSE(Failure.IsSuccess());
+		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
 		EXPECT_EQ(Failure.Diagnostic, "intentional creation failure");
 		EXPECT_TRUE(Success.IsSuccess());
 		EXPECT_TRUE(Success.Diagnostic.empty());
@@ -1029,7 +1031,8 @@ namespace Durin
 
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw FRHIRecoverableCreationError("intentional creation failure");
+				throw FRHIRecoverableCreationError("intentional creation failure",
+					ERHIResourceCreationFailure::OutOfMemory);
 			});
 		bool bLaterWorkExecutedOnRHIThread = false;
 		const FRHIFallibleOperationResult Success =
@@ -1039,6 +1042,7 @@ namespace Durin
 				});
 
 		EXPECT_FALSE(Failure.IsSuccess());
+		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
 		EXPECT_EQ(Failure.Diagnostic,
 			"intentional creation failure");
 		EXPECT_TRUE(Success.IsSuccess());

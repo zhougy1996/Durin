@@ -29,7 +29,14 @@ namespace Durin::VulkanRHI
 			{
 				if (!IsRecoverableVulkanCreationError(
 					static_cast<vk::Result>(Exception.code().value()))) throw;
-				throw FRHIRecoverableCreationError(Exception.what());
+				const auto NativeResult = static_cast<vk::Result>(Exception.code().value());
+				const auto Failure = NativeResult == vk::Result::eErrorFormatNotSupported
+					? ERHIResourceCreationFailure::UnsupportedDescriptor
+					: NativeResult == vk::Result::eErrorOutOfHostMemory
+						|| NativeResult == vk::Result::eErrorOutOfDeviceMemory
+						? ERHIResourceCreationFailure::OutOfMemory
+						: ERHIResourceCreationFailure::ResourceExhausted;
+				throw FRHIRecoverableCreationError(Exception.what(), Failure);
 			}
 		};
 		if (!GRHIThread || !IsInRHIThread())
@@ -47,6 +54,7 @@ namespace Durin::VulkanRHI
 		{
 			Result.bSucceeded = false;
 			Result.Diagnostic = Exception.what();
+			Result.Failure = Exception.Failure;
 		}
 		return Result;
 	}

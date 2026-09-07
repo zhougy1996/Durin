@@ -4,6 +4,33 @@
 
 namespace Durin
 {
+	auto FDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
+		const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		-> TRefCountPtr<FRHITexture>
+	{
+		auto Resource = RHICreateTexture(RHICmdList, CreateDesc);
+		OutFailure = Resource ? ERHIResourceCreationFailure::None
+			: ERHIResourceCreationFailure::Unknown;
+		return Resource;
+	}
+
+	auto FDynamicRHI::RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
+		const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+		-> TRefCountPtr<FRHIBuffer>
+	{
+		auto Resource = RHICreateBuffer(RHICmdList, CreateDesc);
+		OutFailure = Resource ? ERHIResourceCreationFailure::None
+			: ERHIResourceCreationFailure::Unknown;
+		return Resource;
+	}
+
+	auto FDynamicRHI::RHICollectCompletedResources() -> void
+	{
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+			RHIFlushDeferredResources();
+		});
+	}
+
 	auto FormatRHIDiagnosticSnapshot(
 		const FRHIDiagnosticSnapshot& S) -> std::string
 	{

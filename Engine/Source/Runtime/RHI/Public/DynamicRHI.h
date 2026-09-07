@@ -251,6 +251,16 @@ namespace Durin
 		// Checks the exact format and usage contract without allocating a resource.
 		virtual auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
 		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
+		// Preserve candidate failure categories for demand-driven retry policies.
+		RHI_API virtual auto RHITryCreateTexture(FRHICommandListBase& RHICmdList,
+			const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			-> TRefCountPtr<FRHITexture>;
+		RHI_API virtual auto RHITryCreateBuffer(FRHICommandListImmediate& RHICmdList,
+			const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
+			-> TRefCountPtr<FRHIBuffer>;
+		// Process CPU retirement and completed GPU deletions without waiting for GPU idle.
+		// Called on the rendering thread before allocating under memory pressure.
+		RHI_API virtual auto RHICollectCompletedResources() -> void;
 		// Updates a stable texture identity. Backends may override this to update
 		// descriptor or bindless state together with the referenced allocation.
 		RHI_API virtual auto RHIUpdateTextureReference(

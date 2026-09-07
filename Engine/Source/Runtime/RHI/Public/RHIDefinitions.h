@@ -3,6 +3,16 @@
 
 namespace Durin
 {
+	// Creation failures describe candidate recovery, never executor/device recovery.
+	enum class ERHIResourceCreationFailure : uint8
+	{
+		None,
+		Unknown,
+		OutOfMemory,
+		ResourceExhausted,
+		UnsupportedDescriptor,
+	};
+
 	constexpr uint32 kFrameInFlight = 2;
 
 	// Carries executor-owned RHI frame identity during ordered BeginFrame replay.
