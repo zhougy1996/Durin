@@ -84,6 +84,7 @@ namespace Durin
 	{
 		ReleaseDeviceResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
+		VisibilityScratch = {};
 	}
 
 	auto FSceneRenderer::ReleaseDeviceResources_RenderThread() -> void

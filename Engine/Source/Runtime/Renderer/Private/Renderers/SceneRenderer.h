@@ -13,6 +13,7 @@
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/SceneViewState.h"
+#include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneRenderResults.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
@@ -113,6 +114,8 @@ namespace Durin
 		FVolumetricCloudShadowRenderer VolumetricCloudShadowRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 		FSceneViewStateRegistry ViewStates;
+		// Used only during serial render-thread preparation; retains candidate capacity.
+		FSceneVisibilityResult VisibilityScratch;
 		uint64 RenderSubmissionSerial = 0;
 	};
 } // namespace Durin

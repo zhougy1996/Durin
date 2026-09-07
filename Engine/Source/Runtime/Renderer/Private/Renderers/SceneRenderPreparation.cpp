@@ -46,8 +46,9 @@ namespace Durin
 		}
 		if (Scene != nullptr)
 		{
-			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
-				*Scene, RenderView, Telemetry.View
+			FSceneVisibilityResult& Visibility = Renderer.VisibilityScratch;
+			PrepareSceneVisibility(
+				*Scene, RenderView, Telemetry.View, Visibility
 			);
 			const FSkyBoxSceneProxy* SkyBox =
 				Scene->GetSkyBoxProxy_RenderThread();
@@ -251,6 +252,8 @@ namespace Durin
 				RenderView.Settings.Mode.RasterMode,
 				Visibility.SplineMeshSceneInfos
 			);
+			Visibility.StaticMeshSceneInfos.clear();
+			Visibility.SplineMeshSceneInfos.clear();
 		}
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
 		Telemetry.View.CombinedTranslucentGeometryDraws =

@@ -31,6 +31,7 @@ namespace Durin
 			EPrimitiveVisibilityClassification::Invalid;
 	};
 
+	// Candidate lists and optional diagnostics; storage can be reused between views.
 	struct FSceneVisibilityResult
 	{
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
@@ -38,7 +39,17 @@ namespace Durin
 		std::vector<const FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 	};
 
-	// Classifies every authoritative live primitive once for one immutable view.
+	// Replaces the result while retaining capacity. Records are opt-in; pointers
+	// borrow scene storage and must be consumed before the scene is mutated.
+	RENDERER_API auto PrepareSceneVisibility(
+		const FScene& Scene,
+		const FSceneView& View,
+		FViewRenderTelemetry& Telemetry,
+		FSceneVisibilityResult& Result,
+		bool bCollectPrimitiveRecords = false
+	) -> void;
+
+	// Convenience entry point for callers that do not retain scratch storage.
 	RENDERER_API auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,

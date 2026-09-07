@@ -1862,8 +1862,8 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	Telemetry.Lighting.SelectedPointLights = 7;
 	Telemetry.VolumetricCloud.VolumetricCloudQuality =
 		Durin::EVolumetricCloudQuality::Epic;
-	const Durin::FSceneVisibilityResult Visibility =
-		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
+	Durin::FSceneVisibilityResult Visibility;
+	Durin::PrepareSceneVisibility(Scene, View, Telemetry, Visibility, true);
 	EXPECT_EQ(Visibility.PrimitiveRecords.size(), 4u);
 	EXPECT_EQ(Telemetry.Visibility.SubmittedPrimitives, 4u);
 	EXPECT_EQ(Telemetry.Visibility.HiddenPrimitives, 1u);
@@ -1874,6 +1874,12 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(Telemetry.Lighting.SelectedPointLights, 7u);
 	EXPECT_EQ(Telemetry.VolumetricCloud.VolumetricCloudQuality, Durin::EVolumetricCloudQuality::Epic);
 	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
+	const auto CandidateCapacity = Visibility.StaticMeshSceneInfos.capacity();
+	Durin::PrepareSceneVisibility(Scene, View, Telemetry, Visibility);
+	EXPECT_TRUE(Visibility.PrimitiveRecords.empty());
+	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
+	EXPECT_EQ(Visibility.StaticMeshSceneInfos.capacity(), CandidateCapacity);
+	EXPECT_EQ(Telemetry.Visibility.SubmittedPrimitives, 4u);
 
 	View.Settings.Mode.VisibilityMode =
 		Durin::EViewVisibilityMode::FrustumCullingDisabled;
@@ -1884,6 +1890,8 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(DisabledTelemetry.Visibility.FrustumCulledPrimitives, 0u);
 	EXPECT_EQ(DisabledTelemetry.Visibility.VisiblePrimitives, 3u);
 	EXPECT_EQ(Disabled.StaticMeshSceneInfos.size(), 3u);
+	EXPECT_TRUE(Disabled.PrimitiveRecords.empty());
+	EXPECT_EQ(Disabled.PrimitiveRecords.capacity(), 0u);
 
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::Normal;
 	View.ProjectionMatrix[0][0] =
@@ -1918,6 +1926,22 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 
 	Durin::FViewRenderTelemetry MainTelemetry;
 	Durin::FViewRenderTelemetry AuxiliaryTelemetry;
+	Durin::FSceneVisibilityResult Scratch;
+	Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry, Scratch);
+	EXPECT_TRUE(Scratch.StaticMeshSceneInfos.empty());
+	EXPECT_EQ(Scratch.StaticMeshSceneInfos.capacity(), 0u);
+	EXPECT_EQ(Scratch.SplineMeshSceneInfos.capacity(), 0u);
+	Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry, Scratch, true);
+	ASSERT_EQ(Scratch.StaticMeshSceneInfos.size(), 1u);
+	ASSERT_EQ(Scratch.PrimitiveRecords.size(), 1u);
+	const auto* CandidateStorage = Scratch.StaticMeshSceneInfos.data();
+	Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry, Scratch);
+	EXPECT_TRUE(Scratch.StaticMeshSceneInfos.empty());
+	EXPECT_TRUE(Scratch.PrimitiveRecords.empty());
+	Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry, Scratch);
+	ASSERT_EQ(Scratch.StaticMeshSceneInfos.size(), 1u);
+	EXPECT_EQ(Scratch.StaticMeshSceneInfos.data(), CandidateStorage);
+	EXPECT_EQ(Scratch.StaticMeshSceneInfos.front()->GetId(), Durin::FPrimitiveSceneId(9));
 	EXPECT_EQ(
 		Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry)
 			.StaticMeshSceneInfos.size(),

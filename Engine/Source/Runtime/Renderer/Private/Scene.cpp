@@ -327,8 +327,8 @@ namespace Durin
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
 		return TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			checkf(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
-		auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
+			requiref(!PrimitiveInfosById.contains(PrimitiveId), "A primitive scene ID cannot be published twice.");
+			auto Info = std::make_unique<FPrimitiveSceneInfo>(PrimitiveId, SharedProxy, Transform);
 			Info->SetVisible(bVisible);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);

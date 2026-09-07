@@ -11,21 +11,23 @@ namespace Durin
 	auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderTelemetry& Telemetry) -> FSceneVisibilityResult
+		FViewRenderTelemetry& Telemetry,
+		FSceneVisibilityResult& Result,
+		bool bCollectPrimitiveRecords) -> void
 	{
 		Telemetry.Visibility = {};
-		FSceneVisibilityResult Result;
+		Result.PrimitiveRecords.clear();
+		Result.StaticMeshSceneInfos.clear();
+		Result.SplineMeshSceneInfos.clear();
 		const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
-		Result.PrimitiveRecords.reserve(SceneInfos.size());
-		Result.StaticMeshSceneInfos.reserve(SceneInfos.size());
-		Result.SplineMeshSceneInfos.reserve(SceneInfos.size());
+		if (bCollectPrimitiveRecords)
+			Result.PrimitiveRecords.reserve(SceneInfos.size());
 
 		FViewFrustum Frustum;
 		const bool bCullingEnabled =
 			View.Settings.Mode.VisibilityMode == EViewVisibilityMode::Normal;
 		const bool bValidView =
 			!bCullingEnabled || TryBuildViewFrustum(View, Frustum);
-		std::unordered_set<FPrimitiveSceneId, FSceneIdHash> ClassifiedIds;
 
 		for (const FPrimitiveSceneInfo* SceneInfo : SceneInfos)
 		{
@@ -34,9 +36,6 @@ namespace Durin
 			{
 				continue;
 			}
-			const bool bFirstClassification =
-				ClassifiedIds.emplace(SceneInfo->GetId()).second;
-			check(bFirstClassification);
 			++Telemetry.Visibility.SubmittedPrimitives;
 
 			EPrimitiveVisibilityClassification Classification =
@@ -92,7 +91,8 @@ namespace Durin
 				!= EPrimitiveVisibilityClassification::Invalid;
 			checkf(bClassificationValid,
 				"Every submitted primitive requires a known visibility classification.");
-			Result.PrimitiveRecords.push_back({SceneInfo, Classification});
+			if (bCollectPrimitiveRecords)
+				Result.PrimitiveRecords.push_back({SceneInfo, Classification});
 			if (!bVisible)
 			{
 				continue;
@@ -115,8 +115,18 @@ namespace Durin
 				+ Telemetry.Visibility.VisiblePrimitives;
 		check(bCountersConserved);
 		const bool bRecordCountMatches =
-			Result.PrimitiveRecords.size() == Telemetry.Visibility.SubmittedPrimitives;
+			!bCollectPrimitiveRecords
+			|| Result.PrimitiveRecords.size() == Telemetry.Visibility.SubmittedPrimitives;
 		check(bRecordCountMatches);
+	}
+
+	auto PrepareSceneVisibility(
+		const FScene& Scene,
+		const FSceneView& View,
+		FViewRenderTelemetry& Telemetry) -> FSceneVisibilityResult
+	{
+		FSceneVisibilityResult Result;
+		PrepareSceneVisibility(Scene, View, Telemetry, Result);
 		return Result;
 	}
 } // namespace Durin
