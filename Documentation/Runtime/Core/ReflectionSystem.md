@@ -812,7 +812,7 @@ functions. The current reusable adapters accept only default-form
 `std::vector<T>` and `std::unordered_map<K, V>`; storage is a replaceable C++
 backend and is not part of reflected type identity or serialized schema.
 
-The version-1 operation tables advertise individual capabilities instead of
+The version-2 operation tables advertise individual capabilities instead of
 assuming every container can perform every operation. Consumers request and
 check only what they need: count and const/mutable traversal, indexed Array
 element access, resizing, Map lookup/insertion/removal/key rename, and detached
@@ -821,6 +821,21 @@ typed `EContainerOpResult`; a property is never treated as empty and a mutation
 is never silently skipped. Map traversal is single-pass and callback-scoped.
 There is no indexed Map API, no persistent iterator identity, and no permission
 to retain entry pointers across structural mutation.
+
+Array/Map tables also advertise optional `CopyConstruct` and `CopyAssign`
+callbacks. Generated properties install these callbacks into the ordinary
+`FProperty` value lifecycle, so `FReflectedValueStorage::CopyConstruct` works
+for copyable containers, including nested containers. Copies own independent
+container storage; object references retain their normal pointer semantics.
+The standard adapters check nested element copyability instead of trusting a
+container's declared copy constructor. Unsupported copies remain explicit
+capability failures. Copy assignment builds a temporary and uses a nonthrowing
+swap, preserving the destination if copying fails and supporting self-assignment.
+The `FProperty` copy boundary reports thrown copy callbacks as failure; failed
+construction leaves value storage non-live. The strong assignment guarantee
+belongs to these container adapters, not arbitrary user-defined struct assignment.
+Table version 2 is an in-process descriptor change and requires consumers to
+rebuild; it does not change serialized property identity or the asset format.
 
 Array/Map loading uses `FDetachedContainerStorage`: input is decoded into a
 managed temporary container, counts are bounded before allocation, duplicate

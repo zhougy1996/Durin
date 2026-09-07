@@ -13,7 +13,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 ContainerOpsVersion = 1;
+	inline constexpr uint32 ContainerOpsVersion = 2;
 
 	enum class EContainerOpResult : uint8
 	{
@@ -41,7 +41,9 @@ namespace Durin
 		DefaultGrow = 1 << 6,
 		Shrink = 1 << 7,
 		DetachedStorage = 1 << 8,
-		TransactionalCommit = 1 << 9
+		TransactionalCommit = 1 << 9,
+		CopyConstruct = 1 << 10,
+		CopyAssign = 1 << 11
 	};
 	ENUM_CLASS_FLAGS(EArrayOpsFlags)
 
@@ -59,7 +61,9 @@ namespace Durin
 		Remove = 1 << 8,
 		RenameKey = 1 << 9,
 		DetachedStorage = 1 << 10,
-		TransactionalCommit = 1 << 11
+		TransactionalCommit = 1 << 11,
+		CopyConstruct = 1 << 12,
+		CopyAssign = 1 << 13
 	};
 	ENUM_CLASS_FLAGS(EMapOpsFlags)
 
@@ -76,6 +80,10 @@ namespace Durin
 		uint32 ContainerAlignment = 0;
 		void (*Initialize)(void* Container) = nullptr;
 		void (*Destroy)(void* Container) = nullptr;
+		// CopyConstruct targets uninitialized storage. CopyAssign preserves the
+		// destination on failure. Exceptions are translated by FProperty's boundary.
+		void (*CopyConstruct)(void* Destination, const void* Source) = nullptr;
+		void (*CopyAssign)(void* Destination, const void* Source) = nullptr;
 		uint64 (*Num)(const void* Container) = nullptr;
 		EContainerOpResult (*VisitConst)(const void* Container, FArrayConstVisitor Visitor, void* Context) = nullptr;
 		EContainerOpResult (*VisitMutable)(void* Container, FArrayMutableVisitor Visitor, void* Context) = nullptr;
@@ -97,6 +105,9 @@ namespace Durin
 		uint32 ContainerAlignment = 0;
 		void (*Initialize)(void* Container) = nullptr;
 		void (*Destroy)(void* Container) = nullptr;
+		// Same uninitialized-storage and strong assignment guarantees as FArrayOps.
+		void (*CopyConstruct)(void* Destination, const void* Source) = nullptr;
+		void (*CopyAssign)(void* Destination, const void* Source) = nullptr;
 		uint64 (*Num)(const void* Container) = nullptr;
 		EContainerOpResult (*VisitConst)(const void* Container, FMapConstVisitor Visitor, void* Context) = nullptr;
 		EContainerOpResult (*VisitMutable)(void* Container, FMapMutableVisitor Visitor, void* Context) = nullptr;
@@ -124,7 +135,9 @@ namespace Durin
 		{
 			return EnumHasAnyFlags(Ops->Flags, Flag) == (Callback != nullptr);
 		};
-		return Matches(EArrayOpsFlags::Count, Ops->Num)
+		return Matches(EArrayOpsFlags::CopyConstruct, Ops->CopyConstruct)
+			&& Matches(EArrayOpsFlags::CopyAssign, Ops->CopyAssign)
+			&& Matches(EArrayOpsFlags::Count, Ops->Num)
 			&& Matches(EArrayOpsFlags::ConstTraversal, Ops->VisitConst)
 			&& Matches(EArrayOpsFlags::MutableTraversal, Ops->VisitMutable)
 			&& (EnumHasAnyFlags(Ops->Flags, EArrayOpsFlags::RandomAccess) == (Ops->GetConstAt && Ops->GetMutableAt))
@@ -147,7 +160,9 @@ namespace Durin
 		{
 			return EnumHasAnyFlags(Ops->Flags, Flag) == (Callback != nullptr);
 		};
-		return Matches(EMapOpsFlags::Count, Ops->Num)
+		return Matches(EMapOpsFlags::CopyConstruct, Ops->CopyConstruct)
+			&& Matches(EMapOpsFlags::CopyAssign, Ops->CopyAssign)
+			&& Matches(EMapOpsFlags::Count, Ops->Num)
 			&& Matches(EMapOpsFlags::ConstTraversal, Ops->VisitConst)
 			&& Matches(EMapOpsFlags::MutableMappedTraversal, Ops->VisitMutable)
 			&& Matches(EMapOpsFlags::Lookup, Ops->Lookup)
@@ -208,6 +223,30 @@ namespace Durin
 
 	namespace Private
 	{
+		// Standard container copy constructors may be declared even when their
+		// elements cannot be copied. Check nested containers before instantiating them.
+		template<typename T>
+		struct TContainerCopySupported : std::bool_constant<std::is_copy_constructible_v<T>> {};
+		template<typename T, typename A>
+		struct TContainerCopySupported<std::vector<T, A>> : TContainerCopySupported<T> {};
+		template<typename K, typename V, typename H, typename E, typename A>
+		struct TContainerCopySupported<std::unordered_map<K, V, H, E, A>>
+			: std::bool_constant<TContainerCopySupported<K>::value && TContainerCopySupported<V>::value
+				&& std::is_copy_constructible_v<H> && std::is_copy_constructible_v<E>> {};
+
+		template<typename Container>
+		auto CopyConstructContainer(void* Destination, const void* Source) -> void
+		{
+			std::construct_at(static_cast<Container*>(Destination), *static_cast<const Container*>(Source));
+		}
+		template<typename Container>
+		auto CopyAssignContainer(void* Destination, const void* Source) -> void
+		{
+			if (Destination == Source) return;
+			Container Copy(*static_cast<const Container*>(Source));
+			static_cast<Container*>(Destination)->swap(Copy);
+		}
+
 		template<typename Container>
 		auto InitializeContainer(void* Value) -> void { std::construct_at(static_cast<Container*>(Value)); }
 		template<typename Container>
@@ -347,7 +386,7 @@ namespace Durin
 				return EContainerOpResult::Success;
 			}
 			static auto InsertCopy(void* Value, const void* Key, const void* Mapped) -> EContainerOpResult
-				requires std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V>
+				requires TContainerCopySupported<K>::value && TContainerCopySupported<V>::value
 			{
 				if (!Value || !Key || !Mapped) return EContainerOpResult::InvalidInput;
 				try
@@ -366,7 +405,7 @@ namespace Durin
 					? EContainerOpResult::Success : EContainerOpResult::NotFound;
 			}
 			static auto RenameKey(void* Value, const void* OldKey, const void* NewKey) -> EContainerOpResult
-				requires std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V>
+				requires TContainerCopySupported<K>::value && TContainerCopySupported<V>::value
 			{
 				if (!Value || !OldKey || !NewKey) return EContainerOpResult::InvalidInput;
 				Container& Map = *static_cast<Container*>(Value);
@@ -421,6 +460,16 @@ namespace Durin
 				Result.ContainerAlignment = alignof(Container);
 				Result.Initialize = &Private::InitializeContainer<Container>;
 				Result.Destroy = &Private::DestroyContainer<Container>;
+				if constexpr (Private::TContainerCopySupported<Container>::value)
+				{
+					Result.Flags |= EArrayOpsFlags::CopyConstruct;
+					Result.CopyConstruct = &Private::CopyConstructContainer<Container>;
+					if constexpr (noexcept(std::declval<Container&>().swap(std::declval<Container&>())))
+					{
+						Result.Flags |= EArrayOpsFlags::CopyAssign;
+						Result.CopyAssign = &Private::CopyAssignContainer<Container>;
+					}
+				}
 				Result.Num = &Private::ContainerNum<Container>;
 				Result.VisitConst = &Adapter::VisitConst;
 				Result.VisitMutable = &Adapter::VisitMutable;
@@ -457,7 +506,7 @@ namespace Durin
 				Result.Flags = EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal | EMapOpsFlags::MutableMappedTraversal
 					| EMapOpsFlags::Clear | EMapOpsFlags::Reserve | EMapOpsFlags::Lookup | EMapOpsFlags::MutableLookup
 					| EMapOpsFlags::Remove | EMapOpsFlags::DetachedStorage;
-				if constexpr (std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V>)
+				if constexpr (Private::TContainerCopySupported<K>::value && Private::TContainerCopySupported<V>::value)
 					Result.Flags |= EMapOpsFlags::Insert | EMapOpsFlags::RenameKey;
 				if constexpr (noexcept(std::declval<Container&>().swap(std::declval<Container&>())))
 					Result.Flags |= EMapOpsFlags::TransactionalCommit;
@@ -465,6 +514,16 @@ namespace Durin
 				Result.ContainerAlignment = alignof(Container);
 				Result.Initialize = &Private::InitializeContainer<Container>;
 				Result.Destroy = &Private::DestroyContainer<Container>;
+				if constexpr (Private::TContainerCopySupported<Container>::value)
+				{
+					Result.Flags |= EMapOpsFlags::CopyConstruct;
+					Result.CopyConstruct = &Private::CopyConstructContainer<Container>;
+					if constexpr (noexcept(std::declval<Container&>().swap(std::declval<Container&>())))
+					{
+						Result.Flags |= EMapOpsFlags::CopyAssign;
+						Result.CopyAssign = &Private::CopyAssignContainer<Container>;
+					}
+				}
 				Result.Num = &Private::ContainerNum<Container>;
 				Result.VisitConst = &Adapter::VisitConst;
 				Result.VisitMutable = &Adapter::VisitMutable;
@@ -472,7 +531,7 @@ namespace Durin
 				Result.LookupMutable = &Adapter::LookupMutable;
 				Result.Clear = &Private::ClearContainer<Container>;
 				Result.Reserve = &Private::ReserveContainer<Container>;
-				if constexpr (std::is_copy_constructible_v<K> && std::is_copy_constructible_v<V>)
+				if constexpr (Private::TContainerCopySupported<K>::value && Private::TContainerCopySupported<V>::value)
 				{
 					Result.InsertCopy = &Adapter::InsertCopy;
 					Result.RenameKey = &Adapter::RenameKey;

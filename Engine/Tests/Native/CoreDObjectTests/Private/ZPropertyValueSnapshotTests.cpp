@@ -17,6 +17,21 @@
 
 namespace StructConsumerTest
 {
+	// Detects both failed-copy cleanup and accidental destruction of the live destination.
+	struct FThrowingContainerElement
+	{
+		static inline int Live = 0;
+		static inline int CopiesBeforeFailure = -1;
+		int Value = 17;
+		FThrowingContainerElement() { ++Live; }
+		FThrowingContainerElement(const FThrowingContainerElement& Other) : Value(Other.Value)
+		{
+			if (CopiesBeforeFailure == 0) throw std::bad_alloc();
+			if (CopiesBeforeFailure > 0) --CopiesBeforeFailure;
+			++Live;
+		}
+		~FThrowingContainerElement() { --Live; }
+	};
 	struct FLifetimeTracked
 	{
 		static inline int DefaultConstructCount = 0;
@@ -805,6 +820,108 @@ namespace
 		std::vector<StructConsumerTest::FImmovable> Values;
 		EXPECT_EQ(ImmovableOps->Resize(&Values, 1), Durin::EContainerOpResult::Unsupported);
 		EXPECT_TRUE(Values.empty());
+	}
+
+	TEST(FReflectedContainerOpsTests, ValueStorageCopiesNestedContainersWithoutAliasing)
+	{
+		using FMap = std::unordered_map<int32, std::vector<std::string>>;
+		const auto& Ops = *Durin::ResolveMapOps<FMap>();
+		Durin::FMapProperty Property({}, "NestedMap", Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FMap), Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, &Ops);
+		Property.SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy,
+			Ops.CopyConstruct, Ops.CopyAssign);
+		FMap Source{{1, {"saved", "second"}}};
+		Durin::FReflectedValueStorage Copy;
+		ASSERT_TRUE(Copy.CopyConstruct(&Property, &Source));
+		auto& Value = *static_cast<FMap*>(Copy.GetValue());
+		EXPECT_EQ(Value, Source);
+		Source.at(1)[0] = "edited";
+		EXPECT_EQ(Value.at(1)[0], "saved");
+		ASSERT_TRUE(Copy.CopyAssign(&Source));
+		EXPECT_EQ(Value, Source);
+		ASSERT_TRUE(Copy.CopyAssign(Copy.GetValue()));
+		EXPECT_EQ(Value.at(1)[0], "edited");
+	}
+
+	TEST(FReflectedContainerOpsTests, ContainerCopyFailureLeavesStorageAndDestinationIntact)
+	{
+		using FElement = StructConsumerTest::FThrowingContainerElement;
+		using FArray = std::vector<FElement>;
+		using FMap = std::unordered_map<int32, FElement>;
+		FElement::CopiesBeforeFailure = -1;
+		ASSERT_EQ(FElement::Live, 0);
+		{
+			FArray Source(2);
+			const auto& AOps = *Durin::ResolveArrayOps<FArray>();
+			Durin::FArrayProperty A({}, "Array", Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::None, 1, 0, sizeof(FArray), Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &AOps);
+			A.SetValueLifecycle(AOps.ContainerSize, AOps.ContainerAlignment, AOps.Initialize, AOps.Destroy,
+				AOps.CopyConstruct, AOps.CopyAssign);
+			Durin::FReflectedValueStorage Failed;
+			FElement::CopiesBeforeFailure = 1;
+			std::string Error;
+			EXPECT_FALSE(Failed.CopyConstruct(&A, &Source, 0, &Error));
+			EXPECT_FALSE(Failed.IsLive());
+			EXPECT_NE(Error.find("ReflectedValueCopyFailed"), std::string::npos);
+			EXPECT_EQ(FElement::Live, 2);
+			FElement::CopiesBeforeFailure = -1;
+			Durin::FReflectedValueStorage Destination;
+			ASSERT_TRUE(Destination.CopyConstruct(&A, &Source));
+			auto& Stored = *static_cast<FArray*>(Destination.GetValue());
+			Stored[0].Value = 99;
+			FElement::CopiesBeforeFailure = 1;
+			EXPECT_FALSE(Destination.CopyAssign(&Source, &Error));
+			EXPECT_EQ(Stored[0].Value, 99);
+			EXPECT_EQ(Stored.size(), 2u);
+			EXPECT_EQ(FElement::Live, 4);
+
+			FElement::CopiesBeforeFailure = -1;
+			FMap MSource;
+			MSource.try_emplace(1);
+			MSource.try_emplace(2);
+			const auto& MOps = *Durin::ResolveMapOps<FMap>();
+			Durin::FMapProperty M({}, "Map", Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::None, 1, 0, sizeof(FMap), Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, &MOps);
+			M.SetValueLifecycle(MOps.ContainerSize, MOps.ContainerAlignment, MOps.Initialize, MOps.Destroy,
+				MOps.CopyConstruct, MOps.CopyAssign);
+			Durin::FReflectedValueStorage MapCopy;
+			ASSERT_TRUE(MapCopy.CopyConstruct(&M, &MSource));
+			auto& MStored = *static_cast<FMap*>(MapCopy.GetValue());
+			MStored.at(1).Value = 81;
+			FElement::CopiesBeforeFailure = 1;
+			EXPECT_FALSE(MapCopy.CopyAssign(&MSource, &Error));
+			EXPECT_EQ(MStored.at(1).Value, 81);
+			EXPECT_EQ(MStored.size(), 2u);
+			EXPECT_EQ(FElement::Live, 8);
+			Durin::FReflectedValueStorage FailedMap;
+			FElement::CopiesBeforeFailure = 1;
+			EXPECT_FALSE(FailedMap.CopyConstruct(&M, &MSource));
+			EXPECT_EQ(FElement::Live, 8);
+		}
+		FElement::CopiesBeforeFailure = -1;
+		EXPECT_EQ(FElement::Live, 0);
+	}
+
+	TEST(FReflectedContainerOpsTests, CopyCapabilitiesRejectNestedMoveOnlyElementsAndMalformedDescriptors)
+	{
+		using FMoveOnly = std::unique_ptr<int32>;
+		using FNested = std::vector<std::vector<FMoveOnly>>;
+		const auto& Array = *Durin::ResolveArrayOps<FNested>();
+		EXPECT_EQ(Array.CopyConstruct, nullptr);
+		EXPECT_EQ(Array.CopyAssign, nullptr);
+		EXPECT_TRUE(Durin::IsValidArrayOps(&Array));
+		using FMap = std::unordered_map<int32, std::vector<FMoveOnly>>;
+		const auto& Map = *Durin::ResolveMapOps<FMap>();
+		EXPECT_EQ(Map.CopyConstruct, nullptr);
+		EXPECT_EQ(Map.CopyAssign, nullptr);
+		EXPECT_EQ(Map.InsertCopy, nullptr);
+		EXPECT_TRUE(Durin::IsValidMapOps(&Map));
+		auto Invalid = *Durin::ResolveArrayOps<std::vector<int32>>();
+		Invalid.CopyConstruct = nullptr;
+		EXPECT_FALSE(Durin::IsValidArrayOps(&Invalid));
+		auto InvalidMap = *Durin::ResolveMapOps<std::unordered_map<int32, int32>>();
+		InvalidMap.CopyAssign = nullptr;
+		EXPECT_FALSE(Durin::IsValidMapOps(&InvalidMap));
 	}
 
 	TEST(FReflectedContainerOpsTests, DetachedCommitOwnsOldStorageAndRollbackLeavesDestinationUntouched)

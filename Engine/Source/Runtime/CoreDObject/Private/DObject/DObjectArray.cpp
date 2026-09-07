@@ -1,6 +1,7 @@
 #include "DObject/DObjectArray.h"
 
 #include "DObject/Object.h"
+#include "DObject/Package.h"
 
 namespace Durin
 {
@@ -29,6 +30,7 @@ namespace Durin
 		Objects.push_back(ObjToAdd);
 		ObjectToSlot.emplace(ObjToAdd, SlotIndex);
 		AddToOuterIndex(ObjToAdd, ObjToAdd->GetOuter());
+		++Revision;
 	}
 
 	auto FDObjectArray::Remove(DObject* ObjToRemove) -> void
@@ -66,6 +68,7 @@ namespace Durin
 		++Slot.Generation;
 		if (Slot.Generation == 0) Slot.Generation = 1;
 		FreeSlots.push_back(SlotIndex);
+		++Revision;
 	}
 
 	auto FDObjectArray::Contains(const DObject* Object) const -> bool
@@ -91,13 +94,15 @@ namespace Durin
 
 	auto FDObjectArray::GetAll(EObjectQueryScope Scope) const -> std::vector<DObject*>
 	{
-		if (Scope == EObjectQueryScope::IncludeTemplates) return Objects;
+		if (Scope == EObjectQueryScope::IncludeUnpublished) return Objects;
 
 		std::vector<DObject*> Result;
 		Result.reserve(Objects.size());
 		for (DObject* Object : Objects)
 		{
-			if (!Object->IsTemplateObject()) Result.push_back(Object);
+			const DPackage* Package = Object->GetPackage();
+			if ((!Package || !Package->IsGraphPrivate())
+				&& (Scope != EObjectQueryScope::LiveOnly || !Object->IsTemplateObject())) Result.push_back(Object);
 		}
 		return Result;
 	}
@@ -115,8 +120,10 @@ namespace Durin
 		Result.reserve(It->second.size());
 		for (DObject* Object : It->second)
 		{
+			const DPackage* Package = Object->GetPackage();
 			if ((bIncludeGarbage || !Object->IsGarbage())
-				&& (Scope == EObjectQueryScope::IncludeTemplates || !Object->IsTemplateObject()))
+				&& (Scope == EObjectQueryScope::IncludeUnpublished || !Package || !Package->IsGraphPrivate())
+				&& (Scope != EObjectQueryScope::LiveOnly || !Object->IsTemplateObject()))
 			{
 				Result.push_back(Object);
 			}
@@ -133,6 +140,7 @@ namespace Durin
 		RemoveFromOuterIndex(Object, Object->OuterPrivate);
 		Object->OuterPrivate = NewOuter;
 		AddToOuterIndex(Object, NewOuter);
+		++Revision;
 	}
 
 	auto FDObjectArray::AddToOuterIndex(DObject* Object, const DObject* Outer) -> void
@@ -177,6 +185,7 @@ namespace Durin
 	auto FDObjectArray::NotifyObjectMarkedGarbage() -> void
 	{
 		++GarbageObjectCount;
+		++Revision;
 	}
 
 	auto MakeObjectHandle(DObject* Object) -> FObjectHandle

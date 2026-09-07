@@ -11,6 +11,8 @@ namespace Durin
 	{
 		LiveOnly,
 		IncludeTemplates,
+		// GC and replacement internals only; includes isolated and retiring graphs.
+		IncludeUnpublished,
 	};
 
 	// Owns object handles and dense iteration state while indexing non-owning Outer relationships.
@@ -24,6 +26,7 @@ namespace Durin
 		COREDOBJECT_API auto Resolve(FObjectHandle Handle) const -> DObject*;
 
 		auto GetNum() const -> uint64 { return static_cast<uint64>(Objects.size()); }
+		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetGarbageNum() const -> uint64 { return GarbageObjectCount; }
 		COREDOBJECT_API auto GetAll(EObjectQueryScope Scope) const -> std::vector<DObject*>;
 		auto Snapshot(EObjectQueryScope Scope) const -> std::vector<DObject*> { return GetAll(Scope); }
@@ -54,6 +57,7 @@ namespace Durin
 		// of truth, including for top-level objects indexed under nullptr.
 		std::unordered_map<const DObject*, std::vector<DObject*>> OuterToObjects;
 		uint64 GarbageObjectCount = 0;
+		uint64 Revision = 1;
 
 		auto ReparentObject(DObject* Object, DObject* NewOuter) -> void;
 		auto AddToOuterIndex(DObject* Object, const DObject* Outer) -> void;

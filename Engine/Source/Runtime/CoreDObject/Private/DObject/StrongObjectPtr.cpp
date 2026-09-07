@@ -99,6 +99,12 @@ namespace Durin
 
 	namespace Private
 	{
+		auto GetStrongObjectReferenceCount(FObjectHandle Handle) -> uint32
+		{
+			const auto It = GetStrongReferences().find(Handle);
+			return It == GetStrongReferences().end() ? 0 : It->second;
+		}
+
 		auto AddStrongObjectReferences(FReferenceCollector& Collector) -> void
 		{
 			for (const auto& [Handle, Count] : GetStrongReferences())

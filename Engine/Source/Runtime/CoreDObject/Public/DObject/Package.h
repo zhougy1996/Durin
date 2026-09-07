@@ -48,6 +48,11 @@ namespace Durin
 
 		// Initialization is one-shot and requires an unparented package with no existing kind.
 		COREDOBJECT_API auto InitializeAssetPackage(const FPackagePath& InPath) -> void;
+		// Creates an isolated graph identity without claiming its live registry entry.
+		// The caller owns this graph until a replacement coordinator accepts it.
+		COREDOBJECT_API auto InitializePreparedAssetPackage(const FPackagePath& InPath) -> bool;
+		auto IsGraphPrivate() const -> bool { return bGraphPrivate; }
+		auto IsPreparedAssetPackage() const -> bool { return bPrepared; }
 		COREDOBJECT_API auto RelocateAssetPackage(const FPackagePath& InPath) -> bool;
 		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
 		// Controls ordinary-GC residency for an asset package. Unload attempts clear
@@ -77,6 +82,10 @@ namespace Durin
 		}
 
 	private:
+		bool bGraphPrivate = false;
+		bool bPrepared = false;
+		auto CommitPreparedPackageRegistration(DPackage& Previous) noexcept -> void;
+		friend class FObjectGraphReplacement;
 		// Mounted package identity; invalid only for compiled-in metadata packages.
 		FPackagePath PackagePath;
 

@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-09-07
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -22,6 +22,53 @@ Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `D
 `GetObjectsWithOuter(const DObject* Outer, bool bIncludeGarbage = false)` returns direct children only. Normal callers exclude garbage objects. Lifecycle and destruction code may pass `true` while it still needs to find objects awaiting physical removal.
 
 The Outer index is a query accelerator. It does not own objects, create a GC strong reference, or replace `OuterPrivate` as hierarchy state.
+
+`EObjectQueryScope::IncludeUnpublished` is reserved for lifecycle and controlled
+replacement traversal. It includes templates and private package graphs in the
+same object array. Ordinary `LiveOnly` and `IncludeTemplates` queries exclude
+private graphs. Exact handles continue to resolve their original generations;
+visibility never redirects a handle. The array revision changes on registration,
+removal, reparenting, and garbage marking so prepared operations can reject stale
+membership.
+
+## Controlled Graph Replacement
+
+`ObjectGraphReplacement.h` supplies disk-independent package replacement on the
+game thread. `DPackage::InitializePreparedAssetPackage` gives a candidate the
+same package identity without claiming its registry entry. The caller must keep
+the candidate alive during construction. A successful `FObjectGraphReplacement::Prepare`
+accepts ownership, pins live objects needed for validation, maps package-relative
+Outer/name paths, and prepares writable reference slots and detached container
+copies. Failure leaves candidate ownership with the caller. The caller must
+quiesce editing and resource work; these primitives do not implement an editor
+lease or asset-family admission.
+
+`TryCommit` rechecks identities, package edit revisions, object membership,
+reference slots, container contents, and native participants before consuming
+the plan in the same call. Its internal nonthrowing commit switches existing
+package registry entries, writes references, swaps detached containers, and
+invalidates soft caches. It does not notify observers. Map keys are rebuilt and
+checked for collisions before commit; GC's temporary collector pointers are
+never retained as writable slots. Container copying uses the shared reflected
+value lifecycle described in [Reflection System](ReflectionSystem.md).
+
+Native collector owners require an `IObjectReplacementParticipant`; additional
+native strong handles require exact ownership claims. Participants prepare all
+fallible work and retain their storage/module until retirement. Commit and abort
+callbacks must not allocate, throw, broadcast, reenter GC/replacement, or perform
+fallible resource work. Unenumerated native pointers cannot be discovered by
+reflection and remain the owner's admission responsibility. Explicitly rooted
+old objects, unhandled native ownership, unsupported container capabilities,
+incompatible types, and referenced objects without a replacement are rejected.
+
+After commit, the operation keeps the old graph private and alive until `Retire`
+accepts all participant receipts and verifies no external hard references remain.
+Only then does it mark old objects as garbage and release its pins; physical
+destruction follows normal deferred GC readiness. Keep the operation alive until
+retirement succeeds. Before commit, `Abort` marks the accepted candidates instead.
+Weak handles are never rebound; they become invalid with their old generation.
+The current primitive bounds package/object/reference counts; saved-file and
+resource-memory budgets belong to the Engine preparation layer.
 
 ## Lifecycle API
 

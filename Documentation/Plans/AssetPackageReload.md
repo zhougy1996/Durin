@@ -13,12 +13,14 @@ Stage 0 已完成 CPU 内容级回归、源码边界审计及接口冻结。独�
 `AssetDiscardCharacterizationTests` 在 Windows Debug 捕获 Texture2D 和
 VolumeTexture 放弃后云组件仍引用修改后的源数据，以及随后保存污染磁盘的错误。
 该测试通过表示旧错误被成功捕获，不表示 Reload 已实现；没有 GPU 画面验证证据。
-生产 Discard 行为尚未修改，Stage 1 是下一个待执行阶段。
+Stage 1 已完成 CoreDObject 内存图替换原语及共享反射容器复制能力，
+18 项替换测试通过。生产 Discard 行为尚未修改，Stage 2 是下一个待执行阶段。
 
 审计确认现有 linker skeleton 已进入 DPackage 注册表和 GDObjectArray，不能直接
 作为同路径隔离图；GC 枚举把 TObjectPtr 转为临时指针，不能承担引用回写；
 Loose BulkData 每次按路径重新打开文件，注册候选资源还会退休旧资源。这些缺口
-必须在 Stage 1/2 先补齐，保留选定的整批原子失败契约。具体冻结边界见 Stage 0
+其中 CoreDObject 缺口已在 Stage 1 补齐；磁盘闭包和资源发布缺口仍待 Stage 2/3，
+保留选定的整批原子失败契约。具体冻结边界见 Stage 0
 handoff；尚未迁移 Async Task Framework 的生产试点，也未绕过其验收门槛。
 
 ## Goal
@@ -250,15 +252,47 @@ GPU 场景、渲染截图或实际窗口关闭验收，相关矩阵仍由 Stage 
 
 依赖 Stage 0。
 
-- [ ] 在 CoreDObject 实现旧新图映射、类型检查、反射/容器引用写入计划及原生
+实施细化：对外提供 `TryCommit`，将可失败的最终 Validate 和内部
+`CommitPrepared() noexcept` 放在同一次 GameThread 调用内，避免调用者在
+Validate 与 Commit 之间让出执行权。提交期仍不允许普通失败或部分成功。
+`IncludeUnpublished` 是同一 GDObjectArray 的 GC/替换内部查询范围；普通
+LiveOnly/IncludeTemplates 均不暴露候选和待退休图，不新增驻留表。
+
+按用户指出的分层缺口，先补齐共享 `ContainerOps` 的 CopyConstruct/CopyAssign
+能力及生成属性生命周期接线，再由替换计划使用 `FReflectedValueStorage`；
+没有在 Reload 层保留独立容器克隆实现。描述表版本升为 2，磁盘格式不变。
+嵌套不可复制元素明确拒绝，复制构造失败清理未完成值，复制赋值先复制后
+无异常交换，支持自赋值并保留失败前的目标内容。
+
+- [x] 在 CoreDObject 实现旧新图映射、类型检查、反射/容器引用写入计划及原生
   参与者契约，覆盖 Map 键和嵌套字段，保持 GC 枚举与写入职责清晰。
-- [ ] 实现同路径候选图隔离、唯一注册切换、软引用缓存失效和旧图延迟退休，
+- [x] 实现同路径候选图隔离、唯一注册切换、软引用缓存失效和旧图延迟退休，
   不增加平行驻留表、不让旧弱句柄因槽位复用命中新对象。
-- [ ] 验证强引用、弱句柄、循环/子对象、缺失替代目标、类型不兼容、Map 冲突、
+- [x] 验证强引用、弱句柄、循环/子对象、缺失替代目标、类型不兼容、Map 冲突、
   准备中新增引用及无支持参与者的拒绝路径。
 
 完成条件：不依赖磁盘/编辑器的内存图替换可原子提交；失败后所有原引用可用，
 成功后无可访问旧图残留或悬空引用。
+
+实现与边界：`Public/DObject/ObjectGraphReplacement.h` 和对应 Private 实现
+提供内存替换；旧新图按 FName Outer 路径索引，容器快照与写入分离。
+准备成功才接管候选图；提交后保留操作直到所有参与者允许退休，随后标记旧图
+并交由 GC 延迟析构。强持有计数必须精确声明；原生裸指针若未被 collector
+枚举，仍必须由资源族准入审计覆盖，不能声称自动发现任意 C++ 指针。
+编辑/任务封锁和 main/bulk/resource 字节预算仍由后续 Engine 协调层实现。
+当前 primitive 仅提供包数、对象数、引用槽数预算，不宣称完整资源内存预算。
+
+验证：`Win64-Debug-DurinEditor` 的 `CorePropertyValueSnapshotTests` 20 项通过，
+包含嵌套容器独立存储、数组/Map 复制故障注入、析构清理及 capability 拒绝；
+回执 `Build/.agent-state/logs/20260907-162415-175732-32936-CorePropertyValueSnapshotTests.log`。
+`DevTool.bat test affected` 的 79 个目标全部通过，回执
+`Build/.agent-state/logs/20260907-163356-433891-30868-ctest.log`。
+随后增加手动根引用保护与句柄槽位复用测试；修正新测试的 NewObject 参数后，
+`CoreObjectReplacementTests` 18 项全部通过，最终回执
+`Build/.agent-state/logs/20260907-163637-703882-39692-CoreObjectReplacementTests.log`。
+覆盖 scalar/fixed/nested/struct/Map 键值、候选内部与跨包循环、子对象/删除对象、
+类型不兼容、碰撞、stale、未支持原生持有、精确强指针转移、延迟回执和晚到引用。
+这是 CoreDObject 的 CPU 验收，不是磁盘 Reload 或渲染/窗口验收。
 
 ### Stage 2: Prepare saved packages without publishing live state
 

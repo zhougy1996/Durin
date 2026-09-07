@@ -80,7 +80,7 @@ namespace Durin
 
 	auto DPackage::RelocateAssetPackage(const FPackagePath& InPath) -> bool
 	{
-		if (!IsAssetPackage()) return false;
+		if (!IsAssetPackage() || bGraphPrivate) return false;
 		const std::string NewPath = InPath.ToString();
 		if (NewPath == RegisteredPath) return true;
 		auto& Registry = GetPackageRegistry();
@@ -94,6 +94,27 @@ namespace Durin
 		MarkDirty();
 		InvalidateSoftObjectCaches();
 		return true;
+	}
+
+	auto DPackage::InitializePreparedAssetPackage(const FPackagePath& InPath) -> bool
+	{
+		if (!InPath.IsValid() || GetOuter() || PackageFlags != EPackageFlags::None) return false;
+		PackagePath = InPath;
+		RegisteredPath = InPath.ToString();
+		PackageFlags = EPackageFlags::Asset;
+		bGraphPrivate = true;
+		bPrepared = true;
+		return true;
+	}
+
+	auto DPackage::CommitPreparedPackageRegistration(DPackage& Previous) noexcept -> void
+	{
+		auto It = GetPackageRegistry().find(RegisteredPath);
+		require(bPrepared && It != GetPackageRegistry().end() && It->second == &Previous);
+		It->second = this;
+		Previous.bGraphPrivate = true;
+		bGraphPrivate = false;
+		bPrepared = false;
 	}
 
 	auto DPackage::InitializeCppPackage(FName ModuleName) -> void

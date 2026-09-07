@@ -86,7 +86,7 @@ namespace Durin
 				if (!Added.insert(Object).second) continue;
 
 				Stack.push_back({Object, true});
-				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true))
+				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished, true))
 				{
 					if (CandidateSet.contains(Inner)) Stack.push_back({Inner, false});
 				}
@@ -106,7 +106,7 @@ namespace Durin
 
 			// A forcibly garbage Outer may still have a reachable child. Removing the
 			// Outer detaches such children instead of treating hierarchy as ownership.
-			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true))
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished, true))
 			{
 				Child->SetOuterPrivate(nullptr);
 			}
@@ -184,7 +184,7 @@ namespace Durin
 		{
 			DObject* Object = Pending.back();
 			Pending.pop_back();
-			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true)) Pending.push_back(Child);
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished, true)) Pending.push_back(Child);
 			MarkGarbageInternal(Object);
 		}
 	}
@@ -211,7 +211,7 @@ namespace Durin
 			{
 				DObject* Object = Pending.back();
 				Pending.pop_back();
-				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true)) Pending.push_back(Child);
+				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished, true)) Pending.push_back(Child);
 				MarkGarbageInternal(Object, true);
 			}
 		}
@@ -223,7 +223,7 @@ namespace Durin
 		auto ReleaseMatchingClassDefaultObjects(Predicate&& Matches) -> std::vector<DObject*>
 		{
 			std::vector<DClass*> Classes;
-			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 			{
 				if (auto* Class = Cast<DClass>(Object); Class && Matches(Class)) Classes.push_back(Class);
 			}
@@ -288,13 +288,13 @@ namespace Durin
 		if (!bHasModuleTemplates)
 		{
 			bHasModuleTemplates = std::ranges::any_of(
-				GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates), IsOwnedByModule);
+				GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished), IsOwnedByModule);
 		}
 		if (!bHasModuleTemplates) return true;
 
 		CollectGarbage();
 		return !std::ranges::any_of(
-			GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates), IsOwnedByModule);
+			GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished), IsOwnedByModule);
 	}
 
 	namespace
@@ -303,7 +303,7 @@ namespace Durin
 		auto ReleaseMatchingDStructDefaults(Predicate&& Matches) -> void
 		{
 			std::vector<DStruct*> Structs;
-			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 			{
 				if (auto* Struct = Cast<DStruct>(Object); Struct && Matches(Struct)) Structs.push_back(Struct);
 			}
@@ -353,11 +353,11 @@ namespace Durin
 		const uint64 PendingKillCountBeforeCollection = GetGarbageObjectCount();
 		const double CollectionStartTime = FTime::Seconds();
 		const double MarkStartTime = FTime::Seconds();
-		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates)) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished)) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 
 		FMarkReferenceCollector Marker;
 		Private::AddStrongObjectReferences(Marker);
-		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
 			if (!Object->IsGarbage()
 				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
@@ -371,7 +371,7 @@ namespace Durin
 		GLastGarbageCollectionStats.MarkMilliseconds = (FTime::Seconds() - MarkStartTime) * 1000.0;
 
 		std::vector<DObject*> SweepCandidates;
-		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
 			if (!IsPermanentObject(Object) && (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
 			{
@@ -444,7 +444,7 @@ namespace Durin
 			return;
 		}
 
-		for (const DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+		for (const DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
 		{
 			if (!Object
 				|| !Object->HasAnyInternalFlags(

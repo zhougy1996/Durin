@@ -95,5 +95,7 @@ namespace Durin
 	namespace Private
 	{
 		COREDOBJECT_API auto AddStrongObjectReferences(FReferenceCollector& Collector) -> void;
+		// Admission auditing only; counts owners, not writable reference slots.
+		COREDOBJECT_API auto GetStrongObjectReferenceCount(FObjectHandle Handle) -> uint32;
 	}
 }

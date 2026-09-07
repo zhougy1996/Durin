@@ -16,6 +16,8 @@ endfunction()
 durin_add_core_object_functional_test(
 	CoreObjectTests Private/ReflectionTypeTests.cpp)
 durin_add_core_object_functional_test(
+	CoreObjectReplacementTests Private/ObjectGraphReplacementTests.cpp)
+durin_add_core_object_functional_test(
 	CorePropertyChangeTests Private/PropertyChangeTests.cpp)
 durin_add_core_object_functional_test(
 	CorePropertyValueSnapshotTests Private/ZPropertyValueSnapshotTests.cpp)

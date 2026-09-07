@@ -690,12 +690,14 @@ namespace Durin
 			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array)
 			{
 				const FArrayOps& Ops = static_cast<FArrayProperty*>(Property)->GetOps();
-				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy);
+				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy,
+					Ops.CopyConstruct, Ops.CopyAssign);
 			}
 			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Map)
 			{
 				const FMapOps& Ops = static_cast<FMapProperty*>(Property)->GetOps();
-				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy);
+				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy,
+					Ops.CopyConstruct, Ops.CopyAssign);
 			}
 			for (size_t Index = 0; PropertyParams->MetaData && Index < PropertyParams->NumMetaData; ++Index)
 			{

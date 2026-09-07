@@ -852,10 +852,18 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyConstructValue() || !CanDestroyValue())
 			return ReportUnavailablePropertyOperation(this, "CopyConstruct", OutError);
-		if (DStruct* Struct = GetPropertyStruct(this))
-			Struct->GetOps().CopyConstruct(Destination, Source);
-		else
-			CopyConstructValueFunction(Destination, Source);
+		try
+		{
+			if (DStruct* Struct = GetPropertyStruct(this))
+				Struct->GetOps().CopyConstruct(Destination, Source);
+			else
+				CopyConstructValueFunction(Destination, Source);
+		}
+		catch (...)
+		{
+			if (OutError) *OutError = "ReflectedValueCopyFailed: copy construction failed.";
+			return false;
+		}
 		return true;
 	}
 
@@ -864,10 +872,18 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyAssignValue())
 			return ReportUnavailablePropertyOperation(this, "CopyAssign", OutError);
-		if (DStruct* Struct = GetPropertyStruct(this))
-			Struct->GetOps().CopyAssign(Destination, Source);
-		else
-			CopyAssignValueFunction(Destination, Source);
+		try
+		{
+			if (DStruct* Struct = GetPropertyStruct(this))
+				Struct->GetOps().CopyAssign(Destination, Source);
+			else
+				CopyAssignValueFunction(Destination, Source);
+		}
+		catch (...)
+		{
+			if (OutError) *OutError = "ReflectedValueCopyFailed: copy assignment failed.";
+			return false;
+		}
 		return true;
 	}
 
