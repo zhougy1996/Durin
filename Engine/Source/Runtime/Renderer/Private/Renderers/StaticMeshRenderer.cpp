@@ -1,4 +1,5 @@
 #include "Renderers/StaticMeshRenderer.h"
+#include "Renderers/MeshVertexFactory.h"
 #include "Renderers/StaticMeshDrawExecution.h"
 #include "Renderers/MaterialBindingResolution.h"
 #include "Renderers/MeshRendererExecution.h"
@@ -13,8 +14,7 @@ namespace Durin
 		struct FShaderMapPayload
 		{
 			FMaterialShaderMap ShaderMap;
-			TMaterialShaderRef<FStaticMeshVertexShader> VertexShader;
-			TMaterialShaderRef<FSplineMeshVertexShader> SplineVertexShader;
+			std::shared_ptr<const FMeshVertexShaderBinding> VertexShader;
 			TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
 			TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
@@ -24,8 +24,7 @@ namespace Durin
 		struct FPipelinePayload
 		{
 			FMaterialShaderMap ShaderMap;
-			TMaterialShaderRef<FStaticMeshVertexShader> VertexShader;
-			TMaterialShaderRef<FSplineMeshVertexShader> SplineVertexShader;
+			std::shared_ptr<const FMeshVertexShaderBinding> VertexShader;
 			TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
 			TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
@@ -104,6 +103,7 @@ namespace Durin
 				const bool bNeedsForwardPipeline =
 					Pass == EMeshBasePass::Translucent
 					|| bPrepareLitOpaqueForward
+					|| !Item.bSupportsGBuffer
 					|| Item.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   != EMaterialShadingModel::Lit;
 				const bool bReady = Primitive != nullptr
@@ -131,6 +131,7 @@ namespace Durin
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
 				if (Pass != EMeshBasePass::Translucent
+					&& Draw.bSupportsGBuffer
 					&& Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 						   == EMaterialShadingModel::Lit)
 					continue;
@@ -229,18 +230,22 @@ namespace Durin
 	) -> bool
 	{
 		check(IsInRenderingThread());
-		if (Primitive.VertexFactory == nullptr)
+		if (Primitive.CollectedBinding == nullptr)
 		{
 			return false;
 		}
 		const FMaterialRenderData& Material = Item.Material;
-		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
+		const FVertexFactoryInputBinding& VertexFactory = *Primitive.CollectedBinding;
+		const auto Factory = FindMeshVertexFactory(Item.PipelineKey.FactoryKey);
+		const uint32 MeshPass = bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward;
+		if (!Factory || Factory->GetLayoutKey() != Item.PipelineKey.LayoutKey || !Factory->GetShaderType(MeshPass)) return false;
 
 		using FShaderMapResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		const FMeshShaderMapKey ShaderMapKey{
 			.Material = Material.PlanningPassIdentity.ShaderMap,
-			.VertexDomain = Primitive.VertexDomain
+			.VertexDomain = Primitive.VertexDomain,
+			.FactoryKey = Item.PipelineKey.FactoryKey, .LayoutKey = Item.PipelineKey.LayoutKey
 		};
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
 		auto& ShaderMapEntry = ShaderMapCache.FindOrAddBounded(
@@ -248,7 +253,7 @@ namespace Durin
 		FState::FShaderMapPayload* ShaderMapPayload =
 			ShaderMapEntry.Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
-				[this, &Material, Domain = Primitive.VertexDomain,
+				[this, &Material, Factory, MeshPass,
 				 bShadowDepth]() -> FShaderMapResult {
 					const FMaterialShaderMapIdentity& Identity =
 						Material.PlanningPassIdentity.ShaderMap;
@@ -269,16 +274,7 @@ namespace Durin
 							Identity.OpacityMaskThreshold
 						))
 					);
-					if (bShadowDepth
-						&& Identity.BlendMode != EMaterialBlendMode::Masked)
-					{
-						CompileOptions.Macros.emplace_back(
-							"DURIN_OPAQUE_SHADOW_DEPTH", "1"
-						);
-					}
-					if (Domain == EVertexDeformationDomain::Spline)
-						CompileOptions.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
-					FShaderType& VertexShaderType = Domain == EVertexDeformationDomain::Spline ? FSplineMeshVertexShader::StaticType() : FStaticMeshVertexShader::StaticType();
+					FShaderType& VertexShaderType = *Factory->GetShaderType(MeshPass);
 					FShaderType& FragmentShaderType =
 						FSurfaceFragmentShader::StaticType();
 					FShaderType& ShadowFragmentShaderType =
@@ -294,9 +290,7 @@ namespace Durin
 						: bShadowDepth ? ShadowFragmentShaderType : FragmentShaderType;
 					const bool bInitialized = InitializeMaterialShaderMap(
 						VertexShaderType, SelectedFragmentType,
-						Domain == EVertexDeformationDomain::Spline
-							? GetSplineVertexFactoryShaderType()
-							: GetLocalVertexFactoryShaderType(),
+						Factory->GetType(),
 						bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward,
 						Identity,
 						Coordinator.GetGeneration_RenderThread(),
@@ -317,12 +311,7 @@ namespace Durin
 					}
 					FState::FShaderMapPayload Candidate;
 					Candidate.ShaderMap = std::move(ShaderMap);
-					if (Domain == EVertexDeformationDomain::Spline)
-						Candidate.SplineVertexShader =
-							TMaterialShaderRef<FSplineMeshVertexShader>(Candidate.ShaderMap);
-					else
-						Candidate.VertexShader =
-							TMaterialShaderRef<FStaticMeshVertexShader>(Candidate.ShaderMap);
+					Candidate.VertexShader = Factory->Resolve(Candidate.ShaderMap, MeshPass);
 					if (!bShadowDepth)
 						Candidate.FragmentShader =
 							TMaterialShaderRef<FSurfaceFragmentShader>(Candidate.ShaderMap);
@@ -332,7 +321,7 @@ namespace Durin
 					if (bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked)
 						Candidate.OpaqueShadowFragmentShader =
 							TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>(Candidate.ShaderMap);
-					if ((Domain == EVertexDeformationDomain::Spline ? Candidate.SplineVertexShader.GetRHIShader(false) : Candidate.VertexShader.GetRHIShader(false)) == nullptr
+					if ((!Candidate.VertexShader || Candidate.VertexShader->GetRHIShader(false) == nullptr)
 						|| (!bShadowDepth
 							&& Candidate.FragmentShader.GetRHIShader(false) == nullptr)
 						|| (bShadowDepth
@@ -385,7 +374,6 @@ namespace Durin
 				FState::FPipelinePayload Candidate;
 				Candidate.ShaderMap = ShaderMapPayload->ShaderMap;
 				Candidate.VertexShader = ShaderMapPayload->VertexShader;
-				Candidate.SplineVertexShader = ShaderMapPayload->SplineVertexShader;
 				Candidate.FragmentShader = ShaderMapPayload->FragmentShader;
 				Candidate.ShadowFragmentShader =
 					ShaderMapPayload->ShadowFragmentShader;
@@ -400,13 +388,14 @@ namespace Durin
 							? RenderTargetLayouts::MakeHybridSortedTranslucency()
 							: RenderTargetLayouts::MakeHybridRetainedForward())
 						: RenderTargetLayouts::MakeSceneTargets());
-				Initializer.BoundShaders.VertexShader = Identity.VertexDomain == EVertexDeformationDomain::Spline ? Candidate.SplineVertexShader.GetRHIShader() : Candidate.VertexShader.GetRHIShader();
+				Initializer.BoundShaders.VertexShader = Candidate.VertexShader->GetRHIShader();
 				Initializer.BoundShaders.FragmentShader = bShadowDepth ? (Identity.Material.ShaderMap.BlendMode
 																				  == EMaterialBlendMode::Masked ?
 																			  Candidate.ShadowFragmentShader.GetRHIShader() :
 																			  Candidate.OpaqueShadowFragmentShader.GetRHIShader()) :
 																		 Candidate.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration = VertexFactory.GetDeclaration();
+				Initializer.VertexDeclaration = VertexFactory.Declaration;
+				Initializer.PrimitiveTopology = Identity.Topology;
 				Initializer.RasterizerState = Identity.Rasterizer;
 				Initializer.DepthStencilState = Identity.Depth;
 				if (!bShadowDepth)
@@ -487,11 +476,11 @@ namespace Durin
 				checkf(bSortKeyMatchesPass, "StaticMesh prepared sort key does not match its bucket.");
 				const bool bComplete = Primitive != nullptr
 									   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
-									   && Primitive->LOD != nullptr
-									   && Primitive->VertexFactory != nullptr
-									   && Item.Section != nullptr
+									   && Primitive->CollectedBinding != nullptr
+									   && Primitive->CollectedBinding->Declaration != nullptr
+									   && Item.Geometry.ElementCount != 0
 									   && std::isfinite(Item.TranslucentSortDepth)
-									   && Item.ShaderMapIdentity
+									   && Item.PipelineKey.Material.ShaderMap
 											  == Item.Material.PlanningPassIdentity.ShaderMap
 									   && Item.PipelineKey.Material
 											  == Item.Material.PlanningPassIdentity;
@@ -529,10 +518,10 @@ namespace Durin
 			PreparedView.GetPrimitive(Item);
 		const bool bComplete = Primitive != nullptr
 							   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
-							   && Primitive->LOD != nullptr && Primitive->VertexFactory != nullptr
-							   && Item.Section != nullptr && Item.Pass == Pass
+							   && Primitive->CollectedBinding != nullptr && Primitive->CollectedBinding->Declaration != nullptr
+							   && Item.Geometry.ElementCount != 0 && Item.Pass == Pass
 							   && Item.SortKey.Pipeline[0] == static_cast<uint32>(Pass)
-							   && Item.ShaderMapIdentity == Item.Material.PlanningPassIdentity.ShaderMap
+							   && Item.PipelineKey.Material.ShaderMap == Item.Material.PlanningPassIdentity.ShaderMap
 							   && Item.PipelineKey.Material == Item.Material.PlanningPassIdentity;
 		if (!bComplete || !ResolvedView.IsReady(Item))
 		{
@@ -596,7 +585,7 @@ namespace Durin
 		ForEachShadowBucket(PreparedView, [this, &CommandList, &View, &GBuffer, &PreparedView, &ResolvedView, &RecordFamily, &bComplete, &bRenderedGeometry](const auto& Bucket) {
 			for (const FPreparedStaticMeshDraw& Draw : Bucket)
 			{
-				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
+				if (!Draw.bSupportsGBuffer || Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					++ResolvedView.Observations.GBufferSkippedDraws;
@@ -649,7 +638,7 @@ namespace Durin
 			return false;
 		}
 		FGBufferRenderer::FPipeline* Pipeline =
-			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .CompiledProgram = Item.Material.CompiledProgram, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .VertexDomain = Primitive.VertexDomain == EVertexDeformationDomain::Spline ? EGBufferVertexDomain::Spline : EGBufferVertexDomain::Local});
+			GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .CompiledProgram = Item.Material.CompiledProgram, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.PipelineKey.FactoryKey, .LayoutKey = Item.PipelineKey.LayoutKey, .Topology = Item.PipelineKey.Topology});
 		if (Pipeline == nullptr) return false;
 
 		const FStaticMeshPrimitiveUniformBindings PrimitiveUniforms =
@@ -667,7 +656,7 @@ namespace Durin
 
 		const FGBufferRenderer::FVertexParameters VertexParameters{
 			.Transform = PrimitiveUniforms.Transform,
-			.SplineMesh = PrimitiveUniforms.SplineMesh
+			.Binding = Primitive.CollectedBinding.get()
 		};
 		FGBufferRenderer::FFragmentParameters FragmentParameters;
 		FragmentParameters.Material = Material.Uniform;
@@ -730,19 +719,8 @@ namespace Durin
 			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor, Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
 		}
 
-		if (Primitive.VertexDomain == EVertexDeformationDomain::Spline)
-		{
-			FSplineMeshVertexShader::FParameters Parameters;
-			Parameters.Transform = PrimitiveUniforms.Transform;
-			Parameters.SplineMesh = PrimitiveUniforms.SplineMesh;
-			SetShaderParameters(CommandList, Pipeline->SplineVertexShader, Parameters);
-		}
-		else
-		{
-			FStaticMeshVertexShader::FParameters Parameters;
-			Parameters.Transform = PrimitiveUniforms.Transform;
-			SetShaderParameters(CommandList, Pipeline->VertexShader, Parameters);
-		}
+		if (!Pipeline->VertexShader->Bind(CommandList, PrimitiveUniforms.Transform,
+			*Primitive.CollectedBinding)) return false;
 		if (bShadowDepth
 			&& Item.PipelineKey.Material.ShaderMap.BlendMode
 				   != EMaterialBlendMode::Masked)

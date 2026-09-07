@@ -17,7 +17,7 @@ seam are Renderer-private.
 
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
-| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SplineMesh typed views |
+| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` in one authoritative generic primitive list |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
 | SkyBox | `FSkyBoxSceneProxy` | Sole retained proxy |
 | Volumetric cloud | `FVolumetricCloudSceneProxy` | `FVolumetricCloudSceneInfo` |
@@ -34,9 +34,9 @@ is copyable; after attachment the registry entry is the only authoritative
 owner. A null proxy caused by hidden state or an unsupported render
 representation is a legal no-publication result.
 
-Removal erases every typed membership reference before destroying the
-SceneInfo and proxy on the rendering thread. Scene release clears typed views
-before their owning maps. StaticMesh render data remains a non-owning borrow
+Removal erases primitive membership before destroying its SceneInfo and proxy
+on the rendering thread. Scene release clears candidate membership before its
+owning map. Light typed views retain their existing ownership rules. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.
 SplineMesh retains copied normalized deformation values and bounds while
 borrowing the source StaticMesh render data under the same retirement fence;
@@ -45,8 +45,10 @@ material proxies and SkyBox texture references remain counted references.
 ## Proxy and SceneInfo Responsibilities
 
 `FPrimitiveSceneInfo` owns stable identity, primitive kind,
-visibility, transform, local bounds, derived world bounds, and typed-list
-membership. StaticMesh and SplineMesh proxies own
+visibility, transform, local bounds, derived world bounds, and generic primitive
+membership. Kind is diagnostic and does not gate mesh-pass admission.
+`GetSplineMeshProxy` remains for Spline dynamic mutation and test diagnostics;
+render consumers collect batches through `GetProxy`. StaticMesh and SplineMesh proxies own
 family-specific render data and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
 box remains invalid and is not used for culling. A SplineMesh dynamic update

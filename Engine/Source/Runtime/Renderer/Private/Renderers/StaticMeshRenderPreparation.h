@@ -4,11 +4,10 @@
 
 #include "Renderers/MeshRenderPreparationCommon.h"
 #include "Materials/MaterialRenderProxy.h"
-#include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/MeshBatch.h"
 #include "RHIResources.h"
 #include "Scene.h"
 #include "SceneView.h"
-#include "StaticMesh/StaticMeshResources.h"
 
 #include <vector>
 
@@ -36,16 +35,15 @@ namespace Durin
 		return Math::Dot(Offset, Offset);
 	}
 
-	// Stores primitive/selected-LOD facts once for all of its prepared draws.
+	// Stores one batch binding/transform shared by its prepared elements.
 	struct FPreparedStaticMeshPrimitive
 	{
 		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		uint64 BatchId = 0;
 		uint32 RequestedLODIndex = 0;
 		uint32 SelectedLODIndex = 0;
-		const FStaticMeshLODResources* LOD = nullptr;
-		const FLocalVertexFactory* VertexFactory = nullptr;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
-		FSplineMeshRenderDynamicData SplineDynamicData;
+		std::shared_ptr<const FVertexFactoryInputBinding> CollectedBinding;
 		FMatrix LocalToWorld{1.0};
 		// Validated inverse-transpose in shader uniform storage order.
 		FMatrix4f NormalToWorld{1.0f};
@@ -56,14 +54,17 @@ namespace Durin
 	{
 		uint32 ResolvedIndex = 0;
 		uint32 PrimitiveIndex = 0;
-		uint32 SectionIndex = 0;
-		const FStaticMeshSection* Section = nullptr;
+		uint64 SectionIndex = 0;
+		FGeometryDrawRange Geometry;
+		FGeometryBufferView Vertices;
+		FGeometryBufferView Indices;
+		uint32 MaterialSlotDiagnostic = 0;
+		bool bSupportsGBuffer = true;
 		FVector3 SortCenter{0.0};
 		// Finite descending key: squared world distance or signed view depth.
 		double TranslucentSortDepth = 0.0;
 		FMaterialRenderData Material;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
-		FMaterialShaderMapIdentity ShaderMapIdentity;
 		FEffectiveMeshPipelineKey PipelineKey;
 		FMeshDrawSortKey SortKey;
 	};
@@ -76,6 +77,8 @@ namespace Durin
 		std::vector<FPreparedStaticMeshDraw> Translucent;
 		std::vector<size_t> RequestedLODHistogram;
 		std::vector<size_t> SelectedLODHistogram;
+		std::array<size_t, 6> SubmissionOutcomes{};
+		bool bResourceFailure = false;
 		size_t VisibleCandidates = 0;
 		size_t VisibleLocalCandidates = 0;
 		size_t VisibleSplineCandidates = 0;
@@ -174,7 +177,6 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode,
-		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos = {},
 		ERenderPreparationMode Mode = ERenderPreparationMode::Full
 	) -> FPreparedStaticMeshView;
 } // namespace Durin

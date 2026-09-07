@@ -1,4 +1,5 @@
 #include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/StaticMeshBatchCollection.h"
 
 #include "Math/Operations.h"
 #include "Threading/RunnableThread.h"
@@ -53,5 +54,14 @@ namespace Durin
 		DynamicData = std::move(InDynamicData);
 		++AcceptedDynamicUpdateCount;
 		return true;
+	}
+
+	auto FSplineMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
+		FMeshBatchCollector& Collector) const -> void
+	{
+		auto Binding = std::make_shared<FSplineMeshBatchBinding>();
+		Binding->DynamicData = DynamicData;
+		Binding->AcceptedDynamicUpdates = AcceptedDynamicUpdateCount;
+		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector, std::move(Binding));
 	}
 }

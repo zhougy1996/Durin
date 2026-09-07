@@ -26,10 +26,7 @@ struct VSOutput
     float2 uv3 : TEXCOORD6;
 };
 
-struct OpaqueShadowVSOutput
-{
-    float4 pos : SV_Position;
-};
+
 
 struct TransformUniform
 {
@@ -89,11 +86,7 @@ struct MaterialUniform
 [[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
 
 [shader("vertex")]
-#if DURIN_OPAQUE_SHADOW_DEPTH
-OpaqueShadowVSOutput VertexMain(FLocalVertexFactoryInput input)
-#else
 VSOutput VertexMain(FLocalVertexFactoryInput input)
-#endif
 {
 #if DURIN_SPLINE_MESH
     FLocalVertexFactoryIntermediates vertex =
@@ -102,10 +95,6 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     FLocalVertexFactoryIntermediates vertex =
         GetLocalVertexFactoryIntermediates(input);
 #endif
-#if DURIN_OPAQUE_SHADOW_DEPTH
-    OpaqueShadowVSOutput output;
-    output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
-#else
     VSOutput output;
     output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
     output.color = vertex.color;
@@ -117,7 +106,7 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];
     output.uv3 = vertex.texCoords[3];
-#endif
+
     return output;
 }
 

@@ -26,6 +26,7 @@ namespace Durin
 					!= OutOptions.VirtualShaderPath) return false;
 				OutOptions.EntryPoints.push_back(Type->GetEntryPoint().data());
 				OutOptions.Frequencies.push_back(Type->GetFrequency());
+				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency()}, OutOptions);
 			}
 			return !OutOptions.VirtualShaderPath.empty();
 		}

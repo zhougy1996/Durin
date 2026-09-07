@@ -4,9 +4,9 @@ Summary: Define immutable per-view preparation, resolved geometry, transient
 target ownership, typed pass outcomes, render-graph scheduling, telemetry, and
 output transactions.
 
-Modules: Renderer, RenderCore, RHI
+Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-08
 
 ## Ownership Boundary
 
@@ -20,8 +20,31 @@ occupy the `Transaction`, `Resolved`, `Features`, and `Observation` partitions
 of the same stack-owned `FSceneFrameContext`, not fields of the logical plan.
 
 Logical geometry is immutable after publication. StaticMesh and SplineMesh
-logical draws contain visibility, LOD, material and
-pipeline identity, geometry facts, sort keys, and shadow membership. Separate
+providers submit `FMeshBatch` values through `CollectMeshBatches`. Engine owns
+asset LOD/residency and section/material interpretation. RenderCore input bindings
+retain vertex declarations and streams; prepared draws retain checked draw
+ranges and buffer views instead of borrowing asset LOD/section/factory objects.
+Provider LOD values remain diagnostic data. Material and deformation snapshots
+are immutable for the prepared frame.
+
+Renderer-owned mesh vertex-factory implementations supply compatible vertex
+shader types and typed vertex parameter binding. Shader-type compilation
+metadata supplies the same options to authored material maps and cook. Forward,
+shadow and GBuffer execution use the registered factory/layout identity; pass
+state and material policy remain with each pass. Pipeline identities include
+factory/layout, vertex declaration and topology. Registered implementations are
+retained for the Renderer module lifetime, and registration is synchronized.
+New contributions must be installed during initialization before shader inventory
+freeze. Each supported factory/pass contributes a named cooked vertex request.
+Opaque-shadow fixed fragments have their own cooked request; material maps
+link independently compiled sources with stage/reflection validation intact.
+Scene membership, visibility and cascade candidates use the same generic
+primitive list. One provider may publish multiple batches with independent pass
+participation. Checked 64-bit batch/element IDs remain deterministic sort ties.
+Vertex input validation covers declaration compatibility, stream bounds and
+instance-rate ranges. Missing inputs fail receiver resolution; shadow collection
+resource failures use the shadow transaction's existing failure/retry path.
+Optional GBuffer exclusions retain forward routing. Separate
 resolved values own fallible shader, pipeline, material binding, geometry,
 palette, upload, and directional-shadow resources. Resolution and
 execution consume logical values as `const`; they do not write readiness,

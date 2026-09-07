@@ -309,7 +309,7 @@ namespace Durin
 		{
 			const auto& StaticDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.StaticMeshes.Opaque : Inputs.Receiver.StaticMeshes.Masked;
 			for (const FPreparedStaticMeshDraw& Draw : StaticDraws)
-				if (Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
+				if (!Draw.bSupportsGBuffer || Draw.Material.PlanningPassIdentity.ShaderMap.ShadingModel
 					!= EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(

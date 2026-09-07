@@ -1,4 +1,5 @@
 #include "Rendering/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshBatchCollection.h"
 
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
@@ -57,5 +58,12 @@ namespace Durin
 	{
 		UpdateMaterialRenderProxyBinding(Update);
 		return true;
+	}
+
+	auto FStaticMeshSceneProxy::CollectMeshBatches(const FMeshCollectionContext& Context,
+		FMeshBatchCollector& Collector) const -> void
+	{
+		auto Binding = std::make_shared<FStaticMeshBatchBinding>();
+		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector, std::move(Binding));
 	}
 }

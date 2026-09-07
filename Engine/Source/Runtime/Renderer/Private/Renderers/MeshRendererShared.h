@@ -1,4 +1,5 @@
 #pragma once
+#include "Renderers/MeshVertexFactory.h"
 
 #include "Renderers/MeshRenderingCommon.h"
 #include "Renderers/SurfaceMaterial.h"
@@ -68,6 +69,12 @@ namespace Durin::RendererPrivate
 			OutError = "Accepted material compiler result does not match the requested identity or pass contract.";
 			return false;
 		}
+		const auto Factory = FindMeshVertexFactory(VertexFactoryType.GetStableKey());
+		if (!Factory)
+		{
+			OutError = "Material vertex factory is not registered.";
+			return false;
+		}
 		const std::array<const FShaderType*, 2> Types{
 			&VertexType, &FragmentType};
 		const std::span<const FCompiledShader> GeneratedStages = MaterialProgram
@@ -82,6 +89,8 @@ namespace Durin::RendererPrivate
 			.MeshPassKey = MeshPassKey,
 			.ShaderTypes = Types,
 			.CompileOptions = VertexCompileOptions,
+			.FixedShaderRuntimeRequest = Factory->GetRuntimeRequestName(MeshPassKey),
+			.FixedFragmentRuntimeRequest = FragmentType.GetEntryPoint() == "OpaqueShadowFragmentMain" ? "Surface.OpaqueShadow" : "",
 			.GeneratedStages = GeneratedStages,
 			.CompiledProgramIdentity = MaterialProgram
 				? MaterialProgram->Identity : FMaterialProgramIdentity{},
@@ -109,6 +118,11 @@ namespace Durin::RendererPrivate
 	class FSplineMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
+		static auto ModifyCompilationEnvironment(const FShaderPermutationParameters&, FShaderCompileOptions& Options) -> void
+		{
+			if (!std::ranges::any_of(Options.Macros, [](const auto& Macro) { return Macro.Name == "DURIN_SPLINE_MESH"; }))
+				Options.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
+		}
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
@@ -212,7 +226,8 @@ namespace Durin::RendererPrivate
 		const std::array<uint32, 6>& Geometry,
 		uint64 PrimitiveId,
 		uint32 LODIndex,
-		uint32 SectionIndex
+		uint64 SectionIndex,
+		uint64 BatchId = 0
 	) -> FMeshDrawSortKey
 	{
 		FMeshDrawSortKey Result;
@@ -246,7 +261,10 @@ namespace Durin::RendererPrivate
 			static_cast<uint32>(PipelineKey.ColorBlend.SrcAlphaFactor),
 			static_cast<uint32>(PipelineKey.ColorBlend.DstAlphaFactor),
 			static_cast<uint32>(PipelineKey.ColorBlend.AlphaOp),
-			static_cast<uint32>(PipelineKey.ColorBlend.ColorWriteMask)
+			static_cast<uint32>(PipelineKey.ColorBlend.ColorWriteMask),
+			static_cast<uint32>(PipelineKey.FactoryKey.HashValue), static_cast<uint32>(PipelineKey.FactoryKey.HashValue >> 32),
+			static_cast<uint32>(PipelineKey.LayoutKey.HashValue), static_cast<uint32>(PipelineKey.LayoutKey.HashValue >> 32),
+			static_cast<uint32>(PipelineKey.Topology)
 		};
 		const FByteView UniformPayload =
 			Representation.GetUniformPayload();
@@ -258,21 +276,27 @@ namespace Durin::RendererPrivate
 
 		if (NumVertices != 0)
 		{
+			size_t LastElement = Elements.size();
+			while (LastElement > 0 && Elements[LastElement - 1].Type == EVertexElementType::None) --LastElement;
+			Result.VertexFactory.resize(1 + LastElement * 6);
 			Result.VertexFactory[0] = NumVertices;
-			for (size_t Index = 0; Index < Elements.size(); ++Index)
+			for (size_t Index = 0; Index < LastElement; ++Index)
 			{
 				const FVertexElement& Element = Elements[Index];
-				const size_t Base = 1 + Index * 5;
+				const size_t Base = 1 + Index * 6;
+				if (Element.Type == EVertexElementType::None) continue;
 				Result.VertexFactory[Base] = Element.StreamIndex;
 				Result.VertexFactory[Base + 1] = Element.Offset;
 				Result.VertexFactory[Base + 2] =
 					static_cast<uint32>(Element.Type);
 				Result.VertexFactory[Base + 3] = Element.AttributeIndex;
 				Result.VertexFactory[Base + 4] = Element.Stride;
+				Result.VertexFactory[Base + 5] = static_cast<uint32>(Element.InputRate);
 			}
 		}
 		Result.Geometry = Geometry;
 		Result.PrimitiveId = PrimitiveId;
+		Result.BatchId = BatchId;
 		Result.SelectedLODIndex = LODIndex;
 		Result.SectionIndex = SectionIndex;
 		return Result;
@@ -283,9 +307,11 @@ namespace Durin::RendererPrivate
 		const FPreparedStaticMeshDraw& Draw
 	) -> FMeshDrawSortKey
 	{
-		const auto Elements = Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetDeclarationElements() : FVertexDeclarationElementList{};
-		const std::array<uint32, 6> Geometry = Draw.Section != nullptr ? std::array<uint32, 6>{Draw.Section->FirstIndex, Draw.Section->IndexCount, Draw.Section->MinVertexIndex, Draw.Section->MaxVertexIndex, Draw.Section->MaterialSlotIndex, static_cast<uint32>(Primitive.LOD->IndexBuffer.GetIndices().size())} : std::array<uint32, 6>{};
-		return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.VertexFactory != nullptr ? Primitive.VertexFactory->GetData().NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex);
+		const auto Elements = Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->DeclarationElements : FVertexDeclarationElementList{};
+		const std::array<uint32, 6> Geometry{Draw.Geometry.FirstElement, Draw.Geometry.ElementCount,
+			Draw.Geometry.MinVertexIndex, Draw.Geometry.MaxVertexIndex, Draw.MaterialSlotDiagnostic,
+			Draw.Indices.Range.Stride ? static_cast<uint32>(Draw.Indices.Range.BufferBytes / Draw.Indices.Range.Stride) : 0u};
+		return MakeMeshDrawSortKey(Draw.Pass, Draw.PipelineKey, Draw.Material.Representation, Primitive.CollectedBinding != nullptr ? Primitive.CollectedBinding->NumVertices : 0u, Elements, Geometry, Primitive.PrimitiveId.Value, Primitive.SelectedLODIndex, Draw.SectionIndex, Primitive.BatchId);
 	}
 
 } // namespace Durin::RendererPrivate

@@ -275,12 +275,6 @@ namespace Durin
 	{
 	}
 
-	auto FPrimitiveSceneInfo::GetStaticMeshProxy() const -> FStaticMeshSceneProxy&
-	{
-		check(Kind == EPrimitiveSceneProxyKind::StaticMesh);
-		return static_cast<FStaticMeshSceneProxy&>(*Proxy);
-	}
-
 	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
 	{
 		check(Kind == EPrimitiveSceneProxyKind::SplineMesh);
@@ -312,11 +306,7 @@ namespace Durin
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
 		std::erase(PrimitiveSceneInfos, &Info);
-		switch (Info.GetKind())
-		{
-		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
-		case EPrimitiveSceneProxyKind::SplineMesh: std::erase(SplineMeshSceneInfos, &Info); break;
-		}
+
 	}
 
 	auto FScene::TryAddPrimitiveProxy(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool
@@ -332,11 +322,7 @@ namespace Durin
 			Info->SetVisible(bVisible);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);
-			switch (RawInfo->GetKind())
-			{
-			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
-			case EPrimitiveSceneProxyKind::SplineMesh: SplineMeshSceneInfos.push_back(RawInfo); break;
-			}
+
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
 	}
@@ -415,8 +401,6 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
-			   && StaticMeshSceneInfos.empty()
-			   && SplineMeshSceneInfos.empty()
 			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
 			   && VolumetricClouds->Num() == 0;
 	}
@@ -425,8 +409,6 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		PrimitiveSceneInfos.clear();
-		StaticMeshSceneInfos.clear();
-		SplineMeshSceneInfos.clear();
 		PrimitiveInfosById.clear();
 		Lights->Clear();
 		SkyBoxes->Clear();

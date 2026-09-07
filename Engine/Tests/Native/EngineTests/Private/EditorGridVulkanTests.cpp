@@ -19,6 +19,7 @@
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -167,7 +168,7 @@ namespace Durin
 		}
 
 		auto MakeGBufferVertexDeclaration(
-			EGBufferVertexDomain Domain
+			FXxHash64 FactoryKey
 		) -> FVertexDeclarationRHIRef
 		{
 			FVertexDeclarationElementList Elements{};
@@ -738,9 +739,9 @@ namespace Durin
 				Depth.bEnableTest = true;
 				Depth.bEnableWrite = true;
 				Depth.CompareOp = ERHIDepthCompareOp::Greater;
-				const std::array<EGBufferVertexDomain, 2> Domains{
-					EGBufferVertexDomain::Local,
-					EGBufferVertexDomain::Spline
+				const std::array<FXxHash64, 2> Domains{
+					FStaticMeshBatchBinding{}.GetFactoryKey(),
+					FSplineMeshBatchBinding{}.GetFactoryKey()
 				};
 				std::array<FVertexDeclarationRHIRef, 2> Declarations;
 				for (size_t Index = 0; Index < Domains.size(); ++Index)
@@ -756,7 +757,8 @@ namespace Durin
 						.Rasterizer = FRHIRasterizerState{},
 						.Depth = Depth,
 						.VertexDeclaration = Declarations[Index],
-						.VertexDomain = Domains[Index]
+						.FactoryKey = Domains[Index],
+						.LayoutKey = Index == 0 ? FStaticMeshBatchBinding{}.GetLayoutKey() : FSplineMeshBatchBinding{}.GetLayoutKey()
 					};
 				};
 				const auto LocalRequest = MakeRequest(0);

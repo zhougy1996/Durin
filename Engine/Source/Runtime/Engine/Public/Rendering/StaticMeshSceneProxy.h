@@ -33,6 +33,9 @@ namespace Durin
 		ENGINE_API auto UpdateMaterialBinding_RenderThread(
 			const FMaterialRenderProxyBindingUpdate& Update) -> bool override;
 
+		ENGINE_API auto CollectMeshBatches(const FMeshCollectionContext& Context,
+			FMeshBatchCollector& Collector) const -> void override;
+
 	private:
 		// Non-owning borrow bounded by the component render-state lifetime. The
 		// component removes this proxy before the asset retires the render data.

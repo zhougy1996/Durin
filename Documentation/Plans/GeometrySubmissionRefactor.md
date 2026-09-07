@@ -2,34 +2,40 @@
 
 Summary: Replace primitive-family rendering dispatch with a common geometry-batch contract, extensible vertex-factory bindings, and shared mesh-pass processing while preserving the existing render graph.
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 0 is in progress. The migration inventory, interface/lifetime decisions,
-and qualification fixtures/gates below are frozen for implementation. Initial
-baseline source revision: `d7d1749ba9832f7d31237eb432d8e75e81bb47c3`.
+Stages 1–3 implementation and correctness checks are complete. Stage 2 supports multiple batches,
+checked vertex/instance inputs, factory pass capabilities and named cooked
+vertex requests. Stage 3 uses generic primitive membership, visibility and
+cascade candidates; the obsolete StaticMesh proxy getter is removed. The
+remaining Spline getter serves dynamic mutation and test diagnostics.
 
-The baseline shadow-array descriptor state failure is fixed: the graph now
-hands off only the active cascade layers to the managed depth pass. The complete
-GPU baseline selection passes 7/7 targets, including directional shadows and
-GBuffer; frozen image expectations are unchanged. The affected ordinary suite
-passes 6/6 targets. The first Stage 1 groundwork adds checked resource/draw ranges in RenderCore
-and moves LOD selection/residency policy into Engine without changing its
-algorithm. Engine now exposes the batch/context/collector and an empty default
-primitive collection seam. Existing StaticMesh/Spline providers still use the
-legacy production path; no migration adapter exists yet.
+Stage 4 now compares final color, all four GBuffer attachments, scene depth and
+actual masked-shadow depth for the independent geometry/custom factory at
+1920×1080 (shadow target retains its production resolution). Covered pixels and
+silhouettes agree. A forward-only factory exercises optional GBuffer exclusion,
+translucency, shadow collection failure and recovery. Retired bindings expire
+across 100 updates apart from the deliberately retained initial frame.
 
-Stage 0 remains open for the predeclared image-pair coverage, allocation/retained
-memory measurements and exclusive GPU performance baseline. Apple M4 timings
-are diagnostic only and do not satisfy the named RTX 3090 gates. The user authorized proceeding with implementation on 2026-09-07 while
-retaining exclusive GPU and RTX 3090 performance qualification as final open
-gates. Remaining local baseline measurements stay explicitly open; additive
-contract work may proceed without changing the baseline production path.
-See Stage 0 evidence and repair handoff below.
+Cooked Local/Spline vertex stages compose with forward, GBuffer and masked-shadow
+material stages after ShaderBuild unload. A separate fixed opaque-shadow
+fragment request closes that runtime lookup gap. Shader-type compilation
+metadata is the common authored/cooked source; the duplicate factory compile
+callback and authored-only opaque vertex shortcut are removed. The affected selection passes 70/70 and the bounded GPU selection passes 7/7
+after this follow-up. Final plan completion remains gated on the measurements below.
+
+Stage 0 image-pair coverage, allocation/retained-memory measurements and exclusive
+GPU performance baselines remain open. Frozen source baseline:
+`d7d1749ba9832f7d31237eb432d8e75e81bb47c3`. The user requested plan execution on
+2026-09-08; the previously deferred exclusive GPU/RTX 3090 qualification remains
+a final gate. Apple M4 timings are diagnostic and do not satisfy named RTX 3090
+gates. No image tolerance or performance threshold has been relaxed.
+See the stage handoffs below for exact evidence and remaining obligations.
 
 ## Goal
 
@@ -423,13 +429,13 @@ Dependencies: Stage 0. Outcome: both existing proxies emit the common contract.
 
 - [x] Add the logical batch, checked range/resource views, collection context,
   collector, and render-thread primitive submission seam at the selected layers.
-- [ ] Move StaticMesh LOD/residency selection, section extraction, and material
+- [x] Move StaticMesh LOD/residency selection, section extraction, and material
   association into its provider; adapt Spline with the same geometry mechanism
   and its own immutable deformation binding.
-- [ ] Exercise the collector from production preparation through one temporary
+- [x] Exercise the collector from production preparation through one temporary
   compatibility adapter; record that adapter's removal in Stage 2. Do not keep
   two independently maintained selection/material algorithms.
-- [ ] Add contract coverage for empty and multiple batches, indexed/non-indexed
+- [x] Add contract coverage for empty and multiple batches, indexed/non-indexed
   and instance ranges, overflow/out-of-range rejection, material slots, invalid
   bounds, unavailable LODs, immutable snapshots, and borrow/retirement rules.
 
@@ -491,63 +497,206 @@ Validation: the whole `RendererSceneContractTests` target passed 45 cases;
 Stage 1 task 1 is complete. Provider collection overrides, production adapter,
 material/LOD snapshot qualification and all later stages remain open.
 
+#### Stage 1 provider integration (2026-09-08)
+
+StaticMesh and Spline now override `CollectMeshBatches`. The Engine-private
+`StaticMeshBatchCollection.h` helper owns the sole LOD/residency, section range
+and material association algorithm. Collection retains material values and an
+immutable Local/Spline binding. Each Spline collection captures its dynamic
+revision and accepted-update count; subsequent provider updates cannot mutate
+that snapshot. The collector records typed admission/failure outcomes.
+
+Production preparation calls the base proxy collection operation for each view.
+Its single compatibility adapter reads the selected asset borrows from
+`StaticMeshBatchBinding.h`; these fields, its concrete casts and the legacy
+prepared representation must disappear in Stage 2. Prepared primitives retain
+the collected binding under the existing scene-command asset retirement fence.
+No Renderer-private declaration enters either Engine provider.
+
+The existing preparation qualification covers per-view LOD selection, forced
+LOD, residency fallback/retry, material slots, pass classification, deterministic
+ordering and singular transforms. Added checks exercise real provider material
+replacement and immutable Spline snapshots across receiver/shadow collections.
+
+Validation on Debug/Apple M4/Vulkan:
+
+- Initial `./DevTool test affected --timeout 600 --agent`: passed 28/28 targets;
+  receipt `Build/.agent-state/logs/20260908-001045-477593-90204-ctest.log`.
+- `./DevTool test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --timeout 600 --agent`:
+  passed 7/7 targets with existing image assertions unchanged; receipt
+  `Build/.agent-state/logs/20260908-001213-527177-93949-ctest.log`.
+  GPU timings remain diagnostic; Stage 0 memory/image-pair and final exclusive
+  performance gates remain open.
+- Final `./DevTool test affected --timeout 600 --agent`: passed 71/71 targets;
+  receipt `Build/.agent-state/logs/20260908-001426-761501-94363-ctest.log`.
+- Final provider failure-outcome assertions: the complete
+  `StaticMeshRenderPreparationVulkanTests` target passed; receipt
+  `Build/.agent-state/logs/20260908-001512-692334-95874-ctest.log`.
+- `./DevTool doc validate --scope changed` and `git diff --check` passed.
+
+Stage 1 is complete. Stage 2 must remove the compatibility adapter and concrete
+prepared data; no independent provider has yet qualified production rendering.
+
 ### Stage 2: Generalize prepared draws and mesh-pass execution
 
 Dependencies: Stage 1. Outcome: all mesh passes consume generic prepared data.
 
-- [ ] Replace family-specific prepared primitives/sections and geometry-cache
+- [x] Replace family-specific prepared primitives/sections and geometry-cache
   inputs with the public logical contract and Renderer-private generic records;
   migrate all identified preview and production callers and remove the adapter.
-- [ ] Implement Local/Spline factory descriptors, shader permutations, typed
+- [x] Implement Local/Spline factory descriptors, shader permutations, typed
   binding resolution, and factory-aware cache identities using the existing
   registration/resource lifecycle. Cover cooked shader lookup as applicable.
-- [ ] Route receiver, shadow depth, GBuffer, retained-forward, and translucent
+- [x] Route receiver, shadow depth, GBuffer, retained-forward, and translucent
   draws through common mesh-pass processing with pass-owned policy. Remove
   Local/Spline shader-selection branches from generic executors.
-- [ ] Preserve immutable plans, post-sort resolved indices, resource retry and
+- [x] Preserve immutable plans, post-sort resolved indices, resource retry and
   fallback semantics, deterministic ordering, and telemetry conservation.
-- [ ] Validate masked clipping and Spline deformation parity across color,
+- [x] Validate masked clipping and Spline deformation parity across color,
   GBuffer, and shadow; exercise material replacement and resource invalidation.
 
 Completion: no generic prepared/execution record requires StaticMesh or Spline
 data; supported passes resolve through factory capabilities and match baselines.
 
+#### Stage 2 generic geometry and factory execution handoff (2026-09-08)
+
+`FVertexFactoryInputBinding` retains declaration/stream snapshots. Prepared
+primitives no longer contain `FStaticMeshLODResources*`, `FLocalVertexFactory*`
+or inline Spline data; prepared draws no longer contain `FStaticMeshSection*`.
+The Stage 1 concrete resource adapter is gone. Provider-only LOD and material-slot
+diagnostics preserve current histograms and deterministic ordering. Direct draw
+arguments retain index/non-indexed, base-vertex and instance semantics through RHI.
+
+`MeshVertexFactory.{h,cpp}` owns registered vertex operations, with Local/Spline
+implementations resolving typed shader references and deformation parameters for
+forward, shadow and GBuffer. Generic executors no longer select Local/Spline
+vertex shaders or unpack Spline payloads. Registration rejects missing/duplicate
+identities, is synchronized, and retains implementations for module lifetime.
+Factory/layout, declaration and topology participate in pipeline identity.
+
+This is a partial Stage 2 handoff, not stage completion. Still required:
+
+- Remove the one-batch production restriction and preserve primitive-level
+  accounting for independent multi-batch providers and 64-bit element identities.
+- Complete factory capability validation and typed unsupported/failure routing,
+  including generic stream and instance-range qualification.
+- Integrate factory/pass requests before shader inventory freeze, and extend
+  cooked coverage with ShaderBuild unloaded. The existing 15-request integration
+  test exercises the old fixed inventory only; it does not prove this gate.
+- Qualify independent providers/custom factories, resource generations and the
+  predeclared image/memory/performance comparisons before final acceptance.
+
+The existing GPU regression selection passed 7/7 targets after vertex-factory
+migration with all frozen image expectations unchanged; receipt
+`Build/.agent-state/logs/20260908-002524-584939-99639-ctest.log`.
+The affected ordinary selection passed 71/71 targets; receipt
+`Build/.agent-state/logs/20260908-002752-816708-99755-ctest.log`.
+Final validation after topology identity, batch-transform consumption and the
+new factory registration contract test:
+
+- `./DevTool test affected --timeout 600 --agent`: 71/71 targets passed;
+  receipt `Build/.agent-state/logs/20260908-003251-980854-1502-ctest.log`.
+- The same bounded GPU qualification selection: 7/7 targets passed;
+  receipt `Build/.agent-state/logs/20260908-003406-835663-2707-ctest.log`.
+- Changed-document validation and whitespace validation passed.
+
+These results establish existing-family correctness, not the remaining extension
+or performance gates. The lasting implemented boundary is recorded in
+[Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md).
+
 ### Stage 3: Unify primitive membership and view candidates
 
 Dependencies: Stage 2. Outcome: primitive type no longer gates pass admission.
 
-- [ ] Replace StaticMesh/Spline membership and visibility output lists with
+- [x] Replace StaticMesh/Spline membership and visibility output lists with
   generic primitive candidates; maintain atomic add/remove/release ownership.
-- [ ] Remove caster-family classification and per-family cascade candidate
+- [x] Remove caster-family classification and per-family cascade candidate
   lists; retain independent caster volumes, cascade masks, and per-view LOD.
-- [ ] Apply conservative relevance and batch-level participation through the
+- [x] Apply conservative relevance and batch-level participation through the
   common policy. Preserve diagnostic family statistics without dispatch authority.
-- [ ] Remove obsolete typed render-consumer getters/enums. Retain any narrowly
+- [x] Remove obsolete typed render-consumer getters/enums. Retain any narrowly
   justified mutation/diagnostic identity only with its remaining use documented.
-- [ ] Update Scene Representation and Renderer Frame Preparation contracts to
+- [x] Update Scene Representation and Renderer Frame Preparation contracts to
   describe the implemented generic primitive route and unchanged non-mesh rules.
-- [ ] Test offscreen casters, mixed participation within one primitive, hidden
+- [x] Test offscreen casters, mixed participation within one primitive, hidden
   primitives, invalid bounds fallback, cascade membership, update ordering, and
   detach/release with no stale candidates.
 
 Completion: a new provider requires no membership, visibility, or caster switch
 entry; scene lifecycle and candidate/outcome conservation checks pass.
 
+#### Generic candidates and extension qualification handoff (2026-09-08)
+
+Scene ownership, receiver visibility and directional cascade candidates now use
+one primitive list. Collection accepts multiple batches, preserves 64-bit batch
+and element identities, and applies independent shadow participation. Family
+counts remain diagnostic. The user explicitly authorized repository cleanup;
+`GetStaticMeshProxy` and its declaration are removed, with both test callers
+using checked concrete casts from `GetProxy`. `GetSplineMeshProxy` remains only
+for dynamic Spline mutation and test inspection.
+
+Input validation checks actual RHI declarations, stream offsets/strides, vertex
+and instance-rate bounds, and resource-view consistency. Sort declarations are
+owned value vectors including input rate; trailing unused attributes are omitted.
+Collection transfers material snapshots into prepared draws before publication.
+No pointer-based declaration sort or shared-storage aliasing was introduced.
+
+Factory registration contributes six built-in pass requests before inventory
+freeze. Cook tests verify deterministic inventory bytes, load every request
+with ShaderBuild unloaded, and construct a vertex-only material map for each
+factory request. Material linking permits independently compiled stage source
+paths only on its explicit linking path; ordinary source-map compilation keeps
+its source-path restriction and stage/reflection validation. Complete cooked
+vertex-plus-generated-fragment permutations remain an acceptance obligation.
+
+`GeometrySubmissionTestSupport.h` owns independent vertex/index/instance buffers
+without StaticMesh render data, LODs or sections. Its custom factory owns a
+separate shader source and deformation uniform. The production fixture exercises
+two batches, indexed/non-indexed draws, first instance 2 with two instances,
+actual instance-rate shader fetch, masked/opaque materials, and one non-casting
+batch. At 1920×1080, lit/unlit final-color comparisons match an equivalent
+existing-factory transform under the frozen tolerance. One hundred material and
+buffer replacement cycles retain the original snapshot correctly. This is
+lifetime correctness evidence, not allocation or full retained-memory accounting.
+Direct GBuffer/depth capture parity and optional-pass fallback qualification
+remain open.
+
+Validation:
+
+- `./DevTool test affected --timeout 600 --agent` passed 71/71; receipt
+  `Build/.agent-state/logs/20260908-064651-642201-35310-ctest.log`.
+- `./DevTool test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --timeout 600 --agent`
+  passed 7/7 after the final cleanup and owned sort/material changes; receipt
+  `Build/.agent-state/logs/20260908-064738-636071-36475-ctest.log`.
+  These are correctness results; GPU timings remain diagnostic.
+- Changed-document validation and `git diff --check` passed.
+- Earlier focused independent geometry GPU execution passed, including 1080p
+  parity and instance-rate input; receipt
+  `Build/.agent-state/logs/20260908-063310-518971-31307-ctest.log`.
+- Focused cook integration passed; receipt
+  `Build/.agent-state/logs/20260908-062831-720992-29343-RenderShaderCookIntegrationTests.log`.
+
+Remaining audits include required shadow collection resource-failure propagation,
+factory compile-option parity with cooked requests, direct attachment parity,
+full allocations/retention and exclusive same-device performance comparisons.
+The named RTX 3090 gate is unexecuted on this Apple M4 host. No thresholds were
+changed, and the plan remains Active.
+
 ### Stage 4: Prove extension boundaries and retire migration scaffolding
 
 Dependencies: Stage 3. Outcome: independent extension evidence and final handoff.
 
-- [ ] Add a qualification-only procedural provider owning its own geometry,
+- [x] Add a qualification-only procedural provider owning its own geometry,
   with no StaticMesh render-data/section dependency, using an existing factory.
   Verify main view, GBuffer, retained-forward, translucency policy, and shadows
   through the production pipeline without core dispatch changes.
-- [ ] Add a minimal custom-factory fixture with a distinct deformation/binding
+- [x] Add a minimal custom-factory fixture with a distinct deformation/binding
   layout. Verify factory registration, color/depth/GBuffer deformation parity,
   masked shadows, cache separation, and explicit unsupported-pass outcomes
   without modifying generic executors. This is not a skeletal-animation feature.
-- [ ] Exercise non-indexed and instance-range submission on supported backends,
+- [x] Exercise non-indexed and instance-range submission on supported backends,
   geometry/material updates, removal, resource recreation, and multiple views.
-- [ ] Remove temporary adapters, obsolete family-based draw structures, dead
+- [x] Remove temporary adapters, obsolete family-based draw structures, dead
   code, and superseded tests; audit core paths for concrete proxy/factory casts
   and type switches. Registration and owned factory implementations are allowed.
 - [ ] Run final affected tests and the bounded qualification lanes below;
@@ -559,6 +708,68 @@ Dependencies: Stage 3. Outcome: independent extension evidence and final handoff
 
 Completion: both extension fixtures pass, baseline behavior/performance gates
 pass, old production routes are gone, and final evidence is recorded.
+
+#### Attachment, capability and cooked-stage closure (2026-09-08)
+
+Decision refinement: shader-type `ModifyCompilationEnvironment` owns vertex
+compile configuration for both authored material maps and the cook producer.
+Factory implementations select those shader types and retain typed bindings;
+they no longer provide a second compile-option callback. Opaque shadows use
+the registered shadow vertex stage plus the separate `Surface.OpaqueShadow`
+fixed fragment request. The former authored-only vertex-output shortcut is
+removed so both data domains execute the same permutation. Shader library
+serialization and material identity validation are unchanged.
+
+Required input-binding failures are recorded as ResourceFailure during
+preparation. A shadow cascade with a collection resource failure disables the
+shadow transaction through the existing preparation-failure path; a subsequent
+valid collection recovers. It cannot silently render a partial shadow set.
+
+Qualification samples scene depth into R32_FLOAT using a test capture shader.
+The RHI intentionally defers direct depth transfers, so the failed attempt was
+replaced without relaxing transfer validation or extending RHI. The same capture
+shader family samples layer zero of the single-map production shadow array
+through a read-only capture sink. Tests require nonempty covered regions,
+identical coverage and depth error at most 1e-5. Constant material GBuffer
+encodings match exactly, a stricter comparison than the frozen float allowance.
+The tests leave capture sinks unset after each render.
+
+Focused receipts:
+
+- Cooked stage combinations after ShaderBuild unload passed:
+  `Build/.agent-state/logs/20260908-065855-181808-42362-RenderShaderCookIntegrationTests.log`.
+- Independent geometry, scene/GBuffer depth, optional GBuffer exclusion,
+  translucency and shadow failure/recovery passed:
+  `Build/.agent-state/logs/20260908-070208-189447-45523-ctest.log`.
+- Actual masked-shadow depth/coverage parity passed:
+  `Build/.agent-state/logs/20260908-070349-209904-47364-ctest.log`.
+
+Final regression receipts:
+
+- `./DevTool test affected --timeout 600 --agent`: 70/70 passed;
+  `Build/.agent-state/logs/20260908-070730-839227-50278-ctest.log`.
+- `./DevTool test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --timeout 600 --agent`:
+  7/7 passed, including the final missing-binding and independent existing-factory
+  translucency cases; `Build/.agent-state/logs/20260908-071002-120071-51650-ctest.log`.
+
+Full allocator counts, transitive peak retained bytes, complete frozen-source
+image pairs and exclusive CPU/GPU performance comparison remain open. The
+100-cycle weak-reference check proves binding release, not the full memory
+budget. Existing top-level vector measurements do not include transitive storage.
+An Allocations capture was attempted with `xcrun xctrace record --template
+Allocations --time-limit 60s` against only the
+`RecordsMixedGeometryPreparationBaseline` test process. Instruments reported
+"Failed to attach to target process" and exited with code 2. No allocation
+measurements were obtained; machine profiling authorization was not changed.
+The failed diagnostic trace is `/tmp/geometry-submission-allocations-20260908.trace`.
+Allocator qualification needs a working process-profiling environment before
+it can be compared with the frozen source baseline.
+RTX 3090 access has been requested; this Apple M4 machine cannot satisfy that
+named gate. No qualification requirement has been waived. Remaining before/after captures,
+allocator measurements and timing qualification should run on the final
+qualification device against both the frozen source commit and the final
+implementation; this preserves identical device/driver/scene conditions and
+avoids substituting cross-device measurements.
 
 ## Validation and Handoff
 

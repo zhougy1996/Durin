@@ -8,7 +8,6 @@ namespace Durin::RendererPrivate
 	struct FStaticMeshPrimitiveUniformBindings
 	{
 		FRHIUniformBufferRange Transform;
-		FRHIUniformBufferRange SplineMesh;
 	};
 
 	// Owns resolved material state and its per-draw uniform allocation.

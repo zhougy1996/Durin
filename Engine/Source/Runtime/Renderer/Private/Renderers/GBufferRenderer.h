@@ -4,6 +4,7 @@
 #include "RendererAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
+#include "VertexFactory.h"
 
 #include <array>
 #include <limits>
@@ -15,11 +16,6 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 
-	enum class EGBufferVertexDomain : uint8
-	{
-		Local,
-		Spline,
-	};
 
 	// Records geometry-buffer work into caller-provided attachments without
 	// selecting the production opaque rendering path.
@@ -56,14 +52,15 @@ namespace Durin
 			FRHIRasterizerState Rasterizer;
 			FRHIDepthStencilState Depth;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			EGBufferVertexDomain VertexDomain = EGBufferVertexDomain::Local;
+			FXxHash64 FactoryKey;
+			FXxHash64 LayoutKey;
+			FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 		};
 
 		struct FVertexParameters
 		{
 			FRHIUniformBufferRange Transform;
-			FRHIUniformBufferRange SplineMesh;
-			FRHIStorageBufferRange SkinPalette;
+			const FVertexFactoryBinding* Binding = nullptr;
 		};
 
 		struct FFragmentParameters

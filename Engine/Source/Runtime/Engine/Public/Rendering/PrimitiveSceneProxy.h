@@ -12,7 +12,8 @@ namespace Durin
 	enum class EPrimitiveSceneProxyKind : uint8
 	{
 		StaticMesh,
-		SplineMesh
+		SplineMesh,
+		Generic
 	};
 
 	// Defines the common render-thread interface for all primitive proxy types.
@@ -20,7 +21,7 @@ namespace Durin
 	{
 	public:
 		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
-		virtual auto GetKind() const -> EPrimitiveSceneProxyKind = 0;
+		virtual auto GetKind() const -> EPrimitiveSceneProxyKind { return EPrimitiveSceneProxyKind::Generic; }
 		virtual auto GetLocalBounds() const -> FBox = 0;
 		// Called on the rendering thread; an empty default emits no geometry.
 		virtual auto CollectMeshBatches(

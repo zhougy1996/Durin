@@ -9,6 +9,8 @@
 namespace Durin
 {
 	class FRHICommandListImmediate;
+	struct FGeometryDrawRange;
+	enum class EGeometrySubmissionOutcome : uint8;
 
 	class FVertexFactoryType
 	{
@@ -64,6 +66,18 @@ namespace Durin
 		virtual ~FVertexFactoryBinding() = default;
 		virtual auto GetFactoryKey() const -> FXxHash64 = 0;
 		virtual auto GetLayoutKey() const -> FXxHash64 = 0;
+	};
+
+	// Immutable input snapshot shared by geometry providers and pass resolution.
+	// Additional deformation parameters live in factory-owned derived bindings.
+	class FVertexFactoryInputBinding : public FVertexFactoryBinding
+	{
+	public:
+		FVertexDeclarationRHIRef Declaration;
+		FVertexDeclarationElementList DeclarationElements;
+		std::vector<FVertexInputStream> Streams;
+		uint32 NumVertices = 0;
+		RENDERCORE_API auto ValidateInputs(const FGeometryDrawRange& Draw) const -> EGeometrySubmissionOutcome;
 	};
 
 	// Owns vertex declaration lifetime and draw-facing stream bindings.

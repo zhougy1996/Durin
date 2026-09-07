@@ -1,3 +1,14 @@
+#include "GeometrySubmissionTestSupport.h"
+#include "LightSceneTestSupport.h"
+#include "Renderers/SceneRendererProfiling.h"
+#include "ShaderBuild/ShaderPaths.h"
+#include "ShaderBuild/ShaderBuildLifecycle.h"
+#include "Modules/ModuleTestSupport.h"
+#include "Misc/FileHelper.h"
+#include "Renderers/SceneVisibility.h"
+#include "Renderers/DirectionalShadowView.h"
+#include "Renderers/DirectionalShadowRenderer.h"
+#include "SceneView.h"
 #include "Asset/PackageSerialization.h"
 #include "VulkanEngineTestSupport.h"
 #include "Asset/CookedMeshLoadManager.h"
@@ -10,6 +21,8 @@
 #include "EngineTestSupport.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
+#include "Rendering/MeshBatch.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
@@ -25,6 +38,7 @@
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "SceneTestAccess.h"
+#include "SceneInfo.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -457,7 +471,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, Scene.GetStaticMeshSceneInfos(),
+					CommandList, Scene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			ASSERT_EQ(Prepared.Primitives.size(), 1u);
 			// MakeRenderData supplies four sections on the single cooked primitive.
@@ -525,6 +539,58 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		[&](Durin::FRHICommandListImmediate&) {
+			using namespace Durin;
+			FMeshCollectionContext Context;
+			Context.PrimitiveId = FPrimitiveSceneId(700);
+			Context.WorldBounds = RenderData->LocalBounds;
+			Context.ProjectionStatus = EMeshCollectionProjectionStatus::Valid;
+			FStaticMeshSceneProxy StaticProxy(RenderData.get(), {Opaque, Masked, Translucent, Opaque}, 1);
+			FMeshBatchCollector Before(EMeshCollectionPurpose::Receiver);
+			StaticProxy.CollectMeshBatches(Context, Before);
+			ASSERT_EQ(Before.GetBatches().size(), 1u);
+			const auto& Original = Before.GetBatches().front();
+			ASSERT_EQ(Original.Elements.size(), 4u);
+			EXPECT_EQ(Original.Elements[1].Draw.FirstElement, 3u);
+			EXPECT_EQ(Original.Elements[1].Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Masked);
+			StaticProxy.UpdateMaterialBinding_RenderThread({0, Translucent, 2});
+			FMeshBatchCollector After(EMeshCollectionPurpose::Receiver);
+			StaticProxy.CollectMeshBatches(Context, After);
+			ASSERT_EQ(After.GetBatches().size(), 1u);
+			EXPECT_EQ(After.GetBatches()[0].Elements[0].Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Translucent);
+			EXPECT_EQ(Original.Elements[0].Material.PlanningPassIdentity.ShaderMap.BlendMode, EMaterialBlendMode::Opaque);
+			FSplineMeshRenderDynamicData Dynamic{.LocalBounds = Context.WorldBounds, .Revision = 1};
+			FSplineMeshSceneProxy SplineProxy(RenderData.get(), {Opaque, Masked, Translucent, Opaque}, 1, Dynamic);
+			FMeshBatchCollector SplineBefore(EMeshCollectionPurpose::Receiver);
+			SplineProxy.CollectMeshBatches(Context, SplineBefore);
+			ASSERT_EQ(SplineBefore.GetBatches().size(), 1u);
+			const auto OldBinding = std::dynamic_pointer_cast<const FSplineMeshBatchBinding>(SplineBefore.GetBatches()[0].Binding);
+			ASSERT_TRUE(OldBinding);
+			Dynamic.Revision = 2;
+			Dynamic.Params.EndPosition = {12.0, 34.0, 56.0};
+			ASSERT_TRUE(SplineProxy.UpdateDynamicData_RenderThread(Dynamic));
+			FMeshBatchCollector SplineAfter(EMeshCollectionPurpose::Shadow);
+			Context.Purpose = EMeshCollectionPurpose::Shadow;
+			SplineProxy.CollectMeshBatches(Context, SplineAfter);
+			ASSERT_EQ(SplineAfter.GetBatches().size(), 1u);
+			const auto NewBinding = std::dynamic_pointer_cast<const FSplineMeshBatchBinding>(SplineAfter.GetBatches()[0].Binding);
+			ASSERT_TRUE(NewBinding);
+			EXPECT_EQ(OldBinding->DynamicData.Revision, 1u);
+			EXPECT_EQ(NewBinding->DynamicData.Revision, 2u);
+			EXPECT_EQ(NewBinding->DynamicData.Params.EndPosition, Dynamic.Params.EndPosition);
+			EXPECT_NE(OldBinding.get(), NewBinding.get());
+			Context.WorldBounds = FBox{};
+			FMeshBatchCollector Invalid(EMeshCollectionPurpose::Receiver);
+			StaticProxy.CollectMeshBatches(Context, Invalid);
+			EXPECT_TRUE(Invalid.GetBatches().empty());
+			EXPECT_EQ(Invalid.GetOutcomeCount(EGeometrySubmissionOutcome::InvalidSubmission), 1u);
+			FStaticMeshSceneProxy Unavailable(nullptr, {}, 1);
+			FMeshBatchCollector Missing(EMeshCollectionPurpose::Receiver);
+			Unavailable.CollectMeshBatches(Context, Missing);
+			EXPECT_EQ(Missing.GetOutcomeCount(EGeometrySubmissionOutcome::ResourceFailure), 1u);
+		});
+	Durin::FlushRenderingCommands();
 	Durin::FRendererModule SceneFactory;
 	Durin::FScenePtr SplineSceneOwner = SceneFactory.CreateScene();
 	auto& SplineScene = static_cast<Durin::FScene&>(*SplineSceneOwner);
@@ -544,13 +610,12 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&SplineScene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
-				Durin::PrepareStaticMeshView_RenderThread(CommandList, {},
-					Durin::FSceneView{}, Durin::ERasterMode::Solid,
-					SplineScene.GetSplineMeshSceneInfos());
+				Durin::PrepareStaticMeshView_RenderThread(CommandList, SplineScene.GetPrimitiveSceneInfos(),
+					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			ASSERT_EQ(Prepared.Primitives.size(), 1u);
 			EXPECT_EQ(Prepared.Primitives[0].VertexDomain,
 				Durin::EVertexDeformationDomain::Spline);
-			EXPECT_EQ(Prepared.Primitives[0].SplineDynamicData.Revision, 1u);
+			EXPECT_EQ(std::dynamic_pointer_cast<const Durin::FSplineMeshBatchBinding>(Prepared.Primitives[0].CollectedBinding)->DynamicData.Revision, 1u);
 			ASSERT_FALSE(Prepared.Opaque.empty());
 			EXPECT_EQ(Prepared.Opaque[0].PipelineKey.VertexDomain,
 				Durin::EVertexDeformationDomain::Spline);
@@ -569,7 +634,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			FirstView.ViewLocation = Durin::FVector3(0.0, 0.0, -10.0);
 			const Durin::FPreparedStaticMeshView First =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, Scene.GetStaticMeshSceneInfos(), FirstView,
+					CommandList, Scene.GetPrimitiveSceneInfos(), FirstView,
 					Durin::ERasterMode::Wireframe
 				);
 			Summary->Opaque = First.Opaque.size();
@@ -581,11 +646,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			std::array OpaqueSections{
 				First.Opaque[0].SectionIndex, First.Opaque[1].SectionIndex};
 			std::ranges::sort(OpaqueSections);
-			EXPECT_EQ(OpaqueSections, (std::array<uint32_t, 2>{0u, 3u}));
+			EXPECT_EQ(OpaqueSections, (std::array<uint64, 2>{0u, 3u}));
 			EXPECT_EQ(First.Masked[0].SectionIndex, 1u);
 			EXPECT_EQ(First.Translucent[0].SectionIndex, 2u);
 			EXPECT_EQ(
-				First.Translucent[0].ShaderMapIdentity,
+				First.Translucent[0].Material.PlanningPassIdentity.ShaderMap,
 				First.Translucent[0].PipelineKey.Material.ShaderMap
 			);
 			Summary->MirroredFrontFace =
@@ -602,7 +667,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			SecondView.ViewLocation = Durin::FVector3(0.0, 0.0, 5.0);
 			const Durin::FPreparedStaticMeshView Second =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, Scene.GetStaticMeshSceneInfos(), SecondView,
+					CommandList, Scene.GetPrimitiveSceneInfos(), SecondView,
 					Durin::ERasterMode::Solid
 				);
 			ASSERT_EQ(Second.GetNumSections(), First.GetNumSections());
@@ -650,7 +715,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			OriginView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			const Durin::FPreparedStaticMeshView FromOrigin =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, OrderingScene.GetStaticMeshSceneInfos(), OriginView,
+					CommandList, OrderingScene.GetPrimitiveSceneInfos(), OriginView,
 					Durin::ERasterMode::Solid);
 			ASSERT_EQ(FromOrigin.Translucent.size(), 8u);
 			for (uint32 Index = 0; Index < 4; ++Index)
@@ -676,7 +741,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			MovedView.ViewLocation = Durin::FVector3(0.0, 0.0, 30.0);
 			const Durin::FPreparedStaticMeshView FromMovedCamera =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, OrderingScene.GetStaticMeshSceneInfos(), MovedView,
+					CommandList, OrderingScene.GetPrimitiveSceneInfos(), MovedView,
 					Durin::ERasterMode::Solid);
 			ASSERT_EQ(FromMovedCamera.Translucent.size(), 8u);
 			EXPECT_EQ(
@@ -719,7 +784,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Prepared =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, GroupingScene.GetStaticMeshSceneInfos(),
+					CommandList, GroupingScene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			ASSERT_EQ(Prepared.Opaque.size(), 8u);
 			EXPECT_LT(
@@ -739,7 +804,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			}
 			const Durin::FPreparedStaticMeshView Repeated =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, GroupingScene.GetStaticMeshSceneInfos(),
+					CommandList, GroupingScene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			ASSERT_EQ(Repeated.Opaque.size(), Prepared.Opaque.size());
 			for (size_t Index = 0; Index < Prepared.Opaque.size(); ++Index)
@@ -770,7 +835,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Readded =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, GroupingScene.GetStaticMeshSceneInfos(),
+					CommandList, GroupingScene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			std::vector<std::pair<uint64, uint32>> ReaddedOrder;
 			for (const Durin::FPreparedStaticMeshDraw& Draw : Readded.Opaque)
@@ -835,7 +900,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			};
 			auto Prepare = [&](Durin::FSceneView View) {
 				return Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, MultiLODScene.GetStaticMeshSceneInfos(), View,
+					CommandList, MultiLODScene.GetPrimitiveSceneInfos(), View,
 					Durin::ERasterMode::Solid);
 			};
 
@@ -857,11 +922,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Middle.SelectedTriangles, 2u);
 			EXPECT_EQ(Middle.Opaque[0].PrimitiveIndex, 0u);
 			EXPECT_EQ(
-				Middle.Primitives[Middle.Opaque[0].PrimitiveIndex].LOD,
-				&MultiLODRenderData->LODResources[1]);
+				Middle.Opaque[0].Indices.Buffer,
+				MultiLODRenderData->LODResources[1].IndexBuffer.GetRHI());
 			EXPECT_EQ(
-				Middle.Primitives[Middle.Opaque[0].PrimitiveIndex].VertexFactory,
-				&MultiLODRenderData->LODVertexFactories[1].VertexFactory);
+				Middle.Primitives[Middle.Opaque[0].PrimitiveIndex].CollectedBinding->Declaration,
+				MultiLODRenderData->LODVertexFactories[1].VertexFactory.GetDeclaration());
 
 			const Durin::FPreparedStaticMeshView Small =
 				Prepare(MakeOrthographicView(5.0));
@@ -963,7 +1028,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			View.ViewportHeight = 800;
 			const Durin::FPreparedStaticMeshView Nonuniform =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, MultiLODScene.GetStaticMeshSceneInfos(), View,
+					CommandList, MultiLODScene.GetPrimitiveSceneInfos(), View,
 					Durin::ERasterMode::Solid);
 			ASSERT_EQ(Nonuniform.Primitives.size(), 1u);
 			EXPECT_EQ(Nonuniform.Primitives[0].SelectedLODIndex, 1u);
@@ -1000,7 +1065,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			const Durin::FPreparedStaticMeshView Prepared =
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList,
-					DegenerateTransformScene.GetStaticMeshSceneInfos(),
+					DegenerateTransformScene.GetPrimitiveSceneInfos(),
 					Durin::FSceneView{}, Durin::ERasterMode::Solid);
 			EXPECT_TRUE(Prepared.Primitives.empty());
 			EXPECT_EQ(Prepared.GetNumSections(), 0u);
@@ -1017,7 +1082,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const Durin::FPreparedStaticMeshView Replaced =
 				Durin::PrepareStaticMeshView_RenderThread(
-					CommandList, Scene.GetStaticMeshSceneInfos(), Durin::FSceneView{},
+					CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
 					Durin::ERasterMode::Solid
 				);
 			ASSERT_EQ(Replaced.GetNumSections(), 4u);
@@ -1028,11 +1093,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 
 	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Id);
 	Durin::FlushRenderingCommands();
-	EXPECT_TRUE(Scene.GetStaticMeshSceneInfos().empty());
+	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			EXPECT_EQ(Durin::PrepareStaticMeshView_RenderThread(
-				CommandList, Scene.GetStaticMeshSceneInfos(), Durin::FSceneView{},
+				CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
 				Durin::ERasterMode::Solid).GetNumSections(), 0u);
 			RenderData->ReleaseResources();
 			MultiLODRenderData->ReleaseResources();
@@ -1136,8 +1201,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 				{
 					const auto Start = std::chrono::steady_clock::now();
 					const auto Prepared = Durin::PrepareStaticMeshView_RenderThread(
-						CommandList, Scene.GetStaticMeshSceneInfos(), Durin::FSceneView{},
-						Durin::ERasterMode::Solid, Scene.GetSplineMeshSceneInfos());
+						CommandList, Scene.GetPrimitiveSceneInfos(), Durin::FSceneView{},
+						Durin::ERasterMode::Solid);
 					const auto End = std::chrono::steady_clock::now();
 					ASSERT_EQ(Prepared.Primitives.size(), PrimitiveCount);
 					ASSERT_EQ(Prepared.Opaque.size(), 128u);
@@ -1170,4 +1235,328 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+}
+
+namespace Durin::Tests
+{
+	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FQualificationVertexShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FDepthCaptureVertexShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FDepthCaptureFragmentShader);
+	DURIN_IMPLEMENT_GLOBAL_SHADER(FShadowCaptureFragmentShader);
+}
+
+namespace Durin::Tests
+{
+	// Own this target's shader lifecycle so extension mounts precede the freeze.
+	class FGeometryQualificationEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+			const auto Root = Testing::CreateTestFixtureDirectory("GeometryQualification");
+			std::filesystem::create_directories(Root / "Source");
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteView(
+				reinterpret_cast<const std::byte*>(QualificationVertexSource.data()), QualificationVertexSource.size()), Root / "Source/Vertex.slang"));
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(std::span(reinterpret_cast<const std::byte*>(DepthCaptureSource.data()), DepthCaptureSource.size()), Root / "Source/Depth.slang"));
+			FShaderPaths::RegisterMountPoint("/GeometryQualification/", (Root / "Source").generic_string(), (Root / "Cache").generic_string());
+			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>()));
+			ASSERT_TRUE(RendererPrivate::RegisterMeshVertexFactory(std::make_shared<FQualificationFactory>(true)));
+			InitializeShaderBuildForTesting();
+		}
+		auto TearDown() -> void override { ShutdownShaderBuild(); }
+	};
+	[[maybe_unused]] const auto GeometryEnvironment = testing::AddGlobalTestEnvironment(new FGeometryQualificationEnvironment());
+}
+
+TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeometryAndFactory)
+{
+	using namespace Durin;
+	using namespace Durin::Tests;
+	GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+	GIsGameThreadIdInitialized = true;
+	InitializeDObjectSystem();
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(InitializeAssetManager());
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FModuleManager::Get().LoadModule("RenderCore");
+
+	RHIInit(GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(GDynamicRHI, nullptr);
+	InitRenderingThread();
+	FRendererModule Renderer;
+	FModuleTestHarness RendererLifecycle("GeometryQualification");
+	RendererLifecycle.Start(Renderer);
+	FSceneTestOwner Owner;
+	auto& Scene = *Owner;
+	const auto Opaque = MakeMaterial(EMaterialBlendMode::Opaque, true);
+	const auto Masked = MakeMaterial(EMaterialBlendMode::Masked, true);
+	std::array<FProceduralGeometry, 2> Geometries;
+	std::array<FMaterialRenderData, 2> Materials;
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+		Materials = {Opaque->Resolve_RenderThread(), Masked->Resolve_RenderThread()};
+		Geometries[0] = FProceduralGeometry::Create(CommandList, 1, false);
+		Geometries[1] = FProceduralGeometry::Create(CommandList, 2, true);
+		Geometries[1].Binding->DisplacementScale = {0.05f, 0.0f, 0.0f, 0.8f};
+	});
+	FlushRenderingCommands();
+	for (size_t I = 0; I < Geometries.size(); ++I)
+	{
+		auto Proxy = std::make_unique<FProceduralProxy>();
+		Proxy->Geometry = Geometries[I]; Proxy->Materials = Materials; Proxy->bReverse = I == 1;
+		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(Scene, FPrimitiveSceneId(100 + I), std::move(Proxy), FMatrix(1.0)));
+	}
+	FlushRenderingCommands();
+	FPreparedStaticMeshView Snapshot;
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+		FSceneView View;
+		View.ViewportWidth = 192; View.ViewportHeight = 108;
+		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		FViewRenderTelemetry Telemetry;
+		const auto Visible = PrepareSceneVisibility(Scene, View, Telemetry);
+		ASSERT_EQ(Visible.SceneInfos.size(), 2u);
+		Snapshot = PrepareStaticMeshView_RenderThread(CommandList, Visible.SceneInfos, View, ERasterMode::Solid);
+		ASSERT_EQ(Snapshot.Primitives.size(), 4u);
+		EXPECT_EQ(Snapshot.VisibleCandidates, 2u);
+		EXPECT_EQ(Snapshot.PreparedLocalPrimitives, 2u);
+		EXPECT_EQ(Snapshot.RejectedPrimitives, 0u);
+		ASSERT_EQ(Snapshot.GetNumSections(), 4u);
+		EXPECT_EQ(Snapshot.Opaque.size(), 2u);
+		EXPECT_EQ(Snapshot.Masked.size(), 2u);
+		EXPECT_GE(Snapshot.Opaque.front().SectionIndex, uint64{1} << 48);
+		EXPECT_GE(Snapshot.Primitives.front().BatchId, uint64{1} << 40);
+		EXPECT_EQ(Snapshot.Masked.front().Geometry.FirstElement, 3u);
+		EXPECT_EQ(Snapshot.Masked.front().Geometry.FirstInstance, 2u);
+		EXPECT_EQ(Snapshot.Masked.front().Geometry.InstanceCount, 2u);
+		const auto Shadow = PrepareStaticMeshView_RenderThread(CommandList, Visible.SceneInfos, View, ERasterMode::Solid, ERenderPreparationMode::ShadowDepth);
+		EXPECT_EQ(Shadow.GetNumSections(), 2u);
+		EXPECT_EQ(Shadow.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::Excluded)], 2u);
+		auto Invalid = *Geometries[0].Binding;
+		Invalid.Streams[0].Offset = Invalid.Streams[0].VertexBuffer->GetSize();
+		EXPECT_EQ(Invalid.ValidateInputs(Snapshot.Opaque.front().Geometry), EGeometrySubmissionOutcome::InvalidSubmission);
+		Invalid = *Geometries[0].Binding;
+		Invalid.DeclarationElements[0].Stride = 1;
+		EXPECT_EQ(Invalid.ValidateInputs(Snapshot.Opaque.front().Geometry), EGeometrySubmissionOutcome::InvalidSubmission);
+		const auto MissingProxy = std::make_shared<FProceduralProxy>();
+		MissingProxy->Geometry = Geometries[0];
+		MissingProxy->Geometry.Binding = std::make_shared<FProceduralBinding>(*Geometries[0].Binding);
+		MissingProxy->Geometry.Binding->Streams.clear();
+		MissingProxy->Materials = Materials;
+		FPrimitiveSceneInfo MissingInfo(FPrimitiveSceneId(900), MissingProxy, FMatrix(1.0));
+		const std::array<FPrimitiveSceneInfo*, 1> MissingInfos{&MissingInfo};
+		const auto Missing = PrepareStaticMeshView_RenderThread(CommandList, MissingInfos, View, ERasterMode::Solid);
+		EXPECT_TRUE(Missing.bResourceFailure);
+		EXPECT_EQ(Missing.GetNumSections(), 0u);
+		EXPECT_EQ(Missing.SubmissionOutcomes[static_cast<size_t>(EGeometrySubmissionOutcome::ResourceFailure)], 2u);
+		const auto Desc = FRHITextureCreateDesc::Create2D("IndependentGeometryColor", 192, 108, EPixelFormat::SRGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+		const auto Target = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+		ASSERT_NE(Target, nullptr);
+		for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+		{
+			View.Settings.Mode.RenderMode = Mode;
+			++GRenderFrameCounterRenderThread;
+			GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), ERenderViewResult::Success);
+			GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		}
+	});
+	FlushRenderingCommands();
+	// A local transform reference and an independently compiled factory must agree.
+	FSceneTestOwner ReferenceOwner;
+	FSceneTestOwner DeformedOwner;
+	for (size_t I = 0; I < 2; ++I)
+	{
+		auto& PairScene = I == 0 ? *ReferenceOwner : *DeformedOwner;
+		auto Proxy = std::make_unique<FProceduralProxy>();
+		Proxy->Geometry = Geometries[I]; Proxy->Materials = {Materials[1], Materials[0]};
+		FMatrix Transform(1.0);
+		if (I == 0)
+		{
+			Transform[0][0] = Transform[1][1] = Transform[2][2] = 0.8;
+			Transform[3][0] = 0.05;
+		}
+		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(PairScene, FPrimitiveSceneId(200), std::move(Proxy), Transform));
+		FDirectionalLightSceneData Light;
+		Light.Intensity = 3.0f;
+		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(PairScene, FLightSceneId(1), Light), nullptr);
+	}
+	FlushRenderingCommands();
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+		FSceneView View;
+		View.ViewportWidth = 1920; View.ViewportHeight = 1080;
+		View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+		View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+		for (auto Mode : {ERenderMode::Unlit, ERenderMode::Lit})
+		{
+			View.Settings.Mode.RenderMode = Mode;
+			std::array<FByteBuffer, 2> Pixels;
+			std::array<std::array<FByteBuffer, 5>, 2> Attachments;
+			static std::array<FByteBuffer, 5>* Capture = nullptr;
+			std::array<FByteBuffer, 2> ShadowPixels;
+			static FByteBuffer* ShadowCapture = nullptr;
+			for (size_t I = 0; I < 2; ++I)
+			{
+				const auto Desc = FRHITextureCreateDesc::Create2D("GeometryParity", 1920, 1080, EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+				const auto Target = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Capture = &Attachments[I];
+				ShadowCapture = &ShadowPixels[I];
+				if (Mode == ERenderMode::Lit) SetShadowDepthCaptureSink(+[](FRHICommandListImmediate& Commands, FRHITexture* Depth, uint32 Cascades) {
+					EXPECT_EQ(Cascades, 1u); ReadGeometryTexture(Commands, Depth, *ShadowCapture, true);
+				});
+				if (Mode == ERenderMode::Lit) SetGBufferCaptureSink(+[](FRHICommandListImmediate& Commands,
+					FRHITexture* Material, FRHITexture* Normals, FRHITexture* Surface, FRHITexture* Emissive, FRHITexture* Depth) {
+					const std::array Textures{Material, Normals, Surface, Emissive, Depth};
+					for (size_t A = 0; A < Textures.size(); ++A) ReadGeometryTexture(Commands, Textures[A], (*Capture)[A], A == 4);
+				});
+				const auto Result = Renderer.RenderView(CommandList, I == 0 ? &*ReferenceOwner : &*DeformedOwner, View, Target, false, {});
+				SetGBufferCaptureSink(nullptr);
+				SetShadowDepthCaptureSink(nullptr);
+				ShadowCapture = nullptr;
+				Capture = nullptr;
+				ASSERT_EQ(Result, ERenderViewResult::Success);
+				ReadGeometryTexture(CommandList, Target, Pixels[I]);
+				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			}
+			ASSERT_EQ(Pixels[0].size(), Pixels[1].size());
+			ASSERT_EQ(Pixels[0].size(), 1920u * 1080u * 4u);
+			size_t OutsideTolerance = 0;
+			uint32 MaxError = 0;
+			for (size_t Pixel = 0; Pixel < Pixels[0].size(); Pixel += 4)
+			{
+				uint32 Error = 0;
+				for (size_t Channel = 0; Channel < 4; ++Channel)
+					Error = std::max(Error, static_cast<uint32>(std::abs(std::to_integer<int>(Pixels[0][Pixel + Channel]) - std::to_integer<int>(Pixels[1][Pixel + Channel]))));
+				MaxError = std::max(MaxError, Error); OutsideTolerance += Error > 2;
+			}
+			EXPECT_LE(MaxError, 8u);
+			EXPECT_LE(OutsideTolerance, 1920u * 1080u / 1000u);
+			if (Mode == ERenderMode::Lit)
+			{
+				for (size_t A = 0; A < 5; ++A)
+				{
+					ASSERT_EQ(Attachments[0][A].size(), 1920u * 1080u * 4u) << A;
+					ASSERT_EQ(Attachments[0][A].size(), Attachments[1][A].size()) << A;
+				}
+				size_t Covered = 0;
+				for (size_t Offset = 0; Offset < Attachments[0][4].size(); Offset += sizeof(float))
+				{
+					float Depth[2];
+					for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], Attachments[I][4].data() + Offset, sizeof(float));
+					ASSERT_TRUE(std::isfinite(Depth[0]) && std::isfinite(Depth[1]));
+					ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
+					if (Depth[0] >= 1.0f) continue;
+					++Covered;
+					ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
+					// These constant material values have identical quantized encodings;
+					// exact comparison is stricter than the frozen float-channel allowance.
+					for (size_t A = 0; A < 4; ++A)
+						for (size_t Byte = 0; Byte < 4; ++Byte)
+							ASSERT_EQ(Attachments[0][A][Offset + Byte], Attachments[1][A][Offset + Byte]) << A << ":" << Offset;
+				}
+				ASSERT_FALSE(ShadowPixels[0].empty());
+				ASSERT_EQ(ShadowPixels[0].size(), ShadowPixels[1].size());
+				size_t ShadowCovered = 0;
+				for (size_t Offset = 0; Offset < ShadowPixels[0].size(); Offset += sizeof(float))
+				{
+					float Depth[2];
+					for (size_t I = 0; I < 2; ++I) std::memcpy(&Depth[I], ShadowPixels[I].data() + Offset, sizeof(float));
+					ASSERT_EQ(Depth[0] < 1.0f, Depth[1] < 1.0f) << Offset;
+					ASSERT_NEAR(Depth[0], Depth[1], 1e-5f) << Offset;
+					ShadowCovered += Depth[0] < 1.0f;
+				}
+				EXPECT_GT(ShadowCovered, 100u);
+				EXPECT_GT(Covered, 1000u);
+				EXPECT_LT(Covered, 1920u * 1080u / 2u);
+			}
+		}
+	});
+	FlushRenderingCommands();
+	ReferenceOwner.Reset(); DeformedOwner.Reset();
+	// Optional GBuffer exclusion must preserve retained-forward and translucency.
+	FSceneTestOwner ForwardOwner;
+	FProceduralGeometry ForwardGeometry;
+	const auto Translucent = MakeMaterial(EMaterialBlendMode::Translucent, true);
+	FMaterialRenderData TranslucentData;
+	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+		ForwardGeometry = FProceduralGeometry::Create(Commands, 500, true);
+		ForwardGeometry.Binding->bForwardOnly = true;
+		TranslucentData = Translucent->Resolve_RenderThread();
+	});
+	FlushRenderingCommands();
+	FDirectionalLightSceneData ForwardLight;
+	ForwardLight.Intensity = 3.0f;
+	ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*ForwardOwner, FLightSceneId(2), ForwardLight), nullptr);
+	for (const auto [LocalFactory, FailShadow] : std::array{std::pair{true, false}, std::pair{false, false}, std::pair{false, true}, std::pair{false, false}})
+	{
+		auto Proxy = std::make_unique<FProceduralProxy>();
+		Proxy->Geometry = LocalFactory ? Geometries[0] : ForwardGeometry;
+		Proxy->Materials = {Materials[0], TranslucentData};
+		Proxy->bFailShadow = FailShadow;
+		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*ForwardOwner, FPrimitiveSceneId(300), std::move(Proxy), FMatrix(1.0)));
+		FlushRenderingCommands();
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
+			FSceneView View;
+			View.ViewportWidth = 192; View.ViewportHeight = 108;
+			View.Settings.Mode.VisibilityMode = EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.Mode.RenderMode = ERenderMode::Lit;
+			View.Settings.DirectionalShadow.Candidate = EDirectionalShadowCandidate::SingleMap;
+			const auto Prepared = PrepareStaticMeshView_RenderThread(Commands, ForwardOwner->GetPrimitiveSceneInfos(), View, ERasterMode::Solid);
+			ASSERT_EQ(Prepared.Opaque.size(), 1u);
+			ASSERT_EQ(Prepared.Translucent.size(), 1u);
+			EXPECT_EQ(Prepared.Opaque[0].bSupportsGBuffer, LocalFactory);
+			const auto Shadow = PrepareStaticMeshView_RenderThread(Commands, ForwardOwner->GetPrimitiveSceneInfos(), View, ERasterMode::Solid, ERenderPreparationMode::ShadowDepth);
+			EXPECT_EQ(Shadow.bResourceFailure, FailShadow);
+			static FViewRenderTelemetry Telemetry;
+			Telemetry = {};
+			SetViewRenderTelemetrySink(+[](const FViewRenderTelemetry& Value) { Telemetry = Value; });
+			const auto Target = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("ForwardOnlyGeometry", 192, 108, EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource));
+			++GRenderFrameCounterRenderThread;
+			GDynamicRHI->RHIBeginFrame_RenderThread(Commands);
+			const auto Result = Renderer.RenderView(Commands, &*ForwardOwner, View, Target, false, {});
+			SetViewRenderTelemetrySink(nullptr);
+			GDynamicRHI->RHIEndFrame_RenderThread(Commands);
+			EXPECT_EQ(Result, ERenderViewResult::Success);
+			EXPECT_EQ(Telemetry.GBuffer.GBufferSuccessfulDraws, LocalFactory ? 1u : 0u);
+			EXPECT_EQ(Telemetry.CombinedTranslucentGeometryDraws, 1u);
+			EXPECT_EQ(Telemetry.DirectionalShadow.ShadowPreparationFailures, FailShadow ? 1u : 0u);
+			EXPECT_EQ(Telemetry.DirectionalShadow.ShadowSuccessfulDraws, FailShadow ? 0u : 1u);
+		});
+		FlushRenderingCommands();
+	}
+	ForwardOwner.Reset();
+	FlushRenderingCommands();
+	ForwardGeometry = {};
+	// Replacement and detach cannot invalidate retained frame bindings/resources.
+	auto OldBuffer = Snapshot.Opaque.front().Vertices.Buffer;
+	for (uint64 Cycle = 0; Cycle < 100; ++Cycle)
+	{
+		const std::weak_ptr<const FVertexFactoryInputBinding> Retired = Geometries[0].Binding;
+		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
+			Geometries[0] = FProceduralGeometry::Create(CommandList, Cycle + 3, false);
+		});
+		FlushRenderingCommands();
+		auto Proxy = std::make_unique<FProceduralProxy>();
+		Proxy->Geometry = Geometries[0]; Proxy->Materials = {Materials[1], Materials[0]};
+		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveSceneId(100), std::move(Proxy), FMatrix(1.0)));
+		FlushRenderingCommands();
+		EXPECT_EQ(Scene.GetPrimitiveSceneInfos().size(), 2u);
+		if (Cycle > 0) EXPECT_TRUE(Retired.expired()) << Cycle;
+	}
+	EXPECT_EQ(Snapshot.Opaque.front().Vertices.Buffer, OldBuffer);
+	EXPECT_NE(Geometries[0].Vertices.Buffer, OldBuffer);
+	Owner.Reset();
+	FlushRenderingCommands();
+	OldBuffer = {};
+	Snapshot = {};
+	Geometries = {};
+	RendererLifecycle.Shutdown();
+	ShutdownRenderingThread();
+	RHIExit();
 }

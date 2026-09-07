@@ -58,8 +58,6 @@ namespace Durin
 		RENDERER_API auto GetVolumetricCloudCount_RenderThread() const -> size_t;
 
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
-		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
-		auto GetSplineMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SplineMeshSceneInfos; }
 		RENDERER_API auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
 		RENDERER_API auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>&;
@@ -101,8 +99,6 @@ namespace Durin
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		std::unordered_map<FPrimitiveSceneId, std::unique_ptr<FPrimitiveSceneInfo>, FSceneIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
-		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
-		std::vector<FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;
 		std::unique_ptr<FVolumetricCloudSceneRegistry> VolumetricClouds;

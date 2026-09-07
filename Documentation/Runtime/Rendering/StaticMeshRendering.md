@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -216,10 +216,11 @@ change invalidates every dependent shader artifact.
 
 ### SplineMesh vertex deformation domain
 
-Prepared mesh identity includes
-`EVertexDeformationDomain::{Local,Spline}` in shader-map, effective
-graphics-pipeline, and draw-sort keys. Material identity alone therefore cannot
-alias Local and Spline vertex programs. `FSplineMeshSceneProxy` supplies the
+Prepared mesh identity includes factory type and binding-layout keys in
+shader-map, effective graphics-pipeline and draw-sort keys. Pipeline identity
+also includes vertex declaration and topology. Local/Spline labels remain in
+diagnostics and ordering; registered factory implementations select and bind
+the vertex programs. Material identity alone cannot alias those programs. `FSplineMeshSceneProxy` supplies the
 same selected LOD buffers, indices, declaration, sections, material proxies,
 and world transform as StaticMesh plus one immutable deformation uniform.
 There is no per-component position, tangent, UV, color, or index-buffer copy.
@@ -261,22 +262,23 @@ offscreen, fixed-aspect, thumbnail, and preview invocations construct distinct
 prepared values; no SceneInfo list, prepared result, target-size semantic
 cache, or temporal state is shared between views.
 
-For each `FSceneView`, `FStaticMeshRenderer` walks the authoritative visible
-StaticMesh SceneInfo list once. It projects all eight authoritative world-AABB
-corners into the fitted content viewport, selects the first transition threshold
-satisfied by the normalized diameter, and validates readiness independently for
-the requested LOD. A missing requested LOD searches toward lower detail first,
+For each `FSceneView`, Renderer walks the visible mesh candidates and projects
+their authoritative world-AABB corners into the fitted content viewport. It
+supplies scalar projection/LOD policy through `FMeshCollectionContext`. Engine
+providers select the first transition threshold satisfied by the normalized
+diameter and validate readiness independently for the requested LOD. A missing requested LOD searches toward lower detail first,
 then higher detail; invalid projection or bounds math conservatively requests
 LOD 0. `FSceneViewSettings::Mode.LODMode` selects automatic behavior or the qualified
 forced-LOD-0 comparison path without process-global state.
 
-Preparation stores transform, requested/selected indices, and the selected LOD
-and vertex factory once in `FPreparedStaticMeshPrimitive`. Opaque, Masked, and
-Translucent draw records reference that stable primitive by vector index, then
-store only section-local geometry, resolved material/binding, pass, shader-map,
-graphics-state, and sort facts. Execution resolves the index and binds the
-selected vertex factory, index buffer, and section without rescanning scene
-membership, resolving material identity, or reading an implicit LOD 0.
+Preparation stores transform, diagnostic requested/selected indices, and a
+retained `FVertexFactoryInputBinding` in `FPreparedStaticMeshPrimitive`. Opaque,
+Masked and Translucent records reference that primitive by vector index and own
+checked draw ranges, buffer views, material, pass, shader-map, graphics-state and
+sort facts. The input snapshot retains vertex declarations and streams instead
+of borrowing LOD/section/factory objects. Execution binds those resources and
+forwards direct indexed/non-indexed RHI arguments without rescanning scene
+membership or reading an implicit LOD 0.
 
 View-local telemetry conserves visible candidates against prepared plus rejected
 primitives. Requested and selected LOD histograms each sum to prepared

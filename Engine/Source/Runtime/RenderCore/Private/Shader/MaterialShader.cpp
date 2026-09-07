@@ -1,4 +1,5 @@
 #include "Shader/MaterialShader.h"
+#include "Shader/ShaderData.h"
 
 namespace Durin
 {
@@ -232,7 +233,7 @@ namespace Durin
 		Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
 		if (!Candidate->ShaderMap->Initialize(
 				Input.ShaderTypes, Input.CompilerOutput, Input.CompileOptions,
-				OutError))
+				OutError, true))
 		{
 			return false;
 		}
@@ -306,12 +307,36 @@ namespace Durin
 				FixedTypes.push_back(Type);
 		}
 
-		FShaderMapBase FixedMap;
-		if (!FixedTypes.empty()
-			&& !FixedMap.InitializeFromShaderTypes(
-				FixedTypes, Input.CompileOptions, OutError))
+		// Compile each source independently before linking validated stage interfaces.
+		std::vector<std::vector<const FShaderType*>> Groups;
+		for (const FShaderType* Type : FixedTypes)
 		{
-			return false;
+			auto Group = std::ranges::find_if(Groups, [Type](const auto& Existing) {
+				return GetShaderDataDomain() != EShaderDataDomain::Cooked
+					&& Existing.front()->GetVirtualShaderPath() == Type->GetVirtualShaderPath();
+			});
+			if (Group == Groups.end()) Groups.push_back({Type});
+			else Group->push_back(Type);
+		}
+		std::vector<std::unique_ptr<FShaderMapBase>> FixedMaps;
+		for (const auto& Group : Groups)
+		{
+			auto Map = std::make_unique<FShaderMapBase>();
+			auto Options = Input.CompileOptions;
+			Options.VirtualShaderPath = Group.front()->GetVirtualShaderPath();
+			Options.EntryPoints.clear(); Options.Frequencies.clear();
+			for (const auto* Type : Group)
+				Type->ModifyCompilationEnvironment({Type, Type->GetVirtualShaderPath(), Type->GetEntryPoint(), Type->GetFrequency()}, Options);
+			const auto& RuntimeRequest = Group.front()->GetFrequency() == EShaderFrequency::Fragment
+				? Input.FixedFragmentRuntimeRequest : Input.FixedShaderRuntimeRequest;
+			if (!RuntimeRequest.empty() && GetShaderDataDomain() == EShaderDataDomain::Cooked)
+			{
+				FShaderCompilerOutput Output;
+				if (!LoadCookedShaderRuntimeRequest(RuntimeRequest, Group, Output, OutError)
+					|| !Map->Initialize(Group, Output, Options, OutError)) return false;
+			}
+			else if (!Map->InitializeFromShaderTypes(Group, Options, OutError)) return false;
+			FixedMaps.push_back(std::move(Map));
 		}
 
 		FShaderCompilerOutput Combined;
@@ -325,8 +350,8 @@ namespace Durin
 				continue;
 			}
 			const FShaderType* Type = Input.ShaderTypes[Index];
-			const uint32* FixedIndex = FixedMap.FindShaderIndex(Type);
-			if (FixedIndex == nullptr || FixedMap.GetCode() == nullptr)
+			const auto FoundMap = std::ranges::find_if(FixedMaps, [Type](const auto& Map) { return Map->FindShaderIndex(Type) != nullptr; });
+			if (FoundMap == FixedMaps.end() || !(*FoundMap)->GetCode())
 			{
 				OutError = std::format(
 					"Fixed Material shader type '{}' produced no resource code.",
@@ -334,7 +359,7 @@ namespace Durin
 				return false;
 			}
 			Combined.CompiledShaders.push_back(
-				FixedMap.GetCode()->GetCompiledShader(*FixedIndex));
+				(*FoundMap)->GetCode()->GetCompiledShader(*(*FoundMap)->FindShaderIndex(Type)));
 		}
 
 		return TryCreate({

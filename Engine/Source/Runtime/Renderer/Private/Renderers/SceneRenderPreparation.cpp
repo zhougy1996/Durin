@@ -163,8 +163,8 @@ namespace Durin
 						const auto StaticSplineStart =
 							std::chrono::steady_clock::now();
 						StaticMeshes = PrepareStaticMeshView_RenderThread(
-							CommandList, Casters.StaticMeshes, Cascade.CasterView,
-							ERasterMode::Solid, Casters.SplineMeshes,
+							CommandList, Casters.SceneInfos, Cascade.CasterView,
+							ERasterMode::Solid,
 							ERenderPreparationMode::ShadowDepth
 						);
 						Telemetry.View.DirectionalShadow.ShadowStaticSplinePreparationNanoseconds +=
@@ -247,13 +247,11 @@ namespace Durin
 			}
 			PreparedView.Receiver.StaticMeshes = PrepareStaticMeshView_RenderThread(
 				CommandList,
-				Visibility.StaticMeshSceneInfos,
+				Visibility.SceneInfos,
 				RenderView,
-				RenderView.Settings.Mode.RasterMode,
-				Visibility.SplineMeshSceneInfos
+				RenderView.Settings.Mode.RasterMode
 			);
-			Visibility.StaticMeshSceneInfos.clear();
-			Visibility.SplineMeshSceneInfos.clear();
+			Visibility.SceneInfos.clear();
 		}
 		PrepareCombinedTranslucentGeometry(PreparedView.Receiver);
 		Telemetry.View.CombinedTranslucentGeometryDraws =
@@ -300,6 +298,7 @@ namespace Durin
 		FResolvedSceneResources& ResolvedSceneResources = Context.Resolved.Scene;
 		FSceneRenderTelemetry& Telemetry = Context.Observation.Telemetry;
 		const FSceneView& View = PreparedView.Context.View;
+		if (PreparedView.Receiver.StaticMeshes.bResourceFailure) return ERenderViewResult::RendererResourcesUnavailable;
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;

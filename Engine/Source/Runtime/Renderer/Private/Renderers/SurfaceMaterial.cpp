@@ -1,4 +1,5 @@
 #include "Renderers/SurfaceMaterial.h"
+#include "Shader/ShaderCookedLibrary.h"
 
 #include "RendererResourceSlotCache.h"
 #include "Renderers/GBufferRenderer.h"
@@ -17,6 +18,12 @@ namespace Durin::RendererPrivate
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
 	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);
 	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
+	const auto GOpaqueShadowRequest = [] {
+		const FShaderType* Type = &FSurfaceOpaqueShadowFragmentShader::StaticType();
+		return RegisterShaderRuntimeRequest({.Category = EShaderRuntimeRequestCategory::FeatureProgram,
+			.Owner = "SurfaceMaterial", .Name = "Surface.OpaqueShadow"},
+			EShaderRequestEligibility::GameAndEditor, std::span(&Type, 1));
+	}();
 
 	namespace
 	{

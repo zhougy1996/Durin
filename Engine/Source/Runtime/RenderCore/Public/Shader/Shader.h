@@ -582,7 +582,8 @@ namespace Durin
 			std::span<const FShaderType* const> ShaderTypes,
 			const FShaderCompilerOutput& Output,
 			const FShaderCompileOptions& CompileOptions,
-			std::string& OutErrorMessage
+			std::string& OutErrorMessage,
+			bool bAllowMixedSources = false
 		) -> bool;
 		RENDERCORE_API auto InitializeFromShaderTypes(
 			std::span<const FShaderType* const> ShaderTypes,

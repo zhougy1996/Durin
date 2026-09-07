@@ -105,26 +105,17 @@ namespace Durin
 
 	struct FDirectionalShadowCasterCandidates
 	{
-		std::vector<const FPrimitiveSceneInfo*> StaticMeshes;
-		std::vector<const FPrimitiveSceneInfo*> SplineMeshes;
+		std::vector<const FPrimitiveSceneInfo*> SceneInfos;
 		size_t Submitted = 0;
 		size_t Hidden = 0;
 		size_t Culled = 0;
 		size_t InvalidBoundsFallbacks = 0;
 	};
 
-	enum class EDirectionalShadowCasterKind : uint8
-	{
-		StaticMesh,
-		SplineMesh,
-	};
-
 	// Non-owning frame-local caster identity and membership snapshot.
 	struct FDirectionalShadowCasterRecord
 	{
 		const FPrimitiveSceneInfo* SceneInfo = nullptr;
-		EDirectionalShadowCasterKind Kind =
-			EDirectionalShadowCasterKind::StaticMesh;
 		uint8 CascadeMask = 0;
 		uint8 InvalidBoundsFallbackMask = 0;
 	};

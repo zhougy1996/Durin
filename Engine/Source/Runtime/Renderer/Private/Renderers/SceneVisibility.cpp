@@ -17,8 +17,7 @@ namespace Durin
 	{
 		Telemetry.Visibility = {};
 		Result.PrimitiveRecords.clear();
-		Result.StaticMeshSceneInfos.clear();
-		Result.SplineMeshSceneInfos.clear();
+		Result.SceneInfos.clear();
 		const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
 		if (bCollectPrimitiveRecords)
 			Result.PrimitiveRecords.reserve(SceneInfos.size());
@@ -98,16 +97,9 @@ namespace Durin
 				continue;
 			}
 			++Telemetry.Visibility.VisiblePrimitives;
-			switch (SceneInfo->GetKind())
-			{
-			case EPrimitiveSceneProxyKind::StaticMesh:
-				Result.StaticMeshSceneInfos.push_back(SceneInfo);
-				break;
-			case EPrimitiveSceneProxyKind::SplineMesh:
-				Result.SplineMeshSceneInfos.push_back(SceneInfo);
+			Result.SceneInfos.push_back(SceneInfo);
+			if (SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh)
 				++Telemetry.SplineMesh.VisibleSplineMeshCandidates;
-				break;
-			}
 		}
 
 		const bool bCountersConserved = Telemetry.Visibility.SubmittedPrimitives

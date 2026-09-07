@@ -202,7 +202,8 @@ namespace Durin
 			std::span<const FShaderType* const> ShaderTypes,
 			const FShaderCompileOptions* InCompileOptions,
 			FShaderCompileOptions& OutCompileOptions,
-			std::string& OutErrorMessage
+			std::string& OutErrorMessage,
+			bool bAllowMixedSources = false
 		) -> bool
 		{
 			OutCompileOptions = {};
@@ -252,7 +253,7 @@ namespace Durin
 				const FShaderType* ShaderType = ShaderTypes[ShaderTypeIndex];
 				checkf(ShaderType, "Shader type must not be null");
 
-				if (ShaderType->GetVirtualShaderPath() != ShaderPath)
+				if (!bAllowMixedSources && ShaderType->GetVirtualShaderPath() != ShaderPath)
 				{
 					OutErrorMessage = std::format(
 						"Shader type '{}' uses path '{}' but shader map expects '{}'",
@@ -1096,14 +1097,15 @@ namespace Durin
 		std::span<const FShaderType* const> ShaderTypes,
 		const FShaderCompilerOutput& Output,
 		const FShaderCompileOptions& CompileOptions,
-		std::string& OutErrorMessage
+		std::string& OutErrorMessage,
+		bool bAllowMixedSources
 	) -> bool
 	{
 		Reset();
 		OutErrorMessage.clear();
 
 		FShaderCompileOptions EffectiveCompileOptions;
-		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage))
+		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage, bAllowMixedSources))
 		{
 			Reset();
 			return false;

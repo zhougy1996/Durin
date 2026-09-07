@@ -34,6 +34,8 @@ namespace Durin
 	{
 		FMaterialShaderMapIdentity Material;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
+		FXxHash64 FactoryKey;
+		FXxHash64 LayoutKey;
 		auto operator==(const FMeshShaderMapKey&) const -> bool = default;
 	};
 
@@ -44,7 +46,11 @@ namespace Durin
 		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
+		FXxHash64 FactoryKey;
+		FXxHash64 LayoutKey;
 		bool bHybridRetained = false;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
 
 		auto operator==(const FEffectiveMeshPipelineKey&) const -> bool = default;
 	};
@@ -53,13 +59,15 @@ namespace Durin
 	// grouping happens before deterministic primitive/section tie breaking.
 	struct FMeshDrawSortKey
 	{
-		std::array<uint32, 30> Pipeline{};
+		std::array<uint32, 35> Pipeline{};
 		FByteBuffer MaterialUniform;
-		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
+		// Owned values; trailing empty attributes need no storage.
+		std::vector<uint32> VertexFactory;
 		std::array<uint32, 6> Geometry{};
 		uint64 PrimitiveId = 0;
+		uint64 BatchId = 0;
 		uint32 SelectedLODIndex = 0;
-		uint32 SectionIndex = 0;
+		uint64 SectionIndex = 0;
 
 		auto operator<=>(const FMeshDrawSortKey&) const = default;
 	};

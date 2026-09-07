@@ -107,7 +107,7 @@ durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises view-local StaticMesh material preparation against initialized render resources."
 	SOURCES Private/StaticMeshRenderPreparationVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	LIBRARIES ApplicationCore RenderCore Renderer ShaderBuild VulkanRHI Vulkan::Vulkan
 	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )

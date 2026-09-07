@@ -539,17 +539,10 @@ namespace Durin
 			}
 			FDirectionalShadowCasterRecord Record;
 			Record.SceneInfo = Info;
-			switch (Info->GetKind())
-			{
-			case EPrimitiveSceneProxyKind::StaticMesh:
-				Record.Kind = EDirectionalShadowCasterKind::StaticMesh;
-				++Result.UniqueEligibleStaticMeshes;
-				break;
-			case EPrimitiveSceneProxyKind::SplineMesh:
-				Record.Kind = EDirectionalShadowCasterKind::SplineMesh;
+			if (Info->GetKind() == EPrimitiveSceneProxyKind::SplineMesh)
 				++Result.UniqueEligibleSplineMeshes;
-				break;
-			}
+			else if (Info->GetKind() == EPrimitiveSceneProxyKind::StaticMesh)
+				++Result.UniqueEligibleStaticMeshes;
 			for (uint32 CascadeIndex = 0;
 				 CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
 			{
@@ -584,46 +577,22 @@ namespace Durin
 			Candidates.Submitted = Result.UniqueSubmitted;
 			Candidates.Hidden = Result.UniqueHidden;
 			const uint8 Bit = static_cast<uint8>(1u << CascadeIndex);
-			std::array<size_t, 3> FamilyMemberships{};
-			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
-			{
-				if ((Record.CascadeMask & Bit) == 0) continue;
-				switch (Record.Kind)
-				{
-				case EDirectionalShadowCasterKind::StaticMesh:
-					++FamilyMemberships[0];
-					break;
-				case EDirectionalShadowCasterKind::SplineMesh:
-					++FamilyMemberships[1];
-					break;
-				}
-			}
-			Candidates.StaticMeshes.reserve(FamilyMemberships[0]);
-			Candidates.SplineMeshes.reserve(FamilyMemberships[1]);
+			const size_t Count = std::ranges::count_if(Result.Records,
+				[Bit](const auto& Record) { return (Record.CascadeMask & Bit) != 0; });
+			Candidates.SceneInfos.reserve(Count);
 			for (const FDirectionalShadowCasterRecord& Record : Result.Records)
 			{
 				if ((Record.CascadeMask & Bit) == 0) continue;
 				++Result.MembershipPopcount;
 				if ((Record.InvalidBoundsFallbackMask & Bit) != 0)
 					++Candidates.InvalidBoundsFallbacks;
-				switch (Record.Kind)
-				{
-				case EDirectionalShadowCasterKind::StaticMesh:
-					Candidates.StaticMeshes.push_back(Record.SceneInfo);
-					break;
-				case EDirectionalShadowCasterKind::SplineMesh:
-					Candidates.SplineMeshes.push_back(Record.SceneInfo);
-					break;
-				}
+				Candidates.SceneInfos.push_back(Record.SceneInfo);
 			}
-			const size_t Memberships = Candidates.StaticMeshes.size()
-				+ Candidates.SplineMeshes.size();
+			const size_t Memberships = Candidates.SceneInfos.size();
 			Candidates.Culled = Result.Records.size() - Memberships;
 			check(Candidates.Submitted == Candidates.Hidden + Candidates.Culled
 				+ Memberships);
-			Result.TemporaryBytes += Candidates.StaticMeshes.capacity()
-				* sizeof(const FPrimitiveSceneInfo*);
-			Result.TemporaryBytes += Candidates.SplineMeshes.capacity()
+			Result.TemporaryBytes += Candidates.SceneInfos.capacity()
 				* sizeof(const FPrimitiveSceneInfo*);
 		}
 		Result.TemporaryBytes += Result.Records.capacity()

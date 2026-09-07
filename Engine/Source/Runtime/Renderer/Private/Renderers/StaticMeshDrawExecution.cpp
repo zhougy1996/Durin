@@ -40,31 +40,24 @@ namespace Durin::RendererPrivate
 			FMatrix4f(Primitive.LocalToWorld)
 		) < 0.0f ? -1.0f : 1.0f;
 
-		const FSplineMeshUniform SplineUniform = MakeSplineMeshUniform(
-			Primitive.VertexDomain == EVertexDeformationDomain::Spline
-				? Primitive.SplineDynamicData.Params : FSplineMeshParams{}
-		);
 		return {
 			.Transform = CommandList.AllocateDynamicUniformBuffer(
 				&TransformUniform, sizeof(TransformUniform)
-			),
-			.SplineMesh = CommandList.AllocateDynamicUniformBuffer(
-				&SplineUniform, sizeof(SplineUniform)
 			)
 		};
 	}
 
 	auto FStaticMeshGeometryBinding::IsValid() const -> bool
 	{
-		return Primitive.LOD != nullptr && Primitive.VertexFactory != nullptr
-			&& Draw.Section != nullptr;
+		return Primitive.CollectedBinding && Primitive.CollectedBinding->Declaration
+			&& Draw.Geometry.Validate(Draw.Vertices.Range, Draw.Indices.Range) == EGeometrySubmissionOutcome::Submitted;
 	}
 
 	auto FStaticMeshGeometryBinding::GetVertexDeclaration() const
 		-> FVertexDeclarationRHIRef
 	{
 		check(IsValid());
-		return FVertexDeclarationRHIRef(Primitive.VertexFactory->GetDeclaration());
+		return FVertexDeclarationRHIRef(Primitive.CollectedBinding->Declaration);
 	}
 
 	auto FStaticMeshGeometryBinding::Bind(
@@ -72,8 +65,10 @@ namespace Durin::RendererPrivate
 	) const -> void
 	{
 		check(IsValid());
-		Primitive.VertexFactory->BindStreams(CommandList);
-		CommandList.BindIndexBuffer(Primitive.LOD->IndexBuffer.GetRHI(), 0);
+		for (const auto& Stream : Primitive.CollectedBinding->Streams)
+			CommandList.BindVertexBuffer(Stream.StreamIndex, Stream.VertexBuffer, Stream.Offset);
+		if (Draw.Geometry.bIndexed)
+			CommandList.BindIndexBuffer(Draw.Indices.Buffer, static_cast<uint32>(Draw.Indices.Range.ByteOffset));
 	}
 
 	auto FStaticMeshGeometryBinding::DrawIndexed(
@@ -81,8 +76,9 @@ namespace Durin::RendererPrivate
 	) const -> void
 	{
 		check(IsValid());
-		CommandList.DrawIndexed(
-			Draw.Section->IndexCount, Draw.Section->FirstIndex, 0
-		);
+		if (Draw.Geometry.bIndexed)
+			CommandList.DrawIndexed(Draw.Geometry.GetIndexedDrawArguments());
+		else
+			CommandList.Draw(Draw.Geometry.GetDrawArguments());
 	}
 } // namespace Durin::RendererPrivate

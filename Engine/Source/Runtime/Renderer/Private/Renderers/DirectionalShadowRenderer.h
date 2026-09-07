@@ -19,6 +19,9 @@ namespace Durin
 	RENDERER_API auto SetShadowDepthTimingQuerySink(
 		FShadowDepthTimingQuerySink Sink) -> void;
 
+	using FShadowDepthCaptureSink = void (*)(FRHICommandListImmediate&, FRHITexture*, uint32);
+	RENDERER_API auto SetShadowDepthCaptureSink(FShadowDepthCaptureSink Sink) -> void;
+
 	// Owns the fixed shadow target, exact views/sampler, failure slot, and pass.
 	class FDirectionalShadowRenderer final
 	{

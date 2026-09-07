@@ -1,3 +1,5 @@
+#include "Renderers/MeshVertexFactory.h"
+#include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/MeshBatch.h"
 #include "Rendering/StaticMeshSceneProxy.h"
@@ -1697,8 +1699,8 @@ TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKe
 	Durin::FViewRenderTelemetry CameraTelemetry;
 	const Durin::FSceneVisibilityResult Camera =
 		Durin::PrepareSceneVisibility(Scene, View, CameraTelemetry);
-	ASSERT_EQ(Camera.StaticMeshSceneInfos.size(), 1u);
-	EXPECT_EQ(Camera.StaticMeshSceneInfos.front()->GetId().Value, 1u);
+	ASSERT_EQ(Camera.SceneInfos.size(), 1u);
+	EXPECT_EQ(Camera.SceneInfos.front()->GetId().Value, 1u);
 
 	Durin::FDirectionalLightSceneData Light;
 	Light.Direction = {0.0, 0.0, -1.0};
@@ -1710,15 +1712,15 @@ TEST(FRendererSceneContractTests, DirectionalShadowCandidatesStartFromSceneAndKe
 	const Durin::FDirectionalShadowCasterTable Table =
 		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow);
 	const Durin::FDirectionalShadowCasterCandidates& Casters = Table.Cascades[0];
-	ASSERT_EQ(Casters.StaticMeshes.size(), 2u);
-	EXPECT_EQ(Casters.StaticMeshes[0]->GetId().Value, 1u);
-	EXPECT_EQ(Casters.StaticMeshes[1]->GetId().Value, 2u);
+	ASSERT_EQ(Casters.SceneInfos.size(), 2u);
+	EXPECT_EQ(Casters.SceneInfos[0]->GetId().Value, 1u);
+	EXPECT_EQ(Casters.SceneInfos[1]->GetId().Value, 2u);
 	EXPECT_EQ(Casters.Culled, 1u);
 	const Durin::FDirectionalShadowCasterTable ComparisonTable =
 		Durin::PrepareDirectionalShadowCasterTable(Scene, Shadow, true);
 	const Durin::FDirectionalShadowCasterCandidates& Comparison =
 		ComparisonTable.Cascades[0];
-	EXPECT_EQ(Comparison.StaticMeshes.size(), 3u);
+	EXPECT_EQ(Comparison.SceneInfos.size(), 3u);
 	EXPECT_EQ(Table.SceneTraversals, 1u);
 	EXPECT_EQ(Table.UniqueSubmitted, 3u);
 	EXPECT_EQ(Table.CascadeClassificationTests, 3u);
@@ -1776,9 +1778,9 @@ TEST(FRendererSceneContractTests, DirectionalShadowCasterTableBuildsZeroThroughA
 	EXPECT_EQ(Table.SceneTraversals, 1u);
 	EXPECT_EQ(Table.CascadeClassificationTests, 12u);
 	EXPECT_EQ(Table.MembershipPopcount, 6u);
-	EXPECT_EQ(Table.Cascades[0].StaticMeshes.size(), 1u);
-	EXPECT_EQ(Table.Cascades[1].StaticMeshes.size(), 2u);
-	EXPECT_EQ(Table.Cascades[2].StaticMeshes.size(), 3u);
+	EXPECT_EQ(Table.Cascades[0].SceneInfos.size(), 1u);
+	EXPECT_EQ(Table.Cascades[1].SceneInfos.size(), 2u);
+	EXPECT_EQ(Table.Cascades[2].SceneInfos.size(), 3u);
 }
 
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)
@@ -1799,8 +1801,8 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), InitialTransform);
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
-	ASSERT_EQ(Scene.GetStaticMeshSceneInfos().size(), 1u);
-	const Durin::FPrimitiveSceneInfo* Info = Scene.GetStaticMeshSceneInfos().front();
+	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
+	const Durin::FPrimitiveSceneInfo* Info = Scene.GetPrimitiveSceneInfos().front();
 	EXPECT_EQ(Info->GetId(), Id);
 	EXPECT_TRUE(Info->GetLocalBounds().bIsValid);
 	EXPECT_EQ(Info->GetWorldBounds().Min, Durin::FVector3(9.0, 18.0, 27.0));
@@ -1830,7 +1832,7 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(Scene.GetStaticMeshSceneInfos().size(), 1u);
+	EXPECT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 }
 
 TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisible)
@@ -1873,12 +1875,12 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(Telemetry.Visibility.InvalidViewFallbacks, 0u);
 	EXPECT_EQ(Telemetry.Lighting.SelectedPointLights, 7u);
 	EXPECT_EQ(Telemetry.VolumetricCloud.VolumetricCloudQuality, Durin::EVolumetricCloudQuality::Epic);
-	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
-	const auto CandidateCapacity = Visibility.StaticMeshSceneInfos.capacity();
+	EXPECT_EQ(Visibility.SceneInfos.size(), 2u);
+	const auto CandidateCapacity = Visibility.SceneInfos.capacity();
 	Durin::PrepareSceneVisibility(Scene, View, Telemetry, Visibility);
 	EXPECT_TRUE(Visibility.PrimitiveRecords.empty());
-	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
-	EXPECT_EQ(Visibility.StaticMeshSceneInfos.capacity(), CandidateCapacity);
+	EXPECT_EQ(Visibility.SceneInfos.size(), 2u);
+	EXPECT_EQ(Visibility.SceneInfos.capacity(), CandidateCapacity);
 	EXPECT_EQ(Telemetry.Visibility.SubmittedPrimitives, 4u);
 
 	View.Settings.Mode.VisibilityMode =
@@ -1889,7 +1891,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(DisabledTelemetry.Visibility.HiddenPrimitives, 1u);
 	EXPECT_EQ(DisabledTelemetry.Visibility.FrustumCulledPrimitives, 0u);
 	EXPECT_EQ(DisabledTelemetry.Visibility.VisiblePrimitives, 3u);
-	EXPECT_EQ(Disabled.StaticMeshSceneInfos.size(), 3u);
+	EXPECT_EQ(Disabled.SceneInfos.size(), 3u);
 	EXPECT_TRUE(Disabled.PrimitiveRecords.empty());
 	EXPECT_EQ(Disabled.PrimitiveRecords.capacity(), 0u);
 
@@ -1902,7 +1904,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(InvalidViewTelemetry.Visibility.HiddenPrimitives, 1u);
 	EXPECT_EQ(InvalidViewTelemetry.Visibility.VisiblePrimitives, 3u);
 	EXPECT_EQ(InvalidViewTelemetry.Visibility.InvalidViewFallbacks, 3u);
-	EXPECT_EQ(InvalidView.StaticMeshSceneInfos.size(), 3u);
+	EXPECT_EQ(InvalidView.SceneInfos.size(), 3u);
 }
 
 TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndependent)
@@ -1928,33 +1930,32 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 	Durin::FViewRenderTelemetry AuxiliaryTelemetry;
 	Durin::FSceneVisibilityResult Scratch;
 	Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry, Scratch);
-	EXPECT_TRUE(Scratch.StaticMeshSceneInfos.empty());
-	EXPECT_EQ(Scratch.StaticMeshSceneInfos.capacity(), 0u);
-	EXPECT_EQ(Scratch.SplineMeshSceneInfos.capacity(), 0u);
+	EXPECT_TRUE(Scratch.SceneInfos.empty());
+	EXPECT_EQ(Scratch.SceneInfos.capacity(), 0u);
 	Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry, Scratch, true);
-	ASSERT_EQ(Scratch.StaticMeshSceneInfos.size(), 1u);
+	ASSERT_EQ(Scratch.SceneInfos.size(), 1u);
 	ASSERT_EQ(Scratch.PrimitiveRecords.size(), 1u);
-	const auto* CandidateStorage = Scratch.StaticMeshSceneInfos.data();
+	const auto* CandidateStorage = Scratch.SceneInfos.data();
 	Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry, Scratch);
-	EXPECT_TRUE(Scratch.StaticMeshSceneInfos.empty());
+	EXPECT_TRUE(Scratch.SceneInfos.empty());
 	EXPECT_TRUE(Scratch.PrimitiveRecords.empty());
 	Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry, Scratch);
-	ASSERT_EQ(Scratch.StaticMeshSceneInfos.size(), 1u);
-	EXPECT_EQ(Scratch.StaticMeshSceneInfos.data(), CandidateStorage);
-	EXPECT_EQ(Scratch.StaticMeshSceneInfos.front()->GetId(), Durin::FPrimitiveSceneId(9));
+	ASSERT_EQ(Scratch.SceneInfos.size(), 1u);
+	EXPECT_EQ(Scratch.SceneInfos.data(), CandidateStorage);
+	EXPECT_EQ(Scratch.SceneInfos.front()->GetId(), Durin::FPrimitiveSceneId(9));
 	EXPECT_EQ(
 		Durin::PrepareSceneVisibility(Scene, MainView, MainTelemetry)
-			.StaticMeshSceneInfos.size(),
+			.SceneInfos.size(),
 		1u
 	);
 	EXPECT_TRUE(
 		Durin::PrepareSceneVisibility(Scene, AuxiliaryView, AuxiliaryTelemetry)
-			.StaticMeshSceneInfos.empty()
+			.SceneInfos.empty()
 	);
 	Durin::FViewRenderTelemetry RepeatedMainTelemetry;
 	EXPECT_EQ(
 		Durin::PrepareSceneVisibility(Scene, MainView, RepeatedMainTelemetry)
-			.StaticMeshSceneInfos.size(),
+			.SceneInfos.size(),
 		1u
 	);
 
@@ -2195,8 +2196,8 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	const Durin::FPrimitiveSceneId Id(92);
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 1, First), Durin::Math::TranslationMatrix(Durin::FVector3(2.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
-	ASSERT_EQ(Scene.GetSplineMeshSceneInfos().size(), 1u);
-	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSplineMeshSceneInfos().front();
+	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
+	const Durin::FPrimitiveSceneInfo* Info = Scene.GetPrimitiveSceneInfos().front();
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 1u);
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 2.0);
 
@@ -2206,7 +2207,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	Second.LocalBounds = Durin::FBox({-2.0, -3.0, -1.0}, {23.0, 13.0, 1.0});
 	Scene.UpdateSplineMeshDynamicData(Id, Second);
 	Durin::FlushRenderingCommands();
-	Info = Scene.GetSplineMeshSceneInfos().front();
+	Info = Scene.GetPrimitiveSceneInfos().front();
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
@@ -2216,7 +2217,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	Stale.LocalBounds = Durin::FBox(Durin::FVector3(-100.0), Durin::FVector3(100.0));
 	Scene.UpdateSplineMeshDynamicData(Id, Stale);
 	Durin::FlushRenderingCommands();
-	Info = Scene.GetSplineMeshSceneInfos().front();
+	Info = Scene.GetPrimitiveSceneInfos().front();
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
 	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
@@ -2226,7 +2227,7 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 	View.Settings.Mode.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
 	const Durin::FSceneVisibilityResult Visibility =
 		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
-	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);
+	EXPECT_EQ(Visibility.SceneInfos.size(), 1u);
 	EXPECT_EQ(Telemetry.SplineMesh.VisibleSplineMeshCandidates, 1u);
 }
 
@@ -2256,6 +2257,7 @@ TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactio
 			.Binding = Binding};
 		FMeshBatchCollector Collector(EMeshCollectionPurpose::Receiver);
 		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Empty);
+		EXPECT_EQ(Collector.GetOutcomeCount(EGeometrySubmissionOutcome::Empty), 1u);
 		FMeshBatchElement Element{
 			.ElementId = 8,
 			.Draw = {.bIndexed = false, .ElementCount = 3},
@@ -2559,4 +2561,34 @@ namespace Durin::Tests
 		FlushRenderingCommands();
 	}
 
+}
+
+TEST(FRendererSceneContractTests, ResolvesRegisteredMeshFactoriesWithoutFamilyDispatch)
+{
+	using namespace Durin;
+	using namespace Durin::RendererPrivate;
+	const auto Local = FindMeshVertexFactory(FStaticMeshBatchBinding{}.GetFactoryKey());
+	const auto Spline = FindMeshVertexFactory(FSplineMeshBatchBinding{}.GetFactoryKey());
+	ASSERT_TRUE(Local);
+	ASSERT_TRUE(Spline);
+	EXPECT_NE(Local->GetType().GetStableKey(), Spline->GetType().GetStableKey());
+	EXPECT_NE(Local->GetLayoutKey(), Spline->GetLayoutKey());
+	for (uint32 Pass = 0; Pass < 3; ++Pass)
+	{
+		ASSERT_NE(Local->GetShaderType(Pass), nullptr);
+		ASSERT_NE(Spline->GetShaderType(Pass), nullptr);
+		EXPECT_NE(Local->GetShaderType(Pass), Spline->GetShaderType(Pass));
+	}
+	EXPECT_EQ(Local->GetShaderType(99), nullptr);
+	EXPECT_EQ(Spline->GetShaderType(99), nullptr);
+	EXPECT_FALSE(FindMeshVertexFactory({0}));
+	EXPECT_FALSE(RegisterMeshVertexFactory(nullptr));
+	EXPECT_FALSE(RegisterMeshVertexFactory(Local));
+	EXPECT_EQ(FindMeshVertexFactory(Local->GetType().GetStableKey()), Local);
+	FShaderCompileOptions Options;
+	const auto* SplineShader = Spline->GetShaderType(MaterialMeshPassForward);
+	SplineShader->ModifyCompilationEnvironment({SplineShader, SplineShader->GetVirtualShaderPath(), SplineShader->GetEntryPoint(), SplineShader->GetFrequency()}, Options);
+	EXPECT_TRUE(std::ranges::any_of(Options.Macros, [](const auto& Macro) {
+		return Macro.Name == "DURIN_SPLINE_MESH" && Macro.Value == "1";
+	}));
 }

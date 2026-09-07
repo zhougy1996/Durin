@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class FSplineMeshSceneProxy;
-	class FStaticMeshSceneProxy;
 	struct FSplineMeshRenderDynamicData;
 
 	// Owns one primitive proxy plus Renderer-derived transform and bounds state.
@@ -28,7 +27,6 @@ namespace Durin
 		auto GetWorldBounds() const -> const FBox& { return WorldBounds; }
 		auto IsVisible() const -> bool { return bVisible; }
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
-		RENDERER_API auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
 		RENDERER_API auto GetSplineMeshProxy() const -> FSplineMeshSceneProxy&;
 		RENDERER_API auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }

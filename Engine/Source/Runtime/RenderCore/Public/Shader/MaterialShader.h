@@ -182,6 +182,8 @@ namespace Durin
 		uint32 MeshPermutationId = 0;
 		std::span<const FShaderType* const> ShaderTypes;
 		FShaderCompileOptions CompileOptions;
+		std::string FixedShaderRuntimeRequest;
+		std::string FixedFragmentRuntimeRequest;
 		std::span<const FCompiledShader> GeneratedStages;
 		FMaterialProgramIdentity CompiledProgramIdentity;
 		std::string CompiledTarget;

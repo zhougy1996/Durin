@@ -35,8 +35,7 @@ namespace Durin
 	struct FSceneVisibilityResult
 	{
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
-		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
-		std::vector<const FPrimitiveSceneInfo*> SplineMeshSceneInfos;
+		std::vector<const FPrimitiveSceneInfo*> SceneInfos;
 	};
 
 	// Replaces the result while retaining capacity. Records are opt-in; pointers

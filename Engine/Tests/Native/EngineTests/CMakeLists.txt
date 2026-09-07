@@ -97,7 +97,8 @@ function(durin_add_engine_functional_test target_name)
 	)
 	if(DURIN_WITH_EDITOR
 		AND Renderer IN_LIST DURIN_ENGINE_TEST_LIBRARIES
-		AND NOT target_name STREQUAL "RendererResourceReloadVulkanTests")
+		AND NOT target_name STREQUAL "RendererResourceReloadVulkanTests"
+		AND NOT target_name STREQUAL "StaticMeshRenderPreparationVulkanTests")
 		set(_durin_authored_shader_environment
 			"${CMAKE_CURRENT_BINARY_DIR}/Generated/AuthoredShaderTestEnvironment-${target_name}.cpp")
 		configure_file(

@@ -18,6 +18,7 @@ namespace Durin
 	namespace
 	{
 		std::atomic<FShadowDepthTimingQuerySink> GShadowDepthTimingQuerySink = nullptr;
+		std::atomic<FShadowDepthCaptureSink> GShadowDepthCaptureSink = nullptr;
 	}
 
 	struct FDirectionalShadowRenderer::FState
@@ -40,6 +41,11 @@ namespace Durin
 	auto SetShadowDepthTimingQuerySink(FShadowDepthTimingQuerySink Sink) -> void
 	{
 		GShadowDepthTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetShadowDepthCaptureSink(FShadowDepthCaptureSink Sink) -> void
+	{
+		GShadowDepthCaptureSink.store(Sink, std::memory_order_release);
 	}
 
 	FDirectionalShadowRenderer::FDirectionalShadowRenderer(
@@ -147,7 +153,7 @@ namespace Durin
 		for (uint32 Cascade = 0;
 			Cascade < Shadow.View.CascadeCount; ++Cascade)
 		{
-			bReady = StaticMeshes.PrepareShadowResources_RenderThread(
+			bReady = !Shadow.StaticMeshes[Cascade].bResourceFailure && StaticMeshes.PrepareShadowResources_RenderThread(
 				CommandList, Shadow.StaticMeshes[Cascade],
 				ResolvedShadow.StaticMeshes[Cascade]) && bReady;
 		}
@@ -220,6 +226,8 @@ namespace Durin
 			CommandList.EndGPUTimingQuery(TimingQuery);
 			Sink(TimingQuery);
 		}
+		if (const auto Capture = GShadowDepthCaptureSink.load(std::memory_order_acquire))
+			Capture(CommandList, Target, Shadow.View.CascadeCount);
 		Telemetry.DirectionalShadow.ShadowRejectedDraws =
 			Telemetry.DirectionalShadow.ShadowAttemptedDraws
 				- Telemetry.DirectionalShadow.ShadowSuccessfulDraws;

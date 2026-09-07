@@ -33,6 +33,9 @@ namespace Durin
 		ENGINE_API auto UpdateMaterialBinding_RenderThread(const FMaterialRenderProxyBindingUpdate& Update) -> bool override;
 		ENGINE_API auto UpdateDynamicData_RenderThread(FSplineMeshRenderDynamicData InDynamicData) -> bool;
 
+		ENGINE_API auto CollectMeshBatches(const FMeshCollectionContext& Context,
+			FMeshBatchCollector& Collector) const -> void override;
+
 	private:
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
