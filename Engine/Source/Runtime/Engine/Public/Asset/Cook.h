@@ -172,7 +172,7 @@ namespace Durin
 
 	enum class ECookInputStatus : uint8
 	{
-		None, ProjectionPending, ProviderUnavailable,
+		None, ProjectionPending,
 		UndeclaredInput, InvalidDependency, LimitExceeded, IoError, Cancelled
 	};
 
@@ -188,8 +188,7 @@ namespace Durin
 		uint64 ReusedBytes = 0;
 		// Accounted retained dependency values plus detached outputs; excludes process RSS,
 		// transient codec/compiler buffers, and ordinary loader/resource allocations.
-		uint64 PeakCapturedBytes = 0;
-		uint64 RangeReadCount = 0;
+		uint64 PeakRetainedBytes = 0;
 		uint64 WallTimeNanoseconds = 0;
 		uint64 CommitTimeNanoseconds = 0;
 		uint64 RollbackTimeNanoseconds = 0;
@@ -282,11 +281,11 @@ namespace Durin
 		ECookTargetProfile TargetProfile
 	) -> std::unique_ptr<ICookOutputStore>;
 
+	// Builds detached package plans without owning a disk publication destination.
 	class FCookContext
 	{
 	public:
 		ENGINE_API FCookContext(
-			std::filesystem::path InCookRoot,
 			ECookTargetPlatform InTargetPlatform,
 			ECookTargetProfile InTargetProfile,
 			bool bInRetainEditorOnlyData = false
@@ -315,9 +314,8 @@ namespace Durin
 			FByteBuffer RawSegmentBytes,
 			std::string* OutError = nullptr
 		) -> bool;
-		// Lower-level publication for direct family callers with detached plans. Production
-		// uses the coordinator to add reachability, incremental state and shader outputs.
-		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;
+		// Consumes pending packages, including on failure; rebuild the context to retry.
+		// OutPlans is empty on failure.
 		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans, std::string* OutError = nullptr) -> bool;
 		using FReadInput = std::function<FAssetResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
 		auto SetInputReader(FReadInput Reader) -> void { ReadInput = std::move(Reader); }
@@ -333,19 +331,23 @@ namespace Durin
 
 	private:
 		FReadInput ReadInput;
-		std::filesystem::path CookRoot;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		bool bRetainEditorOnlyData = false;
 		std::vector<FCookSavePlan> Packages;
 	};
 
+	// Consumes a direct family context and publishes through the shared output store.
+	// Production uses the coordinator for reachability, reuse and shader outputs.
+	ENGINE_API auto PublishCookContext(FCookContext& Context,
+		const std::filesystem::path& OutputRoot, std::string* OutError = nullptr) -> bool;
+
 	using FCookContributor = std::function<FAssetResult(
 		DObject&, std::string_view, FCookContext&
 	)>;
 	using FCookContributorHandle = uint64;
 
-	// Describes contributor callbacks and the owner retained by captured runs.
+	// Describes contributor callbacks and the owner retained by active runs.
 	struct FCookContributorRegistration
 	{
 		std::string Name;
@@ -353,7 +355,7 @@ namespace Durin
 		uint32 FamilyProducerVersion = 1;
 		FCookContributor Contribute;
 		std::function<ECookPackageStatus(const DObject&)> ClassifyPreparation;
-		// Pins callback state and native code until the last captured run releases
+		// Pins callback state and native code until the last active run releases
 		// this registration. Empty means the caller guarantees process lifetime.
 		std::shared_ptr<void> LifetimeOwner;
 		// Absence disables incremental reuse. Native callbacks must declare every
@@ -382,7 +384,6 @@ namespace Durin
 		FCookContext& Context,
 		std::string& OutError) -> bool;
 
-	// Runs one deterministic serial project Cook over a captured registry closure.
 	// Validates the write destination against mounted authored trees, resolving existing
 	// filesystem aliases. Performs no writes. Hosts call this before starting services.
 	ENGINE_API auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot,

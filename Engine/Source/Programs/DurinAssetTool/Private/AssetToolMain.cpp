@@ -763,8 +763,9 @@ namespace
 		Root.SetChildValue("profile", "game");
 		Root.SetChildValue("changedBytes", Result.ChangedBytes);
 		Root.SetChildValue("reusedBytes", Result.ReusedBytes);
-		Root.SetChildValue("peakCapturedBytes", Result.PeakCapturedBytes);
-		Root.SetChildValue("rangeReadCount", Result.RangeReadCount);
+		Root.SetChildValue("peakCapturedBytes", Result.PeakRetainedBytes);
+		// Schema v1 compatibility: private resource range reads are no longer tracked.
+		Root.SetChildValue("rangeReadCount", uint64{0});
 		Root.SetChildValue("wallTimeNanoseconds", Result.WallTimeNanoseconds);
 		Root.SetChildValue("commitTimeNanoseconds", Result.CommitTimeNanoseconds);
 		Root.SetChildValue("rollbackTimeNanoseconds", Result.RollbackTimeNanoseconds);

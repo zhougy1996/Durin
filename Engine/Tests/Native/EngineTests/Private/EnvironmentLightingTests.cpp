@@ -133,12 +133,11 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
 	Durin::FCookContext Context(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Asset, "/Game/StudioEnvironment", Context, Error)) << Error;
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot, &Error)) << Error;
 
 	Durin::FAssetPackageInspection Inspection;
 	Durin::FPackagePath CookedPath;

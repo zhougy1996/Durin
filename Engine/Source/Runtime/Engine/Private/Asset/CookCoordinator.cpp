@@ -106,6 +106,32 @@ namespace Durin
 			return true;
 		}
 
+		auto ReadCachedCookPlan(const FCookRequest& Request, const FCookStateEntry& Entry,
+			const std::function<bool()>& Continue, FCookSavePlan& OutPlan) -> bool
+		{
+			FByteBuffer PackageBytes, SegmentBytes;
+			if (!ReadBoundedCookFile(Request.OutputRoot / RelativePackagePath(Entry.VirtualPackagePath), PackageBytes, Continue)
+				|| (Entry.SegmentSize != 0 && !ReadBoundedCookFile(
+					Request.OutputRoot / RelativeSegmentPath(Entry.VirtualPackagePath), SegmentBytes, Continue))
+				|| PackageBytes.size() != Entry.PackageSize || SegmentBytes.size() != Entry.SegmentSize
+				|| FXxHash128::HashBuffer(PackageBytes) != Entry.PackageDigest
+				|| FXxHash128::HashBuffer(SegmentBytes) != Entry.SegmentDigest)
+				return false;
+			OutPlan = {.VirtualPath = Entry.VirtualPackagePath,
+				.PackageBytes = std::move(PackageBytes), .BulkBytes = std::move(SegmentBytes),
+				.BulkSummary = {Entry.SegmentSize, Entry.SegmentDigest},
+				.InputFingerprint = Entry.InputFingerprint, .PackageDigest = Entry.PackageDigest,
+				.SegmentDigest = Entry.SegmentDigest, .PackageFileSize = Entry.PackageSize,
+				.SegmentFileSize = Entry.SegmentSize, .TargetPlatform = Request.TargetPlatform,
+				.TargetProfile = Request.TargetProfile, .ContributorVersion = Entry.ContributorVersion,
+				.FamilyProducerVersion = Entry.FamilyProducerVersion, .Contributor = Entry.Contributor,
+				.BuildProvenance = Entry.BuildProvenance,
+				.bRawBulkSegment = (Entry.SegmentFlags & CookStateSegmentRawFieldProjection) != 0,
+				.bOpaqueRawSegment = (Entry.SegmentFlags & CookStateSegmentOpaque) != 0,
+				.bReuseExistingOutput = true};
+			return true;
+		}
+
 		auto MakeTopLevelObjectPath(
 			const FTopLevelAssetPath& AssetPath, FObjectPath& OutPath) -> bool
 		{
@@ -322,7 +348,7 @@ namespace Durin
 		std::vector<FCookSavePlan> Plans;
 		FCookState NewState{Request.TargetPlatform, Request.TargetProfile};
 		std::vector<FCookAuxiliaryOutput> AuxiliaryOutputs;
-		uint64 CapturedBytes = 0;
+		uint64 RetainedOutputBytes = 0;
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		{
 			FScopedOfflinePreparation Preparation;
@@ -348,15 +374,15 @@ namespace Durin
 			auto CheckInputs = [&]() -> FAssetResult { return Inputs.CheckCancellation(); };
 			auto RetainOutput = [&](uint64 PackageBytes, uint64 BulkBytes) -> bool {
 				constexpr uint64 MaximumOutputBytes = 1024ull * 1024 * 1024;
-				if (PackageBytes > MaximumOutputBytes - CapturedBytes
-					|| BulkBytes > MaximumOutputBytes - CapturedBytes - PackageBytes)
+				if (PackageBytes > MaximumOutputBytes - RetainedOutputBytes
+					|| BulkBytes > MaximumOutputBytes - RetainedOutputBytes - PackageBytes)
 				{
 					OutResult.InputStatus = ECookInputStatus::LimitExceeded;
 					OutResult.InputFailure = {EAssetError::CorruptFile, "Cook detached output byte limit exceeded."};
 					return false;
 				}
-				CapturedBytes += PackageBytes + BulkBytes;
-				OutResult.PeakCapturedBytes = std::max(OutResult.PeakCapturedBytes, CapturedBytes + Inputs.GetRetainedBytes());
+				RetainedOutputBytes += PackageBytes + BulkBytes;
+				OutResult.PeakRetainedBytes = std::max(OutResult.PeakRetainedBytes, RetainedOutputBytes + Inputs.GetRetainedBytes());
 				return true;
 			};
 			auto InputFailure = [&](const FAssetResult& Result) -> bool {
@@ -406,26 +432,16 @@ namespace Durin
 										&& Prior->second->FamilyProducerVersion
 											   == Contributor.FamilyProducerVersion
 										&& Prior->second->BuildDependencies == Dependencies;
-						FByteBuffer ExistingPackageBytes;
-						FByteBuffer ExistingSegmentBytes;
+						FCookSavePlan CachedPlan;
 						if (bCookHit)
-						{
-							bCookHit = ReadBoundedCookFile(Request.OutputRoot / RelativePackagePath(Path.GetView()), ExistingPackageBytes, [&] { return CheckInputs().Succeeded(); });
-							if (bCookHit && Prior->second->SegmentSize != 0)
-								bCookHit = ReadBoundedCookFile(Request.OutputRoot / RelativeSegmentPath(Path.GetView()), ExistingSegmentBytes, [&] { return CheckInputs().Succeeded(); });
-						}
+							bCookHit = ReadCachedCookPlan(Request, *Prior->second,
+								[&] { return CheckInputs().Succeeded(); }, CachedPlan);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
-						if (bCookHit)
-							bCookHit = ExistingPackageBytes.size() == Prior->second->PackageSize
-								&& ExistingSegmentBytes.size() == Prior->second->SegmentSize
-								&& FXxHash128::HashBuffer(ExistingPackageBytes) == Prior->second->PackageDigest
-								&& FXxHash128::HashBuffer(ExistingSegmentBytes) == Prior->second->SegmentDigest;
 						if (bCookHit)
 						{
 							const FCookStateEntry& Hit = *Prior->second;
 							if (!RetainOutput(Hit.PackageSize, Hit.SegmentSize)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
-							Plans.push_back({.VirtualPath = Hit.VirtualPackagePath, .PackageBytes = std::move(ExistingPackageBytes), .BulkBytes = std::move(ExistingSegmentBytes), .InputFingerprint = Hit.InputFingerprint, .PackageDigest = Hit.PackageDigest, .SegmentDigest = Hit.SegmentDigest, .PackageFileSize = Hit.PackageSize, .SegmentFileSize = Hit.SegmentSize, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile, .ContributorVersion = Hit.ContributorVersion, .FamilyProducerVersion = Hit.FamilyProducerVersion, .Contributor = Hit.Contributor, .BuildProvenance = Hit.BuildProvenance, .bRawBulkSegment = (Hit.SegmentFlags & CookStateSegmentRawFieldProjection) != 0, .bOpaqueRawSegment = (Hit.SegmentFlags & CookStateSegmentOpaque) != 0, .bReuseExistingOutput = true});
-							Plans.back().BulkSummary = {Hit.SegmentSize, Hit.SegmentDigest};
+							Plans.push_back(std::move(CachedPlan));
 							NewState.Entries.push_back(Hit);
 							OutResult.ReusedBytes += Hit.PackageSize + Hit.SegmentSize;
 							OutResult.Packages.push_back({{}, Path, Hit.Contributor, "cook-hit", "Validated unchanged Cook outputs.", ECookPackageStatus::CookHit, ECookOperationStage::Capture, Hit.PackageSize, Hit.SegmentSize});
@@ -440,8 +456,8 @@ namespace Durin
 						DObject* Asset = nullptr;
 						const FAssetResult LoadResult = LoadObject(CookRootPath, Asset);
 						if (!LoadResult || !Asset) return InputFailure(LoadResult);
-						FCookContext Capture({}, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
-						Capture.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {
+						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
+						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {
 							return Inputs.ReadInput(Path, Kind, Name, Bytes);
 						});
 
@@ -451,17 +467,17 @@ namespace Durin
 						if (!AuthoredPackage)
 							return Finish(ECookRunStatus::Failed, "missing-package", std::format("CookMissingPackage: package={}, contributor={}", Path.ToString(), Contributor.Name));
 						const FAssetResult Contribution = Contributor.Contribute(
-							*Asset, Path.GetView(), Capture
+							*Asset, Path.GetView(), Context
 						);
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
 						if (!Contribution)
 							return Finish(ECookRunStatus::Failed, "contribution-failed", std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Path.ToString(), Contributor.Name, Contribution.Message));
 						if (ShouldFail && ShouldFail(ECookOperationStage::Capture, Index, Error))
 							return Finish(ECookRunStatus::Failed, "capture-injected-failure", Error);
-						std::vector<FCookSavePlan> Captured;
-						if (!Capture.TakeSavePlans(Captured, &Error) || Captured.size() != 1)
+						std::vector<FCookSavePlan> PackagePlans;
+						if (!Context.TakeSavePlans(PackagePlans, &Error) || PackagePlans.size() != 1)
 							return Finish(ECookRunStatus::Failed, "capture-failed", std::format("CookCaptureFailed: package={}, contributor={}: {}", Path.ToString(), Contributor.Name, Error));
-						FCookSavePlan Plan = std::move(Captured.front());
+						FCookSavePlan Plan = std::move(PackagePlans.front());
 						Plan.InputFingerprint = Fingerprint;
 						Plan.Contributor = Contributor.Name;
 						Plan.ContributorVersion = Contributor.ContributorVersion;
@@ -470,13 +486,8 @@ namespace Durin
 							Contributor.ClassifyPreparation ? Contributor.ClassifyPreparation(*Asset) : ECookPackageStatus::Captured;
 						Plan.BuildProvenance = CookPackageStatusName(PreparationStatus);
 						if (!RetainOutput(Plan.PackageFileSize, Plan.SegmentFileSize)) return Finish(ECookRunStatus::Failed, "output-limit", OutResult.InputFailure.Message);
-						OutResult.PeakCapturedBytes = std::max(OutResult.PeakCapturedBytes, CapturedBytes);
 						OutResult.ChangedBytes += Plan.PackageFileSize + Plan.SegmentFileSize;
-						NewState.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance});
-						NewState.Entries.back().SegmentFlags = static_cast<uint8>(
-							(Plan.bRawBulkSegment ? CookStateSegmentRawFieldProjection : 0)
-							| (Plan.bOpaqueRawSegment ? CookStateSegmentOpaque : 0)
-						);
+						NewState.Entries.push_back(MakeCookStateEntry(Plan));
 						OutResult.Packages.push_back({{}, Path, Plan.Contributor, std::string(CookPackageStatusName(PreparationStatus)), "Captured deterministic package save plan.", PreparationStatus, ECookOperationStage::Capture, Plan.PackageFileSize, Plan.SegmentFileSize});
 						NewState.Entries.back().BuildDependencies = Dependencies;
 						if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
@@ -496,8 +507,8 @@ namespace Durin
 						std::string(ShaderCookedLibraryRelativePath), std::move(ShaderBytes)});
 					AuxiliaryOutputs.back().Digest = FXxHash128::HashBuffer(AuxiliaryOutputs.back().Bytes);
 					if (auto Result = CheckInputs(); !Result) return InputFailure(Result);
-					OutResult.PeakCapturedBytes = std::max(OutResult.PeakCapturedBytes,
-						CapturedBytes + Inputs.GetRetainedBytes());
+					OutResult.PeakRetainedBytes = std::max(OutResult.PeakRetainedBytes,
+						RetainedOutputBytes + Inputs.GetRetainedBytes());
 					return true;
 				}();
 			}

@@ -735,12 +735,12 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::GetTestWorkDirectory() / "VolumeTextureCook");
 	Durin::Testing::RemoveTestWorkDirectory(CookRoot);
-	Durin::FCookContext Cook(CookRoot,
+	Durin::FCookContext Cook(
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Texture, "/Game/CookedVolume", Cook, Error)) << Error;
-	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
 	Durin::FAssetPackageInspection CookedInspection;
 	Durin::FPackagePath CookedInspectionPath;

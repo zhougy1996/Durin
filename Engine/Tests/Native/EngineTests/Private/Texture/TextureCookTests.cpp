@@ -147,12 +147,11 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->HasPlatformData());
 	Durin::FCookContext Cook(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Loaded, "/Game/ColdTexture", Cook, Error)) << Error;
-	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dasset"));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -198,30 +197,27 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
 
 	Durin::FCookContext First(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
-	ASSERT_TRUE(First.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot, &Error)) << Error;
 	EXPECT_EQ(Import.Asset->GetImportedDataIdentity(), SourceIdentityBeforeCook);
 
 	Durin::FCookContext Second(
-		SecondCookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Second, Error)) << Error;
-	ASSERT_TRUE(Second.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot, &Error)) << Error;
 
 	Durin::FCookContext Diagnostic(
-		DiagnosticCookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		true);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", Diagnostic, Error)) << Error;
-	ASSERT_TRUE(Diagnostic.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Diagnostic, DiagnosticCookRoot, &Error)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);

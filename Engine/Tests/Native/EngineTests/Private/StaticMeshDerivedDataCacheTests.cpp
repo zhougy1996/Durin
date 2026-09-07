@@ -402,12 +402,11 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionSecond");
 	for (const std::filesystem::path& Root : {CookRoot, SecondCookRoot})
 	{
-		Durin::FCookContext Context(
-			Root, Durin::ECookTargetPlatform::Win64,
+		Durin::FCookContext Context(Durin::ECookTargetPlatform::Win64,
 			Durin::ECookTargetProfile::Game);
 		ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 			*Fixture.Mesh, "/Game/CookedCollisionMesh", Context, Error)) << Error;
-		ASSERT_TRUE(Context.Publish(&Error)) << Error;
+		ASSERT_TRUE(Durin::PublishCookContext(Context, Root, &Error)) << Error;
 	}
 	Durin::FByteBuffer FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset")));
@@ -472,21 +471,19 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookSecond");
 	Durin::FCookContext First(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Fixture.Mesh, "/Game/CookedMesh", First, Error)) << Error;
-	ASSERT_TRUE(First.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot, &Error)) << Error;
 
 	Durin::FCookContext Second(
-		SecondCookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Fixture.Mesh, "/Game/CookedMesh", Second, Error)) << Error;
-	ASSERT_TRUE(Second.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Second, SecondCookRoot, &Error)) << Error;
 	Durin::FByteBuffer FirstPackage;
 	Durin::FByteBuffer SecondPackage;
 	Durin::FByteBuffer FirstBulk;
@@ -1753,10 +1750,10 @@ TEST(FStaticMeshAuthoredCompilationTests, CookProjectsMissingCpuDataWithoutPubli
 	const auto Revision = Fixture.Mesh->GetRenderResourceStatus().Revision;
 	FByteBuffer Before, After;
 	ASSERT_TRUE(SerializeAssetPackageBytes(Fixture.Mesh->GetPackage(), Before));
-	FCookContext Context(std::filesystem::absolute(Fixture.Root / "Cook"), ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(ContributeEngineCookAsset(*Fixture.Mesh, "/Game/Projection", Context, Error)) << Error;
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Context, std::filesystem::absolute(Fixture.Root / "Cook"), &Error)) << Error;
 	EXPECT_EQ(nullptr, Fixture.Mesh->GetRenderData());
 	EXPECT_EQ(Revision, Fixture.Mesh->GetRenderResourceStatus().Revision);
 	EXPECT_EQ(Identity, Fixture.Mesh->GetImportedData().GetIdentity());
@@ -2087,9 +2084,9 @@ TEST(FStaticMeshPayloadInspectionTests, AuthoredAndCookedMetadataDoesNotDependOn
 	std::string Error;
 	ASSERT_TRUE(Fixture.Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error));
 	const auto CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
-	FCookContext Context(CookRoot, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(ContributeEngineCookAsset(*Fixture.Mesh, "/Game/InspectionMesh", Context, Error)) << Error;
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot, &Error)) << Error;
 	FPackagePath CookedPath;
 	ASSERT_TRUE(FPackagePath::TryCreateProjectContent("/Game/InspectionMesh", CookedPath));
 	ASSERT_TRUE(InspectAssetPackage((CookRoot / "Game/InspectionMesh.dasset").generic_string(), CookedPath, Package));

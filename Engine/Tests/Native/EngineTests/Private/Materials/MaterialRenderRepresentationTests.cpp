@@ -284,13 +284,12 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
 	Durin::FCookContext Cook(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
-	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
 	EXPECT_FALSE(std::filesystem::is_regular_file(

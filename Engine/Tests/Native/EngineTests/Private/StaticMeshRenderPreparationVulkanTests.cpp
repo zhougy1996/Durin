@@ -370,12 +370,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			{.Name = Durin::FName("Section3"), .SourceMaterialIndex = 3}}, Error)) << Error;
 
 	Durin::FCookContext CookContext(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*AuthoredMesh, "/Game/CookedMesh", CookContext, Error)) << Error;
-	ASSERT_TRUE(CookContext.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(CookContext, CookRoot, &Error)) << Error;
 	ASSERT_TRUE(Durin::UnloadPackage(
 		AuthoredPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));

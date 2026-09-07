@@ -1,5 +1,6 @@
 #include "Asset/RegistryOperations.h"
 #include "Asset/Cook.h"
+#include "CookOutputInternal.h"
 #include "Asset/PackageSerialization.h"
 
 #include "AssetPublicationCoordinatorInternal.h"
@@ -395,13 +396,11 @@ namespace Durin
 	}
 
 	FCookContext::FCookContext(
-		std::filesystem::path InCookRoot,
 		ECookTargetPlatform InTargetPlatform,
 		ECookTargetProfile InTargetProfile,
 		bool bInRetainEditorOnlyData
 	)
-		: CookRoot(InCookRoot.lexically_normal())
-		, TargetPlatform(InTargetPlatform)
+		: TargetPlatform(InTargetPlatform)
 		, TargetProfile(InTargetProfile)
 		, bRetainEditorOnlyData(bInRetainEditorOnlyData)
 	{
@@ -409,15 +408,8 @@ namespace Durin
 
 	namespace
 	{
-		auto ValidateCookCapturePath(const std::filesystem::path& CookRoot, std::string_view VirtualPackagePath, std::string* OutError) -> bool
+		auto ValidateCookPlanPath(std::string_view VirtualPackagePath, std::string* OutError) -> bool
 		{
-			if (!CookRoot.empty())
-			{
-				std::filesystem::path Ignored;
-				return ResolveCookedPackagePath(
-					CookRoot, VirtualPackagePath, Ignored, OutError
-				);
-			}
 			if (VirtualPackagePath.empty()
 				|| VirtualPackagePath.front() != '/'
 				|| VirtualPackagePath.back() == '/'
@@ -463,7 +455,7 @@ namespace Durin
 		std::string* OutError
 	) -> bool
 	{
-		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError))
+		if (!ValidateCookPlanPath(VirtualPackagePath, OutError))
 			return false;
 		if (!SourcePackagePath.IsValid())
 			return Fail("Cook source package identity is invalid.", OutError);
@@ -485,7 +477,7 @@ namespace Durin
 		std::string* OutError
 	) -> bool
 	{
-		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError)) return false;
+		if (!ValidateCookPlanPath(VirtualPackagePath, OutError)) return false;
 		if (!Package || !Package->IsAssetPackage()
 			|| Package->GetTopLevelAssets().empty())
 			return Fail("Cook package projection requires a valid asset package.", OutError);
@@ -526,7 +518,7 @@ namespace Durin
 		std::string* OutError
 	) -> bool
 	{
-		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError))
+		if (!ValidateCookPlanPath(VirtualPackagePath, OutError))
 			return false;
 		if (PackageBytes.empty() || RawSegmentBytes.empty())
 			return Fail("Opaque raw Cook packages require package and segment bytes.", OutError);
@@ -549,10 +541,11 @@ namespace Durin
 		std::string* OutError
 	) -> bool
 	{
-		OutPlans = Packages;
+		OutPlans.clear();
+		auto Plans = std::exchange(Packages, {});
 		if (!IsValidTarget(TargetPlatform, TargetProfile))
-			return Fail("Cook capture target is invalid.", OutError);
-		for (FCookSavePlan& Plan : OutPlans)
+			return Fail("Cook save-plan target is invalid.", OutError);
+		for (FCookSavePlan& Plan : Plans)
 		{
 			if (!Plan.bOpaqueRawSegment)
 			{
@@ -584,32 +577,30 @@ namespace Durin
 			Plan.TargetPlatform = TargetPlatform;
 			Plan.TargetProfile = TargetProfile;
 		}
-		std::ranges::sort(OutPlans, {}, &FCookSavePlan::VirtualPath);
-		for (size_t Index = 1; Index < OutPlans.size(); ++Index)
-			if (OutPlans[Index - 1].VirtualPath == OutPlans[Index].VirtualPath)
-				return Fail(std::format("Cook package path {} is duplicated after redirect canonicalization.", OutPlans[Index].VirtualPath), OutError);
+		std::ranges::sort(Plans, {}, &FCookSavePlan::VirtualPath);
+		for (size_t Index = 1; Index < Plans.size(); ++Index)
+			if (Plans[Index - 1].VirtualPath == Plans[Index].VirtualPath)
+				return Fail(std::format("Cook package path {} is duplicated after redirect canonicalization.", Plans[Index].VirtualPath), OutError);
+		OutPlans = std::move(Plans);
 		if (OutError) OutError->clear();
 		return true;
 	}
 
-	auto FCookContext::Publish(std::string* OutError) -> bool
+	auto PublishCookContext(FCookContext& Context,
+		const std::filesystem::path& OutputRoot, std::string* OutError) -> bool
 	{
 		std::vector<FCookSavePlan> Plans;
-		if (!TakeSavePlans(Plans, OutError)) return false;
-		FCookState State{TargetPlatform, TargetProfile};
+		if (!Context.TakeSavePlans(Plans, OutError)) return false;
+		FCookState State{Context.GetTargetPlatform(), Context.GetTargetProfile()};
 		for (FCookSavePlan& Plan : Plans)
 		{
 			Plan.Contributor = "compatibility-context";
 			Plan.BuildProvenance = "captured";
-			State.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance});
-			State.Entries.back().SegmentFlags = static_cast<uint8>(
-				(Plan.bRawBulkSegment ? 1 : 0)
-				| (Plan.bOpaqueRawSegment ? 2 : 0)
-			);
+			State.Entries.push_back(AssetPrivate::MakeCookStateEntry(Plan));
 		}
 		FCookRunResult Result;
 		std::unique_ptr<ICookOutputStore> Store = CreateLocalLooseCookOutputStore(
-			CookRoot, TargetPlatform, TargetProfile
+			OutputRoot, State.TargetPlatform, State.TargetProfile
 		);
 		FCookPublishResult PublishResult = Store->Publish(
 			Plans, {}, State, Result, {}, {});

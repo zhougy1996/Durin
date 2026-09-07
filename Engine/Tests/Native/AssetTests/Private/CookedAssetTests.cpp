@@ -4,6 +4,7 @@
 #include "Asset/PackageSerialization.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
+#include "../../../../Source/Runtime/Engine/Private/Asset/CookMemoryBudget.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -383,8 +384,8 @@ TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)
 {
 	std::string Error;
-	FCookContext First({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	FCookContext Second({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext First(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext Second(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	const Durin::FByteBuffer PackageBytes = MakePackageBytes();
 	ASSERT_TRUE(First.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
 	ASSERT_TRUE(Second.AddRawPackage("/Game/Detached", PackageBytes, {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
@@ -398,6 +399,50 @@ TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)
 	EXPECT_FALSE(FirstPlans[0].SegmentDigest.IsZero());
 }
 
+TEST(FCookDependencyTests, RetainedByteLimitAccumulatesAndRejectsOverflow)
+{
+	constexpr uint64 Limit = 1024ull * 1024 * 1024;
+	uint64 Retained = 0;
+	EXPECT_TRUE(AssetPrivate::TryRetainCookBytes(Limit / 2, Retained, Limit));
+	EXPECT_TRUE(AssetPrivate::TryRetainCookBytes(Limit / 2 - 1, Retained, Limit));
+	EXPECT_FALSE(AssetPrivate::TryRetainCookBytes(2, Retained, Limit));
+	EXPECT_EQ(Retained, Limit - 1);
+	EXPECT_TRUE(AssetPrivate::TryRetainCookBytes(1, Retained, Limit));
+	EXPECT_FALSE(AssetPrivate::TryRetainCookBytes(std::numeric_limits<uint64>::max(), Retained, Limit));
+	EXPECT_EQ(Retained, Limit);
+}
+
+TEST(FCookSavePlanTests, TransfersBuffersAndConsumesPendingPackages)
+{
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Context.AddRawPackage("/Game/Transfer", MakePackageBytes(),
+		FByteBuffer(1024, std::byte{7}), &Error)) << Error;
+	const auto* PackageData = Context.GetSavePlans()[0].PackageBytes.data();
+	const auto* BulkData = Context.GetSavePlans()[0].BulkBytes.data();
+	std::vector<FCookSavePlan> Plans;
+	ASSERT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
+	ASSERT_EQ(Plans.size(), 1u);
+	EXPECT_EQ(Plans[0].PackageBytes.data(), PackageData);
+	EXPECT_EQ(Plans[0].BulkBytes.data(), BulkData);
+	EXPECT_TRUE(Context.GetSavePlans().empty());
+	ASSERT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
+	EXPECT_TRUE(Plans.empty());
+}
+
+TEST(FCookSavePlanTests, FailedFinalizationReturnsNoPartialPlans)
+{
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Context.AddRawPackage("/Game/Good", MakePackageBytes(), {std::byte{7}}, &Error));
+	ASSERT_TRUE(Context.AddPackage("/Game/Corrupt", {std::byte{0}}, &Error));
+	std::vector<FCookSavePlan> Plans(1);
+	EXPECT_FALSE(Context.TakeSavePlans(Plans, &Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Plans.empty());
+	EXPECT_TRUE(Context.GetSavePlans().empty());
+}
+
 TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
@@ -406,7 +451,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::string Error;
 	auto Capture = [&](std::initializer_list<std::byte> Segment) {
-		FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 		EXPECT_TRUE(Context.AddRawPackage("/Game/Transactional", MakePackageBytes(), Durin::FByteBuffer(Segment), &Error)) << Error;
 		std::vector<FCookSavePlan> Plans;
 		EXPECT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
@@ -493,7 +538,7 @@ TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
 		Durin::Testing::GetTestWorkDirectory() / "CookRepairAndLock"
 	);
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Context.AddRawPackage("/Game/Repair", MakePackageBytes(), {std::byte{4}, std::byte{5}, std::byte{6}}, &Error)) << Error;
 	std::vector<FCookSavePlan> Plans;
@@ -529,7 +574,7 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 	);
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	auto Capture = [](std::string Path, std::byte Value) {
-		FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		FCookContext Context(ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 		std::string Error;
 		EXPECT_TRUE(Context.AddRawPackage(std::move(Path), MakePackageBytes(), {Value}, &Error)) << Error;
 		std::vector<FCookSavePlan> Plans;

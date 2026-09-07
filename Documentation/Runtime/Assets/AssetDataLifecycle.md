@@ -464,6 +464,14 @@ and detached outputs; it excludes temporary codec/compiler buffers and ordinary
 loader/resource allocations. Shader identity evaluation separately caps total source bytes at 512 MiB and checks
 cancellation between directory entries, read chunks, and library requests.
 
+`FCookContext` owns pending package buffers and target settings, without a disk
+output root. `TakeSavePlans` consumes those buffers and returns canonical detached
+plans; failure consumes the pending work and leaves the result empty. Direct
+family callers use `PublishCookContext(Context, OutputRoot)`; production uses the
+coordinator. Both publish through the same output store. The C++ retained-byte
+metric is `PeakRetainedBytes`; JSON schema v1 keeps `peakCapturedBytes` and the
+retired `rangeReadCount` field (always zero) for compatibility.
+
 All save plans are detached before `ICookOutputStore` opens its transaction.
 The local loose store enforces one writer per output root, stages and validates
 every changed file, retains overwritten bytes, commits segments before packages,

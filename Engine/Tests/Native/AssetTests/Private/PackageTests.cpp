@@ -4090,11 +4090,10 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	std::string Error;
 	ASSERT_TRUE(Durin::FBulkData::TryCreateDetached(
 		BulkBytes, Source->CookedBulk, &Error)) << Error;
-	Durin::FCookContext Context(
-		CookRoot, Durin::ECookTargetPlatform::Win64,
+	Durin::FCookContext Context(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Context.AddPackage(Path.ToString(), Source->GetPackage(), &Error)) << Error;
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot, &Error)) << Error;
 	EXPECT_EQ(Source->CookedBulk.GetState(), Durin::EBulkDataState::Detached);
 
 	std::filesystem::path PackagePath;
@@ -4207,11 +4206,10 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 	std::string Error;
 	ASSERT_TRUE(Durin::FBulkData::TryCreateDetached(
 		InlineBytes, Source->CookedBulk, &Error)) << Error;
-	Durin::FCookContext Context(
-		CookRoot, Durin::ECookTargetPlatform::Win64,
+	Durin::FCookContext Context(Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game);
 	ASSERT_TRUE(Context.AddPackage(Path.ToString(), Source->GetPackage(), &Error)) << Error;
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Context, CookRoot, &Error)) << Error;
 
 	std::filesystem::path PackagePath;
 	ASSERT_TRUE(Durin::ResolveCookedPackagePath(
@@ -5321,7 +5319,6 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	);
 	Durin::Testing::RemoveTestWorkDirectory(CookRoot);
 	Durin::FCookContext Cook(
-		CookRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game
 	);
@@ -5329,7 +5326,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		OwnerPath.ToString(), AuthoredBytes, {}
 	));
 	std::string CookError;
-	ASSERT_TRUE(Cook.Publish(&CookError)) << CookError;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &CookError)) << CookError;
 	Durin::FAssetPackageHeader PublishedHeader;
 	ASSERT_TRUE(Durin::ReadAssetPackageHeader(
 		(CookRoot / "TestAssets/CookCanonicalOwner.dasset").generic_string(),
@@ -5358,14 +5355,13 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	);
 	Durin::Testing::RemoveTestWorkDirectory(RedirectorRoot);
 	Durin::FCookContext RedirectorCook(
-		RedirectorRoot,
 		Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game
 	);
 	ASSERT_TRUE(RedirectorCook.AddPackage(
 		OldTargetPath.ToString(), AliasBytes, {}
 	));
-	EXPECT_FALSE(RedirectorCook.Publish(&CookError));
+	EXPECT_FALSE(Durin::PublishCookContext(RedirectorCook, RedirectorRoot, &CookError));
 	EXPECT_NE(CookError.find("redirector packages are uncooked-only"), std::string::npos);
 	EXPECT_FALSE(std::filesystem::exists(
 		RedirectorRoot / "CookManifest.bin"
@@ -8188,7 +8184,7 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	const auto ExternalFile = Testing::GetTestWorkDirectory() / "cook-input.bin";
 	FByteBuffer External{std::byte{1}}, Configuration{std::byte{3}};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(External, ExternalFile));
-	bool Transitive = false, ReplaceAfterSeal = false;
+	bool Transitive = false;
 	uint32 Contributions = 0;
 	FByteBuffer ObservedFile, ObservedConfiguration;
 	FCookContributorRegistration Registration{
@@ -8250,6 +8246,12 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{9}}, ExternalFile));
 	Run(false); EXPECT_EQ(ObservedFile, FByteBuffer{std::byte{9}}); Run(true);
 	EXPECT_EQ(Contributions, 7u);
+	// Both the declared value and its expanded dependency record remain accounted.
+	const uint64 PreviousPeak = Result.PeakRetainedBytes;
+	Configuration.resize(64 * 1024, std::byte{4});
+	Run(false);
+	EXPECT_EQ(Result.PeakRetainedBytes - PreviousPeak, 3u * (Configuration.size() - 1));
+
 	FByteBuffer ManifestBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(ManifestBytes, Request.OutputRoot / "CookManifest.bin"));
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "TestAssets/BuildInput1.dasset"));

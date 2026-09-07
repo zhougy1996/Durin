@@ -1,4 +1,5 @@
 #include "CookDependencyDiscovery.h"
+#include "CookMemoryBudget.h"
 #include "Shader/ShaderBuildProvider.h"
 #include "Asset/RegistryOperations.h"
 #include "Asset/References.h"
@@ -226,9 +227,8 @@ namespace Durin::AssetPrivate
 			for (const auto* Route : Routes) { Writer.WriteString(Route->DeclaringType); Writer.WriteString(Route->StoredName); Writer.WriteString(Route->DeprecatedPropertyName); Writer.WriteU32(static_cast<uint32>(Route->Kind)); Writer.WriteString(Route->TypeSignature); }
 			if (!Valid || Writer.HasError()) return Fail(EAssetError::CorruptFile, "Cook schema limit exceeded.", ECookInputStatus::LimitExceeded);
 			auto Bytes = Writer.TakeBytes();
-			if (Bytes.size() > MaximumDiscoveryBytes - RetainedBytes)
+			if (!TryRetainCookBytes(Bytes.size(), RetainedBytes, MaximumDiscoveryBytes))
 				return Fail(EAssetError::CorruptFile, "Cook schema storage limit exceeded.", ECookInputStatus::LimitExceeded);
-			RetainedBytes += Bytes.size();
 			SchemaValues.emplace(Name, Bytes);
 			Node.Inputs.push_back({ECookBuildDependencyKind::SchemaProducerVersion, "schema/" + Name, std::move(Bytes)});
 		}
@@ -367,9 +367,8 @@ namespace Durin::AssetPrivate
 								if (!Declaration.FilePath.empty() || Declaration.Value.size() > MaximumCookDependencyValueBytes)
 									return Fail(EAssetError::CorruptFile, "Invalid Cook value declaration.");
 								const uint64 RetainedValueBytes = Declaration.Value.size() * 2;
-								if (RetainedValueBytes > MaximumDiscoveryBytes - RetainedBytes)
+								if (!TryRetainCookBytes(RetainedValueBytes, RetainedBytes, MaximumDiscoveryBytes))
 									return Fail(EAssetError::CorruptFile, "Cook declared value limit exceeded.", ECookInputStatus::LimitExceeded);
-								RetainedBytes += RetainedValueBytes;
 								Value = Declaration.Value;
 								Node.Inputs.push_back({Declaration.Kind, Declaration.LogicalName, Value});
 							}
@@ -406,9 +405,9 @@ namespace Durin::AssetPrivate
 			for (const auto& Record : Inputs.at(Path).Dependencies)
 			{
 				const uint64 Size = Record.LogicalName.size() + Record.Value.size() + 9;
-				if (Size > MaximumDiscoveryBytes - RetainedBytes) return Fail(EAssetError::CorruptFile,
+				if (!TryRetainCookBytes(Size, RetainedBytes, MaximumDiscoveryBytes)) return Fail(EAssetError::CorruptFile,
 					"Cook retained dependency limit exceeded.", ECookInputStatus::LimitExceeded);
-					}
+			}
 		}
 		if (auto Result = CheckCancellation(); !Result) return Result;
 		return {};
