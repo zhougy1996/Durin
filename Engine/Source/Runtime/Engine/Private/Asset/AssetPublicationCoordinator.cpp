@@ -75,14 +75,7 @@ namespace Durin
 					.SourceFingerprint = OutFingerprint, .Kind = Kind,
 					.TargetPath = Target});
 			};
-			for (const FPackagePath& Dependency : Data.Dependencies)
-				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-					|| Dependency != Data.RedirectDestination)
-					Add(EAssetReferenceKind::HardObject, Dependency);
-			for (const FPackagePath& Dependency : Data.SoftDependencies)
-				Add(EAssetReferenceKind::SoftObject, Dependency);
-			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
-				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+			VisitAssetPackageReferences(Data, Add);
 			if (OutEdges.size() > MaximumReferencesPerSnapshot)
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 package edges.");

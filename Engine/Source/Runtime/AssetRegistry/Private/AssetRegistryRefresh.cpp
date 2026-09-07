@@ -68,14 +68,7 @@ namespace Durin
 				ReferenceEdges.push_back({.SourcePackage = Data->PackagePath,
 					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
 			};
-			for (const FPackagePath& Dependency : Data->Dependencies)
-				if (Data->EntryKind != EAssetRegistryEntryKind::Redirector
-					|| Dependency != Data->RedirectDestination)
-					Add(EAssetReferenceKind::HardObject, Dependency);
-			for (const FPackagePath& Dependency : Data->SoftDependencies)
-				Add(EAssetReferenceKind::SoftObject, Dependency);
-			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
-				Add(EAssetReferenceKind::Redirect, Data->RedirectDestination);
+			VisitAssetPackageReferences(*Data, Add);
 		}
 		std::ranges::sort(ReferenceEdges, ReferenceLess);
 		ReferenceEdges.erase(std::unique(ReferenceEdges.begin(), ReferenceEdges.end(),

@@ -76,7 +76,7 @@ namespace Durin
 			Registry.HardPackageReferences.end());
 		Header.SoftDependencies.assign(Registry.SoftPackageReferences.begin(),
 			Registry.SoftPackageReferences.end());
-		if (!Header.TopLevelAssets.empty())
+		if (Header.TopLevelAssets.size() == 1)
 		{
 			const auto& First = Header.TopLevelAssets.front();
 			Header.AssetClassName = First.AssetClassName;
@@ -85,6 +85,10 @@ namespace Durin
 			Header.RedirectDestination = First.RedirectDestination.GetPackagePath();
 		}
 		Header.SearchableNames = std::move(Registry.SearchableNames);
+		if (!ArePackageAssetsValid(Header.TopLevelAssets, PackagePath,
+			Header.ObjectCount, Header.Dependencies))
+			return Error(EAssetRegistryError::CorruptFile,
+				"DAST v9 Registry contains invalid exact asset metadata.");
 		OutHeader = std::move(Header);
 		return {};
 	}

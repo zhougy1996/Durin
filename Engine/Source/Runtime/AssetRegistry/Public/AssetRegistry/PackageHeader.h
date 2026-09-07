@@ -8,17 +8,13 @@
 
 namespace Durin
 {
-	struct FAssetPackageTopLevelAssetHeader
-	{
-		FTopLevelAssetPath AssetPath;
-		std::string AssetClassName;
-		FObjectPath RedirectDestination;
-	};
+	using FAssetPackageTopLevelAssetHeader = FTopLevelAssetData;
 
 	struct FAssetPackageHeader
 	{
 		FPackagePath PackagePath;
 		std::vector<FAssetPackageTopLevelAssetHeader> TopLevelAssets;
+		// Compatibility projection for exactly one top-level asset, never a representative of many.
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FPackagePath RedirectDestination;

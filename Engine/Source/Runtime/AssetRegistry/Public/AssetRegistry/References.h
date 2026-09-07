@@ -18,6 +18,25 @@ namespace Durin
 		Redirect
 	};
 
+	// Aggregates every asset's redirects. Mixed packages retain hard edges even when
+	// an ordinary reference and a redirect share the same destination package.
+	template <typename TVisitor>
+	auto VisitAssetPackageReferences(const FAssetData& Data, TVisitor&& Visitor) -> void
+	{
+		const bool bOnlyRedirectors = !Data.TopLevelAssets.empty()
+			&& std::ranges::all_of(Data.TopLevelAssets, &FTopLevelAssetData::IsRedirector);
+		for (const FPackagePath& Target : Data.Dependencies)
+			if (!bOnlyRedirectors || std::ranges::none_of(Data.TopLevelAssets,
+				[&](const FTopLevelAssetData& Asset) {
+					return Asset.RedirectDestination.GetPackagePath() == Target;
+				})) Visitor(EAssetReferenceKind::HardObject, Target);
+		for (const FPackagePath& Target : Data.SoftDependencies)
+			Visitor(EAssetReferenceKind::SoftObject, Target);
+		for (const FTopLevelAssetData& Asset : Data.TopLevelAssets)
+			if (Asset.IsRedirector())
+				Visitor(EAssetReferenceKind::Redirect, Asset.RedirectDestination.GetPackagePath());
+	}
+
 	// Persistent package-level dependency; exact object/property occurrences are transient tooling data.
 	struct FAssetPackageReferenceEdge
 	{

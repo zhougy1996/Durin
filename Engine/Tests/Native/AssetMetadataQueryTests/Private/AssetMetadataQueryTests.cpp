@@ -17,7 +17,10 @@ namespace
 		std::vector<Durin::FPackagePath> Hard = {},
 		std::vector<Durin::FPackagePath> Soft = {}) -> FAssetData
 	{
+		FTopLevelAssetPath AssetPath;
+		EXPECT_TRUE(FTopLevelAssetPath::TryCreate(Path, "Asset", AssetPath));
 		return {.PackagePath = Path,
+			.TopLevelAssets = {{AssetPath, "Example::MetadataAsset", {}}},
 			.AssetClassName = "Example::MetadataAsset",
 			.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion,
 			.Dependencies = std::move(Hard),
@@ -126,11 +129,7 @@ namespace
 
 		FAssetRegistryPublication First = CaptureAssetRegistryPublication();
 		const uint64 Revision = First.ExpectedRevision;
-		First.Assets.insert_or_assign(Path, FAssetData{
-			.PackagePath = Path,
-			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion,
-			.ObjectCount = 1});
+		First.Assets.insert_or_assign(Path, MakeAssetData(Path));
 		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
 		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
@@ -241,6 +240,9 @@ namespace
 		Redirect.AssetClassName = "Durin::DAssetRedirector";
 		Redirect.EntryKind = EAssetRegistryEntryKind::Redirector;
 		Redirect.RedirectDestination = TargetPath;
+		Redirect.TopLevelAssets.front().AssetClassName = "Durin::DAssetRedirector";
+		ASSERT_TRUE(FObjectPath::TryCreate(TargetPath.ToString() + ".Asset",
+			Redirect.TopLevelAssets.front().RedirectDestination));
 		Publication.Assets.insert_or_assign(RedirectPath, std::move(Redirect));
 		RebuildPackageProjection(Publication);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));

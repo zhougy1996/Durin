@@ -11,11 +11,9 @@ namespace Durin::AssetPrivate
 	namespace
 	{
 		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-		constexpr uint32 AssetRegistrySchemaVersion = 4;
+		constexpr uint32 AssetRegistrySchemaVersion = 5;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
-		constexpr std::string_view RedirectorClassName =
-			"Durin::DAssetRedirector";
 
 		auto IsValidRegistryCacheHeader(
 			const FRegistryCacheEntry& Entry) -> bool
@@ -40,14 +38,12 @@ namespace Durin::AssetPrivate
 				|| !std::ranges::is_sorted(Entry.SearchableNames)
 				|| std::adjacent_find(Entry.SearchableNames.begin(), Entry.SearchableNames.end())
 					!= Entry.SearchableNames.end()) return false;
-			if (Entry.EntryKind == EAssetRegistryEntryKind::Asset)
-				return !Entry.RedirectDestination.IsValid()
-					&& Entry.AssetClassName != RedirectorClassName;
-			return Entry.EntryKind == EAssetRegistryEntryKind::Redirector
-				&& Entry.AssetClassName == RedirectorClassName
-				&& Entry.RedirectDestination.IsValid()
-				&& Entry.Dependencies.size() == 1
-				&& Entry.Dependencies.front() == Entry.RedirectDestination;
+			std::filesystem::path Relative(Entry.RelativePath);
+			Relative.replace_extension();
+			FPackagePath PackagePath;
+			return FPackagePath::TryCreate(Entry.MountRoot + Relative.generic_string(), PackagePath)
+				&& ArePackageAssetsValid(Entry.TopLevelAssets, PackagePath,
+					Entry.ObjectCount, Entry.Dependencies);
 		}
 	}
 
@@ -148,26 +144,11 @@ namespace Durin::AssetPrivate
 				}
 				Entry.TopLevelAssets.push_back(std::move(Asset));
 			}
-			uint8 EntryKind = 0;
-			std::string RedirectDestination;
 			uint32 DependencyCount = 0;
-			if (!Reader.ReadString(Entry.AssetClassName)
-				|| !Reader.ReadU8(EntryKind)
-				|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
-				|| !Reader.ReadString(RedirectDestination)
-				|| !Reader.ReadU32(Entry.FormatVersion)
+			if (!Reader.ReadU32(Entry.FormatVersion)
 				|| !Reader.ReadU32(DependencyCount) || DependencyCount > MaximumRegistryDependencies)
 			{
 				OutWarning = "Ignoring corrupt asset registry cache entry.";
-				OutEntries.clear();
-				return false;
-			}
-			Entry.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
-			if (!RedirectDestination.empty()
-				&& !FPackagePath::TryCreate(
-					RedirectDestination, Entry.RedirectDestination))
-			{
-				OutWarning = "Ignoring invalid redirect destination in asset registry cache.";
 				OutEntries.clear();
 				return false;
 			}
@@ -280,9 +261,6 @@ namespace Durin::AssetPrivate
 				Writer.WriteString(Asset.AssetClassName);
 				Writer.WriteString(Asset.RedirectDestination.ToString());
 			}
-			Writer.WriteString(Entry.AssetClassName);
-			Writer.WriteU8(static_cast<uint8>(Entry.EntryKind));
-			Writer.WriteString(Entry.RedirectDestination.ToString());
 			Writer.WriteU32(Entry.FormatVersion);
 			Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
 			for (const FPackagePath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
@@ -333,9 +311,6 @@ namespace Durin::AssetPrivate
 				.MountRoot = Lookup.Mount->VirtualRoot,
 				.RelativePath = RelativeString,
 				.TopLevelAssets = Data.TopLevelAssets,
-				.AssetClassName = Data.AssetClassName,
-				.EntryKind = Data.EntryKind,
-				.RedirectDestination = Data.RedirectDestination,
 				.FormatVersion = Data.FormatVersion,
 				.Dependencies = Data.Dependencies,
 				.SoftDependencies = Data.SoftDependencies,

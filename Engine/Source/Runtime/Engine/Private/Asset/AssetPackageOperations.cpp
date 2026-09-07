@@ -362,28 +362,12 @@ namespace Durin
 			uint64 ObjectCount,
 			const FPackagePath* SourcePath = nullptr) -> FAssetResult
 		{
-			if (File.EntryKind == EAssetRegistryEntryKind::Asset)
-			{
-				if (File.RedirectDestination.IsValid())
-					return CorruptRedirector("an ordinary asset declares a redirect destination.");
-				if (File.AssetClassName == RedirectorClassName)
-					return CorruptRedirector("the redirector class is marked as an ordinary asset.");
-				return {};
-			}
-			if (File.EntryKind != EAssetRegistryEntryKind::Redirector)
-				return CorruptRedirector("the package declares an unknown registry entry kind.");
-			if (File.AssetClassName != RedirectorClassName)
-				return CorruptRedirector("the redirect entry does not use DAssetRedirector.");
-			if (!File.RedirectDestination.IsValid())
-				return CorruptRedirector("the redirect destination is missing or invalid.");
-			if (SourcePath && *SourcePath == File.RedirectDestination)
-				return CorruptRedirector("a redirector cannot target its own package.");
-			if (ObjectCount != 1)
-				return CorruptRedirector("a redirector package must contain exactly one object.");
-			if (File.Dependencies.size() != 1
-				|| File.Dependencies.front() != File.RedirectDestination)
-				return CorruptRedirector(
-					"the dependency table must contain only the redirect destination.");
+			const FPackagePath PackagePath = SourcePath ? *SourcePath
+				: (File.TopLevelAssets.empty() ? FPackagePath{}
+					: File.TopLevelAssets.front().AssetPath.GetPackagePath());
+			if (!ArePackageAssetsValid(File.TopLevelAssets, PackagePath,
+				ObjectCount, File.Dependencies))
+				return CorruptRedirector("the package contains invalid exact asset metadata.");
 			return {};
 		}
 
@@ -1016,6 +1000,7 @@ namespace Durin
 		{
 			const FPackageFile File{
 				.FormatVersion = Metadata.FormatVersion,
+				.TopLevelAssets = Metadata.TopLevelAssets,
 				.AssetClassName = Metadata.AssetClassName,
 				.EntryKind = Metadata.EntryKind,
 				.RedirectDestination = Metadata.RedirectDestination,

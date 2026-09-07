@@ -8,6 +8,7 @@ namespace Durin::AssetPrivate
 	struct FMutationPackageMetadata
 	{
 		uint32 FormatVersion = 0;
+		std::vector<FTopLevelAssetData> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FPackagePath RedirectDestination;

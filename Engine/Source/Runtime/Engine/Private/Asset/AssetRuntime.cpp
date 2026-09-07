@@ -394,6 +394,7 @@ namespace Durin
 				.bCooked = RuntimeConfiguration.IsCooked()};
 			const AssetPrivate::FMutationPackageMetadata HeaderMetadata{
 				.FormatVersion = Header.FormatVersion,
+				.TopLevelAssets = Header.TopLevelAssets,
 				.AssetClassName = Header.AssetClassName,
 				.EntryKind = Header.EntryKind,
 				.RedirectDestination = Header.RedirectDestination,

@@ -1,5 +1,6 @@
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/References.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetRegistry/Scan.h"
 #include "DObject/PackageFormat.h"
 #include "Misc/FileHelper.h"
@@ -254,4 +255,108 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		CaptureAssetReferenceIndex();
 	EXPECT_EQ((std::vector<FAssetPackageReferenceEdge>(
 		RecoveredIndex.GetEdges().begin(), RecoveredIndex.GetEdges().end())), ColdEdges);
+}
+
+TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPublications)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	const auto WorkRoot = Durin::Testing::GetTestWorkDirectory() / "MultiAssetRedirects";
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
+	const auto ContentRoot = WorkRoot / "Content";
+	std::filesystem::create_directories(ContentRoot);
+	Durin::Testing::FScopedMountRegistryFixture Mounts;
+	Durin::Testing::RegisterMountPointForTests("/Multi/", ContentRoot.generic_string() + "/");
+	Durin::FPaths::SetDerivedDataCacheDirForTests((WorkRoot / "Cache").generic_string());
+	auto ObjectPath = [](std::string_view Value) {
+		FObjectPath Result;
+		EXPECT_TRUE(FObjectPath::TryCreate(Value, Result));
+		return Result;
+	};
+	auto Save = [&](const Package::FLinkerTables& Linker, std::string_view Name) {
+		FByteBuffer Main, Bulk;
+		EXPECT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
+		EXPECT_TRUE(FFileHelper::SaveArrayToFile(Main,
+			ContentRoot / (std::string(Name) + ".dasset")));
+	};
+	for (const std::string Name : {"TargetA", "TargetB"})
+	{
+		auto Linker = MakeRegistryFixture("/Multi/" + Name, {}, {});
+		Linker.Exports.front().ClassName = "Durin::DObject";
+		Linker.Summary.TopLevelAssets.front().ClassName = "Durin::DObject";
+		Save(Linker, Name);
+	}
+	for (const std::string Name : {"Aliases", "MixedFirst", "MixedLast"})
+	{
+		auto Linker = MakeRegistryFixture("/Multi/" + Name,
+			{"/Multi/TargetA", "/Multi/TargetB"}, {});
+		Linker.Exports.clear();
+		Linker.Summary.TopLevelAssets.clear();
+		auto Add = [&](std::string_view AssetName, std::string_view Destination) {
+			Package::FPackageIndex Export;
+			EXPECT_TRUE(Package::FPackageIndex::TryExport(
+				static_cast<uint32>(Linker.Exports.size()), Export));
+			FTopLevelAssetPath AssetPath;
+			EXPECT_TRUE(FTopLevelAssetPath::TryCreate(Linker.Summary.PackagePath,
+				AssetName, AssetPath));
+			const std::string ClassName = Destination.empty()
+				? "Durin::DObject" : "Durin::DAssetRedirector";
+			Linker.Exports.push_back({.ObjectName = std::string(AssetName), .ClassName = ClassName});
+			Linker.Summary.TopLevelAssets.push_back({.Export = Export,
+				.AssetPath = AssetPath, .ClassName = ClassName,
+				.RedirectDestination = Destination.empty() ? FObjectPath{} : ObjectPath(Destination)});
+		};
+		Add("MAlias", "/Multi/TargetA.RegistryFixture");
+		Add("NAlias", "/Multi/TargetB.RegistryFixture");
+		if (Name != "Aliases") Add(Name == "MixedFirst" ? "AOrdinary" : "ZOrdinary", {});
+		Save(Linker, Name);
+	}
+	const auto Cold = RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Cold) << (Cold.Errors.empty() ? "" : Cold.Errors.front().Message);
+	EXPECT_EQ(Cold.CatalogStats.Redirectors, 6u);
+	const auto ColdPublication = CaptureAssetRegistryPublication();
+	for (const std::string Name : {"Aliases", "MixedFirst", "MixedLast"})
+	{
+		const auto Source = Path("/Multi/" + Name);
+		const auto Data = FindAssetExact(Source);
+		ASSERT_TRUE(Data);
+		EXPECT_TRUE(Data->AssetClassName.empty());
+		EXPECT_FALSE(Data->RedirectDestination.IsValid());
+		const auto First = ResolveAssetObjectPath(ObjectPath("/Multi/" + Name + ".MAlias"));
+		ASSERT_TRUE(First);
+		EXPECT_EQ(First.FinalPath, ObjectPath("/Multi/TargetA.RegistryFixture"));
+		const auto Second = ResolveAssetObjectPath(ObjectPath("/Multi/" + Name + ".NAlias"));
+		ASSERT_TRUE(Second);
+		EXPECT_EQ(Second.FinalPath, ObjectPath("/Multi/TargetB.RegistryFixture"));
+		const auto Index = CaptureAssetReferenceIndex();
+		for (const auto& Target : {Path("/Multi/TargetA"), Path("/Multi/TargetB")})
+		{
+			const auto Edges = Index.FindReferencers(Target);
+			EXPECT_TRUE(std::ranges::any_of(Edges, [&](const auto& Edge) {
+				return Edge.SourcePackage == Source && Edge.Kind == EAssetReferenceKind::Redirect;
+			}));
+			EXPECT_EQ(std::ranges::any_of(Edges, [&](const auto& Edge) {
+				return Edge.SourcePackage == Source && Edge.Kind == EAssetReferenceKind::HardObject;
+			}), Name != "Aliases");
+		}
+	}
+	EXPECT_EQ(FindRedirectorsTo(Path("/Multi/TargetB")).size(), 3u);
+	const auto Warm = RefreshAssetRegistry();
+	ASSERT_TRUE(Warm);
+	EXPECT_EQ(Warm.CatalogStats.Reused, 5u);
+	EXPECT_EQ(CaptureAssetRegistryPublication().Assets, ColdPublication.Assets);
+	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, ColdPublication.ReferenceEdges);
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, ColdPublication.ReferenceEdges);
+
+	FAssetData Reordered = *FindAssetExact(Path("/Multi/MixedFirst"));
+	std::ranges::reverse(Reordered.TopLevelAssets);
+	FAssetRegistryDelta Delta{.ExpectedRevision = GetAssetCatalogRevision(), .Replaces = {Reordered}};
+	const auto Published = PublishAssetRegistryDelta(std::move(Delta));
+	ASSERT_TRUE(Published) << Published.Message;
+	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, ColdPublication.ReferenceEdges);
+	const uint64 Revision = GetAssetCatalogRevision();
+	Reordered.TopLevelAssets.back().AssetClassName = "Durin::DAssetRedirector";
+	const auto Rejected = PublishAssetRegistryDelta({.ExpectedRevision = Revision, .Replaces = {Reordered}});
+	EXPECT_FALSE(Rejected);
+	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
 }

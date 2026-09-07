@@ -8,8 +8,6 @@ namespace Durin::AssetPrivate
 {
 	namespace
 	{
-		constexpr std::string_view RedirectorClassName =
-			"Durin::DAssetRedirector";
 
 		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
 		{
@@ -20,16 +18,10 @@ namespace Durin::AssetPrivate
 			const FAssetPackageHeader& Header,
 			const FPackagePath& Source) -> FAssetRegistryResult
 		{
-			if (Header.EntryKind != EAssetRegistryEntryKind::Redirector)
-				return {};
-			if (Header.AssetClassName != RedirectorClassName
-				|| !Header.RedirectDestination.IsValid()
-				|| Header.RedirectDestination == Source
-				|| Header.Dependencies.size() != 1
-				|| Header.Dependencies.front() != Header.RedirectDestination
-				|| Header.ObjectCount != 1)
+			if (!ArePackageAssetsValid(Header.TopLevelAssets, Source,
+				Header.ObjectCount, Header.Dependencies))
 				return Error(EAssetRegistryError::CorruptFile,
-					"CorruptRedirector: package header violates redirector invariants.");
+					"CorruptRedirector: invalid exact asset metadata.");
 			return {};
 		}
 	}
@@ -92,13 +84,18 @@ namespace Durin::AssetPrivate
 					&& CachedIt->second.FileSize == FileSize
 					&& CachedIt->second.LastWriteTimeTicks == LastWriteTimeTicks)
 				{
-					Header.AssetClassName = CachedIt->second.AssetClassName;
 					Header.TopLevelAssets.clear();
 					for (const FTopLevelAssetData& Asset : CachedIt->second.TopLevelAssets)
 						Header.TopLevelAssets.push_back({Asset.AssetPath,
 							Asset.AssetClassName, Asset.RedirectDestination});
-					Header.EntryKind = CachedIt->second.EntryKind;
-					Header.RedirectDestination = CachedIt->second.RedirectDestination;
+					if (Header.TopLevelAssets.size() == 1)
+					{
+						const auto& Asset = Header.TopLevelAssets.front();
+						Header.AssetClassName = Asset.AssetClassName;
+						Header.EntryKind = Asset.IsRedirector()
+							? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
+						Header.RedirectDestination = Asset.RedirectDestination.GetPackagePath();
+					}
 					Header.FormatVersion = CachedIt->second.FormatVersion;
 					Header.Dependencies = CachedIt->second.Dependencies;
 					Header.SoftDependencies = CachedIt->second.SoftDependencies;
@@ -134,8 +131,8 @@ namespace Durin::AssetPrivate
 					++Result.Stats.Failed;
 					continue;
 				}
-				if (Header.EntryKind == EAssetRegistryEntryKind::Redirector)
-					++Result.Stats.Redirectors;
+				for (const auto& Asset : Header.TopLevelAssets)
+					if (Asset.RedirectDestination.IsValid()) ++Result.Stats.Redirectors;
 				if (Result.Assets.contains(DiskPath))
 				{
 					Result.Errors.push_back(Error(EAssetRegistryError::AlreadyExists,
@@ -153,9 +150,6 @@ namespace Durin::AssetPrivate
 								Asset.RedirectDestination});
 						return Assets;
 					}(),
-					.AssetClassName = Header.AssetClassName,
-					.EntryKind = Header.EntryKind,
-					.RedirectDestination = Header.RedirectDestination,
 					.FormatVersion = Header.FormatVersion,
 					.Dependencies = Header.Dependencies,
 					.SoftDependencies = Header.SoftDependencies,

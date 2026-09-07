@@ -11,82 +11,43 @@ namespace Durin
 		constexpr std::string_view RedirectorClassName =
 			"Durin::DAssetRedirector";
 
+		auto ResolveAssetObjectPathInCatalog(
+			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			uint64 Revision, const FObjectPath& Path,
+			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult;
+
 		auto ResolveAssetPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
-			uint64 Revision,
-			const FPackagePath& Path,
+			uint64 Revision, const FPackagePath& Path,
 			const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 		{
 			FAssetPathResolveResult Result;
 			Result.CatalogRevision = Revision;
 			Result.RequestedPath = Path;
-			FPackagePath Current = Path;
-			std::unordered_set<FPackagePath> Visited;
-			while (true)
+			Result.FinalPath = Path;
+			const auto It = Assets.find(Path);
+			if (It == Assets.end()) return Result;
+			const FAssetData& Data = It->second;
+			if (Data.TopLevelAssets.size() != 1)
 			{
-				const auto It = Assets.find(Current);
-				if (It == Assets.end())
-				{
-					Result.FinalPath = Current;
-					Result.State = Result.RedirectChain.empty()
-						? EAssetPathResolveState::NotFound
-						: EAssetPathResolveState::MissingRedirectTarget;
-					return Result;
-				}
-				const FAssetData& Data = It->second;
-				if (Data.EntryKind == EAssetRegistryEntryKind::Asset)
-				{
-					if (Data.RedirectDestination.IsValid()
-						|| Data.AssetClassName == RedirectorClassName)
-					{
-						Result.FinalPath = Current;
-						Result.State = EAssetPathResolveState::CorruptRedirector;
-						return Result;
-					}
-					DClass* TargetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
-					if (!TargetClass)
-					{
-						Result.FinalPath = Current;
-						Result.State = EAssetPathResolveState::UnknownTargetClass;
-						return Result;
-					}
-					if (Options.ExpectedClass && !TargetClass->IsChildOf(Options.ExpectedClass))
-					{
-						Result.FinalPath = Current;
-						Result.State = EAssetPathResolveState::RedirectTypeMismatch;
-						return Result;
-					}
-					Result.FinalPath = Current;
-					Result.FinalAssetData = Data;
-					Result.State = EAssetPathResolveState::Resolved;
-					return Result;
-				}
-				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-					|| Data.AssetClassName != RedirectorClassName
-					|| !Data.RedirectDestination.IsValid()
-					|| Data.RedirectDestination == Current
-					|| Data.Dependencies.size() != 1
-					|| Data.Dependencies.front() != Data.RedirectDestination)
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::CorruptRedirector;
-					return Result;
-				}
-				if (!Visited.insert(Current).second)
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::RedirectCycle;
-					return Result;
-				}
-				if (Result.RedirectChain.size() == MaximumRedirectDepth)
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::RedirectDepthExceeded;
-					return Result;
-				}
-				Result.RedirectChain.push_back(Current);
-				Current = Data.RedirectDestination;
+				// Package lookup cannot choose a class or redirect in a multi-asset package.
+				Result.FinalAssetData = Data;
+				Result.State = Options.ExpectedClass
+					? EAssetPathResolveState::RedirectTypeMismatch
+					: EAssetPathResolveState::Resolved;
+				return Result;
 			}
+			FObjectPath ObjectPath;
+			if (!FObjectPath::TryCreate(Data.TopLevelAssets.front().AssetPath,
+				std::span<const std::string>{}, ObjectPath)) return Result;
+			const FObjectPathResolveResult Exact = ResolveAssetObjectPathInCatalog(
+				Assets, Revision, ObjectPath, Options);
+			Result.State = Exact.State;
+			Result.FinalPath = Exact.FinalPath.GetPackagePath();
+			Result.FinalAssetData = Exact.FinalPackageData;
+			for (const FObjectPath& Redirect : Exact.RedirectChain)
+				Result.RedirectChain.push_back(Redirect.GetPackagePath());
+			return Result;
 		}
 
 		auto AppendRedirectedSubobjectPath(
@@ -230,17 +191,10 @@ namespace Durin
 						!= Data.BulkSegmentDigest.IsZero()))
 					return {EAssetRegistryError::CorruptFile,
 						"Asset registry publication contains inconsistent package metadata."};
-				if ((Data.EntryKind == EAssetRegistryEntryKind::Asset
-						&& (Data.RedirectDestination.IsValid()
-							|| Data.AssetClassName == RedirectorClassName))
-					|| (Data.EntryKind == EAssetRegistryEntryKind::Redirector
-						&& (Data.AssetClassName != RedirectorClassName
-							|| !Data.RedirectDestination.IsValid()
-							|| Data.Dependencies.size() != 1
-							|| Data.Dependencies.front() != Data.RedirectDestination
-							|| Data.ObjectCount != 1)))
+				if (!ArePackageAssetsValid(Data.TopLevelAssets, Path,
+					Data.ObjectCount, Data.Dependencies))
 					return {EAssetRegistryError::CorruptFile,
-						"Asset registry publication contains invalid redirect metadata."};
+						"Asset registry publication contains invalid exact asset metadata."};
 				const FAssetPackageFingerprint ExpectedFingerprint{
 					.FileSize = Data.FileSize,
 					.LastWriteTimeTicks = Data.LastWriteTimeTicks,
@@ -253,14 +207,7 @@ namespace Durin
 						.SourceFingerprint = ExpectedFingerprint, .Kind = Kind,
 						.TargetPath = Target});
 				};
-				for (const FPackagePath& Target : Data.Dependencies)
-					if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-						|| Target != Data.RedirectDestination)
-						Add(EAssetReferenceKind::HardObject, Target);
-				for (const FPackagePath& Target : Data.SoftDependencies)
-					Add(EAssetReferenceKind::SoftObject, Target);
-				if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
-					Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+				VisitAssetPackageReferences(Data, Add);
 			}
 			std::ranges::sort(ExpectedEdges,
 				[](const FAssetPackageReferenceEdge& Left,
@@ -360,8 +307,11 @@ namespace Durin
 		std::shared_lock Lock(Mutex);
 		std::vector<FPackagePath> Result;
 		for (const auto& [Path, Data] : Assets)
-			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector
-				&& Data.RedirectDestination == Destination)
+			if (std::ranges::any_of(Data.TopLevelAssets,
+				[&](const FTopLevelAssetData& Asset) {
+					return Asset.IsRedirector()
+						&& Asset.RedirectDestination.GetPackagePath() == Destination;
+				}))
 				Result.push_back(Path);
 		std::ranges::sort(Result, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
@@ -660,14 +610,7 @@ namespace Durin
 				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
 					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
 			};
-			for (const FPackagePath& Target : Data.Dependencies)
-				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-					|| Target != Data.RedirectDestination)
-					AddEdge(EAssetReferenceKind::HardObject, Target);
-			for (const FPackagePath& Target : Data.SoftDependencies)
-				AddEdge(EAssetReferenceKind::SoftObject, Target);
-			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
-				AddEdge(EAssetReferenceKind::Redirect, Data.RedirectDestination);
+			VisitAssetPackageReferences(Data, AddEdge);
 		}
 		std::ranges::sort(Publication.ReferenceEdges,
 			[](const FAssetPackageReferenceEdge& Left,

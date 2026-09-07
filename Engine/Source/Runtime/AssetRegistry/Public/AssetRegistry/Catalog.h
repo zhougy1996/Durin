@@ -30,12 +30,39 @@ namespace Durin
 		auto operator==(const FTopLevelAssetData&) const -> bool = default;
 	};
 
+	// Validates exact asset identity and redirect metadata independently of export order.
+	template <typename TAsset>
+	auto ArePackageAssetsValid(const std::vector<TAsset>& Assets,
+		const FPackagePath& PackagePath, uint64 ObjectCount,
+		const std::vector<FPackagePath>& Dependencies) -> bool
+	{
+		if (Assets.empty() || Assets.size() > ObjectCount) return false;
+		std::unordered_set<FTopLevelAssetPath> Paths;
+		for (const auto& Asset : Assets)
+		{
+			if (!Asset.AssetPath.IsValid()
+				|| Asset.AssetPath.GetPackagePath() != PackagePath
+				|| !Paths.insert(Asset.AssetPath).second || Asset.AssetClassName.empty()
+				|| (Asset.AssetClassName == "Durin::DAssetRedirector")
+					!= Asset.RedirectDestination.IsValid()) return false;
+			if (Asset.RedirectDestination.IsValid()
+				&& (Asset.RedirectDestination.GetAssetPath() == Asset.AssetPath
+					|| (Asset.RedirectDestination.GetPackagePath() != PackagePath
+						&& std::ranges::find(Dependencies,
+							Asset.RedirectDestination.GetPackagePath()) == Dependencies.end())))
+				return false;
+		}
+		return true;
+	}
+
 	// Describes one persistent package without loading its object graph.
 	struct FAssetData
 	{
 		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		std::vector<FTopLevelAssetData> TopLevelAssets;
+		// Legacy single-asset projection only; multi-asset packages leave these empty/default.
+		// Validation, references, and exact resolution must use TopLevelAssets.
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FPackagePath RedirectDestination;

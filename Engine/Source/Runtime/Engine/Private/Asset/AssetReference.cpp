@@ -28,6 +28,7 @@ namespace Durin
 		struct FPackageFile
 		{
 			uint32 FormatVersion = 0;
+			std::vector<FTopLevelAssetData> TopLevelAssets;
 			std::string AssetClassName;
 			EAssetRegistryEntryKind EntryKind =
 				EAssetRegistryEntryKind::Asset;
@@ -895,6 +896,7 @@ namespace Durin
 			return Result;
 		FPackageFile File{
 			.FormatVersion = Header.FormatVersion,
+			.TopLevelAssets = Header.TopLevelAssets,
 			.AssetClassName = std::move(Header.AssetClassName),
 			.EntryKind = Header.EntryKind};
 		File.RedirectDestination = std::move(Header.RedirectDestination);
@@ -933,6 +935,7 @@ namespace Durin
 			if (!Result) return Result;
 			OutMetadata = {
 				.FormatVersion = File.FormatVersion,
+				.TopLevelAssets = std::move(File.TopLevelAssets),
 				.AssetClassName = std::move(File.AssetClassName),
 				.EntryKind = File.EntryKind,
 				.RedirectDestination = std::move(File.RedirectDestination),
@@ -973,9 +976,21 @@ namespace Durin
 			if (Inspection.Objects.empty())
 				return Error(EAssetError::InvalidObjectGraph,
 					"AssetReferenceIndexInvalidPackage: package has no main object.");
-			if (Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
+			if (Inspection.Header.TopLevelAssets.size() == 1
+				&& Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
 				return Error(EAssetError::TypeMismatch,
 					"AssetReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
+			for (const auto& Asset : Inspection.Header.TopLevelAssets)
+			{
+				const auto Object = std::ranges::find_if(Inspection.Objects,
+					[&](const FAssetPackageObjectInspection& Candidate) {
+						return Candidate.OuterId == 0
+							&& Candidate.ObjectName == Asset.AssetPath.GetAssetName();
+					});
+				if (Object == Inspection.Objects.end() || Object->ClassName != Asset.AssetClassName)
+					return Error(EAssetError::TypeMismatch,
+						"AssetReferenceIndexRuntimeTypeMismatch: exact asset and export classes differ.");
+			}
 
 			std::vector<FAssetReferenceEdge> References;
 			for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
@@ -1019,8 +1034,7 @@ namespace Durin
 						.Object = Object,
 						.DeclaringType = Field.DeclaringClass,
 						.FieldName = Field.Name,
-						.ObjectKind = Inspection.Header.EntryKind
-							== EAssetRegistryEntryKind::Redirector
+						.ObjectKind = Object.ClassName == "Durin::DAssetRedirector"
 							? EAssetReferenceKind::Redirect
 							: EAssetReferenceKind::HardObject,
 						.References = References};
