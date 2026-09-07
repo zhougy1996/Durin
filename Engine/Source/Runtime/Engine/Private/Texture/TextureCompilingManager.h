@@ -61,8 +61,8 @@ namespace Durin
 	struct FTextureCompilingManagerConfig
 	{
 		uint32 MaxWorkers = 2;
-		uint32 MaxPendingOperations = 1024;
-		uint64 RetainedResultByteBudget = 4ull * 1024 * 1024 * 1024;
+		// Counts queued, computing and awaiting-delivery requests until their callback returns.
+		uint32 MaxPendingRequests = 1024;
 		uint32 InteractiveBurstLimit = 4;
 		uint64 InFlightByteBudget = 1024ull * 1024ull * 1024ull;
 	};

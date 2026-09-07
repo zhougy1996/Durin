@@ -383,6 +383,65 @@ TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
 	EXPECT_EQ(Diagnostics.InFlightEstimatedBytes, 0u);
 }
 
+TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	constexpr uint32 PendingLimit = 1024;
+	uint32 CompletionCount = 0;
+	auto MakeRequest = [] {
+		Durin::FTextureSourceData Source;
+		Source.Width = 1;
+		Source.Height = 1;
+		Source.SourceChannelCount = 4;
+		Source.Format = Durin::ETextureSourceFormat::RGBA8;
+		Source.Pixels.resize(4);
+		return Durin::FTexture2DCompilationRequest{
+			.Build = {.ImportedData = std::move(Source),
+				.Settings = {.Usage = static_cast<Durin::ETextureUsage>(255)}}};
+	};
+	auto* Overflow = Durin::NewObject<Durin::DTexture2D>(nullptr, Durin::FName("PendingLimitOverflow"));
+	ASSERT_NE(nullptr, Overflow);
+	struct FDrainRequests
+	{
+		~FDrainRequests() { Durin::FAssetCompilingManager::Get().FinishAllCompilation(); }
+	} DrainRequests;
+	for (uint32 Index = 0; Index < PendingLimit; ++Index)
+	{
+		auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+			nullptr, Durin::FName(std::format("PendingLimitTexture{}", Index)));
+		ASSERT_NE(nullptr, Texture);
+		std::string Error;
+		ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Texture, MakeRequest(), Error,
+			[&](Durin::FTexture2DCompilationResult Result) {
+				EXPECT_EQ(Durin::ETexture2DCompilationStatus::Failed, Result.Status);
+				if (++CompletionCount == 1)
+				{
+					std::string NestedError;
+					EXPECT_FALSE(Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), NestedError, {}));
+					// A throwing consumer must release its request slot and allow the rest to drain.
+					throw std::runtime_error("Completion failure for lifetime regression");
+				}
+			})) << Error;
+	}
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (Durin::GetTexture2DCompilationManagerDiagnostics().PendingCompletionCount == 0
+		&& std::chrono::steady_clock::now() < Deadline) std::this_thread::yield();
+	EXPECT_GT(Durin::GetTexture2DCompilationManagerDiagnostics().PendingCompletionCount, 0u);
+	EXPECT_EQ(0u, CompletionCount);
+	std::string Error;
+	EXPECT_FALSE(Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), Error, {}));
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(PendingLimit, CompletionCount);
+	EXPECT_EQ(0u, Durin::GetTexture2DCompilationManagerDiagnostics().ActiveRecordCount);
+	EXPECT_EQ(0u, Durin::GetTexture2DCompilationManagerDiagnostics().InFlightEstimatedBytes);
+	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Overflow, MakeRequest(), Error,
+		[&](Durin::FTexture2DCompilationResult) { ++CompletionCount; })) << Error;
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	EXPECT_EQ(PendingLimit + 1, CompletionCount);
+}
+
 TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 {
 	InitializeDObjectSystem();

@@ -109,25 +109,26 @@ The deterministic input/provider identity remains separate from request serials
 and GPU resource readiness.
 
 Texture2D compute returns a unique `Tasks::TTask` result on the CPU executor,
-with interactive/background priority forwarded to Core. Before compute admission,
-the manager reserves a `TTaskOperationQueue` slot and payload estimate. Its outcome
-pump is the durable mailbox: success, producer failure, cancellation and rejected
-producer admission reach domain handling on GameThread. The operation remains
-pending through result application and completion callback return. Consumed tickets
-are removed from retained diagnostics so diagnostics do not pin completed task
-sources. No second payload deque or worker-completion/result-ready flags exist.
+with interactive/background priority forwarded to Core. The manager retains the
+task in its request state and checks completion during owner-thread processing.
+Success, framework failure, cancellation and producer-admission rejection reach
+domain handling on GameThread without submitting another deferred task. Task
+completion means background computation has ended; asset completion is published
+by the manager after result application. Diagnostics retain neither task handles
+nor input/result payloads after delivery.
 
-The default manager allows two active computes with the existing 1 GiB working
-budget and oversized-single-compute rule. Independent completion storage defaults
-to 1,024 operations and 4 GiB declared retained bytes, reserved before scheduling
-and released after owner commit. Reservations cover queued inputs as well as
-computed results. The diagnostic mutex and timed-wait CV remain for diagnostics
-and wakeups; readiness is read from the Core ticket. A producer-ready notification
-releases compute concurrency and starts the next queued job without owner pumping.
-Shutdown stops admission, requests cooperative cancellation, drains selected-root
-binding acknowledgements, pumps terminal domain results, joins the scope and then
-closes the mailbox. Provider retirement remains governed by the modular-feature
-call lifetime described above.
+The default manager allows two active computes with a 1 GiB estimated working
+budget and an oversized-single-compute rule. This is a scheduling estimate, not
+a hard allocator limit. At most 1,024 requests may be pending, counting queued
+inputs, running computes, results awaiting application and callbacks in progress.
+The count is released after delivery returns; there is no separate retained-result
+byte reservation. Owner processing and explicit waits reap completed computes
+and admit the next requests with the existing interactive/background fairness.
+Timed waits poll compute readiness and advance scheduling without applying
+unrelated results. Shutdown stops admission, cancels queued and running work,
+pumps all terminal results and joins the scope. Even a task canceled before its
+body starts is finalized by the manager. Provider retirement remains governed by
+the modular-feature call lifetime described above.
 
 Recipe providers, DDC ownership, and typed build application are defined by
 [Asset Data Lifecycle](AssetDataLifecycle.md#serialization-and-production-ownership).

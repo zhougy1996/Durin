@@ -619,8 +619,6 @@ namespace Durin
 			CORE_API static auto GetScope(const FTaskHandle& Task) -> FTaskScopeToken;
 			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
 			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
-			// Independent owner producer only; reserved storage keeps this binding non-allocating.
-			CORE_API static auto BindReservedDependency(const FTaskHandle& Task, const FTaskHandle& Producer) -> void;
 			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner = true) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}

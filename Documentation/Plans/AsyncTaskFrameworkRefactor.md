@@ -9,6 +9,13 @@ Completed: 2026-09-08
 
 ## Current Status
 
+Subsequent simplification (2026-09-08): Texture now owns pending-request tracking,
+compute-result polling and GameThread delivery directly. The Core owner-operation
+queue/ticket abstraction and separate retained-result byte budget were removed.
+The stage receipts below describe the completed original implementation; current
+behavior is authoritative in [Asset compilation](../Runtime/Assets/AssetCompilation.md)
+and [Task system](../Runtime/Core/TaskSystem.md).
+
 Stages 0 through 5 are implemented and qualified. Package reads use bounded
 blocking I/O and shared outcome composition. Texture compute returns unique
 results into reserved outcome tickets that remain pending through GameThread

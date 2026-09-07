@@ -703,7 +703,7 @@ namespace Durin
 			}
 			Hook->Function(Terminal);
 		}
-		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner, bool bKeepUnknown = false) -> void
+		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner) -> void
 		{
 			std::shared_ptr<FTaskStateData> Previous;
 			{
@@ -711,7 +711,7 @@ namespace Durin
 				Previous = std::move(DynamicPrerequisite);
 				DynamicPrerequisite = std::move(Inner);
 				bCancelDynamicDependency = bCancelInner;
-				bUnknownExecutionRequirement = bKeepUnknown;
+				bUnknownExecutionRequirement = false;
 			}
 		}
 
@@ -3695,14 +3695,6 @@ namespace Durin
 				if (Terminal == ETaskState::Canceled) Task.State->RequestCancellation("External task cancellation acknowledged.");
 				Task.State->MarkSucceeded();
 			}
-		}
-
-		auto FTaskRuntimeAccess::BindReservedDependency(const FTaskHandle& Task, const FTaskHandle& Producer) -> void
-		{
-			require(Task.State && Producer.State && Task.State != Producer.State && Task.State->IsExternal());
-			require(Task.State->PinScheduler() == Producer.State->PinScheduler() && Task.State->GetScope() == Producer.State->GetScope());
-			Task.State->SetDynamicDependency(Producer.State, true, true);
-			if (Task.State->IsCancellationRequested()) Producer.State->RequestCancellation({});
 		}
 
 		auto FTaskRuntimeAccess::BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner)

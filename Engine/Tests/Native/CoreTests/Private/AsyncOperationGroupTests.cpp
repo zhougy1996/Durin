@@ -6,7 +6,6 @@
 #include "HAL/PlatformLTS.h"
 #include "Threading/Task.h"
 #include "Threading/TaskComposition.h"
-#include "Threading/TaskOperation.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin::Tests
@@ -284,33 +283,6 @@ namespace Durin::Tests
 			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
 		}
 		EXPECT_TRUE(ExternalGroup.Drain(std::chrono::seconds(1)).Succeeded());
-	}
-
-	TEST(FAsyncOperationGroupTests, ReservedOperationRetainsModuleUntilCommitAndTicketRelease)
-	{
-		FTaskSystemTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		FModuleTestOwner Context("OperationStorage");
-		auto ModuleGroup = Context.CreateAsyncOperationGroup("Commit");
-		Tasks::FTaskGroup Group(ModuleGroup.GetTaskScope());
-		{
-			Tasks::TTaskOperationQueue<int> Queue(Group);
-			auto Reservation = Queue.TryReserve(1, 1, sizeof(int));
-			ASSERT_TRUE(Reservation.HasValue());
-			auto Ticket = std::move(Reservation).TakeValue();
-			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] { return 47; });
-			ASSERT_TRUE(Admission.HasValue());
-			auto Producer = std::move(Admission).TakeValue();
-			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Producer.GetCompletion()).TaskState);
-			Ticket.Bind(std::move(Producer));
-			ModuleGroup.Close(EAsyncOperationCloseMode::Drain);
-			EXPECT_FALSE(Group.JoinAsync().IsReady());
-			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
-			EXPECT_EQ(1u, Queue.Pump(1, [](uint64, int&& Value) { EXPECT_EQ(47, Value); }));
-			EXPECT_TRUE(Ticket.GetCompletion().IsReady());
-			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
-		}
-		EXPECT_TRUE(ModuleGroup.Drain(std::chrono::seconds(1)).Succeeded());
 	}
 
 	TEST(FModuleManagerAsyncRetirementTests, UnloadCancelsAndDrainsOwnedOperationsBeforeRelease)
