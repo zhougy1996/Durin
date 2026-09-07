@@ -9,14 +9,17 @@ Completed:
 
 ## Current Status
 
-已完成源码问题确认与路线选择，尚未开始实现或运行原生验证。当前
-`FEditableAssetDocumentModel::Discard` 只执行可选回调、ForgetPackage 和
-ClearDirty；Texture2D 的回调仅请求取消编译，VolumeTexture 直接调用共享实现。
-清理历史不会撤销已经应用的修改，场景仍可引用修改后的资源。
+Stage 0 已完成 CPU 内容级回归、源码边界审计及接口冻结。独立的
+`AssetDiscardCharacterizationTests` 在 Windows Debug 捕获 Texture2D 和
+VolumeTexture 放弃后云组件仍引用修改后的源数据，以及随后保存污染磁盘的错误。
+该测试通过表示旧错误被成功捕获，不表示 Reload 已实现；没有 GPU 画面验证证据。
+生产 Discard 行为尚未修改，Stage 1 是下一个待执行阶段。
 
-本计划选择 Engine 包重载与 CoreDObject 引用替换基础设施。恢复单位是整个包，
-从磁盘准备新对象图，在受控提交边界切换注册与引用，最后退休旧图。各编辑器不再
-分别维护一套用来模拟磁盘版本的属性快照。Stage 0 是第一个待执行阶段。
+审计确认现有 linker skeleton 已进入 DPackage 注册表和 GDObjectArray，不能直接
+作为同路径隔离图；GC 枚举把 TObjectPtr 转为临时指针，不能承担引用回写；
+Loose BulkData 每次按路径重新打开文件，注册候选资源还会退休旧资源。这些缺口
+必须在 Stage 1/2 先补齐，保留选定的整批原子失败契约。具体冻结边界见 Stage 0
+handoff；尚未迁移 Async Task Framework 的生产试点，也未绕过其验收门槛。
 
 ## Goal
 
@@ -123,16 +126,125 @@ Requested -> Preflight -> Quiesce -> ReadAndPrepare -> ReadyToCommit
 
 ### Stage 0: Freeze reload boundaries and regression fixtures
 
-- [ ] 复现两个纹理编辑器的丢弃后场景仍变化、再次保存污染磁盘问题，建立失败断言。
-- [ ] 审计 live 注册、未发布 linker graph、引用遍历、原生保活/弱缓存、事务载荷、
+- [x] 复现两个纹理编辑器的丢弃后场景仍变化、再次保存污染磁盘问题，建立失败断言。
+- [x] 审计 live 注册、未发布 linker graph、引用遍历、原生保活/弱缓存、事务载荷、
   TextureReference 与场景消费者；列出首批参与者和不支持资源族的确定拒绝规则。
-- [ ] 固定可写引用 API、注册切换原语、Reload 结果、资源准备回执及预算，记录具体
+- [x] 固定可写引用 API、注册切换原语、Reload 结果、资源准备回执及预算，记录具体
   头文件归属；确认 PostLoad 可隔离性和磁盘闭包稳定读取的缺口。
-- [ ] 固定故障注入位置与 GameThread/RenderThread 提交边界。上述选定原子契约若
+- [x] 固定故障注入位置与 GameThread/RenderThread 提交边界。上述选定原子契约若
   无法实现，先更新决策和理由再进入 Stage 1，禁止静默降为部分成功。
 
 完成条件：接口和参与者清单可直接指导实现；回归测试在旧实现上捕获内容错误，
 而不是只检查 dirty 标记。仅此阶段允许冻结尚未命名的内部接口。
+
+#### Stage 0 handoff: audited gaps and frozen interfaces
+
+以下名称是后续实现的冻结设计，不是已经导出的生产 API。路径以
+`Engine/Source/` 为根；测试只证明既有缺陷，不能用于接受 Stage 1–5。
+
+| Source boundary | Observed behavior and required change |
+| --- | --- |
+| `Runtime/CoreDObject/Private/DObject/Package.cpp` | `InitializeAssetPackage` 立即注册，重复路径断言；不能先卸载旧包再试读候选图。新建候选初始化方式只设置包身份，注册切换原地替换现有表项的值，禁止 erase/emplace 造成提交分配。 |
+| `Runtime/CoreDObject/Public/DObject/DObjectArray.h` | 所有对象共用句柄/Outer 索引；为同一对象系统增加候选图可见性，LiveOnly 查询排除候选，GC 仍可保活。旧句柄保持旧代次直到退休，禁止交换槽中指针来模拟重绑定。 |
+| `Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp` | Object 操作只把局部 `DObject*` 交给 collector；Map 使用 const traversal。`ForEachObjectReference` 不调用对象原生 `AddReferencedObjects`。不能直接把 collector 当 writable visitor。 |
+| `Runtime/CoreDObject/Public/DObject/ContainerOps.h` | 固定/动态容器、结构体需递归准备；现有 STL adapter 仅在 swap noexcept 时提供 TransactionalCommit。Map 在 detached storage 重建键和值，InsertCopy 的 DuplicateKey 在准备期失败；只接受可证明无失败的提交 adapter。 |
+| `Runtime/CoreDObject/Private/DObject/StrongObjectPtr.cpp` | 原生强指针注册的是句柄计数，并非可写 owner slot。需要 owner 参与者逐个重绑定并核对外部计数；没有参与者的额外强持有必须拒绝，不能通过改句柄解析重定向普通弱指针。 |
+| `Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp` | skeleton 使用 NewObject/ForceRegistration；立即加载依赖、恢复 ledger、调用 PostLoad，失败 CollectGarbage 并按快照释放依赖。抽取显式 prepare 上下文和批次内解析器，候选取消只清理自身拥有的对象和依赖。 |
+| `Runtime/Engine/Private/Asset/PackageResource.cpp` | Loose range 读取重新打开 SegmentPath；RegisterLoosePackage 替换 manager slot 并退休 previous。候选必须拥有验证过的不可变闭包资源，准备期不得调用这个发布入口；提交时再替换既有资源 slot。 |
+| `Runtime/Engine/Private/Texture/Texture2D.cpp`, `VolumeTexture.cpp` | PostLoad 同步构建并安装产品；DTexture 构造拥有独立 TextureReference，UpdateResource 可排队渲染初始化。候选反序列化/迁移与运行时产品准备需拆开，不能执行普通 PostLoad 后宣称没有副作用。 |
+| `Editor/DurinEd/Private/Editor/Transactor.cpp` | ReferencesPackage 只扫描 PackageTransitions；ForgetPackage 非 Idle 时静默返回，且不能发现仅存在于历史载荷的引用。使用 collector 只读枚举完整事务载荷，再准备完整事务退休计划。 |
+
+CoreDObject 的 `Public/DObject/ObjectGraphReplacement.h` 拥有
+`FObjectReplacementMap`、`FObjectReferenceReplacementPlan`、
+`IObjectReplacementParticipant`、`FObjectGraphReplacement`。
+映射键为包身份与相对 Outer 路径，包本身也入表；使用实际 FName/包路径比较语义，
+拒绝重复路径、目标不兼容、图外必需引用没有目标。`Prepare` 返回诊断且不修改
+live slot，`Validate` 在冻结边界重查源/目标句柄、属性值、容器内容和原生参与者
+revision；`Commit() noexcept` 仅消费已预留的写入和注册切换，`Abort() noexcept`
+释放候选与重新开放旧图，`Retire` 等待消费者回执。结构体内自定义 collector
+必须有参与者或明确拒绝；不把 native collector 的临时 slot 留作提交地址。
+
+`Public/DObject/Package.h` 增加 `InitializePreparedAssetPackage` 和仅由
+replacement coordinator 调用的 `CommitPreparedPackageRegistration`；
+`Public/DObject/DObjectArray.h` 拥有候选可见性与对象集合 revision。
+`Public/DObject/SoftObjectPtr.h` 继续以 `InvalidateSoftObjectCaches` 统一失效，
+不新增软引用 epoch。提交全程在 GameThread，冻结期间不得 pump 任意回调或 GC；
+编辑器有跨帧等待时保持包级 lease，最终扫描到提交之间不得再让出 GameThread。
+raw pointer 的任意插件自动发现不在范围内，但参与者注册与模块卸载必须受 lease
+约束；可枚举但未声明可替换的 native owner 统一 Unsupported。
+
+Engine 的 `Public/Asset/PackageReload.h` 拥有 `FPackageReloadRequest`、
+`FPackageReloadBudget`、`FPackageReloadResult`、`FPackageReloadOperation` 和
+`ReloadPackages`。结果状态固定为 Pending/Succeeded/Failed/Cancelled；失败码区分
+Unsupported、Unsaved、Busy、Stale、BudgetExceeded、IoError、InvalidClosure、
+IncompatibleGraph、UnmappedReference、ParticipantRejected、ResourcePreparationFailed。
+诊断携带包路径、对象路径、阶段、消息；拒绝不得伪造成功或部分成功。
+默认每批最多 16 包、65,536 对象、1,048,576 引用 slot、512 MiB retained CPU
+数据和 256 MiB 候选 GPU 存储；闭包、解压后的源数据、写入计划、runtime 产品与
+候选资源都计入预算并使用溢出检查，未知 GPU 大小须在运行时准备前拒绝。
+旧 live 图不计入候选预算，但其保活期限必须记录；这些是保守准入上限，不是性能承诺。
+
+`Private/Asset/AssetPackageLinker.h` 拥有 `FPreparedPackageGraph` 与
+`PreparePackageGraphs`，重用同一 parser/codec/schema；先准备批次全部 skeleton，
+再解析集合内引用，集合外只复用驻留包或记录本次新加载依赖。
+`Public/Asset/PackageResource.h` 增加 `FPreparedPackageResource`，持有 main/bulk
+一致快照；重读完整闭包摘要作为 commit 前 stale 检查，保留快照给惰性载荷，
+不得只检查时间戳/文件大小。资产路径 fence 或 projection pending 必须先走现有
+协调流程，不能由 Reload 清除。读取与纯验证可使用现有已验收的任务入口，
+不需要 Async Task Framework Stage 5 迁移才能开始 Stage 1/2。
+
+`Public/Asset/PackageReload.h` 同时定义资源族 `IPackageReloadParticipant` 和
+`FPackageReloadResourceReceipt`。Prepare 可失败并拥有候选产品；回执状态为
+Pending/Ready/Failed/Retired，Ready 代表候选资源已准备好且发布命令已预留，
+而非仅仅发出了 BeginInit。Commit 在 GameThread 禁止广播；RenderThread 在
+同一有序发布批次切换 reference/proxy，确认后才允许 Succeeded 与旧图退休。
+队列准入失败必须发生在 CPU 引用提交之前；不能在不可逆提交后把普通排队失败
+当作整批失败。现有资源初始化 API 本身不满足这一保证，Stage 3 必须补齐回执。
+
+首批参与者和确定拒绝规则：
+
+| Participant / consumer | Admission and work |
+| --- | --- |
+| Texture2D 编译 manager | 使用 exact DClass 的 selected cancel/finish；新请求封锁、候选独立句柄、代次校验，失败重新开放旧图；禁止 FinishAllCompilation。 |
+| VolumeTexture | 同步 provider，当前没有 Texture2D 异步 class route；单独准备体素与 GPU 产品，不能按派生关系调用 Texture2D selected finish。 |
+| Material / MaterialInstance | 隔离 PostLoad 的缓存变化、编译、parent 与参数图；准备 render proxy 与 uniform texture bindings，重建 MaterialRenderTypes 的 FRHITextureReferenceRef 缓存。 |
+| DVolumetricCloudComponent / 场景 proxy | 反射 Weather/Base/Detail 引用改写后，必须重新生成场景数据中的 FRHITextureReferenceRef；仅改 DObject 指针不够。StaticMesh 场景的材质 binding 同样注册参与者，无法准备则拒绝该次请求。 |
+| 纹理/材质窗口和预览 | OpenTextures 的 native unordered_map、OpenMaterials、参数面板、PropertyView 编辑对象和预览缓存逐一 Prepare/Rebind；观察者由 operation token/weak owner 管理。 |
+| DTransBuffer | Idle 准入，扫描 context、records、custom change、PackageTransitions 和 payload collector；预留全事务删除/事件存储，提交保留其他包内容、脏标记与无关历史。 |
+| StaticMesh inspector / LevelEditor | StaticMesh 使用 FReadOnlyAssetDocumentModel，不是两个纹理的共享 Discard 调用者；不新增 reload 支持。Level 的 World 恢复路径保持其所有权边界。 |
+| 未注册资源族、未知派生类型、未知 native consumer | exact-class allowlist 与参与者能力预检；TextureCube、StaticMesh、World/Level、类型定义、cooked 包和未保存包不能通过 Texture/Asset 基类宽泛放行。 |
+
+故障注入点固定为 PreflightBudget、QuiesceSelected、ReadMain、ReadBulk、
+CreateSkeleton、ResolveDependency、ApplyValues、RestoreLedger、PreparePostLoad、
+PrepareReferences、PrepareNativeParticipant、PrepareHistory、PrepareRuntimeProduct、
+ReserveRenderPublish、RevalidateDisk、RevalidateReferencers、BeforeCommit。
+注入按包/对象序号选择，必须包含批次第二包失败；每个失败核对旧 registry/句柄、
+源身份、强引用/Map、dirty、历史与候选资源数量。无失败 Commit 内只允许测试暂停
+观察边界，不添加可返回普通失败的钩子。若需要补偿回滚而不是 noexcept swap，
+先记录该原语的决策与故障注入证据，再接受 Stage 1，禁止默默降低原子要求。
+
+验证：`Win64-Debug-DurinEditor`，
+`DevTool.bat test AssetDiscardCharacterizationTests --mode characterization`
+通过两个 case；回执
+`Build/.agent-state/logs/20260907-153330-060182-24752-ctest.log`。
+每个 case 先 Save/Unload/Load 验证磁盘基线，再用实际云组件持有纹理，调用编辑器
+所用共享 Discard 路径；两处 `EXPECT_EQ(source identity, saved identity)` 被
+`EXPECT_NONFATAL_FAILURE` 捕获，分别证明内存未恢复和再次保存污染磁盘。
+Stage 4 必须移除捕获包装并将这些断言迁入正常 feature 验证；本阶段没有创建
+GPU 场景、渲染截图或实际窗口关闭验收，相关矩阵仍由 Stage 3–5 验收。
+
+交付验证：`DevTool.bat test affected` 因新增目标注册选择 78 个目标，构建成功，
+77 个通过；`CoreConcurrencyTests` 的
+`FAsyncOperationGroupTests.SharedResultAliasesAndExternalSourcesRetainModuleStorage`
+在未修改的 `AsyncOperationGroupTests.cpp:260` 即时 Join readiness 断言失败。
+保留首次失败回执
+`Build/.agent-state/logs/20260907-153705-870975-33144-ctest.log`。
+该 case 隔离重跑通过，随后完整 `DevTool.bat test CoreConcurrencyTests` 的
+176 个 case 全部通过，回执
+`Build/.agent-state/logs/20260907-153940-356314-17236-CoreConcurrencyTests.log`。
+这不是第一次 affected 全绿的证据；本阶段没有修改任务系统或它的测试。
+`doc validate --scope changed`、`doc plan validate --scope all` 与
+`git diff --check` 通过。
 
 ### Stage 1: Add controlled object graph replacement primitives
 

@@ -270,6 +270,16 @@ else()
 	)
 endif()
 
+durin_add_engine_functional_test(AssetDiscardCharacterizationTests
+	KIND characterization
+	DOMAINS asset-package editor-shell
+	MODULES durin-ed engine texture-build
+	STACKS editor
+	RUNTIME_STACK_RATIONALE "Captures saved texture source loss through editor discard and a live cloud component reference."
+	SOURCES Private/AssetDiscardCharacterizationTests.cpp
+	LIBRARIES DurinEd TextureBuild
+)
+
 durin_add_engine_functional_test(EditorShellTests
 	KIND feature
 	DOMAINS editor-shell
