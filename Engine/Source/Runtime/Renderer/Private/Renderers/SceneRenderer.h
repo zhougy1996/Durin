@@ -85,6 +85,7 @@ namespace Durin
 	private:
 		friend class FSceneRenderPipeline;
 		friend class FSceneRenderGraphComposer;
+		auto ReleaseDeviceResources_RenderThread() -> void;
 		auto EnqueueResourceInvalidation(
 			ERendererResourceInvalidationCause Cause
 		) -> void;

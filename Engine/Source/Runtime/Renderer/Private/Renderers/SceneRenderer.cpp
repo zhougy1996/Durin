@@ -82,6 +82,12 @@ namespace Durin
 
 	auto FSceneRenderer::ReleaseResources_RenderThread() -> void
 	{
+		ReleaseDeviceResources_RenderThread();
+		Coordinator.ReleaseResources_RenderThread();
+	}
+
+	auto FSceneRenderer::ReleaseDeviceResources_RenderThread() -> void
+	{
 		check(IsInRenderingThread());
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread();
@@ -100,7 +106,6 @@ namespace Durin
 		VolumetricCloudShadowRenderer.ReleaseResources_RenderThread();
 		FullscreenGeometry.ReleaseResources_RenderThread();
 		RDGAllocator.Release_RenderThread();
-		Coordinator.ReleaseResources_RenderThread();
 	}
 
 	auto FSceneRenderer::AddViewState_RenderThread(FSceneViewStateId Id) -> bool
@@ -204,22 +209,7 @@ namespace Durin
 					[](bool) {},
 				.ReleaseDeviceResources =
 					[this] {
-						DefaultTextures.ReleaseResources_RenderThread();
-						EnvironmentLighting.ReleaseResources_RenderThread();
-						SurfaceMaterials.ReleaseResources_RenderThread();
-						StaticMeshRenderer.ReleaseResources_RenderThread();
-						DirectionalShadowRenderer.ReleaseResources_RenderThread();
-						GBufferRenderer.ReleaseResources_RenderThread();
-						GBufferDebugRenderer.ReleaseResources_RenderThread();
-						DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
-						GroundTruthAmbientOcclusionRenderer.ReleaseResources_RenderThread();
-						SkyBoxRenderer.ReleaseResources_RenderThread();
-						PostProcessRenderer.ReleaseResources_RenderThread();
-						ContactShadowRenderer.ReleaseResources_RenderThread();
-						VolumetricCloudRenderer.ReleaseResources_RenderThread();
-						VolumetricCloudShadowRenderer.ReleaseResources_RenderThread();
-						EditorAssistanceRenderer.ReleaseResources_RenderThread();
-						FullscreenGeometry.ReleaseResources_RenderThread();
+						ReleaseDeviceResources_RenderThread();
 					},
 				.RecreateStartupResources =
 					[this, &CommandList] {

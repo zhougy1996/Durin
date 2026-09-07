@@ -572,18 +572,32 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
-		auto Captures = std::make_shared<std::array<FRDGCapture, 4>>();
+		auto Captures = std::make_shared<std::array<FRDGCapture, 9>>();
 		EnqueueRenderCommand<FRDGDescriptorReuseContract>(
 			[Captures](FRHICommandListImmediate& CommandList) {
 				FRendererResourceCoordinator Coordinator;
 				FRendererRDGAllocator Allocator(Coordinator);
 				FTextureRHIRef ExportedTexture;
 				FBufferRHIRef ExportedBuffer;
-				const std::array<std::string_view, 4> Names{
+				const std::array<std::string_view, 9> Names{
 					"Diagnostic.First", "Diagnostic.Export",
-					"Diagnostic.AfterExport", "Diagnostic.Renamed"};
+					"Diagnostic.AfterExport", "Diagnostic.Renamed",
+					"Diagnostic.ManualRetry", "Diagnostic.ShaderReload",
+					"Diagnostic.DeviceInvalidated", "Diagnostic.DeviceReused",
+					"Diagnostic.Released"};
 				for (size_t Index = 0; Index < Names.size(); ++Index)
 				{
+					if (Index == 4 || Index == 5 || Index == 6)
+					{
+						// Omit release callbacks to exercise allocator-owned protection.
+						const auto Cause = Index == 4
+							? ERendererResourceInvalidationCause::ManualRetry
+							: Index == 5
+								? ERendererResourceInvalidationCause::ShaderChanged
+								: ERendererResourceInvalidationCause::Device;
+						Coordinator.Apply_RenderThread(Cause, {});
+					}
+					if (Index == 8) Allocator.Release_RenderThread();
 					FRDGBuilder Builder;
 					const auto Texture = Builder.CreateTexture(
 						FRDGTextureDesc{.Texture =
@@ -640,6 +654,22 @@ namespace Durin
 			EXPECT_EQ((*Captures)[3].Resources[Resource].AllocationDisposition, "reuse-hit");
 			EXPECT_EQ((*Captures)[2].Resources[Resource].PhysicalAllocationId,
 				(*Captures)[3].Resources[Resource].PhysicalAllocationId);
+			for (size_t Index : {4u, 5u, 7u})
+			{
+				EXPECT_EQ((*Captures)[Index].Resources[Resource].AllocationDisposition,
+					"reuse-hit");
+				EXPECT_EQ((*Captures)[Index].Resources[Resource].PhysicalAllocationId,
+					(*Captures)[Index - 1].Resources[Resource].PhysicalAllocationId);
+			}
+			for (size_t Index : {6u, 8u})
+				EXPECT_EQ((*Captures)[Index].Resources[Resource].AllocationDisposition,
+					"reuse-miss");
+		}
+		for (size_t Index = 2; Index < Captures->size(); ++Index)
+		{
+			EXPECT_EQ((*Captures)[Index].AllocationStatistics.RetainedResources, 2u);
+			EXPECT_EQ((*Captures)[Index].AllocationStatistics.RetainedBytes,
+				(*Captures)[0].AllocationStatistics.RetainedBytes);
 		}
 
 		ShutdownRenderingThread();

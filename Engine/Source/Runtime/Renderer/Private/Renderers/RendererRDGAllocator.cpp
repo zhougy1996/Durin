@@ -112,6 +112,7 @@ namespace Durin
 		using FBufferEntry = TEntry<FBufferDescriptorKey, FBufferRHIRef>;
 		std::vector<FTextureEntry> Textures;
 		std::vector<FBufferEntry> Buffers;
+		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
 		uint64 PeakActiveBytes = 0;
 		uint64 ReuseHits = 0;
@@ -151,6 +152,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		State->Textures.clear();
 		State->Buffers.clear();
+		State->DeviceGeneration.reset();
 		State->NextSequence = 0;
 		State->RetainedBytes = 0;
 		State->RetainedResources = 0;
@@ -161,6 +163,13 @@ namespace Durin
 		FRDGAllocatedResources& OutResources, std::string& OutError) -> bool
 	{
 		check(IsInRenderingThread());
+		const auto& Generation = Coordinator.GetGeneration_RenderThread();
+		// Pool validity must not depend on the owner's invalidation callback.
+		if (State->DeviceGeneration != Generation.Device)
+		{
+			Release_RenderThread();
+			State->DeviceGeneration = Generation.Device;
+		}
 		auto PublishStatistics = [&](uint64 ActiveBytes, uint32 ActiveResources) {
 			State->PeakActiveBytes = std::max(State->PeakActiveBytes, ActiveBytes);
 			OutResources.SetStatistics({
@@ -255,7 +264,6 @@ namespace Durin
 				It = std::ranges::find_if(Entries, [&](const auto& Entry) {
 					return Entry.Key == Key && !Entry.Physical;
 				});
-				const auto& Generation = Coordinator.GetGeneration_RenderThread();
 				if (It != Entries.end() && It->FailedGeneration
 					&& !HasSelectedRenderResourceGenerationChanged(
 						*It->FailedGeneration, Generation,
