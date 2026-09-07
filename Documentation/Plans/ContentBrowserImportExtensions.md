@@ -2,15 +2,16 @@
 
 Summary: Register feature-owned Content Browser import workflows and retire the fixed built-in asset-family dispatch.
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-07
 
 ## Current Status
 
-The import-extension boundary remains active after the retired feature was
-removed on 2026-09-05. The current implementation baseline is:
+The plan was completed on 2026-09-07 with the remaining manual acceptance
+checks skipped at the user's request. The pre-cutover behavior baseline,
+adjusted after the retired feature was removed on 2026-09-05, was:
 
 - The visible menu is `Texture...`, `Scene Source (FBX/glTF)...`, and
   `Static Mesh (Geometry Only)...` in that
@@ -55,8 +56,13 @@ normally, changed-document validation passes, and the complete active-plan set
 passes validation. A visible Sandbox session confirmed the original Import
 entries appeared exactly once in their selected order. The operator stopped UI
 automation before the remaining Texture, Scene, Static Mesh, Play-mode,
-hidden-browser, and workspace-switch interactions, so those manual checks
-remain open and this plan remains Active.
+hidden-browser, and workspace-switch interactions. On 2026-09-07 the user
+requested completion with manual acceptance skipped for now. Those remaining
+manual checks were not run or claimed as passed and are excluded from this
+completion gate. The recorded automated qualification and published Content
+Browser architecture contract provide the completion evidence; this closeout
+changes documentation only and does not rerun builds, native tests, or editor
+smoke.
 
 ## Goal
 
@@ -334,7 +340,8 @@ Gaps to close:
 - [x] Build the affected editor module closure following the repository build
   workflow, then run the required hidden-window editor smoke if the build guide
   selects it for this integration change.
-- [ ] Exercise each import menu entry, preferred destination, cancel/reopen,
+- Skipped at the user's request on 2026-09-07 (not verified): exercise each
+  import menu entry, preferred destination, cancel/reopen,
   Play-mode disablement, hidden-browser presentation, workspace switching, and
   editor shutdown.
 - [x] Update the lasting Content Browser architecture contract to describe
@@ -344,8 +351,9 @@ Gaps to close:
 #### Acceptance Gate
 
 - Focused automated coverage, affected-module build, applicable editor smoke,
-  manual workflow checks, shutdown checks, and documentation validation pass
-  with evidence recorded in Current Status.
+  automated shutdown checks, and documentation validation pass with evidence
+  recorded in Current Status. Remaining manual acceptance checks are excluded
+  for this completion at the user's request on 2026-09-07.
 
 ## Validation Matrix
 
