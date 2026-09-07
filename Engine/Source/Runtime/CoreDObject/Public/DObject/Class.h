@@ -4,24 +4,6 @@
 
 namespace Durin
 {
-	// Freezes supported reflected-type registration/mutation entry points during
-	// owner-thread input capture. Rejections throw before mutation and remain
-	// observable even when a callback catches the exception. Raw field writes
-	// and concurrent object access remain outside the object thread contract.
-	class FScopedTypeRegistrationFreeze
-	{
-	public:
-		COREDOBJECT_API FScopedTypeRegistrationFreeze();
-		COREDOBJECT_API ~FScopedTypeRegistrationFreeze();
-		FScopedTypeRegistrationFreeze(const FScopedTypeRegistrationFreeze&) = delete;
-		auto operator=(const FScopedTypeRegistrationFreeze&) -> FScopedTypeRegistrationFreeze& = delete;
-		COREDOBJECT_API auto WasRegistrationRejected() const -> bool;
-		COREDOBJECT_API static auto CheckMutationAllowed() -> void;
-
-	private:
-		uint64 RejectionGeneration = 0;
-	};
-
 	class FField;
 	class FProperty;
 	class FObjectInitializer;
@@ -137,7 +119,6 @@ namespace Durin
 	public:
 		auto SetSuperStructBase(DStructBase* InSuperStructBase) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			SuperStructBase = InSuperStructBase;
 		}
 
@@ -274,7 +255,6 @@ namespace Durin
 
 		auto InitializeOps(const FDStructOps* InOps) -> void
 		{
-			if (!bOpsInitialized) FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			const FDStructOps* ResolvedOps = InOps ? InOps : &GetEmptyDStructOps();
 			check(IsValidDStructOps(*ResolvedOps));
 			if (bOpsInitialized)

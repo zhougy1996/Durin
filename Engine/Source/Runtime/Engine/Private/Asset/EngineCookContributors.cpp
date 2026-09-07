@@ -50,7 +50,7 @@ namespace Durin
 								: std::is_same_v<T, DTextureCube> ? "texture-cube"
 								: std::is_same_v<T, DVolumeTexture> ? "volume-texture" : "static-mesh";
 							FByteBuffer Value;
-							if (!AssetPrivate::GetCapturedCookBuildProviderInput(Family, Value))
+							if (!AssetPrivate::GetCookBuildProviderInput(Family, Value))
 								return {EAssetError::InUse, "Cook recipe provider unavailable: " + Family};
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"recipe/" + Family, {}, std::move(Value)});
@@ -61,8 +61,8 @@ namespace Durin
 								DEnvironmentLighting::GetAuthoredPayloadPath(Request.Package.GetView()), {}});
 						if constexpr (std::is_same_v<T, DMaterial>)
 						{
-							const auto Identity = GetCapturedShaderBuildIdentity();
-							if (Identity.empty()) return {EAssetError::InUse, "Material Cook requires captured ShaderBuild inputs."};
+							const auto Identity = Request.ShaderBuildIdentity;
+							if (Identity.empty()) return {EAssetError::InUse, "Material Cook requires declared ShaderBuild inputs."};
 							const auto Bytes = std::as_bytes(std::span(Identity));
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"shader-build", {}, FByteBuffer(Bytes.begin(), Bytes.end())});

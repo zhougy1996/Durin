@@ -369,23 +369,6 @@ TEST(FCookContributorTests, CallbackDestructionPrecedesOwnerReleaseEvenWhenRejec
 	EXPECT_EQ(DestroyedCallbacks, 2);
 }
 
-TEST(FCookContributorTests, TypeFreezeRejectsMutationAndRetainsCaughtFailure)
-{
-	DClass* Class = DObject::StaticClass();
-	const auto OriginalName = Class->GetQualifiedName();
-	{
-		FScopedTypeRegistrationFreeze Outer;
-		FScopedTypeRegistrationFreeze Inner;
-		EXPECT_THROW(Class->SetQualifiedName(FName("Tests::RejectedCookType")), std::runtime_error);
-		EXPECT_EQ(Class->GetQualifiedName(), OriginalName);
-		EXPECT_TRUE(Outer.WasRegistrationRejected());
-		EXPECT_TRUE(Inner.WasRegistrationRejected());
-		EXPECT_EQ(FindClassByQualifiedName(OriginalName), Class);
-	}
-	EXPECT_NO_THROW(Class->SetQualifiedName(OriginalName));
-	FScopedTypeRegistrationFreeze Next;
-	EXPECT_FALSE(Next.WasRegistrationRejected());
-}
 
 TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 {

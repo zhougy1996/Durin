@@ -118,13 +118,11 @@ snapshots, publications, or caches.
 Cook reachability resolves explicit and registered external roots, follows
 canonical hard and soft edges, validates final classes and redirects, excludes
 alias packages, and terminates cycles through a visited set. Runtime loading and
-unload guards continue to use package-header hard dependencies. Cook's owned
-input capture protects aliases as well as final participants and compares their
-metadata/fences at operation boundaries; a process-wide revision change alone
-does not invalidate reuse. Build dependencies are separately declared and
+unload guards continue to use package-header hard dependencies. Cook discovers aliases and final participants from a workflow-stable source tree
+in a dedicated process; unrelated Registry revisions do not invalidate reuse. Build dependencies are separately declared and
 persisted, and build-only inputs do not extend runtime reachability. See
 [Cook and publication rules](AssetDataLifecycle.md#cook-and-publication-rules)
-for the capture lifetime, private loading, and dependency responsibilities.
+for the standalone host, ordinary loading, and dependency responsibilities.
 
 ## Duplication
 

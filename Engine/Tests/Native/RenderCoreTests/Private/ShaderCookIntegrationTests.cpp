@@ -30,14 +30,14 @@ namespace Durin
 
 		Durin::FByteBuffer First;
 		Durin::FByteBuffer Second;
-		ASSERT_TRUE(WithCapturedShaderBuildInputs([&] {
+		ASSERT_TRUE(([&] {
 			return BuildCookedShaderLibrary(
 				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 				First, Error)
 				&& BuildCookedShaderLibrary(
 					EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 					Second, Error);
-		}, Error)) << Error;
+		})()) << Error;
 		EXPECT_EQ(First, Second);
 
 		std::vector<FShaderRuntimeRequest> Requests;

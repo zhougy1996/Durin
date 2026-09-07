@@ -98,6 +98,24 @@ target_include_directories(AssetBulkContainerTests PRIVATE
 )
 
 if(DURIN_WITH_EDITOR)
+	add_durin_test(StandaloneCookProcessTests Private/StandaloneCookProcessTests.cpp)
+	target_link_libraries(StandaloneCookProcessTests PRIVATE Engine)
+	add_dependencies(StandaloneCookProcessTests DurinAssetTool)
+	target_compile_definitions(StandaloneCookProcessTests PRIVATE
+		DURIN_COOK_EXECUTABLE="$<TARGET_FILE:DurinAssetTool>")
+	durin_register_native_test(StandaloneCookProcessTests
+		KIND integration
+		DOMAINS asset-cook
+		MODULES engine core
+		STACKS process
+		TIMEOUT 600)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "Standalone Cook uses the authored asset tool host."
+		SOURCES Private/StandaloneCookProcessTests.cpp)
+endif()
+
+if(DURIN_WITH_EDITOR)
 	# Separate process ownership: the aggregate cannot restart after terminal shutdown.
 	durin_add_asset_functional_test(AsyncTaskPilotLifecycleTests
 		KIND integration

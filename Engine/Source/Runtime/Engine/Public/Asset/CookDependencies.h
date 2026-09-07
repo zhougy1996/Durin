@@ -65,11 +65,6 @@ namespace Durin
 		std::span<const FCookPackageBuildInputs> Graph,
 		std::vector<FCookBuildDependency>& OutRecords, std::string* OutError = nullptr) -> bool;
 
-	// Only declared values of the current capture package are accessible. Failure is sticky.
-	ENGINE_API auto IsCookInputCaptureActive() -> bool;
-	ENGINE_API auto ReadCapturedCookInput(ECookBuildDependencyKind Kind,
-		std::string_view LogicalName, FByteBuffer& OutBytes) -> FAssetResult;
-
 	struct FCookDependencyDeclaration
 	{
 		ECookBuildDependencyKind Kind = ECookBuildDependencyKind::ConfigurationValue;
@@ -86,6 +81,8 @@ namespace Durin
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
 		bool bRetainEditorOnlyData = false;
+		// Evaluated once per run; empty means the provider supplied no reusable identity.
+		std::string_view ShaderBuildIdentity;
 	};
 
 	// Called once per package before cache lookup, without loading authored objects.

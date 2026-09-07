@@ -265,13 +265,7 @@ namespace Durin
 		else
 		{
 			if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
-			if (GetPackage()->IsGraphPrivate() && IsCookInputCaptureActive())
-			{
-				const auto Result = ReadCapturedCookInput(ECookBuildDependencyKind::ExternalFile,
-					GetPackage()->GetPackagePath() + ".iblbulk", PayloadBytes);
-				if (!Result) { OutError = Result.Message; return false; }
-			}
-			else if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
+			if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		}
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes,
@@ -357,13 +351,7 @@ namespace Durin
 		}
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
 		FByteBuffer PayloadBytes;
-		if (GetPackage()->IsGraphPrivate() && IsCookInputCaptureActive())
-		{
-			const auto Result = ReadCapturedCookInput(ECookBuildDependencyKind::ExternalFile,
-				GetPackage()->GetPackagePath() + ".iblbulk", PayloadBytes);
-			if (!Result) { OutError = Result.Message; return false; }
-		}
-		else if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
+		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		auto Validated = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		Validated->Serialize(PayloadAr);

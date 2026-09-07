@@ -836,7 +836,6 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DClass* Class = Params.ClassNoRegisterFunc();
 
 		DObjectForceRegistration(Class);
@@ -875,7 +874,6 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDEnum(const FEnumParams& Params) -> DEnum*
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DEnum* Enum = Params.EnumNoRegisterFunc();
 
 		DObjectForceRegistration(Enum);
@@ -888,7 +886,6 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDStruct(const FStructParams& Params) -> DStruct*
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
 		Private::RegisterQualifiedStruct(Struct);

@@ -3523,7 +3523,7 @@ TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath, UnrelatedPath}));
 }
 
-TEST(FPackageAssetTests, V9PrivateTypeRejectionRollsBackConstructorChildrenAndPostLoad)
+TEST(FPackageAssetTests, V9PrivateLoadFailureRollsBackConstructorChildrenAndPostLoad)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -3552,11 +3552,9 @@ TEST(FPackageAssetTests, V9PrivateTypeRejectionRollsBackConstructorChildrenAndPo
 	for (uint32 Phase = 0; Phase < 2; ++Phase)
 	{
 		auto& Probe = Phase == 0 ? GPackageConstructorLoadProbe : GPackagePostLoadProbe;
-		Probe = [] { DObject::StaticClass()->SetQualifiedName(FName("Tests::BlockedTypeMutation")); };
-		FScopedTypeRegistrationFreeze Types;
+		Probe = [] { throw std::runtime_error("Injected private load failure"); };
 		DPackage* Loaded = nullptr;
 		EXPECT_THROW(Codec.Load(Context, Loaded, nullptr, {}, {}), std::runtime_error);
-		EXPECT_TRUE(Types.WasRegistrationRejected());
 		EXPECT_EQ(Loaded, nullptr);
 		EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
 		EXPECT_EQ(GDObjectArray.GetNum(), Before);
@@ -3614,7 +3612,6 @@ TEST(FPackageAssetTests, V9PrivateDependencyCycleUsesOnlyCapturedSkeletons)
 		}, [&](DPackage*) { Loaded.erase(Path); });
 	};
 	DPackage* Root = nullptr;
-	FScopedTypeRegistrationFreeze Types;
 	const auto Result = Load(APath, Root);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_EQ(Loaded.size(), 2u);
@@ -3626,7 +3623,6 @@ TEST(FPackageAssetTests, V9PrivateDependencyCycleUsesOnlyCapturedSkeletons)
 	EXPECT_EQ(B->ExternalReference, A);
 	EXPECT_EQ(FindPackage(APath.GetView()), nullptr);
 	EXPECT_EQ(FindPackage(BPath.GetView()), nullptr);
-	EXPECT_FALSE(Types.WasRegistrationRejected());
 	for (auto [Path, Package] : Loaded) MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage();
 }
@@ -4079,7 +4075,7 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	const std::array MountDefinitions{Durin::FMountPoint{
 		.VirtualRoot = "/Game/",
 		.Owner = Durin::EMountOwner::Test,
-		.Root = GameRoot,
+		.Root = CookRoot.parent_path() / (CookRoot.filename().string() + "Source"),
 		.ContentPath = ".",
 		.bAutoScan = false}};
 	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
@@ -4127,7 +4123,7 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	EXPECT_NE(PackageManifestEntry->Flags
 		& Durin::CookManifestEntryCookedFieldProjection, 0u);
 	Durin::FAssetPackageInspection Inspection;
-	ASSERT_TRUE(Durin::InspectAssetPackage(PackagePath.generic_string(), Inspection));
+	ASSERT_TRUE(Durin::InspectAssetPackage(PackagePath.generic_string(), Path, Inspection));
 	const Durin::FAssetPackageField* PlatformField =
 		Inspection.FindField("CookedBulk");
 	ASSERT_NE(PlatformField, nullptr);
@@ -4140,12 +4136,17 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
+	auto RuntimeMountDefinitions = MountDefinitions;
+	RuntimeMountDefinitions.front().Root = GameRoot;
+	Durin::Testing::FScopedMountRegistryFixture RuntimeMounts(RuntimeMountDefinitions);
+	ASSERT_TRUE(RuntimeMounts.IsValid()) << RuntimeMounts.GetError();
 	auto Runtime = Durin::FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
 	ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Runtime)));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
-	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(Path));
+	const auto Admission = Durin::AdmitAssetPackageToCatalog(Path);
+	ASSERT_TRUE(Admission) << Admission.Message;
 	DAuthoredArchiveAssetForTest* Loaded = nullptr;
 	const Durin::FAssetResult LoadResult = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
@@ -4192,7 +4193,7 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 	const std::array MountDefinitions{Durin::FMountPoint{
 		.VirtualRoot = "/Game/",
 		.Owner = Durin::EMountOwner::Test,
-		.Root = GameRoot,
+		.Root = CookRoot.parent_path() / (CookRoot.filename().string() + "Source"),
 		.ContentPath = ".",
 		.bAutoScan = false}};
 	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
@@ -4231,12 +4232,17 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
+	auto RuntimeMountDefinitions = MountDefinitions;
+	RuntimeMountDefinitions.front().Root = GameRoot;
+	Durin::Testing::FScopedMountRegistryFixture RuntimeMounts(RuntimeMountDefinitions);
+	ASSERT_TRUE(RuntimeMounts.IsValid()) << RuntimeMounts.GetError();
 	auto Runtime = Durin::FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
 	ASSERT_TRUE(Durin::InitializeAssetManager(std::move(Runtime)));
 	ASSERT_TRUE(Durin::RefreshAssetRegistry(
 		Durin::EAssetRegistryScanMode::FullValidation));
-	ASSERT_TRUE(Durin::AdmitAssetPackageToCatalog(Path));
+	const auto Admission = Durin::AdmitAssetPackageToCatalog(Path);
+	ASSERT_TRUE(Admission) << Admission.Message;
 	DAuthoredArchiveAssetForTest* Loaded = nullptr;
 	const Durin::FAssetResult LoadResult = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
@@ -7963,16 +7969,10 @@ namespace
 		auto BuildSourceTreeFingerprint(std::string_view, const Durin::FShaderCompileOptions&,
 			Durin::FShaderSourceDependencyFingerprint&, std::string&) -> bool override { return false; }
 		auto GetStats() const -> Durin::FShaderBuildStats override { return {}; }
-		auto CaptureSourceArtifacts(std::shared_ptr<const Durin::FShaderSourceArtifacts>& Out, std::string&, const std::function<bool()>&) -> bool override
-		{
-			++Captures;
-			Out = std::make_shared<Durin::FShaderSourceArtifacts>(std::map<std::string, Durin::FByteBuffer>{});
-			return true;
-		}
 		auto BuildCookedLibrary(Durin::EShaderTargetPlatform, Durin::EShaderTargetProfile,
 			Durin::FByteBuffer& Out, std::string&, std::shared_ptr<const Durin::FShaderSourceArtifacts> Sources, const std::function<bool()>&) -> bool override
 		{
-			EXPECT_NE(Sources, nullptr);
+			EXPECT_EQ(Sources, nullptr);
 			++Libraries;
 			Out = {std::byte{1}, std::byte{2}, std::byte{3}};
 			return true;
@@ -7980,7 +7980,7 @@ namespace
 	};
 }
 
-TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPackages)
+TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -8024,8 +8024,8 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	FCookContributorRegistration Registration{
 		.Name = "capture-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
 		.Contribute = [&](DObject& Object, std::string_view Name, FCookContext& Context) -> FAssetResult {
-			EXPECT_TRUE(Object.GetPackage()->IsGraphPrivate());
-			EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
+			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
+			EXPECT_EQ(FindPackage(Path.GetView()), Object.GetPackage());
 			Values.push_back(static_cast<DPackageAssetForTest&>(Object).Value);
 			if (OnContribution) OnContribution(Object, Context);
 			std::string Error;
@@ -8038,20 +8038,12 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "CapturedCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
-	bool Replaced = false;
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (Progress.Stage == ECookOperationStage::Load && !Replaced)
-		{
-			Replaced = true;
-			EXPECT_TRUE(FFileHelper::SaveArrayToFile(Changed, Data->PhysicalPath));
-		}
-	};
 	FCookRunResult Result;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
 	ASSERT_EQ(Values, std::vector<int32>{17});
 	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
 	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
-	Request.ReportProgress = {};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Changed, Data->PhysicalPath));
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	ASSERT_EQ(Values, (std::vector<int32>{17, 29}));
 	EXPECT_NE(Result.Packages.front().Status, ECookPackageStatus::CookHit);
@@ -8059,7 +8051,6 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 	EXPECT_EQ(Values.size(), 2u);
 	EXPECT_EQ(Declarations, 3u);
-	EXPECT_EQ(Shader.Captures, 3u);
 	EXPECT_EQ(Shader.Libraries, 3u);
 	Request.bDryRun = true;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
@@ -8077,6 +8068,9 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 		FByteBuffer Current;
 		EXPECT_TRUE(FFileHelper::LoadFileToArray(Current, Request.OutputRoot / "CookManifest.bin"));
 		EXPECT_EQ(Current, PriorManifest);
+		FByteBuffer SourceAfter;
+		EXPECT_TRUE(FFileHelper::LoadFileToArray(SourceAfter, Data->PhysicalPath));
+		EXPECT_EQ(SourceAfter, Changed);
 		EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
 	};
 	const std::filesystem::path OutputPackage = Request.OutputRoot / "TestAssets/CookCapture.dasset";
@@ -8095,48 +8089,7 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 
-	DPackage* Resident = nullptr;
-	ASSERT_TRUE(LoadPackage(Path, Resident));
-	auto* ResidentAsset = static_cast<DPackageAssetForTest*>(Resident->FindTopLevelAsset(Path.GetPackageName()));
-	ASSERT_NE(ResidentAsset, nullptr);
-	ResidentAsset->Value = 99; Resident->MarkDirty();
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::ResidentInputConflict);
-	EXPECT_EQ(ResidentAsset->Value, 99);
-	EXPECT_EQ(FindPackage(Path.GetView()), Resident);
-	ASSERT_TRUE(UnloadPackage(Resident, EAssetPackageUnloadPolicy::DiscardUnsaved));
-	ExpectPriorManifest();
-
-	for (auto Stage : {ECookOperationStage::Discovery, ECookOperationStage::Load, ECookOperationStage::StageAuxiliary})
-	{
-		bool Fenced = false;
-		Request.ReportProgress = [&](const FCookProgress& Progress) {
-			if (!Fenced && Progress.Stage == Stage) { Fenced = true; FenceAssetRegistryProjection(std::span{&Path, 1}); }
-		};
-		EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-		EXPECT_TRUE(Fenced);
-		EXPECT_EQ(Result.InputStatus, ECookInputStatus::ProjectionPending);
-		ClearAssetRegistryProjectionFence(std::span{&Path, 1});
-		ExpectPriorManifest();
-	}
-	Request.ReportProgress = {};
 	Request.IncrementalPolicy = ECookIncrementalPolicy::Disabled;
-	OnContribution = [&](DObject&, FCookContext&) { FenceAssetRegistryProjection(std::span{&Path, 1}); };
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::ProjectionPending);
-	ClearAssetRegistryProjectionFence(std::span{&Path, 1});
-	ExpectPriorManifest();
-
-	OnContribution = [&](DObject& Object, FCookContext&) { EXPECT_EQ(SavePackage(Object.GetPackage()).Error, EAssetError::InUse); };
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ExpectPriorManifest();
-	OnContribution = [&](DObject&, FCookContext&) {
-		EXPECT_THROW(DObject::StaticClass()->SetQualifiedName("Cook::ForbiddenType"), std::runtime_error);
-	};
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ExpectPriorManifest();
 	OnContribution = [&](DObject&, FCookContext& Context) {
 		FByteBuffer Missing;
 		EXPECT_FALSE(Context.ReadDeclaredInput(ECookBuildDependencyKind::ExternalFile, "not-declared", Missing));
@@ -8170,10 +8123,8 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	bool Inspected = false;
 	InspectStore.Inspect = [&] {
 		Inspected = true;
-		EXPECT_FALSE(IsCookInputCaptureActive());
 		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-		for (auto* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished))
-			if (auto* Package = Object->GetPackage()) EXPECT_NE(Package->GetPackagePath(), Path.ToString());
+
 	};
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result, &InspectStore)) << Result.Diagnostic;
 	EXPECT_TRUE(Inspected);
@@ -8181,63 +8132,29 @@ TEST(FPackageAssetTests, CookCaptureReusesDeclaredInputsAndNeverReopensSealedPac
 	OnContribution = [&](DObject&, FCookContext&) {
 		FCookRunResult Nested;
 		EXPECT_FALSE(FCookCoordinator().Run(Request, Nested));
-		EXPECT_EQ(Nested.Code, "capture-in-use");
+		EXPECT_EQ(Nested.Code, "cook-in-use");
 	};
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
-	OnContribution = [&](DObject&, FCookContext&) {
-		std::thread Other([&] {
-			DPackage* Loaded = nullptr;
-			EXPECT_EQ(LoadPackage(Path, Loaded).Error, EAssetError::InUse);
-			EXPECT_EQ(Loaded, nullptr);
-		});
-		Other.join();
-	};
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ExpectPriorManifest();
-	OnContribution = [&](DObject&, FCookContext&) { ShutdownAssetManager(); };
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ExpectPriorManifest();
+	OnContribution = {};
 	std::thread WrongThread([&] {
 		FCookRunResult Wrong;
 		EXPECT_FALSE(FCookCoordinator().Run(Request, Wrong));
 		EXPECT_EQ(Wrong.Code, "wrong-thread");
 	});
 	WrongThread.join();
-	const auto RegisteredMounts = FMountPaths::GetRegisteredMountPoints();
-	const std::vector<FMountPoint> OriginalMounts(RegisteredMounts.begin(), RegisteredMounts.end());
-	std::unique_ptr<Testing::FScopedMountRegistryFixture> ChangedMountFixture;
-	OnContribution = [&](DObject&, FCookContext&) {
-		auto ChangedMounts = OriginalMounts;
-		for (auto& Mount : ChangedMounts) if (Mount.VirtualRoot == "/TestAssets/") Mount.bContentWritable = !Mount.bContentWritable;
-		ChangedMountFixture = std::make_unique<Testing::FScopedMountRegistryFixture>(ChangedMounts);
-		EXPECT_TRUE(ChangedMountFixture->IsValid());
-	};
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ChangedMountFixture.reset();
-	ExpectPriorManifest();
-	OnContribution = [&](DObject&, FCookContext&) { ++Recipe.Version; };
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	ExpectPriorManifest();
-	--Recipe.Version;
-	OnContribution = [&](DObject&, FCookContext&) {
-		EXPECT_GT(RecipeOwner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-		RecipeProvider.Retire();
-	};
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::InputChanged);
-	EXPECT_EQ(RecipeOwner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-	ExpectPriorManifest();
-	OnContribution = [&](DObject&, FCookContext&) { Provider.Retire(); };
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
-	EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::ProviderUnavailable);
-	ExpectPriorManifest();
 
+	// A contributor without declarations must rebuild on every run, even when
+	// the preceding version of the same contributor produced reusable state.
+	UnregisterCookContributor(Retire.Handle);
+	Registration.DeclareDependencies = {};
+	Retire.Handle = RegisterCookContributor(DPackageAssetForTest::StaticClass(), Registration);
+	ASSERT_NE(Retire.Handle, 0u);
+	Request.IncrementalPolicy = ECookIncrementalPolicy::Enabled;
+	for (int Run = 0; Run < 2; ++Run)
+	{
+		ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+		EXPECT_NE(Result.Packages.front().Status, ECookPackageStatus::CookHit);
+	}
 }
 
 TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse)
@@ -8300,13 +8217,6 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "DependencyCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Paths[0]}};
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (ReplaceAfterSeal && Progress.Stage == ECookOperationStage::Load)
-		{
-			ReplaceAfterSeal = false;
-			EXPECT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{9}}, ExternalFile));
-		}
-	};
 	auto ChangeSource = [&](size_t Index, int32 Value) {
 		FByteBuffer Bytes, Changed, Bulk;
 		EXPECT_TRUE(FFileHelper::LoadFileToArray(Bytes, Files[Index]));
@@ -8335,8 +8245,9 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	EXPECT_EQ(ObservedConfiguration, Configuration);
 	External = {std::byte{2}};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(External, ExternalFile));
-	ReplaceAfterSeal = true; Run(false);
+	Run(false);
 	EXPECT_EQ(ObservedFile, External);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{9}}, ExternalFile));
 	Run(false); EXPECT_EQ(ObservedFile, FByteBuffer{std::byte{9}}); Run(true);
 	EXPECT_EQ(Contributions, 7u);
 	FByteBuffer ManifestBytes;
@@ -8345,7 +8256,7 @@ TEST(FPackageAssetTests, CookDeclaredFilesValuesAndBuildOnlyPackagesControlReuse
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "TestAssets/BuildInput2.dasset"));
 }
 
-TEST(FPackageAssetTests, CookOwnsLazyBulkAfterSealing)
+TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -8378,19 +8289,16 @@ TEST(FPackageAssetTests, CookOwnsLazyBulkAfterSealing)
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "BulkCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (Progress.Stage == ECookOperationStage::Load) EXPECT_TRUE(std::filesystem::remove(BulkFile));
-	};
 	FCookRunResult Result;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	EXPECT_TRUE(ReadCaptured);
 	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
-	Request.ReportProgress = {};
+	ASSERT_TRUE(std::filesystem::remove(BulkFile));
 	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
 	EXPECT_EQ(Result.InputStatus, ECookInputStatus::IoError);
 }
 
-TEST(FPackageAssetTests, CookProtectsAliasesAndUsesOneExternalRootCapture)
+TEST(FPackageAssetTests, CookResolvesAliasesAndDiscoversExternalRoots)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -8428,35 +8336,19 @@ TEST(FPackageAssetTests, CookProtectsAliasesAndUsesOneExternalRootCapture)
 	FScopedReferenceStoreRegistration StoreRegistration(&Store);
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "RootCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (Progress.Stage == ECookOperationStage::Load) Store.Path = B;
-	};
 	FCookRunResult Result;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages.front().PackagePath, A);
 	EXPECT_EQ(Store.CaptureCount, 1u);
 	EXPECT_FALSE(std::filesystem::exists(Request.OutputRoot / "TestAssets/CookRootAlias.dasset"));
-	Request.ReportProgress = {};
+	Store.Path = B;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages.front().PackagePath, B);
-	FByteBuffer Manifest;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Manifest, Request.OutputRoot / "CookManifest.bin"));
-	Store.Path = AliasPath;
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (Progress.Stage == ECookOperationStage::Load) FenceAssetRegistryProjection(std::span{&AliasPath, 1});
-	};
-	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
-	EXPECT_EQ(Result.InputStatus, ECookInputStatus::ProjectionPending);
-	EXPECT_EQ(Result.InputFailure.FailedParticipant, AliasPath.ToString());
-	ClearAssetRegistryProjectionFence(std::span{&AliasPath, 1});
-	FByteBuffer Current;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Current, Request.OutputRoot / "CookManifest.bin"));
-	EXPECT_EQ(Current, Manifest);
 }
 
-TEST(FPackageAssetTests, CookBuiltinEnvironmentUsesCapturedAuthoredPayload)
+TEST(FPackageAssetTests, CookBuiltinEnvironmentUsesSavedAuthoredPayload)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -8489,9 +8381,6 @@ TEST(FPackageAssetTests, CookBuiltinEnvironmentUsesCapturedAuthoredPayload)
 	MarkObjectHierarchyAsGarbage(Asset->GetPackage()); CollectGarbage();
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "EnvironmentCaptureOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
-	Request.ReportProgress = [&](const FCookProgress& Progress) {
-		if (Progress.Stage == ECookOperationStage::Load) EXPECT_TRUE(std::filesystem::remove(PayloadPath));
-	};
 	FCookRunResult Result;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	FByteBuffer Cooked;
@@ -8504,7 +8393,7 @@ TEST(FPackageAssetTests, CookBuiltinEnvironmentUsesCapturedAuthoredPayload)
 	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 }
 
-TEST(FPackageAssetTests, CookPrivateMeshLoadDoesNotScheduleLiveCompilation)
+TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilation)
 {
 	InitializeAssetTests();
 	using namespace Durin;
@@ -8534,9 +8423,9 @@ TEST(FPackageAssetTests, CookPrivateMeshLoadDoesNotScheduleLiveCompilation)
 		.Name = "mesh-load-fixture", .ContributorVersion = 1, .FamilyProducerVersion = 1,
 		.Contribute = [&](DObject& Object, std::string_view, FCookContext&) -> FAssetResult {
 			Contributed = true;
-			EXPECT_TRUE(Object.GetPackage()->IsGraphPrivate());
+			EXPECT_FALSE(Object.GetPackage()->IsGraphPrivate());
 			EXPECT_FALSE(HasPendingStaticMeshCompilation(static_cast<DStaticMesh&>(Object)));
-			return {EAssetError::InUse, "Stop after verifying private PostLoad cleanup."};
+			return {EAssetError::InUse, "Stop after verifying offline PostLoad cleanup."};
 		}, .DeclareDependencies = [](const FCookDependencyRequest&, std::vector<FCookDependencyDeclaration>&) -> FAssetResult { return {}; }};
 	const auto Handle = RegisterCookContributor(DStaticMesh::StaticClass(), Registration);
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};

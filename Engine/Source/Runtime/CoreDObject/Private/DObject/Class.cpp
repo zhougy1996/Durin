@@ -11,8 +11,6 @@
 namespace
 {
 	uint32 GDStructRegistrationBatchDepth = 0;
-	std::atomic<uint64> GTypeFreezeCount{0};
-	std::atomic<uint64> GTypeRejectionGeneration{0};
 
 	struct FQualifiedTypeRegistry
 	{
@@ -125,29 +123,6 @@ namespace
 
 namespace Durin
 {
-	FScopedTypeRegistrationFreeze::FScopedTypeRegistrationFreeze()
-		: RejectionGeneration(GTypeRejectionGeneration.load())
-	{
-		++GTypeFreezeCount;
-	}
-
-	FScopedTypeRegistrationFreeze::~FScopedTypeRegistrationFreeze()
-	{
-		--GTypeFreezeCount;
-	}
-
-	auto FScopedTypeRegistrationFreeze::WasRegistrationRejected() const -> bool
-	{
-		return RejectionGeneration != GTypeRejectionGeneration.load();
-	}
-
-	auto FScopedTypeRegistrationFreeze::CheckMutationAllowed() -> void
-	{
-		if (GTypeFreezeCount.load() == 0) return;
-		++GTypeRejectionGeneration;
-		throw std::runtime_error("Reflected type registration is frozen by an input capture.");
-	}
-
 	auto DStructBase::RegisterDependencies() -> void
 	{
 		if (SuperStructBase)
@@ -443,7 +418,6 @@ namespace Durin
 		DClass::StaticClassFunctionType InSuperClassFn
 	) -> DClass*
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		auto* Class = new DClass(
 			EC_StaticConstructor,
 			FName(Name),
@@ -485,7 +459,6 @@ namespace Durin
 
 		auto UpdateQualifiedClassName(DClass* Class, FName PreviousName) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			auto& Classes = Registry.Classes;
 			if (!PreviousName.IsNone() && PreviousName != Class->GetQualifiedName())
@@ -501,7 +474,6 @@ namespace Durin
 
 		auto RegisterQualifiedStruct(DStruct* Struct) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			check(!IsLegacyQualifiedName(Registry, Struct->GetQualifiedName())
 				&& "Current reflected names must not collide with legacy aliases.");
@@ -510,7 +482,6 @@ namespace Durin
 
 		auto RegisterQualifiedEnum(DEnum* Enum) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			check(!IsLegacyQualifiedName(Registry, Enum->GetQualifiedName())
 				&& "Current reflected names must not collide with legacy aliases.");
@@ -519,7 +490,6 @@ namespace Durin
 
 		auto RegisterLegacyClassNames(DClass* Class, std::span<const char* const> LegacyNames) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			ValidateLegacyTypeNames(Registry, LegacyNames);
 			RegisterLegacyTypeNames(Registry.Classes, Registry.LegacyClasses, Class, LegacyNames);
@@ -527,7 +497,6 @@ namespace Durin
 
 		auto RegisterLegacyStructNames(DStruct* Struct, std::span<const char* const> LegacyNames) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			ValidateLegacyTypeNames(Registry, LegacyNames);
 			RegisterLegacyTypeNames(Registry.Structs, Registry.LegacyStructs, Struct, LegacyNames);
@@ -535,7 +504,6 @@ namespace Durin
 
 		auto RegisterLegacyEnumNames(DEnum* Enum, std::span<const char* const> LegacyNames) -> void
 		{
-			FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 			auto& Registry = GetQualifiedTypeRegistry();
 			ValidateLegacyTypeNames(Registry, LegacyNames);
 			RegisterLegacyTypeNames(Registry.Enums, Registry.LegacyEnums, Enum, LegacyNames);
@@ -728,7 +696,6 @@ namespace Durin
 
 	auto DClass::SetQualifiedName(FName InQualifiedName) -> void
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		FName PreviousName = QualifiedName;
 		QualifiedName = InQualifiedName;
 		Private::UpdateQualifiedClassName(this, PreviousName);
@@ -758,7 +725,6 @@ namespace Durin
 
 	auto DClass::SetTypeNames(std::string_view InShortName, std::string_view InDisplayName, std::string_view InDefaultObjectName) -> void
 	{
-		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		ShortName = InShortName;
 		DefaultObjectName = InDefaultObjectName.empty() ? MakeDefaultObjectName(ShortName) : std::string(InDefaultObjectName);
 		DisplayName = InDisplayName.empty() ? MakeDefaultDisplayName(DefaultObjectName, "") : std::string(InDisplayName);

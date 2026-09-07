@@ -28,7 +28,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 4;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
@@ -47,12 +47,12 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint,
 			std::string& OutError) -> bool = 0;
-		virtual auto CaptureSourceArtifacts(
-			std::shared_ptr<const FShaderSourceArtifacts>& OutArtifacts,
-			std::string& OutError, const std::function<bool()>& IsCancelled = {}) -> bool
+		// Hashes stable mounted sources and compiler settings without retaining file bytes.
+		virtual auto GetCookInputIdentity(std::string& OutIdentity, std::string& OutError,
+			const std::function<bool()>& IsCancelled = {}) -> bool
 		{
-			OutArtifacts.reset();
-			OutError = "Shader provider does not support fixed source capture.";
+			OutIdentity.clear();
+			OutError = "Shader provider does not declare Cook input identity.";
 			return false;
 		}
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
@@ -71,14 +71,7 @@ namespace Durin
 		const std::function<bool(IShaderBuildProvider&)>& Work,
 		std::string& OutError) -> bool;
 
-	// Acquires mounted source bytes once, then binds all synchronous shader work
-	// in Work to them and to one retained provider. Acquisition requires quiescent sources.
-	// Fixed source/search-root/compiler identity, available only inside a captured invocation.
-	RENDERCORE_API auto GetCapturedShaderBuildIdentity() -> std::string;
-	RENDERCORE_API auto WithCapturedShaderBuildInputs(
-		const std::function<bool()>& Work, std::string& OutError,
-		EShaderTargetPlatform TargetPlatform = EShaderTargetPlatform::Win64,
-		EShaderTargetProfile TargetProfile = EShaderTargetProfile::Game,
+	RENDERCORE_API auto GetShaderCookInputIdentity(std::string& OutIdentity, std::string& OutError,
 		const std::function<bool()>& IsCancelled = {}) -> bool;
 
 	RENDERCORE_API auto IsShaderBuildProviderAvailable() -> bool;
@@ -87,5 +80,5 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
+		std::string& OutError, const std::function<bool()>& IsCancelled = {}) -> bool;
 }

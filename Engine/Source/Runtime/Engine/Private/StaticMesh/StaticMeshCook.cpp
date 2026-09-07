@@ -1,3 +1,4 @@
+#include "Asset/OfflinePreparation.h"
 #include "StaticMesh/StaticMesh.h"
 
 #include "DObject/Package.h"
@@ -227,8 +228,8 @@ namespace Durin
 			return false;
 		}
 		// Cook serialization builds a detached candidate synchronously from this source.
-		// A private load must not leave an owner in the live compiling manager.
-		if (IsCookInputCaptureActive() && GetPackage() && GetPackage()->IsGraphPrivate())
+		// Offline preparation builds directly instead of scheduling editor compilation.
+		if (FScopedOfflinePreparation::IsActive())
 		{
 			OutError.clear();
 			return true;

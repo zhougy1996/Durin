@@ -65,7 +65,20 @@ without opening an application loop:
 `--output` resolves relative to the checkout and is passed to the native host as
 an absolute path. `--profile` continues to select the host build profile, while
 `--target-profile` selects the Cook runtime profile. `--dry-run` performs
-discovery and immutable capture without opening a store transaction.
+discovery and preparation without opening a store transaction.
+
+Each invocation starts one dedicated Cook process and exits when it finishes.
+Save intended edits and finish imports before launch. Keep participating packages,
+companions, external files, shader sources, configuration and native build code
+stable until the process exits. Unsaved editor objects are excluded. Editing,
+synchronizing or checking out inputs during Cook is unsupported; discard those
+outputs and rerun from stable inputs. Cook does not prevent or diagnose such edits.
+
+Output must be outside mounted content, shader, source and configuration trees;
+existing filesystem aliases are resolved before accepting it. Cook writes DDC
+and shader intermediates under `<output>/DerivedDataCache` and logs under
+`<output>/Logs`, including dry runs. Reports use stdout. Cook never resaves or
+repairs authored packages. These writable destinations must remain outside inputs.
 
 Human output summarizes package counts, validated Cook hits, failures, changed
 bytes, and reused bytes. `--json` validates and emits the version-1 Cook

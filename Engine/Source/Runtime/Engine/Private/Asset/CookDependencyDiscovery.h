@@ -6,29 +6,25 @@
 #include "Asset/PackageSchema.h"
 #include "AssetRegistry/References.h"
 #include "AssetPackageCodec.h"
-#include "DObject/StrongObjectPtr.h"
+#include "Asset/Load.h"
 #include "Misc/MountPaths.h"
 
 namespace Durin::AssetPrivate
 {
-	enum class ECookCapturePhase : uint8 { Acquiring, Sealed, Capturing, Detached, Failed, Cancelled };
 
-	class FCookInputCapture
+	// Evaluates bounded dependency identities from the workflow-stable source tree.
+	// Owns metadata and small values; ordinary loading owns objects and lazy resources.
+	class FCookDependencyDiscovery
 	{
 	public:
 		using FResolveContributor = std::function<FAssetResult(const FAssetData&, FCookContributorRegistration&)>;
-		FCookInputCapture(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
+		FCookDependencyDiscovery(const FCookRequest& Request, FAssetRegistrySnapshot Registry,
 			FResolveContributor ResolveContributor);
-		~FCookInputCapture();
-		FCookInputCapture(const FCookInputCapture&) = delete;
-		auto operator=(const FCookInputCapture&) -> FCookInputCapture& = delete;
+		FCookDependencyDiscovery(const FCookDependencyDiscovery&) = delete;
+		auto operator=(const FCookDependencyDiscovery&) -> FCookDependencyDiscovery& = delete;
 		auto Acquire(std::span<const FPackagePath> Roots, const FAssetReferenceStoreCapture& ExternalRoots) -> FAssetResult;
-		auto Verify() -> FAssetResult;
-		auto LoadObject(const FObjectPath& Path, DObject*& Out) -> FAssetResult;
-		auto LoadPackage(const FPackagePath& Path, DPackage*& Out) -> FAssetResult;
-		auto SetCurrentPackage(const FPackagePath& Path) -> void { CurrentPackage = Path; }
-		auto ReadInput(ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FAssetResult;
-		auto Detach() -> void;
+		auto CheckCancellation() -> FAssetResult;
+		auto ReadInput(const FPackagePath& Path, ECookBuildDependencyKind Kind, std::string_view Name, FByteBuffer& Out) -> FAssetResult;
 		auto GetPackages() const -> const std::vector<FPackagePath>& { return RuntimePackages; }
 		auto GetRegistry() const -> const FAssetRegistrySnapshot& { return Registry; }
 		auto GetContributor(const FPackagePath& Path) const -> const FCookContributorRegistration& { return Inputs.at(Path).Contributor; }
@@ -36,17 +32,12 @@ namespace Durin::AssetPrivate
 		auto GetRetainedBytes() const -> uint64 { return RetainedBytes; }
 		auto GetStatus() const -> ECookInputStatus { return Status; }
 		auto IsReusable(const FPackagePath& Path) const -> bool;
-		auto GetPhase() const -> ECookCapturePhase { return Phase; }
-		static auto GetActive() -> FCookInputCapture* { return Active; }
 	private:
 		struct FInput
 		{
-			FByteBuffer PackageBytes;
-			FByteBuffer BulkBytes;
+			FByteBuffer PackageIdentity;
 			FByteBuffer BulkIdentity;
-			uint64 BulkSize = 0;
-			FPackageResourceHandle Resource;
-			const FAssetPackageCodec* Codec = nullptr;
+			std::map<std::string, std::filesystem::path> DeclaredFiles;
 			FAssetPackageInspection Inspection;
 			std::vector<FAssetReferenceEdge> References;
 			FCookContributorRegistration Contributor;
@@ -60,24 +51,17 @@ namespace Durin::AssetPrivate
 		auto CaptureSchema(FInput& Input, FCookPackageBuildInputs& Node) -> FAssetResult;
 		auto Fail(EAssetError Error, std::string Message, ECookInputStatus Status = ECookInputStatus::InvalidDependency) -> FAssetResult;
 		auto Fail(const FAssetResult& Result) -> FAssetResult;
-		auto ReleaseObjects() -> void;
-		static thread_local FCookInputCapture* Active;
 		const FCookRequest& Request;
 		FAssetRegistrySnapshot Registry;
 		FResolveContributor ResolveContributor;
 		FReflectionSchemaCatalog Schema;
-		std::vector<FMountPoint> Mounts;
-		std::vector<FStrongObjectPtr> ObjectPins;
+		std::string ShaderBuildIdentity;
 		std::unordered_map<std::string, FByteBuffer> SchemaValues;
-		ECookCapturePhase Phase = ECookCapturePhase::Acquiring;
 		FAssetResult Failure;
 		ECookInputStatus Status = ECookInputStatus::None;
 		std::unordered_map<FPackagePath, FInput> Inputs;
-		std::unordered_map<FPackagePath, FStrongObjectPtr> Loaded;
-		std::unordered_set<FPackagePath> Participants;
 		std::unordered_set<std::string> UnversionedPackages;
 		std::vector<FPackagePath> RuntimePackages;
-		FPackagePath CurrentPackage;
 		uint64 RetainedBytes = 0;
 	};
 }

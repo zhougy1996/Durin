@@ -7,6 +7,7 @@
 #include "ShaderCompileService.h"
 #include "ShaderLibraryProducer.h"
 #include "Misc/FileHelper.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin
 {
@@ -51,14 +52,14 @@ namespace Durin
 				VirtualShaderPath, Options, OutFingerprint, OutError);
 		}
 
-		auto CaptureSourceArtifacts(std::shared_ptr<const FShaderSourceArtifacts>& OutArtifacts,
+		auto GetCookInputIdentity(std::string& OutIdentity,
 			std::string& OutError, const std::function<bool()>& IsCancelled) -> bool override
 		{
-			OutArtifacts.reset();
+			OutIdentity.clear();
 			const auto Mounts = FShaderPaths::GetRegisteredMountPoints();
 			if (Mounts.size() > 256) { OutError = "Shader mount limit exceeded."; return false; }
 			uint64 Entries = 0;
-			std::map<std::string, FByteBuffer> Files;
+			std::map<std::string, FXxHash128> Files;
 			std::vector<std::string> SearchRoots;
 			uint64 TotalBytes = 0;
 			std::error_code Error;
@@ -99,12 +100,22 @@ namespace Durin
 						{ OutError = ReadError.ToString(); return false; }
 					}
 					TotalBytes += Size;
-					if (!Files.emplace(Name, std::move(Bytes)).second)
+					if (!Files.emplace(Name, FXxHash128::HashBuffer(Bytes)).second)
 					{ OutError = "Shader capture contains duplicate logical files."; return false; }
 				}
 				if (Error) { OutError = Error.message(); return false; }
 			}
-			OutArtifacts = std::make_shared<FShaderSourceArtifacts>(Files, std::move(SearchRoots));
+			FBinaryWriter Identity;
+			Identity.WriteString(GetCompilerEnvironmentIdentity());
+			Identity.WriteU32(static_cast<uint32>(SearchRoots.size()));
+			for (const auto& Root : SearchRoots) Identity.WriteString(Root);
+			Identity.WriteU32(static_cast<uint32>(Files.size()));
+			for (const auto& [Name, Digest] : Files)
+			{
+				Identity.WriteString(Name); Identity.WriteHash128(Digest);
+			}
+			const auto Digest = FXxHash128::HashBuffer(Identity.GetBytes());
+			OutIdentity = std::format("{:016x}{:016x}", Digest.HashHigh, Digest.HashLow);
 			return true;
 		}
 

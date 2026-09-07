@@ -724,6 +724,11 @@ namespace Durin
 
 	auto FPaths::SetDerivedDataCacheDirForTests(std::string_view Directory) -> void
 	{
+		SetDerivedDataCacheDir(Directory);
+	}
+
+	auto FPaths::SetDerivedDataCacheDir(std::string_view Directory) -> void
+	{
 		DerivedDataCacheOverride = Directory.empty() ? std::filesystem::path{} : std::filesystem::absolute(Directory).lexically_normal();
 	}
 

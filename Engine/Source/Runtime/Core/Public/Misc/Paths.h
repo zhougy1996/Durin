@@ -20,6 +20,8 @@ namespace Durin
 		static CORE_API auto EngineDir() -> std::string;
 		static CORE_API auto ProjectDir() -> std::string;
 		static CORE_API auto DerivedDataCacheDir() -> std::string;
+		// Configure before initializing cache consumers; an empty value restores the project default.
+		static CORE_API auto SetDerivedDataCacheDir(std::string_view Directory) -> void;
 		static CORE_API auto SetDerivedDataCacheDirForTests(std::string_view Directory) -> void;
 		static CORE_API auto EngineContentDir() -> std::string;
 		static CORE_API auto EngineBinariesDir() -> std::string;

@@ -1,6 +1,7 @@
 #include "Asset/PackageSerialization.h"
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
+#include "Asset/Load.h"
 #include "Asset/AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
@@ -14,6 +15,7 @@
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformMisc.h"
@@ -882,30 +884,44 @@ int main(int ArgC, char** ArgV)
 	Durin::FPlatformMisc::AddRuntimeBinaryDirectory(
 		Durin::FPaths::EngineThirdPartyRuntimeBinariesDir().c_str()
 	);
-	// Project initialization configures logging. Keep stdout reserved for the
-	// selected human or machine-readable report.
-	Durin::LoggerInit();
-	struct FScopedLoggerShutdown final
-	{
-		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
-	} ScopedLoggerShutdown;
-	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
 	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error))
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;
 	}
-	Durin::DObjectInit();
-	struct FScopedEditorServices final
+	if (Options.Operation == EOperation::Cook)
 	{
-		bool bStarted = false;
-		~FScopedEditorServices()
+		// Validate all host-owned writable roots before starting the logger or caches.
+		for (const auto& Destination : {Options.OutputRoot,
+			Options.OutputRoot / "DerivedDataCache", Options.OutputRoot / "Logs"})
+			if (!Durin::ValidateCookOutputRoot(Destination, Error))
+			{
+				Durin::FCookRunResult Result;
+				Result.Status = Durin::ECookRunStatus::Failed;
+				Result.Code = "invalid-output-root";
+				Result.Diagnostic = Error;
+				if (Options.Format == EOutputFormat::Json)
+					std::cout << SerializeCookRunResult(Result) << '\n';
+				else std::cerr << "Error: " << Error << '\n';
+				return 1;
+			}
+		Durin::FPaths::SetDerivedDataCacheDir((Options.OutputRoot / "DerivedDataCache").generic_string());
+		Durin::FLogSettings Settings;
+		Settings.ConsoleLevel = Durin::ELogLevel::Fatal;
+		Settings.LogDirectory = (Options.OutputRoot / "Logs").generic_string();
+		if (!Durin::FLogger::Get().Initialize(Settings))
 		{
-			if (!bStarted) return;
-			Durin::ShutdownAssetCompilingManager();
-			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+			std::cerr << "Error: Cook logger initialization failed.\n";
+			return 1;
 		}
-	} EditorServices;
+	}
+	else Durin::LoggerInit();
+	struct FScopedLoggerShutdown final
+	{
+		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
+	} ScopedLoggerShutdown;
+	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
+	Durin::DObjectInit();
 	struct FScopedShaderInventoryModule final
 	{
 		Durin::FModuleHandle Handle = nullptr;
@@ -914,6 +930,18 @@ int main(int ArgC, char** ArgV)
 			if (Handle) Durin::FPlatformMisc::FreeLibrary(Handle);
 		}
 	} ShaderInventoryModule;
+	struct FScopedEditorServices final
+	{
+		bool bStarted = false;
+		~FScopedEditorServices()
+		{
+			if (!bStarted) return;
+			Durin::ShutdownAssetCompilingManager();
+			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+			Durin::ShutdownAssetManager();
+			Durin::CollectGarbage();
+		}
+	} EditorServices;
 #if DURIN_WITH_EDITOR
 	if (!Durin::InitializeTaskScheduler(2)
 		|| !Durin::InitializeGameThreadDeferredExecutor()
@@ -944,6 +972,9 @@ int main(int ArgC, char** ArgV)
 		}
 	}
 #endif
+	if (Options.Operation == EOperation::Cook)
+		for (const auto& Module : Durin::GetCurrentProject()->EnabledRootModules)
+			Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
 	const Durin::FReflectionCompatibilityCatalog Catalog =

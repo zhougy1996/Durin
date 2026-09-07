@@ -9,12 +9,6 @@ namespace Durin
 	namespace
 	{
 		thread_local IShaderBuildProvider* CapturedProvider = nullptr;
-		thread_local std::shared_ptr<const FShaderSourceArtifacts> CapturedSources;
-		thread_local const FByteBuffer* CapturedLibrary = nullptr;
-		thread_local EShaderTargetPlatform CapturedTargetPlatform;
-		thread_local EShaderTargetProfile CapturedTargetProfile;
-		thread_local std::string CapturedCompilerIdentity;
-		thread_local std::string CapturedBuildIdentity;
 
 		struct FShaderDataState
 		{
@@ -182,7 +176,6 @@ namespace Durin
 		auto Result = InvokeProvider<FShaderCompilerOutput>(
 			[&](IShaderBuildProvider& Provider) {
 				auto EffectiveOptions = Options;
-				if (CapturedSources) EffectiveOptions.SourceArtifacts = CapturedSources;
 				return Provider.CompileMounted(VirtualShaderPath, EffectiveOptions);
 			});
 		return Result.WasInvoked() && Result.Value
@@ -195,7 +188,6 @@ namespace Durin
 		auto Result = InvokeProvider<FShaderCompilerOutput>(
 			[&](IShaderBuildProvider& Provider) {
 				auto EffectiveRequest = Request;
-				if (CapturedSources) EffectiveRequest.SourceArtifacts = CapturedSources;
 				return Provider.CompileGenerated(EffectiveRequest);
 			});
 		return Result.WasInvoked() && Result.Value
@@ -204,7 +196,6 @@ namespace Durin
 
 	auto GetShaderCompilerEnvironmentIdentityFromProvider() -> std::string
 	{
-		if (CapturedSources) return CapturedCompilerIdentity;
 		auto Result = InvokeProvider<std::string>(
 			[](IShaderBuildProvider& Provider) {
 				return Provider.GetCompilerEnvironmentIdentity();
@@ -221,7 +212,6 @@ namespace Durin
 	{
 		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
 			auto EffectiveOptions = Options;
-			if (CapturedSources) EffectiveOptions.SourceArtifacts = CapturedSources;
 			return Provider.BuildSourceDependencyManifest(
 				VirtualShaderPath, EffectiveOptions, OutDependencies, OutError);
 		});
@@ -239,7 +229,6 @@ namespace Durin
 	{
 		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
 			auto EffectiveOptions = Options;
-			if (CapturedSources) EffectiveOptions.SourceArtifacts = CapturedSources;
 			return Provider.BuildSourceTreeFingerprint(
 				VirtualShaderPath, EffectiveOptions, OutFingerprint, OutError);
 		});
@@ -287,63 +276,24 @@ namespace Durin
 		return false;
 	}
 
-	auto GetCapturedShaderBuildIdentity() -> std::string { return CapturedBuildIdentity; }
-
-	auto WithCapturedShaderBuildInputs(const std::function<bool()>& Work,
-		std::string& OutError, EShaderTargetPlatform TargetPlatform,
-		EShaderTargetProfile TargetProfile, const std::function<bool()>& IsCancelled) -> bool
+	auto GetShaderCookInputIdentity(std::string& OutIdentity, std::string& OutError,
+		const std::function<bool()>& IsCancelled) -> bool
 	{
-		return WithShaderBuildProvider([&](IShaderBuildProvider& Provider) {
-			std::shared_ptr<const FShaderSourceArtifacts> Sources;
-			if (!Provider.CaptureSourceArtifacts(Sources, OutError, IsCancelled) || !Sources) return false;
-			struct FResetSources
-			{
-				~FResetSources()
-				{
-					CapturedLibrary = nullptr;
-					CapturedCompilerIdentity.clear(); CapturedBuildIdentity.clear();
-					CapturedSources.reset();
-				}
-			} Reset;
-			CapturedSources = std::move(Sources);
-			CapturedCompilerIdentity = Provider.GetCompilerEnvironmentIdentity();
-			FBinaryWriter Identity;
-			Identity.WriteString(CapturedCompilerIdentity);
-			Identity.WriteU32(static_cast<uint32>(CapturedSources->GetSearchRoots().size()));
-			for (const auto& Root : CapturedSources->GetSearchRoots()) Identity.WriteString(Root);
-			Identity.WriteU32(static_cast<uint32>(CapturedSources->GetFiles().size()));
-			for (const auto& [Name, Bytes] : CapturedSources->GetFiles())
-			{
-				Identity.WriteString(Name); Identity.WriteHash128(FXxHash128::HashBuffer(Bytes));
-			}
-			const auto Digest = FXxHash128::HashBuffer(Identity.GetBytes());
-			CapturedBuildIdentity = std::format("{:016x}{:016x}", Digest.HashHigh, Digest.HashLow);
-			FByteBuffer Library;
-			if (!Provider.BuildCookedLibrary(TargetPlatform, TargetProfile,
-				Library, OutError, CapturedSources, IsCancelled)) return false;
-			CapturedTargetPlatform = TargetPlatform;
-			CapturedTargetProfile = TargetProfile;
-			CapturedLibrary = &Library;
-			return Work && Work();
-		}, OutError);
+		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
+			return Provider.GetCookInputIdentity(OutIdentity, OutError, IsCancelled);
+		});
+		return Result.WasInvoked() && Result.Value && *Result.Value;
 	}
 
 	auto BuildCookedShaderLibrary(
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		std::string& OutError, const std::function<bool()>& IsCancelled) -> bool
 	{
-		if (CapturedLibrary)
-		{
-			if (TargetPlatform != CapturedTargetPlatform || TargetProfile != CapturedTargetProfile)
-			{ OutError = "Shader target was not captured."; OutBytes.clear(); return false; }
-			OutBytes = *CapturedLibrary;
-			return true;
-		}
 		auto Result = InvokeProvider<bool>([&](IShaderBuildProvider& Provider) {
 			return Provider.BuildCookedLibrary(
-				TargetPlatform, TargetProfile, OutBytes, OutError, CapturedSources);
+				TargetPlatform, TargetProfile, OutBytes, OutError, {}, IsCancelled);
 		});
 		if (Result.WasInvoked() && Result.Value) return *Result.Value;
 		OutBytes.clear();

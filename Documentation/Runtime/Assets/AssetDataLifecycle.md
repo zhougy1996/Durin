@@ -350,9 +350,9 @@ supply `LifetimeOwner` to retain callback state and native code. An empty owner
 requires the caller to guarantee their process lifetime. Callback wrappers are
 destroyed before the owner, outside the registration mutex, including reentrant
 retirement. The run releases its registrations before opening the output store,
-or on failure, cancellation, or dry-run return. The coordinator separately freezes supported type registration and captures the
-source inputs described below. Arbitrary native callback state still requires
-explicit dependency declarations.
+or on failure, cancellation, or dry-run return. The standalone host loads types
+and providers before package work and keeps their code alive through shutdown.
+Arbitrary native callback state still requires explicit dependency declarations.
 
 CMNF entries are sorted by normalized cook-relative path and record kind, required
 flag, byte extent, and XXH3-128 digest. Raw companions use `PackageBulk`;
@@ -370,10 +370,13 @@ access. Dependency discovery and compilation use its lexical file identities;
 missing imports/includes cannot fall back to disk. These service requests bypass
 live metadata and shader caches. Sessions reject noncanonical paths, names over
 4096 bytes, more than 65536 files, files over 64 MiB, or total source bytes over
-512 MiB. Ordinary shader requests retain the mounted-source/cache route. Cook uses one retained ShaderBuild invocation to copy the mounted source tree
-and search roots, precompute the runtime library, and compile generated Material
-programs synchronously against those same artifacts. Retirement cannot remove
-code still in use; missing fixed includes fail without a host-file fallback.
+512 MiB. Ordinary shader requests retain the mounted-source/cache route. Cook
+hashes mounted source identities and search roots once during dependency discovery,
+then compiles Material programs and the detached runtime library from the stable
+files through ordinary provider invocations. It does not retain a whole-run source
+copy or pin an invocation across the run. The standalone host keeps provider code
+loaded through work completion and object/resource shutdown. Explicit fixed-input
+service requests retain their no-fallback behavior.
 
 Cook reachability resolves explicit, built-in, and registered external runtime
 roots before traversal. Redirectors are authoring-only: references are rewritten
@@ -386,42 +389,37 @@ Reentrant retirement still rejects the capture, but cannot destroy a pinned
 provider on its callback stack. Unregistration detaches the owner before running
 its destructor. Other mutation/fix-up callbacks retain their caller lifetime
 contract; a capture owner does not extend those operations automatically.
-The coordinator captures external root stores once, then traverses exact
-references inspected from its owned package bytes. Later external-root changes
-apply to the next run. The standalone `BuildCookReachability` helper still
-inspects current files and types; it is not a Cook input snapshot.
+Production Cook runs once in `DurinAssetTool cook`, then exits. The invoking
+workflow saves edits and finishes imports first, and keeps all participating
+packages, companions, external files, shaders, configuration and native code
+stable until exit. Unsaved editor memory is excluded by the process boundary.
+Concurrent edits are unsupported: discard the output and rerun. Cook neither
+prevents nor guarantees diagnostics for such edits.
 
-`FCookCoordinator` runs on the object owner thread and rejects nested or
-concurrent runs before callbacks. Explicit roots augment the configured default
-Level and captured external roots. An immovable, scope-owned capture progresses
-through acquisition, sealing, private graph capture, and detachment; failure and
-cancellation are terminal. It owns Registry metadata, source bytes, bulk resources,
-exact references, mount definitions, schema values, declarations, and selected
-contributor owners. Mount-definition changes fail capture.
-Package inspection, persistent identity, and private loading consume those same
-bytes. Only acquisition opens authored files. Source file replacement after
-sealing therefore affects the next run. Read failure or incomplete metadata fails
-closed; this is an owned read set, not an atomic filesystem snapshot.
+The host rejects overlapping output destinations after resolving existing
+filesystem aliases. DDC, shader intermediates and logs use separate writable
+locations; see the [tool workflow](../../Development/Tooling/DurinDevTool.md).
+Cook never saves or repairs authored inputs. Shutdown joins compilation and tasks,
+releases assets/resources, then releases the Renderer inventory library.
 
-Requested aliases and intermediate redirects are admission participants. At
-capture boundaries, selected participant metadata and publication fences are
-checked independently of unrelated Registry revisions. A resident participant,
-clean or dirty, fails with `ResidentInputConflict`; Cook never substitutes live
-objects for disk inputs. Private v9 package skeletons support cycles and owned
-lazy bulk without publication to global object or resource lookup. Supported live
-load, save, mutation, unload, and shutdown paths are rejected during capture,
-including cross-thread requests. Supported reflected registration changes are
-rejected and remain observable even when native code catches the exception.
-Native module code leases and provider invocations outlive all private objects.
-Unmanaged registrations retain their process-lifetime caller contract. Raw native
-memory mutation and arbitrary filesystem access are not sandboxed by this API.
+The coordinator discovers external root stores once, and inspects exact references
+from stable package files. The standalone `BuildCookReachability` helper remains
+an independent query for callers that need reachability without performing Cook.
+It does not supply persistent incremental identity.
 
-Contributors may prepare derived state and return detached save plans. They must
-not retain private objects or schedule work that escapes capture. StaticMesh
-private PostLoad skips live asynchronous compilation; its cooked serializer
-builds a detached candidate synchronously. Authored
-byte/dirty comparisons diagnose invalid contributors; they do not establish input
-isolation. `DeclareDependencies` executes before every cache lookup without loading
+`FCookCoordinator` requires the object owner thread and rejects nested runs before
+callbacks. It is an internal orchestration component, with no live-editor or
+concurrent-session guarantee. `FCookDependencyDiscovery` retains dependency metadata,
+content hashes and small declared values. It does not own an isolated object graph
+or retain whole-run package/bulk copies. Ordinary loading provides recursion,
+aliases, cycles, residency and file-backed lazy bulk. Existing residents in this
+process are valid; ordinary non-Cook load/mutation admission remains unchanged.
+
+Contributors prepare derived state and return detached save plans without saving
+authored files. `FScopedOfflinePreparation` selects synchronous Material work and
+lets StaticMesh build its detached serialization product without editor compilation.
+It does not gate mutation or loading. The host must finish owned work before
+unloading provider code. `DeclareDependencies` executes before every cache lookup without loading
 objects. Absence of a callback disables reuse, including transitive contributors
 without declarations. Declarations use stable logical names and these semantics:
 
@@ -431,8 +429,8 @@ without declarations. Declarations use stable logical names and these semantics:
 - A direct package input observes its source and bulk, including redirect aliases
   and final target. A transitive input also visits its declared build inputs.
   Cycles terminate once per node. Build-only packages do not become runtime roots.
-- External files are copied during acquisition; their locator is excluded from
-  identity. Configuration and schema/producer values are owned canonical bytes.
+- External files are hashed during discovery and read again when requested; their
+  locator is excluded from identity. Configuration and schema/producer values are owned canonical bytes.
   Contributors read them through `FCookContext::ReadDeclaredInput`; undeclared
   access fails the run even if its immediate error is ignored.
 - Names, kinds, lengths, and values are canonically framed. Contributor/family
@@ -443,25 +441,27 @@ without declarations. Declarations use stable logical names and these semantics:
   producer version bump; callback output is not automatically a complete recipe.
 
 Built-in Texture2D, TextureCube, VolumeTexture, and StaticMesh declarations include
-retained recipe-provider descriptors. Provider replacement or descriptor changes
-fail capture. Material declares the fixed shader environment/source identity;
-EnvironmentLighting declares and reads its owned `.iblbulk` bytes. A pending
-StaticMesh authored mutation is rejected rather than completed inside capture.
+native recipe-provider descriptors. Material declares shader source/compiler
+identity evaluated once per run without retaining source bytes; compiler calls
+use ordinary stable files. EnvironmentLighting declares and reads its `.iblbulk`
+file. StaticMesh pending authored mutation remains an invalid offline input.
 
 `CookState.bin` version 2 persists canonical per-package dependency records,
 separately from CMNF. Version 1, invalid, duplicate, truncated, or incompatible
 state becomes a full cache miss. A hit additionally validates output size and
 digest and retains those exact verified buffers. Missing/corrupt output is
-recaptured and repaired. Hits, fresh captures, and dry runs share admission and
+recaptured and repaired. Hits, fresh captures, and dry runs share dependency discovery and
 auxiliary-library production. DDC hits, rebuilds, captures, and Cook hits remain
 distinct provenance.
 
-Capture limits are 65536 packages, pinned objects, and graph/runtime edges, 256 MiB per acquired file, and
+Discovery limits are 65536 packages and graph/runtime edges, 256 MiB per read file, and
 1 GiB of accounted retained input data. Dependency sets use at most 65536 records,
 1 MiB per value, and 64 MiB encoded data; the prepared graph shares source hashes
 across expansions. Cook state is bounded to 256 MiB and detached output to 1 GiB.
 These bound payload storage rather than total process RSS or native callback
-allocations. Shader acquisition separately caps sources at 512 MiB and checks
+allocations. The JSON `peakCapturedBytes` field accounts retained dependency values
+and detached outputs; it excludes temporary codec/compiler buffers and ordinary
+loader/resource allocations. Shader identity evaluation separately caps total source bytes at 512 MiB and checks
 cancellation between directory entries, read chunks, and library requests.
 
 All save plans are detached before `ICookOutputStore` opens its transaction.

@@ -122,7 +122,6 @@ namespace Durin
 		uint64 SegmentFileSize = 0;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		uint32 FingerprintVersion = 1;
 		uint32 ContributorVersion = 1;
 		uint32 FamilyProducerVersion = 1;
 		std::string Contributor;
@@ -173,7 +172,7 @@ namespace Durin
 
 	enum class ECookInputStatus : uint8
 	{
-		None, InputChanged, ProjectionPending, ResidentInputConflict, ProviderUnavailable,
+		None, ProjectionPending, ProviderUnavailable,
 		UndeclaredInput, InvalidDependency, LimitExceeded, IoError, Cancelled
 	};
 
@@ -187,6 +186,8 @@ namespace Durin
 		std::vector<FCookPackageResult> Packages;
 		uint64 ChangedBytes = 0;
 		uint64 ReusedBytes = 0;
+		// Accounted retained dependency values plus detached outputs; excludes process RSS,
+		// transient codec/compiler buffers, and ordinary loader/resource allocations.
 		uint64 PeakCapturedBytes = 0;
 		uint64 RangeReadCount = 0;
 		uint64 WallTimeNanoseconds = 0;
@@ -314,10 +315,15 @@ namespace Durin
 			FByteBuffer RawSegmentBytes,
 			std::string* OutError = nullptr
 		) -> bool;
+		// Lower-level publication for direct family callers with detached plans. Production
+		// uses the coordinator to add reachability, incremental state and shader outputs.
 		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans, std::string* OutError = nullptr) -> bool;
+		using FReadInput = std::function<FAssetResult(ECookBuildDependencyKind, std::string_view, FByteBuffer&)>;
+		auto SetInputReader(FReadInput Reader) -> void { ReadInput = std::move(Reader); }
 		auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name,
-			FByteBuffer& Out) const -> FAssetResult { return ReadCapturedCookInput(Kind, Name, Out); }
+			FByteBuffer& Out) const -> FAssetResult { return ReadInput ? ReadInput(Kind, Name, Out)
+				: FAssetResult{EAssetError::MissingDependency, "No declared Cook inputs."}; }
 		auto GetSavePlans() const -> std::span<const FCookSavePlan> { return Packages; }
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
@@ -326,6 +332,7 @@ namespace Durin
 			-> FAssetPackageSerializationOptions;
 
 	private:
+		FReadInput ReadInput;
 		std::filesystem::path CookRoot;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
@@ -376,6 +383,13 @@ namespace Durin
 		std::string& OutError) -> bool;
 
 	// Runs one deterministic serial project Cook over a captured registry closure.
+	// Validates the write destination against mounted authored trees, resolving existing
+	// filesystem aliases. Performs no writes. Hosts call this before starting services.
+	ENGINE_API auto ValidateCookOutputRoot(const std::filesystem::path& OutputRoot,
+		std::string& OutError) -> bool;
+
+	// Internal owner-thread orchestration. Production callers launch DurinAssetTool cook
+	// once against stable saved inputs; live-editor use is unsupported.
 	class FCookCoordinator
 	{
 	public:

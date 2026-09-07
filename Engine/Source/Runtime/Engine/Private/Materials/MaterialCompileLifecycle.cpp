@@ -1,3 +1,4 @@
+#include "Asset/OfflinePreparation.h"
 #include "Asset/CookDependencies.h"
 #include "DObject/Package.h"
 #include "Materials/MaterialCompileLifecycle.h"
@@ -813,7 +814,7 @@ namespace Durin
 					return false;
 				}
 
-				if ((IsCookInputCaptureActive() && Material.GetPackage() && Material.GetPackage()->IsGraphPrivate())
+				if (FScopedOfflinePreparation::IsActive()
 					|| IsObjectHandleNull(Request.Owner)
 					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
