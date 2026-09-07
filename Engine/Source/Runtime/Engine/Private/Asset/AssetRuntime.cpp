@@ -172,10 +172,12 @@ namespace Durin
 		return Durin::LoadPackage(Path, OutPackage, OutReport);
 	}
 
-	auto FAssetPackageLoadScope::Release() -> FAssetResult
+	auto FAssetPackageLoadScope::Release(
+		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
 	{
 		CheckSoftObjectThread();
-		const FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().ReleasePackages(Packages);
+		const FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().ReleasePackages(
+			Packages, IgnoreSavedDependencies);
 		std::erase_if(Packages, [](const auto& Package) { return !Package.IsValid(); });
 		return Result;
 	}
@@ -372,6 +374,9 @@ namespace Durin
 				bool bDiscardedPackage = false;
 				for (auto It = TransactionPackages.rbegin(); It != TransactionPackages.rend(); ++It)
 				{
+					// Successful nested loads also published resources. The failed root
+					// owns their rollback even when the linker already collected objects.
+					GetPackageResourceManager().RetirePackage(It->ToString());
 					DPackage* TransactionPackage = FindResidentPackage(*It);
 					if (!TransactionPackage) continue;
 					LoadingPackages.erase(*It);
@@ -624,7 +629,8 @@ namespace Durin
 	}
 
 	auto FAssetLoadService::ReleasePackages(
-		std::span<const TWeakObjectPtr<DPackage>> Packages) -> FAssetResult
+		std::span<const TWeakObjectPtr<DPackage>> Packages,
+		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
 	{
 		if (LoadDepth != 0 || !LoadingPackages.empty())
 			return Error(EAssetError::InUse, "A package load is still in progress.");
@@ -633,7 +639,7 @@ namespace Durin
 		for (const auto& Handle : Packages)
 		{
 			DPackage* Package = Handle.Get();
-			if (!Package) continue;
+			if (!Package || FindResidentPackage(Package->GetPackagePathIdentity()) != Package) continue;
 			if (Package->IsNewlyCreated() || Package->IsDirty())
 			{
 				bInUse = true;
@@ -651,6 +657,8 @@ namespace Durin
 			{
 				const FPackagePath& Path = Package->GetPackagePathIdentity();
 				if (Candidates.contains(Path)) continue;
+				if (std::ranges::any_of(IgnoreSavedDependencies,
+					[&](const auto& Handle) { return Handle.Get() == Package; })) continue;
 				const FAssetCatalogEntry Data = FindAssetExact(Path);
 				if (!Data) continue;
 				for (const FPackagePath& Dependency : Data->Dependencies)

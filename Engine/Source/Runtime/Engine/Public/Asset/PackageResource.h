@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	class FPackagePath;
+
 	enum class EPackageResourceReadStatus : uint8
 	{
 		Pending,
@@ -103,6 +105,69 @@ namespace Durin
 	};
 
 	using FPackageResourceHandle = std::shared_ptr<FPackageResource>;
+
+	// Storage preparation outcome; Ready does not imply graph/runtime readiness.
+	enum class EPreparedPackageResourceStatus : uint8
+	{
+		Ready,
+		InvalidClosure,
+		BudgetExceeded,
+		IoError,
+		Stale,
+		Cancelled,
+	};
+
+	// Reports a preparation/revalidation failure without changing the output owner.
+	struct FPreparedPackageResourceResult
+	{
+		EPreparedPackageResourceStatus Status = EPreparedPackageResourceStatus::Ready;
+		std::string Message;
+		explicit operator bool() const { return Status == EPreparedPackageResourceStatus::Ready; }
+	};
+
+	// Owns an unpublished immutable main/bulk closure. Main schema validation
+	// belongs to the existing codec; this owner preserves the validated bytes.
+	class FPreparedPackageResource
+	{
+	public:
+		// Reads and validates through the existing package codec without creating
+		// objects. The budget bounds retained bytes, not parser scratch allocations.
+		ENGINE_API static auto Read(
+			const FPackagePath& LogicalPath,
+			const std::filesystem::path& PackagePath,
+			uint64 MaximumRetainedBytes,
+			FPreparedPackageResource& Out,
+			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult;
+
+		// Requires main bytes and directory facts already validated by the codec.
+		// Failure leaves Out unchanged. No registry publication or disk recovery.
+		// The byte budget covers retained main/bulk bytes; callers separately
+		// account decoded values, object graphs, and runtime products.
+		ENGINE_API static auto Prepare(
+			const std::filesystem::path& PackagePath,
+			FSharedByteBuffer ValidatedMain,
+			const FPackageBulkSegmentSummary& Summary,
+			std::span<const FPackageBulkDataEntry> Entries,
+			uint64 MaximumRetainedBytes,
+			FPreparedPackageResource& Out,
+			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult;
+
+		// Rehashes both physical files with bounded scratch. Owners must still
+		// hold their save/edit lease between this check and memory publication.
+		ENGINE_API auto Revalidate(const std::function<bool()>& IsCancelled = {}) const
+			-> FPreparedPackageResourceResult;
+		auto GetMainBytes() const -> const FSharedByteBuffer& { return MainBytes; }
+		auto GetBulkResource() const -> const FPackageResourceHandle& { return BulkResource; }
+		auto GetRetainedBytes() const -> uint64 { return MainBytes.GetSize() + BulkExtent; }
+
+	private:
+		std::filesystem::path MainPath;
+		FSharedByteBuffer MainBytes;
+		FPackageResourceHandle BulkResource;
+		FXxHash128 MainDigest;
+		FXxHash128 BulkDigest;
+		uint64 BulkExtent = 0;
+	};
 
 	// Identifies one bounded stored range in a validated logical package segment.
 	struct FPackageResourceRange

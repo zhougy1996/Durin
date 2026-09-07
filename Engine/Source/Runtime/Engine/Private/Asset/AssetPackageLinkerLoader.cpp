@@ -3,6 +3,8 @@
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
 #include "Asset/Load.h"
+#include "AssetRuntimeStateInternal.h"
+#include "AssetRegistry/Publication.h"
 
 #include "DObject/Class.h"
 #include "DObject/Archive.h"
@@ -11,6 +13,8 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
+#include "Threading/RunnableThread.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::AssetPrivate
@@ -365,7 +369,9 @@ namespace Durin::AssetPrivate
 			bool& bOutTypeMismatch) -> DObject*
 		{
 			bOutTypeMismatch = false;
-			for (DObject* Object : GDObjectArray.GetObjectsWithOuter(Outer, EObjectQueryScope::LiveOnly))
+			for (DObject* Object : GDObjectArray.GetObjectsWithOuter(Outer,
+				Outer->GetPackage() && Outer->GetPackage()->IsGraphPrivate()
+					? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly))
 			{
 				if (!Object || Object->GetName() != Name) continue;
 				if (Object->GetClass() != Class) { bOutTypeMismatch = true; return nullptr; }
@@ -771,6 +777,499 @@ namespace Durin::AssetPrivate
 			Out = std::move(Views);
 			return true;
 		}
+		// Shared decoded-package phases; publication and PostLoad belong to callers.
+		struct FLinkerApplication
+		{
+			ObjectPackage::FLinkerTables Linker;
+			FPackagePath PackagePath;
+			std::vector<FExportView> Exports;
+			std::vector<FPackagePath> LiveDependencies;
+			std::vector<DObject*> Objects;
+			DPackage* Package = nullptr;
+			FAssetLoadReport Report;
+		};
+
+		auto ValidateLinker(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
+			FLinkerApplyDiagnostic& Diagnostic) -> FAssetResult
+		{
+			const auto& PackagePath = Application.PackagePath;
+			auto& Linker = Application.Linker;
+			std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
+				GatherCanonicalizationEvidence(Linker, PackagePath);
+			std::string CanonicalizationError;
+			if (!CanonicalizeSerializedReflectionNames(Linker, &CanonicalizationError))
+			{
+				LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, CanonicalizationError);
+				return {EAssetError::CorruptFile, Diagnostic.Message};
+			}
+			auto& Exports = Application.Exports;
+			if (!BuildExportViews(Linker, Exports, Diagnostic))
+				return {Diagnostic.Error, Diagnostic.Message};
+			uint64 DiscardedFields = 0;
+			auto& LiveDependencies = Application.LiveDependencies;
+			for (const FExportView& Object : Exports)
+			{
+				DClass* Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
+				if (!Class)
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::UnknownClass,
+						"Serialized class is unavailable.", 0, Object.Path);
+					return {EAssetError::UnknownClass, Diagnostic.Message};
+				}
+				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
+				{
+					const auto* Schema = FindSchema(Linker, Property.DeclaringType);
+					const auto Field = Schema ? std::ranges::find(Schema->Fields,
+						Property.FieldName, &ObjectPackage::FSerializedField::Name)
+						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
+					if (!Schema || Field == Schema->Fields.end() || Field->Type != Property.Type)
+					{
+						LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
+							"A linker property is absent from its declared schema.", 0, Object.Path);
+						return {EAssetError::CorruptFile, Diagnostic.Message};
+					}
+					DClass* DeclaringClass = FindClassByQualifiedName(FName(Schema->QualifiedName));
+					bool bDeclaringClassMatches = false;
+					for (DClass* Ancestor = Class; Ancestor; Ancestor = Ancestor->GetSuperClass())
+						if (Ancestor == DeclaringClass)
+						{
+							bDeclaringClassMatches = true;
+							break;
+						}
+					FProperty* Expected = bDeclaringClassMatches
+						? DeclaringClass->FindPropertyByName(FName(Field->Name), false) : nullptr;
+					if (!Options.bCooked && bDeclaringClassMatches
+						&& IsRemovedField(Schema->QualifiedName, Field->Name))
+					{
+						++DiscardedFields;
+						continue;
+					}
+					const bool bCurrentCompatible = Expected
+						&& !Expected->GetDeprecation()
+						&& Expected->GetKind() == TypeKind(Property.Type)
+						&& GetSerializedTypeSignature(Expected) == TypeSignature(Property.Type);
+					const bool bDeprecatedCompatible =
+						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
+					// Cooked native projection fields are validated against the exact
+					// SerializeCooked manifest and must be consumed by the load Archive.
+					const bool bCookedNativeCandidate = Options.bCooked && !Expected;
+					const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible
+						|| bCookedNativeCandidate;
+					if (!bCompatible)
+					{
+						LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
+							std::format("Serialized field {}::{} is incompatible with the live schema.",
+								Schema->QualifiedName, Field->Name), 0, Object.Path);
+						return {EAssetError::UnsupportedProperty, Diagnostic.Message};
+					}
+					if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
+						Linker, LiveDependencies, DiscardedFields, Diagnostic))
+						return {Diagnostic.Error, Diagnostic.Message};
+				}
+			}
+			std::ranges::sort(LiveDependencies);
+			LiveDependencies.erase(std::ranges::unique(LiveDependencies).begin(), LiveDependencies.end());
+			if (Exports.empty())
+			{
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Package has no object exports.");
+				return {EAssetError::InvalidObjectGraph, Diagnostic.Message};
+			}
+
+			Application.Report.PackagePath = PackagePath;
+			Application.Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
+			Application.Report.DiscardedFieldCount = DiscardedFields;
+			return {};
+		}
+
+		auto CreateLinkerSkeleton(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
+			FLinkerApplyDiagnostic& Diagnostic, std::vector<FStrongObjectPtr>* Pins = nullptr) -> FAssetResult
+		{
+			auto& Exports = Application.Exports;
+			auto& Objects = Application.Objects;
+			auto* Package = Application.Package;
+			std::unordered_set<DObject*> Pinned;
+			for (size_t Index = 0; Index < Exports.size(); ++Index)
+			{
+				if (ShouldFail(Options, ELinkerLoadPhase::CreateSkeleton, Index))
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected skeleton creation failure.");
+					return {EAssetError::InvalidObjectGraph, Diagnostic.Message};
+				}
+				const FExportView& Descriptor = Exports[Index];
+				DClass* Class = FindClassByQualifiedName(FName(Descriptor.Export->ClassName));
+				if (!Class || !Class->ClassConstructor)
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::UnknownClass, "Serialized class is unavailable.", 0, Descriptor.Path);
+					return {EAssetError::UnknownClass, Diagnostic.Message};
+				}
+				DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)
+					: Objects[static_cast<size_t>(Descriptor.OuterId - 1)];
+				bool bTypeMismatch = false;
+				DObject* Object = FindExistingInner(Outer, Descriptor.Export->ObjectName, Class, bTypeMismatch);
+				if (bTypeMismatch)
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::TypeMismatch, "Existing default inner has a different class.", 0, Descriptor.Path);
+					return {EAssetError::TypeMismatch, Diagnostic.Message};
+				}
+				if (!Object)
+				{
+					FStaticConstructObjectParameters Parameters{
+						Class, Outer, FName(Descriptor.Export->ObjectName), Class->PropertiesSize,
+						Descriptor.OuterId == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
+					Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
+					Object = StaticConstructObject(Parameters);
+					if (Object) DObjectForceRegistration(Object);
+				}
+				if (!Object)
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Object construction failed.", 0, Descriptor.Path);
+					return {EAssetError::InvalidObjectGraph, Diagnostic.Message};
+				}
+				Objects[Index] = Object;
+				if (Pins && Pinned.insert(Object).second)
+				{
+					const size_t Begin = Pins->size();
+					Pins->emplace_back(Object);
+					for (size_t PinIndex = Begin; PinIndex < Pins->size(); ++PinIndex)
+						for (DObject* Child : GDObjectArray.GetObjectsWithOuter((*Pins)[PinIndex].Get(), EObjectQueryScope::IncludeUnpublished))
+							if (Pinned.insert(Child).second) Pins->emplace_back(Child);
+				}
+			}
+			return {};
+		}
+
+		auto ApplyLinkerValues(FLinkerApplication& Application, const FLinkerLoadOptions& Options,
+			FLinkerApplyDiagnostic& Diagnostic, const FPackageLoadBindings& Bindings) -> FAssetResult
+		{
+			const auto& PackagePath = Application.PackagePath;
+			auto& Linker = Application.Linker;
+			auto& Exports = Application.Exports;
+			auto& Objects = Application.Objects;
+			auto& Report = Application.Report;
+			std::vector<FArchiveCustomVersion> CustomVersions;
+			std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
+			for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
+			{
+				CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
+				LoadedCustomVersions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
+			}
+			for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
+			uint64 BulkFieldIndex = 0;
+			for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
+				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+				{
+					if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
+					GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
+						PackagePath, Exports[ObjectIndex].Path,
+						Report.DeprecatedRouteEvidence);
+				}
+			for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
+			{
+				if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected value application failure.");
+					return {EAssetError::CorruptFile, Diagnostic.Message};
+				}
+				std::vector<FAuthoredPackageFieldRecord> Fields;
+				std::vector<const ObjectPackage::FPropertyTag*> KnownProperties;
+				for (const auto& Property : Exports[ObjectIndex].Export->Properties)
+				{
+					if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
+					FByteWriter Payload;
+					if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
+						BulkFieldIndex, Diagnostic,
+						std::format("{}::{}", Property.DeclaringType, Property.FieldName), !Options.bCooked))
+					{
+						return {EAssetError::CorruptFile, Diagnostic.Message};
+					}
+					Fields.push_back({Property.DeclaringType, Property.FieldName, TypeKind(Property.Type),
+						TypeSignature(Property.Type), std::move(Payload.Bytes)});
+					KnownProperties.push_back(&Property);
+				}
+				FArchiveState LoadContext;
+				LoadContext.bCooking = Options.bCooked;
+				LoadContext.bFilterEditorOnly = Options.bCooked;
+				LoadContext.Target = Options.Target;
+				FAssetResult Result = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
+					Bindings, Options.SourceFormatVersion, CustomVersions, LoadContext);
+				if (!Result)
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path);
+					return Result;
+				}
+				if (Options.bCooked) continue;
+				std::vector<FAuthoredOverrideEntry> LedgerEntries;
+				std::vector<FName> LoadedDeprecatedProperties;
+				for (size_t PropertyIndex = 0; PropertyIndex < KnownProperties.size(); ++PropertyIndex)
+				{
+					const auto& Property = *KnownProperties[PropertyIndex];
+					const auto* Schema = FindSchema(Linker, Property.DeclaringType);
+					const auto Field = Schema ? std::ranges::find(Schema->Fields,
+						Property.FieldName, &ObjectPackage::FSerializedField::Name)
+						: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
+					if (!Schema || Field == Schema->Fields.end())
+					{
+						LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "A linker property lost its schema binding.");
+						return {EAssetError::CorruptFile, Diagnostic.Message};
+					}
+					if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, PropertyIndex + 1))
+					{
+						LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected ledger restoration failure.");
+						return {EAssetError::CorruptFile, Diagnostic.Message};
+					}
+					const auto Provenance = Property.Provenance == ObjectPackage::EPropertyProvenance::Forced
+						? EAuthoredOverrideProvenance::Forced
+						: EAuthoredOverrideProvenance::LoadedExplicit;
+					FProperty* DeprecatedRoute =
+						FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
+					if (DeprecatedRoute)
+					{
+						LoadedDeprecatedProperties.push_back(DeprecatedRoute->NamePrivate);
+						FAssetDeprecatedRouteEvidence Evidence{
+							.PackagePath = PackagePath,
+							.ObjectPath = Exports[ObjectIndex].Path,
+							.DeclaringType = Schema->QualifiedName,
+							.StoredFieldName = Field->Name,
+							.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString()};
+						Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
+						continue;
+					}
+					FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
+						FName(Schema->QualifiedName), FName(Field->Name))};
+					LedgerEntries.push_back({Path, Provenance});
+					if (!RestoreNestedLedger(Property.Type, Property.Value, Linker, Path,
+						LedgerEntries, Diagnostic))
+					{
+						return {EAssetError::CorruptFile, Diagnostic.Message};
+					}
+				}
+				Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
+				FAuthoredOverrideDiagnostic LedgerDiagnostic;
+				if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
+				{
+					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
+						"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath);
+					return {EAssetError::CorruptFile, Diagnostic.Message};
+				}
+			}
+			return {};
+		}
+
+	}
+
+	struct FPreparedPackageGraph::FState
+	{
+		DPackage* Package = nullptr;
+		std::vector<FStrongObjectPtr> Pins;
+		FPreparedPackageResource Storage;
+		FAssetLoadReport Report;
+
+		~FState()
+		{
+			if (Package && Package->IsGraphPrivate()) MarkObjectHierarchyAsGarbage(Package);
+		}
+	};
+
+	FPreparedPackageGraph::FPreparedPackageGraph() = default;
+	FPreparedPackageGraph::~FPreparedPackageGraph() = default;
+	FPreparedPackageGraph::FPreparedPackageGraph(FPreparedPackageGraph&&) noexcept = default;
+	auto FPreparedPackageGraph::operator=(FPreparedPackageGraph&&) noexcept -> FPreparedPackageGraph& = default;
+	auto FPreparedPackageGraph::GetPackage() const -> DPackage* { return State ? State->Package : nullptr; }
+	auto FPreparedPackageGraph::GetStorage() const -> const FPreparedPackageResource& { require(State); return State->Storage; }
+	auto FPreparedPackageGraph::GetReport() const -> const FAssetLoadReport& { require(State); return State->Report; }
+
+	auto PreparePackageGraphs(std::span<const FPackageGraphSource> Sources,
+		const FPackageGraphPrepareOptions& Options, std::vector<FPreparedPackageGraph>& Out)
+		-> FPackageGraphPrepareResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		using S = EPackageGraphPrepareStatus;
+		static bool bPreparing = false;
+		if (bPreparing) return {S::Busy, {}, "Package graph preparation cannot be reentered."};
+		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
+			return {S::Busy, {}, "Package graph preparation requires an idle load service."};
+		struct FExecutionScope
+		{
+			bool& Active;
+			explicit FExecutionScope(bool& InActive) : Active(InActive) { Active = true; }
+			~FExecutionScope() { Active = false; }
+		} Execution(bPreparing);
+		if (Sources.empty() || Sources.size() > Options.MaximumPackages)
+			return {S::BudgetExceeded, {}, "Package count is outside the preparation budget."};
+		bool bCancelled = false;
+		auto Cancelled = [&]() {
+			bCancelled = bCancelled || (Options.IsCancelled && Options.IsCancelled());
+			return bCancelled;
+		};
+		FPackagePath CurrentPath;
+		try
+		{
+			std::vector<FLinkerApplication> Applications(Sources.size());
+			std::vector<FPreparedPackageGraph> Candidates(Sources.size());
+			uint64 ObjectCount = 0;
+			// Validate the entire batch before invoking any asset constructor.
+			for (size_t Index = 0; Index < Sources.size(); ++Index)
+			{
+				const auto& Source = Sources[Index];
+				CurrentPath = Source.PackagePath;
+				if (Cancelled()) return {S::Cancelled, CurrentPath, "Package graph preparation cancelled."};
+				if (!CurrentPath.IsValid() || Source.Storage.GetMainBytes().IsEmpty())
+					return {S::InvalidClosure, CurrentPath, "A validated saved package closure is required."};
+				if (IsAssetRegistryProjectionFenced(CurrentPath))
+					return {S::Busy, CurrentPath, "Package projection is fenced; existing recovery must complete first."};
+				// An ordinary external load may recurse into the replacement set.
+				// Require its live skeletons so that recursion cannot publish a target.
+				if (Options.DependencyLoadScope && !FindResidentPackage(CurrentPath))
+					return {S::Unsupported, CurrentPath, "Scoped dependency loading requires resident replacement targets."};
+				for (size_t Previous = 0; Previous < Index; ++Previous)
+					if (Sources[Previous].PackagePath == CurrentPath)
+						return {S::InvalidClosure, CurrentPath, "Duplicate package identity in preparation batch."};
+				auto& Application = Applications[Index];
+				Application.PackagePath = CurrentPath;
+				ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
+				const auto& Bulk = Source.Storage.GetBulkResource();
+				if (!ObjectPackage::ReadPackageV9Metadata(Source.Storage.GetMainBytes(),
+					Bulk ? Bulk->GetSegmentExtent() : 0, CurrentPath, Application.Linker, &ReaderDiagnostic))
+					return {S::InvalidClosure, CurrentPath, ReaderDiagnostic.Message};
+				FLinkerApplyDiagnostic Diagnostic;
+				if (auto Result = ValidateLinker(Application, {}, Diagnostic); !Result)
+					return {S::InvalidClosure, CurrentPath, Result.Message};
+				if (ObjectCount >= Options.MaximumObjects
+					|| Application.Exports.size() > Options.MaximumObjects - ObjectCount - 1)
+					return {S::BudgetExceeded, CurrentPath, "Package skeletons exceed the object budget."};
+				ObjectCount += Application.Exports.size() + 1;
+				for (const auto& Export : Application.Exports)
+				{
+					DClass* Class = FindClassByQualifiedName(FName(Export.Export->ClassName));
+					if (std::ranges::find(Options.AdmittedClasses, Class) == Options.AdmittedClasses.end())
+						return {S::Unsupported, CurrentPath,
+							std::format("Class {} has no isolated deserialization admission.", Export.Export->ClassName)};
+				}
+			}
+			// Admit external residency before constructing any candidate. Only the
+			// supplied scope may own new loads; callers retain it even on failure.
+			std::vector<std::pair<FPackagePath, DPackage*>> ExternalPackages;
+			std::vector<FStrongObjectPtr> ExternalPins;
+			for (size_t PackageIndex = 0; PackageIndex < Applications.size(); ++PackageIndex)
+			{
+				const auto& Application = Applications[PackageIndex];
+				for (size_t DependencyIndex = 0; DependencyIndex < Application.LiveDependencies.size(); ++DependencyIndex)
+				{
+					const auto& Path = Application.LiveDependencies[DependencyIndex];
+					CurrentPath = Application.PackagePath;
+					if (Cancelled()) return {S::Cancelled, Application.PackagePath, "Package graph preparation cancelled."};
+					if (Options.ShouldFail && Options.ShouldFail(PackageIndex, ELinkerLoadPhase::ResolveDependency, DependencyIndex))
+						return {S::MissingDependency, Application.PackagePath, "Injected dependency binding failure."};
+					if (IsAssetRegistryProjectionFenced(Path))
+						return {S::Busy, Path, "Dependency projection is fenced; existing recovery must complete first."};
+					if (std::ranges::find(Sources, Path, &FPackageGraphSource::PackagePath) != Sources.end()) continue;
+					if (std::ranges::find(ExternalPackages, Path, &std::pair<FPackagePath, DPackage*>::first)
+						!= ExternalPackages.end()) continue;
+					DPackage* Package = FindPackage(Path.GetView());
+					if (!Package && Options.DependencyLoadScope)
+					{
+						const auto Result = Options.DependencyLoadScope->LoadPackage(Path, Package);
+						if (!Result) return {Result.Error == EAssetError::InUse ? S::Busy : S::MissingDependency,
+							Path, Result.Message};
+					}
+					if (!Package) return {S::MissingDependency, Application.PackagePath,
+						std::format("External dependency {} must be admitted and resident before graph preparation.", Path.ToString())};
+					ExternalPackages.emplace_back(Path, Package);
+					const size_t Begin = ExternalPins.size();
+					ExternalPins.emplace_back(Package);
+					for (size_t PinIndex = Begin; PinIndex < ExternalPins.size(); ++PinIndex)
+						for (DObject* Child : GDObjectArray.GetObjectsWithOuter(ExternalPins[PinIndex].Get(), EObjectQueryScope::LiveOnly))
+							ExternalPins.emplace_back(Child);
+				}
+			}
+			auto LoadOptions = [&](size_t PackageIndex) {
+				FLinkerLoadOptions Result;
+				Result.ShouldFail = [&, PackageIndex](ELinkerLoadPhase Phase, uint64 ObjectIndex) {
+					return Cancelled() || (Options.ShouldFail && Options.ShouldFail(PackageIndex, Phase, ObjectIndex));
+				};
+				return Result;
+			};
+			ObjectCount = 0;
+			for (size_t Index = 0; Index < Applications.size(); ++Index)
+			{
+				auto& Application = Applications[Index];
+				CurrentPath = Application.PackagePath;
+				if (Cancelled()) return {S::Cancelled, CurrentPath, "Package graph preparation cancelled."};
+				auto& State = Candidates[Index].State;
+				State = std::make_unique<FPreparedPackageGraph::FState>();
+				State->Storage = Sources[Index].Storage;
+				State->Package = NewObject<DPackage>(nullptr, FName(CurrentPath.GetAssetName()));
+				if (!State->Package || !State->Package->InitializePreparedAssetPackage(CurrentPath))
+					return {S::InvalidClosure, CurrentPath, "Could not create private package skeleton."};
+				State->Pins.emplace_back(State->Package);
+				Application.Package = State->Package;
+				Application.Objects.resize(Application.Exports.size());
+				FLinkerApplyDiagnostic Diagnostic;
+				if (auto Result = CreateLinkerSkeleton(Application, LoadOptions(Index), Diagnostic, &State->Pins); !Result)
+					return {Cancelled() ? S::Cancelled : S::InvalidClosure, CurrentPath, Result.Message};
+				if (State->Pins.size() > Options.MaximumObjects - ObjectCount)
+					return {S::BudgetExceeded, CurrentPath, "Default inners exceed the object budget."};
+				ObjectCount += State->Pins.size();
+				State->Pins.insert(State->Pins.end(), ExternalPins.begin(), ExternalPins.end());
+			}
+			auto Resolve = [&](const FObjectPath& Path, DObject*& Object) -> FAssetResult {
+				Object = nullptr;
+				DPackage* Package = nullptr;
+				for (const auto& Application : Applications)
+					if (Application.PackagePath == Path.GetPackagePath()) Package = Application.Package;
+				if (!Package)
+					for (const auto& External : ExternalPackages)
+						if (External.first == Path.GetPackagePath()) Package = External.second;
+				if (!Package) return {EAssetError::MissingDependency, "Object reference has no admitted package binding."};
+				DObject* Current = Package;
+				auto Descend = [&](std::string_view Name) {
+					if (!Current) return;
+					const auto Children = GDObjectArray.GetObjectsWithOuter(Current, EObjectQueryScope::IncludeUnpublished);
+					const auto It = std::ranges::find(Children, FName(Name), &DObject::GetFName);
+					Current = It == Children.end() ? nullptr : *It;
+				};
+				Descend(Path.GetAssetPath().GetAssetName());
+				for (std::string_view Name : Path.GetSubobjectNames()) Descend(Name);
+				Object = Current;
+				return Object ? FAssetResult{} : FAssetResult{EAssetError::MissingDependency, "Admitted package has no matching object."};
+			};
+			for (size_t Index = 0; Index < Applications.size(); ++Index)
+			{
+				auto& Application = Applications[Index];
+				CurrentPath = Application.PackagePath;
+				const FPackageLoadBindings Bindings{Sources[Index].Storage.GetBulkResource(), Resolve};
+				FLinkerApplyDiagnostic Diagnostic;
+				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
+					return {Cancelled() ? S::Cancelled : S::InvalidClosure, CurrentPath, Result.Message};
+				Application.Package->ClearDirty();
+				Application.Package->SetCanonicalResaveRecommended(!Application.Report.CanonicalizationEvidence.empty()
+					|| !Application.Report.DeprecatedRouteEvidence.empty() || Application.Report.DiscardedFieldCount != 0);
+				Candidates[Index].State->Report = std::move(Application.Report);
+			}
+			for (const auto& Source : Sources)
+			{
+				CurrentPath = Source.PackagePath;
+				if (auto Result = Source.Storage.Revalidate(Cancelled); !Result)
+					return {Result.Status == EPreparedPackageResourceStatus::Cancelled ? S::Cancelled : S::Stale,
+						CurrentPath, Result.Message};
+			}
+			for (const auto& Source : Sources)
+				if (IsAssetRegistryProjectionFenced(Source.PackagePath))
+					return {S::Busy, Source.PackagePath, "Package projection became fenced during preparation."};
+			for (const auto& [Path, Package] : ExternalPackages)
+			{
+				if (IsAssetRegistryProjectionFenced(Path))
+					return {S::Busy, Path, "Dependency projection became fenced during preparation."};
+				if (FindPackage(Path.GetView()) != Package)
+					return {S::Stale, Path, "Admitted dependency identity changed during preparation."};
+			}
+			Out = std::move(Candidates);
+			return {};
+		}
+		catch (const std::bad_alloc&)
+		{
+			return {S::BudgetExceeded, CurrentPath, "Allocation failed during package graph preparation."};
+		}
 	}
 
 	auto ApplyLivePackageLinker(ObjectPackage::FLinkerTables Linker,
@@ -801,86 +1300,14 @@ namespace Durin::AssetPrivate
 				"A package with the requested path is already live.");
 			return Finish({EAssetError::AlreadyExists, Diagnostic.Message});
 		}
-		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
-			GatherCanonicalizationEvidence(Linker, PackagePath);
-		std::string CanonicalizationError;
-		if (!CanonicalizeSerializedReflectionNames(Linker, &CanonicalizationError))
-		{
-			LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, CanonicalizationError);
-			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-		}
-		std::vector<FExportView> Exports;
-		if (!BuildExportViews(Linker, Exports, Diagnostic))
-			return Finish({Diagnostic.Error, Diagnostic.Message});
-		uint64 DiscardedFields = 0;
-		std::vector<FPackagePath> LiveDependencies;
-		for (const FExportView& Object : Exports)
-		{
-			DClass* Class = FindClassByQualifiedName(FName(Object.Export->ClassName));
-			if (!Class)
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::UnknownClass,
-					"Serialized class is unavailable.", 0, Object.Path);
-				return Finish({EAssetError::UnknownClass, Diagnostic.Message});
-			}
-			for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
-			{
-				const auto* Schema = FindSchema(Linker, Property.DeclaringType);
-				const auto Field = Schema ? std::ranges::find(Schema->Fields,
-					Property.FieldName, &ObjectPackage::FSerializedField::Name)
-					: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
-				if (!Schema || Field == Schema->Fields.end() || Field->Type != Property.Type)
-				{
-					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
-						"A linker property is absent from its declared schema.", 0, Object.Path);
-					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-				DClass* DeclaringClass = FindClassByQualifiedName(FName(Schema->QualifiedName));
-				bool bDeclaringClassMatches = false;
-				for (DClass* Ancestor = Class; Ancestor; Ancestor = Ancestor->GetSuperClass())
-					if (Ancestor == DeclaringClass)
-					{
-						bDeclaringClassMatches = true;
-						break;
-					}
-				FProperty* Expected = bDeclaringClassMatches
-					? DeclaringClass->FindPropertyByName(FName(Field->Name), false) : nullptr;
-				if (!Options.bCooked && bDeclaringClassMatches
-					&& IsRemovedField(Schema->QualifiedName, Field->Name))
-				{
-					++DiscardedFields;
-					continue;
-				}
-				const bool bCurrentCompatible = Expected
-					&& !Expected->GetDeprecation()
-					&& Expected->GetKind() == TypeKind(Property.Type)
-					&& GetSerializedTypeSignature(Expected) == TypeSignature(Property.Type);
-				const bool bDeprecatedCompatible =
-					FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
-				// Cooked native projection fields are validated against the exact
-				// SerializeCooked manifest and must be consumed by the load Archive.
-				const bool bCookedNativeCandidate = Options.bCooked && !Expected;
-				const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible
-					|| bCookedNativeCandidate;
-				if (!bCompatible)
-				{
-					LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty,
-						std::format("Serialized field {}::{} is incompatible with the live schema.",
-							Schema->QualifiedName, Field->Name), 0, Object.Path);
-					return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
-				}
-				if (!Options.bCooked && !GatherLiveValueDependencies(Property.Type, Property.Value,
-					Linker, LiveDependencies, DiscardedFields, Diagnostic))
-					return Finish({Diagnostic.Error, Diagnostic.Message});
-			}
-		}
-		std::ranges::sort(LiveDependencies);
-		LiveDependencies.erase(std::ranges::unique(LiveDependencies).begin(), LiveDependencies.end());
-		if (Exports.empty())
-		{
-			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Package has no object exports.");
-			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-		}
+		FLinkerApplication Application;
+		Application.Linker = std::move(Linker);
+		Application.PackagePath = PackagePath;
+		if (FAssetResult Result = ValidateLinker(Application, Options, Diagnostic); !Result)
+			return Finish(Result);
+		auto& Exports = Application.Exports;
+		auto& Objects = Application.Objects;
+		auto& Report = Application.Report;
 
 		DPackage* Package = NewObject<DPackage>(
 			nullptr,
@@ -892,7 +1319,8 @@ namespace Durin::AssetPrivate
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 		Package->InitializeAssetPackage(PackagePath);
-		std::vector<DObject*> Objects(Exports.size(), nullptr);
+		Application.Package = Package;
+		Objects.resize(Exports.size(), nullptr);
 		const FAssetPackageLoadSnapshot DependencySnapshot = CapturePackageLoadSnapshot();
 		bool bSkeletonPublished = false;
 		auto Rollback = [&]() {
@@ -902,45 +1330,11 @@ namespace Durin::AssetPrivate
 			ReleasePackagesLoadedSince(DependencySnapshot);
 		};
 
-		for (size_t Index = 0; Index < Exports.size(); ++Index)
+		if (FAssetResult Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result)
 		{
-			if (ShouldFail(Options, ELinkerLoadPhase::CreateSkeleton, Index))
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected skeleton creation failure."); Rollback();
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
-			const FExportView& Descriptor = Exports[Index];
-			DClass* Class = FindClassByQualifiedName(FName(Descriptor.Export->ClassName));
-			if (!Class || !Class->ClassConstructor)
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::UnknownClass, "Serialized class is unavailable.", 0, Descriptor.Path); Rollback();
-				return Finish({EAssetError::UnknownClass, Diagnostic.Message});
-			}
-			DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)
-				: Objects[static_cast<size_t>(Descriptor.OuterId - 1)];
-			bool bTypeMismatch = false;
-			DObject* Object = FindExistingInner(Outer, Descriptor.Export->ObjectName, Class, bTypeMismatch);
-			if (bTypeMismatch)
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::TypeMismatch, "Existing default inner has a different class.", 0, Descriptor.Path); Rollback();
-				return Finish({EAssetError::TypeMismatch, Diagnostic.Message});
-			}
-			if (!Object)
-			{
-				FStaticConstructObjectParameters Parameters{
-					Class, Outer, FName(Descriptor.Export->ObjectName), Class->PropertiesSize,
-					Descriptor.OuterId == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
-				Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
-				Object = StaticConstructObject(Parameters);
-				if (Object) DObjectForceRegistration(Object);
-			}
-			if (!Object)
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Object construction failed.", 0, Descriptor.Path); Rollback();
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
-			Objects[Index] = Object;
+			Rollback(); return Finish(Result);
 		}
+
 		if (Options.OnSkeletonReady)
 		{
 			FAssetResult PublishResult = Options.OnSkeletonReady(Package);
@@ -955,7 +1349,7 @@ namespace Durin::AssetPrivate
 			bSkeletonPublished = true;
 		}
 
-		const auto& Dependencies = Options.bCooked ? Linker.Summary.HardPackageDependencies : LiveDependencies;
+		const auto& Dependencies = Options.bCooked ? Application.Linker.Summary.HardPackageDependencies : Application.LiveDependencies;
 		for (size_t Index = 0; Index < Dependencies.size(); ++Index)
 		{
 			if (ShouldFail(Options, ELinkerLoadPhase::ResolveDependency, Index))
@@ -972,115 +1366,22 @@ namespace Durin::AssetPrivate
 			}
 		}
 
-		std::vector<FArchiveCustomVersion> CustomVersions;
-		std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
-		for (const ObjectPackage::FCustomVersion& Version : Linker.CustomVersions)
-		{
-			CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
-			LoadedCustomVersions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
-		}
-		for (DObject* Object : Objects) Object->SetLoadedCustomVersions(LoadedCustomVersions);
-		FAssetLoadReport Report = OutReport ? *OutReport : FAssetLoadReport{};
+		// Preserve report mutations emitted while admitting ordinary dependencies.
+		auto CanonicalizationEvidence = std::move(Report.CanonicalizationEvidence);
+		const uint64 DiscardedFields = Report.DiscardedFieldCount;
+		Report = OutReport ? *OutReport : FAssetLoadReport{};
 		Report.PackagePath = PackagePath;
 		Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
 		Report.DiscardedFieldCount = DiscardedFields;
-		uint64 BulkFieldIndex = 0;
-		for (size_t ObjectIndex = 0; ObjectIndex < Exports.size(); ++ObjectIndex)
-			for (const auto& Property : Exports[ObjectIndex].Export->Properties)
-			{
-				if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
-				GatherNestedDeprecatedRouteEvidence(Property.Type, Property.Value, Linker,
-					PackagePath, Exports[ObjectIndex].Path,
-					Report.DeprecatedRouteEvidence);
-			}
-		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
+		// Choose sources once for this package; object archives only consume them.
+		const FPackageLoadBindings Bindings{
+			.BulkResource = GetPackageResourceManager().FindPackage(PackagePath.ToString()),
+			.ResolveExternalObject = [](const FObjectPath& Path, DObject*& Object) {
+				return LoadObject(Path, nullptr, Object);
+			}};
+		if (FAssetResult Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result)
 		{
-			if (ShouldFail(Options, ELinkerLoadPhase::ApplyValues, ObjectIndex))
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected value application failure."); Rollback();
-				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-			}
-			std::vector<FAuthoredPackageFieldRecord> Fields;
-			std::vector<const ObjectPackage::FPropertyTag*> KnownProperties;
-			for (const auto& Property : Exports[ObjectIndex].Export->Properties)
-			{
-				if (!Options.bCooked && IsRemovedField(Property.DeclaringType, Property.FieldName)) continue;
-				FByteWriter Payload;
-				if (!EncodeLoadArchiveValue(Property.Type, Property.Value, Linker, Payload,
-					BulkFieldIndex, Diagnostic,
-					std::format("{}::{}", Property.DeclaringType, Property.FieldName), !Options.bCooked))
-				{
-					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-				Fields.push_back({Property.DeclaringType, Property.FieldName, TypeKind(Property.Type),
-					TypeSignature(Property.Type), std::move(Payload.Bytes)});
-				KnownProperties.push_back(&Property);
-			}
-			FArchiveState LoadContext;
-			LoadContext.bCooking = Options.bCooked;
-			LoadContext.bFilterEditorOnly = Options.bCooked;
-			LoadContext.Target = Options.Target;
-			FAssetResult Result = LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-				PackagePath, Options.SourceFormatVersion, CustomVersions, LoadContext);
-			if (!Result)
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::UnsupportedProperty, Result.Message, 0, Exports[ObjectIndex].Path); Rollback();
-				return Finish(Result);
-			}
-			if (Options.bCooked) continue;
-			std::vector<FAuthoredOverrideEntry> LedgerEntries;
-			std::vector<FName> LoadedDeprecatedProperties;
-			for (size_t PropertyIndex = 0; PropertyIndex < KnownProperties.size(); ++PropertyIndex)
-			{
-				const auto& Property = *KnownProperties[PropertyIndex];
-				const auto* Schema = FindSchema(Linker, Property.DeclaringType);
-				const auto Field = Schema ? std::ranges::find(Schema->Fields,
-					Property.FieldName, &ObjectPackage::FSerializedField::Name)
-					: std::vector<ObjectPackage::FSerializedField>::const_iterator{};
-				if (!Schema || Field == Schema->Fields.end())
-				{
-					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "A linker property lost its schema binding."); Rollback();
-					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-				if (ShouldFail(Options, ELinkerLoadPhase::RestoreLedger, PropertyIndex + 1))
-				{
-					LinkerApplyFail(Diagnostic, EAssetError::CorruptFile, "Injected ledger restoration failure."); Rollback();
-					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-				const auto Provenance = Property.Provenance == ObjectPackage::EPropertyProvenance::Forced
-					? EAuthoredOverrideProvenance::Forced
-					: EAuthoredOverrideProvenance::LoadedExplicit;
-				FProperty* DeprecatedRoute =
-					FindLinkerDeprecatedRoute(Linker, *Schema, *Field, Property.Type);
-				if (DeprecatedRoute)
-				{
-					LoadedDeprecatedProperties.push_back(DeprecatedRoute->NamePrivate);
-					FAssetDeprecatedRouteEvidence Evidence{
-						.PackagePath = PackagePath,
-						.ObjectPath = Exports[ObjectIndex].Path,
-						.DeclaringType = Schema->QualifiedName,
-						.StoredFieldName = Field->Name,
-						.DeprecatedPropertyName = DeprecatedRoute->NamePrivate.ToString()};
-					Report.DeprecatedRouteEvidence.push_back(std::move(Evidence));
-					continue;
-				}
-				FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(
-					FName(Schema->QualifiedName), FName(Field->Name))};
-				LedgerEntries.push_back({Path, Provenance});
-				if (!RestoreNestedLedger(Property.Type, Property.Value, Linker, Path,
-					LedgerEntries, Diagnostic))
-				{
-					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
-			}
-			Objects[ObjectIndex]->SetLoadedDeprecatedProperties(LoadedDeprecatedProperties);
-			FAuthoredOverrideDiagnostic LedgerDiagnostic;
-			if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::CorruptFile,
-					"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath); Rollback();
-				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-			}
+			Rollback(); return Finish(Result);
 		}
 
 		Package->ClearDirty();

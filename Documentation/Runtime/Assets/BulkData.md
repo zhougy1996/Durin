@@ -105,6 +105,25 @@ wait can still retrieve the producer result. Retirement and resource teardown
 must use an authorized synchronization boundary; a rejected wait is not proof
 that the producer has finished.
 
+`FPreparedPackageResource::Read` captures an unpublished main/bulk closure using
+the existing package codec for construct-free main validation. It checks file
+sizes against a retained-byte budget before allocating payload storage, then
+validates the captured external bytes against the directory and segment digest.
+`Prepare` accepts main bytes and directory facts already validated by that codec;
+it is a storage primitive and does not validate the main schema itself.
+Neither entry point constructs objects, registers resources, recovers backups,
+or writes files. Failure leaves the caller's previous output intact.
+
+The prepared resource serves shared immutable ranges from retained memory, so
+deleting or replacing a disk file cannot change a later lazy payload read.
+Payload owners keep this storage alive after the preparation owner is released.
+`Revalidate` rehashes main and bulk with 64 KiB scratch and checks main again after
+bulk; equal sizes or timestamps alone never establish freshness. A caller still
+owns save/edit admission and the final check-to-publication boundary. Storage
+`Ready` does not imply reload admission or graph/runtime readiness. The retained
+budget counts main and bulk bytes only; parser scratch, decoded object values,
+reference plans, and runtime products require separate coordinator accounting.
+
 ## DAST v9 Authored Placement
 
 CoreDObject receives BulkData as detached linker values. Each value includes

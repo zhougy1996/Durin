@@ -14,12 +14,20 @@ Stage 0 已完成 CPU 内容级回归、源码边界审计及接口冻结。独�
 VolumeTexture 放弃后云组件仍引用修改后的源数据，以及随后保存污染磁盘的错误。
 该测试通过表示旧错误被成功捕获，不表示 Reload 已实现；没有 GPU 画面验证证据。
 Stage 1 已完成 CoreDObject 内存图替换原语及共享反射容器复制能力，
-18 项替换测试通过。生产 Discard 行为尚未修改，Stage 2 是下一个待执行阶段。
+18 项替换测试通过。Stage 2 已开始，现已实现未发布 main/bulk 闭包快照、
+codec 校验、完整摘要重查及 retained bytes 预算，并已抽出 Archive 的显式资源/
+外部引用绑定，消除其隐式 live 查询；绑定已统一命名为 `FPackageLoadBindings`，
+明确每包共享及 authored/cooked 共用边界。现已接入共享 linker 阶段和私有批次
+值图准备，支持集合内循环/子对象绑定、驻留外部依赖和隔离清理。现已允许显式
+load scope 载入未驻留外部依赖，并补齐 exact identity 释放、可重试的 Reload
+磁盘依赖例外及嵌套失败 bulk 清理；projection fence/active load 拒绝已接入。
+请求层完整准入、自动协调清理、完整预算和资源准备仍待接通；Stage 2 尚未完成，
+生产 Discard 行为尚未修改。
 
 审计确认现有 linker skeleton 已进入 DPackage 注册表和 GDObjectArray，不能直接
 作为同路径隔离图；GC 枚举把 TObjectPtr 转为临时指针，不能承担引用回写；
 Loose BulkData 每次按路径重新打开文件，注册候选资源还会退休旧资源。这些缺口
-其中 CoreDObject 缺口已在 Stage 1 补齐；磁盘闭包和资源发布缺口仍待 Stage 2/3，
+其中 CoreDObject 缺口已在 Stage 1 补齐；完整候选准备与资源发布仍待 Stage 2/3，
 保留选定的整批原子失败契约。具体冻结边界见 Stage 0
 handoff；尚未迁移 Async Task Framework 的生产试点，也未绕过其验收门槛。
 
@@ -298,7 +306,7 @@ LiveOnly/IncludeTemplates 均不暴露候选和待退休图，不新增驻留表
 
 依赖 Stage 1。
 
-- [ ] 从 Engine 现有加载事务抽取候选图准备能力，重用 canonical linker、schema、
+- [x] 从 Engine 现有加载事务抽取候选图准备能力，重用 canonical linker、schema、
   authored provenance 和依赖闭包，不通过普通 LoadPackage 返回当前驻留对象。
 - [ ] 实现一致闭包读取、指纹重查、BulkData 生命周期与预算；明确已驻留外部依赖
   复用和替换集合内部循环绑定。
@@ -307,6 +315,115 @@ LiveOnly/IncludeTemplates 均不暴露候选和待退休图，不新增驻留表
 
 完成条件：能得到完整保存版本候选图；任何准备失败均不改变当前包、注册、磁盘
 或其他包脏状态。多包准备失败整批退出。
+
+#### Stage 2 progress: owned external dependencies
+
+依赖所有权接入采用调用方持有的 `FAssetPackageLoadScope`：候选准备可显式
+借用该 scope 加载未驻留外部依赖，成功与失败均由协调器保存其 exact weak 记录，
+清除候选后显式释放，InUse 时保留 scope 重试。不能在析构中隐藏释放失败。
+源码审计发现普通 Release 会保护所有驻留包的磁盘依赖；Reload 失败释放需要允许
+忽略明确指定的当前目标包的磁盘依赖，仍以真实活引用和 dirty/new 状态保护对象。
+例外必须按 exact weak identity 匹配，不能按路径应用到之后加载的替代包。
+普通调用不传该集合，保持原有保护规则。
+
+上述通道已实现。scoped load 要求所有替换目标已驻留，防止集合外依赖的普通
+递归加载发布替换目标；缺失 scope 时仍拒绝隐式加载。scope 的包记录和保存依赖
+例外都按精确实例匹配；旧 private 图尚活着时也不会把同路径新包当作释放对象。
+候选准备拒绝 active load 和目标/外部依赖 projection fence，并在磁盘重查后再查
+fence；拒绝不清除 fence。普通失败加载事务同时退休已成功加载的嵌套 bulk slot，
+修复对象回滚后资源仍遗留的问题。
+
+新增 5 项测试覆盖 scope 的传递依赖闭包、第二包失败和取消、候选/活引用/dirty
+保护及重试、无关脏包保持、准备前/期间/磁盘重查时 fence、未驻留替换目标拒绝、
+旧图尚活时的同路径发布替换、保存依赖例外不跟随新实例，以及失败嵌套 bulk 清理。
+包含原有用例的定向选择 10/10 通过；Windows Debug `test affected` 的 80/80
+目标通过，回执 `Build/.agent-state/logs/20260907-183435-132689-28812-ctest.log`。
+文档/计划验证及 `git diff --check` 通过，未增加 GPU qualification。
+
+scope 由调用方持有，准备失败不会隐式析构或丢弃其记录；完整请求协调器尚未实现，
+因此本阶段两项开放任务不勾选。Unsaved/lease/资源族准入、完整 byte accounting
+和 public Reload 结果映射仍待实现，不把此内部加载通道作为 Reload 成功入口。
+
+#### Stage 2 progress: private batch value graphs
+
+`FPreparedPackageGraph` / `PreparePackageGraphs` 已落在既定私有 linker 边界，
+复用普通加载器抽出的 canonical/schema 校验、skeleton 构造、字段与 ledger 恢复。
+输入为已验证的 immutable closure；先验证整批和 exact-class 显式准入，再创建
+全部私有 skeleton，最后应用值。默认 inner 使用私有枚举复用，内部循环/子对象
+引用绑定候选；外部依赖按已驻留 exact identity 保活，缺失时明确拒绝隐式加载。
+输出保留加载版本/迁移 metadata，普通 PostLoad 不执行，状态只表示 ValuesPrepared。
+
+候选/外部对象跨 GC 强保活，失败保持已有输出；owner 仅标记本次私有层级为垃圾，
+不调用全局 GC、全局加载差集释放或写文件。包/对象数量限制、取消锁存、重入 Busy、
+整批末尾磁盘摘要重查已接入。长效边界见 [Asset Packages](../Runtime/Assets/AssetPackages.md)。
+
+新增 4 项真实保存文件测试，覆盖双包循环与子对象、默认 inner 唯一性、保存标量/
+Array/Map、Forced provenance、live dirty/revision 不变、准备期间 GC、Busy 重入、
+第二包 skeleton/values/ledger 失败、取消/预算/exact-class 拒绝、磁盘 Stale、已有
+输出保留、驻留外部依赖与缺失拒绝，以及保存 bulk 惰性读取/live slot 不变。
+定向测试 4/4 通过。实现期间修正 DLL friend 声明、ledger 路径比较及 fixture 清理
+前保存解除 Registry 依赖；没有放宽生产加载准入。
+
+Windows Debug 交付验证 `test affected` 的 80/80 目标通过，回执
+`Build/.agent-state/logs/20260907-175141-741489-41340-ctest.log`。
+文档/计划验证及 `git diff --check` 通过，未增加 GPU qualification。
+
+值图抽取不承担完整请求协调。后续已接入 scope 和 fence 检查，但 Unsaved、lease、
+自动失败清理、完整 CPU/GPU byte accounting、资源族隔离 PostLoad 和 public Reload
+结构化结果映射仍未实现。
+本阶段的候选图能力抽取任务已完成，其余两项仍未完成；值图准备不是完整 Reload 成功。
+
+#### Stage 2 progress: explicit package load bindings
+
+`AssetPackageArchive.h` 新增 `FPackageLoadBindings`，由调用者提供 bulk
+handle 与外部对象 resolver；`LoadAuthoredObject` 不再自行访问 live load service
+或资源注册表。普通 linker 显式提供原有资源和普通 resolver，候选调用者可传入
+私有 skeleton 与不可变快照。缺失绑定、resolver 拒绝或成功却返回空对象均失败，
+不会回退到当前驻留图。长效边界见 [Asset Packages](../Runtime/Assets/AssetPackages.md)。
+
+接口收紧为 `FPackageLoadBindings`，避免名称暗示只用于 authored 数据；仍只有
+bulk handle 和外部对象 resolver。普通 linker 已在对象循环外创建一次绑定，
+所有对象共用；保持这一集中选择位置，不增加工厂、继承或加载模式分支。
+后续批次内/外依赖选择由候选加载协调器负责，Archive 只消费绑定。
+本次命名/边界整理后的 Windows Debug `test affected` 80/80 目标通过，回执
+`Build/.agent-state/logs/20260907-173118-930282-35248-ctest.log`。
+
+新增两项私有图字段级测试：同路径 live 包仍存在时，外部路径可绑定私有对象，
+internal/null 引用不依赖 resolver；已注册 live bulk 不会满足缺失绑定，候选惰性
+载荷在显式 bindings/storage owner 退出、磁盘内容变化后仍读取保存字节。
+测试检查 live 注册、字段、dirty/revision 和对象数量，不把字段级读取当作完整
+候选图准备。批次 skeleton、schema/ledger 阶段抽取、依赖所有权、取消/准入与
+PostLoad 隔离仍未完成；serializer/struct migration 回调仍需单独准入。
+
+Windows Debug 定向两项测试通过；交付 `test affected` 的 80/80 目标通过，
+其中 `AssetPackageTests` 117/117 通过。回执
+`Build/.agent-state/logs/20260907-171121-888796-11252-ctest.log`。
+实现期间修正测试构造参数、private 状态查询、Archive 诊断匹配及保存 fixture
+后再执行删除清理。未执行额外 GPU qualification。
+
+#### Stage 2 progress: immutable storage preparation
+
+`FPreparedPackageResource` 已落在 `Public/Asset/PackageResource.h`：`Read`
+复用现有 codec 解析 main 与目录，`Prepare` 验证并持有外部 bulk 快照，
+`Revalidate` 完整重算 main/bulk 摘要。准备不会注册资源、构造对象、恢复 backup
+或写磁盘，失败保持已有输出；惰性 range 共享快照，磁盘替换/删除及准备 owner
+退出后，载荷 owner 仍可读取原内容。长效规则见 [BulkData](../Runtime/Assets/BulkData.md)。
+
+此处预算只涵盖 retained main/bulk 字节，尚不覆盖 parser scratch、解码值、引用
+计划与 runtime 产品。`Ready` 仅表示存储准备成功，不能作为 Reload 成功或绕过
+fence、projection pending、编辑/保存 lease 的准入依据。下一步仍需抽取
+`FPreparedPackageGraph`/批次 skeleton 与私有解析上下文，隔离 PostLoad，接入
+本次依赖所有权、完整预算及结构化 Reload 准入/取消结果；上方阶段任务保持未勾选。
+依赖清理可复用现有 `FAssetPackageLoadScope` 的 exact weak identity 记录，
+避免候选回滚沿用 linker 当前的全局 `CapturePackageLoadSnapshot` 差集释放。
+
+验证（Windows Debug）：新增 6 项存储测试及 1 项真实保存包测试，覆盖同大小/
+同时间戳内容变化、读取期间 main 替换、缺失/损坏 bulk、不恢复 backup、预算
+边界与取消、owner 退出后惰性读取，以及原对象集合/注册/脏状态/修订不变。
+最终 `test affected` 的 80/80 目标通过，其中 `AssetPackageTests` 115/115 通过；
+回执 `Build/.agent-state/logs/20260907-165530-484015-40120-ctest.log`。
+期间修正了测试对象枚举 API 名称和 dirty fixture 删除前的清理准入；这些不涉及
+生产恢复行为。文档及计划生命周期验证通过，未执行额外 GPU qualification。
 
 ### Stage 3: Coordinate compilation and runtime resource publication
 

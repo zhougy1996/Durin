@@ -282,6 +282,56 @@ incompatible recursive types, duplicate Map keys, malformed references,
 callback rejection, or unavailable operations fail the complete load rather
 than partially publishing state.
 
+The Engine-private load Archive receives an explicit
+`FPackageLoadBindings`: a retained bulk resource and an external-object
+resolver. The loader creates these bindings once per package and shares them
+across all object reads, for both authored and cooked data. The Archive never
+looks up either binding in the live registries itself.
+Missing bindings and external resolvers returning no object fail the read;
+internal references still use the supplied export table. The ordinary linker
+supplies its registered resource and normal load resolver. A private caller can
+supply an immutable resource snapshot and private object resolver without
+temporarily publishing either. `LoadAuthoredObject` applies serializer fields
+only; the caller owns graph construction, dependency lifetime, rollback and
+PostLoad policy. Serializer and struct migration callbacks still execute and
+require their own admission before use in isolated preparation.
+
+`PreparePackageGraphs` consumes saved immutable closures on GameThread and uses
+those same canonicalization, schema, skeleton, field and authored-ledger phases.
+It creates all private skeletons before applying any values, including default
+inners, and resolves batch imports against their private package identities.
+External imports bind to captured package identities. Missing dependencies require
+an explicitly supplied, caller-owned `FAssetPackageLoadScope`; without it the call
+fails without loading. Scoped loading requires resident replacement targets so a
+recursive dependency load cannot publish one of those targets. The caller admits
+ordinary external loading and PostLoad separately from candidate deserialization.
+Graph owners retain exact strong references to their objects and external dependencies
+across GC. Active load transactions and projection fences return Busy; preparation
+rechecks fences after disk validation and never clears a fence.
+
+The load scope records only exact package generations admitted by its calls,
+including transitive dependencies. On failure the caller retains that scope, drops
+candidate graphs, then calls `Release`; InUse retains the records for retry. Scope
+destruction transfers residency and is not abort cleanup. Reload abort may pass
+exact weak target identities to ignore those targets' saved dependency edges, which
+may differ from their edited live references. Real live references and dirty/new
+state still protect owned packages. Other packages' saved edges retain their normal
+protection, and neither scope ownership nor the exception follows a same-path
+replacement. Failed ordinary load transactions retire resources of successfully
+loaded nested dependencies along with their object rollback.
+
+The caller must explicitly admit each export class's construction and serialization
+callbacks and hold path admission/edit/save leases. The result is `ValuesPrepared`:
+ordinary PostLoad and runtime publication have not run, and loaded migration/version
+metadata remains available for the owning resource preparation step. Preparation
+revalidates saved closure digests before returning; failure preserves the output
+and marks only newly created private hierarchies as garbage without running global
+GC. Candidate package/object limits include default inners; additional dependency
+load budgets and decoded/scratch/runtime byte accounting remain the caller's
+responsibility. Graph ownership and destruction
+stay on GameThread. This is an internal deserialization boundary, not a public
+reload admission or success result.
+
 ## Construct-Free Inspection And Mutation
 
 Engine inspection consumes validated v9 linker tables and projects immutable

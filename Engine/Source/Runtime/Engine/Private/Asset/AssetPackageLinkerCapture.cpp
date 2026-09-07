@@ -1,5 +1,4 @@
 #include "AssetPackageArchive.h"
-#include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "AssetPackageLinker.h"
 #include "Asset/EditorBulkData.h"
@@ -215,7 +214,7 @@ namespace Durin::AssetPrivate
 				DObject& InObject,
 				std::span<const FAuthoredPackageFieldRecord> InFields,
 				std::span<DObject* const> InObjects,
-				const FPackagePath& InPackagePath,
+				const FPackageLoadBindings& InBindings,
 				uint32 SourceVersion,
 				std::span<const FArchiveCustomVersion> CustomVersions,
 				const FArchiveState& Context)
@@ -230,7 +229,7 @@ namespace Durin::AssetPrivate
 					FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
 						std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())})
-				, Object(InObject), Fields(InFields), Objects(InObjects), PackagePath(InPackagePath),
+				, Object(InObject), Fields(InFields), Objects(InObjects), Bindings(InBindings),
 				  Consumed(InFields.size(), 0)
 			{
 			}
@@ -339,11 +338,10 @@ namespace Durin::AssetPrivate
 				}
 				else
 				{
-					Value.PackageResource = GetPackageResourceManager().FindPackage(
-						PackagePath.ToString());
+					Value.PackageResource = Bindings.BulkResource;
 					if (!Value.PackageResource)
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST package bulk resource was not registered before graph load.");
+							"DAST external bulk field requires an explicit package resource binding.");
 				}
 			}
 
@@ -377,12 +375,20 @@ namespace Durin::AssetPrivate
 							std::format("Invalid external object reference '{}'.", PathString));
 						return;
 					}
-					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
-						Path, nullptr, Value);
-					if (!Result)
+					if (!Bindings.ResolveExternalObject)
 					{
 						FailLoad(EAssetError::MissingDependency,
-							EArchiveFailureCode::InvalidObjectReference, Result.Message);
+							EArchiveFailureCode::InvalidObjectReference,
+							"External object reference requires an explicit resolver binding.");
+						return;
+					}
+					FAssetResult Result = Bindings.ResolveExternalObject(Path, Value);
+					if (!Result || !Value)
+					{
+						FailLoad(EAssetError::MissingDependency,
+							EArchiveFailureCode::InvalidObjectReference,
+							Result.Message.empty() ? "External object resolver returned no object."
+								: Result.Message);
 						return;
 					}
 				}
@@ -747,7 +753,7 @@ namespace Durin::AssetPrivate
 			DObject& Object;
 			std::span<const FAuthoredPackageFieldRecord> Fields;
 			std::span<DObject* const> Objects;
-			FPackagePath PackagePath;
+			const FPackageLoadBindings& Bindings;
 			std::vector<uint8> Consumed;
 			std::vector<FLoadScope> Stack;
 			std::vector<FPathType> PathTypes;
@@ -1825,7 +1831,7 @@ namespace Durin::AssetPrivate
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
-		const FPackagePath& PackagePath,
+		const FPackageLoadBindings& Bindings,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions,
 		const FArchiveState& Context) -> FAssetResult
@@ -1834,7 +1840,7 @@ namespace Durin::AssetPrivate
 			{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
 			std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())};
 		FAuthoredLoadArchive Archive(
-			Object, Fields, Objects, PackagePath, SourceVersion, CustomVersions, Context);
+			Object, Fields, Objects, Bindings, SourceVersion, CustomVersions, Context);
 		{
 			auto Scope = Archive.EnterObject(Object);
 			if (Context.bCooking) Object.SerializeCooked(Archive);

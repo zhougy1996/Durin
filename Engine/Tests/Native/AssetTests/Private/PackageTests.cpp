@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "Asset/PackageSerialization.h"
+#include "Asset/AssetPackageArchive.h"
+#include "Asset/AssetPackageLinker.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
@@ -12,6 +14,7 @@
 #include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/BulkData.h"
+#include "Asset/PackageResource.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Testing.h"
@@ -24,6 +27,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/ObjectGraphReplacement.h"
 #include "DObject/Package.h"
 #include "DObject/PackageFormat.h"
 #include "DObject/PropertyKindTraits.h"
@@ -39,6 +43,7 @@
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "Threading/RunnableThread.h"
+#include "Asset/AssetPackageValueCodec.h"
 
 #include <chrono>
 #include <bit>
@@ -530,6 +535,9 @@ namespace
 		uint32 RuntimeValue = 0;
 	};
 
+	uint64 GPackageAssetPostLoadCount = 0;
+	bool GRejectPackageAssetPostLoad = false;
+
 	class DPackageAssetForTest : public Durin::DObject
 	{
 	public:
@@ -543,6 +551,12 @@ namespace
 
 		auto PostLoad(std::string& OutError) -> bool override
 		{
+			++GPackageAssetPostLoadCount;
+			if (GRejectPackageAssetPostLoad)
+			{
+				OutError = "Injected package PostLoad rejection.";
+				return false;
+			}
 			return DObject::PostLoad(OutError);
 		}
 
@@ -1956,6 +1970,758 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
 }
 
+
+TEST(FPackageAssetTests, PreparedGraphsLoadScopeRetainsOnlyAttemptDependenciesForExplicitAbort)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DPackageAssetForTest*, 2> Live{};
+	std::array<TWeakObjectPtr<DPackage>, 2> Targets;
+	std::array<uint64, 2> Revisions{};
+	FPackagePath DependencyPath, BulkPath, OtherPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareOwnedDependency", DependencyPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareOwnedBulk", BulkPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareUnrelated", OtherPath));
+	DPackageAssetForTest* Dependency = nullptr;
+	DPackageAssetForTest* Other = nullptr;
+	DBulkPackageAssetForTest* Bulk = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BulkPath, Bulk));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OtherPath, Other));
+	ASSERT_TRUE(Bulk->Payload.UpdatePayload(FByteBuffer(EditorBulkDataExternalThreshold + 1, std::byte{0x61})));
+	ASSERT_TRUE(SavePackage(Bulk->GetPackage()));
+	Dependency->ExternalReference = Bulk;
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(SavePackage(Other->GetPackage()));
+	Other->Value = 701;
+	Other->GetPackage()->MarkDirty();
+	const auto OtherRevision = Other->GetPackage()->GetEditRevision();
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PrepareOwnedRoot{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Targets[Index] = Live[Index]->GetPackage();
+		Live[Index]->Value = 31;
+		Live[Index]->ExternalReference = Index == 0 ? Dependency : Other;
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("PrepareOwnedRoot{}.dasset", Index);
+		ASSERT_TRUE(FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024, Sources[Index].Storage));
+		Live[Index]->ExternalReference = nullptr;
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		Live[Index]->Value = 91;
+		Live[Index]->GetPackage()->MarkDirty();
+		Revisions[Index] = Live[Index]->GetPackage()->GetEditRevision();
+	}
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	ASSERT_TRUE(UnloadPackage(BulkPath));
+	// Emulate a saved dependency change while the edited live graphs stay resident.
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Sources[Index].Storage.GetMainBytes(),
+			Testing::GetTestWorkDirectory() / "Assets" / std::format("PrepareOwnedRoot{}.dasset", Index)));
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	const auto Resources = GetPackageResourceManager().GetRegisteredPackageCount();
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	for (const bool bCancel : {false, true})
+	{
+		FAssetPackageLoadScope Scope;
+		Options.DependencyLoadScope = &Scope;
+		bool bCancelled = false;
+		Options.IsCancelled = [&] { return bCancelled; };
+		Options.ShouldFail = [&](uint64 PackageIndex, ELinkerLoadPhase Phase, uint64) {
+			if (PackageIndex != 1 || Phase != ELinkerLoadPhase::ApplyValues) return false;
+			bCancelled = bCancel;
+			return !bCancel;
+		};
+		EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status,
+			bCancel ? EPackageGraphPrepareStatus::Cancelled : EPackageGraphPrepareStatus::InvalidClosure);
+		EXPECT_TRUE(Graphs.empty());
+		EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
+		EXPECT_NE(GetPackageResourceManager().FindPackage(BulkPath.ToString()), nullptr);
+		EXPECT_EQ(Scope.Release().Error, EAssetError::InUse); // saved root edges still protect the loaded closure
+		ASSERT_TRUE(Scope.Release(Targets));
+		EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
+		EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
+		EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Resources);
+	}
+	FAssetPackageLoadScope Scope;
+	Options.DependencyLoadScope = &Scope;
+	Options.IsCancelled = {};
+	Options.ShouldFail = {};
+	const auto Result = PreparePackageGraphs(Sources, Options, Graphs);
+	ASSERT_TRUE(Result) << Result.Message;
+	Dependency = static_cast<DPackageAssetForTest*>(FindResidentPackage(DependencyPath)->GetTopLevelAssets()[0]);
+	const auto* Candidate = static_cast<DPackageAssetForTest*>(Graphs[0].GetPackage()->GetTopLevelAssets()[0]);
+	EXPECT_EQ(Candidate->ExternalReference.Get(), Dependency);
+	EXPECT_EQ(Scope.Release(Targets).Error, EAssetError::InUse); // candidate pins still own the dependency
+	Graphs.clear();
+	Live[0]->ExternalReference = Dependency;
+	EXPECT_EQ(Scope.Release(Targets).Error, EAssetError::InUse); // real live edge always protects it
+	Live[0]->ExternalReference = nullptr;
+	Dependency->GetPackage()->MarkDirty();
+	EXPECT_EQ(Scope.Release(Targets).Error, EAssetError::InUse);
+	Dependency->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Scope.Release(Targets));
+	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
+	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Resources);
+	EXPECT_EQ(FindResidentPackage(OtherPath), Other->GetPackage());
+	EXPECT_EQ(Other->Value, 701);
+	EXPECT_TRUE(Other->GetPackage()->IsDirty());
+	EXPECT_EQ(Other->GetPackage()->GetEditRevision(), OtherRevision);
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		EXPECT_EQ(FindResidentPackage(Sources[Index].PackagePath), Targets[Index].Get());
+		EXPECT_EQ(Live[Index]->Value, 91);
+		EXPECT_TRUE(Live[Index]->GetPackage()->IsDirty());
+		EXPECT_EQ(Live[Index]->GetPackage()->GetEditRevision(), Revisions[Index]);
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Sources[Index].PackagePath));
+	}
+	Other->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(OtherPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
+}
+
+TEST(FPackageAssetTests, PreparedGraphsRespectTargetAndResidentDependencyProjectionFences)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackageGraphSource Source;
+	FPackagePath DependencyPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareFencedRoot", Source.PackagePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrepareFencedDependency", DependencyPath));
+	DPackageAssetForTest* Live = nullptr;
+	DPackageAssetForTest* Dependency = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source.PackagePath, Live));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	Live->ExternalReference = Dependency;
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	ASSERT_TRUE(FPreparedPackageResource::Read(Source.PackagePath,
+		Testing::GetTestWorkDirectory() / "Assets" / "PrepareFencedRoot.dasset", 1024 * 1024, Source.Storage));
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	ASSERT_TRUE(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs));
+	DPackage* ExistingOutput = Graphs[0].GetPackage();
+	for (const auto& Path : {Source.PackagePath, DependencyPath})
+	{
+		FenceAssetRegistryProjection(std::span{&Path, 1});
+		const auto Result = PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs);
+		EXPECT_EQ(Result.Status, EPackageGraphPrepareStatus::Busy);
+		EXPECT_EQ(Result.PackagePath, Path);
+		EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
+		EXPECT_EQ(Graphs[0].GetPackage(), ExistingOutput);
+		ClearAssetRegistryProjectionFence(std::span{&Path, 1});
+		Options.ShouldFail = [&](uint64, ELinkerLoadPhase Phase, uint64) {
+			if (Phase == ELinkerLoadPhase::ApplyValues) FenceAssetRegistryProjection(std::span{&Path, 1});
+			return false;
+		};
+		EXPECT_EQ(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs).Status, EPackageGraphPrepareStatus::Busy);
+		EXPECT_TRUE(IsAssetRegistryProjectionFenced(Path));
+		EXPECT_EQ(Graphs[0].GetPackage(), ExistingOutput);
+		Options.ShouldFail = {};
+		ClearAssetRegistryProjectionFence(std::span{&Path, 1});
+	}
+	bool bLastObject = false;
+	bool bLateFence = false;
+	Options.ShouldFail = [&](uint64, ELinkerLoadPhase Phase, uint64 ObjectIndex) {
+		if (Phase == ELinkerLoadPhase::ApplyValues && ObjectIndex == 1) bLastObject = true;
+		return false;
+	};
+	Options.IsCancelled = [&] {
+		if (bLastObject && !bLateFence)
+		{
+			bLateFence = true;
+			FenceAssetRegistryProjection(std::span{&Source.PackagePath, 1});
+		}
+		return false;
+	};
+	EXPECT_EQ(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs).Status, EPackageGraphPrepareStatus::Busy);
+	EXPECT_TRUE(bLateFence);
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Source.PackagePath));
+	ClearAssetRegistryProjectionFence(std::span{&Source.PackagePath, 1});
+	Options.IsCancelled = {};
+	Options.ShouldFail = {};
+	Graphs.clear();
+	CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(Source.PackagePath));
+	FAssetPackageLoadScope Scope;
+	Options.DependencyLoadScope = &Scope;
+	EXPECT_EQ(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs).Status, EPackageGraphPrepareStatus::Unsupported);
+	EXPECT_EQ(FindResidentPackage(Source.PackagePath), nullptr);
+	EXPECT_TRUE(Scope.Release());
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
+}
+
+TEST(FPackageAssetTests, ExplicitLoadScopeNeverClaimsPublishedReplacementWhileOldGraphIsAlive)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopeGraphReplacement", Path));
+	DObject* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	FAssetPackageLoadScope Scope;
+	DPackage* Previous = nullptr;
+	ASSERT_TRUE(Scope.LoadPackage(Path, Previous));
+	const TWeakObjectPtr<DPackage> WeakPrevious(Previous);
+	DPackage* Candidate = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	ASSERT_TRUE(Candidate->InitializePreparedAssetPackage(Path));
+	ASSERT_NE(NewObject<DObject>(Candidate, Previous->GetTopLevelAssets()[0]->GetFName(), EObjectFlags::Public), nullptr);
+	FObjectGraphReplacement Replacement;
+	const FObjectReplacementPackagePair Pair{Previous, Candidate};
+	const auto Prepared = Replacement.Prepare(std::span{&Pair, 1});
+	ASSERT_TRUE(Prepared) << Prepared.Message;
+	ASSERT_TRUE(Replacement.TryCommit());
+	EXPECT_TRUE(WeakPrevious.IsValid());
+	EXPECT_TRUE(Previous->IsGraphPrivate());
+	EXPECT_EQ(FindResidentPackage(Path), Candidate);
+	EXPECT_TRUE(Scope.Release());
+	EXPECT_EQ(FindResidentPackage(Path), Candidate);
+	EXPECT_TRUE(Candidate->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_TRUE(Replacement.Retire());
+	CollectGarbage();
+	EXPECT_FALSE(WeakPrevious.IsValid());
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, ExplicitLoadScopeSavedDependencyExceptionDoesNotFollowReloadedOwner)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath OwnerPath, DependencyPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopeExceptionOwner", OwnerPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopeExceptionDependency", DependencyPath));
+	DPackageAssetForTest* Owner = nullptr;
+	DObject* Dependency = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	Owner->ExternalReference = Dependency;
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(OwnerPath));
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	FAssetPackageLoadScope Scope;
+	DPackage* Loaded = nullptr;
+	ASSERT_TRUE(Scope.LoadPackage(DependencyPath, Loaded));
+	ASSERT_TRUE(LoadPackage(OwnerPath, Loaded));
+	const TWeakObjectPtr<DPackage> PreviousOwner(Loaded);
+	ASSERT_TRUE(UnloadPackage(OwnerPath));
+	ASSERT_FALSE(PreviousOwner.IsValid());
+	ASSERT_TRUE(LoadPackage(OwnerPath, Loaded));
+	Owner = static_cast<DPackageAssetForTest*>(Loaded->GetTopLevelAssets()[0]);
+	Owner->ExternalReference = nullptr;
+	EXPECT_EQ(Scope.Release(std::span{&PreviousOwner, 1}).Error, EAssetError::InUse);
+	EXPECT_NE(FindResidentPackage(DependencyPath), nullptr);
+	const TWeakObjectPtr<DPackage> CurrentOwner(Loaded);
+	ASSERT_TRUE(Scope.Release(std::span{&CurrentOwner, 1}));
+	EXPECT_EQ(FindResidentPackage(DependencyPath), nullptr);
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(OwnerPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
+}
+
+TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkResources)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath RootPath, BulkPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FailedScopeRoot", RootPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FailedScopeBulk", BulkPath));
+	DPackageAssetForTest* Root = nullptr;
+	DBulkPackageAssetForTest* Bulk = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(RootPath, Root));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BulkPath, Bulk));
+	ASSERT_TRUE(Bulk->Payload.UpdatePayload(FByteBuffer(EditorBulkDataExternalThreshold + 1, std::byte{0x31})));
+	Root->ExternalReference = Bulk;
+	ASSERT_TRUE(SavePackage(Bulk->GetPackage()));
+	ASSERT_TRUE(SavePackage(Root->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(RootPath));
+	ASSERT_TRUE(UnloadPackage(BulkPath));
+	const auto Count = GetPackageResourceManager().GetRegisteredPackageCount();
+	FAssetPackageLoadScope Scope;
+	DPackage* Loaded = nullptr;
+	GRejectPackageAssetPostLoad = true;
+	const auto Result = Scope.LoadPackage(RootPath, Loaded);
+	GRejectPackageAssetPostLoad = false;
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);
+	EXPECT_EQ(FindResidentPackage(BulkPath), nullptr);
+	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), Count);
+	EXPECT_EQ(GetPackageResourceManager().FindPackage(BulkPath.ToString()), nullptr);
+	EXPECT_TRUE(Scope.Release());
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(RootPath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(BulkPath));
+}
+
+TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWithoutPublishing)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DPackageAssetForTest*, 2> Live{};
+	std::array<uint64, 2> Revisions{};
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreparedCycle{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Live[Index]->Value = static_cast<int32>(31 + Index);
+		Live[Index]->Scores = {1, 4, 9};
+		Live[Index]->NamedScores = {{"saved", 42}};
+	}
+	Live[0]->ExternalReference = Live[1];
+	Live[1]->ExternalReference = Live[0]->DefaultChild;
+	const FAuthoredOverridePath ForcedPath{FAuthoredOverridePathToken::Field(
+		FName("Tests::DPackageAssetForTest"), FName("Value"))};
+	ASSERT_TRUE(Live[0]->SetAuthoredOverride(ForcedPath, EAuthoredOverrideProvenance::Forced));
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets"
+			/ std::format("PreparedCycle{}.dasset", Index);
+		ASSERT_TRUE(FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024, Sources[Index].Storage));
+		Live[Index]->Value = 99;
+		Live[Index]->Scores = {77};
+		Live[Index]->NamedScores = {{"edited", 88}};
+		Live[Index]->GetPackage()->MarkDirty();
+		Revisions[Index] = Live[Index]->GetPackage()->GetEditRevision();
+	}
+	const auto PostLoads = GPackageAssetPostLoadCount;
+	const auto LiveCount = GDObjectArray.GetAll(EObjectQueryScope::LiveOnly).size();
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	Options.MaximumObjects = 6; // two packages, two assets, two default inners
+	std::vector<FPreparedPackageGraph> Graphs;
+	bool bCollected = false;
+	Options.ShouldFail = [&](uint64 PackageIndex, ELinkerLoadPhase Phase, uint64) {
+		if (!bCollected && PackageIndex == 1 && Phase == ELinkerLoadPhase::ApplyValues)
+		{
+			bCollected = true;
+			CollectGarbage();
+			std::vector<FPreparedPackageGraph> Reentered;
+			EXPECT_EQ(PreparePackageGraphs(Sources, Options, Reentered).Status, EPackageGraphPrepareStatus::Busy);
+		}
+		return false;
+	};
+	const auto Result = PreparePackageGraphs(Sources, Options, Graphs);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_EQ(Graphs.size(), 2u);
+	std::array<DPackageAssetForTest*, 2> Prepared{};
+	for (size_t Index = 0; Index < Graphs.size(); ++Index)
+	{
+		Prepared[Index] = static_cast<DPackageAssetForTest*>(Graphs[Index].GetPackage()->FindTopLevelAsset(Live[Index]->GetFName()));
+		ASSERT_NE(Prepared[Index], nullptr);
+		EXPECT_NE(Prepared[Index], Live[Index]);
+		EXPECT_EQ(Prepared[Index]->Value, 31 + Index);
+		EXPECT_EQ(Prepared[Index]->Scores, (std::vector<int32>{1, 4, 9}));
+		EXPECT_EQ(Prepared[Index]->NamedScores, (FScoreMap{{"saved", 42}}));
+		EXPECT_EQ(GDObjectArray.GetObjectsWithOuter(Prepared[Index], EObjectQueryScope::IncludeUnpublished).size(), 1u);
+		EXPECT_TRUE(Graphs[Index].GetPackage()->IsGraphPrivate());
+		EXPECT_FALSE(Graphs[Index].GetPackage()->IsDirty());
+		EXPECT_EQ(FindPackage(Sources[Index].PackagePath.GetView()), Live[Index]->GetPackage());
+		EXPECT_EQ(Live[Index]->Value, 99);
+		EXPECT_TRUE(Live[Index]->GetPackage()->IsDirty());
+		EXPECT_EQ(Live[Index]->GetPackage()->GetEditRevision(), Revisions[Index]);
+	}
+	EXPECT_EQ(Prepared[0]->ExternalReference.Get(), Prepared[1]);
+	EXPECT_EQ(Prepared[1]->ExternalReference.Get(), Prepared[0]->DefaultChild.Get());
+	const auto Ledger = Prepared[0]->GetAuthoredOverrideEntries();
+	EXPECT_TRUE(std::ranges::any_of(Ledger, [&](const auto& Entry) {
+		return CompareAuthoredOverridePaths(Entry.Path, ForcedPath) == 0 && Entry.Provenance == EAuthoredOverrideProvenance::Forced;
+	}));
+	EXPECT_EQ(GPackageAssetPostLoadCount, PostLoads);
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::LiveOnly).size(), LiveCount);
+	const TWeakObjectPtr<DObject> OldCandidate(Prepared[0]);
+	Graphs.clear();
+	CollectGarbage();
+	EXPECT_FALSE(OldCandidate.IsValid());
+	for (auto* Asset : Live) Asset->ExternalReference = nullptr;
+	for (auto* Asset : Live) ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	for (const auto& Source : Sources) ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+}
+
+TEST(FPackageAssetTests, PreparedGraphsRejectWholeBatchAndPreserveExistingOutput)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	using S = EPackageGraphPrepareStatus;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DPackageAssetForTest*, 2> Live{};
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreparedFailure{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Live[Index]->Value = 123;
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("PreparedFailure{}.dasset", Index);
+		ASSERT_TRUE(FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024, Sources[Index].Storage));
+	}
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
+	DPackage* OriginalOutput = Graphs[0].GetPackage();
+	CollectGarbage();
+	const auto Count = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
+	auto CheckUnchanged = [&] {
+		ASSERT_EQ(Graphs.size(), 2u);
+		EXPECT_EQ(Graphs[0].GetPackage(), OriginalOutput);
+		CollectGarbage();
+		EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), Count);
+		for (size_t Index = 0; Index < Live.size(); ++Index)
+		{
+			EXPECT_EQ(FindPackage(Sources[Index].PackagePath.GetView()), Live[Index]->GetPackage());
+			EXPECT_EQ(Live[Index]->Value, 123);
+			EXPECT_FALSE(Live[Index]->GetPackage()->IsDirty());
+		}
+	};
+	for (const auto Phase : {ELinkerLoadPhase::CreateSkeleton, ELinkerLoadPhase::ApplyValues, ELinkerLoadPhase::RestoreLedger})
+	{
+		Options.ShouldFail = [Phase](uint64 PackageIndex, ELinkerLoadPhase Current, uint64) {
+			return PackageIndex == 1 && Current == Phase;
+		};
+		EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::InvalidClosure);
+		CheckUnchanged();
+	}
+	Options.ShouldFail = {};
+	Options.AdmittedClasses = {DObject::StaticClass()};
+	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::Unsupported);
+	CheckUnchanged();
+	Options.AdmittedClasses.push_back(DPackageAssetForTest::StaticClass());
+	Options.MaximumObjects = 5;
+	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::BudgetExceeded);
+	CheckUnchanged();
+	Options.MaximumObjects = 6;
+	bool bCancel = false;
+	Options.IsCancelled = [&] { return bCancel; };
+	Options.ShouldFail = [&](uint64 PackageIndex, ELinkerLoadPhase Phase, uint64) {
+		if (PackageIndex == 1 && Phase == ELinkerLoadPhase::ApplyValues) bCancel = true;
+		return false;
+	};
+	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::Cancelled);
+	CheckUnchanged();
+	Options.IsCancelled = {};
+	bool bChangedDisk = false;
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PreparedFailure0.dasset";
+	Options.ShouldFail = [&](uint64 PackageIndex, ELinkerLoadPhase Phase, uint64) {
+		if (!bChangedDisk && PackageIndex == 1 && Phase == ELinkerLoadPhase::ApplyValues)
+		{
+			bChangedDisk = true;
+			FByteBuffer Changed(Sources[0].Storage.GetMainBytes().begin(), Sources[0].Storage.GetMainBytes().end());
+			Changed.back() ^= std::byte{1};
+			EXPECT_TRUE(FFileHelper::SaveArrayToFile(Changed, File));
+		}
+		return false;
+	};
+	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::Stale);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Sources[0].Storage.GetMainBytes(), File));
+	CheckUnchanged();
+	Graphs.clear();
+	CollectGarbage();
+	for (const auto& Source : Sources) ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+}
+
+TEST(FPackageAssetTests, PreparedGraphsReuseResidentDependencyAndRejectImplicitLoad)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackageGraphSource Source;
+	FPackagePath DependencyPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreparedExternal", Source.PackagePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreparedDependency", DependencyPath));
+	DPackageAssetForTest* Live = nullptr;
+	DPackageAssetForTest* Dependency = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source.PackagePath, Live));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	Live->ExternalReference = Dependency->DefaultChild;
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	ASSERT_TRUE(FPreparedPackageResource::Read(Source.PackagePath,
+		Testing::GetTestWorkDirectory() / "Assets" / "PreparedExternal.dasset", 1024 * 1024, Source.Storage));
+	Dependency->Value = 98;
+	Dependency->GetPackage()->MarkDirty();
+	const auto Revision = Dependency->GetPackage()->GetEditRevision();
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	ASSERT_TRUE(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs));
+	auto* Prepared = static_cast<DPackageAssetForTest*>(Graphs[0].GetPackage()->FindTopLevelAsset(Live->GetFName()));
+	ASSERT_NE(Prepared, nullptr);
+	EXPECT_EQ(Prepared->ExternalReference.Get(), Dependency->DefaultChild.Get());
+	EXPECT_EQ(Dependency->Value, 98);
+	EXPECT_EQ(Dependency->GetPackage()->GetEditRevision(), Revision);
+	Graphs.clear();
+	CollectGarbage();
+	Live->ExternalReference = nullptr;
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	Dependency->GetPackage()->ClearDirty();
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+	EXPECT_EQ(PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs).Status, EPackageGraphPrepareStatus::MissingDependency);
+	EXPECT_EQ(FindPackage(DependencyPath.GetView()), nullptr);
+	EXPECT_TRUE(Graphs.empty());
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(DependencyPath));
+}
+
+TEST(FPackageAssetTests, PreparedGraphsRetainSavedLazyBulkWithoutReplacingLiveResource)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackageGraphSource Source;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreparedGraphBulk", Source.PackagePath));
+	DBulkPackageAssetForTest* Live = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Source.PackagePath, Live));
+	const FByteBuffer Saved(EditorBulkDataExternalThreshold + 1, std::byte{0x41});
+	ASSERT_TRUE(Live->Payload.UpdatePayload(Saved));
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Source.PackagePath));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Source.PackagePath), Live));
+	const auto LiveResource = GetPackageResourceManager().FindPackage(Source.PackagePath.ToString());
+	ASSERT_NE(LiveResource, nullptr);
+	ASSERT_TRUE(FPreparedPackageResource::Read(Source.PackagePath,
+		Testing::GetTestWorkDirectory() / "Assets" / "PreparedGraphBulk.dasset", 1024 * 1024, Source.Storage));
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DBulkPackageAssetForTest::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	const auto Result = PreparePackageGraphs(std::span{&Source, 1}, Options, Graphs);
+	ASSERT_TRUE(Result) << Result.Message;
+	auto* Candidate = static_cast<DBulkPackageAssetForTest*>(Graphs[0].GetPackage()->FindTopLevelAsset(Live->GetFName()));
+	ASSERT_NE(Candidate, nullptr);
+	EXPECT_FALSE(Candidate->Payload.IsMemoryResident());
+	Source.Storage = {};
+	const FByteBuffer Edited(Saved.size(), std::byte{0x72});
+	ASSERT_TRUE(Live->Payload.UpdatePayload(Edited));
+	Live->GetPackage()->MarkDirty();
+	const auto BulkFile = Testing::GetTestWorkDirectory() / "Assets" / "PreparedGraphBulk.dbulk";
+	FByteBuffer SavedSegment;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(SavedSegment, BulkFile));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer(SavedSegment.size(), std::byte{0x72}), BulkFile));
+	const auto Payload = Candidate->Payload.GetPayload().Wait();
+	ASSERT_TRUE(Payload);
+	EXPECT_TRUE(std::ranges::equal(Payload.Buffer, Saved));
+	EXPECT_EQ(GetPackageResourceManager().FindPackage(Source.PackagePath.ToString()), LiveResource);
+	EXPECT_FALSE(LiveResource->IsRetired());
+	EXPECT_EQ(FindPackage(Source.PackagePath.GetView()), Live->GetPackage());
+	EXPECT_TRUE(Live->GetPackage()->IsDirty());
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(SavedSegment, BulkFile));
+	Graphs.clear();
+	CollectGarbage();
+	Live->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+}
+
+TEST(FPackageAssetTests, PackageLoadBindingsResolvePrivateObjectsWithoutLiveFallback)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrivateArchive", Path));
+	DAuthoredArchiveAssetForTest* Live = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Live));
+	Live->NativeValue = 73;
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	Live->GetPackage()->MarkDirty();
+	const auto Revision = Live->GetPackage()->GetEditRevision();
+	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
+	auto* Candidate = NewObject<DAuthoredArchiveAssetForTest>(Private, Live->GetFName());
+	const auto PathToResolve = Testing::MakePackageLeafAssetObjectPathForTests(Path);
+	FByteWriter Payload;
+	Payload.Write(uint8{2});
+	Payload.WriteString(PathToResolve.ToString());
+	const auto Type = FArchiveLogicalTypeDescriptor::Object(DObject::StaticClass()->GetQualifiedName());
+	FAuthoredPackageFieldRecord Field{"Tests::DAuthoredArchiveAssetForTest", "HardReference",
+		GetNativeKind(Type), GetNativeTypeSignature(Type), std::move(Payload.Bytes)};
+	DObject* Objects[] = {Candidate};
+	const auto Count = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
+	FPackageLoadBindings Bindings;
+	uint64 ResolveCount = 0;
+	Bindings.ResolveExternalObject = [&](const FObjectPath& Requested, DObject*& Out) -> FAssetResult {
+		++ResolveCount;
+		EXPECT_EQ(Requested, PathToResolve);
+		Out = Candidate;
+		return {};
+	};
+	auto Read = [&] {
+		return LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
+			Bindings, ObjectPackage::DastV9FormatVersion);
+	};
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Candidate->HardReference.Get(), Candidate);
+	EXPECT_EQ(ResolveCount, 1u);
+	Candidate->HardReference = nullptr;
+	Bindings.ResolveExternalObject = {};
+	EXPECT_EQ(Read().Error, EAssetError::MissingDependency);
+	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
+	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*&) -> FAssetResult { return {}; };
+	EXPECT_EQ(Read().Error, EAssetError::MissingDependency);
+	Bindings.ResolveExternalObject = [](const FObjectPath&, DObject*& Out) -> FAssetResult {
+		Out = nullptr;
+		return {EAssetError::MissingDependency, "Rejected private dependency."};
+	};
+	EXPECT_NE(Read().Message.find("Rejected private dependency."), std::string::npos);
+	// Internal references use the supplied skeleton table even without a resolver.
+	Bindings = {};
+	FByteWriter Internal;
+	Internal.Write(uint8{1});
+	Internal.Write(uint64{1});
+	Field.Payload = std::move(Internal.Bytes);
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Candidate->HardReference.Get(), Candidate);
+	Field.Payload = {std::byte{0}};
+	ASSERT_TRUE(Read());
+	EXPECT_EQ(Candidate->HardReference.Get(), nullptr);
+	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
+	EXPECT_EQ(Live->NativeValue, 73);
+	EXPECT_TRUE(Live->GetPackage()->IsDirty());
+	EXPECT_EQ(Live->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), Count);
+	EXPECT_TRUE(Candidate->GetPackage()->IsGraphPrivate());
+	MarkObjectHierarchyAsGarbage(Private);
+	CollectGarbage();
+	Live->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, PackageLoadBindingsAttachSnapshotWithoutUsingLiveBulkResource)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PrivateBulkArchive", Path));
+	DBulkPackageAssetForTest* Live = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Live));
+	const FByteBuffer Saved(EditorBulkDataExternalThreshold + 1, std::byte{0x51});
+	ASSERT_TRUE(Live->Payload.UpdatePayload(Saved));
+	ASSERT_TRUE(SavePackage(Live->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Live));
+	const auto LiveResource = GetPackageResourceManager().FindPackage(Path.ToString());
+	ASSERT_NE(LiveResource, nullptr);
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PrivateBulkArchive.dasset";
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(FPreparedPackageResource::Read(Path, File, 1024 * 1024, Prepared));
+	FAssetPackageInspection Inspection;
+	ASSERT_TRUE(InspectAssetPackage(File.generic_string(), Inspection));
+	const auto* StoredField = Inspection.FindField("Payload");
+	ASSERT_NE(StoredField, nullptr);
+	FEditorBulkDataStorageDescriptor Storage;
+	ASSERT_TRUE(StoredField->TryReadEditorBulkDataStorageDescriptor(Storage));
+	FByteWriter Payload;
+	Payload.Write(uint64{1});
+	Payload.Write(uint8{1});
+	Payload.Write(uint8{0});
+	Payload.Write(static_cast<uint16>(Storage.Alignment));
+	Payload.Write(EditorBulkDataContentIdVersion);
+	Payload.Write(Storage.PayloadId);
+	Payload.Write(Storage.ContentHash.HashLow);
+	Payload.Write(Storage.ContentHash.HashHigh);
+	Payload.Write(Storage.LogicalByteCount);
+	Payload.Write(Storage.StoredByteCount);
+	Payload.Write(Storage.SegmentOffset);
+	FAuthoredPackageFieldRecord Field{StoredField->DeclaringClass, StoredField->Name,
+		StoredField->Kind, StoredField->TypeSignature, std::move(Payload.Bytes)};
+	DPackage* Private = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
+	ASSERT_TRUE(Private->InitializePreparedAssetPackage(Path));
+	auto* Candidate = NewObject<DBulkPackageAssetForTest>(Private, Live->GetFName());
+	DObject* Objects[] = {Candidate};
+	// A live resource exists at the same path, but cannot satisfy a missing binding.
+	EXPECT_EQ(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
+		{}, ObjectPackage::DastV9FormatVersion).Error, EAssetError::CorruptFile);
+	FPackageLoadBindings Bindings{.BulkResource = Prepared.GetBulkResource()};
+	ASSERT_TRUE(LoadAuthoredObject(*Candidate, std::span{&Field, 1}, Objects,
+		Bindings, ObjectPackage::DastV9FormatVersion));
+	EXPECT_FALSE(Candidate->Payload.IsMemoryResident());
+	EXPECT_EQ(Candidate->Payload.GetPayloadId(), Storage.ContentHash);
+	Bindings = {};
+	Prepared = {};
+	const FByteBuffer Edited(Saved.size(), std::byte{0x73});
+	ASSERT_TRUE(Live->Payload.UpdatePayload(Edited));
+	Live->GetPackage()->MarkDirty();
+	const auto Revision = Live->GetPackage()->GetEditRevision();
+	auto BulkFile = File;
+	BulkFile.replace_extension(".dbulk");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Edited, BulkFile));
+	const auto Captured = Candidate->Payload.GetPayload().Wait();
+	ASSERT_TRUE(Captured);
+	EXPECT_TRUE(std::ranges::equal(Captured.Buffer, Saved));
+	EXPECT_TRUE(std::ranges::equal(Live->Payload.GetPayload().Wait().Buffer, Edited));
+	EXPECT_EQ(GetPackageResourceManager().FindPackage(Path.ToString()), LiveResource);
+	EXPECT_FALSE(LiveResource->IsRetired());
+	EXPECT_EQ(FindPackage(Path.GetView()), Live->GetPackage());
+	EXPECT_TRUE(Live->GetPackage()->IsDirty());
+	EXPECT_EQ(Live->GetPackage()->GetEditRevision(), Revision);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Saved, BulkFile));
+	MarkObjectHierarchyAsGarbage(Private);
+	CollectGarbage();
+	Live->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
+
+TEST(FPackageAssetTests, PreparedClosureReadsSavedBytesWithoutChangingLivePackage)
+{
+	using namespace Durin;
+	InitializeAssetTests();
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreparedClosure", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	const FByteBuffer Saved(EditorBulkDataExternalThreshold + 1, std::byte{0x51});
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Saved));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	DPackage* Live = Asset->GetPackage();
+	const FByteBuffer Edited(Saved.size(), std::byte{0x73});
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Edited));
+	Live->MarkDirty();
+	const auto Revision = Live->GetEditRevision();
+	const auto ResourceBefore = GetPackageResourceManager().FindPackage(Path.ToString());
+	const auto ObjectCount = GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size();
+	const auto File = Testing::GetTestWorkDirectory() / "Assets" / "PreparedClosure.dasset";
+	FPreparedPackageResource Prepared;
+	const auto Result = FPreparedPackageResource::Read(Path, File, 1024 * 1024, Prepared);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_TRUE(Prepared.Revalidate());
+	EXPECT_EQ(FindPackage(Path.GetView()), Live);
+	EXPECT_EQ(GDObjectArray.GetAll(EObjectQueryScope::IncludeUnpublished).size(), ObjectCount);
+	EXPECT_EQ(GetPackageResourceManager().FindPackage(Path.ToString()), ResourceBefore);
+	EXPECT_TRUE(Live->IsDirty());
+	EXPECT_EQ(Live->GetEditRevision(), Revision);
+	EXPECT_TRUE(std::ranges::equal(Asset->Payload.GetPayload().Wait().Buffer, Edited));
+	ASSERT_NE(Prepared.GetBulkResource(), nullptr);
+	const auto Captured = Prepared.GetBulkResource()->ReadRange(0, Saved.size());
+	ASSERT_TRUE(Captured);
+	EXPECT_TRUE(std::ranges::equal(Captured.Buffer, Saved));
+	const auto OriginalResource = Prepared.GetBulkResource();
+	EXPECT_EQ(FPreparedPackageResource::Read(Path, File, 1, Prepared).Status,
+		EPreparedPackageResourceStatus::BudgetExceeded);
+	FByteBuffer Damaged(Prepared.GetMainBytes().begin(), Prepared.GetMainBytes().end());
+	Damaged.back() ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Damaged, File));
+	EXPECT_EQ(FPreparedPackageResource::Read(Path, File, 1024 * 1024, Prepared).Status,
+		EPreparedPackageResourceStatus::InvalidClosure);
+	EXPECT_EQ(Prepared.GetBulkResource(), OriginalResource);
+	EXPECT_EQ(FindPackage(Path.GetView()), Live);
+	EXPECT_EQ(Live->GetEditRevision(), Revision);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Prepared.GetMainBytes(), File));
+	Live->ClearDirty(); // End the deliberately dirty fixture before removal admission.
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+}
 
 TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 {

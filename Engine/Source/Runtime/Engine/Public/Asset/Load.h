@@ -144,7 +144,11 @@ namespace Durin
 		ENGINE_API auto LoadPackage(const FPackagePath& Path, DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		// Rejects unsaved state and restores residency for live references, returning InUse.
-		ENGINE_API auto Release() -> FAssetResult;
+		// Reload abort may ignore saved dependency edges of the specified exact live
+		// packages after dropping candidate graphs. Actual references and unsaved state
+		// still protect owned packages; a later package at the same path is not exempt.
+		ENGINE_API auto Release(
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetResult;
 
 	private:
 		std::vector<TWeakObjectPtr<DPackage>> Packages;

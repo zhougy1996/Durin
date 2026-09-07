@@ -1,5 +1,8 @@
 #include "Asset/PackageResource.h"
 
+#include "AssetPackageCodec.h"
+#include "Asset/EditorBulkDataStorage.h"
+#include "Asset/PackageInspection.h"
 #include "Misc/FileHelper.h"
 #include "Threading/Task.h"
 
@@ -202,6 +205,53 @@ namespace Durin
 			std::filesystem::path SegmentPath;
 		};
 
+		class FSnapshotPackageResource final : public FPackageResource
+		{
+		public:
+			explicit FSnapshotPackageResource(FSharedByteBuffer InBytes)
+				: FPackageResource(InBytes.GetSize()), Bytes(std::move(InBytes)) {}
+
+		private:
+			auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool& bCancelled)
+				-> FPackageResourceReadResult override
+			{
+				if (bCancelled.load(std::memory_order_acquire))
+					return Result(EPackageResourceReadStatus::Cancelled);
+				return {.Status = EPackageResourceReadStatus::Success,
+					.Buffer = Bytes.MakeView(Offset, Size)};
+			}
+			FSharedByteBuffer Bytes;
+		};
+
+		using EPreparedStatus = EPreparedPackageResourceStatus;
+
+		auto CheckSnapshotFile(const std::filesystem::path& Path, uint64 Extent,
+			FXxHash128 Digest, const std::function<bool()>& IsCancelled)
+			-> FPreparedPackageResourceResult
+		{
+			FFileHelper::FFileIoError Error;
+			auto File = FFileHelper::OpenRead(Path, &Error);
+			if (!File) return {EPreparedStatus::IoError, Error.ToString()};
+			if (File->GetSize() != Extent)
+				return {EPreparedStatus::Stale, "Package closure extent changed."};
+			std::array<std::byte, PackageValidationScratchBytes> Scratch{};
+			FXxHash128Builder Hash;
+			for (uint64 Offset = 0; Offset < Extent;)
+			{
+				if (IsCancelled && IsCancelled())
+					return {EPreparedStatus::Cancelled, "Package closure validation was cancelled."};
+				auto Bytes = std::span(Scratch).first(static_cast<size_t>(
+					std::min<uint64>(Scratch.size(), Extent - Offset)));
+				if (!File->ReadAt(Offset, Bytes, &Error))
+					return {EPreparedStatus::IoError, Error.ToString()};
+				Hash.Update(Bytes);
+				Offset += Bytes.size();
+			}
+			if (Hash.Finalize() != Digest)
+				return {EPreparedStatus::Stale, "Package closure content changed."};
+			return {};
+		}
+
 		auto CompleteRetired() -> FPackageResourceRequest
 		{
 			return FPackageResourceRequest::Completed(Result(
@@ -214,6 +264,173 @@ namespace Durin
 				RegisterTaskAttribution("Engine", "PackageResource");
 			return Attribution;
 		}
+	}
+
+	auto FPreparedPackageResource::Read(const FPackagePath& LogicalPath,
+		const std::filesystem::path& PackagePath, uint64 MaximumRetainedBytes,
+		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
+		-> FPreparedPackageResourceResult
+	{
+		if (IsCancelled && IsCancelled())
+			return {EPreparedStatus::Cancelled, "Package closure read was cancelled."};
+		if (!LogicalPath.IsValid())
+			return {EPreparedStatus::InvalidClosure, "A valid logical package identity is required."};
+		try
+		{
+			FFileHelper::FFileIoError FileError;
+			auto File = FFileHelper::OpenRead(PackagePath, &FileError);
+			if (!File) return {EPreparedStatus::IoError, FileError.ToString()};
+			const uint64 MainSize = File->GetSize();
+			if (MainSize > MaximumRetainedBytes || MainSize > std::numeric_limits<size_t>::max())
+				return {EPreparedStatus::BudgetExceeded, "Package main file exceeds the retained byte budget."};
+			FByteBuffer Main(static_cast<size_t>(MainSize));
+			for (uint64 Offset = 0; Offset < MainSize;)
+			{
+				if (IsCancelled && IsCancelled())
+					return {EPreparedStatus::Cancelled, "Package closure read was cancelled."};
+				auto Chunk = std::span(Main).subspan(static_cast<size_t>(Offset),
+					static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, MainSize - Offset)));
+				if (!File->ReadAt(Offset, Chunk, &FileError))
+					return {EPreparedStatus::IoError, FileError.ToString()};
+				Offset += Chunk.size();
+			}
+			File.reset();
+			auto BulkPath = PackagePath;
+			BulkPath.replace_extension(".dbulk");
+			std::error_code Error;
+			uint64 BulkSize = 0;
+			const bool bHasBulk = std::filesystem::exists(BulkPath, Error);
+			if (!Error && bHasBulk) BulkSize = std::filesystem::file_size(BulkPath, Error);
+			if (Error) return {EPreparedStatus::IoError, Error.message()};
+			if (BulkSize > MaximumRetainedBytes - MainSize)
+				return {EPreparedStatus::BudgetExceeded, "Package closure exceeds the retained byte budget."};
+			const AssetPrivate::FAssetPackageCodec* Codec = nullptr;
+			if (auto Result = AssetPrivate::ResolveAssetPackageReader(Main, Codec); !Result)
+				return {EPreparedStatus::InvalidClosure, std::move(Result.Message)};
+			const AssetPrivate::FAssetPackageReadContext Context{
+				.PackageBytes = Main, .PackagePath = LogicalPath,
+				.PhysicalPackageBytes = MainSize, .PhysicalBulkBytes = BulkSize,
+				.bResourceBackedBulk = true};
+			FAssetPackageHeader Header;
+			if (auto Result = Codec->ReadHeader(Context, Header); !Result)
+				return {EPreparedStatus::InvalidClosure, std::move(Result.Message)};
+			FAssetPackageInspection Inspection;
+			if (auto Result = Codec->Inspect(Context, Inspection); !Result)
+				return {EPreparedStatus::InvalidClosure, std::move(Result.Message)};
+			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+			std::string Diagnostic;
+			if (!InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors, &Diagnostic))
+				return {EPreparedStatus::InvalidClosure, std::move(Diagnostic)};
+			std::vector<FPackageBulkDataEntry> Entries;
+			Entries.reserve(Descriptors.size());
+			for (const auto& Descriptor : Descriptors)
+				Entries.push_back({.FieldIndex = Entries.size() + 1,
+					.Placement = Descriptor.StorageKind == EEditorBulkDataStorageKind::External
+						? EPackageBulkDataPlacement::External : EPackageBulkDataPlacement::Inline,
+					.LogicalSize = Descriptor.LogicalByteCount,
+					.StoredSize = Descriptor.StoredByteCount,
+					.SegmentOffset = Descriptor.SegmentOffset,
+					.Alignment = Descriptor.Alignment,
+					.ContentId = Descriptor.ContentHash});
+			return Prepare(PackagePath, FSharedByteBuffer::Take(std::move(Main)),
+				{Header.BulkSegmentExtent, Header.BulkSegmentDigest}, Entries,
+				MaximumRetainedBytes, Out, IsCancelled);
+		}
+		catch (const std::bad_alloc&)
+		{
+			return {EPreparedStatus::BudgetExceeded, "Package closure allocation failed."};
+		}
+	}
+
+	auto FPreparedPackageResource::Prepare(
+		const std::filesystem::path& PackagePath, FSharedByteBuffer ValidatedMain,
+		const FPackageBulkSegmentSummary& Summary,
+		std::span<const FPackageBulkDataEntry> Entries, uint64 MaximumRetainedBytes,
+		FPreparedPackageResource& Out, const std::function<bool()>& IsCancelled)
+		-> FPreparedPackageResourceResult
+	{
+		if (IsCancelled && IsCancelled())
+			return {EPreparedStatus::Cancelled, "Package closure preparation was cancelled."};
+		if (ValidatedMain.IsEmpty() || PackagePath.empty())
+			return {EPreparedStatus::InvalidClosure, "A validated main package is required."};
+		if (ValidatedMain.GetSize() > MaximumRetainedBytes
+			|| Summary.Extent > MaximumRetainedBytes - ValidatedMain.GetSize()
+			|| Summary.Extent > std::numeric_limits<size_t>::max())
+			return {EPreparedStatus::BudgetExceeded, "Package closure exceeds the retained byte budget."};
+		std::string Error;
+		if (!ValidatePackageBulkDataMetadata(Summary, Entries, &Error))
+			return {EPreparedStatus::InvalidClosure, std::move(Error)};
+		try
+		{
+			FPreparedPackageResource Candidate;
+			Candidate.MainPath = PackagePath;
+			Candidate.MainDigest = FXxHash128::HashBuffer(ValidatedMain);
+			Candidate.MainBytes = std::move(ValidatedMain);
+			Candidate.BulkExtent = Summary.Extent;
+			Candidate.BulkDigest = Summary.Digest;
+			if (auto Check = CheckSnapshotFile(PackagePath, Candidate.MainBytes.GetSize(),
+				Candidate.MainDigest, IsCancelled); !Check) return Check;
+			if (Summary.Extent != 0)
+			{
+				auto BulkPath = PackagePath;
+				BulkPath.replace_extension(".dbulk");
+				FFileHelper::FFileIoError FileError;
+				auto File = FFileHelper::OpenRead(BulkPath, &FileError);
+				if (!File) return {EPreparedStatus::IoError, FileError.ToString()};
+				if (File->GetSize() != Summary.Extent)
+					return {EPreparedStatus::InvalidClosure, "Package bulk extent does not match main metadata."};
+				FByteBuffer Bytes(static_cast<size_t>(Summary.Extent));
+				for (uint64 Offset = 0; Offset < Summary.Extent;)
+				{
+					if (IsCancelled && IsCancelled())
+						return {EPreparedStatus::Cancelled, "Package closure preparation was cancelled."};
+					auto Chunk = std::span(Bytes).subspan(static_cast<size_t>(Offset),
+						static_cast<size_t>(std::min<uint64>(PackageValidationScratchBytes, Summary.Extent - Offset)));
+					if (!File->ReadAt(Offset, Chunk, &FileError))
+						return {EPreparedStatus::IoError, FileError.ToString()};
+					Offset += Chunk.size();
+				}
+				if (!ValidatePackageBulkDataSegment(Summary, Entries, Bytes, &Error))
+					return {EPreparedStatus::InvalidClosure, std::move(Error)};
+				Candidate.BulkResource = std::make_shared<FSnapshotPackageResource>(
+					FSharedByteBuffer::Take(std::move(Bytes)));
+			}
+			if (auto Check = Candidate.Revalidate(IsCancelled); !Check) return Check;
+			Out = std::move(Candidate);
+			return {};
+		}
+		catch (const std::bad_alloc&)
+		{
+			return {EPreparedStatus::BudgetExceeded, "Package closure allocation failed."};
+		}
+	}
+
+	auto FPreparedPackageResource::Revalidate(const std::function<bool()>& IsCancelled) const
+		-> FPreparedPackageResourceResult
+	{
+		if (IsCancelled && IsCancelled())
+			return {EPreparedStatus::Cancelled, "Package closure validation was cancelled."};
+		if (MainBytes.IsEmpty())
+			return {EPreparedStatus::InvalidClosure, "No prepared package closure exists."};
+		if (auto Check = CheckSnapshotFile(MainPath, MainBytes.GetSize(), MainDigest, IsCancelled); !Check)
+			return Check;
+		auto BulkPath = MainPath;
+		BulkPath.replace_extension(".dbulk");
+		if (BulkExtent != 0)
+		{
+			if (auto Check = CheckSnapshotFile(BulkPath, BulkExtent, BulkDigest, IsCancelled); !Check)
+				return Check;
+		}
+		else
+		{
+			std::error_code Error;
+			const bool bExists = std::filesystem::exists(BulkPath, Error);
+			if (Error) return {EPreparedStatus::IoError, Error.message()};
+			if (bExists) return {EPreparedStatus::InvalidClosure, "Package has an undeclared bulk companion."};
+		}
+		// Detect main publication while checking the companion. The captured bulk
+		// remains stable even if the caller later receives Stale and retries.
+		return CheckSnapshotFile(MainPath, MainBytes.GetSize(), MainDigest, IsCancelled);
 	}
 
 	auto FPackageResourceRequest::IsReady() const -> bool

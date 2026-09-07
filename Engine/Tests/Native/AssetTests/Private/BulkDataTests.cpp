@@ -249,6 +249,163 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	EXPECT_NE(Error.find("padding"), std::string::npos);
 }
 
+namespace
+{
+	class FPreparedPackageResourceTests : public testing::Test
+	{
+	protected:
+		auto SetUp() -> void override
+		{
+			const auto Root = Durin::Testing::GetTestWorkDirectory()
+				/ testing::UnitTest::GetInstance()->current_test_info()->name();
+			std::filesystem::create_directories(Root);
+			MainPath = Root / "Prepared.dasset";
+			BulkPath = Root / "Prepared.dbulk";
+			Main = MakeBytes({1, 2, 3, 4}); // Storage tests: main schema is the codec's responsibility.
+			Bulk.resize(EditorBulkDataExternalThreshold + 1, std::byte{0x39});
+			Summary = {Bulk.size(), FXxHash128::HashBuffer(Bulk)};
+			Entry = {.FieldIndex = 1, .Placement = EPackageBulkDataPlacement::External,
+				.LogicalSize = Bulk.size(), .StoredSize = Bulk.size(),
+				.Alignment = EditorBulkDataExternalAlignment, .ContentId = Summary.Digest};
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main, MainPath));
+			ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
+		}
+		auto Prepare(FPreparedPackageResource& Out, uint64 Budget = 1024 * 1024,
+			const std::function<bool()>& IsCancelled = {}) -> FPreparedPackageResourceResult
+		{
+			return FPreparedPackageResource::Prepare(MainPath, FSharedByteBuffer::Copy(Main),
+				Summary, std::span{&Entry, 1}, Budget, Out, IsCancelled);
+		}
+		std::filesystem::path MainPath, BulkPath;
+		FByteBuffer Main, Bulk;
+		FPackageBulkSegmentSummary Summary;
+		FPackageBulkDataEntry Entry;
+	};
+}
+
+TEST_F(FPreparedPackageResourceTests, SnapshotSurvivesDiskReplacementAndOwnerRelease)
+{
+	FPackageResourceManager Manager;
+	FPackageResourceHandle Live;
+	ASSERT_TRUE(Manager.RegisterLoosePackage("/Tests/Prepared", MainPath,
+		Summary, std::span{&Entry, 1}, Live));
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(Prepare(Prepared));
+	EXPECT_EQ(Prepared.GetRetainedBytes(), Main.size() + Bulk.size());
+	EXPECT_EQ(Manager.FindPackage("/Tests/Prepared"), Live);
+	EXPECT_FALSE(Live->IsRetired());
+	ASSERT_TRUE(Prepared.Revalidate());
+	FBulkData Payload;
+	ASSERT_TRUE(FBulkData::TryAttach({.LogicalSize = Bulk.size(),
+		.Range = {.Resource = Prepared.GetBulkResource(), .StoredSize = Bulk.size(),
+			.Alignment = EditorBulkDataExternalAlignment}}, Payload));
+	Bulk[0] ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFileAtomically(Bulk, BulkPath));
+	EXPECT_EQ(Prepared.Revalidate().Status, EPreparedPackageResourceStatus::Stale);
+	Prepared = {};
+	ASSERT_TRUE(Payload.ReloadAsync().Wait());
+	FByteView Read;
+	ASSERT_TRUE(Payload.LockReadOnly(Read));
+	EXPECT_EQ(Read[0], std::byte{0x39});
+	ASSERT_TRUE(Payload.UnlockReadOnly());
+	ASSERT_TRUE(Payload.Unload());
+	std::filesystem::remove(BulkPath);
+	ASSERT_TRUE(Payload.ReloadAsync().Wait());
+	ASSERT_TRUE(Payload.LockReadOnly(Read));
+	EXPECT_EQ(Read[0], std::byte{0x39});
+	ASSERT_TRUE(Payload.UnlockReadOnly());
+}
+
+TEST_F(FPreparedPackageResourceTests, RechecksMainContentInsteadOfSizeOrTimestamp)
+{
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(Prepare(Prepared));
+	const auto Timestamp = std::filesystem::last_write_time(MainPath);
+	Main[0] ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main, MainPath));
+	std::filesystem::last_write_time(MainPath, Timestamp);
+	EXPECT_EQ(Prepared.Revalidate().Status, EPreparedPackageResourceStatus::Stale);
+	EXPECT_EQ(Prepared.GetMainBytes()[0], std::byte{1});
+}
+
+TEST_F(FPreparedPackageResourceTests, FailurePreservesOutputAndDoesNotRecoverBackup)
+{
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(Prepare(Prepared));
+	const auto Original = Prepared.GetBulkResource();
+	auto Backup = BulkPath;
+	Backup += ".durin-backup";
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, Backup));
+	Bulk[0] ^= std::byte{1};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
+	EXPECT_EQ(Prepare(Prepared).Status, EPreparedPackageResourceStatus::InvalidClosure);
+	EXPECT_EQ(Prepared.GetBulkResource(), Original);
+	FByteBuffer Actual;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Actual, BulkPath));
+	EXPECT_EQ(Actual, Bulk);
+	EXPECT_TRUE(std::filesystem::exists(Backup));
+	std::filesystem::remove(BulkPath);
+	EXPECT_EQ(Prepare(Prepared).Status, EPreparedPackageResourceStatus::IoError);
+	EXPECT_FALSE(std::filesystem::exists(BulkPath));
+	EXPECT_EQ(Prepared.GetBulkResource(), Original);
+}
+
+TEST_F(FPreparedPackageResourceTests, RejectsBudgetAndCancellationWithoutPublishing)
+{
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(Prepare(Prepared, Main.size() + Bulk.size()));
+	const auto Original = Prepared.GetBulkResource();
+	EXPECT_EQ(Prepare(Prepared, Main.size() + Bulk.size() - 1).Status,
+		EPreparedPackageResourceStatus::BudgetExceeded);
+	EXPECT_EQ(Prepare(Prepared, 0).Status, EPreparedPackageResourceStatus::BudgetExceeded);
+	EXPECT_EQ(Prepare(Prepared, 1024 * 1024, [] { return true; }).Status,
+		EPreparedPackageResourceStatus::Cancelled);
+	uint32 Checks = 0;
+	EXPECT_EQ(Prepare(Prepared, 1024 * 1024, [&] { return ++Checks == 4; }).Status,
+		EPreparedPackageResourceStatus::Cancelled);
+	EXPECT_EQ(Prepared.GetBulkResource(), Original);
+	EXPECT_TRUE(Prepared.Revalidate());
+	Summary.Extent = std::numeric_limits<uint64>::max();
+	EXPECT_EQ(Prepare(Prepared, std::numeric_limits<uint64>::max()).Status,
+		EPreparedPackageResourceStatus::BudgetExceeded);
+}
+
+TEST_F(FPreparedPackageResourceTests, ValidatesNoBulkClosureAndRejectsUnexpectedCompanion)
+{
+	FPreparedPackageResource Prepared;
+	const auto MainBytes = FSharedByteBuffer::Copy(Main);
+	EXPECT_EQ(FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4, Prepared).Status,
+		EPreparedPackageResourceStatus::InvalidClosure);
+	std::filesystem::remove(BulkPath);
+	ASSERT_TRUE(FPreparedPackageResource::Prepare(MainPath, MainBytes, {}, {}, 4, Prepared));
+	EXPECT_TRUE(Prepared.GetMainBytes().SharesStorageWith(MainBytes));
+	EXPECT_FALSE(Prepared.GetBulkResource());
+	ASSERT_TRUE(Prepared.Revalidate());
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Bulk, BulkPath));
+	EXPECT_EQ(Prepared.Revalidate().Status, EPreparedPackageResourceStatus::InvalidClosure);
+}
+
+TEST_F(FPreparedPackageResourceTests, RejectsMainReplacementDuringBulkCapture)
+{
+	FPreparedPackageResource Prepared;
+	ASSERT_TRUE(Prepare(Prepared));
+	const auto Original = Prepared.GetBulkResource();
+	uint32 Checks = 0;
+	bool bReplaced = false;
+	const auto Result = Prepare(Prepared, 1024 * 1024, [&] {
+		if (++Checks == 3)
+		{
+			auto Replacement = Main;
+			Replacement[0] ^= std::byte{1};
+			bReplaced = FFileHelper::SaveArrayToFileAtomically(Replacement, MainPath);
+		}
+		return false;
+	});
+	ASSERT_TRUE(bReplaced);
+	EXPECT_EQ(Result.Status, EPreparedPackageResourceStatus::Stale);
+	EXPECT_EQ(Prepared.GetBulkResource(), Original);
+}
+
 TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResults)
 {
 	auto Resource = std::make_shared<FSlowPackageResource>();

@@ -44,7 +44,8 @@ namespace Durin
 			const FPackagePath& Path,
 			EAssetPackageUnloadPolicy Policy =
 				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetResult;
-		auto ReleasePackages(std::span<const TWeakObjectPtr<DPackage>> Packages) -> FAssetResult;
+		auto ReleasePackages(std::span<const TWeakObjectPtr<DPackage>> Packages,
+			std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies = {}) -> FAssetResult;
 		auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		auto ReleasePackagesLoadedSince(const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 
