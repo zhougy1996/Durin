@@ -410,9 +410,8 @@ namespace Durin
 				}
 				auto Result = [&]() -> FTexture2DCompilationWorkResult {
 					if (Ready->RejectedResult) return std::move(*Ready->RejectedResult);
-					auto Outcome = std::move(Ready->Task).TakeOutcome();
-					if (auto* Value = std::get_if<0>(&Outcome)) return std::move(*Value);
-					const bool bCanceled = std::holds_alternative<Tasks::FTaskCanceled>(Outcome)
+					if (Ready->Task.GetState() == ETaskState::Succeeded) return std::move(Ready->Task).TakeResult();
+					const bool bCanceled = Ready->Task.GetState() == ETaskState::Canceled
 						|| Ready->bCancellationRequested.load();
 					return MakeFailureResult(*Ready, bCanceled ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed,
 						bCanceled ? "Texture build was cancelled." : "Texture build task failed.");

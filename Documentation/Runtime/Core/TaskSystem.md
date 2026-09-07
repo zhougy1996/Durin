@@ -68,22 +68,28 @@ its successful value into the callback and produces another unique task.
 Void inputs omit the argument; void outputs remain composable. Ordinary `Then`
 rejects task/admission-returning callbacks. `Share` explicitly relinquishes
 unique consumption and exposes immutable result owners. `GetCompletion` has
-no result access. `TakeOutcome` requires observed terminal completion and
-consumes the owned value, framework failure, or cancellation alternative.
+no result access. Tasks expose `IsValid()`, `IsCompleted()`, `GetState()` and
+`Wait()`. Completion includes success, failure and cancellation; it does not
+imply a result exists. `GetFailure()` requires a failed terminal state and
+returns structured failure details independently of result ownership.
 
-`Tasks::ThenOutcome(std::move(Task), Executor, Options, F)` consumes an owned
-`TTaskOutcome<T>` after any predecessor terminal state and produces another
-unique result. Void input uses the `monostate` success alternative; void output
-remains composable. The callback may recover a predecessor failure or cancellation
-into a domain result. Failed admission preserves the input and its unique claim;
-cancellation of the observing edge itself can suppress the callback. This is an
-ordinary scheduled edge, not guaranteed cleanup or mandatory owner completion.
-Owners that require mandatory finalization retain the task and handle its terminal
-outcome at their own lifecycle boundary; see [Asset compilation](../Assets/AssetCompilation.md).
-The shared overload accepts `TSharedTaskOutcome<T>`: an immutable result alias,
-structured failure, or cancellation. `GetOutcomeShared()` requires terminal
-completion and preserves failure identity across `Share`. Multiple outcome
-edges can observe the same result; rejection leaves the shared input usable.
+`std::move(Task).TakeResult()` waits for success and transfers the unique result
+exactly once, invalidating the task. `Task.GetResult()` waits for success and
+returns an immutable reference until the result is consumed or the task is destroyed.
+`Shared.GetResult()` returns an immutable reference valid while the shared task
+is retained. These accessors also support void results. Failed/canceled tasks and rejected waits must be
+handled before requesting a result; result access asserts on those conditions.
+`GetResultShared()` remains a nonblocking nullable alias for results that must
+outlive the shared task, retaining the producer's module lifetime.
+
+`Tasks::ThenCompleted(Shared, Executor, Options, F)` invokes the callback with
+`const TSharedTask<T>&` after any predecessor terminal state. The callback can
+inspect state and failure details or read the successful result, and can recover
+failure/cancellation into a domain result. Use `Share` explicitly when observing
+a unique task this way. Multiple observers preserve failure identity; rejected
+admission leaves the shared input usable. Cancellation of the observing edge
+itself can suppress the callback. Mandatory owner finalization remains at the
+owner's lifecycle boundary; see [Asset compilation](../Assets/AssetCompilation.md).
 
 Nontrivial result types require a nonzero result-byte estimate. Deferred edges
 charge retained predecessor bytes plus declared captures and reject overflow
@@ -661,7 +667,7 @@ for the Texture2D lifecycle.
 
 For example, the package adapter uses `TrySpawn(Group, BlockingIO, Options, Read)`
 whose callable returns the result. `Share` preserves the copyable request facade;
-`ThenOutcome(Shared, Worker, Options, Transform)` preserves domain handling of
+`ThenCompleted(Shared, Worker, Options, Transform)` preserves domain handling of
 failed and canceled reads. These adapters retain subsystem identity/cancellation
 policy without requiring consumers to rewrite every legacy caller at once.
 

@@ -34,7 +34,41 @@ namespace Durin
 	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
 
-	TEST(FTaskCompositionTests, OutcomeTransformsPreserveMoveOnlyValuesAndFailures)
+	TEST(FTaskCompositionTests, ResultAccessWaitsAndPreservesUniqueOwnershipUntilTaken)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::TTask<int> Invalid;
+		EXPECT_FALSE(Invalid.IsValid());
+		EXPECT_FALSE(Invalid.IsCompleted());
+		EXPECT_EQ(ETaskWaitStatus::InvalidTask, Invalid.Wait().WaitStatus);
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		Options.EstimatedResultBytes = 32;
+		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+			[] { return std::make_unique<int>(42); });
+		ASSERT_TRUE(Admission.HasValue());
+		auto Task = std::move(Admission).TakeValue();
+		EXPECT_EQ(42, *Task.GetResult());
+		EXPECT_TRUE(Task.IsCompleted());
+		EXPECT_EQ(ETaskState::Succeeded, Task.GetState());
+		EXPECT_EQ(Task.GetResult().get(), Task.GetResult().get());
+		auto Value = std::move(Task).TakeResult();
+		EXPECT_EQ(42, *Value);
+		EXPECT_FALSE(Task.IsValid());
+		auto VoidAdmission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] {});
+		ASSERT_TRUE(VoidAdmission.HasValue());
+		auto VoidTask = std::move(VoidAdmission).TakeValue();
+		VoidTask.GetResult();
+		EXPECT_TRUE(VoidTask.IsValid());
+		std::move(VoidTask).TakeResult();
+		EXPECT_FALSE(VoidTask.IsValid());
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
+	TEST(FTaskCompositionTests, CompletedObserversPreserveMoveOnlyCapturesAndFailures)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -48,35 +82,35 @@ namespace Durin
 			auto Admission = Tasks::TCompletionSource<std::unique_ptr<int>>::TryCreate(Group, Options);
 			ASSERT_TRUE(Admission.HasValue());
 			auto Source = std::move(Admission).TakeValue();
-			auto Input = Source.TakeTask();
-			auto EdgeAdmission = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, Options,
-				[Capture = std::make_unique<int>(5), Kind](Tasks::TTaskOutcome<std::unique_ptr<int>> Outcome) {
-					EXPECT_EQ(static_cast<size_t>(Kind), Outcome.index());
-					if (Kind == 0) return **std::get_if<0>(&Outcome) + *Capture;
+			auto SharedAdmission = Tasks::Share(Source.TakeTask());
+			ASSERT_TRUE(SharedAdmission.HasValue());
+			auto Input = std::move(SharedAdmission).TakeValue();
+			auto EdgeAdmission = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, Options,
+				[Capture = std::make_unique<int>(5), Kind](const Tasks::TSharedTask<std::unique_ptr<int>>& Task) {
+					EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Task.GetState());
+					if (Kind == 0) return *Task.GetResult() + *Capture;
 					if (Kind == 1)
 					{
-						const auto& Failure = std::get<1>(Outcome);
+						const auto& Failure = Task.GetFailure();
 						EXPECT_EQ(Tasks::ETaskFailureCode::AdmissionRejected, Failure.Code);
 						EXPECT_EQ(123u, Failure.RelatedTaskId);
 					}
 					return *Capture;
 				});
 			ASSERT_TRUE(EdgeAdmission.HasValue());
-			EXPECT_FALSE(Input.IsValid());
+			EXPECT_TRUE(Input.IsValid());
 			auto Edge = std::move(EdgeAdmission).TakeValue();
 			if (Kind == 0) EXPECT_TRUE(Source.TrySetValue(std::make_unique<int>(7)));
 			else if (Kind == 1) EXPECT_TRUE(Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, {}, Tasks::ETaskFailureCode::AdmissionRejected, 123}));
 			else EXPECT_TRUE(Source.TrySetCanceled());
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge.GetCompletion()).TaskState);
-			auto Outcome = std::move(Edge).TakeOutcome();
-			ASSERT_EQ(0u, Outcome.index());
-			EXPECT_EQ(Kind == 0 ? 12 : 5, std::get<0>(Outcome));
+			EXPECT_EQ(Kind == 0 ? 12 : 5, std::move(Edge).TakeResult());
 		}
 		Group.Close();
 		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 	}
 
-	TEST(FTaskCompositionTests, SharedOutcomesFanOutWithoutLosingFailureIdentity)
+	TEST(FTaskCompositionTests, CompletedObserversFanOutWithoutLosingFailureIdentity)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -93,16 +127,16 @@ namespace Durin
 			auto SharedAdmission = Tasks::Share(Source.TakeTask());
 			ASSERT_TRUE(SharedAdmission.HasValue());
 			auto Shared = std::move(SharedAdmission).TakeValue();
-			auto Callback = [Kind](Tasks::TSharedTaskOutcome<std::unique_ptr<int>> Outcome) {
-				EXPECT_EQ(static_cast<size_t>(Kind), Outcome.index());
-				if (Kind == 0) return ***std::get_if<0>(&Outcome);
-				if (Kind == 1) EXPECT_EQ(321u, std::get<1>(Outcome).RelatedTaskId);
+			auto Callback = [Kind](const Tasks::TSharedTask<std::unique_ptr<int>>& Task) {
+				EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Task.GetState());
+				if (Kind == 0) return *Task.GetResult();
+				if (Kind == 1) EXPECT_EQ(321u, Task.GetFailure().RelatedTaskId);
 				return -Kind;
 			};
-			auto Rejected = Tasks::ThenOutcome(Shared, static_cast<Tasks::ETaskExecutor>(255), {}, Callback);
+			auto Rejected = Tasks::ThenCompleted(Shared, static_cast<Tasks::ETaskExecutor>(255), {}, Callback);
 			EXPECT_FALSE(Rejected.HasValue());
-			auto First = Tasks::ThenOutcome(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
-			auto Second = Tasks::ThenOutcome(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
+			auto First = Tasks::ThenCompleted(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
+			auto Second = Tasks::ThenCompleted(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
 			ASSERT_TRUE(First.HasValue());
 			ASSERT_TRUE(Second.HasValue());
 			if (Kind == 0) Source.TrySetValue(std::make_unique<int>(9));
@@ -112,15 +146,15 @@ namespace Durin
 			auto B = std::move(Second).TakeValue();
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(A.GetCompletion()).TaskState);
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(B.GetCompletion()).TaskState);
-			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::get<0>(std::move(A).TakeOutcome()));
-			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::get<0>(std::move(B).TakeOutcome()));
-			EXPECT_EQ(static_cast<size_t>(Kind), Shared.GetOutcomeShared().index());
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(A).TakeResult());
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::move(B).TakeResult());
+			EXPECT_EQ(Kind == 0 ? ETaskState::Succeeded : Kind == 1 ? ETaskState::Failed : ETaskState::Canceled, Shared.GetState());
 		}
 		Group.Close();
 		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 	}
 
-	TEST(FTaskCompositionTests, OutcomeEdgeRejectionRollsBackAndSupportsVoid)
+	TEST(FTaskCompositionTests, CompletedEdgeRejectionPreservesInputAndSupportsVoid)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -129,23 +163,26 @@ namespace Durin
 		Tasks::FTaskGroup Group;
 		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] {});
 		ASSERT_TRUE(Admission.HasValue());
-		auto Input = std::move(Admission).TakeValue();
-		auto Rejected = Tasks::ThenOutcome(std::move(Input), static_cast<Tasks::ETaskExecutor>(255), {},
-			[](Tasks::TTaskOutcome<void>) {});
+		auto SharedAdmission = Tasks::Share(std::move(Admission).TakeValue());
+		ASSERT_TRUE(SharedAdmission.HasValue());
+		auto Input = std::move(SharedAdmission).TakeValue();
+		auto Rejected = Tasks::ThenCompleted(Input, static_cast<Tasks::ETaskExecutor>(255), {},
+			[](const Tasks::TSharedTask<void>&) {});
 		ASSERT_FALSE(Rejected.HasValue());
 		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::UnsupportedExecutor, Rejected.GetError().Code);
 		EXPECT_TRUE(Input.IsValid());
-		auto Retried = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, {},
-			[](Tasks::TTaskOutcome<void> Outcome) { EXPECT_EQ(0u, Outcome.index()); });
+		auto Retried = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {},
+			[](const Tasks::TSharedTask<void>& Task) { EXPECT_EQ(ETaskState::Succeeded, Task.GetState()); Task.GetResult(); });
 		ASSERT_TRUE(Retried.HasValue());
 		auto Edge = std::move(Retried).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge.GetCompletion()).TaskState);
-		EXPECT_EQ(0u, std::move(Edge).TakeOutcome().index());
+		std::move(Edge).TakeResult();
+		EXPECT_FALSE(Edge.IsValid());
 		Group.Close();
 		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 	}
 
-	TEST(FTaskCompositionTests, OutcomeEdgeCancellationDoesNotRunRecovery)
+	TEST(FTaskCompositionTests, CompletedEdgeCancellationDoesNotRunRecovery)
 	{
 		EnsureGameThreadForTaskTest();
 		ShutdownTaskScheduler(false);
@@ -155,10 +192,12 @@ namespace Durin
 		auto Admission = Tasks::TCompletionSource<int>::TryCreate(Group, {});
 		ASSERT_TRUE(Admission.HasValue());
 		auto Source = std::move(Admission).TakeValue();
-		auto Input = Source.TakeTask();
+		auto SharedAdmission = Tasks::Share(Source.TakeTask());
+		ASSERT_TRUE(SharedAdmission.HasValue());
+		auto Input = std::move(SharedAdmission).TakeValue();
 		std::atomic<int> Calls = 0;
-		auto EdgeAdmission = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, {},
-			[&](Tasks::TTaskOutcome<int>) { ++Calls; return 1; });
+		auto EdgeAdmission = Tasks::ThenCompleted(Input, Tasks::ETaskExecutor::Worker, {},
+			[&](const Tasks::TSharedTask<int>&) { ++Calls; return 1; });
 		ASSERT_TRUE(EdgeAdmission.HasValue());
 		auto Edge = std::move(EdgeAdmission).TakeValue();
 		Tasks::Cancel(Edge.GetCompletion());
@@ -230,9 +269,8 @@ namespace Durin
 		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::InvalidPayloadDeclaration, Oversize.GetError().Code);
 		EXPECT_TRUE(Task.IsValid());
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
-		auto Outcome = std::move(Task).TakeOutcome();
-		ASSERT_TRUE(std::holds_alternative<int>(Outcome));
-		EXPECT_EQ(23, std::get<int>(Outcome));
+		EXPECT_EQ(23, std::move(Task).TakeResult());
+		EXPECT_FALSE(Task.IsValid());
 		Group.Close();
 	}
 
@@ -261,7 +299,7 @@ namespace Durin
 		ASSERT_TRUE(Retried.HasValue());
 		auto Result = std::move(Retried).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result.GetCompletion()).TaskState);
-		EXPECT_EQ(32, std::get<int>(std::move(Result).TakeOutcome()));
+		EXPECT_EQ(32, std::move(Result).TakeResult());
 		Group.Close();
 		auto Closed = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] {});
 		ASSERT_FALSE(Closed.HasValue());
@@ -286,7 +324,7 @@ namespace Durin
 		EXPECT_TRUE(Source.TrySetValue(42));
 		EXPECT_FALSE(Source.TrySetValue(100));
 		ASSERT_EQ(ETaskState::Canceled, Tasks::Wait(Result.GetCompletion()).TaskState);
-		EXPECT_TRUE(std::holds_alternative<Tasks::FTaskCanceled>(std::move(Result).TakeOutcome()));
+		EXPECT_EQ(ETaskState::Canceled, Result.GetState());
 		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 	}
 
@@ -304,9 +342,7 @@ namespace Durin
 			Abandoned = Source.TakeTask();
 		}
 		ASSERT_EQ(ETaskState::Failed, Tasks::Wait(Abandoned.GetCompletion()).TaskState);
-		auto Failure = std::move(Abandoned).TakeOutcome();
-		ASSERT_TRUE(std::holds_alternative<Tasks::FTaskFailure>(Failure));
-		EXPECT_EQ(Tasks::ETaskFailureCode::AbandonedSource, std::get<Tasks::FTaskFailure>(Failure).Code);
+		EXPECT_EQ(Tasks::ETaskFailureCode::AbandonedSource, Abandoned.GetFailure().Code);
 		auto Admission = Tasks::TCompletionSource<int>::TryCreate(Group, {});
 		ASSERT_TRUE(Admission.HasValue());
 		auto Source = std::move(Admission).TakeValue();
@@ -318,7 +354,7 @@ namespace Durin
 		Second.join();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result.GetCompletion()).TaskState);
 		EXPECT_EQ(1, Winners.load());
-		const int Value = std::get<int>(std::move(Result).TakeOutcome());
+		const int Value = std::move(Result).TakeResult();
 		EXPECT_TRUE(Value == 7 || Value == 11);
 		Group.Close();
 	}
@@ -354,7 +390,7 @@ namespace Durin
 		while (!Outer.GetCompletion().IsReady() && std::chrono::steady_clock::now() < OuterDeadline) std::this_thread::yield();
 		ASSERT_TRUE(Outer.GetCompletion().IsReady());
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Outer.GetCompletion()).TaskState);
-		EXPECT_EQ(41, std::get<int>(std::move(Outer).TakeOutcome()));
+		EXPECT_EQ(41, std::move(Outer).TakeResult());
 
 		auto NextAdmission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] {});
 		ASSERT_TRUE(NextAdmission.HasValue());
@@ -367,9 +403,8 @@ namespace Durin
 		// Unknown completion can reject GameThread waiting while the callback has not run yet.
 		Group.Close();
 		ASSERT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
-		auto Outcome = std::move(Failed).TakeOutcome();
-		ASSERT_TRUE(std::holds_alternative<Tasks::FTaskFailure>(Outcome));
-		const auto& Failure = std::get<Tasks::FTaskFailure>(Outcome);
+		ASSERT_EQ(ETaskState::Failed, Failed.GetState());
+		const auto Failure = Failed.GetFailure();
 		ASSERT_TRUE(Failure.AdmissionError.has_value());
 		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Failure.AdmissionError->Code);
 	}
@@ -417,12 +452,12 @@ namespace Durin
 		ASSERT_TRUE(AllAdmission.HasValue());
 		auto All = std::move(AllAdmission).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(All.GetCompletion()).TaskState);
-		EXPECT_EQ((std::vector<int>{4, 2, 8}), std::get<std::vector<int>>(std::move(All).TakeOutcome()));
+		EXPECT_EQ((std::vector<int>{4, 2, 8}), std::move(All).TakeResult());
 		auto EmptyAdmission = Tasks::WhenAll(std::vector<Tasks::TTask<int>>{});
 		ASSERT_TRUE(EmptyAdmission.HasValue());
 		auto Empty = std::move(EmptyAdmission).TakeValue();
 		EXPECT_TRUE(Empty.GetCompletion().IsReady());
-		EXPECT_TRUE(std::get<std::vector<int>>(std::move(Empty).TakeOutcome()).empty());
+		EXPECT_TRUE(std::move(Empty).TakeResult().empty());
 
 		auto A = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {.EstimatedResultBytes = 32}, [] { return std::make_unique<int>(17); });
 		auto B = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] {});
@@ -432,10 +467,8 @@ namespace Durin
 		ASSERT_TRUE(TupleAdmission.HasValue());
 		auto Tuple = std::move(TupleAdmission).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Tuple.GetCompletion()).TaskState);
-		auto Outcome = std::move(Tuple).TakeOutcome();
-		using FValues = std::tuple<std::unique_ptr<int>, std::monostate>;
-		ASSERT_TRUE(std::holds_alternative<FValues>(Outcome));
-		EXPECT_EQ(17, *std::get<0>(std::get<FValues>(Outcome)));
+		auto Values = std::move(Tuple).TakeResult();
+		EXPECT_EQ(17, *std::get<0>(Values));
 		Group.Close();
 	}
 
@@ -463,10 +496,9 @@ namespace Durin
 		EXPECT_TRUE(First.TrySetFailure({}));
 		EXPECT_TRUE(Second.TrySetFailure({}));
 		ASSERT_EQ(ETaskState::Failed, Tasks::Wait(Result.GetCompletion()).TaskState);
-		auto Outcome = std::move(Result).TakeOutcome();
-		ASSERT_TRUE(std::holds_alternative<Tasks::FTaskFailure>(Outcome));
-		EXPECT_EQ(1u, std::get<Tasks::FTaskFailure>(Outcome).InputIndex);
-		EXPECT_EQ(Second.GetCompletion().GetTaskHandle().GetTaskId(), std::get<Tasks::FTaskFailure>(Outcome).RelatedTaskId);
+		const auto Failure = Result.GetFailure();
+		EXPECT_EQ(1u, Failure.InputIndex);
+		EXPECT_EQ(Second.GetCompletion().GetTaskHandle().GetTaskId(), Failure.RelatedTaskId);
 		Group.Close();
 	}
 
@@ -497,16 +529,13 @@ namespace Durin
 		EXPECT_TRUE(Source.TrySetValue(27));
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(All.GetCompletion()).TaskState);
 		EXPECT_EQ(ETaskState::Succeeded, Shared.GetCompletion().GetState());
-		using FValues = std::vector<std::shared_ptr<const int>>;
-		auto Outcome = std::move(All).TakeOutcome();
-		ASSERT_TRUE(std::holds_alternative<FValues>(Outcome));
-		const auto& Values = std::get<FValues>(Outcome);
+		const auto Values = std::move(All).TakeResult();
 		ASSERT_EQ(2u, Values.size());
 		EXPECT_EQ(Values[0].get(), Values[1].get());
 		EXPECT_EQ(27, *Values[1]);
 		Group.Close();
 		ASSERT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
-		EXPECT_TRUE(std::holds_alternative<Tasks::FTaskCanceled>(std::move(Observer).TakeOutcome()));
+		EXPECT_EQ(ETaskState::Canceled, Observer.GetState());
 	}
 
 	TEST(FTaskCompositionTests, ThenAsyncCancelsUniqueDeferredInnerWithoutPumping)
@@ -535,7 +564,7 @@ namespace Durin
 		EXPECT_TRUE(Tasks::Cancel(Outer.GetCompletion()));
 		Group.Close();
 		ASSERT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
-		EXPECT_TRUE(std::holds_alternative<Tasks::FTaskCanceled>(std::move(Outer).TakeOutcome()));
+		EXPECT_EQ(ETaskState::Canceled, Outer.GetState());
 		EXPECT_EQ(0, Called.load());
 	}
 
@@ -571,7 +600,7 @@ namespace Durin
 		ASSERT_TRUE(Retry.HasValue());
 		auto Result = std::move(Retry).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result.GetCompletion()).TaskState);
-		EXPECT_EQ(14, std::get<int>(std::move(Result).TakeOutcome()));
+		EXPECT_EQ(14, std::move(Result).TakeResult());
 		Group.Close();
 	}
 
@@ -635,7 +664,7 @@ namespace Durin
 		ContinueChild.Trigger();
 		ASSERT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 		EXPECT_TRUE(Join.IsReady());
-		EXPECT_EQ(37, std::get<int>(std::move(*Child).TakeOutcome()));
+		EXPECT_EQ(37, std::move(*Child).TakeResult());
 	}
 
 	TEST(FTaskCompositionTests, CancelCloseRejectsEvenLiveParentChildren)
@@ -686,7 +715,7 @@ namespace Durin
 		EXPECT_FALSE(Group.JoinAsync().IsReady());
 		Continue.Trigger();
 		ASSERT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
-		EXPECT_EQ(9, std::get<int>(std::move(Outer).TakeOutcome()));
+		EXPECT_EQ(9, std::move(Outer).TakeResult());
 	}
 
 	TEST(FTaskExecutorTests, BlockingIOIsBoundedAndDoesNotOccupyCpuWorkers)

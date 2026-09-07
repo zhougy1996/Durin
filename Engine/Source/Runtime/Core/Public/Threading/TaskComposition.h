@@ -17,10 +17,7 @@ namespace Durin::Tasks
 		uint64 RelatedTaskId = 0;
 		size_t InputIndex = 0;
 	};
-	struct FTaskCanceled {};
 	template<typename T> using TTaskValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
-	template<typename T> using TTaskOutcome = std::variant<TTaskValue<T>, FTaskFailure, FTaskCanceled>;
-	template<typename T> using TSharedTaskOutcome = std::variant<std::shared_ptr<const TTaskValue<T>>, FTaskFailure, FTaskCanceled>;
 
 	// Estimates bound retained payload independently of the callable's inline storage.
 	struct FTaskExecutionOptions
@@ -146,26 +143,38 @@ namespace Durin::Tasks
 		auto operator=(const TTask&) -> TTask& = delete;
 		auto IsValid() const -> bool { return Handle.IsValid(); }
 		auto GetCompletion() const -> FTaskCompletion { return FTaskCompletion(Handle.GetTaskHandle()); }
-		// The caller must first observe terminal completion; consumes exactly once.
-		auto TakeOutcome() && -> TTaskOutcome<T>
+		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
+		auto GetState() const -> ETaskState { return GetCompletion().GetState(); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
+		// Requires a failed terminal state; returns a copy independent of result ownership.
+		auto GetFailure() const -> FTaskFailure
 		{
-			require(Handle.IsValid() && Handle.IsComplete());
+			require(GetState() == ETaskState::Failed);
+			return Failure ? *Failure : FTaskFailure{Handle.GetDiagnostics().TerminalReason};
+		}
+		// Waits for success. The reference is invalidated by result consumption or task destruction.
+		auto GetResult() const -> std::conditional_t<std::is_void_v<T>, void, const TTaskValue<T>&>
+		{
+			const auto WaitResult = Wait();
+			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
+			if constexpr (!std::is_void_v<T>) return *Durin::Private::FUniqueTaskAccess::GetResultState(Handle)->PeekPublished();
+		}
+		// Waits for success, then transfers the result exactly once and invalidates this task.
+		// Rejected waits, failure and cancellation must be handled before requesting a result.
+		auto TakeResult() && -> T
+		{
+			const auto WaitResult = Wait();
+			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
 			const auto ProducerLifetime = Handle.GetTaskHandle();
-			auto Diagnostics = Handle.GetDiagnostics();
 			auto Storage = Durin::Private::FUniqueTaskAccess::GetResultState(Handle);
 			const auto Claim = Storage->ReserveClaim();
 			require(Claim != 0);
 			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Handle);
-			if (Diagnostics.State == ETaskState::Succeeded)
-			{
-				auto Value = Storage->TakePublished();
-				require(Value);
-				return TTaskOutcome<T>(std::in_place_index<0>, std::move(*Value));
-			}
-			if (Diagnostics.State == ETaskState::Failed || Diagnostics.TerminalReason == ETaskTerminalReason::DependencyFailed)
-				return Failure ? *Failure : FTaskFailure{Diagnostics.TerminalReason};
-			return FTaskCanceled{};
+			auto Value = Storage->TakePublished();
+			require(Value);
+			if constexpr (!std::is_void_v<T>) return std::move(*Value);
 		}
+
 	private:
 		friend struct Detail::FTaskAccess;
 		TUniqueTaskHandle<TTaskValue<T>> Handle;
@@ -183,15 +192,25 @@ namespace Durin::Tasks
 			if (!Handle.IsComplete() || Handle.GetState() != ETaskState::Succeeded) return {};
 			return std::shared_ptr<const TTaskValue<T>>(LifetimePin, Storage->PeekPublished());
 		}
-		// Requires terminal completion; the successful alias pins module storage.
-		auto GetOutcomeShared() const -> TSharedTaskOutcome<T>
+		auto IsValid() const -> bool { return Handle.IsValid(); }
+		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
+		auto GetState() const -> ETaskState { return Handle.GetState(); }
+		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
+		// Requires a failed terminal state; preserves the producer's failure identity.
+		auto GetFailure() const -> FTaskFailure
 		{
-			require(Handle.IsValid() && Handle.IsComplete());
-			if (Handle.GetState() == ETaskState::Succeeded) return GetResultShared();
-			if (Handle.GetState() == ETaskState::Failed)
-				return Failure ? *Failure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
-			return FTaskCanceled{};
+			require(GetState() == ETaskState::Failed);
+			return Failure ? *Failure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
 		}
+		// Waits for success. The immutable reference is valid while this shared task is retained.
+		// Use GetResultShared when the result must outlive the task handle.
+		auto GetResult() const -> std::conditional_t<std::is_void_v<T>, void, const TTaskValue<T>&>
+		{
+			const auto WaitResult = Wait();
+			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
+			if constexpr (!std::is_void_v<T>) return *Storage->PeekPublished();
+		}
+
 	private:
 		friend struct Detail::FTaskAccess;
 		FTaskHandle Handle;
@@ -407,83 +426,6 @@ namespace Durin::Tasks
 		}
 	}
 
-	// Maps every predecessor outcome to an owned result. The edge itself remains cancellable
-	// and fallibly admitted; mandatory owner cleanup requires a reserved operation ticket.
-	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, TTaskOutcome<T>>>
-	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto ThenOutcome(TTask<T>&& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<U>>
-	{
-		using FAdmission = TTaskAdmission<TTask<U>>;
-		auto& Native = Detail::FTaskAccess::Native(Input);
-		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
-		auto Source = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
-		uint64 Bytes = Detail::ResultBytes<U>(Options);
-		if (!std::is_void_v<U> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
-		FTaskContinuationOptions Edge;
-		Edge.Target = Detail::Target(Executor);
-		Edge.Priority = Options.Priority;
-		Edge.CancellationToken = Options.Cancellation;
-		Edge.Attribution = Options.Attribution;
-		Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
-		if (Executor == ETaskExecutor::GameThreadDeferred)
-		{
-			if (Edge.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - Source->GetEstimatedResultBytes())
-				return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
-			Edge.EstimatedPayloadBytes += Source->GetEstimatedResultBytes();
-		}
-		const auto Claim = Source->ReserveClaim();
-		if (!Claim) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
-		try
-		{
-			auto Failure = std::make_shared<FTaskFailure>();
-			const auto Predecessor = Native.GetTaskHandle();
-			auto SourceFailure = Detail::FTaskAccess::Failure(Input);
-			auto Output = std::make_shared<TUniqueTaskResultState<TTaskValue<U>>>(Bytes);
-			auto Admission = Durin::Private::TryLaunchContinuationTask(Native.GetTaskHandle(), Options.DebugName,
-				[Source, SourceFailure, Predecessor, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
-					auto ReadOutcome = [&]() -> TTaskOutcome<T> {
-						if (Predecessor.GetState() == ETaskState::Succeeded)
-						{
-							auto Value = Source->TakePublished();
-							require(Value);
-							return TTaskOutcome<T>(std::in_place_index<0>, std::move(*Value));
-						}
-						if (Predecessor.GetState() == ETaskState::Failed)
-							return SourceFailure ? *SourceFailure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
-						return FTaskCanceled{};
-					};
-					if constexpr (std::is_void_v<U>)
-					{
-						std::invoke(Function, ReadOutcome());
-						Output->SetPending(std::monostate{});
-					}
-					else Output->SetPending(std::invoke(Function, ReadOutcome()));
-				}, [Source, Output](ETaskState Terminal) { Source->Discard(); Output->Complete(Terminal); },
-				Edge, ETaskDependencyKind::Completion, Bytes);
-			if (!Admission.HasValue())
-			{
-				Source->RollbackClaim(Claim);
-				return FAdmission::Failure(Admission.GetError());
-			}
-			auto Handle = std::move(Admission).TakeValue();
-			Source->CommitClaim(Claim, Handle, false);
-			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
-			Output->BindProducer(Handle);
-			return FAdmission::Success(Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output), std::move(Failure)));
-		}
-		catch (const std::bad_alloc&)
-		{
-			Source->RollbackClaim(Claim);
-			return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted});
-		}
-		catch (...)
-		{
-			Source->RollbackClaim(Claim);
-			throw;
-		}
-	}
-
 	template<typename T>
 	auto Share(TTask<T>&& Input) -> TTaskAdmission<TSharedTask<T>>
 	{
@@ -501,10 +443,10 @@ namespace Durin::Tasks
 		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 	}
 
-	// Observes immutable terminal outcomes; admission/cancellation can suppress this edge.
-	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, TSharedTaskOutcome<T>>>
+	// Observes a completed task in any terminal state; admission/cancellation can suppress this edge.
+	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, const TSharedTask<T>&>>
 	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
-	auto ThenOutcome(const TSharedTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto ThenCompleted(const TSharedTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 		-> TTaskAdmission<TTask<U>>
 	{
 		using FAdmission = TTaskAdmission<TTask<U>>;
@@ -533,10 +475,10 @@ namespace Durin::Tasks
 				[Input, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
 					if constexpr (std::is_void_v<U>)
 					{
-						std::invoke(Function, Input.GetOutcomeShared());
+						std::invoke(Function, Input);
 						Output->SetPending(std::monostate{});
 					}
-					else Output->SetPending(std::invoke(Function, Input.GetOutcomeShared()));
+					else Output->SetPending(std::invoke(Function, Input));
 				}, [Output](ETaskState Terminal) { Output->Complete(Terminal); },
 				Edge, ETaskDependencyKind::Completion, Bytes);
 			if (!Admission.HasValue()) return FAdmission::Failure(Admission.GetError());

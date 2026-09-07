@@ -119,8 +119,8 @@ checks before/after physical size and rejects a changed segment rather than
 returning a mixed generation.
 
 Package range roots use `Tasks::TrySpawn` on the bounded blocking-I/O executor.
-Transforms use shared `Tasks::ThenOutcome`, so predecessor failure/cancellation
-is delivered as a domain result. The observing edge can itself be canceled or
+Transforms use `Tasks::ThenCompleted` to inspect the shared task state and
+convert predecessor failure/cancellation into a domain result. The observing edge can itself be canceled or
 rejected. Copied requests observe the same immutable framework result; repeated
 `Wait()` calls do not consume it. Synchronously completed validation errors
 remain immediate values. The request binding mutex/CV only coordinates resource

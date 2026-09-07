@@ -497,11 +497,11 @@ namespace Durin
 
 	namespace
 	{
-		auto PackageOutcome(Tasks::TSharedTaskOutcome<FPackageResourceReadResult> Outcome)
+		auto ReadCompletedPackageTask(const Tasks::TSharedTask<FPackageResourceReadResult>& Task)
 			-> FPackageResourceReadResult
 		{
-			if (const auto* Value = std::get_if<0>(&Outcome)) return **Value;
-			if (std::holds_alternative<Tasks::FTaskCanceled>(Outcome))
+			if (Task.GetState() == ETaskState::Succeeded) return Task.GetResult();
+			if (Task.GetState() == ETaskState::Canceled)
 				return Result(EPackageResourceReadStatus::Cancelled, "Package request task was cancelled.");
 			return Result(EPackageResourceReadStatus::IoError, "Package request task failed.");
 		}
@@ -520,7 +520,7 @@ namespace Durin
 			return Result(EPackageResourceReadStatus::IoError,
 				"Package request wait was rejected; the request outcome is unchanged.");
 		if (const auto* Immediate = std::get_if<FPackageResourceReadResult>(&State->Result)) return *Immediate;
-		return PackageOutcome(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(State->Result).GetOutcomeShared());
+		return ReadCompletedPackageTask(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(State->Result));
 	}
 
 	auto FPackageResourceRequest::Completed(FPackageResourceReadResult InResult)
@@ -552,10 +552,10 @@ namespace Durin
 		Options.EstimatedResultBytes = State->EstimatedBytes;
 		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
 		{
-			State->Bind(Tasks::ThenOutcome(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
+			State->Bind(Tasks::ThenCompleted(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
 				Tasks::ETaskExecutor::Worker, Options,
-				[Function = std::move(Function)](Tasks::TSharedTaskOutcome<FPackageResourceReadResult> Outcome) mutable {
-					return Function(PackageOutcome(std::move(Outcome)));
+				[Function = std::move(Function)](const Tasks::TSharedTask<FPackageResourceReadResult>& Task) mutable {
+					return Function(ReadCompletedPackageTask(Task));
 				}));
 		}
 		else

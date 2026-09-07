@@ -924,7 +924,7 @@ namespace Durin
 			return true;
 		}
 
-		// Shared adapters pin this storage and never discard or consume its published value.
+		// Observers retain storage; unique owners must not consume or discard while a reference is in use.
 		auto PeekPublished() const -> const T*
 		{
 			std::lock_guard Lock(Mutex);
@@ -1107,6 +1107,8 @@ namespace Durin
 			static auto GetTask(TUniqueTaskHandle<T>& Handle) -> FTaskHandle& { return Handle.Task; }
 			template<typename T>
 			static auto GetResultState(TUniqueTaskHandle<T>& Handle) -> std::shared_ptr<TUniqueTaskResultState<T>>& { return Handle.ResultState; }
+			template<typename T>
+			static auto GetResultState(const TUniqueTaskHandle<T>& Handle) -> const std::shared_ptr<TUniqueTaskResultState<T>>& { return Handle.ResultState; }
 			template<typename T>
 			static auto HasClaimTombstone(TUniqueTaskHandle<T>& Handle) -> bool { return !Handle.ClaimTombstone.expired(); }
 			template<typename T>
