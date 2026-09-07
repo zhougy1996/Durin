@@ -4,7 +4,7 @@
 
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
-#include "Threading/Task.h"
+#include "Threading/TaskOperation.h"
 
 namespace Durin
 {
@@ -54,15 +54,16 @@ namespace Durin
 	struct FTextureCompilingManager::FQueueState final
 		: public std::enable_shared_from_this<FTextureCompilingManager::FQueueState>
 	{
+		using FOperations = Tasks::TTaskOperationQueue<FTexture2DCompilationWorkResult>;
+
 		struct FJob
 		{
 			FTexture2DCompilationWork Request;
 			FTexture2DCompilationWorkCompletion Completion;
 			FTexture2DCompilationDiagnostic Diagnostic;
-			FTaskHandle Task;
+			std::optional<FOperations::FTicket> Ticket;
+			bool bAdmitted = false;
 			std::atomic<bool> bCancellationRequested = false;
-			std::atomic<bool> bWorkerCompleted = false;
-			bool bCompletionQueued = false;
 			uint64 EstimatedBytes = 0;
 			uint64 EnqueueNanoseconds = 0;
 			uint64 WorkerStartNanoseconds = 0;
@@ -70,16 +71,12 @@ namespace Durin
 			std::condition_variable CompletionCondition;
 		};
 
-		struct FCompletion
-		{
-			std::shared_ptr<FJob> Job;
-			FTexture2DCompilationWorkResult Result;
-		};
-
 		explicit FQueueState(FTextureCompilingManagerConfig InConfig)
 			: Config(InConfig)
 		{
 			Config.MaxWorkers = std::max(Config.MaxWorkers, 1u);
+			Config.MaxPendingOperations = std::max(Config.MaxPendingOperations, 1u);
+			Config.RetainedResultByteBudget = std::max<uint64>(Config.RetainedResultByteBudget, sizeof(FTexture2DCompilationWorkResult));
 			Config.InteractiveBurstLimit = std::max(Config.InteractiveBurstLimit, 1u);
 			Config.InFlightByteBudget = std::max<uint64>(Config.InFlightByteBudget, 1);
 		}
@@ -94,10 +91,18 @@ namespace Durin
 			Job->Completion = std::move(Completion);
 			Job->EstimatedBytes = EstimateBuildBytes(Job->Request);
 			Job->EnqueueNanoseconds = NowNanoseconds();
+			if (!Operations) return 0;
+			Job->Diagnostic.RequestId = NextRequestId++;
+			auto Reservation = Operations->TryReserve(Job->Diagnostic.RequestId, 0,
+				SaturatingAdd(Job->EstimatedBytes, sizeof(FTexture2DCompilationWorkResult)),
+				[WeakSelf = weak_from_this(), WeakJob = std::weak_ptr<FJob>(Job)](ETaskState Terminal) {
+					if (auto Self = WeakSelf.lock()) if (auto Job = WeakJob.lock()) Self->ProducerReady(Job, Terminal);
+				});
+			if (!Reservation.HasValue()) return 0;
+			Job->Ticket.emplace(std::move(Reservation).TakeValue());
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bAcceptingRequests) return 0;
-				Job->Diagnostic.RequestId = NextRequestId++;
 				Job->Diagnostic.RequestSerial = Job->Request.RequestSerial;
 				Job->Diagnostic.AssetIdentity = Job->Request.AssetIdentity;
 				Job->Diagnostic.Phase = ETexture2DCompilationPhase::Queued;
@@ -160,6 +165,7 @@ namespace Durin
 						else BackgroundQueue.push_front(std::move(Job));
 						break;
 					}
+					Job->bAdmitted = true;
 					++RunningCount;
 					InFlightEstimatedBytes = SaturatingAdd(InFlightEstimatedBytes, Job->EstimatedBytes);
 					if (Job->Request.Priority == ETexture2DCompilationPriority::Interactive)
@@ -176,25 +182,26 @@ namespace Durin
 		auto Launch(const std::shared_ptr<FJob>& Job) -> void
 		{
 			const std::shared_ptr<FQueueState> Self = shared_from_this();
-			FTaskLaunchOptions Options;
+			Tasks::FTaskGroup Group(Scope.GetToken());
+			Tasks::FTaskExecutionOptions Options;
+			Options.DebugName = "Texture2D.Build";
 			Options.Attribution = Attribution;
-			Options.Scope = Scope.GetToken();
-			FTaskHandle Task = LaunchCancelableTask(
-				"Texture2D.Build",
-				[Self, Job](const FTaskCancellationToken& Token) {
-					Self->RunWorker(Job, Token);
-				}, Options);
-			if (!Task.IsValid())
+			Options.Priority = Job->Request.Priority == ETexture2DCompilationPriority::Interactive
+				? ETaskPriority::High : ETaskPriority::Low;
+			Options.EstimatedResultBytes = SaturatingAdd(Job->EstimatedBytes, sizeof(FTexture2DCompilationWorkResult));
+			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+				[Self, Job](Tasks::FTaskContext& Context) {
+					auto Result = Self->RunWorker(Job, Context.GetCancellationToken());
+					Self->UpdateDiagnostic(Job, Result);
+					return Result;
+				});
+			if (!Admission.HasValue())
 			{
-				FTexture2DCompilationWorkResult Result = MakeFailureResult(
-					*Job, ETexture2DCompilationPhase::Failed,
-					"Texture build task admission was rejected.");
-				Result.FailurePhase = ETexture2DCompilationPhase::Queued;
-				CompleteAdmitted(Job, std::move(Result));
+				Job->Ticket->FailAdmission(Admission.GetError());
 				return;
 			}
-			std::lock_guard JobLock(Job->Mutex);
-			if (!Job->bWorkerCompleted.load(std::memory_order_acquire)) Job->Task = std::move(Task);
+			auto Task = std::move(Admission).TakeValue();
+			Job->Ticket->Bind(std::move(Task));
 		}
 
 		static auto MakeFailureResult(
@@ -243,7 +250,7 @@ namespace Durin
 
 		auto RunWorker(
 			const std::shared_ptr<FJob>& Job,
-			const FTaskCancellationToken& Token) -> void
+			const FTaskCancellationToken& Token) -> FTexture2DCompilationWorkResult
 		{
 			FTexture2DCompilationWorkResult Result = MakeFailureResult(
 				*Job, ETexture2DCompilationPhase::Failed, {});
@@ -258,8 +265,7 @@ namespace Durin
 			{
 				Result.Phase = ETexture2DCompilationPhase::Cancelled;
 				Result.Error = "Texture build was cancelled.";
-				CompleteAdmitted(Job, std::move(Result));
-				return;
+				return Result;
 			}
 
 			SetPhase(Job, ETexture2DCompilationPhase::Preparing);
@@ -267,8 +273,7 @@ namespace Durin
 			{
 				Result.Phase = ETexture2DCompilationPhase::Cancelled;
 				Result.Error = "Texture build was cancelled.";
-				CompleteAdmitted(Job, std::move(Result));
-				return;
+				return Result;
 			}
 			const uint64 PreparationStart = NowNanoseconds();
 			FTexture2DBuildRequest BuildRequest{
@@ -314,8 +319,7 @@ namespace Durin
 				if (Result.Phase == ETexture2DCompilationPhase::Failed)
 					Result.FailurePhase = bEnteredPersisting
 						? ETexture2DCompilationPhase::Persisting : ETexture2DCompilationPhase::Building;
-				CompleteAdmitted(Job, std::move(Result));
-				return;
+				return Result;
 			}
 			Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
 			Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
@@ -334,7 +338,7 @@ namespace Durin
 			Result.Error.clear();
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
 			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
-			CompleteAdmitted(Job, std::move(Result));
+			return Result;
 		}
 
 		auto CompleteWithoutWorker(
@@ -342,32 +346,32 @@ namespace Durin
 			ETexture2DCompilationPhase Phase,
 			std::string Error) -> void
 		{
-			FTexture2DCompilationWorkResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
-			PushCompletion(Job, std::move(Result));
+			UpdateDiagnostic(Job, MakeFailureResult(*Job, Phase, std::move(Error)));
+			Job->Ticket->FailAdmission({Tasks::ETaskAdmissionErrorCode::GroupClosed});
 		}
 
-		auto CompleteAdmitted(
-			const std::shared_ptr<FJob>& Job,
-			FTexture2DCompilationWorkResult Result) -> void
+		auto ProducerReady(const std::shared_ptr<FJob>& Job, ETaskState) -> void
 		{
-			Job->bWorkerCompleted.store(true, std::memory_order_release);
 			{
 				std::lock_guard Lock(Mutex);
-				check(RunningCount > 0);
-				--RunningCount;
-				InFlightEstimatedBytes -= std::min(InFlightEstimatedBytes, Job->EstimatedBytes);
+				if (Job->bAdmitted)
+				{
+					Job->bAdmitted = false;
+					check(RunningCount > 0);
+					--RunningCount;
+					InFlightEstimatedBytes -= std::min(InFlightEstimatedBytes, Job->EstimatedBytes);
+				}
 			}
-			PushCompletion(Job, std::move(Result));
+			// Pair with the wait lock; the predicate is Core's reserved ticket state.
+			{ std::lock_guard JobLock(Job->Mutex); }
+			Job->CompletionCondition.notify_all();
 			Admit();
 		}
 
-		auto PushCompletion(
+		auto UpdateDiagnostic(
 			const std::shared_ptr<FJob>& Job,
-			FTexture2DCompilationWorkResult Result) -> void
+			const FTexture2DCompilationWorkResult& Result) -> void
 		{
-			if (Result.Metrics.WorkerNanoseconds == 0)
-				Result.Metrics.WorkerNanoseconds = NowNanoseconds() - Job->EnqueueNanoseconds;
-			Result.Metrics.EstimatedBytes = Job->EstimatedBytes;
 			{
 				std::lock_guard JobLock(Job->Mutex);
 				Job->Diagnostic.Phase = Result.Phase;
@@ -383,15 +387,8 @@ namespace Durin
 					? Job->WorkerStartNanoseconds - Job->EnqueueNanoseconds
 					: NowNanoseconds() - Job->EnqueueNanoseconds;
 				Job->Diagnostic.WorkerNanoseconds = Result.Metrics.WorkerNanoseconds;
-				Job->bCompletionQueued = true;
 			}
-			const ETexture2DCompilationPhase FinalPhase = Result.Phase;
-			{
-				std::lock_guard Lock(Mutex);
-				Completions.push_back({Job, std::move(Result)});
-			}
-			Job->CompletionCondition.notify_all();
-			NotifyPhaseHook(Job->Diagnostic.RequestId, FinalPhase);
+			NotifyPhaseHook(Job->Diagnostic.RequestId, Result.Phase);
 		}
 
 		auto Cancel(uint64 RequestId) -> bool
@@ -405,7 +402,7 @@ namespace Durin
 			}
 			{
 				std::lock_guard JobLock(Job->Mutex);
-				if (Job->bCompletionQueued) return false;
+				if ((!Job->Ticket || Job->Ticket->IsProducerReady())) return false;
 			}
 			return !Job->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
 		}
@@ -413,39 +410,36 @@ namespace Durin
 		auto Pump(uint32 MaximumCount) -> uint32
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
-			uint32 Count = 0;
-			while (Count < MaximumCount)
-			{
-				FCompletion Entry;
+			if (!Operations) return 0;
+			const auto Self = shared_from_this();
+			return Operations->PumpOutcomes(0, [Self](uint64 RequestId, Tasks::TTaskOutcome<FTexture2DCompilationWorkResult> Outcome) {
+				std::shared_ptr<FJob> Job;
+				{ std::lock_guard Lock(Self->Mutex); Job = Self->Jobs.at(RequestId); }
+				auto Result = [&]() -> FTexture2DCompilationWorkResult {
+					if (auto* Value = std::get_if<0>(&Outcome)) return std::move(*Value);
+					const bool bCanceled = std::holds_alternative<Tasks::FTaskCanceled>(Outcome) || Job->bCancellationRequested.load();
+					return MakeFailureResult(*Job, bCanceled ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::Failed,
+						bCanceled ? "Texture build was cancelled." : "Texture build task failed or was rejected.");
+				}();
+				if (Outcome.index() != 0) Self->UpdateDiagnostic(Job, Result);
+				const uint64 CompletionStart = NowNanoseconds();
+				auto Completion = std::move(Job->Completion);
+				{ std::lock_guard JobLock(Job->Mutex); Job->Ticket.reset(); }
+				if (Completion) Completion(std::move(Result));
 				{
-					std::lock_guard Lock(Mutex);
-					if (Completions.empty()) break;
-					Entry = std::move(Completions.front());
-					Completions.pop_front();
+					std::lock_guard JobLock(Job->Mutex);
+					Job->Diagnostic.Metrics.CompletionNanoseconds = NowNanoseconds() - CompletionStart;
 				}
-				const auto CompletionStart = std::chrono::steady_clock::now();
-				if (Entry.Job->Completion) Entry.Job->Completion(std::move(Entry.Result));
-				const uint64 CompletionNanoseconds = static_cast<uint64>(
-					std::chrono::duration_cast<std::chrono::nanoseconds>(
-						std::chrono::steady_clock::now() - CompletionStart).count());
-				Entry.Job->Completion = {};
 				{
-					std::lock_guard JobLock(Entry.Job->Mutex);
-					Entry.Job->Diagnostic.Metrics.CompletionNanoseconds =
-						CompletionNanoseconds;
-				}
-				{
-					std::lock_guard Lock(Mutex);
-					CompletedOrder.push_back(Entry.Job->Diagnostic.RequestId);
-					while (CompletedOrder.size() > MaximumRetainedDiagnostics)
+					std::lock_guard Lock(Self->Mutex);
+					Self->CompletedOrder.push_back(RequestId);
+					while (Self->CompletedOrder.size() > MaximumRetainedDiagnostics)
 					{
-						Jobs.erase(CompletedOrder.front());
-						CompletedOrder.pop_front();
+						Self->Jobs.erase(Self->CompletedOrder.front());
+						Self->CompletedOrder.pop_front();
 					}
 				}
-				++Count;
-			}
-			return Count;
+			}, MaximumCount);
 		}
 
 		auto WaitForRequest(uint64 RequestId, double TimeoutSeconds) -> bool
@@ -460,13 +454,13 @@ namespace Durin
 			std::unique_lock JobLock(Job->Mutex);
 			if (TimeoutSeconds < 0.0)
 			{
-				Job->CompletionCondition.wait(JobLock, [&] { return Job->bCompletionQueued; });
+				Job->CompletionCondition.wait(JobLock, [&] { return (!Job->Ticket || Job->Ticket->IsProducerReady()); });
 				return true;
 			}
 			return Job->CompletionCondition.wait_for(
 				JobLock,
 				std::chrono::duration<double>(TimeoutSeconds),
-				[&] { return Job->bCompletionQueued; });
+				[&] { return (!Job->Ticket || Job->Ticket->IsProducerReady()); });
 		}
 
 		auto Start() -> bool
@@ -475,7 +469,7 @@ namespace Durin
 			if (bAcceptingRequests) return true;
 			if (!IsTaskSchedulerRunning()) return false;
 			if (RunningCount != 0 || !InteractiveQueue.empty()
-				|| !BackgroundQueue.empty() || !Completions.empty())
+				|| !BackgroundQueue.empty() || (Operations && Operations->GetActiveCount() != 0))
 			{
 				return false;
 			}
@@ -483,6 +477,9 @@ namespace Durin
 			Scope = CreateTaskScope();
 			if (!Scope.IsValid()) return false;
 			Attribution = RegisterTaskAttribution("Engine", "Texture2DCompile");
+			Tasks::FTaskGroup Group(Scope.GetToken());
+			Operations = std::make_unique<FOperations>(Group,
+				Tasks::FTaskOperationLimits{Config.MaxPendingOperations, Config.RetainedResultByteBudget}, true);
 			bAcceptingRequests = true;
 			ConsecutiveInteractive = 0;
 			return true;
@@ -496,41 +493,34 @@ namespace Durin
 
 		auto Shutdown() -> void
 		{
-			std::vector<FTaskHandle> Tasks;
 			std::vector<std::shared_ptr<FJob>> Queued;
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
 				bAcceptingRequests = false;
 				bShutdown = true;
-				for (const auto& [RequestId, Job] : Jobs)
-				{
-					(void)RequestId;
-					Job->bCancellationRequested.store(true, std::memory_order_release);
-					std::lock_guard JobLock(Job->Mutex);
-					if (Job->Task.IsValid() && !Job->bWorkerCompleted.load(std::memory_order_acquire))
-						Tasks.push_back(Job->Task);
-				}
-				while (!InteractiveQueue.empty())
-				{
-					Queued.push_back(std::move(InteractiveQueue.front()));
-					InteractiveQueue.pop_front();
-				}
-				while (!BackgroundQueue.empty())
-				{
-					Queued.push_back(std::move(BackgroundQueue.front()));
-					BackgroundQueue.pop_front();
-				}
+				for (const auto& [RequestId, Job] : Jobs) Job->bCancellationRequested.store(true, std::memory_order_release);
+				while (!InteractiveQueue.empty()) { Queued.push_back(std::move(InteractiveQueue.front())); InteractiveQueue.pop_front(); }
+				while (!BackgroundQueue.empty()) { Queued.push_back(std::move(BackgroundQueue.front())); BackgroundQueue.pop_front(); }
 			}
-			for (const std::shared_ptr<FJob>& Job : Queued)
+			for (const auto& Job : Queued)
 				CompleteWithoutWorker(Job, ETexture2DCompilationPhase::Cancelled, "Texture build was cancelled during shutdown.");
-			Scope.Close(ETaskScopeCloseMode::Cancel);
-			if (!Tasks.empty()) WaitAll(Tasks);
+			Scope.Close(ETaskScopeCloseMode::Drain);
+			// RunningCount includes roots selected but not yet bound. Acknowledgement
+			// precedes queue close, so transferred tickets never race owner teardown.
+			for (;;)
+			{
+				Pump(std::numeric_limits<uint32>::max());
+				bool bDone;
+				{ std::lock_guard Lock(Mutex); bDone = RunningCount == 0; }
+				if (bDone) break;
+				std::this_thread::yield();
+			}
+			Pump(std::numeric_limits<uint32>::max());
 			const ETaskScopeWaitResult ScopeWait = Scope.WaitFor(5.0);
 			if (ScopeWait != ETaskScopeWaitResult::Quiescent)
-				DURIN_ERROR_CATEGORY("Texture", "Texture2D compilation scope did not become quiescent during shutdown ({}).",
-					static_cast<uint32>(ScopeWait));
-			Pump(std::numeric_limits<uint32>::max());
+				DURIN_ERROR_CATEGORY("Texture", "Texture2D compilation scope did not become quiescent during shutdown ({}).", static_cast<uint32>(ScopeWait));
+			if (Operations) Operations->Close();
 		}
 
 		FTextureCompilingManagerConfig Config;
@@ -540,7 +530,7 @@ namespace Durin
 		std::unordered_map<uint64, std::shared_ptr<FJob>> Jobs;
 		std::deque<std::shared_ptr<FJob>> InteractiveQueue;
 		std::deque<std::shared_ptr<FJob>> BackgroundQueue;
-		std::deque<FCompletion> Completions;
+		std::unique_ptr<FOperations> Operations;
 		std::deque<uint64> CompletedOrder;
 		static constexpr size_t MaximumRetainedDiagnostics = 256;
 		uint64 NextRequestId = 1;
@@ -623,7 +613,7 @@ namespace Durin
 		Result.QueuedWorkCount = static_cast<uint32>(
 			QueueState->InteractiveQueue.size() + QueueState->BackgroundQueue.size());
 		Result.RunningWorkCount = QueueState->RunningCount;
-		Result.PendingCompletionCount = static_cast<uint32>(QueueState->Completions.size());
+		Result.PendingCompletionCount = (QueueState->Operations ? QueueState->Operations->GetReadyCount() : 0);
 		return Result;
 	}
 

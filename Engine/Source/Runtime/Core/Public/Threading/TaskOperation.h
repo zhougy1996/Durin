@@ -28,6 +28,9 @@ namespace Durin::Tasks
 			std::shared_ptr<Durin::Private::FTaskTerminalHook> Hook;
 			std::shared_ptr<TUniqueTaskResultState<T>> Payload;
 			std::shared_ptr<FTaskFailure> Failure;
+			FTaskFailure AdmissionFailure;
+			ETaskState Terminal = ETaskState::Invalid;
+			std::function<void(ETaskState)> ProducerReady;
 			uint64 RequestId = 0;
 			uint64 Generation = 0;
 			uint64 Bytes = 0;
@@ -38,8 +41,8 @@ namespace Durin::Tasks
 		};
 		struct FState
 		{
-			FState(FTaskScopeToken InScope, FTaskOperationLimits InLimits)
-				: Scope(std::move(InScope)), Limits(InLimits), Slots(InLimits.MaxOperations), OwnerThread(std::this_thread::get_id())
+			FState(FTaskScopeToken InScope, FTaskOperationLimits InLimits, bool bInDeliverOutcomes)
+				: Scope(std::move(InScope)), Limits(InLimits), Slots(InLimits.MaxOperations), OwnerThread(std::this_thread::get_id()), bDeliverOutcomes(bInDeliverOutcomes)
 			{
 				Ready.reserve(Limits.MaxOperations);
 			}
@@ -61,19 +64,28 @@ namespace Durin::Tasks
 			auto OnReady(const std::shared_ptr<FRecord>& Record, ETaskState Terminal) -> void
 			{
 				bool bCancel;
+				bool bQueued = false;
 				{
 					std::lock_guard Lock(Mutex);
-					Record->bProducerReady = true;
+					Record->Terminal = Terminal;
 					bCancel = bClosed || Record->bCanceled.load();
-					if (!bCancel && Terminal == ETaskState::Succeeded)
+					if (!bCancel && (Terminal == ETaskState::Succeeded || bDeliverOutcomes))
 					{
 						Ready.emplace_back(Record);
-						return;
+						bQueued = true;
 					}
+					Record->bProducerReady = true;
 				}
+				// Scheduling notifications carry no payload and run outside locks.
+				if (Record->ProducerReady)
+				{
+					try { Record->ProducerReady(Terminal); }
+					catch (...) {}
+				}
+				if (bQueued) return;
 				if (bCancel || Terminal == ETaskState::Canceled) Record->Source.TrySetCanceled();
-				else Record->Source.TrySetFailure(Record->Failure ? *Record->Failure : FTaskFailure{});
-				Record->Payload->Discard();
+				else Record->Source.TrySetFailure(Record->Failure ? *Record->Failure : Record->AdmissionFailure);
+				if (Record->Payload) Record->Payload->Discard();
 				Release(Record);
 			}
 			FTaskScopeToken Scope;
@@ -85,6 +97,7 @@ namespace Durin::Tasks
 			uint64 ReservedBytes = 0;
 			uint32 ActiveCount = 0;
 			bool bClosed = false;
+			bool bDeliverOutcomes = false;
 		};
 	public:
 		// A single unbound ticket owns failure publication if construction is abandoned.
@@ -101,31 +114,36 @@ namespace Durin::Tasks
 			~FTicket() { Abandon(); }
 			auto GetCompletion() const -> FTaskCompletion { return Record->Source.GetCompletion(); }
 			auto GetCancellationToken() const -> FTaskCancellationToken { return Record->Cancellation.GetToken(); }
+			auto IsProducerReady() const -> bool { return Record && Record->bProducerReady.load(); }
 			auto FailAdmission(FTaskAdmissionError Error) -> void
 			{
-				require(Record && !Record->bBound);
-				Record->Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, Error, ETaskFailureCode::AdmissionRejected});
-				if (auto Owner = Record->Owner.lock()) Owner->Release(Record);
-				Record.reset();
+				const auto BoundRecord = Record;
+				require(BoundRecord && !BoundRecord->bBound);
+				BoundRecord->AdmissionFailure = {ETaskTerminalReason::CallbackFailure, Error, ETaskFailureCode::AdmissionRejected};
+				BoundRecord->bBound = true;
+				if (auto Owner = BoundRecord->Owner.lock()) Owner->OnReady(BoundRecord, ETaskState::Failed);
+				else BoundRecord->Source.TrySetFailure(BoundRecord->AdmissionFailure);
 			}
 			// Requires a valid unique producer independent of this ticket's own completion.
 			// All hook and dependency storage was reserved before the ticket was returned.
+			// Exclusive ticket ownership may transfer to a producer thread. Bind must
+			// finish before the owner closes the queue; no concurrent Close is allowed.
 			auto Bind(TTask<T>&& Producer) -> void
 			{
-				require(Record && !Record->bBound && Producer.IsValid());
-				if (auto Owner = Record->Owner.lock()) Owner->AssertOwner();
+				const auto BoundRecord = Record;
+				require(BoundRecord && !BoundRecord->bBound && Producer.IsValid());
 				auto& Native = Detail::FTaskAccess::Native(Producer);
-				Record->Payload = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
-				Record->Failure = Detail::FTaskAccess::Failure(Producer);
-				require(Record->Payload->GetEstimatedResultBytes() <= Record->Bytes);
-				const uint64 Claim = Record->Payload->ReserveClaim();
+				BoundRecord->Payload = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
+				BoundRecord->Failure = Detail::FTaskAccess::Failure(Producer);
+				require(BoundRecord->Payload->GetEstimatedResultBytes() <= BoundRecord->Bytes);
+				const uint64 Claim = BoundRecord->Payload->ReserveClaim();
 				require(Claim != 0);
 				const auto Handle = Native.GetTaskHandle();
-				Record->bBound = true;
-				Durin::Private::FTaskRuntimeAccess::BindReservedDependency(Record->Source.GetCompletion().GetTaskHandle(), Handle);
+				BoundRecord->bBound = true;
+				Durin::Private::FTaskRuntimeAccess::BindReservedDependency(BoundRecord->Source.GetCompletion().GetTaskHandle(), Handle);
 				Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
-				Durin::Private::FTaskRuntimeAccess::BindTerminal(Handle, std::move(Record->Hook));
-				if (Record->bCanceled) CancelTask(Handle);
+				Durin::Private::FTaskRuntimeAccess::BindTerminal(Handle, std::move(BoundRecord->Hook));
+				if (BoundRecord->bCanceled) CancelTask(Handle);
 			}
 		private:
 			friend class TTaskOperationQueue;
@@ -141,14 +159,16 @@ namespace Durin::Tasks
 			std::shared_ptr<FRecord> Record;
 		};
 
-		explicit TTaskOperationQueue(FTaskGroup& Group, FTaskOperationLimits Limits = {})
-			: State(std::make_shared<FState>(Group.GetToken(), Limits))
+		explicit TTaskOperationQueue(FTaskGroup& Group, FTaskOperationLimits Limits = {}, bool bDeliverTerminalOutcomes = false)
+			: State(std::make_shared<FState>(Group.GetToken(), Limits, bDeliverTerminalOutcomes))
 		{
 			require(Group.IsValid() && Limits.MaxOperations > 0 && Limits.MaxPayloadBytes > 0);
 		}
 		TTaskOperationQueue(const TTaskOperationQueue&) = delete;
 		~TTaskOperationQueue() { Close(); }
-		auto TryReserve(uint64 RequestId, uint64 Generation, uint64 PayloadBytes) -> TTaskAdmission<FTicket>
+		template<typename F = std::function<void(ETaskState)>>
+		auto TryReserve(uint64 RequestId, uint64 Generation, uint64 PayloadBytes,
+			F&& ProducerReady = {}) -> TTaskAdmission<FTicket>
 		{
 			using FAdmission = TTaskAdmission<FTicket>;
 			State->AssertOwner();
@@ -172,6 +192,7 @@ namespace Durin::Tasks
 				Record->RequestId = RequestId;
 				Record->Generation = Generation;
 				Record->Bytes = PayloadBytes;
+				Record->ProducerReady = std::forward<F>(ProducerReady);
 				Record->Hook = std::make_shared<Durin::Private::FTaskTerminalHook>();
 				Record->Hook->Function = [WeakOwner = std::weak_ptr<FState>(State), WeakRecord = std::weak_ptr<FRecord>(Record)](ETaskState Terminal) {
 					if (auto Owner = WeakOwner.lock()) if (auto Record = WeakRecord.lock()) Owner->OnReady(Record, Terminal);
@@ -191,9 +212,10 @@ namespace Durin::Tasks
 			}
 			catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 		}
+	private:
 		// Close and commit run on the same owner thread; callbacks never run under queue locks.
-		template<typename F>
-		auto Pump(uint64 CurrentGeneration, F&& Apply, uint32 MaxCallbacks = 64) -> uint32
+		template<bool bOutcomes, typename F>
+		auto PumpImpl(uint64 CurrentGeneration, F&& Apply, uint32 MaxCallbacks) -> uint32
 		{
 			auto SharedState = State;
 			SharedState->AssertOwner();
@@ -212,7 +234,7 @@ namespace Durin::Tasks
 					|| Durin::Private::FTaskRuntimeAccess::IsCancellationRequested(Record->Source.GetCompletion().GetTaskHandle()))
 				{
 					Record->Source.TrySetCanceled();
-					Record->Payload->Discard();
+					if (Record->Payload) Record->Payload->Discard();
 				}
 				else
 				{
@@ -220,9 +242,26 @@ namespace Durin::Tasks
 					bool bSucceeded = true;
 					try
 					{
-						auto Value = Record->Payload->TakePublished();
-						require(Value);
-						std::invoke(Apply, Record->RequestId, std::move(*Value));
+						if constexpr (bOutcomes)
+						{
+							auto Outcome = [&]() -> TTaskOutcome<T> {
+								if (Record->Terminal == ETaskState::Succeeded)
+								{
+									auto Value = Record->Payload->TakePublished();
+									require(Value);
+									return TTaskOutcome<T>(std::in_place_index<0>, std::move(*Value));
+								}
+								if (Record->Terminal == ETaskState::Canceled) return FTaskCanceled{};
+								return Record->Failure ? *Record->Failure : Record->AdmissionFailure;
+							};
+							std::invoke(Apply, Record->RequestId, Outcome());
+						}
+						else
+						{
+							auto Value = Record->Payload->TakePublished();
+							require(Value);
+							std::invoke(Apply, Record->RequestId, std::move(*Value));
+						}
 					}
 					catch (...) { bSucceeded = false; }
 					Record->bCommitting = false;
@@ -234,6 +273,21 @@ namespace Durin::Tasks
 			}
 			return Count;
 		}
+	public:
+		template<typename F>
+		auto Pump(uint64 CurrentGeneration, F&& Apply, uint32 MaxCallbacks = 64) -> uint32
+		{
+			require(!State->bDeliverOutcomes);
+			return PumpImpl<false>(CurrentGeneration, std::forward<F>(Apply), MaxCallbacks);
+		}
+		// Opt-in queues commit domain handling of every producer terminal outcome.
+		template<typename F>
+		auto PumpOutcomes(uint64 CurrentGeneration, F&& Apply, uint32 MaxCallbacks = 64) -> uint32
+		{
+			require(State->bDeliverOutcomes);
+			return PumpImpl<true>(CurrentGeneration, std::forward<F>(Apply), MaxCallbacks);
+		}
+
 		auto Close() -> void
 		{
 			State->AssertOwner();
@@ -259,6 +313,7 @@ namespace Durin::Tasks
 			}
 		}
 		auto GetReservedBytes() const -> uint64 { std::lock_guard Lock(State->Mutex); return State->ReservedBytes; }
+		auto GetReadyCount() const -> uint32 { std::lock_guard Lock(State->Mutex); return static_cast<uint32>(State->Ready.size()); }
 		auto GetActiveCount() const -> uint32 { std::lock_guard Lock(State->Mutex); return State->ActiveCount; }
 	private:
 		std::shared_ptr<FState> State;

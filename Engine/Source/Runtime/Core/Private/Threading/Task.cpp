@@ -814,6 +814,29 @@ namespace Durin
 		// requirement; pinning each frontier keeps concurrent publication safe.
 		auto RequiresGameThread(bool bOnlyUnknown = false) const -> bool
 		{
+			// Most waits inspect a short chain. Pin and deduplicate that graph on
+			// the stack; unusually wide/deep graphs use the unbounded traversal.
+			std::array<std::shared_ptr<const FTaskStateData>, 16> Inline;
+			Inline[0] = shared_from_this();
+			size_t Count = 1;
+			bool bOverflow = false;
+			for (size_t Index = 0; Index < Count && !bOverflow; ++Index)
+			{
+				const auto& Current = Inline[Index];
+				std::lock_guard Lock(Current->Mutex);
+				if (IsTerminalState(Current->State) && Current->bTerminalPublicationFinished) continue;
+				if ((!bOnlyUnknown && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
+				auto Add = [&](std::shared_ptr<const FTaskStateData> Prerequisite) {
+					if (!Prerequisite) return;
+					for (size_t Seen = 0; Seen < Count; ++Seen)
+						if (Inline[Seen] == Prerequisite) return;
+					if (Count == Inline.size()) { bOverflow = true; return; }
+					Inline[Count++] = std::move(Prerequisite);
+				};
+				Add(Current->DynamicPrerequisite);
+				for (const auto& Weak : Current->Prerequisites) Add(Weak.lock());
+			}
+			if (!bOverflow) return false;
 			std::vector<std::shared_ptr<const FTaskStateData>> Pending{shared_from_this()};
 			std::unordered_set<const FTaskStateData*> Visited;
 			while (!Pending.empty())

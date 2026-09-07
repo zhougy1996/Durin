@@ -4,48 +4,69 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
 #include "Misc/FileHelper.h"
-#include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 
 namespace Durin
 {
 	namespace AssetPrivate
 	{
+		// Keeps root admission open for copied requests and their later transforms.
+		struct FPackageTaskLifetime
+		{
+			FTaskScope Scope = CreateTaskScope();
+			~FPackageTaskLifetime() { Scope.Close(ETaskScopeCloseMode::Drain); }
+		};
+
 		struct FPackageResourceRequestState
 		{
-			explicit FPackageResourceRequestState(bool bInAwaitingTask = false)
-				: bAwaitingTask(bInAwaitingTask) {}
-
+			using FSharedResult = Tasks::TSharedTask<FPackageResourceReadResult>;
+			explicit FPackageResourceRequestState(bool bInBinding = false) : bBinding(bInBinding) {}
+			// Synchronizes registration with resource retirement until the immutable
+			// task is bound. Result publication and all later waits belong to Core.
 			mutable std::mutex Mutex;
-			std::condition_variable Ready;
+			std::condition_variable Bound;
+			bool bBinding = false;
+			std::variant<FPackageResourceReadResult, FSharedResult> Result;
+			Tasks::FTaskCompletion RejectedProducer;
 			std::atomic_bool bCancelled = false;
-			bool bAwaitingTask = false;
-			bool bTerminal = false;
-			FPackageResourceReadResult Result;
 			std::function<void()> OnCancel;
-			FTaskHandle Task;
+			std::shared_ptr<FPackageTaskLifetime> Lifetime;
+			uint64 EstimatedBytes = sizeof(FPackageResourceReadResult);
 
-			auto Complete(FPackageResourceReadResult InResult) -> void
+			auto Completion() const -> Tasks::FTaskCompletion
 			{
-				{
-					std::lock_guard Lock(Mutex);
-					if (bTerminal) return;
-					Result = std::move(InResult);
-					bTerminal = true;
-				}
-				Ready.notify_all();
+				if (const auto* Task = std::get_if<FSharedResult>(&Result)) return Task->GetCompletion();
+				return RejectedProducer;
 			}
-
-			auto SetTask(FTaskHandle InTask) -> void
+			auto Bind(Tasks::TTaskAdmission<Tasks::TTask<FPackageResourceReadResult>> Admission) -> void
 			{
-				bool bCancelTask = false;
+				std::variant<FPackageResourceReadResult, FSharedResult> Published;
+				Tasks::FTaskCompletion Rejected;
+				if (Admission.HasValue())
+				{
+					auto Task = std::move(Admission).TakeValue();
+					Rejected = Task.GetCompletion();
+					auto Shared = Tasks::Share(std::move(Task));
+					if (Shared.HasValue()) { Published = std::move(Shared).TakeValue(); Rejected = {}; }
+					else
+					{
+						Tasks::Cancel(Rejected);
+						Published = FPackageResourceReadResult{.Status = EPackageResourceReadStatus::IoError,
+							.Message = "Package result sharing was rejected."};
+					}
+				}
+				else Published = FPackageResourceReadResult{.Status = EPackageResourceReadStatus::IoError,
+					.Message = "Package task admission was rejected."};
+				Tasks::FTaskCompletion CompletionToCancel;
 				{
 					std::lock_guard Lock(Mutex);
-					Task = std::move(InTask);
-					bAwaitingTask = false;
-					bCancelTask = bCancelled.load(std::memory_order_acquire);
+					Result = std::move(Published);
+					RejectedProducer = std::move(Rejected);
+					bBinding = false;
+					if (bCancelled.load(std::memory_order_acquire)) CompletionToCancel = Completion();
 				}
-				Ready.notify_all();
-				if (bCancelTask && Task.IsValid()) CancelTask(Task);
+				Bound.notify_all();
+				if (CompletionToCancel.IsValid()) Tasks::Cancel(CompletionToCancel);
 			}
 		};
 	}
@@ -456,61 +477,58 @@ namespace Durin
 	{
 		if (!State) return true;
 		std::lock_guard Lock(State->Mutex);
-		return State->bTerminal || (!State->bAwaitingTask && State->Task.IsComplete());
+		if (State->bBinding) return false;
+		const auto Completion = State->Completion();
+		return !Completion.IsValid() || Completion.IsReady();
 	}
 
 	auto FPackageResourceRequest::Cancel() -> void
 	{
 		if (!State) return;
 		State->bCancelled.store(true, std::memory_order_release);
-		std::function<void()> OnCancel;
-		FTaskHandle Task;
+		Tasks::FTaskCompletion Completion;
 		{
 			std::lock_guard Lock(State->Mutex);
-			OnCancel = State->OnCancel;
-			Task = State->Task;
+			if (!State->bBinding) Completion = State->Completion();
 		}
-		if (OnCancel) OnCancel();
-		if (Task.IsValid()) CancelTask(Task);
+		if (State->OnCancel) State->OnCancel();
+		if (Completion.IsValid()) Tasks::Cancel(Completion);
+	}
+
+	namespace
+	{
+		auto PackageOutcome(Tasks::TSharedTaskOutcome<FPackageResourceReadResult> Outcome)
+			-> FPackageResourceReadResult
+		{
+			if (const auto* Value = std::get_if<0>(&Outcome)) return **Value;
+			if (std::holds_alternative<Tasks::FTaskCanceled>(Outcome))
+				return Result(EPackageResourceReadStatus::Cancelled, "Package request task was cancelled.");
+			return Result(EPackageResourceReadStatus::IoError, "Package request task failed.");
+		}
 	}
 
 	auto FPackageResourceRequest::Wait() const -> FPackageResourceReadResult
 	{
 		if (!State) return Result(EPackageResourceReadStatus::Retired, "Package request is invalid.");
-		FTaskHandle Task;
+		Tasks::FTaskCompletion Completion;
 		{
 			std::unique_lock Lock(State->Mutex);
-			State->Ready.wait(Lock, [&] {
-				return State->bTerminal || !State->bAwaitingTask;
-			});
-			if (State->bTerminal) return State->Result;
-			Task = State->Task;
+			State->Bound.wait(Lock, [&] { return !State->bBinding; });
+			Completion = State->Completion();
 		}
-		const FTaskWaitResult WaitResult = WaitTask(Task);
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (State->bTerminal) return State->Result;
-		}
-		if (WaitResult.WaitStatus != ETaskWaitStatus::Completed)
+		if (Completion.IsValid() && Tasks::Wait(Completion).WaitStatus != ETaskWaitStatus::Completed)
 			return Result(EPackageResourceReadStatus::IoError,
 				"Package request wait was rejected; the request outcome is unchanged.");
-		const ETaskState TaskState = WaitResult.TaskState;
-		if (TaskState == ETaskState::Canceled)
-			State->Complete(Result(EPackageResourceReadStatus::Cancelled,
-				"Package request task was cancelled."));
-		else
-			State->Complete(Result(EPackageResourceReadStatus::IoError,
-				Task.IsValid() ? Task.GetDiagnostic()
-					: "Package request task admission was rejected."));
-		std::lock_guard Lock(State->Mutex);
-		return State->Result;
+		if (const auto* Immediate = std::get_if<FPackageResourceReadResult>(&State->Result)) return *Immediate;
+		return PackageOutcome(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(State->Result).GetOutcomeShared());
 	}
 
 	auto FPackageResourceRequest::Completed(FPackageResourceReadResult InResult)
 		-> FPackageResourceRequest
 	{
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>();
-		State->Complete(std::move(InResult));
+		State->EstimatedBytes += InResult.Buffer.GetSize() + InResult.Message.size();
+		State->Result = std::move(InResult);
 		return FPackageResourceRequest(std::move(State));
 	}
 
@@ -520,33 +538,33 @@ namespace Durin
 		-> FPackageResourceRequest
 	{
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
-		FTaskHandle InputTask;
 		if (Input.State)
 		{
 			std::unique_lock Lock(Input.State->Mutex);
-			Input.State->Ready.wait(Lock, [&Input] {
-				return Input.State->bTerminal || !Input.State->bAwaitingTask;
-			});
-			InputTask = Input.State->Task;
+			Input.State->Bound.wait(Lock, [&Input] { return !Input.State->bBinding; });
+			State->Lifetime = Input.State->Lifetime;
+			State->EstimatedBytes = Input.State->EstimatedBytes;
 		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
-		auto TransformFunction = [State, Input = std::move(Input),
-			Function = std::move(Function)]() mutable {
-			State->Complete(Function(Input.Wait()));
-		};
-		// A direct completed request has no task edge, so schedule the transform as a root.
-		// Otherwise the completion edge guarantees Input.Wait() cannot occupy a Worker.
-		FTaskHandle Task = InputTask.IsValid()
-			? ThenOutcome(InputTask, "PackageResource.Transform",
-				[Function = std::move(TransformFunction)](FTaskOutcome<void>) mutable {
-					Function();
-				}, {.Attribution = PackageResourceAttribution()})
-			: LaunchTask("PackageResource.Transform", std::move(TransformFunction),
-				{.Attribution = PackageResourceAttribution()});
-		if (!Task.IsValid())
-			State->Complete(Result(EPackageResourceReadStatus::IoError,
-				"Package transform task admission was rejected."));
-		State->SetTask(std::move(Task));
+		Tasks::FTaskExecutionOptions Options;
+		Options.DebugName = "PackageResource.Transform";
+		Options.Attribution = PackageResourceAttribution();
+		Options.EstimatedResultBytes = State->EstimatedBytes;
+		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
+		{
+			State->Bind(Tasks::ThenOutcome(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
+				Tasks::ETaskExecutor::Worker, Options,
+				[Function = std::move(Function)](Tasks::TSharedTaskOutcome<FPackageResourceReadResult> Outcome) mutable {
+					return Function(PackageOutcome(std::move(Outcome)));
+				}));
+		}
+		else
+		{
+			State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
+			Tasks::FTaskGroup Group(State->Lifetime->Scope.GetToken());
+			State->Bind(Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }));
+		}
 		return FPackageResourceRequest(std::move(State));
 	}
 
@@ -564,6 +582,8 @@ namespace Durin
 				EPackageResourceReadStatus::InvalidRange, "Package resource range is invalid."));
 
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
+		State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
+		State->EstimatedBytes += Size;
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
@@ -575,21 +595,18 @@ namespace Durin
 			Requests.push_back(State);
 		}
 		auto Self = shared_from_this();
-		FTaskHandle Task = LaunchCancelableTask("PackageResource.ReadRange",
-			[Self = std::move(Self), State, Offset, Size](const FTaskCancellationToken& Token) {
-			FPackageResourceReadResult ReadResult;
-			if (Token.IsCancellationRequested()
-				|| State->bCancelled.load(std::memory_order_acquire))
-				ReadResult = Result(EPackageResourceReadStatus::Cancelled,
-					"Package range request was cancelled.");
-			else
-				ReadResult = Self->ReadRangeImpl(Offset, Size, State->bCancelled);
-			State->Complete(std::move(ReadResult));
-		}, {.Attribution = PackageResourceAttribution()});
-		if (!Task.IsValid())
-			State->Complete(Result(EPackageResourceReadStatus::IoError,
-				"Package read task admission was rejected."));
-		State->SetTask(std::move(Task));
+		Tasks::FTaskGroup Group(State->Lifetime->Scope.GetToken());
+		Tasks::FTaskExecutionOptions Options;
+		Options.DebugName = "PackageResource.ReadRange";
+		Options.Attribution = PackageResourceAttribution();
+		Options.EstimatedResultBytes = State->EstimatedBytes;
+		State->Bind(Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, Options,
+			[Self = std::move(Self), State, Offset, Size](Tasks::FTaskContext& Context) {
+				if (Context.GetCancellationToken().IsCancellationRequested()
+					|| State->bCancelled.load(std::memory_order_acquire))
+					return Result(EPackageResourceReadStatus::Cancelled, "Package range request was cancelled.");
+				return Self->ReadRangeImpl(Offset, Size, State->bCancelled);
+			}));
 		return FPackageResourceRequest(std::move(State));
 	}
 

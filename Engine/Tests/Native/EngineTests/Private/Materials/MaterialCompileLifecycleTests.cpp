@@ -5,6 +5,7 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Modules/ModuleManager.h"
 #include "Threading/Task.h"
+#include "Threading/ThreadEvent.h"
 
 namespace
 {
@@ -53,14 +54,34 @@ TEST(FMaterialCompileLifecycleTests,
 		Durin::EMaterialCompileState::NeverRequested);
 	ASSERT_EQ(Second->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::NeverRequested);
-	ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
-	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));
-	ASSERT_EQ(First->GetMaterialCompileStatus().State,
-		Durin::EMaterialCompileState::Running);
-	ASSERT_EQ(Second->GetMaterialCompileStatus().State,
-		Durin::EMaterialCompileState::Pending);
-	EXPECT_GE(Durin::GetMaterialCompilationDiagnostics()
-		.SingleFlightConsumers, 1u);
+	{
+		// Single-flight requires overlapping requests. A warm compiler can finish
+		// before the second submission unless the fixture holds worker entry.
+		const uint32 WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
+		Durin::FThreadEvent Started, Release;
+		std::atomic<uint32> StartedCount = 0;
+		std::vector<Durin::FTaskHandle> Blockers;
+		struct FReleaseWorkers
+		{
+			Durin::FThreadEvent& Event;
+			std::vector<Durin::FTaskHandle>& Tasks;
+			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
+		} ReleaseWorkers{Release, Blockers};
+		for (uint32 Index = 0; Index < WorkerCount; ++Index)
+			Blockers.push_back(Durin::LaunchTask("HoldMaterialSingleFlight", [&] {
+				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+				Release.WaitFor(2.0);
+			}));
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));
+		ASSERT_EQ(First->GetMaterialCompileStatus().State,
+			Durin::EMaterialCompileState::Running);
+		ASSERT_EQ(Second->GetMaterialCompileStatus().State,
+			Durin::EMaterialCompileState::Pending);
+		EXPECT_GE(Durin::GetMaterialCompilationDiagnostics()
+			.SingleFlightConsumers, 1u);
+	}
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	ASSERT_TRUE(WaitForMaterialCompile(*Second));
 	const auto InitialProgram = First->GetAcceptedCompiledProgram();

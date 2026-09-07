@@ -20,6 +20,7 @@ namespace Durin::Tasks
 	struct FTaskCanceled {};
 	template<typename T> using TTaskValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 	template<typename T> using TTaskOutcome = std::variant<TTaskValue<T>, FTaskFailure, FTaskCanceled>;
+	template<typename T> using TSharedTaskOutcome = std::variant<std::shared_ptr<const TTaskValue<T>>, FTaskFailure, FTaskCanceled>;
 
 	// Estimates bound retained payload independently of the callable's inline storage.
 	struct FTaskExecutionOptions
@@ -182,11 +183,21 @@ namespace Durin::Tasks
 			if (!Handle.IsComplete() || Handle.GetState() != ETaskState::Succeeded) return {};
 			return std::shared_ptr<const TTaskValue<T>>(LifetimePin, Storage->PeekPublished());
 		}
+		// Requires terminal completion; the successful alias pins module storage.
+		auto GetOutcomeShared() const -> TSharedTaskOutcome<T>
+		{
+			require(Handle.IsValid() && Handle.IsComplete());
+			if (Handle.GetState() == ETaskState::Succeeded) return GetResultShared();
+			if (Handle.GetState() == ETaskState::Failed)
+				return Failure ? *Failure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
+			return FTaskCanceled{};
+		}
 	private:
 		friend struct Detail::FTaskAccess;
 		FTaskHandle Handle;
 		std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>> Storage;
 		std::shared_ptr<void> LifetimePin;
+		std::shared_ptr<FTaskFailure> Failure;
 	};
 
 	namespace Detail
@@ -214,9 +225,10 @@ namespace Durin::Tasks
 				Task.Handle = Durin::Private::FTaskHandleFactory::MakeUnique(std::move(Handle), std::move(State));
 				return Task;
 			}
-			template<typename T> static auto MakeShared(FTaskHandle Handle, std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>> State) -> TSharedTask<T>
+			template<typename T> static auto MakeShared(FTaskHandle Handle, std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>> State, std::shared_ptr<FTaskFailure> Failure = {}) -> TSharedTask<T>
 			{
 				TSharedTask<T> Task;
+				Task.Failure = std::move(Failure);
 				Task.LifetimePin = std::make_shared<std::pair<FTaskHandle, std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>>>>(Handle, State);
 				Task.Handle = std::move(Handle);
 				Task.Storage = std::move(State);
@@ -395,6 +407,83 @@ namespace Durin::Tasks
 		}
 	}
 
+	// Maps every predecessor outcome to an owned result. The edge itself remains cancellable
+	// and fallibly admitted; mandatory owner cleanup requires a reserved operation ticket.
+	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, TTaskOutcome<T>>>
+	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
+	auto ThenOutcome(TTask<T>&& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+		-> TTaskAdmission<TTask<U>>
+	{
+		using FAdmission = TTaskAdmission<TTask<U>>;
+		auto& Native = Detail::FTaskAccess::Native(Input);
+		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
+		auto Source = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
+		uint64 Bytes = Detail::ResultBytes<U>(Options);
+		if (!std::is_void_v<U> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+		FTaskContinuationOptions Edge;
+		Edge.Target = Detail::Target(Executor);
+		Edge.Priority = Options.Priority;
+		Edge.CancellationToken = Options.Cancellation;
+		Edge.Attribution = Options.Attribution;
+		Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
+		if (Executor == ETaskExecutor::GameThreadDeferred)
+		{
+			if (Edge.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - Source->GetEstimatedResultBytes())
+				return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+			Edge.EstimatedPayloadBytes += Source->GetEstimatedResultBytes();
+		}
+		const auto Claim = Source->ReserveClaim();
+		if (!Claim) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
+		try
+		{
+			auto Failure = std::make_shared<FTaskFailure>();
+			const auto Predecessor = Native.GetTaskHandle();
+			auto SourceFailure = Detail::FTaskAccess::Failure(Input);
+			auto Output = std::make_shared<TUniqueTaskResultState<TTaskValue<U>>>(Bytes);
+			auto Admission = Durin::Private::TryLaunchContinuationTask(Native.GetTaskHandle(), Options.DebugName,
+				[Source, SourceFailure, Predecessor, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
+					auto ReadOutcome = [&]() -> TTaskOutcome<T> {
+						if (Predecessor.GetState() == ETaskState::Succeeded)
+						{
+							auto Value = Source->TakePublished();
+							require(Value);
+							return TTaskOutcome<T>(std::in_place_index<0>, std::move(*Value));
+						}
+						if (Predecessor.GetState() == ETaskState::Failed)
+							return SourceFailure ? *SourceFailure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
+						return FTaskCanceled{};
+					};
+					if constexpr (std::is_void_v<U>)
+					{
+						std::invoke(Function, ReadOutcome());
+						Output->SetPending(std::monostate{});
+					}
+					else Output->SetPending(std::invoke(Function, ReadOutcome()));
+				}, [Source, Output](ETaskState Terminal) { Source->Discard(); Output->Complete(Terminal); },
+				Edge, ETaskDependencyKind::Completion, Bytes);
+			if (!Admission.HasValue())
+			{
+				Source->RollbackClaim(Claim);
+				return FAdmission::Failure(Admission.GetError());
+			}
+			auto Handle = std::move(Admission).TakeValue();
+			Source->CommitClaim(Claim, Handle, false);
+			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
+			Output->BindProducer(Handle);
+			return FAdmission::Success(Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output), std::move(Failure)));
+		}
+		catch (const std::bad_alloc&)
+		{
+			Source->RollbackClaim(Claim);
+			return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted});
+		}
+		catch (...)
+		{
+			Source->RollbackClaim(Claim);
+			throw;
+		}
+	}
+
 	template<typename T>
 	auto Share(TTask<T>&& Input) -> TTaskAdmission<TSharedTask<T>>
 	{
@@ -404,10 +493,56 @@ namespace Durin::Tasks
 		auto State = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
 		try
 		{
-			auto Shared = Detail::FTaskAccess::MakeShared<T>(Native.GetTaskHandle(), State);
+			auto Shared = Detail::FTaskAccess::MakeShared<T>(Native.GetTaskHandle(), State, Detail::FTaskAccess::Failure(Input));
 			if (!State->ReserveClaim()) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
 			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
 			return FAdmission::Success(std::move(Shared));
+		}
+		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
+	}
+
+	// Observes immutable terminal outcomes; admission/cancellation can suppress this edge.
+	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, TSharedTaskOutcome<T>>>
+	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
+	auto ThenOutcome(const TSharedTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+		-> TTaskAdmission<TTask<U>>
+	{
+		using FAdmission = TTaskAdmission<TTask<U>>;
+		const auto Predecessor = Input.GetCompletion().GetTaskHandle();
+		if (!Predecessor.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
+		const uint64 Bytes = Detail::ResultBytes<U>(Options);
+		if (!std::is_void_v<U> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+		FTaskContinuationOptions Edge;
+		Edge.Target = Detail::Target(Executor);
+		Edge.Priority = Options.Priority;
+		Edge.CancellationToken = Options.Cancellation;
+		Edge.Attribution = Options.Attribution;
+		Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
+		if (Executor == ETaskExecutor::GameThreadDeferred)
+		{
+			const uint64 InputBytes = Detail::FTaskAccess::SharedStorage(Input)->GetEstimatedResultBytes();
+			if (InputBytes > std::numeric_limits<uint64>::max() - Edge.EstimatedPayloadBytes)
+				return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+			Edge.EstimatedPayloadBytes += InputBytes;
+		}
+		try
+		{
+			auto Failure = std::make_shared<FTaskFailure>();
+			auto Output = std::make_shared<TUniqueTaskResultState<TTaskValue<U>>>(Bytes);
+			auto Admission = Durin::Private::TryLaunchContinuationTask(Predecessor, Options.DebugName,
+				[Input, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
+					if constexpr (std::is_void_v<U>)
+					{
+						std::invoke(Function, Input.GetOutcomeShared());
+						Output->SetPending(std::monostate{});
+					}
+					else Output->SetPending(std::invoke(Function, Input.GetOutcomeShared()));
+				}, [Output](ETaskState Terminal) { Output->Complete(Terminal); },
+				Edge, ETaskDependencyKind::Completion, Bytes);
+			if (!Admission.HasValue()) return FAdmission::Failure(Admission.GetError());
+			auto Handle = std::move(Admission).TakeValue();
+			Output->BindProducer(Handle);
+			return FAdmission::Success(Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output), std::move(Failure)));
 		}
 		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 	}

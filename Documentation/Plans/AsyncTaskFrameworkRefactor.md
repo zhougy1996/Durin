@@ -2,24 +2,23 @@
 
 Summary: Refactor task composition, admission, owner lifetime, and executor boundaries, then qualify the API through package reads and texture compilation.
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-08
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 4 implementation now supplies separate
-bounded blocking I/O, effective CPU priority/fairness and explicit ParallelFor
-policy, with Windows Debug/Release validation. Its same-environment Stage 0
-comparison remains outstanding: this session has no access to the original
-Apple M4/macOS qualification lane. Stage 5 production cutover remains gated
-on Stage 4 acceptance; neither pilot migration nor plan completion is claimed.
-The unique composition surface now includes async flattening, dynamic/tuple
-fan-in, shared observation, and counted external sources. Production pilots
-remain on their existing implementations until Stages 3 and 4 pass. The fixed
-Release baseline remains a bounded comparison lane; its macOS environment is
-not interchangeable with the current Windows correctness environment.
+Stages 0 through 5 are implemented and qualified. Package reads use bounded
+blocking I/O and shared outcome composition. Texture compute returns unique
+results into reserved outcome tickets that remain pending through GameThread
+application. Both pilots remove subsystem terminal-result publication machinery.
+All 72 affected Debug targets and the new Release lifecycle integration pass.
+The final preselected five-cohort Release sequence passes every original Stage 0
+numeric gate; allocation increases are separately explained below. Previous
+failing measurements remain visible and were not used to replace the baseline.
+Changed Runtime contracts and all plans validate. This plan is complete;
+remaining legacy adapters are explicitly bounded compatibility follow-up.
 
 Observed starting points:
 
@@ -754,6 +753,27 @@ reporting admission rejection. CTest receipt:
 Changed documentation and all plans validate.
 
 
+
+#### Stage 2 outcome transformation prerequisite repair, 2026-09-08
+
+Unique `Tasks::ThenOutcome` consumes `TTaskOutcome<T>` and returns a composable
+unique `TTask<U>`. It preserves move-only values/captures, void input/output,
+predecessor failure metadata, typed cancellation and structured construction
+rejection. A rejected edge rolls back the unique claim so the same input can
+be retried. The observing task's cancellation remains independent of recovery:
+its canceled callback does not run. It cannot guarantee owner cleanup after
+rejection or shutdown; the reserved owner-operation mechanism retains that role.
+
+Three focused tests passed on macOS Debug. Their initial isolated invocation
+exposed a missing fixture GameThread identity initialization; the fixture now
+initializes that identity explicitly instead of relying on another test's order.
+The corrected focused receipt is
+`Build/.agent-state/logs/20260908-003321-868192-2169-CoreConcurrencyTests.log`.
+Final `test affected` passed its complete selected integration set; receipt:
+`Build/.agent-state/logs/20260908-003604-646040-2202-ctest.log`.
+This prerequisite does not claim package/shared-request or Texture2D migration,
+and does not change the performance baseline or accept the outstanding gate.
+
 ### Stage 3: Integrate groups and bounded operation completion
 
 Depends on Stage 2.
@@ -812,7 +832,7 @@ Depends on Stage 3; land before production pilot cutover.
 - [x] Replace implicit ParallelFor serial selection in the new API with
   explicit Auto/Serial/ExplicitBatch policy; retain legacy behavior in adapters.
   Select Auto using measured Release workloads and record its decision rule.
-- [ ] Measure mixed blocking I/O and CPU work, skewed batches, and nested work.
+- [x] Measure mixed blocking I/O and CPU work, skewed batches, and nested work.
   Record whether shared-queue contention warrants a separate scheduler plan.
 
 Acceptance: blocked I/O does not occupy CPU Workers; configured priorities have
@@ -894,29 +914,253 @@ alone intentionally precedes that final accounting step. Changed Runtime
 contracts and all plans validate.
 
 The original Stage 0 median/p95 latency, peak requested bytes and throughput
-thresholds remain unchanged. Access to the original Apple M4/macOS runner is
-required to finish this acceptance step before Stage 5 cutover. No replacement
-baseline is selected.
+thresholds remain unchanged. The 2026-09-08 handoff below supersedes the
+lack-of-runner limitation; no replacement baseline is selected.
+
+#### Stage 4 macOS requalification and migration audit, 2026-09-08
+
+Measured in the `Durin-architect` checkout on Apple M4, 16 GiB RAM,
+macOS 26.6.1 (25G76), `macos-xcode-arm64`,
+`MacOS-arm64-Release-DurinEditor`, Tracy disabled, two CPU and two blocking-I/O
+threads, eight build jobs. Build and test invocations were sequential.
+Each policy cohort uses three warmups and 30 measured samples. Each pilot
+cohort uses the unchanged Stage 0 fixtures and instrumentation: three warmup
+batches, 30 measured batches of four operations, 120 queue observations.
+The measurements do not include production cutover.
+
+Core concurrency qualification passed, including mixed blocking work and nested
+coverage. Receipt: `Build/.agent-state/logs/20260908-000031-777000-85264-ctest.log`.
+Measured policy times are microseconds, median / p95:
+
+| Workload | Serial | Auto |
+| --- | --- | --- |
+| 1,024 uniform | 36.542 / 41.250 | 36.541 / 38.125 |
+| 1,024 skewed | 186.250 / 194.541 | 186.291 / 199.125 |
+| 4,096 uniform | 146.417 / 156.542 | 146.292 / 152.958 |
+| 4,096 skewed | 752.666 / 792.875 | 749.458 / 783.750 |
+| 16,384 uniform | 584.541 / 610.416 | 227.875 / 279.375 |
+| 16,384 skewed | 2,997.040 / 3,042.920 | 2,625.380 / 2,691.830 |
+| 131,072 uniform | 4,694.580 / 4,746.290 | 1,682.330 / 1,772.040 |
+| 131,072 skewed | 24,006.500 / 24,141.600 | 20,930.100 / 21,005.000 |
+
+Mixed CPU-entry latency was 12,555.2 / 12,618.2 us when the CPU workers were
+blocked and 15.042 / 33.833 us with separate I/O workers. These observations
+support keeping the existing Auto decision rule. They do not isolate shared
+queue contention or justify selecting work stealing.
+
+The pilot correctness test passed in all three invocations. Queue times below
+are nanoseconds; peak live bytes use the Stage 0 ordinary-allocation cohort.
+
+| Pilot / cohort | Queue median / p95 | Operations/s | Peak live bytes | Allocation median / p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Package / 1 | 16,417 / 37,667 | 41,757.1 | 550,788 | 236 / 240 |
+| Package / 2 | 18,916 / 41,292 | 41,361.2 | 550,988 | 236 / 240 |
+| Package / 3 | 18,625 / 35,958 | 44,713.2 | 550,988 | 236 / 240 |
+| Texture2D / 1 | 28,042 / 252,125 | 10,570.3 | 160,430 | 485 / 491 |
+| Texture2D / 2 | 28,167 / 201,208 | 10,400.9 | 177,819 | 486 / 498 |
+| Texture2D / 3 | 29,667 / 204,292 | 10,429.1 | 177,819 | 486 / 494 |
+
+Retained result payload remains 262,144 package bytes and 10,976 texture bytes;
+texture declared in-flight high-water remains 131,072 bytes. Package allocation
+median increased from 224 to 236 and needs attribution before acceptance.
+The first texture queue p95 is 123.7% of baseline, exceeding the unchanged
+110% limit (224,171.2 ns). Both later cohorts pass that limit. All observed
+queue medians, package p95 values, peak live bytes and throughput values pass
+their respective relative limits. Keep the failed cohort visible; the current
+qualification target prints timing but does not assert the baseline thresholds.
+A green CTest receipt therefore proves correctness, not complete acceptance.
+
+Receipts, in cohort order:
+
+- `Build/.agent-state/logs/20260908-000021-065852-84278-ctest.log`
+- `Build/.agent-state/logs/20260908-000047-098506-85300-ctest.log`
+- `Build/.agent-state/logs/20260908-000102-614161-85548-ctest.log`
+
+
+A user-requested fourth cohort ran at 00:07 on 2026-09-08 with the same
+profile, fixtures, warmup and sample counts. A process check immediately before
+the invocation found no competing compiler, Ninja, CMake build or CTest process;
+this is a point-in-time observation, not proof of whole-machine exclusivity.
+Correctness passed again, but texture queue p95 again exceeded the original
+110% gate. The new observation does not support attributing the earlier tail
+variation solely to another checkout's build. No threshold or baseline changed.
+
+| Pilot / cohort | Queue median / p95 (ns) | Operations/s | Peak live bytes | Allocation median / p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Package / 4 | 17,542 / 34,834 | 43,223.6 | 550,988 | 236 / 241 |
+| Texture2D / 4 | 27,375 / 257,875 | 10,490.6 | 174,547 | 486 / 492 |
+
+Texture p95 is 126.5% of the Stage 0 baseline, above the 224,171.2 ns limit.
+All other gated metrics in this cohort pass. Batch median / p95 is
+92,542 / 106,375 ns for package and 381,292 / 485,792 ns for texture.
+Cumulative requested bytes per batch median is 568,212 / 477,244 respectively;
+retained payload and declared in-flight bytes are unchanged from the previous
+cohorts. Receipt:
+`Build/.agent-state/logs/20260908-000726-461492-90135-ctest.log`.
+
+Before Stage 5 cutover, resolve the timing variation and attribute the package
+allocation increase. The production audit found a separate composition gap:
+`FPackageResourceRequest::Transform` uses a completion edge and invokes its
+callback with domain errors as well as successful bytes.
+`FBulkData::LoadAsync` relies on that callback to transition Loading to Failed
+or Retired. `Tasks::Then` and shared-task `Then` propagate failed/canceled task
+states without invoking the callback. Replacing that edge with success-only
+composition is insufficient. Provide outcome-aware result composition, or an
+equivalent framework-owned domain-outcome adaptation, with cancellation and
+admission-rejection coverage; do not restore a subsystem mutex/CV result future.
+This is a prerequisite discovered by caller inspection, not an implemented API.
+
+
+
+#### Stage 4 three-version comparison, 2026-09-08 00:22
+
+The follow-up attribution experiment rebuilt the original baseline commit
+`c7b56dbae` and Stage 4 commit `3df8497f5` in detached, isolated sibling
+checkouts `Durin-async-baseline` and `Durin-async-stage4`. The current lane is
+`Durin-architect` at `f837c0896`. All three use the same Apple M4/16 GiB/macOS
+26.6.1 environment, external volume, shared prepared dependencies, Release
+preset, two CPU Workers, Tracy setting, and instrumented pilot. The qualification
+source blob is identical in all three revisions:
+`5fad1eac8f83435e797665265d56aa704925feaa`. Builds finished before measurement.
+Every invocation used three warmup and 30 measured batches of four operations.
+Nine sequential invocations rotated order: baseline/Stage 4/current,
+current/baseline/Stage 4, Stage 4/current/baseline. A process check before each
+invocation found no competing compiler/build/CTest process. This check cannot
+exclude all OS or application interference.
+
+All nine correctness invocations passed. Each row is a separate cohort; times
+are microseconds. These are not pooled percentiles.
+
+| Round / version | Package queue median / p95 | Texture queue median / p95 | Package ops/s | Texture ops/s | Package / texture peak live bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 / baseline | 15.042 / 33.625 | 21.750 / 188.250 | 45,779.7 | 10,582.0 | 549,836 / 164,854 |
+| 1 / stage4 | 15.917 / 37.167 | 15.458 / 199.292 | 44,965.0 | 10,370.5 | 551,052 / 165,094 |
+| 1 / current | 22.000 / 47.209 | 34.166 / 345.041 | 40,472.3 | 10,422.3 | 551,028 / 178,883 |
+| 2 / current | 14.250 / 34.417 | 21.625 / 196.042 | 43,301.8 | 10,487.2 | 550,988 / 173,771 |
+| 2 / baseline | 20.833 / 33.959 | 20.125 / 199.083 | 46,602.1 | 10,384.0 | 550,236 / 177,499 |
+| 2 / stage4 | 20.834 / 43.917 | 15.000 / 198.750 | 39,167.7 | 10,367.2 | 551,052 / 166,282 |
+| 3 / stage4 | 23.166 / 44.167 | 38.375 / 196.167 | 36,641.1 | 10,443.9 | 551,052 / 177,851 |
+| 3 / current | 19.250 / 40.375 | 11.333 / 197.792 | 41,793.4 | 10,474.6 | 550,988 / 165,010 |
+| 3 / baseline | 21.667 / 40.583 | 17.708 / 198.000 | 43,577.3 | 10,366.1 | 549,836 / 175,027 |
+
+Baseline and Stage 4 texture queue p95 pass the original 224.1712 us limit in
+all three cohorts. Current exceeds it in round 1 (345.041 us), then passes in
+rounds 2 and 3. The current round-1 texture batch p95 also rises to 1,180.625 us (1,180,625 ns); its median remains
+383.792 us. The simultaneous batch tail spike is compatible with intermittent
+stalling but does not identify whether code or external scheduling caused it.
+Do not infer a specific later commit or approve current acceptance from the
+passing cohorts alone.
+
+All other original numeric gates pass in these nine cohorts. A new comparison
+against the freshly measured baseline is diagnostic only: package throughput
+ranges overlap but Stage 4 has slower cohorts, and package allocations per batch
+increase from baseline median 224 to Stage 4 median 236. Current package median
+is 232/236/236. This localizes the allocation increase to at or before Stage 4,
+not solely later commits; allocation-site attribution remains outstanding.
+Texture allocation medians are baseline 498/498/498, Stage 4 494/494/494 and
+current 486/486/485. Retained payload is unchanged (262,144 package and 10,976
+texture bytes), as is texture declared in-flight high-water (131,072 bytes).
+No source or measurement instrumentation was changed in the historical lanes,
+and no replacement baseline or pass-selection rule was introduced.
+
+Full metric records are retained locally at
+`Build/async-task-three-version-comparison.json` in `Durin-architect`.
+Receipts below are relative to each row's named checkout:
+
+- Round 1 / baseline: `Build/.agent-state/logs/20260908-002158-528261-99172-ctest.log`
+- Round 1 / stage4: `Build/.agent-state/logs/20260908-002158-945485-99188-ctest.log`
+- Round 1 / current: `Build/.agent-state/logs/20260908-002159-296988-99204-ctest.log`
+- Round 2 / current: `Build/.agent-state/logs/20260908-002159-706142-99220-ctest.log`
+- Round 2 / baseline: `Build/.agent-state/logs/20260908-002200-046609-99245-ctest.log`
+- Round 2 / stage4: `Build/.agent-state/logs/20260908-002200-387843-99263-ctest.log`
+- Round 3 / stage4: `Build/.agent-state/logs/20260908-002200-729903-99279-ctest.log`
+- Round 3 / current: `Build/.agent-state/logs/20260908-002201-070128-99295-ctest.log`
+- Round 3 / baseline: `Build/.agent-state/logs/20260908-002201-413343-99311-ctest.log`
+
+#### Stage 4 acceptance after short-graph wait optimization, 2026-09-08 06:16
+
+The first root-only fast path did not change the 236 package allocations and
+its texture p95 still failed (250.584 us); receipt
+`Build/.agent-state/logs/20260908-061014-090500-24916-ctest.log`.
+Temporary ordinary-allocation stack capture then identified `RequiresGameThread`
+vector/hash-set allocations while waiting for transform dependency chains.
+The instrumented cohort is diagnostic only; its timing is excluded. The
+qualification source was restored byte-for-byte before acceptance runs.
+Graphs up to 16 nodes now use stack storage; larger graphs retain the original
+cycle-safe traversal. Tests exercise both paths, including a 32-edge tail behind
+an unpumped deferred ancestor. All 70 affected Debug targets passed:
+`Build/.agent-state/logs/20260908-061530-195491-25985-ctest.log`.
+
+A fixed five-cohort sequence was selected before running it, using the original
+Apple M4/16 GiB/macOS 26.6.1 Release profile, two CPU Workers, Tracy disabled,
+three warmup batches and 30 measured batches of four operations per invocation.
+Pre-invocation process checks found no competing compiler/build/CTest process.
+The revision is `ce9cef22a` plus this commit's short-graph change. All five
+cohorts pass the unchanged Stage 0 queue median/p95, throughput and peak-live-byte
+gates. Each row is independent; percentiles are not pooled. Earlier failures
+remain evidence of intermittent variance; these runs do not prove its cause.
+
+| Cohort | Package queue median / p95 (ns) | Texture queue median / p95 (ns) | Package / texture ops/s | Package / texture peak live bytes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 15875 / 35000 | 32834 / 188625 | 45670.4 / 10608.9 | 550988 / 177819 |
+| 2 | 18625 / 40459 | 14208 / 192875 | 42272.1 / 10677.3 | 550988 / 177819 |
+| 3 | 17792 / 43167 | 17334 / 195916 | 40050.1 / 10513.6 | 550988 / 177819 |
+| 4 | 23500 / 43416 | 25084 / 195792 | 40990.3 / 10627.7 | 550988 / 173771 |
+| 5 | 19917 / 38750 | 33333 / 193917 | 39344.1 / 10776.8 | 550988 / 165014 |
+
+Package allocation median/p95 is 224/226 in every cohort (baseline 224/226).
+Texture median is 485–486 and p95 491–494. Package cumulative requested bytes
+median is 567,972 versus baseline 566,564: node storage grew with structured
+admission, external completion, and dependency metadata. Peak live requested
+bytes are within the fixed 110% gate. Retained payload remains 262,144/10,976
+bytes and texture declared in-flight high-water remains 131,072 bytes.
+No additional scheduler rewrite is selected: mixed-load and nested evidence
+above supports the implemented executor separation and Auto policy.
+Full local records: `Build/async-task-inline-wait-qualification.json`.
+Receipts:
+
+- `Build/.agent-state/logs/20260908-061608-968049-27055-ctest.log`
+- `Build/.agent-state/logs/20260908-061609-379820-27073-ctest.log`
+- `Build/.agent-state/logs/20260908-061609-763116-27089-ctest.log`
+- `Build/.agent-state/logs/20260908-061610-112003-27105-ctest.log`
+- `Build/.agent-state/logs/20260908-061610-460809-27121-ctest.log`
 
 ### Stage 5: Migrate and qualify production operations
 
+The continuation work first adds unique `Tasks::ThenOutcome`, accepting an owned
+`TTaskOutcome<T>` and returning a composable `TTask<U>`. It preserves structured
+admission/claim rollback and maps predecessor failure/cancellation to callback
+input. Cancellation or rejection of the observing edge can still prevent its
+callback: this is not a replacement for reserved mandatory owner completion.
+Production cutover remains subject to the recorded qualification gates.
+
+Texture migration uses the reserved operation queue as its durable result
+mailbox. Extend its opt-in outcome pump so producer failure/cancellation still
+reaches domain commit, and reserve a producer-ready notification before launch
+for the manager's concurrency-slot release. A transferred ticket may bind on a
+worker; the owner must synchronize all binding/admission acknowledgements before
+closing the queue. Shutdown drains those acknowledgements, pumps domain terminal
+results, then closes the queue and joins the group. Request identity, scheduling
+priority/budgets and diagnostic mutation stay in the manager; results and final
+operation completion belong to Core. This contract extension precedes cutover.
+
 Depends on Stages 1 through 4.
 
-- [ ] Migrate package reads and transforms to the I/O executor and composable
+- [x] Migrate package reads and transforms to the I/O executor and composable
   results. Preserve synchronous boundary semantics, cancellation, range/error
   handling, and resource retirement while removing redundant completion state.
-- [ ] Migrate the Texture2D compute/result chain; preserve its priority policy,
+- [x] Migrate the Texture2D compute/result chain; preserve its priority policy,
   memory budget, durable mailbox, request identity, and owner-thread commit.
   Track the represented operation through final commit, not just Worker return.
-- [ ] Compare before/after call sites: count auxiliary completion flags, mutex/
+- [x] Compare before/after call sites: count auxiliary completion flags, mutex/
   CV result handoffs, manual publication paths, and adapter configuration.
   Record each retained mechanism's subsystem purpose; no fixed LOC target.
-- [ ] Run focused correctness, lifecycle, and mixed-load qualification. Include
+- [x] Run focused correctness, lifecycle, and mixed-load qualification. Include
   large payloads above deferred queue limits and saturation during shutdown.
-- [ ] Publish implemented contracts in the owning Runtime documentation and
+- [x] Publish implemented contracts in the owning Runtime documentation and
   compatibility examples. Remove only obsolete pilot glue; list remaining
   legacy callers as a bounded follow-up, not an implicit completed migration.
-- [ ] Validate changed documentation and all plans; record evidence and mark
+- [x] Validate changed documentation and all plans; record evidence and mark
   this plan completed only after every acceptance gate passes.
 
 Acceptance: both pilots express their operation with composable outcomes and
@@ -924,6 +1168,177 @@ explicit ownership, without rebuilding a generic future in subsystem code.
 Existing asset behavior and module-unload guarantees pass regression coverage.
 If the new API still requires equivalent duplicate completion machinery, revise
 the contract and affected stages before declaring the refactor complete.
+
+#### Package migration handoff
+
+Shared `ThenOutcome` and `GetOutcomeShared` preserve immutable aliases and
+structured failure identity without consuming the input. New tests observe
+success/failure/cancellation through two independently admitted edges and retry
+after invalid-executor rejection. Package tests block both I/O threads while a
+CPU root still runs, repeat reads through copied requests, and recover a
+canceled read through a transform. Existing range, retirement, rejected rendering
+wait, scheduler rejection and package regressions pass. All 71 affected Debug
+targets passed; receipt
+`Build/.agent-state/logs/20260908-062203-286570-27595-ctest.log`.
+
+Package state no longer manually publishes a worker result or synthesizes a
+stored result from `Wait`. The former terminal flag is removed. One binding
+flag and mutex/CV remain solely for the resource-registration/retirement race;
+the cancellation atomic remains the backend's cooperative control. Immediate
+validation/admission errors occupy a value alternative instead of a fake task.
+A completion observation is retained only if sharing fails after producer
+admission, so retirement can still drain that producer. Request copies keep
+their scope lifetime available for later transforms.
+
+The first unchanged-fixture Release cohort passes all original numeric gates:
+package queue median/p95 19,750/54,500 ns, 43,478.3 ops/s, peak live 558,940 bytes;
+texture queue 31,709/199,792 ns, 10,463.2 ops/s, peak live 177,819 bytes.
+Package allocation median/p95 is 276/278 versus 224/226 before migration:
+explicit scope lifetime, unique result/failure storage and immutable lifetime
+pins replace the subsystem's direct result state. Retained payload remains
+262,144/10,976 bytes and texture declared in-flight remains 131,072 bytes.
+Receipt: `Build/.agent-state/logs/20260908-062255-569119-28500-ctest.log`.
+This is an intermediate measurement; final combined acceptance follows texture
+migration and includes repeated cohorts.
+
+#### Final production migration and acceptance, 2026-09-08 06:52
+
+Texture compute now returns `TTask<FTexture2DCompilationWorkResult>`. A reserved
+outcome ticket consumes it without another fallibly admitted continuation, and
+its source completes after owner application. Explicit producer rejection and
+framework failure/cancellation reach the same owner outcome pump. The manager
+retains request/generation checks, the four-interactive burst policy, two active
+computes, and the 1 GiB working-set policy; Core receives CPU priority as well.
+A separate bounded mailbox reserves up to 1,024 operations / 4 GiB declared
+retained bytes, including queued input ownership, before compute admission.
+Consumed tickets leave retained diagnostics so they do not pin module storage.
+
+Transferred binding pins its record locally because owner commit may retire a
+ticket while its producer hook unwinds. Queue close requires binding
+acknowledgement first. Texture shutdown uses its selected-work count and group
+drain to establish that boundary, delivers domain results, then closes the queue.
+The producer-ready callback carries no result; it releases compute concurrency
+and wakes the manager's timed wait. It does not replace mandatory owner commit.
+
+Mechanism comparison (business diagnostic fields excluded):
+
+| Pilot mechanism | Before | After / retained purpose |
+| --- | --- | --- |
+| Package completion flags | `bAwaitingTask`, `bTerminal` | One `bBinding` flag for registration/retirement race only |
+| Package mutex/CV result handoffs | One request result handoff | Zero; the mutex/CV synchronizes initial binding only |
+| Package manual terminal publication | `Complete` called by read, transform, rejection and wait fallback | Zero task-result publishers; binding installs immutable task or immediate error |
+| Package cancellation | Atomic plus forwarding callback and native handle | Atomic/backend forwarding retained; Core completion cancellation |
+| Package adapter configuration | Attribution plus legacy CPU root/edge | Explicit I/O root, CPU outcome edge, scope lifetime, retained-result estimate, immutable sharing |
+| Texture completion flags | `bWorkerCompleted`, `bCompletionQueued` | Zero; Core ticket readiness; `bAdmitted` only balances manager concurrency |
+| Texture result handoffs | Subsystem result deque plus CV readiness flag | Core reserved result queue; CV only wakes timed diagnostic/readiness observation |
+| Texture manual publication | Three early `CompleteAdmitted` paths and final success path, plus queued rejection publication | Worker returns a value; reserved ticket handles all framework terminals and rejected admission |
+| Texture adapter configuration | Scope, attribution, manual result queue | Scope, attribution, CPU priority, record/payload reservation and outcome pump |
+
+The first broad run exposed an existing skybox test assumption that replacement
+must have a different address from a destroyed proxy. The allocator reused that
+address. The test now checks successful removal plus exactly one live replacement
+with updated data; its focused rerun and final aggregate pass. No renderer
+behavior changed. Original failure receipt:
+`Build/.agent-state/logs/20260908-063249-906832-30539-ctest.log`.
+
+All 72 affected Debug targets pass, including Core module/operation-group
+regressions, shared outcome fan-out and transferred ticket failure/cancellation:
+`Build/.agent-state/logs/20260908-065228-146558-39400-ctest.log`.
+`AsyncTaskPilotLifecycleTests` owns a separate process lifecycle because the
+aggregate cannot restart after terminal shutdown. It verifies a 256x256 texture
+result larger than the saturated 64-byte deferred queue can still commit, then
+fills all eight scheduler reservations with blockers and four accepted texture
+operations. Shutdown delivers exactly one callback per accepted operation and
+leaves zero nonterminal nodes. It passes Debug and Release:
+
+- `Build/.agent-state/logs/20260908-063959-193667-33069-AsyncTaskPilotLifecycleTests.log`
+- `Build/.agent-state/logs/20260908-064217-100369-34519-ctest.log`
+
+The Stage 4 mixed-I/O/CPU and nested policy measurements remain applicable;
+package's focused two-blocked-I/O test additionally verifies CPU execution after
+migration. Existing module group tests continue to distinguish ordinary Join
+from retained-result/module Drain. Provider call retirement remains synchronous
+inside the modular-feature gate. No application smoke or GPU qualification is
+required for this CPU-only cutover.
+
+Final performance uses the original Apple M4/16 GiB/macOS 26.6.1 Release lane,
+Tracy disabled, two CPU and two I/O workers. All builds completed first. A fixed
+five-cohort sequence was selected before execution, with no competing compiler/
+build/CTest process observed before any invocation. Each cohort has three warmup
+batches, 30 measured batches of four operations and 120 queue observations.
+The original measurement function and allocation instrumentation are unchanged.
+The revision is `eeb44c2b8` plus this commit's texture migration; all 40 numeric
+comparisons against the original Stage 0 thresholds pass. Percentiles remain
+separate per cohort. Temporary lifecycle cases first attempted in the performance
+process failed its non-restartable aggregate precondition; they were moved to
+the independent integration target above, not skipped or made unconditional.
+An intermediate texture p95 of 245,416 ns remains a diagnostic failure
+(`Build/.agent-state/logs/20260908-063639-422311-31906-ctest.log`).
+
+| Cohort | Package queue median / p95 (ns) | Texture queue median / p95 (ns) | Package / texture ops/s | Package / texture peak live bytes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 24125 / 59958 | 28583 / 192042 | 37676.5 / 10357.1 | 559124 / 184923 |
+| 2 | 21209 / 49625 | 23833 / 194875 | 39867.2 / 10344.8 | 558940 / 184923 |
+| 3 | 17583 / 40417 | 31459 / 197709 | 41432.7 / 10289.4 | 559124 / 184923 |
+| 4 | 23042 / 52125 | 26750 / 187959 | 39784.4 / 10372.8 | 558940 / 180875 |
+| 5 | 18250 / 46125 | 32417 / 185916 | 41775.5 / 10459.8 | 558940 / 180875 |
+
+Package allocation median is 276 (baseline 224), p95 278–279 (226);
+texture median is 570–572 (491), p95 576–582 (494). The package increase pays
+for scope lifetime, typed result/failure storage and immutable result pins.
+Texture adds preallocated owner records, counted completion sources, cancellation
+state, terminal hooks/notifications and unique result/failure storage. These
+ownership/lifetime allocations replace the uncounted mailbox, rather than being
+reported as a speedup. Package cumulative requested bytes median is 572,964
+(baseline 566,564), texture 489,512–489,888 (474,668). Retained output is unchanged
+at 262,144/10,976 bytes and texture declared compute high-water is 131,072 bytes.
+Worst peak live requested bytes are 101.8% / 104.4% of baseline, both below 110%.
+The extra allocation count has no separate numeric rejection threshold; it is
+reported independently from passing latency, throughput and peak-live-byte gates.
+Full local metrics: `Build/async-task-final-qualification.json`. Receipts:
+
+- `Build/.agent-state/logs/20260908-065222-702468-39313-ctest.log`
+- `Build/.agent-state/logs/20260908-065223-053569-39331-ctest.log`
+- `Build/.agent-state/logs/20260908-065223-406457-39347-ctest.log`
+- `Build/.agent-state/logs/20260908-065223-757161-39363-ctest.log`
+- `Build/.agent-state/logs/20260908-065224-106310-39379-ctest.log`
+
+Final review moved notification callable conversion into `TryReserve`'s
+allocation-failure boundary. A throwing-copy notification test verifies structured
+`CapacityExhausted` and zero leaked record/byte reservations. All six operation
+cases pass (`Build/.agent-state/logs/20260908-065039-275752-38199-CoreConcurrencyTests.log`).
+The preceding five passing performance cohorts are retained locally in
+`Build/async-task-final-pre-review-qualification.json`; the final table above
+repeats the fixed five-cohort protocol after this admission repair.
+
+The repeat aggregate also exposed a material single-flight fixture race:
+a warm compile could finish before its second consumer was submitted. Its
+existing overlap assertions now hold worker entry until both requests attach,
+with release/drain cleanup on assertion exits. No material runtime code changed.
+All 110 MaterialTests pass (`Build/.agent-state/logs/20260908-065128-229443-38630-MaterialTests.log`).
+The original fixture failure remains at
+`Build/.agent-state/logs/20260908-064939-548121-37308-ctest.log`.
+
+#### Bounded compatibility follow-up
+
+The following production adapters remain on legacy launch/shared-handle/wait
+entry points. They are outside the two selected pilots and remain regression
+covered; this plan does not claim their migration. Paths are relative to
+`Engine/Source`:
+
+- `Runtime/Engine/Private/Asset/CookedMeshLoadManager.cpp`: residency retirement.
+- `Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp`: material/provider lifecycle.
+- `Runtime/Engine/Private/EnvironmentLighting/EnvironmentLightingBuild.cpp`: immutable fan-out and synchronous assembly.
+- `Runtime/Engine/Private/StaticMesh/StaticMeshCompilingManager.cpp`: bounded mesh compilation and owner delivery.
+- `Editor/MainFrame/Private/AssetCompatibilityAudit.cpp`: streamed audit records and UI generation.
+- `Editor/DurinEd/Private/Source/SourceReferenceIndex.cpp`: snapshot publication and shutdown.
+- `Editor/ContentBrowser/Private/Assets/SourceImageThumbnailCache.cpp`: decode/upload cache and supplied module scope.
+- `Editor/ContentBrowser/Private/Panels/ContentBrowserModel.cpp`: item/tree snapshots and module-body drain.
+
+LevelEditor's module operation registration, Launch lifecycle validation and
+legacy ParallelFor adapters remain compatibility/lifecycle boundaries, not
+additional pilot cutovers. Runtime TaskSystem, BulkData and AssetCompilation
+contracts describe the implemented ownership and completion behavior.
 
 ## Validation and Handoff
 

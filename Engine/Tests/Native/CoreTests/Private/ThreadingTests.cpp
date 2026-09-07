@@ -4012,6 +4012,9 @@ namespace Durin
 		auto Tail = Then(Deferred, "TransitiveWaitWorker", [](const int& Value) { return Value + 1; });
 		auto Middle = Then(Tail, "TransitiveWaitMiddle", [](const int& Value) { return Value + 1; });
 		auto Deep = Then(Middle, "TransitiveWaitDeep", [](const int& Value) { return Value + 1; });
+		// Exercise the heap fallback as well as Tail's inline graph traversal.
+		for (uint32 Index = 0; Index < 32; ++Index)
+			Deep = Then(Deep, "TransitiveWaitBeyondInlineCapacity", [](const int& Value) { return Value + 1; });
 		ASSERT_TRUE(Deferred.IsValid());
 		ASSERT_TRUE(Tail.IsValid());
 		ASSERT_TRUE(Deep.IsValid());

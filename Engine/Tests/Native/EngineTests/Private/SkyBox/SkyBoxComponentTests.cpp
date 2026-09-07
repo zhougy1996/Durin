@@ -19,12 +19,13 @@ TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
 	EXPECT_EQ(PublishSkyBox(Scene, Sky), nullptr);
 	EXPECT_EQ(ObserveSkyBoxes(Scene).Count, 1u);
 
-	Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyToken);
+	EXPECT_TRUE(Durin::FSceneInterfaceTestAccess::TryRemoveSkyBoxProxy(Scene, SkyToken));
 	Sky.Intensity = 4.0f;
 	auto* ReplacementToken = PublishSkyBox(
 		Scene, Sky);
 	ASSERT_NE(ReplacementToken, nullptr);
-	EXPECT_NE(ReplacementToken, SkyToken);
+	// The removed proxy may already be destroyed and its address reused.
+	// Replacement is established by the single live proxy and new data below.
 
 	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasSkyBox);

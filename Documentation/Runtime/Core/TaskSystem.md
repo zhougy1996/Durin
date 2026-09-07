@@ -4,7 +4,7 @@ Summary: Define task scheduling, dependencies, cancellation, waiting, and worker
 
 Modules: Core
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 Durin's CPU task system provides process-wide bounded background execution for
 runtime and editor subsystems. It owns task admission, dependencies, typed
@@ -70,6 +70,19 @@ rejects task/admission-returning callbacks. `Share` explicitly relinquishes
 unique consumption and exposes immutable result owners. `GetCompletion` has
 no result access. `TakeOutcome` requires observed terminal completion and
 consumes the owned value, framework failure, or cancellation alternative.
+
+`Tasks::ThenOutcome(std::move(Task), Executor, Options, F)` consumes an owned
+`TTaskOutcome<T>` after any predecessor terminal state and produces another
+unique result. Void input uses the `monostate` success alternative; void output
+remains composable. The callback may recover a predecessor failure or cancellation
+into a domain result. Failed admission preserves the input and its unique claim;
+cancellation of the observing edge itself can suppress the callback. This is an
+ordinary scheduled edge, not guaranteed cleanup or mandatory owner completion.
+Use reserved operation tickets for that stronger guarantee.
+The shared overload accepts `TSharedTaskOutcome<T>`: an immutable result alias,
+structured failure, or cancellation. `GetOutcomeShared()` requires terminal
+completion and preserves failure identity across `Share`. Multiple outcome
+edges can observe the same result; rejection leaves the shared input usable.
 
 Nontrivial result types require a nonzero result-byte estimate. Deferred edges
 charge retained predecessor bytes plus declared captures and reject overflow
@@ -648,7 +661,32 @@ exception, abandonment and close produce terminal outcomes. Queue close cancels
 running producers but retains their payload budget until acknowledgement.
 Callbacks and payload destruction run outside internal locks, including when a
 callback destroys its queue. Request priority and business generation policy
-remain with the subsystem.
+remain with the subsystem. Exclusive ticket ownership may transfer to another
+thread for `Bind`; the owner must finish all binding acknowledgements before
+`Close`. Binding pins its record locally, so an owner pump can retire the ticket
+while terminal-hook binding unwinds.
+
+Constructing with `bDeliverTerminalOutcomes=true` enables `PumpOutcomes`, whose
+callback receives `TTaskOutcome<T>`. Producer failure, cancellation and explicit
+`FailAdmission` remain pending until the owner handles their domain outcome.
+Default queues retain success-only pumping and immediate producer failure
+publication. Queue cancellation, stale generations and abandonment still publish
+without invoking domain commit. `TryReserve` may preallocate a payload-free
+producer-ready notification; it runs outside locks after readiness publication,
+and exceptions are contained. It is a scheduling notification, not a substitute
+for the outcome pump. Payload and operation budgets remain reserved through owner
+commit.
+
+For example, the package adapter replaces a void read body followed by manual
+`State->Complete(Result)` with a `TrySpawn(Group, BlockingIO, Options, Read)`
+whose callable returns the result. `Share` preserves the copyable request facade;
+`ThenOutcome(Shared, Worker, Options, Transform)` preserves domain handling of
+failed and canceled reads. The texture adapter instead reserves a ticket first,
+then calls `Ticket.Bind(std::move(Producer))`, or `Ticket.FailAdmission(Error)`
+when producer admission fails. `PumpOutcomes(Generation, Apply)` invokes the
+owner's domain handler before the represented operation becomes terminal.
+These adapters retain subsystem identity/cancellation policy without requiring
+consumers to rewrite every legacy caller at once.
 
 Shared immutable aliases retain native result ownership after their facade is
 dropped. Module Drain therefore remains blocked by retained aliases, external

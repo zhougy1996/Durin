@@ -34,6 +34,141 @@ namespace Durin
 	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
 
+	TEST(FTaskCompositionTests, OutcomeTransformsPreserveMoveOnlyValuesAndFailures)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		Options.EstimatedResultBytes = 32;
+		for (int Kind = 0; Kind < 3; ++Kind)
+		{
+			auto Admission = Tasks::TCompletionSource<std::unique_ptr<int>>::TryCreate(Group, Options);
+			ASSERT_TRUE(Admission.HasValue());
+			auto Source = std::move(Admission).TakeValue();
+			auto Input = Source.TakeTask();
+			auto EdgeAdmission = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, Options,
+				[Capture = std::make_unique<int>(5), Kind](Tasks::TTaskOutcome<std::unique_ptr<int>> Outcome) {
+					EXPECT_EQ(static_cast<size_t>(Kind), Outcome.index());
+					if (Kind == 0) return **std::get_if<0>(&Outcome) + *Capture;
+					if (Kind == 1)
+					{
+						const auto& Failure = std::get<1>(Outcome);
+						EXPECT_EQ(Tasks::ETaskFailureCode::AdmissionRejected, Failure.Code);
+						EXPECT_EQ(123u, Failure.RelatedTaskId);
+					}
+					return *Capture;
+				});
+			ASSERT_TRUE(EdgeAdmission.HasValue());
+			EXPECT_FALSE(Input.IsValid());
+			auto Edge = std::move(EdgeAdmission).TakeValue();
+			if (Kind == 0) EXPECT_TRUE(Source.TrySetValue(std::make_unique<int>(7)));
+			else if (Kind == 1) EXPECT_TRUE(Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, {}, Tasks::ETaskFailureCode::AdmissionRejected, 123}));
+			else EXPECT_TRUE(Source.TrySetCanceled());
+			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge.GetCompletion()).TaskState);
+			auto Outcome = std::move(Edge).TakeOutcome();
+			ASSERT_EQ(0u, Outcome.index());
+			EXPECT_EQ(Kind == 0 ? 12 : 5, std::get<0>(Outcome));
+		}
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
+	TEST(FTaskCompositionTests, SharedOutcomesFanOutWithoutLosingFailureIdentity)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		Options.EstimatedResultBytes = 32;
+		for (int Kind = 0; Kind < 3; ++Kind)
+		{
+			auto Admission = Tasks::TCompletionSource<std::unique_ptr<int>>::TryCreate(Group, Options);
+			ASSERT_TRUE(Admission.HasValue());
+			auto Source = std::move(Admission).TakeValue();
+			auto SharedAdmission = Tasks::Share(Source.TakeTask());
+			ASSERT_TRUE(SharedAdmission.HasValue());
+			auto Shared = std::move(SharedAdmission).TakeValue();
+			auto Callback = [Kind](Tasks::TSharedTaskOutcome<std::unique_ptr<int>> Outcome) {
+				EXPECT_EQ(static_cast<size_t>(Kind), Outcome.index());
+				if (Kind == 0) return ***std::get_if<0>(&Outcome);
+				if (Kind == 1) EXPECT_EQ(321u, std::get<1>(Outcome).RelatedTaskId);
+				return -Kind;
+			};
+			auto Rejected = Tasks::ThenOutcome(Shared, static_cast<Tasks::ETaskExecutor>(255), {}, Callback);
+			EXPECT_FALSE(Rejected.HasValue());
+			auto First = Tasks::ThenOutcome(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
+			auto Second = Tasks::ThenOutcome(Shared, Tasks::ETaskExecutor::Worker, {}, Callback);
+			ASSERT_TRUE(First.HasValue());
+			ASSERT_TRUE(Second.HasValue());
+			if (Kind == 0) Source.TrySetValue(std::make_unique<int>(9));
+			else if (Kind == 1) Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, {}, Tasks::ETaskFailureCode::AdmissionRejected, 321});
+			else Source.TrySetCanceled();
+			auto A = std::move(First).TakeValue();
+			auto B = std::move(Second).TakeValue();
+			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(A.GetCompletion()).TaskState);
+			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(B.GetCompletion()).TaskState);
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::get<0>(std::move(A).TakeOutcome()));
+			EXPECT_EQ(Kind == 0 ? 9 : -Kind, std::get<0>(std::move(B).TakeOutcome()));
+			EXPECT_EQ(static_cast<size_t>(Kind), Shared.GetOutcomeShared().index());
+		}
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
+	TEST(FTaskCompositionTests, OutcomeEdgeRejectionRollsBackAndSupportsVoid)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] {});
+		ASSERT_TRUE(Admission.HasValue());
+		auto Input = std::move(Admission).TakeValue();
+		auto Rejected = Tasks::ThenOutcome(std::move(Input), static_cast<Tasks::ETaskExecutor>(255), {},
+			[](Tasks::TTaskOutcome<void>) {});
+		ASSERT_FALSE(Rejected.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::UnsupportedExecutor, Rejected.GetError().Code);
+		EXPECT_TRUE(Input.IsValid());
+		auto Retried = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, {},
+			[](Tasks::TTaskOutcome<void> Outcome) { EXPECT_EQ(0u, Outcome.index()); });
+		ASSERT_TRUE(Retried.HasValue());
+		auto Edge = std::move(Retried).TakeValue();
+		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Edge.GetCompletion()).TaskState);
+		EXPECT_EQ(0u, std::move(Edge).TakeOutcome().index());
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
+	TEST(FTaskCompositionTests, OutcomeEdgeCancellationDoesNotRunRecovery)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		auto Admission = Tasks::TCompletionSource<int>::TryCreate(Group, {});
+		ASSERT_TRUE(Admission.HasValue());
+		auto Source = std::move(Admission).TakeValue();
+		auto Input = Source.TakeTask();
+		std::atomic<int> Calls = 0;
+		auto EdgeAdmission = Tasks::ThenOutcome(std::move(Input), Tasks::ETaskExecutor::Worker, {},
+			[&](Tasks::TTaskOutcome<int>) { ++Calls; return 1; });
+		ASSERT_TRUE(EdgeAdmission.HasValue());
+		auto Edge = std::move(EdgeAdmission).TakeValue();
+		Tasks::Cancel(Edge.GetCompletion());
+		EXPECT_TRUE(Source.TrySetFailure({}));
+		EXPECT_EQ(ETaskState::Canceled, Tasks::Wait(Edge.GetCompletion()).TaskState);
+		EXPECT_EQ(0, Calls.load());
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
 	TEST(FTaskCompositionTests, UniqueTransformsVoidAndShare)
 	{
 		ShutdownTaskScheduler(false);
@@ -557,6 +692,63 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, Completion.GetState());
 		EXPECT_EQ(0u, Queue.GetReservedBytes());
 		Queue.Close(); Group.Close();
+	}
+
+	TEST(FTaskOperationTests, TransferredTicketsCommitAllOutcomesUnderSaturation)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		Tasks::TTaskOperationQueue<int> Queue(Group, {.MaxOperations = 1, .MaxPayloadBytes = sizeof(int)}, true);
+		struct FFailingNotificationCopy
+		{
+			FFailingNotificationCopy() = default;
+			FFailingNotificationCopy(const FFailingNotificationCopy&) { throw std::bad_alloc(); }
+			auto operator()(ETaskState) const -> void {}
+		} Notification;
+		auto Rejected = Queue.TryReserve(99, 0, sizeof(int), Notification);
+		ASSERT_FALSE(Rejected.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Rejected.GetError().Code);
+		EXPECT_EQ(0u, Queue.GetActiveCount());
+		EXPECT_EQ(0u, Queue.GetReservedBytes());
+		for (int Kind = 0; Kind < 4; ++Kind)
+		{
+			FThreadEvent Notified;
+			auto Reservation = Queue.TryReserve(Kind, 0, sizeof(int), [&](ETaskState) { Notified.Trigger(); });
+			ASSERT_TRUE(Reservation.HasValue());
+			auto Ticket = std::move(Reservation).TakeValue();
+			auto Completion = Ticket.GetCompletion();
+			EXPECT_FALSE(Queue.TryReserve(99, 0, sizeof(int)).HasValue());
+			if (Kind == 3) Ticket.FailAdmission({Tasks::ETaskAdmissionErrorCode::CapacityExhausted});
+			else
+			{
+				auto SourceAdmission = Tasks::TCompletionSource<int>::TryCreate(Group, {});
+				ASSERT_TRUE(SourceAdmission.HasValue());
+				auto Source = std::move(SourceAdmission).TakeValue();
+				auto Producer = Source.TakeTask();
+				std::thread Binder([Ticket = std::move(Ticket), Producer = std::move(Producer)]() mutable { Ticket.Bind(std::move(Producer)); });
+				Binder.join();
+				if (Kind == 0) Source.TrySetValue(42);
+				else if (Kind == 1) Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, {}, Tasks::ETaskFailureCode::CallableException, 42});
+				else Source.TrySetCanceled();
+			}
+			ASSERT_TRUE(Notified.WaitFor(1.0));
+			EXPECT_FALSE(Completion.IsReady());
+			EXPECT_EQ(1u, Queue.GetActiveCount());
+			EXPECT_EQ(1u, Queue.PumpOutcomes(0, [Kind](uint64 Id, Tasks::TTaskOutcome<int> Outcome) {
+				EXPECT_EQ(static_cast<uint64>(Kind), Id);
+				EXPECT_EQ(static_cast<size_t>(Kind == 3 ? 1 : Kind), Outcome.index());
+				if (Kind == 0) EXPECT_EQ(42, std::get<0>(Outcome));
+				if (Kind == 1) EXPECT_EQ(42u, std::get<1>(Outcome).RelatedTaskId);
+				if (Kind == 3) EXPECT_EQ(Tasks::ETaskFailureCode::AdmissionRejected, std::get<1>(Outcome).Code);
+			}));
+			EXPECT_EQ(ETaskState::Succeeded, Completion.GetState());
+			EXPECT_EQ(0u, Queue.GetReservedBytes());
+		}
+		Queue.Close(); Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
 	}
 
 	TEST(FTaskOperationTests, ClosePublishesCancellationAndRetainsBudgetUntilProducerAcknowledges)

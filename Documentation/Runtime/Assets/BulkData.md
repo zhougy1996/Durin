@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v9 placement, package-
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -117,6 +117,17 @@ The backend reports InvalidRange, MissingSegment, TruncatedSegment,
 SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
 checks before/after physical size and rejects a changed segment rather than
 returning a mixed generation.
+
+Package range roots use `Tasks::TrySpawn` on the bounded blocking-I/O executor.
+Transforms use shared `Tasks::ThenOutcome`, so predecessor failure/cancellation
+is delivered as a domain result. The observing edge can itself be canceled or
+rejected. Copied requests observe the same immutable framework result; repeated
+`Wait()` calls do not consume it. Synchronously completed validation errors
+remain immediate values. The request binding mutex/CV only coordinates resource
+retirement with initial task installation; Core owns terminal result publication.
+Request lifetimes retain root admission for later transforms and close it when
+the last request owner retires. A sharing-admission failure retains a completion
+observation until the already admitted producer acknowledges cancellation.
 
 `FPackageResourceRequest::Wait()` checks the task wait status before synthesizing
 any terminal fallback. An unsupported-thread or dependency-rejected wait returns

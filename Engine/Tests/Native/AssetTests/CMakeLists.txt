@@ -98,6 +98,15 @@ target_include_directories(AssetBulkContainerTests PRIVATE
 )
 
 if(DURIN_WITH_EDITOR)
+	# Separate process ownership: the aggregate cannot restart after terminal shutdown.
+	durin_add_asset_functional_test(AsyncTaskPilotLifecycleTests
+		KIND integration
+		DOMAINS async-task-pilot
+		MODULES engine texture-build
+		LIBRARIES TextureBuild
+		SOURCES Private/AsyncTaskPilotLifecycleTests.cpp
+	)
+
 	# The allocator replacement is qualified against Mach-O symbol interposition.
 	if(APPLE)
 		durin_add_asset_functional_test(AsyncTaskPilotQualificationTests
@@ -133,6 +142,7 @@ else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Asset import services and their test fixtures are editor-only."
 		SOURCES
+			Private/AsyncTaskPilotLifecycleTests.cpp
 			Private/AsyncTaskPilotQualificationTests.cpp
 			Private/AssetImportDataTests.cpp
 			Private/AssetImportTests.cpp

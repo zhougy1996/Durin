@@ -495,6 +495,38 @@ TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResult
 		EPackageResourceReadStatus::Retired);
 }
 
+TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerminalOutcomes)
+{
+	auto FirstResource = std::make_shared<FBlockedPackageResource>();
+	auto SecondResource = std::make_shared<FBlockedPackageResource>();
+	auto First = FirstResource->ReadRangeAsync(0, 4);
+	auto Second = SecondResource->ReadRangeAsync(0, 4);
+	ASSERT_TRUE(FirstResource->Started.WaitFor(1.0));
+	ASSERT_TRUE(SecondResource->Started.WaitFor(1.0));
+	FThreadEvent CpuRan;
+	auto Cpu = LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); });
+	EXPECT_TRUE(CpuRan.WaitFor(0.5));
+	auto Copy = First;
+	auto Transform = FPackageResourceRequest::Transform(First, [](FPackageResourceReadResult Value) { return Value; });
+	FirstResource->Release.Trigger();
+	SecondResource->Release.Trigger();
+	EXPECT_TRUE(First.Wait());
+	EXPECT_TRUE(Copy.Wait());
+	EXPECT_TRUE(Transform.Wait());
+	EXPECT_EQ(First.Wait().Buffer.GetBytes().data(), Copy.Wait().Buffer.GetBytes().data());
+	EXPECT_TRUE(Second.Wait());
+	WaitTask(Cpu);
+
+	auto Slow = std::make_shared<FSlowPackageResource>();
+	auto Canceled = Slow->ReadRangeAsync(0, 4);
+	Canceled.Cancel();
+	auto Recovery = FPackageResourceRequest::Transform(Canceled, [](FPackageResourceReadResult Value) {
+		EXPECT_EQ(EPackageResourceReadStatus::Cancelled, Value.Status);
+		return FPackageResourceReadResult{.Status = EPackageResourceReadStatus::Success};
+	});
+	EXPECT_TRUE(Recovery.Wait());
+}
+
 TEST(FPackageResourceTests, SchedulerRejectionReturnsTerminalRequests)
 {
 	ShutdownTaskScheduler(true);
