@@ -704,7 +704,7 @@ namespace Durin
 		auto ProducerCompletion = Producer.GetCompletion();
 		Ticket.Bind(std::move(Producer));
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(ProducerCompletion).TaskState);
-		EXPECT_EQ(1u, Queue.Pump(0, [](uint64, FByteBuffer&& Value) { EXPECT_EQ(PayloadBytes, Value.size()); }));
+		EXPECT_EQ(1u, Queue.Pump(0, [PayloadBytes](uint64, FByteBuffer&& Value) { EXPECT_EQ(PayloadBytes, Value.size()); }));
 		EXPECT_EQ(ETaskState::Succeeded, Completion.GetState());
 		EXPECT_FALSE(Deferred.IsComplete());
 		Queue.Close(); Group.Close();
