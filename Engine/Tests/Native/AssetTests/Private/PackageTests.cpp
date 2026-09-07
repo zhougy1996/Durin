@@ -537,6 +537,8 @@ namespace
 
 	uint64 GPackageAssetPostLoadCount = 0;
 	bool GRejectPackageAssetPostLoad = false;
+	std::function<void()> GPackageConstructorLoadProbe;
+	std::function<void()> GPackagePostLoadProbe;
 
 	class DPackageAssetForTest : public Durin::DObject
 	{
@@ -545,6 +547,7 @@ namespace
 			: DObject(Initializer)
 		{
 			DefaultChild = Durin::NewObject<Durin::DObject>(this, "DefaultChild");
+			if (GPackageConstructorLoadProbe) GPackageConstructorLoadProbe();
 		}
 
 		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DPackageAssetForTest(X); }
@@ -557,6 +560,7 @@ namespace
 				OutError = "Injected package PostLoad rejection.";
 				return false;
 			}
+			if (GPackagePostLoadProbe) GPackagePostLoadProbe();
 			return DObject::PostLoad(OutError);
 		}
 
@@ -3345,6 +3349,226 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	MarkObjectHierarchyAsGarbage(Loaded);
 	CollectGarbage();
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
+}
+
+TEST(FPackageAssetTests, V9GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	struct FResetProbes
+	{
+		~FResetProbes() { GPackageConstructorLoadProbe = {}; GPackagePostLoadProbe = {}; }
+	} ResetProbes;
+	FPackagePath SourcePath, TargetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/GuardSource", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/GuardTarget", TargetPath));
+	DPackageAssetForTest* Source = nullptr;
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	const auto& Codec = DastV9::GetCodec();
+	FAssetPackageEncodedClosure Closure;
+	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
+	ASSERT_TRUE(UnloadPackage(SourcePath));
+	FAssetPackageReadContext Context{Closure.PackageBytes, Closure.BulkBytes, SourcePath,
+		Closure.PackageBytes.size()};
+	uint32 Rollbacks = 0;
+	Context.DependencyLoadPolicy = FAssetPackageDependencyLoadPolicy{
+		.ResolvePackage = [](const FPackagePath&, DPackage*&) -> FAssetResult {
+			return {EAssetError::MissingDependency, "Unexpected dependency."};
+		},
+		.ResolveObject = [](const FObjectPath&, DObject*&) -> FAssetResult {
+			return {EAssetError::MissingDependency, "Unexpected reference."};
+		},
+		.Rollback = [&] { ++Rollbacks; }, .bRejectImplicitLiveLoads = true};
+	const FObjectPath TargetObjectPath = MakeFormerMainObjectPath(TargetPath);
+	for (uint32 Phase = 0; Phase < 2; ++Phase)
+	{
+		for (uint32 Operation = 0; Operation < 4; ++Operation)
+		{
+			TSoftObjectPtr<DPackageAssetForTest> Soft(TargetObjectPath);
+			ASSERT_TRUE(ResolveSoftObject(Soft));
+			if (Operation == 0) ASSERT_TRUE(UnloadPackage(TargetPath));
+			uint32 ProbeCalls = 0;
+			auto Probe = [&] {
+				++ProbeCalls;
+				FAssetLoadReport Report;
+				DPackage* Package = nullptr;
+				DPackageAssetForTest* Object = nullptr;
+				if (Operation == 0)
+					EXPECT_EQ(LoadPackage(TargetPath, Package, &Report).Error, EAssetError::InUse);
+				else if (Operation == 1)
+					EXPECT_EQ(LoadObject(TargetObjectPath, Object, &Report).Error, EAssetError::InUse);
+				else if (Operation == 2)
+					EXPECT_EQ(ResolveSoftObject(Soft).Result.Error, EAssetError::InUse);
+				else
+					EXPECT_EQ(LoadSoftObject(Soft, Object).Error, EAssetError::InUse);
+				EXPECT_EQ(Package, nullptr);
+				EXPECT_EQ(Object, nullptr);
+				EXPECT_EQ(Report.PackageFileReadCount, 0u);
+			};
+			if (Phase == 0) GPackageConstructorLoadProbe = Probe;
+			else GPackagePostLoadProbe = Probe;
+			DPackage* Loaded = nullptr;
+			const auto Result = Codec.Load(Context, Loaded, nullptr, {}, {});
+			GPackageConstructorLoadProbe = {};
+			GPackagePostLoadProbe = {};
+			EXPECT_EQ(Result.Error, EAssetError::InUse) << Result.Message;
+			EXPECT_EQ(Loaded, nullptr);
+			EXPECT_EQ(ProbeCalls, 1u);
+			EXPECT_EQ(Rollbacks, Phase * 4 + Operation + 1);
+			ASSERT_TRUE(LoadObject(TargetObjectPath, Target));
+		}
+	}
+	DPackage* Loaded = nullptr;
+	ASSERT_TRUE(Codec.Load(Context, Loaded, nullptr, {}, {}));
+	ASSERT_NE(Loaded, nullptr);
+	MarkObjectHierarchyAsGarbage(Loaded);
+	CollectGarbage();
+	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
+}
+
+TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	FPackagePath SourcePath, TargetPath, UnrelatedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PolicySource", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PolicyTarget", TargetPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PolicyUnrelated", UnrelatedPath));
+	DPackageAssetForTest* Source = nullptr;
+	DPackageAssetForTest* Target = nullptr;
+	DPackageAssetForTest* Unrelated = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(UnrelatedPath, Unrelated));
+	ASSERT_TRUE(SavePackage(Unrelated->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(UnrelatedPath));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
+	Source->ExternalReference = Target;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	const auto& Codec = DastV9::GetCodec();
+	FAssetPackageEncodedClosure Closure;
+	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
+	ASSERT_TRUE(UnloadPackage(SourcePath));
+	FAssetPackageReadContext Context{Closure.PackageBytes, Closure.BulkBytes, SourcePath,
+		Closure.PackageBytes.size()};
+	uint32 PackageCalls = 0, ObjectCalls = 0, Rollbacks = 0, SkeletonCalls = 0;
+	bool bRejectPackage = true, bRejectObject = false;
+	Context.DependencyLoadPolicy = FAssetPackageDependencyLoadPolicy{
+		.ResolvePackage = [&](const FPackagePath& Path, DPackage*& Out) -> FAssetResult {
+			++PackageCalls;
+			EXPECT_EQ(Path, TargetPath);
+			if (bRejectPackage) return {EAssetError::StaleData, "Captured package rejected."};
+			Out = Target->GetPackage();
+			return {};
+		},
+		.ResolveObject = [&](const FObjectPath& Path, DObject*& Out) -> FAssetResult {
+			++ObjectCalls;
+			EXPECT_EQ(Path.ToString(), Target->GetObjectPath());
+			if (bRejectObject) return {EAssetError::StaleData, "Captured object rejected."};
+			Out = Target;
+			return {};
+		},
+		.Rollback = [&] { ++Rollbacks; }};
+	DPackage* Loaded = nullptr;
+	const auto SavedRollback = Context.DependencyLoadPolicy->Rollback;
+	Context.DependencyLoadPolicy->Rollback = {};
+	EXPECT_EQ(Codec.Load(Context, Loaded, nullptr,
+		[&](DPackage*) -> FAssetResult { ++SkeletonCalls; return {}; }, {}).Error,
+		EAssetError::InvalidObjectGraph);
+	EXPECT_EQ(SkeletonCalls, 0u);
+	EXPECT_EQ(PackageCalls, 0u);
+	Context.DependencyLoadPolicy->Rollback = SavedRollback;
+	DPackage* UnrelatedLoaded = nullptr;
+	EXPECT_EQ(Codec.Load(Context, Loaded, nullptr,
+		[&](DPackage*) -> FAssetResult { return LoadPackage(UnrelatedPath, UnrelatedLoaded); }, {}).Error,
+		EAssetError::StaleData);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(PackageCalls, 1u);
+	EXPECT_EQ(ObjectCalls, 0u);
+	EXPECT_EQ(Rollbacks, 1u);
+	ASSERT_NE(UnrelatedLoaded, nullptr);
+	EXPECT_EQ(FindPackage(UnrelatedPath.GetView()), UnrelatedLoaded);
+	bRejectPackage = false;
+	bRejectObject = true;
+	EXPECT_EQ(Codec.Load(Context, Loaded, nullptr, {}, {}).Error, EAssetError::StaleData);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(ObjectCalls, 1u);
+	EXPECT_EQ(Rollbacks, 2u);
+	bRejectObject = false;
+	const auto Result = Codec.Load(Context, Loaded, nullptr,
+		[&](DPackage*) -> FAssetResult { Context.DependencyLoadPolicy.reset(); return {}; }, {});
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Loaded, nullptr);
+	auto* LoadedAsset = static_cast<DPackageAssetForTest*>(Loaded->FindTopLevelAsset(SourcePath.GetPackageName()));
+	ASSERT_NE(LoadedAsset, nullptr);
+	EXPECT_EQ(LoadedAsset->ExternalReference, Target);
+	EXPECT_EQ(PackageCalls, 3u);
+	EXPECT_EQ(ObjectCalls, 2u);
+	EXPECT_EQ(Rollbacks, 2u);
+	MarkObjectHierarchyAsGarbage(Loaded);
+	CollectGarbage();
+	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath, UnrelatedPath}));
+}
+
+TEST(FPackageAssetTests, V9LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/OwnedBulkLoad", Path));
+	DBulkPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
+	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	const auto& Codec = DastV9::GetCodec();
+	FAssetPackageEncodedClosure Closure;
+	ASSERT_TRUE(Codec.Write(Asset->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
+	FPackageBulkDataEntry Entry{
+		.FieldIndex = 1, .Placement = EPackageBulkDataPlacement::External,
+		.LogicalSize = Payload.size(), .StoredSize = Payload.size(),
+		.Alignment = EditorBulkDataExternalAlignment, .ContentId = FXxHash128::HashBuffer(Payload)};
+	FPackageResourceHandle Resource;
+	std::string Error;
+	ASSERT_TRUE(CreateOwnedPackageResource(
+		{Closure.BulkBytes.size(), FXxHash128::HashBuffer(Closure.BulkBytes)},
+		std::span{&Entry, 1}, Closure.BulkBytes, Resource, &Error)) << Error;
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Path));
+	ASSERT_FALSE(GetPackageResourceManager().FindPackage(Path.ToString()));
+	FAssetPackageReadContext Context{
+		.PackageBytes = Closure.PackageBytes, .PackagePath = Path,
+		.PhysicalPackageBytes = Closure.PackageBytes.size(),
+		.PhysicalBulkBytes = Closure.BulkBytes.size(), .bResourceBackedBulk = true};
+	Closure.BulkBytes.clear();
+	Closure.BulkBytes.shrink_to_fit();
+	DPackage* Loaded = nullptr;
+	EXPECT_FALSE(Codec.Load(Context, Loaded, nullptr, {}, {}));
+	EXPECT_EQ(Loaded, nullptr);
+	Context.BulkResource = Resource;
+	const auto Result = Codec.Load(Context, Loaded, nullptr,
+		[&](DPackage*) -> FAssetResult {
+			Context.BulkResource.reset();
+			Resource.reset();
+			return {};
+		}, {});
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Loaded, nullptr);
+	auto* LoadedAsset = static_cast<DBulkPackageAssetForTest*>(Loaded->FindTopLevelAsset(Path.GetPackageName()));
+	ASSERT_NE(LoadedAsset, nullptr);
+	EXPECT_FALSE(GetPackageResourceManager().FindPackage(Path.ToString()));
+	const auto Read = LoadedAsset->Payload.GetPayload().Wait();
+	ASSERT_TRUE(Read) << Read.Message;
+	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
+	MarkObjectHierarchyAsGarbage(Loaded);
+	CollectGarbage();
+	EXPECT_TRUE(std::ranges::equal(Read.Buffer.GetBytes(), Payload));
 }
 
 TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)

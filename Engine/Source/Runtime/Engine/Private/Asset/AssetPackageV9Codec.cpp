@@ -644,7 +644,9 @@ namespace Durin::AssetPrivate::DastV9
 					.bCooked = Context.bCooked,
 					.Target = Context.bCooked
 						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
-						: FArchiveTarget{}});
+						: FArchiveTarget{},
+					.BulkResource = Context.BulkResource,
+					.DependencyLoadPolicy = Context.DependencyLoadPolicy});
 		}
 
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,

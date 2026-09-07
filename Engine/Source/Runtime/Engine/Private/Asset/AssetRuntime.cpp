@@ -1,4 +1,5 @@
 #include "AssetRuntimeStateInternal.h"
+#include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetRegistry/Publication.h"
@@ -26,6 +27,31 @@
 
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
+
+namespace Durin::AssetPrivate
+{
+	thread_local FAssetLiveLoadGuard* FAssetLiveLoadGuard::Active = nullptr;
+
+	FAssetLiveLoadGuard::FAssetLiveLoadGuard(bool bInEnabled) : bEnabled(bInEnabled)
+	{
+		if (bEnabled) Previous = std::exchange(Active, this);
+	}
+
+	FAssetLiveLoadGuard::~FAssetLiveLoadGuard()
+	{
+		if (bEnabled) Active = Previous;
+	}
+
+	auto FAssetLiveLoadGuard::Check(std::string_view Operation, std::string_view Path) -> FAssetResult
+	{
+		if (!Active) return {};
+		const FAssetResult Result{EAssetError::InUse,
+			std::format("Implicit live {} for '{}' is forbidden during guarded package loading.", Operation, Path)};
+		for (auto* Guard = Active; Guard; Guard = Guard->Previous)
+			if (Guard->Failure) Guard->Failure = Result;
+		return Result;
+	}
+}
 
 namespace Durin
 {
@@ -232,6 +258,12 @@ namespace Durin
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		OutPackage = nullptr;
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("package load", Path.ToString()); !Result)
+		{
+			if (OutReport) *OutReport = {.RequestedPath = Path, .PackagePath = Path,
+				.Error = Result.Error, .ErrorMessage = Result.Message};
+			return Result;
+		}
 		if (IsAssetRegistryProjectionFenced(Path))
 		{
 			const FAssetResult Result = ProjectionPendingError(Path);
@@ -271,6 +303,8 @@ namespace Durin
 			}
 			return Result;
 		};
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("object load", Path.ToString()); !Result)
+			return Finish(Result);
 		if (!Path.IsValid())
 			return Finish(Error(EAssetError::InvalidPath, "An object load requires an exact object path."));
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
@@ -437,7 +471,7 @@ namespace Durin
 			FAssetPackageHeader Header;
 			FAssetResult Result = Codec->ReadHeader(HeaderContext, Header);
 			if (!Result) return Result;
-			const AssetPrivate::FAssetPackageReadContext ReadContext{
+			AssetPrivate::FAssetPackageReadContext ReadContext{
 				.PackageBytes = Bytes, .PackagePath = Path,
 				.PhysicalPackageBytes = Bytes.size(),
 				.PhysicalBulkBytes = PhysicalBulkBytes,
@@ -489,6 +523,7 @@ namespace Durin
 						Entries, Resource, &BulkDiagnostic))
 					return Error(EAssetError::CorruptFile, std::move(BulkDiagnostic));
 				bRegisteredBulkResource = true;
+				ReadContext.BulkResource = std::move(Resource);
 			}
 			DPackage* Package = nullptr;
 			Result = Codec->Load(
@@ -743,6 +778,10 @@ namespace Durin
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
 	{
 		CheckSoftObjectThread();
+		if (!Reference.IsNull())
+			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
+				"soft-object resolve", Reference.GetPath().ToString()); !Result)
+				return {.Result = Result, .State = ESoftObjectResolveState::NotLoaded};
 		if (!ExpectedClass || !ExpectedClass->IsChildOf(DObject::StaticClass()))
 		{
 			return {
@@ -856,6 +895,15 @@ namespace Durin
 	{
 		CheckSoftObjectThread();
 		OutObject = nullptr;
+		if (!Reference.IsNull())
+			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
+				"soft-object load", Reference.GetPath().ToString()); !Result)
+			{
+				if (OutReport) *OutReport = {.RequestedPath = Reference.GetPath().GetPackagePath(),
+					.PackagePath = Reference.GetPath().GetPackagePath(),
+					.Error = Result.Error, .ErrorMessage = Result.Message};
+				return Result;
+			}
 		FSoftObjectResolveResult Resolved = ResolveSoftObject(
 			Reference, ExpectedClass, NullPolicy);
 		if (!Resolved) return Resolved.Result;

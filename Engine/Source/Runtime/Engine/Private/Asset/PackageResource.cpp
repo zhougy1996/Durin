@@ -153,6 +153,25 @@ namespace Durin
 			return true;
 		}
 
+		class FOwnedPackageResource final : public FPackageResource
+		{
+		public:
+			explicit FOwnedPackageResource(FSharedByteBuffer InBytes)
+				: FPackageResource(InBytes.GetSize()), Bytes(std::move(InBytes)) {}
+
+		private:
+			auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool& bCancelled)
+				-> FPackageResourceReadResult override
+			{
+				if (bCancelled.load(std::memory_order_acquire))
+					return Result(EPackageResourceReadStatus::Cancelled, "Package range request was cancelled.");
+				return {.Status = EPackageResourceReadStatus::Success,
+					.Buffer = Bytes.MakeView(Offset, Size)};
+			}
+
+			FSharedByteBuffer Bytes;
+		};
+
 		class FLoosePackageResource final : public FPackageResource
 		{
 		public:
@@ -610,6 +629,27 @@ namespace Durin
 	{
 		std::lock_guard Lock(Mutex);
 		return ReadStats;
+	}
+
+	auto CreateOwnedPackageResource(
+		const FPackageBulkSegmentSummary& Summary,
+		std::span<const FPackageBulkDataEntry> Entries,
+		FByteView Segment,
+		FPackageResourceHandle& OutHandle,
+		std::string* OutError) -> bool
+	{
+		OutHandle.reset();
+		if (!ValidatePackageBulkDataMetadata(Summary, Entries, OutError)) return false;
+		if (Segment.size() != Summary.Extent)
+		{
+			if (OutError) *OutError = "Owned package bulk segment extent does not match its bytes.";
+			return false;
+		}
+		// Validate the private allocation that subsequent reads will actually use.
+		FSharedByteBuffer Bytes = FSharedByteBuffer::Copy(Segment);
+		if (!ValidatePackageBulkDataSegment(Summary, Entries, Bytes.GetBytes(), OutError)) return false;
+		OutHandle = std::make_shared<FOwnedPackageResource>(std::move(Bytes));
+		return true;
 	}
 
 	auto ValidatePackageResourceRange(

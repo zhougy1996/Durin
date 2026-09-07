@@ -2,8 +2,10 @@
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
+#include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/PackageSchema.h"
 #include "Asset/AssetDefinitions.h"
+#include "Asset/PackageResource.h"
 
 namespace Durin
 {
@@ -23,6 +25,9 @@ namespace Durin::AssetPrivate
 		uint64 PhysicalBulkBytes = 0;
 		bool bResourceBackedBulk = false;
 		bool bCooked = false;
+		// Retained for all external bulk fields; loading never resolves it globally.
+		FPackageResourceHandle BulkResource;
+		std::optional<FAssetPackageDependencyLoadPolicy> DependencyLoadPolicy;
 	};
 
 	struct FAssetPackageEncodedClosure

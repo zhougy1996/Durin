@@ -385,7 +385,7 @@ namespace Durin::AssetPrivate
 					FAssetResult Result = Bindings.ResolveExternalObject(Path, Value);
 					if (!Result || !Value)
 					{
-						FailLoad(EAssetError::MissingDependency,
+						FailLoad(Result ? EAssetError::MissingDependency : Result.Error,
 							EArchiveFailureCode::InvalidObjectReference,
 							Result.Message.empty() ? "External object resolver returned no object."
 								: Result.Message);

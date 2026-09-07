@@ -111,6 +111,27 @@ follows asset-level redirects, loads the owning package, and selects the exact
 object. No load API derives an asset name from a package leaf, and a catalog
 miss never guesses a filename.
 
+The internal v9 codec accepts an optional dependency load policy containing
+package resolution, exact-object resolution, and failure cleanup together.
+An incomplete policy is rejected before skeleton creation. With a policy,
+linker dependencies and serialized external object fields use its retained
+callbacks exclusively; failures preserve their asset error codes. Once graph
+application starts, failure discards that graph and invokes policy cleanup
+instead of releasing packages selected by a global load snapshot. The caller
+owns dependency lifetimes and scopes cleanup to that invocation. Without a
+policy, ordinary loading keeps its existing behavior.
+
+A policy can enable `bRejectImplicitLiveLoads`. During synchronous graph
+application on the calling thread, live package/object loads and non-null soft
+resolution/loading then fail with `InUse` before resident lookup or file access.
+This includes calls made by constructors, `PostLoad`, and policy callbacks.
+The rejection remains recorded in enclosing guarded loads, so ignoring its
+return value cannot publish a successful graph. Graph application checks the
+record after construction and before returning success and uses policy rollback
+on failure. Scope exit restores normal loading. This guard does not intercept
+raw object lookup, direct file I/O, or work dispatched to another thread; it does
+not pin provider code or establish a complete Cook input session.
+
 Unload rejects newly created or dirty packages unless the caller explicitly
 selects `DiscardUnsaved`. It retires `Standalone`, runs GC, and succeeds only
 when no authored hard dependency or transient GC strong reference still owns

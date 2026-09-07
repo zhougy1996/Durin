@@ -181,6 +181,78 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Retired);
 }
 
+TEST(FPackageResourceTests, OwnedCaptureDetachesLazyReadsFromCallerStorage)
+{
+	const uint64 Size = EditorBulkDataExternalThreshold + 1;
+	FByteBuffer Segment(static_cast<size_t>(Size), std::byte{0x6a});
+	const FPackageBulkDataEntry Entry{
+		.FieldIndex = 1,
+		.Placement = EPackageBulkDataPlacement::External,
+		.LogicalSize = Size,
+		.StoredSize = Size,
+		.Alignment = EditorBulkDataExternalAlignment,
+		.ContentId = FXxHash128::HashBuffer(Segment)};
+	const FPackageBulkSegmentSummary Summary{.Extent = Size, .Digest = Entry.ContentId};
+	FPackageResourceHandle Handle;
+	std::string Error;
+	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error)) << Error;
+	FBulkData Value;
+	ASSERT_TRUE(FBulkData::TryAttach({
+		.LogicalSize = Size,
+		.Range = {.Resource = Handle, .StoredSize = Size,
+			.Alignment = EditorBulkDataExternalAlignment}}, Value, &Error)) << Error;
+	std::ranges::fill(Segment, std::byte{0x17});
+	Segment.clear();
+	Segment.shrink_to_fit();
+	for (uint32 Index = 0; Index < 2; ++Index)
+	{
+		ASSERT_TRUE(Value.ReloadAsync().Wait());
+		FByteView Read;
+		ASSERT_TRUE(Value.LockReadOnly(Read, &Error)) << Error;
+		EXPECT_EQ(FXxHash128::HashBuffer(Read), Entry.ContentId);
+		ASSERT_TRUE(Value.UnlockReadOnly(&Error)) << Error;
+		ASSERT_TRUE(Value.Unload(&Error)) << Error;
+	}
+	const auto Slice = Handle->ReadRange(1, 7);
+	ASSERT_TRUE(Slice);
+	EXPECT_EQ(Slice.Buffer.GetSize(), 7u);
+	EXPECT_EQ(Handle->ReadRange(Size, 1).Status, EPackageResourceReadStatus::InvalidRange);
+	Handle->Retire();
+	EXPECT_EQ(Handle->ReadRange(0, 1).Status, EPackageResourceReadStatus::Retired);
+	Handle.reset();
+	EXPECT_TRUE(std::ranges::all_of(Slice.Buffer.GetBytes(),
+		[](std::byte Byte) { return Byte == std::byte{0x6a}; }));
+}
+
+TEST(FPackageResourceTests, OwnedCaptureRejectsMismatchedGenerationAndClearsOutput)
+{
+	const uint64 Size = EditorBulkDataExternalThreshold + 1;
+	FByteBuffer Segment(static_cast<size_t>(Size), std::byte{0x6a});
+	FPackageBulkDataEntry Entry{
+		.FieldIndex = 1,
+		.Placement = EPackageBulkDataPlacement::External,
+		.LogicalSize = Size,
+		.StoredSize = Size,
+		.Alignment = EditorBulkDataExternalAlignment,
+		.ContentId = FXxHash128::HashBuffer(Segment)};
+	FPackageBulkSegmentSummary Summary{.Extent = Size, .Digest = Entry.ContentId};
+	FPackageResourceHandle Handle;
+	std::string Error;
+	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error)) << Error;
+	Segment[0] = std::byte{0x17};
+	EXPECT_FALSE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error));
+	EXPECT_FALSE(Handle);
+	EXPECT_FALSE(Error.empty());
+	Summary.Digest = FXxHash128::HashBuffer(Segment);
+	EXPECT_FALSE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error));
+	EXPECT_FALSE(Handle);
+	Entry.ContentId = Summary.Digest;
+	ASSERT_TRUE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error)) << Error;
+	Segment.pop_back();
+	EXPECT_FALSE(CreateOwnedPackageResource(Summary, std::span{&Entry, 1}, Segment, Handle, &Error));
+	EXPECT_FALSE(Handle);
+}
+
 TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 {
 	const uint64 FirstSize = EditorBulkDataExternalThreshold + 1;

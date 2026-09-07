@@ -86,6 +86,26 @@ already validated Bulk Directory. Backup recovery uses a bounded-memory atomic
 file copy. Metadata-only Registry inspection reads no segment bytes and does
 not create a live resource.
 
+`CreateOwnedPackageResource` copies a supplied segment and validates the private
+copy against the package summary, field digests, ranges, and padding before
+returning a handle. The caller must keep the supplied view stable during the
+call. Subsequent lazy reads share bounded views of that owned allocation and
+never open a file or consult the global resource manager. Creation failure
+clears the output handle. The owner must retire the resource before task-service
+shutdown; completed buffers retain their bytes independently of retirement.
+This entry point supports detached input capture but is not yet wired into the
+Cook package loader, whose current loose resources still read live files.
+
+The package read context now carries an explicit bulk resource through the v9
+codec, linker, and authored load archive. External field decoding uses that
+retained handle, never a fresh global resource lookup. Ordinary loose loading
+passes the handle returned by registration; a caller loading captured metadata
+can instead pass an owned resource. Missing resources fail graph loading rather
+than fall back to current files or registrations. The caller must supply the
+resource validated for that metadata generation. Nested object resolution and
+rollback follow the optional dependency load policy described in
+[Asset Packages](AssetPackages.md); ordinary loading uses the live loader.
+
 A read is admitted only while the resource is Active and its checked range is
 inside the validated extent. Retirement enters Retiring, rejects new requests,
 requests cancellation for admitted work, waits for one terminal result per

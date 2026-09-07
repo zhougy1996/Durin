@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetSubsystemFwd.h"
+#include "AssetPackageDependencyLoadPolicy.h"
 #include "Asset/AssetDefinitions.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/PackageResource.h"
@@ -28,6 +29,8 @@ namespace Durin::AssetPrivate
 		uint32 SourceFormatVersion = ObjectPackage::DastV9FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
+		FPackageResourceHandle BulkResource;
+		std::optional<FAssetPackageDependencyLoadPolicy> DependencyLoadPolicy;
 	};
 
 	// A validated saved closure; the caller owns path admission and edit/save leases.

@@ -1,4 +1,5 @@
 #include "AssetPackageLinker.h"
+#include "AssetLiveLoadGuard.h"
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
@@ -1279,6 +1280,8 @@ namespace Durin::AssetPrivate
 	{
 		OutPackage = nullptr;
 		FLinkerApplyDiagnostic Diagnostic;
+		FAssetLiveLoadGuard LiveLoadGuard(Options.DependencyLoadPolicy
+			&& Options.DependencyLoadPolicy->bRejectImplicitLiveLoads);
 		auto Finish = [&](FAssetResult Result) {
 			if (OutError) *OutError = Result ? std::string{} : Diagnostic.Message;
 			return Result;
@@ -1287,6 +1290,15 @@ namespace Durin::AssetPrivate
 		{
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidPath, "Live linker application requires a validated package path.");
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
+		}
+		if (Options.DependencyLoadPolicy
+			&& (!Options.DependencyLoadPolicy->ResolvePackage
+				|| !Options.DependencyLoadPolicy->ResolveObject
+				|| !Options.DependencyLoadPolicy->Rollback))
+		{
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
+				"An explicit dependency load policy requires package, object, and rollback callbacks.");
+			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 		if (Linker.Summary.PackagePath != PackagePath)
 		{
@@ -1321,13 +1333,15 @@ namespace Durin::AssetPrivate
 		Package->InitializeAssetPackage(PackagePath);
 		Application.Package = Package;
 		Objects.resize(Exports.size(), nullptr);
-		const FAssetPackageLoadSnapshot DependencySnapshot = CapturePackageLoadSnapshot();
+		const FAssetPackageLoadSnapshot DependencySnapshot = Options.DependencyLoadPolicy
+			? FAssetPackageLoadSnapshot{} : CapturePackageLoadSnapshot();
 		bool bSkeletonPublished = false;
 		auto Rollback = [&]() {
 			if (bSkeletonPublished && Options.OnSkeletonRollback)
 				Options.OnSkeletonRollback(Package);
 			MarkObjectHierarchyAsGarbage(Package); CollectGarbage();
-			ReleasePackagesLoadedSince(DependencySnapshot);
+			if (Options.DependencyLoadPolicy) Options.DependencyLoadPolicy->Rollback();
+			else ReleasePackagesLoadedSince(DependencySnapshot);
 		};
 
 		if (FAssetResult Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result)
@@ -1335,6 +1349,12 @@ namespace Durin::AssetPrivate
 			Rollback(); return Finish(Result);
 		}
 
+		if (!LiveLoadGuard.GetFailure())
+		{
+			const FAssetResult Result = LiveLoadGuard.GetFailure();
+			LinkerApplyFail(Diagnostic, Result.Error, Result.Message); Rollback();
+			return Finish(Result);
+		}
 		if (Options.OnSkeletonReady)
 		{
 			FAssetResult PublishResult = Options.OnSkeletonReady(Package);
@@ -1358,11 +1378,17 @@ namespace Durin::AssetPrivate
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
 			const FPackagePath& Path = Dependencies[Index];
-			DPackage* Dependency = nullptr; FAssetResult Result = LoadPackage(Path, Dependency);
+			DPackage* Dependency = nullptr;
+			FAssetResult Result = Options.DependencyLoadPolicy
+				? Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency)
+				: LoadPackage(Path, Dependency);
+			if (Result && !Dependency)
+				Result = {EAssetError::MissingDependency, "Dependency resolver returned no package."};
 			if (!Result)
 			{
-				LinkerApplyFail(Diagnostic, EAssetError::MissingDependency, Result.Message); Rollback();
-				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
+				const EAssetError Error = Options.DependencyLoadPolicy ? Result.Error : EAssetError::MissingDependency;
+				LinkerApplyFail(Diagnostic, Error, Result.Message); Rollback();
+				return Finish({Error, Diagnostic.Message});
 			}
 		}
 
@@ -1375,9 +1401,9 @@ namespace Durin::AssetPrivate
 		Report.DiscardedFieldCount = DiscardedFields;
 		// Choose sources once for this package; object archives only consume them.
 		const FPackageLoadBindings Bindings{
-			.BulkResource = GetPackageResourceManager().FindPackage(PackagePath.ToString()),
-			.ResolveExternalObject = [](const FObjectPath& Path, DObject*& Object) {
-				return LoadObject(Path, nullptr, Object);
+			.BulkResource = Options.BulkResource,
+			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FObjectPath& Path, DObject*& Object) {
+				return Policy ? Policy->ResolveObject(Path, Object) : LoadObject(Path, nullptr, Object);
 			}};
 		if (FAssetResult Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result)
 		{
@@ -1407,6 +1433,12 @@ namespace Durin::AssetPrivate
 		{
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected graph publication failure."); Rollback();
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+		}
+		if (!LiveLoadGuard.GetFailure())
+		{
+			const FAssetResult Result = LiveLoadGuard.GetFailure();
+			LinkerApplyFail(Diagnostic, Result.Error, Result.Message); Rollback();
+			return Finish(Result);
 		}
 		OutPackage = Package;
 		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()

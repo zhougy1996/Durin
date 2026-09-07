@@ -169,6 +169,16 @@ namespace Durin
 		uint64 BulkExtent = 0;
 	};
 
+	// Copies and validates one bulk generation before exposing it to lazy readers.
+	// The caller keeps Segment stable during this call; successful reads retain
+	// owned bytes without filesystem access or global resource registration.
+	ENGINE_API auto CreateOwnedPackageResource(
+		const FPackageBulkSegmentSummary& Summary,
+		std::span<const FPackageBulkDataEntry> Entries,
+		FByteView Segment,
+		FPackageResourceHandle& OutHandle,
+		std::string* OutError = nullptr) -> bool;
+
 	// Identifies one bounded stored range in a validated logical package segment.
 	struct FPackageResourceRange
 	{

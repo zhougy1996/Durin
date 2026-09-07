@@ -37,6 +37,64 @@ VulkanRHIIntegrationTests target passed all 68 cases on an exact rerun, without
 source changes. The initial aggregate failure remains recorded. Stage 0 remains open for
 the loader/resource and run-wide provider-lifetime integration design.
 
+Bulk capture now has a concrete owned resource entry point:
+`CreateOwnedPackageResource` copies and validates the exact segment that later
+lazy reads consume, without global registration or filesystem access. Regression
+coverage exercises caller-buffer mutation/release, unload/reload, bounded reads,
+retirement, and rejection of mismatched segment and field identities. The Cook
+loader does not yet use this entry point; recursive loading, capture-local
+rollback, and provider retirement remain open Stage 0 integration gates.
+Validation for this resource entry point: the affected build passed and 77/79
+targets passed, including AssetBulkContainerTests, AssetPackageTests, and
+AssetCookTests. VolumetricCloudSceneVulkanTests failed its compile-budget check
+in the aggregate but passed on an exact rerun. VulkanRHIIntegrationTests crashed
+in both the aggregate and exact rerun (Windows access violation, 3221225477);
+the failure remains unresolved. No Vulkan source or test policy was changed.
+
+The v9 load context now passes an explicit bulk resource through the linker to
+field decoding. Ordinary loose loading supplies its registration result;
+captured callers can supply an owned resource with no global registration.
+The targeted regression removes the source package and companion, verifies
+missing-resource failure, and loads from owned bytes while the skeleton callback
+releases the caller's handles. Delayed field reads and retained result buffers
+remain valid. Recursive object loading, rollback ownership, and run-wide provider
+lifetime are still separate unresolved gates; this is not a sealed Cook session.
+Validation for explicit resource propagation passed: the targeted owned-bulk
+load regression and all 79 affected native test targets, including ordinary
+package, Cook, cooked mesh, texture Cook, and Vulkan integration coverage.
+Earlier Vulkan failures above remain historical evidence; this pass does not
+identify or fix their cause.
+
+An explicit v9 dependency-load policy now routes both linker package resolution
+and external object-field resolution through retained callbacks, with a required
+invocation-owned rollback callback. Partial policies fail before skeleton
+creation; explicit policy failures do not fall back to live loading or global
+snapshot cleanup. The targeted regression covers resident-target rejection,
+typed package/object failures, unrelated residency surviving rollback, and
+caller-side policy release during skeleton publication. Arbitrary constructor
+and `PostLoad` loads still require capture-session enforcement, and provider
+code lifetimes remain a caller contract. Stage 0 is not complete.
+Validation passed for the policy seam: its targeted regression and all 79
+affected native targets. The run was ordinary correctness coverage; another
+checkout was active, so it supplies no exclusive-lane performance evidence.
+
+The explicit policy can now reject synchronous implicit live loads with
+`bRejectImplicitLiveLoads`. Engine checks package/object and non-null soft-object
+entry points before resident or file access. A rejection is retained by all
+enclosing guards, forcing graph rollback even if a constructor or `PostLoad`
+ignores it. A targeted regression covers all four entry points in both phases
+and successful ordinary loading after scope exit. Direct object lookup, raw
+file I/O, asynchronous work, and provider lifetime still require the complete
+capture protocol; the guard is not an input session and Cook has not enabled it.
+Validation passed for the guard: the targeted constructor/PostLoad regression
+and all 79 affected native targets, including package and Cook coverage.
+
+The four loader/resource preparatory commits were rebased onto `ed2b83b35`
+and consolidated. Conflict resolution retains the prepared-package graph path
+and routes ordinary graph bulk/object reads through its shared bindings, while
+preserving explicit policy error codes and constructor/PostLoad guard checks.
+The affected build and all 80 affected native test targets passed after the
+merge, including the upstream object-replacement coverage. Stage 0 remains open.
 A preliminary source/test draft
 was preserved in the ignored local file
 `Documentation/Local/AssetRegistryCookRefactor.patch`; all eleven draft source
