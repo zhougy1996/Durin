@@ -538,13 +538,6 @@ namespace Durin
 			return CompiledShaders[ShaderIndex];
 		}
 
-		auto GetCodeView(uint32 ShaderIndex) const -> FByteView
-		{
-			const FCompiledShader& CompiledShader = GetCompiledShader(ShaderIndex);
-			checkf(CompiledShader.Code, "Compiled shader code must not be null");
-			return *CompiledShader.Code;
-		}
-
 		auto AddCompiledShader(const FCompiledShader& CompiledShader) -> uint32;
 
 	private:

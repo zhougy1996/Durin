@@ -502,14 +502,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		return It != DirectoryChildrenCache.end() ? It->second : nullptr;
 	}
 
-	auto FContentBrowserModel::GetDirectoryChildren(std::string_view PhysicalDirectory) const
-		-> std::span<const std::filesystem::path>
-	{
-		const auto Snapshot = GetDirectorySnapshot(PhysicalDirectory);
-		return Snapshot ? std::span<const std::filesystem::path>(Snapshot->Children)
-			: std::span<const std::filesystem::path>{};
-	}
-
 	auto FContentBrowserModel::HasDirectoryChildrenSnapshot(
 		std::string_view PhysicalDirectory) const -> bool
 	{

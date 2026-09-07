@@ -74,8 +74,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto GetHistoryIndex() const -> int32 { return Session.HistoryIndex; }
 		auto GetSearch() const -> const std::string& { return Session.Query.Search; }
 		auto GetTypeFilter() const -> EContentBrowserTypeFilter { return Session.Query.TypeFilter; }
-		auto GetSortColumn() const -> EContentBrowserSortColumn { return Session.Query.SortColumn; }
-		auto IsSortAscending() const -> bool { return Session.Query.bSortAscending; }
 		auto IsShowingHiddenFiles() const -> bool { return Session.Query.bShowHiddenFiles; }
 		auto IsShowingRedirectors() const -> bool { return Session.Query.bShowRedirectors; }
 		auto GetEnumerationDiagnostics() const
@@ -89,9 +87,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto GetDirectorySnapshot(std::string_view PhysicalDirectory) const
 			-> std::shared_ptr<const FContentBrowserDirectorySnapshot>;
 		auto GetSnapshotVersion() const -> uint64 { return PublishedSnapshot->Version; }
-		// Borrowed view for immediate use; retain GetDirectorySnapshot during traversal.
-		auto GetDirectoryChildren(std::string_view PhysicalDirectory) const
-			-> std::span<const std::filesystem::path>;
 		auto HasDirectoryChildrenSnapshot(std::string_view PhysicalDirectory) const
 			-> bool;
 		// Queues tree-node I/O for the frame pump (or explicit synchronous refresh).

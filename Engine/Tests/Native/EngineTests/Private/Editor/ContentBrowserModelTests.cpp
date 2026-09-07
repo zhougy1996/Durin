@@ -302,11 +302,11 @@ TEST_F(FContentBrowserModelTests, DirectoryNavigationPreservesTreeChildrenSnapsh
 	Model.RequestDirectoryChildrenSnapshot(TreeRoot);
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
 	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(TreeRoot));
-	ASSERT_EQ(Model.GetDirectoryChildren(TreeRoot).size(), 2);
+	ASSERT_EQ(Model.GetDirectorySnapshot(TreeRoot)->Children.size(), 2);
 
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
-	EXPECT_TRUE(Model.HasDirectoryChildrenSnapshot(TreeRoot));
-	EXPECT_EQ(Model.GetDirectoryChildren(TreeRoot).size(), 2);
+	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(TreeRoot));
+	EXPECT_EQ(Model.GetDirectorySnapshot(TreeRoot)->Children.size(), 2);
 }
 
 TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemException)
@@ -718,13 +718,14 @@ TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndCachesDirectorySnapshot
 		});
 	Model.RequestDirectoryChildrenSnapshot(TreeRoot.generic_string());
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
-	EXPECT_EQ(Model.GetDirectoryChildren(TreeRoot.generic_string()).size(), 2);
+	ASSERT_TRUE(Model.GetDirectorySnapshot(TreeRoot.generic_string()));
+	EXPECT_EQ(Model.GetDirectorySnapshot(TreeRoot.generic_string())->Children.size(), 2);
 	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
 	EXPECT_EQ(
 		Model.GetEnumerationDiagnostics().front().Kind,
 		FContentBrowserModel::EEnumerationDiagnosticKind::Entry);
-	EXPECT_TRUE(Model.GetDirectoryChildren(
-		(Root / "MissingDirectory").generic_string()).empty());
+	EXPECT_FALSE(Model.GetDirectorySnapshot(
+		(Root / "MissingDirectory").generic_string()));
 	EXPECT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
 }
 
@@ -745,8 +746,9 @@ TEST_F(FContentBrowserModelTests, KeepsPublishedChildrenStableWhileDistinctSnaps
 	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
 	Model.RequestDirectoryChildrenSnapshot(TreeRoot.generic_string());
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
-	const std::span<const std::filesystem::path> PublishedChildren =
-		Model.GetDirectoryChildren(TreeRoot.generic_string());
+	const auto PublishedChildrenSnapshot = Model.GetDirectorySnapshot(TreeRoot.generic_string());
+	ASSERT_TRUE(PublishedChildrenSnapshot);
+	const auto& PublishedChildren = PublishedChildrenSnapshot->Children;
 	ASSERT_EQ(PublishedChildren.size(), BranchCount);
 	const std::filesystem::path* PublishedStorage = PublishedChildren.data();
 	const std::vector<std::filesystem::path> ExpectedChildren(
@@ -1027,8 +1029,9 @@ TEST_F(FContentBrowserModelTests, StagesDeepTreeRequestsWithoutInvalidatingAnces
 	EXPECT_EQ(EntryQueryCount, 0);
 	EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(TreeRoot.generic_string()));
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
-	const std::span<const std::filesystem::path> RootChildren =
-		Model.GetDirectoryChildren(TreeRoot.generic_string());
+	const auto RootChildrenSnapshot = Model.GetDirectorySnapshot(TreeRoot.generic_string());
+	ASSERT_TRUE(RootChildrenSnapshot);
+	const auto& RootChildren = RootChildrenSnapshot->Children;
 	ASSERT_EQ(RootChildren.size(), 65);
 	const std::filesystem::path* RootStorage = RootChildren.data();
 	const std::vector<std::filesystem::path> ExpectedRootChildren(
@@ -1630,8 +1633,9 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
 	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
-	const size_t ChildrenBefore = Model.GetDirectoryChildren(
-		(Root / "Content").generic_string()).size();
+	const auto BeforeSnapshot = Model.GetDirectorySnapshot((Root / "Content").generic_string());
+	ASSERT_TRUE(BeforeSnapshot);
+	const size_t ChildrenBefore = BeforeSnapshot->Children.size();
 	FContentBrowserOperationService Operations(
 		FContentBrowserPaths{},
 		[](std::span<const FEditorAssetMove>) -> FAssetResult {
@@ -1646,8 +1650,9 @@ TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)
 		(Root / "Content").generic_string()));
 	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
 	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	ASSERT_TRUE(Model.GetDirectorySnapshot((Root / "Content").generic_string()));
 	EXPECT_EQ(
-		Model.GetDirectoryChildren((Root / "Content").generic_string()).size(),
+		Model.GetDirectorySnapshot((Root / "Content").generic_string())->Children.size(),
 		ChildrenBefore + 1);
 	EXPECT_TRUE(std::ranges::any_of(
 		Model.GetItems(),
@@ -3101,7 +3106,7 @@ TEST_F(FContentBrowserModelTests, LocalTreeInvalidationPreservesUnrelatedInFligh
 	Gate->Release();
 	Model.WaitForPendingSnapshotsForTesting();
 	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
-	EXPECT_EQ(Model.GetDirectoryChildren(A.generic_string()).size(), 1u);
+	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string())->Children.size(), 1u);
 }
 
 TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapturedDependents)

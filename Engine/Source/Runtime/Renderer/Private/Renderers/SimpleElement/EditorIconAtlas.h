@@ -21,11 +21,6 @@ namespace Durin
 			return IconIndex * IconExtent;
 		}
 
-		static constexpr auto GetMinU(uint32 IconIndex) -> float
-		{
-			return static_cast<float>(GetTileX(IconIndex)) / Width;
-		}
-
 	};
 
 	auto BuildEditorIconAtlasPixels()
