@@ -1008,6 +1008,17 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		ASSERT_EQ(Pixels->size(), static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 		if (Fixture.bCastShadows)
 		{
+			ASSERT_TRUE(GReceivedSceneRenderGraphCapture);
+			const auto ShadowOutput = std::ranges::find_if(
+				GLastSceneRenderGraphCapture.Parameters, [](const auto& Parameter) {
+					return Parameter.FieldPath ==
+						"FDirectionalShadowPassParameters.Resources.DirectionalShadowOutput";
+				});
+			ASSERT_NE(ShadowOutput, GLastSceneRenderGraphCapture.Parameters.end());
+			ASSERT_TRUE(ShadowOutput->bPresent);
+			EXPECT_EQ(ShadowOutput->TextureRange.FirstArrayLayer, 0u);
+			EXPECT_EQ(ShadowOutput->TextureRange.NumArrayLayers,
+				GLastTelemetry.DirectionalShadow.ShadowCascadeCount);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowSelectedLights, 1u);
 			EXPECT_EQ(GLastTelemetry.DirectionalShadow.ShadowValidReceiverViews, 1u);
 			EXPECT_GT(GLastTelemetry.DirectionalShadow.ShadowSuccessfulDraws, 0u);
@@ -1182,9 +1193,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.DeclaredPasses, 12u);
 	EXPECT_LE(GLastSceneRenderGraphCapture.Statistics.Dependencies, 24u);
 	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.BufferTransitions, 0u);
-	// Retained opaque publishes sampled depth directly; the final scene pass owns
-	// the sole remaining shader-read to depth-attachment boundary.
-	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 1u);
+	// Managed attachments now include their entry handoffs in graph transitions,
+	// in addition to the final scene pass's sampled-depth to attachment boundary.
+	EXPECT_EQ(GLastSceneRenderGraphCapture.Statistics.TextureTransitions, 13u);
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bCompileBudgetExceeded);
 	EXPECT_FALSE(

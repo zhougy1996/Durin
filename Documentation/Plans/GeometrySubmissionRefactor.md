@@ -9,15 +9,23 @@ Completed:
 
 ## Current Status
 
-Planning only; no implementation stages have started. Source inspection confirms
-StaticMesh/SplineMesh dispatch in scene membership, visibility output, shadow
-candidate classification, preparation, and shader selection. Receiver and shadow
-preparation already share `PrepareStaticMeshView_RenderThread`; retain that
-reuse while replacing its family-specific input and output contracts.
+Stage 0 is in progress. The migration inventory, interface/lifetime decisions,
+and qualification fixtures/gates below are frozen for implementation. Initial
+baseline source revision: `d7d1749ba9832f7d31237eb432d8e75e81bb47c3`.
 
-Next: Stage 0. Test target names below were discovered from the configured native
-test registry; no native baseline or performance qualification has been run for
-this plan. Close stages only with recorded implementation and validation evidence.
+The baseline shadow-array descriptor state failure is fixed: the graph now
+hands off only the active cascade layers to the managed depth pass. The complete
+GPU baseline selection passes 7/7 targets, including directional shadows and
+GBuffer; frozen image expectations are unchanged. The affected ordinary suite
+passes 6/6 targets. No geometry-submission migration adapter exists yet.
+
+Stage 0 remains open for the predeclared image-pair coverage, allocation/retained
+memory measurements and exclusive GPU performance baseline. Apple M4 timings
+are diagnostic only and do not satisfy the named RTX 3090 gates. The user authorized proceeding with implementation on 2026-09-07 while
+retaining exclusive GPU and RTX 3090 performance qualification as final open
+gates. Remaining local baseline measurements stay explicitly open; additive
+contract work may proceed without changing the baseline production path.
+See Stage 0 evidence and repair handoff below.
 
 ## Goal
 
@@ -146,14 +154,14 @@ submission lookup, telemetry-driven readiness, or second production scheduler.
 
 Dependencies: none. Outcome: reviewable interfaces and an executable baseline.
 
-- [ ] Inventory receiver, shadow, GBuffer, retained-forward, translucent,
+- [x] Inventory receiver, shadow, GBuffer, retained-forward, translucent,
   preview/thumbnail, geometry-cache, shader compilation/cook, and recovery
   consumers of StaticMesh-specific prepared data; record exact migration owners.
-- [ ] Finalize collection context/envelope header ownership, typed factory
+- [x] Finalize collection context/envelope header ownership, typed factory
   binding operations, direct draw/instance semantics, participation vocabulary,
   payload lifetime, cache identities, and failure mapping. Resolve backend
   capability and shader-cook integration questions before Stage 1.
-- [ ] Define independent geometry and custom-factory qualification fixtures;
+- [x] Define independent geometry and custom-factory qualification fixtures;
   place them in existing registered test owners where possible. Define numeric
   image tolerances, representative scenes, CPU/memory/performance budgets, and
   sampling policy before changing production behavior.
@@ -163,6 +171,247 @@ Dependencies: none. Outcome: reviewable interfaces and an executable baseline.
 
 Completion: interface/failure/lifetime decisions and reproducible baseline
 evidence are recorded here; unresolved items blocking later stages are closed.
+
+
+#### Stage 0 decisions (2026-09-07)
+
+These are selected implementation contracts, not claims that the interfaces
+already exist. Paths below are repository-relative source ownership locations.
+
+| Consumer | Migration owner and obligation |
+| --- | --- |
+| Receiver and shadow preparation | Renderer `Private/Renderers/SceneRenderPreparation.cpp`, `StaticMeshRenderPreparation.{h,cpp}`, `SceneRenderPlan.h`: preserve one preparation path, per-view collection, post-sort indices and separate resolution. |
+| LOD and material extraction | Engine `Private/Rendering/StaticMeshSceneProxy.cpp` and `SplineMeshSceneProxy.cpp`: take over selection from Renderer `ViewPreparationMath.{h,cpp}` and section/material association from `StaticMeshRenderPreparation.cpp`; use one Engine-private asset helper for both providers. |
+| Geometry binding and sort/cache facts | Renderer `StaticMeshDrawExecution.{h,cpp}`, `MeshRendererShared.h`, `MeshRenderPreparationCommon.h`: replace LOD/section/local-factory dereferences and six-word section geometry sort facts with checked ranges and stable resource/layout identities. No separate persistent geometry cache was found in these consumers; existing shader/PSO caches are in `StaticMeshRenderer.cpp` and `GBufferRenderer.cpp`. |
+| Forward, retained-forward, translucency, masked shadow | Renderer `StaticMeshRenderer.{h,cpp}`, `StaticMeshDrawExecution.{h,cpp}`, `MeshRendererExecution.h`, `SurfaceMaterial.h`: pass policy remains Renderer-owned; factory supplies vertex stage and typed vertex bindings. |
+| GBuffer | Renderer `GBufferRenderer.{h,cpp}`, `GBufferRendering.{h,cpp}`, `BaseSceneRendering.cpp`: remove `EGBufferVertexDomain` admission/selection and use registered factory capabilities. |
+| Membership and visibility | Renderer `Scene.{h,cpp}`, `SceneInfo.h`, `SceneVisibility.{h,cpp}`, `DirectionalShadowView.{h,cpp}`: one authoritative primitive set; generic receiver/caster candidates, independent cascade selection, diagnostic-only family counters. |
+| Telemetry and recovery | Renderer `SceneRenderTelemetry.{h,cpp}`, `MeshRendererExecution.h`, `RendererResourceSlotCache.h`, `Resources/RendererResourceCoordinator.*`: preserve attempted/successful/rejected conservation, transactional replacement, retry and generation invalidation. |
+| Preview and thumbnails | DurinEd `Private/Preview/PreviewScene.cpp`, `Private/Thumbnail/ThumbnailPreviewScene.cpp`; StaticMeshEditor and MaterialEditor `Private/Thumbnail/*ThumbnailRenderer.cpp`: enter through the production scene path. Asset authoring/loading may stay concrete; audit thumbnail rejection statistics when diagnostics become generic. |
+| Shader compilation and cook | Renderer `MeshRendererShared.h`, `StaticMeshRenderer.cpp`, `GBufferRenderer.cpp`; RenderCore `Private/Shader/MaterialShader.cpp`, `ShaderCookedLibrary.cpp`; ShaderBuild `Private/ShaderLibraryProducer.cpp`: factory registration owns vertex shader descriptors/permutations and participates in deterministic inventory before freeze. |
+
+Header and API ownership:
+
+- RenderCore `Public/GeometrySubmission.h` will own checked resource views,
+  direct draw/instance ranges, topology, pass/capability identifiers and typed
+  submission outcomes. `Public/VertexFactory.h` will own factory identity,
+  parameter-layout compatibility and immutable binding interface declarations.
+- Engine `Public/Rendering/MeshBatch.h` will own `FMeshCollectionContext`,
+  `FMeshBatch`, and `FMeshBatchCollector`, because the envelope contains
+  `FMaterialRenderData`. `FPrimitiveSceneProxy` gains a const render-thread
+  `CollectMeshBatches(Context, Collector)` operation with an empty default.
+- Context contains primitive identity, local-to-world transform/world bounds,
+  normalized projected size plus fallback reason, forced-LOD policy and render
+  purpose. Renderer computes projection using its existing view math; no
+  `FSceneView`, scene frame, command list, component or reflected asset enters
+  the provider. Engine selects LOD/residency using these scalar facts.
+- Batches carry stable batch/element IDs, transform/bounds, value-retained
+  material data, factory type plus immutable binding reference, resource views,
+  topology/ranges and participation intent. Provider LOD diagnostics are optional.
+  Stage 1's single adapter may expose legacy selected resources to the old
+  prepared representation; that adapter and its concrete borrows must disappear
+  in Stage 2. Generic records never downcast a batch to recover an asset.
+
+Range, failure and backend decisions:
+
+- Preserve RHI `FRHIDrawArguments` / `FRHIDrawIndexedArguments` semantics:
+  counts are vertices or indices, `FirstVertex`/`FirstIndex` are element offsets,
+  `VertexOffset` is signed, and `FirstInstance`/`InstanceCount` are explicit.
+  Vulkan `VulkanContext.cpp::RHIDraw` and `RHIDrawIndexed` already forward all
+  these fields; this plan requires no new RHI operation or cook file format.
+- Validate byte offsets, strides, index formats, index/vertex bounds, topology
+  element divisibility and instance stream ranges before admission, using widened
+  arithmetic and subtraction-based bounds checks. Indexed vertex bounds include
+  the signed base-vertex offset. Empty ranges produce an explicit empty result;
+  overflow, invalid bounds/transform or inconsistent binding layouts are invalid
+  submissions. Conservative primitive culling for invalid bounds does not make
+  invalid batch data drawable.
+- Outcomes are `Submitted`, `Empty`, `Excluded`, `Unsupported`,
+  `InvalidSubmission`, and `ResourceFailure`. Material policy exclusions,
+  including translucent shadows, are not resource failures. An advertised
+  capability missing a shader or binding fails resolution. Optional GBuffer
+  exclusions retain existing forward routing; required feature failures feed
+  existing scene output transactions. Public counters keep their existing meaning.
+- Capabilities cover pass, topology, indexed/non-indexed and instance ranges.
+  Unsupported backend/factory combinations return `Unsupported` explicitly;
+  neither silently substitute a single instance nor treat an unsupported draw
+  as successful. Qualification on other backends remains open until executed.
+
+Factory binding, ownership and identity decisions:
+
+- Use a RenderCore polymorphic immutable binding object with virtual destruction,
+  a factory/layout identity and validated typed parameter operations; retain it
+  with `std::shared_ptr<const ...>`. Concrete typed payloads use their natural
+  alignment and destruction, without a byte arena, raw `void*`, or family variant.
+  Spline updates publish a new binding object; already collected frames retain
+  the previous object. Material data is captured by value at collection time.
+- Renderer registers a factory-owned mesh shader implementation keyed by the
+  public factory type. It provides pass compatibility, vertex shader compilation
+  descriptors and binding resolution using narrow transform/view uniform inputs.
+  Generic processors may invoke only these vertex operations; implementations
+  cannot record a pass or choose material/pass state. Registration validates
+  unique identity and compatible parameter layouts before use.
+- Asset buffer/factory borrows retain existing scene-command and asset-retirement
+  fence boundaries. Plans must not escape that borrow; independent providers
+  retain their resource owner explicitly. Resolved records retain RHI references
+  through command execution. Unregister/reload cannot destroy implementations
+  while resolved frames still reference them; drain those frames first.
+- Shader identity is material × factory stable type × shader/layout version ×
+  permutation × pass × target. PSOs additionally include vertex declaration,
+  raster/depth/blend/attachment state and shader generation. Resource binding
+  identity includes resource generation and immutable content revision; content
+  revision alone must not create a new PSO. Deterministic sort ties use primitive,
+  batch and element identity, never object addresses.
+- Factory-owned shader registration must complete before runtime inventory freeze.
+  Existing library serialization is retained; descriptors enter the existing
+  compilation/request lifecycle. Stage 2 extends `RenderShaderCookIntegrationTests`
+  to check deterministic complete factory/pass requests and runtime lookup with
+  ShaderBuild unloaded, rather than keeping its current fixed count of 15 as an
+  extensibility assumption. Material shader-map compilation and global runtime
+  inventory are distinct existing mechanisms and both require coverage.
+
+#### Frozen qualification fixtures and gates
+
+- Extend `RenderContractTests` with checked ranges/layout/capability tests and
+  `RendererSceneContractTests` with empty/multi-batch providers, mixed pass intent,
+  ordering, hidden/removal, invalid bounds, offscreen casters and snapshot lifetime.
+- Add a qualification-only provider in the existing
+  `StaticMeshRenderPreparationVulkanTests` owner. It owns independent vertex/index
+  buffers, two independently materialized elements and stable resource revisions;
+  it must never allocate or reference `FStaticMeshRenderData`, LOD resources or
+  sections. Exercise indexed, non-indexed, nonzero first-instance, multiple views,
+  material replacement, buffer recreation and detach through the production scene.
+- Add a second test factory with an immutable `float4` displacement/scale uniform,
+  a distinct layout/version and registered vertex shader. Verify color, GBuffer,
+  depth/masked-shadow deformation parity plus unsupported-pass outcomes. Share
+  only fixture helpers between the preparation, shadow and GBuffer test owners;
+  no test-only branch is allowed in production executors.
+- Representative comparisons: opaque/masked/translucent StaticMesh and bent
+  Spline; lit/unlit, retained-forward and GBuffer; near/far LOD transitions;
+  one/three cascades, offscreen casters; two views with different LOD policies;
+  before/after material and geometry updates. Use identical camera, asset bytes,
+  backend, driver, resolution and deterministic seed for each before/after pair.
+- At 1920×1080, RGBA8 comparisons allow channel error at most 2/255, with at most
+  0.1% of pixels exceeding that tolerance and none exceeding 8/255. Linear
+  GBuffer/depth readbacks allow absolute error 1e-5 for depth and 1e-4 for other
+  float channels; compare only valid covered pixels and require identical
+  coverage/masked silhouettes. Existing stricter fixture assertions still apply.
+- Performance sampling: exclusive quiet GPU lane, 30 warm-up frames then 120
+  measured frames, three consecutive runs, report median and p95 per run.
+  Require CPU preparation/resolution and GPU pass median/p95 each within 10% of
+  the same-device baseline. For baseline values below 100 microseconds, use an
+  absolute 10-microsecond allowance. Keep named RTX 3090 gates in the GBuffer
+  test unchanged; Apple GPU observations cannot qualify those named gates.
+- CPU allocations and peak retained preparation/binding bytes must remain within
+  10% of the baseline at fixed primitive/draw counts; no monotonic retained-memory
+  growth over 100 update/recreate/remove cycles. Attachment memory and resolved
+  draw counts must remain unchanged. Capture image bytes, device/driver metadata,
+  scene parameters, timings, allocation counts and retained bytes before Stage 1.
+  Missing measurements remain open gates, not zero-valued baselines.
+
+#### Stage 0 baseline evidence
+
+Host profile `macos-xcode-arm64`, preset `MacOS-arm64-Debug-DurinEditor`, Debug,
+Tracy disabled. Authorized GPU execution used Apple M4, Vulkan API 1.3.334,
+driver `0x28a1`, MoltenVK from Vulkan SDK 1.4.357.0. All builds completed
+successfully. No application-hosted test
+was requested or run. Commands were invoked from the checkout root.
+
+1. `./DevTool test '@domain=renderer+static-mesh+spline,kind=contract+feature+qualification' --mode qualification --timeout 600 --agent`
+   initially ran in the sandbox: 1/7 targets passed; six GPU targets failed at
+   RHI initialization (`VK_ERROR_INCOMPATIBLE_DRIVER`, Metal unavailable).
+   Log: `Build/.agent-state/logs/20260907-045522-660031-49430-ctest.log`.
+2. The same command was rerun with authorized sandbox elevation: 5/7 targets
+   passed. Passing targets: `SplineQualificationTests`,
+   `StaticMeshRenderPreparationVulkanTests`, `RendererResourceReloadVulkanTests`,
+   `HDRDisplayMappingQualificationTests`, `VolumetricCloudQualificationTests`.
+   `DirectionalShadowBaselineVulkanTests` and `GBufferQualificationTests` both
+   terminated with SIGTRAP in `VulkanPendingState.cpp:579`, validating sampled
+   `DirectionalShadowDepthArray`, set 0/binding 9. The diagnostic prints
+   expected/tracked access 16/16, but `FVulkanTextureStateTracker::Validate`
+   checks every subresource and reports only the first tracked value; equality
+   in this message does not prove the whole view is transitioned correctly.
+   Log: `Build/.agent-state/logs/20260907-045606-351748-50280-ctest.log`.
+   Test time 33.52 seconds. GPU timings are diagnostic: lane exclusivity was
+   not established. No passing shadow/GBuffer captures were obtained.
+3. `./DevTool test '@domain=renderer+static-mesh+spline,kind=contract+feature' --timeout 600 --agent`
+   passed 14/14 targets, including `RenderContractTests`,
+   `RendererSceneContractTests`, `StaticMeshTests`, `SplineTests`,
+   `EditorRenderingTests`, and `StaticMeshThumbnailTests`.
+   Log: `Build/.agent-state/logs/20260907-045650-764630-50617-ctest.log`.
+   DevTool qualification mode adds a qualification label filter even when the
+   selector also names ordinary kinds; therefore the ordinary lane was run
+   separately in one bounded invocation. Extra targets above are selected by
+   existing registry domain metadata, not separately scheduled test processes.
+
+#### Stage 0 baseline repair handoff (2026-09-07)
+
+The shadow/GBuffer SIGTRAP was a production graph declaration bug, not a
+MoltenVK capability failure. `DirectionalShadowRendering.cpp` declared all three
+array layers as managed depth attachments even for single-map rendering.
+Graph entry handoffs moved all three to depth-write access, but the actual render
+pass restored shader-read access only for layer 0. The other layers then failed
+whole-array descriptor validation. The declaration now uses the prepared view's
+actual `CascadeCount`; unused layers retain their imported shader-read state.
+No RHI validation was relaxed and no manual transition or extra pass was added.
+
+`DirectionalShadowBaselineVulkanTests` now checks the captured attachment range
+against actual cascade telemetry for single-map and three-cascade fixtures.
+The stale final graph transition-count expectation was also corrected from 1
+to 13: managed attachment entry handoffs are now counted by the graph compiler,
+in addition to the final sampled-depth/attachment boundary. The focused rerun
+had already matched every frozen image hash and failed only that old structural
+expectation; no image hash, image tolerance or timing threshold was changed.
+
+Validation on the same Debug/Apple M4/Vulkan environment:
+
+- `./DevTool test DirectionalShadowBaselineVulkanTests FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion --mode qualification --timeout 600 --agent`:
+  descriptor assertion gone; all frozen images matched; only stale transition
+  count failed before its correction. Log:
+  `Build/.agent-state/logs/20260907-050327-332098-52736-ctest.log`.
+- `./DevTool test '@domain=renderer+static-mesh+spline,kind=qualification' --mode qualification --timeout 600 --agent`:
+  passed 7/7 targets, including all three `DirectionalShadowBaselineVulkanTests`
+  cases and `GBufferQualificationTests`. GPU execution used authorized elevation.
+  Test time 47.30 seconds. Log:
+  `Build/.agent-state/logs/20260907-050410-352745-53503-ctest.log`.
+- `./DevTool test affected --timeout 600 --agent`: passed 6/6 targets:
+  `EditorRenderingTests`, `MaterialTests`, `RenderShaderCookIntegrationTests`,
+  `RendererSceneContractTests`, `SkyBoxTests`, `VolumetricCloudSceneContractTests`.
+  Log: `Build/.agent-state/logs/20260907-050527-829860-53717-ctest.log`.
+
+Remaining Stage 0 gates are the full frozen before/after image-pair coverage,
+allocation/retained-memory evidence and quiet-lane timing baseline. The native
+correctness failure is closed; this handoff does not claim performance
+qualification or completion of the geometry submission refactor.
+
+#### Stage 0 preparation sampling handoff (2026-09-07)
+
+`StaticMeshRenderPreparationVulkanTests.RecordsMixedGeometryPreparationBaseline`
+now constructs 64 primitives (32 StaticMesh, 32 bent Spline), each with four
+sections: two opaque, one masked, one translucent. It checks all 256 prepared
+draws on every sample and records three runs of 30 warm-up and 120 measured
+preparations. The timer covers preparation only, excluding queue dispatch,
+assertions, destruction, resolution and GPU execution. No timing acceptance
+threshold is applied to this diagnostic lane.
+
+On the existing Debug/Apple M4/Vulkan profile, median/p95 nanoseconds were
+7,130,395.5/7,247,792; 7,167,479/7,347,125; 7,142,583/7,265,875. Top-level prepared
+vector capacity was 274,960 bytes in every run. This is container storage only:
+allocator overhead, transitive material ownership, bindings, temporary sorting
+storage and process retention are excluded. It does not close the allocation
+count, full retained-memory or update/recreate/remove-cycle gates.
+
+Validation: `./DevTool test StaticMeshRenderPreparationVulkanTests --mode qualification --timeout 600 --agent`
+passed the whole target, including the added case. Receipt:
+`Build/.agent-state/logs/20260907-051115-088335-56781-ctest.log`.
+Per-run values are emitted in GoogleTest properties and standard output
+(CTest `Testing/Temporary/LastTest.log`); the values above preserve the baseline
+when CTest overwrites that temporary log.
+
+Decision change authorized by the user: exclusive GPU and named RTX 3090
+performance qualification may remain open until final acceptance rather than
+blocking Stage 1. This does not waive those gates or declare missing local
+measurements passed.
 
 ### Stage 1: Introduce geometry submission and adapt existing providers
 

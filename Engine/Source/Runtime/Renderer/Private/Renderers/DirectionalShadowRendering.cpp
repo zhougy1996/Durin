@@ -87,10 +87,16 @@ namespace Durin
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
 		Parameters->Completion = {.Value = DirectionalShadow};
 		if (Inputs.Shadow)
+		{
+			check(ShadowRecord != nullptr && ShadowRecord->View.CascadeCount > 0
+				&& ShadowRecord->View.CascadeCount <= DirectionalShadowCascadeCount);
+			// Only rendered layers receive the render pass's final read layout.
+			// Unused array layers must retain their imported shader-read state.
 			Parameters->Resources.DirectionalShadowOutput = {
 				.Texture = *Inputs.Shadow,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
-					DirectionalShadowCascadeCount}};
+					ShadowRecord->View.CascadeCount}};
+		}
 		(void)Graph.AddPass(Name, ERDGPassType::Graphics, std::move(Parameters),
 			[Renderer, StaticMeshes, Resolved,
 				Telemetry, ShadowRecord](FRHICommandListImmediate& Commands,
