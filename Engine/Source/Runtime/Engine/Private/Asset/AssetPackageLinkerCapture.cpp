@@ -80,13 +80,6 @@ namespace Durin::AssetPrivate
 			return FindStructByQualifiedName(QualifiedName);
 		}
 
-		auto ReflectedStructIdentity(const DStructBase* Struct) -> std::string
-		{
-			if (const auto* Class = Cast<DClass>(Struct)) return Class->GetQualifiedName().ToString();
-			if (const auto* ValueStruct = Cast<DStruct>(Struct)) return ValueStruct->GetQualifiedName().ToString();
-			return "<unknown>";
-		}
-
 		template<typename FVisitor>
 		auto VisitReflectedPropertySchema(DStructBase* Root,
 			std::unordered_set<const DStructBase*>& Visited, FVisitor& Visitor) -> bool
@@ -1199,9 +1192,6 @@ namespace Durin::AssetPrivate
 			return {Error, std::string(Archive.GetError())};
 		}
 
-		auto EncodeValue(const FCapturedNode& Node,
-			const FArchiveLogicalTypeDescriptor& Type, FByteWriter& Writer) -> bool;
-
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
 		{
 			if (!Object) return;
@@ -1210,13 +1200,6 @@ namespace Durin::AssetPrivate
 				Object, Object->GetPackage() && Object->GetPackage()->IsGraphPrivate()
 					? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly))
 				if (!Inner->IsTemplateObject()) GatherObjects(Inner, OutObjects);
-		}
-
-		auto HasFrozenObjectGraph(DObject* Root, std::span<DObject* const> Frozen) -> bool
-		{
-			std::vector<DObject*> Current;
-			GatherObjects(Root, Current);
-			return std::ranges::equal(Current, Frozen);
 		}
 
 		auto HasFrozenPackageGraph(DPackage* Package,

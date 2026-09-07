@@ -91,18 +91,6 @@ namespace Durin
 
 		constexpr float VectorTolerance = 1.0e-10f;
 
-
-
-
-		auto IsCanonicalStaticMeshHash(std::string_view Hash) -> bool
-		{
-			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
-				return Character >= '0' && Character <= '9'
-					|| Character >= 'a' && Character <= 'f';
-			});
-		}
-
-
 		auto ImportAxisVector(EStaticMeshImportAxis Axis, FVector3f& OutVector, uint32& OutComponent) -> bool
 		{
 			switch (Axis)

@@ -892,35 +892,6 @@ namespace Durin
 			}
 		}
 
-		auto ReadObjectReferenceValue(
-			FByteReader& Reader,
-			std::span<DObject* const> Objects,
-			DObject*& OutObject) -> FAssetResult
-		{
-			OutObject = nullptr;
-			uint8 ReferenceKind = 0;
-			if (!Reader.Read(ReferenceKind)) return Error(EAssetError::CorruptFile, "Truncated object reference.");
-			if (ReferenceKind == 0) return {};
-			if (ReferenceKind == 1)
-			{
-				uint64 Id = 0;
-				if (!Reader.Read(Id) || Id == 0 || Id > Objects.size())
-					return Error(EAssetError::InvalidObjectGraph, "Invalid internal object reference.");
-				OutObject = Objects[static_cast<size_t>(Id - 1)];
-				return {};
-			}
-			if (ReferenceKind == 2)
-			{
-				std::string PathString;
-				FObjectPath Path;
-				if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path))
-					return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-				return FAssetRuntimeState::Get().GetLoadService().LoadObject(
-					Path, nullptr, OutObject);
-			}
-			return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
-		}
-
 		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
 		{
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer, EObjectQueryScope::LiveOnly))
