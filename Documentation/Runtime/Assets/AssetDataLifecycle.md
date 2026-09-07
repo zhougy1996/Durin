@@ -357,6 +357,10 @@ roots before traversal. Redirectors are authoring-only: references are rewritten
 to final real identities and redirector packages are omitted. Missing targets,
 cycles, type mismatches, corrupt aliases, duplicate output identities, or
 incomplete reference projections fail before manifest publication.
+The coordinator captures external root stores once and passes their owned
+values explicitly to reachability. That overload does not invoke providers;
+it still inspects current package files and reflected types and therefore is
+not a pure Registry query or a complete Cook input snapshot.
 
 `FCookCoordinator` owns project Cook. Explicit roots augment the configured
 default Level and registered runtime roots, one asset-registry/reference

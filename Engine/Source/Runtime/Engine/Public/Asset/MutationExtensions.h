@@ -53,7 +53,9 @@ namespace Durin
 		auto operator==(const FAssetReferenceStoreCapture&) const -> bool = default;
 	};
 
-	// Returns an error if any provider cannot be inspected. Partial output must not be used.
+	// Owner-thread operation. Providers and their code must survive their capture
+	// callbacks. Registration changes during callbacks fail with StaleData and
+	// empty output; successful output owns its values and retains no providers.
 	ENGINE_API auto CaptureAssetReferenceStores(FAssetReferenceStoreCapture& OutCapture)
 		-> FAssetResult;
 
@@ -89,7 +91,8 @@ namespace Durin
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
-	// Unregister and finish active mutation/fix-up operations before destroying the store.
+	// Owner-thread registration. Unregister and finish active capture/mutation/
+	// fix-up callbacks before destroying the store or unloading provider code.
 	ENGINE_API auto RegisterAssetReferenceStore(
 		IAssetReferenceStore* Store) -> FAssetReferenceStoreHandle;
 

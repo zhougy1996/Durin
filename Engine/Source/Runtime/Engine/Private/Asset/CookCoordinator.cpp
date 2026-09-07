@@ -4,6 +4,7 @@
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/References.h"
+#include "Asset/MutationExtensions.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/References.h"
 #include "DObject/Class.h"
@@ -756,9 +757,14 @@ namespace Durin
 		});
 		Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 		const FAssetRegistrySnapshot Registry = CaptureAssetRegistrySnapshot();
+		FAssetReferenceStoreCapture ExternalRoots;
+		const FAssetResult RootCapture = CaptureAssetReferenceStores(ExternalRoots);
+		if (!RootCapture)
+			return Finish(ECookRunStatus::Failed, "external-root-capture-failed",
+				RootCapture.Message);
 		std::vector<FPackagePath> Packages;
 		const FAssetResult Reachability = BuildCookReachability(
-			Registry, Roots, Packages
+			Registry, ExternalRoots, Roots, Packages
 		);
 		if (!Reachability)
 			return Finish(ECookRunStatus::Failed, "discovery-failed", Reachability.Message);

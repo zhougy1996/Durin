@@ -1384,6 +1384,8 @@ namespace
 		)
 			-> Durin::FAssetResult override
 		{
+			++CaptureCount;
+			if (OnCapture) OnCapture();
 			OutSnapshot = {
 				.ProviderId = "Tests.MemoryReferenceStore",
 				.ProviderVersion = 1,
@@ -1424,6 +1426,8 @@ namespace
 		Durin::FPackagePath Path;
 		std::string ExpectedClass;
 		bool bCookRoot = false;
+		uint32 CaptureCount = 0;
+		std::function<void()> OnCapture;
 	};
 
 	class FScopedReferenceStoreRegistration
@@ -4036,6 +4040,51 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 		std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable
 	));
 	EXPECT_EQ(Reachable, (std::vector<Durin::FPackagePath>{CyclePath, OwnerPath}));
+}
+
+TEST(FPackageAssetTests, ExternalRootCaptureRejectsReentrantRegistrationChanges)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/CaptureRoot", Path));
+	FMemoryAssetReferenceStore First(Path, true);
+	FMemoryAssetReferenceStore Later(Path, true);
+	FScopedReferenceStoreRegistration FirstRegistration(&First);
+	FScopedReferenceStoreRegistration LaterRegistration(&Later);
+	First.OnCapture = [&] {
+		FirstRegistration.Reset();
+		LaterRegistration.Reset();
+	};
+	Durin::FAssetReferenceStoreCapture Capture;
+	Capture.Stores.push_back({.ProviderId = "discard-previous-output"});
+	const auto Result = Durin::CaptureAssetReferenceStores(Capture);
+	EXPECT_EQ(Result.Error, Durin::EAssetError::StaleData);
+	EXPECT_TRUE(Capture.Stores.empty());
+	EXPECT_EQ(First.CaptureCount, 1u);
+	EXPECT_EQ(Later.CaptureCount, 0u);
+}
+
+TEST(FPackageAssetTests, CookReachabilityUsesOwnedExternalRootsAfterProviderRetirement)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/CapturedExternalRoot", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
+	Durin::FAssetReferenceStoreCapture Capture;
+	{
+		FMemoryAssetReferenceStore Store(Path, true);
+		FScopedReferenceStoreRegistration Registration(&Store);
+		ASSERT_TRUE(Durin::CaptureAssetReferenceStores(Capture));
+		EXPECT_EQ(Store.CaptureCount, 1u);
+	}
+	const auto Registry = Durin::CaptureAssetRegistrySnapshot();
+	std::vector<Durin::FPackagePath> Reachable;
+	ASSERT_TRUE(Durin::BuildCookReachability(Registry, Capture, {}, Reachable));
+	EXPECT_EQ(Reachable, std::vector<Durin::FPackagePath>{Path});
+	ASSERT_TRUE(Durin::BuildCookReachability(Registry, {}, Reachable));
+	EXPECT_TRUE(Reachable.empty());
 }
 
 TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedBytes)

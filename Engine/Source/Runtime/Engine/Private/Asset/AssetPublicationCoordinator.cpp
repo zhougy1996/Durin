@@ -13,7 +13,6 @@
 namespace Durin
 {
 	using AssetPrivate::FMutationPackageMetadata;
-	using AssetPrivate::GetAssetReferenceStoreRegistry;
 	using AssetPrivate::ValidateMutationPackageMetadata;
 
 	namespace
@@ -134,6 +133,25 @@ namespace Durin
 	) -> FAssetResult
 	{
 		OutPackages.clear();
+		FAssetReferenceStoreCapture ExternalRoots;
+		FAssetResult Result = CaptureAssetReferenceStores(ExternalRoots);
+		if (!Result)
+		{
+			Result.Message = std::format("CookReachabilityExternalRootProviderFailed: {}",
+				Result.Message);
+			return Result;
+		}
+		return BuildCookReachability(RegistrySnapshot, ExternalRoots, Roots, OutPackages);
+	}
+
+	auto BuildCookReachability(
+		const FAssetRegistrySnapshot& RegistrySnapshot,
+		const FAssetReferenceStoreCapture& ExternalRoots,
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
+	) -> FAssetResult
+	{
+		OutPackages.clear();
 		const FAssetCatalogSnapshot& Catalog = RegistrySnapshot.Catalog;
 		const FAssetReferenceIndex& ReferenceIndex = RegistrySnapshot.References;
 		struct FPendingCookPath
@@ -146,21 +164,8 @@ namespace Durin
 		Pending.reserve(Roots.size());
 		for (const FPackagePath& Root : Roots)
 			Pending.push_back({Root, {}, "explicit Cook root"});
-		for (const auto [Handle, Store] : GetAssetReferenceStoreRegistry().Stores)
+		for (const FAssetReferenceStoreSnapshot& Snapshot : ExternalRoots.Stores)
 		{
-			(void)Handle;
-			if (!Store) continue;
-
-			FAssetReferenceStoreSnapshot Snapshot;
-			FAssetResult StoreResult = Store->CaptureSnapshot(Snapshot);
-			if (!StoreResult)
-			{
-				StoreResult.Message = std::format(
-					"CookReachabilityExternalRootProviderFailed: {}",
-					StoreResult.Message
-				);
-				return StoreResult;
-			}
 			for (const FAssetReferenceStoreOccurrence& Occurrence :
 				 Snapshot.Occurrences)
 				if (Occurrence.bCookRoot)

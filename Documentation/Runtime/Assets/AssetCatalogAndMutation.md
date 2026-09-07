@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, rebuildable catalog/reference project
 
 Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-07
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -195,6 +195,12 @@ inspection remain Engine mechanisms. External reference-store registration stays
 in Engine for shared Cook/fix-up use. `CaptureAssetReferenceStores` returns owned
 snapshots under provider gates; AssetTools interprets them as deletion warnings
 and revalidates their fingerprints and registration revision before execution.
+Capture and registration run on the object owner thread. Capture copies the
+registration list before invoking providers and fails with `StaleData` and empty
+output if a callback changes that list, before calling another provider. Owners
+must keep their store and native code alive until active callbacks return.
+Successful snapshots retain owned values and remain usable after unregistration;
+the registration revision is an availability check, not a provider lifetime pin.
 
 Deletion never rewrites persistent paths. Preparation evaluates the selected
 target, complete direct/upstream alias closure, unified reference projection,

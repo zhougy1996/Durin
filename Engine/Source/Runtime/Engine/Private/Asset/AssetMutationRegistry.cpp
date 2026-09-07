@@ -23,7 +23,10 @@ namespace Durin
 		OutCapture = {};
 		const auto& Registry = AssetPrivate::GetAssetReferenceStoreRegistry();
 		FAssetReferenceStoreCapture Capture{.RegistryRevision = Registry.Revision};
-		for (const auto& [Handle, Store] : Registry.Stores)
+		// Callbacks may retire registrations. Never keep a live map iterator across
+		// one, and stop before dereferencing another borrowed provider after a change.
+		const auto Stores = Registry.Stores;
+		for (const auto& [Handle, Store] : Stores)
 		{
 			(void)Handle;
 
@@ -32,6 +35,9 @@ namespace Durin
 			FAssetReferenceStoreSnapshot Snapshot;
 			const FAssetResult Result = Store->CaptureSnapshot(Snapshot);
 			if (!Result) return Result;
+			if (Registry.Revision != Capture.RegistryRevision)
+				return {EAssetError::StaleData,
+					"Asset reference store registrations changed during capture."};
 			Capture.Stores.push_back(std::move(Snapshot));
 		}
 		OutCapture = std::move(Capture);

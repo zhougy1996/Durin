@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	struct FAssetReferenceStoreCapture;
 	enum class EAssetReferenceRouteKind : uint8
 	{
 		FixedArray,
@@ -58,6 +59,14 @@ namespace Durin
 	) -> FAssetResult;
 	ENGINE_API auto BuildCookReachability(
 		const FAssetRegistrySnapshot& RegistrySnapshot,
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
+	) -> FAssetResult;
+	// Uses owned external roots without invoking providers. Still inspects current
+	// package files and reflected types; this is not a pure Registry query.
+	ENGINE_API auto BuildCookReachability(
+		const FAssetRegistrySnapshot& RegistrySnapshot,
+		const FAssetReferenceStoreCapture& ExternalRoots,
 		std::span<const FPackagePath> Roots,
 		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult;
