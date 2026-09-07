@@ -242,7 +242,7 @@ namespace Durin
 			bool bBuildAuthoredCollision = true,
 			FStaticMeshAuthoredCandidate* AuthoredCandidate = nullptr,
 			DAssetImportData* PreparedImportData = nullptr) -> bool;
-		friend auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
+		friend ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
 			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;

@@ -111,10 +111,10 @@ namespace Durin
 		FStaticMeshBuildResult Render;
 		FStaticMeshCollisionBuildResult Collision;
 		friend class DStaticMesh;
-		friend auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest,
+		friend ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>&, std::string&,
 			const FStaticMeshBuildExecutionControl&) -> FStaticMeshBuildOutcome;
-		friend auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
+		friend ENGINE_API auto ApplyStaticMeshAuthoredCandidate(DStaticMesh&,
 			std::unique_ptr<FStaticMeshAuthoredCandidate>, const FStaticMeshReconciliationSnapshot&,
 			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
 	};
