@@ -5,6 +5,19 @@
 
 namespace Durin::Editor::ContentBrowser::Private::ContentBrowserChanges
 {
+	// Virtual asset paths have slash-delimited, case-sensitive identities on every host.
+	inline auto AssetDirectory(std::string_view Directory) -> std::string_view
+	{
+		while (Directory.size() > 1 && Directory.ends_with('/')) Directory.remove_suffix(1);
+		return Directory;
+	}
+	inline auto WithinAssetDirectory(std::string_view Path, std::string_view Directory) -> bool
+	{
+		Directory = AssetDirectory(Directory);
+		return !Directory.empty() && !Path.empty() && (Path == Directory
+			|| (Path.starts_with(Directory) && (Directory == "/"
+				|| (Path.size() > Directory.size() && Path[Directory.size()] == '/'))));
+	}
 	inline auto SamePath(std::string_view A, std::string_view B) -> bool
 	{
 		if (A.empty() || B.empty()) return false;

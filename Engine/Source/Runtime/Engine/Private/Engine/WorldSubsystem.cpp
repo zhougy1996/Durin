@@ -15,8 +15,10 @@ namespace Durin
 		struct FRegistrationEntry { uint64 Identity; FWorldSubsystemDescriptor Descriptor; };
 		auto Registry() -> std::vector<FRegistrationEntry>&
 		{
-			static std::vector<FRegistrationEntry> Entries;
-			return Entries;
+			// Module-owned registration tokens can retire during static teardown.
+			// Keep their registry alive until operating-system reclamation, as for modular features.
+			static auto* Entries = new std::vector<FRegistrationEntry>();
+			return *Entries;
 		}
 		uint64 NextRegistration = 0;
 	}

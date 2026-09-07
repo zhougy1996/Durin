@@ -163,18 +163,25 @@ namespace Durin::Editor::ContentBrowser::Private
 {
 	TEST(FContentBrowserPanelExtensionTests, SelectionMigratesOrderedRenamesAndRemovesDeletedSubtrees)
 	{
+		const auto Root = Testing::GetTestWorkDirectory();
+		const auto A = (Root / "A").generic_string();
+		const auto B = (Root / "B").generic_string();
+		const auto C = (Root / "C").generic_string();
 		FContentBrowserSelection State;
-		State.Selected = {"/Game/A/Asset.Asset", "/physical/A/file.txt", "/Game/AB/Keep.Keep"};
+		State.Selected = {"/Game/A/Asset.Asset", A + "/file.txt", "/Game/AB/Keep.Keep",
+			"/Game/a/Case.Case", "/Game/A.Package"};
 		State.Anchor = "/Game/A/Asset.Asset";
 		State.Apply({.Changes = {
-			{EContentChangeKind::Renamed, "/physical/A", "/physical/B", "/Game/A/", "/Game/B/", true},
-			{EContentChangeKind::Renamed, "/physical/B", "/physical/C", "/Game/B/", "/Game/C/", true}}});
+			{EContentChangeKind::Renamed, A, B, "/Game/A/", "/Game/B/", true},
+			{EContentChangeKind::Renamed, B, C, "/Game/B", "/Game/C", true}}});
 		EXPECT_TRUE(State.Selected.contains("/Game/C/Asset.Asset"));
-		EXPECT_TRUE(State.Selected.contains("/physical/C/file.txt"));
+		EXPECT_TRUE(State.Selected.contains(C + "/file.txt"));
 		EXPECT_TRUE(State.Selected.contains("/Game/AB/Keep.Keep"));
+		EXPECT_TRUE(State.Selected.contains("/Game/a/Case.Case"));
+		EXPECT_TRUE(State.Selected.contains("/Game/A.Package"));
 		EXPECT_EQ(State.Anchor, "/Game/C/Asset.Asset");
-		State.Apply({.Changes = {{EContentChangeKind::Removed, "/physical/C", {}, "/Game/C/", {}, true}}});
-		EXPECT_EQ(State.Selected.size(), 1u);
+		State.Apply({.Changes = {{EContentChangeKind::Removed, C, {}, "/Game/C/", {}, true}}});
+		EXPECT_EQ(State.Selected.size(), 3u);
 		EXPECT_TRUE(State.Anchor.empty());
 	}
 }

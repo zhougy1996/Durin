@@ -5,6 +5,7 @@
 #include "Operations/ContentBrowserOperationService.h"
 
 #include "Asset/Relocation.h"
+#include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Publication.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
@@ -31,6 +32,20 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::Editor::ContentBrowser::Private;
+
+	// The compiling aggregate is a process authority and cannot restart between cases.
+	class FContentBrowserCompilationEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			ASSERT_TRUE(InitializeAssetCompilingManager());
+		}
+		auto TearDown() -> void override { ShutdownAssetCompilingManager(); }
+	};
+	[[maybe_unused]] testing::Environment* GContentBrowserCompilationEnvironment =
+		testing::AddGlobalTestEnvironment(new FContentBrowserCompilationEnvironment);
 
 	class FContentBrowserModelTests : public testing::Test
 	{
@@ -2927,7 +2942,7 @@ TEST_F(FContentBrowserModelTests, ScopedRefreshDistinguishesRecursiveSearchAndDi
 TEST_F(FContentBrowserModelTests, DirectoryRenameMigratesNavigationAndDeletionFallsBack)
 {
 	const auto A = Root / "Content/A";
-	const auto B = Root / "Content/B";
+	const auto B = Root / "Content/Renamed";
 	std::filesystem::create_directories(A / "Nested");
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));

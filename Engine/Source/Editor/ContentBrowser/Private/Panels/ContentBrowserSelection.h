@@ -42,23 +42,21 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Id.empty()) return;
 			if (Change.Kind == EContentChangeKind::Renamed)
 			{
-				if (!Change.NewAssetPath.empty() && ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath))
+				if (!Change.bDirectory && !Change.NewAssetPath.empty() && ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath))
 					Id = Change.NewAssetPath + Id.substr(Change.OldAssetPath.size());
 				else if (Change.bDirectory && !Change.OldAssetPath.empty() && !Change.NewAssetPath.empty()
-					&& ContentBrowserChanges::Within(Id, Change.OldAssetPath))
+					&& ContentBrowserChanges::WithinAssetDirectory(Id, Change.OldAssetPath))
 				{
-					auto VirtualChange = Change;
-					VirtualChange.OldPhysicalPath = Change.OldAssetPath;
-					VirtualChange.NewPhysicalPath = Change.NewAssetPath;
-					ContentBrowserChanges::RemapPhysical(Id, VirtualChange);
+					Id = std::string(ContentBrowserChanges::AssetDirectory(Change.NewAssetPath))
+						+ Id.substr(ContentBrowserChanges::AssetDirectory(Change.OldAssetPath).size());
 				}
 				else ContentBrowserChanges::RemapPhysical(Id, Change);
 			}
 			else if (Change.Kind == EContentChangeKind::Removed
-				&& (ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath)
+				&& ((!Change.bDirectory && ContentBrowserChanges::MatchesAsset(Id, Change.OldAssetPath))
 					|| ContentBrowserChanges::SamePath(Id, Change.OldPhysicalPath)
 					|| (Change.bDirectory && (ContentBrowserChanges::Within(Id, Change.OldPhysicalPath)
-						|| ContentBrowserChanges::Within(Id, Change.OldAssetPath))))) Id.clear();
+						|| ContentBrowserChanges::WithinAssetDirectory(Id, Change.OldAssetPath))))) Id.clear();
 		}
 		auto Apply(const FContentChangeBatch& Batch) -> void
 		{

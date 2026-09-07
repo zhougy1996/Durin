@@ -300,9 +300,12 @@ namespace Durin
 		const bool bRequiresDeferredOpaque =
 			View.Settings.Mode.RenderMode == ERenderMode::Lit
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
-		Renderer.StaticMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Receiver.StaticMeshes,
-			ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
+		const FGeometryResolutionResult GeometryResolution =
+			Renderer.StaticMeshRenderer.PrepareResources_RenderThread(
+				CommandList, PreparedView.Receiver.StaticMeshes,
+				ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
+		// A partial receiver cannot satisfy the graph's declared attachment results.
+		if (!GeometryResolution) return ERenderViewResult::RendererResourcesUnavailable;
 		if (PreparedView.DirectionalShadow)
 		{
 			ResolvedSceneResources.DirectionalShadow.emplace();

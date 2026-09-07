@@ -251,6 +251,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::DStaticMesh* Sphere = Pool.GetSphereMesh();
 		ASSERT_NE(Sphere, nullptr);
 		CaptureSphere = Sphere;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
 		ASSERT_NE(CaptureMesh, nullptr);
