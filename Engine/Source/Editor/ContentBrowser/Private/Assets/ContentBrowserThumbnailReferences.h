@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetThumbnail.h"
+#include "AssetRegistry/Catalog.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -37,9 +38,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
+		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
+		auto GetAssetReferenceCountForTesting() const -> size_t { return AssetThumbnails.size(); }
 
 	private:
 		std::unique_ptr<FSourceImageThumbnailCache> SourceImages;
+		std::unordered_map<std::string, FAssetDependencyClosureSnapshot> Dependencies;
+		std::unordered_map<std::string, std::string> SourcePaths;
 		std::unordered_map<std::string, std::unique_ptr<::Durin::Editor::FAssetThumbnail>> AssetThumbnails;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

@@ -1,4 +1,5 @@
 #include "Assets/ContentBrowserThumbnailReferences.h"
+#include "Panels/ContentBrowserChanges.h"
 
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -35,6 +36,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Request.SourcePhysicalPath.empty())
 		{
 			AssetThumbnails.erase(std::string(Request.Identity));
+			SourcePaths[std::string(Request.Identity)] = Request.SourcePhysicalPath;
 			SourceImages->Request({
 				.Identity = Request.Identity,
 				.PhysicalPath = Request.SourcePhysicalPath,
@@ -44,6 +46,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			return;
 		}
 		if (!Request.Asset) return;
+		if (!Dependencies.contains(std::string(Request.Identity)))
+			Dependencies.emplace(std::string(Request.Identity), CaptureAssetDependencyClosure(Request.Asset->AssetPath.GetPackagePath()));
 		auto& Thumbnail = AssetThumbnails[std::string(Request.Identity)];
 		if (!Thumbnail)
 			Thumbnail = std::make_unique<::Durin::Editor::FAssetThumbnail>(*Request.Asset);
@@ -72,11 +76,42 @@ namespace Durin::Editor::ContentBrowser::Private
 		SourceImages->CancelPendingRequests();
 		// Releasing this panel's references cannot cancel another panel's entries.
 		AssetThumbnails.clear();
+		Dependencies.clear();
+	}
+
+	auto FContentBrowserThumbnailReferences::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
+	{
+		std::erase_if(SourcePaths, [&](const auto& Entry) {
+			const bool Affected = Changes.bFullRefresh || std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+				return ContentBrowserChanges::SamePath(Entry.second, Change.OldPhysicalPath)
+					|| ContentBrowserChanges::SamePath(Entry.second, Change.NewPhysicalPath)
+					|| (Change.bDirectory && ContentBrowserChanges::Within(Entry.second, Change.OldPhysicalPath));
+			});
+			if (Affected) SourceImages->Invalidate(Entry.first);
+			return Affected;
+		});
+		std::erase_if(AssetThumbnails, [&](auto& Entry) {
+			const auto It = Dependencies.find(Entry.first);
+			const bool Affected = Changes.bFullRefresh || It == Dependencies.end() || !It->second
+				|| std::ranges::any_of(Changes.Changes, [&](const auto& Change) {
+					if (ContentBrowserChanges::MatchesAsset(Entry.first, Change.OldAssetPath)
+						|| ContentBrowserChanges::MatchesAsset(Entry.first, Change.NewAssetPath)) return true;
+					return std::ranges::any_of(It->second.Assets, [&](const auto& Asset) {
+						return ContentBrowserChanges::SamePath(Asset.PhysicalPath, Change.OldPhysicalPath)
+							|| ContentBrowserChanges::SamePath(Asset.PhysicalPath, Change.NewPhysicalPath)
+							|| (Change.bDirectory && ContentBrowserChanges::Within(Asset.PhysicalPath, Change.OldPhysicalPath));
+					});
+				});
+			if (Affected) { Entry.second->Refresh(); Dependencies.erase(Entry.first); }
+			return Affected;
+		});
 	}
 
 	auto FContentBrowserThumbnailReferences::Clear() -> void
 	{
 		SourceImages->Clear();
+		SourcePaths.clear();
 		AssetThumbnails.clear();
+		Dependencies.clear();
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

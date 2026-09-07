@@ -86,10 +86,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		ReconciliationState->SynchronizedRevision = MountedContentRevision;
 		ReconciliationState->FailedRevision.reset();
-		CompleteReconciliation(
-			MountedContentRevision,
-			RefreshPublishedContent,
-			GetRegistryRevision);
+		RefreshPublishedContent({.bFullRefresh = true});
+		ObservedMountedContentRevision = MountedContentRevision;
+		ObservedAssetRegistryRevision = GetRegistryRevision();
 		return {};
 	}
 
@@ -97,7 +96,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 AssetRegistryRevision,
 		const FRefreshPublishedContent& RefreshPublishedContent) -> void
 	{
-		RefreshPublishedContent();
+		RefreshPublishedContent(CaptureImpact(ObservedMountedContentRevision, AssetRegistryRevision));
 		ObservedAssetRegistryRevision = AssetRegistryRevision;
 	}
 
@@ -106,8 +105,25 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FRefreshPublishedContent& RefreshPublishedContent,
 		const FGetRegistryRevision& GetRegistryRevision) -> void
 	{
-		RefreshPublishedContent();
+		const uint64 CatalogRevision = GetRegistryRevision();
+		RefreshPublishedContent(CaptureImpact(MountedContentRevision, CatalogRevision));
 		ObservedMountedContentRevision = MountedContentRevision;
-		ObservedAssetRegistryRevision = GetRegistryRevision();
+		ObservedAssetRegistryRevision = CatalogRevision;
+	}
+
+	auto FContentBrowserRefreshCoordinator::CaptureImpact(uint64 MountedRevision, uint64 CatalogRevision) const
+		-> FContentChangeBatch
+	{
+		FContentChangeBatch Result;
+		const auto Append = [&](uint64 From, uint64 To, const FCaptureChanges& Capture) {
+			if (From == To) return;
+			const auto Batch = Capture ? Capture(From) : FContentChangeBatch{.bFullRefresh = true};
+			Result.bFullRefresh |= Batch.bFullRefresh || Batch.FromRevision != From || Batch.ToRevision != To;
+			Result.Changes.insert(Result.Changes.end(), Batch.Changes.begin(), Batch.Changes.end());
+		};
+		// Apply explicit rename mappings before catalog removals of the old identity.
+		Append(ObservedMountedContentRevision, MountedRevision, CaptureMounted);
+		Append(ObservedAssetRegistryRevision, CatalogRevision, CaptureCatalog);
+		return Result;
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

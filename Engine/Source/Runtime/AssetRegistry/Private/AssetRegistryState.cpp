@@ -454,6 +454,12 @@ namespace Durin
 		return Revision;
 	}
 
+	auto FAssetRegistryState::CaptureChanges(uint64 FromRevision) const -> FContentChangeBatch
+	{
+		std::shared_lock Lock(Mutex);
+		return Changes.Read(FromRevision, Revision);
+	}
+
 	auto FAssetRegistryState::Publish(
 		FAssetRegistryPublication Publication) -> FAssetRegistryResult
 	{
@@ -472,6 +478,20 @@ namespace Durin
 			References.Errors = std::move(Publication.ReferenceErrors);
 			return {};
 		}
+		FContentChangeBatch Batch{Revision, Revision + 1};
+		for (const auto& [Path, Before] : Assets)
+		{
+			const auto It = Publication.Assets.find(Path);
+			if (It != Publication.Assets.end() && It->second == Before) continue;
+			Batch.Changes.push_back({It == Publication.Assets.end()
+				? EContentChangeKind::Removed : EContentChangeKind::Modified,
+				Before.PhysicalPath, It == Publication.Assets.end() ? "" : It->second.PhysicalPath,
+				Path.ToString(), It == Publication.Assets.end() ? "" : Path.ToString()});
+		}
+		for (const auto& [Path, After] : Publication.Assets)
+			if (!Assets.contains(Path))
+				Batch.Changes.push_back({EContentChangeKind::Added, {}, After.PhysicalPath, {}, Path.ToString()});
+		Changes.Append(std::move(Batch));
 		Assets = std::move(Publication.Assets);
 		References.Edges = std::move(Publication.ReferenceEdges);
 		References.SourceFingerprints = std::move(Publication.ReferenceFingerprints);
@@ -550,6 +570,11 @@ namespace Durin
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot
 	{
 		return AssetPrivate::GetAssetRegistryState().CaptureDependencyClosure(Root);
+	}
+
+	auto CaptureAssetCatalogChanges(uint64 FromRevision) -> FContentChangeBatch
+	{
+		return AssetPrivate::GetAssetRegistryState().CaptureChanges(FromRevision);
 	}
 
 	auto GetAssetCatalogRevision() -> uint64

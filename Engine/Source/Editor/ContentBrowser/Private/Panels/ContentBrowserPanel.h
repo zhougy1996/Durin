@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Panels/ContentBrowserSelection.h"
+
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Operations/ContentBrowserOperationService.h"
@@ -47,6 +49,16 @@ namespace Durin::Editor::ContentBrowser::Private
 				InMountedContentReconciliationState,
 			FTaskScopeToken InThumbnailTaskScope);
 		~FContentBrowserPanel() override;
+		auto SetContentChangeServices(std::function<FContentChangeBatch(uint64)> Capture,
+			std::function<void(FContentChangeBatch)> Notify) -> void
+		{
+			CaptureMountedContentChanges = std::move(Capture);
+			RefreshCoordinator.SetChangeSources(CaptureMountedContentChanges, CaptureAssetCatalogChanges);
+			Model.SetMountedContentValidation(GetMountedContentMutationRevision,
+				[this] { return RefreshCoordinator.GetObservedMountedContentRevision(); });
+			Operations.SetScopedContentNotifier(std::move(Notify));
+		}
+
 
 		auto TickWhenHidden() -> void override;
 		auto DrawContents(bool bAllowAssetMutation) -> void override;
@@ -68,6 +80,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto DrawBrowserContents() -> void;
 		auto Refresh(bool bRescanRegistry) -> void;
 		auto RefreshPublishedContent() -> void;
+		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> void;
 		auto PublishMountedContentMutation() -> void;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
@@ -140,14 +153,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		::Durin::Editor::ContentBrowser::FSavePresentationSettings SavePresentationSettings;
 		FOpenAsset OpenAsset;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
+		std::function<FContentChangeBatch(uint64)> CaptureMountedContentChanges;
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
 		FQueryReimport QueryReimport;
 		FReimport Reimport;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
 		FContentBrowserOperationService Operations;
-		std::unordered_set<std::string> Selection;
-		std::string SelectionAnchor;
+		FContentBrowserSelection SelectionState;
 		std::array<char, 256> SearchBuffer{};
 		bool bFocusSearch = false;
 		EContentBrowserViewMode ViewMode = EContentBrowserViewMode::Grid;

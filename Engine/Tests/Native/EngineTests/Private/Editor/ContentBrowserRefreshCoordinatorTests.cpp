@@ -83,7 +83,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 		++ScanCount;
 		return Durin::FAssetResult{};
 	};
-	const auto Refresh = [&] { ++RefreshCount; };
+	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
 	ASSERT_TRUE(Coordinator.Synchronize(
@@ -108,7 +108,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 		++RegistryRevision;
 		return Durin::FAssetResult{};
 	};
-	const auto Refresh = [&] { ++RefreshCount; };
+	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
 	ASSERT_TRUE(Coordinator.Synchronize(
@@ -148,10 +148,10 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 
 	ASSERT_TRUE(First.Synchronize(
 		6, RegistryRevision, Reconcile,
-		[&] { ++FirstRefreshCount; }, GetRegistryRevision));
+		[&](const Durin::FContentChangeBatch&) { ++FirstRefreshCount; }, GetRegistryRevision));
 	ASSERT_TRUE(Second.Synchronize(
 		6, RegistryRevision, Reconcile,
-		[&] { ++SecondRefreshCount; }, GetRegistryRevision));
+		[&](const Durin::FContentChangeBatch&) { ++SecondRefreshCount; }, GetRegistryRevision));
 	EXPECT_EQ(ScanCount, 1);
 	EXPECT_EQ(FirstRefreshCount, 1);
 	EXPECT_EQ(SecondRefreshCount, 1);
@@ -173,7 +173,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 		++RegistryRevision;
 		return Durin::FAssetResult{};
 	};
-	const auto Refresh = [&] { ++RefreshCount; };
+	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [&] { return RegistryRevision; };
 
 	EXPECT_FALSE(Coordinator.Synchronize(
@@ -212,7 +212,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 				Durin::EAssetError::IoError, "forced scan failure"};
 		return Durin::FAssetResult{};
 	};
-	const auto Refresh = [&] { ++RefreshCount; };
+	const auto Refresh = [&](const Durin::FContentChangeBatch&) { ++RefreshCount; };
 	const auto GetRegistryRevision = [] { return uint64{40}; };
 
 	EXPECT_FALSE(Coordinator.Synchronize(
@@ -223,4 +223,70 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	EXPECT_EQ(ScanCount, 2);
 	EXPECT_EQ(RefreshCount, 1);
 	EXPECT_EQ(Coordinator.GetObservedMountedContentRevision(), 10);
+}
+
+TEST(FContentBrowserRefreshCoordinatorTests, ChangeJournalReadersAreIndependentAndGapsAreExplicit)
+{
+	using namespace Durin;
+	FContentChangeJournal Journal(2, 2);
+	Journal.Append({1, 2, false, {{EContentChangeKind::Added, {}, "/A/file"}}});
+	EXPECT_EQ(Journal.Read(1, 2).Changes.size(), 1u);
+	EXPECT_EQ(Journal.Read(1, 2).Changes.size(), 1u);
+	Journal.Append({2, 3, false, {{EContentChangeKind::Renamed, "/A/file", "/B/file"}}});
+	EXPECT_EQ(Journal.Read(1, 3).Changes.size(), 2u);
+	Journal.Append({3, 4, false, {}});
+	EXPECT_TRUE(Journal.Read(1, 4).bFullRefresh);
+	EXPECT_FALSE(Journal.Read(2, 4).bFullRefresh);
+	Journal.Append({4, 5, false, {{}, {}, {}}});
+	EXPECT_TRUE(Journal.Read(4, 5).bFullRefresh);
+	EXPECT_FALSE(Journal.Read(5, 5).bFullRefresh);
+}
+
+TEST(FContentBrowserRefreshCoordinatorTests, ScopedNotificationsRetainOrderedMappingsAndLegacyFallback)
+{
+	using namespace Durin;
+	Tests::FTestTransactorOwner Transactions;
+	const uint64 Start = Transactions->GetMountedContentMutationRevision();
+	Transactions->NotifyMountedContentMutation({.Changes = {
+		{EContentChangeKind::Renamed, "/A", "/B", {}, {}, true}}});
+	Transactions->NotifyMountedContentMutation({.Changes = {
+		{EContentChangeKind::Renamed, "/B", "/C", {}, {}, true}}});
+	const auto First = Transactions->CaptureMountedContentChanges(Start);
+	const auto Second = Transactions->CaptureMountedContentChanges(Start);
+	ASSERT_FALSE(First.bFullRefresh);
+	ASSERT_EQ(First.Changes.size(), 2u);
+	EXPECT_EQ(First.Changes[0].OldPhysicalPath, "/A");
+	EXPECT_EQ(First.Changes[1].NewPhysicalPath, "/C");
+	EXPECT_EQ(Second.Changes.size(), First.Changes.size());
+	Transactions->NotifyMountedContentMutation();
+	EXPECT_TRUE(Transactions->CaptureMountedContentChanges(Start).bFullRefresh);
+}
+
+TEST(FContentBrowserRefreshCoordinatorTests, SharedReconciliationKeepsIndependentScopedCursors)
+{
+	using namespace Durin;
+	auto Shared = std::make_shared<FMountedContentReconciliationState>();
+	FContentBrowserRefreshCoordinator First(1, 1, Shared), Second(1, 1, Shared);
+	FContentChangeJournal Mounted;
+	uint64 Revision = 2;
+	Mounted.Append({1, 2, false, {{EContentChangeKind::Renamed, "/A", "/B", {}, {}, true}}});
+	const auto Capture = [&](uint64 From) { return Mounted.Read(From, Revision); };
+	First.SetChangeSources(Capture, {});
+	Second.SetChangeSources(Capture, {});
+	int Scans = 0;
+	const auto Reconcile = [&] { ++Scans; return FAssetResult{}; };
+	FContentChangeBatch FirstChanges, SecondChanges;
+	ASSERT_TRUE(First.Synchronize(Revision, 1, Reconcile,
+		[&](const auto& Batch) { FirstChanges = Batch; }, [] { return uint64{1}; }));
+	Mounted.Append({2, 3, false, {{EContentChangeKind::Renamed, "/B", "/C", {}, {}, true}}});
+	Revision = 3;
+	ASSERT_TRUE(First.Synchronize(Revision, 1, Reconcile,
+		[&](const auto& Batch) { FirstChanges = Batch; }, [] { return uint64{1}; }));
+	ASSERT_TRUE(Second.Synchronize(Revision, 1, Reconcile,
+		[&](const auto& Batch) { SecondChanges = Batch; }, [] { return uint64{1}; }));
+	EXPECT_EQ(Scans, 2);
+	EXPECT_FALSE(FirstChanges.bFullRefresh);
+	EXPECT_FALSE(SecondChanges.bFullRefresh);
+	EXPECT_EQ(FirstChanges.Changes.size(), 1u);
+	EXPECT_EQ(SecondChanges.Changes.size(), 2u);
 }

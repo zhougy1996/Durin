@@ -636,6 +636,11 @@ namespace Durin
 	auto DTransactor::ConsumeEvents() -> std::vector<FTransactionEvent> { return {}; }
 	auto DTransactor::GetMountedContentMutationRevision() const -> uint64 { return 1; }
 	auto DTransactor::NotifyMountedContentMutation() -> void {}
+	auto DTransactor::NotifyMountedContentMutation(FContentChangeBatch) -> void { NotifyMountedContentMutation(); }
+	auto DTransactor::CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch
+	{
+		return {FromRevision, GetMountedContentMutationRevision(), true};
+	}
 	auto DTransactor::EstablishSavedState(DPackage&) -> void {}
 	auto DTransactor::MarkSaved(DPackage&) -> void {}
 	auto DTransactor::InvalidateSavedState(DPackage&) -> void {}
@@ -1351,7 +1356,22 @@ namespace Durin
 
 	auto DTransBuffer::NotifyMountedContentMutation() -> void
 	{
+		NotifyMountedContentMutation({.bFullRefresh = true});
+	}
+
+	auto DTransBuffer::CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch
+	{
+		check(IsInGameThread());
+		return MountedContentChanges.Read(FromRevision, MountedContentMutationRevision);
+	}
+
+	auto DTransBuffer::NotifyMountedContentMutation(FContentChangeBatch Changes) -> void
+	{
+		check(IsInGameThread());
 		check(MountedContentMutationRevision != std::numeric_limits<uint64>::max());
+		Changes.FromRevision = MountedContentMutationRevision;
+		Changes.ToRevision = MountedContentMutationRevision + 1;
+		MountedContentChanges.Append(std::move(Changes));
 		++MountedContentMutationRevision;
 	}
 

@@ -23,6 +23,7 @@ namespace Durin::AssetPrivate
 		auto CaptureSnapshot() const -> FAssetRegistrySnapshot;
 		auto CapturePublication() const -> FAssetRegistryPublication;
 		auto GetRevision() const -> uint64;
+		auto CaptureChanges(uint64 FromRevision) const -> FContentChangeBatch;
 		auto Publish(FAssetRegistryPublication Publication) -> FAssetRegistryResult;
 		auto Fence(std::span<const FPackagePath> Paths) -> void;
 		auto ClearFence(std::span<const FPackagePath> Paths) -> void;
@@ -32,6 +33,7 @@ namespace Durin::AssetPrivate
 	private:
 		mutable std::shared_mutex Mutex;
 		uint64 Revision = 1;
+		FContentChangeJournal Changes;
 		std::unordered_map<FPackagePath, FAssetData> Assets;
 		FAssetReferenceIndex References;
 		std::unordered_set<FPackagePath> ProjectionFences;

@@ -21,6 +21,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Owner-thread, nonblocking frame pump; true means item publication or failure
 		// completed and the panel may repair its selection against current rows.
 		auto PumpPendingSnapshots() -> bool;
+		// Old captures wait for acknowledgement; fresh user/catalog requests can still proceed after failure.
+		auto SetMountedContentValidation(std::function<uint64()> Current, std::function<uint64()> Acknowledged) -> void
+		{ CurrentMountedRevision = std::move(Current); AcknowledgedMountedRevision = std::move(Acknowledged); }
 		auto IsLoading() const -> bool { return bItemsLoading; }
 		auto GetNavigationRevision() const -> uint64 { return Session.NavigationRevision; }
 		auto GetRequestGeneration() const -> uint64 { return ItemsGeneration; }
@@ -43,6 +46,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		// Async mode replaces the pending request and clears actionable rows immediately.
 		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;
+		auto ApplyContentChanges(const FContentChangeBatch& Changes) -> bool;
+		auto IsAffectedBy(const FContentChangeBatch& Changes) const -> bool;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
 		auto NavigateHistory(int32 Delta) -> bool;
 
@@ -139,13 +144,22 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint64 ItemsGeneration = 0;
 		uint64 TreeGeneration = 0;
 		uint64 ActiveItemsGeneration = 0;
+		uint64 ActiveItemsNavigationRevision = 0;
+		uint64 ValidatedMountedRevision = 0;
+		std::function<uint64()> CurrentMountedRevision;
+		std::function<uint64()> AcknowledgedMountedRevision;
 		uint64 ActiveTreeGeneration = 0;
+		uint64 ActiveTreeDirectoryGeneration = 0;
+		std::unordered_map<std::string, uint64> DirectoryGenerations;
+		uint64 ValidatedCatalogRevision = 0;
 		// Latest pending request owns all inputs needed after the active worker exits.
 		struct FItemsRequest
 		{
 			std::string Directory;
 			bool bRecursive = false;
 			std::shared_ptr<const FAssetCatalogSnapshot> Catalog;
+			uint64 NavigationRevision = 0;
+			uint64 MountedRevision = 0;
 		};
 		std::optional<FItemsRequest> PendingItemsRequest;
 		// The model alone consumes these move-only results after worker completion.

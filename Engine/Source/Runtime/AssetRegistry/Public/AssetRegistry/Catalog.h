@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetRegistryAPI.h"
+#include "AssetRegistry/ContentChanges.h"
 #include "AssetRegistry/RegistryResult.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
@@ -222,4 +223,6 @@ namespace Durin
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;
 	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
+	// Captures complete change coverage through the current revision under the catalog lock.
+	ASSETREGISTRY_API auto CaptureAssetCatalogChanges(uint64 FromRevision) -> FContentChangeBatch;
 }

@@ -549,3 +549,23 @@ namespace Durin::Editor::ContentBrowser::Private
 		EXPECT_TRUE(std::filesystem::exists(Outside));
 	}
 } // namespace Durin::Editor::ContentBrowser::Private
+
+namespace Durin::Editor::ContentBrowser::Private
+{
+	TEST(FSourceImageThumbnailTests, InvalidatingOneIdentityPreservesOtherQueuedRequests)
+	{
+		FSourceImageThumbnailCache Cache;
+		Cache.BeginFrame();
+		Cache.Request({.Identity = "A", .PhysicalPath = "/source/A.png"});
+		Cache.Request({.Identity = "B", .PhysicalPath = "/source/B.png"});
+		const auto Before = Cache.Find("B");
+		EXPECT_EQ(Before.State, Editor::EAssetThumbnailState::Queued);
+		Cache.Invalidate("A");
+		EXPECT_EQ(Cache.Find("A").State, Editor::EAssetThumbnailState::NotRequested);
+		EXPECT_EQ(Cache.Find("B").State, Before.State);
+		EXPECT_EQ(Cache.Find("B").RequestSerial, Before.RequestSerial);
+		Cache.Request({.Identity = "A", .PhysicalPath = "/source/A.png"});
+		EXPECT_GT(Cache.Find("A").RequestSerial, Before.RequestSerial);
+		Cache.CancelPendingRequests();
+	}
+}

@@ -158,6 +158,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FAssetResult Status;
 		std::optional<FAssetOperationResult> AssetResult;
 		bool bContentChanged = false;
+		FContentChangeBatch Changes;
 		FContentDeletionPlanPtr ReplacementConfirmation;
 		std::string FocusPhysicalPath;
 		std::string RevealAssetPath;
@@ -198,6 +199,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::function<bool()> InCanMutate = {},
 			FContentBrowserAssetServices InAssets = FContentBrowserAssetServices::Default()
 		);
+
+		auto SetScopedContentNotifier(std::function<void(FContentChangeBatch)> Notify) -> void
+		{ NotifyScopedContentMutation = std::move(Notify); }
 
 		FContentBrowserOperationService(const FContentBrowserOperationService&) = delete;
 		auto operator=(const FContentBrowserOperationService&) -> FContentBrowserOperationService& = delete;
@@ -265,6 +269,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FMoveAssets MoveAssets;
 		FFixUpAssets FixUpAssets;
 		std::function<void()> NotifyMountedContentMutation;
+		std::function<void(FContentChangeBatch)> NotifyScopedContentMutation;
 		FRemoveDirectory RemoveDirectory;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

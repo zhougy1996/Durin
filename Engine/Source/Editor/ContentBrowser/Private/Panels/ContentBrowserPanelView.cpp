@@ -437,7 +437,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f),
 				::Durin::Editor::ContentBrowser::FPresentationSettings::MinimumIconSize,
 				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
-		const bool bReserveDetails = bShowSelectionDetails && !Selection.empty();
+		const bool bReserveDetails = bShowSelectionDetails && !SelectionState.Selected.empty();
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		if (bResetContentScroll) ImGui::SetScrollY(0.0f);
 		bContentItemHovered = false;
@@ -474,24 +474,24 @@ namespace Durin::Editor::ContentBrowser::Private
 				&& ImGui::GetIO().KeyShift && ImGui::IsKeyPressed(ImGuiKey_N))
 				CreateFolder(Model.GetCurrentPhysicalPath());
 			if (ImGui::IsKeyPressed(ImGuiKey_F5)) Refresh(true);
-			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && Selection.size() == 1)
-				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); }); It != Model.GetItems().end()) OpenItem(*It);
+			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && SelectionState.Selected.size() == 1)
+				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.StableId()); }); It != Model.GetItems().end()) OpenItem(*It);
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_F2)
-				&& Selection.size() == 1)
+				&& SelectionState.Selected.size() == 1)
 				if (auto It = std::ranges::find_if(
 					Model.GetItems(),
 					[&](const FContentBrowserItem& Item) {
-						return Selection.contains(Item.StableId());
+						return SelectionState.Selected.contains(Item.StableId());
 					}); It != Model.GetItems().end()
 					&& It->Kind != EContentBrowserItemKind::Redirector)
 					BeginRename(*It);
 			if (bAllowAssetMutation && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_D, false)
-				&& Selection.size() == 1)
+				&& SelectionState.Selected.size() == 1)
 				if (auto It = std::ranges::find_if(
 						Model.GetItems(),
 						[&](const FContentBrowserItem& Item) {
-							return Selection.contains(Item.StableId());
+							return SelectionState.Selected.contains(Item.StableId());
 						});
 					It != Model.GetItems().end()
 						&& It->Kind == EContentBrowserItemKind::Asset)
@@ -503,7 +503,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				&& HasAssetClipboard())
 				QueueContentAction([this] { PasteAsset(); });
 			if (bAllowAssetMutation && ImGui::IsKeyPressed(ImGuiKey_Delete)
-				&& !Selection.empty()) RequestDeleteSelection();
+				&& !SelectionState.Selected.empty()) RequestDeleteSelection();
 		}
 	}
 
@@ -514,7 +514,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
 	{
-		auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); });
+		auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return SelectionState.Selected.contains(Item.StableId()); });
 		if (It == Model.GetItems().end()) return;
 		const FContentBrowserItem& Item = *It;
 		if (ImGui::BeginTable("ContentBrowserSelectionDetails", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
@@ -531,8 +531,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (ImGui::IsItemHovered() && ImGui::CalcTextSize(DisplayValue.c_str()).x > ImGui::GetContentRegionAvail().x)
 					ImGui::SetTooltip("%s", DisplayValue.c_str());
 			};
-			if (Selection.size() > 1)
-				Row("Selected", std::format("{} items", Selection.size()));
+			if (SelectionState.Selected.size() > 1)
+				Row("Selected", std::format("{} items", SelectionState.Selected.size()));
 			else
 			{
 				Row("Type", ContentBrowserItemView::TypeLabel(Item));
@@ -646,7 +646,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					const ImVec2 TileSize(
 						ImGui::GetContentRegionAvail().x,
 						Metrics.TileHeight);
-					const bool bSelected = Selection.contains(Item.StableId());
+					const bool bSelected = SelectionState.Selected.contains(Item.StableId());
 					const ImVec2 TileStart = ImGui::GetCursorScreenPos();
 					const ImVec2 PreviewMin = Metrics.PreviewMin(TileStart, TileSize);
 					const ImVec2 PreviewMax = Metrics.PreviewMax(TileStart, TileSize);
@@ -665,8 +665,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					{
 						if (!bSelected)
 						{
-							Selection.clear();
-							Selection.insert(Item.StableId());
+							SelectionState.Selected.clear();
+							SelectionState.Selected.insert(Item.StableId());
 						}
 						ImGui::OpenPopup("ItemContext");
 					}
@@ -806,7 +806,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				{
 					const std::string Label = std::format(
 						"{} {}", ContentBrowserItemView::Icon(Item), Item.Name);
-					ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+					ImGui::Selectable(Label.c_str(), SelectionState.Selected.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
 					bContentItemHovered |= ImGui::IsItemHovered();
 					if (ImGui::IsItemClicked()) SelectItem(static_cast<size_t>(Index));
 					if (ImGui::IsItemHovered()
@@ -816,10 +816,10 @@ namespace Durin::Editor::ContentBrowser::Private
 					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 					if (ImGui::BeginPopupContextItem("ItemContext"))
 					{
-						if (!Selection.contains(Item.StableId()))
+						if (!SelectionState.Selected.contains(Item.StableId()))
 						{
-							Selection.clear();
-							Selection.insert(Item.StableId());
+							SelectionState.Selected.clear();
+							SelectionState.Selected.insert(Item.StableId());
 						}
 						DrawItemContextMenu(Item);
 						ImGui::EndPopup();
@@ -865,12 +865,12 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
 					? "Resave Package (recommended)" : "Resave Package"))
 					QueueContentAction([this, PackagePath] { ResaveAssetPackages({PackagePath}); });
-				if (Selection.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
+				if (SelectionState.Selected.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
 				{
 					std::vector<FPackagePath> SelectedPaths;
 					for (const FContentBrowserItem& SelectedItem : Model.GetItems())
 						if (SelectedItem.Kind == EContentBrowserItemKind::Asset
-							&& Selection.contains(SelectedItem.StableId()))
+							&& SelectionState.Selected.contains(SelectedItem.StableId()))
 						{
 							if (SelectedItem.PackagePath.IsValid())
 								SelectedPaths.push_back(SelectedItem.PackagePath);
@@ -968,7 +968,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				});
 			ImGui::BeginDisabled(!bAllowAssetMutation);
 			if (ImGui::MenuItem(
-				Selection.size() > 1
+				SelectionState.Selected.size() > 1
 					? "Fix Up Selected Redirectors"
 					: "Fix Up Redirector"))
 				QueueContentAction([this, Item] { FixUpRedirector(Item); });
@@ -978,13 +978,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		if (ImGui::MenuItem(
 			"Duplicate", "Ctrl+D", false,
-			Selection.size() == 1
+			SelectionState.Selected.size() == 1
 				&& Item.Kind == EContentBrowserItemKind::Asset))
 			QueueContentAction([this, Item] { DuplicateAsset(Item); });
 		ImGui::EndDisabled();
 		if (ImGui::MenuItem(
 			"Copy Asset", "Ctrl+C", false,
-			Selection.size() == 1
+			SelectionState.Selected.size() == 1
 				&& Item.Kind == EContentBrowserItemKind::Asset))
 			CopyAssetSelection();
 		ImGui::BeginDisabled(!bAllowAssetMutation);
@@ -1000,7 +1000,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			});
 		if (ImGui::MenuItem(
 			"Rename", "F2", false,
-			Selection.size() == 1
+			SelectionState.Selected.size() == 1
 				&& Item.Kind != EContentBrowserItemKind::Redirector))
 			BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
@@ -1020,7 +1020,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view TargetPhysicalDirectory, std::string_view TargetVirtualDirectory) const
 		-> FExtensionContext
 	{
-		auto Context = BuildExtensionContext(ContentBrowserQuery::CopySelection(Model.GetItems(), Selection), Selection,
+		auto Context = BuildExtensionContext(ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected), SelectionState.Selected,
 			Model.GetCurrentPhysicalPath(), Model.GetCurrentVirtualPath(), PrimaryItem,
 			TargetPhysicalDirectory, TargetVirtualDirectory);
 		Context.CatalogRevision = GetAssetCatalogRevision();
@@ -1170,8 +1170,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		const bool bBackgroundHovered = !bContentItemHovered && !bRenameEditorHovered && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
 		if (bBackgroundHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
-			Selection.clear();
-			SelectionAnchor.clear();
+			SelectionState.Selected.clear();
+			SelectionState.Anchor.clear();
 		}
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
@@ -1180,8 +1180,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			bBackgroundContextPending = bBackgroundHovered;
 			if (bBackgroundContextPending)
 			{
-				Selection.clear();
-				SelectionAnchor.clear();
+				SelectionState.Selected.clear();
+				SelectionState.Anchor.clear();
 			}
 		}
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))

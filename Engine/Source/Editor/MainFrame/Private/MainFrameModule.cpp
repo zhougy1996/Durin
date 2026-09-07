@@ -79,6 +79,8 @@ namespace Durin::Editor::MainFrame
 		::Durin::FTextureEditorModule* TextureEditorModule = nullptr;
 		::Durin::FStaticMeshEditorModule* StaticMeshEditorModule = nullptr;
 		std::unique_ptr<ContentBrowser::IContentBrowserTool> ContentBrowserTool;
+		std::shared_ptr<ContentBrowser::FMountedContentReconciliationState> ContentReconciliation =
+			std::make_shared<ContentBrowser::FMountedContentReconciliationState>();
 		std::unique_ptr<FConsolePanel> Console;
 		std::unique_ptr<FEditorNotificationOverlay> Activity;
 	};
@@ -325,6 +327,13 @@ namespace Durin::Editor::MainFrame
 								GEditor->GetTransactor()
 									->NotifyMountedContentMutation();
 						},
+						.CaptureMountedContentChanges = [](uint64 From) {
+							return GEditor ? GEditor->GetTransactor()->CaptureMountedContentChanges(From)
+								: FContentChangeBatch{.bFullRefresh = true};
+						},
+						.NotifyScopedContentMutation = [](FContentChangeBatch Changes) {
+							if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation(std::move(Changes));
+						},
 						.CanMutateContent = [] { return GEditor && !GEditor->IsPlaying(); },
 						.QueryReimport = [](std::string_view AssetClassName) {
 							const auto Actions = FReimportManager::QueryReimportActions(AssetClassName);
@@ -337,6 +346,7 @@ namespace Durin::Editor::MainFrame
 								std::move(ReportError));
 						},
 					};
+					Services.ReconciliationState = Context.ContentReconciliation;
 					ContentBrowser::FPresentationSettings BrowserSettings;
 					std::string BrowserSettingsWarning;
 					if (!ContentBrowser::LoadPresentationSettings(

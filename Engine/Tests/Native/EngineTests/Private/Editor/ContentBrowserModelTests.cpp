@@ -1,9 +1,11 @@
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
+#include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Operations/ContentBrowserOperationService.h"
 
 #include "Asset/Relocation.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -2874,4 +2876,292 @@ TEST_F(FContentBrowserModelTests, ServiceDoesNotDispatchOrPublishIdentityMoves)
 	EXPECT_TRUE(Service.Rename(Item, "Identity"));
 	EXPECT_EQ(Calls, 0);
 	EXPECT_EQ(Publications, 0);
+}
+
+TEST_F(FContentBrowserModelTests, ScopedRefreshPreservesUnrelatedRowsAndTreeIdentity)
+{
+	const auto A = Root / "Content/A";
+	const auto B = Root / "Content/AB";
+	std::filesystem::create_directories(A / "Child");
+	std::filesystem::create_directories(B);
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	const auto Tree = Model.GetDirectorySnapshot(A.generic_string());
+	const auto Version = Model.GetSnapshotVersion();
+	const auto Generation = Model.GetRequestGeneration();
+	FContentChangeBatch Changes{.Changes = {{EContentChangeKind::Modified,
+		(B / "asset.dasset").generic_string(), (B / "asset.dasset").generic_string()}}};
+	EXPECT_FALSE(Model.ApplyContentChanges(Changes));
+	EXPECT_EQ(Model.GetSnapshotVersion(), Version);
+	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
+	Changes.Changes[0].OldPhysicalPath = Changes.Changes[0].NewPhysicalPath = (A / "asset.dasset").generic_string();
+	EXPECT_TRUE(Model.ApplyContentChanges(Changes));
+	EXPECT_NE(Model.GetSnapshotVersion(), Version);
+	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
+}
+
+TEST_F(FContentBrowserModelTests, ScopedRefreshDistinguishesRecursiveSearchAndDirectoryStructure)
+{
+	const auto A = Root / "Content/A";
+	std::filesystem::create_directories(A / "Nested");
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	FContentChangeBatch Changes{.Changes = {{EContentChangeKind::Added, {},
+		(A / "Nested/file.txt").generic_string()}}};
+	EXPECT_FALSE(Model.ApplyContentChanges(Changes));
+	Model.SetSearch("file");
+	EXPECT_TRUE(Model.ApplyContentChanges(Changes));
+	Model.SetSearch("");
+	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
+	std::filesystem::create_directory(A / "New");
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(A / "New").generic_string(), {}, {}, true}}}));
+	EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
+}
+
+TEST_F(FContentBrowserModelTests, DirectoryRenameMigratesNavigationAndDeletionFallsBack)
+{
+	const auto A = Root / "Content/A";
+	const auto B = Root / "Content/B";
+	std::filesystem::create_directories(A / "Nested");
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	ASSERT_TRUE(Model.NavigateToPhysical((A / "Nested").generic_string()));
+	std::filesystem::rename(A, B);
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Renamed,
+		A.generic_string(), B.generic_string(), {}, {}, true}}}));
+	EXPECT_EQ(Model.GetCurrentPhysicalPath(), (B / "Nested").generic_string());
+	EXPECT_EQ(Model.GetHistory().front(), B.generic_string());
+	std::filesystem::remove(B / "Nested");
+	std::filesystem::remove(B);
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Removed,
+		B.generic_string(), {}, {}, {}, true}}}));
+	EXPECT_EQ(Model.GetCurrentPhysicalPath(), (Root / "Content").generic_string());
+}
+
+TEST_F(FContentBrowserModelTests, UnrelatedChangesPreserveInFlightCaptureAndRelatedChangesCoalesce)
+{
+	const auto A = Root / "Content/A";
+	const auto B = Root / "Content/B";
+	std::filesystem::create_directory(A / "Original");
+	auto Gate = std::make_shared<FBrowserScanGate>();
+	FContentBrowserModel Model(true);
+	FBrowserScanRelease Release{Gate};
+	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
+		Gate->Pause();
+		return Entry.symlink_status(Error);
+	});
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	ASSERT_TRUE(Gate->WaitUntilStarted());
+	const auto Generation = Model.GetRequestGeneration();
+	EXPECT_FALSE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(B / "Other").generic_string(), {}, {}, true}}}));
+	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	std::filesystem::create_directory(A / "Latest");
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(A / "Latest").generic_string(), {}, {}, true}}}));
+	EXPECT_GT(Model.GetRequestGeneration(), Generation);
+	Gate->Release();
+	Model.WaitForPendingSnapshotsForTesting();
+	EXPECT_EQ(Model.GetItems().size(), 2u);
+	EXPECT_FALSE(Model.IsLoading());
+}
+
+TEST_F(FContentBrowserModelTests, MountedReconciliationFencePreventsPrematurePublication)
+{
+	const auto A = Root / "Content/A";
+	std::filesystem::create_directory(A / "Child");
+	uint64 Current = 1;
+	uint64 Acknowledged = 1;
+	FContentBrowserModel Model(true);
+	Model.SetMountedContentValidation([&] { return Current; }, [&] { return Acknowledged; });
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	++Current;
+	EXPECT_FALSE(Model.PumpPendingSnapshots());
+	EXPECT_TRUE(Model.IsLoading());
+	EXPECT_TRUE(Model.GetItems().empty());
+	Acknowledged = Current;
+	Model.WaitForPendingSnapshotsForTesting();
+	EXPECT_FALSE(Model.IsLoading());
+	EXPECT_EQ(Model.GetItems().size(), 1u);
+}
+
+TEST_F(FContentBrowserModelTests, ScopedServiceNotificationsDescribeCommittedFilesystemOperations)
+{
+	std::vector<FContentChangeBatch> Batches;
+	FContentBrowserOperationService Service;
+	Service.SetScopedContentNotifier([&](FContentChangeBatch Batch) { Batches.push_back(std::move(Batch)); });
+	const auto Created = Service.CreateFolder((Root / "Content/A").generic_string());
+	ASSERT_TRUE(Created);
+	ASSERT_EQ(Batches.size(), 1u);
+	ASSERT_FALSE(Batches[0].bFullRefresh);
+	ASSERT_EQ(Batches[0].Changes.size(), 1u);
+	EXPECT_EQ(Batches[0].Changes[0].Kind, EContentChangeKind::Added);
+	EXPECT_TRUE(Batches[0].Changes[0].bDirectory);
+	FContentBrowserItem Item{.Kind = EContentBrowserItemKind::Folder, .Name = "New Folder",
+		.PhysicalPath = Created.FocusPhysicalPath};
+	const auto Renamed = Service.Rename(Item, "Renamed");
+	ASSERT_TRUE(Renamed);
+	ASSERT_EQ(Batches.size(), 2u);
+	EXPECT_EQ(Batches[1].Changes[0].OldPhysicalPath, Created.FocusPhysicalPath);
+	EXPECT_EQ(Batches[1].Changes[0].NewPhysicalPath, Renamed.FocusPhysicalPath);
+	const auto Failed = Service.Rename(Item, "Gone");
+	EXPECT_FALSE(Failed);
+	EXPECT_EQ(Batches.size(), 2u);
+}
+
+TEST_F(FContentBrowserModelTests, CatalogChangesValidateInFlightScopeWithoutGlobalCancellation)
+{
+	InitializeDObjectSystem();
+	FPackagePath APath, BPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/A/Asset", APath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/B/Asset", BPath));
+	DMaterial *AAsset = nullptr, *BAsset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(APath, AAsset));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BPath, BAsset));
+	ASSERT_TRUE(SavePackage(AAsset->GetPackage()));
+	ASSERT_TRUE(SavePackage(BAsset->GetPackage()));
+	std::filesystem::create_directory(Root / "Content/A/Gate");
+	auto Gate = std::make_shared<FBrowserScanGate>();
+	FContentBrowserModel Model(true);
+	FBrowserScanRelease Release{Gate};
+	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
+		Gate->Pause();
+		return Entry.symlink_status(Error);
+	});
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
+	ASSERT_TRUE(Gate->WaitUntilStarted());
+	const auto Generation = Model.GetRequestGeneration();
+	const auto Revision = GetAssetCatalogRevision();
+	auto Publication = CaptureAssetRegistryPublication();
+	Publication.Assets.at(BPath).SearchableNames = {"ChangedOutsideScope"};
+	ASSERT_TRUE(PublishAssetRegistryPublication(Publication));
+	const auto Changes = CaptureAssetCatalogChanges(Revision);
+	ASSERT_FALSE(Changes.bFullRefresh);
+	ASSERT_EQ(Changes.Changes.size(), 1u);
+	EXPECT_EQ(Changes.Changes[0].Kind, EContentChangeKind::Modified);
+	EXPECT_EQ(Changes.Changes[0].NewAssetPath, BPath.ToString());
+	EXPECT_FALSE(Model.PumpPendingSnapshots());
+	EXPECT_EQ(Model.GetRequestGeneration(), Generation);
+	const auto CommittedRevision = GetAssetCatalogRevision();
+	EXPECT_FALSE(PublishAssetRegistryPublication(Publication));
+	EXPECT_EQ(GetAssetCatalogRevision(), CommittedRevision);
+	EXPECT_TRUE(CaptureAssetCatalogChanges(CommittedRevision).Changes.empty());
+	Publication = CaptureAssetRegistryPublication();
+	Publication.Assets.at(APath).SearchableNames = {"ChangedInsideScope"};
+	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+	EXPECT_FALSE(Model.PumpPendingSnapshots());
+	EXPECT_GT(Model.GetRequestGeneration(), Generation);
+	Gate->Release();
+	Model.WaitForPendingSnapshotsForTesting();
+	EXPECT_FALSE(Model.IsLoading());
+	EXPECT_EQ(Model.GetCurrentPhysicalPath(), (Root / "Content/A").generic_string());
+}
+
+TEST_F(FContentBrowserModelTests, LocalTreeInvalidationPreservesUnrelatedInFlightEnumeration)
+{
+	const auto A = Root / "Content/A";
+	const auto B = Root / "Content/B";
+	std::filesystem::create_directory(A / "Child");
+	FContentBrowserModel Model(true);
+	ASSERT_TRUE(Model.NavigateToPhysical(B.generic_string()));
+	Model.WaitForPendingSnapshotsForTesting();
+	auto Gate = std::make_shared<FBrowserScanGate>();
+	FBrowserScanRelease Release{Gate};
+	Model.SetEntryStatusQueryForTesting([Gate](const auto& Entry, auto& Error) {
+		Gate->Pause();
+		return Entry.symlink_status(Error);
+	});
+	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
+	(void)Model.PumpPendingSnapshots();
+	ASSERT_TRUE(Gate->WaitUntilStarted());
+	std::filesystem::create_directory(B / "New");
+	Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(B / "New").generic_string(), {}, {}, true}}});
+	Gate->Release();
+	Model.WaitForPendingSnapshotsForTesting();
+	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
+	EXPECT_EQ(Model.GetDirectoryChildren(A.generic_string()).size(), 1u);
+}
+
+TEST_F(FContentBrowserModelTests, ThumbnailDependencyDeletionInvalidatesOnlyCapturedDependents)
+{
+	InitializeDObjectSystem();
+	FPackagePath BasePath, OwnerPath, OtherPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Base", BasePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Owner", OwnerPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Other", OtherPath));
+	DMaterial *Base = nullptr, *Other = nullptr;
+	DMaterialInstance* Owner = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(BasePath, Base));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OtherPath, Other));
+	ASSERT_TRUE(Owner->SetParent(Base));
+	ASSERT_TRUE(SavePackage(Base->GetPackage()));
+	ASSERT_TRUE(SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(SavePackage(Other->GetPackage()));
+	FContentBrowserThumbnailReferences References;
+	for (const auto& Path : {OwnerPath, OtherPath})
+	{
+		const auto Asset = FindAssetExact(Path);
+		ASSERT_TRUE(Asset);
+		const auto Identity = Asset->TopLevelAssets.front().AssetPath.ToString();
+		References.Request({.Identity = Identity, .Asset = Editor::FAssetThumbnailPackageFingerprint{
+			.AssetPath = Asset->TopLevelAssets.front().AssetPath, .PackagePath = Path,
+			.AssetClassName = Asset->AssetClassName}});
+	}
+	ASSERT_EQ(References.GetAssetReferenceCountForTesting(), 2u);
+	const auto Revision = GetAssetCatalogRevision();
+	auto Publication = CaptureAssetRegistryPublication();
+	Publication.Assets.erase(BasePath);
+	Publication.ReferenceFingerprints.erase(BasePath);
+	ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+	References.ApplyContentChanges(CaptureAssetCatalogChanges(Revision));
+	EXPECT_EQ(References.GetAssetReferenceCountForTesting(), 1u);
+}
+
+TEST_F(FContentBrowserModelTests, AssetAdditionIntroducesMissingDirectoryWithoutInvalidatingExistingChildren)
+{
+	const auto A = Root / "Content/A";
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
+	std::filesystem::create_directories(A / "New/Nested");
+	EXPECT_TRUE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(A / "New/Nested/Asset.dasset").generic_string()}}}));
+	EXPECT_FALSE(Model.HasDirectoryChildrenSnapshot(A.generic_string()));
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().Name, "New");
+	Model.RequestDirectoryChildrenSnapshot(A.generic_string());
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	const auto Tree = Model.GetDirectorySnapshot(A.generic_string());
+	const auto Version = Model.GetSnapshotVersion();
+	EXPECT_FALSE(Model.ApplyContentChanges({.Changes = {{EContentChangeKind::Added, {},
+		(A / "New/Nested/Another.dasset").generic_string()}}}));
+	EXPECT_EQ(Model.GetDirectorySnapshot(A.generic_string()), Tree);
+	EXPECT_EQ(Model.GetSnapshotVersion(), Version);
+}
+
+TEST_F(FContentBrowserModelTests, FreshCatalogCaptureCanProceedWhileMountedRevisionIsSuppressed)
+{
+	const auto A = Root / "Content/A";
+	std::filesystem::create_directory(A / "Child");
+	uint64 Current = 1;
+	FContentBrowserModel Model(true);
+	Model.SetMountedContentValidation([&] { return Current; }, [] { return uint64{1}; });
+	ASSERT_TRUE(Model.NavigateToPhysical(A.generic_string()));
+	Current = 2;
+	EXPECT_FALSE(Model.PumpPendingSnapshots());
+	// This is the refresh requested by the coordinator's independent registry branch.
+	Model.RefreshItemsSnapshot(false);
+	Model.WaitForPendingSnapshotsForTesting();
+	EXPECT_FALSE(Model.IsLoading());
+	EXPECT_EQ(Model.GetItems().size(), 1u);
 }

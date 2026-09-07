@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DurinEdAPI.h"
+#include "AssetRegistry/ContentChanges.h"
 #include "DObject/Object.h"
 #include "Editor/Transaction.h"
 #include "Editor/TransactionObjectRecord.h"
@@ -214,6 +215,8 @@ namespace Durin
 			-> std::vector<Editor::FTransactionEvent>;
 		DURINED_API virtual auto GetMountedContentMutationRevision() const -> uint64;
 		DURINED_API virtual auto NotifyMountedContentMutation() -> void;
+		DURINED_API virtual auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void;
+		DURINED_API virtual auto CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch;
 		DURINED_API virtual auto EstablishSavedState(DPackage& Package) -> void;
 		DURINED_API virtual auto MarkSaved(DPackage& Package) -> void;
 		DURINED_API virtual auto InvalidateSavedState(DPackage& Package) -> void;
@@ -277,6 +280,8 @@ namespace Durin
 		DURINED_API auto ConsumeEvents() -> std::vector<Editor::FTransactionEvent> override;
 		DURINED_API auto GetMountedContentMutationRevision() const -> uint64 override;
 		DURINED_API auto NotifyMountedContentMutation() -> void override;
+		DURINED_API auto NotifyMountedContentMutation(FContentChangeBatch Changes) -> void override;
+		DURINED_API auto CaptureMountedContentChanges(uint64 FromRevision) const -> FContentChangeBatch override;
 		DURINED_API auto EstablishSavedState(DPackage& Package) -> void override;
 		DURINED_API auto MarkSaved(DPackage& Package) -> void override;
 		DURINED_API auto InvalidateSavedState(DPackage& Package) -> void override;
@@ -356,6 +361,7 @@ namespace Durin
 		Editor::FTransactionDeferredCompletion TransactionCompletion;
 		Editor::FRevisionId NextRevision = 1;
 		uint64 MountedContentMutationRevision = 1;
+		FContentChangeJournal MountedContentChanges;
 		std::unordered_map<DPackage*, FTrackedPackageState> PackageStates;
 
 		friend struct FTransBufferTestAccess;

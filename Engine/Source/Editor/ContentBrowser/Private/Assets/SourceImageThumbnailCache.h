@@ -34,6 +34,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
+		auto Invalidate(std::string_view Identity) -> void;
 		auto Shutdown() -> void;
 		auto IsShuttingDown() const -> bool;
 		auto GetTrackedTaskCountForTesting() const -> size_t;

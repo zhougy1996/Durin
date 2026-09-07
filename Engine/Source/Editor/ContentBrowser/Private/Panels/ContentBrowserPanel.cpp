@@ -145,8 +145,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
 		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
 		ThumbnailReferences->CancelPendingRequests();
-		Selection.clear();
-		SelectionAnchor.clear();
+		SelectionState.Selected.clear();
+		SelectionState.Anchor.clear();
 		bResetContentScroll = true;
 		RepairSelection();
 		return true;
@@ -159,8 +159,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return;
 			ThumbnailReferences->CancelPendingRequests();
-			Selection.clear();
-			SelectionAnchor.clear();
+			SelectionState.Selected.clear();
+			SelectionState.Anchor.clear();
 			bResetContentScroll = true;
 			RepairSelection();
 		}
@@ -177,18 +177,19 @@ namespace Durin::Editor::ContentBrowser::Private
 				RefreshCoordinator.ReconcileExplicitly(
 					MountedContentRevision,
 					[this] { return Model.RescanRegistry(); },
-					[this] { RefreshPublishedContent(); },
+					[this](const FContentChangeBatch&) { RefreshPublishedContent(); },
 					[] { return GetAssetCatalogRevision(); });
 			if (!Result) SetError(Result.Message);
 			return;
 		}
 		RefreshCoordinator.RefreshRegistryView(
 			GetAssetCatalogRevision(),
-			[this] { RefreshPublishedContent(); });
+			[this](const FContentChangeBatch&) { RefreshPublishedContent(); });
 	}
 
 	auto FContentBrowserPanel::RefreshPublishedContent() -> void
 	{
+		ThumbnailReferences->ApplyContentChanges({.bFullRefresh = true});
 		ThumbnailReferences->CancelPendingRequests();
 		const std::string AvailableDirectory =
 			Model.FindNearestAvailableDirectory(Model.GetCurrentPhysicalPath());
@@ -206,6 +207,32 @@ namespace Durin::Editor::ContentBrowser::Private
 				if (NavigateToPhysical(Mount.PhysicalRoot)) return;
 		}
 		RefreshItemsSnapshot();
+	}
+
+	auto FContentBrowserPanel::ApplyContentChanges(const FContentChangeBatch& Changes) -> void
+	{
+		if (Changes.bFullRefresh) { RefreshPublishedContent(); return; }
+		auto Mapped = Changes;
+		for (auto& Change : Mapped.Changes)
+			if (Change.bDirectory)
+			{
+				if (!Change.OldPhysicalPath.empty()) Change.OldAssetPath = Model.PhysicalToVirtualDirectory(Change.OldPhysicalPath);
+				if (!Change.NewPhysicalPath.empty()) Change.NewAssetPath = Model.PhysicalToVirtualDirectory(Change.NewPhysicalPath);
+			}
+		SelectionState.Apply(Mapped);
+		for (const auto& Change : Mapped.Changes)
+		{
+			FContentBrowserSelection::Migrate(RenameTarget, Change);
+			if (PendingItemAction) FContentBrowserSelection::Migrate(PendingItemAction->PhysicalPath, Change);
+		}
+		ThumbnailReferences->ApplyContentChanges(Mapped);
+		const auto Navigation = Model.GetNavigationRevision();
+		if (Model.ApplyContentChanges(Mapped)) RepairSelection();
+		if (PendingItemAction && PendingItemAction->NavigationRevision == Navigation)
+		{
+			if (PendingItemAction->PhysicalPath.empty()) PendingItemAction.reset();
+			else PendingItemAction->NavigationRevision = Model.GetNavigationRevision();
+		}
 	}
 
 	auto FContentBrowserPanel::PublishMountedContentMutation() -> void
@@ -229,56 +256,13 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RepairSelection() -> void
 	{
-		if (Model.IsLoading()) return;
-		const auto Items = Model.GetItems();
-		std::erase_if(
-			Selection,
-			[&](const std::string& Id) {
-				return std::ranges::none_of(
-					Items,
-					[&](const FContentBrowserItem& Item) {
-						return Item.StableId() == Id;
-					});
-			});
-		if (!SelectionAnchor.empty() && !Selection.contains(SelectionAnchor))
-			SelectionAnchor.clear();
+		if (!Model.IsLoading()) SelectionState.Repair(Model.GetItems());
 	}
 
 	auto FContentBrowserPanel::SelectItem(size_t Index) -> void
 	{
-		const auto Items = Model.GetItems();
-		if (Index >= Items.size()) return;
-		const std::string& Id = Items[Index].StableId();
 		const ImGuiIO& IO = ImGui::GetIO();
-		if (IO.KeyShift && !SelectionAnchor.empty())
-		{
-			auto AnchorIt = std::ranges::find_if(
-				Items,
-				[&](const FContentBrowserItem& Item) {
-					return Item.StableId() == SelectionAnchor;
-				});
-			if (AnchorIt != Items.end())
-			{
-				const size_t AnchorIndex =
-					static_cast<size_t>(std::distance(Items.begin(), AnchorIt));
-				if (!IO.KeyCtrl) Selection.clear();
-				for (size_t I = std::min(Index, AnchorIndex);
-					 I <= std::max(Index, AnchorIndex);
-					 ++I)
-					Selection.insert(Items[I].StableId());
-				return;
-			}
-		}
-		if (IO.KeyCtrl)
-		{
-			if (!Selection.erase(Id)) Selection.insert(Id);
-		}
-		else
-		{
-			Selection.clear();
-			Selection.insert(Id);
-		}
-		SelectionAnchor = Id;
+		SelectionState.Select(Model.GetItems(), Index, IO.KeyShift, IO.KeyCtrl);
 	}
 
 	auto FContentBrowserPanel::OpenItem(const FContentBrowserItem& Item) -> void
@@ -362,14 +346,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		RenameTarget.clear();
 		if (!Result.Warning.empty()) SetWarning(Result.Warning);
-		Selection.clear();
+		SelectionState.Selected.clear();
 		if (!Result.RevealAssetPath.empty())
 		{
 			if (!RevealAsset(Result.RevealAssetPath))
 				SetError("The asset was renamed, but it could not be shown in the content browser.");
 		}
 		else if (!Result.FocusPhysicalPath.empty())
-			Selection.insert(Result.FocusPhysicalPath);
+			SelectionState.Selected.insert(Result.FocusPhysicalPath);
 		return true;
 	}
 
@@ -388,11 +372,11 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::CopyAssetSelection() -> void
 	{
-		if (Selection.size() != 1) return;
+		if (SelectionState.Selected.size() != 1) return;
 		const auto It = std::ranges::find_if(
 			Model.GetItems(),
 			[&](const FContentBrowserItem& Item) {
-				return Selection.contains(Item.StableId());
+				return SelectionState.Selected.contains(Item.StableId());
 			});
 		if (It == Model.GetItems().end()
 			|| It->Kind != EContentBrowserItemKind::Asset)
@@ -464,7 +448,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (const FContentBrowserItem& Candidate : Model.GetItems())
 		{
 			if (Candidate.Kind != EContentBrowserItemKind::Redirector
-				|| !Selection.contains(Candidate.StableId()))
+				|| !SelectionState.Selected.contains(Candidate.StableId()))
 				continue;
 			if (!Candidate.PackagePath.IsValid())
 			{
@@ -550,9 +534,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError("The folder could not be found after refreshing its parent directory.");
 			return;
 		}
-		Selection.clear();
-		Selection.insert(It->StableId());
-		SelectionAnchor = It->StableId();
+		SelectionState.Selected.clear();
+		SelectionState.Selected.insert(It->StableId());
+		SelectionState.Anchor = It->StableId();
 		if (Action.bDelete) RequestDeleteSelection();
 		else BeginRename(*It);
 	}
@@ -565,10 +549,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			bDeletePopupRequested = true;
 			return;
 		}
-		if (Selection.empty()) return;
+		if (SelectionState.Selected.empty()) return;
 		Operations.DismissDeletion(PendingDeletionPlan);
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
-			ContentBrowserQuery::CopySelection(Model.GetItems(), Selection));
+			ContentBrowserQuery::CopySelection(Model.GetItems(), SelectionState.Selected));
 		bDeletionPlanRefreshed = false;
 		bDeletePopupRequested = true;
 	}
@@ -594,8 +578,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			return;
 		}
 		if (!Result.Status.Message.empty()) SetWarning(Result.Status.Message);
-		Selection.clear();
-		SelectionAnchor.clear();
+		SelectionState.Selected.clear();
+		SelectionState.Anchor.clear();
 		PendingDeletionPlan.reset();
 		bDeletionPlanRefreshed = false;
 		SynchronizeMountedContentMutation();
@@ -610,7 +594,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			MountedContentRevision,
 			GetAssetCatalogRevision(),
 			[this] { return Model.RescanRegistry(); },
-			[this] { RefreshPublishedContent(); },
+			[this](const FContentChangeBatch& Changes) { ApplyContentChanges(Changes); },
 			[] { return GetAssetCatalogRevision(); });
 		if (!Result) SetError(Result.Message);
 	}
@@ -629,9 +613,9 @@ namespace Durin::Editor::ContentBrowser::Private
 			ThumbnailReferences->CancelPendingRequests();
 			bResetContentScroll = true;
 		}
-		Selection.clear();
-		Selection.insert(PhysicalPath);
-		SelectionAnchor.clear();
+		SelectionState.Selected.clear();
+		SelectionState.Selected.insert(PhysicalPath);
+		SelectionState.Anchor.clear();
 		return true;
 	}
 

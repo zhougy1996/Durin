@@ -219,6 +219,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 			const FEditorAssetMove Move{OldPath, NewPath};
 			if (const auto Allowed = ValidateMoves(std::span{&Move, 1}); !Allowed) return Allowed;
+			const auto Before = FindAssetExact(OldPath);
 			const FContentBrowserOperationResult Result =
 				MoveAssets(std::span{&Move, 1});
 			if (!Result) return Publish(Result);
@@ -233,6 +234,16 @@ namespace Durin::Editor::ContentBrowser::Private
 					OldAssetPath.GetAssetName(),
 					NewAssetPath))
 				Outcome.RevealAssetPath = NewAssetPath.ToString();
+			if (Before)
+				for (const auto& Asset : Before->TopLevelAssets)
+				{
+					FTopLevelAssetPath Destination;
+					if (!FTopLevelAssetPath::TryCreate(NewPath, Asset.AssetPath.GetAssetName(), Destination))
+					{ Outcome.Changes.bFullRefresh = true; continue; }
+					Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Item.PhysicalPath,
+						Outcome.FocusPhysicalPath, Asset.AssetPath.ToString(), Destination.ToString()});
+				}
+			else Outcome.Changes.bFullRefresh = true;
 			Outcome.bContentChanged = true;
 		return Publish(std::move(Outcome));
 		}
@@ -247,6 +258,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				(std::filesystem::path(Item.PhysicalPath).parent_path()
 					/ std::filesystem::path(NewName)).generic_string());
 			Outcome.Warning = std::move(Warning);
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Item.PhysicalPath,
+				Outcome.FocusPhysicalPath, Item.VirtualPath, Outcome.RevealAssetPath,
+				Item.Kind == EContentBrowserItemKind::Folder});
 			Outcome.bContentChanged = true;
 		return Publish(std::move(Outcome));
 		}
@@ -306,6 +320,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				EAssetError::IoError,
 				std::format("Rename failed: {}", Ec.message()));
 		FContentBrowserOperationResult Outcome;
+		Outcome.Changes.Changes.push_back({EContentChangeKind::Renamed, Item.PhysicalPath,
+			NormalizePath(Destination.generic_string())});
 		Outcome.FocusPhysicalPath = NormalizePath(Destination.generic_string());
 		Outcome.bContentChanged = true;
 		return Publish(std::move(Outcome));
@@ -373,6 +389,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			}});
 		FContentBrowserOperationResult Outcome(Result);
 		if (!Result || !Result.Asset) return Publish(std::move(Outcome));
+		Outcome.Changes.Changes.push_back({EContentChangeKind::Added, {}, Result.PhysicalPath});
 		Outcome.FocusPhysicalPath = Result.PhysicalPath;
 		Outcome.RevealAssetPath = Result.Asset->GetObjectPath();
 		Outcome.OpenAssetClassName = SourceData->AssetClassName;
@@ -666,6 +683,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					EAssetError::IoError,
 					std::format("Could not create folder: {}", Ec.message()));
 			FContentBrowserOperationResult Outcome;
+			Outcome.Changes.Changes.push_back({EContentChangeKind::Added, {}, NormalizePath(Path.generic_string()), {}, {}, true});
 			Outcome.FocusPhysicalPath = NormalizePath(Path.generic_string());
 			Outcome.bContentChanged = true;
 			return Publish(std::move(Outcome));
@@ -685,7 +703,23 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Move.OldPath != Move.NewPath) EffectiveMoves.push_back(Move);
 		if (EffectiveMoves.empty()) return {};
 		if (const auto Allowed = ValidateMoves(EffectiveMoves); !Allowed) return Allowed;
-		return Publish(MoveAssets(EffectiveMoves));
+		const auto Before = CaptureAssetCatalogSnapshot();
+		auto Result = MoveAssets(EffectiveMoves);
+		if (Result)
+			for (const auto& Move : EffectiveMoves)
+			{
+				const auto* Package = Before.FindExact(Move.OldPath);
+				if (!Package) { Result.Changes.bFullRefresh = true; continue; }
+				for (const auto& Asset : Package->TopLevelAssets)
+				{
+					FTopLevelAssetPath NewAsset;
+					if (!FTopLevelAssetPath::TryCreate(Move.NewPath, Asset.AssetPath.GetAssetName(), NewAsset))
+					{ Result.Changes.bFullRefresh = true; continue; }
+					Result.Changes.Changes.push_back({EContentChangeKind::Renamed, Package->PhysicalPath,
+						Paths.VirtualToPhysical(Move.NewPath.ToString() + ".dasset"), Asset.AssetPath.ToString(), NewAsset.ToString()});
+				}
+			}
+		return Publish(std::move(Result));
 	}
 
 	auto FContentBrowserOperationService::CollectRedirectors(
@@ -1368,7 +1402,20 @@ namespace Durin::Editor::ContentBrowser::Private
 					|| Asset.State == EAssetOperationTerminalState::ForwardPending
 					|| Asset.State == EAssetOperationTerminalState::ContentCommittedProjectionPending);
 		}
-		if (Result.bContentChanged && NotifyMountedContentMutation) NotifyMountedContentMutation();
+		if (Result.bContentChanged)
+		{
+			// AffectedAssets is not a committed-path ledger on partial failure.
+			if (Result.AssetResult && Result.AssetResult->State != EAssetOperationTerminalState::Completed)
+				Result.Changes.bFullRefresh = true;
+			if (Result.Changes.Changes.empty() && Result.AssetResult && !Result.Changes.bFullRefresh)
+				for (const auto& Path : Result.AssetResult->AffectedAssets)
+					Result.Changes.Changes.push_back({EContentChangeKind::Modified,
+						Paths.VirtualToPhysical(Path.ToString() + ".dasset"),
+						Paths.VirtualToPhysical(Path.ToString() + ".dasset"), Path.ToString(), Path.ToString()});
+			if (Result.Changes.Changes.empty()) Result.Changes.bFullRefresh = true;
+			if (NotifyScopedContentMutation) NotifyScopedContentMutation(Result.Changes);
+			else if (NotifyMountedContentMutation) NotifyMountedContentMutation();
+		}
 		return Result;
 	}
 
@@ -1452,6 +1499,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			if (!Session.bPublished)
 			{
+				for (const auto& Entry : Confirmation->Entries)
+					Result.Changes.Changes.push_back({EContentChangeKind::Removed, Entry.PhysicalPath, {}, {}, {},
+						Entry.Kind == EContentDeletionEntryKind::Directory});
 				Result.bContentChanged = true;
 				Result = Publish(std::move(Result));
 				Session.bPublished = true;

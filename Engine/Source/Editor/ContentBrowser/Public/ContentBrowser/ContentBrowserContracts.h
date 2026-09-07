@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/AssetPath.h"
+#include "AssetRegistry/ContentChanges.h"
 #include "Threading/Task.h"
 #include "ContentBrowserAPI.h"
 
@@ -177,17 +178,28 @@ namespace Durin::Editor::ContentBrowser
 		bool bCanReimportFromFile = false;
 	};
 
+	// A host shares reconciliation across browsers while each browser retains its own cursor.
+	struct FMountedContentReconciliationState
+	{
+		uint64 SynchronizedRevision = 0;
+		std::optional<uint64> FailedRevision;
+		bool bInitialized = false;
+	};
+
 	// Supplies implementation-neutral services required to construct the browser.
 	struct FConstructionServices
 	{
 		std::function<bool(const std::string&, const std::string&)> OpenAsset;
 		std::function<uint64()> GetMountedContentMutationRevision;
 		std::function<void()> NotifyMountedContentMutation;
+		std::function<FContentChangeBatch(uint64)> CaptureMountedContentChanges;
+		std::function<void(FContentChangeBatch)> NotifyScopedContentMutation;
 		std::function<bool()> CanMutateContent;
 		// Receives the qualified asset class name. Must not load assets or perform source I/O.
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		FTaskScopeToken ThumbnailTaskScope;
+		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 	};
 
 	// Exposes host-level browser requests without leaking models or UI types.

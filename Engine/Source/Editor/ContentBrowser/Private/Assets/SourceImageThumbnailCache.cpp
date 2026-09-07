@@ -93,6 +93,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::optional<FTaskScope> OwnedTaskScope;
 		FTaskScopeToken TaskScope;
 		std::vector<FTaskHandle> Tasks;
+		std::unordered_set<std::string> BypassDiskSources;
 		uint64 FrameNumber = 0;
 		uint32 ActiveDecodeCount = 0;
 		bool bShuttingDown = false;
@@ -232,11 +233,13 @@ namespace Durin::Editor::ContentBrowser::Private
 				FTaskLaunchOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
 				DecodeOptions.Scope = TaskScope;
-				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial] {
+				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)] {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
-					Result.bSucceeded = DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime, Result.Thumbnail, Result.Error);
+					Result.bSucceeded = BypassDisk
+						? DecodeSourceImageThumbnail(PhysicalPath, 256, Result.Thumbnail, Result.Error)
+						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime, Result.Thumbnail, Result.Error);
 					{
 						std::lock_guard Lock(State->Mutex);
 						if (!State->bAcceptingResults) return;
@@ -396,6 +399,24 @@ namespace Durin::Editor::ContentBrowser::Private
 				Entry.State = ::Durin::Editor::EAssetThumbnailState::NotRequested;
 				++Entry.Serial;
 			}
+	}
+
+	auto FSourceImageThumbnailCache::Invalidate(std::string_view Identity) -> void
+	{
+		const auto Mapping = Impl->IdentityToSource.find(std::string(Identity));
+		if (Mapping == Impl->IdentityToSource.end()) return;
+		const auto Path = Mapping->second;
+		const auto It = Impl->Entries.find(Path);
+		if (It != Impl->Entries.end())
+		{
+			Impl->ResetEntry(It->second, It->second.FileSize, It->second.LastWriteTime);
+			It->second.RequestedFrame = 0;
+		}
+		// Explicit changes can preserve timestamps. Do not resurrect an old disk result.
+		Impl->BypassDiskSources.insert(Path);
+		std::erase_if(Impl->PendingRequests, [&](const auto& Request) { return Request.PhysicalPath == Path; });
+		std::erase_if(Impl->PendingUploads, [&](const auto& Result) { return Result.PhysicalPath == Path; });
+		Impl->IdentityToSource.erase(Mapping);
 	}
 
 	auto FSourceImageThumbnailCache::Clear() -> void
