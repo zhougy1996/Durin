@@ -116,6 +116,7 @@ namespace Durin
 		~DWorld() override = default;
 		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
 		ENGINE_API auto InitializeSubsystems() -> FWorldSubsystemResult;
+		// During an operation, closes work admission immediately and defers teardown until it exits.
 		ENGINE_API auto Shutdown() -> void;
 		auto GetSubsystemState() const -> EWorldSubsystemState { return Subsystems.GetState(); }
 		template<typename T> auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
@@ -141,6 +142,7 @@ namespace Durin
 		ENGINE_API auto RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
 		ENGINE_API auto BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult;
 		ENGINE_API auto Tick(const FWorldTickContext& Context) -> void;
+		// During an operation, requests a stop; entered callbacks and the Tick frame finish first.
 		ENGINE_API auto EndPlay() -> void;
 		ENGINE_API auto RestartPlayer(const FPlayerRestartRequest& Request = {}) -> FPlayerRestartResult;
 		ENGINE_API auto SetRenderScene(FSceneInterface* InRenderScene) -> void;
@@ -223,16 +225,21 @@ namespace Durin
 		bool bPhysicsSimulationEnabled = true;
 		std::optional<FNativeGameplaySession> GameplaySession;
 		std::optional<FPendingLevelTransition> PendingLevelTransition;
+		std::optional<FPendingLevelTransition> ActiveLevelTransition;
 		FPhysicsScene PhysicsScene;
 		FWorldSubsystemCollection Subsystems;
-		uint32 SubsystemCallbackDepth = 0;
+		// Structural mutation commits only between complete World operations.
+		enum class EOperation : uint8 { Idle, Initializing, BeginningPlay, Ticking, EndingPlay, ChangingLevel, ShuttingDown, RestartingPlayer, ChangingScene };
+		class FOperationScope;
+		EOperation Operation = EOperation::Idle;
 		bool bShutdownRequested = false;
 		bool bEndPlayRequested = false;
-		bool bChangingLevel = false;
-		bool bShuttingDown = false;
 		bool bBeginningSubsystemPlay = false;
 		auto CanDispatchSubsystems() const -> bool;
-		auto FlushSubsystemRequests() -> void;
+		auto FlushLifecycleRequests() -> void;
+		auto BeginPlayInternal(const FWorldPlayRequest& Request) -> FWorldPlayResult;
+		auto EndPlayInternal() -> void;
+		auto SetCurrentLevelInternal(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool;
 		friend class FWorldSubsystemCollection;
 
 

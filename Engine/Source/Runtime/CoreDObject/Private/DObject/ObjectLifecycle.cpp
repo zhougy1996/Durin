@@ -18,6 +18,8 @@ namespace Durin
 	{
 		FGarbageCollectionStats GLastGarbageCollectionStats;
 		bool GIsGarbageCollecting = false;
+		uint32 GCollectionDeferrals = 0;
+		std::optional<FGarbageCollectionOptions> GCollectionRequest;
 
 		// Keeps the collector single-entry while object lifecycle callbacks run.
 		class FGarbageCollectionScope
@@ -344,9 +346,49 @@ namespace Durin
 		Private::FGCReferenceSchemaRegistry::Visit(Object->GetClass(), Object, Collector);
 	}
 
+	FGarbageCollectionDeferralScope::FGarbageCollectionDeferralScope()
+	{
+		CheckObjectThread();
+		++GCollectionDeferrals;
+	}
+
+	FGarbageCollectionDeferralScope::~FGarbageCollectionDeferralScope()
+	{
+		CheckObjectThread();
+		require(GCollectionDeferrals > 0);
+		--GCollectionDeferrals;
+	}
+
+	auto RequestGarbageCollection(const FGarbageCollectionOptions& Options) -> void
+	{
+		CheckObjectThread();
+		if (GCollectionRequest) GCollectionRequest->KeepFlags |= Options.KeepFlags;
+		else GCollectionRequest = Options;
+	}
+
+	auto IsGarbageCollectionDeferred() -> bool
+	{
+		CheckObjectThread();
+		return GCollectionDeferrals != 0 || GIsGarbageCollecting;
+	}
+
+	auto IsGarbageCollectionRequested() -> bool
+	{
+		CheckObjectThread();
+		return GCollectionRequest.has_value();
+	}
+
 	auto CollectGarbage(const FGarbageCollectionOptions& Options) -> void
 	{
 		CheckObjectThread();
+		if (GCollectionDeferrals)
+		{
+			RequestGarbageCollection(Options);
+			return;
+		}
+		FGarbageCollectionOptions EffectiveOptions = Options;
+		if (GCollectionRequest) EffectiveOptions.KeepFlags |= GCollectionRequest->KeepFlags;
+		GCollectionRequest.reset();
 		const FGarbageCollectionScope CollectionScope;
 		GLastGarbageCollectionStats = {};
 		const uint64 ObjectCountBeforeCollection = GDObjectArray.GetNum();
@@ -361,7 +403,7 @@ namespace Durin
 		{
 			if (!Object->IsGarbage()
 				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
-					|| Object->HasAnyObjectFlags(Options.KeepFlags)
+					|| Object->HasAnyObjectFlags(EffectiveOptions.KeepFlags)
 					|| IsPermanentObject(Object)))
 			{
 				Marker.Enqueue(Object);

@@ -85,6 +85,38 @@ Repeated or recursive World BeginPlay and EndPlay calls are idempotent.
 Process placement of World Tick and the GameThread completion pumps is defined
 by [Runtime Lifecycle](../Core/RuntimeLifecycle.md).
 
+## World Operation Boundaries
+
+World initialization, BeginPlay, Tick, EndPlay, Level changes, player restart,
+render-scene changes, and shutdown execute on the Game Thread in explicit
+non-reentrant phases. Public entry points reject incompatible synchronous
+operations. Private implementations compose the steps of transition and
+shutdown without reopening public admission. Play state describes gameplay;
+the operation phase describes the active execution stack.
+
+EndPlay and shutdown called during an operation record intent. Shutdown also
+closes subsystem work gates immediately. Forward dispatch stops at the next
+callback boundary, while reverse cleanup remains paired. The operation exits
+before applying shutdown (highest priority) or EndPlay. In Tick, input callbacks
+are followed by admission checks before StartFrame; every started registry frame
+ends before stop requests execute. Recursive World Tick and BeginPlay are
+rejected, including calls from input and Actor extensions.
+
+Level transition requests execute at the next Tick entry, at most one per
+entry. World transfers the pending request to active storage before EndPlay;
+both storage locations enumerate their target references to GC. Callbacks may
+publish a new pending request without overwriting the active target. A new
+request interrupts forward admission and remains for the following Tick.
+Shutdown prevents target publication. Garbage or foreign targets are rejected.
+Services must tolerate a Level attachment interrupted by a newer request.
+
+Complete operations defer physical garbage collection through CoreDObject.
+Leaving an operation never runs collection; it only permits the existing host
+GC safe point or a later explicit collector call to service the retained request.
+Explicit garbage marking still invalidates objects immediately. The deferral
+protects storage, not permission to keep dispatching to retired objects. The
+[Runtime Lifecycle](../Core/RuntimeLifecycle.md) owns the process GC boundary.
+
 ## Native Gameplay Session
 
 `DWorld::BeginPlay(const FWorldPlayRequest&)` is the only World play entry.

@@ -1,4 +1,5 @@
 #include "Engine/World.h"
+#include "WorldOperation.h"
 
 #include "Actors/GameMode.h"
 #include "Actors/Pawn.h"
@@ -28,7 +29,15 @@ namespace Durin
 
 	auto DWorld::BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult
 	{
-		if (SubsystemCallbackDepth || !CanDispatchSubsystems() || PlayState != EWorldPlayState::Stopped)
+		if (Operation != EOperation::Idle)
+			return PlayFailure(EWorldPlayError::InvalidState, "World operation is in progress.");
+		FOperationScope OperationScope(*this, EOperation::BeginningPlay);
+		return BeginPlayInternal(Request);
+	}
+
+	auto DWorld::BeginPlayInternal(const FWorldPlayRequest& Request) -> FWorldPlayResult
+	{
+		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::Stopped)
 			return PlayFailure(EWorldPlayError::InvalidState, "The World must be stopped before play begins.");
 		if (!CurrentLevel)
 			return PlayFailure(EWorldPlayError::MissingLevel, "The World has no active level.");
@@ -124,10 +133,9 @@ namespace Durin
 		bBeginningSubsystemPlay = true;
 		Subsystems.BeginPlay();
 		bBeginningSubsystemPlay = false;
-		FlushSubsystemRequests();
 		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay)
 		{
-			EndPlay();
+			EndPlayInternal();
 			return PlayFailure(EWorldPlayError::PlayAborted, "Subsystem BeginPlay interrupted play.");
 		}
 		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
@@ -145,7 +153,7 @@ namespace Durin
 		}
 		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel)
 		{
-			EndPlay();
+			EndPlayInternal();
 			return PlayFailure(EWorldPlayError::PlayAborted, "Play was interrupted by a gameplay callback.");
 		}
 		if (Request.GameModeClass
@@ -159,7 +167,7 @@ namespace Durin
 				|| ExpectedController->GetPawn() != ExpectedPawn
 				|| ExpectedPawn->GetController() != ExpectedController))
 		{
-			EndPlay();
+			EndPlayInternal();
 			return PlayFailure(EWorldPlayError::PlayAborted, "Native gameplay bootstrap was invalidated by a BeginPlay callback.");
 		}
 		PlayState = EWorldPlayState::Playing;
@@ -168,9 +176,10 @@ namespace Durin
 
 	auto DWorld::Tick(const FWorldTickContext& Context) -> void
 	{
-		if (SubsystemCallbackDepth || bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return;
+		if (Operation != EOperation::Idle || bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return;
 		ProcessPendingLevelTransition();
 		if (!CanDispatchSubsystems()) return;
+		FOperationScope OperationScope(*this, EOperation::Ticking);
 		Subsystems.StartTick();
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		bool bGameplay = HasBegunPlay() && CapturedLevel;
@@ -181,7 +190,15 @@ namespace Durin
 		}
 		if (bGameplay && GameplaySession && GameplaySession->LocalPlayerController && Context.GameInput)
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
+		if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) return;
+		// Registry cleanup must precede the operation scope applying stop requests.
+		struct FTickFrameScope
+		{
+			FTickRegistry* Registry;
+			~FTickFrameScope() { if (Registry) Registry->EndFrame(); }
+		};
 		if (bGameplay) CapturedLevel->TickRegistry.StartFrame(Context.DeltaSeconds);
+		const FTickFrameScope FrameScope{bGameplay ? &CapturedLevel->TickRegistry : nullptr};
 		for (const ETickingGroup Group : {ETickingGroup::PrePhysics, ETickingGroup::Physics, ETickingGroup::PostPhysics})
 		{
 			if (!CanDispatchSubsystems() || (bGameplay && !CanContinueTicking(CapturedLevel))) break;
@@ -189,8 +206,6 @@ namespace Durin
 			if (!CanDispatchSubsystems()) break;
 			if (bGameplay && (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group))) break;
 		}
-		if (bGameplay) CapturedLevel->TickRegistry.EndFrame();
-		FlushSubsystemRequests();
 	}
 
 	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool
@@ -202,7 +217,14 @@ namespace Durin
 
 	auto DWorld::EndPlay() -> void
 	{
-		if (SubsystemCallbackDepth) { bEndPlayRequested = true; return; }
+		if (PlayState == EWorldPlayState::EndingPlay) return;
+		if (Operation != EOperation::Idle) { bEndPlayRequested = true; return; }
+		FOperationScope OperationScope(*this, EOperation::EndingPlay);
+		EndPlayInternal();
+	}
+
+	auto DWorld::EndPlayInternal() -> void
+	{
 		bEndPlayRequested = false;
 		if (PlayState == EWorldPlayState::Stopped || PlayState == EWorldPlayState::EndingPlay) return;
 		DLevel* CapturedLevel = CurrentLevel.Get();
@@ -234,13 +256,13 @@ namespace Durin
 		GameplaySession.reset();
 		Subsystems.EndPlay();
 		if (PlayState == EWorldPlayState::EndingPlay) PlayState = EWorldPlayState::Stopped;
-		FlushSubsystemRequests();
 	}
 
 	auto DWorld::RestartPlayer(const FPlayerRestartRequest& Request) -> FPlayerRestartResult
 	{
-		if (!GameplaySession || PlayState != EWorldPlayState::Playing || !CurrentLevel)
+		if (Operation != EOperation::Idle || !GameplaySession || PlayState != EWorldPlayState::Playing || !CurrentLevel)
 			return RestartFailure(EPlayerRestartError::NoGameplaySession, "The World has no active native gameplay session.");
+		FOperationScope OperationScope(*this, EOperation::RestartingPlayer);
 		DLevel* Level = CurrentLevel.Get();
 		APlayerController* Controller = GameplaySession->LocalPlayerController.Get();
 		AGameMode* GameMode = GameplaySession->GameMode.Get();
@@ -286,7 +308,7 @@ namespace Durin
 		}
 		GameplaySession->DefaultPawn = Pawn;
 		Pawn->DispatchBeginPlay();
-		if (PlayState != EWorldPlayState::Playing
+		if (!CanDispatchSubsystems() || PlayState != EWorldPlayState::Playing
 			|| CurrentLevel.Get() != Level
 			|| !GameplaySession
 			|| GameplaySession->GameMode.Get() != GameMode
@@ -304,13 +326,18 @@ namespace Durin
 
 	auto DWorld::ProcessPendingLevelTransition() -> void
 	{
-		if (!PendingLevelTransition) return;
-		const FPendingLevelTransition Transition = *PendingLevelTransition;
+		if (!PendingLevelTransition || Operation != EOperation::Idle) return;
+		FOperationScope OperationScope(*this, EOperation::ChangingLevel);
+		ActiveLevelTransition = std::move(PendingLevelTransition);
 		PendingLevelTransition.reset();
-		EndPlay();
-		if (!SetCurrentLevel(Transition.Level.Get(), Transition.bDestroyPreviousOwnedLevel)) return;
-		if (Transition.Level && Transition.bResumePlay)
-			(void)BeginPlay({.GameModeClass = Transition.GameModeClass});
+		// Active ownership remains visible to GC across every transition callback.
+		const FPendingLevelTransition Transition = *ActiveLevelTransition;
+		EndPlayInternal();
+		if (!bShutdownRequested && !IsPendingKill()
+			&& SetCurrentLevelInternal(Transition.Level.Get(), Transition.bDestroyPreviousOwnedLevel)
+			&& Transition.Level && Transition.bResumePlay && CanDispatchSubsystems())
+			(void)BeginPlayInternal({.GameModeClass = Transition.GameModeClass});
+		ActiveLevelTransition.reset();
 	}
 
 	auto DWorld::SetPaused(bool bInPaused) -> void

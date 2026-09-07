@@ -4,7 +4,7 @@ Summary: Define native per-World service registration, ownership, lifecycle, Tic
 
 Modules: Engine, Core, DurinEd
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 ## Registration And Ownership
 
@@ -83,17 +83,22 @@ pairs entered callbacks through EndPlay. A queued Level transition remains for
 the next World Tick, including its captured resume-play request. Teardown still
 performs the reverse cleanup needed to retire all entered services.
 
-Subsystem callbacks cannot synchronously change the active Level. `SetCurrentLevel`
-rejects such reentry; use `RequestLevelTransition`. EndPlay and shutdown requests
-from subsystem callbacks apply after the callback stack unwinds. Callback depth
-also prevents recursive World Tick and premature service/World destruction.
+World operations, rather than individual subsystem callbacks, define the
+non-reentrant execution boundary. `SetCurrentLevel` rejects operation reentry;
+use `RequestLevelTransition`. EndPlay and shutdown requests stop forward
+admission immediately but execute only after the complete operation, including
+Tick registry cleanup, exits. Input, Actor, Component, and Subsystem extensions
+inside that operation obey the same rules. Nested synchronous BeginPlay and
+World Tick cannot start a new play lifetime or frame. See
+[World Operation Boundaries](LevelSystem.md#world-operation-boundaries).
 
 Attachment sets the Level's World endpoint and notifies services before
 registering existing components. Detachment unregisters components first,
 notifies previously attached services in reverse order while the old Level is
 still identifiable, then removes its World endpoint. Services release
-Level-derived references on detach and survive Level replacement. The pending
-transition Level is explicitly reported to GC.
+Level-derived references on detach and survive Level replacement. Both pending and executing
+transition Levels are explicitly reported to GC. Collection requested inside a
+World operation is deferred to a later collector safe point.
 
 ## Tick And Work Retirement
 

@@ -13,6 +13,7 @@ namespace Durin
 		{
 			switch (Trigger)
 			{
+			case EGarbageCollectionTrigger::Requested: return "explicit request";
 			case EGarbageCollectionTrigger::Interval:
 				return "elapsed interval";
 			case EGarbageCollectionTrigger::PendingKillPressure:
@@ -80,14 +81,17 @@ namespace Durin
 
 	auto TryCollectGarbage(double CurrentTime) -> EGarbageCollectionTrigger
 	{
-		const EGarbageCollectionTrigger Trigger = GGarbageCollectionScheduler.ShouldCollect(CurrentTime, GDObjectArray.GetNum(), GetGarbageObjectCount());
+		if (IsGarbageCollectionDeferred()) return EGarbageCollectionTrigger::None;
+		const EGarbageCollectionTrigger Trigger = IsGarbageCollectionRequested()
+			? EGarbageCollectionTrigger::Requested : GGarbageCollectionScheduler.ShouldCollect(CurrentTime, GDObjectArray.GetNum(), GetGarbageObjectCount());
 		if (Trigger == EGarbageCollectionTrigger::None) return Trigger;
 
 		DURIN_INFO_CATEGORY(
 			"GC",
 			"Automatic garbage collection triggered by {}.",
 			GetGarbageCollectionTriggerName(Trigger));
-		CollectGarbage();
+		CollectGarbage(Trigger == EGarbageCollectionTrigger::Requested
+			? FGarbageCollectionOptions{EObjectFlags::NoFlags} : FGarbageCollectionOptions{});
 		return Trigger;
 	}
 

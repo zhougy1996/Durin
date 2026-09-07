@@ -211,6 +211,7 @@ namespace
 
 		auto SetNextIntent(Durin::FPawnControlIntent Intent) -> void { NextIntent = std::move(Intent); }
 		auto SetUseRawMapping(bool bEnabled) -> void { bUseRawMapping = bEnabled; }
+		auto SetBuildCallback(std::function<void()> InCallback) -> void { BuildCallback = std::move(InCallback); }
 		auto SetWorldToClearDuringBuild(Durin::DWorld* World) -> void { WorldToClearDuringBuild = World; }
 		auto GetBuildCount() const -> uint32 { return BuildCount; }
 		auto SubmitDirect(const Durin::FPawnControlIntent& Intent) -> bool { return SubmitControlIntent(Intent); }
@@ -219,6 +220,7 @@ namespace
 		auto BuildControlIntent(const Durin::FGameInputState& Input) const -> Durin::FPawnControlIntent override
 		{
 			++BuildCount;
+			if (BuildCallback) BuildCallback();
 			if (Durin::DWorld* World = std::exchange(WorldToClearDuringBuild, nullptr))
 			{
 				World->RequestLevelTransition(nullptr);
@@ -238,6 +240,7 @@ namespace
 
 	private:
 		Durin::FPawnControlIntent NextIntent;
+		std::function<void()> BuildCallback;
 		mutable uint32 BuildCount = 0;
 		mutable Durin::DWorld* WorldToClearDuringBuild = nullptr;
 		bool bUseRawMapping = false;
@@ -1014,4 +1017,42 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	Durin::CollectGarbage();
+}
+
+TEST(FNativeGameplayControlTests, InputStopRequestsWaitForWorldOperationCompletion)
+{
+	for (bool bShutdown : {false, true})
+	{
+		Durin::DWorld* World = CreateWorld();
+		SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
+		ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+		auto* Controller = static_cast<FIntentPlayerController*>(World->GetLocalPlayerController());
+		auto* Level = World->GetCurrentLevel();
+		int Inputs = 0;
+		Controller->SetBuildCallback([&] {
+			++Inputs;
+			World->Tick({});
+			if (bShutdown) World->Shutdown();
+			else World->EndPlay();
+			EXPECT_TRUE(World->HasBegunPlay());
+			EXPECT_EQ(World->GetCurrentLevel(), Level);
+			EXPECT_FALSE(World->SetCurrentLevel(nullptr));
+			EXPECT_FALSE(World->BeginPlay({}));
+			Durin::CollectGarbage();
+			EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
+			EXPECT_FALSE(Controller->IsPendingKill());
+		});
+		Durin::FGameInputState Input;
+		World->Tick({.DeltaSeconds = 0.016f, .GameInput = &Input});
+		EXPECT_EQ(Inputs, 1);
+		EXPECT_FALSE(World->HasBegunPlay());
+		EXPECT_EQ(World->GetCurrentLevel(), bShutdown ? nullptr : Level);
+		if (!bShutdown)
+		{
+			ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+			World->Tick({});
+		}
+		Durin::MarkObjectHierarchyAsGarbage(World);
+		Durin::CollectGarbage();
+	}
 }

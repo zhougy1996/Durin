@@ -21,6 +21,7 @@ namespace Durin
 	enum class EGarbageCollectionTrigger : uint8
 	{
 		None,
+		Requested,
 		Interval,
 		PendingKillPressure,
 		ObjectGrowthPressure,

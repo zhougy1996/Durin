@@ -3798,6 +3798,32 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 	}
 
+	TEST(FCoreDObjectReflectionTests, CollectionRequestsSurviveNestedDeferralAndDisabledScheduling)
+	{
+		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
+		Durin::ConfigureAutomaticGarbageCollection({.bEnabled = false}, 0.0);
+		Durin::TObjectPtr<Durin::DObject> Object = Durin::NewObject<Durin::DObject>(nullptr, "DeferredCollection");
+		{
+			Durin::FGarbageCollectionDeferralScope OuterScope;
+			{
+				Durin::FGarbageCollectionDeferralScope InnerScope;
+				Durin::MarkAsGarbage(Object.Get());
+				Durin::CollectGarbage();
+				EXPECT_NE(Object.Get(), nullptr);
+				EXPECT_EQ(Durin::TryCollectGarbage(1.0), Durin::EGarbageCollectionTrigger::None);
+			}
+			EXPECT_TRUE(Durin::IsGarbageCollectionRequested());
+			EXPECT_EQ(Durin::TryCollectGarbage(2.0), Durin::EGarbageCollectionTrigger::None);
+		}
+		EXPECT_NE(Object.Get(), nullptr);
+		EXPECT_EQ(Durin::TryCollectGarbage(3.0), Durin::EGarbageCollectionTrigger::Requested);
+		EXPECT_EQ(Object.Get(), nullptr);
+		EXPECT_FALSE(Durin::IsGarbageCollectionRequested());
+		EXPECT_EQ(Durin::TryCollectGarbage(4.0), Durin::EGarbageCollectionTrigger::None);
+		Durin::ConfigureAutomaticGarbageCollection({}, Durin::FTime::Seconds());
+	}
+
 	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionPhysicallyRemovesMarkedHierarchy)
 	{
 		EnsureDObjectInitialized();

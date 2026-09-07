@@ -1,4 +1,5 @@
 #include "Engine/World.h"
+#include "WorldOperation.h"
 
 #include "Actors/Controller.h"
 #include "Actors/GameMode.h"
@@ -29,9 +30,11 @@ namespace Durin
 
 	auto DWorld::InitializeSubsystems() -> FWorldSubsystemResult
 	{
+		if (Operation != EOperation::Idle)
+			return {EWorldSubsystemError::InvalidState, "World operation is in progress."};
+		FOperationScope OperationScope(*this, EOperation::Initializing);
 		TStrongObjectPtr<DWorld> InitializationGuard(this);
 		auto Result = Subsystems.Initialize();
-		FlushSubsystemRequests();
 		return Result;
 	}
 
@@ -39,9 +42,10 @@ namespace Durin
 	{
 		Super::AddReferencedObjects(Collector);
 		Subsystems.AddReferencedObjects(Collector);
-		if (PendingLevelTransition)
+		for (auto* Transition : {&PendingLevelTransition, &ActiveLevelTransition})
 		{
-			DObject* Level = PendingLevelTransition->Level.Get();
+			if (!*Transition) continue;
+			DObject* Level = (*Transition)->Level.Get();
 			Collector.AddReferencedObject(Level);
 		}
 	}
@@ -52,9 +56,9 @@ namespace Durin
 			&& !bEndPlayRequested && !PendingLevelTransition;
 	}
 
-	auto DWorld::FlushSubsystemRequests() -> void
+	auto DWorld::FlushLifecycleRequests() -> void
 	{
-		if (SubsystemCallbackDepth || bChangingLevel) return;
+		if (Operation != EOperation::Idle) return;
 		if (bShutdownRequested) Shutdown();
 		else if (std::exchange(bEndPlayRequested, false)) EndPlay();
 	}
@@ -64,20 +68,19 @@ namespace Durin
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bShutdownRequested = true;
 		Subsystems.CloseWork();
-		if (SubsystemCallbackDepth || bChangingLevel || bShuttingDown || IsEndingPlay()) return;
+		if (Operation != EOperation::Idle) return;
 		if (GetSubsystemState() == EWorldSubsystemState::ShuttingDown || GetSubsystemState() == EWorldSubsystemState::Shutdown) return;
-		bShuttingDown = true;
-		EndPlay();
+		FOperationScope OperationScope(*this, EOperation::ShuttingDown);
+		EndPlayInternal();
 		PendingLevelTransition.reset();
-		SetCurrentLevel(nullptr);
+		SetCurrentLevelInternal(nullptr, true);
 		Subsystems.Shutdown();
 		RenderScene = nullptr;
-		bShuttingDown = false;
 	}
 
 	auto DWorld::IsReadyForFinishDestroy() -> bool
 	{
-		return SubsystemCallbackDepth == 0 && !bChangingLevel && !bShuttingDown;
+		return Operation == EOperation::Idle;
 	}
 
 	auto DWorld::BeginDestroy() -> void
@@ -119,17 +122,22 @@ namespace Durin
 
 	auto DWorld::SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
+		if (Operation != EOperation::Idle) return false;
+		FOperationScope OperationScope(*this, EOperation::ChangingLevel);
+		return SetCurrentLevelInternal(Level, bDestroyPreviousOwnedLevel);
+	}
+
+	auto DWorld::SetCurrentLevelInternal(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
+	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (SubsystemCallbackDepth || bChangingLevel) return false;
 		if (Level && GetSubsystemState() != EWorldSubsystemState::Ready) return false;
 		if (Level && bShutdownRequested) return false;
 		if (Level == CurrentLevel.Get()) return true;
 		if (PlayState != EWorldPlayState::Stopped) return false;
+		if (Level && Level->IsPendingKill()) return false;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		TStrongObjectPtr<DLevel> AttachmentGuard(Level);
-		EndPlay();
-		bChangingLevel = true;
 		DLevel* Previous = CurrentLevel.Get();
 		TStrongObjectPtr<DLevel> PreviousGuard(Previous);
 		if (Previous)
@@ -170,8 +178,6 @@ namespace Durin
 		}
 		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this)
 			MarkObjectHierarchyAsGarbage(Previous);
-		bChangingLevel = false;
-		FlushSubsystemRequests();
 		return !bShutdownRequested;
 	}
 
@@ -179,7 +185,9 @@ namespace Durin
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		if (bShutdownRequested || GetSubsystemState() != EWorldSubsystemState::Ready) return false;
-		if (bChangingLevel && Level == CurrentLevel.Get()) return true;
+		if (Operation == EOperation::ChangingLevel && Level == CurrentLevel.Get()
+			&& (!ActiveLevelTransition || ActiveLevelTransition->Level.Get() == Level)) return true;
+		if (Level && Level->IsPendingKill()) return false;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		PendingLevelTransition = FPendingLevelTransition{
@@ -194,6 +202,8 @@ namespace Durin
 	auto DWorld::SetRenderScene(FSceneInterface* InRenderScene) -> void
 	{
 		if (RenderScene == InRenderScene) return;
+		if (Operation != EOperation::Idle || bShutdownRequested) return;
+		FOperationScope OperationScope(*this, EOperation::ChangingScene);
 		std::vector<TObjectPtr<DActorComponent>> RegisteredComponents;
 		if (CurrentLevel)
 		{

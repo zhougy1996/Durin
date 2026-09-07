@@ -351,3 +351,84 @@ TEST_F(FWorldSubsystemTests, LevelSwitchRetainsBothLevelsAcrossExtensionCollecti
 	EXPECT_EQ(World->GetCurrentLevel(), Second);
 	EXPECT_TRUE(First->IsPendingKill());
 }
+
+TEST_F(FWorldSubsystemTests, TransitionOwnsTargetAcrossEndPlayAndPreservesNextRequest)
+{
+	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
+	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* First = NewObject<DLevel>(World, "First");
+	ASSERT_TRUE(World->SetCurrentLevel(First));
+	ASSERT_TRUE(World->BeginPlay({}));
+	auto* Second = NewObject<DLevel>(World, "Second");
+	auto* Third = NewObject<DLevel>(World, "Third");
+	bool bRequested = false;
+	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
+		if (Event != "End" || bRequested) return;
+		bRequested = true;
+		EXPECT_TRUE(IsGarbageCollectionDeferred());
+		CollectGarbage();
+		EXPECT_TRUE(IsGarbageCollectionRequested());
+		EXPECT_FALSE(Second->IsPendingKill());
+		EXPECT_FALSE(World->SetCurrentLevel(Third));
+		EXPECT_TRUE(World->RequestLevelTransition(Third));
+	};
+	ASSERT_TRUE(World->RequestLevelTransition(Second));
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), Second);
+	EXPECT_FALSE(Second->IsPendingKill());
+	CollectGarbage();
+	EXPECT_FALSE(Third->IsPendingKill());
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), Third);
+}
+
+TEST_F(FWorldSubsystemTests, TickDefersCollectionAndRejectsRecursiveWorldOperations)
+{
+	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass(), .bTick = true});
+	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World, "Level")));
+	ASSERT_TRUE(World->BeginPlay({}));
+	TObjectPtr<DObject> Garbage = NewObject<DObject>(nullptr, "DeferredGarbage");
+	int Ticks = 0;
+	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
+		if (Event != "Tick") return;
+		++Ticks;
+		World->Tick({});
+		World->EndPlay();
+		EXPECT_FALSE(World->BeginPlay({}));
+		EXPECT_TRUE(World->HasBegunPlay());
+		MarkAsGarbage(Garbage.Get());
+		CollectGarbage();
+		EXPECT_NE(Garbage.Get(), nullptr);
+	};
+	World->Tick({});
+	EXPECT_EQ(Ticks, 1);
+	EXPECT_FALSE(World->HasBegunPlay());
+	EXPECT_FALSE(IsGarbageCollectionDeferred());
+	CollectGarbage();
+	EXPECT_EQ(Garbage.Get(), nullptr);
+	ASSERT_TRUE(World->BeginPlay({}));
+	FSubsystemProbeA::Callback = {};
+	World->Tick({}); // Previous frame must have ended before the next StartFrame.
+}
+
+TEST_F(FWorldSubsystemTests, EndPlayCanQueueReturnToOriginalLevelDuringTransition)
+{
+	FWorldSubsystemRegistration A({.Type = FSubsystemProbeA::StaticClass()});
+	auto* World = MakeWorld(); ASSERT_TRUE(World->InitializeSubsystems());
+	auto* First = NewObject<DLevel>(World, "First");
+	ASSERT_TRUE(World->SetCurrentLevel(First));
+	ASSERT_TRUE(World->BeginPlay({}));
+	auto* Second = NewObject<DLevel>(World, "Second");
+	FSubsystemProbeA::Callback = [&](FSubsystemProbeA&, std::string_view Event) {
+		if (Event == "End") EXPECT_TRUE(World->RequestLevelTransition(First));
+	};
+	ASSERT_TRUE(World->RequestLevelTransition(Second, false));
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), Second);
+	CollectGarbage();
+	EXPECT_FALSE(First->IsPendingKill());
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), First);
+	FSubsystemProbeA::Callback = {};
+}

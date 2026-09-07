@@ -123,10 +123,8 @@ namespace Durin
 			Object->WorkGate->ProviderLease = Entries[Index].Lease;
 			Object->WorkGate->RuntimeLease = FModuleManager::Get().AcquireCodeLease("Engine");
 			FWorldSubsystemResult Result;
-			++World.SubsystemCallbackDepth;
 			try { Result = Object->Initialize(); }
 			catch (...) { Result = {EWorldSubsystemError::InitializationFailed, "Subsystem Initialize threw an exception."}; }
-			--World.SubsystemCallbackDepth;
 			if (!Result) return Fail(Result.Error, std::move(Result.Message));
 			Entries[Index].bInitialized = true;
 			if (World.bShutdownRequested) return Fail(EWorldSubsystemError::Aborted, "World retired during subsystem initialization.");
@@ -151,9 +149,7 @@ namespace Durin
 		{
 			if (auto* Object = Entries[Index].Object.Get())
 			{
-				++World.SubsystemCallbackDepth;
 				Object->Deinitialize();
-				--World.SubsystemCallbackDepth;
 				Entries[Index].bInitialized = false;
 				MarkObjectHierarchyAsGarbage(Object);
 			}
@@ -176,9 +172,7 @@ namespace Durin
 		for (size_t Index = 0; Index < Entries.size() && World.CanDispatchSubsystems(); ++Index)
 		{
 			Entries[Index].bPlaying = true;
-			++World.SubsystemCallbackDepth;
 			Entries[Index].Object->OnWorldBeginPlay();
-			--World.SubsystemCallbackDepth;
 		}
 	}
 	auto FWorldSubsystemCollection::EndPlay() -> void
@@ -186,9 +180,7 @@ namespace Durin
 		for (size_t Index = Entries.size(); Index-- > 0;)
 		{
 			if (!std::exchange(Entries[Index].bPlaying, false)) continue;
-			++World.SubsystemCallbackDepth;
 			Entries[Index].Object->OnWorldEndPlay();
-			--World.SubsystemCallbackDepth;
 		}
 	}
 	auto FWorldSubsystemCollection::LevelChanged(DLevel& Level, bool bAttached) -> void
@@ -199,10 +191,8 @@ namespace Durin
 			const size_t Index = bAttached ? Offset : Entries.size() - Offset - 1;
 			if (!bAttached && !Entries[Index].bAttached) continue;
 			Entries[Index].bAttached = bAttached;
-			++World.SubsystemCallbackDepth;
 			if (bAttached) Entries[Index].Object->OnLevelAttached(Level);
 			else Entries[Index].Object->OnLevelDetached(Level);
-			--World.SubsystemCallbackDepth;
 		}
 	}
 	auto FWorldSubsystemCollection::StartTick() -> void
@@ -218,9 +208,7 @@ namespace Durin
 			const auto& Entry = Entries[Index];
 			if (!Entry.bFrameTickEnabled || !Entry.Descriptor.bTick || Entry.Descriptor.TickGroup != Group) continue;
 			if (!bGameplay && !(bEditor && Entry.Descriptor.bTickInEditorAndPreview)) continue;
-			++World.SubsystemCallbackDepth;
 			Entry.Object->Tick(DeltaSeconds);
-			--World.SubsystemCallbackDepth;
 		}
 	}
 }

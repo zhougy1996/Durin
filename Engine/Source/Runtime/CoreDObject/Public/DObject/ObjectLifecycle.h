@@ -44,6 +44,21 @@ namespace Durin
 	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
 	COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
 	COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
+	// Defers physical collection throughout a game-thread execution region. Exit never collects.
+	class FGarbageCollectionDeferralScope
+	{
+	public:
+		COREDOBJECT_API FGarbageCollectionDeferralScope();
+		COREDOBJECT_API ~FGarbageCollectionDeferralScope();
+		FGarbageCollectionDeferralScope(const FGarbageCollectionDeferralScope&) = delete;
+		auto operator=(const FGarbageCollectionDeferralScope&) -> FGarbageCollectionDeferralScope& = delete;
+	};
+
+	// Requests collection at a later safe point, including when automatic GC is disabled.
+	COREDOBJECT_API auto RequestGarbageCollection(const FGarbageCollectionOptions& Options = {}) -> void;
+	COREDOBJECT_API auto IsGarbageCollectionDeferred() -> bool;
+	COREDOBJECT_API auto IsGarbageCollectionRequested() -> bool;
+	// Collects at a safe point; inside a deferral region it records a request instead.
 	COREDOBJECT_API auto CollectGarbage(
 		const FGarbageCollectionOptions& Options = {}) -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;

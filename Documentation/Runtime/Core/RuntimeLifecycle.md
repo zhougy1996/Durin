@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-08
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -51,6 +51,22 @@ The runner owns process coordination, startup-command dispatch, automated exit,
 editor relaunch, conditional logger finalization, and process result selection.
 Concrete engine selection remains inside `FEngineLoop::Init()`; no global engine
 loop or public engine-loop header exists.
+
+## Collection Requests And Execution Regions
+
+`RequestGarbageCollection()` records a Game Thread request for the existing
+`TryCollectGarbage` safe point. Explicit requests are serviced even when the
+automatic interval and pressure policy is disabled. Requests coalesce by retaining
+the union of their `KeepFlags`; an explicit collector call also honors pending
+retention flags.
+
+`FGarbageCollectionDeferralScope` prevents physical collection throughout an
+execution region such as a complete World operation. Nested regions compose;
+`CollectGarbage()` inside a region records its request instead of sweeping, and
+`TryCollectGarbage()` reports no collection while deferred. Scope exit never
+invokes the collector. The next safe-point collection consumes the request.
+This protects active execution storage without moving ordinary World work into
+GC callbacks or postponing logical garbage marking.
 
 ## Startup Responsibilities
 
