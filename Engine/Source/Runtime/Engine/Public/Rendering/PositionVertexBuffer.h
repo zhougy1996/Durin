@@ -6,12 +6,6 @@
 
 namespace Durin
 {
-	// Stores one local-space vertex position.
-	struct FPositionVertex
-	{
-		FVector3f Position;
-	};
-
 	// Owns retained CPU position data and its render-thread vertex buffer.
 	class FPositionVertexBuffer : public FVertexBuffer
 	{
@@ -23,15 +17,11 @@ namespace Durin
 		ENGINE_API ~FPositionVertexBuffer() override;
 
 		ENGINE_API auto Init(
-			uint32 InNumVertices,
-			bool bInNeedsCPUAccess = true) -> void;
-		ENGINE_API auto Init(
 			const std::vector<FVector3f>& InPositions,
 			bool bInNeedsCPUAccess = true) -> void;
 
 		// FRenderResource interface.
 		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;
-		ENGINE_API auto ReleaseRHI() -> void override;
 		auto GetFriendlyName() const -> std::string override
 		{
 			return "FPositionVertexBuffer";
