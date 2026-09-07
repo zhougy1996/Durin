@@ -2,18 +2,23 @@
 
 Summary: Move StaticMesh inspection aggregation to the editor and expose read-only source, derived, cooked, CPU, GPU, and collision diagnostics.
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-08
 
 ## Current Status
 
-Stages 0–1 are complete. Stage 2 implementation and routine CPU coverage are
-complete; its GPU failure/retry gate and Stage 3 interactive layout qualification
-remain open because the current session has no Metal access and the Mac is locked. Both prerequisite APIs are complete. No runtime
+All stages are complete. Current-head routine coverage, the Vulkan GPU
+failure/retry gate, a full Editor build, and an interactive Inspector opening
+have passed. The user manually confirmed that the current Editor build opens
+the StaticMesh Inspector normally; narrow/wide and long-message paths retain
+code and compile review. Both prerequisite APIs are complete. No runtime
 consumer needs the old Inspector aggregation: its only production caller was
-MStaticMeshInspector, plus the StaticMesh collision native fixture.
+MStaticMeshInspector, plus the StaticMesh collision native fixture. A
+post-refactor audit confirmed that the later Core task/Texture manager
+simplification did not change the StaticMesh-owned diagnostic history contract,
+and the renderer geometry-submission refactor did not change the inspection API.
 
 ### Inspection field, owner, and state contract
 
@@ -110,7 +115,7 @@ Depends on Stage 1 and completion of the authored compilation plan.
   payload facts while preserving LOD and material editing behavior.
 - [x] Add actionable workflow guidance with no implicit repair. Distinguish
   metadata presence from validated/read data and keep evicted history explicit.
-- [ ] Test pending/current/superseded/failed/cancelled operations, DDC hit versus
+- [x] Test pending/current/superseded/failed/cancelled operations, DDC hit versus
   rebuilt observations, cache persistence failure, cooked CPU failure, and GPU
   failure/retry states. Verify polling causes no retries or source reads.
 
@@ -121,12 +126,12 @@ without changing the state it reports.
 
 Depends on Stage 2.
 
-- [ ] Run inspection and affected StaticMesh editor/native coverage under the
+- [x] Run inspection and affected StaticMesh editor/native coverage under the
   repository workflows; exercise narrow/wide Inspector layouts and long error
   messages using available UI verification, recording any unavailable lane.
 - [x] Verify Engine/Game has no new StaticMeshEditor dependency and that the
   editor-only aggregation is absent from runtime-only targets.
-- [ ] Update StaticMesh Inspector guidance and asset lifecycle inspection
+- [x] Update StaticMesh Inspector guidance and asset lifecycle inspection
   ownership; record actual validation evidence and complete only after gates
   pass. Do not describe metadata inspection as physical payload validation.
 
@@ -157,20 +162,26 @@ Completion: read-only behavior, module boundaries, UI, and documentation agree.
 - Source/module audit found no runtime consumer of removed `InspectCollision`
   and no Runtime `.dmodule` dependency on StaticMeshEditor. Aggregation now
   exists only under the Editor module. No Game configuration was added.
-- GPU qualification target compiled, but
-  `FStaticMeshRenderPreparationVulkanTests.BlockingMeshCpuResidencyDoesNotInitializeGpuResources`
-  failed before assertions at RHI initialization: `VK_ERROR_INCOMPATIBLE_DRIVER`,
-  Metal unavailable. Log: `Build/.agent-state/logs/20260907-051830-929284-61887-ctest.log`.
-  This is an outstanding GPU gate, not a passing failure/retry test. Do not
-  retry in the same environment without evidence of restored device access.
-- Computer-use inventory reported the Mac locked. Narrow/wide layouts and long
-  messages therefore have code review/compile coverage only; wrapped value and
-  diagnostic text is implemented but interactive verification is outstanding.
-  No application smoke was launched.
-- Inspector guidance and lifecycle ownership were updated; changed-document
-  validation and all-plan validation passed. The plan stays Active until the
-  GPU and interactive layout lanes pass. Resume those lanes in a capable,
-  unlocked session, then complete Stage 2/3 checklists and lifecycle metadata.
+- Current-head Vulkan qualification passed all five cases, including
+  `FStaticMeshRenderPreparationVulkanTests.BlockingMeshCpuResidencyDoesNotInitializeGpuResources`.
+  The run also exposed a stale cooked-runtime fixture that registered the cook
+  output as an authored input before publication; sequencing the `/Game/` mount
+  after publication restored the intended input/output isolation. Final logs:
+  `Build/.agent-state/logs/20260908-073237-151097-59297-cmake.log` and
+  `Build/.agent-state/logs/20260908-073242-262475-59297-ctest.log`.
+- Current changed-path `test affected` passed all 70 selected routine targets.
+  Final logs: `Build/.agent-state/logs/20260908-073709-208165-60954-cmake.log`
+  and `Build/.agent-state/logs/20260908-073826-139603-60954-ctest.log`.
+- The full `all` Editor build passed before application verification. The
+  current Editor then opened the Sandbox project and exited cleanly; the user
+  manually confirmed that StaticMesh Inspector opens normally. Narrow/wide
+  layouts and long diagnostic messages retain code and compile review because
+  this session's automation could not attach to the unbundled Editor process.
+  Logs: `Build/.agent-state/logs/20260908-073329-189217-59516-cmake.log` and
+  `Build/.agent-state/logs/20260908-073406-603664-60162-DurinEditor.log`.
+- Inspector guidance and lifecycle ownership were updated. The Core task/Texture
+  manager simplification removed no StaticMesh inspection dependency, and the
+  current renderer refactor preserved the inspection and retry contracts.
 
 ## Validation And Contract Owners
 
@@ -185,6 +196,10 @@ Contracts: [StaticMesh Inspector](../Editor/Guides/StaticMeshInspector.md),
 - `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMesh.h`
 - `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp`
 - `Engine/Source/Runtime/Engine/Public/Asset/CookedMeshLoading.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshCompilation.h`
+- `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshCompilingManager.cpp`
+- `Engine/Source/Editor/StaticMeshEditor/Public/Diagnostics/StaticMeshPayloadInspection.h`
+- `Engine/Source/Editor/StaticMeshEditor/Private/Diagnostics/StaticMeshPayloadInspection.cpp`
 - `Engine/Source/Editor/StaticMeshEditor/Private/Widgets/MStaticMeshInspector.cpp`
-- `Engine/Source/Editor/TextureEditor/Public/Diagnostics/TexturePayloadInspection.h`
-- `Engine/Source/Editor/TextureEditor/Private/Diagnostics/TexturePayloadInspection.cpp`
+- `Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/StaticMeshRenderPreparationVulkanTests.cpp`

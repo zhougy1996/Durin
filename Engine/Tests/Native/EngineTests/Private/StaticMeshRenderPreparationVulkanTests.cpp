@@ -352,13 +352,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 			.Owner = Durin::EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
-			.bContentWritable = true},
-		Durin::FMountPoint{
-			.VirtualRoot = "/Game/",
-			.Owner = Durin::EMountOwner::Test,
-			.Root = CookRoot / "Game",
-			.bAutoScan = true,
-			.bContentWritable = false}};
+			.bContentWritable = true}};
 	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	ASSERT_TRUE(Durin::InitializeAssetManager());
@@ -388,6 +382,15 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 
+	const std::array CookedMounts{
+		Durin::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::EMountOwner::Test,
+			.Root = CookRoot / "Game",
+			.bAutoScan = true,
+			.bContentWritable = false}};
+	Durin::Testing::FScopedMountRegistryFixture CookedMountFixture(CookedMounts);
+	ASSERT_TRUE(CookedMountFixture.IsValid()) << CookedMountFixture.GetError();
 	auto CookedConfiguration =
 		Durin::FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(Durin::FAssetRuntimeConfiguration::Cooked(
