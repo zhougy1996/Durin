@@ -139,6 +139,12 @@ namespace Durin::AssetPrivate
 	auto TransitionMutationJournalState(
 		FAssetMutationJournal& Journal,
 		EAssetMutationState State) -> FAssetResult;
+	// Attempts to persist recovery-required state and reports a forward recovery
+	// failure even if persistence fails, retaining both failure diagnostics.
+	auto EnterMutationJournalRecovery(
+		FAssetMutationJournal& Journal,
+		std::string FailedParticipant,
+		std::string_view Message) -> FAssetResult;
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool;
 	auto RecoverPendingMutationJournals(

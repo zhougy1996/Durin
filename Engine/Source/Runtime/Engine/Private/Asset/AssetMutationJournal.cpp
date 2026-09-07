@@ -487,6 +487,27 @@ namespace Durin::AssetPrivate
 		return Result;
 	}
 
+	auto EnterMutationJournalRecovery(
+		FAssetMutationJournal& Journal,
+		std::string FailedParticipant,
+		std::string_view Message) -> FAssetResult
+	{
+		FAssetResult JournalResult = TransitionMutationJournalState(
+			Journal, EAssetMutationState::RecoveryRequired);
+		return {
+			.Error = EAssetError::IoError,
+			.Message = !JournalResult
+				? std::format(
+					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
+					Message, JournalResult.Message)
+				: std::format("AssetMutationRecoveryRequired: {}", Message),
+			.Disposition = EAssetResultDisposition::RecoveryRequired,
+			.OperationId = Journal.OperationId,
+			.DesiredDirection = "Forward",
+			.FailedParticipant = std::move(FailedParticipant),
+			.RecoveryLocation = Journal.LocatorPath};
+	}
+
 	auto IsMutationJournalRecoveryRequired(
 		const FAssetMutationJournal& Journal) -> bool
 	{

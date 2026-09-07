@@ -23,6 +23,7 @@ namespace Durin
 	using AssetPrivate::FAssetReferenceStoreRegistry;
 	using AssetPrivate::FMutationPackageMetadata;
 	using AssetPrivate::CollectLoadedPackageSoftReferencesForMutation;
+	using AssetPrivate::EnterMutationJournalRecovery;
 	using AssetPrivate::FingerprintRelocationFile;
 	using AssetPrivate::InitializeMutationJournal;
 	using AssetPrivate::IsMutationJournalRecoveryRequired;
@@ -728,23 +729,6 @@ namespace Durin
 				State.Journal, EAssetMutationState::Publishing);
 			if (!Result) return Result;
 		}
-		auto EnterRecovery = [&](std::string FailedParticipant,
-			std::string Message) -> FAssetResult {
-			FAssetResult JournalResult = TransitionMutationJournalState(
-				State.Journal, EAssetMutationState::RecoveryRequired);
-			return {
-				.Error = EAssetError::IoError,
-				.Message = !JournalResult
-					? std::format(
-						"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
-						Message, JournalResult.Message)
-					: std::format("AssetMutationRecoveryRequired: {}", Message),
-				.Disposition = EAssetResultDisposition::RecoveryRequired,
-				.OperationId = State.Journal.OperationId,
-				.DesiredDirection = "Forward",
-				.FailedParticipant = std::move(FailedParticipant),
-				.RecoveryLocation = State.Journal.LocatorPath};
-		};
 		auto ForwardPending = [&](std::string Message) -> FAssetResult {
 			std::vector<FPackagePath> Paths = State.Redirectors;
 			for (const FFixupPackageState& Package : State.Packages)
@@ -776,12 +760,13 @@ namespace Durin
 			{
 				Result = FingerprintRelocationFile(
 					Entry.PhysicalPath, Entry.ExpectedPostFingerprint);
-				if (!Result) return EnterRecovery(
+				if (!Result) return EnterMutationJournalRecovery(State.Journal,
 					"ArtifactFingerprint", Result.Message);
 			}
 			Entry.bCompleted = true;
 			Result = WriteMutationJournalState(State.Journal);
-			if (!Result) return EnterRecovery("MutationJournal", Result.Message);
+			if (!Result) return EnterMutationJournalRecovery(State.Journal,
+				"MutationJournal", Result.Message);
 		}
 		for (FFixupStoreState& Store : State.Stores)
 		{
@@ -853,14 +838,15 @@ namespace Durin
 					&AssetPrivate::FAssetMutationExternalParticipant::ProviderId
 				);
 				if (Participant == State.Journal.ExternalParticipants.end())
-					return EnterRecovery(
+					return EnterMutationJournalRecovery(State.Journal,
 						"MutationJournal",
 						"The Fix Up journal lost an external participant descriptor."
 					);
 				Participant->bCompleted = true;
 				Result = WriteMutationJournalState(State.Journal);
 				if (!Result)
-					return EnterRecovery("MutationJournal", Result.Message);
+					return EnterMutationJournalRecovery(State.Journal,
+						"MutationJournal", Result.Message);
 			}
 		}
 
@@ -880,7 +866,8 @@ namespace Durin
 				if (!Result) return ForwardPending(Result.Message);
 				Entry.bCompleted = true;
 				Result = WriteMutationJournalState(State.Journal);
-				if (!Result) return EnterRecovery("MutationJournal", Result.Message);
+				if (!Result) return EnterMutationJournalRecovery(State.Journal,
+					"MutationJournal", Result.Message);
 			}
 		}
 		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PublishRegistry))
