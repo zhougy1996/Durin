@@ -98,6 +98,7 @@ durin_add_core_functional_test(CoreConcurrencyTests
 	Private/ModularFeatureTests.cpp
 	Private/ProcessCrashContextTests.cpp
 	Private/ThreadingTests.cpp
+	Private/TaskCompositionTests.cpp
 )
 
 add_durin_test(CoreConcurrencyQualificationTests

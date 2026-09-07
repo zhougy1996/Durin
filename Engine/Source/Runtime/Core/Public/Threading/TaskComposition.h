@@ -38,30 +38,49 @@ namespace Durin::Tasks
 	public:
 		FTaskCompletion() = default;
 		explicit FTaskCompletion(FTaskHandle InHandle) : Handle(std::move(InHandle)) {}
-		auto IsValid() const -> bool { return Handle.IsValid(); }
-		auto IsReady() const -> bool { return Handle.IsComplete(); }
-		auto GetState() const -> ETaskState { return Handle.GetState(); }
+		explicit FTaskCompletion(FTaskScopeToken InGroup) : Group(std::move(InGroup)) {}
+		auto IsValid() const -> bool { return Handle.IsValid() || !(Group == FTaskScopeToken{}); }
+		auto IsReady() const -> bool { const auto State = GetState(); return State == ETaskState::Succeeded || State == ETaskState::Failed || State == ETaskState::Canceled; }
+		auto GetState() const -> ETaskState { return Handle.IsValid() ? Handle.GetState() : Durin::Private::FTaskRuntimeAccess::GroupState(Group); }
+		auto GetGroupToken() const -> const FTaskScopeToken& { return Group; }
 		auto GetTaskHandle() const -> const FTaskHandle& { return Handle; }
 	private:
 		FTaskHandle Handle;
+		FTaskScopeToken Group;
 	};
-	inline auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult { return WaitTask(Completion.GetTaskHandle()); }
-	inline auto Cancel(const FTaskCompletion& Completion) -> bool { return CancelTask(Completion.GetTaskHandle()); }
+	inline auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult { return Completion.GetTaskHandle().IsValid() ? WaitTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::WaitGroup(Completion.GetGroupToken()); }
+	inline auto Cancel(const FTaskCompletion& Completion) -> bool { return Completion.GetTaskHandle().IsValid() ? CancelTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::CloseGroup(Completion.GetGroupToken(), ETaskScopeCloseMode::Cancel) == ETaskScopeCloseResult::Closed; }
 
 	// Owns admission lifetime; owners explicitly close and join before destroying captures.
 	class FTaskGroup
 	{
 	public:
 		FTaskGroup() : Scope(CreateTaskScope()) {}
+		// Borrowed module scope retains the module owner's stronger drain authority.
+		explicit FTaskGroup(FTaskScopeToken InScope) : BorrowedScope(std::move(InScope)) {}
+		~FTaskGroup() { if (Scope.IsValid()) Durin::Private::FTaskRuntimeAccess::DiagnoseGroupDestruction(Scope.GetToken()); }
+		FTaskGroup(FTaskGroup&&) noexcept = default;
+		static auto TryCreate() -> TTaskAdmission<FTaskGroup>
+		{
+			try
+			{
+				FTaskGroup Group;
+				if (!Group.IsValid()) return TTaskAdmission<FTaskGroup>::Failure({ETaskAdmissionErrorCode::LifetimeClosed});
+				return TTaskAdmission<FTaskGroup>::Success(std::move(Group));
+			}
+			catch (const std::bad_alloc&) { return TTaskAdmission<FTaskGroup>::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
+		}
 		FTaskGroup(const FTaskGroup&) = delete;
 		auto operator=(const FTaskGroup&) -> FTaskGroup& = delete;
-		auto IsValid() const -> bool { return Scope.IsValid(); }
-		auto GetToken() const -> FTaskScopeToken { return Scope.GetToken(); }
-		auto Close(ETaskScopeCloseMode Mode = ETaskScopeCloseMode::Drain) -> ETaskScopeCloseResult { return Scope.Close(Mode); }
-		auto GetDiagnostics() const -> FTaskScopeDiagnostics { return Scope.GetDiagnostics(); }
-		auto WaitFor(double Seconds) -> ETaskScopeWaitResult { return Scope.WaitFor(Seconds); }
+		auto IsValid() const -> bool { return !(GetToken() == FTaskScopeToken{}); }
+		auto GetToken() const -> FTaskScopeToken { return Scope.IsValid() ? Scope.GetToken() : BorrowedScope; }
+		auto Close(ETaskScopeCloseMode Mode = ETaskScopeCloseMode::Drain) -> ETaskScopeCloseResult { return Durin::Private::FTaskRuntimeAccess::CloseGroup(GetToken(), Mode); }
+		auto GetDiagnostics() const -> FTaskScopeDiagnostics { return Durin::Private::FTaskRuntimeAccess::GroupDiagnostics(GetToken()); }
+		auto WaitFor(double Seconds) -> ETaskScopeWaitResult { return Durin::Private::FTaskRuntimeAccess::WaitGroupFor(GetToken(), Seconds); }
+		auto JoinAsync() const -> FTaskCompletion { return FTaskCompletion(GetToken()); }
 	private:
 		FTaskScope Scope;
+		FTaskScopeToken BorrowedScope;
 	};
 
 	// Invocation-scoped authority cannot be copied into later asynchronous callbacks.
@@ -69,13 +88,15 @@ namespace Durin::Tasks
 	{
 	public:
 		FTaskContext(const FTaskCancellationToken& InCancellation, FTaskScopeToken InScope)
-			: Cancellation(InCancellation), Scope(std::move(InScope)) {}
+			: Cancellation(InCancellation), Scope(std::move(InScope)), ParentTaskId(Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId()) {}
 		FTaskContext(const FTaskContext&) = delete;
 		FTaskContext(FTaskContext&&) = delete;
 		auto GetCancellationToken() const -> const FTaskCancellationToken& { return Cancellation; }
+		template<typename F> auto TrySpawnChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function);
 	private:
 		FTaskCancellationToken Cancellation;
 		FTaskScopeToken Scope;
+		uint64 ParentTaskId = 0;
 	};
 
 	namespace Detail { struct FTaskAccess; }
@@ -97,6 +118,7 @@ namespace Durin::Tasks
 		auto TakeOutcome() && -> TTaskOutcome<T>
 		{
 			require(Handle.IsValid() && Handle.IsComplete());
+			const auto ProducerLifetime = Handle.GetTaskHandle();
 			auto Diagnostics = Handle.GetDiagnostics();
 			auto Storage = Durin::Private::FUniqueTaskAccess::GetResultState(Handle);
 			const auto Claim = Storage->ReserveClaim();
@@ -127,12 +149,13 @@ namespace Durin::Tasks
 		auto GetResultShared() const -> std::shared_ptr<const TTaskValue<T>>
 		{
 			if (!Handle.IsComplete() || Handle.GetState() != ETaskState::Succeeded) return {};
-			return std::shared_ptr<const TTaskValue<T>>(Storage, Storage->PeekPublished());
+			return std::shared_ptr<const TTaskValue<T>>(LifetimePin, Storage->PeekPublished());
 		}
 	private:
 		friend struct Detail::FTaskAccess;
 		FTaskHandle Handle;
 		std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>> Storage;
+		std::shared_ptr<void> LifetimePin;
 	};
 
 	namespace Detail
@@ -163,6 +186,7 @@ namespace Durin::Tasks
 			template<typename T> static auto MakeShared(FTaskHandle Handle, std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>> State) -> TSharedTask<T>
 			{
 				TSharedTask<T> Task;
+				Task.LifetimePin = std::make_shared<std::pair<FTaskHandle, std::shared_ptr<TUniqueTaskResultState<TTaskValue<T>>>>>(Handle, State);
 				Task.Handle = std::move(Handle);
 				Task.Storage = std::move(State);
 				return Task;
@@ -175,8 +199,11 @@ namespace Durin::Tasks
 		template<typename F, bool = std::is_invocable_v<F&, FTaskContext&>> struct TSpawnResult;
 		template<typename F> struct TSpawnResult<F, true> { using Type = std::invoke_result_t<F&, FTaskContext&>; };
 		template<typename F> struct TSpawnResult<F, false> { using Type = std::invoke_result_t<F&>; };
-		template<typename T, typename F> struct TThenResult { using Type = std::invoke_result_t<F&, T&&>; };
-		template<typename F> struct TThenResult<void, F> { using Type = std::invoke_result_t<F&>; };
+		template<typename T, typename F, bool> struct TThenValueResult;
+		template<typename T, typename F> struct TThenValueResult<T, F, false> { using Type = std::invoke_result_t<F&, T&&>; };
+		template<typename T, typename F> struct TThenValueResult<T, F, true> { using Type = std::invoke_result_t<F&, FTaskContext&, T&&>; };
+		template<typename T, typename F> struct TThenResult : TThenValueResult<T, F, std::is_invocable_v<F&, FTaskContext&, T&&>> {};
+		template<typename F> struct TThenResult<void, F> : TSpawnResult<F> {};
 
 		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
 		{
@@ -194,13 +221,15 @@ namespace Durin::Tasks
 		}
 	}
 
+	namespace Detail
+	{
 	template<typename F, typename T = typename Detail::TSpawnResult<std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
-	auto TrySpawn(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto TrySpawnImpl(FTaskScopeToken Scope, uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 		-> TTaskAdmission<TTask<T>>
 	{
 		using FAdmission = TTaskAdmission<TTask<T>>;
-		if (!Group.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::GroupClosed});
+		if (Scope == FTaskScopeToken{}) return FAdmission::Failure({ETaskAdmissionErrorCode::GroupClosed});
 		const uint64 Bytes = Detail::ResultBytes<T>(Options);
 		if (!std::is_void_v<T> && Bytes == 0)
 			return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
@@ -208,7 +237,8 @@ namespace Durin::Tasks
 		{
 			auto State = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Bytes);
 			FTaskLaunchOptions Launch;
-			Launch.Scope = Group.GetToken();
+			Launch.Scope = Scope;
+			Launch.ExpectedParentTaskId = ParentTaskId;
 			Launch.Attribution = Options.Attribution;
 			Launch.CancellationToken = Options.Cancellation;
 			Launch.Target = Detail::Target(Executor);
@@ -216,7 +246,7 @@ namespace Durin::Tasks
 			Launch.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
 			Launch.bValidateConstruction = true;
 			auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Options.DebugName,
-				[State, Scope = Group.GetToken(), Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
+				[State, Scope = Scope, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
 					FTaskContext Context(Token, Scope);
 					auto Invoke = [&]() -> T {
 						if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&>) return std::invoke(Function, Context);
@@ -231,6 +261,23 @@ namespace Durin::Tasks
 			return FAdmission::Success(Detail::FTaskAccess::Make<T>(std::move(Handle), std::move(State)));
 		}
 		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
+	}
+
+	}
+
+	template<typename F>
+	auto TrySpawn(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	{
+		return Detail::TrySpawnImpl(Group.GetToken(), 0, Executor, Options, std::forward<F>(Function));
+	}
+
+	template<typename F>
+	auto FTaskContext::TrySpawnChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	{
+		using FAdmission = decltype(Detail::TrySpawnImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function)));
+		if (!ParentTaskId || ParentTaskId != Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId())
+			return FAdmission::Failure({ETaskAdmissionErrorCode::GroupClosed});
+		return Detail::TrySpawnImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function));
 	}
 
 	// Claim rollback happens before returning a construction failure; the input stays usable.
@@ -266,7 +313,7 @@ namespace Durin::Tasks
 			auto SourceFailure = Detail::FTaskAccess::Failure(Input);
 			auto Output = std::make_shared<TUniqueTaskResultState<TTaskValue<U>>>(Bytes);
 			auto Admission = Durin::Private::TryLaunchContinuationTask(Native.GetTaskHandle(), Options.DebugName,
-				[Source, SourceFailure, Failure, Predecessor, Output, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
+				[Source, SourceFailure, Failure, Predecessor, Output, Scope = Durin::Private::FTaskRuntimeAccess::GetScope(Predecessor), Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
 					if (Predecessor.GetState() != ETaskState::Succeeded)
 					{
 						if (Predecessor.GetState() == ETaskState::Failed)
@@ -279,8 +326,14 @@ namespace Durin::Tasks
 					}
 					auto Value = Source->TakePublished();
 					require(Value);
+					FTaskContext Context(Token, Scope);
 					auto Invoke = [&]() -> U {
-						if constexpr (std::is_void_v<T>) return std::invoke(Function);
+						if constexpr (std::is_void_v<T>)
+						{
+							if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&>) return std::invoke(Function, Context);
+							else return std::invoke(Function);
+						}
+						else if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&, T&&>) return std::invoke(Function, Context, std::move(*Value));
 						else return std::invoke(Function, std::move(*Value));
 					};
 					if constexpr (std::is_void_v<U>) { Invoke(); Output->SetPending(std::monostate{}); }
@@ -293,7 +346,7 @@ namespace Durin::Tasks
 				return FAdmission::Failure(Admission.GetError());
 			}
 			auto Handle = std::move(Admission).TakeValue();
-			Source->CommitClaim(Claim, Handle);
+			Source->CommitClaim(Claim, Handle, false);
 			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
 			Output->BindProducer(Handle);
 			return FAdmission::Success(Detail::FTaskAccess::Make<U>(std::move(Handle), std::move(Output), std::move(Failure)));
@@ -317,11 +370,16 @@ namespace Durin::Tasks
 		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		auto& Native = Detail::FTaskAccess::Native(Input);
 		auto State = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
-		if (!State->ReserveClaim()) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
-		auto Shared = Detail::FTaskAccess::MakeShared<T>(Native.GetTaskHandle(), State);
-		Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
-		return FAdmission::Success(std::move(Shared));
+		try
+		{
+			auto Shared = Detail::FTaskAccess::MakeShared<T>(Native.GetTaskHandle(), State);
+			if (!State->ReserveClaim()) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
+			Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Native);
+			return FAdmission::Success(std::move(Shared));
+		}
+		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 	}
+
 	// One producer lifetime; cancellation retains external work until explicit acknowledgement.
 	template<typename T>
 	class TCompletionSource
@@ -364,6 +422,7 @@ namespace Durin::Tasks
 				Launch.Scope = std::move(Scope);
 				Launch.Attribution = Options.Attribution;
 				Launch.CancellationToken = Options.Cancellation;
+				Launch.ExpectedParentTaskId = Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId();
 				Launch.bExternalCompletion = true;
 				Launch.bUnknownExecutionRequirement = bUnknownRequirements;
 				auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Options.DebugName,
@@ -460,7 +519,8 @@ namespace Durin::Tasks
 					Source.TrySetFailure({ETaskTerminalReason::DependencyFailed});
 				else if (Terminal == ETaskState::Canceled) Source.TrySetCanceled();
 			};
-			auto InvokeInner = [Source, Binding, InnerHook, Function = std::forward<F>(Function)](auto&&... Args) mutable {
+			auto InvokeInner = [Source, Binding, InnerHook, Function = std::forward<F>(Function)](auto&&... Args) mutable
+				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
 				if (Durin::Private::FTaskRuntimeAccess::IsCancellationRequested(Source.GetCompletion().GetTaskHandle()))
 				{ Source.TrySetCanceled(); return; }
 				auto Returned = std::invoke(Function, std::forward<decltype(Args)>(Args)...);
@@ -516,7 +576,7 @@ namespace Durin::Tasks
 			TClaimLease(TClaimLease&&) noexcept = default;
 			TClaimLease(const TClaimLease&) = delete;
 			~TClaimLease() { if (Storage && Token) Storage->RollbackClaim(Token); }
-			auto Commit(const FTaskHandle& Handle) -> void { const bool bCommitted = Storage->CommitClaim(Token, Handle); require(bCommitted); Token = 0; }
+			auto Commit(const FTaskHandle& Handle) -> void { const bool bCommitted = Storage->CommitClaim(Token, Handle, false); require(bCommitted); Token = 0; }
 		};
 
 		template<typename Out, typename F, typename D>
@@ -747,7 +807,8 @@ namespace Durin::Tasks
 		FTaskExecutionOptions ObserverOptions = Options;
 		ObserverOptions.EstimatedResultBytes = std::max<uint64>(Options.EstimatedResultBytes, sizeof(std::shared_ptr<const TTaskValue<U>>));
 		return ThenAsync(std::move(Input), Executor, ObserverOptions,
-			[Function = std::forward<F>(Function), ObserverOptions](auto&&... Args) mutable {
+			[Function = std::forward<F>(Function), ObserverOptions](auto&&... Args) mutable
+				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {
 				auto Shared = std::invoke(Function, std::forward<decltype(Args)>(Args)...);
 				if constexpr (std::is_void_v<U>)
 					return Then(Shared, ETaskExecutor::Worker, ObserverOptions, [Shared] { return Shared.GetResultShared(); });

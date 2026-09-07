@@ -479,10 +479,17 @@ namespace Durin
 		{
 		}
 
-		auto TryAdmit(const FTaskScheduler* ExpectedScheduler) -> bool
+		auto GetState() const -> ETaskScopeState
 		{
 			std::lock_guard Lock(Mutex);
-			if (State != ETaskScopeState::Open || Scheduler.lock().get() != ExpectedScheduler)
+			return State;
+		}
+
+		auto TryAdmit(const FTaskScheduler* ExpectedScheduler, bool bCountedChild = false) -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if ((State != ETaskScopeState::Open && !(bCountedChild && State == ETaskScopeState::ClosingDrain && CurrentActiveCount > 0))
+				|| Scheduler.lock().get() != ExpectedScheduler)
 			{
 				++RejectedCount;
 				return false;
@@ -675,6 +682,11 @@ namespace Durin
 			bExternalCompletion = true;
 			bUnknownExecutionRequirement = bUnknown;
 		}
+		auto IsRunningBody() const -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			return State == ETaskState::Running && !bExternalCompletion;
+		}
 		auto IsExternal() const -> bool { return bExternalCompletion; }
 		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
 		{
@@ -691,7 +703,7 @@ namespace Durin
 			}
 			Hook->Function(Terminal);
 		}
-		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner) -> void
+		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner, bool bKeepUnknown = false) -> void
 		{
 			std::shared_ptr<FTaskStateData> Previous;
 			{
@@ -699,7 +711,7 @@ namespace Durin
 				Previous = std::move(DynamicPrerequisite);
 				DynamicPrerequisite = std::move(Inner);
 				bCancelDynamicDependency = bCancelInner;
-				bUnknownExecutionRequirement = false;
+				bUnknownExecutionRequirement = bKeepUnknown;
 			}
 		}
 
@@ -1397,6 +1409,15 @@ namespace Durin
 					}
 					if (InheritedScope) SelectedScope = InheritedScope;
 				}
+				const bool bCountedChild = Options.ExpectedParentTaskId != 0 && GCurrentTaskState
+					&& GCurrentTaskState->GetTaskId() == Options.ExpectedParentTaskId && GCurrentTaskState->IsRunningBody()
+					&& GCurrentTaskState->GetScope() == SelectedScope;
+				if (Options.ExpectedParentTaskId != 0 && !bCountedChild)
+				{
+					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed};
+					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					return {};
+				}
 				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity)
 				{
 					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
@@ -1404,7 +1425,7 @@ namespace Durin
 					return {};
 				}
 				const uint64 CurrentReservations = CurrentTaskReservationCount.fetch_add(1, std::memory_order::acq_rel) + 1;
-				if (SelectedScope && !SelectedScope->TryAdmit(this))
+				if (SelectedScope && !SelectedScope->TryAdmit(this, bCountedChild))
 				{
 					ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
@@ -2776,7 +2797,7 @@ namespace Durin
 			}
 			if (!bAdmissionPending && (State == ETaskState::Waiting || State == ETaskState::Queued))
 			{
-				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, PendingFunction, InReason, InDirectBlockingTaskId);
+				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, PendingFunction, CancellationReason, CancellationDirectBlockingTaskId);
 			}
 		}
 
@@ -3530,6 +3551,7 @@ namespace Durin
 			LaunchOptions.CancellationToken = Options.CancellationToken;
 			LaunchOptions.Attribution = ResolvedAttribution;
 			LaunchOptions.Scope = ResolvedScope;
+			LaunchOptions.ExpectedParentTaskId = bValidateConstruction ? FTaskRuntimeAccess::GetCurrentTaskId() : 0;
 
 			{
 			std::lock_guard Lock(GTaskSchedulerMutex);
@@ -3560,6 +3582,52 @@ namespace Durin
 			return State ? FAdmission::Success(FTaskHandle(std::move(State))) : FAdmission::Failure(AdmissionError);
 		}
 
+		auto FTaskRuntimeAccess::GetCurrentTaskId() -> uint64 { return GCurrentTaskState && GCurrentTaskState->IsRunningBody() ? GCurrentTaskState->GetTaskId() : 0; }
+
+		auto FTaskRuntimeAccess::GroupState(const FTaskScopeToken& Scope) -> ETaskState
+		{
+			const auto& State = FTaskScopeAccess::GetState(Scope);
+			if (!State) return ETaskState::Invalid;
+			const auto Value = State->GetState();
+			return Value == ETaskScopeState::QuiescentDrain || Value == ETaskScopeState::QuiescentCancel ? ETaskState::Succeeded : ETaskState::Waiting;
+		}
+		auto FTaskRuntimeAccess::CloseGroup(const FTaskScopeToken& Scope, ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult
+		{
+			const auto& State = FTaskScopeAccess::GetState(Scope);
+			return State ? State->Close(Mode) : ETaskScopeCloseResult::Invalid;
+		}
+		auto FTaskRuntimeAccess::WaitGroupFor(const FTaskScopeToken& Scope, double Seconds) -> ETaskScopeWaitResult
+		{
+			const auto& State = FTaskScopeAccess::GetState(Scope);
+			if (!State) return ETaskScopeWaitResult::Invalid;
+			if (GroupState(Scope) != ETaskState::Succeeded
+				&& ((GIsGameThreadIdInitialized && IsInGameThread()) || GCurrentTaskState || IsInRenderingThread()))
+				return ETaskScopeWaitResult::UnsupportedThread;
+			return State->WaitFor(Seconds, false);
+		}
+		auto FTaskRuntimeAccess::WaitGroup(const FTaskScopeToken& Scope) -> FTaskWaitResult
+		{
+			const auto& State = FTaskScopeAccess::GetState(Scope);
+			if (!State) return {ETaskWaitStatus::InvalidTask, ETaskState::Invalid};
+			if (GroupState(Scope) == ETaskState::Succeeded) return {ETaskWaitStatus::Completed, ETaskState::Succeeded};
+			// A live parent may still create an owning-thread child after this observation.
+			if ((GIsGameThreadIdInitialized && IsInGameThread()) || GCurrentTaskState || IsInRenderingThread())
+				return {ETaskWaitStatus::UnsupportedThread, ETaskState::Waiting};
+			return State->WaitFor(0, true) == ETaskScopeWaitResult::Quiescent
+				? FTaskWaitResult{ETaskWaitStatus::Completed, ETaskState::Succeeded}
+				: FTaskWaitResult{ETaskWaitStatus::UnsupportedThread, ETaskState::Waiting};
+		}
+		auto FTaskRuntimeAccess::GroupDiagnostics(const FTaskScopeToken& Scope) -> FTaskScopeDiagnostics
+		{
+			const auto& State = FTaskScopeAccess::GetState(Scope);
+			return State ? State->GetDiagnostics() : FTaskScopeDiagnostics{};
+		}
+		auto FTaskRuntimeAccess::DiagnoseGroupDestruction(const FTaskScopeToken& Scope) -> void
+		{
+			if (GroupState(Scope) == ETaskState::Waiting)
+				DURIN_WARN("Task group controller destroyed without closed-group quiescence.");
+		}
+
 		auto FTaskRuntimeAccess::GetScope(const FTaskHandle& Task) -> FTaskScopeToken
 		{
 			return Task.State ? Task.State->GetScopeToken() : FTaskScopeToken{};
@@ -3580,6 +3648,14 @@ namespace Durin
 				if (Terminal == ETaskState::Canceled) Task.State->RequestCancellation("External task cancellation acknowledged.");
 				Task.State->MarkSucceeded();
 			}
+		}
+
+		auto FTaskRuntimeAccess::BindReservedDependency(const FTaskHandle& Task, const FTaskHandle& Producer) -> void
+		{
+			require(Task.State && Producer.State && Task.State != Producer.State && Task.State->IsExternal());
+			require(Task.State->PinScheduler() == Producer.State->PinScheduler() && Task.State->GetScope() == Producer.State->GetScope());
+			Task.State->SetDynamicDependency(Producer.State, true, true);
+			if (Task.State->IsCancellationRequested()) Producer.State->RequestCancellation({});
 		}
 
 		auto FTaskRuntimeAccess::BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner)

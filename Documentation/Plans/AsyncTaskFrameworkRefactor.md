@@ -9,8 +9,8 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. Stage 3 is next: counted drain-child
-admission, asynchronous group Join, and bounded owner completion tickets.
+Stages 0 through 3 are complete. Stage 4 is next: separate blocking I/O,
+effective CPU priorities, and measured ParallelFor policy.
 The unique composition surface now includes async flattening, dynamic/tuple
 fan-in, shared observation, and counted external sources. Production pilots
 remain on their existing implementations until Stages 3 and 4 pass. The fixed
@@ -754,18 +754,48 @@ Changed documentation and all plans validate.
 
 Depends on Stage 2.
 
-- [ ] Add external-root close, counted child admission, and nonblocking Join;
+- [x] Add external-root close, counted child admission, and nonblocking Join;
   integrate dynamic and external-source work into group quiescence.
-- [ ] Preserve module-generation ownership and extend retained-storage audits
+- [x] Preserve module-generation ownership and extend retained-storage audits
   to new task results, completion sources, and operation tickets.
-- [ ] Implement the bounded operation completion/ticket mechanism needed by
+- [x] Implement the bounded operation completion/ticket mechanism needed by
   the pilots, with no arbitrary user code under scheduler or owner locks.
-- [ ] Test saturation, owner destruction, supersession, callback exception,
+- [x] Test saturation, owner destruction, supersession, callback exception,
   cancel escalation, drain, and retained handles across module retirement.
 
 Acceptance: accepting a request guarantees observable terminal completion even
 when deferred dispatch is saturated or closed. Join never authorizes unloading
 code that is still retained in a result, callable, or external completion source.
+
+#### Stage 3 owner lifetime handoff
+
+`FTaskGroup::TryCreate` reports allocation/lifetime failure. Drain close rejects
+external roots while an executing counted parent can admit children through
+its invocation context. Cancellation close rejects both; terminal hooks cannot
+reuse child authority. `JoinAsync` observes closed-group quiescence without
+node admission or callback pumping. Pending group waits reject owner/executor
+threads because descendants can still acquire owning-thread requirements.
+
+`TTaskOperationQueue<T>` reserves record and payload budgets before producer
+admission. Reserved binding needs no further ordinary node or hook allocation.
+The producer must be independent of its ticket. Success remains pending until
+owner commit; failure, cancellation, abandonment and owner close publish without
+fallible deferred dispatch. Running producers retain budget until acknowledgement.
+Commit runs outside locks, contains exceptions, rejects stale generations and
+supports owner destruction inside the callback without later mutation.
+
+Shared result aliases now pin their native producer for module storage audits.
+Module tests distinguish ordinary Join from stronger Drain for aliases,
+external sources and committed-but-retained tickets. Result accounting updates
+are serialized with extraction to prevent stale retained-byte restoration;
+preparing cancellation preserves the original dependency failure attribution.
+
+Validation: `test affected` passed all four selected Windows Debug targets,
+including 2 MiB payload commit with a saturated 64-byte deferred queue, child
+admission during drain, cancellation escalation, stale generations, callback
+exceptions and reentrant owner destruction. Composition tests now occupy their
+own source file to stay below MSVC object section limits. Receipt:
+`Build/.agent-state/logs/20260907-112809-424056-19380-ctest.log`.
 
 ### Stage 4: Separate execution domains and scheduling policy
 

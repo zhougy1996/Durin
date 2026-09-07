@@ -619,3 +619,31 @@ the same bounded runtime traversal.
 - `Engine/Source/Runtime/Core/Public/Threading/RunnableThread.h`
 - `Engine/Source/Runtime/Core/Public/Threading/QueuedThreadPool.h`
 - `Engine/Source/Runtime/Launch/Private/EngineLoop.cpp`
+
+## Counted groups and reserved owner operations
+
+`Tasks::FTaskGroup::TryCreate()` returns checked lifetime/allocation admission.
+A module may wrap its existing scope token; it retains its stronger
+`FAsyncOperationGroup::Drain` authority. Drain close excludes external roots,
+while a live counted `FTaskContext` can admit children. Cancel close excludes
+children too. `JoinAsync()` is a nonblocking closed-scope observation with no
+scheduled node. Pending waits from executor/owner threads are rejected because
+remaining parents may acquire owning-thread dependencies. Destruction diagnoses
+nonquiescence and never implicitly pumps or joins.
+
+`Threading/TaskOperation.h` provides `TTaskOperationQueue<T>`. Owner-thread
+`TryReserve` charges a record and declared payload before expensive submission.
+A ticket exposes cancellation and non-consuming completion. Bind a valid,
+independent unique producer to its preallocated hook; report producer admission
+failure through `FailAdmission`. Binding does not schedule another task.
+`Pump(generation, apply)` consumes successful payloads on the owner thread and
+publishes completion only after the callback unwinds. Generation mismatch,
+exception, abandonment and close produce terminal outcomes. Queue close cancels
+running producers but retains their payload budget until acknowledgement.
+Callbacks and payload destruction run outside internal locks, including when a
+callback destroys its queue. Request priority and business generation policy
+remain with the subsystem.
+
+Shared immutable aliases retain native result ownership after their facade is
+dropped. Module Drain therefore remains blocked by retained aliases, external
+sources and operation tickets even after ordinary execution Join is ready.

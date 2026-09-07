@@ -5,6 +5,8 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
+#include "Threading/TaskOperation.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin::Tests
@@ -234,6 +236,73 @@ namespace Durin::Tests
 		EXPECT_TRUE(WeakCapture.expired());
 		EXPECT_EQ(ETaskState::Canceled, Queued.GetState());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
+	}
+
+	TEST(FAsyncOperationGroupTests, SharedResultAliasesAndExternalSourcesRetainModuleStorage)
+	{
+		FTaskSystemTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FModuleTestOwner Context("ComposedStorage");
+		auto ModuleGroup = Context.CreateAsyncOperationGroup("Results");
+		Tasks::FTaskGroup Group(ModuleGroup.GetTaskScope());
+		std::shared_ptr<const int> Alias;
+		{
+			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] { return 43; });
+			ASSERT_TRUE(Admission.HasValue());
+			auto Task = std::move(Admission).TakeValue();
+			auto ShareAdmission = Tasks::Share(std::move(Task));
+			ASSERT_TRUE(ShareAdmission.HasValue());
+			auto Shared = std::move(ShareAdmission).TakeValue();
+			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Shared.GetCompletion()).TaskState);
+			Alias = Shared.GetResultShared();
+		}
+		ModuleGroup.Close(EAsyncOperationCloseMode::Drain);
+		ASSERT_TRUE(Group.JoinAsync().IsReady());
+		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
+		EXPECT_EQ(43, *Alias);
+		Alias.reset();
+		EXPECT_TRUE(ModuleGroup.Drain(std::chrono::seconds(1)).Succeeded());
+
+		auto ExternalGroup = Context.CreateAsyncOperationGroup("External");
+		Tasks::FTaskGroup ExternalTasks(ExternalGroup.GetTaskScope());
+		{
+			auto Admission = Tasks::TCompletionSource<int>::TryCreate(ExternalTasks, {});
+			ASSERT_TRUE(Admission.HasValue());
+			auto Source = std::move(Admission).TakeValue();
+			ExternalGroup.Close(EAsyncOperationCloseMode::Cancel);
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
+			Source.TrySetCanceled();
+			EXPECT_TRUE(ExternalTasks.JoinAsync().IsReady());
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
+		}
+		EXPECT_TRUE(ExternalGroup.Drain(std::chrono::seconds(1)).Succeeded());
+	}
+
+	TEST(FAsyncOperationGroupTests, ReservedOperationRetainsModuleUntilCommitAndTicketRelease)
+	{
+		FTaskSystemTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FModuleTestOwner Context("OperationStorage");
+		auto ModuleGroup = Context.CreateAsyncOperationGroup("Commit");
+		Tasks::FTaskGroup Group(ModuleGroup.GetTaskScope());
+		{
+			Tasks::TTaskOperationQueue<int> Queue(Group);
+			auto Reservation = Queue.TryReserve(1, 1, sizeof(int));
+			ASSERT_TRUE(Reservation.HasValue());
+			auto Ticket = std::move(Reservation).TakeValue();
+			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] { return 47; });
+			ASSERT_TRUE(Admission.HasValue());
+			auto Producer = std::move(Admission).TakeValue();
+			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Producer.GetCompletion()).TaskState);
+			Ticket.Bind(std::move(Producer));
+			ModuleGroup.Close(EAsyncOperationCloseMode::Drain);
+			EXPECT_FALSE(Group.JoinAsync().IsReady());
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
+			EXPECT_EQ(1u, Queue.Pump(1, [](uint64, int&& Value) { EXPECT_EQ(47, Value); }));
+			EXPECT_TRUE(Ticket.GetCompletion().IsReady());
+			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
+		}
+		EXPECT_TRUE(ModuleGroup.Drain(std::chrono::seconds(1)).Succeeded());
 	}
 
 	TEST(FModuleManagerAsyncRetirementTests, UnloadCancelsAndDrainsOwnedOperationsBeforeRelease)

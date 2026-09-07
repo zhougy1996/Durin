@@ -602,11 +602,20 @@ namespace Durin
 		};
 		struct FTaskRuntimeAccess
 		{
+			CORE_API static auto GetCurrentTaskId() -> uint64;
+			CORE_API static auto GroupState(const FTaskScopeToken& Scope) -> ETaskState;
+			CORE_API static auto CloseGroup(const FTaskScopeToken& Scope, ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
+			CORE_API static auto WaitGroupFor(const FTaskScopeToken& Scope, double Seconds) -> ETaskScopeWaitResult;
+			CORE_API static auto WaitGroup(const FTaskScopeToken& Scope) -> FTaskWaitResult;
+			CORE_API static auto GroupDiagnostics(const FTaskScopeToken& Scope) -> FTaskScopeDiagnostics;
+			CORE_API static auto DiagnoseGroupDestruction(const FTaskScopeToken& Scope) -> void;
 			CORE_API static auto IsCancellationRequested(const FTaskHandle& Task) -> bool;
 			CORE_API static auto CancelCurrent() -> void;
 			CORE_API static auto GetScope(const FTaskHandle& Task) -> FTaskScopeToken;
 			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
 			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
+			// Independent owner producer only; reserved storage keeps this binding non-allocating.
+			CORE_API static auto BindReservedDependency(const FTaskHandle& Task, const FTaskHandle& Producer) -> void;
 			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner = true) -> std::optional<Tasks::FTaskAdmissionError>;
 		};
 	}
@@ -695,6 +704,7 @@ namespace Durin
 		uint64 EstimatedPayloadBytes = 0;
 		bool bValidateConstruction = false;
 		// Internal completion sources stay counted until producer acknowledgement.
+		uint64 ExpectedParentTaskId = 0;
 		bool bExternalCompletion = false;
 		bool bUnknownExecutionRequirement = true;
 	};
@@ -843,14 +853,10 @@ namespace Durin
 
 		auto BindProducer(const FTaskHandle& InProducer) -> void
 		{
-			bool bRetained = false;
 			auto Setter = Private::MakeTaskResultAccounting(InProducer);
-			{
-				std::lock_guard Lock(Mutex);
-				if (!RetainedBytesSetter) RetainedBytesSetter = Setter;
-				bRetained = bPublished && static_cast<bool>(Value);
-			}
-			if (bRetained) Setter(EstimatedResultBytes);
+			std::lock_guard Lock(Mutex);
+			if (!RetainedBytesSetter) RetainedBytesSetter = Setter;
+			if (bPublished && Value) RetainedBytesSetter(EstimatedResultBytes);
 		}
 
 		auto SetPending(T&& InValue) -> void
@@ -864,14 +870,13 @@ namespace Durin
 		auto Complete(ETaskState State) -> void
 		{
 			std::unique_ptr<T> DetachedValue;
-			Private::FTaskResultAccounting Setter;
 			{
 				std::lock_guard Lock(Mutex);
 				bCompleted = true;
 				if (State == ETaskState::Succeeded && Value)
 				{
 					bPublished = true;
-					Setter = RetainedBytesSetter;
+					if (RetainedBytesSetter) RetainedBytesSetter(EstimatedResultBytes);
 				}
 				else
 				{
@@ -879,7 +884,6 @@ namespace Durin
 					DetachedValue = std::move(Value);
 				}
 			}
-			if (Setter) Setter(EstimatedResultBytes);
 		}
 
 		auto ReserveClaim() -> uint64
@@ -900,22 +904,18 @@ namespace Durin
 			return true;
 		}
 
-		auto CommitClaim(uint64 Token, const FTaskHandle& Consumer) -> bool
+		// Native accounting changes share the ownership lock; no arbitrary callback runs here.
+		auto CommitClaim(uint64 Token, const FTaskHandle& Consumer, bool bTransferAccounting = true) -> bool
 		{
-			Private::FTaskResultAccounting PreviousSetter;
 			auto ConsumerSetter = Private::MakeTaskResultAccounting(Consumer);
-			bool bRetained = false;
-			{
-				std::lock_guard Lock(Mutex);
-				if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
-				ClaimState = EClaimState::Claimed;
-				ReservationToken = 0;
-				PreviousSetter = RetainedBytesSetter;
-				RetainedBytesSetter = ConsumerSetter;
-				bRetained = bPublished && static_cast<bool>(Value);
-			}
-			if (PreviousSetter) PreviousSetter(0);
-			if (bRetained) ConsumerSetter(EstimatedResultBytes);
+			std::lock_guard Lock(Mutex);
+			if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
+			ClaimState = EClaimState::Claimed;
+			ReservationToken = 0;
+			if (!bTransferAccounting) return true;
+			if (RetainedBytesSetter) RetainedBytesSetter(0);
+			RetainedBytesSetter = ConsumerSetter;
+			if (bPublished && Value) ConsumerSetter(EstimatedResultBytes);
 			return true;
 		}
 
@@ -929,30 +929,26 @@ namespace Durin
 		auto TakePublished() -> std::unique_ptr<T>
 		{
 			std::unique_ptr<T> Result;
-			Private::FTaskResultAccounting PreviousSetter;
 			{
 				std::lock_guard Lock(Mutex);
 				if (!bPublished || !Value || bConsumed || bDiscarded) return {};
 				bConsumed = true;
-				PreviousSetter = RetainedBytesSetter;
+				if (RetainedBytesSetter) RetainedBytesSetter(0);
 				Result = std::move(Value);
 			}
-			if (PreviousSetter) PreviousSetter(0);
 			return Result;
 		}
 
 		auto Discard() -> void
 		{
 			std::unique_ptr<T> DetachedValue;
-			Private::FTaskResultAccounting PreviousSetter;
 			{
 				std::lock_guard Lock(Mutex);
 				if (!Value) return;
 				bDiscarded = true;
-				PreviousSetter = RetainedBytesSetter;
+				if (RetainedBytesSetter) RetainedBytesSetter(0);
 				DetachedValue = std::move(Value);
 			}
-			if (PreviousSetter) PreviousSetter(0);
 		}
 
 		auto GetEstimatedResultBytes() const -> uint64 { return EstimatedResultBytes; }
