@@ -4,7 +4,7 @@ Summary: Unify browser mutation orchestration behind a UI-independent service an
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -295,11 +295,11 @@ architecture document describes implemented behavior rather than this proposal.
 
 ## Related Documentation
 
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Documentation Workflow](../Agents/Documentation.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 

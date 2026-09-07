@@ -4,7 +4,7 @@ Summary: Remove finite Terrain and Terrain World code, dedicated content, and fe
 
 Last reviewed: 2026-09-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-05
 
 ## Current Status
@@ -182,11 +182,11 @@ matches the reduced feature set, and no required removal or validation remains.
 
 ## Execution and Handoff
 
-Follow [agent build/run](../Agents/BuildAndRun.md),
-[agent testing](../Agents/Testing.md), and
-[agent documentation](../Agents/Documentation.md) workflows. Before content
-mutation, read [asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-and [asset packages](../Runtime/Assets/AssetPackages.md).
+Follow [agent build/run](../../../Agents/BuildAndRun.md),
+[agent testing](../../../Agents/Testing.md), and
+[agent documentation](../../../Agents/Documentation.md) workflows. Before content
+mutation, read [asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+and [asset packages](../../../Runtime/Assets/AssetPackages.md).
 Use one checkout writer and never overlap build process trees. Each validated
 implementation commit updates this plan with evidence and exact Plan/Stage
 trailers. Planning validation does not count as code or runtime validation.

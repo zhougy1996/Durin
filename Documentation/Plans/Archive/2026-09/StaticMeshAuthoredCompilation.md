@@ -4,7 +4,7 @@ Summary: Add typed cancellable StaticMesh build outcomes and Engine-owned asynch
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -163,7 +163,7 @@ Depends on Stage 3.
   normal completion publication does not run collision construction.
 - [x] Update asset compilation, asset lifecycle, async editor operations, and
   StaticMesh rendering contracts; supply the diagnostic snapshot API needed by
-  [payload inspection](StaticMeshPayloadInspection.md).
+  [payload inspection](../../StaticMeshPayloadInspection.md).
 - [x] Record actual target results and outstanding host limitations; complete
   only when required acceptance gates are satisfied.
 
@@ -493,12 +493,12 @@ zero, and optional products remain unavailable until observed.
 
 ## Validation And Contract Owners
 
-Use [build workflow](../Agents/BuildAndRun.md) and
-[testing workflow](../Agents/Testing.md), resolving native targets at execution.
-Contracts: [asset compilation](../Runtime/Assets/AssetCompilation.md),
-[asset lifecycle](../Runtime/Assets/AssetDataLifecycle.md),
-[async editor operations](../Editor/Architecture/AsyncAssetOperations.md), and
-[StaticMesh rendering](../Runtime/Rendering/StaticMeshRendering.md).
+Use [build workflow](../../../Agents/BuildAndRun.md) and
+[testing workflow](../../../Agents/Testing.md), resolving native targets at execution.
+Contracts: [asset compilation](../../../Runtime/Assets/AssetCompilation.md),
+[asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
+[async editor operations](../../../Editor/Architecture/AsyncAssetOperations.md), and
+[StaticMesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
 
 ## Related Code
 

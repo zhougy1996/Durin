@@ -4,7 +4,7 @@ Summary: Separate canonical StaticMesh source storage from decoded recipe inputs
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -20,7 +20,7 @@ below for the confirmed environment cause and retained GPU coverage.
 
 This is the foundation for
 [StaticMesh authored compilation](StaticMeshAuthoredCompilation.md) and
-[StaticMesh payload inspection](StaticMeshPayloadInspection.md).
+[StaticMesh payload inspection](../../StaticMeshPayloadInspection.md).
 
 ## Goal
 
@@ -142,14 +142,14 @@ source API is stable for the dependent compilation plan.
 
 ## Validation And Contract Owners
 
-Follow [build workflow](../Agents/BuildAndRun.md) before target operations and
-[testing workflow](../Agents/Testing.md) before selecting native tests.
+Follow [build workflow](../../../Agents/BuildAndRun.md) before target operations and
+[testing workflow](../../../Agents/Testing.md) before selecting native tests.
 Relevant existing coverage includes StaticMeshDerivedDataContractTests,
 StaticMeshPayloadCodecTests, StaticMesh collision tests, package/import tests,
 and cook tests; resolve current registered targets at execution time.
-Contracts: [asset lifecycle](../Runtime/Assets/AssetDataLifecycle.md),
-[bulk data](../Runtime/Assets/BulkData.md), and
-[StaticMesh rendering](../Runtime/Rendering/StaticMeshRendering.md).
+Contracts: [asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
+[bulk data](../../../Runtime/Assets/BulkData.md), and
+[StaticMesh rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
 
 ## Related Code
 

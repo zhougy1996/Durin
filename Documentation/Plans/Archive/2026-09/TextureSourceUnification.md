@@ -4,7 +4,7 @@ Summary: Unify texture source topology, image access, identity, and build snapsh
 
 Last reviewed: 2026-09-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-05
 
 ## Current Status
@@ -214,7 +214,7 @@ Depends on Stage 2.
   with generic source snapshots; retain only necessary typed recipe settings.
 - [x] Migrate Texture2D, Cube, Volume, Scene texture imports, previews, and
   thumbnails. Coordinate importer entrypoints with the active
-  [Content Browser Import Extensions plan](ContentBrowserImportExtensions.md).
+  [Content Browser Import Extensions plan](../../ContentBrowserImportExtensions.md).
 - [x] Persist decoded full-precision panoramas; derive cube faces and exposure
   in the recipe. Rebuild after parameter changes without imported-file access.
 - [x] Define supplied-mip preservation versus mip generation explicitly. Publish
@@ -253,8 +253,8 @@ diagnostic. Cooked runtime loading never requires Source or a source codec.
 Depends on Stage 4.
 
 - [x] Run the targeted native suites and required editor/game build checks using
-  the repository [build](../Agents/BuildAndRun.md) and
-  [testing](../Agents/Testing.md) workflows.
+  the repository [build](../../../Agents/BuildAndRun.md) and
+  [testing](../../../Agents/Testing.md) workflows.
 - [x] Measure bounded metadata access, first mip read, snapshot copy, and peak
   rebuild memory; freeze budgets derived from explicit representative fixtures.
 - [x] Update implemented image, asset lifecycle, bulk, and volume contracts;
@@ -267,10 +267,10 @@ capabilities are distinguishable from implemented support.
 
 ## References
 
-- [Core image codec](../Runtime/Core/ImageCodec.md)
-- [Package bulk data](../Runtime/Assets/BulkData.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Volume textures](../Runtime/Assets/VolumeTextures.md)
+- [Core image codec](../../../Runtime/Core/ImageCodec.md)
+- [Package bulk data](../../../Runtime/Assets/BulkData.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Volume textures](../../../Runtime/Assets/VolumeTextures.md)
 - [UE FTextureSource API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FTextureSource)
 
 ## Related Code

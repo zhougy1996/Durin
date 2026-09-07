@@ -4,7 +4,7 @@ Summary: Consolidate RDG declaration, compilation, and recording into one single
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -304,15 +304,15 @@ reusable executable graph.
 
 ## Validation and Handoff
 
-Follow [agent build/run guidance](../Agents/BuildAndRun.md) before configuring,
-building, or running targets and [agent testing guidance](../Agents/Testing.md)
+Follow [agent build/run guidance](../../../Agents/BuildAndRun.md) before configuring,
+building, or running targets and [agent testing guidance](../../../Agents/Testing.md)
 before selecting native tests. Stage 0 must resolve exact target names through
 those workflows rather than inventing commands. The expected coverage areas
 are RenderGraphTests, RendererSceneContractTests and affected renderer output
 fixtures, and VulkanResourceTransitionTests. No additional build may overlap
 an existing build process tree in this checkout.
 
-Follow [documentation validation](../Agents/Documentation.md) for document
+Follow [documentation validation](../../../Agents/Documentation.md) for document
 changes. Keep source/build work single-writer. Each implementation handoff
 records passed checks, remaining gates, and exact Plan/Stage commit trailers
 under the repository handoff rules. This plan's creation does not count as
@@ -320,15 +320,15 @@ completion of an implementation stage.
 
 ## Related Code and Contracts
 
-- [RDG public API](../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
-- [RDG implementation](../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
-- [Scene graph execution](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderPipeline.cpp)
-- [Scene graph capture](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRendererProfiling.cpp)
-- [RDG tests](../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)
-- [Vulkan transition tests](../../Engine/Tests/Native/VulkanRHITests/Private/VulkanResourceTransitionTests.cpp)
-- [Render Graph contract](../Runtime/Rendering/RenderGraph.md)
-- [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
+- [RDG public API](../../../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
+- [RDG implementation](../../../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
+- [Scene graph execution](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderPipeline.cpp)
+- [Scene graph capture](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRendererProfiling.cpp)
+- [RDG tests](../../../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)
+- [Vulkan transition tests](../../../../Engine/Tests/Native/VulkanRHITests/Private/VulkanResourceTransitionTests.cpp)
+- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
 
 UE reference: Epic's [FRDGBuilder API](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/RenderCore/FRDGBuilder)
 describes compilation and execution inside Execute; its

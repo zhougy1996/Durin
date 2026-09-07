@@ -4,7 +4,7 @@ Summary: Introduce per-World subsystem ownership, deterministic lifecycle and op
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -12,7 +12,7 @@ Completed: 2026-09-07
 Stages 0–3 are complete. Native registration, deterministic collection ownership,
 module code leases, host initialization/retirement, play and Level notifications,
 optional Tick, and the collision debug migration are implemented. Lasting
-contracts are in [World subsystems](../Runtime/World/WorldSubsystems.md).
+contracts are in [World subsystems](../../../Runtime/World/WorldSubsystems.md).
 
 Validation on `MacOS-arm64-Debug-DurinEditor`: all 51 affected native targets
 passed. The final Level/PIE GC lifetime protection was then verified by all 122
@@ -142,7 +142,7 @@ from the task API available at implementation time.
 - [x] Specify Tick admission for empty, stopped, paused, stepped, editor, and
   preview Worlds, including host update placement and mutation behavior.
 - [x] Select asynchronous retirement mechanics, checking the active
-  [Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md) for API overlap;
+  [Async Task Framework Refactor](../../AsyncTaskFrameworkRefactor.md) for API overlap;
   record any actual implementation dependency before proceeding.
 
 Completion: the above decisions are recorded in this plan with concrete source
@@ -298,11 +298,11 @@ pass, and long-lived contracts live outside this plan.
 
 ## Validation And Handoff
 
-Follow [agent build/run instructions](../Agents/BuildAndRun.md) before native
-target operations and [agent testing instructions](../Agents/Testing.md) before
+Follow [agent build/run instructions](../../../Agents/BuildAndRun.md) before native
+target operations and [agent testing instructions](../../../Agents/Testing.md) before
 selecting native tests. Record exact targets and outcomes at each stage; no
 native test result is claimed by this planning change. Follow
-[documentation validation](../Agents/Documentation.md) for plan and contract
+[documentation validation](../../../Agents/Documentation.md) for plan and contract
 changes. Implementation commits update this plan and carry its exact Plan and
 Stage trailers according to repository handoff rules.
 
@@ -316,15 +316,15 @@ silently extend `FNativeGameplaySession` lifetime as part of this work.
 
 ## Related Code
 
-- [World API and state](../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
-- [World ownership and teardown](../../Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp)
-- [World play and Tick](../../Engine/Source/Runtime/Engine/Private/Engine/World.cpp)
-- [World collision facade](../../Engine/Source/Runtime/Engine/Private/Engine/WorldCollision.cpp)
-- [Runtime host](../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
-- [Editor and PIE host](../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
-- [Preview host](../../Engine/Source/Editor/DurinEd/Private/Preview/PreviewScene.cpp)
-- [ModularFeature registration](../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
-- [Module manager](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [Level lifecycle contract](../Runtime/World/LevelSystem.md)
-- [Tick contract](../Runtime/World/TickScheduling.md)
-- [Collision contract](../Runtime/Physics/Collision.md)
+- [World API and state](../../../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
+- [World ownership and teardown](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp)
+- [World play and Tick](../../../../Engine/Source/Runtime/Engine/Private/Engine/World.cpp)
+- [World collision facade](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldCollision.cpp)
+- [Runtime host](../../../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
+- [Editor and PIE host](../../../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
+- [Preview host](../../../../Engine/Source/Editor/DurinEd/Private/Preview/PreviewScene.cpp)
+- [ModularFeature registration](../../../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
+- [Module manager](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Level lifecycle contract](../../../Runtime/World/LevelSystem.md)
+- [Tick contract](../../../Runtime/World/TickScheduling.md)
+- [Collision contract](../../../Runtime/Physics/Collision.md)

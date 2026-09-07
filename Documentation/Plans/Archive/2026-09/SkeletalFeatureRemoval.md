@@ -4,7 +4,7 @@ Summary: Remove Skeleton, SkeletalMesh, AnimationClip, playback, GPU skinning, d
 
 Last reviewed: 2026-09-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-05
 
 ## Current Status
@@ -179,11 +179,11 @@ their checks, and current documentation describes the reduced engine accurately.
 
 ## Execution and Handoff
 
-Follow [agent build/run](../Agents/BuildAndRun.md),
-[agent testing](../Agents/Testing.md), and
-[agent documentation](../Agents/Documentation.md) workflows. Before asset edits,
-read [asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-and [asset packages](../Runtime/Assets/AssetPackages.md).
+Follow [agent build/run](../../../Agents/BuildAndRun.md),
+[agent testing](../../../Agents/Testing.md), and
+[agent documentation](../../../Agents/Documentation.md) workflows. Before asset edits,
+read [asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+and [asset packages](../../../Runtime/Assets/AssetPackages.md).
 
 Use one checkout writer, with no overlapping build process trees. Terrain removal
 and skeletal removal touch shared renderer/import/test files: execute sequentially
