@@ -490,7 +490,7 @@ namespace Durin
 									   && Primitive->LOD != nullptr
 									   && Primitive->VertexFactory != nullptr
 									   && Item.Section != nullptr
-									   && std::isfinite(Item.TranslucentDistanceSquared)
+									   && std::isfinite(Item.TranslucentSortDepth)
 									   && Item.ShaderMapIdentity
 											  == Item.Material.PlanningPassIdentity.ShaderMap
 									   && Item.PipelineKey.Material

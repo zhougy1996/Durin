@@ -565,6 +565,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&Scene, Summary](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView FirstView;
+			FirstView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			FirstView.ViewLocation = Durin::FVector3(0.0, 0.0, -10.0);
 			const Durin::FPreparedStaticMeshView First =
 				Durin::PrepareStaticMeshView_RenderThread(
@@ -594,9 +595,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			Summary->bTranslucentBlend =
 				First.Translucent.front().PipelineKey.ColorBlend.bEnable;
 			Summary->FirstViewDistance =
-				First.Translucent.front().TranslucentDistanceSquared;
+				First.Translucent.front().TranslucentSortDepth;
 
 			Durin::FSceneView SecondView;
+			SecondView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			SecondView.ViewLocation = Durin::FVector3(0.0, 0.0, 5.0);
 			const Durin::FPreparedStaticMeshView Second =
 				Durin::PrepareStaticMeshView_RenderThread(
@@ -605,7 +607,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				);
 			ASSERT_EQ(Second.GetNumSections(), First.GetNumSections());
 			Summary->SecondViewDistance =
-				Second.Translucent.front().TranslucentDistanceSquared;
+				Second.Translucent.front().TranslucentSortDepth;
 			EXPECT_EQ(Second.Opaque.front().PipelineKey.Rasterizer.PolygonMode, Durin::ERHIPolygonMode::Fill);
 		}
 	);
@@ -645,6 +647,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&OrderingScene](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView OriginView;
+			OriginView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			const Durin::FPreparedStaticMeshView FromOrigin =
 				Durin::PrepareStaticMeshView_RenderThread(
 					CommandList, OrderingScene.GetStaticMeshSceneInfos(), OriginView,
@@ -669,6 +672,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			}
 
 			Durin::FSceneView MovedView;
+			MovedView.Settings.Mode.TranslucentSortPolicy = Durin::ETranslucentSortPolicy::Distance;
 			MovedView.ViewLocation = Durin::FVector3(0.0, 0.0, 30.0);
 			const Durin::FPreparedStaticMeshView FromMovedCamera =
 				Durin::PrepareStaticMeshView_RenderThread(

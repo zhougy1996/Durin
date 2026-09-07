@@ -99,12 +99,22 @@ namespace Durin
 		Count,
 	};
 
+	// Selects the descending primary key for translucent draws; ties use stable draw identity.
+	enum class ETranslucentSortPolicy : uint8
+	{
+		// Perspective uses distance; orthographic uses signed x-forward view depth.
+		Projection,
+		Distance,
+		ViewDepth,
+	};
+
 	struct FSceneViewModeSettings
 	{
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
 		EViewLODMode LODMode = EViewLODMode::Automatic;
+		ETranslucentSortPolicy TranslucentSortPolicy = ETranslucentSortPolicy::Projection;
 		// Renderer-owned material quality policy. Development captures may disable
 		// it per submitted view for exact A/B evidence; normal views keep it on.
 		bool bEnableSpecularAA = true;

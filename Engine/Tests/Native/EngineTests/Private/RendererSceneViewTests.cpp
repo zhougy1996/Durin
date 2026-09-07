@@ -306,24 +306,73 @@ namespace Durin
 		EXPECT_EQ(View.ViewportHeight, 19u);
 	}
 
+	TEST(FRendererSceneViewTests, TranslucentSortPolicyFollowsProjectionAndOverrides)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(100.0, 100.0, 0.1, 1000.0);
+		// Rotate the camera's forward axis to world +Y and translate its origin.
+		View.ViewLocation = FVector3(10.0, 20.0, 30.0);
+		View.ViewMatrix = FMatrix(0.0);
+		View.ViewMatrix[1][0] = 1.0;
+		View.ViewMatrix[0][1] = -1.0;
+		View.ViewMatrix[2][2] = 1.0;
+		View.ViewMatrix[3] = FVector4(-20.0, 10.0, -30.0, 1.0);
+		const FVector3 Near(110.0, 25.0, 30.0);
+		const FVector3 Far(10.0, 30.0, 30.0);
+		for (const auto Convention : {ESceneDepthConvention::ForwardZ, ESceneDepthConvention::ReversedZ})
+		{
+			View.DepthConvention = Convention;
+			View.ProjectionMatrix = MakeOrthographicProjection(100.0, 100.0, 0.1, 1000.0);
+			if (Convention == ESceneDepthConvention::ReversedZ)
+			{
+				View.ProjectionMatrix[0][2] *= -1.0;
+				View.ProjectionMatrix[3][2] = 1000.0 / (1000.0 - 0.1);
+			}
+			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near), 5.0);
+			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Far), 10.0);
+			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near + FVector3(200.0, 0.0, 50.0)), 5.0);
+			EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, FVector3(10.0, 15.0, 30.0)), -5.0);
+			FPreparedReceiverGeometry Prepared;
+			for (const auto Center : {Near, Far, Near + FVector3(200.0, 0.0, 50.0)})
+			{
+				FPreparedStaticMeshDraw Draw;
+				Draw.TranslucentSortDepth = ComputeTranslucentSortDepth(View, Center);
+				Draw.SortKey.PrimitiveId = 3 - Prepared.StaticMeshes.Translucent.size();
+				Prepared.StaticMeshes.Translucent.push_back(Draw);
+			}
+			PrepareCombinedTranslucentGeometry(Prepared);
+			EXPECT_EQ(Prepared.TranslucentGeometry[0].SortKey.PrimitiveId, 2u);
+			EXPECT_EQ(Prepared.TranslucentGeometry[1].SortKey.PrimitiveId, 1u);
+			EXPECT_EQ(Prepared.TranslucentGeometry[2].SortKey.PrimitiveId, 3u);
+		}
+		View.Settings.Mode.TranslucentSortPolicy = ETranslucentSortPolicy::Distance;
+		EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near), 10025.0);
+		View.ProjectionMatrix = MakePerspectiveProjection(60.0, 1.0, 0.1, 1000.0);
+		View.Settings.Mode.TranslucentSortPolicy = ETranslucentSortPolicy::Projection;
+		EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near), 10025.0);
+		EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Far), 100.0);
+		View.Settings.Mode.TranslucentSortPolicy = ETranslucentSortPolicy::ViewDepth;
+		EXPECT_DOUBLE_EQ(ComputeTranslucentSortDepth(View, Near), 5.0);
+	}
+
 	TEST(FRendererSceneViewTests,
-		CombinedTranslucencyOrdersDistanceThenCompleteStableTies)
+		CombinedTranslucencyOrdersDepthThenCompleteStableTies)
 	{
 		FPreparedReceiverGeometry Prepared;
 		FPreparedStaticMeshDraw StaticNear;
-		StaticNear.TranslucentDistanceSquared = 10.0;
+		StaticNear.TranslucentSortDepth = 10.0;
 		StaticNear.SortKey.PrimitiveId = 20;
 		Prepared.StaticMeshes.Translucent.push_back(StaticNear);
 		FPreparedStaticMeshDraw StaticFar;
-		StaticFar.TranslucentDistanceSquared = 20.0;
+		StaticFar.TranslucentSortDepth = 20.0;
 		StaticFar.SortKey.PrimitiveId = 30;
 		Prepared.StaticMeshes.Translucent.push_back(StaticFar);
 		FPreparedStaticMeshDraw StaticEarlier;
-		StaticEarlier.TranslucentDistanceSquared = 10.0;
+		StaticEarlier.TranslucentSortDepth = 10.0;
 		StaticEarlier.SortKey.PrimitiveId = 10;
 		Prepared.StaticMeshes.Translucent.push_back(StaticEarlier);
 		FPreparedStaticMeshDraw ExactTie;
-		ExactTie.TranslucentDistanceSquared = 10.0;
+		ExactTie.TranslucentSortDepth = 10.0;
 		ExactTie.SortKey.PrimitiveId = 20;
 		Prepared.StaticMeshes.Translucent.push_back(ExactTie);
 

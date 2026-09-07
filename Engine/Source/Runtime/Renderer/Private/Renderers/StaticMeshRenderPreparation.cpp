@@ -183,9 +183,8 @@ namespace Durin
 					}
 					Item.SortCenter = FVector3(Origin);
 				}
-				const FVector3 Offset = Item.SortCenter - View.ViewLocation;
-				Item.TranslucentDistanceSquared = Math::Dot(Offset, Offset);
-				if (!std::isfinite(Item.TranslucentDistanceSquared))
+				Item.TranslucentSortDepth = ComputeTranslucentSortDepth(View, Item.SortCenter);
+				if (!std::isfinite(Item.TranslucentSortDepth))
 				{
 					continue;
 				}
@@ -287,11 +286,11 @@ namespace Durin
 			Result.Translucent,
 			[](const FPreparedStaticMeshDraw& A,
 			   const FPreparedStaticMeshDraw& B) {
-				if (A.TranslucentDistanceSquared
-					!= B.TranslucentDistanceSquared)
+				if (A.TranslucentSortDepth
+					!= B.TranslucentSortDepth)
 				{
-					return A.TranslucentDistanceSquared
-						   > B.TranslucentDistanceSquared;
+					return A.TranslucentSortDepth
+						   > B.TranslucentSortDepth;
 				}
 				return A.SortKey < B.SortKey;
 			}

@@ -30,7 +30,7 @@ namespace Durin
 		EPreparedTranslucentGeometryFamily Family =
 			EPreparedTranslucentGeometryFamily::StaticMesh;
 		uint32 DrawIndex = 0;
-		double DistanceSquared = 0.0;
+		double SortDepth = 0.0;
 		FMeshDrawSortKey SortKey;
 	};
 
@@ -139,12 +139,12 @@ namespace Durin
 			const auto& Draw = Geometry.StaticMeshes.Translucent[Index];
 			Geometry.TranslucentGeometry.push_back({
 				EPreparedTranslucentGeometryFamily::StaticMesh, Index,
-				Draw.TranslucentDistanceSquared, Draw.SortKey});
+				Draw.TranslucentSortDepth, Draw.SortKey});
 		}
 		std::ranges::sort(Geometry.TranslucentGeometry,
 			[](const auto& A, const auto& B) {
-				if (A.DistanceSquared != B.DistanceSquared)
-					return A.DistanceSquared > B.DistanceSquared;
+				if (A.SortDepth != B.SortDepth)
+					return A.SortDepth > B.SortDepth;
 				if (const auto Order = A.SortKey <=> B.SortKey; Order != 0)
 					return Order < 0;
 				return static_cast<uint8>(A.Family)

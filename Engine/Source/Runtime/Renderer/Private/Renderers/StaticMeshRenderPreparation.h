@@ -16,6 +16,26 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
+	// Larger values draw first. View depth is signed along the engine's +X
+	// camera axis and is independent of the projection's device-depth convention.
+	inline auto ComputeTranslucentSortDepth(
+		const FSceneView& View, const FVector3& WorldCenter) -> double
+	{
+		const auto Policy = View.Settings.Mode.TranslucentSortPolicy;
+		constexpr double ProjectionKindEpsilon = 1.0e-12;
+		const bool bOrthographic = std::abs(View.ProjectionMatrix[0][3]) <= ProjectionKindEpsilon
+			&& std::abs(View.ProjectionMatrix[1][3]) <= ProjectionKindEpsilon
+			&& std::abs(View.ProjectionMatrix[2][3]) <= ProjectionKindEpsilon
+			&& std::abs(View.ProjectionMatrix[3][3]) > ProjectionKindEpsilon;
+		if (Policy == ETranslucentSortPolicy::ViewDepth
+			|| (Policy == ETranslucentSortPolicy::Projection && bOrthographic))
+		{
+			return (View.ViewMatrix * FVector4(WorldCenter, 1.0)).x;
+		}
+		const FVector3 Offset = WorldCenter - View.ViewLocation;
+		return Math::Dot(Offset, Offset);
+	}
+
 	// Stores primitive/selected-LOD facts once for all of its prepared draws.
 	struct FPreparedStaticMeshPrimitive
 	{
@@ -39,7 +59,8 @@ namespace Durin
 		uint32 SectionIndex = 0;
 		const FStaticMeshSection* Section = nullptr;
 		FVector3 SortCenter{0.0};
-		double TranslucentDistanceSquared = 0.0;
+		// Finite descending key: squared world distance or signed view depth.
+		double TranslucentSortDepth = 0.0;
 		FMaterialRenderData Material;
 		EMeshBasePass Pass = EMeshBasePass::Opaque;
 		FMaterialShaderMapIdentity ShaderMapIdentity;
