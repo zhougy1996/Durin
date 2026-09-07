@@ -18,6 +18,8 @@ def _append_project_paths_to_cmake_content(content: list[str], project_name: str
 def _append_project_global_variables_to_cmake_content(content: list[str], project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
     content.append("# Global variables for durin project\n")
+    test_root = (project_config.project_dir / project_config.native_test_root).as_posix() if project_config.native_test_root else ""
+    content.append(f'set(DURIN_PROJECT_TESTS_DIR "{test_root}")\n')
     content.append(f"set(DURIN_PROJECT_DIR \"{project_config.project_dir.as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_SOURCE_DIR \"{utils.get_project_source_dir(project_name).as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_INTERMEDIATE_DIR \"{utils.get_project_intermediate_dir(project_name).as_posix()}\")\n")
@@ -69,7 +71,7 @@ def _append_project_build_variables_to_cmake_content(content: list[str], project
     content.append("set(DURIN_PROJECT_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/${DURIN_PROJECT_OUTPUT_CONFIG}\")\n")
     content.append("set(DURIN_PROJECT_RUNTIME_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Runtime/${DURIN_PROJECT_RUNTIME_VARIANT}\")\n")
     content.append("set(DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/${DURIN_THIRDPARTY_OUTPUT_CONFIG}/ThirdParty\")\n")
-    content.append("set(DURIN_PROJECT_TEST_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Tests/${DURIN_PROJECT_RUNTIME_VARIANT}\")\n")
+    content.append("set(DURIN_PROJECT_TEST_OUTPUT_ROOT \"${DURIN_WORKSPACE_DIR}/Engine/Binaries/${DURIN_ARCH}/${DURIN_PROJECT_OUTPUT_CONFIG}/Tests/${DURIN_PROJECT_RUNTIME_VARIANT}\")\n")
     content.append("set(DURIN_PROJECT_LIB_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Lib\")\n")
     content.append("set(DURIN_PROJECT_SYMBOL_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Symbols\")\n")
     content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR}\")\n")

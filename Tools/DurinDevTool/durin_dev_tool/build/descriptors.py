@@ -35,6 +35,7 @@ class ProjectDescriptor:
     module_dirs: Mapping[str, str]
     base_modules: tuple[str, ...]
     extra_modules: Mapping[str, ProjectRuntimeVariantDescriptor]
+    native_test_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -197,12 +198,21 @@ def load_project_descriptor(
         runtime_variants[runtime_variant] = ProjectRuntimeVariantDescriptor(
             _string_list(runtime_variant_data, "Modules", resolved)
         )
+    test_relative = data.get("Tests", {}).get("Native", {}).get("Root")
+    test_root = (resolved.parent / test_relative).resolve() if test_relative else None
+    if test_root is not None and (
+        Path(test_relative).is_absolute() or test_root == resolved.parent
+        or not test_root.is_relative_to(resolved.parent)
+        or any(c in test_relative for c in (';', '$', '"', '\n', '\r', ']'))
+    ):
+        raise BuildToolError(f'Descriptor "{resolved}" Tests.Native.Root must be a contained relative directory.')
     return ProjectDescriptor(
         name=name,
         path=resolved,
         module_dirs=dict(raw_module_dirs),
         base_modules=base_modules,
         extra_modules=runtime_variants,
+        native_test_root=test_root,
     )
 
 

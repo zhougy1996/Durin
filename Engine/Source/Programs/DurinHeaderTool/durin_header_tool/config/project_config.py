@@ -16,6 +16,7 @@ class DurinProjectRuntimeVariantConfig:
 @dataclass
 class DurinProjectConfig:
     project_name: str = ""
+    native_test_root: str = ""
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
     base_modules: list[str] = field(default_factory=list)
@@ -57,6 +58,7 @@ class DurinProjectConfig:
         raw_json_data = load_json_descriptor(project_config_file_path, PROJECT_SCHEMA)
         instance = cls(
             project_name=raw_json_data["ProjectName"],
+            native_test_root=raw_json_data.get("Tests", {}).get("Native", {}).get("Root", ""),
             base_modules=list(raw_json_data.get("BaseModules", [])),
             extra_modules={
                 runtime_variant: DurinProjectRuntimeVariantConfig(
@@ -68,6 +70,13 @@ class DurinProjectConfig:
         )
         instance.config_file_path = project_config_file_path
         instance.project_dir = instance.config_file_path.parent
+        if instance.native_test_root:
+            test_root = (instance.project_dir / instance.native_test_root).resolve()
+            if (Path(instance.native_test_root).is_absolute()
+                    or test_root == instance.project_dir
+                    or not test_root.is_relative_to(instance.project_dir)
+                    or any(c in instance.native_test_root for c in (';', '$', '"', '\n', '\r', ']'))):
+                raise ValueError(f'{project_config_file_path}: Tests.Native.Root must be a contained relative directory.')
         return instance
 
 def _load_project_config_file(project_config_file_path: Path) -> DurinProjectConfig:

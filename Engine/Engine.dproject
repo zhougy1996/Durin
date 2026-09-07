@@ -1,5 +1,6 @@
 {
     "ProjectName": "Engine",
+    "Tests": {"Native": {"Root": "Tests/Native"}},
     "ModuleDirs": {
         "Core": "Source/Runtime/Core",
         "PhysicsCore": "Source/Runtime/PhysicsCore",

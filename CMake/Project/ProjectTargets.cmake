@@ -336,7 +336,8 @@ function(add_durin_test target_name)
 		VERBATIM
 	)
 
-	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
+	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}"
+		DURIN_TEST_PROJECT "${DURIN_PROJECT_NAME}")
 	set_property(GLOBAL APPEND PROPERTY DURIN_NATIVE_TEST_TARGETS "${target_name}")
 endfunction()
 
@@ -1038,7 +1039,7 @@ function(durin_generate_native_test_registry output_path)
 				"durin_register_native_test.")
 		endif()
 		foreach(_durin_property
-			KIND DOMAINS MODULES BACKENDS STACKS
+			PROJECT KIND DOMAINS MODULES BACKENDS STACKS
 			EXECUTION_HOST RESOLVED_EXECUTION_HOST DISCOVERY_RESOURCE_LOCKS
 			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
@@ -1055,6 +1056,7 @@ function(durin_generate_native_test_registry output_path)
 		else()
 			set(_durin_heavy_json false)
 		endif()
+		durin_json_escape(_durin_project_json "${_durin_PROJECT}")
 		durin_json_escape(_durin_name_json "${_durin_target}")
 		durin_json_escape(_durin_kind_json "${_durin_KIND}")
 		durin_json_escape(_durin_execution_host_json "${_durin_EXECUTION_HOST}")
@@ -1064,7 +1066,7 @@ function(durin_generate_native_test_registry output_path)
 		durin_json_escape(_durin_private_source_rationale_json "${_durin_PRIVATE_SOURCE_RATIONALE}")
 		string(CONCAT _durin_record
 			"    {\"name\":\"${_durin_name_json}\",\"availability\":\"configured\","
-			"\"kind\":\"${_durin_kind_json}\","
+			"\"project\":\"${_durin_project_json}\",\"kind\":\"${_durin_kind_json}\","
 			"\"domains\":${_durin_DOMAINS_json},\"modules\":${_durin_MODULES_json},"
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
 			"\"executionHost\":\"${_durin_execution_host_json}\","
@@ -1084,12 +1086,19 @@ function(durin_generate_native_test_registry output_path)
 	endif()
 	durin_json_escape(_durin_preset_json "${_durin_registry_preset}")
 	durin_json_escape(_durin_configuration_json "${CMAKE_BUILD_TYPE}")
+	get_property(_projects GLOBAL PROPERTY DURIN_WORKSPACE_TEST_PROJECTS)
+	if(NOT _projects)
+		set(_projects "[]")
+	endif()
+	get_property(_fingerprint GLOBAL PROPERTY DURIN_TEST_GRAPH_FINGERPRINT)
 	string(CONCAT _durin_registry
 		"{\n"
 		"  \"schemaVersion\": 4,\n"
 		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
 		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
 		"\"configuration\":\"${_durin_configuration_json}\"},\n"
+		"  \"projects\": ${_projects},\n"
+		"  \"testGraphFingerprint\": \"${_fingerprint}\",\n"
 		"  \"targets\": [\n${_durin_records_json}\n  ]\n"
 		"}\n")
 	get_filename_component(_durin_registry_dir "${output_path}" DIRECTORY)

@@ -1,0 +1,7 @@
+{
+  "Projects": [
+    "Engine/Engine.dproject",
+    "Sandbox/Sandbox.dproject",
+    "RoadWeaver/RoadWeaver.dproject"
+  ]
+}

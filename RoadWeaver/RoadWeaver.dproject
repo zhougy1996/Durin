@@ -1,5 +1,6 @@
 {
     "ProjectName": "RoadWeaver",
+    "Tests": {"Native": {"Root": "Tests/Native"}},
     "ModuleDirs": {
         "RoadWeaver": "Source/Runtime/RoadWeaver",
         "RoadWeaverEditor": "Source/Editor/RoadWeaverEditor"

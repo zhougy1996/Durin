@@ -37,6 +37,15 @@
         "$ref": "#/$defs/runtimeVariant"
       }
     },
+    "Tests": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "Native": {
+          "type": "object", "additionalProperties": false, "required": ["Root"],
+          "properties": {"Root": {"$ref": "#/$defs/nonEmptyString"}}
+        }
+      }
+    },
     "Mounts": {
       "type": "array",
       "default": [],

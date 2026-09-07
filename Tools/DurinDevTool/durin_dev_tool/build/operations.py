@@ -14,7 +14,7 @@ from rich.text import Text
 from .build_context import BuildContext, create_build_context, derive_build_context
 from .errors import BuildToolError
 from .models import Action
-from .requests import BaseRequest, ConcreteRequest, SimpleRequest
+from .requests import BaseRequest, ConcreteRequest, SimpleRequest, ConfigureRequest
 from .selection import preset_cache_string
 from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
 from .locations import resolve_all_locations, resolve_location
@@ -28,12 +28,15 @@ from .toolchain_context import (
 from .locking import stop_active_operation
 from .output import BuildOutput
 from .native_test_registry import (
+    NativeTestRegistry,
     filter_targets,
+    registry_path,
     load_native_test_registry,
     resolve_selection,
     target_metadata_text,
 )
 from .native_test_impact import analyze_affected_tests, discover_changed_paths
+from .workspace_manifest import load_workspace_manifest, test_graph_fingerprint
 from .recovery import interruption_marker_path, recoverable_target, recovery_target
 
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
@@ -462,8 +465,8 @@ def dispatch_request(
             output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
         return
     if request.action is Action.TEST and request.test_operation == "affected":
-        registry = load_native_test_registry(context)
         changed_paths = discover_changed_paths(repository.root, request.test_base)
+        registry = load_affected_registry(context, output, repository.root)
         affected = analyze_affected_tests(registry, changed_paths)
         output.info(
             f'Affected native-test analysis: {len(changed_paths)} changed path(s)'
@@ -497,6 +500,33 @@ def dispatch_request(
             all_presets,
         ),
     )
+
+
+def load_affected_registry(context: BuildContext, output: BuildOutput, root: Path) -> NativeTestRegistry:
+    request = context.request
+    manifest = root / "Durin.dworkspace"
+    if not manifest.is_file():
+        return load_native_test_registry(context)
+    projects = load_workspace_manifest(root)
+    fingerprint = test_graph_fingerprint(root, projects)
+    registry = load_native_test_registry(context) if registry_path(context).is_file() else None
+    if registry is not None and registry.test_graph_fingerprint == fingerprint:
+        return registry
+    if request.test_explain_affected:
+        output.warning("Project test graph metadata is stale; run configure to inspect current targets. Affected execution refreshes it automatically.")
+        if registry is None:
+            raise BuildToolError("No configured native-test registry is available for read-only explanation.")
+        return registry
+    output.info("Refreshing project test graph before affected selection.")
+    try:
+        context.request = ConfigureRequest(context=request.context, output=request.output)
+        execute_context(context, output, confirm_purge=lambda *_: False)
+    finally:
+        context.request = request
+    registry = load_native_test_registry(context)
+    if registry.test_graph_fingerprint != fingerprint:
+        raise BuildToolError("Project test graph changed during configuration; rerun test affected.")
+    return registry
 
 
 def execute_request(

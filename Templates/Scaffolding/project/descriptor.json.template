@@ -1,5 +1,6 @@
 {
     "ProjectName": "{{PROJECT_NAME}}",
+    "Tests": {"Native": {"Root": "Tests/Native"}},
     "ModuleDirs": {
         "{{PROJECT_NAME}}": "Source/Runtime/{{PROJECT_NAME}}"
     },

@@ -5,6 +5,10 @@
   ],
   "json.schemas": [
     {
+      "fileMatch": ["*.dworkspace"],
+      "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-workspace.schema.json"
+    },
+    {
       "fileMatch": ["*.dproject"],
       "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-project.schema.json"
     },

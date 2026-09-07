@@ -35,8 +35,19 @@ and one parallel CTest selection. Documentation-only or unrelated tooling
 changes may resolve to no native tests. `--explain` prints every input path and
 the decision without building or running.
 
+Project test roots declared in `.dproject` carry explicit ownership. A project
+test CMake change or an unrecognized/new/deleted test source selects that
+project's ordinary targets; a recognized target filename selects that target.
+Other changed production modules contribute their coverage independently.
+Before affected execution, DevTool compares declaration/CMake contents and
+test-file membership with the configured registry fingerprint and configures
+again when needed, then resolves targets from the refreshed registry. Editing
+an existing test assertion alone does not require this refresh. `--explain`
+remains read-only and warns when its configured target list is stale.
+
 Impact analysis is deliberately conservative. Shared native-test discovery,
-registry, harness, execution, or unbounded CMake changes resolve to `all`.
+registry, harness, execution, workspace membership, project descriptor, or
+unbounded CMake changes resolve to `all`.
 Native-test changes whose ownership cannot be bounded also resolve to `all`
 when no changed production module, exact test filename, or recognizable test
 domain supplies a safe bounded selection. Runtime inputs outside a module known

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import BuildToolError
+from .workspace_manifest import load_workspace_manifest
 from .descriptors import ProjectDescriptor, load_project_descriptor
 
 
@@ -98,47 +99,53 @@ def discover_workspace_projects(root: Path) -> WorkspaceDiscovery:
         raise BuildToolError(f'Could not read workspace root CMake file "{root_cmake}": {exc}') from exc
     check_balanced_cmake(cmake_content, root_cmake)
 
-    registrations = parse_cmake_values(ADD_SUBDIRECTORY_PATTERN, cmake_content)
-    registrations_by_root: dict[str, list[str]] = {}
-    for registration in registrations:
-        registration_root = registration.split("/", 1)[0]
-        registrations_by_root.setdefault(registration_root.casefold(), []).append(registration)
+    if (workspace_root / "Durin.dworkspace").is_file():
+        projects = [WorkspaceProject(load_project_descriptor(entry.descriptor),
+                                     entry.descriptor.parent,
+                                     entry.descriptor.parent.relative_to(workspace_root).as_posix())
+                    for entry in load_workspace_manifest(workspace_root)]
+    else:
+        registrations = parse_cmake_values(ADD_SUBDIRECTORY_PATTERN, cmake_content)
+        registrations_by_root: dict[str, list[str]] = {}
+        for registration in registrations:
+            registration_root = registration.split("/", 1)[0]
+            registrations_by_root.setdefault(registration_root.casefold(), []).append(registration)
 
-    descriptor_paths = sorted(
-        workspace_root.glob("*/*.dproject"),
-        key=lambda path: path.as_posix().casefold(),
-    )
-    projects: list[WorkspaceProject] = []
-    seen_roots: set[str] = set()
-    seen_names: dict[str, Path] = {}
-    errors: list[str] = []
-    for descriptor_path in descriptor_paths:
-        project_root = descriptor_path.parent.resolve()
-        root_key = project_root.name.casefold()
-        if root_key in seen_roots:
-            errors.append(f'Multiple project descriptors exist in "{project_root}".')
-            continue
-        seen_roots.add(root_key)
-        project = load_project_descriptor(descriptor_path)
-        previous_descriptor = seen_names.get(project.name.casefold())
-        if previous_descriptor is not None:
-            errors.append(
-                f'Duplicate project name "{project.name}" in "{previous_descriptor}" '
-                f'and "{project.path}".'
-            )
-            continue
-        seen_names[project.name.casefold()] = project.path
-        matching = registrations_by_root.get(root_key, [])
-        if len(matching) != 1:
-            errors.append(
-                f'Project "{project.name}" must have exactly one root add_subdirectory registration '
-                f'for "{project_root.name}" (found {len(matching)}).'
-            )
-            continue
-        projects.append(WorkspaceProject(project, project_root, matching[0]))
+        descriptor_paths = sorted(
+            workspace_root.glob("*/*.dproject"),
+            key=lambda path: path.as_posix().casefold(),
+        )
+        projects: list[WorkspaceProject] = []
+        seen_roots: set[str] = set()
+        seen_names: dict[str, Path] = {}
+        errors: list[str] = []
+        for descriptor_path in descriptor_paths:
+            project_root = descriptor_path.parent.resolve()
+            root_key = project_root.name.casefold()
+            if root_key in seen_roots:
+                errors.append(f'Multiple project descriptors exist in "{project_root}".')
+                continue
+            seen_roots.add(root_key)
+            project = load_project_descriptor(descriptor_path)
+            previous_descriptor = seen_names.get(project.name.casefold())
+            if previous_descriptor is not None:
+                errors.append(
+                    f'Duplicate project name "{project.name}" in "{previous_descriptor}" '
+                    f'and "{project.path}".'
+                )
+                continue
+            seen_names[project.name.casefold()] = project.path
+            matching = registrations_by_root.get(root_key, [])
+            if len(matching) != 1:
+                errors.append(
+                    f'Project "{project.name}" must have exactly one root add_subdirectory registration '
+                    f'for "{project_root.name}" (found {len(matching)}).'
+                )
+                continue
+            projects.append(WorkspaceProject(project, project_root, matching[0]))
 
-    if errors:
-        raise BuildToolError("Workspace project discovery failed:\n- " + "\n- ".join(sorted(errors)))
+        if errors:
+            raise BuildToolError("Workspace project discovery failed:\n- " + "\n- ".join(sorted(errors)))
 
     target_names: list[str] = []
     cmake_paths = {root_cmake}

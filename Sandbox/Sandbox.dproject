@@ -1,5 +1,6 @@
 {
     "ProjectName": "Sandbox",
+    "Tests": {"Native": {"Root": "Tests/Native"}},
     "ModuleDirs": {
         "Sandbox": "Source/Runtime/Sandbox"
     },

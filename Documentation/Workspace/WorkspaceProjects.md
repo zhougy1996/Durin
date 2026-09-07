@@ -36,7 +36,26 @@ engine workspace. `ProjectName` is display/build identity; the selected
 project root plus its explicit `Content` path publishes the fixed logical
 `/Game/` mount. The engine root plus `Content` publishes `/Engine/`.
 
-CMake passes complete `.dproject` paths to DurinHeaderTool. Generated build metadata preserves the complete set of project descriptors needed to resolve cross-project module dependencies; there is no global project registry file.
+`Durin.dworkspace` declares build membership in an ordered `Projects` array of
+workspace-relative `.dproject` paths. `Engine/Engine.dproject` comes first;
+other projects follow their initialization dependencies. Paths must remain
+inside the workspace, project roots cannot overlap, and project names are
+unique without regard to case. Descriptor filenames match `ProjectName`.
+Project entry CMake files retain custom initialization. Unlisted directories
+are not implicitly discovered as build projects.
+
+CMake passes the complete declared `.dproject` set to DurinHeaderTool so
+cross-project module dependencies use the same membership as DevTool.
+
+Projects declare native tests through `Tests.Native.Root`, for example
+`"Tests": {"Native": {"Root": "Tests/Native"}}`. The root is a relative,
+contained subdirectory of the project; omission declares no native-test root.
+A declared directory may not exist yet, so empty projects retain ownership
+when their first tests are added. Target sources and link dependencies remain
+in the test directory's CMake files. Those files own project tests only;
+shared test infrastructure belongs in the workspace's shared build/support
+directories. The configured native-test registry records project roots and
+target owners separately from the modules each test covers.
 
 ### Descriptor Schemas And Validation
 
@@ -226,7 +245,7 @@ When a separate top-level owner is required, use
 path must be a new direct child of the workspace root. The command creates the
 project descriptor and CMake entrypoints, `Configs/` and `Content/`, and a
 same-named runtime module enabled in `BaseModules`; it also adds the explicit
-root `add_subdirectory(...)` registration in the same transaction. Workspace
+`Durin.dworkspace` project entry in the same transaction. Workspace
 project and initial module names remain case-insensitively unique. External,
 installed-engine, and nested project creation remain outside this workflow.
 

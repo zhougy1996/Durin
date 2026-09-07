@@ -426,11 +426,16 @@ def plan_project_creation(
             private_dependencies=("Core",),
         ),
     ]
-    updated_root_cmake = _render_root_project_registration(
-        discovery.root_cmake,
-        discovery,
-        destination.name,
-    )
+    registration_file = discovery.root / "Durin.dworkspace"
+    if registration_file.is_file():
+        manifest = json.loads(registration_file.read_text(encoding="utf-8"))
+        manifest["Projects"].append(
+            (destination / f"{request.create_name}.dproject").relative_to(discovery.root).as_posix())
+        updated_registration = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+    else:
+        registration_file = discovery.root_cmake
+        updated_registration = _render_root_project_registration(
+            discovery.root_cmake, discovery, destination.name)
 
     def validate_workspace_after_creation(_: ScaffoldPlan) -> None:
         updated_discovery = discover_workspace_projects(discovery.root)
@@ -464,6 +469,6 @@ def plan_project_creation(
             module_directory / "Public",
         ),
         files=generated_files,
-        replacements=((discovery.root_cmake, updated_root_cmake),),
+        replacements=((registration_file, updated_registration),),
         validators=(validate_workspace_after_creation,),
     )

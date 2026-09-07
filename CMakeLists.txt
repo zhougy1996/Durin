@@ -32,9 +32,7 @@ include(CTest)
 set(DURIN_CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 
-add_subdirectory(Engine)
-add_subdirectory(Sandbox)
-add_subdirectory("RoadWeaver")
+add_durin_workspace()
 
 # Runtime values and generic storage are allowed below authoring modules;
 # source translators and offline build tools may not flow in the opposite direction.

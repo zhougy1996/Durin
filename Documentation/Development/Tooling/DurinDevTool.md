@@ -181,10 +181,10 @@ Create and register a workspace-local project with:
 The path must be a new direct child of the workspace root. Names are valid C++
 identifiers and case-insensitively unique among projects, modules, and CMake
 targets. The command creates the project descriptor, CMake setup, `Configs` and
-`Content`, a same-named runtime module, and the root CMake registration.
+`Content`, a same-named runtime module, and the `Durin.dworkspace` project entry.
 
-Use `--dry-run --plain` to preview. Project-tree creation and the root CMake edit
-form one transaction: failure restores the root file byte-for-byte and removes
+Use `--dry-run --plain` to preview. Project-tree creation and the workspace manifest edit
+form one transaction: failure restores the manifest byte-for-byte and removes
 only paths created by the invocation. Installed-engine projects, external roots,
 and nested workspace project paths are not supported. Project files come from
 `Templates/Scaffolding/project`; the initial module uses the module templates.

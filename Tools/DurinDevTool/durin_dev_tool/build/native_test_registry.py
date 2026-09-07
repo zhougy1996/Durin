@@ -41,6 +41,7 @@ class NativeTestTarget:
     heavy_runtime: bool
     private_source_owner: str
     private_source_rationale: str
+    project: str = ""
 
     @property
     def characterization(self) -> bool:
@@ -52,10 +53,19 @@ class NativeTestTarget:
 
 
 @dataclass(frozen=True)
+class NativeTestProject:
+    name: str
+    descriptor: str
+    test_root: str
+
+
+@dataclass(frozen=True)
 class NativeTestRegistry:
     path: Path
     preset: str
     targets: tuple[NativeTestTarget, ...]
+    projects: tuple[NativeTestProject, ...] = ()
+    test_graph_fingerprint: str = ""
 
     def target(self, name: str) -> NativeTestTarget | None:
         return next((target for target in self.targets if target.name == name), None)
@@ -153,12 +163,25 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
                 heavy_runtime=record.get("heavyRuntime") is True,
                 private_source_owner=str(record.get("privateSourceOwner", "")),
                 private_source_rationale=str(record.get("privateSourceRationale", "")),
+                project=str(record.get("project", "")),
             )
         )
     names = [target.name for target in targets]
     if names != sorted(names) or len(names) != len(set(names)):
         raise BuildToolError(f'Configured native-test registry "{path}" is not deterministic.')
-    return NativeTestRegistry(path, context.preset.name, tuple(targets))
+    projects = []
+    for record in document.get("projects", []):
+        if not isinstance(record, dict) or any(
+            not isinstance(record.get(key), str) for key in ("name", "descriptor", "testRoot")
+        ):
+            raise BuildToolError(f'Invalid native-test project ownership in "{path}".')
+        for key in ("descriptor", "testRoot"):
+            value = record[key]
+            if value and (Path(value).is_absolute() or ".." in Path(value).parts):
+                raise BuildToolError(f'Invalid native-test project path in "{path}": {value}')
+        projects.append(NativeTestProject(record["name"], record["descriptor"], record["testRoot"]))
+    return NativeTestRegistry(path, context.preset.name, tuple(targets), tuple(projects),
+                              str(document.get("testGraphFingerprint", "")))
 
 
 def _parse_selector(expression: str) -> dict[str, set[str]]:

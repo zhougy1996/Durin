@@ -4,7 +4,10 @@ This document explains where Durin's CMake entrypoints live, how generated metad
 
 ## Overview
 
-The repository configures from the root `CMakeLists.txt` and delegates into `Engine/CMakeLists.txt`. Most engine and editor code is built as loadable modules rather than a monolithic executable.
+The repository configures from the root `CMakeLists.txt`. `add_durin_workspace()`
+loads the ordered project descriptors in `Durin.dworkspace` and delegates to
+their project CMake entrypoints, beginning with Engine. Most engine and editor
+code is built as loadable modules rather than a monolithic executable.
 
 The main build entrypoints are:
 
@@ -126,9 +129,10 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMak
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
 When `BUILD_TESTING` is enabled, `add_durin_project(...)` registers native tests
-from `DURIN_PROJECT_TESTS_DIR`. The default is
-`<ProjectRoot>/Tests/Native`; a project may override it before calling
-`add_durin_project(...)`. Test subdirectories and GoogleTest are excluded from
+from the project's `.dproject` `Tests.Native.Root` declaration, exposed as
+`DURIN_PROJECT_TESTS_DIR`. Omission declares no test root. All projects share
+the Engine test binary deployment root; project tests need no output-path
+lookup through another test target. Test subdirectories and GoogleTest are excluded from
 CMake's default `all` target. `DurinNativeTests` explicitly aggregates every
 native-test executable for whole-suite builds.
 

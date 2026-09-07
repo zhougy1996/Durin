@@ -61,6 +61,9 @@ function(add_durin_project project_name)
 		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
 		--native-libclang-fingerprint ${DURIN_NATIVE_LIBCLANG_FINGERPRINT}
 	)
+	foreach(_workspace_project IN LISTS DURIN_WORKSPACE_PROJECT_FILES)
+		list(APPEND DURIN_DHT_CONTEXT_ARGS --project-file "${_workspace_project}")
+	endforeach()
 	execute_process(
 		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" ${DURIN_DHT_CONTEXT_ARGS}
 		RESULT_VARIABLE _durin_prepare_project_build_result
@@ -81,9 +84,6 @@ function(add_durin_project project_name)
 	if(NOT DEFINED DURIN_PROJECT_CMAKE_DIR)
 		set(DURIN_PROJECT_CMAKE_DIR "${DURIN_PROJECT_ROOT_DIR}/CMake")
 	endif()
-	if(NOT DEFINED DURIN_PROJECT_TESTS_DIR)
-		set(DURIN_PROJECT_TESTS_DIR "${DURIN_PROJECT_ROOT_DIR}/Tests/Native")
-	endif()
 
 	set(DURIN_PROJECT_DIR "${DURIN_PROJECT_ROOT_DIR}")
 
@@ -100,7 +100,7 @@ function(add_durin_project project_name)
 	endforeach()
 
 	if(BUILD_TESTING)
-		if(EXISTS "${DURIN_PROJECT_TESTS_DIR}/CMakeLists.txt")
+		if(DURIN_PROJECT_TESTS_DIR AND EXISTS "${DURIN_PROJECT_TESTS_DIR}/CMakeLists.txt")
 			add_subdirectory("${DURIN_PROJECT_TESTS_DIR}" EXCLUDE_FROM_ALL)
 		endif()
 	endif()

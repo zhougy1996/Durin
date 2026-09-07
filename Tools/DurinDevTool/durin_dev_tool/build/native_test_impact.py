@@ -22,6 +22,7 @@ _NATIVE_TEST_INFRASTRUCTURE_PREFIXES = (
 _NATIVE_TEST_INFRASTRUCTURE_FILES = {
     "cmake/project/projecttargets.cmake",
     "cmakelists.txt",
+    "engine/tests/native/cmakelists.txt",
     "tools/durindevtool/durin_dev_tool/build/core.py",
     "tools/durindevtool/durin_dev_tool/build/handler.py",
     "tools/durindevtool/durin_dev_tool/build/request_validation.py",
@@ -39,6 +40,7 @@ class AffectedTestSelection:
     targets: tuple[NativeTestTarget, ...]
     run_all: bool
     reasons: tuple[str, ...]
+    projects: tuple[str, ...] = ()
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -177,17 +179,35 @@ def analyze_affected_tests(
     direct_target_names: set[str] = set()
     unresolved_native_tests: list[str] = []
     all_reasons: set[str] = set()
+    projects: set[str] = set()
 
     for original_path in changed_paths:
         path = original_path.replace("\\", "/").casefold()
         if path.startswith(_DOCUMENTATION_PREFIXES) or PurePosixPath(path).name == "agents.md":
             continue
-        module = _source_module(path, registry_modules)
-        if module:
-            modules.add(module)
+        if path == "durin.dworkspace":
+            all_reasons.add("workspace project membership changed")
             continue
         if path.startswith(_NATIVE_TEST_INFRASTRUCTURE_PREFIXES) or path in _NATIVE_TEST_INFRASTRUCTURE_FILES:
             all_reasons.add("shared native-test discovery or execution infrastructure changed")
+            continue
+        owner = next((project for project in registry.projects
+                      if project.test_root and path.startswith(project.test_root.casefold().rstrip("/") + "/")), None)
+        if owner:
+            owned_targets = tuple(target for target in ordinary_targets if target.project == owner.name)
+            matched_targets = _native_test_targets(path, owned_targets)
+            # Build declarations and unknown/new/deleted sources belong to the whole project.
+            if path.endswith("/cmakelists.txt") or path.endswith(".cmake") or not matched_targets:
+                projects.add(owner.name)
+            else:
+                direct_target_names.update(matched_targets)
+            continue
+        if any(path == project.descriptor.casefold() for project in registry.projects):
+            all_reasons.add("project module or test declaration changed")
+            continue
+        module = _source_module(path, registry_modules)
+        if module:
+            modules.add(module)
             continue
         if path.startswith(_NATIVE_TEST_PREFIX):
             matched_targets = _native_test_targets(path, ordinary_targets)
@@ -213,8 +233,11 @@ def analyze_affected_tests(
         if target.name in direct_target_names
         or set(target.modules) & modules
         or set(target.domains) & domains
+        or target.project in projects
     )
     reasons: list[str] = []
+    if projects:
+        reasons.append(f"changed native-test projects: {', '.join(sorted(projects))}")
     if modules:
         reasons.append(f"changed modules: {', '.join(sorted(modules))}")
     if domains:
@@ -234,4 +257,5 @@ def analyze_affected_tests(
         targets=() if all_reasons else selected,
         run_all=bool(all_reasons),
         reasons=tuple(reasons),
+        projects=tuple(sorted(projects)),
     )
