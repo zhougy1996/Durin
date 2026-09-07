@@ -186,11 +186,7 @@ namespace Durin::VulkanRHI
 
 		auto GetRenderPassManager() const -> FVulkanRenderPassManager&;
 
-		auto AcquireDeferredContext() -> FVulkanCommandListContext*;
-
 		auto GetImmediateContext() const -> FVulkanCommandListContext* { return ImmediateContext; }
-
-		auto ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void;
 
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
@@ -289,8 +285,6 @@ namespace Durin::VulkanRHI
 		int32 ComputeQueueFamilyIndex = -1;
 
 		int32 TransferQueueFamilyIndex = -1;
-
-		std::vector<FVulkanCommandListContext*> CommandContexts;
 
 		FVulkanCommandListContext* ImmediateContext = nullptr;
 

@@ -507,22 +507,6 @@ namespace Durin::VulkanRHI
 		return *RenderPassManager;
 	}
 
-	auto FVulkanDevice::AcquireDeferredContext() -> FVulkanCommandListContext*
-	{
-		if (CommandContexts.empty())
-		{
-			return new FVulkanCommandListContext(GVulkanRHI, *this, GraphicsQueue);
-		}
-		FVulkanCommandListContext* Context = CommandContexts.back();
-
-		return Context;
-	}
-
-	auto FVulkanDevice::ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void
-	{
-		CommandContexts.push_back(Context);
-	}
-
 	auto FVulkanDevice::GetCurrentFrame() -> FVulkanFrame&
 	{
 		CheckVulkanRHIThread();
@@ -555,10 +539,6 @@ namespace Durin::VulkanRHI
 		{
 			ImmediateContext->NotifyDeleted_GraphicsPipeline(PipelineState);
 		}
-		for (FVulkanCommandListContext* Context : CommandContexts)
-		{
-			Context->NotifyDeleted_GraphicsPipeline(PipelineState);
-		}
 	}
 
 	auto FVulkanDevice::NotifyDeleted_ComputePipeline(
@@ -567,8 +547,6 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		if (ImmediateContext)
 			ImmediateContext->NotifyDeleted_ComputePipeline(PipelineState);
-		for (FVulkanCommandListContext* Context : CommandContexts)
-			Context->NotifyDeleted_ComputePipeline(PipelineState);
 	}
 
 	auto FVulkanDevice::Destroy() -> void
@@ -587,12 +565,6 @@ namespace Durin::VulkanRHI
 
 		delete ImmediateContext;
 		ImmediateContext = nullptr;
-
-		for (FVulkanCommandListContext* Context : CommandContexts)
-		{
-			delete Context;
-		}
-		CommandContexts.clear();
 
 		for (auto*& Frame : Frames)
 		{
