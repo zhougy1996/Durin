@@ -9,12 +9,13 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete and committed as `c7b56dbae`. Stage 1 is in progress:
-transitive GameThread waits now reject without pumping, and package requests
-no longer publish a false terminal result after a rejected wait. Structured
-admission errors and new construction wrappers remain open. The small fixed
-Release pilot workloads are comparison baselines, not production-scale
-performance claims.
+Stages 0 and 1 are complete. Stage 2 is in progress: the public
+`Threading/TaskComposition.h` surface supports unique roots, synchronous
+move-only/void transformations, explicit immutable sharing, and checked
+construction failures. Async flattening, fan-in, and external sources remain
+open. Group drain-child/Join semantics and the BlockingIO executor belong to
+Stages 3 and 4. The small fixed Release pilot workloads remain comparison
+baselines rather than production-scale performance claims.
 
 Observed starting points:
 
@@ -278,7 +279,9 @@ They remain design contracts until the owning implementation stages land.
   are `CapacityExhausted`, `LifetimeClosed`, `GroupClosed`,
   `InvalidPrerequisite`, `UnsupportedExecutor`, `InvalidPayloadDeclaration`,
   `UniqueConsumerClaimed`, and `DependencyCycle`. Errors carry the code and
-  optional related task id; detailed strings remain diagnostics.
+  optional related task id; detailed strings remain diagnostics. Stage 1 adds
+  `InvalidCallable` for empty erased callables, which the legacy API already
+  rejects; mapping that failure to capacity or payload would be misleading.
 - `ETaskExecutor` is `Worker`, `BlockingIO`, or `GameThreadDeferred`.
   `FTaskExecutionOptions` contains debug name, priority, attribution,
   cancellation token, capture-byte estimate and result-byte estimate. Group
@@ -576,15 +579,69 @@ Depends on Stage 0.
 
 - [x] Reject transitive GameThread waits; cover direct, multi-hop, terminal,
   self-wait, and Worker-helping cases without introducing callback pumping.
-- [ ] Add structured admission errors for capacity, closed lifetime/group,
+- [x] Add the variant admission result and internal root/continuation boundary;
+  preserve legacy wrappers and classify rejection at the scheduler decision.
+- [x] Add structured admission errors for capacity, closed lifetime/group,
   invalid prerequisite, unsupported executor, and invalid payload declarations.
-- [ ] Keep legacy launch wrappers; route new graph construction through the
+- [x] Keep legacy launch wrappers; route new graph construction through the
   explicit admission result and preserve unique inputs after rejection.
 - [x] Audit affected wait callers for ignored WaitStatus, beginning with
   package requests; rejected waits must not synthesize a false task completion.
 
 Acceptance: the Stage 0 deadlock regression passes, rejected construction is
 locally diagnosable, and all accepted nodes retain exactly-once terminal state.
+
+#### Stage 1 public construction handoff
+
+`Threading/TaskComposition.h` supplies `TTask<T>`/void, `FTaskCompletion`,
+`FTaskGroup`, invocation context, execution options, `TrySpawn`, `Then` and
+explicit `Share`. New roots and edges reject invalid executors/priorities,
+missing deferred executors, zero/oversized/overflowing deferred declarations,
+closed scopes, and unavailable nontrivial result estimates. BlockingIO is
+explicitly unsupported until Stage 4. Legacy deferred dispatch remains
+compatible. The group currently uses legacy scope close/wait; Stage 3 adds
+its selected child and Join contract before production migration.
+
+Unique edge rejection preserves the input, including an injected callable-move
+allocation failure after claim reservation. A retry then consumes successfully.
+Result-accounting rebinding now uses a weak, allocation-free native binding so
+post-admission commit does not allocate an erased callback. Synchronous unique
+transformations and sharing also establish the first Stage 2 implementation.
+
+Validation: Windows Debug Core concurrency passed 148 tests before the added
+allocation regression; `test affected` then passed all four selected targets
+with the regression included. Log:
+`Build/.agent-state/logs/20260907-102646-341327-15144-ctest.log`.
+
+#### Stage 1 admission foundation handoff
+
+`Tasks::TTaskAdmission<T>` now provides the frozen variant-based result shape,
+with no default construction and rvalue-only value extraction. Root and
+continuation admission report errors at the actual scheduler decision under
+its lock, including a related id for invalid/old-lifetime prerequisites.
+Internal `TryLaunchCancelableTaskWithCompletion` and `TryLaunchContinuationTask`
+return this result; the existing exported launch functions adapt rejection back
+to an invalid handle. No thread-local last-error state or diagnostics snapshot
+is used to infer the result of a submission.
+
+The strict continuation boundary rejects unknown target enum values and zero
+GameThread payload declarations before admission. Legacy continuations retain
+their dispatch-time payload failure behavior. Queue saturation or executor close
+after acceptance still produces a terminal task failure, not a retrospective
+admission error. Scope rejection includes closed/old-lifetime scopes and attempts
+to reparent an inherited scope; detailed scope diagnostics remain authoritative.
+
+This is the internal admission foundation, not completion of Stage 1. Public
+`TrySpawn`/composition wrappers, complete executor and payload preflight, and
+structured unique-consumer rollback remain open. No group, BlockingIO executor,
+or new typed composition surface is claimed by this handoff.
+
+Validation on `windows-msvc-x64`, `Win64-Debug-DurinEditor`, 14 build jobs:
+Core concurrency passed all 146 tests, including three new admission cases.
+`test affected` passed all four selected targets (`CoreConcurrencyTests`,
+`CoreFileSystemTests`, `CoreUtilityTests`, and `ImageCodecTests`). CTest log:
+`Build/.agent-state/logs/20260907-101241-219681-26356-ctest.log`.
+Changed documentation and all plans validate. No performance claim is made.
 
 #### Stage 1 waiting handoff
 

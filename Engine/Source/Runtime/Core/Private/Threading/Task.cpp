@@ -1256,7 +1256,8 @@ namespace Durin
 			uint64 EstimatedResultBytes = 0,
 			FTaskGenerationToken GenerationToken = {},
 			std::optional<FTaskCoalescingKey> CoalescingKey = {},
-			bool bScopeSelectedByPrimaryPredecessor = false) -> std::shared_ptr<FTaskStateData>
+			bool bScopeSelectedByPrimaryPredecessor = false,
+			Tasks::FTaskAdmissionError* AdmissionError = nullptr) -> std::shared_ptr<FTaskStateData>
 		{
 			std::shared_ptr<FTaskStateData> State;
 			std::shared_ptr<FTaskScopeState> SelectedScope;
@@ -1266,6 +1267,7 @@ namespace Durin
 				if (!bAcceptingTasks)
 				{
 					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::LifetimeClosed, 0};
 					return {};
 				}
 
@@ -1274,6 +1276,7 @@ namespace Durin
 					if (!Prerequisite.State || Prerequisite.State->PinScheduler().get() != this)
 					{
 						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+						if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Prerequisite.GetTaskId()};
 						return {};
 					}
 					PrerequisiteStates.emplace_back(Prerequisite.State);
@@ -1287,6 +1290,7 @@ namespace Durin
 						SelectedScope->RecordRejected();
 						ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+						if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed, GCurrentTaskState->GetTaskId()};
 						return {};
 					}
 					if (InheritedScope) SelectedScope = InheritedScope;
@@ -1294,6 +1298,7 @@ namespace Durin
 				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity)
 				{
 					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::CapacityExhausted, 0};
 					return {};
 				}
 				const uint64 CurrentReservations = CurrentTaskReservationCount.fetch_add(1, std::memory_order::acq_rel) + 1;
@@ -1303,6 +1308,7 @@ namespace Durin
 					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
 					require(PreviousReservationCount > 0);
 					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::GroupClosed, 0};
 					return {};
 				}
 				uint64 PeakReservations = PeakTaskReservationCount.load(std::memory_order::acquire);
@@ -1864,6 +1870,15 @@ namespace Durin
 			Diagnostics.bAccepting = true;
 		}
 
+		auto ValidatePayload(uint64 Bytes) -> std::optional<Tasks::FTaskAdmissionError>
+		{
+			std::lock_guard Lock(Mutex);
+			if (!bAccepting) return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
+			if (Bytes == 0 || Bytes > Config.MaxPayloadBytesPerEntry || Bytes > Config.MaxQueuedPayloadBytes)
+				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPayloadDeclaration};
+			return {};
+		}
+
 		auto Enqueue(const std::shared_ptr<FTaskStateData>& State, Private::FMoveOnlyTaskFunction&& Function) -> bool
 		{
 			auto Entry = std::make_shared<FEntry>();
@@ -2293,6 +2308,24 @@ namespace Durin
 		bool bAccepting = true;
 		bool bPumping = false;
 	};
+
+	auto Private::ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes)
+		-> std::optional<Tasks::FTaskAdmissionError>
+	{
+		using ECode = Tasks::ETaskAdmissionErrorCode;
+		if ((Target != ETaskTarget::AnyWorker && Target != ETaskTarget::GameThreadDeferred)
+			|| (Priority != ETaskPriority::High && Priority != ETaskPriority::Normal && Priority != ETaskPriority::Low))
+			return Tasks::FTaskAdmissionError{ECode::UnsupportedExecutor};
+		if (Target == ETaskTarget::AnyWorker) return {};
+		if (PayloadBytes == 0) return Tasks::FTaskAdmissionError{ECode::InvalidPayloadDeclaration};
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		if (!Queue) return Tasks::FTaskAdmissionError{ECode::UnsupportedExecutor};
+		return Queue->ValidatePayload(PayloadBytes);
+	}
 
 	auto DispatchGameThreadDeferredTask(
 		const std::shared_ptr<FTaskStateData>& State,
@@ -3172,12 +3205,40 @@ namespace Durin
 		}
 
 		auto LaunchCancelableTaskWithCompletion(
+			const char* Name, FMoveOnlyTaskFunction&& Function,
+			std::function<void(ETaskState)>&& CompletionFunction,
+			const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> FTaskHandle
+		{
+			auto Admission = TryLaunchCancelableTaskWithCompletion(Name, std::move(Function),
+				std::move(CompletionFunction), Options, EstimatedResultBytes);
+			return Admission.HasValue() ? std::move(Admission).TakeValue() : FTaskHandle{};
+		}
+
+		auto LaunchContinuationTask(
+			const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function,
+			std::function<void(ETaskState)>&& CompletionFunction,
+			const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind,
+			uint64 EstimatedResultBytes) -> FTaskHandle
+		{
+			// Legacy deferred declarations remain dispatch-time failures.
+			auto Admission = TryLaunchContinuationTask(Predecessor, Name, std::move(Function),
+				std::move(CompletionFunction), Options, DependencyKind, EstimatedResultBytes, false);
+			return Admission.HasValue() ? std::move(Admission).TakeValue() : FTaskHandle{};
+		}
+
+		auto TryLaunchCancelableTaskWithCompletion(
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
-			uint64 EstimatedResultBytes) -> FTaskHandle
+			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>
 		{
+			using FAdmission = Tasks::TTaskAdmission<FTaskHandle>;
+			if (Options.bValidateConstruction)
+			{
+				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes))
+					return FAdmission::Failure(*Error);
+			}
 			FTaskLaunchOptions ResolvedOptions = Options;
 			if (FTaskAttributionAccess::IsDefault(ResolvedOptions.Attribution) && GCurrentTaskState && GCurrentTaskScheduler)
 			{
@@ -3191,7 +3252,7 @@ namespace Durin
 					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, 0);
 				}
 				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
-				return {};
+				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
 			}
 			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 
@@ -3203,9 +3264,10 @@ namespace Durin
 					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, FunctionOwner->GetStorageBytes());
 				}
 				DURIN_WARN("Task launch failed because the task scheduler is not running. (task: {})", Name ? Name : "");
-				return {};
+				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
 			}
 
+			Tasks::FTaskAdmissionError AdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
 			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
 				Name,
 				FunctionOwner,
@@ -3213,31 +3275,42 @@ namespace Durin
 				ResolvedOptions,
 				ETaskDependencyKind::Success,
 				false,
-				ETaskTarget::AnyWorker,
-				ETaskPriority::Normal,
-				0,
-				EstimatedResultBytes
+				Options.Target,
+				Options.Priority,
+				Options.EstimatedPayloadBytes,
+				EstimatedResultBytes, {}, {}, false, &AdmissionError
 			);
 			if (!State)
 			{
 				DURIN_WARN("Task launch failed because its prerequisites were invalid or scheduler admission was closed. (task: {})", Name ? Name : "");
-				return {};
+				return FAdmission::Failure(AdmissionError);
 			}
-			return FTaskHandle(std::move(State));
+			return FAdmission::Success(FTaskHandle(std::move(State)));
 		}
 
-		auto LaunchContinuationTask(
+		auto TryLaunchContinuationTask(
 			const FTaskHandle& Predecessor,
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
 			ETaskDependencyKind DependencyKind,
-			uint64 EstimatedResultBytes) -> FTaskHandle
+			uint64 EstimatedResultBytes,
+			bool bValidateConstruction) -> Tasks::TTaskAdmission<FTaskHandle>
 		{
+			using FAdmission = Tasks::TTaskAdmission<FTaskHandle>;
 			FTaskAttribution ResolvedAttribution = FTaskAttributionAccess::IsDefault(Options.Attribution) && Predecessor.State
 				? Predecessor.State->GetAttribution()
 				: Options.Attribution;
+			if (bValidateConstruction)
+			{
+				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes))
+				{
+					std::lock_guard Lock(GTaskSchedulerMutex);
+					if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, Function.GetStorageBytes());
+					return FAdmission::Failure(*Error);
+				}
+			}
 			const FTaskScopeToken ResolvedScope = Predecessor.State ? Predecessor.State->GetScopeToken() : FTaskScopeToken{};
 			if (!(Options.Scope == FTaskScopeToken{}) && !(Options.Scope == ResolvedScope))
 			{
@@ -3251,13 +3324,13 @@ namespace Durin
 					GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
 					GTaskScheduler->RecordScopeRejectedTask();
 				}
-				return {};
+				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::GroupClosed});
 			}
 			if (!Function)
 			{
 				std::lock_guard Lock(GTaskSchedulerMutex);
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
-				return {};
+				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
 			}
 			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 			std::vector<FTaskHandle> Prerequisites;
@@ -3283,8 +3356,9 @@ namespace Durin
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
 			{
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, FunctionOwner->GetStorageBytes());
-				return {};
+				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
 			}
+			Tasks::FTaskAdmissionError AdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
 			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
 				Name,
 				FunctionOwner,
@@ -3298,9 +3372,19 @@ namespace Durin
 				EstimatedResultBytes,
 				Options.GenerationToken,
 				Options.CoalescingKey,
-				true
+				true, &AdmissionError
 			);
-			return State ? FTaskHandle(std::move(State)) : FTaskHandle{};
+			return State ? FAdmission::Success(FTaskHandle(std::move(State))) : FAdmission::Failure(AdmissionError);
+		}
+
+		auto MakeTaskResultAccounting(const FTaskHandle& Task) -> FTaskResultAccounting
+		{
+			return {Task.State};
+		}
+
+		auto FTaskResultAccounting::operator()(uint64 Bytes) const -> void
+		{
+			if (auto Pinned = State.lock()) Pinned->SetRetainedResultBytes(Bytes);
 		}
 
 		auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>

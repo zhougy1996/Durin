@@ -37,6 +37,17 @@ including child work launched by an already-running task, is rejected. Callers
 must treat an invalid returned handle as work that was never accepted and must
 not wait for it as though it were pending.
 
+The internal construction boundary returns `Tasks::TTaskAdmission<T>` from
+`Private::TryLaunchCancelableTaskWithCompletion` and
+`Private::TryLaunchContinuationTask`. Its error records the actual rejection
+rather than inferring one from global diagnostics: capacity, lifetime, scope,
+prerequisite, or empty callable. Invalid prerequisites carry their task id when
+available. Strict continuation construction also rejects unknown targets and
+zero deferred payload declarations. Existing launch wrappers retain their
+invalid-handle contract and dispatch-time deferred declaration checks. An
+accepted task may still fail during dispatch; admission success does not
+reserve deferred queue capacity or guarantee execution.
+
 `FTaskSchedulerConfig::MaxNonterminalTasks` bounds the whole accepted graph for
 one scheduler lifetime and defaults to 16,384. Each root, waiting node,
 continuation, typed fan-in node, unique-result sink, and scheduled parallel-for
@@ -47,6 +58,27 @@ destroys or returns caller-owned state outside internal locks. The reservation
 is released exactly once only after result publication and direct dependent
 propagation finish. `FQueuedThreadPool` remains independently usable and has no
 second scheduler-capacity policy.
+
+## Explicit Unique Construction
+
+`Threading/TaskComposition.h` exposes `Durin::Tasks` construction separately
+from legacy overloads. `TrySpawn(Group, Executor, Options, F)` returns
+`TTaskAdmission<TTask<T>>`; `Then(std::move(Task), Executor, Options, F)` moves
+its successful value into the callback and produces another unique task.
+Void inputs omit the argument; void outputs remain composable. Ordinary `Then`
+rejects task/admission-returning callbacks. `Share` explicitly relinquishes
+unique consumption and exposes immutable result owners. `GetCompletion` has
+no result access. `TakeOutcome` requires observed terminal completion and
+consumes the owned value, framework failure, or cancellation alternative.
+
+Nontrivial result types require a nonzero result-byte estimate. Deferred edges
+charge retained predecessor bytes plus declared captures and reject overflow
+or a declaration exceeding the installed queue's per-entry/total payload bound.
+Unknown executors, missing deferred executors, and invalid priorities reject
+construction. Capacity/closed-scope rejection preserves a unique input for
+retry. Result-accounting rebinding is allocation-free after node acceptance.
+`FTaskGroup` currently owns a native scope and supports explicit close/timed
+wait with the scope's existing semantics.
 
 ## Task States And Results
 

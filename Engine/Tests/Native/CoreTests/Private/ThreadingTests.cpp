@@ -9,6 +9,7 @@
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin
@@ -2356,6 +2357,238 @@ namespace Durin
 		PreviousLifetime = {};
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+	}
+
+	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
+	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
+
+	TEST(FTaskCompositionTests, UniqueTransformsVoidAndShare)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		Options.EstimatedResultBytes = 32;
+		auto RootAdmission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+			[Capture = std::make_unique<int>(13)](Tasks::FTaskContext& Context) mutable {
+				EXPECT_FALSE(Context.GetCancellationToken().IsCancellationRequested());
+				return std::move(Capture);
+			});
+		ASSERT_TRUE(RootAdmission.HasValue());
+		auto Root = std::move(RootAdmission).TakeValue();
+		auto EdgeAdmission = Tasks::Then(std::move(Root), Tasks::ETaskExecutor::Worker, Options,
+			[](std::unique_ptr<int>&& Value) { return *Value + 2; });
+		ASSERT_TRUE(EdgeAdmission.HasValue());
+		EXPECT_FALSE(Root.IsValid());
+		auto Edge = std::move(EdgeAdmission).TakeValue();
+		auto VoidAdmission = Tasks::Then(std::move(Edge), Tasks::ETaskExecutor::Worker, Options,
+			[](int Value) { EXPECT_EQ(15, Value); });
+		ASSERT_TRUE(VoidAdmission.HasValue());
+		auto Gate = std::move(VoidAdmission).TakeValue();
+		auto TailAdmission = Tasks::Then(std::move(Gate), Tasks::ETaskExecutor::Worker, Options, [] { return 19; });
+		ASSERT_TRUE(TailAdmission.HasValue());
+		auto Tail = std::move(TailAdmission).TakeValue();
+		auto SharedAdmission = Tasks::Share(std::move(Tail));
+		ASSERT_TRUE(SharedAdmission.HasValue());
+		EXPECT_FALSE(Tail.IsValid());
+		auto Shared = std::move(SharedAdmission).TakeValue();
+		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Shared.GetCompletion()).TaskState);
+		auto Value = Shared.GetResultShared();
+		ASSERT_TRUE(Value);
+		EXPECT_EQ(19, *Value);
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Group.WaitFor(1.0));
+	}
+
+	TEST(FTaskCompositionTests, RejectedEdgesPreserveInputAndDeclarePayload)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxPayloadBytesPerEntry = 64}));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] { return 23; });
+		ASSERT_TRUE(Admission.HasValue());
+		auto Task = std::move(Admission).TakeValue();
+		auto Rejected = Tasks::Then(std::move(Task), Tasks::ETaskExecutor::BlockingIO, Options, [](int Value) { return Value; });
+		ASSERT_FALSE(Rejected.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::UnsupportedExecutor, Rejected.GetError().Code);
+		EXPECT_TRUE(Task.IsValid());
+		Options.EstimatedCaptureBytes = 65;
+		auto Oversize = Tasks::Then(std::move(Task), Tasks::ETaskExecutor::GameThreadDeferred, Options, [](int Value) { return Value; });
+		ASSERT_FALSE(Oversize.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::InvalidPayloadDeclaration, Oversize.GetError().Code);
+		EXPECT_TRUE(Task.IsValid());
+		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
+		auto Outcome = std::move(Task).TakeOutcome();
+		ASSERT_TRUE(std::holds_alternative<int>(Outcome));
+		EXPECT_EQ(23, std::get<int>(Outcome));
+		Group.Close();
+	}
+
+	TEST(FTaskCompositionTests, CallableAllocationFailureRollsBackUniqueClaim)
+	{
+		// Simulates failure while constructing the erased continuation, after claim reservation.
+		struct FFailingMove
+		{
+			FFailingMove() = default;
+			FFailingMove(FFailingMove&&) { throw std::bad_alloc(); }
+			auto operator()(int Value) -> int { return Value; }
+		};
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		Tasks::FTaskExecutionOptions Options;
+		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] { return 31; });
+		ASSERT_TRUE(Admission.HasValue());
+		auto Input = std::move(Admission).TakeValue();
+		auto Failed = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, Options, FFailingMove{});
+		ASSERT_FALSE(Failed.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Failed.GetError().Code);
+		ASSERT_TRUE(Input.IsValid());
+		auto Retried = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, Options, [](int Value) { return Value + 1; });
+		ASSERT_TRUE(Retried.HasValue());
+		auto Result = std::move(Retried).TakeValue();
+		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Result.GetCompletion()).TaskState);
+		EXPECT_EQ(32, std::get<int>(std::move(Result).TakeOutcome()));
+		Group.Close();
+		auto Closed = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] {});
+		ASSERT_FALSE(Closed.HasValue());
+		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::GroupClosed, Closed.GetError().Code);
+	}
+
+	TEST(FTaskAdmissionTests, ReportsLifetimePrerequisiteAndScopeRejection)
+	{
+		using ECode = Tasks::ETaskAdmissionErrorCode;
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		auto Spawn = [](const FTaskLaunchOptions& Options = {}) {
+			return Private::TryLaunchCancelableTaskWithCompletion("AdmissionRoot",
+				[](const FTaskCancellationToken&) {}, {}, Options);
+		};
+		auto Closed = Spawn();
+		ASSERT_FALSE(Closed.HasValue());
+		EXPECT_EQ(ECode::LifetimeClosed, Closed.GetError().Code);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Empty = Private::TryLaunchCancelableTaskWithCompletion("Empty", {}, {}, {});
+		ASSERT_FALSE(Empty.HasValue());
+		EXPECT_EQ(ECode::InvalidCallable, Empty.GetError().Code);
+		FTaskHandle Invalid;
+		FTaskLaunchOptions Options;
+		Options.Prerequisites = std::span<const FTaskHandle>(&Invalid, 1);
+		auto BadPrerequisite = Spawn(Options);
+		ASSERT_FALSE(BadPrerequisite.HasValue());
+		EXPECT_EQ(ECode::InvalidPrerequisite, BadPrerequisite.GetError().Code);
+		EXPECT_EQ(0u, BadPrerequisite.GetError().RelatedTaskId);
+
+		auto Accepted = Spawn();
+		ASSERT_TRUE(Accepted.HasValue());
+		auto Previous = std::move(Accepted).TakeValue();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Previous).TaskState);
+		ShutdownTaskScheduler(false);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Options.Prerequisites = std::span<const FTaskHandle>(&Previous, 1);
+		auto OldLifetime = Spawn(Options);
+		ASSERT_FALSE(OldLifetime.HasValue());
+		EXPECT_EQ(ECode::InvalidPrerequisite, OldLifetime.GetError().Code);
+		EXPECT_EQ(Previous.GetTaskId(), OldLifetime.GetError().RelatedTaskId);
+
+		auto Scope = CreateTaskScope();
+		Options = {};
+		Options.Scope = Scope.GetToken();
+		Scope.Close(ETaskScopeCloseMode::Drain);
+		auto ClosedGroup = Spawn(Options);
+		ASSERT_FALSE(ClosedGroup.HasValue());
+		EXPECT_EQ(ECode::GroupClosed, ClosedGroup.GetError().Code);
+	}
+
+	TEST(FTaskAdmissionTests, ContinuationValidatesConstructionAndPreservesLegacyDispatch)
+	{
+		using ECode = Tasks::ETaskAdmissionErrorCode;
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Root = LaunchTask("AdmissionPredecessor", [] {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		auto Continue = [&](const FTaskHandle& Predecessor, const FTaskContinuationOptions& Options) {
+			return Private::TryLaunchContinuationTask(Predecessor, "AdmissionContinuation",
+				[](const FTaskCancellationToken&) {}, {}, Options, ETaskDependencyKind::Success);
+		};
+		FTaskContinuationOptions Options;
+		Options.Target = static_cast<ETaskTarget>(255);
+		auto Unsupported = Continue(Root, Options);
+		ASSERT_FALSE(Unsupported.HasValue());
+		EXPECT_EQ(ECode::UnsupportedExecutor, Unsupported.GetError().Code);
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		auto InvalidPayload = Continue(Root, Options);
+		ASSERT_FALSE(InvalidPayload.HasValue());
+		EXPECT_EQ(ECode::InvalidPayloadDeclaration, InvalidPayload.GetError().Code);
+		auto Legacy = Then(Root, "LegacyInvalidPayload", [] {}, Options);
+		ASSERT_TRUE(Legacy.IsValid());
+		EXPECT_EQ(ETaskTerminalReason::DispatchRejected, Legacy.GetDiagnostics().TerminalReason);
+		Options = {};
+		auto Invalid = Continue({}, Options);
+		ASSERT_FALSE(Invalid.HasValue());
+		EXPECT_EQ(ECode::InvalidPrerequisite, Invalid.GetError().Code);
+		auto Scope = CreateTaskScope();
+		Options.Scope = Scope.GetToken();
+		auto Reparent = Continue(Root, Options);
+		ASSERT_FALSE(Reparent.HasValue());
+		EXPECT_EQ(ECode::GroupClosed, Reparent.GetError().Code);
+		Options = {};
+		auto Accepted = Continue(Root, Options);
+		ASSERT_TRUE(Accepted.HasValue());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(std::move(Accepted).TakeValue()).TaskState);
+		ShutdownTaskScheduler(false);
+		auto Closed = Continue(Root, Options);
+		ASSERT_FALSE(Closed.HasValue());
+		EXPECT_EQ(ECode::LifetimeClosed, Closed.GetError().Code);
+	}
+
+	TEST(FTaskAdmissionTests, CapacityRejectsBothEdgesAndReleasesCallableOutsideLocks)
+	{
+		using ECode = Tasks::ETaskAdmissionErrorCode;
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 1}));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		auto Root = LaunchTask("CapacityAdmissionRoot", [] {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		FTaskContinuationOptions Deferred;
+		Deferred.Target = ETaskTarget::GameThreadDeferred;
+		Deferred.EstimatedPayloadBytes = 32;
+		auto Pending = Then(Root, "CapacityAdmissionPending", [] {}, Deferred);
+		ASSERT_TRUE(Pending.IsValid());
+		ASSERT_FALSE(Pending.IsComplete());
+		// Reenter scheduler diagnostics from destruction to detect lock ownership.
+		std::atomic<int> Destroyed = 0;
+		auto Capture = std::shared_ptr<int>(new int(1), [&](int* Value) {
+			(void)GetTaskSchedulerDiagnostics();
+			++Destroyed;
+			delete Value;
+		});
+		auto RejectedRoot = Private::TryLaunchCancelableTaskWithCompletion("FullRoot",
+			[Capture = std::move(Capture)](const FTaskCancellationToken&) {}, {}, {});
+		ASSERT_FALSE(RejectedRoot.HasValue());
+		EXPECT_EQ(ECode::CapacityExhausted, RejectedRoot.GetError().Code);
+		EXPECT_EQ(1, Destroyed.load());
+		auto RejectedEdge = Private::TryLaunchContinuationTask(Pending, "FullEdge",
+			[](const FTaskCancellationToken&) {}, {}, {}, ETaskDependencyKind::Success);
+		ASSERT_FALSE(RejectedEdge.HasValue());
+		EXPECT_EQ(ECode::CapacityExhausted, RejectedEdge.GetError().Code);
+		EXPECT_TRUE(CancelTask(Pending));
+		ASSERT_EQ(ETaskState::Canceled, WaitTask(Pending).TaskState);
+		auto Reused = Private::TryLaunchCancelableTaskWithCompletion("Reused",
+			[](const FTaskCancellationToken&) {}, {}, {});
+		ASSERT_TRUE(Reused.HasValue());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(std::move(Reused).TakeValue()).TaskState);
 	}
 
 	TEST(FTaskCapacityTests, ConfigurationValidationPreservesLegacyAndRunningBehavior)
