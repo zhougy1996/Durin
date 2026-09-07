@@ -12,6 +12,23 @@ namespace Durin
 
 namespace Durin::VulkanRHI
 {
+	// Unknown results, device loss, and validation failures are never recoverable.
+	inline auto IsRecoverableVulkanCreationError(vk::Result Result) -> bool
+	{
+		switch (Result)
+		{
+		case vk::Result::eErrorOutOfHostMemory:
+		case vk::Result::eErrorOutOfDeviceMemory:
+		case vk::Result::eErrorFormatNotSupported:
+		case vk::Result::eErrorTooManyObjects:
+		case vk::Result::eErrorFragmentedPool:
+		case vk::Result::eErrorOutOfPoolMemory:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 	// Test-only Vulkan factory/native/VMA boundaries. Each armed point fails exactly once.
 	enum class EVulkanCreateFailurePoint : uint8
@@ -188,7 +205,7 @@ namespace Durin::VulkanRHI
 
 	// Uses the executor only when creation crosses to the RHI thread. Factories
 	// already running on that owner catch locally to avoid self-enqueue/wait.
-	auto ExecuteFallibleVulkanCreationOperation(
+	VULKANRHI_API auto ExecuteFallibleVulkanCreationOperation(
 		std::function<void()> Operation,
 		size_t OwnedPayloadBytes = 0) -> FRHIFallibleOperationResult;
 

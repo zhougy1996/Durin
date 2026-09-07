@@ -259,6 +259,14 @@ namespace Durin
 		}
 	};
 
+	// Only explicit creation failures may leave the executor usable. Device and
+	// invariant failures must not derive from this type.
+	class FRHIRecoverableCreationError : public std::runtime_error
+	{
+	public:
+		using std::runtime_error::runtime_error;
+	};
+
 	struct FRHIFallibleOperationResult
 	{
 		bool bSucceeded = true;
@@ -373,8 +381,8 @@ namespace Durin
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,
 			size_t OwnedPayloadBytes = 0) -> void;
-		// Only expected runtime resource creation may use this boundary. Device
-		// loss and executor, admission, wait, or replay-context failure stay terminal.
+		// Only FRHIRecoverableCreationError becomes a failed result. Other errors
+		// propagate inline or fail the RHI thread and its waiting caller.
 		RHI_API auto ExecuteFallibleSynchronousOperation(
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,

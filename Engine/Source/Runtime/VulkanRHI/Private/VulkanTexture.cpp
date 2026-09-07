@@ -128,7 +128,7 @@ namespace Durin::VulkanRHI
 				DebugName.c_str());
 		if (ImageResult != vk::Result::eSuccess)
 		{
-			throw std::runtime_error(std::format(
+			throw vk::SystemError(vk::make_error_code(ImageResult), std::format(
 				"Vulkan texture image allocation failed: result={}, extent={}x{}x{}, format={}",
 				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
 				ImageExtent.depth, vk::to_string(Format)));
@@ -332,8 +332,10 @@ namespace Durin::VulkanRHI
 			if (PayloadSize > std::numeric_limits<uint64>::max() / CreateDesc.ArraySize) return false;
 			return PayloadSize * CreateDesc.ArraySize <= Properties.maxResourceSize;
 		}
-		catch (const vk::SystemError&)
+		catch (const vk::SystemError& Exception)
 		{
+			if (!IsRecoverableVulkanCreationError(
+					static_cast<vk::Result>(Exception.code().value()))) throw;
 			return false;
 		}
 	}

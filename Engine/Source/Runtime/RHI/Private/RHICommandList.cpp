@@ -2506,16 +2506,10 @@ namespace Durin
 				{
 					Operation();
 				}
-				catch (const std::exception& Exception)
+				catch (const FRHIRecoverableCreationError& Exception)
 				{
 					Result->bSucceeded = false;
 					Result->Diagnostic = Exception.what();
-				}
-				catch (...)
-				{
-					Result->bSucceeded = false;
-					Result->Diagnostic =
-						"Fallible RHI operation failed with an unknown exception.";
 				}
 			};
 

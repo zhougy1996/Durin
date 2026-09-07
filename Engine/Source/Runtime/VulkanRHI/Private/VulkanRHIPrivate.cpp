@@ -18,27 +18,35 @@ namespace Durin::VulkanRHI
 		std::function<void()> Operation,
 		size_t OwnedPayloadBytes) -> FRHIFallibleOperationResult
 	{
+		// Translate only Vulkan creation results whose scope is the candidate.
+		// All other exceptions retain their type and reach the executor failure path.
+		auto ClassifiedOperation = [Operation = std::move(Operation)]() {
+			try
+			{
+				Operation();
+			}
+			catch (const vk::SystemError& Exception)
+			{
+				if (!IsRecoverableVulkanCreationError(
+					static_cast<vk::Result>(Exception.code().value()))) throw;
+				throw FRHIRecoverableCreationError(Exception.what());
+			}
+		};
 		if (!GRHIThread || !IsInRHIThread())
 		{
 			return GCommandListExecutor.ExecuteFallibleSynchronousOperation(
-				false, std::move(Operation), OwnedPayloadBytes);
+				false, std::move(ClassifiedOperation), OwnedPayloadBytes);
 		}
 
 		FRHIFallibleOperationResult Result;
 		try
 		{
-			Operation();
+			ClassifiedOperation();
 		}
-		catch (const std::exception& Exception)
+		catch (const FRHIRecoverableCreationError& Exception)
 		{
 			Result.bSucceeded = false;
 			Result.Diagnostic = Exception.what();
-		}
-		catch (...)
-		{
-			Result.bSucceeded = false;
-			Result.Diagnostic =
-				"Fallible Vulkan creation failed with an unknown exception.";
 		}
 		return Result;
 	}

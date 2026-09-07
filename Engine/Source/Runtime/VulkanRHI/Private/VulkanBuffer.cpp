@@ -64,7 +64,7 @@ namespace Durin::VulkanRHI
 			Allocation, Buffer, AllocationCandidate, BufferInfo, DebugName.c_str());
 		if (Result != vk::Result::eSuccess)
 		{
-			throw std::runtime_error(std::format(
+			throw vk::SystemError(vk::make_error_code(Result), std::format(
 				"Vulkan buffer allocation failed: result={}, size={}, usage={}, allocationClass={}",
 				vk::to_string(Result), BufferInfo.size,
 				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));

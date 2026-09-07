@@ -1003,7 +1003,7 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context);
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw std::runtime_error("intentional creation failure");
+				throw FRHIRecoverableCreationError("intentional creation failure");
 			});
 
 		bool bLaterWorkExecuted = false;
@@ -1029,7 +1029,7 @@ namespace Durin
 
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
-				throw 7;
+				throw FRHIRecoverableCreationError("intentional creation failure");
 			});
 		bool bLaterWorkExecutedOnRHIThread = false;
 		const FRHIFallibleOperationResult Success =
@@ -1040,7 +1040,7 @@ namespace Durin
 
 		EXPECT_FALSE(Failure.IsSuccess());
 		EXPECT_EQ(Failure.Diagnostic,
-			"Fallible RHI operation failed with an unknown exception.");
+			"intentional creation failure");
 		EXPECT_TRUE(Success.IsSuccess());
 		EXPECT_TRUE(bLaterWorkExecutedOnRHIThread);
 		const FRHICommandListExecutorStats Stats = Executor.GetStats();
@@ -1050,6 +1050,31 @@ namespace Durin
 
 		Executor.SetInlineMode();
 		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests, FallibleOperationPreservesTerminalExceptionsInline)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
+			throw std::logic_error("invariant failure");
+		}), std::logic_error);
+		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
+			throw 7;
+		}), int);
+	}
+
+	TEST(FRHICommandListTests, FallibleOperationTerminatesOnThreadFailure)
+	{
+		EXPECT_DEATH(([] {
+			FRecordingCommandContext Context;
+			FRHIThread RHIThread;
+			if (!RHIThread.Start()) std::exit(0);
+			FRHICommandListExecutor Executor(Context, RHIThread);
+			Executor.ExecuteFallibleSynchronousOperation(false, [] {
+				throw std::logic_error("terminal creation failure");
+			});
+		}()), "");
 	}
 
 	TEST(FRHICommandListTests,

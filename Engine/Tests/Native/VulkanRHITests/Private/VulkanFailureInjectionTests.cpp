@@ -1207,6 +1207,34 @@ namespace Durin::VulkanRHI
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
+		CreationBoundaryPreservesTerminalErrorTypes)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			// Execute on the replay owner to cover the direct RHI-thread boundary
+			// as well as inline execution without poisoning the real test device.
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+				const auto Recoverable = ExecuteFallibleVulkanCreationOperation([] {
+					throw vk::OutOfDeviceMemoryError("expected allocation failure");
+				}, 0);
+				EXPECT_FALSE(Recoverable.IsSuccess());
+				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+					throw vk::DeviceLostError("terminal device loss");
+				}, 0), vk::DeviceLostError);
+				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+					throw std::logic_error("internal invariant failure");
+				}, 0), std::logic_error);
+				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+					throw 7;
+				}, 0), int);
+			});
+			RHIExit();
+		}
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests,
 		InlineRuntimeFactoryFailureReturnsNullThenRecovers)
 	{
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");

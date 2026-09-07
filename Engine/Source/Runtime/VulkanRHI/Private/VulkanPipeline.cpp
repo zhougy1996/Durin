@@ -482,30 +482,13 @@ namespace Durin::VulkanRHI
 					Device.GetPipelineManager().GetDriverPipelineCache(), pipelineInfo);
 			if (PipelineCreationResult.result != vk::Result::eSuccess)
 			{
-				throw std::runtime_error(std::format(
+				throw vk::SystemError(vk::make_error_code(PipelineCreationResult.result), std::format(
 					"result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}",
 					vk::to_string(PipelineCreationResult.result), ShaderStages.size(),
 					CandidateLayout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
 					PushConstantRanges.size()));
 			}
 			CandidatePipeline = PipelineCreationResult.value;
-		}
-		catch (const std::exception& Exception)
-		{
-			if (CandidatePipeline)
-			{
-				Device.GetHandle().destroyPipeline(CandidatePipeline);
-			}
-			if (CandidatePipelineLayout)
-			{
-				Device.GetHandle().destroyPipelineLayout(CandidatePipelineLayout);
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				GRolledBackGraphicsPipelineLayoutCount.fetch_add(
-					1, std::memory_order_release);
-#endif
-			}
-			throw std::runtime_error(std::format(
-				"Vulkan graphics-pipeline creation failed: {}", Exception.what()));
 		}
 		catch (...)
 		{
@@ -615,7 +598,7 @@ namespace Durin::VulkanRHI
 				Device.GetHandle().createComputePipeline(
 					Device.GetPipelineManager().GetDriverPipelineCache(), PipelineInfo);
 			if (Creation.result != vk::Result::eSuccess)
-				throw std::runtime_error(std::format("result={}",
+				throw vk::SystemError(vk::make_error_code(Creation.result), std::format("result={}",
 					vk::to_string(Creation.result)));
 			CandidatePipeline = Creation.value;
 		}
@@ -708,7 +691,7 @@ namespace Durin::VulkanRHI
 		}))
 		{
 			++Stats.FailedCandidates;
-			throw std::runtime_error("Vulkan graphics pipeline cache is full and has no cache-only entry.");
+			throw FRHIRecoverableCreationError("Vulkan graphics pipeline cache is full and has no cache-only entry.");
 		}
 		TRefCountPtr<FVulkanGraphicsPipelineState> Candidate;
 		try
@@ -751,7 +734,7 @@ namespace Durin::VulkanRHI
 			[](const auto& Entry) { return Entry.second.Pipeline->GetRefCount() == 1; }))
 		{
 			++Stats.FailedCandidates;
-			throw std::runtime_error(
+			throw FRHIRecoverableCreationError(
 				"Vulkan compute pipeline cache is full and has no cache-only entry.");
 		}
 		TRefCountPtr<FVulkanComputePipelineState> Candidate;
@@ -793,7 +776,7 @@ namespace Durin::VulkanRHI
 		}))
 		{
 			++Stats.FailedCandidates;
-			throw std::runtime_error("Vulkan structural layout cache is full and has no cache-only entry.");
+			throw FRHIRecoverableCreationError("Vulkan structural layout cache is full and has no cache-only entry.");
 		}
 
 		auto NewLayout = std::make_shared<FVulkanLayout>(Device);
