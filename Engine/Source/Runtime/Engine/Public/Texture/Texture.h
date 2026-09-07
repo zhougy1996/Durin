@@ -83,7 +83,6 @@ namespace Durin
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
-		ENGINE_API auto ResetSource() -> void;
 		ENGINE_API auto InvalidateAuthoredBuild() -> void;
 		ENGINE_API auto BindTextureSourceOwner() -> void;
 		virtual auto ValidateSettingsAfterImportOrEdit(

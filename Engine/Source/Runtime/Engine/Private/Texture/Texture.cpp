@@ -100,14 +100,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DTexture::ResetSource() -> void
-	{
-		CheckGameThread();
-		Source.Reset();
-		Source.BindOwner(this);
-		InvalidateAuthoredBuild();
-	}
-
 	auto DTexture::BindTextureSourceOwner() -> void
 	{
 		Source.BindOwner(this);

@@ -88,7 +88,6 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
-	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.

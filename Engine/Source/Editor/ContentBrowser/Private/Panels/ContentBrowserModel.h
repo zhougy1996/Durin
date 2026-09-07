@@ -60,7 +60,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
 		auto ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
-		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
 		// Async mode returns the accepted identity; visibility is resolved after publication.
 		auto RevealPhysicalItem(std::string_view PhysicalPath) -> std::string;
 		auto RevealAsset(std::string_view AssetPath) -> std::string;

@@ -52,10 +52,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			return ObservedMountedContentRevision;
 		}
-		auto GetObservedAssetRegistryRevision() const -> uint64
-		{
-			return ObservedAssetRegistryRevision;
-		}
 
 	private:
 		auto CompleteReconciliation(

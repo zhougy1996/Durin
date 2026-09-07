@@ -4,7 +4,6 @@
 
 #include "Asset/Asset.h"
 #include "Profiling/Profiling.h"
-#include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Thumbnail/ThumbnailManager.h"
 
@@ -277,14 +276,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		Session.HistoryIndex =
 			std::min(Session.HistoryIndex, static_cast<int32>(Session.NavigationHistory.size()) - 1);
 		return false;
-	}
-
-	auto FContentBrowserModel::IsInsideCurrentDirectory(
-		std::string_view PhysicalPath,
-		bool bRecursive) const -> bool
-	{
-		return FPaths::IsLexicalDescendantPath(
-			NormalizePath(PhysicalPath), Session.CurrentPhysicalPath, bRecursive);
 	}
 
 	auto FContentBrowserModel::RevealAsset(std::string_view AssetPath)
