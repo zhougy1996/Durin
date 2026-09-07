@@ -75,6 +75,10 @@ namespace Durin::Testing
 		{
 			switch (Resolution.State)
 			{
+			case EAssetPathResolveState::ProjectionPending:
+				return {EAssetError::StaleData,
+					"Registry projection for the redirector destination is pending synchronization.",
+					EAssetResultDisposition::ContentCommittedProjectionPending};
 			case EAssetPathResolveState::NotFound:
 			case EAssetPathResolveState::MissingRedirectTarget:
 				return {EAssetError::NotFound,

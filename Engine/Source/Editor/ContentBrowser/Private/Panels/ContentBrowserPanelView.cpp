@@ -69,6 +69,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			switch (State)
 			{
 			case EAssetPathResolveState::Resolved: return "Resolved";
+			case EAssetPathResolveState::ProjectionPending:
+				return "Pending synchronization";
 			case EAssetPathResolveState::NotFound: return "Not found";
 			case EAssetPathResolveState::MissingRedirectTarget:
 				return "Missing target";

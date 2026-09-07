@@ -5,6 +5,14 @@ to obtain sufficient confidence with the smallest relevant test scope.
 
 ## Select Validation
 
+For simple, low-risk changes such as text, formatting, or missing enum cases
+that follow an established mapping, review the diff and compile the smallest
+relevant target when needed. These changes do not require `test affected` or a
+full build by default. Judge semantic risk rather than diff size: changes to
+control flow, mutation, persistence, ownership, concurrency, or other behavior
+without established coverage need focused tests. Explicit acceptance gates
+still apply. Report the validation performed and any intentionally omitted tests.
+
 Use the first scope that covers the changed behavior:
 
 ```powershell
@@ -18,7 +26,7 @@ Use the first scope that covers the changed behavior:
 .\DevTool.bat test all
 ```
 
-`test affected` is the default handoff validation for an ordinary code change.
+`test affected` is the default handoff validation when runtime tests are needed.
 It maps the current staged, unstaged, and untracked paths to configured native
 test modules and domains, prints the exact selection, then builds the targets
 once and runs them in one parallel CTest invocation. Pass `--base <git-ref>` to
@@ -43,8 +51,8 @@ running it, or select a registered domain when the behavior crosses targets.
 
 1. During implementation, iterate with the smallest affected named target or
    failing case.
-2. Before handoff, run `test affected` once unless an explicit acceptance gate
-   names a different selection. Do not execute two or more targets through
+2. Before handoff, run `test affected` once when runtime tests are needed, unless
+   an explicit acceptance gate names a different selection. Do not execute two or more targets through
    separate commands to assemble coverage; use `affected` or one bounded set so
    the build and CTest scheduler can batch them.
 3. Use a bounded domain or domain/backend set when behavior crosses test

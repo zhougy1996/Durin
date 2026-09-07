@@ -187,6 +187,11 @@ namespace Durin
 			{
 			case EAssetPathResolveState::Resolved:
 				return {};
+			case EAssetPathResolveState::ProjectionPending:
+				return {EAssetError::StaleData,
+					std::format("Registry projection for package {} is pending synchronization.",
+						Resolution.FinalPath.ToString()),
+					EAssetResultDisposition::ContentCommittedProjectionPending};
 			case EAssetPathResolveState::NotFound:
 				return {EAssetError::NotFound, std::format(
 					"Asset {} is not present in the registry.",

@@ -21,6 +21,11 @@ namespace Durin
 			using enum EAssetPathResolveState;
 			switch (State)
 			{
+			case ProjectionPending:
+				return {EAssetError::StaleData,
+					std::format("Registry projection for the default-level package '{}' is pending synchronization.",
+						PackagePath.ToString()),
+					EAssetResultDisposition::ContentCommittedProjectionPending};
 			case NotFound:
 				return {EAssetError::NotFound,
 					std::format("The default-level package '{}' is not registered.",
