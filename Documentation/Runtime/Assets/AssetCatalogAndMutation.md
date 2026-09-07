@@ -43,6 +43,22 @@ prior/resulting revisions, counters, warnings, and errors in one value. Explicit
 Content Browser refresh reconciles every registered auto-scan mount; its folder
 scope affects only presentation.
 
+`FAssetRegistrySnapshot::ResolveAssetPath` and `ResolveAssetObjectPath` use only
+the owned catalog and `FAssetPathQueryOptions`. Unloaded serialized class names
+are valid metadata. Exact resolution preserves descendant suffixes across aliases;
+redirect depth, cycles, missing targets, and corrupt redirect metadata remain
+structural results. Later fences or publications cannot change an old query.
+
+The free Registry resolvers inspect current metadata and fence every traversed
+package, without consulting loaded types. Runtime operations use Engine's
+`Asset/RegistryOperations.h` and its `ResolveAssetPathForOperation` or
+`ResolveAssetObjectPathForOperation` to add loaded-class compatibility checks.
+`ValidateResolvedAssetForOperation` validates captured aliases and the final
+package before checking types. `ValidateAssetRegistryParticipants` compares
+participant metadata and fences under the Registry mutex; unrelated publications
+are admitted. This is a point-in-time check, not a lease on files or objects.
+The revision is a publication concurrency token, never a fence or content identity.
+
 Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
 discovery values and immutable queries, `AssetRegistry/References.h` owns the
 reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
@@ -102,7 +118,13 @@ snapshots, publications, or caches.
 Cook reachability resolves explicit and registered external roots, follows
 canonical hard and soft edges, validates final classes and redirects, excludes
 alias packages, and terminates cycles through a visited set. Runtime loading and
-unload guards continue to use package-header hard dependencies.
+unload guards continue to use package-header hard dependencies. Cook's owned
+input capture protects aliases as well as final participants and compares their
+metadata/fences at operation boundaries; a process-wide revision change alone
+does not invalidate reuse. Build dependencies are separately declared and
+persisted, and build-only inputs do not extend runtime reachability. See
+[Cook and publication rules](AssetDataLifecycle.md#cook-and-publication-rules)
+for the capture lifetime, private loading, and dependency responsibilities.
 
 ## Duplication
 

@@ -1,5 +1,7 @@
 #include "ShaderBuild/ShaderPaths.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Shader/ShaderBuildProvider.h"
+#include "Modules/ModuleTestSupport.h"
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
@@ -785,5 +787,101 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			<< " source_bytes=" << SourceBytes
 			<< " spirv_bytes=" << SpirvBytes
 			<< " ddc_bytes=" << DdcBytes << '\n';
+	}
+	TEST_F(FShaderCompileServiceTests, CapturedIncludesNeverReopenLiveSources)
+	{
+		InitShaderCompileService();
+		const auto Root = GetServiceTestRoot() / "Source";
+		const auto Main = (Root / "Owned.slang").generic_string();
+		const auto Include = (Root / "OwnedInclude.slang").generic_string();
+		const std::string Source = R"(#include "OwnedInclude.slang"
+[shader("vertex")]
+float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
+{
+    return CapturedPosition();
+}
+)";
+		const std::string Included = "float4 CapturedPosition() { return float4(0, 0, 0, 1); }";
+		std::map<std::string, FByteBuffer> Files;
+		auto Bytes = [](std::string_view Text) {
+			const auto View = std::as_bytes(std::span(Text.data(), Text.size()));
+			return FByteBuffer(View.begin(), View.end());
+		};
+		Files.emplace(Main, Bytes(Source));
+		Files.emplace(Include, Bytes(Included));
+		FShaderCompileOptions Options = MakeServiceOptions();
+		const auto Artifacts = std::make_shared<FShaderSourceArtifacts>(Files);
+		Options.SourceArtifacts = Artifacts;
+		Files.clear();
+		std::vector<FShaderSourceDependencyFingerprint> Before, After;
+		std::string Error;
+		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(Main, Options, Before, Error)) << Error;
+		ASSERT_EQ(Before.size(), 2u);
+		WriteTextFile(Root / "Owned.slang", "invalid live root");
+		WriteTextFile(Root / "OwnedInclude.slang", "invalid live include");
+		const auto Output = GetOrCompileShader(Main, Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(Main, Options, After, Error)) << Error;
+		EXPECT_EQ(Before, After);
+		WriteTextFile(Root / "OwnedInclude.slang", Included);
+		auto Incomplete = Artifacts->GetFiles();
+		Incomplete.erase(Include);
+		Options.SourceArtifacts = std::make_shared<FShaderSourceArtifacts>(Incomplete);
+		EXPECT_FALSE(GetOrCompileShader(Main, Options));
+		EXPECT_FALSE(BuildShaderSourceDependencyManifestFromService(Main, Options, After, Error));
+	}
+	TEST_F(FShaderCompileServiceTests, GeneratedRootUsesCapturedIncludeAndDeclarationLimits)
+	{
+		InitShaderCompileService();
+		const std::string Include = "float4 CapturedPosition() { return float4(0, 0, 0, 1); }";
+		const auto View = std::as_bytes(std::span(Include.data(), Include.size()));
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath = "/Generated/Materials/Captured.slang";
+		Request.Source = R"(import Included;
+[shader("vertex")]
+float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position { return CapturedPosition(); }
+)";
+		Request.EntryPoints = {"VertexMain"};
+		Request.Frequencies = {EShaderFrequency::Vertex};
+		Request.AllowedImportVirtualPrefixes = {"/Captured/"};
+		Request.SourceArtifacts = std::make_shared<FShaderSourceArtifacts>(
+			std::map<std::string, FByteBuffer>{{"/Captured/Included.slang", FByteBuffer(View.begin(), View.end())}},
+			std::vector<std::string>{"/Captured/"});
+		const auto Output = GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		Request.AllowedImportVirtualPrefixes = {"/Different/"};
+		EXPECT_FALSE(GetOrCompileGeneratedShader(Request));
+	}
+
+	TEST_F(FShaderCompileServiceTests, CapturedProviderSurvivesRetirementAndRejectsNestedCapture)
+	{
+		class FProvider final : public IShaderBuildProvider
+		{
+		public:
+			auto CompileMounted(std::string_view, const FShaderCompileOptions&) -> FShaderCompilerOutput override { return {}; }
+			auto CompileGenerated(const FGeneratedShaderCompileRequest&) -> FShaderCompilerOutput override { return {}; }
+			auto GetCompilerEnvironmentIdentity() -> std::string override { return "pinned-provider"; }
+			auto BuildSourceDependencyManifest(std::string_view, const FShaderCompileOptions&,
+				std::vector<FShaderSourceDependencyFingerprint>&, std::string&) -> bool override { return false; }
+			auto BuildSourceTreeFingerprint(std::string_view, const FShaderCompileOptions&,
+				FShaderSourceDependencyFingerprint&, std::string&) -> bool override { return false; }
+			auto GetStats() const -> FShaderBuildStats override { return {}; }
+			auto BuildCookedLibrary(EShaderTargetPlatform, EShaderTargetProfile,
+				FByteBuffer&, std::string&, std::shared_ptr<const FShaderSourceArtifacts>, const std::function<bool()>&) -> bool override { return false; }
+		} Provider;
+		FModuleTestOwner Owner("CapturedShaderProviderTest");
+		auto Registration = Owner.RegisterFeature<IShaderBuildProvider>(Provider);
+		ASSERT_TRUE(Registration.IsValid());
+		std::string Error;
+		ASSERT_TRUE(WithShaderBuildProvider([&](IShaderBuildProvider&) {
+			Registration.Retire();
+			EXPECT_EQ(GetShaderCompilerEnvironmentIdentity(), "pinned-provider");
+			EXPECT_FALSE(WithShaderBuildProvider([](IShaderBuildProvider&) { return true; }, Error));
+			EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 1u);
+			return true;
+		}, Error)) << Error;
+		EXPECT_EQ(Owner.GetFeatureSnapshot().InFlightInvocationCount, 0u);
+		EXPECT_TRUE(GetShaderCompilerEnvironmentIdentity().empty());
+		EXPECT_TRUE(Registration.Reset().Succeeded());
 	}
 } // namespace Durin

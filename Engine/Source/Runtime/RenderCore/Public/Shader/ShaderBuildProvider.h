@@ -28,7 +28,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"RenderCore.ShaderBuildProvider";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 3;
 
 		virtual auto CompileMounted(
 			std::string_view VirtualShaderPath,
@@ -47,13 +47,39 @@ namespace Durin
 			const FShaderCompileOptions& Options,
 			FShaderSourceDependencyFingerprint& OutFingerprint,
 			std::string& OutError) -> bool = 0;
+		virtual auto CaptureSourceArtifacts(
+			std::shared_ptr<const FShaderSourceArtifacts>& OutArtifacts,
+			std::string& OutError, const std::function<bool()>& IsCancelled = {}) -> bool
+		{
+			OutArtifacts.reset();
+			OutError = "Shader provider does not support fixed source capture.";
+			return false;
+		}
 		virtual auto GetStats() const -> FShaderBuildStats = 0;
 		virtual auto BuildCookedLibrary(
 			EShaderTargetPlatform TargetPlatform,
 			EShaderTargetProfile TargetProfile,
 			FByteBuffer& OutBytes,
-			std::string& OutError) -> bool = 0;
+			std::string& OutError,
+			std::shared_ptr<const FShaderSourceArtifacts> Artifacts = {},
+			const std::function<bool()>& IsCancelled = {}) -> bool = 0;
 	};
+
+	// Retains one provider invocation through Work; nested shader calls use that
+	// provider even if its registration retires. Nested capture visitors fail.
+	RENDERCORE_API auto WithShaderBuildProvider(
+		const std::function<bool(IShaderBuildProvider&)>& Work,
+		std::string& OutError) -> bool;
+
+	// Acquires mounted source bytes once, then binds all synchronous shader work
+	// in Work to them and to one retained provider. Acquisition requires quiescent sources.
+	// Fixed source/search-root/compiler identity, available only inside a captured invocation.
+	RENDERCORE_API auto GetCapturedShaderBuildIdentity() -> std::string;
+	RENDERCORE_API auto WithCapturedShaderBuildInputs(
+		const std::function<bool()>& Work, std::string& OutError,
+		EShaderTargetPlatform TargetPlatform = EShaderTargetPlatform::Win64,
+		EShaderTargetProfile TargetProfile = EShaderTargetProfile::Game,
+		const std::function<bool()>& IsCancelled = {}) -> bool;
 
 	RENDERCORE_API auto IsShaderBuildProviderAvailable() -> bool;
 	RENDERCORE_API auto GetShaderBuildStats() -> FShaderBuildStats;

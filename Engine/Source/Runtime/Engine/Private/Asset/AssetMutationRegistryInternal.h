@@ -11,6 +11,7 @@ namespace Durin::AssetPrivate
 	struct FAssetReferenceStoreRegistry
 	{
 		std::map<FAssetReferenceStoreHandle, IAssetReferenceStore*> Stores;
+		std::map<FAssetReferenceStoreHandle, std::shared_ptr<void>> CaptureOwners;
 		FAssetReferenceStoreHandle NextHandle = 1;
 		uint64 Revision = 1;
 	};

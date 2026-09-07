@@ -451,11 +451,85 @@ TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
 		EXPECT_EQ(PackageResult.State, EAssetPathResolveState::ProjectionPending);
 		EXPECT_EQ(PackageResult.FinalPath, Fenced[0]);
 		EXPECT_EQ(Snapshot.ResolveAssetPath(Path(Names[0])).State,
-			EAssetPathResolveState::ProjectionPending);
+			EAssetPathResolveState::Resolved);
+		EXPECT_TRUE(CaptureAssetRegistrySnapshot().ResolveAssetObjectPath(ObjectPath(Names[0])));
+		const auto Admission = ValidateAssetRegistryParticipants(Snapshot.Catalog, Fenced);
+		EXPECT_EQ(Admission.State, EAssetRegistryAdmissionState::ProjectionPending);
+		EXPECT_EQ(Admission.FailedParticipant, Fenced[0]);
 		EXPECT_EQ(ResolveAssetObjectPath(ObjectPath(Names[Index])).State,
 			EAssetPathResolveState::ProjectionPending);
 		ClearAssetRegistryProjectionFence(Fenced);
 		EXPECT_TRUE(ResolveAssetPath(Path(Names[0])));
 		EXPECT_TRUE(ResolveAssetObjectPath(ObjectPath(Names[0])));
 	}
+	const FPackagePath Participants[] = {Path(Names[0]), Path(Names[1]), Path(Names[2])};
+	EXPECT_TRUE(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants));
+	auto Unrelated = Snapshot.Catalog.Assets.at(Path(Names[2]));
+	Unrelated.PackagePath = Path("/Fences/Unrelated");
+	Unrelated.TopLevelAssets.front().AssetPath = ObjectPath("/Fences/Unrelated").GetAssetPath();
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = GetAssetCatalogRevision(), .Adds = {Unrelated}}));
+	EXPECT_NE(Snapshot.Revision, GetAssetCatalogRevision());
+	EXPECT_TRUE(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants));
+	auto Changed = Snapshot.Catalog.Assets.at(Path(Names[1]));
+	Changed.PhysicalPath += ".changed";
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = GetAssetCatalogRevision(), .Replaces = {Changed}}));
+	EXPECT_EQ(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants).State,
+		EAssetRegistryAdmissionState::ParticipantChanged);
+	EXPECT_TRUE(Snapshot.ResolveAssetPath(Path(Names[0])));
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = GetAssetCatalogRevision(), .Removes = {Path(Names[1])}}));
+	EXPECT_EQ(ValidateAssetRegistryParticipants(Snapshot.Catalog, Participants).State,
+		EAssetRegistryAdmissionState::NotFound);
+	EXPECT_TRUE(Snapshot.ResolveAssetObjectPath(ObjectPath(Names[0])));
+}
+
+TEST(FPackageRegistryContractTests, OwnedQueriesResolveUnloadedTypesAndExactRedirectSuffixes)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::FScopedMountRegistryFixture Mounts;
+	Durin::Testing::RegisterMountPointForTests("/Owned/", ".");
+	auto Object = [](std::string_view Value) {
+		FObjectPath Result;
+		EXPECT_TRUE(FObjectPath::TryCreate(Value, Result));
+		return Result;
+	};
+	FAssetRegistrySnapshot Snapshot;
+	Snapshot.Revision = 123;
+	auto Add = [&](std::string_view Name, std::string Class, FObjectPath Destination = {}) {
+		const auto Asset = Object(std::string(Name) + ".Asset");
+		FAssetData Data;
+		Data.PackagePath = Asset.GetPackagePath();
+		Data.ObjectCount = 1;
+		Data.TopLevelAssets.push_back({Asset.GetAssetPath(), std::move(Class), Destination});
+		Snapshot.Catalog.Assets.emplace(Data.PackagePath, std::move(Data));
+	};
+	Add("/Owned/Source", "Durin::DAssetRedirector", Object("/Owned/Middle.Asset"));
+	Add("/Owned/Middle", "Durin::DAssetRedirector", Object("/Owned/Target.Asset:Parent"));
+	Add("/Owned/Target", "NotLoaded::AssetType");
+	const auto Input = Object("/Owned/Source.Asset:Child");
+	const auto Expected = Object("/Owned/Target.Asset:Parent.Child");
+	const auto Resolution = Snapshot.ResolveAssetObjectPath(Input);
+	ASSERT_TRUE(Resolution);
+	EXPECT_EQ(Resolution.FinalPath, Expected);
+	EXPECT_EQ(Resolution.RedirectChain.size(), 2u);
+	EXPECT_EQ(Resolution.CatalogRevision, 123u);
+	EXPECT_EQ(Resolution.FinalAssetData->AssetClassName, "NotLoaded::AssetType");
+	EXPECT_TRUE(Snapshot.ResolveAssetPath(Path("/Owned/Source")));
+	EXPECT_EQ(Snapshot.ResolveAssetObjectPath(Input, {.MaximumRedirectDepth = 1}).State,
+		EAssetPathResolveState::RedirectDepthExceeded);
+	const FPackagePath Fenced[] = {Path("/Owned/Middle")};
+	FenceAssetRegistryProjection(Fenced);
+	EXPECT_EQ(Snapshot.ResolveAssetObjectPath(Input).FinalPath, Expected);
+	ClearAssetRegistryProjectionFence(Fenced);
+	EXPECT_EQ(Snapshot.ResolveAssetObjectPath(Input).FinalPath, Expected);
+
+	auto Changed = Snapshot;
+	Changed.Catalog.Assets.erase(Path("/Owned/Target"));
+	EXPECT_EQ(Changed.ResolveAssetObjectPath(Input).State, EAssetPathResolveState::MissingRedirectTarget);
+	EXPECT_EQ(Snapshot.ResolveAssetObjectPath(Input).FinalPath, Expected);
+	Changed = Snapshot;
+	Changed.Catalog.Assets.at(Path("/Owned/Middle")).TopLevelAssets.front().RedirectDestination =
+		Object("/Owned/Source.Asset");
+	EXPECT_EQ(Changed.ResolveAssetObjectPath(Input).State, EAssetPathResolveState::RedirectCycle);
+	Changed.Catalog.Assets.at(Path("/Owned/Middle")).TopLevelAssets.front().RedirectDestination = {};
+	EXPECT_EQ(Changed.ResolveAssetObjectPath(Input).State, EAssetPathResolveState::CorruptRedirector);
 }

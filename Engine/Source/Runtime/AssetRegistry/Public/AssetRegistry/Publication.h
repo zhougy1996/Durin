@@ -4,6 +4,23 @@
 
 namespace Durin
 {
+	enum class EAssetRegistryAdmissionState : uint8
+	{
+		Admitted, ProjectionPending, ParticipantChanged, NotFound
+	};
+
+	struct FAssetRegistryAdmissionResult
+	{
+		EAssetRegistryAdmissionState State = EAssetRegistryAdmissionState::Admitted;
+		FPackagePath FailedParticipant;
+		explicit operator bool() const { return State == EAssetRegistryAdmissionState::Admitted; }
+	};
+
+	// Point-in-time comparison under the Registry mutex, never a read lease.
+	ASSETREGISTRY_API auto ValidateAssetRegistryParticipants(
+		const FAssetCatalogSnapshot& Expected, std::span<const FPackagePath> Participants)
+		-> FAssetRegistryAdmissionResult;
+
 	struct FAssetRegistryPublication
 	{
 		uint64 ExpectedRevision = 0;

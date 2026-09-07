@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Asset/Cook.h"
 #include "Asset/PackageSerialization.h"
 
@@ -125,7 +126,7 @@ namespace Durin
 			const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
 			if (!Durin::FindAssetExact(RequestedPath)) return true;
 			const FAssetPathResolveResult Resolution =
-				Durin::ResolveAssetPath(RequestedPath);
+				Durin::ResolveAssetPathForOperation(RequestedPath);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| Resolution.FinalAssetData->EntryKind
 					   != EAssetRegistryEntryKind::Asset)

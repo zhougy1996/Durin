@@ -9,13 +9,15 @@ namespace Durin::AssetPrivate
 	public:
 		FAssetRegistryState();
 
+		auto ValidateParticipants(const FAssetCatalogSnapshot& Expected,
+			std::span<const FPackagePath> Participants) const -> FAssetRegistryAdmissionResult;
 		auto FindAssetExact(const FPackagePath& Path) const -> FAssetCatalogEntry;
 		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
 			-> FTopLevelAssetCatalogEntry;
 		auto ResolveAssetPath(const FPackagePath& Path,
-			const FAssetPathResolveOptions& Options = {}) const -> FAssetPathResolveResult;
+			const FAssetPathQueryOptions& Options = {}) const -> FAssetPathResolveResult;
 		auto ResolveAssetObjectPath(const FObjectPath& Path,
-			const FAssetPathResolveOptions& Options) const -> FObjectPathResolveResult;
+			const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult;
 		auto FindRedirectorsTo(const FPackagePath& Destination) const
 			-> std::vector<FPackagePath>;
 		auto CaptureCatalog() const -> FAssetCatalogSnapshot;

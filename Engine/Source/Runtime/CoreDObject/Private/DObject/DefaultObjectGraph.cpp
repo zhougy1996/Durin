@@ -1,3 +1,4 @@
+#include "DObject/Package.h"
 #include "DObject/DefaultObjectGraph.h"
 
 #include "DObject/Class.h"
@@ -104,8 +105,10 @@ namespace Durin
 					return Fail(EDefaultObjectGraphFailureReason::DuplicateTemplateIdentity, Pair.Path);
 			}
 
-			const std::vector<DObject*> InstanceChildren = GDObjectArray.GetObjectsWithOuter(
-				Pair.Instance, EObjectQueryScope::LiveOnly, false);
+			std::vector<DObject*> InstanceChildren = GDObjectArray.GetObjectsWithOuter(
+				Pair.Instance, InstanceRoot->GetPackage() && InstanceRoot->GetPackage()->IsGraphPrivate()
+					? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly, false);
+			std::erase_if(InstanceChildren, [](const DObject* Object) { return Object->IsTemplateObject(); });
 			std::vector<FPendingPair> Children;
 			Children.reserve(TemplateChildren.size());
 			for (const DObject* TemplateChild : TemplateChildren)

@@ -1,3 +1,5 @@
+#include "Asset/CookDependencies.h"
+#include "DObject/Package.h"
 #include "Materials/MaterialCompileLifecycle.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -811,7 +813,8 @@ namespace Durin
 					return false;
 				}
 
-				if (IsObjectHandleNull(Request.Owner)
+				if ((IsCookInputCaptureActive() && Material.GetPackage() && Material.GetPackage()->IsGraphPrivate())
+					|| IsObjectHandleNull(Request.Owner)
 					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
 				{

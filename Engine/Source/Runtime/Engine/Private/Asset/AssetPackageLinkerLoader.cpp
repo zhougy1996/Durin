@@ -1291,6 +1291,13 @@ namespace Durin::AssetPrivate
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidPath, "Live linker application requires a validated package path.");
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 		}
+		if (Options.bPrivateGraph && (!Options.DependencyLoadPolicy
+			|| !Options.DependencyLoadPolicy->bRejectImplicitLiveLoads))
+		{
+			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
+				"Private package loading requires an explicit closed dependency policy.");
+			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+		}
 		if (Options.DependencyLoadPolicy
 			&& (!Options.DependencyLoadPolicy->ResolvePackage
 				|| !Options.DependencyLoadPolicy->ResolveObject
@@ -1330,19 +1337,51 @@ namespace Durin::AssetPrivate
 			LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Could not allocate the package skeleton.");
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
-		Package->InitializeAssetPackage(PackagePath);
+		if (Options.bPrivateGraph)
+		{
+			if (!Package->InitializePreparedAssetPackage(PackagePath))
+			{
+				MarkObjectHierarchyAsGarbage(Package); CollectGarbage();
+				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
+					"Could not initialize a private capture package.");
+				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+			}
+		}
+		else Package->InitializeAssetPackage(PackagePath);
 		Application.Package = Package;
 		Objects.resize(Exports.size(), nullptr);
 		const FAssetPackageLoadSnapshot DependencySnapshot = Options.DependencyLoadPolicy
 			? FAssetPackageLoadSnapshot{} : CapturePackageLoadSnapshot();
 		bool bSkeletonPublished = false;
+		bool bFinalized = false;
 		auto Rollback = [&]() {
-			if (bSkeletonPublished && Options.OnSkeletonRollback)
-				Options.OnSkeletonRollback(Package);
-			MarkObjectHierarchyAsGarbage(Package); CollectGarbage();
-			if (Options.DependencyLoadPolicy) Options.DependencyLoadPolicy->Rollback();
-			else ReleasePackagesLoadedSince(DependencySnapshot);
+			if (std::exchange(bFinalized, true)) return;
+			std::exception_ptr Failure;
+			auto Cleanup = [&](auto&& Work) {
+				try { Work(); }
+				catch (...) { if (!Failure) Failure = std::current_exception(); }
+			};
+			Cleanup([&] {
+				if (bSkeletonPublished && Options.OnSkeletonRollback)
+					Options.OnSkeletonRollback(Package);
+			});
+			Cleanup([&] { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); });
+			Cleanup([&] {
+				if (Options.DependencyLoadPolicy) Options.DependencyLoadPolicy->Rollback();
+				else ReleasePackagesLoadedSince(DependencySnapshot);
+			});
+			if (Failure) std::rethrow_exception(Failure);
 		};
+
+		struct FScopedRollback
+		{
+			decltype(Rollback)& Execute;
+			~FScopedRollback()
+			{
+				try { Execute(); }
+				catch (...) { /* Preserve an in-flight callback exception during cleanup. */ }
+			}
+		} Scope{Rollback};
 
 		if (FAssetResult Result = CreateLinkerSkeleton(Application, Options, Diagnostic); !Result)
 		{
@@ -1444,6 +1483,7 @@ namespace Durin::AssetPrivate
 		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()
 			|| !Report.DeprecatedRouteEvidence.empty() || Report.DiscardedFieldCount != 0);
 		if (OutReport) *OutReport = std::move(Report);
+		bFinalized = true;
 		Diagnostic.Reset(); return Finish({});
 	}
 

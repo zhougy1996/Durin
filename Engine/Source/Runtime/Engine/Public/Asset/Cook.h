@@ -4,6 +4,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
+#include "Asset/CookDependencies.h"
 #include "Asset/PackageBulkData.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/AssetPath.h"
@@ -170,6 +171,12 @@ namespace Durin
 		FCookProgressCallback ReportProgress;
 	};
 
+	enum class ECookInputStatus : uint8
+	{
+		None, InputChanged, ProjectionPending, ResidentInputConflict, ProviderUnavailable,
+		UndeclaredInput, InvalidDependency, LimitExceeded, IoError, Cancelled
+	};
+
 	struct FCookRunResult
 	{
 		ECookRunStatus Status = ECookRunStatus::Failed;
@@ -185,6 +192,8 @@ namespace Durin
 		uint64 WallTimeNanoseconds = 0;
 		uint64 CommitTimeNanoseconds = 0;
 		uint64 RollbackTimeNanoseconds = 0;
+		ECookInputStatus InputStatus = ECookInputStatus::None;
+		FAssetResult InputFailure;
 	};
 
 	struct FCookStateEntry
@@ -200,6 +209,7 @@ namespace Durin
 		std::string Contributor;
 		std::string BuildProvenance;
 		uint8 SegmentFlags = 0;
+		std::vector<FCookBuildDependency> BuildDependencies;
 	};
 
 	struct FCookState
@@ -306,6 +316,8 @@ namespace Durin
 		) -> bool;
 		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto TakeSavePlans(std::vector<FCookSavePlan>& OutPlans, std::string* OutError = nullptr) -> bool;
+		auto ReadDeclaredInput(ECookBuildDependencyKind Kind, std::string_view Name,
+			FByteBuffer& Out) const -> FAssetResult { return ReadCapturedCookInput(Kind, Name, Out); }
 		auto GetSavePlans() const -> std::span<const FCookSavePlan> { return Packages; }
 		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
 		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
@@ -326,6 +338,7 @@ namespace Durin
 	)>;
 	using FCookContributorHandle = uint64;
 
+	// Describes contributor callbacks and the owner retained by captured runs.
 	struct FCookContributorRegistration
 	{
 		std::string Name;
@@ -333,9 +346,25 @@ namespace Durin
 		uint32 FamilyProducerVersion = 1;
 		FCookContributor Contribute;
 		std::function<ECookPackageStatus(const DObject&)> ClassifyPreparation;
+		// Pins callback state and native code until the last captured run releases
+		// this registration. Empty means the caller guarantees process lifetime.
+		std::shared_ptr<void> LifetimeOwner;
+		// Absence disables incremental reuse. Native callbacks must declare every
+		// external input; automatic source/bulk/hard dependencies are added by Cook.
+		FCookDependencyDeclarationCallback DeclareDependencies;
+
+		// Callback managers may execute provider code during destruction.
+		~FCookContributorRegistration()
+		{
+			DeclareDependencies = {};
+			ClassifyPreparation = {};
+			Contribute = {};
+		}
 	};
 
 	ENGINE_API auto RegisterCookContributor(DClass* Class, FCookContributorRegistration Registration) -> FCookContributorHandle;
+	// Retires from future runs without waiting; active runs retain the registration.
+	// Callback destruction and owner release occur outside the registration mutex.
 	ENGINE_API auto UnregisterCookContributor(FCookContributorHandle Handle) -> void;
 	ENGINE_API auto RegisterEngineCookContributors(
 		std::vector<FCookContributorHandle>& OutHandles,

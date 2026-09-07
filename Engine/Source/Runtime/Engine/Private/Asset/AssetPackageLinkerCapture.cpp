@@ -1207,8 +1207,9 @@ namespace Durin::AssetPrivate
 			if (!Object) return;
 			OutObjects.push_back(Object);
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(
-				Object, EObjectQueryScope::LiveOnly))
-				GatherObjects(Inner, OutObjects);
+				Object, Object->GetPackage() && Object->GetPackage()->IsGraphPrivate()
+					? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly))
+				if (!Inner->IsTemplateObject()) GatherObjects(Inner, OutObjects);
 		}
 
 		auto HasFrozenObjectGraph(DObject* Root, std::span<DObject* const> Frozen) -> bool

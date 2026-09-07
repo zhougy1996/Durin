@@ -4,6 +4,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
+#include "DObject/Package.h"
 #include "DObject/ObjectPtr.h"
 
 namespace Durin
@@ -1121,7 +1122,9 @@ namespace Durin
 			std::vector<DObject*> Objects{RootObject};
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
 				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(
-					Objects[Index], EObjectQueryScope::LiveOnly, false)) Objects.push_back(Child);
+					Objects[Index], RootObject->GetPackage() && RootObject->GetPackage()->IsGraphPrivate()
+						? EObjectQueryScope::IncludeUnpublished : EObjectQueryScope::LiveOnly, false))
+					if (!Child->IsTemplateObject()) Objects.push_back(Child);
 			if (Objects.size() > DefaultDeltaMaxFields)
 			{
 				Diagnostic.Reason = EDefaultDeltaFailureReason::FieldLimit;

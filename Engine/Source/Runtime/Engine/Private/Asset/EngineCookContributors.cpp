@@ -1,4 +1,6 @@
+#include "CookBuildProviders.h"
 #include "Asset/Cook.h"
+#include "Shader/ShaderBuildProvider.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
@@ -19,7 +21,7 @@ namespace Durin
 			std::vector<FCookContributorHandle>& Handles) -> bool
 		{
 			const FCookContributorHandle Handle = RegisterCookContributor(
-				T::StaticClass(), {std::move(Name), 1, 1,
+				T::StaticClass(), {std::move(Name), 2, 2,
 					[](DObject& Object, std::string_view VirtualPath,
 						FCookContext& Context) -> FAssetResult {
 						if (!Object.IsA(T::StaticClass()))
@@ -28,7 +30,7 @@ namespace Durin
 						if constexpr (std::is_same_v<T, DStaticMesh>)
 						{
 							if (HasPendingStaticMeshSourceMutation(static_cast<DStaticMesh&>(Object)))
-								FAssetCompilingManager::Get().FinishCompilationForObject(Object);
+								return {EAssetError::InUse, "Cook cannot settle authored source mutation after capture."};
 						}
 						else FAssetCompilingManager::Get().FinishCompilationForObject(Object);
 						std::string Error;
@@ -39,6 +41,33 @@ namespace Durin
 					},
 					[](const DObject&) -> ECookPackageStatus {
 						return ECookPackageStatus::Captured;
+					}, {},
+					[](const FCookDependencyRequest& Request, std::vector<FCookDependencyDeclaration>& Out) -> FAssetResult {
+						if constexpr (std::is_same_v<T, DTexture2D> || std::is_same_v<T, DTextureCube>
+							|| std::is_same_v<T, DVolumeTexture> || std::is_same_v<T, DStaticMesh>)
+						{
+							const std::string Family = std::is_same_v<T, DTexture2D> ? "texture2d"
+								: std::is_same_v<T, DTextureCube> ? "texture-cube"
+								: std::is_same_v<T, DVolumeTexture> ? "volume-texture" : "static-mesh";
+							FByteBuffer Value;
+							if (!AssetPrivate::GetCapturedCookBuildProviderInput(Family, Value))
+								return {EAssetError::InUse, "Cook recipe provider unavailable: " + Family};
+							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+								"recipe/" + Family, {}, std::move(Value)});
+						}
+						if constexpr (std::is_same_v<T, DEnvironmentLighting>)
+							Out.push_back({ECookBuildDependencyKind::ExternalFile,
+								Request.Package.ToString() + ".iblbulk",
+								DEnvironmentLighting::GetAuthoredPayloadPath(Request.Package.GetView()), {}});
+						if constexpr (std::is_same_v<T, DMaterial>)
+						{
+							const auto Identity = GetCapturedShaderBuildIdentity();
+							if (Identity.empty()) return {EAssetError::InUse, "Material Cook requires captured ShaderBuild inputs."};
+							const auto Bytes = std::as_bytes(std::span(Identity));
+							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
+								"shader-build", {}, FByteBuffer(Bytes.begin(), Bytes.end())});
+						}
+						return {};
 					}}
 			);
 			if (Handle == 0) return false;

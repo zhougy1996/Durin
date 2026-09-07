@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
 #include "Asset/Asset.h"
@@ -67,7 +68,7 @@ namespace Durin::Editor::Level
 					FPackagePath Path;
 					if (!FPackagePath::TryCreate(StoredPath, Path)) continue;
 					const FAssetPathResolveResult Resolution =
-						ResolveAssetPath(
+						ResolveAssetPathForOperation(
 							Path, {.ExpectedClass = DLevel::StaticClass()});
 					if (!Resolution) continue;
 					const std::string FinalPath = Resolution.FinalPath.ToString();

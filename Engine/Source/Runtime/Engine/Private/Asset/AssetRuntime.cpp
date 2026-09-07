@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetLiveLoadGuard.h"
 #include "AssetRegistry/Scan.h"
@@ -31,20 +32,30 @@
 namespace Durin::AssetPrivate
 {
 	thread_local FAssetLiveLoadGuard* FAssetLiveLoadGuard::Active = nullptr;
+	std::atomic_uint64_t FAssetLiveLoadGuard::ActiveCount = 0;
+	std::atomic_uint64_t FAssetLiveLoadGuard::Rejections = 0;
 
 	FAssetLiveLoadGuard::FAssetLiveLoadGuard(bool bInEnabled) : bEnabled(bInEnabled)
 	{
-		if (bEnabled) Previous = std::exchange(Active, this);
+		if (bEnabled) { InitialRejections = Rejections.load(); ++ActiveCount; Previous = std::exchange(Active, this); }
 	}
 
 	FAssetLiveLoadGuard::~FAssetLiveLoadGuard()
 	{
-		if (bEnabled) Active = Previous;
+		if (bEnabled) { Active = Previous; --ActiveCount; }
+	}
+
+	auto FAssetLiveLoadGuard::GetFailure() const -> FAssetResult
+	{
+		if (Failure && bEnabled && Rejections.load() != InitialRejections)
+			return {EAssetError::InUse, "A live operation was rejected during input capture."};
+		return Failure;
 	}
 
 	auto FAssetLiveLoadGuard::Check(std::string_view Operation, std::string_view Path) -> FAssetResult
 	{
-		if (!Active) return {};
+		if (ActiveCount.load() == 0) return {};
+		++Rejections;
 		const FAssetResult Result{EAssetError::InUse,
 			std::format("Implicit live {} for '{}' is forbidden during guarded package loading.", Operation, Path)};
 		for (auto* Guard = Active; Guard; Guard = Guard->Previous)
@@ -312,7 +323,7 @@ namespace Durin
 		if (!bAcceptingRequests)
 			return Finish(Error(EAssetError::ShuttingDown,
 				"Object loading is closed while the asset manager is shutting down."));
-		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPath(
+		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPathForOperation(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{
@@ -576,7 +587,7 @@ namespace Durin
 			if (!Data) continue;
 			for (const FPackagePath& Dependency : Data->Dependencies)
 			{
-				const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
+				const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
 				if (Resolution && Resolution.FinalPath == Path) return true;
 			}
 		}
@@ -587,6 +598,7 @@ namespace Durin
 		const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("UnloadPackage", ""); !Result) return Result;
 		DPackage* Package = FindResidentPackage(Path);
 		if (!Package)
 			return Error(EAssetError::NotFound, "Package is not resident.");
@@ -629,6 +641,7 @@ namespace Durin
 	auto FAssetLoadService::ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
 	{
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackagesLoadedSince", ""); !Result) return Result;
 		if (LoadDepth != 0 || !LoadingPackages.empty())
 			return Error(EAssetError::InUse, "A package load is still in progress.");
 
@@ -647,7 +660,7 @@ namespace Durin
 				if (!Data) continue;
 				for (const FPackagePath& Dependency : Data->Dependencies)
 				{
-					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
+					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
 					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
 				}
 			}
@@ -667,6 +680,7 @@ namespace Durin
 		std::span<const TWeakObjectPtr<DPackage>> Packages,
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
 	{
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackages", ""); !Result) return Result;
 		if (LoadDepth != 0 || !LoadingPackages.empty())
 			return Error(EAssetError::InUse, "A package load is still in progress.");
 		std::unordered_set<FPackagePath> Candidates;
@@ -698,7 +712,7 @@ namespace Durin
 				if (!Data) continue;
 				for (const FPackagePath& Dependency : Data->Dependencies)
 				{
-					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
+					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
 					if (Resolution && Candidates.erase(Resolution.FinalPath))
 					{
 						bChanged = true;
@@ -731,6 +745,7 @@ namespace Durin
 
 	auto FAssetRuntimeState::Shutdown() -> void
 	{
+		if (!AssetPrivate::FAssetLiveLoadGuard::Check("Shutdown", "")) return;
 		StopAcceptingRequests();
 		FlushAssetRegistryCaches();
 		GetPackageResourceManager().RetireAllPackages();
@@ -745,6 +760,7 @@ namespace Durin
 	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
 		-> FAssetResult
 	{
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("Initialize", ""); !Result) return Result;
 		if (bAcceptingRequests)
 		{
 			if (RuntimeConfiguration == Configuration) return {};
@@ -767,6 +783,7 @@ namespace Durin
 
 	auto FAssetRuntimeState::StopAcceptingRequests() -> void
 	{
+		if (!AssetPrivate::FAssetLiveLoadGuard::Check("StopAcceptingRequests", "")) return;
 		if (!bAcceptingRequests) return;
 		bAcceptingRequests = false;
 		DURIN_DEBUG("Asset manager stopped accepting new requests.");
@@ -777,11 +794,11 @@ namespace Durin
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
 	{
-		CheckSoftObjectThread();
 		if (!Reference.IsNull())
 			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
 				"soft-object resolve", Reference.GetPath().ToString()); !Result)
 				return {.Result = Result, .State = ESoftObjectResolveState::NotLoaded};
+		CheckSoftObjectThread();
 		if (!ExpectedClass || !ExpectedClass->IsChildOf(DObject::StaticClass()))
 		{
 			return {
@@ -798,7 +815,7 @@ namespace Durin
 		}
 
 		const FObjectPath& Path = Reference.GetPath();
-		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPath(
+		const FObjectPathResolveResult Resolution = Durin::ResolveAssetObjectPathForOperation(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{
@@ -893,7 +910,6 @@ namespace Durin
 		ESoftObjectNullPolicy NullPolicy,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		CheckSoftObjectThread();
 		OutObject = nullptr;
 		if (!Reference.IsNull())
 			if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check(
@@ -904,6 +920,7 @@ namespace Durin
 					.Error = Result.Error, .ErrorMessage = Result.Message};
 				return Result;
 			}
+		CheckSoftObjectThread();
 		FSoftObjectResolveResult Resolved = ResolveSoftObject(
 			Reference, ExpectedClass, NullPolicy);
 		if (!Resolved) return Resolved.Result;

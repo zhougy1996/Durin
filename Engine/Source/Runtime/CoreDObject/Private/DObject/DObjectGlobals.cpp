@@ -780,7 +780,28 @@ namespace Durin
 		ObjectInitializer.Flags = Params.Flags;
 		ObjectInitializer.Purpose = Params.Purpose;
 
-		InClass->ClassConstructor(ObjectInitializer);
+		try
+		{
+			InClass->ClassConstructor(ObjectInitializer);
+		}
+		catch (...)
+		{
+			// The failed most-derived object no longer has a lifetime. Detach
+			// completed children through the raw index without querying that Outer.
+			const auto It = GDObjectArray.OuterToObjects.find(Obj);
+			if (It != GDObjectArray.OuterToObjects.end())
+			{
+				const auto Children = It->second;
+				for (DObject* Child : Children) GDObjectArray.ReparentObject(Child, nullptr);
+				for (DObject* Child : Children)
+				{
+					if (Child->IsTemplateObject()) Private::MarkTemplateObjectHierarchyAsGarbage(Child);
+					else MarkObjectHierarchyAsGarbage(Child);
+				}
+			}
+			::operator delete(Obj);
+			throw;
+		}
 
 		Obj->SetOuterPrivate(Params.Outer);
 		Obj->AddObject(Params.Name);
@@ -815,6 +836,7 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 	{
+		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DClass* Class = Params.ClassNoRegisterFunc();
 
 		DObjectForceRegistration(Class);
@@ -853,6 +875,7 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDEnum(const FEnumParams& Params) -> DEnum*
 	{
+		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DEnum* Enum = Params.EnumNoRegisterFunc();
 
 		DObjectForceRegistration(Enum);
@@ -865,6 +888,7 @@ namespace Durin
 
 	auto DurinCodeGen::ConstructDStruct(const FStructParams& Params) -> DStruct*
 	{
+		FScopedTypeRegistrationFreeze::CheckMutationAllowed();
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
 		Private::RegisterQualifiedStruct(Struct);

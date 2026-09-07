@@ -646,7 +646,8 @@ namespace Durin::AssetPrivate::DastV9
 						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
 						: FArchiveTarget{},
 					.BulkResource = Context.BulkResource,
-					.DependencyLoadPolicy = Context.DependencyLoadPolicy});
+					.DependencyLoadPolicy = Context.DependencyLoadPolicy,
+					.bPrivateGraph = Context.bPrivateGraph});
 		}
 
 		auto Write(DPackage* Package, FAssetPackageEncodedClosure& OutClosure,

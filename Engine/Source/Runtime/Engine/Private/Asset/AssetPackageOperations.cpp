@@ -1,3 +1,5 @@
+#include "AssetLiveLoadGuard.h"
+#include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationRegistryInternal.h"
 #include "AssetMutationJournalInternal.h"
@@ -1063,6 +1065,7 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
 	{
+		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("save", ""); !Result) return Result;
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.SavePackagesAtomically(Packages, Options);
 	}
@@ -1071,6 +1074,7 @@ namespace Durin
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		struct FStagedPackage
 		{
 			DPackage* Package = nullptr;
@@ -1108,7 +1112,7 @@ namespace Durin
 		for (DPackage* Package : Packages)
 		{
 			FPackagePath Path;
-			if (!Package || !Package->IsAssetPackage()
+			if (!Package || !Package->IsAssetPackage() || Package->IsGraphPrivate()
 				|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 				return Error(EAssetError::InvalidPackageType, "The asset bundle contains an invalid package.");
 			if (!Paths.insert(Path).second)
@@ -1405,6 +1409,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::AdmitAssetPackageToCatalog(
 		const FPackagePath& Path) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (!Path.IsValid())
 			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
 		if (Durin::FindAssetExact(Path) || FindResidentPackage(Path))
@@ -1735,7 +1740,7 @@ namespace Durin
 						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
 						Route, ExpectedClassName));
 			}
-			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(
+			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(
 				Path, {.ExpectedClass = ExpectedClass});
 			if (!Resolution)
 			{
@@ -1786,6 +1791,7 @@ namespace Durin
 
 	auto FAssetMutationCoordinator::SavePackage(DPackage* Package) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		const std::array<DPackage*, 1> Packages{Package};
 		return SavePackagesAtomically(Packages, {.RootPackage = Package});
 	}

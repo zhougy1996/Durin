@@ -31,6 +31,8 @@ namespace Durin::AssetPrivate
 		FArchiveTarget Target;
 		FPackageResourceHandle BulkResource;
 		std::optional<FAssetPackageDependencyLoadPolicy> DependencyLoadPolicy;
+		// Keep capture objects out of public package/object lookup. Requires a closed load policy.
+		bool bPrivateGraph = false;
 	};
 
 	// A validated saved closure; the caller owns path admission and edit/save leases.

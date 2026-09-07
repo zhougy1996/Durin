@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
@@ -68,7 +69,7 @@ namespace Durin::Editor::Level
 		FObjectPath AssetPath;
 		if (!FObjectPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const FObjectPathResolveResult Resolution =
-			ResolveAssetObjectPath(
+			ResolveAssetObjectPathForOperation(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!Resolution)
 			return ELevelDocumentOpenResult::Rejected;

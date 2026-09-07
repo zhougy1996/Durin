@@ -254,6 +254,8 @@ TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 		{{"/Game/B", {1, 2}, {3, 4}, {5, 6}, 12, 8, 2, 3, "texture", "ddc-hit"},
 		 {"/Game/A", {7, 8}, {9, 10}, {}, 11, 0, 4, 5, "generic", "captured"}}
 	};
+	State.Entries[1].BuildDependencies = {{ECookBuildDependencyKind::ExternalFile,
+		"compiler/include", {std::byte{7}}}};
 	Durin::FByteBuffer First, Second;
 	std::string Error;
 	ASSERT_TRUE(EncodeCookState(State, First, &Error)) << Error;
@@ -263,7 +265,15 @@ TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 	ASSERT_TRUE(DecodeCookState(First, Decoded, &Error)) << Error;
 	ASSERT_EQ(Decoded.Entries.size(), 2u);
 	EXPECT_EQ(Decoded.Entries[0].VirtualPackagePath, "/Game/A");
-	First[4] ^= std::byte{1};
+	EXPECT_EQ(Decoded.Entries[0].BuildDependencies, State.Entries[1].BuildDependencies);
+	for (size_t Size = 0; Size < First.size(); ++Size)
+	{
+		EXPECT_FALSE(DecodeCookState(FByteView(First).first(Size), Decoded));
+		EXPECT_TRUE(Decoded.Entries.empty());
+	}
+	auto Trailing = First; Trailing.push_back(std::byte{0});
+	EXPECT_FALSE(DecodeCookState(Trailing, Decoded));
+	First[4] = std::byte{1}; // Tool-only v1 is deliberately a full cache miss.
 	EXPECT_FALSE(DecodeCookState(First, Decoded, &Error));
 }
 
@@ -282,6 +292,99 @@ TEST(FCookContributorTests, RejectsDuplicatesAndAllowsOwnerRetirement)
 	);
 	EXPECT_NE(Replacement, 0u);
 	UnregisterCookContributor(Replacement);
+}
+
+TEST(FCookContributorTests, RunPinsRetiredOwnerUntilCancellationReturns)
+{
+	const FCookContributor Callback = [](DObject&, std::string_view,
+		FCookContext&) -> FAssetResult { return {}; };
+	auto Owner = std::make_shared<int>(42);
+	std::weak_ptr<int> WeakOwner = Owner;
+	const auto Handle = RegisterCookContributor(DObject::StaticClass(),
+		{"pinned-test", 1, 1, Callback, {}, std::move(Owner)});
+	ASSERT_NE(Handle, 0u);
+	FCookRequest Request;
+	Request.TargetPlatform = ECookTargetPlatform::Win64;
+	Request.TargetProfile = ECookTargetProfile::Game;
+	Request.bDryRun = true;
+	Request.IsCancelled = [&] {
+		UnregisterCookContributor(Handle);
+		EXPECT_FALSE(WeakOwner.expired());
+		const auto Replacement = RegisterCookContributor(DObject::StaticClass(),
+			{"replacement-test", 1, 1, Callback});
+		EXPECT_NE(Replacement, 0u);
+		UnregisterCookContributor(Replacement);
+		return true;
+	};
+	FCookRunResult Result;
+	EXPECT_FALSE(FCookCoordinator().Run(Request, Result));
+	EXPECT_EQ(Result.Status, ECookRunStatus::Cancelled);
+	EXPECT_TRUE(WeakOwner.expired());
+	UnregisterCookContributor(Handle);
+}
+
+TEST(FCookContributorTests, OwnerDestructionCanReenterRegistration)
+{
+	const FCookContributor Callback = [](DObject&, std::string_view,
+		FCookContext&) -> FAssetResult { return {}; };
+	bool Destroyed = false;
+	auto Owner = std::shared_ptr<void>(new int(42), [&](void* Value) {
+		delete static_cast<int*>(Value);
+		const auto Replacement = RegisterCookContributor(DObject::StaticClass(),
+			{"destructor-test", 1, 1, Callback});
+		EXPECT_NE(Replacement, 0u);
+		UnregisterCookContributor(Replacement);
+		Destroyed = true;
+	});
+	const auto Handle = RegisterCookContributor(DObject::StaticClass(),
+		{"owner-test", 1, 1, Callback, {}, std::move(Owner)});
+	ASSERT_NE(Handle, 0u);
+	EXPECT_FALSE(Destroyed);
+	UnregisterCookContributor(Handle);
+	EXPECT_TRUE(Destroyed);
+}
+
+TEST(FCookContributorTests, CallbackDestructionPrecedesOwnerReleaseEvenWhenRejected)
+{
+	int DestroyedCallbacks = 0;
+	auto MakeRegistration = [&] {
+		auto Owner = std::make_shared<int>(42);
+		std::weak_ptr<int> WeakOwner = Owner;
+		auto CallbackState = std::shared_ptr<void>(new int(7),
+			[&, WeakOwner](void* Value) {
+				EXPECT_FALSE(WeakOwner.expired());
+				++DestroyedCallbacks;
+				delete static_cast<int*>(Value);
+			});
+		return FCookContributorRegistration{"ordered-test", 1, 1,
+			[State = std::move(CallbackState)](DObject&, std::string_view,
+				FCookContext&) -> FAssetResult { return {}; }, {}, std::move(Owner)};
+	};
+	const auto Handle = RegisterCookContributor(DObject::StaticClass(), MakeRegistration());
+	ASSERT_NE(Handle, 0u);
+	EXPECT_EQ(DestroyedCallbacks, 0);
+	EXPECT_EQ(RegisterCookContributor(DObject::StaticClass(), MakeRegistration()), 0u);
+	EXPECT_EQ(DestroyedCallbacks, 1);
+	UnregisterCookContributor(Handle);
+	EXPECT_EQ(DestroyedCallbacks, 2);
+}
+
+TEST(FCookContributorTests, TypeFreezeRejectsMutationAndRetainsCaughtFailure)
+{
+	DClass* Class = DObject::StaticClass();
+	const auto OriginalName = Class->GetQualifiedName();
+	{
+		FScopedTypeRegistrationFreeze Outer;
+		FScopedTypeRegistrationFreeze Inner;
+		EXPECT_THROW(Class->SetQualifiedName(FName("Tests::RejectedCookType")), std::runtime_error);
+		EXPECT_EQ(Class->GetQualifiedName(), OriginalName);
+		EXPECT_TRUE(Outer.WasRegistrationRejected());
+		EXPECT_TRUE(Inner.WasRegistrationRejected());
+		EXPECT_EQ(FindClassByQualifiedName(OriginalName), Class);
+	}
+	EXPECT_NO_THROW(Class->SetQualifiedName(OriginalName));
+	FScopedTypeRegistrationFreeze Next;
+	EXPECT_FALSE(Next.WasRegistrationRejected());
 }
 
 TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
@@ -474,4 +577,95 @@ TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Stale.dbulk"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "Game/Keep.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(Root / "unowned.bin"));
+}
+
+TEST(FCookDependencyTests, CanonicalFramingAndBoundedDecoding)
+{
+	using K = ECookBuildDependencyKind;
+	std::vector<FCookBuildDependency> Records = {
+		{K::ConfigurationValue, "bc", {std::byte{'a'}}},
+		{K::ExternalFile, "source", {std::byte{1}, std::byte{2}}}};
+	FByteBuffer First, Second;
+	ASSERT_TRUE(EncodeCookBuildDependencies(Records, First));
+	std::ranges::reverse(Records);
+	ASSERT_TRUE(EncodeCookBuildDependencies(Records, Second));
+	EXPECT_EQ(First, Second);
+	std::vector<FCookBuildDependency> Decoded;
+	ASSERT_TRUE(DecodeCookBuildDependencies(First, Decoded));
+	ASSERT_EQ(Decoded.size(), 2u);
+	EXPECT_EQ(Decoded, Records);
+	FXxHash128 Before, After;
+	ASSERT_TRUE(FingerprintCookBuildDependencies(Records, Before));
+	Records.back().LogicalName = "b";
+	Records.back().Value = {std::byte{'c'}, std::byte{'a'}};
+	ASSERT_TRUE(FingerprintCookBuildDependencies(Records, After));
+	EXPECT_NE(Before, After);
+	Records.push_back(Records.front());
+	EXPECT_FALSE(EncodeCookBuildDependencies(Records, Second));
+	EXPECT_TRUE(Second.empty());
+	for (size_t Size = 0; Size < First.size(); ++Size)
+	{
+		EXPECT_FALSE(DecodeCookBuildDependencies(FByteView(First).first(Size), Decoded));
+		EXPECT_TRUE(Decoded.empty());
+	}
+	auto Bad = First;
+	Bad.push_back(std::byte{0});
+	EXPECT_FALSE(DecodeCookBuildDependencies(Bad, Decoded));
+	Bad = First; Bad[8] = std::byte{255};
+	EXPECT_FALSE(DecodeCookBuildDependencies(Bad, Decoded));
+	Bad = First; Bad[4] = std::byte{255};
+	EXPECT_FALSE(DecodeCookBuildDependencies(Bad, Decoded));
+	Records = {{K::ExternalFile, std::string(4097, 'x'), {}}};
+	EXPECT_FALSE(EncodeCookBuildDependencies(Records, Second));
+	Records = {{K::ConfigurationValue, "oversized", FByteBuffer(MaximumCookDependencyValueBytes + 1)}};
+	EXPECT_FALSE(EncodeCookBuildDependencies(Records, Second));
+}
+
+TEST(FCookDependencyTests, DirectTransitiveCyclesAndSharedInputValues)
+{
+	using K = ECookBuildDependencyKind;
+	auto Path = [](std::string_view Name) {
+		FPackagePath Result;
+		EXPECT_TRUE(FPackagePath::TryCreateProjectContent(Name, Result));
+		return Result;
+	};
+	const auto A = Path("/Game/A"), B = Path("/Game/B"), C = Path("/Game/C");
+	std::vector<FCookPackageBuildInputs> Graph = {
+		{A, {{K::SourcePackage, A.ToString(), {std::byte{1}}}}, {{B, false}}},
+		{B, {{K::SourcePackage, B.ToString(), {std::byte{2}}}}, {{C, true}}},
+		{C, {{K::SourcePackage, C.ToString(), {std::byte{3}}},
+			{K::OwnedBulk, C.ToString(), {std::byte{4}}}}, {{A, true}}}};
+	auto Hash = [&] {
+		std::vector<FCookBuildDependency> Expanded;
+		EXPECT_TRUE(ExpandCookBuildDependencies(A, Graph, Expanded));
+		FXxHash128 Result;
+		EXPECT_TRUE(FingerprintCookBuildDependencies(Expanded, Result));
+		return Result;
+	};
+	const auto Direct = Hash();
+	Graph[2].Inputs.back().Value[0] = std::byte{5};
+	EXPECT_EQ(Direct, Hash()); // A directly observes B source/bulk only.
+	Graph[0].Packages[0].bTransitive = true;
+	const auto Transitive = Hash();
+	Graph[2].Inputs.back().Value[0] = std::byte{6};
+	EXPECT_NE(Transitive, Hash()); // Cycle terminates; C bulk invalidates A.
+	const auto Stable = Hash();
+	std::ranges::reverse(Graph);
+	EXPECT_EQ(Stable, Hash());
+	FCookBuildDependencyGraph Prepared;
+	ASSERT_TRUE(Prepared.Initialize(Graph));
+	Graph.clear();
+	std::vector<FCookBuildDependency> Expanded;
+	ASSERT_TRUE(Prepared.Expand(A, Expanded));
+	FXxHash128 Retained;
+	ASSERT_TRUE(FingerprintCookBuildDependencies(Expanded, Retained));
+	EXPECT_EQ(Retained, Stable);
+	Graph = {{A, {{K::SourcePackage, A.ToString(), {}}}, {{B, true}, {B, false}}}};
+	EXPECT_FALSE(Prepared.Initialize(Graph));
+	EXPECT_FALSE(Prepared.Expand(A, Expanded));
+	Graph.front().Packages.pop_back();
+	EXPECT_FALSE(ExpandCookBuildDependencies(A, Graph, Expanded));
+	Graph.front().Packages.clear();
+	Graph.front().Inputs.push_back(Graph.front().Inputs.front());
+	EXPECT_FALSE(Prepared.Initialize(Graph));
 }

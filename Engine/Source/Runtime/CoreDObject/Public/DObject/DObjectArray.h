@@ -6,6 +6,7 @@
 namespace Durin
 {
 	class DObject;
+	struct FStaticConstructObjectParameters;
 
 	enum class EObjectQueryScope : uint8
 	{
@@ -64,6 +65,7 @@ namespace Durin
 		auto RemoveFromOuterIndex(DObject* Object, const DObject* Outer) -> void;
 
 		friend class DObject;
+		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 	};
 
 	extern COREDOBJECT_API FDObjectArray GDObjectArray;

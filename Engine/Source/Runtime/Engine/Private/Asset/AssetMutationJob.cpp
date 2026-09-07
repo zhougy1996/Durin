@@ -1,3 +1,4 @@
+#include "AssetLiveLoadGuard.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationJobInternal.h"
 
@@ -25,6 +26,7 @@ namespace Durin
 
 	auto FAssetMutationJob::ResumeForward() -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (!State)
 			return Error(EAssetError::StaleData,
 				"The asset mutation job is empty.");

@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "NativeAssetTestSupport.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
@@ -482,7 +483,7 @@ TEST_F(FContentBrowserModelTests, RelocationDoesNotEnterEditorUndoHistory)
 	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
 		.Mappings = {Mapping}}));
 	EXPECT_TRUE(Transactions->GetUndoDescription().empty());
-	EXPECT_EQ(ResolveAssetPath(SourcePath).FinalPath,
+	EXPECT_EQ(ResolveAssetPathForOperation(SourcePath).FinalPath,
 		DestinationPath);
 
 	EXPECT_FALSE(Transactions->Undo());
@@ -1444,7 +1445,7 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	EXPECT_EQ(Result.FocusPhysicalPath,
 		std::filesystem::absolute(Root / "Content/CleanupDestination")
 			.lexically_normal().generic_string());
-	EXPECT_EQ(ResolveAssetPath(SourcePath).FinalPath, DestinationPath);
+	EXPECT_EQ(ResolveAssetPathForOperation(SourcePath).FinalPath, DestinationPath);
 }
 
 TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)

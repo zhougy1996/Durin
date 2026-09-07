@@ -6,8 +6,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto NormalizePath(const std::filesystem::path& InPath) -> std::string
+		auto NormalizePath(const std::filesystem::path& InPath, bool bOwned) -> std::string
 		{
+			if (bOwned) return InPath.lexically_normal().generic_string();
 			std::error_code ErrorCode;
 			const std::filesystem::path CanonicalPath = std::filesystem::weakly_canonical(InPath, ErrorCode);
 			if (!ErrorCode)
@@ -51,7 +52,7 @@ namespace Durin
 		}
 
 		OutDependencyPaths.clear();
-		OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(SourceFilePath)));
+		OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(SourceFilePath), Options.SourceArtifacts != nullptr));
 
 		const SlangInt DependencyCount = Module->getDependencyFileCount();
 		for (SlangInt DependencyIndex = 0; DependencyIndex < DependencyCount; ++DependencyIndex)
@@ -59,7 +60,7 @@ namespace Durin
 			const char* DependencyPath = Module->getDependencyFilePath(DependencyIndex);
 			if (DependencyPath && DependencyPath[0] != '\0')
 			{
-				OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(DependencyPath)));
+				OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(DependencyPath), Options.SourceArtifacts != nullptr));
 			}
 		}
 
@@ -95,14 +96,14 @@ namespace Durin
 			return false;
 		}
 		OutDependencyPaths.clear();
-		const std::string NormalizedSourcePath = NormalizePath(Path);
+		const std::string NormalizedSourcePath = NormalizePath(Path, Options.SourceArtifacts != nullptr);
 		for (SlangInt Index = 0;
 			Index < Module->getDependencyFileCount(); ++Index)
 		{
 			const char* Dependency = Module->getDependencyFilePath(Index);
 			if (Dependency && Dependency[0] != '\0')
 			{
-				std::string NormalizedDependency = NormalizePath(Dependency);
+				std::string NormalizedDependency = NormalizePath(Dependency, Options.SourceArtifacts != nullptr);
 				if (NormalizedDependency != NormalizedSourcePath)
 					OutDependencyPaths.push_back(std::move(NormalizedDependency));
 			}

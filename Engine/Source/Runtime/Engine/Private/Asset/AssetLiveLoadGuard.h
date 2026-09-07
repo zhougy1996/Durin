@@ -14,10 +14,13 @@ namespace Durin::AssetPrivate
 		FAssetLiveLoadGuard(const FAssetLiveLoadGuard&) = delete;
 		auto operator=(const FAssetLiveLoadGuard&) -> FAssetLiveLoadGuard& = delete;
 		static auto Check(std::string_view Operation, std::string_view Path) -> FAssetResult;
-		auto GetFailure() const -> const FAssetResult& { return Failure; }
+		auto GetFailure() const -> FAssetResult;
 
 	private:
 		static thread_local FAssetLiveLoadGuard* Active;
+		static std::atomic_uint64_t ActiveCount;
+		static std::atomic_uint64_t Rejections;
+		uint64 InitialRejections = 0;
 		FAssetLiveLoadGuard* Previous = nullptr;
 		bool bEnabled = false;
 		FAssetResult Failure;

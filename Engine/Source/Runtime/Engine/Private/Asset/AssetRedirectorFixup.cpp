@@ -1,3 +1,5 @@
+#include "AssetLiveLoadGuard.h"
+#include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
@@ -201,6 +203,7 @@ namespace Durin
 		EAssetRedirectorFixupMode Mode,
 		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		OutState.reset();
 		if (!bAcceptingRequests)
@@ -262,7 +265,7 @@ namespace Durin
 			});
 		for (const FPackagePath& Alias : State->Redirectors)
 		{
-			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Alias);
+			const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Alias);
 			if (!Resolution)
 				return Error(EAssetError::CorruptFile, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
@@ -704,6 +707,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::CommitRedirectorFixup(
 		const std::shared_ptr<FAssetRedirectorFixupState>& Fixup) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Fixup)
 			return Error(EAssetError::StaleData,

@@ -8,11 +8,6 @@
 
 namespace Durin
 {
-	class DClass;
-}
-
-namespace Durin
-{
 	enum class EAssetRegistryEntryKind : uint8
 	{
 		Asset = 0,
@@ -156,9 +151,10 @@ namespace Durin
 		ProjectionPending
 	};
 
-	struct FAssetPathResolveOptions
+	// Pure metadata queries use only these owned scalar arguments.
+	struct FAssetPathQueryOptions
 	{
-		const DClass* ExpectedClass = nullptr;
+		uint32 MaximumRedirectDepth = 64;
 	};
 
 	// Owns the complete bounded resolution result from one registry revision.
@@ -244,10 +240,10 @@ namespace Durin
 		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry;
 	ASSETREGISTRY_API auto ResolveAssetPath(
 		const FPackagePath& Path,
-		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
+		const FAssetPathQueryOptions& Options = {}) -> FAssetPathResolveResult;
 	ASSETREGISTRY_API auto ResolveAssetObjectPath(
 		const FObjectPath& Path,
-		const FAssetPathResolveOptions& Options = {}) -> FObjectPathResolveResult;
+		const FAssetPathQueryOptions& Options = {}) -> FObjectPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;

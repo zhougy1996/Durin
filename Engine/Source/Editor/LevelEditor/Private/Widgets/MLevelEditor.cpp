@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Widgets/MLevelEditor.h"
 
 #include "Asset/Asset.h"
@@ -100,7 +101,7 @@ namespace Durin::Editor::Level
 		};
 		Context->OpenAsset = [this](const FPackagePath& Path, std::string& Error) {
 			const FAssetPathResolveResult Resolution =
-				ResolveAssetPath(Path);
+				ResolveAssetPathForOperation(Path);
 			if (Resolution && Resolution.FinalAssetData
 				&& WorkspaceManager.OpenAsset(
 					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;

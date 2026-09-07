@@ -35,7 +35,9 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		std::shared_ptr<const FShaderSourceArtifacts> Artifacts,
+		const std::function<bool()>& IsCancelled) -> bool
 	{
 		OutBytes.clear();
 		std::vector<FShaderRuntimeRequest> Inventory;
@@ -47,6 +49,7 @@ namespace Durin
 		Records.reserve(Inventory.size());
 		for (const FShaderRuntimeRequest& Request : Inventory)
 		{
+			if (IsCancelled && IsCancelled()) { OutError = "Shader library capture cancelled."; return false; }
 			std::vector<const FShaderType*> Types;
 			if (!GetShaderRuntimeRequestBuildTypes(Request, Types, OutError))
 				return false;
@@ -55,6 +58,7 @@ namespace Durin
 				return Fail(OutError, std::format(
 					"Cooked Shader request '{}' has incompatible build types.",
 					Request.Name));
+			Options.SourceArtifacts = Artifacts;
 			FShaderCompilerOutput Output = GetOrCompileShader(
 				Options.VirtualShaderPath, Options);
 			if (!Output)

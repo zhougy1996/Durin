@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #ifdef _WIN32
 #include <shellapi.h>
 #endif
@@ -281,7 +282,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				return;
 			}
 			const FObjectPathResolveResult Resolution =
-				ResolveAssetObjectPath(Path);
+				ResolveAssetObjectPathForOperation(Path);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| !OpenAsset
 				|| !OpenAsset(

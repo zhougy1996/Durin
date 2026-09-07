@@ -3,6 +3,7 @@
 #include "DObject/Package.h"
 
 #include "Asset/AssetCook.h"
+#include "Asset/CookDependencies.h"
 #include "Asset/CookedMeshProducts.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Property.h"
@@ -224,6 +225,13 @@ namespace Durin
 		{
 			OutError = "StaticMesh canonical imported geometry is missing or invalid.";
 			return false;
+		}
+		// Cook serialization builds a detached candidate synchronously from this source.
+		// A private load must not leave an owner in the live compiling manager.
+		if (IsCookInputCaptureActive() && GetPackage() && GetPackage()->IsGraphPrivate())
+		{
+			OutError.clear();
+			return true;
 		}
 		if (CanJoinStaticMeshCompilation(*this, ImportedData)) { OutError.clear(); return true; }
 		return SubmitStaticMeshCompilation(*this, {.Source = ImportedData, .bMarkPackageDirty = false}, OutError);

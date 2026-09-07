@@ -1,13 +1,11 @@
 #include "AssetRegistryStateInternal.h"
 
-#include "DObject/Class.h"
 #include "DObject/SoftObjectPtr.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 MaximumRedirectDepth = 64;
 		constexpr std::string_view RedirectorClassName =
 			"Durin::DAssetRedirector";
 
@@ -15,13 +13,13 @@ namespace Durin
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FObjectPath& Path,
-			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult;
+			const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult;
 
 		auto ResolveAssetPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FPackagePath& Path,
-			const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
+			const FAssetPathQueryOptions& Options) -> FAssetPathResolveResult
 		{
 			FAssetPathResolveResult Result;
 			Result.CatalogRevision = Revision;
@@ -39,9 +37,7 @@ namespace Durin
 			{
 				// Package lookup cannot choose a class or redirect in a multi-asset package.
 				Result.FinalAssetData = Data;
-				Result.State = Options.ExpectedClass
-					? EAssetPathResolveState::RedirectTypeMismatch
-					: EAssetPathResolveState::Resolved;
+				Result.State = EAssetPathResolveState::Resolved;
 				return Result;
 			}
 			FObjectPath ObjectPath;
@@ -81,7 +77,7 @@ namespace Durin
 			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision,
 			const FObjectPath& Path,
-			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
+			const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult
 		{
 			FObjectPathResolveResult Result;
 			Result.CatalogRevision = Revision;
@@ -126,20 +122,6 @@ namespace Durin
 						Result.State = EAssetPathResolveState::CorruptRedirector;
 						return Result;
 					}
-					DClass* TargetClass = FindClassByQualifiedName(FName(Asset.AssetClassName));
-					if (!TargetClass)
-					{
-						Result.FinalPath = Current;
-						Result.State = EAssetPathResolveState::UnknownTargetClass;
-						return Result;
-					}
-					if (Options.ExpectedClass && Current.IsTopLevelAsset()
-						&& !TargetClass->IsChildOf(Options.ExpectedClass))
-					{
-						Result.FinalPath = Current;
-						Result.State = EAssetPathResolveState::RedirectTypeMismatch;
-						return Result;
-					}
 					Result.FinalPath = Current;
 					Result.FinalAssetData = Asset;
 					Result.FinalPackageData = Package;
@@ -158,7 +140,7 @@ namespace Durin
 					Result.State = EAssetPathResolveState::RedirectCycle;
 					return Result;
 				}
-				if (Result.RedirectChain.size() == MaximumRedirectDepth)
+				if (Result.RedirectChain.size() >= Options.MaximumRedirectDepth)
 				{
 					Result.FinalPath = Current;
 					Result.State = EAssetPathResolveState::RedirectDepthExceeded;
@@ -268,17 +250,38 @@ namespace Durin
 
 	auto FAssetRegistrySnapshot::ResolveAssetPath(
 		const FPackagePath& Path,
-		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
+		const FAssetPathQueryOptions& Options) const -> FAssetPathResolveResult
 	{
-		const auto Fences = AssetPrivate::GetAssetRegistryState().CaptureFences();
-		return ResolveAssetPathInCatalog(Catalog.Assets,
-			std::unordered_set<FPackagePath>(Fences.begin(), Fences.end()),
-			Revision, Path, Options);
+		return ResolveAssetPathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
+	}
+
+	auto FAssetRegistrySnapshot::ResolveAssetObjectPath(const FObjectPath& Path,
+		const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult
+	{
+		return ResolveAssetObjectPathInCatalog(Catalog.Assets, {}, Revision, Path, Options);
 	}
 
 	namespace AssetPrivate
 	{
 	FAssetRegistryState::FAssetRegistryState() = default;
+
+	auto FAssetRegistryState::ValidateParticipants(const FAssetCatalogSnapshot& Expected,
+		std::span<const FPackagePath> Participants) const -> FAssetRegistryAdmissionResult
+	{
+		std::shared_lock Lock(Mutex);
+		for (const FPackagePath& Path : Participants)
+		{
+			if (ProjectionFences.contains(Path))
+				return {EAssetRegistryAdmissionState::ProjectionPending, Path};
+			const auto Found = Assets.find(Path);
+			const FAssetData* Before = Expected.FindExact(Path);
+			if (Found == Assets.end() || !Before)
+				return {EAssetRegistryAdmissionState::NotFound, Path};
+			if (Found->second != *Before)
+				return {EAssetRegistryAdmissionState::ParticipantChanged, Path};
+		}
+		return {};
+	}
 
 	auto FAssetRegistryState::FindAssetExact(
 		const FPackagePath& Path) const -> FAssetCatalogEntry
@@ -304,14 +307,14 @@ namespace Durin
 	}
 
 	auto FAssetRegistryState::ResolveAssetPath(const FPackagePath& Path,
-		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
+		const FAssetPathQueryOptions& Options) const -> FAssetPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
 		return ResolveAssetPathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
 	}
 
 	auto FAssetRegistryState::ResolveAssetObjectPath(const FObjectPath& Path,
-		const FAssetPathResolveOptions& Options) const -> FObjectPathResolveResult
+		const FAssetPathQueryOptions& Options) const -> FObjectPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
 		return ResolveAssetObjectPathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
@@ -620,6 +623,12 @@ namespace Durin
 	}
 	}
 
+	auto ValidateAssetRegistryParticipants(const FAssetCatalogSnapshot& Expected,
+		std::span<const FPackagePath> Participants) -> FAssetRegistryAdmissionResult
+	{
+		return AssetPrivate::GetAssetRegistryState().ValidateParticipants(Expected, Participants);
+	}
+
 	auto FindAssetExact(const FPackagePath& Path) -> FAssetCatalogEntry
 	{
 		return AssetPrivate::GetAssetRegistryState().FindAssetExact(Path);
@@ -632,13 +641,13 @@ namespace Durin
 	}
 
 	auto ResolveAssetPath(const FPackagePath& Path,
-		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
+		const FAssetPathQueryOptions& Options) -> FAssetPathResolveResult
 	{
 		return AssetPrivate::GetAssetRegistryState().ResolveAssetPath(Path, Options);
 	}
 
 	auto ResolveAssetObjectPath(const FObjectPath& Path,
-		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
+		const FAssetPathQueryOptions& Options) -> FObjectPathResolveResult
 	{
 		return AssetPrivate::GetAssetRegistryState().ResolveAssetObjectPath(Path, Options);
 	}

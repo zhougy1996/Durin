@@ -31,6 +31,22 @@ namespace Durin
 		std::optional<std::string> Value = std::nullopt;
 	};
 
+	// Owned, lexically normalized source paths used by a sealed compiler session.
+	// A non-null artifact set disables filesystem fallback, including for imports.
+	class FShaderSourceArtifacts
+	{
+	public:
+		explicit FShaderSourceArtifacts(const std::map<std::string, FByteBuffer>& InFiles,
+			std::vector<std::string> InSearchRoots = {})
+			: Files(InFiles), SearchRoots(std::move(InSearchRoots)) {}
+		auto GetFiles() const -> const std::map<std::string, FByteBuffer>& { return Files; }
+		auto GetSearchRoots() const -> const std::vector<std::string>& { return SearchRoots; }
+
+	private:
+		const std::map<std::string, FByteBuffer> Files;
+		const std::vector<std::string> SearchRoots;
+	};
+
 	// Carries source identity, entry points, variants, and cache policy into compilation.
 	struct FShaderCompileOptions
 	{
@@ -42,6 +58,7 @@ namespace Durin
 		std::vector<FShaderMacroDefinition> Macros;
 		// Backend/compiler build identity. The compile service fills this before cache lookup.
 		std::string CompilerEnvironment;
+		std::shared_ptr<const FShaderSourceArtifacts> SourceArtifacts;
 		bool bForceRecompile = false;
 	};
 
@@ -116,6 +133,7 @@ namespace Durin
 		std::vector<EShaderFrequency> Frequencies;
 		std::vector<FShaderMacroDefinition> Macros;
 		std::vector<std::string> AllowedImportVirtualPrefixes;
+		std::shared_ptr<const FShaderSourceArtifacts> SourceArtifacts;
 		bool bForceRecompile = false;
 	};
 

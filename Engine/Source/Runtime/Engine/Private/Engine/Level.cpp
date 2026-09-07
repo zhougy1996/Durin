@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Engine/Level.h"
 
 #include "Actors/CameraActor.h"
@@ -64,7 +65,7 @@ namespace Durin
 			return {EAssetError::InvalidPath,
 				"The default level must be a valid package path."};
 
-		const FAssetPathResolveResult Resolution = ResolveAssetPath(PackagePath);
+		const FAssetPathResolveResult Resolution = ResolveAssetPathForOperation(PackagePath);
 		if (!Resolution)
 			return MakeLevelPackageResolutionError(PackagePath, Resolution.State);
 		if (!Resolution.FinalAssetData)

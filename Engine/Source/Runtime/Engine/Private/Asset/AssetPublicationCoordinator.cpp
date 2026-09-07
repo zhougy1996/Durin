@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetPublicationCoordinatorInternal.h"
 #include "AssetRegistryResultAdapter.h"
@@ -12,6 +13,85 @@
 
 namespace Durin
 {
+	namespace
+	{
+		template<typename TResolution>
+		auto AssetPathResolutionError(const TResolution& Resolution) -> FAssetResult;
+
+		auto ValidateLoadedAssetClass(std::string_view Name, const DClass* Expected,
+			bool bTopLevel) -> EAssetPathResolveState
+		{
+			const DClass* Class = FindClassByQualifiedName(FName(Name));
+			if (!Class) return EAssetPathResolveState::UnknownTargetClass;
+			return Expected && bTopLevel && !Class->IsChildOf(Expected)
+				? EAssetPathResolveState::RedirectTypeMismatch : EAssetPathResolveState::Resolved;
+		}
+
+		auto ValidateAdmission(const FAssetRegistrySnapshot& Snapshot,
+			std::span<const FPackagePath> Paths) -> FAssetResult
+		{
+			const auto Admission = ValidateAssetRegistryParticipants(Snapshot.Catalog, Paths);
+			if (Admission) return {};
+			return {EAssetError::StaleData,
+				std::format("Registry participant admission failed: {}", Admission.FailedParticipant.GetView()),
+				Admission.State == EAssetRegistryAdmissionState::ProjectionPending
+					? EAssetResultDisposition::ContentCommittedProjectionPending : EAssetResultDisposition::Default};
+		}
+	}
+
+	auto ResolveAssetPathForOperation(const FPackagePath& Path,
+		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
+	{
+		auto Result = ResolveAssetPath(Path);
+		if (Result && Result.FinalAssetData)
+		{
+			const auto& Assets = Result.FinalAssetData->TopLevelAssets;
+			if (Assets.size() == 1)
+				Result.State = ValidateLoadedAssetClass(Assets.front().AssetClassName, Options.ExpectedClass, true);
+			else if (Options.ExpectedClass) Result.State = EAssetPathResolveState::RedirectTypeMismatch;
+		}
+		return Result;
+	}
+
+	auto ResolveAssetObjectPathForOperation(const FObjectPath& Path,
+		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
+	{
+		auto Result = ResolveAssetObjectPath(Path);
+		if (Result && Result.FinalAssetData)
+			Result.State = ValidateLoadedAssetClass(Result.FinalAssetData->AssetClassName,
+				Options.ExpectedClass, Result.FinalPath.IsTopLevelAsset());
+		return Result;
+	}
+
+	auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
+		const FAssetPathResolveResult& Resolution, const DClass* ExpectedClass) -> FAssetResult
+	{
+		if (!Resolution) return AssetPathResolutionError(Resolution);
+		std::vector<FPackagePath> Paths = Resolution.RedirectChain;
+		Paths.push_back(Resolution.RequestedPath);
+		Paths.push_back(Resolution.FinalPath);
+		if (auto Admission = ValidateAdmission(Snapshot, Paths); !Admission) return Admission;
+		auto Checked = Resolution;
+		const auto& Assets = Checked.FinalAssetData->TopLevelAssets;
+		if (Assets.size() == 1)
+			Checked.State = ValidateLoadedAssetClass(Assets.front().AssetClassName, ExpectedClass, true);
+		else if (ExpectedClass) Checked.State = EAssetPathResolveState::RedirectTypeMismatch;
+		return Checked ? FAssetResult{} : AssetPathResolutionError(Checked);
+	}
+
+	auto ValidateResolvedAssetForOperation(const FAssetRegistrySnapshot& Snapshot,
+		const FObjectPathResolveResult& Resolution, const DClass* ExpectedClass) -> FAssetResult
+	{
+		if (!Resolution) return AssetPathResolutionError(Resolution);
+		std::vector<FPackagePath> Paths{Resolution.RequestedPath.GetPackagePath(), Resolution.FinalPath.GetPackagePath()};
+		for (const auto& Alias : Resolution.RedirectChain) Paths.push_back(Alias.GetPackagePath());
+		if (auto Admission = ValidateAdmission(Snapshot, Paths); !Admission) return Admission;
+		auto Checked = Resolution;
+		Checked.State = ValidateLoadedAssetClass(Checked.FinalAssetData->AssetClassName,
+			ExpectedClass, Checked.FinalPath.IsTopLevelAsset());
+		return Checked ? FAssetResult{} : AssetPathResolutionError(Checked);
+	}
+
 	using AssetPrivate::FMutationPackageMetadata;
 	using AssetPrivate::ValidateMutationPackageMetadata;
 
@@ -81,8 +161,9 @@ namespace Durin
 			return {};
 		}
 
+		template<typename TResolution>
 		auto AssetPathResolutionError(
-			const FAssetPathResolveResult& Resolution
+			const TResolution& Resolution
 		) -> FAssetResult
 		{
 			switch (Resolution.State)
@@ -187,7 +268,7 @@ namespace Durin
 					return Error(EAssetError::UnknownClass, std::format("CookReachabilityUnknownRootClass: {} expects unavailable class {}.", Requested.Source, Requested.ExpectedClass));
 			}
 			const FAssetPathResolveResult SourceResolution = RegistrySnapshot.ResolveAssetPath(
-				Requested.Path, {.ExpectedClass = ExpectedClass}
+				Requested.Path
 			);
 			if (!SourceResolution)
 			{
@@ -201,6 +282,8 @@ namespace Durin
 				);
 				return ResolutionError;
 			}
+			if (auto Validation = ValidateResolvedAssetForOperation(
+				RegistrySnapshot, SourceResolution, ExpectedClass); !Validation) return Validation;
 			const FPackagePath Source = SourceResolution.FinalPath;
 			if (!Visited.insert(Source).second) continue;
 			const FAssetData* SourceData = Catalog.FindExact(Source);
@@ -223,7 +306,9 @@ namespace Durin
 					);
 					return ResolutionError;
 				}
-				Pending.push_back({Resolution.FinalPath, {}, std::format("hard dependency of {}", Source.ToString())});
+				if (auto Validation = ValidateResolvedAssetForOperation(
+					RegistrySnapshot, Resolution); !Validation) return Validation;
+				Pending.push_back({Dependency, {}, std::format("hard dependency of {}", Source.ToString())});
 			}
 			FAssetPackageInspection Inspection;
 			FAssetResult InspectionResult = InspectAssetPackage(
@@ -246,10 +331,8 @@ namespace Durin
 							"CookReachabilityUnknownReferenceClass: {} expects unavailable class {}.",
 							Reference.DisplayRoute, Reference.ExpectedClass));
 				}
-				const FAssetPathResolveResult Resolution =
-					RegistrySnapshot.ResolveAssetPath(
-						Reference.TargetPath.GetPackagePath(),
-						{.ExpectedClass = ReferenceClass});
+				const FObjectPathResolveResult Resolution =
+					RegistrySnapshot.ResolveAssetObjectPath(Reference.TargetPath);
 				if (!Resolution)
 				{
 					FAssetResult ResolutionError = AssetPathResolutionError(Resolution);
@@ -262,7 +345,9 @@ namespace Durin
 					);
 					return ResolutionError;
 				}
-				Pending.push_back({Resolution.FinalPath, {}, Reference.DisplayRoute});
+				if (auto Validation = ValidateResolvedAssetForOperation(
+					RegistrySnapshot, Resolution, ReferenceClass); !Validation) return Validation;
+				Pending.push_back({Resolution.FinalPath.GetPackagePath(), {}, Reference.DisplayRoute});
 			}
 		}
 		OutPackages.assign(Visited.begin(), Visited.end());

@@ -2,106 +2,60 @@
 
 Summary: Separate owned Registry queries from live admission and make Cook reuse depend on explicit, consistently captured build inputs.
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-08
 
 ## Current Status
 
-Investigation confirmed that `FAssetRegistrySnapshot::ResolveAssetPath` reads
-current global projection fences while retaining the captured catalog revision.
-Fence insertion and removal do not advance that revision. The shared resolver
-also consults the global class registry. The existing redirect-hop fence test
-actually expects the snapshot query to change when a live fence changes.
+All five stages are implemented and validated. Pure Registry queries own their facts;
+Engine admission separately checks live fences and selected participants. Cook
+captures source/bulk bytes, exact references, mount definitions, reflected schema,
+provider/contributor owners, and explicit dependencies before lookup or loading.
+Its private graph and owned lazy resources never fall back to resident packages
+or reopened authored files. Supported live operations and type mutation are
+rejected during capture; selected native code outlives private object destruction.
 
-Cook captures Registry metadata but also inspects live package files, captures
-external reference stores, queries loaded classes, hashes source files, and
-loads resident objects. Its dependency fingerprint currently incorporates
-Registry reference fingerprints, which are metadata projections rather than
-proof of dependency package payload identity. Fixing only the snapshot resolver
-does not establish a consistent Cook input set.
+Cook-state v2 persists bounded, canonical dependency records. Direct package
+inputs include alias/final source and bulk; transitive inputs expand once per
+visited node and terminate cycles. Build-only inputs remain outside runtime
+reachability. External/configuration changes invalidate hits without requiring
+metadata or timestamp changes. Missing declarations disable reuse. Cached output
+buffers are the same buffers checked for integrity and passed to publication.
 
-Stage 0 source inventory is recorded below against `14e7ccedd`. The selected
-capture protocol requires Engine loader, bulk-resource, callback-lifetime, and
-ShaderBuild integration; it cannot be implemented solely in AssetRegistry or
-CookCoordinator. No complete implementation stage has passed its acceptance gate.
-The protocol review checklist below remains an implementation entry gate.
-An initial source change now separates external-root capture from reachability:
-Cook passes one owned capture, and capture rejects reentrant registration
-changes before invoking another provider. This is preparatory work, not a
-replacement for the full input protocol. The affected build passed; 78 of 79
-affected test targets passed, including AssetPackageTests, AssetCookTests,
-AssetReferenceStoreTests, and PackageRegistryContractTests. The remaining
-VulkanRHIIntegrationTests target passed all 68 cases on an exact rerun, without
-source changes. The initial aggregate failure remains recorded. Stage 0 remains open for
-the loader/resource and run-wide provider-lifetime integration design.
+End-to-end tests cover source and external-file replacement after sealing,
+owned lazy bulk after source deletion, direct/transitive cycles through aliases,
+unrelated Registry publication, resident disagreement, discovery/load/contribution/
+prepublication fences, external-root changes, undeclared inputs, cancellation,
+reentrant Cook, foreign-thread loads, mount/type changes, and provider retirement.
+They verify prior-manifest preservation and release of private objects/provider
+invocations before the output store opens. Built-in EnvironmentLighting retains
+its exact captured payload; StaticMesh private PostLoad does not schedule live
+compilation. The separate shader integration target exercises real fixed-source
+compilation and library production.
 
-Bulk capture now has a concrete owned resource entry point:
-`CreateOwnedPackageResource` copies and validates the exact segment that later
-lazy reads consume, without global registration or filesystem access. Regression
-coverage exercises caller-buffer mutation/release, unload/reload, bounded reads,
-retirement, and rejection of mismatched segment and field identities. The Cook
-loader does not yet use this entry point; recursive loading, capture-local
-rollback, and provider retirement remain open Stage 0 integration gates.
-Validation for this resource entry point: the affected build passed and 77/79
-targets passed, including AssetBulkContainerTests, AssetPackageTests, and
-AssetCookTests. VolumetricCloudSceneVulkanTests failed its compile-budget check
-in the aggregate but passed on an exact rerun. VulkanRHIIntegrationTests crashed
-in both the aggregate and exact rerun (Windows access violation, 3221225477);
-the failure remains unresolved. No Vulkan source or test policy was changed.
+Final native evidence for Stages 2 and 3: `./DevTool test affected` rebuilt and
+passed all 71 selected targets, including all 140 package cases, dependency/state
+codec cases, header consumers, shader Cook integration, runtime loading, mutation
+recovery, cancellation, and manifest rollback:
+`Build/.agent-state/logs/20260908-022502-605927-21869-ctest.log`.
+The preceding aggregate failed only after a new mount test incorrectly used the
+one-shot production publisher to restore its fixture. It now uses the scoped
+mount fixture; the final aggregate above includes the correction.
 
-The v9 load context now passes an explicit bulk resource through the linker to
-field decoding. Ordinary loose loading supplies its registration result;
-captured callers can supply an owned resource with no global registration.
-The targeted regression removes the source package and companion, verifies
-missing-resource failure, and loads from owned bytes while the skeleton callback
-releases the caller's handles. Delayed field reads and retained result buffers
-remain valid. Recursive object loading, rollback ownership, and run-wide provider
-lifetime are still separate unresolved gates; this is not a sealed Cook session.
-Validation for explicit resource propagation passed: the targeted owned-bulk
-load regression and all 79 affected native test targets, including ordinary
-package, Cook, cooked mesh, texture Cook, and Vulkan integration coverage.
-Earlier Vulkan failures above remain historical evidence; this pass does not
-identify or fix their cause.
-
-An explicit v9 dependency-load policy now routes both linker package resolution
-and external object-field resolution through retained callbacks, with a required
-invocation-owned rollback callback. Partial policies fail before skeleton
-creation; explicit policy failures do not fall back to live loading or global
-snapshot cleanup. The targeted regression covers resident-target rejection,
-typed package/object failures, unrelated residency surviving rollback, and
-caller-side policy release during skeleton publication. Arbitrary constructor
-and `PostLoad` loads still require capture-session enforcement, and provider
-code lifetimes remain a caller contract. Stage 0 is not complete.
-Validation passed for the policy seam: its targeted regression and all 79
-affected native targets. The run was ordinary correctness coverage; another
-checkout was active, so it supplies no exclusive-lane performance evidence.
-
-The explicit policy can now reject synchronous implicit live loads with
-`bRejectImplicitLiveLoads`. Engine checks package/object and non-null soft-object
-entry points before resident or file access. A rejection is retained by all
-enclosing guards, forcing graph rollback even if a constructor or `PostLoad`
-ignores it. A targeted regression covers all four entry points in both phases
-and successful ordinary loading after scope exit. Direct object lookup, raw
-file I/O, asynchronous work, and provider lifetime still require the complete
-capture protocol; the guard is not an input session and Cook has not enabled it.
-Validation passed for the guard: the targeted constructor/PostLoad regression
-and all 79 affected native targets, including package and Cook coverage.
-
-The four loader/resource preparatory commits were rebased onto `ed2b83b35`
-and consolidated. Conflict resolution retains the prepared-package graph path
-and routes ordinary graph bulk/object reads through its shared bindings, while
-preserving explicit policy error codes and constructor/PostLoad guard checks.
-The affected build and all 80 affected native test targets passed after the
-merge, including the upstream object-replacement coverage. Stage 0 remains open.
-A preliminary source/test draft
-was preserved in the ignored local file
-`Documentation/Local/AssetRegistryCookRefactor.patch`; all eleven draft source
-and test files were restored before this plan was committed. The draft is not
-an implementation baseline and is not required to execute this plan. In
-particular, its before/after digest checks are not an input-isolation protocol.
-Do not apply it wholesale or treat its proposed APIs as accepted contracts.
+The coupled dependency/capture implementation is committed as `dd620ca4d` with
+both Stage 2 and Stage 3 provenance; Stage 1 is `313999be5`, following the Stage 0
+foundation commits. Authoritative catalog/mutation and asset-data lifecycle
+contracts now describe the implemented admission and capture limits, dependency
+responsibilities, native version bumps, and Cook-state migration. Public Engine
+exports compile through the affected native consumers, while Registry headers
+retain metadata-only query signatures. Changed-document and all-plan lifecycle
+validation pass. Per-run source hashes and schema values are reused; files,
+graph/state records, pinned objects, and retained
+input/output payloads are bounded. These limits do not claim total-process RSS
+control over arbitrary native callbacks. No GPU behavior changed; GPU qualification
+and application-hosted execution are not required or claimed.
 
 ## Goal
 
@@ -186,9 +140,11 @@ Concurrent raw object/property access is outside that existing thread contract.
 ### Selected execution protocol
 
 Use **fixed input artifacts with protected object capture**, not a read lease
-over live files. A move-only Engine-owned `FCookInputCapture` progresses through
+over live files. An immovable, scope-owned Engine `FCookInputCapture` progresses through
 `Acquiring`, `Sealed`, `Capturing`, and `Detached`, or terminal `Failed` /
-`Cancelled`. These names are proposed API contracts for the following stages.
+`Cancelled`. Scope ownership keeps callback/TLS addresses stable; no transfer of
+an active capture is needed. This strengthens the originally proposed move-only
+ownership requirement.
 
 1. Validate owner-thread execution and reject nested Cook. Settle pending
    authored compilation before acquiring inputs. Capture project settings,
@@ -310,9 +266,10 @@ loads and bulk reads without publishing or borrowing live objects; verify
 provider retirement can defer owner destruction without waiting reentrantly;
 and verify ShaderBuild can compile the fixed include closure. These require
 source-level integration design, not a claim based on existing byte-view
-parameters. Stage 0 remains open until those three seams are resolved.
+parameters. The private dependency policy, retained owner registrations, and fixed ShaderBuild
+filesystem resolve these seams; their run-wide integration is required in Stage 3.
 
-Concrete follow-up entry points found during this review:
+Implementation entry points identified at the inventory baseline:
 
 - `AssetPackageLinkerLoader.cpp` calls the public `LoadPackage` while resolving
   dependencies and uses global package load snapshots for rollback. A new
@@ -323,8 +280,8 @@ Concrete follow-up entry points found during this review:
 - `FModularFeatureRegistry::InvokeSingle` pins a provider for a visitor and
   retirement reports `SelfWait`. A shader capture should stay inside one such
   visitor rather than retain a raw feature pointer across calls. External-store
-  and Cook contributor registrations currently lack the equivalent owner
-  protocol; their raw-pointer APIs cannot promise deferred destruction without
+  and Cook contributor registrations at that baseline lacked the equivalent owner
+  protocol; their raw-pointer APIs could not promise deferred destruction without
   an owner-facing registration change.
 - `ShaderCompileService.cpp` resolves dependency paths and later calls
   `FSlangShaderCompiler::CompileSource`; `SlangSessionEnvironment.cpp` configures
@@ -341,7 +298,7 @@ Concrete follow-up entry points found during this review:
 - [x] Inventory participating mutation, save, scan, load, external-store, class
   registration, and contributor lifetimes. Establish the actual thread contract
   and lock ordering before adding locks or holding guards across callbacks.
-- [ ] Select and document one implementable Cook input protocol: fixed input
+- [x] Select and document one implementable Cook input protocol: fixed input
   artifacts and protected object capture, or a scoped read session coordinated
   with all participating writers. Define treatment of preloaded dirty/stale
   objects, package companions, external stores, and type/provider retirement.
@@ -352,7 +309,7 @@ Concrete follow-up entry points found during this review:
   consistency using only a final rehash.
 - [x] Define concrete public query/admission result types, build dependency
   kinds, capture context ownership, cancellation, and failure propagation.
-- [ ] Record whether a class/schema input is captured as stable data or pinned
+- [x] Record whether a class/schema input is captured as stable data or pinned
   under a lifetime contract. Fix external root-provider snapshots for the run.
 
 Completion condition: a single reviewed execution protocol covers the interval
@@ -362,18 +319,18 @@ Stages 1-3 depend on this decision; do not ship a partial safety replacement.
 
 ### Stage 1: Separate metadata queries and live admission
 
-- [ ] Implement package and exact object-path resolution using only the owned
+- [x] Implement package and exact object-path resolution using only the owned
   catalog and explicit immutable arguments. Remove implicit loaded-class checks
   and fence reads from snapshot code.
-- [ ] Keep live resolution checks explicit and preserve alias-hop fencing,
+- [x] Keep live resolution checks explicit and preserve alias-hop fencing,
   missing/cyclic/corrupt redirect diagnostics, class compatibility, and object
   descendant behavior. Avoid silently weakening current Load/mutation callers.
-- [ ] Implement participant-scoped validation or admission under the Stage 0
+- [x] Implement participant-scoped validation or admission under the Stage 0
   protocol. Compare the participating facts rather than unrelated revisions.
-- [ ] Migrate snapshot consumers, including Cook reachability, to the split
+- [x] Migrate snapshot consumers, including Cook reachability, to the split
   interfaces. Clearly label operations that inspect files or external stores;
   they are not pure snapshot queries.
-- [ ] Replace the existing fence-sensitive snapshot expectation and test
+- [x] Replace the existing fence-sensitive snapshot expectation and test
   snapshots captured before/during/after fences, later publications, unloaded
   class names, redirect chains, and exact object-path resolution.
 
@@ -382,22 +339,22 @@ unsafe participants; bounded Registry and affected caller tests pass.
 
 ### Stage 2: Introduce explicit package build dependencies
 
-- [ ] Implement dependency declarations and reevaluation before cache lookup,
+- [x] Implement dependency declarations and reevaluation before cache lookup,
   without requiring package loading merely to discover cache validity.
-- [ ] Supply automatic source/owned-bulk identities and deliberate package build
+- [x] Supply automatic source/owned-bulk identities and deliberate package build
   dependency rules. Allow explicit external file, configuration/value, and
   schema/version dependencies with stable logical identities.
-- [ ] Separate direct from transitive dependency semantics, define cycle
+- [x] Separate direct from transitive dependency semantics, define cycle
   termination, and keep build-only inputs out of runtime reachability.
-- [ ] Hash canonical names, kinds, values, and relevant settings with explicit
+- [x] Hash canonical names, kinds, values, and relevant settings with explicit
   framing; exclude process revisions, timestamps, absolute workspace/output
   paths, scheduling, and DDC locations from persistent identity.
-- [ ] Persist canonical per-package dependency records in Cook state, validate
+- [x] Persist canonical per-package dependency records in Cook state, validate
   bounds/corruption/duplicates, and invalidate incompatible prior state safely.
-- [ ] Migrate contributor registration and family integrations. Audit hidden
+- [x] Migrate contributor registration and family integrations. Audit hidden
   inputs and define explicit version bumps for native behavior changes; do not
   present arbitrary callback output as automatically complete dependency data.
-- [ ] Test input changes with unchanged metadata, owned-bulk changes, direct and
+- [x] Test input changes with unchanged metadata, owned-bulk changes, direct and
   transitive dependencies, build-only inputs, cycles, ordering, duplicates,
   external values, and Cook-state round trips and corrupt/truncated data.
 
@@ -407,22 +364,22 @@ inputs invalidate even if catalog revision or file timestamps remain unchanged.
 
 ### Stage 3: Bind Cook discovery and output to captured inputs
 
-- [ ] Integrate Stage 0 input capture with Registry metadata, source/bulk bytes,
+- [x] Integrate Stage 0 input capture with Registry metadata, source/bulk bytes,
   exact reference inspection, loaded object state, and contributor execution.
-- [ ] Include requested aliases and intermediate redirects in protected inputs
+- [x] Include requested aliases and intermediate redirects in protected inputs
   even though they are omitted from the final runtime package list.
-- [ ] Bind fingerprint evaluation and contributed bytes to the same captured
+- [x] Bind fingerprint evaluation and contributed bytes to the same captured
   input generation. Handle dirty/preloaded objects and provider retirement
   explicitly rather than assuming disk hashes describe resident objects.
-- [ ] Validate Cook hits against dependency values and output integrity; apply
+- [x] Validate Cook hits against dependency values and output integrity; apply
   the same input contract to hits, fresh captures, and dry runs.
-- [ ] Preserve cancellation, failure injection, shader auxiliary output, and
+- [x] Preserve cancellation, failure injection, shader auxiliary output, and
   existing manifest-last store behavior. Release input resources once detached
   output no longer needs them; avoid holding unrelated locks through output I/O.
-- [ ] Add coordinator-level tests that change/fence inputs at deterministic
+- [x] Add coordinator-level tests that change/fence inputs at deterministic
   discovery, load, contribution, and prepublication boundaries. Verify either
   consistent captured output or typed failure with the prior manifest intact.
-- [ ] Test unrelated Registry changes, alias changes, external-root changes,
+- [x] Test unrelated Registry changes, alias changes, external-root changes,
   schema/contributor lifetime, resident/disk disagreement, and incremental hits.
 
 Completion condition: end-to-end coordinator tests exercise actual captured
@@ -430,18 +387,18 @@ outputs and cache reuse. Pure-hash unit tests alone cannot satisfy this stage.
 
 ### Stage 4: Validate and document the final contracts
 
-- [ ] Update the authoritative catalog/mutation and asset-data lifecycle
+- [x] Update the authoritative catalog/mutation and asset-data lifecycle
   contracts, including revision scope, pure query limits, admission lifetime,
   dependency declaration responsibilities, and Cook-state migration.
-- [ ] Run affected native validation under the repository test workflow and
+- [x] Run affected native validation under the repository test workflow and
   relevant integration targets. Determine CPU versus GPU requirements from
   actual changed behavior; record any unavailable required acceptance lane.
-- [ ] Verify public header/export coverage, existing runtime loading and
+- [x] Verify public header/export coverage, existing runtime loading and
   mutation recovery, cook-hit repair, cancellation, and manifest rollback.
-- [ ] Review performance of dependency traversal and input capture: reuse
+- [x] Review performance of dependency traversal and input capture: reuse
   per-run immutable inputs, avoid hashing each shared dependency for every
   package, and bound retained bytes and dependency-state size.
-- [ ] Record exact validation evidence, commit each validated stage with this
+- [x] Record exact validation evidence, commit each validated stage with this
   plan's provenance, and mark completion only after all required gates pass.
 
 Completion condition: documented behavior matches the tested implementation;
@@ -483,8 +440,7 @@ Stage 0 external-root foundation validation (2026-09-07):
 
 The source tree was clean before investigation. No native build or test was
 run for the preliminary draft. `test affected --explain` was used only to
-inspect selection; it is not validation evidence. Resume with Stage 0 and
-inspect current code before reusing any draft fragments.
+inspect selection; it is not validation evidence. The completed stages supersede that initial handoff.
 
 ## Related Code
 

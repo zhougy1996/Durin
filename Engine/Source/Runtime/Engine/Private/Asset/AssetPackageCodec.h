@@ -28,6 +28,8 @@ namespace Durin::AssetPrivate
 		// Retained for all external bulk fields; loading never resolves it globally.
 		FPackageResourceHandle BulkResource;
 		std::optional<FAssetPackageDependencyLoadPolicy> DependencyLoadPolicy;
+		// Keep capture objects out of public package/object lookup. Requires a closed load policy.
+		bool bPrivateGraph = false;
 	};
 
 	struct FAssetPackageEncodedClosure

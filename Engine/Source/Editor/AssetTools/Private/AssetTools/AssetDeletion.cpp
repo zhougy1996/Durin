@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "AssetTools/IAssetTools.h"
 #include "AssetDeletionInternal.h"
 #include "AssetOperationResultInternal.h"
@@ -393,7 +394,7 @@ namespace Durin
 		{
 			if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector) continue;
 			const FAssetPathResolveResult Resolution =
-				Durin::ResolveAssetPath(AliasPath);
+				Durin::ResolveAssetPathForOperation(AliasPath);
 			if (!Resolution) continue;
 			RedirectorsByTarget[Resolution.FinalPath].push_back(AliasPath);
 		}
@@ -411,7 +412,7 @@ namespace Durin
 			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 			{
 				const FAssetPathResolveResult Resolution =
-					Durin::ResolveAssetPath(Path);
+					Durin::ResolveAssetPathForOperation(Path);
 				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
 				{
 					const FPackagePath Related = Resolution.FinalPath.IsValid()

@@ -104,6 +104,24 @@ namespace Durin
 					OutError = "Shader dependency manifest requires a virtual root path.";
 					return false;
 				}
+				if (Options.SourceArtifacts)
+				{
+					std::vector<std::string> Paths;
+					if (!DependencyResolver.Resolve(VirtualShaderPath, Options, Paths, OutError))
+						return false;
+					for (const auto& Path : Paths)
+					{
+						const auto Found = Options.SourceArtifacts->GetFiles().find(Path);
+						if (Found == Options.SourceArtifacts->GetFiles().end())
+						{
+							OutDependencies.clear();
+							OutError = "Shader dependency was not captured: " + Path;
+							return false;
+						}
+						OutDependencies.push_back({Path, FXxHash128::HashBuffer(Found->second)});
+					}
+					return true;
+				}
 				FShaderCompileOptions EffectiveOptions = Options;
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
 				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
@@ -162,6 +180,22 @@ namespace Durin
 				{
 					OutError = "Shader source tree fingerprint requires a virtual root path.";
 					return false;
+				}
+				if (Options.SourceArtifacts)
+				{
+					std::vector<FShaderSourceDependencyFingerprint> Dependencies;
+					if (!BuildSourceDependencyManifest(VirtualShaderPath, Options, Dependencies, OutError))
+						return false;
+					FXxHash128Builder Hash;
+					Hash.Update("DurinCapturedShaderSources_v1");
+					for (const auto& Dependency : Dependencies)
+					{
+						Hash.UpdateValue(static_cast<uint64>(Dependency.VirtualPath.size()));
+						Hash.Update(Dependency.VirtualPath);
+						Hash.UpdateValue(Dependency.ContentHash);
+					}
+					OutFingerprint = {std::string(VirtualShaderPath), Hash.Finalize()};
+					return true;
 				}
 				FShaderCompileOptions EffectiveOptions = Options;
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
@@ -227,6 +261,9 @@ namespace Durin
 					Output.ErrorMessage = "Shader compile request entry points and frequencies must be valid, unique, bounded, and have matching counts";
 					return Output;
 				}
+
+				if (Options.SourceArtifacts)
+					return Compiler.Compile(VirtualShaderPath, Options);
 
 				const std::string SourceFilePath = FShaderPaths::SourcePath(VirtualShaderPath);
 				FShaderCompileOptions EffectiveOptions = Options;
@@ -303,6 +340,7 @@ namespace Durin
 				}
 				FShaderCompileOptions Options;
 				Options.Frequencies = Request.Frequencies;
+				Options.SourceArtifacts = Request.SourceArtifacts;
 				Options.Macros = Request.Macros;
 				Options.bForceRecompile = Request.bForceRecompile;
 				Options.VirtualShaderPath = Request.VirtualPath;
@@ -325,6 +363,25 @@ namespace Durin
 				AllowedImportVirtualPrefixes.erase(
 					std::ranges::unique(AllowedImportVirtualPrefixes).begin(),
 					AllowedImportVirtualPrefixes.end());
+				if (Options.SourceArtifacts)
+				{
+					std::vector<std::string> Dependencies;
+					if (!DependencyResolver.ResolveSource(Request.VirtualPath.substr(1),
+						Request.VirtualPath, Request.Source, Options, Dependencies, Output.ErrorMessage))
+						return Output;
+					for (const auto& Path : Dependencies)
+					{
+						if (!Options.SourceArtifacts->GetFiles().contains(Path)
+							|| !std::ranges::any_of(AllowedImportVirtualPrefixes,
+								[&](const std::string& Prefix) { return Path.starts_with(Prefix); }))
+						{
+							Output.ErrorMessage = "Generated shader import is not declared: " + Path;
+							return Output;
+						}
+					}
+					return Compiler.CompileSource(Request.VirtualPath.substr(1),
+						Request.VirtualPath, Request.Source, Options);
+				}
 				const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
 				const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
 				if (Mounts.empty())

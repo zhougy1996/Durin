@@ -1,3 +1,5 @@
+#include "AssetLiveLoadGuard.h"
+#include "Asset/RegistryOperations.h"
 #include "AssetRuntimeStateInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationJobInternal.h"
@@ -145,6 +147,7 @@ namespace Durin
 		std::span<const FAssetRelocationMapping> Mappings,
 		std::shared_ptr<FAssetRelocationState>& OutState) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		OutState.reset();
 		if (!bAcceptingRequests)
@@ -246,7 +249,7 @@ namespace Durin
 						"Asset {} already exists.",
 						Mapping.DestinationPath.ToString()));
 				const FAssetPathResolveResult DestinationResolution =
-					Durin::ResolveAssetPath(Mapping.DestinationPath);
+					Durin::ResolveAssetPathForOperation(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
 					return Error(EAssetError::AlreadyExists, std::format(
@@ -580,6 +583,7 @@ namespace Durin
 	auto FAssetMutationCoordinator::ApplyAssetRelocation(
 		const std::shared_ptr<FAssetRelocationState>& Relocation) -> FAssetResult
 	{
+		if (auto Guard = AssetPrivate::FAssetLiveLoadGuard::Check("mutation", ""); !Guard) return Guard;
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (!Relocation)
 			return Error(EAssetError::StaleData,

@@ -1,3 +1,4 @@
+#include "Asset/RegistryOperations.h"
 #include "Panels/ContentBrowserExtensionPresentation.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/ContentBrowserFilesystem.h"
@@ -582,7 +583,7 @@ namespace Durin::Editor::ContentBrowser::Private
 								FObjectPath ObjectPath;
 								FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
 								const FObjectPathResolveResult Resolution =
-									ResolveAssetObjectPath(ObjectPath);
+									ResolveAssetObjectPathForOperation(ObjectPath);
 								Row("State", ResolveStateLabel(Resolution.State));
 								Row("Final", Resolution.FinalPath.IsValid()
 									? Resolution.FinalPath.ToString()

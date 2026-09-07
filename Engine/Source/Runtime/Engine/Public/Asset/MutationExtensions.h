@@ -95,6 +95,11 @@ namespace Durin
 	// fix-up callbacks before destroying the store or unloading provider code.
 	ENGINE_API auto RegisterAssetReferenceStore(
 		IAssetReferenceStore* Store) -> FAssetReferenceStoreHandle;
+	// Pins the store and its provider code while collecting owned root snapshots.
+	// Mutation/fix-up callbacks retain their existing caller lifetime contract.
+	ENGINE_API auto RegisterAssetReferenceStore(
+		IAssetReferenceStore* Store, std::shared_ptr<void> CaptureOwner)
+		-> FAssetReferenceStoreHandle;
 
 	ENGINE_API auto UnregisterAssetReferenceStore(
 		FAssetReferenceStoreHandle Handle
