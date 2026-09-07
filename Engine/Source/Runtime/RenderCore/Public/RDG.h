@@ -983,6 +983,7 @@ namespace Durin
 	struct FRDGBudget final
 	{
 		uint32 MaxPasses = std::numeric_limits<uint32>::max();
+		// Counts unique declared edges before culling; regression budgets count retained edges.
 		uint32 MaxDependencies = std::numeric_limits<uint32>::max();
 		uint32 MaxBufferTransitions = std::numeric_limits<uint32>::max();
 		uint32 MaxTextureTransitions = std::numeric_limits<uint32>::max();
@@ -992,6 +993,13 @@ namespace Durin
 			std::numeric_limits<uint32>::max();
 		uint32 RegressionMaxTextureTransitions =
 			std::numeric_limits<uint32>::max();
+		// Bound scratch allocation and range work before culling, including exports.
+		uint32 MaxResources = 65'536;
+		uint32 MaxUses = 1'048'576;
+		uint32 MaxRangeCells = 262'144;
+		// Candidates include swept gaps; visits include sweep intervals, hazards and transitions.
+		uint32 MaxRangeCellCandidates = 1'048'576;
+		uint32 MaxCellVisits = 16'777'216;
 		uint64 MaxCompileMicroseconds = std::numeric_limits<uint64>::max();
 		uint64 MaxExecuteMicroseconds = std::numeric_limits<uint64>::max();
 	};
@@ -1293,7 +1301,8 @@ namespace Durin
 		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
 		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
 		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
-		// Owning pointer-free evidence survives builder destruction and preparation failure.
+		// Detailed evidence is materialized on first inspection and cached outside the execution plan.
+		// Owning pointer-free snapshots survive builder destruction and preparation failure.
 		RENDERCORE_API auto Capture() const -> FRDGCapture;
 		RENDERCORE_API auto Dump() const -> std::string;
 
@@ -1302,11 +1311,14 @@ namespace Durin
 		friend class FRDGPassResources;
 		RENDERCORE_API auto RequireBuilding() const -> void;
 		auto Compile() -> std::string;
+		auto EnsureDiagnostics() const -> void;
 		RENDERCORE_API auto CompileForTesting() -> std::string;
 		auto Record(FRHICommandListImmediate& CommandList,
 			FRDGExecutionContext* Context, std::string* OutError) -> bool;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
+		struct FDiagnostics;
+		mutable std::unique_ptr<FDiagnostics> Diagnostics;
 
 		RENDERCORE_API auto BeginStorageConstruction() -> void;
 		RENDERCORE_API auto EndStorageConstruction() -> void;

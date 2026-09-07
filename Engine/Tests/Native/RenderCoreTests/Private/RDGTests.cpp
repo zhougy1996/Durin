@@ -19,6 +19,8 @@ namespace Durin
 			std::string Error;
 			auto IsSuccess() const -> bool { return Error.empty(); }
 		};
+		static auto HasDiagnostics(const FRDGBuilder& Builder) -> bool
+		{ return Builder.Diagnostics != nullptr; }
 		static auto Compile(FRDGBuilder& Builder) -> FEvidence
 		{ return {Builder.CompileForTesting()}; }
 	};
@@ -3180,6 +3182,148 @@ namespace Durin
 			"render graph safety limit exceeded: passes actual=2 limit=1");
 	}
 
+	TEST_F(FRDGTests, BoundsRangeExpansionAndVisitsBeforeDependencyCompilation)
+	{
+		auto Compile = [](FRDGBudget Budget) {
+			FRDGBuilder Builder;
+			Builder.SetBudget(Budget);
+			auto Desc = DescribeGraphTexture(*MakeGraphTexture("Sparse", 4));
+			Desc.Texture.ArraySize = 4;
+			const auto Texture = Builder.CreateTexture(Desc, "Sparse");
+			// Four diagonal cells must not enumerate the twelve uncovered combinations.
+			for (uint32 Index = 0; Index < 4; ++Index)
+			{
+				const auto Pass = Builder.AddPass("Write" + std::to_string(Index), ERDGPassType::Compute);
+				Builder.UseTexture(Pass, Texture, {ERHITextureAspect::Color, Index, 1, Index, 1},
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			return FRDGBuilderTestAccessor::Compile(Builder).Error;
+		};
+		EXPECT_EQ(Compile({.MaxResources = 0}),
+			"render graph safety limit exceeded: resources actual=1 limit=0");
+		EXPECT_EQ(Compile({.MaxUses = 3}),
+			"render graph safety limit exceeded: uses actual=4 limit=3");
+		EXPECT_EQ(Compile({.MaxRangeCells = 3}),
+			"render graph safety limit exceeded: range-cells actual=4 limit=3");
+		EXPECT_EQ(Compile({.MaxRangeCellCandidates = 3}),
+			"render graph safety limit exceeded: range-cell-candidates actual=4 limit=3");
+		EXPECT_EQ(Compile({.MaxCellVisits = 0}),
+			"render graph safety limit exceeded: cell-visits actual=1 limit=0");
+		EXPECT_TRUE(Compile({.MaxRangeCells = 4, .MaxRangeCellCandidates = 4}).empty());
+	}
+
+	TEST_F(FRDGTests, ResourceCellIndexBoundsMultiResourceInterleavedWork)
+	{
+		FRDGBuilder Builder;
+		// Range comparisons scale with each resource's cells, not all 64 resources.
+		Builder.SetBudget({.MaxRangeCells = 64 * 16, .MaxCellVisits = 64 * 296});
+		auto Desc = DescribeGraphTexture(*MakeGraphTexture("Grid", 4));
+		Desc.Texture.ArraySize = 4;
+		for (uint32 Resource = 0; Resource < 64; ++Resource)
+		{
+			const auto Name = std::to_string(Resource);
+			const auto Texture = Builder.CreateTexture(Desc, "Grid" + Name);
+			for (uint32 Mip = 0; Mip < 4; ++Mip)
+			{
+				const auto Pass = Builder.AddPass("Mip" + Name + "." + std::to_string(Mip), ERDGPassType::Compute);
+				Builder.UseTexture(Pass, Texture, {ERHITextureAspect::Color, Mip, 1, 0, 4},
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			const auto Read = Builder.AddPass("Read" + Name, ERDGPassType::Compute);
+			for (uint32 Layer = 0; Layer < 4; ++Layer)
+				Builder.UseTexture(Read, Texture, {ERHITextureAspect::Color, 0, 4, Layer, 1},
+					ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		}
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Builder.Capture();
+		EXPECT_EQ(Capture.Dependencies.size(), 64u * 4);
+		EXPECT_EQ(Capture.Uses.size(), 64u * 32);
+		EXPECT_EQ(Capture.Transitions.size(), 64u * 32);
+		for (const auto& Use : Capture.Uses)
+		{
+			EXPECT_EQ(Use.TextureRange.NumMips, 1u);
+			EXPECT_EQ(Use.TextureRange.NumArrayLayers, 1u);
+			EXPECT_EQ(Use.Version, 1u);
+		}
+	}
+
+	TEST_F(FRDGTests, RejectsDependenciesBeforeCullingAndTransitionsBeforeLaterUses)
+	{
+		{
+			FRDGBuilder Builder;
+			Builder.SetBudget({.MaxDependencies = 0});
+			Builder.EnablePassCulling();
+			const auto Token = Builder.CreateToken("Token");
+			const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+			const auto Read = Builder.AddPass("Read", ERDGPassType::Compute);
+			Builder.UseToken(Write, Token, ERDGUse::Write);
+			Builder.UseToken(Read, Token, ERDGUse::Read);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				"render graph safety limit exceeded: dependencies actual=1 limit=0");
+		}
+		for (bool bTexture : {false, true})
+		{
+			FRDGBuilder Builder;
+			Builder.SetBudget({.MaxBufferTransitions = 0, .MaxTextureTransitions = 0,
+				.MaxCellVisits = 4});
+			const auto First = Builder.AddPass("First", ERDGPassType::Compute);
+			const auto Second = Builder.AddPass("Second", ERDGPassType::Compute);
+			if (bTexture)
+			{
+				const auto Texture = CreateTestTexture(Builder, "Texture", MakeGraphTexture("Texture"));
+				for (const auto Pass : {First, Second})
+					Builder.UseTexture(Pass, Texture, WholeColor(), ERDGUse::Write,
+						ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			else
+			{
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferCreateDesc::Create(
+					"Buffer", 64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+				for (const auto Pass : {First, Second})
+					Builder.UseBuffer(Pass, Buffer, 0, 64, ERDGUse::Write,
+						ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			// One coverage visit and two hazard visits precede the first transition.
+			// Permit that transition visit, but no later use visit.
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				std::string("render graph safety limit exceeded: ")
+					+ (bTexture ? "texture" : "buffer") + "-transitions actual=1 limit=0");
+		}
+	}
+
+	TEST_F(FRDGTests, CountsExportUsesAndDeduplicatesDependenciesAtTheLimit)
+	{
+		for (const auto Budget : {FRDGBudget{.MaxPasses = 1}, FRDGBudget{.MaxUses = 1}})
+		{
+			FRDGBuilder Builder;
+			Builder.SetBudget(Budget);
+			const auto Texture = CreateTestTexture(Builder, "Export", MakeGraphTexture("Export"));
+			const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+			Builder.UseTexture(Write, Texture, WholeColor(), ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			FTextureRHIRef Destination;
+			Builder.QueueTextureExtraction(Texture, &Destination, ERHIAccess::ComputeShaderRead);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				std::string("render graph safety limit exceeded: ")
+					+ (Budget.MaxPasses == 1 ? "passes" : "uses") + " actual=2 limit=1");
+		}
+		FRDGBuilder Builder;
+		Builder.SetBudget({.MaxDependencies = 1});
+		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+		const auto Read = Builder.AddPass("Read", ERDGPassType::Compute);
+		Builder.AddDependency(Read, Write);
+		for (uint32 Index = 0; Index < 8; ++Index)
+		{
+			const auto Token = Builder.CreateToken("Token" + std::to_string(Index));
+			Builder.UseToken(Write, Token, ERDGUse::Write);
+			Builder.UseToken(Read, Token, ERDGUse::Read);
+		}
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_EQ(Builder.GetDependencies().size(), 1u);
+	}
+
 	TEST_F(FRDGTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
 	{
 		FRDGBuilder Builder;
@@ -3195,6 +3339,219 @@ namespace Durin
 		EXPECT_TRUE(Statistics.bPassRegressionBudgetExceeded);
 		EXPECT_TRUE(Statistics.IsStructuralRegressionBudgetExceeded());
 		EXPECT_EQ(Builder.Capture().Budget.RegressionMaxPasses, 1u);
+	}
+
+	TEST_F(FRDGTests, DetailedDiagnosticsAreLazyAndAllocationRefreshesExistingCapture)
+	{
+		for (bool bInspectDuringAllocation : {false, true})
+		{
+			FRDGBuilder Builder;
+			const auto Texture = CreateTestTexture(Builder, "Lazy", MakeGraphTexture("Lazy"));
+			const auto Pass = Builder.AddPass("Write", ERDGPassType::Compute);
+			Builder.UseTexture(Pass, Texture, WholeColor(), ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			FTestRDGAllocator Allocator;
+			FRDGCapture Before;
+			Allocator.OnAllocate = [&] {
+				EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+				EXPECT_EQ(Builder.GetStatistics().DeclaredPasses, 1u);
+				EXPECT_EQ(Builder.GetResourceLifetimes().size(), 1u);
+				EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+				if (bInspectDuringAllocation) Before = Builder.Capture();
+			};
+			FRDGExecutionContext Context{Allocator};
+			const auto Execution = Builder.Execute(GetCommandList(), &Context);
+			ASSERT_TRUE(Execution.IsSuccess()) << Execution.Error;
+			EXPECT_EQ(FRDGBuilderTestAccessor::HasDiagnostics(Builder), bInspectDuringAllocation);
+			const auto Capture = Builder.Capture();
+			ASSERT_EQ(Capture.Resources.size(), 1u);
+			EXPECT_EQ(Capture.Resources[0].AllocationDisposition, "allocated");
+			EXPECT_NE(Capture.Resources[0].PhysicalAllocationId, 0u);
+			EXPECT_EQ(Capture.Dump, Builder.Dump());
+			EXPECT_EQ(Capture.Dump, Builder.Capture().Dump);
+			if (bInspectDuringAllocation)
+			{
+				ASSERT_EQ(Before.Resources.size(), 1u);
+				EXPECT_EQ(Before.Resources[0].AllocationDisposition, "pending");
+				EXPECT_EQ(Before.Resources[0].PhysicalAllocationId, 0u);
+			}
+		}
+	}
+
+	TEST_F(FRDGTests, LazyParameterCaptureUsesFrozenDeclarationsAndOwnsItsData)
+	{
+		FRDGCapture Capture;
+		{
+			FRDGBuilder Builder;
+			// Inspecting an uncompiled graph must not leave an empty cache after compilation.
+			EXPECT_FALSE(Builder.Capture().bCompiled);
+			const auto Texture = Builder.RegisterExternalTexture(MakeGraphTexture("Frozen", 2),
+				"Frozen", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			auto Parameters = Builder.AllocParameters<FComposedTextureArrayParameters>();
+			Parameters->Textures[1] = FRDGTextureParameter{Texture, {ERHITextureAspect::Color, 1, 1, 0, 1}};
+			auto* Payload = &Parameters.Get();
+			Builder.AddPass("Read", ERDGPassType::Graphics, std::move(Parameters));
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+			// Mutating the payload after submission cannot change the declared capabilities.
+			Payload->Textures[0] = Payload->Textures[1];
+			Payload->Textures[1].reset();
+			Capture = Builder.Capture();
+			EXPECT_TRUE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+			EXPECT_EQ(Capture.Dump, Builder.Dump());
+		}
+		ASSERT_EQ(Capture.Parameters.size(), 2u);
+		EXPECT_FALSE(Capture.Parameters[0].bPresent);
+		EXPECT_EQ(Capture.Parameters[0].ResourceId, std::numeric_limits<uint32>::max());
+		EXPECT_TRUE(Capture.Parameters[1].bPresent);
+		EXPECT_EQ(Capture.Parameters[1].TextureRange.FirstMip, 1u);
+		EXPECT_EQ(Capture.Parameters[1].FieldPath, "FComposedTextureArrayParameters.Textures[1]");
+		ASSERT_EQ(Capture.Uses.size(), 1u);
+		EXPECT_EQ(Capture.Uses[0].TextureRange.FirstMip, 1u);
+	}
+
+	TEST_F(FRDGTests, SweptTextureRangesMatchCartesianReferencePartition)
+	{
+		const std::array<FRHITextureSubresourceRange, 6> Ranges{{
+			{ERHITextureAspect::Color, 0, 2, 0, 2},
+			{ERHITextureAspect::Color, 3, 3, 3, 3},
+			{ERHITextureAspect::Color, 1, 3, 1, 3},
+			{ERHITextureAspect::Color, 0, 1, 5, 1},
+			{ERHITextureAspect::Color, 3, 1, 0, 6},
+			{ERHITextureAspect::Color, 0, 6, 2, 1}}};
+		FRDGBuilder Builder;
+		auto Desc = DescribeGraphTexture(*MakeGraphTexture("Sweep", 6));
+		Desc.Texture.ArraySize = 6;
+		const auto Texture = Builder.CreateTexture(Desc, "Sweep");
+		std::vector<uint32> Mips;
+		std::vector<uint32> Layers;
+		for (uint32 Index = 0; Index < Ranges.size(); ++Index)
+		{
+			const auto& Range = Ranges[Index];
+			const auto Pass = Builder.AddPass("Write" + std::to_string(Index), ERDGPassType::Compute);
+			Builder.UseTexture(Pass, Texture, Range, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			Mips.insert(Mips.end(), {Range.FirstMip, Range.FirstMip + Range.NumMips});
+			Layers.insert(Layers.end(), {Range.FirstArrayLayer, Range.FirstArrayLayer + Range.NumArrayLayers});
+		}
+		std::ranges::sort(Mips);
+		std::ranges::sort(Layers);
+		Mips.erase(std::unique(Mips.begin(), Mips.end()), Mips.end());
+		Layers.erase(std::unique(Layers.begin(), Layers.end()), Layers.end());
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Builder.Capture();
+		std::array<std::array<uint32, 6>, 6> Versions{};
+		size_t ExpectedIndex = 0;
+		// Deliberately use a small brute-force Cartesian oracle, independent of the sweep.
+		for (uint32 PassIndex = 0; PassIndex < Ranges.size(); ++PassIndex)
+			for (size_t Mip = 1; Mip < Mips.size(); ++Mip)
+				for (size_t Layer = 1; Layer < Layers.size(); ++Layer)
+				{
+					const auto& Range = Ranges[PassIndex];
+					if (Mips[Mip - 1] < Range.FirstMip || Mips[Mip] > Range.FirstMip + Range.NumMips
+						|| Layers[Layer - 1] < Range.FirstArrayLayer
+						|| Layers[Layer] > Range.FirstArrayLayer + Range.NumArrayLayers) continue;
+					ASSERT_LT(ExpectedIndex, Capture.Uses.size());
+					ASSERT_LT(ExpectedIndex, Capture.Transitions.size());
+					const auto& Use = Capture.Uses[ExpectedIndex];
+					const auto& Transition = Capture.Transitions[ExpectedIndex++];
+					auto& Version = Versions[Mips[Mip - 1]][Layers[Layer - 1]];
+					EXPECT_EQ(Transition.Before, Version == 0 ? ERHIAccess::Discard : ERHIAccess::ComputeShaderReadWrite);
+					EXPECT_EQ(Transition.After, ERHIAccess::ComputeShaderReadWrite);
+					EXPECT_EQ(Transition.PassIndex, PassIndex);
+					EXPECT_TRUE(Transition.bDiscardContents);
+					EXPECT_EQ(Use.PassDeclarationIndex, PassIndex);
+					EXPECT_EQ(Use.Version, ++Version);
+					for (const auto& Actual : {Use.TextureRange, Transition.TextureRange})
+					{
+						EXPECT_EQ(Actual.FirstMip, Mips[Mip - 1]);
+						EXPECT_EQ(Actual.NumMips, Mips[Mip] - Mips[Mip - 1]);
+						EXPECT_EQ(Actual.FirstArrayLayer, Layers[Layer - 1]);
+						EXPECT_EQ(Actual.NumArrayLayers, Layers[Layer] - Layers[Layer - 1]);
+					}
+				}
+		EXPECT_EQ(Capture.Uses.size(), ExpectedIndex);
+		EXPECT_EQ(Capture.Transitions.size(), ExpectedIndex);
+	}
+
+	TEST_F(FRDGTests, SweptBufferRangesPreserveGapsAndPartialWriteVersions)
+	{
+		FRDGBuilder Builder;
+		Builder.CreateToken("UnusedBefore");
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+		Builder.CreateToken("UnusedAfter");
+		const std::array<std::pair<uint64, uint64>, 3> Ranges{{{0, 16}, {32, 16}, {8, 32}}};
+		for (uint32 Index = 0; Index < Ranges.size(); ++Index)
+		{
+			const auto Pass = Builder.AddPass("Write" + std::to_string(Index), ERDGPassType::Compute);
+			Builder.UseBuffer(Pass, Buffer, Ranges[Index].first, Ranges[Index].second,
+				ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		}
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Builder.Capture();
+		const std::array<uint64, 7> Offsets{0, 8, 32, 40, 8, 16, 32};
+		const std::array<uint64, 7> Sizes{8, 8, 8, 8, 8, 16, 8};
+		const std::array<uint32, 7> Versions{1, 1, 1, 1, 2, 1, 2};
+		ASSERT_EQ(Capture.Uses.size(), Offsets.size());
+		ASSERT_EQ(Capture.Transitions.size(), Offsets.size());
+		for (size_t Index = 0; Index < Offsets.size(); ++Index)
+		{
+			EXPECT_EQ(Capture.Uses[Index].ResourceId, 1u);
+			EXPECT_EQ(Capture.Uses[Index].BufferOffset, Offsets[Index]);
+			EXPECT_EQ(Capture.Uses[Index].BufferSize, Sizes[Index]);
+			EXPECT_EQ(Capture.Uses[Index].Version, Versions[Index]);
+			EXPECT_EQ(Capture.Transitions[Index].BufferOffset, Offsets[Index]);
+			EXPECT_EQ(Capture.Transitions[Index].BufferSize, Sizes[Index]);
+		}
+	}
+
+	TEST_F(FRDGTests, IndexedNameValidationPreservesDuplicateErrors)
+	{
+		FRDGBuilder Resources;
+		Resources.CreateToken("Duplicate");
+		Resources.CreateToken("Between");
+		Resources.CreateToken("Duplicate");
+		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Resources).Error,
+			"duplicate resource name 'Duplicate'");
+		FRDGBuilder Passes;
+		Passes.AddPass("Duplicate", ERDGPassType::Compute);
+		Passes.AddPass("Between", ERDGPassType::Compute);
+		Passes.AddPass("Duplicate", ERDGPassType::Compute);
+		EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Passes).Error,
+			"duplicate pass name 'Duplicate'");
+	}
+
+	TEST_F(FRDGTests, ReaderFanoutRetainsEveryExecutionDependency)
+	{
+		FRDGBuilder Builder;
+		const auto Token = Builder.CreateToken("Fanout");
+		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+		Builder.UseToken(Write, Token, ERDGUse::Write);
+		for (uint32 Index = 0; Index < 128; ++Index)
+		{
+			const auto Read = Builder.AddPass("Read" + std::to_string(Index), ERDGPassType::Compute);
+			Builder.UseToken(Read, Token, ERDGUse::Read);
+		}
+		const auto Overwrite = Builder.AddPass("Overwrite", ERDGPassType::Compute);
+		Builder.UseToken(Overwrite, Token, ERDGUse::Write);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_FALSE(FRDGBuilderTestAccessor::HasDiagnostics(Builder));
+		const auto Dependencies = Builder.GetDependencies();
+		EXPECT_EQ(Dependencies.size(), 256u);
+		for (uint32 Index = 1; Index <= 128; ++Index)
+		{
+			EXPECT_TRUE(std::ranges::any_of(Dependencies, [&](const auto& Edge) {
+				return Edge.BeforePass == 0 && Edge.AfterPass == Index && Edge.Kind == ERDGDependencyKind::Value;
+			}));
+			EXPECT_TRUE(std::ranges::any_of(Dependencies, [&](const auto& Edge) {
+				return Edge.BeforePass == Index && Edge.AfterPass == 129 && Edge.Kind == ERDGDependencyKind::Execution;
+			}));
+		}
 	}
 
 	TEST_F(FRDGTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)
