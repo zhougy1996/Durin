@@ -132,6 +132,24 @@ namespace Durin
 		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade
 	) -> void;
 
+	// Records only packages admitted by explicit top-level synchronous LoadPackage calls, including
+	// their dependencies. Release is explicit and retryable; destruction transfers residency
+	// to the caller. Weak identities never claim a replacement loaded at the same path.
+	class FAssetPackageLoadScope
+	{
+	public:
+		FAssetPackageLoadScope() = default;
+		FAssetPackageLoadScope(const FAssetPackageLoadScope&) = delete;
+		auto operator=(const FAssetPackageLoadScope&) -> FAssetPackageLoadScope& = delete;
+		ENGINE_API auto LoadPackage(const FPackagePath& Path, DPackage*& OutPackage,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		// Rejects unsaved state and restores residency for live references, returning InUse.
+		ENGINE_API auto Release() -> FAssetResult;
+
+	private:
+		std::vector<TWeakObjectPtr<DPackage>> Packages;
+	};
+
 	struct FAssetPackageLoadSnapshot
 	{
 		std::vector<FPackagePath> ResidentPackages;
@@ -257,7 +275,9 @@ namespace Durin
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved
 	)
 		-> FAssetResult;
+	// Legacy global selection; prefer FAssetPackageLoadScope for operation-owned cleanup.
 	ENGINE_API auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot;
+	// Uses ordinary GC reference protection; partial release returns InUse for live survivors.
 	ENGINE_API auto ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot
 	) -> FAssetResult;

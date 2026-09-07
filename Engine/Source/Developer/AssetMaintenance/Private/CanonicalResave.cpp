@@ -311,7 +311,7 @@ namespace Durin
 					&& static_cast<bool>(RegistryRestored);
 			};
 
-			const FAssetPackageLoadSnapshot Snapshot = CapturePackageLoadSnapshot();
+			FAssetPackageLoadScope LoadScope;
 			DPackage* Package = FindResidentPackage(PackagePlan.PackagePath);
 			const bool bWasLoaded = Package != nullptr;
 			FAssetLoadReport LoadReport;
@@ -324,11 +324,11 @@ namespace Durin
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				FAssetResult Load = LoadPackage(
+				FAssetResult Load = LoadScope.LoadPackage(
 					PackagePlan.PackagePath, Package, &LoadReport);
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
-					(void)ReleasePackagesLoadedSince(Snapshot);
+					(void)LoadScope.Release();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = std::format("CanonicalResaveLoadRejected: {}",
@@ -347,7 +347,7 @@ namespace Durin
 				}
 				if (!Prepared)
 				{
-					if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+					if (!bWasLoaded) (void)LoadScope.Release();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					PackagePlan.Diagnostics.push_back(std::format(
 						"CanonicalResavePrepareRejected: {}", Prepared.Message));
@@ -360,7 +360,7 @@ namespace Durin
 			}
 			if (Package->IsDirty())
 			{
-				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+				if (!bWasLoaded) (void)LoadScope.Release();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Blocked;
 				PackagePlan.Diagnostics.push_back("DirtyConflict: package became dirty after planning.");
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Blocked;
@@ -369,7 +369,7 @@ namespace Durin
 			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::SerializePackage, Index))
 			{
-				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+				if (!bWasLoaded) (void)LoadScope.Release();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
 					: EAssetCanonicalResaveApplyStatus::Failed;
@@ -392,7 +392,7 @@ namespace Durin
 			FAssetResult Save = SavePackagesAtomically(Unit, SaveOptions);
 			if (!Save)
 			{
-				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+				if (!bWasLoaded) (void)LoadScope.Release();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(Save.Message);
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
@@ -427,7 +427,7 @@ namespace Durin
 				PackagePlan.Diagnostics.push_back(bRestored
 					? "CanonicalResaveVerificationFailed: prior package closure and registry were restored."
 					: "CanonicalResaveRecoveryRequired: verification failed and the prior package closure or registry could not be restored.");
-				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+				if (!bWasLoaded) (void)LoadScope.Release();
 				Result.Status = bRestored
 					? (Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed)
 					: EAssetCanonicalResaveApplyStatus::RecoveryRequired;
@@ -438,7 +438,7 @@ namespace Durin
 			{
 				const bool bRestored = RestorePriorClosure();
 				Package->SetCanonicalResaveRecommended(true);
-				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
+				if (!bWasLoaded) (void)LoadScope.Release();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(bRestored
 					? "CanonicalResaveRegistryReconciliationFailed: prior package closure and registry were restored."
@@ -452,7 +452,7 @@ namespace Durin
 			Package->SetCanonicalResaveRecommended(false);
 			if (!bWasLoaded)
 			{
-				FAssetResult Release = ReleasePackagesLoadedSince(Snapshot);
+				FAssetResult Release = LoadScope.Release();
 				if (!Release)
 				{
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;

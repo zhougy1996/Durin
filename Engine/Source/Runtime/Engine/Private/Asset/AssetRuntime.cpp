@@ -48,6 +48,7 @@ namespace Durin
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
 		thread_local uint64 GActivePackageFileReadCount = 0;
+		thread_local std::vector<TWeakObjectPtr<DPackage>>* GOwnedLoadPackages = nullptr;
 
 		auto CheckSoftObjectThread() -> void
 		{
@@ -143,6 +144,31 @@ namespace Durin
 			}
 			return Packages;
 		}
+	}
+
+	auto FAssetPackageLoadScope::LoadPackage(const FPackagePath& Path,
+		DPackage*& OutPackage, FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		CheckSoftObjectThread();
+		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
+		{
+			OutPackage = nullptr;
+			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+		}
+		struct FRestoreLoadOwner
+		{
+			std::vector<TWeakObjectPtr<DPackage>>* Previous;
+			~FRestoreLoadOwner() { GOwnedLoadPackages = Previous; }
+		} Restore{std::exchange(GOwnedLoadPackages, &Packages)};
+		return Durin::LoadPackage(Path, OutPackage, OutReport);
+	}
+
+	auto FAssetPackageLoadScope::Release() -> FAssetResult
+	{
+		CheckSoftObjectThread();
+		const FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().ReleasePackages(Packages);
+		std::erase_if(Packages, [](const auto& Package) { return !Package.IsValid(); });
+		return Result;
 	}
 
 	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
@@ -339,6 +365,10 @@ namespace Durin
 				if (bDiscardedPackage) CollectGarbage();
 				if (OutReport) *OutReport = std::move(FailureReport);
 			}
+			if (Result && GOwnedLoadPackages)
+				for (const FPackagePath& LoadedPath : TransactionPackages)
+					if (DPackage* Loaded = FindResidentPackage(LoadedPath))
+						GOwnedLoadPackages->emplace_back(Loaded);
 			TransactionPackages.clear();
 		}
 		OutPackage = Result ? Package : nullptr;
@@ -567,26 +597,77 @@ namespace Durin
 			}
 		}
 
-		std::vector<DPackage*> ReleasedPackages;
-		std::vector<FPackagePath> ReleasedPaths;
+		std::vector<TWeakObjectPtr<DPackage>> Packages;
 		for (DPackage* Package : GetResidentAssetPackages())
 		{
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)
-				|| Protected.contains(Path)
-				|| Package->IsNewlyCreated()
-				|| Package->IsDirty()) continue;
-			ReleasedPackages.push_back(Package);
-			ReleasedPaths.push_back(std::move(Path));
+			if (!Protected.contains(Package->GetPackagePathIdentity())
+				&& !Package->IsNewlyCreated() && !Package->IsDirty())
+				Packages.emplace_back(Package);
 		}
-		for (const FPackagePath& Path : ReleasedPaths)
-			GetPackageResourceManager().RetirePackage(Path.ToString());
-		for (DPackage* Package : ReleasedPackages)
+		return ReleasePackages(Packages);
+	}
+
+	auto FAssetLoadService::ReleasePackages(
+		std::span<const TWeakObjectPtr<DPackage>> Packages) -> FAssetResult
+	{
+		if (LoadDepth != 0 || !LoadingPackages.empty())
+			return Error(EAssetError::InUse, "A package load is still in progress.");
+		std::unordered_set<FPackagePath> Candidates;
+		bool bInUse = false;
+		for (const auto& Handle : Packages)
 		{
-			MarkObjectHierarchyAsGarbage(Package);
+			DPackage* Package = Handle.Get();
+			if (!Package) continue;
+			if (Package->IsNewlyCreated() || Package->IsDirty())
+			{
+				bInUse = true;
+				continue;
+			}
+			Candidates.insert(Package->GetPackagePathIdentity());
 		}
-		if (!ReleasedPackages.empty()) CollectGarbage();
-		return {};
+		// Keep the disk dependency closure of every package outside the release set,
+		// including dirty/new packages. Internal cycles can be collected as one batch.
+		bool bChanged = true;
+		while (bChanged)
+		{
+			bChanged = false;
+			for (DPackage* Package : GetResidentAssetPackages())
+			{
+				const FPackagePath& Path = Package->GetPackagePathIdentity();
+				if (Candidates.contains(Path)) continue;
+				const FAssetCatalogEntry Data = FindAssetExact(Path);
+				if (!Data) continue;
+				for (const FPackagePath& Dependency : Data->Dependencies)
+				{
+					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPath(Dependency);
+					if (Resolution && Candidates.erase(Resolution.FinalPath))
+					{
+						bChanged = true;
+						bInUse = true;
+					}
+				}
+			}
+		}
+		for (const FPackagePath& Path : Candidates)
+			FindResidentPackage(Path)->SetStandaloneResidency(false);
+		if (!Candidates.empty()) CollectGarbage();
+		bool bReleased = false;
+		for (const FPackagePath& Path : Candidates)
+		{
+			if (DPackage* Remaining = FindResidentPackage(Path))
+			{
+				Remaining->SetStandaloneResidency(true);
+				bInUse = true;
+			}
+			else
+			{
+				GetPackageResourceManager().RetirePackage(Path.ToString());
+				bReleased = true;
+			}
+		}
+		if (bReleased) InvalidateSoftObjectCaches();
+		return bInUse ? Error(EAssetError::InUse,
+			"Packages remain referenced or have unsaved state.") : FAssetResult{};
 	}
 
 	auto FAssetRuntimeState::Shutdown() -> void

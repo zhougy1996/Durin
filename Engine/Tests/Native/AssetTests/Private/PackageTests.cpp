@@ -5536,6 +5536,102 @@ TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterC
 	EXPECT_TRUE(Durin::UnloadPackage(ExistingPath));
 }
 
+TEST(FPackageAssetTests, SnapshotReleasePreservesTransientReferencesAndRetriesAsBatch)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath OwnerPath, TargetPath, PeerPath, FreePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotPeer", PeerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotFree", FreePath));
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
+	const auto Snapshot = Durin::CapturePackageLoadSnapshot();
+	DPackageAssetForTest* Target = nullptr;
+	DPackageAssetForTest* Peer = nullptr;
+	DPackageAssetForTest* Free = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(PeerPath, Peer));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(FreePath, Free));
+	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Peer->GetPackage()));
+	ASSERT_TRUE(Durin::SavePackage(Free->GetPackage()));
+	// These live edges are deliberately absent from the disk dependency metadata.
+	Owner->ExternalReference = Target;
+	Target->ExternalReference = Peer;
+	Peer->ExternalReference = Target;
+	Durin::TWeakObjectPtr<DPackageAssetForTest> WeakTarget(Target), WeakPeer(Peer);
+	EXPECT_EQ(Durin::ReleasePackagesLoadedSince(Snapshot).Error, Durin::EAssetError::InUse);
+	ASSERT_EQ(WeakTarget.Get(), Target);
+	ASSERT_EQ(WeakPeer.Get(), Peer);
+	EXPECT_EQ(Owner->ExternalReference.Get(), Target);
+	EXPECT_FALSE(Target->IsGarbage());
+	EXPECT_TRUE(Target->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	EXPECT_TRUE(Peer->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	EXPECT_EQ(Durin::FindResidentPackage(FreePath), nullptr);
+	Owner->ExternalReference = nullptr;
+	EXPECT_TRUE(Durin::ReleasePackagesLoadedSince(Snapshot));
+	EXPECT_FALSE(WeakTarget.IsValid());
+	EXPECT_FALSE(WeakPeer.IsValid());
+	EXPECT_TRUE(Durin::UnloadPackage(OwnerPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(FPackageAssetTests, ExplicitLoadScopeOwnsOnlyItsLoadClosureAndKeepsReplacementIdentity)
+{
+	InitializeAssetTests();
+	Durin::FPackagePath RootPath, DependencyPath, OtherPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/ScopedRoot", RootPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/ScopedDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/ScopedOther", OtherPath));
+	DPackageAssetForTest* Root = nullptr;
+	DPackageAssetForTest* Dependency = nullptr;
+	DPackageAssetForTest* Other = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(DependencyPath, Dependency));
+	ASSERT_TRUE(Durin::SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(RootPath, Root));
+	Root->ExternalReference = Dependency;
+	ASSERT_TRUE(Durin::SavePackage(Root->GetPackage()));
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OtherPath, Other));
+	ASSERT_TRUE(Durin::SavePackage(Other->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::UnloadPackage(DependencyPath));
+	ASSERT_TRUE(Durin::UnloadPackage(OtherPath));
+	Durin::FAssetPackageLoadScope Scope;
+	Durin::DPackage* Loaded = nullptr;
+	ASSERT_TRUE(Scope.LoadPackage(RootPath, Loaded));
+	ASSERT_NE(Durin::FindResidentPackage(DependencyPath), nullptr);
+	ASSERT_TRUE(Durin::LoadPackage(OtherPath, Loaded));
+	Other = Durin::Cast<DPackageAssetForTest>(Loaded->GetTopLevelAssets()[0]);
+	ASSERT_NE(Other, nullptr);
+	Root = Durin::Cast<DPackageAssetForTest>(
+		Durin::FindResidentPackage(RootPath)->GetTopLevelAssets()[0]);
+	ASSERT_NE(Root, nullptr);
+	Root->GetPackage()->MarkDirty();
+	EXPECT_EQ(Scope.Release().Error, Durin::EAssetError::InUse);
+	EXPECT_NE(Durin::FindResidentPackage(DependencyPath), nullptr);
+	Root->GetPackage()->ClearDirty();
+	Other->ExternalReference = Root;
+	EXPECT_EQ(Scope.Release().Error, Durin::EAssetError::InUse);
+	EXPECT_EQ(Other->ExternalReference.Get(), Root);
+	EXPECT_TRUE(Root->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	Other->ExternalReference = nullptr;
+	ASSERT_TRUE(Scope.Release());
+	EXPECT_EQ(Durin::FindResidentPackage(RootPath), nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(DependencyPath), nullptr);
+	EXPECT_NE(Durin::FindResidentPackage(OtherPath), nullptr);
+	// A scope neither owns already-resident packages nor a later replacement.
+	ASSERT_TRUE(Scope.LoadPackage(OtherPath, Loaded));
+	ASSERT_TRUE(Scope.LoadPackage(RootPath, Loaded));
+	ASSERT_TRUE(Durin::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::LoadPackage(RootPath, Loaded));
+	EXPECT_EQ(Scope.Release().Error, Durin::EAssetError::InUse);
+	EXPECT_NE(Durin::FindResidentPackage(RootPath), nullptr);
+	EXPECT_NE(Durin::FindResidentPackage(OtherPath), nullptr);
+	ASSERT_TRUE(Durin::UnloadPackage(RootPath));
+	EXPECT_TRUE(Scope.Release());
+	EXPECT_TRUE(Durin::UnloadPackage(OtherPath));
+}
+
 TEST(FPackageAssetTests, RejectsInvalidPaths)
 {
 	InitializeAssetTests();
