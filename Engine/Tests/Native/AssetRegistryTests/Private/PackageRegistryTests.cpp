@@ -360,3 +360,62 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
 }
+
+TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	const auto WorkRoot = Durin::Testing::GetTestWorkDirectory() / "ProjectionFences";
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
+	std::filesystem::create_directories(WorkRoot / "Content");
+	Durin::Testing::FScopedMountRegistryFixture Mounts;
+	Durin::Testing::RegisterMountPointForTests("/Fences/",
+		(WorkRoot / "Content").generic_string() + "/");
+	Durin::FPaths::SetDerivedDataCacheDirForTests((WorkRoot / "Cache").generic_string());
+	auto ObjectPath = [](std::string_view Name) {
+		FObjectPath Result;
+		EXPECT_TRUE(FObjectPath::TryCreate(
+			std::string(Name) + ".RegistryFixture", Result));
+		return Result;
+	};
+	const std::string Names[] = {"/Fences/Source", "/Fences/Middle", "/Fences/Target"};
+	for (size_t Index = 0; Index < 3; ++Index)
+	{
+		auto Linker = MakeRegistryFixture(Names[Index], {}, {});
+		const bool bRedirect = Index < 2;
+		const std::string ClassName = bRedirect ? "Durin::DAssetRedirector" : "Durin::DObject";
+		Linker.Exports.front().ClassName = ClassName;
+		Linker.Summary.TopLevelAssets.front().ClassName = ClassName;
+		if (bRedirect)
+		{
+			Linker.Summary.HardPackageDependencies.push_back(Path(Names[Index + 1]));
+			Linker.Summary.TopLevelAssets.front().RedirectDestination = ObjectPath(Names[Index + 1]);
+		}
+		FByteBuffer Main, Bulk;
+		ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(Main,
+			WorkRoot / "Content" / (std::filesystem::path(Names[Index]).filename().string() + ".dasset")));
+	}
+	ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+	const auto Snapshot = CaptureAssetRegistrySnapshot();
+	ASSERT_TRUE(ResolveAssetObjectPath(ObjectPath(Names[0])));
+	for (size_t Index = 0; Index < 3; ++Index)
+	{
+		const FPackagePath Fenced[] = {Path(Names[Index])};
+		FenceAssetRegistryProjection(Fenced);
+		const auto Exact = ResolveAssetObjectPath(ObjectPath(Names[0]));
+		EXPECT_EQ(Exact.State, EAssetPathResolveState::ProjectionPending);
+		EXPECT_EQ(Exact.FinalPath, ObjectPath(Names[Index]));
+		EXPECT_EQ(Exact.RedirectChain.size(), Index);
+		EXPECT_FALSE(Exact.FinalPackageData.has_value());
+		const auto PackageResult = ResolveAssetPath(Path(Names[0]));
+		EXPECT_EQ(PackageResult.State, EAssetPathResolveState::ProjectionPending);
+		EXPECT_EQ(PackageResult.FinalPath, Fenced[0]);
+		EXPECT_EQ(Snapshot.ResolveAssetPath(Path(Names[0])).State,
+			EAssetPathResolveState::ProjectionPending);
+		EXPECT_EQ(ResolveAssetObjectPath(ObjectPath(Names[Index])).State,
+			EAssetPathResolveState::ProjectionPending);
+		ClearAssetRegistryProjectionFence(Fenced);
+		EXPECT_TRUE(ResolveAssetPath(Path(Names[0])));
+		EXPECT_TRUE(ResolveAssetObjectPath(ObjectPath(Names[0])));
+	}
+}

@@ -151,7 +151,9 @@ namespace Durin
 		RedirectDepthExceeded,
 		UnknownTargetClass,
 		RedirectTypeMismatch,
-		CorruptRedirector
+		CorruptRedirector,
+		// A traversed package is quarantined until its registry projection is synchronized.
+		ProjectionPending
 	};
 
 	struct FAssetPathResolveOptions

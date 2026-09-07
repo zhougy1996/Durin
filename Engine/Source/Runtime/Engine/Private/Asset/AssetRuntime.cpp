@@ -78,6 +78,13 @@ namespace Durin
 			FByteView Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
+		auto ProjectionPendingError(const FPackagePath& Path) -> FAssetResult
+		{
+			return {EAssetError::StaleData,
+				std::format("Registry projection for package {} is pending synchronization.", Path.ToString()),
+				EAssetResultDisposition::ContentCommittedProjectionPending};
+		}
+
 		auto ObjectPathResolutionError(
 			const FObjectPathResolveResult& Resolution) -> FAssetResult
 		{
@@ -85,6 +92,8 @@ namespace Durin
 			{
 			case EAssetPathResolveState::Resolved:
 				return {};
+			case EAssetPathResolveState::ProjectionPending:
+				return ProjectionPendingError(Resolution.FinalPath.GetPackagePath());
 			case EAssetPathResolveState::NotFound:
 				return Error(EAssetError::NotFound, std::format(
 					"Object {} is not present in the registry.",
@@ -221,6 +230,13 @@ namespace Durin
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		OutPackage = nullptr;
+		if (IsAssetRegistryProjectionFenced(Path))
+		{
+			const FAssetResult Result = ProjectionPendingError(Path);
+			if (OutReport) *OutReport = {.RequestedPath = Path, .FinalPath = Path,
+				.PackagePath = Path, .Error = Result.Error, .ErrorMessage = Result.Message};
+			return Result;
+		}
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
 			OutPackage = Resident;

@@ -1983,6 +1983,24 @@ TEST(FPackageAssetTests, RegistryFailureKeepsCommittedStableClosure)
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "V8FirstFailure.dbulk.durin-backup"));
 	EXPECT_TRUE(Durin::IsAssetRegistryProjectionFenced(Path));
+	Durin::DPackage* BlockedPackage = nullptr;
+	Durin::FAssetLoadReport BlockedReport;
+	const auto PackageLoad = Durin::LoadPackage(Path, BlockedPackage, &BlockedReport);
+	EXPECT_EQ(PackageLoad.Error, Durin::EAssetError::StaleData);
+	EXPECT_EQ(PackageLoad.Disposition,
+		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
+	EXPECT_EQ(BlockedPackage, nullptr);
+	EXPECT_EQ(BlockedReport.Error, PackageLoad.Error);
+	EXPECT_EQ(BlockedReport.PackageFileReadCount, 0u);
+	DBulkPackageAssetForTest* BlockedObject = nullptr;
+	const auto ObjectLoad = Durin::LoadObject(
+		Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), BlockedObject, &BlockedReport);
+	EXPECT_EQ(ObjectLoad.Error, Durin::EAssetError::StaleData);
+	EXPECT_EQ(ObjectLoad.Disposition,
+		Durin::EAssetResultDisposition::ContentCommittedProjectionPending);
+	EXPECT_EQ(BlockedObject, nullptr);
+	EXPECT_EQ(BlockedReport.Error, ObjectLoad.Error);
+	EXPECT_EQ(BlockedReport.PackageFileReadCount, 0u);
 	ASSERT_TRUE(Durin::RefreshAssetRegistry());
 	EXPECT_FALSE(Durin::IsAssetRegistryProjectionFenced(Path));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));

@@ -13,11 +13,13 @@ namespace Durin
 
 		auto ResolveAssetObjectPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FObjectPath& Path,
 			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult;
 
 		auto ResolveAssetPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision, const FPackagePath& Path,
 			const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 		{
@@ -25,6 +27,11 @@ namespace Durin
 			Result.CatalogRevision = Revision;
 			Result.RequestedPath = Path;
 			Result.FinalPath = Path;
+			if (Fences.contains(Path))
+			{
+				Result.State = EAssetPathResolveState::ProjectionPending;
+				return Result;
+			}
 			const auto It = Assets.find(Path);
 			if (It == Assets.end()) return Result;
 			const FAssetData& Data = It->second;
@@ -41,7 +48,7 @@ namespace Durin
 			if (!FObjectPath::TryCreate(Data.TopLevelAssets.front().AssetPath,
 				std::span<const std::string>{}, ObjectPath)) return Result;
 			const FObjectPathResolveResult Exact = ResolveAssetObjectPathInCatalog(
-				Assets, Revision, ObjectPath, Options);
+				Assets, Fences, Revision, ObjectPath, Options);
 			Result.State = Exact.State;
 			Result.FinalPath = Exact.FinalPath.GetPackagePath();
 			Result.FinalAssetData = Exact.FinalPackageData;
@@ -71,6 +78,7 @@ namespace Durin
 
 		auto ResolveAssetObjectPathInCatalog(
 			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			const std::unordered_set<FPackagePath>& Fences,
 			uint64 Revision,
 			const FObjectPath& Path,
 			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
@@ -82,6 +90,12 @@ namespace Durin
 			std::unordered_set<FObjectPath> Visited;
 			while (true)
 			{
+				if (Fences.contains(Current.GetPackagePath()))
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::ProjectionPending;
+					return Result;
+				}
 				const auto PackageIt = Assets.find(Current.GetPackagePath());
 				if (PackageIt == Assets.end())
 				{
@@ -256,11 +270,10 @@ namespace Durin
 		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
-		if (AssetPrivate::GetAssetRegistryState().IsFenced(Path))
-			return {.State = EAssetPathResolveState::NotFound,
-				.CatalogRevision = Revision, .RequestedPath = Path,
-				.FinalPath = Path};
-		return ResolveAssetPathInCatalog(Catalog.Assets, Revision, Path, Options);
+		const auto Fences = AssetPrivate::GetAssetRegistryState().CaptureFences();
+		return ResolveAssetPathInCatalog(Catalog.Assets,
+			std::unordered_set<FPackagePath>(Fences.begin(), Fences.end()),
+			Revision, Path, Options);
 	}
 
 	namespace AssetPrivate
@@ -294,11 +307,14 @@ namespace Durin
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
-		if (ProjectionFences.contains(Path))
-			return {.State = EAssetPathResolveState::NotFound,
-				.CatalogRevision = Revision, .RequestedPath = Path,
-				.FinalPath = Path};
-		return ResolveAssetPathInCatalog(Assets, Revision, Path, Options);
+		return ResolveAssetPathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
+	}
+
+	auto FAssetRegistryState::ResolveAssetObjectPath(const FObjectPath& Path,
+		const FAssetPathResolveOptions& Options) const -> FObjectPathResolveResult
+	{
+		std::shared_lock Lock(Mutex);
+		return ResolveAssetObjectPathInCatalog(Assets, ProjectionFences, Revision, Path, Options);
 	}
 
 	auto FAssetRegistryState::FindRedirectorsTo(
@@ -506,9 +522,7 @@ namespace Durin
 	auto ResolveAssetObjectPath(const FObjectPath& Path,
 		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
 	{
-		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
-		return ResolveAssetObjectPathInCatalog(
-			Snapshot.Assets, Snapshot.Revision, Path, Options);
+		return AssetPrivate::GetAssetRegistryState().ResolveAssetObjectPath(Path, Options);
 	}
 
 	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot
