@@ -8,6 +8,13 @@
 
 namespace Durin::RoadNet
 {
+	// Optional road connectors must not inherit the spline editor's sample points.
+	inline auto MakeEmptyConnectorCurve() -> FSplineCurve
+	{
+		FSplineCurve Curve;
+		Curve.ClearPoints();
+		return Curve;
+	}
 	// Identifies the direction in which traffic travels relative to a road reference line.
 	DENUM(DisplayName = "Road Lane Direction")
 	enum class ELaneDirection : uint8
@@ -95,6 +102,19 @@ namespace Durin::RoadNet
 		std::vector<FLane> Lanes;
 	};
 
+	// Connects directed lanes across adjacent sections in traffic order.
+	DSTRUCT()
+	struct FSectionTransition
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		FGuid IncomingLaneId;
+
+		DPROPERTY(Edit)
+		FGuid OutgoingLaneId;
+	};
+
 	// Owns a road reference line and the authored lane layout along it.
 	DSTRUCT()
 	struct FRoad
@@ -121,6 +141,9 @@ namespace Durin::RoadNet
 
 		DPROPERTY(Edit)
 		std::vector<FLaneSection> LaneSections;
+
+		DPROPERTY(Edit)
+		std::vector<FSectionTransition> SectionTransitions;
 	};
 
 	// Maps one incoming lane to one outgoing lane through a junction.
@@ -143,7 +166,7 @@ namespace Durin::RoadNet
 
 		// Optional authored connector; an empty curve is reserved for generated geometry.
 		DPROPERTY(Edit)
-		FSplineCurve ConnectorCurve;
+		FSplineCurve ConnectorCurve = MakeEmptyConnectorCurve();
 	};
 
 	// Owns the explicit lane-to-lane connectivity at one network node.

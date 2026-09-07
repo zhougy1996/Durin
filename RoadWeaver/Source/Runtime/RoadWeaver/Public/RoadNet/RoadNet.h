@@ -8,7 +8,24 @@
 
 namespace Durin::RoadNet
 {
-	inline constexpr uint32 RoadNetSchemaVersion = 1;
+	inline constexpr uint32 RoadNetSchemaVersion = 2;
+	inline constexpr double RoadEndpointTolerance = 1.e-4;
+	inline constexpr double RoadCoordinateLimit = 1.e7;
+
+	// Borrows lane ownership from a definition; invalidated when that value changes.
+	struct FLaneOwnership
+	{
+		const FRoad* Road = nullptr;
+		const FLaneSection* Section = nullptr;
+		const FLane* Lane = nullptr;
+		size_t SectionIndex = 0;
+	};
+
+	ROADWEAVER_API auto FindLaneOwnership(const FDefinition& Definition,
+		const FGuid& LaneId) -> std::optional<FLaneOwnership>;
+	// True only at the traffic-selected terminal section incident to NodeId.
+	ROADWEAVER_API auto IsTerminalLane(const FLaneOwnership& Owner,
+		const FGuid& NodeId, bool bIncoming) -> bool;
 
 	// Stores the authored semantic road graph without render or simulation-derived state.
 	DCLASS(DisplayName = "Road Net")
@@ -30,8 +47,19 @@ namespace Durin::RoadNet
 		ROADWEAVER_API auto SetDefinition(
 			FDefinition InDefinition, std::string& OutError) -> bool;
 		ROADWEAVER_API auto PostLoad(std::string& OutError) -> bool override;
+		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal,
+			std::string& OutError) -> bool override;
+		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		// Owning-thread observers run after publication; reentrant mutations are rejected.
+		ROADWEAVER_API auto AddMutationListener(std::function<void()> Listener) -> uint64;
+		ROADWEAVER_API auto RemoveMutationListener(uint64 Id) -> void;
 
 	private:
+		auto PublishRevision() -> void;
+		std::map<uint64, std::function<void()>> Listeners;
+		uint64 NextListenerId = 1;
+		bool bPublishing = false;
+
 		DPROPERTY()
 		uint32 SchemaVersion = RoadNetSchemaVersion;
 

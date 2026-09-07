@@ -31,6 +31,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		ENGINE_API explicit DSceneComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
 		ENGINE_API auto OnRegister() -> void override;

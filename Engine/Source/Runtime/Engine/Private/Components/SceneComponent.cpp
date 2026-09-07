@@ -8,6 +8,11 @@
 
 namespace Durin
 {
+	DSceneComponent::DSceneComponent(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+	}
+
 	namespace
 	{
 		auto IsAppliedChange(const FPropertyChangedEvent& Event) -> bool

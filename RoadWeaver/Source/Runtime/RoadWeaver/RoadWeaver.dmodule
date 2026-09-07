@@ -8,7 +8,9 @@
     ],
     "ReflectHeaders": [
         "Public/RoadNet/RoadNet.h",
-        "Public/RoadNet/RoadNetTypes.h"
+        "Public/RoadNet/RoadNetTypes.h",
+        "Public/RoadNet/RoadSurface.h",
+        "Public/RoadNet/RoadNetActor.h"
     ],
     "PublicDependencies": [],
     "OptionalPrivateDependencies": [],

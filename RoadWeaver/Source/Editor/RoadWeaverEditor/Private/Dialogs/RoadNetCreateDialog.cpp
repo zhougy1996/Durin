@@ -121,9 +121,8 @@ namespace Durin::RoadNet::Editor
 		Road.StartNodeId = StartNodeId;
 		Road.EndNodeId = EndNodeId;
 		Road.SpeedLimitMetersPerSecond = SpeedLimitKilometersPerHour / 3.6;
-		Road.ReferenceLine.AddPoint(FSplinePoint(FVector3{0.0, 0.0, 0.0}));
-		Road.ReferenceLine.AddPoint(
-			FSplinePoint(FVector3{RoadLengthMeters, 0.0, 0.0}));
+		Road.ReferenceLine.SetPoints({FSplinePoint(FVector3{0.0, 0.0, 0.0}),
+			FSplinePoint(FVector3{RoadLengthMeters, 0.0, 0.0})});
 		FLaneSection Section;
 		Section.StartDistanceMeters = 0.0;
 		Section.EndDistanceMeters = RoadLengthMeters;
