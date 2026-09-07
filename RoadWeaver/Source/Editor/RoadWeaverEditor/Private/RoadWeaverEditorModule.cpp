@@ -18,6 +18,7 @@ namespace Durin::RoadNet::Editor
 				.Label = "Road Net...",
 				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Create,
 				.Order = 300,
+				.Mutation = ::Durin::Editor::ContentBrowser::EContentMutation::MutatesContent,
 				.IsApplicable = [](const auto& Context) {
 					return !Context.VirtualDirectory.empty();
 				},
