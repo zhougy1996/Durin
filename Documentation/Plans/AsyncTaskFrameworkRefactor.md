@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 2 is in progress: the public
-`Threading/TaskComposition.h` surface supports unique roots, synchronous
-move-only/void transformations, explicit immutable sharing, and checked
-construction failures. Async flattening, fan-in, and external sources remain
-open. Group drain-child/Join semantics and the BlockingIO executor belong to
-Stages 3 and 4. The small fixed Release pilot workloads remain comparison
-baselines rather than production-scale performance claims.
+Stages 0 through 2 are complete. Stage 3 is next: counted drain-child
+admission, asynchronous group Join, and bounded owner completion tickets.
+The unique composition surface now includes async flattening, dynamic/tuple
+fan-in, shared observation, and counted external sources. Production pilots
+remain on their existing implementations until Stages 3 and 4 pass. The fixed
+Release baseline remains a bounded comparison lane; its macOS environment is
+not interchangeable with the current Windows correctness environment.
 
 Observed starting points:
 
@@ -692,22 +692,63 @@ comparison reference for later qualification.
 
 Depends on Stage 1.
 
-- [ ] Add unique `T -> U`, `T -> void`, and `void -> U` continuation support
+- [x] Add unique `T -> U`, `T -> void`, and `void -> U` continuation support
   and explicit sharing without losing move-only callable support.
-- [ ] Implement ThenAsync with inner-task pinning, terminal propagation,
+- [x] Implement ThenAsync with inner-task pinning, terminal propagation,
   cancellation, dynamic dependency registration, and cycle rejection. Define
   cancellation of a shared inner task as local to the observing operation;
   never implicitly cancel unrelated consumers.
-- [ ] Add dynamic and heterogeneous fan-in, including empty input, void gates,
+- [x] Add dynamic and heterogeneous fan-in, including empty input, void gates,
   mixed failure/cancellation, and deterministic outcome ordering. Reject
   duplicate unique consumption; shared duplicates remain permitted.
-- [ ] Add external completion sources with exactly-once publication,
+- [x] Add external completion sources with exactly-once publication,
   abandonment, late completion, close, and storage-lifetime tests.
 
 Acceptance: a multi-stage move-only pipeline and a dynamically spawned inner
 operation compose without side-channel completion flags or blocking waits.
 Run rejection and cancellation at every edge, including shutdown races; every
 payload is consumed or destroyed exactly once outside internal locks.
+
+#### Stage 2 composition handoff
+
+`Then` propagates failure and cancellation without invoking the user success
+callback. The public pipeline supports move-only values/captures, void gates,
+and explicit immutable sharing. Shared-inner `ThenAsync` returns an owned
+`shared_ptr<const T>` view; it cancels only its observing edge, preserving other
+shared consumers. Unique-inner cancellation forwards both before and after
+inner binding. Returning a failed inner admission publishes a typed failure of
+the accepted outer operation.
+
+Dynamic dependencies are pinned under cycle-check synchronization before the
+outer unknown requirement is narrowed. GameThread rejects unknown/deferred
+transitive waits; an executing task also rejects unknown external requirements.
+External sources are counted scheduler nodes without occupying a CPU worker.
+Cancel requests retain their accounting until producer acknowledgement; last
+source release publishes abandonment. Preallocated terminal hooks bind without
+another fallible scheduled task and run outside state/scheduler locks.
+
+Dynamic and heterogeneous unique fan-in consume only after successful admission,
+preserve input order and void slots, and immediately complete empty collections.
+Failure precedes cancellation and the lowest failing input index wins. Shared
+vector duplicates retain separate immutable owners. Failed admission preserves
+all unique inputs and rolls back their claims.
+
+Admission now reserves dependent storage and installs scope/cancellation/node
+records before transferring callable ownership. Five injected allocation-failure
+checkpoints verify complete rollback and a successful retry. A preparing node
+cannot execute or publish cancellation. Scheduler shutdown waits explicit
+submission participation; publishing terminal callbacks no longer holds the
+global scheduler lock. Post-admission result accounting remains allocation-free.
+
+Validation: Core concurrency passed 157 cases before the allocation-checkpoint
+regressions. Final `test affected` passed all four selected targets with the
+pre-callback cancellation check, five pre-acceptance allocation checkpoints,
+and post-acceptance dispatch allocation failure included. The latter remains
+an accepted terminal handle and consumes the input, rather than falsely
+reporting admission rejection. CTest receipt:
+`Build/.agent-state/logs/20260907-105521-736839-18580-ctest.log`.
+Changed documentation and all plans validate.
+
 
 ### Stage 3: Integrate groups and bounded operation completion
 

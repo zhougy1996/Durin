@@ -12,6 +12,7 @@ namespace Durin
 	{
 		struct FTaskAttributionAccess;
 		struct FTaskScopeAccess;
+		struct FTaskRuntimeAccess;
 	}
 
 	class FTaskAttribution
@@ -198,6 +199,8 @@ namespace Durin
 		CORE_API auto ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes) -> std::optional<Tasks::FTaskAdmissionError>;
 		CORE_API auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		// Native-test seam for pausing after the raw terminal transition and before completion publication.
+		// Injects bad_alloc at checkpoints 1-5 before acceptance or 6 during dispatch; zero disables it.
+		CORE_API auto SetTaskAdmissionAllocationFailureForTests(int32 Checkpoint) -> void;
 		CORE_API auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void;
 		// Native-test seam for pausing after the active cohort is pinned and scheduler locks are released.
 		CORE_API auto SetTaskSchedulerSnapshotTestHook(std::function<void()>&& Hook) -> void;
@@ -574,6 +577,7 @@ namespace Durin
 		explicit FTaskHandle(std::shared_ptr<FTaskStateData> InState);
 
 		friend class FTaskScheduler;
+		friend struct Private::FTaskRuntimeAccess;
 		friend CORE_API auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
 		friend CORE_API auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
 		friend CORE_API auto Private::LaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> FTaskHandle;
@@ -587,6 +591,25 @@ namespace Durin
 
 		std::shared_ptr<FTaskStateData> State;
 	};
+
+	namespace Private
+	{
+		// Binding this preallocated internal hook never admits another scheduled node.
+		struct FTaskTerminalHook
+		{
+			std::function<void(ETaskState)> Function;
+			std::shared_ptr<FTaskTerminalHook> Next;
+		};
+		struct FTaskRuntimeAccess
+		{
+			CORE_API static auto IsCancellationRequested(const FTaskHandle& Task) -> bool;
+			CORE_API static auto CancelCurrent() -> void;
+			CORE_API static auto GetScope(const FTaskHandle& Task) -> FTaskScopeToken;
+			CORE_API static auto BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void;
+			CORE_API static auto CompleteExternal(const FTaskHandle& Task, ETaskState State) -> void;
+			CORE_API static auto BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner = true) -> std::optional<Tasks::FTaskAdmissionError>;
+		};
+	}
 
 	template<typename T>
 	class TTaskHandle
@@ -671,6 +694,9 @@ namespace Durin
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
 		bool bValidateConstruction = false;
+		// Internal completion sources stay counted until producer acknowledgement.
+		bool bExternalCompletion = false;
+		bool bUnknownExecutionRequirement = true;
 	};
 
 	struct FTaskContinuationOptions

@@ -80,6 +80,28 @@ retry. Result-accounting rebinding is allocation-free after node acceptance.
 `FTaskGroup` currently owns a native scope and supports explicit close/timed
 wait with the scope's existing semantics.
 
+`ThenAsync` represents inner completion, including an inner admission failure.
+Unique inner cancellation is forwarded; a shared inner yields an immutable
+owning result view through a separately cancelable observer. Its dynamic edge
+is pinned and cycle-checked before clearing the unknown wait requirement.
+GameThread rejects unknown or deferred transitive requirements, and executing
+tasks reject unknown external requirements. These waits never pump callbacks.
+
+`WhenAll` accepts a dynamic unique vector or heterogeneous unique tuple (void
+slots become `monostate`). Empty collections are immediately terminal. Admission
+failure preserves every input; successful outcomes retain input order. Failure
+precedes cancellation and the lowest failing input index selects the failure.
+Shared vector inputs permit duplicate positions and return immutable owners.
+
+`TCompletionSource<T>` is admitted and counted in the same scheduler lifetime
+without occupying a worker. It publishes once, rejects late attempts, and fails
+with abandonment on last unresolved source release. Cancellation remains a
+request until the producer completes or acknowledges it. Internal preallocated
+terminal hooks run outside scheduler/state locks and do not depend on a fresh
+task admission. Submission participation keeps shutdown from retiring a node
+while its dependency, cancellation, and scope registration is still preparing.
+
+
 ## Task States And Results
 
 An invalid handle is reported as `ETaskState::Invalid`; it is not an accepted

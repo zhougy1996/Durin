@@ -493,9 +493,10 @@ namespace Durin
 			return true;
 		}
 
-		auto RollbackAdmission() -> void
+		auto RollbackAdmission(uint64 TaskId = 0) -> void
 		{
 			std::lock_guard Lock(Mutex);
+			if (TaskId) ActiveTasks.erase(TaskId);
 			require(AcceptedCount > 0 && CurrentActiveCount > 0);
 			--AcceptedCount;
 			--CurrentActiveCount;
@@ -641,9 +642,72 @@ namespace Durin
 			}
 		}
 
+		auto InitializeOwnership(std::unique_ptr<Private::FMoveOnlyTaskFunction>& Function,
+			std::function<void(ETaskState)>& Completion) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			PendingFunction = std::move(Function);
+			CompletionFunction = std::move(Completion);
+			CallableStorageBytes = PendingFunction ? PendingFunction->GetStorageBytes() : 0;
+			bHasResultStorage = static_cast<bool>(CompletionFunction);
+		}
+		auto ActivateAdmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			bAdmissionPending = false;
+		}
+		auto ReserveDependent() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			Dependents.reserve(Dependents.size() + ReservedDependents + 1);
+			++ReservedDependents;
+		}
+		auto ReleaseDependentReservation() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			require(ReservedDependents > 0);
+			--ReservedDependents;
+		}
+
+		auto ConfigureExternal(bool bUnknown) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			bExternalCompletion = true;
+			bUnknownExecutionRequirement = bUnknown;
+		}
+		auto IsExternal() const -> bool { return bExternalCompletion; }
+		auto BindTerminal(std::shared_ptr<Private::FTaskTerminalHook> Hook) -> void
+		{
+			ETaskState Terminal;
+			{
+				std::lock_guard Lock(Mutex);
+				if (!bTerminalHooksFinished)
+				{
+					Hook->Next = std::move(TerminalHooks);
+					TerminalHooks = std::move(Hook);
+					return;
+				}
+				Terminal = State;
+			}
+			Hook->Function(Terminal);
+		}
+		auto SetDynamicDependency(std::shared_ptr<FTaskStateData> Inner, bool bCancelInner) -> void
+		{
+			std::shared_ptr<FTaskStateData> Previous;
+			{
+				std::lock_guard Lock(Mutex);
+				Previous = std::move(DynamicPrerequisite);
+				DynamicPrerequisite = std::move(Inner);
+				bCancelDynamicDependency = bCancelInner;
+				bUnknownExecutionRequirement = false;
+			}
+		}
+
 		auto RegisterDependent(const std::shared_ptr<FTaskStateData>& Dependent) -> ETaskState
 		{
 			std::unique_lock Lock(Mutex);
+			require(ReservedDependents > 0);
+			--ReservedDependents;
 			CV.wait(Lock, [this]() { return !IsTerminalState(State) || bTerminalPublicationFinished; });
 			if (!IsTerminalState(State))
 			{
@@ -656,7 +720,7 @@ namespace Durin
 		auto TakeFunctionForQueue() -> std::unique_ptr<Private::FMoveOnlyTaskFunction>
 		{
 			std::lock_guard Lock(Mutex);
-			if (State != ETaskState::Queued)
+			if (State != ETaskState::Queued || bAdmissionPending)
 			{
 				return {};
 			}
@@ -697,7 +761,8 @@ namespace Durin
 			std::vector<std::shared_ptr<FTaskStateData>> PendingPrerequisites;
 			{
 				std::lock_guard Lock(Mutex);
-				PendingPrerequisites.reserve(Prerequisites.size());
+				PendingPrerequisites.reserve(Prerequisites.size() + 1);
+				if (DynamicPrerequisite) PendingPrerequisites.emplace_back(DynamicPrerequisite);
 				for (const std::weak_ptr<FTaskStateData>& Prerequisite : Prerequisites)
 				{
 					if (std::shared_ptr<FTaskStateData> PinnedPrerequisite = Prerequisite.lock())
@@ -722,6 +787,7 @@ namespace Durin
 				}
 
 				std::lock_guard Lock(Prerequisite->Mutex);
+				if (Prerequisite->DynamicPrerequisite) PendingPrerequisites.emplace_back(Prerequisite->DynamicPrerequisite);
 				for (const std::weak_ptr<FTaskStateData>& TransitivePrerequisite : Prerequisite->Prerequisites)
 				{
 					if (std::shared_ptr<FTaskStateData> PinnedPrerequisite = TransitivePrerequisite.lock())
@@ -735,7 +801,7 @@ namespace Durin
 
 		// Inspect one node lock at a time. Terminal ancestors impose no executor
 		// requirement; pinning each frontier keeps concurrent publication safe.
-		auto RequiresGameThread() const -> bool
+		auto RequiresGameThread(bool bOnlyUnknown = false) const -> bool
 		{
 			std::vector<std::shared_ptr<const FTaskStateData>> Pending{shared_from_this()};
 			std::unordered_set<const FTaskStateData*> Visited;
@@ -746,7 +812,8 @@ namespace Durin
 				if (!Visited.emplace(Current.get()).second) continue;
 				std::lock_guard Lock(Current->Mutex);
 				if (IsTerminalState(Current->State) && Current->bTerminalPublicationFinished) continue;
-				if (Current->Target == ETaskTarget::GameThreadDeferred) return true;
+				if ((!bOnlyUnknown && Current->Target == ETaskTarget::GameThreadDeferred) || Current->bUnknownExecutionRequirement) return true;
+				if (Current->DynamicPrerequisite) Pending.emplace_back(Current->DynamicPrerequisite);
 				for (const auto& WeakPrerequisite : Current->Prerequisites)
 				{
 					if (auto Prerequisite = WeakPrerequisite.lock())
@@ -887,6 +954,14 @@ namespace Durin
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		std::function<void(ETaskState)> CompletionFunction;
 		bool bHasResultStorage = false;
+		bool bAdmissionPending = true;
+		size_t ReservedDependents = 0;
+		bool bTerminalHooksFinished = false;
+		bool bExternalCompletion = false;
+		bool bUnknownExecutionRequirement = false;
+		std::shared_ptr<Private::FTaskTerminalHook> TerminalHooks;
+		std::shared_ptr<FTaskStateData> DynamicPrerequisite;
+		bool bCancelDynamicDependency = false;
 		std::vector<std::weak_ptr<FTaskStateData>> Prerequisites;
 		std::vector<uint64> PrerequisiteTaskIds;
 		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
@@ -1105,6 +1180,13 @@ namespace Durin
 		Private::FMoveOnlyTaskFunction&& Function) -> bool;
 
 	// Owns the process scheduler's pool and every accepted nonterminal node.
+	static std::atomic<int32> GTaskAdmissionAllocationFailure = 0;
+	static auto CheckTaskAdmissionAllocation(int32 Checkpoint) -> void
+	{
+		int32 Expected = Checkpoint;
+		if (GTaskAdmissionAllocationFailure.compare_exchange_strong(Expected, 0)) throw std::bad_alloc();
+	}
+
 	class FTaskScheduler final : public std::enable_shared_from_this<FTaskScheduler>
 	{
 	public:
@@ -1121,6 +1203,24 @@ namespace Durin
 			Scheduler->TaskReservationCapacity = Config.MaxNonterminalTasks;
 			Scheduler->bAcceptingTasks = true;
 			return Scheduler;
+		}
+
+		auto BeginSubmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			++PendingSubmissions;
+		}
+		auto EndSubmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			require(PendingSubmissions > 0);
+			--PendingSubmissions;
+			QuiescenceCV.notify_all();
+		}
+		auto WaitForSubmissions() -> void
+		{
+			std::unique_lock Lock(Mutex);
+			QuiescenceCV.wait(Lock, [this] { return PendingSubmissions == 0; });
 		}
 
 		auto GetAggregate(FTaskAttribution Attribution) -> FTaskOwnerCategoryAggregate&
@@ -1261,6 +1361,8 @@ namespace Durin
 		{
 			std::shared_ptr<FTaskStateData> State;
 			std::shared_ptr<FTaskScopeState> SelectedScope;
+			bool bCancelAfterAdmission = false;
+			size_t ReservedDependencyCount = 0;
 			std::vector<std::shared_ptr<FTaskStateData>> PrerequisiteStates;
 			{
 				std::lock_guard Lock(Mutex);
@@ -1321,8 +1423,8 @@ namespace Durin
 						Name,
 						weak_from_this(),
 						LifetimeAccounting,
-						std::move(FunctionOwner),
-						std::move(CompletionFunction),
+						nullptr,
+						std::function<void(ETaskState)>{},
 						Options.CancellationToken,
 						PrerequisiteStates,
 						GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
@@ -1337,15 +1439,35 @@ namespace Durin
 						std::move(GenerationToken),
 						std::move(CoalescingKey)
 					);
+					CheckTaskAdmissionAllocation(1);
+					for (const auto& Prerequisite : PrerequisiteStates)
+					{
+						Prerequisite->ReserveDependent();
+						++ReservedDependencyCount;
+					}
+					CheckTaskAdmissionAllocation(2);
+					if (SelectedScope) bCancelAfterAdmission = SelectedScope->BindTask(State);
+					CheckTaskAdmissionAllocation(3);
+					if (const auto& CancellationState = State->GetSharedCancellationState()) CancellationState->RegisterTask(State);
+					CheckTaskAdmissionAllocation(4);
+					ActiveTasks.emplace(State->GetTaskId(), State);
+					CheckTaskAdmissionAllocation(5);
+					State->InitializeOwnership(FunctionOwner, CompletionFunction);
+					if (Options.bExternalCompletion) State->ConfigureExternal(Options.bUnknownExecutionRequirement);
 				}
 				catch (...)
 				{
 					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
 					require(PreviousReservationCount > 0);
-					if (SelectedScope) SelectedScope->RollbackAdmission();
+					if (State)
+					{
+						ActiveTasks.erase(State->GetTaskId());
+						if (const auto& CancellationState = State->GetSharedCancellationState()) CancellationState->UnregisterTask(State->GetTaskId());
+					}
+					for (size_t Index = 0; Index < ReservedDependencyCount; ++Index) PrerequisiteStates[Index]->ReleaseDependentReservation();
+					if (SelectedScope) SelectedScope->RollbackAdmission(State ? State->GetTaskId() : 0);
 					throw;
 				}
-				ActiveTasks.emplace(State->GetTaskId(), State);
 			}
 			RecordAcceptedTask(State->GetAccountingSnapshot());
 			Profiling::TaskEnqueued(
@@ -1355,30 +1477,48 @@ namespace Durin
 				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
 				static_cast<uint8>(State->GetTarget()));
 
-			const bool bCancelAfterAdmission = SelectedScope && SelectedScope->BindTask(State);
-			if (const std::shared_ptr<FTaskCancellationState>& CancellationState = State->GetSharedCancellationState())
+			size_t RegisteredDependencies = 0;
+			try
 			{
-				CancellationState->RegisterTask(State);
-			}
-			for (const std::shared_ptr<FTaskStateData>& Prerequisite : PrerequisiteStates)
-			{
-				const ETaskState PrerequisiteState = Prerequisite->RegisterDependent(State);
-				if (IsTerminalState(PrerequisiteState))
+				if (Options.bExternalCompletion)
 				{
-					State->OnPrerequisiteTerminal(PrerequisiteState, Prerequisite->GetTaskId());
+					const bool bStarted = State->TryMarkRunning();
+					require(bStarted);
+					OnTaskStarted(State->GetAccountingSnapshot());
 				}
+				for (const std::shared_ptr<FTaskStateData>& Prerequisite : PrerequisiteStates)
+				{
+					++RegisteredDependencies;
+					const ETaskState PrerequisiteState = Prerequisite->RegisterDependent(State);
+					if (IsTerminalState(PrerequisiteState))
+					{
+						State->OnPrerequisiteTerminal(PrerequisiteState, Prerequisite->GetTaskId());
+					}
+				}
+
+				State->ActivateAdmission();
+				CheckTaskAdmissionAllocation(6);
+				if (bCancelAfterAdmission || State->IsCancellationRequested())
+				{
+					State->RequestCancellation("Task scope was canceled during admission.");
+				}
+				else if (!Options.bExternalCompletion)
+				{
+					QueueTask(State);
+				}
+
+				DURIN_TRACE("Task accepted. (task: {}, id: {}, prerequisites: {})", State->GetDebugName(), State->GetTaskId(), Options.Prerequisites.size());
+			}
+			catch (const std::bad_alloc&)
+			{
+				for (size_t Index = RegisteredDependencies; Index < PrerequisiteStates.size(); ++Index)
+					PrerequisiteStates[Index]->ReleaseDependentReservation();
+				State->ActivateAdmission();
+				// Acceptance already transferred ownership; return a terminal handle, never a rejection.
+				if (Options.bExternalCompletion) State->MarkFailed({});
+				else State->RequestCancellation({}, ETaskTerminalReason::DispatchRejected);
 			}
 
-			if (bCancelAfterAdmission)
-			{
-				State->RequestCancellation("Task scope was canceled during admission.");
-			}
-			else if (Options.Prerequisites.empty())
-			{
-				QueueTask(State);
-			}
-
-			DURIN_TRACE("Task accepted. (task: {}, id: {}, prerequisites: {})", State->GetDebugName(), State->GetTaskId(), Options.Prerequisites.size());
 			return State;
 		}
 
@@ -1754,6 +1894,7 @@ namespace Durin
 		FQueuedThreadPool Pool;
 		mutable std::mutex Mutex;
 		std::condition_variable QuiescenceCV;
+		uint64 PendingSubmissions = 0;
 		std::unordered_map<uint64, std::shared_ptr<FTaskStateData>> ActiveTasks;
 		std::vector<std::weak_ptr<FTaskScopeState>> LiveScopes;
 		std::shared_ptr<FTaskScopeSchedulerAccounting> ScopeAccounting = std::make_shared<FTaskScopeSchedulerAccounting>();
@@ -2463,6 +2604,21 @@ namespace Durin
 		{
 			SharedCancellationState->UnregisterTask(TaskId);
 		}
+		for (;;)
+		{
+			std::shared_ptr<Private::FTaskTerminalHook> Hooks;
+			{
+				std::lock_guard Lock(Mutex);
+				Hooks = std::move(TerminalHooks);
+				if (!Hooks) { bTerminalHooksFinished = true; break; }
+			}
+			while (Hooks)
+			{
+				auto Hook = std::move(Hooks);
+				Hooks = std::move(Hook->Next);
+				Hook->Function(TerminalState);
+			}
+		}
 		{
 			std::lock_guard Lock(Mutex);
 			require(!bTerminalLifetimeCharged);
@@ -2602,6 +2758,7 @@ namespace Durin
 		std::function<void(ETaskState)> Function;
 		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		bool bPublishedTerminal = false;
+		std::shared_ptr<FTaskStateData> InnerToCancel;
 		{
 			std::lock_guard Lock(Mutex);
 			if (IsTerminalState(State))
@@ -2610,18 +2767,20 @@ namespace Durin
 			}
 
 			bCancellationRequested = true;
+			if (bCancelDynamicDependency) InnerToCancel = DynamicPrerequisite;
 			if (CancellationDiagnostic.empty())
 			{
 				CancellationDiagnostic = std::move(InDiagnostic);
 				CancellationReason = InReason;
 				CancellationDirectBlockingTaskId = InDirectBlockingTaskId;
 			}
-			if (State == ETaskState::Waiting || State == ETaskState::Queued)
+			if (!bAdmissionPending && (State == ETaskState::Waiting || State == ETaskState::Queued))
 			{
 				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, PendingFunction, InReason, InDirectBlockingTaskId);
 			}
 		}
 
+		if (InnerToCancel) InnerToCancel->RequestCancellation("Outer task cancellation requested.");
 		if (bPublishedTerminal)
 		{
 			InvokeTaskTerminalPublicationTestHook(TaskId);
@@ -2979,6 +3138,7 @@ namespace Durin
 			SchedulerToDestroy = GTaskScheduler;
 			SchedulerToDestroy->CloseAdmission();
 		}
+		SchedulerToDestroy->WaitForSubmissions();
 		SchedulerToDestroy->CloseLiveScopes(
 			Mode == ETaskShutdownMode::Cancel ? ETaskScopeCloseMode::Cancel : ETaskScopeCloseMode::Drain);
 
@@ -3074,6 +3234,7 @@ namespace Durin
 			SchedulerToDestroy = GTaskScheduler;
 			SchedulerToDestroy->CloseAdmission();
 		}
+		SchedulerToDestroy->WaitForSubmissions();
 		SchedulerToDestroy->CloseLiveScopes(
 			bWaitForQueuedWork ? ETaskScopeCloseMode::Drain : ETaskScopeCloseMode::Cancel);
 
@@ -3190,6 +3351,11 @@ namespace Durin
 
 	namespace Private
 	{
+		auto SetTaskAdmissionAllocationFailureForTests(int32 Checkpoint) -> void
+		{
+			GTaskAdmissionAllocationFailure.store(Checkpoint);
+		}
+
 		auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void
 		{
 			std::lock_guard Lock(GTaskTerminalPublicationTestHookMutex);
@@ -3203,6 +3369,13 @@ namespace Durin
 			GTaskSchedulerSnapshotTestHook = std::move(Hook);
 			GTaskSchedulerSnapshotTestHookEnabled.store(static_cast<bool>(GTaskSchedulerSnapshotTestHook), std::memory_order::release);
 		}
+
+		// Covers preparation, publication, and rejected callable destruction during shutdown.
+		struct FSubmissionGuard
+		{
+			std::shared_ptr<FTaskScheduler> Scheduler;
+			~FSubmissionGuard() { if (Scheduler) Scheduler->EndSubmission(); }
+		};
 
 		auto LaunchCancelableTaskWithCompletion(
 			const char* Name, FMoveOnlyTaskFunction&& Function,
@@ -3254,8 +3427,10 @@ namespace Durin
 				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
 			}
+			FSubmissionGuard Submission;
 			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 
+			{
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
 			{
@@ -3267,8 +3442,11 @@ namespace Durin
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
 			}
 
+			Submission.Scheduler = GTaskScheduler;
+			Submission.Scheduler->BeginSubmission();
+			}
 			Tasks::FTaskAdmissionError AdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
-			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
+			std::shared_ptr<FTaskStateData> State = Submission.Scheduler->Submit(
 				Name,
 				FunctionOwner,
 				std::move(CompletionFunction),
@@ -3332,6 +3510,7 @@ namespace Durin
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::InvalidCallable});
 			}
+			FSubmissionGuard Submission;
 			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 			std::vector<FTaskHandle> Prerequisites;
 			Prerequisites.reserve(Options.Prerequisites.size() + 1);
@@ -3352,14 +3531,18 @@ namespace Durin
 			LaunchOptions.Attribution = ResolvedAttribution;
 			LaunchOptions.Scope = ResolvedScope;
 
+			{
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
 			{
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, FunctionOwner->GetStorageBytes());
 				return FAdmission::Failure({Tasks::ETaskAdmissionErrorCode::LifetimeClosed});
 			}
+			Submission.Scheduler = GTaskScheduler;
+			Submission.Scheduler->BeginSubmission();
+			}
 			Tasks::FTaskAdmissionError AdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
-			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
+			std::shared_ptr<FTaskStateData> State = Submission.Scheduler->Submit(
 				Name,
 				FunctionOwner,
 				std::move(CompletionFunction),
@@ -3375,6 +3558,58 @@ namespace Durin
 				true, &AdmissionError
 			);
 			return State ? FAdmission::Success(FTaskHandle(std::move(State))) : FAdmission::Failure(AdmissionError);
+		}
+
+		auto FTaskRuntimeAccess::GetScope(const FTaskHandle& Task) -> FTaskScopeToken
+		{
+			return Task.State ? Task.State->GetScopeToken() : FTaskScopeToken{};
+		}
+
+		auto FTaskRuntimeAccess::BindTerminal(const FTaskHandle& Task, std::shared_ptr<FTaskTerminalHook> Hook) -> void
+		{
+			require(Task.State && Hook && Hook->Function);
+			Task.State->BindTerminal(std::move(Hook));
+		}
+
+		auto FTaskRuntimeAccess::CompleteExternal(const FTaskHandle& Task, ETaskState Terminal) -> void
+		{
+			require(Task.State && Task.State->IsExternal());
+			if (Terminal == ETaskState::Failed) Task.State->MarkFailed("External task source failed or was abandoned.");
+			else
+			{
+				if (Terminal == ETaskState::Canceled) Task.State->RequestCancellation("External task cancellation acknowledged.");
+				Task.State->MarkSucceeded();
+			}
+		}
+
+		auto FTaskRuntimeAccess::BindDynamicDependency(const FTaskHandle& Task, const FTaskHandle& Inner, bool bCancelInner)
+			-> std::optional<Tasks::FTaskAdmissionError>
+		{
+			// Serializes dynamic edge insertion and cycle checks across concurrent sources.
+			static std::mutex DependencyMutex;
+			{
+				std::lock_guard Lock(DependencyMutex);
+				if (!Task.State || !Inner.State || Task.State->PinScheduler() != Inner.State->PinScheduler())
+					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPrerequisite, Inner.GetTaskId()};
+				if (Task.State == Inner.State || Inner.State->DependsOn(Task.State.get()))
+					return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::DependencyCycle, Inner.GetTaskId()};
+				Task.State->SetDynamicDependency(Inner.State, bCancelInner);
+			}
+			// Cancellation can invoke terminal hooks, so it must happen outside dependency synchronization.
+			if (bCancelInner && Task.State->IsCancellationRequested())
+				Inner.State->RequestCancellation("Outer task cancellation preceded inner binding.");
+			return {};
+		}
+
+		auto FTaskRuntimeAccess::IsCancellationRequested(const FTaskHandle& Task) -> bool
+		{
+			return Task.State && Task.State->MakeCancellationToken().IsCancellationRequested();
+		}
+
+		auto FTaskRuntimeAccess::CancelCurrent() -> void
+		{
+			require(GCurrentTaskState);
+			GCurrentTaskState->RequestCancellation("Task propagated prerequisite cancellation.");
 		}
 
 		auto MakeTaskResultAccounting(const FTaskHandle& Task) -> FTaskResultAccounting
@@ -3448,6 +3683,8 @@ namespace Durin
 			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
 			return {ETaskWaitStatus::UnsupportedThread, State};
 		}
+		if (GCurrentTaskState && Task.State->RequiresGameThread(true))
+			return {ETaskWaitStatus::UnsupportedThread, State};
 		if (GIsGameThreadIdInitialized && IsInGameThread() && Task.State->RequiresGameThread())
 		{
 			DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
