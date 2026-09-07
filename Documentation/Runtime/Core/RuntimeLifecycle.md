@@ -69,7 +69,9 @@ application shutdown. Typed breadcrumbs distinguish the two shutdown
 collections and their adjacent drain boundaries without changing the direct
 shutdown protocol.
 
-After worker-scheduler startup, `PreInit()` installs the bounded
+Worker-scheduler startup creates both the CPU pool and the bounded blocking-I/O
+pool in one lifetime; partial pool startup fails closed. After startup,
+`PreInit()` installs the bounded
 `GameThreadDeferred` executor. Failure to install either executor aborts
 startup; the engine does not expose a partially initialized task system.
 
@@ -265,7 +267,7 @@ shutdown order directly:
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
 | Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
-| Stop CPU work | After CPU producers close work admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |
+| Stop CPU work | After CPU producers close work admission and publication, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |

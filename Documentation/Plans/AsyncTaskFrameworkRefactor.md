@@ -9,8 +9,12 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 4 is next: separate blocking I/O,
-effective CPU priorities, and measured ParallelFor policy.
+Stages 0 through 3 are complete. Stage 4 implementation now supplies separate
+bounded blocking I/O, effective CPU priority/fairness and explicit ParallelFor
+policy, with Windows Debug/Release validation. Its same-environment Stage 0
+comparison remains outstanding: this session has no access to the original
+Apple M4/macOS qualification lane. Stage 5 production cutover remains gated
+on Stage 4 acceptance; neither pilot migration nor plan completion is claimed.
 The unique composition surface now includes async flattening, dynamic/tuple
 fan-in, shared observation, and counted external sources. Production pilots
 remain on their existing implementations until Stages 3 and 4 pass. The fixed
@@ -801,11 +805,11 @@ own source file to stay below MSVC object section limits. Receipt:
 
 Depends on Stage 3; land before production pilot cutover.
 
-- [ ] Introduce the bounded blocking-I/O executor and integrate its shutdown,
+- [x] Introduce the bounded blocking-I/O executor and integrate its shutdown,
   owner accounting, and waits with task-system lifecycle.
-- [ ] Make CPU root and continuation priorities effective and test bounded
+- [x] Make CPU root and continuation priorities effective and test bounded
   fairness so continuous interactive submissions do not starve background work.
-- [ ] Replace implicit ParallelFor serial selection in the new API with
+- [x] Replace implicit ParallelFor serial selection in the new API with
   explicit Auto/Serial/ExplicitBatch policy; retain legacy behavior in adapters.
   Select Auto using measured Release workloads and record its decision rule.
 - [ ] Measure mixed blocking I/O and CPU work, skewed batches, and nested work.
@@ -815,6 +819,84 @@ Acceptance: blocked I/O does not occupy CPU Workers; configured priorities have
 observable scheduling behavior; all executor lifetimes drain without abandoned
 nodes. Performance claims include profile, hardware, workload, sample count,
 median/p95, and the Stage 0 baseline rather than Debug-only timing conclusions.
+
+#### Stage 4 implementation and bounded Windows measurements
+
+The scheduler now owns a two-thread blocking-I/O pool by default, with 128
+nonterminal I/O reservations in addition to shared graph capacity. Roots and
+continuations select it explicitly. Startup failure cleans up partial pools;
+Drain/Cancel shutdown and module callable audits include both executors.
+CPU helping cannot run I/O. I/O executor helping retains its authority through
+nested CPU execution, covering the one-I/O-thread -> CPU -> I/O wait graph.
+Separate I/O queue/capacity/reservation fields preserve CPU diagnostic meaning.
+
+CPU queues use three FIFO lanes. Every eighth dequeue chooses the globally
+oldest lane head, so a fixed old background item cannot be starved by later
+interactive arrivals. Deterministic tests cover both root and continuation
+priority. Owner accounting is reserved before queue insertion, with injected
+allocation rollback and reentrant callable destruction outside the pool lock.
+
+`Tasks::ParallelFor` selects Auto/Serial/ExplicitBatch; zero explicit batch is
+invalid. Auto keeps ranges below 16,384 serial; larger ranges use a
+2,048-element minimum batch, at most CPU Workers plus caller chunks, and
+serial nesting. Repeated 4,096-element measurements changed from a win to a
+regression (325/335.8 us serial median/p95 versus 476.2/556.4 us parallel),
+so that size is deliberately excluded from automatic parallel selection. Legacy options remain serial by default.
+First Release measurements exposed cancellation-state mutex contention in each
+iteration. Atomic read-only cancellation queries remove that contention while
+registration, cancellation writes and terminal publication retain their locks.
+The evidence identifies this polling lock, not shared work-queue contention;
+no work-stealing implementation or separate scheduler rewrite is selected.
+
+Windows diagnostic lane: Intel Core i5-13400F, `windows-msvc-x64`,
+`Win64-Release-DurinEditor`, MSVC 14.44, two CPU and two I/O threads, 14 build
+jobs. Each workload has three warmups and 30 measured samples. Uniform work
+performs 64 dependent integer hash rounds per iteration; skewed work performs
+1,024 rounds for the first eighth. This is a policy-selection workload, not the
+Stage 0 package/texture allocation and retained-memory workload. Timing is
+machine-local evidence and does not accept the original macOS pilot gates.
+
+The measured mixed workload occupies two executor threads with blocking events
+and admits a CPU callback. A 10 ms timed wait releases blocking work when CPU
+execution is prevented; Windows timer scheduling can extend that interval.
+The queue-latency measurement ends at CPU callback entry, before event release
+on the separate-I/O path. Nested policy checks require serial inner chunks and
+exact total coverage. Existing static contiguous chunks still leave skewed work
+less balanced than uniform work; no stronger balancing claim is made.
+
+Final policy measurement (microseconds; each cell is median / p95):
+
+| Workload | Serial | Auto |
+| --- | --- | --- |
+| 1,024 uniform | 83.6 / 106.8 | 85.4 / 91.7 |
+| 1,024 skewed | 343.8 / 348.7 | 343.9 / 434.0 |
+| 4,096 uniform | 338.4 / 478.0 | 335.5 / 356.3 |
+| 4,096 skewed | 1,372.6 / 1,637.9 | 1,397.7 / 1,490.9 |
+| 16,384 uniform | 1,336.7 / 1,775.3 | 561.1 / 1,048.6 |
+| 16,384 skewed | 5,518.5 / 5,894.1 | 4,715.1 / 5,681.3 |
+| 131,072 uniform | 11,596.1 / 15,128.5 | 5,529.2 / 7,938.4 |
+| 131,072 skewed | 44,946.3 / 46,556.4 | 37,564.9 / 38,989.3 |
+
+Both policies take the identical serial path below the threshold; the separate
+cohorts still show timing variance, including the 1,024-skewed p95 increase.
+This noisy lane does not establish portable latency limits. Mixed CPU-entry
+latency was 15,471.7 / 15,948.7 us with both CPU workers blocked and
+20.3 / 29.5 us with separate I/O workers. All qualification correctness checks,
+including nested coverage, passed. Qualification receipt:
+`Build/.agent-state/logs/20260907-114646-335717-18684-ctest.log`.
+
+Final affected validation passed all four selected targets in both configurations:
+`Build/.agent-state/logs/20260907-114800-494307-35048-ctest.log` (Debug) and
+`Build/.agent-state/logs/20260907-114724-553582-35056-ctest.log` (Release).
+The allocation rollback tests now wait for the producer's scheduler reservation
+to be released before checking a zero-capacity precondition; task readiness
+alone intentionally precedes that final accounting step. Changed Runtime
+contracts and all plans validate.
+
+The original Stage 0 median/p95 latency, peak requested bytes and throughput
+thresholds remain unchanged. Access to the original Apple M4/macOS runner is
+required to finish this acceptance step before Stage 5 cutover. No replacement
+baseline is selected.
 
 ### Stage 5: Migrate and qualify production operations
 

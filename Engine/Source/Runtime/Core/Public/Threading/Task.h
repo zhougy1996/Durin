@@ -93,6 +93,7 @@ namespace Durin
 	{
 		AnyWorker,
 		GameThreadDeferred,
+		BlockingIO,
 	};
 
 	enum class ETaskPriority : uint8
@@ -312,6 +313,10 @@ namespace Durin
 		uint64 CurrentTaskReservationCount = 0;
 		uint64 PeakTaskReservationCount = 0;
 		uint32 QueueDepth = 0;
+		uint32 BlockingIOWorkerCount = 0;
+		uint32 BlockingIOQueueDepth = 0;
+		uint32 BlockingIOReservations = 0;
+		uint32 BlockingIOCapacity = 0;
 		uint32 ActiveWorkerCount = 0;
 		uint64 CompletedTaskCount = 0;
 		uint64 FailedTaskCount = 0;
@@ -742,6 +747,8 @@ namespace Durin
 	{
 		uint32 NumWorkerThreads = 0;
 		uint64 MaxNonterminalTasks = 16'384;
+		uint32 NumBlockingIOThreads = 2;
+		uint32 MaxBlockingIOTasks = 128;
 	};
 
 	// Starts the process-owned CPU scheduler. Engine lifecycle starts it once during PreInit.

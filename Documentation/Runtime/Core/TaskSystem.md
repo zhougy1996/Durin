@@ -77,8 +77,8 @@ or a declaration exceeding the installed queue's per-entry/total payload bound.
 Unknown executors, missing deferred executors, and invalid priorities reject
 construction. Capacity/closed-scope rejection preserves a unique input for
 retry. Result-accounting rebinding is allocation-free after node acceptance.
-`FTaskGroup` currently owns a native scope and supports explicit close/timed
-wait with the scope's existing semantics.
+`FTaskGroup` adds checked creation, counted child admission and nonblocking
+Join to the native scope; see the owner-operation contract below.
 
 `ThenAsync` represents inner completion, including an inner admission failure.
 Unique inner cancellation is forwarded; a shared inner yields an immutable
@@ -418,10 +418,16 @@ chunks may finish. The result is `Failed` if any chunk failed, otherwise
 fail, the diagnostic from the lowest range start is selected for schedule-
 independent reporting.
 
-The default `FParallelForOptions::MinBatchSize` is the serial sentinel. The V1
-Debug qualification workload found no parallel crossover through 1,048,576
-iterations for its synthetic CPU workload. A subsystem may opt in with an
-explicit batch size only after measuring its real workload and build profile.
+The legacy `FParallelForOptions::MinBatchSize` default remains the serial
+sentinel. The new `Tasks::ParallelFor` takes `FParallelForPolicyOptions` with
+`Auto`, `Serial`, or `ExplicitBatch`. ExplicitBatch rejects zero. Auto uses a
+16,384-element parallel threshold, a 2,048-element minimum batch above that
+threshold, at most CPU Worker count plus caller chunks, and serial nesting. This decision
+is based on the bounded Windows Release hash workload recorded in the active
+[refactor plan](../../Plans/AsyncTaskFrameworkRefactor.md); it is not a promise
+that arbitrary tiny callbacks or other hardware improve. Callers can select
+Serial or an explicitly measured batch for their workload. Cancellation polling
+uses atomic reads; cancellation registration and publication retain their locks.
 
 ## Thread And Object Ownership
 
@@ -647,3 +653,24 @@ remain with the subsystem.
 Shared immutable aliases retain native result ownership after their facade is
 dropped. Module Drain therefore remains blocked by retained aliases, external
 sources and operation tickets even after ordinary execution Join is ready.
+
+## Blocking I/O and CPU queue policy
+
+The process scheduler owns a separate blocking-I/O pool in the same lifetime.
+`FTaskSchedulerConfig` defaults to two I/O threads and 128 nonterminal I/O nodes;
+both must be positive. I/O admission also consumes the shared task capacity.
+`Tasks::ETaskExecutor::BlockingIO` and native `ETaskTarget::BlockingIO` select
+this pool for roots and continuations. It wraps blocking operations and makes
+no kernel-async claim. CPU helping never executes I/O nodes. An I/O task may
+help its own pool while waiting, so a one-thread I/O parent can await its child.
+Drain/cancel shutdown joins both pools, and module callable audits include
+both pools. Diagnostics report separate I/O threads, queue depth, reservations
+and capacity; CPU active-worker and queue fields keep their existing meaning.
+
+CPU root and continuation priorities now select three FIFO lanes. Normally the
+highest nonempty lane wins; every eighth dispatch selects the oldest lane head
+across priorities. Thus new High work cannot indefinitely overtake existing
+Low work. Helping follows the same selection rule. The deferred executor keeps
+its existing separate strict-priority policy. Pool admission reserves owner-tag
+accounting before transferring callable storage; failed allocation rolls back
+owner accounting and destroys user storage outside the pool mutex.

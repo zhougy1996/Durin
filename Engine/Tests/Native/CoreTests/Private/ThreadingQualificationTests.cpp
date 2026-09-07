@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin
@@ -228,5 +229,82 @@ namespace Durin
 			<< ",move_only_callable_ns=" << MoveOnlyCallableNanoseconds
 			<< ",shared_transfer_ns=" << SharedTransferNanoseconds
 			<< ",unique_transfer_ns=" << UniqueTransferNanoseconds << '\n';
+	}
+	TEST(FTaskPolicyQualificationTests, ReleaseParallelCrossoverSkewAndNestedWork)
+	{
+		FTaskSchedulerQualificationGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		constexpr int Warmups = 3;
+		constexpr int Samples = 30;
+		for (uint64 Count : {1024ull, 4096ull, 16384ull, 131072ull})
+		{
+			for (bool Skewed : {false, true})
+			{
+				std::vector<uint64> Values(Count);
+				for (auto Policy : {Tasks::EParallelForPolicy::Serial, Tasks::EParallelForPolicy::Auto})
+				{
+					std::vector<double> Times;
+					for (int Sample = -Warmups; Sample < Samples; ++Sample)
+					{
+						const auto Start = std::chrono::steady_clock::now();
+						auto Result = Tasks::ParallelFor("PolicyCrossover", Count, [&](uint64 Index) {
+							uint64 Value = Index + 1;
+							const int Rounds = Skewed && Index < Count / 8 ? 1024 : 64;
+							for (int Round = 0; Round < Rounds; ++Round) Value = (Value ^ (Value >> 13)) * 0x9e3779b97f4a7c15ull;
+							Values[Index] = Value;
+						}, {.Policy = Policy});
+						ASSERT_EQ(ETaskState::Succeeded, Result.State);
+						const double Micros = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Start).count();
+						if (Sample >= 0) Times.push_back(Micros);
+					}
+					std::ranges::sort(Times);
+					std::cout << "TaskPolicy count=" << Count << " skew=" << Skewed << " policy=" << static_cast<int>(Policy)
+						<< " warmup=" << Warmups << " samples=" << Samples << " median_us=" << Times[Samples / 2]
+						<< " p95_us=" << Times[28] << " checksum=" << Values.back() << '\n';
+				}
+			}
+		}
+		std::atomic<uint64> Total = 0;
+		auto Outer = Tasks::ParallelFor("NestedPolicy", 16384, [&](uint64) {
+			auto Inner = Tasks::ParallelFor("NestedInner", 2, [&](uint64) { ++Total; });
+			EXPECT_EQ(1u, Inner.ChunkCount);
+		});
+		EXPECT_EQ(ETaskState::Succeeded, Outer.State);
+		EXPECT_EQ(32768u, Total.load());
+	}
+	TEST(FTaskPolicyQualificationTests, MixedBlockingAndCpuCompletionLatency)
+	{
+		FTaskSchedulerQualificationGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		for (auto Target : {ETaskTarget::AnyWorker, ETaskTarget::BlockingIO})
+		{
+			std::vector<double> Samples;
+			for (int Sample = -3; Sample < 30; ++Sample)
+			{
+				FThreadEvent StartedA, StartedB, Release, CpuDone;
+				FTaskLaunchOptions Options;
+				Options.Target = Target;
+				auto A = LaunchTask("MixedBlockA", [&] { StartedA.Trigger(); Release.Wait(); }, Options);
+				auto B = LaunchTask("MixedBlockB", [&] { StartedB.Trigger(); Release.Wait(); }, Options);
+				ASSERT_TRUE(StartedA.WaitFor(1.0));
+				ASSERT_TRUE(StartedB.WaitFor(1.0));
+				double Latency = 0;
+				const auto Start = std::chrono::steady_clock::now();
+				auto CPU = LaunchTask("MixedCpu", [&] {
+					Latency = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - Start).count();
+					CpuDone.Trigger();
+				});
+				const bool RanWhileBlocked = CpuDone.WaitFor(0.01);
+				Release.Trigger();
+				EXPECT_EQ(Target == ETaskTarget::BlockingIO, RanWhileBlocked);
+				EXPECT_EQ(ETaskState::Succeeded, WaitTask(A).TaskState);
+				EXPECT_EQ(ETaskState::Succeeded, WaitTask(B).TaskState);
+				EXPECT_EQ(ETaskState::Succeeded, WaitTask(CPU).TaskState);
+				if (Sample >= 0) Samples.push_back(Latency);
+			}
+			std::ranges::sort(Samples);
+			std::cout << "TaskMixed target=" << static_cast<int>(Target) << " warmup=3 samples=30 median_us=" << Samples[15]
+				<< " p95_us=" << Samples[28] << '\n';
+		}
 	}
 }

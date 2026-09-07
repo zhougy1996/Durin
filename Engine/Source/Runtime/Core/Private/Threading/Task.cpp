@@ -392,6 +392,7 @@ namespace Durin
 
 		thread_local FTaskStateData* GCurrentTaskState = nullptr;
 		thread_local FTaskScheduler* GCurrentTaskScheduler = nullptr;
+		thread_local bool GExecutingBlockingIOPool = false;
 		thread_local uint32 GParallelForDepth = 0;
 		thread_local bool GIsPumpingGameThreadDeferred = false;
 
@@ -453,8 +454,7 @@ namespace Durin
 	public:
 		auto IsCancellationRequested() const -> bool
 		{
-			std::lock_guard Lock(Mutex);
-			return bCancellationRequested;
+			return bCancellationRequested.load(std::memory_order_acquire);
 		}
 
 		auto RegisterTask(const std::shared_ptr<FTaskStateData>& Task) -> void;
@@ -464,7 +464,7 @@ namespace Durin
 	private:
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::weak_ptr<FTaskStateData>> Tasks;
-		bool bCancellationRequested = false;
+		std::atomic<bool> bCancellationRequested = false;
 	};
 
 	class FTaskScopeState final
@@ -764,8 +764,7 @@ namespace Durin
 
 		auto IsCancellationRequested() const -> bool
 		{
-			std::lock_guard Lock(Mutex);
-			return bCancellationRequested;
+			return bCancellationRequested.load(std::memory_order_acquire);
 		}
 
 		auto DependsOn(const FTaskStateData* PotentialPrerequisite) const -> bool
@@ -997,7 +996,7 @@ namespace Durin
 		uint64 CallableStorageBytes = 0;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
-		bool bCancellationRequested = false;
+		std::atomic<bool> bCancellationRequested = false;
 		bool bTerminalPublicationFinished = false;
 		bool bTerminalLifetimeCharged = false;
 		bool bTerminalResultLifetimeCharged = false;
@@ -1211,6 +1210,8 @@ namespace Durin
 				return nullptr;
 			}
 
+			if (!Scheduler->BlockingIOPool.Create(Config.NumBlockingIOThreads, "EngineBlockingIO")) return nullptr;
+			Scheduler->BlockingIOCapacity = Config.MaxBlockingIOTasks;
 			Scheduler->WorkerCount = NumThreads;
 			Scheduler->TaskReservationCapacity = Config.MaxNonterminalTasks;
 			Scheduler->bAcceptingTasks = true;
@@ -1418,7 +1419,8 @@ namespace Durin
 					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					return {};
 				}
-				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity)
+				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
+					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity))
 				{
 					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::CapacityExhausted, 0};
@@ -1475,6 +1477,7 @@ namespace Durin
 					CheckTaskAdmissionAllocation(5);
 					State->InitializeOwnership(FunctionOwner, CompletionFunction);
 					if (Options.bExternalCompletion) State->ConfigureExternal(Options.bUnknownExecutionRequirement);
+					if (Target == ETaskTarget::BlockingIO) ++BlockingIOReservations;
 				}
 				catch (...)
 				{
@@ -1561,15 +1564,17 @@ namespace Durin
 				return;
 			}
 
-			const bool bAccepted = Pool.Enqueue(
+			auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+			const bool bAccepted = ExecutionPool.Enqueue(
 				State->GetDebugName(),
 				[State, Scheduler = this, Function = std::move(Function)]() mutable {
-					Scheduler->ExecuteTask(State, std::move(Function), true);
+					Scheduler->ExecuteTask(State, std::move(Function), State->GetTarget() == ETaskTarget::AnyWorker);
 				},
 				[State]() {
 					State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 				},
-				State->GetScope() ? State->GetScope()->GetScopeId() : 0
+				State->GetScope() ? State->GetScope()->GetScopeId() : 0,
+				static_cast<EQueuedWorkPriority>(State->GetPriority())
 			);
 
 			if (!bAccepted)
@@ -1601,6 +1606,8 @@ namespace Durin
 
 			FTaskStateData* PreviousTaskState = GCurrentTaskState;
 			FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
+			const bool PreviousBlockingIOPool = GExecutingBlockingIOPool;
+			GExecutingBlockingIOPool = PreviousBlockingIOPool || State->GetTarget() == ETaskTarget::BlockingIO;
 			GCurrentTaskState = State.get();
 			GCurrentTaskScheduler = this;
 
@@ -1623,6 +1630,7 @@ namespace Durin
 
 			GCurrentTaskState = PreviousTaskState;
 			GCurrentTaskScheduler = PreviousTaskScheduler;
+			GExecutingBlockingIOPool = PreviousBlockingIOPool;
 			if (bWorkerExecution) OnWorkerFinished();
 		}
 
@@ -1651,7 +1659,9 @@ namespace Durin
 					Task->RequestCancellation("Task was canceled during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 				}
 
+				BlockingIOPool.StopAcceptingWork();
 				Pool.Destroy(false);
+				BlockingIOPool.Destroy(false);
 			}
 
 			{
@@ -1688,6 +1698,7 @@ namespace Durin
 			if (bWaitForQueuedWork)
 			{
 				Pool.Destroy(true);
+				BlockingIOPool.Destroy(true);
 			}
 		}
 
@@ -1731,6 +1742,7 @@ namespace Durin
 				static_cast<uint8>(Task.TerminalReason));
 
 			std::lock_guard Lock(Mutex);
+			if (State->GetTarget() == ETaskTarget::BlockingIO) { require(BlockingIOReservations > 0); --BlockingIOReservations; }
 			const size_t RemovedTaskCount = ActiveTasks.erase(State->GetTaskId());
 			check(RemovedTaskCount == 1);
 			const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
@@ -1749,6 +1761,7 @@ namespace Durin
 
 		auto TryExecuteOneQueuedTask() -> bool
 		{
+			if (GExecutingBlockingIOPool && BlockingIOPool.TryExecuteOneQueuedTask()) return true;
 			return Pool.TryExecuteOneQueuedTask();
 		}
 
@@ -1843,6 +1856,10 @@ namespace Durin
 			Snapshot.CurrentTaskReservationCount = CurrentTaskReservationCount.load(std::memory_order::acquire);
 			Snapshot.PeakTaskReservationCount = PeakTaskReservationCount.load(std::memory_order::acquire);
 			Snapshot.QueueDepth = Pool.GetNumQueuedTasks();
+			Snapshot.BlockingIOWorkerCount = BlockingIOPool.GetNumThreads();
+			Snapshot.BlockingIOQueueDepth = BlockingIOPool.GetNumQueuedTasks();
+			Snapshot.BlockingIOCapacity = BlockingIOCapacity;
+			{ std::lock_guard Lock(Mutex); Snapshot.BlockingIOReservations = BlockingIOReservations; }
 			Snapshot.ActiveWorkerCount = ActiveWorkerCount.load(std::memory_order::acquire);
 			Snapshot.CompletedTaskCount = CompletedTaskCount.load(std::memory_order::acquire);
 			Snapshot.FailedTaskCount = FailedTaskCount.load(std::memory_order::acquire);
@@ -1904,15 +1921,21 @@ namespace Durin
 		auto GetLifetimeAccounting() const -> const std::shared_ptr<FTaskSchedulerLifetimeAccounting>& { return LifetimeAccounting; }
 		auto WaitForScopeWorkerCallables(uint64 ScopeId, double TimeoutSeconds) -> bool
 		{
-			return Pool.WaitForOwnerTagIdle(ScopeId, TimeoutSeconds);
+			const auto Started = std::chrono::steady_clock::now();
+			if (!Pool.WaitForOwnerTagIdle(ScopeId, TimeoutSeconds)) return false;
+			const double Elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count();
+			return BlockingIOPool.WaitForOwnerTagIdle(ScopeId, std::max(0.0, TimeoutSeconds - Elapsed));
 		}
 		auto GetScopeWorkerCallableCount(uint64 ScopeId) const -> uint32
 		{
-			return Pool.GetOwnerTagOutstandingCount(ScopeId);
+			return Pool.GetOwnerTagOutstandingCount(ScopeId) + BlockingIOPool.GetOwnerTagOutstandingCount(ScopeId);
 		}
 
 	private:
 		FQueuedThreadPool Pool;
+		FQueuedThreadPool BlockingIOPool;
+		uint32 BlockingIOCapacity = 0;
+		uint32 BlockingIOReservations = 0;
 		mutable std::mutex Mutex;
 		std::condition_variable QuiescenceCV;
 		uint64 PendingSubmissions = 0;
@@ -2475,10 +2498,10 @@ namespace Durin
 		-> std::optional<Tasks::FTaskAdmissionError>
 	{
 		using ECode = Tasks::ETaskAdmissionErrorCode;
-		if ((Target != ETaskTarget::AnyWorker && Target != ETaskTarget::GameThreadDeferred)
+		if ((Target != ETaskTarget::AnyWorker && Target != ETaskTarget::GameThreadDeferred && Target != ETaskTarget::BlockingIO)
 			|| (Priority != ETaskPriority::High && Priority != ETaskPriority::Normal && Priority != ETaskPriority::Low))
 			return Tasks::FTaskAdmissionError{ECode::UnsupportedExecutor};
-		if (Target == ETaskTarget::AnyWorker) return {};
+		if (Target == ETaskTarget::AnyWorker || Target == ETaskTarget::BlockingIO) return {};
 		if (PayloadBytes == 0) return Tasks::FTaskAdmissionError{ECode::InvalidPayloadDeclaration};
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
@@ -3063,7 +3086,8 @@ namespace Durin
 			DURIN_ERROR("Task scheduler initialization rejected while shutdown is in progress.");
 			return false;
 		}
-		if (Config.MaxNonterminalTasks == 0 || Config.MaxNonterminalTasks > std::numeric_limits<uint32>::max())
+		if (Config.MaxNonterminalTasks == 0 || Config.MaxNonterminalTasks > std::numeric_limits<uint32>::max()
+			|| Config.NumBlockingIOThreads == 0 || Config.MaxBlockingIOTasks == 0)
 		{
 			DURIN_ERROR("Task scheduler initialization rejected because capacity must be between 1 and uint32 max.");
 			return false;

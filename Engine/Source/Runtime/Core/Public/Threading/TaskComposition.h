@@ -32,6 +32,37 @@ namespace Durin::Tasks
 		uint64 EstimatedResultBytes = 0;
 	};
 
+	enum class EParallelForPolicy : uint8 { Auto, Serial, ExplicitBatch };
+	struct FParallelForPolicyOptions
+	{
+		EParallelForPolicy Policy = EParallelForPolicy::Auto;
+		uint64 BatchSize = 0;
+		FTaskCancellationToken Cancellation;
+		FTaskAttribution Attribution;
+		FTaskScopeToken Scope;
+	};
+	inline auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
+		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult
+	{
+		FParallelForOptions Native;
+		Native.CancellationToken = Options.Cancellation;
+		Native.Attribution = Options.Attribution;
+		Native.Scope = Options.Scope;
+		switch (Options.Policy)
+		{
+		case EParallelForPolicy::Auto:
+			if (Num >= 16'384) Native.MinBatchSize = 2048;
+			break;
+		case EParallelForPolicy::Serial: break;
+		case EParallelForPolicy::ExplicitBatch:
+			if (Options.BatchSize == 0) return {ETaskState::Invalid, "ExplicitBatch requires a positive batch size.", 0};
+			Native.MinBatchSize = Options.BatchSize;
+			break;
+		default: return {ETaskState::Invalid, "Unknown ParallelFor policy.", 0};
+		}
+		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
+	}
+
 	// Non-consuming observation carries no access to the unique result.
 	class FTaskCompletion
 	{
@@ -208,6 +239,7 @@ namespace Durin::Tasks
 		inline auto Target(ETaskExecutor Executor) -> ETaskTarget
 		{
 			if (Executor == ETaskExecutor::Worker) return ETaskTarget::AnyWorker;
+			if (Executor == ETaskExecutor::BlockingIO) return ETaskTarget::BlockingIO;
 			if (Executor == ETaskExecutor::GameThreadDeferred) return ETaskTarget::GameThreadDeferred;
 			return static_cast<ETaskTarget>(255);
 		}

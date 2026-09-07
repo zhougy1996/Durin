@@ -16,7 +16,41 @@ namespace Durin
 			std::unique_ptr<FQueuedWorkFunction> Function;
 			FQueuedWorkDiscardFunction Discard;
 			uint64 OwnerTag = 0;
+			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal;
+			uint64 Sequence = 0;
 		};
+
+		// FIFO within each priority; every eighth dispatch selects the oldest head.
+		// New interactive arrivals cannot indefinitely overtake previously queued work.
+		struct FWorkQueue
+		{
+			std::array<std::deque<FQueuedWork>, 3> Lanes;
+			uint64 NextSequence = 0;
+			uint32 PreferredDispatches = 0;
+			auto empty() const -> bool { return size() == 0; }
+			auto size() const -> size_t { return Lanes[0].size() + Lanes[1].size() + Lanes[2].size(); }
+			auto emplace_back(FQueuedWork&& Work) -> void
+			{
+				Work.Sequence = NextSequence++;
+				Lanes[static_cast<size_t>(Work.Priority)].emplace_back(std::move(Work));
+			}
+			auto Take() -> FQueuedWork
+			{
+				size_t Selected = 3;
+				for (size_t Index = 0; Index < 3; ++Index)
+				{
+					if (Lanes[Index].empty()) continue;
+					if (Selected == 3 || (PreferredDispatches == 7 && Lanes[Index].front().Sequence < Lanes[Selected].front().Sequence)) Selected = Index;
+				}
+				require(Selected < 3);
+				PreferredDispatches = (PreferredDispatches + 1) % 8;
+				auto Work = std::move(Lanes[Selected].front());
+				Lanes[Selected].pop_front();
+				return Work;
+			}
+		};
+
+		std::atomic<bool> GFailQueuedWorkAllocation = false;
 
 		thread_local const void* GCurrentQueuedThreadPool = nullptr;
 	}
@@ -54,7 +88,7 @@ namespace Durin
 
 		auto Create(uint32 InNumThreads, const char* InPoolName, uint32 WorkerCreationFailureIndex) -> bool
 		{
-			std::deque<FQueuedWork> PreviousWork;
+			FWorkQueue PreviousWork;
 			if (InNumThreads == 0)
 			{
 				DURIN_WARN("Queued thread pool creation failed because thread count is zero. (pool: {})", InPoolName ? InPoolName : "");
@@ -115,7 +149,7 @@ namespace Durin
 		{
 			std::vector<std::unique_ptr<FRunnableThread>> ThreadsToJoin;
 			std::vector<std::unique_ptr<FWorkerRunnable>> RunnablesToDestroy;
-			std::deque<FQueuedWork> DiscardedWork;
+			FWorkQueue DiscardedWork;
 			std::string DestroyedPoolName;
 			size_t DestroyedWorkerCount = 0;
 
@@ -174,29 +208,39 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard,
-			uint64 OwnerTag
+			uint64 OwnerTag,
+			EQueuedWorkPriority Priority
 		) -> bool
 		{
-			if (!Work)
+			if (!Work || static_cast<uint8>(Priority) > static_cast<uint8>(EQueuedWorkPriority::Low))
 			{
 				return false;
 			}
-			auto WorkOwner = std::make_unique<FQueuedWorkFunction>(std::move(Work));
-
+			// Keep all user storage outside the lock scope until queue insertion succeeds.
+			FQueuedWork Item{TaskName ? TaskName : "QueuedWork",
+				std::make_unique<FQueuedWorkFunction>(std::move(Work)), std::move(Discard), OwnerTag, Priority};
 			{
 				std::lock_guard Lock(Mutex);
-				if (!bRunning || !bAcceptingWork || bStopRequested)
+				if (!bRunning || !bAcceptingWork || bStopRequested) return false;
+				auto Owner = OutstandingOwnerTags.end();
+				bool bInsertedOwner = false;
+				if (OwnerTag != 0)
 				{
-					return false;
+					auto Inserted = OutstandingOwnerTags.try_emplace(OwnerTag, 0);
+					Owner = Inserted.first;
+					bInsertedOwner = Inserted.second;
 				}
-
-				Queue.emplace_back(FQueuedWork{
-					TaskName ? TaskName : "QueuedWork",
-					std::move(WorkOwner),
-					std::move(Discard),
-					OwnerTag,
-				});
-				if (OwnerTag != 0) ++OutstandingOwnerTags[OwnerTag];
+				try
+				{
+					if (GFailQueuedWorkAllocation.exchange(false)) throw std::bad_alloc();
+					Queue.emplace_back(std::move(Item));
+				}
+				catch (...)
+				{
+					if (bInsertedOwner) OutstandingOwnerTags.erase(Owner);
+					throw;
+				}
+				if (OwnerTag != 0) ++Owner->second;
 			}
 
 			WorkAvailableCV.notify_one();
@@ -269,7 +313,7 @@ namespace Durin
 	private:
 		auto RequestStop(bool bWaitForQueuedWork) -> void
 		{
-			std::deque<FQueuedWork> DiscardedWork;
+			FWorkQueue DiscardedWork;
 			{
 				std::lock_guard Lock(Mutex);
 				bAcceptingWork = false;
@@ -309,8 +353,7 @@ namespace Durin
 						continue;
 					}
 
-					Work = std::move(Queue.front());
-					Queue.pop_front();
+					Work = Queue.Take();
 					++ActiveTaskCount;
 				}
 
@@ -332,8 +375,7 @@ namespace Durin
 				return false;
 			}
 
-			OutWork = std::move(Queue.front());
-			Queue.pop_front();
+			OutWork = Queue.Take();
 			++ActiveTaskCount;
 			return true;
 		}
@@ -366,10 +408,11 @@ namespace Durin
 			}
 		}
 
-		auto DiscardWork(std::deque<FQueuedWork>&& WorkItems) -> void
+		auto DiscardWork(FWorkQueue&& WorkItems) -> void
 		{
-			for (FQueuedWork& Work : WorkItems)
+			while (!WorkItems.empty())
 			{
+				auto Work = WorkItems.Take();
 				if (Work.Discard)
 				{
 					try
@@ -416,7 +459,7 @@ namespace Durin
 		std::condition_variable WorkAvailableCV;
 		std::condition_variable IdleCV;
 		std::condition_variable OwnerIdleCV;
-		std::deque<FQueuedWork> Queue;
+		FWorkQueue Queue;
 		std::unordered_map<uint64, uint32> OutstandingOwnerTags;
 
 		std::vector<std::unique_ptr<FWorkerRunnable>> WorkerRunnables;
@@ -456,10 +499,11 @@ namespace Durin
 		const char* TaskName,
 		FQueuedWorkFunction&& Work,
 		FQueuedWorkDiscardFunction&& Discard,
-		uint64 OwnerTag
+		uint64 OwnerTag,
+		EQueuedWorkPriority Priority
 	) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), OwnerTag);
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), OwnerTag, Priority);
 	}
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
@@ -495,6 +539,11 @@ namespace Durin
 	auto FQueuedThreadPool::IsRunning() const -> bool
 	{
 		return Impl->IsRunning();
+	}
+
+	auto Private::SetQueuedWorkAllocationFailureForTests(bool bFail) -> void
+	{
+		GFailQueuedWorkAllocation.store(bFail);
 	}
 
 	auto GetDefaultThreadPoolThreadCount() -> uint32

@@ -355,6 +355,25 @@ namespace Durin
 		}
 	} // namespace
 
+	TEST(FQueuedThreadPoolTests, AllocationRollbackReleasesOwnerAndCallableOutsideLock)
+	{
+		FQueuedThreadPool Pool;
+		ASSERT_TRUE(Pool.Create(1));
+		bool Destroyed = false;
+		auto Capture = std::shared_ptr<int>(new int(7), [&](int* Value) {
+			EXPECT_EQ(0u, Pool.GetOwnerTagOutstandingCount(7));
+			Destroyed = true;
+			delete Value;
+		});
+		Private::SetQueuedWorkAllocationFailureForTests(true);
+		EXPECT_THROW(Pool.Enqueue("FailedQueueAllocation", [Capture = std::move(Capture)] {}, {}, 7), std::bad_alloc);
+		Private::SetQueuedWorkAllocationFailureForTests(false);
+		EXPECT_TRUE(Destroyed);
+		EXPECT_EQ(0u, Pool.GetNumQueuedTasks());
+		EXPECT_TRUE(Pool.Enqueue("RetryQueueAllocation", [] {}, {}, 7));
+		EXPECT_TRUE(Pool.WaitForOwnerTagIdle(7, 1.0));
+	}
+
 	TEST(FThreadEventTests, StartsUnsignaledAndWakesAfterTrigger)
 	{
 		FThreadEvent Event;
@@ -2472,6 +2491,10 @@ namespace Durin
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		auto Root = LaunchTask("CapacityAdmissionRoot", [] {});
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
+		const auto ReservationDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0
+			&& std::chrono::steady_clock::now() < ReservationDeadline) std::this_thread::yield();
+		ASSERT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 		FTaskContinuationOptions Deferred;
 		Deferred.Target = ETaskTarget::GameThreadDeferred;
 		Deferred.EstimatedPayloadBytes = 32;

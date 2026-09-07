@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	enum class EQueuedWorkPriority : uint8 { High, Normal, Low };
+
 	using FQueuedWorkFunction = Private::TMoveOnlyFunction<void()>;
 	using FQueuedWorkDiscardFunction = std::function<void()>;
 
@@ -30,7 +32,8 @@ namespace Durin
 			const char* TaskName,
 			FQueuedWorkFunction&& Work,
 			FQueuedWorkDiscardFunction&& Discard = {},
-			uint64 OwnerTag = 0
+			uint64 OwnerTag = 0,
+			EQueuedWorkPriority Priority = EQueuedWorkPriority::Normal
 		) -> bool;
 		CORE_API auto TryExecuteOneQueuedTask() -> bool;
 		// Waits until queued and executing work carrying OwnerTag has released its callable storage.
@@ -49,6 +52,8 @@ namespace Durin
 
 		std::unique_ptr<FImpl> Impl;
 	};
+
+	namespace Private { CORE_API auto SetQueuedWorkAllocationFailureForTests(bool bFail) -> void; }
 
 	CORE_API auto GetDefaultThreadPoolThreadCount() -> uint32;
 }

@@ -85,7 +85,7 @@ namespace Durin
 		auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [] { return 23; });
 		ASSERT_TRUE(Admission.HasValue());
 		auto Task = std::move(Admission).TakeValue();
-		auto Rejected = Tasks::Then(std::move(Task), Tasks::ETaskExecutor::BlockingIO, Options, [](int Value) { return Value; });
+		auto Rejected = Tasks::Then(std::move(Task), static_cast<Tasks::ETaskExecutor>(255), Options, [](int Value) { return Value; });
 		ASSERT_FALSE(Rejected.HasValue());
 		EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::UnsupportedExecutor, Rejected.GetError().Code);
 		EXPECT_TRUE(Task.IsValid());
@@ -275,7 +275,7 @@ namespace Durin
 			ASSERT_TRUE(Admission.HasValue());
 			Inputs.emplace_back(std::move(Admission).TakeValue());
 		}
-		auto Rejected = Tasks::WhenAll(std::move(Inputs), Tasks::ETaskExecutor::BlockingIO);
+		auto Rejected = Tasks::WhenAll(std::move(Inputs), static_cast<Tasks::ETaskExecutor>(255));
 		ASSERT_FALSE(Rejected.HasValue());
 		for (auto& Input : Inputs) EXPECT_TRUE(Input.IsValid());
 		auto AllAdmission = Tasks::WhenAll(std::move(Inputs));
@@ -417,6 +417,11 @@ namespace Durin
 		ASSERT_TRUE(Admission.HasValue());
 		auto Input = std::move(Admission).TakeValue();
 		ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Input.GetCompletion()).TaskState);
+		// Native readiness precedes final scheduler-accounting release.
+		const auto AccountingDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while ((GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0 || Group.GetDiagnostics().CurrentActiveCount != 0)
+			&& std::chrono::steady_clock::now() < AccountingDeadline) std::this_thread::yield();
+		ASSERT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 		for (int32 Checkpoint = 1; Checkpoint <= 5; ++Checkpoint)
 		{
 			Private::SetTaskAdmissionAllocationFailureForTests(Checkpoint);
@@ -705,4 +710,150 @@ namespace Durin
 		Queue.Close(); Group.Close();
 	}
 
+	TEST(FTaskExecutorTests, BlockingIOIsBoundedAndDoesNotOccupyCpuWorkers)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 32, .NumBlockingIOThreads = 1, .MaxBlockingIOTasks = 1}));
+		Tasks::FTaskGroup Group;
+		FThreadEvent Started;
+		FThreadEvent Release;
+		auto IO = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, {}, [&] { Started.Trigger(); Release.Wait(); return 5; });
+		ASSERT_TRUE(IO.HasValue());
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		auto Overflow = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, {}, [] {});
+		EXPECT_FALSE(Overflow.HasValue());
+		if (!Overflow.HasValue()) EXPECT_EQ(Tasks::ETaskAdmissionErrorCode::CapacityExhausted, Overflow.GetError().Code);
+		FThreadEvent CpuRan;
+		auto CPU = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [&] { CpuRan.Trigger(); });
+		EXPECT_TRUE(CPU.HasValue());
+		EXPECT_TRUE(CpuRan.WaitFor(1.0));
+		Release.Trigger();
+		auto Task = std::move(IO).TakeValue();
+		EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+
+	TEST(FTaskExecutorTests, CpuRootsAndContinuationsHonorPriorityWithBoundedOldestService)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		Tasks::FTaskGroup Group;
+		FThreadEvent Started;
+		FThreadEvent Release;
+		auto Blocker = LaunchTask("PriorityBlocker", [&] { Started.Trigger(); Release.Wait(); });
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		std::vector<int> Order;
+		std::vector<FTaskHandle> Completions;
+		Tasks::FTaskExecutionOptions Options;
+		Options.Priority = ETaskPriority::Low;
+		auto Low = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [&] { Order.push_back(-1); });
+		ASSERT_TRUE(Low.HasValue());
+		Completions.push_back(std::move(Low).TakeValue().GetCompletion().GetTaskHandle());
+		auto SourceAdmission = Tasks::TCompletionSource<void>::TryCreate(Group, {});
+		ASSERT_TRUE(SourceAdmission.HasValue());
+		auto Source = std::move(SourceAdmission).TakeValue();
+		auto Input = Source.TakeTask();
+		Options.Priority = ETaskPriority::High;
+		auto Edge = Tasks::Then(std::move(Input), Tasks::ETaskExecutor::Worker, Options, [&] { Order.push_back(99); });
+		ASSERT_TRUE(Edge.HasValue());
+		Completions.push_back(std::move(Edge).TakeValue().GetCompletion().GetTaskHandle());
+		Source.TrySetValue();
+		for (int Index = 0; Index < 24; ++Index)
+		{
+			auto High = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options, [&, Index] { Order.push_back(Index); });
+			ASSERT_TRUE(High.HasValue());
+			Completions.push_back(std::move(High).TakeValue().GetCompletion().GetTaskHandle());
+		}
+		Release.Trigger();
+		WaitAll(Completions);
+		ASSERT_EQ(26u, Order.size());
+		EXPECT_EQ(99, Order.front());
+		EXPECT_LE(std::ranges::find(Order, -1) - Order.begin(), 7);
+		std::erase(Order, -1);
+		for (int Index = 0; Index < 24; ++Index) EXPECT_EQ(Index, Order[Index + 1]);
+		Group.Close();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+	}
+	TEST(FTaskExecutorTests, BlockingIoChildWaitAndCrossExecutorShutdownDrain)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		for (bool Drain : {true, false})
+		{
+			ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+			Tasks::FTaskGroup Group;
+			auto Parent = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, {}, [](Tasks::FTaskContext& Context) {
+				auto Child = Context.TrySpawnChild(Tasks::ETaskExecutor::BlockingIO, {}, [] { return 11; });
+				EXPECT_TRUE(Child.HasValue());
+				if (!Child.HasValue()) return;
+				auto Task = std::move(Child).TakeValue();
+				EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
+			});
+			ASSERT_TRUE(Parent.HasValue());
+			auto ParentTask = std::move(Parent).TakeValue();
+			EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(ParentTask.GetCompletion()).TaskState);
+			FThreadEvent Started, Release;
+			auto IO = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, {}, [&] { Started.Trigger(); Release.Wait(); return 3; });
+			ASSERT_TRUE(IO.HasValue());
+			auto Task = std::move(IO).TakeValue();
+			auto Edge = Tasks::Then(std::move(Task), Tasks::ETaskExecutor::Worker, {}, [](int Value) { return Value + 1; });
+			ASSERT_TRUE(Edge.HasValue());
+			auto Tail = std::move(Edge).TakeValue();
+			ASSERT_TRUE(Started.WaitFor(1.0));
+			std::thread Shutdown([&] { ShutdownTaskScheduler(Drain); });
+			Release.Trigger();
+			Shutdown.join();
+			EXPECT_TRUE(Tail.GetCompletion().IsReady());
+			if (Drain) EXPECT_EQ(ETaskState::Succeeded, Tail.GetCompletion().GetState());
+			EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().BlockingIOReservations);
+			EXPECT_TRUE(Group.JoinAsync().IsReady());
+		}
+	}
+
+	TEST(FTaskExecutorTests, ParallelPoliciesValidateBatchAndPreserveNestedSerialExecution)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		std::atomic<uint64> Count = 0;
+		EXPECT_EQ(ETaskState::Invalid, Tasks::ParallelFor("InvalidBatch", 8, [](uint64) {},
+			{.Policy = Tasks::EParallelForPolicy::ExplicitBatch}).State);
+		auto Serial = Tasks::ParallelFor("Serial", 8192, [&](uint64) { ++Count; }, {.Policy = Tasks::EParallelForPolicy::Serial});
+		EXPECT_EQ(1u, Serial.ChunkCount);
+		auto Explicit = Tasks::ParallelFor("Explicit", 8, [&](uint64) { ++Count; }, {.Policy = Tasks::EParallelForPolicy::ExplicitBatch, .BatchSize = 1});
+		EXPECT_GT(Explicit.ChunkCount, 1u);
+		auto Auto = Tasks::ParallelFor("AutoNested", 16384, [&](uint64) {
+			auto Nested = Tasks::ParallelFor("Nested", 1, [&](uint64) { ++Count; });
+			EXPECT_EQ(1u, Nested.ChunkCount);
+		});
+		EXPECT_GT(Auto.ChunkCount, 1u);
+		EXPECT_EQ(24584u, Count.load());
+	}
+	TEST(FTaskExecutorTests, IoExecutorRetainsHelpingAuthorityInsideCpuWork)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+		FThreadEvent CpuBlocked, ReleaseCpu, Finished;
+		auto Blocker = LaunchTask("HoldCpu", [&] { CpuBlocked.Trigger(); ReleaseCpu.Wait(); });
+		ASSERT_TRUE(CpuBlocked.WaitFor(1.0));
+		Tasks::FTaskGroup Group;
+		auto Parent = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, {}, [&](Tasks::FTaskContext& Context) {
+			auto Child = Context.TrySpawnChild(Tasks::ETaskExecutor::Worker, {}, [](Tasks::FTaskContext& ChildContext) {
+				auto IO = ChildContext.TrySpawnChild(Tasks::ETaskExecutor::BlockingIO, {}, [] {});
+				ASSERT_TRUE(IO.HasValue());
+				auto Task = std::move(IO).TakeValue();
+				EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
+			});
+			ASSERT_TRUE(Child.HasValue());
+			auto Task = std::move(Child).TakeValue();
+			EXPECT_EQ(ETaskState::Succeeded, Tasks::Wait(Task.GetCompletion()).TaskState);
+			Finished.Trigger();
+		});
+		ASSERT_TRUE(Parent.HasValue());
+		const bool CompletedWhileCpuBlocked = Finished.WaitFor(1.0);
+		Group.Close(CompletedWhileCpuBlocked ? ETaskScopeCloseMode::Drain : ETaskScopeCloseMode::Cancel);
+		ReleaseCpu.Trigger();
+		EXPECT_TRUE(CompletedWhileCpuBlocked);
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, WaitForTaskGroupForTest(Group, 1.0));
+		WaitTask(Blocker);
+	}
 }
