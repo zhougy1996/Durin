@@ -17,7 +17,11 @@ The baseline shadow-array descriptor state failure is fixed: the graph now
 hands off only the active cascade layers to the managed depth pass. The complete
 GPU baseline selection passes 7/7 targets, including directional shadows and
 GBuffer; frozen image expectations are unchanged. The affected ordinary suite
-passes 6/6 targets. No geometry-submission migration adapter exists yet.
+passes 6/6 targets. The first Stage 1 groundwork adds checked resource/draw ranges in RenderCore
+and moves LOD selection/residency policy into Engine without changing its
+algorithm. Engine now exposes the batch/context/collector and an empty default
+primitive collection seam. Existing StaticMesh/Spline providers still use the
+legacy production path; no migration adapter exists yet.
 
 Stage 0 remains open for the predeclared image-pair coverage, allocation/retained
 memory measurements and exclusive GPU performance baseline. Apple M4 timings
@@ -417,7 +421,7 @@ measurements passed.
 
 Dependencies: Stage 0. Outcome: both existing proxies emit the common contract.
 
-- [ ] Add the logical batch, checked range/resource views, collection context,
+- [x] Add the logical batch, checked range/resource views, collection context,
   collector, and render-thread primitive submission seam at the selected layers.
 - [ ] Move StaticMesh LOD/residency selection, section extraction, and material
   association into its provider; adapt Spline with the same geometry mechanism
@@ -431,6 +435,61 @@ Dependencies: Stage 0. Outcome: both existing proxies emit the common contract.
 
 Completion: existing families enter preparation through collection, preserve
 baseline behavior, and no provider imports Renderer-private declarations.
+
+#### Stage 1 contract groundwork (2026-09-07)
+
+`RenderCore/Public/GeometrySubmission.h` introduces typed submission outcomes,
+retained buffer views and overflow-safe stream/draw range checks. Direct and
+indexed arguments retain RHI first-element, signed base-vertex and instance
+semantics. `RenderContractTests` covers partial final strides, empty ranges,
+uint64 overflow, index formats/alignment, negative base vertices, topology
+arity and instance stream bounds. This is additive groundwork; providers and
+production preparation do not consume it yet.
+
+`Engine/Public/StaticMesh/StaticMeshLODSelection.h` now owns the existing LOD
+selection/residency API and its implementation. Renderer retains projected-view
+math and includes the Engine API. Selection and fallback algorithms are moved
+unchanged, preserving the existing test boundary while removing their Renderer
+ownership. Section/material extraction and the common collector remain open.
+
+Validation: `RenderContractTests` passed 141 cases, including four new geometry
+range cases. `./DevTool test affected --timeout 600 --agent` passed after the
+module ownership move (36 selected targets). Receipt:
+`Build/.agent-state/logs/20260907-051614-588613-59723-ctest.log`.
+The full `./DevTool build --target all` also passed after the cross-module
+export move; receipt:
+`Build/.agent-state/logs/20260907-051719-377932-61354-cmake.log`.
+
+#### Stage 1 collection seam handoff (2026-09-07)
+
+`Engine/Public/Rendering/MeshBatch.h` now owns scalar collection context,
+value-retained material elements, stable primitive/batch/element identities,
+explicit receiver/shadow intent and transactional batch admission. It rejects
+invalid/singular transforms, invalid bounds, duplicate identities, inconsistent
+factory/layout keys, invalid draw/instance ranges, unavailable resources and
+incorrect buffer usages. Empty and policy-excluded batches have distinct
+outcomes. RHI resource references and immutable polymorphic factory bindings
+are retained with the collected snapshot.
+
+`FPrimitiveSceneProxy::CollectMeshBatches` provides the const render-thread
+submission seam with an empty default. `FVertexFactoryBinding` establishes
+immutable typed payload lifetime and factory/layout identity; pass-specific
+typed parameter operations remain part of Stage 2 factory integration.
+
+Two `RendererSceneContractTests` cases cover the empty default and an independent
+(non-StaticMesh-resource) multi-element collector fixture. They exercise
+transactional rejection, missing/wrong-usage buffers, layout mismatch, duplicate
+IDs, singular transforms, invalid bounds, policy exclusion and exactly-once
+virtual destruction of an aligned binding retained after provider references
+are released. This fixture qualifies the collector boundary only: it does not
+claim the Stage 4 independent provider can render through the production scene.
+
+Validation: the whole `RendererSceneContractTests` target passed 45 cases;
+`./DevTool test affected --timeout 600 --agent` passed 39/39 targets. Receipt:
+`Build/.agent-state/logs/20260907-052301-903072-65034-ctest.log`.
+
+Stage 1 task 1 is complete. Provider collection overrides, production adapter,
+material/LOD snapshot qualification and all later stages remain open.
 
 ### Stage 2: Generalize prepared draws and mesh-pass execution
 

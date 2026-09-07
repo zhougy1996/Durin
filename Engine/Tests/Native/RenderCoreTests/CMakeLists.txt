@@ -159,6 +159,7 @@ durin_add_render_functional_test(RenderContractTests
 	DOMAINS renderer
 	MODULES rendercore rhi
 	SOURCES
+		Private/GeometrySubmissionTests.cpp
 		Private/RenderResourceCreationTests.cpp
 		Private/RenderResourceLifecycleTests.cpp
 		Private/RDGTests.cpp

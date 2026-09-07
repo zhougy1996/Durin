@@ -4,14 +4,10 @@
 
 #include "Math/Box.h"
 #include "SceneView.h"
+#include "StaticMesh/StaticMeshLODSelection.h"
 
 namespace Durin
 {
-	struct FStaticMeshLODResources;
-
-	inline constexpr uint32 InvalidStaticMeshLODIndex =
-		std::numeric_limits<uint32>::max();
-
 	// Identifies how a finite world AABB relates to all six view-frustum planes.
 	enum class EViewBoundsClassification : uint8
 	{
@@ -71,13 +67,4 @@ namespace Durin
 	RENDERER_API auto ValidateStaticMeshLODScreenSizes(
 		std::span<const float> ScreenSizes) -> bool;
 
-	// Selects the first threshold met by the size, so exact equality chooses the higher-detail LOD.
-	RENDERER_API auto SelectStaticMeshLOD(
-		float NormalizedScreenSize,
-		std::span<const FStaticMeshLODResources> LODResources) -> uint32;
-
-	// Prefers ready lower-detail LODs before searching back toward higher detail.
-	RENDERER_API auto ResolveAvailableStaticMeshLOD(
-		uint32 RequestedLOD,
-		std::span<const FStaticMeshLODResources> LODResources) -> uint32;
 } // namespace Durin

@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	struct FMeshCollectionContext;
+	class FMeshBatchCollector;
 	// Stores renderer-owned state detached from the game-thread primitive component.
 	enum class EPrimitiveSceneProxyKind : uint8
 	{
@@ -20,6 +22,9 @@ namespace Durin
 		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
 		virtual auto GetKind() const -> EPrimitiveSceneProxyKind = 0;
 		virtual auto GetLocalBounds() const -> FBox = 0;
+		// Called on the rendering thread; an empty default emits no geometry.
+		virtual auto CollectMeshBatches(
+			const FMeshCollectionContext&, FMeshBatchCollector&) const -> void {}
 		virtual auto UpdateMaterialBinding_RenderThread(
 			const FMaterialRenderProxyBindingUpdate&) -> bool { return false; }
 	};

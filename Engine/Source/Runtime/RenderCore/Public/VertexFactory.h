@@ -56,6 +56,16 @@ namespace Durin
 		uint16 Stride = 0;
 	};
 
+	// Immutable, naturally aligned factory payload retained by collected frames.
+	// Concrete factories own the payload type; collection never interprets bytes.
+	class FVertexFactoryBinding
+	{
+	public:
+		virtual ~FVertexFactoryBinding() = default;
+		virtual auto GetFactoryKey() const -> FXxHash64 = 0;
+		virtual auto GetLayoutKey() const -> FXxHash64 = 0;
+	};
+
 	// Owns vertex declaration lifetime and draw-facing stream bindings.
 	class FVertexFactory : public FRenderResource
 	{

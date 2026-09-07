@@ -1,4 +1,5 @@
 #include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/MeshBatch.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Actors/DirectionalLightActor.h"
@@ -2202,4 +2203,96 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 		Durin::PrepareSceneVisibility(Scene, View, Telemetry);
 	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);
 	EXPECT_EQ(Telemetry.SplineMesh.VisibleSplineMeshCandidates, 1u);
+}
+
+TEST(FRendererSceneContractTests, CollectsIndependentGeometrySnapshotsTransactionally)
+{
+	using namespace Durin;
+	class alignas(64) FTestBinding final : public FVertexFactoryBinding
+	{
+	public:
+		explicit FTestBinding(int& InDestructions) : Destructions(InDestructions) {}
+		~FTestBinding() override { ++Destructions; }
+		auto GetFactoryKey() const -> FXxHash64 override { return {123}; }
+		auto GetLayoutKey() const -> FXxHash64 override { return {456}; }
+	private:
+		int& Destructions;
+	};
+	int Destructions = 0;
+	{
+		auto Binding = std::make_shared<const FTestBinding>(Destructions);
+		FMeshBatch Batch{
+			.PrimitiveId = FPrimitiveSceneId(77),
+			.BatchId = 5,
+			.LocalToWorld = FMatrix(1.0),
+			.WorldBounds = FBox({-1.0, -1.0, -1.0}, {1.0, 1.0, 1.0}),
+			.FactoryKey = Binding->GetFactoryKey(),
+			.LayoutKey = Binding->GetLayoutKey(),
+			.Binding = Binding};
+		FMeshBatchCollector Collector(EMeshCollectionPurpose::Receiver);
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Empty);
+		FMeshBatchElement Element{
+			.ElementId = 8,
+			.Draw = {.bIndexed = false, .ElementCount = 3},
+			.Vertices = {
+				.Buffer = new FRHIBuffer(FRHIBufferCreateDesc::CreateVertex("CollectionContract", 36)),
+				.Range = {36, 0, 12, 12}}};
+		Batch.Elements.push_back(Element);
+		Batch.Elements.push_back(Element);
+		Batch.Elements.back().ElementId = 9;
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Submitted);
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		Batch.BatchId = 6;
+		Batch.Elements.back().Draw.ElementCount = 6;
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		EXPECT_EQ(Collector.GetBatches().size(), 1u);
+		Batch.Elements.back().Draw.ElementCount = 3;
+		Batch.Elements.back().Vertices.Buffer = nullptr;
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::ResourceFailure);
+		Batch.Elements.back().Vertices.Buffer = new FRHIBuffer(
+			FRHIBufferCreateDesc::CreateIndex("WrongVertexUsage", 36, 4));
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		Batch.Elements.back().Vertices = Element.Vertices;
+		Batch.LayoutKey = {999};
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		Batch.LayoutKey = Binding->GetLayoutKey();
+		Batch.bReceiver = false;
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Excluded);
+		Batch.bReceiver = true;
+		Batch.LocalToWorld = FMatrix(0.0);
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		Batch.LocalToWorld = FMatrix(1.0);
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::Submitted);
+		Batch.WorldBounds = {};
+		Batch.BatchId = 7;
+		EXPECT_EQ(Collector.Add(Batch), EGeometrySubmissionOutcome::InvalidSubmission);
+		Batch = {};
+		Binding.reset();
+		EXPECT_EQ(Destructions, 0);
+		ASSERT_EQ(Collector.GetBatches().size(), 2u);
+		EXPECT_EQ(Collector.GetBatches()[0].Elements.size(), 2u);
+		EXPECT_EQ(Collector.GetBatches()[0].WorldBounds.Min, FVector3(-1.0));
+	}
+	EXPECT_EQ(Destructions, 1);
+	std::vector<FRHIResource*> Resources;
+	FRHIResource::GatherResourcesToDelete(Resources);
+	FRHIResource::DeleteResources(Resources);
+}
+
+TEST(FRendererSceneContractTests, PrimitiveCollectionHasAnEmptyDefault)
+{
+	using namespace Durin;
+	class FEmptyProxy final : public FPrimitiveSceneProxy
+	{
+	public:
+		auto GetKind() const -> EPrimitiveSceneProxyKind override
+		{
+			return EPrimitiveSceneProxyKind::StaticMesh;
+		}
+		auto GetLocalBounds() const -> FBox override { return {}; }
+	};
+	FEmptyProxy Proxy;
+	FMeshBatchCollector Collector(EMeshCollectionPurpose::Receiver);
+	Proxy.CollectMeshBatches(FMeshCollectionContext{}, Collector);
+	EXPECT_TRUE(Collector.GetBatches().empty());
 }
