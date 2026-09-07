@@ -257,7 +257,15 @@ namespace Durin::Tests
 			Alias = Shared.GetResultShared();
 		}
 		ModuleGroup.Close(EAsyncOperationCloseMode::Drain);
-		ASSERT_TRUE(Group.JoinAsync().IsReady());
+		// Task completion is published before scope accounting is released. This
+		// worker-only fixture can observe quiescence without pumping the game thread.
+		const auto Join = Group.JoinAsync();
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (!Join.IsReady() && std::chrono::steady_clock::now() < Deadline)
+		{
+			std::this_thread::yield();
+		}
+		ASSERT_TRUE(Join.IsReady()) << "Worker task scope did not become quiescent within one second.";
 		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ModuleGroup.Drain(std::chrono::milliseconds(1)).Status);
 		EXPECT_EQ(43, *Alias);
 		Alias.reset();
