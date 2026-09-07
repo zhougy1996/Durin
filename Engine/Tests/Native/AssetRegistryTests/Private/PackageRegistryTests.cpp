@@ -359,6 +359,46 @@ TEST(FPackageRegistryContractTests, MultiAssetRedirectsAreExactAcrossScansAndPub
 	const auto Rejected = PublishAssetRegistryDelta({.ExpectedRevision = Revision, .Replaces = {Reordered}});
 	EXPECT_FALSE(Rejected);
 	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
+
+	const auto BeforeDelta = CaptureAssetRegistryPublication();
+	FAssetData Changed = BeforeDelta.Assets.at(Path("/Multi/TargetA"));
+	Changed.SoftDependencies = {Path("/Multi/TargetB")};
+	Changed.FileSize += 1;
+	const std::vector<FPackagePath> Fenced{Changed.PackagePath, Path("/Multi/Aliases")};
+	FenceAssetRegistryProjection(Fenced);
+	FAssetData Invalid = Changed;
+	Invalid.ObjectCount = 0;
+	EXPECT_FALSE(PublishAssetRegistryDelta({.ExpectedRevision = Revision,
+		.Replaces = {Changed, Invalid}}));
+	EXPECT_EQ(CaptureAssetRegistryPublication().Assets, BeforeDelta.Assets);
+	EXPECT_TRUE(IsAssetRegistryProjectionFenced(Changed.PackagePath));
+	EXPECT_FALSE(PublishAssetRegistryDelta({.ExpectedRevision = Revision,
+		.Replaces = {Invalid}, .Removes = {Path("/Multi/Aliases")}}));
+	EXPECT_EQ(CaptureAssetRegistryPublication().ReferenceEdges, BeforeDelta.ReferenceEdges);
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = Revision,
+		.Replaces = {Changed}, .Removes = {Path("/Multi/Aliases")},
+		.ReferenceInvalidations = Fenced}));
+	EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
+	for (const auto& PackagePath : Fenced)
+		EXPECT_FALSE(IsAssetRegistryProjectionFenced(PackagePath));
+	const auto AfterDelta = CaptureAssetRegistryPublication();
+	EXPECT_FALSE(AfterDelta.Assets.contains(Path("/Multi/Aliases")));
+	EXPECT_FALSE(AfterDelta.ReferenceFingerprints.contains(Path("/Multi/Aliases")));
+	EXPECT_EQ(AfterDelta.ReferenceFingerprints.at(Changed.PackagePath).FileSize, Changed.FileSize);
+	EXPECT_EQ(CaptureAssetReferenceIndex().FindTargets(Changed.PackagePath),
+		(std::vector<FPackagePath>{Path("/Multi/TargetB")}));
+	for (const auto& Edge : BeforeDelta.ReferenceEdges)
+		if (Edge.SourcePackage != Changed.PackagePath && Edge.SourcePackage != Path("/Multi/Aliases"))
+			EXPECT_NE(std::ranges::find(AfterDelta.ReferenceEdges, Edge), AfterDelta.ReferenceEdges.end());
+	// A full publication independently verifies the incrementally maintained projection.
+	ASSERT_TRUE(PublishAssetRegistryPublication(AfterDelta));
+	EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = Revision + 1, .Replaces = {Changed}}));
+	EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
+	EXPECT_FALSE(PublishAssetRegistryDelta({.ExpectedRevision = Revision, .Replaces = {Changed}}));
+	ASSERT_TRUE(PublishAssetRegistryDelta({.ExpectedRevision = Revision + 1,
+		.Adds = {BeforeDelta.Assets.at(Path("/Multi/Aliases"))}}));
+	ASSERT_TRUE(PublishAssetRegistryPublication(CaptureAssetRegistryPublication()));
 }
 
 TEST(FPackageRegistryContractTests, ProjectionFenceBlocksEveryRedirectHop)

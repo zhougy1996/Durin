@@ -385,11 +385,25 @@ namespace Durin
 		return Result;
 	}
 
+	auto FAssetRegistryState::CaptureReferenceEdgesLocked() const
+		-> std::vector<FAssetPackageReferenceEdge>
+	{
+		std::vector<FAssetPackageReferenceEdge> Result;
+		for (const auto& [Source, Edges] : ReferenceEdgesBySource)
+			Result.insert(Result.end(), Edges.begin(), Edges.end());
+		std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
+			return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+				< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
+		});
+		return Result;
+	}
+
 	auto FAssetRegistryState::CaptureReferences() const -> FAssetReferenceIndex
 	{
 		std::shared_lock Lock(Mutex);
 		FAssetReferenceIndex Result = References;
 		Result.Revision = Revision;
+		Result.Edges = CaptureReferenceEdgesLocked();
 		return Result;
 	}
 
@@ -401,6 +415,7 @@ namespace Durin
 			.Catalog = {.Revision = Revision, .Assets = Assets},
 			.References = References};
 		Result.References.Revision = Revision;
+		Result.References.Edges = CaptureReferenceEdgesLocked();
 		return Result;
 	}
 
@@ -408,7 +423,7 @@ namespace Durin
 	{
 		std::shared_lock Lock(Mutex);
 		return {.ExpectedRevision = Revision, .Assets = Assets,
-			.ReferenceEdges = References.Edges,
+			.ReferenceEdges = CaptureReferenceEdgesLocked(),
 			.ReferenceFingerprints = References.SourceFingerprints,
 			.ReferenceErrors = References.Errors,
 			.bReferenceIndexComplete = References.bComplete};
@@ -437,7 +452,7 @@ namespace Durin
 		if (FAssetRegistryResult Validation = ValidatePublication(Publication); !Validation)
 			return Validation;
 		if (Assets == Publication.Assets
-			&& References.Edges == Publication.ReferenceEdges
+			&& CaptureReferenceEdgesLocked() == Publication.ReferenceEdges
 			&& References.SourceFingerprints == Publication.ReferenceFingerprints
 			&& References.bComplete == Publication.bReferenceIndexComplete)
 		{
@@ -459,11 +474,114 @@ namespace Durin
 				Batch.Changes.push_back({EContentChangeKind::Added, {}, After.PhysicalPath, {}, Path.ToString()});
 		Changes.Append(std::move(Batch));
 		Assets = std::move(Publication.Assets);
-		References.Edges = std::move(Publication.ReferenceEdges);
+		ReferenceEdgesBySource.clear();
+		for (auto& Edge : Publication.ReferenceEdges)
+			ReferenceEdgesBySource[Edge.SourcePackage].push_back(std::move(Edge));
 		References.SourceFingerprints = std::move(Publication.ReferenceFingerprints);
 		References.Errors = std::move(Publication.ReferenceErrors);
 		References.bComplete = Publication.bReferenceIndexComplete;
 		++Revision;
+		return {};
+	}
+
+	auto FAssetRegistryState::PublishDelta(FAssetRegistryDelta Delta) -> FAssetRegistryResult
+	{
+		std::unique_lock Lock(Mutex);
+		if (Delta.ExpectedRevision != Revision)
+			return {EAssetRegistryError::StaleData, std::format(
+				"Asset registry delta expected revision {} but current revision is {}.",
+				Delta.ExpectedRevision, Revision)};
+		// Validate the changed packages as a self-contained projection before mutating state.
+		FAssetRegistryPublication Publication;
+		std::unordered_set<FPackagePath> Touched;
+		auto Touch = [&](const FPackagePath& Path) -> bool {
+			return Path.IsValid() && Touched.insert(Path).second;
+		};
+		for (FAssetData& Data : Delta.Adds)
+		{
+			if (!Touch(Data.PackagePath) || Assets.contains(Data.PackagePath))
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Add path is invalid, duplicated, or occupied."};
+			Publication.Assets.emplace(Data.PackagePath, std::move(Data));
+		}
+		for (FAssetData& Data : Delta.Replaces)
+		{
+			if (!Touch(Data.PackagePath) || !Assets.contains(Data.PackagePath))
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Replace path is invalid, duplicated, or missing."};
+			Publication.Assets.insert_or_assign(Data.PackagePath, std::move(Data));
+		}
+		for (const FPackagePath& Path : Delta.Removes)
+		{
+			if (!Touch(Path) || !Assets.contains(Path))
+				return {EAssetRegistryError::StaleData,
+					"Asset registry delta Remove path is invalid, duplicated, or missing."};
+		}
+		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
+			if (!Path.IsValid())
+				return {EAssetRegistryError::CorruptFile,
+					"Asset registry delta contains an invalid reference-invalidation path."};
+
+		for (const auto& [Path, Data] : Publication.Assets)
+		{
+			const FAssetPackageFingerprint Fingerprint{
+				.FileSize = Data.FileSize,
+				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
+				.ReaderVersion = Data.FormatVersion};
+			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
+			auto AddEdge = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
+				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
+					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
+			};
+			VisitAssetPackageReferences(Data, AddEdge);
+		}
+		std::ranges::sort(Publication.ReferenceEdges,
+			[](const FAssetPackageReferenceEdge& Left,
+				const FAssetPackageReferenceEdge& Right) {
+				return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
+					< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
+			});
+		Publication.ReferenceEdges.erase(std::unique(Publication.ReferenceEdges.begin(),
+			Publication.ReferenceEdges.end()), Publication.ReferenceEdges.end());
+		Publication.bReferenceIndexComplete = true;
+		if (FAssetRegistryResult Validation = ValidatePublication(Publication); !Validation)
+			return Validation;
+
+		FContentChangeBatch Batch{Revision, Revision + 1};
+		for (const FPackagePath& Path : Touched)
+		{
+			const auto Before = Assets.find(Path);
+			const auto After = Publication.Assets.find(Path);
+			if (Before != Assets.end() && After != Publication.Assets.end()
+				&& Before->second == After->second) continue;
+			Batch.Changes.push_back({Before == Assets.end() ? EContentChangeKind::Added
+				: After == Publication.Assets.end() ? EContentChangeKind::Removed
+				: EContentChangeKind::Modified,
+				Before == Assets.end() ? "" : Before->second.PhysicalPath,
+				After == Publication.Assets.end() ? "" : After->second.PhysicalPath,
+				Before == Assets.end() ? "" : Path.ToString(),
+				After == Publication.Assets.end() ? "" : Path.ToString()});
+		}
+		if (!Batch.Changes.empty())
+		{
+			for (const FPackagePath& Path : Touched)
+			{
+				ReferenceEdgesBySource.erase(Path);
+				References.SourceFingerprints.erase(Path);
+				Assets.erase(Path);
+			}
+			for (auto& [Path, Data] : Publication.Assets)
+				Assets.emplace(Path, std::move(Data));
+			for (const auto& [Path, Fingerprint] : Publication.ReferenceFingerprints)
+				References.SourceFingerprints.emplace(Path, Fingerprint);
+			for (auto& Edge : Publication.ReferenceEdges)
+				ReferenceEdgesBySource[Edge.SourcePackage].push_back(std::move(Edge));
+			Changes.Append(std::move(Batch));
+			++Revision;
+		}
+		for (const FPackagePath& Path : Touched) ProjectionFences.erase(Path);
+		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
+			ProjectionFences.erase(Path);
 		return {};
 	}
 
@@ -574,75 +692,14 @@ namespace Durin
 		return Result;
 	}
 
-	auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta)
-		-> FAssetRegistryResult
+	auto PublishAssetRegistryDelta(FAssetRegistryDelta Delta) -> FAssetRegistryResult
 	{
-		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
-		if (Publication.ExpectedRevision != Delta.ExpectedRevision)
-			return {EAssetRegistryError::StaleData, std::format(
-				"Asset registry delta expected revision {} but current revision is {}.",
-				Delta.ExpectedRevision, Publication.ExpectedRevision)};
-		std::unordered_set<FPackagePath> Touched;
-		auto Touch = [&](const FPackagePath& Path) -> bool {
-			return Path.IsValid() && Touched.insert(Path).second;
-		};
-		for (FAssetData& Data : Delta.Adds)
-		{
-			if (!Touch(Data.PackagePath) || Publication.Assets.contains(Data.PackagePath))
-				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Add path is invalid, duplicated, or occupied."};
-			Publication.Assets.emplace(Data.PackagePath, std::move(Data));
-		}
-		for (FAssetData& Data : Delta.Replaces)
-		{
-			if (!Touch(Data.PackagePath) || !Publication.Assets.contains(Data.PackagePath))
-				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Replace path is invalid, duplicated, or missing."};
-			Publication.Assets.insert_or_assign(Data.PackagePath, std::move(Data));
-		}
-		for (const FPackagePath& Path : Delta.Removes)
-		{
-			if (!Touch(Path) || Publication.Assets.erase(Path) != 1)
-				return {EAssetRegistryError::StaleData,
-					"Asset registry delta Remove path is invalid, duplicated, or missing."};
-		}
-		for (const FPackagePath& Path : Delta.ReferenceInvalidations)
-			if (!Path.IsValid())
-				return {EAssetRegistryError::CorruptFile,
-					"Asset registry delta contains an invalid reference-invalidation path."};
-
-		Publication.ReferenceEdges.clear();
-		Publication.ReferenceFingerprints.clear();
-		for (const auto& [Path, Data] : Publication.Assets)
-		{
-			const FAssetPackageFingerprint Fingerprint{
-				.FileSize = Data.FileSize,
-				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
-				.ReaderVersion = Data.FormatVersion};
-			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
-			auto AddEdge = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
-				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
-					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
-			};
-			VisitAssetPackageReferences(Data, AddEdge);
-		}
-		std::ranges::sort(Publication.ReferenceEdges,
-			[](const FAssetPackageReferenceEdge& Left,
-				const FAssetPackageReferenceEdge& Right) {
-				return std::tuple(Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.Kind)
-					< std::tuple(Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.Kind);
-			});
-		Publication.ReferenceEdges.erase(std::unique(Publication.ReferenceEdges.begin(),
-			Publication.ReferenceEdges.end()), Publication.ReferenceEdges.end());
-		Publication.ReferenceErrors.clear();
-		Publication.bReferenceIndexComplete = true;
-		FAssetRegistryResult Result = PublishAssetRegistryPublication(std::move(Publication));
+		FAssetRegistryResult Result = AssetPrivate::GetAssetRegistryState().PublishDelta(
+			std::move(Delta));
 		if (Result)
 		{
-			std::vector<FPackagePath> Paths(Touched.begin(), Touched.end());
-			Paths.insert(Paths.end(), Delta.ReferenceInvalidations.begin(),
-				Delta.ReferenceInvalidations.end());
-			ClearAssetRegistryProjectionFence(Paths);
+			AssetPrivate::MarkAssetRegistryCachesDirty();
+			InvalidateSoftObjectCaches();
 		}
 		return Result;
 	}
