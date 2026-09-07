@@ -209,6 +209,40 @@ namespace Durin
 		return Durin::LoadPackage(Path, OutPackage, OutReport);
 	}
 
+	auto FAssetPackageLoadScope::LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
+		DObject*& OutObject, FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		CheckSoftObjectThread();
+		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
+		{
+			OutObject = nullptr;
+			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+		}
+		struct FRestoreLoadOwner
+		{
+			std::vector<TWeakObjectPtr<DPackage>>* Previous;
+			~FRestoreLoadOwner() { GOwnedLoadPackages = Previous; }
+		} Restore{std::exchange(GOwnedLoadPackages, &Packages)};
+		return Durin::LoadObject(Path, ExpectedClass, OutObject, OutReport);
+	}
+
+	auto FAssetPackageLoadScope::LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
+		DObject*& OutObject, ESoftObjectNullPolicy NullPolicy, FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		CheckSoftObjectThread();
+		if (!FAssetRuntimeState::Get().GetLoadService().IsIdle())
+		{
+			OutObject = nullptr;
+			return Error(EAssetError::InUse, "A load scope requires a top-level load invocation.");
+		}
+		struct FRestoreLoadOwner
+		{
+			std::vector<TWeakObjectPtr<DPackage>>* Previous;
+			~FRestoreLoadOwner() { GOwnedLoadPackages = Previous; }
+		} Restore{std::exchange(GOwnedLoadPackages, &Packages)};
+		return Durin::LoadSoftObject(Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
+	}
+
 	auto FAssetPackageLoadScope::Release(
 		std::span<const TWeakObjectPtr<DPackage>> IgnoreSavedDependencies) -> FAssetResult
 	{
@@ -621,59 +655,6 @@ namespace Durin
 		GetPackageResourceManager().RetirePackage(Path.ToString());
 		InvalidateSoftObjectCaches();
 		return {};
-	}
-
-	auto FAssetLoadService::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
-	{
-		FAssetPackageLoadSnapshot Snapshot;
-		for (DPackage* Package : GetResidentAssetPackages())
-		{
-			FPackagePath Path;
-			if (FPackagePath::TryCreate(Package->GetPackagePath(), Path))
-				Snapshot.ResidentPackages.push_back(std::move(Path));
-		}
-		std::ranges::sort(Snapshot.ResidentPackages, {}, [](const FPackagePath& Path) {
-			return Path.ToString();
-		});
-		return Snapshot;
-	}
-
-	auto FAssetLoadService::ReleasePackagesLoadedSince(
-		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
-	{
-		if (auto Result = AssetPrivate::FAssetLiveLoadGuard::Check("ReleasePackagesLoadedSince", ""); !Result) return Result;
-		if (LoadDepth != 0 || !LoadingPackages.empty())
-			return Error(EAssetError::InUse, "A package load is still in progress.");
-
-		std::unordered_set<FPackagePath> Protected(
-			Snapshot.ResidentPackages.begin(), Snapshot.ResidentPackages.end());
-		bool bChanged = true;
-		while (bChanged)
-		{
-			bChanged = false;
-			for (DPackage* Package : GetResidentAssetPackages())
-			{
-				FPackagePath Path;
-				if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) continue;
-				if (!Protected.contains(Path)) continue;
-				const FAssetCatalogEntry Data = FindAssetExact(Path);
-				if (!Data) continue;
-				for (const FPackagePath& Dependency : Data->Dependencies)
-				{
-					const FAssetPathResolveResult Resolution = Durin::ResolveAssetPathForOperation(Dependency);
-					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
-				}
-			}
-		}
-
-		std::vector<TWeakObjectPtr<DPackage>> Packages;
-		for (DPackage* Package : GetResidentAssetPackages())
-		{
-			if (!Protected.contains(Package->GetPackagePathIdentity())
-				&& !Package->IsNewlyCreated() && !Package->IsDirty())
-				Packages.emplace_back(Package);
-		}
-		return ReleasePackages(Packages);
 	}
 
 	auto FAssetLoadService::ReleasePackages(

@@ -3438,6 +3438,53 @@ TEST(FPackageAssetTests, V9GuardRejectsIgnoredConstructorAndPostLoadLiveReads)
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
 }
 
+TEST(FPackageAssetTests, DirectLinkerRollbackReleasesOwnedDependenciesAndPreservesCallbackLoads)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	FPackagePath SourcePath, TargetPath, OtherPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirectScopeSource", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirectScopeTarget", TargetPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/DirectScopeOther", OtherPath));
+	DPackageAssetForTest* Source = nullptr;
+	DPackageAssetForTest* Target = nullptr;
+	DPackageAssetForTest* Other = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(TargetPath, Target));
+	ASSERT_TRUE(SavePackage(Target->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(OtherPath, Other));
+	ASSERT_TRUE(SavePackage(Other->GetPackage()));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(SourcePath, Source));
+	Source->ExternalReference = Target;
+	ASSERT_TRUE(SavePackage(Source->GetPackage()));
+	const auto& Codec = DastV9::GetCodec();
+	FAssetPackageEncodedClosure Closure;
+	ASSERT_TRUE(Codec.Write(Source->GetPackage(), Closure, EDefaultDeltaMode::NoDelta, {}));
+	ASSERT_TRUE(UnloadPackage(SourcePath));
+	ASSERT_TRUE(UnloadPackage(TargetPath));
+	ASSERT_TRUE(UnloadPackage(OtherPath));
+	FAssetPackageReadContext Context{Closure.PackageBytes, Closure.BulkBytes, SourcePath,
+		Closure.PackageBytes.size()};
+	struct FResetProbe { ~FResetProbe() { GPackagePostLoadProbe = {}; } } Reset;
+	bool bRejected = false;
+	GPackagePostLoadProbe = [&] {
+		// Target PostLoad runs within its ordinary transaction. Fail only the direct root.
+		if (IsPackageLoading(TargetPath) || std::exchange(bRejected, true)) return;
+		DPackage* LoadedOther = nullptr;
+		ASSERT_TRUE(LoadPackage(OtherPath, LoadedOther));
+		throw std::runtime_error("Reject direct root after dependencies loaded");
+	};
+	DPackage* Loaded = nullptr;
+	EXPECT_THROW(Codec.Load(Context, Loaded, nullptr, {}, {}), std::runtime_error);
+	EXPECT_TRUE(bRejected);
+	GPackagePostLoadProbe = {};
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(FindResidentPackage(SourcePath), nullptr);
+	EXPECT_EQ(FindResidentPackage(TargetPath), nullptr);
+	EXPECT_NE(FindResidentPackage(OtherPath), nullptr);
+	EXPECT_TRUE(UnloadPackage(OtherPath));
+}
+
 TEST(FPackageAssetTests, V9DependencyPolicyControlsBothResolversAndRollback)
 {
 	InitializeAssetTests();
@@ -6721,7 +6768,7 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 }
 
 
-TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)
+TEST(FPackageAssetTests, ExplicitObjectLoadScopePreservesExistingResidency)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath ExistingPath;
@@ -6732,20 +6779,22 @@ TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterC
 	DPackageAssetForTest* Existing = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(ExistingPath, Existing));
 	ASSERT_TRUE(Durin::SavePackage(Existing->GetPackage()));
-	const Durin::FAssetPackageLoadSnapshot Snapshot =
-		Durin::CapturePackageLoadSnapshot();
+	Durin::FAssetPackageLoadScope Scope;
 
 	DPackageAssetForTest* Introduced = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(IntroducedPath, Introduced));
 	ASSERT_TRUE(Durin::SavePackage(Introduced->GetPackage()));
-	ASSERT_TRUE(Durin::ReleasePackagesLoadedSince(Snapshot));
+	ASSERT_TRUE(Durin::UnloadPackage(IntroducedPath));
+	ASSERT_TRUE(Scope.LoadObject(MakeFormerMainObjectPath(IntroducedPath), Introduced));
+	ASSERT_TRUE(Scope.LoadObject(MakeFormerMainObjectPath(ExistingPath), Existing));
+	ASSERT_TRUE(Scope.Release());
 
 	EXPECT_NE(Durin::FindResidentPackage(ExistingPath), nullptr);
 	EXPECT_EQ(Durin::FindResidentPackage(IntroducedPath), nullptr);
 	EXPECT_TRUE(Durin::UnloadPackage(ExistingPath));
 }
 
-TEST(FPackageAssetTests, SnapshotReleasePreservesTransientReferencesAndRetriesAsBatch)
+TEST(FPackageAssetTests, ExplicitLoadScopePreservesTransientReferencesAndRetriesAsBatch)
 {
 	InitializeAssetTests();
 	Durin::FPackagePath OwnerPath, TargetPath, PeerPath, FreePath;
@@ -6755,7 +6804,7 @@ TEST(FPackageAssetTests, SnapshotReleasePreservesTransientReferencesAndRetriesAs
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SnapshotFree", FreePath));
 	DPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(OwnerPath, Owner));
-	const auto Snapshot = Durin::CapturePackageLoadSnapshot();
+	Durin::FAssetPackageLoadScope Scope;
 	DPackageAssetForTest* Target = nullptr;
 	DPackageAssetForTest* Peer = nullptr;
 	DPackageAssetForTest* Free = nullptr;
@@ -6765,12 +6814,18 @@ TEST(FPackageAssetTests, SnapshotReleasePreservesTransientReferencesAndRetriesAs
 	ASSERT_TRUE(Durin::SavePackage(Target->GetPackage()));
 	ASSERT_TRUE(Durin::SavePackage(Peer->GetPackage()));
 	ASSERT_TRUE(Durin::SavePackage(Free->GetPackage()));
+	ASSERT_TRUE(Durin::UnloadPackage(TargetPath));
+	ASSERT_TRUE(Durin::UnloadPackage(PeerPath));
+	ASSERT_TRUE(Durin::UnloadPackage(FreePath));
+	ASSERT_TRUE(Scope.LoadObject(MakeFormerMainObjectPath(TargetPath), Target));
+	ASSERT_TRUE(Scope.LoadObject(MakeFormerMainObjectPath(PeerPath), Peer));
+	ASSERT_TRUE(Scope.LoadObject(MakeFormerMainObjectPath(FreePath), Free));
 	// These live edges are deliberately absent from the disk dependency metadata.
 	Owner->ExternalReference = Target;
 	Target->ExternalReference = Peer;
 	Peer->ExternalReference = Target;
 	Durin::TWeakObjectPtr<DPackageAssetForTest> WeakTarget(Target), WeakPeer(Peer);
-	EXPECT_EQ(Durin::ReleasePackagesLoadedSince(Snapshot).Error, Durin::EAssetError::InUse);
+	EXPECT_EQ(Scope.Release().Error, Durin::EAssetError::InUse);
 	ASSERT_EQ(WeakTarget.Get(), Target);
 	ASSERT_EQ(WeakPeer.Get(), Peer);
 	EXPECT_EQ(Owner->ExternalReference.Get(), Target);
@@ -6779,10 +6834,38 @@ TEST(FPackageAssetTests, SnapshotReleasePreservesTransientReferencesAndRetriesAs
 	EXPECT_TRUE(Peer->GetPackage()->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
 	EXPECT_EQ(Durin::FindResidentPackage(FreePath), nullptr);
 	Owner->ExternalReference = nullptr;
-	EXPECT_TRUE(Durin::ReleasePackagesLoadedSince(Snapshot));
+	EXPECT_TRUE(Scope.Release());
 	EXPECT_FALSE(WeakTarget.IsValid());
 	EXPECT_FALSE(WeakPeer.IsValid());
 	EXPECT_TRUE(Durin::UnloadPackage(OwnerPath, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(FPackageAssetTests, ExplicitSoftLoadScopeTransfersSuccessAndReleasesOnAbort)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/ScopedSoft", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	TSoftObjectPtr<DPackageAssetForTest> Soft(MakeFormerMainObjectPath(Path));
+	{
+		FAssetPackageLoadScope Scope;
+		ASSERT_TRUE(Scope.LoadSoftObject(Soft, Asset));
+		EXPECT_EQ(Soft.Get(), Asset);
+		ASSERT_TRUE(Scope.Release());
+		EXPECT_EQ(FindResidentPackage(Path), nullptr);
+		EXPECT_EQ(Soft.Get(), nullptr);
+	}
+	{
+		FAssetPackageLoadScope Scope;
+		ASSERT_TRUE(Scope.LoadSoftObject(Soft, Asset));
+	}
+	EXPECT_NE(FindResidentPackage(Path), nullptr);
+	EXPECT_EQ(Soft.Get(), Asset);
+	EXPECT_TRUE(UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, ExplicitLoadScopeOwnsOnlyItsLoadClosureAndKeepsReplacementIdentity)
@@ -8002,6 +8085,12 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	const auto Data = FindAssetExact(Path);
 	ASSERT_TRUE(Data);
+	FPackagePath IndependentPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookIndependentLoad", IndependentPath));
+	DPackageAssetForTest* Other = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(IndependentPath, Other));
+	ASSERT_TRUE(SavePackage(Other->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(IndependentPath));
 	const auto Revision = GetAssetCatalogRevision();
 	FByteBuffer Original;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Original, Data->PhysicalPath));
@@ -8034,8 +8123,15 @@ TEST(FPackageAssetTests, CookReusesDeclaredInputsAndLoadsOrdinaryPackages)
 	struct FRetire { FCookContributorHandle Handle; ~FRetire() { UnregisterCookContributor(Handle); } } Retire{Handle};
 	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "CapturedCookOutput",
 		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
+	OnContribution = [&](DObject&, FCookContext&) {
+		DPackage* LoadedOther = nullptr;
+		EXPECT_TRUE(LoadPackage(IndependentPath, LoadedOther));
+	};
 	FCookRunResult Result;
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	OnContribution = {};
+	EXPECT_NE(FindResidentPackage(IndependentPath), nullptr);
+	ASSERT_TRUE(UnloadPackage(IndependentPath));
 	ASSERT_EQ(Values, std::vector<int32>{17});
 	EXPECT_EQ(GetAssetCatalogRevision(), Revision);
 	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);

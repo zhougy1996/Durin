@@ -162,21 +162,20 @@ namespace Durin::Editor::Level
 			|| !DefaultLevel.GetPath().GetPackagePath().GetView().starts_with(Project->MountRoot))
 			return true;
 		if (ClearError) ClearError();
-		const FPackagePath& Path = DefaultLevel.GetPath().GetPackagePath();
-		const FAssetPackageLoadSnapshot LoadSnapshot =
-			CapturePackageLoadSnapshot();
+		FAssetPackageLoadScope LoadScope;
 		DLevel* Level = nullptr;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
 		FAssetResult Result;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
-			Result = LoadSoftObject(
+			Result = LoadScope.LoadSoftObject(
 				DefaultLevel, Level, ESoftObjectNullPolicy::Reject);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
 		{
 			SetError(Result.Message);
+			(void)LoadScope.Release();
 			return false;
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
@@ -189,7 +188,7 @@ namespace Durin::Editor::Level
 		if (!bActivated)
 		{
 			const FAssetResult ReleaseResult =
-				ReleasePackagesLoadedSince(LoadSnapshot);
+				LoadScope.Release();
 			if (!ReleaseResult)
 				DURIN_WARN(
 					"Failed to release packages after default-level activation failed: {}",
@@ -209,20 +208,20 @@ namespace Durin::Editor::Level
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		const FAssetPackageLoadSnapshot LoadSnapshot =
-			CapturePackageLoadSnapshot();
+		FAssetPackageLoadScope LoadScope;
 		DLevel* Level = nullptr;
 		FAssetResult Result;
-		Result = LoadObject(Path, Level);
+		Result = LoadScope.LoadObject(Path, Level);
 		if (!Result)
 		{
 			SetError(Result.Message);
+			(void)LoadScope.Release();
 			return ELevelDocumentOpenResult::Rejected;
 		}
 		if (!ActivateLevel(Level))
 		{
 			const FAssetResult ReleaseResult =
-				ReleasePackagesLoadedSince(LoadSnapshot);
+				LoadScope.Release();
 			if (!ReleaseResult)
 				DURIN_WARN("Failed to release packages after level activation failed: {}", ReleaseResult.Message);
 			return ELevelDocumentOpenResult::Rejected;

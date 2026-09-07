@@ -1350,8 +1350,11 @@ namespace Durin::AssetPrivate
 		else Package->InitializeAssetPackage(PackagePath);
 		Application.Package = Package;
 		Objects.resize(Exports.size(), nullptr);
-		const FAssetPackageLoadSnapshot DependencySnapshot = Options.DependencyLoadPolicy
-			? FAssetPackageLoadSnapshot{} : CapturePackageLoadSnapshot();
+		// Nested production loads belong to the enclosing load transaction. Direct
+		// linker applications own only the dependencies admitted by their explicit calls.
+		FAssetPackageLoadScope DependencyScope;
+		const bool bOwnDependencies = !Options.DependencyLoadPolicy
+			&& FAssetRuntimeState::Get().GetLoadService().IsIdle();
 		bool bSkeletonPublished = false;
 		bool bFinalized = false;
 		auto Rollback = [&]() {
@@ -1368,7 +1371,7 @@ namespace Durin::AssetPrivate
 			Cleanup([&] { MarkObjectHierarchyAsGarbage(Package); CollectGarbage(); });
 			Cleanup([&] {
 				if (Options.DependencyLoadPolicy) Options.DependencyLoadPolicy->Rollback();
-				else ReleasePackagesLoadedSince(DependencySnapshot);
+				else if (bOwnDependencies) (void)DependencyScope.Release();
 			});
 			if (Failure) std::rethrow_exception(Failure);
 		};
@@ -1420,7 +1423,8 @@ namespace Durin::AssetPrivate
 			DPackage* Dependency = nullptr;
 			FAssetResult Result = Options.DependencyLoadPolicy
 				? Options.DependencyLoadPolicy->ResolvePackage(Path, Dependency)
-				: LoadPackage(Path, Dependency);
+				: bOwnDependencies ? DependencyScope.LoadPackage(Path, Dependency)
+					: LoadPackage(Path, Dependency);
 			if (Result && !Dependency)
 				Result = {EAssetError::MissingDependency, "Dependency resolver returned no package."};
 			if (!Result)
@@ -1441,8 +1445,10 @@ namespace Durin::AssetPrivate
 		// Choose sources once for this package; object archives only consume them.
 		const FPackageLoadBindings Bindings{
 			.BulkResource = Options.BulkResource,
-			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy](const FObjectPath& Path, DObject*& Object) {
-				return Policy ? Policy->ResolveObject(Path, Object) : LoadObject(Path, nullptr, Object);
+			.ResolveExternalObject = [Policy = Options.DependencyLoadPolicy, bOwnDependencies, &DependencyScope](const FObjectPath& Path, DObject*& Object) {
+				return Policy ? Policy->ResolveObject(Path, Object)
+					: bOwnDependencies ? DependencyScope.LoadObject(Path, nullptr, Object)
+						: LoadObject(Path, nullptr, Object);
 			}};
 		if (FAssetResult Result = ApplyLinkerValues(Application, Options, Diagnostic, Bindings); !Result)
 		{

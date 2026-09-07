@@ -352,16 +352,16 @@ namespace Durin
 		FAssetCompilingManager::Get().FinishAllCompilation();
 		{
 			FScopedOfflinePreparation Preparation;
-			const auto LoadSnapshot = CapturePackageLoadSnapshot();
+			FAssetPackageLoadScope LoadScope;
 			struct FReleaseLoads
 			{
-				const FAssetPackageLoadSnapshot& Snapshot;
+				FAssetPackageLoadScope& Scope;
 				~FReleaseLoads()
 				{
 					FAssetCompilingManager::Get().FinishAllCompilation();
-					(void)ReleasePackagesLoadedSince(Snapshot);
+					(void)Scope.Release();
 				}
-			} ReleaseLoads{LoadSnapshot};
+			} ReleaseLoads{LoadScope};
 			AssetPrivate::FCookDependencyDiscovery Inputs(Request, CaptureAssetRegistrySnapshot(),
 				[&](const FAssetData& Data, FCookContributorRegistration& Out) -> FAssetResult {
 					if (Data.TopLevelAssets.empty()) return Failure(EAssetError::InvalidPackageType, "Cook package has no assets.");
@@ -454,7 +454,7 @@ namespace Durin
 								std::format("CookInvalidTopLevelAsset: {}.",
 									CookRoot.AssetPath.ToString()));
 						DObject* Asset = nullptr;
-						const FAssetResult LoadResult = LoadObject(CookRootPath, Asset);
+						const FAssetResult LoadResult = LoadScope.LoadObject(CookRootPath, Asset);
 						if (!LoadResult || !Asset) return InputFailure(LoadResult);
 						FCookContext Context(Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);
 						Context.SetInputReader([&](auto Kind, auto Name, FByteBuffer& Bytes) {

@@ -132,7 +132,7 @@ namespace Durin
 		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade
 	) -> void;
 
-	// Records only packages admitted by explicit top-level synchronous LoadPackage calls, including
+	// Records only packages admitted by explicit top-level synchronous load calls, including
 	// their dependencies. Release is explicit and retryable; destruction transfers residency
 	// to the caller. Weak identities never claim a replacement loaded at the same path.
 	class FAssetPackageLoadScope
@@ -143,6 +143,36 @@ namespace Durin
 		auto operator=(const FAssetPackageLoadScope&) -> FAssetPackageLoadScope& = delete;
 		ENGINE_API auto LoadPackage(const FPackagePath& Path, DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		ENGINE_API auto LoadObject(const FObjectPath& Path, const DClass* ExpectedClass,
+			DObject*& OutObject, FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		ENGINE_API auto LoadSoftObject(FSoftObjectPtr& Reference, const DClass* ExpectedClass,
+			DObject*& OutObject, ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+
+		template<typename T>
+		auto LoadObject(const FObjectPath& Path, T*& OutObject,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+		{
+			static_assert(std::is_base_of_v<DObject, T>);
+			DObject* Object = nullptr;
+			FAssetResult Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
+			OutObject = Result ? static_cast<T*>(Object) : nullptr;
+			return Result;
+		}
+
+		template<typename T>
+		auto LoadSoftObject(TSoftObjectPtr<T>& Reference, T*& OutObject,
+			ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+		{
+			static_assert(std::is_base_of_v<DObject, T>);
+			DObject* Object = nullptr;
+			FAssetResult Result = LoadSoftObject(
+				Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport);
+			OutObject = Result ? static_cast<T*>(Object) : nullptr;
+			return Result;
+		}
+
 		// Rejects unsaved state and restores residency for live references, returning InUse.
 		// Reload abort may ignore saved dependency edges of the specified exact live
 		// packages after dropping candidate graphs. Actual references and unsaved state
@@ -152,11 +182,6 @@ namespace Durin
 
 	private:
 		std::vector<TWeakObjectPtr<DPackage>> Packages;
-	};
-
-	struct FAssetPackageLoadSnapshot
-	{
-		std::vector<FPackagePath> ResidentPackages;
 	};
 
 	enum class EAssetPackageUnloadPolicy : uint8
@@ -279,12 +304,6 @@ namespace Durin
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved
 	)
 		-> FAssetResult;
-	// Legacy global selection; prefer FAssetPackageLoadScope for operation-owned cleanup.
-	ENGINE_API auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot;
-	// Uses ordinary GC reference protection; partial release returns InUse for live survivors.
-	ENGINE_API auto ReleasePackagesLoadedSince(
-		const FAssetPackageLoadSnapshot& Snapshot
-	) -> FAssetResult;
 	ENGINE_API auto ShutdownAssetManager() -> void;
 	ENGINE_API auto InitializeAssetManager(
 		FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored()

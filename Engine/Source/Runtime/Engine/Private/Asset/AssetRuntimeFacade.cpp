@@ -115,19 +115,6 @@ namespace Durin
 		return State.GetLoadService().UnloadPackage(Path, Policy);
 	}
 
-	auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot
-	{
-		return FAssetRuntimeState::Get().GetLoadService()
-			.CapturePackageLoadSnapshot();
-	}
-
-	auto ReleasePackagesLoadedSince(
-		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService()
-			.ReleasePackagesLoadedSince(Snapshot);
-	}
-
 	auto ShutdownAssetManager() -> void
 	{
 		FAssetRuntimeState::Get().Shutdown();
