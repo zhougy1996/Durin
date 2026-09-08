@@ -97,18 +97,14 @@ namespace Durin::Editor::Material
 		auto RollBack = [&]() {
 			std::string IgnoredError;
 			(void)RestoreEntries(Rollback, IgnoredError);
-			(void)Material.PostLoad(IgnoredError);
+			Material.PostLoad();
 		};
 		if (!RestoreEntries(Entries, OutError))
 		{
 			RollBack();
 			return false;
 		}
-		if (!Material.PostLoad(OutError))
-		{
-			RollBack();
-			return false;
-		}
+		Material.PostLoad();
 		if (auto* BaseMaterial = Cast<DMaterial>(&Material))
 		{
 			(void)FAssetCompilingManager::Get().FinishCompilationForObject(*BaseMaterial);

@@ -252,6 +252,13 @@ reimport decodes and projects a panorama into six canonical authored RGBA8
 faces before the cache lookup. Engine derives the key from those faces and the
 provider descriptor; only a miss invokes TextureBuild platform construction.
 Ordinary build, PostLoad, DDC recovery, and Cook never recapture a physical source.
+Texture producers validate complete platform data before calling the void
+`SetPlatformData` ownership-transfer setter; the setter neither validates nor
+updates render resources. `PostLoad()` logs initialization failures without
+returning a result. Explicit `RebuildPlatformData()` reports success as a Bool
+and logs its own errors; lower-level build and Cook APIs retain diagnostics
+for operation callers. Failed builds preserve previously accepted data, while
+an asset without accepted data remains safely unavailable to resource consumers.
 
 ## Cooked Packages and Bulk Fields
 

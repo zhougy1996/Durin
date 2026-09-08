@@ -1,4 +1,5 @@
 #include "Components/StaticMeshComponent.h"
+#include "Logging/LogMacros.h"
 
 #include "Components/ComponentMaterialOverride.h"
 
@@ -150,12 +151,16 @@ namespace Durin
 		return StaticMesh != nullptr ? StaticMesh->GetNumMaterialSlots() : 0;
 	}
 
-	auto DStaticMeshComponent::PostLoad(std::string& OutError) -> bool
+	auto DStaticMeshComponent::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
-		if (!ValidateOverrideMaterials(OverrideMaterials, OutError)) return false;
+		std::string Error;
+		Super::PostLoad();
+		if (!ValidateOverrideMaterials(OverrideMaterials, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), Error);
+			OverrideMaterials.clear();
+		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
-		return true;
 	}
 
 	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

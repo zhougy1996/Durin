@@ -412,7 +412,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 		Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeY)]));
 
 	std::string Error;
-	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
@@ -643,19 +643,19 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;
-	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 
 	std::filesystem::copy_file(GetPanoramaFixture("AnalyticalHDR.hdr"), CopiedSource);
-	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	{
 		std::ofstream Stream(CopiedSource, std::ios::binary | std::ios::trunc);
 		Stream << "corrupt";
 	}
-	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 
 	std::filesystem::copy_file(GetPanoramaFixture("AnalyticalHDR.hdr"), CopiedSource,

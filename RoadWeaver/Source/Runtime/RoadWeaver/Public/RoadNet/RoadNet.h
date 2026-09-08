@@ -45,7 +45,7 @@ namespace Durin::RoadNet
 		// Validates the complete candidate before replacing authored state.
 		ROADWEAVER_API auto SetDefinition(
 			FDefinition InDefinition, std::string& OutError) -> bool;
-		ROADWEAVER_API auto PostLoad(std::string& OutError) -> bool override;
+		ROADWEAVER_API auto PostLoad() -> void override;
 		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal,
 			std::string& OutError) -> bool override;
 		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

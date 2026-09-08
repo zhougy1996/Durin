@@ -1464,13 +1464,7 @@ namespace Durin::AssetPrivate
 				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph, "Injected PostLoad failure."); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
-			std::string Error;
-			if (!Objects[Index]->PostLoad(Error))
-			{
-				LinkerApplyFail(Diagnostic, EAssetError::InvalidObjectGraph,
-					Error.empty() ? "Object PostLoad failed." : Error, 0, Exports[Index].Path); Rollback();
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
+			Objects[Index]->PostLoad();
 			Objects[Index]->ClearLoadedCustomVersions();
 			Objects[Index]->ClearLoadedDeprecatedProperties();
 		}

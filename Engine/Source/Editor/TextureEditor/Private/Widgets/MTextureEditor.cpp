@@ -334,8 +334,7 @@ namespace Durin::Editor::Texture
 		ImGui::SameLine();
 		if (ImGui::Button("Refresh"))
 		{
-			std::string Error;
-			if (!Texture->PostLoad(Error)) SetError(std::move(Error));
+			Texture->PostLoad();
 		}
 		ImGui::SameLine();
 		ImGui::TextDisabled("|");
@@ -526,11 +525,7 @@ namespace Durin::Editor::Texture
 		ImGui::Spacing();
 		if (ImGui::Button("Retry Build"))
 		{
-			std::string Error;
-			if (!Texture->PostLoad(Error))
-			{
-				SetError(Error);
-			}
+			Texture->PostLoad();
 		}
 
 		if (RenderFailure == ETextureRenderFailure::CreateOrUpload)

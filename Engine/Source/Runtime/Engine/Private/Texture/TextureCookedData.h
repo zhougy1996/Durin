@@ -56,7 +56,7 @@ namespace Durin::TexturePrivate
 	}
 
 	// Decode into detached typed data and release the bulk lock before publishing
-	// through the family's validating setter. A failure never updates resources.
+	// through the family's setter after successful payload validation. A failure never updates resources.
 	template<class TPlatformData, class TTexture>
 	auto LoadCookedPlatformData(TTexture& Texture, FBulkData& CookedData,
 		std::string_view Family, std::string& OutError) -> bool
@@ -79,8 +79,7 @@ namespace Durin::TexturePrivate
 			return FailCooked(std::string(Ar.GetError()));
 		}
 		if (!CookedData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
-		if (!Texture.SetPlatformData(std::move(Candidate), OutError))
-			return FailCooked(OutError);
+		Texture.SetPlatformData(std::move(Candidate));
 		Texture.UpdateResource();
 		OutError.clear();
 		return true;

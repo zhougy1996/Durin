@@ -288,10 +288,8 @@ namespace Durin
 		Serialize(Ar);
 	}
 
-	auto DObject::PostLoad(std::string& OutError) -> bool
+	auto DObject::PostLoad() -> void
 	{
-		(void)OutError;
-		return true;
 	}
 
 	auto DObject::GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>

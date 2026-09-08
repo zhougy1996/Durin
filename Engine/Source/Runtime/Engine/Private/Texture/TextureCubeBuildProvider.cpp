@@ -153,8 +153,8 @@ namespace Durin
 				CanonicalInput.PanoramaExposureEV,
 				CanonicalInput.OriginalSourceWidth,
 				CanonicalInput.OriginalSourceHeight,
-				CanonicalInput.bSRGB, OutError)
-			|| !Texture.SetPlatformData(std::move(PlatformData), OutError)) return false;
+				CanonicalInput.bSRGB, OutError)) return false;
+		Texture.SetPlatformData(std::move(PlatformData));
 		Texture.UpdateResource();
 		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 		OutError.clear();

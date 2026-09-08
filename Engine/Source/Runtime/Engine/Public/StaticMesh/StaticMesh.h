@@ -157,7 +157,7 @@ namespace Durin
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;

@@ -1,4 +1,5 @@
 #include "Materials/MaterialInstance.h"
+#include "Logging/LogMacros.h"
 
 #include "Asset/Asset.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -424,54 +425,35 @@ namespace Durin
 		return Result;
 	}
 
-	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
+	auto DMaterialInstance::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
-		std::unordered_set<FGuid> OverrideIds;
-		for (FMaterialParameterOverride& Override : ParameterOverrides)
-		{
-			if (!Override.ParameterId.IsValid())
-			{
-				OutError = "A material instance asset contains an override with an invalid parameter GUID.";
-				return false;
-			}
-			if (!OverrideIds.insert(Override.ParameterId).second)
-			{
-				OutError = std::format(
-					"A material instance asset contains duplicate overrides for parameter GUID {}.",
-					Override.ParameterId.ToString());
-				return false;
-			}
-			if (!IsValidParameterType(Override.Type))
-			{
-				OutError = std::format(
-					"A material instance override for parameter GUID {} has an invalid type.",
-					Override.ParameterId.ToString());
-				return false;
-			}
-			const FMaterialParameterDefinition* Definition =
-				FindParameterDefinition(Override.ParameterId);
-			if (Definition != nullptr && Override.Type != Definition->Type)
-			{
-				OutError = std::format(
-					"A material instance override for parameter GUID {} changes type from {} to {}.",
-					Override.ParameterId.ToString(),
-					static_cast<uint8>(Definition->Type),
-					static_cast<uint8>(Override.Type));
-				return false;
-			}
-		}
+		Super::PostLoad();
+		// Break corrupt parent chains before any parameter lookup can recurse.
 		if (WouldCreateParentCycle(this, Parent.Get()))
 		{
-			OutError = "A material instance asset contains a parent cycle.";
-			return false;
+			DURIN_ERROR("PostLoad '{}': material instance parent cycle; clearing parent.", GetObjectPath());
+			Parent = nullptr;
 		}
-		if (bOverrideStaticProperties
-			&& !ValidateMaterialStaticProperties(StaticPropertiesOverride, OutError))
-		{
+		std::unordered_set<FGuid> OverrideIds;
+		std::erase_if(ParameterOverrides, [&](const FMaterialParameterOverride& Override) {
+			const FMaterialParameterDefinition* Definition = FindParameterDefinition(Override.ParameterId);
+			if (!Override.ParameterId.IsValid() || !IsValidParameterType(Override.Type)
+				|| (Definition && Override.Type != Definition->Type)
+				|| !OverrideIds.insert(Override.ParameterId).second)
+			{
+				DURIN_ERROR("PostLoad '{}': discarding invalid or duplicate material parameter override {}.",
+					GetObjectPath(), Override.ParameterId.ToString());
+				return true;
+			}
 			return false;
+		});
+		std::string Error;
+		if (bOverrideStaticProperties
+			&& !ValidateMaterialStaticProperties(StaticPropertiesOverride, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}; disabling static property overrides.", GetObjectPath(), Error);
+			bOverrideStaticProperties = false;
 		}
 		PublishMaterialRenderProxyState();
-		return true;
 	}
 }

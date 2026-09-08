@@ -77,8 +77,7 @@ namespace
 		auto* Texture = NewObject<TTexture>(nullptr, "CookedDecodeBoundary");
 		ASSERT_NE(Texture, nullptr);
 		std::string Error;
-		ASSERT_TRUE(Texture->SetPlatformData(std::make_unique<TPlatformData>(PlatformData), Error))
-			<< Error;
+		Texture->SetPlatformData(std::make_unique<TPlatformData>(PlatformData));
 		const auto* Installed = Texture->GetPlatformData();
 		const uint64 Revision = Texture->GetBuildRevision();
 		FByteBuffer ValidBytes;

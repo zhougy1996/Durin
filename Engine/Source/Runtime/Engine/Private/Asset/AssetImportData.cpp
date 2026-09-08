@@ -1,4 +1,5 @@
 #include "Asset/AssetImportData.h"
+#include "Logging/LogMacros.h"
 #include "Asset/SourceHint.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
@@ -316,15 +317,20 @@ namespace Durin
 		return true;
 	}
 
-	auto DAssetImportData::PostLoad(std::string& OutError) -> bool
+	auto DAssetImportData::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
+		std::string Error;
+		Super::PostLoad();
 		if (SchemaVersion == 2)
 		{
 			SourceData.Normalize();
 			SchemaVersion = AssetImportDataSchemaVersion;
 		}
-		return Validate(OutError);
+		if (!Validate(Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
+		}
 	}
 
 	auto InspectAssetImportInfo(

@@ -1,4 +1,5 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
+#include "Logging/LogMacros.h"
 
 #include "DObject/Package.h"
 
@@ -248,35 +249,38 @@ namespace Durin
 		return Result;
 	}
 
-	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
+	auto DEnvironmentLighting::PostLoad() -> void
 	{
-		FByteBuffer PayloadBytes;
+		Super::PostLoad();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
+			Data.reset();
 			if (PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
 				|| CookedPlatformData.GetMetadata().LogicalSize == 0)
-				return Fail(
-					"Cooked environment-lighting PlatformData field is missing.",
-					&OutError);
-			Data.reset();
-			OutError.clear();
-			return true;
+				DURIN_ERROR("PostLoad '{}': cooked environment-lighting PlatformData field is missing.", GetObjectPath());
+			return;
 		}
-		else
+		if (!GetPackage())
 		{
-			if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
-			if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
+			DURIN_ERROR("PostLoad '{}': environment-lighting asset has no package.", GetObjectPath());
+			return;
+		}
+		FByteBuffer PayloadBytes;
+		std::string Error;
+		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
-		FCanonicalMemoryReader PayloadAr(PayloadBytes,
-			GetAssetRuntimeConfiguration().RequiresCookedPayload()
-				? EArchivePurpose::CookedPayload : EArchivePurpose::DerivedDataPayload);
+		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(PayloadAr);
 		if (PayloadAr.HasError())
-			return Fail(PayloadAr.GetFailure()->Message, &OutError);
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), PayloadAr.GetFailure()->Message);
+			return;
+		}
 		Data = std::move(Candidate);
-		OutError.clear();
-		return true;
 	}
 
 	auto DEnvironmentLighting::GetData() const

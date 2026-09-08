@@ -274,7 +274,8 @@ TEST(FMaterialTests, RuntimeSchemaValidationReportsSpecificCorruption)
 	ASSERT_NE(Property, nullptr);
 	auto* Opacity = static_cast<Durin::FMaterialParameterDefinition*>(Property->GetMutableElementPtr(Material, 2));
 	Opacity->Type = Durin::EMaterialParameterType::Vector;
-	EXPECT_FALSE(Material->PostLoad(Error));
+	Material->PostLoad();
+	EXPECT_FALSE(Durin::ValidateCanonicalMaterialParameterDefinitions(Material->GetParameterDefinitions(), Error));
 	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
@@ -1133,16 +1134,16 @@ TEST(FMaterialTests, StaticMeshComponentValidatesPositionalOverrides)
 	EXPECT_EQ(Session.Cancel(), Durin::Editor::EPropertyEditResult::NoChange);
 
 	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Mesh);
-	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
-	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Material);
+	Component->PostLoad();
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
+	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
 	Overrides->Resize(Component, Durin::MaximumMeshMaterialSlots + 1ull);
-	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("exceeding the limit"), std::string::npos);
+	Component->PostLoad();
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 	Overrides->Resize(Component, 2);
 	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Material);
 	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 1), nullptr);
-	EXPECT_TRUE(Component->PostLoad(Error));
+	Component->PostLoad();
 	EXPECT_EQ(Component->GetOverrideMaterials().size(), 1u);
 
 	Durin::MarkAsGarbage(Component);

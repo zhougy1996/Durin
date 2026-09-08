@@ -1,4 +1,5 @@
 #include "RoadNet/RoadNet.h"
+#include "Logging/LogMacros.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
 
@@ -271,23 +272,25 @@ namespace Durin::RoadNet
 		return true;
 	}
 
-	auto DRoadNet::PostLoad(std::string& OutError) -> bool
+	auto DRoadNet::PostLoad() -> void
 	{
+		std::string Error;
 		if (SchemaVersion != 1 && SchemaVersion != RoadNetSchemaVersion)
 		{
-			OutError = std::format(
+			Error = std::format(
 				"Road Net schema version {} is unsupported; expected {}.",
 				SchemaVersion, RoadNetSchemaVersion);
-			return false;
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
-		if (!ValidateDefinition(Definition, OutError))
+		if (!ValidateDefinition(Definition, Error))
 		{
-			OutError += " Repair the complete graph candidate (endpoints, stations and lane mappings) and resave as schema 2.";
-			return false;
+			Error += " Repair the complete graph candidate (endpoints, stations and lane mappings) and resave as schema 2.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		SchemaVersion = RoadNetSchemaVersion;
 		NotifyMutation();
-		return true;
 	}
 
 	auto DRoadNet::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

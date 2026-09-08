@@ -107,13 +107,13 @@ namespace Durin
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
+		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
-			std::unique_ptr<FTextureCubePlatformData> Data,
-			std::string& OutError) -> bool;
+			std::unique_ptr<FTextureCubePlatformData> Data) -> void;
 		auto IsSRGB() const -> bool { return bSRGB; }
 
-		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto RebuildPlatformData() -> bool;
+		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;

@@ -69,7 +69,7 @@ namespace Durin
 		ENGINE_API auto RemoveSplineMutationListener(uint64 ListenerId) -> bool;
 
 		ENGINE_API auto UpdateSpline(ESplineChangeFlags ChangeFlags = ESplineChangeFlags::Build) -> void;
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 

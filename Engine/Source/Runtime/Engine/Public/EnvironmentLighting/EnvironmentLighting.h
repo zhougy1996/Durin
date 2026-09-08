@@ -51,7 +51,7 @@ namespace Durin
 			return CookedPlatformData;
 		}
 
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(

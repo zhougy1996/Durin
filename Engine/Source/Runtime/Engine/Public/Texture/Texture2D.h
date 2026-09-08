@@ -108,16 +108,16 @@ namespace Durin
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
+		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
-			std::unique_ptr<FTexturePlatformData> Data,
-			std::string& OutError) -> bool;
+			std::unique_ptr<FTexturePlatformData> Data) -> void;
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend class FTextureCompilingManager;
 		friend auto ::Durin::ContributeEngineCookAsset(

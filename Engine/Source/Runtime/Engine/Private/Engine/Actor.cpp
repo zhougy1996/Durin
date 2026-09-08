@@ -1,4 +1,5 @@
 #include "Engine/Actor.h"
+#include "Logging/LogMacros.h"
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
@@ -362,15 +363,16 @@ namespace Durin
 		RequestNativeReconstruction();
 	}
 
-	auto AActor::PostLoad(std::string& OutError) -> bool
+	auto AActor::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
+		std::string Error;
+		Super::PostLoad();
 		RebuildOwnedComponentsFromAuthored();
-		if (RequestNativeReconstruction()) return true;
-		OutError = NativeConstructionError.empty()
+		if (RequestNativeReconstruction()) return;
+		Error = NativeConstructionError.empty()
 			? "Actor native reconstruction failed after load or duplication."
 			: NativeConstructionError;
-		return false;
+		DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 	}
 
 	auto AActor::BeginDestroy() -> void

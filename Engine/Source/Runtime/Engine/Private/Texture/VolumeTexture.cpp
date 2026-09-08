@@ -1,4 +1,5 @@
 #include "Texture/VolumeTexture.h"
+#include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
 #include "DObject/Package.h"
@@ -177,18 +178,10 @@ namespace Durin
 	}
 
 	auto DVolumeTexture::SetPlatformData(
-		std::unique_ptr<FVolumeTexturePlatformData> Data,
-		std::string& OutError) -> bool
+		std::unique_ptr<FVolumeTexturePlatformData> Data) -> void
 	{
 		CheckGameThread();
-		if (!Data || !Data->IsValid())
-		{
-			OutError = "VolumeTexture platform data must be complete and valid.";
-			return false;
-		}
 		PlatformData = std::move(Data);
-		OutError.clear();
-		return true;
 	}
 
 	auto DVolumeTexture::SerializeCooked(FArchive& Ar) -> void
@@ -209,40 +202,54 @@ namespace Durin
 			Revision, Completion);
 	}
 
-	auto DVolumeTexture::PostLoad(std::string& OutError) -> bool
+	auto DVolumeTexture::PostLoad() -> void
 	{
+		std::string Error;
 		BindTextureSourceOwner();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 			{
-				OutError = std::format(
+				Error = std::format(
 					"Cooked volume texture '{}': required PlatformData field is missing.",
 					GetObjectPath());
-				return false;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 			PlatformData.reset();
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy()
-				|| !SetSource(std::move(Migrated), OutError)) return false;
+			if (!Migrated.MigrateLegacy())
+			{
+				Error = "Texture source migration failed.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
+			if (!SetSource(std::move(Migrated), Error))
+			{
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
 		}
 		FVolumeTextureSourceData BuildInput =
 			MakeVolumeTextureBuildInput(GetSource());
 		if (!BuildInput.IsValid())
 		{
-			OutError = "VolumeTexture source data is missing or invalid.";
-			return false;
+			Error = "VolumeTexture source data is missing or invalid.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
-		return BuildVolumeTextureSynchronously(*this, {
+		if (!BuildVolumeTextureSynchronously(*this, {
 			.SourceData = BuildInput,
 			.Settings = BuildSettings}, {
 			.bMarkPackageDirty = false,
-			.bSourceDecoderInvoked = false}, OutError);
+			.bSourceDecoderInvoked = false}, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+		}
 	}
 
 	auto DVolumeTexture::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -260,9 +267,11 @@ namespace Durin
 			OutError = "Volume textures support only the Win64 game cook target.";
 			return false;
 		}
-		if (!PlatformData || !PlatformData->IsValid())
+		if (!HasPlatformData()) PostLoad();
+		if (!HasPlatformData())
 		{
-			if (!PostLoad(OutError)) return false;
+			OutError = std::format("Failed to cook VolumeTexture '{}': platform data is unavailable.", GetObjectPath());
+			return false;
 		}
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), GetPackage(), &OutError);

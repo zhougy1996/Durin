@@ -102,7 +102,7 @@ namespace Durin
 		{
 			return {.SchemaVersion = SchemaVersion, .SourceData = SourceData};
 		}
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 
 	private:
 		DPROPERTY()

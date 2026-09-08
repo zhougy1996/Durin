@@ -211,9 +211,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ObservedCubeTarget->load(std::memory_order_acquire);
 	ASSERT_NE(InitialCubeTarget, nullptr);
 
-	std::string RebuildError;
-	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData(RebuildError))
-		<< RebuildError;
+	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData());
 	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(

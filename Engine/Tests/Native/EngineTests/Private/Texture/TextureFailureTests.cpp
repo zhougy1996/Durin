@@ -184,11 +184,52 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 	// At creation time, the build has not run.
 	EXPECT_FALSE(Texture->HasPlatformData());
 	// PostLoad with no canonical imported pixels.
-	std::string Error;
-	EXPECT_FALSE(Texture->PostLoad(Error));
-	EXPECT_FALSE(Error.empty());
+	Texture->PostLoad();
 	EXPECT_FALSE(Texture->HasPlatformData());
 	ASSERT_TRUE(Durin::UnloadPackage(Texture->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
+TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/UnavailableProvider", AssetPath));
+	Durin::DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
+	Durin::FTextureSourceData Source;
+	Source.Width = 1;
+	Source.Height = 1;
+	Source.SourceChannelCount = 4;
+	Source.Format = Durin::ETextureSourceFormat::RGBA8;
+	Source.Pixels.resize(4);
+	std::string Error;
+	ASSERT_TRUE(Texture->SetSourceData(Durin::FTexture2DImportedData(Source), Error)) << Error;
+	const auto Saved = Durin::SavePackage(Texture->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	auto& Modules = Durin::FModuleManager::Get();
+	ASSERT_TRUE(Modules.UnloadModule("TextureBuild").Succeeded());
+	struct FRestoreProvider
+	{
+		~FRestoreProvider() { Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild"); }
+	} RestoreProvider;
+
+	Durin::DTexture2D* Loaded = nullptr;
+	const auto Result = Durin::LoadObject(
+		Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_FALSE(Loaded->HasPlatformData());
+	EXPECT_FALSE(Loaded->EnsurePlatformDataLoadedBlocking());
+	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Loaded->GetPackage());
+
+	Modules.LoadModuleChecked("TextureBuild");
+	Loaded->PostLoad();
+	EXPECT_TRUE(Loaded->HasPlatformData());
+	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
 }
 
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
@@ -239,7 +280,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;
-	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
@@ -251,7 +292,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 		std::ofstream Stream(GetTextureCachePath(*Texture), std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
-	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), RetainedPlatformData);
@@ -259,7 +300,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 
 	WriteTextureFixture(CopiedSource);
-	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
+	Texture->PostLoad();
 	EXPECT_TRUE(Texture->HasPlatformData());
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);

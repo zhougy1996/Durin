@@ -370,17 +370,23 @@ namespace Durin::AssetForge::Builtins
 				const FTexture2DBuildSettings& Settings = Output.Texture.Settings;
 				auto PlatformData = std::make_unique<FTexturePlatformData>(
 					std::move(Product.PlatformData));
+				if (!PlatformData->IsValid())
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-materialization", "Texture platform data is invalid.", Descriptor.StableIdentity);
+				}
 				if (!Texture->SetSourceData(Output.Texture.SourceData, Error)
 					|| !Texture->SetBuildSettings(Settings.Usage,
 						ResolveTexture2DSRGB(Settings), Settings.MaxResolution,
 						Settings.CompressionQuality, Settings.AlphaMipMode,
-						Settings.AlphaCoverageThreshold, Error)
-					|| !Texture->SetPlatformData(std::move(PlatformData), Error))
+						Settings.AlphaCoverageThreshold, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
+				Texture->SetPlatformData(std::move(PlatformData));
 				Texture->UpdateResource();
 				Texture->MarkPackageDirty();
 				FAssetImportDataState ImportState;

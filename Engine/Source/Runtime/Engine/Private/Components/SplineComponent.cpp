@@ -167,11 +167,10 @@ namespace Durin
 			[ListenerId](const auto& Entry) { return Entry.first == ListenerId; }) != 0;
 	}
 
-	auto DSplineComponent::PostLoad(std::string& OutError) -> bool
+	auto DSplineComponent::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
+		Super::PostLoad();
 		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
-		return true;
 	}
 
 	auto DSplineComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

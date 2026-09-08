@@ -1,4 +1,5 @@
 #include "Asset/OfflinePreparation.h"
+#include "Logging/LogMacros.h"
 #include "StaticMesh/StaticMesh.h"
 
 #include "DObject/Package.h"
@@ -185,33 +186,36 @@ namespace Durin
 		}
 	}
 
-	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
+	auto DStaticMesh::PostLoad() -> void
 	{
+		std::string Error;
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedRenderData.GetMetadata().LogicalSize == 0)
 			{
-				OutError = std::format(
+				Error = std::format(
 					"Cooked static mesh '{}': required RenderData field is missing.",
 					GetObjectPath());
-				return false;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 			RenderData.reset();
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (MaterialSlots.size() > MaximumMeshMaterialSlots)
 		{
-			OutError = "Static mesh material-slot count is outside the supported range.";
-			return false;
+			Error = "Static mesh material-slot count is outside the supported range.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		std::unordered_set<FName> SlotNames;
 		for (const FMeshMaterialSlotDefinition& Slot : MaterialSlots)
 		{
 			if (Slot.Name.IsNone() || !SlotNames.insert(Slot.Name).second)
 			{
-				OutError = "Static mesh material-slot names must be non-None and unique.";
-				return false;
+				Error = "Static mesh material-slot names must be non-None and unique.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 		}
 		const DAssetImportData* ImportData = GetAssetImportData();
@@ -219,23 +223,26 @@ namespace Durin
 			? ImportData->GetSourceData().FindByRole("source") : nullptr;
 		if (!GetImportedData().IsValid() && !Source)
 		{
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (!GetImportedData().IsValid())
 		{
-			OutError = "StaticMesh canonical imported geometry is missing or invalid.";
-			return false;
+			Error = "StaticMesh canonical imported geometry is missing or invalid.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		// Cook serialization builds a detached candidate synchronously from this source.
 		// Offline preparation builds directly instead of scheduling editor compilation.
 		if (FScopedOfflinePreparation::IsActive())
 		{
-			OutError.clear();
-			return true;
+			return;
 		}
-		if (CanJoinStaticMeshCompilation(*this, ImportedData)) { OutError.clear(); return true; }
-		return SubmitStaticMeshCompilation(*this, {.Source = ImportedData, .bMarkPackageDirty = false}, OutError);
+		if (CanJoinStaticMeshCompilation(*this, ImportedData)) return;
+		if (!SubmitStaticMeshCompilation(*this, {.Source = ImportedData, .bMarkPackageDirty = false}, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
+		}
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
 	{

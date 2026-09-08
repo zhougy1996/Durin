@@ -64,7 +64,7 @@ TEST(RoadSceneIntegration, LoadedPreviewMeshFinishesCompilationBeforeConstructio
 	Actor->SetPreviewMesh(Mesh);
 	Actor->SetRoadNet(Asset);
 	EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
-	EXPECT_TRUE(Actor->PostLoad(Error)) << Error;
+	Actor->PostLoad();
 	const auto Components = Actor->FindComponentsByClass<DSplineMeshComponent>();
 	EXPECT_EQ(Components.size(), 1);
 	if (!Components.empty())

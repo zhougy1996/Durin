@@ -1,4 +1,5 @@
 #include "Components/SplineMeshComponent.h"
+#include "Logging/LogMacros.h"
 
 #include "Components/ComponentMaterialOverride.h"
 
@@ -330,11 +331,21 @@ namespace Durin
 		return ValidateStaticMeshMaterialOverrides(Overrides, "SplineMesh component", OutError);
 	}
 
-	auto DSplineMeshComponent::PostLoad(std::string& OutError) -> bool
+	auto DSplineMeshComponent::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError) || !ValidateOverrideMaterials(OverrideMaterials, OutError)) return false;
+		std::string Error;
+		Super::PostLoad();
+		if (!ValidateOverrideMaterials(OverrideMaterials, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}; clearing material overrides.", GetObjectPath(), Error);
+			OverrideMaterials.clear();
+		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
-		return RebuildDerivedState(&OutError);
+		if (!RebuildDerivedState(&Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
+		}
 	}
 
 	auto DSplineMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

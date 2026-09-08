@@ -330,3 +330,46 @@ TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
+
+
+TEST(FWorldTests, PostLoadRepairsAttachmentCyclesAndCrossLevelParents)
+{
+	using namespace Durin;
+	DWorld* World = CreateWorld();
+	auto* First = World->SpawnActor<ADirectionalLightActor>("CycleFirst");
+	auto* Second = World->SpawnActor<ADirectionalLightActor>("CycleSecond");
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	DSceneComponent* FirstRoot = First->GetRootComponent();
+	DSceneComponent* SecondRoot = Second->GetRootComponent();
+	auto* ParentProperty = static_cast<FObjectProperty*>(
+		DSceneComponent::StaticClass()->FindPropertyByName("AttachParent"));
+	ASSERT_NE(ParentProperty, nullptr);
+	ParentProperty->SetObjectPropertyValue(FirstRoot, SecondRoot);
+	ParentProperty->SetObjectPropertyValue(SecondRoot, FirstRoot);
+
+	World->GetCurrentLevel()->PostLoad();
+	EXPECT_TRUE(!FirstRoot->GetAttachParent() || !SecondRoot->GetAttachParent());
+	for (DSceneComponent* Root : {FirstRoot, SecondRoot})
+	{
+		if (DSceneComponent* Parent = Root->GetAttachParent())
+		{
+			EXPECT_EQ(Parent->GetAttachParent(), nullptr);
+			EXPECT_EQ(std::ranges::count_if(Parent->GetAttachChildren(),
+				[Root](const auto& Child) { return Child.Get() == Root; }), 1);
+		}
+	}
+
+	DWorld* OtherWorld = CreateWorld();
+	auto* ForeignActor = OtherWorld->SpawnActor<ADirectionalLightActor>("ForeignParent");
+	ASSERT_NE(ForeignActor, nullptr);
+	ParentProperty->SetObjectPropertyValue(FirstRoot, ForeignActor->GetRootComponent());
+	World->GetCurrentLevel()->PostLoad();
+	EXPECT_EQ(FirstRoot->GetAttachParent(), nullptr);
+	World->GetCurrentLevel()->PostLoad();
+	EXPECT_EQ(FirstRoot->GetAttachParent(), nullptr);
+
+	MarkObjectHierarchyAsGarbage(World);
+	MarkObjectHierarchyAsGarbage(OtherWorld);
+	CollectGarbage();
+}

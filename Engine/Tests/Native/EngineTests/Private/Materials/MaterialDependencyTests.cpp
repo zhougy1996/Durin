@@ -72,9 +72,10 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 	EXPECT_FALSE(Third->SetParent(First));
 	EXPECT_EQ(Third->GetParent(), nullptr);
 	ObjectParentProperty->SetObjectPropertyValue(Third, First);
-	std::string Error;
-	EXPECT_FALSE(Third->PostLoad(Error));
-	EXPECT_EQ(Error, "A material instance asset contains a parent cycle.");
+	Third->PostLoad();
+	EXPECT_EQ(Third->GetParent(), nullptr);
+	EXPECT_FALSE(Third->IsDependent(First));
+	EXPECT_NE(&Third->GetStaticProperties(), nullptr);
 
 	ObjectParentProperty->SetObjectPropertyValue(First, nullptr);
 	ObjectParentProperty->SetObjectPropertyValue(Second, nullptr);

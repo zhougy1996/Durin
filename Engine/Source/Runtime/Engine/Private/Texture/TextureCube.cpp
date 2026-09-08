@@ -1,4 +1,5 @@
 #include "Texture/TextureCube.h"
+#include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
 #include "DObject/Package.h"
@@ -269,18 +270,10 @@ namespace Durin
 	}
 
 	auto DTextureCube::SetPlatformData(
-		std::unique_ptr<FTextureCubePlatformData> Data,
-		std::string& OutError) -> bool
+		std::unique_ptr<FTextureCubePlatformData> Data) -> void
 	{
 		CheckGameThread();
-		if (!Data || !Data->IsValid())
-		{
-			OutError = "TextureCube platform data must be complete and valid.";
-			return false;
-		}
 		PlatformData = std::move(Data);
-		OutError.clear();
-		return true;
 	}
 
 	auto DTextureCube::CreateRenderResourceCandidate(
@@ -297,47 +290,63 @@ namespace Durin
 			Completion);
 	}
 
-	auto DTextureCube::RebuildPlatformData(std::string& OutError) -> bool
+	auto DTextureCube::RebuildPlatformData() -> bool
 	{
+		std::string Error;
 		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(*this, Request, OutError))
+		if (!MakeTextureCubeBuildRequest(*this, Request, Error)
+			|| !BuildTextureCubeSynchronously(*this, Request, {}, Error))
 		{
-			if (OutError.empty()) OutError = "TextureCube source data is missing or invalid.";
+			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
 			return false;
 		}
-		return BuildTextureCubeSynchronously(*this, Request, {}, OutError);
+		return true;
 	}
 
-	auto DTextureCube::PostLoad(std::string& OutError) -> bool
+	auto DTextureCube::PostLoad() -> void
 	{
+		std::string Error;
 		BindTextureSourceOwner();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 			{
-				OutError = std::format(
+				Error = std::format(
 					"Cooked TextureCube '{}': required PlatformData field is missing.",
 					GetObjectPath());
-				return false;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 			PlatformData.reset();
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy()
-				|| !SetSource(std::move(Migrated), OutError)) return false;
+			if (!Migrated.MigrateLegacy())
+			{
+				Error = "Texture source migration failed.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
+			if (!SetSource(std::move(Migrated), Error))
+			{
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
 		}
 		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(*this, Request, OutError))
+		if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 		{
-			if (OutError.empty()) OutError = "TextureCube source data is missing or invalid.";
-			return false;
+			if (Error.empty()) Error = "TextureCube source data is missing or invalid.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
-		return BuildTextureCubeSynchronously(*this, Request, {
-			.bMarkPackageDirty = false, .bSourceDecoderInvoked = false}, OutError);
+		if (!BuildTextureCubeSynchronously(*this, Request, {
+			.bMarkPackageDirty = false, .bSourceDecoderInvoked = false}, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+		}
 	}
 
 	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -358,12 +367,8 @@ namespace Durin
 				"TextureCube '{}' supports only the Win64 game cook target.", GetObjectPath());
 			return false;
 		}
-		if (!PlatformData && !PostLoad(OutError))
-		{
-			OutError = std::format("Failed to cook TextureCube '{}': {}", GetObjectPath(), OutError);
-			return false;
-		}
-		if (!PlatformData)
+		if (!HasPlatformData()) PostLoad();
+		if (!HasPlatformData())
 		{
 			OutError = std::format("Failed to cook TextureCube '{}': platform data is unavailable.",
 				GetObjectPath());

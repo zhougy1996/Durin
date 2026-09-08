@@ -131,7 +131,9 @@ namespace Durin
 
 		COREDOBJECT_API virtual auto FinishDestroy() -> void;
 
-		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
+		// Completes loaded-object initialization. Recoverable failures are logged and
+		// leave safe object state; this notification does not reject or roll back a load.
+		COREDOBJECT_API virtual auto PostLoad() -> void;
 
 		// Exposes source-package versions only while authored PostLoad migration runs.
 		COREDOBJECT_API auto GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>;

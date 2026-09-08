@@ -543,7 +543,7 @@ namespace
 	};
 
 	uint64 GPackageAssetPostLoadCount = 0;
-	bool GRejectPackageAssetPostLoad = false;
+	bool GRejectPackageAssetDeserialize = false;
 	std::function<void()> GPackageConstructorLoadProbe;
 	std::function<void()> GPackagePostLoadProbe;
 
@@ -559,16 +559,18 @@ namespace
 
 		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DPackageAssetForTest(X); }
 
-		auto PostLoad(std::string& OutError) -> bool override
+		auto Serialize(Durin::FArchive& Ar) -> void override
+		{
+			DObject::Serialize(Ar);
+			if (Ar.IsLoading() && GRejectPackageAssetDeserialize)
+				Ar.Fail(Durin::EArchiveFailureCode::InvalidData, "Injected package deserialization rejection.");
+		}
+
+		auto PostLoad() -> void override
 		{
 			++GPackageAssetPostLoadCount;
-			if (GRejectPackageAssetPostLoad)
-			{
-				OutError = "Injected package PostLoad rejection.";
-				return false;
-			}
 			if (GPackagePostLoadProbe) GPackagePostLoadProbe();
-			return DObject::PostLoad(OutError);
+			DObject::PostLoad();
 		}
 
 		static auto StaticClassNoRegister() -> Durin::DClass*
@@ -676,8 +678,6 @@ namespace
 		Durin::FEditorBulkData Payload;
 	};
 
-	bool GRejectSchemaMigrationPostLoad = false;
-
 	auto GetMigratingValueStructNoRegister() -> Durin::DStruct*
 	{
 		static Durin::DStruct* Struct = new Durin::DStruct(
@@ -778,13 +778,8 @@ namespace
 			return Class;
 		}
 
-		auto PostLoad(std::string& OutError) -> bool override
+		auto PostLoad() -> void override
 		{
-			if (GRejectSchemaMigrationPostLoad)
-			{
-				OutError = "Injected schema migration rejection.";
-				return false;
-			}
 			if (WasDeprecatedPropertyLoaded(Durin::FName("A_DEPRECATED")))
 			{
 				A = static_cast<float>(A_DEPRECATED) * 0.5f;
@@ -793,7 +788,7 @@ namespace
 			if (WasDeprecatedPropertyLoaded(Durin::FName("Left_DEPRECATED"))
 				|| WasDeprecatedPropertyLoaded(Durin::FName("Right_DEPRECATED")))
 				Merged = Left_DEPRECATED + Right_DEPRECATED;
-			return DObject::PostLoad(OutError);
+			DObject::PostLoad();
 		}
 
 		float A = 0.0f;
@@ -866,7 +861,6 @@ namespace
 	uint64 GAuthoredLoadSerializeCount = 0;
 	uint64 GCookedSerializeCount = 0;
 	bool GRejectAuthoredLoad = false;
-	bool GRejectAuthoredPostLoad = false;
 
 	class DAuthoredArchiveAssetForTest : public Durin::DObject
 	{
@@ -992,16 +986,6 @@ namespace
 					.Alignment = 16,
 					.StoragePolicy = Durin::EArchiveBulkDataStoragePolicy::AllowExternal});
 			}
-		}
-
-		auto PostLoad(std::string& OutError) -> bool override
-		{
-			if (GRejectAuthoredPostLoad)
-			{
-				OutError = "Injected authored PostLoad rejection.";
-				return false;
-			}
-			return DObject::PostLoad(OutError);
 		}
 
 		int32 NativeValue = 73;
@@ -2261,9 +2245,9 @@ TEST(FPackageAssetTests, ExplicitLoadScopeFailureRetiresSuccessfulNestedBulkReso
 	const auto Count = GetPackageResourceManager().GetRegisteredPackageCount();
 	FAssetPackageLoadScope Scope;
 	DPackage* Loaded = nullptr;
-	GRejectPackageAssetPostLoad = true;
+	GRejectPackageAssetDeserialize = true;
 	const auto Result = Scope.LoadPackage(RootPath, Loaded);
-	GRejectPackageAssetPostLoad = false;
+	GRejectPackageAssetDeserialize = false;
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(FindResidentPackage(RootPath), nullptr);

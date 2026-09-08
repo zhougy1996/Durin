@@ -82,7 +82,7 @@ namespace Durin
 		ENGINE_API auto SetPrimaryCameraActor(ACameraActor* Actor) -> bool;
 		auto GetPrimaryCameraActor() const -> ACameraActor* { return PrimaryCameraActor.Get(); }
 		auto GetWorld() const -> DWorld* { return OwningWorld; }
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 
 #if DURIN_WITH_EDITOR
 		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }

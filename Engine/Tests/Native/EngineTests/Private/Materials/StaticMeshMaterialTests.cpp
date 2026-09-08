@@ -619,7 +619,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 }
 
 TEST(FMaterialProgramPackageTests,
-	ProgramRoundTripsDuplicatesAndRejectsMalformedPresentData)
+	ProgramRoundTripsDuplicatesAndLoadsMalformedDataForRepair)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
@@ -689,12 +689,18 @@ TEST(FMaterialProgramPackageTests,
 	MalformedLoaded->MarkPackageDirty();
 	ASSERT_TRUE(Durin::SavePackage(MalformedLoaded->GetPackage()));
 	ASSERT_TRUE(Durin::UnloadPackage(Path));
-	Durin::DMaterial* Rejected = nullptr;
-	const Durin::FAssetResult RejectedResult =
-		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Rejected);
-	EXPECT_FALSE(RejectedResult);
-	EXPECT_EQ(Rejected, nullptr);
-	EXPECT_EQ(Durin::FindResidentPackage(Path), nullptr);
+	Durin::DMaterial* LoadedForRepair = nullptr;
+	const Durin::FAssetResult LoadResult =
+		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedForRepair);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(LoadedForRepair, nullptr);
+	EXPECT_EQ(Durin::FindResidentPackage(Path), LoadedForRepair->GetPackage());
+	EXPECT_FALSE(Durin::ValidateMaterialProgram(
+		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
+	EXPECT_TRUE(LoadedForRepair->SetMaterialProgram(Authored, Validation));
+	EXPECT_TRUE(Durin::ValidateMaterialProgram(
+		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
+	ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 
 	Durin::CollectGarbage();
 }

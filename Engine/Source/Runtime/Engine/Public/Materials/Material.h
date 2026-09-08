@@ -89,7 +89,7 @@ namespace Durin
 		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
@@ -121,8 +121,8 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialParameterDefinition> ParameterDefinitions;
 
-		// Missing legacy fields retain the canonical constructor value; malformed
-		// present program data is rejected by PostLoad.
+		// Missing legacy fields retain the canonical constructor value. PostLoad
+		// logs malformed program data and leaves the accepted render state unchanged.
 		DPROPERTY(EditorOnly)
 		FMaterialProgram Program;
 

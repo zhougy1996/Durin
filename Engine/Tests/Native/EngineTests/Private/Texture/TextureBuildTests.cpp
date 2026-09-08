@@ -709,9 +709,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->SetSourceData(Source, Error)) << Error;
 	ASSERT_TRUE(Texture->SetBuildSettings({}, Error)) << Error;
-	ASSERT_TRUE(Texture->SetPlatformData(
-		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData),
-		Error)) << Error;
+	Texture->SetPlatformData(
+		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData));
 	Texture->UpdateResource();
 	const uint64 ValidRevision = Texture->GetBuildRevision();
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
@@ -821,8 +820,8 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
 	ASSERT_TRUE(Texture->SetSourceData(Source, Error)) << Error;
 	ASSERT_TRUE(Texture->SetBuildSettings({}, Error)) << Error;
-	ASSERT_TRUE(Texture->SetPlatformData(
-		std::make_unique<Durin::FVolumeTexturePlatformData>(Platform), Error)) << Error;
+	Texture->SetPlatformData(
+		std::make_unique<Durin::FVolumeTexturePlatformData>(Platform));
 	Texture->UpdateResource();
 
 	Durin::FDefaultDeltaPlan Plan;

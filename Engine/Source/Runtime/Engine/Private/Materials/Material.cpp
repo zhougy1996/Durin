@@ -1,4 +1,5 @@
 #include "Materials/Material.h"
+#include "Logging/LogMacros.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
@@ -377,37 +378,40 @@ namespace Durin
 		return AcceptedCompiledProgram;
 	}
 
-	auto DMaterial::PostLoad(std::string& OutError) -> bool
+	auto DMaterial::PostLoad() -> void
 	{
-		if (!Super::PostLoad(OutError)) return false;
+		std::string Error;
+		Super::PostLoad();
 		if (!ValidateCanonicalMaterialParameterDefinitions(
-				ParameterDefinitions, OutError)
+				ParameterDefinitions, Error)
 			|| !ValidateMaterialStaticProperties(
-				StaticProperties, OutError))
+				StaticProperties, Error))
 		{
-			return false;
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedProgramData.GetMetadata().LogicalSize == 0)
 			{
-				OutError = std::format(
+				Error = std::format(
 					"Cooked Material '{}': required ProgramData field is missing.",
 					GetObjectPath());
-				MaterialCookDiagnostic = OutError;
-				return false;
+				MaterialCookDiagnostic = Error;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 			AcceptedCompiledProgram.reset();
 			MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = std::format(
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (!UpgradeMaterialProgram(Program))
 		{
-			OutError = "Material program schema version is unsupported.";
-			return false;
+			Error = "Material program schema version is unsupported.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		// The only legacy-DAG recognition path is the stable Engine-owned import
 		// parent. Exact graph equality prevents edited or user-authored graphs from
@@ -421,10 +425,11 @@ namespace Durin
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)
 		{
-			OutError = ProgramValidation.Diagnostics.empty()
+			Error = ProgramValidation.Diagnostics.empty()
 				? "Material program validation failed."
 				: ProgramValidation.Diagnostics.front().Message;
-			return false;
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
 		}
 		GraphPresentation = SanitizeMaterialGraphPresentation(
 			GraphPresentation, Program);
@@ -433,7 +438,6 @@ namespace Durin
 		AdvanceRevision(ParameterDefinitionSchemaRevision);
 		RequestProgramCompile(Program, StaticProperties);
 		PublishMaterialRenderProxyState();
-		return true;
 	}
 
 	auto DMaterial::PostEditChangeProperty(

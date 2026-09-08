@@ -1,4 +1,5 @@
 #include "Asset/RegistryOperations.h"
+#include "Logging/LogMacros.h"
 #include "Engine/Level.h"
 
 #include "Actors/CameraActor.h"
@@ -299,24 +300,25 @@ namespace Durin
 		}
 	}
 
-	auto DLevel::PostLoad(std::string& OutError) -> bool
+	auto DLevel::PostLoad() -> void
 	{
+		Super::PostLoad();
+		std::erase_if(Actors, [&](const TObjectPtr<AActor>& Actor) {
+			if (Actor && Actor->GetOuter() == this) return false;
+			DURIN_ERROR("PostLoad '{}': removing an actor outside its object graph.", GetObjectPath());
+			return true;
+		});
 		std::vector<DSceneComponent*> SceneComponents;
 		for (const TObjectPtr<AActor>& ActorPtr : Actors)
 		{
 			AActor* Actor = ActorPtr.Get();
-			if (!Actor || Actor->GetOuter() != this)
-			{
-				OutError = "Level contains an actor outside its object graph.";
-				return false;
-			}
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component || Component->GetOuter() != Actor)
 				{
-					OutError = "Actor contains a component outside its object graph.";
-					return false;
+					DURIN_ERROR("PostLoad '{}': skipping a component outside its actor graph.", GetObjectPath());
+					continue;
 				}
 				Component->SetOwnedByActor(true);
 				if (auto* SceneComponent = Cast<DSceneComponent>(Component)) SceneComponents.push_back(SceneComponent);
@@ -331,13 +333,15 @@ namespace Durin
 			{
 				if (!Visited.insert(Parent).second || Parent == Component)
 				{
-					OutError = "Level contains a component attachment cycle.";
-					return false;
+					DURIN_ERROR("PostLoad '{}': breaking a component attachment cycle.", GetObjectPath());
+					Component->AttachParent = nullptr;
+					break;
 				}
 				if (!Parent->GetOwner() || Parent->GetOwner()->GetOuter() != this)
 				{
-					OutError = "Level contains a cross-level component attachment.";
-					return false;
+					DURIN_ERROR("PostLoad '{}': clearing a cross-level component attachment.", GetObjectPath());
+					Component->AttachParent = nullptr;
+					break;
 				}
 			}
 		}
@@ -345,8 +349,7 @@ namespace Durin
 		{
 			if (Actor && !Actor->RequestNativeReconstruction())
 			{
-				OutError = Actor->GetNativeConstructionError();
-				return false;
+				DURIN_ERROR("PostLoad '{}': {}", Actor->GetObjectPath(), Actor->GetNativeConstructionError());
 			}
 		}
 		for (DSceneComponent* Component : SceneComponents)
@@ -369,7 +372,6 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		NotifyEditorActorHierarchyChanged();
 #endif
-		return true;
 	}
 
 #if DURIN_WITH_EDITOR

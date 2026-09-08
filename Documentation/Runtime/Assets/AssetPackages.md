@@ -289,8 +289,14 @@ resolves hard dependencies, applies detached values through the authored
 Archive contract, restores explicit/forced provenance, and invokes
 `PostDeserialize`/`PostLoad` only after their prerequisites succeed. The root
 transaction publishes residency, dependencies, load reports, and cache state
-only after the whole closure succeeds. Any failure destroys the unpublished
-graph and releases dependencies admitted by the attempt.
+only after the whole closure succeeds. Archive, dependency, and load-policy failures
+destroy the unpublished graph and release dependencies admitted by the attempt.
+`PostLoad()` is a void lifecycle notification: recoverable initialization failures
+are logged by the object and do not reject package publication or duplication.
+Callbacks must preserve safe state, repair invalid relationships, or leave derived
+resources unavailable; resource consumers and explicit Cook/build operations own
+their readiness checks. Data that must reject a load belongs in archive validation,
+not a PostLoad return value.
 
 Internal references use export indices. Cross-package hard imports target an
 exact top-level asset; cycles work because skeletons exist before values are
@@ -300,7 +306,7 @@ containers; dependencies referenced only by discarded fields are not loaded.
 A current property or explicit historical route is never treated as removed
 when its type is incompatible. Unknown classes or declaring types,
 incompatible recursive types, duplicate Map keys, malformed references,
-callback rejection, or unavailable operations fail the complete load rather
+serializer callback rejection, or unavailable loading operations fail the complete load rather
 than partially publishing state.
 
 The Engine-private load Archive receives an explicit

@@ -1443,12 +1443,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					"Injected test object serialization failure.");
 		}
 
-		auto PostLoad(std::string& OutError) -> bool override
+		auto PostLoad() -> void override
 		{
 			++PostLoadCallCount;
-			if (!bRejectPostLoad) return true;
-			OutError = "Injected test object PostLoad failure.";
-			return false;
 		}
 
 		int32 Value = 0;
@@ -1479,7 +1476,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		bool bSkipSuperSerialize = false;
 		bool bEmitLateReference = false;
 		bool bInjectSerializeFailure = false;
-		bool bRejectPostLoad = false;
 		int32 PostLoadCallCount = 0;
 	};
 

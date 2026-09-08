@@ -2187,12 +2187,7 @@ namespace Durin
 
 		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
 		{
-			std::string PostLoadError;
-			if (!Duplicates[*It]->PostLoad(PostLoadError))
-			{
-				DiscardDuplicates();
-				return nullptr;
-			}
+			Duplicates[*It]->PostLoad();
 		}
 		if (OutDuplicates) *OutDuplicates = Duplicates;
 		return DuplicateRoot;

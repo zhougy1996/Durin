@@ -1,4 +1,5 @@
 #include "Texture/Texture2D.h"
+#include "Logging/LogMacros.h"
 #include "Texture/TextureCookedData.h"
 
 #include "DObject/Package.h"
@@ -225,18 +226,10 @@ namespace Durin
 	}
 
 	auto DTexture2D::SetPlatformData(
-		std::unique_ptr<FTexturePlatformData> Data,
-		std::string& OutError) -> bool
+		std::unique_ptr<FTexturePlatformData> Data) -> void
 	{
 		CheckGameThread();
-		if (!Data || !Data->IsValid())
-		{
-			OutError = "Texture2D platform data must be complete and valid.";
-			return false;
-		}
 		PlatformData = std::move(Data);
-		OutError.clear();
-		return true;
 	}
 
 	auto DTexture2D::CreateRenderResourceCandidate(
@@ -253,31 +246,41 @@ namespace Durin
 			Completion);
 	}
 
-	auto DTexture2D::PostLoad(std::string& OutError) -> bool
+	auto DTexture2D::PostLoad() -> void
 	{
+		std::string Error;
 		BindTextureSourceOwner();
 		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 			{
-				OutError = std::format(
+				Error = std::format(
 					"Cooked Texture2D '{}': required PlatformData field is missing.",
 					GetObjectPath());
-				return false;
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
 			}
 			PlatformData.reset();
-			OutError.clear();
-			return true;
+			return;
 		}
 		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
 		{
 			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy()
-				|| !SetSource(std::move(Migrated), OutError)) return false;
+			if (!Migrated.MigrateLegacy())
+			{
+				Error = "Texture source migration failed.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
+			if (!SetSource(std::move(Migrated), Error))
+			{
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+				return;
+			}
 		}
 		if (!GetSource().IsValid())
 		{
-			OutError = "Texture2D source data is missing or invalid.";
+			Error = "Texture2D source data is missing or invalid.";
 		}
 		else if (BuildTexture2DSynchronously(*this, {
 			.ImportedData = MakeTexture2DBuildInput(GetSource()),
@@ -290,8 +293,8 @@ namespace Durin
 				.bSRGB = bSRGB}}, {
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
-			.bSourceDecoderInvoked = false}, OutError)) return true;
-		return false;
+			.bSourceDecoderInvoked = false}, Error)) return;
+		DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 	}
 
 	auto DTexture2D::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -313,12 +316,8 @@ namespace Durin
 			return false;
 		}
 
-		if (!PlatformData && !PostLoad(OutError))
-		{
-			OutError = std::format("Failed to cook Texture2D '{}': {}", GetObjectPath(), OutError);
-			return false;
-		}
-		if (!PlatformData)
+		if (!HasPlatformData()) PostLoad();
+		if (!HasPlatformData())
 		{
 			OutError = std::format("Failed to cook Texture2D '{}': platform data is unavailable.",
 				GetObjectPath());

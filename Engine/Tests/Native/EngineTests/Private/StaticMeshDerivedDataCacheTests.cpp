@@ -369,7 +369,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), BlockedCacheRoot));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedCacheRoot.generic_string());
 	std::string Error;
-	EXPECT_TRUE(Fixture.Mesh->PostLoad(Error)) << Error;
+	Fixture.Mesh->PostLoad();
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_NE(Fixture.Mesh->GetRenderData(), nullptr);
@@ -1718,13 +1718,13 @@ TEST(FStaticMeshAuthoredCompilationTests, PostLoadSchedulesAndJoinsWithoutDiscar
 	const auto Identity = Fixture.Mesh->GetImportedData().GetIdentity();
 	std::string Error;
 	FStaticMeshWorkerBarrier Barrier;
-	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
+	Fixture.Mesh->PostLoad();
 	ASSERT_TRUE(Barrier.Wait(1));
 	const auto Request = InspectCompilationOperation(*Fixture.Mesh).RequestId;
 	EXPECT_TRUE(HasPendingStaticMeshCompilation(*Fixture.Mesh));
 	EXPECT_EQ(Original, Fixture.Mesh->GetRenderData());
 	EXPECT_FALSE(Fixture.Mesh->GetImportedData().IsGeometryResident());
-	EXPECT_TRUE(Fixture.Mesh->PostLoad(Error));
+	Fixture.Mesh->PostLoad();
 	EXPECT_EQ(Request, InspectCompilationOperation(*Fixture.Mesh).RequestId);
 	Barrier.Release();
 	EXPECT_TRUE(BuildStaticMeshSynchronously(*Fixture.Mesh, Fixture.Mesh->GetImportedData(), Error)) << Error;
@@ -1949,7 +1949,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	EXPECT_EQ(EStaticMeshBuildOrigin::Rebuilt, Cold.Render->Origin);
 	EXPECT_EQ(Fixture.Mesh->GetImportedData().GetIdentity(), Cold.SourceIdentity);
 	std::string Error;
-	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
+	Fixture.Mesh->PostLoad();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
 	const auto Warm = InspectCompilationOperation(*Fixture.Mesh);
 	ASSERT_TRUE(Warm.Render.has_value());
@@ -1965,7 +1965,7 @@ TEST(FStaticMeshAuthoredCompilationTests, DiagnosticsExposeColdWarmAndPersistenc
 	const auto CacheFile = Fixture.Root / "BlockedManagerCache";
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(FByteBuffer{std::byte{1}}, CacheFile));
 	FPaths::SetDerivedDataCacheDirForTests(CacheFile.generic_string());
-	ASSERT_TRUE(Fixture.Mesh->PostLoad(Error));
+	Fixture.Mesh->PostLoad();
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Fixture.Mesh);
 	const auto FailedCache = InspectCompilationOperation(*Fixture.Mesh);
 	EXPECT_EQ(EStaticMeshCompilationStatus::Succeeded, FailedCache.Status);

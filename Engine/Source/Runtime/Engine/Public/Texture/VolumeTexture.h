@@ -149,10 +149,10 @@ namespace Durin
 		{
 			return PlatformData && PlatformData->IsValid();
 		}
+		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
-			std::unique_ptr<FVolumeTexturePlatformData> Data,
-			std::string& OutError) -> bool;
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+			std::unique_ptr<FVolumeTexturePlatformData> Data) -> void;
+		ENGINE_API auto PostLoad() -> void override;
 	private:
 		friend auto ::Durin::ContributeEngineCookAsset(
 			DObject&, std::string_view, FCookContext&, std::string&) -> bool;

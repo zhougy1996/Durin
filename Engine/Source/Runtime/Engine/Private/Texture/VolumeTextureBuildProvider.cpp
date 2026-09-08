@@ -139,8 +139,8 @@ namespace Durin
 			return false;
 		}
 		if (!Texture.SetSourceData(SourceData, OutError)
-			|| !Texture.SetBuildSettings(Settings, OutError)
-			|| !Texture.SetPlatformData(std::move(Product.PlatformData), OutError)) return false;
+			|| !Texture.SetBuildSettings(Settings, OutError)) return false;
+		Texture.SetPlatformData(std::move(Product.PlatformData));
 		Texture.UpdateResource();
 		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 		OutError.clear();

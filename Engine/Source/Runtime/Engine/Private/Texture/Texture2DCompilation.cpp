@@ -576,8 +576,8 @@ namespace Durin
 		if (!Texture.SetSourceData(ImportedData, OutError)
 			|| !Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
 				Settings.MaxResolution, Settings.CompressionQuality,
-				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold, OutError)
-			|| !Texture.SetPlatformData(std::move(PlatformData), OutError)) return false;
+				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold, OutError)) return false;
+		Texture.SetPlatformData(std::move(PlatformData));
 		Texture.UpdateResource();
 		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
 		if (Context.bReportLoadMutation)

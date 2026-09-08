@@ -123,7 +123,7 @@ namespace Durin
 			std::string Error;
 			EXPECT_TRUE(Texture->SetSourceData(Source, Error)) << Error;
 			EXPECT_TRUE(Texture->SetBuildSettings({}, Error)) << Error;
-			EXPECT_TRUE(Texture->SetPlatformData(std::move(Platform), Error)) << Error;
+			Texture->SetPlatformData(std::move(Platform));
 			Texture->UpdateResource();
 			return Texture;
 		}
