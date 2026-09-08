@@ -32,6 +32,5 @@ namespace Durin
 			return FXxHash64::HashBuffer("SplineMeshBinding.v1");
 		}
 		FSplineMeshRenderDynamicData DynamicData;
-		uint64 AcceptedDynamicUpdates = 0;
 	};
 }

@@ -61,7 +61,6 @@ namespace Durin
 	{
 		auto Binding = std::make_shared<FSplineMeshBatchBinding>();
 		Binding->DynamicData = DynamicData;
-		Binding->AcceptedDynamicUpdates = AcceptedDynamicUpdateCount;
 		CollectStaticMeshAssetBatches(*this, RenderData, Context, Collector, std::move(Binding));
 	}
 }
