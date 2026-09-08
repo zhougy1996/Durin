@@ -105,7 +105,16 @@ Publication/discard precedes externally visible terminal state and dependent
 release. Unique claims are reserved and committed transactionally; storage is
 discarded exactly once for cancellation, callback failure, dropped ownership,
 and shutdown. Captures and results are destroyed outside task, scheduler and
-executor queue locks. A terminal handle does not retain a runnable callback.
+executor queue locks. Before a task exposes terminal state or completes a wait,
+its scheduler-owned callable and completion callback have been released. This
+does not release results or shared captures still owned by callers.
+Executor entries retain task state rather than user callables. Execution and
+cancellation claim a queued callable under the task lock; cancellation destroys
+it outside the lock before publication, without waiting for executor progress.
+If execution wins, cancellation remains cooperative and publication follows
+body exit and callable destruction. Destructors may query task state, but must
+not wait for their own task's completion. A terminal handle does not retain a
+runnable callback.
 
 ## Composition
 

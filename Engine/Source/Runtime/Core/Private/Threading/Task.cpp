@@ -731,24 +731,32 @@ namespace Durin
 		}
 
 		auto OnPrerequisiteTerminal(ETaskState PrerequisiteState, uint64 PrerequisiteTaskId) -> void;
-		auto TakeFunctionForQueue() -> std::unique_ptr<Private::FMoveOnlyTaskFunction>
+		auto GetPendingFunctionStorageBytes() const -> uint64
 		{
 			std::lock_guard Lock(Mutex);
-			if (State != ETaskState::Queued || bAdmissionPending)
-			{
-				return {};
-			}
-			DispatchTimeNanoseconds = MonotonicNanoseconds();
-			return std::move(PendingFunction);
+			return PendingFunction ? PendingFunction->GetStorageBytes() : 0;
 		}
 
-		auto TryMarkRunning() -> bool
+		auto PrepareForQueue() -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (State != ETaskState::Queued || bAdmissionPending || DispatchTimeNanoseconds != 0)
+			{
+				return false;
+			}
+			DispatchTimeNanoseconds = MonotonicNanoseconds();
+			return true;
+		}
+
+		auto TryMarkRunning(std::unique_ptr<Private::FMoveOnlyTaskFunction>* OutFunction = nullptr) -> bool
 		{
 			std::lock_guard Lock(Mutex);
 			if (State != ETaskState::Queued)
 			{
 				return false;
 			}
+			// Execution and cancellation claim the callback under the same lock.
+			if (OutFunction) *OutFunction = std::move(PendingFunction);
 			State = ETaskState::Running;
 			StartTimeNanoseconds = MonotonicNanoseconds();
 			ExecutingThreadName = GetCurrentThreadName();
@@ -1217,8 +1225,7 @@ namespace Durin
 	}
 
 	auto DispatchGameThreadDeferredTask(
-		const std::shared_ptr<FTaskStateData>& State,
-		Private::FMoveOnlyTaskFunction&& Function) -> bool;
+		const std::shared_ptr<FTaskStateData>& State) -> bool;
 
 	// Owns the process scheduler's pool and every accepted nonterminal node.
 	static std::atomic<int32> GTaskAdmissionAllocationFailure = 0;
@@ -1605,15 +1612,13 @@ namespace Durin
 		{
 			try
 			{
-				std::unique_ptr<Private::FMoveOnlyTaskFunction> FunctionOwner = State->TakeFunctionForQueue();
-				if (!FunctionOwner)
+				if (!State->PrepareForQueue())
 				{
 					return;
 				}
-				Private::FMoveOnlyTaskFunction Function = std::move(*FunctionOwner);
 				if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
 				{
-					if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
+					if (!DispatchGameThreadDeferredTask(State))
 					{
 						requiref(!State->QueuesOnSaturation() || IsTerminalState(State->GetState()), "Accepted task dispatch failed.");
 					RecordRejectedTask(State->GetAttribution());
@@ -1625,8 +1630,8 @@ namespace Durin
 				auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
 				const bool bAccepted = ExecutionPool.Enqueue(
 					State->GetDebugName(),
-					[State, Scheduler = this, Function = std::move(Function)]() mutable {
-						Scheduler->ExecuteTask(State, std::move(Function), State->GetTarget() == ETaskTarget::AnyWorker);
+					[State, Scheduler = this]() {
+						Scheduler->ExecuteTask(State, State->GetTarget() == ETaskTarget::AnyWorker);
 					},
 					[State]() {
 						State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
@@ -1652,12 +1657,11 @@ namespace Durin
 
 		auto ExecuteTask(
 			const std::shared_ptr<FTaskStateData>& State,
-			Private::FMoveOnlyTaskFunction&& Function,
 			bool bWorkerExecution) -> void
 		{
-			if (!State->TryMarkRunning())
+			std::unique_ptr<Private::FMoveOnlyTaskFunction> Function;
+			if (!State->TryMarkRunning(&Function))
 			{
-				Function = {};
 				return;
 			}
 			{
@@ -1687,7 +1691,7 @@ namespace Durin
 
 			try
 			{
-				Function(State->MakeCancellationToken());
+				(*Function)(State->MakeCancellationToken());
 				Function = {};
 				State->MarkSucceeded();
 			}
@@ -2144,11 +2148,10 @@ namespace Durin
 			return {};
 		}
 
-		auto Enqueue(const std::shared_ptr<FTaskStateData>& State, Private::FMoveOnlyTaskFunction&& Function) -> bool
+		auto Enqueue(const std::shared_ptr<FTaskStateData>& State) -> bool
 		{
 			auto Entry = std::make_shared<FEntry>();
 			Entry->State = State;
-			Entry->Function = std::move(Function);
 			Entry->PayloadBytes = State->QueuesOnSaturation()
 				? sizeof(FEntry) + State->GetSchedulerStorageBytes() : State->GetEstimatedPayloadBytes();
 			Entry->Priority = State->GetPriority();
@@ -2281,7 +2284,7 @@ namespace Durin
 				const auto CallbackStart = std::chrono::steady_clock::now();
 				if (std::shared_ptr<FTaskScheduler> Scheduler = Entry->State->PinScheduler())
 				{
-					Scheduler->ExecuteTask(Entry->State, std::move(Entry->Function), false);
+					Scheduler->ExecuteTask(Entry->State, false);
 				}
 				else
 				{
@@ -2382,7 +2385,6 @@ namespace Durin
 
 				if (bTerminalEntry)
 				{
-					Entry->Function = {};
 					++Result.DestroyedCallables;
 				}
 				else if (bCancel || bExpiredGeneration)
@@ -2392,7 +2394,6 @@ namespace Durin
 							? "GameThread deferred task generation expired during selected drain."
 							: "GameThread deferred task was canceled by its operation group.",
 						bExpiredGeneration ? ETaskTerminalReason::StaleGeneration : ETaskTerminalReason::CancellationRequested);
-					Entry->Function = {};
 					++Result.CanceledCallbacks;
 					++Result.DestroyedCallables;
 				}
@@ -2400,7 +2401,7 @@ namespace Durin
 				{
 					if (std::shared_ptr<FTaskScheduler> Scheduler = Entry->State->PinScheduler())
 					{
-						Scheduler->ExecuteTask(Entry->State, std::move(Entry->Function), false);
+						Scheduler->ExecuteTask(Entry->State, false);
 					}
 					else
 					{
@@ -2438,8 +2439,12 @@ namespace Durin
 				for (const std::shared_ptr<FEntry>& Entry : Queue)
 				{
 					if (!Entry->bReserved || Entry->State->GetScope() != Scope) continue;
-					++Result.RetainedCallableCount;
-					Result.RetainedCallableBytes += Entry->Function.GetStorageBytes();
+					const uint64 Bytes = Entry->State->GetPendingFunctionStorageBytes();
+					if (Bytes > 0)
+					{
+						++Result.RetainedCallableCount;
+						Result.RetainedCallableBytes += Bytes;
+					}
 				}
 			}
 			return Result;
@@ -2518,7 +2523,6 @@ namespace Durin
 		struct FEntry
 		{
 			std::shared_ptr<FTaskStateData> State;
-			Private::FMoveOnlyTaskFunction Function;
 			FTaskGenerationToken GenerationToken;
 			std::optional<FTaskCoalescingKey> CoalescingKey;
 			uint64 PayloadBytes = 0;
@@ -2605,15 +2609,14 @@ namespace Durin
 	}
 
 	auto DispatchGameThreadDeferredTask(
-		const std::shared_ptr<FTaskStateData>& State,
-		Private::FMoveOnlyTaskFunction&& Function) -> bool
+		const std::shared_ptr<FTaskStateData>& State) -> bool
 	{
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
 			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
 			Queue = GGameThreadDeferredQueue;
 		}
-		return Queue && Queue->Enqueue(State, std::move(Function));
+		return Queue && Queue->Enqueue(State);
 	}
 
 	auto Private::IsExecutingTaskScope(const FTaskScopeToken& Scope) -> bool
@@ -2921,6 +2924,8 @@ namespace Durin
 		{
 			InvokeTaskTerminalPublicationTestHook(TaskId);
 			if (Function) Function(ETaskState::Canceled);
+			Function = {};
+			PendingFunction.reset();
 			FinishTerminalPublication(ETaskState::Canceled, std::move(DependentsToNotify));
 		}
 		return true;
@@ -2954,6 +2959,8 @@ namespace Durin
 		}
 		InvokeTaskTerminalPublicationTestHook(TaskId);
 		if (Function) Function(TerminalState);
+		Function = {};
+		PendingFunction.reset();
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 	}
 

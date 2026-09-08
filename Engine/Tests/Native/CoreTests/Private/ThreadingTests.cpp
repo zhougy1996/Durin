@@ -2295,6 +2295,76 @@ namespace Durin
 	}
 
 
+	TEST(FTaskMoveOnlyCallableTests, QueuedCancellationReleasesCapturesWithoutExecutorProgress)
+	{
+		EnsureGameThreadForTaskTest();
+		for (const ETaskTarget Target : {ETaskTarget::AnyWorker, ETaskTarget::BlockingIO, ETaskTarget::GameThreadDeferred})
+		{
+			SCOPED_TRACE(static_cast<int>(Target));
+			ShutdownTaskScheduler(false);
+			FEngineThreadPoolTestGuard Guard;
+			ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .NumBlockingIOThreads = 1}));
+			ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+			FThreadEvent Started, Release;
+			FTaskLaunchOptions Options;
+			Options.Target = Target;
+			Options.EstimatedPayloadBytes = 64;
+			FTaskHandle Blocker;
+			if (Target != ETaskTarget::GameThreadDeferred)
+			{
+				Blocker = SubmitKernelTask("CaptureReleaseBlocker", [&] {
+					Started.Trigger(); EXPECT_TRUE(Release.WaitFor(5.0));
+				}, Options);
+				EXPECT_TRUE(Started.WaitFor(1.0));
+			}
+			std::atomic<int> Destroyed = 0, Calls = 0;
+			FTaskHandle Task;
+			auto Capture = std::shared_ptr<int>(new int(1), [&](int* Value) {
+				// Reenter both task and scheduler queries while destruction owns no locks.
+				EXPECT_EQ(ETaskState::Queued, Task.GetState());
+				(void)GetTaskSchedulerDiagnostics();
+				delete Value; ++Destroyed;
+			});
+			Task = SubmitKernelTask("CanceledQueuedCapture", [Capture = std::move(Capture), &Calls] { ++Calls; }, Options);
+			EXPECT_TRUE(CancelTask(Task));
+			EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
+			EXPECT_EQ(1, Destroyed.load());
+			EXPECT_EQ(0, Calls.load());
+			Release.Trigger();
+			if (Blocker.IsValid()) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
+			ShutdownTaskScheduler(false);
+			EXPECT_EQ(1, Destroyed.load());
+			EXPECT_EQ(0, Calls.load());
+		}
+	}
+
+	TEST(FTaskMoveOnlyCallableTests, RunningCancellationHidesCompletionUntilCaptureDestructionFinishes)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent Started, ReleaseBody, Destroying, ReleaseDestruction;
+		std::atomic<int> Destroyed = 0;
+		auto Capture = std::shared_ptr<int>(new int(1), [&](int* Value) {
+			Destroying.Trigger();
+			EXPECT_TRUE(ReleaseDestruction.WaitFor(5.0));
+			delete Value; ++Destroyed;
+		});
+		auto Task = SubmitKernelTask("RunningCaptureRelease", [Capture = std::move(Capture), &Started, &ReleaseBody] {
+			Started.Trigger(); EXPECT_TRUE(ReleaseBody.WaitFor(5.0));
+		});
+		EXPECT_TRUE(Started.WaitFor(1.0));
+		EXPECT_TRUE(CancelTask(Task));
+		EXPECT_EQ(ETaskState::Running, Task.GetState());
+		ReleaseBody.Trigger();
+		EXPECT_TRUE(Destroying.WaitFor(1.0));
+		EXPECT_EQ(ETaskState::Running, Task.GetState());
+		EXPECT_EQ(0, Destroyed.load());
+		ReleaseDestruction.Trigger();
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
+		EXPECT_EQ(1, Destroyed.load());
+	}
+
 	TEST(FTaskMoveOnlyCallableTests, CancellationDestroysCaptureOutsideTaskStateLock)
 	{
 		ShutdownTaskScheduler(false);
@@ -2326,7 +2396,8 @@ namespace Durin
 			~FReentrantDestruction()
 			{
 				if (!Ownership) return;
-				EXPECT_EQ(ETaskState::Canceled, Handle->GetState());
+				// Cleanup precedes visible completion and may reenter task queries.
+				EXPECT_EQ(ETaskState::Waiting, Handle->GetState());
 				Count->fetch_add(1, std::memory_order::acq_rel);
 			}
 			auto operator()() -> void {}
