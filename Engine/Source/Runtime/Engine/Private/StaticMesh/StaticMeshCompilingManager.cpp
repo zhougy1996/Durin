@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 
 #include "CoreGlobals.h"
@@ -320,9 +321,9 @@ namespace Durin
 					Record->bStarted = true;
 					Record->Diagnostic.Phase = EStaticMeshCompilationPhase::Building;
 					Workers->Running.fetch_add(1);
-					FTaskLaunchOptions Options;
+					Tasks::FTaskExecutionOptions Options;
 					Options.Scope = Scope.GetToken();
-					Record->Task = LaunchCancelableTask("StaticMesh.Build",
+					Record->Task = Tasks::LaunchTask("StaticMesh.Build",
 						[Work = Record->Work, State = Workers, Hook = PhaseHook, Id = Record->Diagnostic.RequestId](const FTaskCancellationToken& Token) {
 							try
 							{
@@ -341,14 +342,8 @@ namespace Durin
 							Work->Done.store(true, std::memory_order_release);
 							State->Running.fetch_sub(1);
 							State->Changed.notify_all();
-						}, Options);
-					if (!Record->Task.IsValid())
-					{
-						Record->Work->Outcome = {EStaticMeshBuildStatus::Failed, "StaticMesh task admission failed."};
-						Record->Work->Request = {};
-						Record->Work->Done.store(true, std::memory_order_release);
-						Workers->Running.fetch_sub(1);
-					}
+						}, Options).GetCompletion().GetTaskHandle();
+
 				}
 			}
 			static auto IsCurrent(const FRecord& Record, const DStaticMesh& Mesh) -> bool
@@ -379,6 +374,18 @@ namespace Durin
 			{
 				FAssetCompileProcessResult Result;
 				std::vector<std::pair<FObjectHandle, FStaticMeshCompilationRequest>> Requeues;
+				// Scheduler cancellation may retire a task without entering its body.
+				for (const auto& Record : Records)
+				{
+					if (!Record->Task.IsValid() || !Record->Task.IsComplete()
+						|| Record->Work->Done.load(std::memory_order_acquire)) continue;
+					Record->Work->Outcome = {EStaticMeshBuildStatus::Failed, "StaticMesh task retired before worker completion."};
+					Record->Work->Request = {};
+					Record->Work->Candidate.reset();
+					Record->Work->Done.store(true, std::memory_order_release);
+					Workers->Running.fetch_sub(1);
+					Workers->Changed.notify_all();
+				}
 				Admit();
 				const auto Pending = Records; // Callbacks may submit, cancel, or shut down this manager.
 				for (const auto& Record : Pending)

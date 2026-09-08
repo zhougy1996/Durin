@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "Modules/ModuleTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -31,21 +32,19 @@ namespace Durin::Tests
 			}
 		};
 
-		auto MakeOptions(FAsyncOperationGroup& Group) -> FTaskLaunchOptions
+		auto MakeOptions(FAsyncOperationGroup& Group) -> Tasks::FTaskExecutionOptions
 		{
-			FTaskLaunchOptions Options;
+			Tasks::FTaskExecutionOptions Options;
 			Options.Scope = Group.GetTaskScope();
-			Options.CancellationToken = Group.GetCancellationToken();
+			Options.Cancellation = Group.GetCancellationToken();
 			return Options;
 		}
 
-		auto MakeDeferredOptions(FAsyncOperationGroup& Group) -> FTaskContinuationOptions
+		auto MakeDeferredOptions(FAsyncOperationGroup& Group) -> Tasks::FTaskExecutionOptions
 		{
-			FTaskContinuationOptions Options;
+			Tasks::FTaskExecutionOptions Options;
 			Options.Scope = Group.GetTaskScope();
-			Options.CancellationToken = Group.GetCancellationToken();
-			Options.Target = ETaskTarget::GameThreadDeferred;
-			Options.EstimatedPayloadBytes = 1;
+			Options.Cancellation = Group.GetCancellationToken();
 			return Options;
 		}
 
@@ -60,10 +59,10 @@ namespace Durin::Tests
 			auto StartupModule() -> void override
 			{
 				Group = FModuleStartup::CreateAsyncOperationGroup("BlockingOperation");
-				Task = LaunchCancelableTask("CancelableModuleTask", [this](const FTaskCancellationToken& Token) {
+				Task = Tasks::LaunchTask("CancelableModuleTask", [this](const FTaskCancellationToken& Token) {
 					Started.Trigger();
 					while (!Token.IsCancellationRequested()) std::this_thread::yield();
-				}, MakeOptions(Group));
+				}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 			}
 
 		private:
@@ -83,10 +82,10 @@ namespace Durin::Tests
 			auto StartupModule() -> void override
 			{
 				Group = FModuleStartup::CreateAsyncOperationGroup("BlockingOperation");
-				Task = LaunchTask("BlockingModuleTask", [this]() {
+				Task = Tasks::LaunchTask("BlockingModuleTask", [this]() {
 					Started.Trigger();
 					Release.Wait();
-				}, MakeOptions(Group));
+				}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 			}
 
 			auto WaitForTaskForTest() -> ETaskState { return WaitTask(Task).TaskState; }
@@ -110,12 +109,13 @@ namespace Durin::Tests
 		FThreadEvent Started;
 		FThreadEvent Continue;
 		FTaskHandle Child;
-		FTaskHandle Root = LaunchCancelableTask("AsyncAdmissionRoot", [&](const FTaskCancellationToken& Token) {
+		FTaskHandle Root = Tasks::LaunchTask("AsyncAdmissionRoot", [&](const FTaskCancellationToken& Token) {
 			Started.Trigger();
 			Continue.Wait();
 			EXPECT_TRUE(Token.IsCancellationRequested());
-			Child = LaunchTask("RejectedInheritedChild", []() {});
-		}, MakeOptions(Group));
+			auto Rejected = Private::TryLaunchCancelableTaskWithCompletion("RejectedInheritedChild", [](const FTaskCancellationToken&) {}, {}, {});
+			EXPECT_FALSE(Rejected.HasValue());
+		}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Started.WaitFor(1.0));
 
 		EXPECT_EQ(EAsyncOperationCloseStatus::Closed,
@@ -140,11 +140,11 @@ namespace Durin::Tests
 		FThreadEvent Started;
 		FThreadEvent BeginDrain;
 		std::atomic<EAsyncOperationDrainStatus> Observed = EAsyncOperationDrainStatus::Invalid;
-		FTaskHandle Task = LaunchTask("AsyncSelfWaitRoot", [&]() {
+		FTaskHandle Task = Tasks::LaunchTask("AsyncSelfWaitRoot", [&]() {
 			Started.Trigger();
 			BeginDrain.Wait();
 			Observed.store(Group.Drain(std::chrono::seconds(1)).Status, std::memory_order_release);
-		}, MakeOptions(Group));
+		}, MakeOptions(Group)).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		EXPECT_EQ(EAsyncOperationCloseStatus::Closed, Group.Close(EAsyncOperationCloseMode::Drain));
 		BeginDrain.Trigger();
@@ -163,12 +163,12 @@ namespace Durin::Tests
 		auto Second = Context.CreateAsyncOperationGroup("Second");
 		std::atomic<uint32> FirstRuns = 0;
 		std::atomic<uint32> SecondRuns = 0;
-		FTaskHandle FirstRoot = LaunchTask("FirstRoot", []() {}, MakeOptions(First));
-		FTaskHandle SecondRoot = LaunchTask("SecondRoot", []() {}, MakeOptions(Second));
+		FTaskHandle FirstRoot = Tasks::LaunchTask("FirstRoot", []() {}, MakeOptions(First)).GetCompletion().GetTaskHandle();
+		FTaskHandle SecondRoot = Tasks::LaunchTask("SecondRoot", []() {}, MakeOptions(Second)).GetCompletion().GetTaskHandle();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(FirstRoot).TaskState);
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(SecondRoot).TaskState);
-		FTaskHandle FirstTask = Then(FirstRoot, "FirstDeferred", [&]() { ++FirstRuns; }, MakeDeferredOptions(First));
-		FTaskHandle SecondTask = Then(SecondRoot, "SecondDeferred", [&]() { ++SecondRuns; }, MakeDeferredOptions(Second));
+		FTaskHandle FirstTask = Tasks::Then(Tasks::FTaskCompletion(FirstRoot), Tasks::ETaskExecutor::GameThreadDeferred, MakeDeferredOptions(First), [&]() { ++FirstRuns; }).GetCompletion().GetTaskHandle();
+		FTaskHandle SecondTask = Tasks::Then(Tasks::FTaskCompletion(SecondRoot), Tasks::ETaskExecutor::GameThreadDeferred, MakeDeferredOptions(Second), [&]() { ++SecondRuns; }).GetCompletion().GetTaskHandle();
 
 		First.Close(EAsyncOperationCloseMode::Drain);
 		ASSERT_TRUE(First.Drain(std::chrono::seconds(1)).Succeeded());
@@ -183,14 +183,14 @@ namespace Durin::Tests
 		EXPECT_EQ(ETaskState::Succeeded, SecondTask.GetState());
 
 		auto Canceled = Context.CreateAsyncOperationGroup("Canceled");
-		FTaskHandle CanceledRoot = LaunchTask("CanceledRoot", []() {}, MakeOptions(Canceled));
+		FTaskHandle CanceledRoot = Tasks::LaunchTask("CanceledRoot", []() {}, MakeOptions(Canceled)).GetCompletion().GetTaskHandle();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CanceledRoot).TaskState);
 		auto Capture = std::make_shared<int>(41);
 		std::weak_ptr<int> WeakCapture = Capture;
 		std::atomic<bool> bCanceledCallbackRan = false;
-		FTaskHandle CanceledTask = Then(CanceledRoot, "CanceledDeferred", [Capture, &bCanceledCallbackRan]() {
+		FTaskHandle CanceledTask = Tasks::Then(Tasks::FTaskCompletion(CanceledRoot), Tasks::ETaskExecutor::GameThreadDeferred, MakeDeferredOptions(Canceled), [Capture, &bCanceledCallbackRan]() {
 			bCanceledCallbackRan.store(true, std::memory_order_release);
-		}, MakeDeferredOptions(Canceled));
+		}).GetCompletion().GetTaskHandle();
 		Capture.reset();
 		ASSERT_FALSE(WeakCapture.expired());
 		Canceled.Close(EAsyncOperationCloseMode::Cancel);
@@ -207,8 +207,8 @@ namespace Durin::Tests
 		FModuleTestOwner Context("AsyncStorage");
 
 		auto Results = Context.CreateAsyncOperationGroup("Results");
-		auto Typed = LaunchTask<int>("RetainedTypedResult", []() { return 17; }, MakeOptions(Results));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Typed.GetTaskHandle()).TaskState);
+		auto Typed = Tasks::LaunchTask("RetainedTypedResult", []() { return 17; }, MakeOptions(Results));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Typed.GetCompletion().GetTaskHandle()).TaskState);
 		Results.Close(EAsyncOperationCloseMode::Drain);
 		auto Retained = Results.Drain(std::chrono::milliseconds(1));
 		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, Retained.Status);
@@ -218,15 +218,15 @@ namespace Durin::Tests
 
 		FThreadEvent BlockerStarted;
 		FThreadEvent ReleaseBlocker;
-		FTaskHandle Blocker = LaunchTask("CallableQueueBlocker", [&]() {
+		FTaskHandle Blocker = Tasks::LaunchTask("CallableQueueBlocker", [&]() {
 			BlockerStarted.Trigger();
 			ReleaseBlocker.Wait();
-		});
+		}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
 		auto Callables = Context.CreateAsyncOperationGroup("Callables");
 		auto Capture = std::make_shared<int>(29);
 		std::weak_ptr<int> WeakCapture = Capture;
-		FTaskHandle Queued = LaunchTask("RetainedQueuedCallable", [Capture]() {}, MakeOptions(Callables));
+		FTaskHandle Queued = Tasks::LaunchTask("RetainedQueuedCallable", [Capture]() {}, MakeOptions(Callables)).GetCompletion().GetTaskHandle();
 		Capture.reset();
 		ASSERT_FALSE(WeakCapture.expired());
 		Callables.Close(EAsyncOperationCloseMode::Cancel);
@@ -246,12 +246,10 @@ namespace Durin::Tests
 		Tasks::FTaskGroup Group(ModuleGroup.GetTaskScope());
 		std::shared_ptr<const int> Alias;
 		{
-			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, {}, [] { return 43; });
-			ASSERT_TRUE(Admission.HasValue());
-			auto Task = std::move(Admission).TakeValue();
+			auto Admission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [] { return 43; });
+			auto Task = std::move(Admission);
 			auto ShareAdmission = Tasks::Share(std::move(Task));
-			ASSERT_TRUE(ShareAdmission.HasValue());
-			auto Shared = std::move(ShareAdmission).TakeValue();
+			auto Shared = std::move(ShareAdmission);
 			ASSERT_EQ(ETaskState::Succeeded, Tasks::Wait(Shared.GetCompletion()).TaskState);
 			Alias = Shared.GetResultShared();
 		}
@@ -273,9 +271,8 @@ namespace Durin::Tests
 		auto ExternalGroup = Context.CreateAsyncOperationGroup("External");
 		Tasks::FTaskGroup ExternalTasks(ExternalGroup.GetTaskScope());
 		{
-			auto Admission = Tasks::TCompletionSource<int>::TryCreate(ExternalTasks, {});
-			ASSERT_TRUE(Admission.HasValue());
-			auto Source = std::move(Admission).TakeValue();
+			auto Admission = Tasks::TCompletionSource<int>::Create(ExternalTasks, {});
+			auto Source = std::move(Admission);
 			ExternalGroup.Close(EAsyncOperationCloseMode::Cancel);
 			EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, ExternalGroup.Drain(std::chrono::milliseconds(1)).Status);
 			Source.TrySetCanceled();

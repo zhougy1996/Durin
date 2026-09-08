@@ -4,30 +4,53 @@
 
 namespace Durin::Tasks
 {
+	namespace Detail
+	{
+		struct FCompletionSourceAccess;
+		inline auto CreateGroupScope() -> FTaskScope
+		{
+			try { return CreateTaskScope(); }
+			catch (const std::bad_alloc&) { requiref(false, "Task group allocation failed."); std::terminate(); }
+		}
+		// Construction failures are programming/lifetime violations or allocation failure.
+		// This is never used to turn ordinary scheduler saturation into an assertion.
+		template<typename T> struct TConstruction
+		{
+			[[noreturn]] static auto Failure(FTaskAdmissionError Error) -> T
+			{
+				requiref(false, "Task construction failed (code {}, task {}).", static_cast<uint32>(Error.Code), Error.RelatedTaskId);
+				std::terminate();
+			}
+			static auto Success(T Value) -> T { return Value; }
+		};
+	}
+
 	// Executor choice is shared by roots and every composition edge.
 	enum class ETaskExecutor : uint8 { Worker, BlockingIO, GameThreadDeferred };
 
 	// Framework failure is distinct from a successful value carrying a domain error.
-	enum class ETaskFailureCode : uint8 { CallableException, AdmissionRejected, AbandonedSource, DependencyFailed };
+	enum class ETaskFailureCode : uint8 { CallableException, DependencyBindingFailed, AbandonedSource, DependencyFailed };
 	struct FTaskFailure
 	{
 		ETaskTerminalReason Reason = ETaskTerminalReason::CallbackFailure;
-		std::optional<FTaskAdmissionError> AdmissionError;
+		std::optional<FTaskAdmissionError> DependencyError;
 		ETaskFailureCode Code = ETaskFailureCode::CallableException;
 		uint64 RelatedTaskId = 0;
 		size_t InputIndex = 0;
 	};
 	template<typename T> using TTaskValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
-	// Estimates bound retained payload independently of the callable's inline storage.
+	// Execution and owner identity; scheduler storage accounting is internal.
 	struct FTaskExecutionOptions
 	{
 		const char* DebugName = "Task";
 		ETaskPriority Priority = ETaskPriority::Normal;
-		FTaskAttribution Attribution;
 		FTaskCancellationToken Cancellation;
-		uint64 EstimatedCaptureBytes = 0;
-		uint64 EstimatedResultBytes = 0;
+		FTaskAttribution Attribution;
+		FTaskScopeToken Scope;
+		std::span<const FTaskHandle> Prerequisites;
+		FTaskGenerationToken GenerationToken;
+		std::optional<FTaskCoalescingKey> CoalescingKey;
 	};
 
 	enum class EParallelForPolicy : uint8 { Auto, Serial, ExplicitBatch };
@@ -84,21 +107,11 @@ namespace Durin::Tasks
 	class FTaskGroup
 	{
 	public:
-		FTaskGroup() : Scope(CreateTaskScope()) {}
+		FTaskGroup() : Scope(Detail::CreateGroupScope()) { requiref(Scope.IsValid(), "Task group requires a running scheduler."); }
 		// Borrowed module scope retains the module owner's stronger drain authority.
 		explicit FTaskGroup(FTaskScopeToken InScope) : BorrowedScope(std::move(InScope)) {}
 		~FTaskGroup() { if (Scope.IsValid()) Durin::Private::FTaskRuntimeAccess::DiagnoseGroupDestruction(Scope.GetToken()); }
 		FTaskGroup(FTaskGroup&&) noexcept = default;
-		static auto TryCreate() -> TTaskAdmission<FTaskGroup>
-		{
-			try
-			{
-				FTaskGroup Group;
-				if (!Group.IsValid()) return TTaskAdmission<FTaskGroup>::Failure({ETaskAdmissionErrorCode::LifetimeClosed});
-				return TTaskAdmission<FTaskGroup>::Success(std::move(Group));
-			}
-			catch (const std::bad_alloc&) { return TTaskAdmission<FTaskGroup>::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
-		}
 		FTaskGroup(const FTaskGroup&) = delete;
 		auto operator=(const FTaskGroup&) -> FTaskGroup& = delete;
 		auto IsValid() const -> bool { return !(GetToken() == FTaskScopeToken{}); }
@@ -121,7 +134,7 @@ namespace Durin::Tasks
 		FTaskContext(const FTaskContext&) = delete;
 		FTaskContext(FTaskContext&&) = delete;
 		auto GetCancellationToken() const -> const FTaskCancellationToken& { return Cancellation; }
-		template<typename F> auto TrySpawnChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function);
+		template<typename F> auto LaunchChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function);
 	private:
 		FTaskCancellationToken Cancellation;
 		FTaskScopeToken Scope;
@@ -144,6 +157,8 @@ namespace Durin::Tasks
 		auto IsValid() const -> bool { return Handle.IsValid(); }
 		auto GetCompletion() const -> FTaskCompletion { return FTaskCompletion(Handle.GetTaskHandle()); }
 		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return GetCompletion().GetTaskHandle().GetDiagnostics(); }
+		auto GetDiagnostic() const -> std::string { return GetCompletion().GetTaskHandle().GetDiagnostic(); }
 		auto GetState() const -> ETaskState { return GetCompletion().GetState(); }
 		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
 		// Requires a failed terminal state; returns a copy independent of result ownership.
@@ -194,6 +209,8 @@ namespace Durin::Tasks
 		}
 		auto IsValid() const -> bool { return Handle.IsValid(); }
 		auto IsCompleted() const -> bool { return GetCompletion().IsReady(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return GetCompletion().GetTaskHandle().GetDiagnostics(); }
+		auto GetDiagnostic() const -> std::string { return GetCompletion().GetTaskHandle().GetDiagnostic(); }
 		auto GetState() const -> ETaskState { return Handle.GetState(); }
 		auto Wait() const -> FTaskWaitResult { return Tasks::Wait(GetCompletion()); }
 		// Requires a failed terminal state; preserves the producer's failure identity.
@@ -260,7 +277,9 @@ namespace Durin::Tasks
 		template<typename T> struct TIsTask<TTaskAdmission<T>> : std::true_type {};
 		template<typename F, bool = std::is_invocable_v<F&, FTaskContext&>> struct TSpawnResult;
 		template<typename F> struct TSpawnResult<F, true> { using Type = std::invoke_result_t<F&, FTaskContext&>; };
-		template<typename F> struct TSpawnResult<F, false> { using Type = std::invoke_result_t<F&>; };
+		template<typename F, bool = std::is_invocable_v<F&, const FTaskCancellationToken&>> struct TTokenResult { using Type = std::invoke_result_t<F&>; };
+		template<typename F> struct TTokenResult<F, true> { using Type = std::invoke_result_t<F&, const FTaskCancellationToken&>; };
+		template<typename F> struct TSpawnResult<F, false> : TTokenResult<F> {};
 		template<typename T, typename F, bool> struct TThenValueResult;
 		template<typename T, typename F> struct TThenValueResult<T, F, false> { using Type = std::invoke_result_t<F&, T&&>; };
 		template<typename T, typename F> struct TThenValueResult<T, F, true> { using Type = std::invoke_result_t<F&, FTaskContext&, T&&>; };
@@ -275,27 +294,24 @@ namespace Durin::Tasks
 			return static_cast<ETaskTarget>(255);
 		}
 		template<typename T>
-		auto ResultBytes(const FTaskExecutionOptions& Options) -> uint64
+		auto ResultBytes() -> uint64
 		{
-			if constexpr (std::is_void_v<T>) return 0;
-			else if constexpr (std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>)
-				return std::max<uint64>(sizeof(T), Options.EstimatedResultBytes);
-			else return Options.EstimatedResultBytes;
+			if constexpr (std::is_void_v<T> || std::same_as<T, std::monostate>) return 0;
+			else return sizeof(T);
 		}
+
 	}
 
 	namespace Detail
 	{
 	template<typename F, typename T = typename Detail::TSpawnResult<std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<T> && !Detail::TIsTask<T>::value)
-	auto TrySpawnImpl(FTaskScopeToken Scope, uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<T>>
+	auto LaunchTaskImpl(FTaskScopeToken Scope, uint64 ParentTaskId, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+		-> TTask<T>
 	{
-		using FAdmission = TTaskAdmission<TTask<T>>;
-		if (Scope == FTaskScopeToken{}) return FAdmission::Failure({ETaskAdmissionErrorCode::GroupClosed});
-		const uint64 Bytes = Detail::ResultBytes<T>(Options);
-		if (!std::is_void_v<T> && Bytes == 0)
-			return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+		using FAdmission = Detail::TConstruction<TTask<T>>;
+		const uint64 Bytes = Detail::ResultBytes<T>();
+
 		try
 		{
 			auto State = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Bytes);
@@ -306,13 +322,17 @@ namespace Durin::Tasks
 			Launch.CancellationToken = Options.Cancellation;
 			Launch.Target = Detail::Target(Executor);
 			Launch.Priority = Options.Priority;
-			Launch.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
-			Launch.bValidateConstruction = true;
+			Launch.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
+			Launch.bQueueOnSaturation = true;
+			Launch.Prerequisites = Options.Prerequisites;
+			Launch.GenerationToken = Options.GenerationToken;
+			Launch.CoalescingKey = Options.CoalescingKey;
 			auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Options.DebugName,
 				[State, Scope = Scope, Function = std::forward<F>(Function)](const FTaskCancellationToken& Token) mutable {
 					FTaskContext Context(Token, Scope);
 					auto Invoke = [&]() -> T {
 						if constexpr (std::is_invocable_v<std::decay_t<F>&, FTaskContext&>) return std::invoke(Function, Context);
+						else if constexpr (std::is_invocable_v<std::decay_t<F>&, const FTaskCancellationToken&>) return std::invoke(Function, Token);
 						else return std::invoke(Function);
 					};
 					if constexpr (std::is_void_v<T>) { Invoke(); State->SetPending(std::monostate{}); }
@@ -329,38 +349,79 @@ namespace Durin::Tasks
 	}
 
 	template<typename F>
-	auto TrySpawn(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto LaunchTask(FTaskGroup& Group, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 	{
-		return Detail::TrySpawnImpl(Group.GetToken(), 0, Executor, Options, std::forward<F>(Function));
+		require(Group.IsValid());
+		require(Options.Scope == FTaskScopeToken{} || Options.Scope == Group.GetToken());
+		return Detail::LaunchTaskImpl(Group.GetToken(), 0, Executor, Options, std::forward<F>(Function));
+	}
+
+	// Worker root in the scheduler lifetime or an explicitly borrowed owner scope.
+	// Owners must stop submission before closing their scope or the scheduler.
+	template<typename F>
+	auto LaunchTask(const char* Name, F&& Function, FTaskExecutionOptions Options = {})
+	{
+		Options.DebugName = Name;
+		return Detail::LaunchTaskImpl(Options.Scope, 0, ETaskExecutor::Worker, Options, std::forward<F>(Function));
+	}
+
+	// A completion prerequisite contributes no result ownership to this success edge.
+	template<typename F>
+	auto Then(const FTaskCompletion& Input, ETaskExecutor Executor, FTaskExecutionOptions Options, F&& Function)
+	{
+		try
+		{
+			const auto& Handle = Input.GetTaskHandle();
+			require(Handle.IsValid());
+			const auto Scope = Durin::Private::FTaskRuntimeAccess::GetScope(Handle);
+			if (Options.Attribution == FTaskAttribution{})
+				Options.Attribution = Durin::Private::FTaskRuntimeAccess::GetAttribution(Handle);
+			require(Options.Scope == FTaskScopeToken{} || Options.Scope == Scope);
+			std::vector<FTaskHandle> Prerequisites(Options.Prerequisites.begin(), Options.Prerequisites.end());
+			Prerequisites.push_back(Handle);
+			Options.Prerequisites = Prerequisites;
+			return Detail::LaunchTaskImpl(Scope, Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId(),
+				Executor, Options, std::forward<F>(Function));
+		}
+		catch (const std::bad_alloc&)
+		{
+			using FResult = decltype(Detail::LaunchTaskImpl(FTaskScopeToken{}, 0, Executor, Options, std::forward<F>(Function)));
+			return Detail::TConstruction<FResult>::Failure({ETaskAdmissionErrorCode::CapacityExhausted});
+		}
 	}
 
 	template<typename F>
-	auto FTaskContext::TrySpawnChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
+	auto FTaskContext::LaunchChild(ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
 	{
-		using FAdmission = decltype(Detail::TrySpawnImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function)));
+		using FAdmission = Detail::TConstruction<decltype(Detail::LaunchTaskImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function)))>;
 		if (!ParentTaskId || ParentTaskId != Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId())
 			return FAdmission::Failure({ETaskAdmissionErrorCode::GroupClosed});
-		return Detail::TrySpawnImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function));
+		return Detail::LaunchTaskImpl(Scope, ParentTaskId, Executor, Options, std::forward<F>(Function));
 	}
 
-	// Claim rollback happens before returning a construction failure; the input stays usable.
+	// Unique claims remain transactional through native graph registration.
 	template<typename T, typename F, typename U = typename Detail::TThenResult<T, std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
 	auto Then(TTask<T>&& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<U>>
+		-> TTask<U>
 	{
-		using FAdmission = TTaskAdmission<TTask<U>>;
+		using FAdmission = Detail::TConstruction<TTask<U>>;
 		auto& Native = Detail::FTaskAccess::Native(Input);
 		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		auto Source = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
-		uint64 Bytes = Detail::ResultBytes<U>(Options);
-		if (!std::is_void_v<U> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+		uint64 Bytes = Detail::ResultBytes<U>();
+
 		FTaskContinuationOptions Edge;
+		Edge.bQueueOnSaturation = true;
+		Edge.GenerationToken = Options.GenerationToken;
+		Edge.CoalescingKey = Options.CoalescingKey;
+		Edge.Prerequisites = Options.Prerequisites;
 		Edge.Target = Detail::Target(Executor);
 		Edge.Priority = Options.Priority;
 		Edge.CancellationToken = Options.Cancellation;
 		Edge.Attribution = Options.Attribution;
-		Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
+		Edge.Scope = Options.Scope;
+		Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 		if (Executor == ETaskExecutor::GameThreadDeferred)
 		{
 			if (Edge.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - Source->GetEstimatedResultBytes())
@@ -427,9 +488,9 @@ namespace Durin::Tasks
 	}
 
 	template<typename T>
-	auto Share(TTask<T>&& Input) -> TTaskAdmission<TSharedTask<T>>
+	auto Share(TTask<T>&& Input) -> TSharedTask<T>
 	{
-		using FAdmission = TTaskAdmission<TSharedTask<T>>;
+		using FAdmission = Detail::TConstruction<TSharedTask<T>>;
 		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		auto& Native = Detail::FTaskAccess::Native(Input);
 		auto State = Durin::Private::FUniqueTaskAccess::GetResultState(Native);
@@ -447,19 +508,24 @@ namespace Durin::Tasks
 	template<typename T, typename F, typename U = std::invoke_result_t<std::decay_t<F>&, const TSharedTask<T>&>>
 	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
 	auto ThenCompleted(const TSharedTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<U>>
+		-> TTask<U>
 	{
-		using FAdmission = TTaskAdmission<TTask<U>>;
+		using FAdmission = Detail::TConstruction<TTask<U>>;
 		const auto Predecessor = Input.GetCompletion().GetTaskHandle();
 		if (!Predecessor.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
-		const uint64 Bytes = Detail::ResultBytes<U>(Options);
-		if (!std::is_void_v<U> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+		const uint64 Bytes = Detail::ResultBytes<U>();
+
 		FTaskContinuationOptions Edge;
+		Edge.bQueueOnSaturation = true;
+		Edge.GenerationToken = Options.GenerationToken;
+		Edge.CoalescingKey = Options.CoalescingKey;
+		Edge.Prerequisites = Options.Prerequisites;
 		Edge.Target = Detail::Target(Executor);
 		Edge.Priority = Options.Priority;
 		Edge.CancellationToken = Options.Cancellation;
 		Edge.Attribution = Options.Attribution;
-		Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
+		Edge.Scope = Options.Scope;
+		Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 		if (Executor == ETaskExecutor::GameThreadDeferred)
 		{
 			const uint64 InputBytes = Detail::FTaskAccess::SharedStorage(Input)->GetEstimatedResultBytes();
@@ -511,20 +577,23 @@ namespace Durin::Tasks
 		};
 	public:
 		// Unknown requirements conservatively reject GameThread waiting until a dynamic edge is bound.
-		static auto TryCreate(FTaskGroup& Group, const FTaskExecutionOptions& Options, bool bUnknownRequirements = true)
-			-> TTaskAdmission<TCompletionSource>
+		static auto Create(FTaskGroup& Group, const FTaskExecutionOptions& Options)
+			-> TCompletionSource
 		{
-			if (!Group.IsValid()) return TTaskAdmission<TCompletionSource>::Failure({ETaskAdmissionErrorCode::GroupClosed});
-			return TryCreate(Group.GetToken(), Options, bUnknownRequirements);
+			if (!Group.IsValid()) return Detail::TConstruction<TCompletionSource>::Failure({ETaskAdmissionErrorCode::GroupClosed});
+			require(Options.Scope == FTaskScopeToken{} || Options.Scope == Group.GetToken());
+			return CreateInternal(Group.GetToken(), Options, true);
 		}
-		static auto TryCreate(FTaskScopeToken Scope, const FTaskExecutionOptions& Options, bool bUnknownRequirements = true)
-			-> TTaskAdmission<TCompletionSource>
+		private:
+		friend struct Detail::FCompletionSourceAccess;
+		static auto CreateInternal(FTaskScopeToken Scope, const FTaskExecutionOptions& Options, bool bUnknownRequirements)
+			-> TCompletionSource
 		{
-			using FAdmission = TTaskAdmission<TCompletionSource>;
+			using FAdmission = Detail::TConstruction<TCompletionSource>;
 			try
 			{
-				const uint64 Bytes = Detail::ResultBytes<T>(Options);
-				if (!std::is_void_v<T> && Bytes == 0) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+				const uint64 Bytes = Detail::ResultBytes<T>();
+
 				auto Source = std::make_shared<FSource>();
 				Source->Storage = std::make_shared<TUniqueTaskResultState<TTaskValue<T>>>(Bytes);
 				FTaskLaunchOptions Launch;
@@ -533,6 +602,7 @@ namespace Durin::Tasks
 				Launch.CancellationToken = Options.Cancellation;
 				Launch.ExpectedParentTaskId = Durin::Private::FTaskRuntimeAccess::GetCurrentTaskId();
 				Launch.bExternalCompletion = true;
+				Launch.bQueueOnSaturation = true;
 				Launch.bUnknownExecutionRequirement = bUnknownRequirements;
 				auto Admission = Durin::Private::TryLaunchCancelableTaskWithCompletion(Options.DebugName,
 					[](const FTaskCancellationToken&) {},
@@ -544,6 +614,7 @@ namespace Durin::Tasks
 			}
 			catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 		}
+	public:
 		auto TakeTask() -> TTask<T>
 		{
 			require(Source && !Source->bTaskTaken.exchange(true));
@@ -578,25 +649,30 @@ namespace Durin::Tasks
 
 	namespace Detail
 	{
+		struct FCompletionSourceAccess
+		{
+			template<typename T>
+			static auto Create(FTaskScopeToken Scope, const FTaskExecutionOptions& Options, bool bUnknownRequirements = true)
+				-> TCompletionSource<T>
+			{ return TCompletionSource<T>::CreateInternal(Scope, Options, bUnknownRequirements); }
+		};
 		template<typename T> struct TInnerTask;
-		template<typename T> struct TInnerTask<TTask<T>> { using Type = T; static constexpr bool bAdmission = false; };
-		template<typename T> struct TInnerTask<TTaskAdmission<TTask<T>>> { using Type = T; static constexpr bool bAdmission = true; };
+		template<typename T> struct TInnerTask<TTask<T>> { using Type = T; };
 	}
 
 	// The outer node remains external/unknown until the callback binds its real inner dependency.
 	template<typename T, typename F, typename R = typename Detail::TThenResult<T, std::decay_t<F>>::Type,
 		typename U = typename Detail::TInnerTask<R>::Type>
 	auto ThenAsync(TTask<T>&& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<U>>
+		-> TTask<U>
 	{
-		using FAdmission = TTaskAdmission<TTask<U>>;
+		using FAdmission = Detail::TConstruction<TTask<U>>;
 		if (!Input.IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
 		try
 		{
 			const auto Predecessor = Input.GetCompletion().GetTaskHandle();
-			auto ExternalAdmission = TCompletionSource<U>::TryCreate(Durin::Private::FTaskRuntimeAccess::GetScope(Predecessor), Options);
-			if (!ExternalAdmission.HasValue()) return FAdmission::Failure(ExternalAdmission.GetError());
-			auto Source = std::move(ExternalAdmission).TakeValue();
+			auto ExternalAdmission = Detail::FCompletionSourceAccess::Create<U>(Durin::Private::FTaskRuntimeAccess::GetScope(Predecessor), Options);
+			auto Source = std::move(ExternalAdmission);
 			auto Output = Source.TakeTask();
 			struct FBinding
 			{
@@ -634,20 +710,12 @@ namespace Durin::Tasks
 				{ Source.TrySetCanceled(); return; }
 				auto Returned = std::invoke(Function, std::forward<decltype(Args)>(Args)...);
 				TTask<U> Inner;
-				if constexpr (Detail::TInnerTask<R>::bAdmission)
-				{
-					if (!Returned.HasValue())
-					{
-						Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, Returned.GetError(), ETaskFailureCode::AdmissionRejected});
-						return;
-					}
-					Inner = std::move(Returned).TakeValue();
-				}
-				else Inner = std::move(Returned);
+				Inner = std::move(Returned);
 				if (auto Error = Durin::Private::FTaskRuntimeAccess::BindDynamicDependency(
 					Source.GetCompletion().GetTaskHandle(), Inner.GetCompletion().GetTaskHandle()))
 				{
-					Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, *Error, ETaskFailureCode::AdmissionRejected});
+					requiref(Error->Code != ETaskAdmissionErrorCode::CapacityExhausted, "Dynamic task dependency allocation failed.");
+					Source.TrySetFailure({ETaskTerminalReason::CallbackFailure, *Error, ETaskFailureCode::DependencyBindingFailed});
 					return;
 				}
 				auto& Native = Detail::FTaskAccess::Native(Inner);
@@ -656,7 +724,7 @@ namespace Durin::Tasks
 				if (!Binding->Storage->ReserveClaim())
 				{
 					Source.TrySetFailure({ETaskTerminalReason::CallbackFailure,
-						FTaskAdmissionError{ETaskAdmissionErrorCode::UniqueConsumerClaimed}, ETaskFailureCode::AdmissionRejected});
+						FTaskAdmissionError{ETaskAdmissionErrorCode::UniqueConsumerClaimed}, ETaskFailureCode::DependencyBindingFailed});
 					return;
 				}
 				const auto Handle = Native.GetTaskHandle();
@@ -664,8 +732,7 @@ namespace Durin::Tasks
 				Durin::Private::FTaskRuntimeAccess::BindTerminal(Handle, std::move(InnerHook));
 			};
 			auto RunnerAdmission = Then(std::move(Input), Executor, Options, std::move(InvokeInner));
-			if (!RunnerAdmission.HasValue()) return FAdmission::Failure(RunnerAdmission.GetError());
-			auto Runner = std::move(RunnerAdmission).TakeValue();
+			auto Runner = std::move(RunnerAdmission);
 			Durin::Private::FTaskRuntimeAccess::BindTerminal(Runner.GetCompletion().GetTaskHandle(), std::move(RunnerHook));
 			return FAdmission::Success(std::move(Output));
 		}
@@ -689,29 +756,35 @@ namespace Durin::Tasks
 		};
 
 		template<typename Out, typename F, typename D>
-		auto TryFanIn(const std::vector<FTaskHandle>& Inputs, ETaskExecutor Executor, FTaskExecutionOptions Options,
-			uint64 InputBytes, F&& Gather, D&& Discard) -> TTaskAdmission<TTask<Out>>
+		auto BuildFanIn(const std::vector<FTaskHandle>& Inputs, ETaskExecutor Executor, FTaskExecutionOptions Options,
+			uint64 InputBytes, F&& Gather, D&& Discard) -> TTask<Out>
 		{
-			using FAdmission = TTaskAdmission<TTask<Out>>;
+			using FAdmission = Detail::TConstruction<TTask<Out>>;
 			if (InputBytes > std::numeric_limits<uint64>::max() - sizeof(Out))
 				return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
-			Options.EstimatedResultBytes = std::max(Options.EstimatedResultBytes, InputBytes + sizeof(Out));
 			if (Inputs.empty())
 			{
-				auto Admission = TCompletionSource<Out>::TryCreate(FTaskScopeToken{}, Options, false);
-				if (!Admission.HasValue()) return FAdmission::Failure(Admission.GetError());
-				auto Source = std::move(Admission).TakeValue();
+				if (!Options.Prerequisites.empty())
+					return LaunchTaskImpl(Options.Scope, 0, Executor, Options, std::forward<F>(Gather));
+				auto Admission = FCompletionSourceAccess::Create<Out>(Options.Scope, Options, false);
+				auto Source = std::move(Admission);
 				auto Result = Source.TakeTask();
 				Source.TrySetValue(Out{});
 				return FAdmission::Success(std::move(Result));
 			}
+			std::vector<FTaskHandle> Prerequisites(Options.Prerequisites.begin(), Options.Prerequisites.end());
+			Prerequisites.insert(Prerequisites.end(), Inputs.begin(), Inputs.end());
 			FTaskContinuationOptions Edge;
-			Edge.Prerequisites = Inputs;
+			Edge.bQueueOnSaturation = true;
+			Edge.GenerationToken = Options.GenerationToken;
+			Edge.CoalescingKey = Options.CoalescingKey;
+			Edge.Prerequisites = Prerequisites;
 			Edge.Target = Target(Executor);
 			Edge.Priority = Options.Priority;
 			Edge.CancellationToken = Options.Cancellation;
 			Edge.Attribution = Options.Attribution;
-			Edge.EstimatedPayloadBytes = Options.EstimatedCaptureBytes;
+			Edge.Scope = Options.Scope;
+			Edge.EstimatedPayloadBytes = sizeof(std::decay_t<F>);
 			if (Executor == ETaskExecutor::GameThreadDeferred)
 			{
 				if (InputBytes > std::numeric_limits<uint64>::max() - Edge.EstimatedPayloadBytes)
@@ -719,7 +792,7 @@ namespace Durin::Tasks
 				Edge.EstimatedPayloadBytes += InputBytes;
 			}
 			auto Failure = std::make_shared<FTaskFailure>();
-			auto Output = std::make_shared<TUniqueTaskResultState<Out>>(Options.EstimatedResultBytes);
+			auto Output = std::make_shared<TUniqueTaskResultState<Out>>(ResultBytes<Out>());
 			auto Admission = Durin::Private::TryLaunchContinuationTask(Inputs.front(), Options.DebugName,
 				[Inputs, Output, Failure, Gather = std::forward<F>(Gather)](const FTaskCancellationToken&) mutable {
 					bool bCanceled = false;
@@ -738,7 +811,7 @@ namespace Durin::Tasks
 				}, [Output, Discard = std::forward<D>(Discard)](ETaskState Terminal) mutable {
 					Discard();
 					Output->Complete(Terminal);
-				}, Edge, ETaskDependencyKind::Completion, Options.EstimatedResultBytes);
+				}, Edge, ETaskDependencyKind::Completion, ResultBytes<Out>());
 			if (!Admission.HasValue()) return FAdmission::Failure(Admission.GetError());
 			auto Handle = std::move(Admission).TakeValue();
 			Output->BindProducer(Handle);
@@ -748,11 +821,11 @@ namespace Durin::Tasks
 
 	template<typename T>
 	auto WhenAll(std::vector<TTask<T>>&& Inputs, ETaskExecutor Executor = ETaskExecutor::Worker,
-		const FTaskExecutionOptions& Options = {}) -> TTaskAdmission<TTask<std::vector<TTaskValue<T>>>>
+		const FTaskExecutionOptions& Options = {}) -> TTask<std::vector<TTaskValue<T>>>
 	{
 		using FValue = TTaskValue<T>;
 		using FOut = std::vector<FValue>;
-		using FAdmission = TTaskAdmission<TTask<FOut>>;
+		using FAdmission = Detail::TConstruction<TTask<FOut>>;
 		try
 		{
 			std::vector<FTaskHandle> Handles;
@@ -774,14 +847,13 @@ namespace Durin::Tasks
 				Handles.emplace_back(std::move(Handle)); States.emplace_back(State); Claims.emplace_back(State);
 				if (!Claims.back().Token) return FAdmission::Failure({ETaskAdmissionErrorCode::UniqueConsumerClaimed});
 			}
-			auto Admission = Detail::TryFanIn<FOut>(Handles, Executor, Options, Bytes,
+			auto Admission = Detail::BuildFanIn<FOut>(Handles, Executor, Options, Bytes,
 				[States] {
 					FOut Values; Values.reserve(States.size());
 					for (const auto& State : States) { auto Value = State->TakePublished(); require(Value); Values.emplace_back(std::move(*Value)); }
 					return Values;
 				}, [States] { for (const auto& State : States) State->Discard(); });
-			if (!Admission.HasValue()) return Admission;
-			auto Result = std::move(Admission).TakeValue();
+			auto Result = std::move(Admission);
 			for (size_t Index = 0; Index < Inputs.size(); ++Index)
 			{
 				Claims[Index].Commit(Result.GetCompletion().GetTaskHandle());
@@ -794,10 +866,10 @@ namespace Durin::Tasks
 
 	template<typename... Ts>
 	auto WhenAll(std::tuple<TTask<Ts>...>&& Inputs, ETaskExecutor Executor = ETaskExecutor::Worker,
-		const FTaskExecutionOptions& Options = {}) -> TTaskAdmission<TTask<std::tuple<TTaskValue<Ts>...>>>
+		const FTaskExecutionOptions& Options = {}) -> TTask<std::tuple<TTaskValue<Ts>...>>
 	{
 		using FOut = std::tuple<TTaskValue<Ts>...>;
-		using FAdmission = TTaskAdmission<TTask<FOut>>;
+		using FAdmission = Detail::TConstruction<TTask<FOut>>;
 		try
 		{
 			std::vector<FTaskHandle> Handles;
@@ -827,11 +899,10 @@ namespace Durin::Tasks
 				(Reserve.template operator()<Indices>(), ...);
 			}(std::index_sequence_for<Ts...>{});
 			if (Error) return FAdmission::Failure(*Error);
-			auto Admission = Detail::TryFanIn<FOut>(Handles, Executor, Options, Bytes,
+			auto Admission = Detail::BuildFanIn<FOut>(Handles, Executor, Options, Bytes,
 				[States] { return std::apply([](const auto&... State) { return FOut(std::move(*State->TakePublished())...); }, States); },
 				[States] { std::apply([](const auto&... State) { (State->Discard(), ...); }, States); });
-			if (!Admission.HasValue()) return Admission;
-			auto Result = std::move(Admission).TakeValue();
+			auto Result = std::move(Admission);
 			std::apply([&](auto&... Claim) { (Claim->Commit(Result.GetCompletion().GetTaskHandle()), ...); }, Claims);
 			std::apply([](auto&... Input) { (Durin::Private::FUniqueTaskAccess::InvalidateAfterClaim(Detail::FTaskAccess::Native(Input)), ...); }, Inputs);
 			return FAdmission::Success(std::move(Result));
@@ -850,16 +921,15 @@ namespace Durin::Tasks
 	template<typename T, typename F, typename U = typename Detail::TSharedThenResult<T, std::decay_t<F>>::Type>
 	requires (!std::is_reference_v<U> && !Detail::TIsTask<U>::value)
 	auto Then(const TSharedTask<T>& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<U>>
+		-> TTask<U>
 	{
-		using FAdmission = TTaskAdmission<TTask<U>>;
+		using FAdmission = Detail::TConstruction<TTask<U>>;
 		if (!Input.GetCompletion().IsValid()) return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPrerequisite});
-		if (!std::is_void_v<U> && Detail::ResultBytes<U>(Options) == 0)
-			return FAdmission::Failure({ETaskAdmissionErrorCode::InvalidPayloadDeclaration});
+
 		try
 		{
 			std::vector<FTaskHandle> Handles{Input.GetCompletion().GetTaskHandle()};
-			auto Admission = Detail::TryFanIn<TTaskValue<U>>(Handles, Executor, Options,
+			auto Admission = Detail::BuildFanIn<TTaskValue<U>>(Handles, Executor, Options,
 				Detail::FTaskAccess::SharedStorage(Input)->GetEstimatedResultBytes(),
 				[Input, Function = std::forward<F>(Function)]() mutable -> TTaskValue<U> {
 					auto Value = Input.GetResultShared();
@@ -871,8 +941,7 @@ namespace Durin::Tasks
 					if constexpr (std::is_void_v<U>) { Invoke(); return {}; }
 					else return Invoke();
 				}, [] {});
-			if (!Admission.HasValue()) return FAdmission::Failure(Admission.GetError());
-			return FAdmission::Success(Detail::FTaskAccess::Rebind<U>(std::move(Admission).TakeValue()));
+			return FAdmission::Success(Detail::FTaskAccess::Rebind<U>(std::move(Admission)));
 		}
 		catch (const std::bad_alloc&) { return FAdmission::Failure({ETaskAdmissionErrorCode::CapacityExhausted}); }
 	}
@@ -880,10 +949,10 @@ namespace Durin::Tasks
 	// Each duplicate shared position retains its own immutable owner in input order.
 	template<typename T>
 	auto WhenAll(const std::vector<TSharedTask<T>>& Inputs, ETaskExecutor Executor = ETaskExecutor::Worker,
-		const FTaskExecutionOptions& Options = {}) -> TTaskAdmission<TTask<std::vector<std::shared_ptr<const TTaskValue<T>>>>>
+		const FTaskExecutionOptions& Options = {}) -> TTask<std::vector<std::shared_ptr<const TTaskValue<T>>>>
 	{
 		using FOut = std::vector<std::shared_ptr<const TTaskValue<T>>>;
-		using FAdmission = TTaskAdmission<TTask<FOut>>;
+		using FAdmission = Detail::TConstruction<TTask<FOut>>;
 		try
 		{
 			std::vector<FTaskHandle> Handles;
@@ -897,7 +966,7 @@ namespace Durin::Tasks
 				Bytes += InputBytes;
 				Handles.emplace_back(Input.GetCompletion().GetTaskHandle());
 			}
-			return Detail::TryFanIn<FOut>(Handles, Executor, Options, Bytes, [Inputs] {
+			return Detail::BuildFanIn<FOut>(Handles, Executor, Options, Bytes, [Inputs] {
 				FOut Values; Values.reserve(Inputs.size());
 				for (const auto& Input : Inputs) Values.emplace_back(Input.GetResultShared());
 				return Values;
@@ -911,10 +980,9 @@ namespace Durin::Tasks
 		typename U = typename Detail::TSharedInnerTask<R>::Type>
 	requires std::same_as<R, TSharedTask<U>>
 	auto ThenAsync(TTask<T>&& Input, ETaskExecutor Executor, const FTaskExecutionOptions& Options, F&& Function)
-		-> TTaskAdmission<TTask<std::shared_ptr<const TTaskValue<U>>>>
+		-> TTask<std::shared_ptr<const TTaskValue<U>>>
 	{
 		FTaskExecutionOptions ObserverOptions = Options;
-		ObserverOptions.EstimatedResultBytes = std::max<uint64>(Options.EstimatedResultBytes, sizeof(std::shared_ptr<const TTaskValue<U>>));
 		return ThenAsync(std::move(Input), Executor, ObserverOptions,
 			[Function = std::forward<F>(Function), ObserverOptions](auto&&... Args) mutable
 				requires std::is_invocable_v<std::decay_t<F>&, decltype(Args)...> {

@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "Asset/CookedMeshLoadManager.h"
 
 #include "DObject/Object.h"
@@ -400,7 +401,7 @@ namespace Durin
 				}
 				Flight->Phase.store(EFlightPhase::Working, std::memory_order_release);
 				auto SharedState = State;
-				Flight->Task = LaunchCancelableTask(
+				Flight->Task = Tasks::LaunchTask(
 					"CookedMeshDecode",
 					[SharedState, Flight, Buffers = std::move(Buffers)](
 						const FTaskCancellationToken& Token) mutable {
@@ -426,13 +427,10 @@ namespace Durin
 							: ECookedMeshTerminalState::Failed;
 						SharedState->QueueCompletion(
 							{Flight, std::move(Result), Terminal});
-					}, {.CancellationToken = Flight->Cancellation.GetToken(),
+					}, {.Cancellation = Flight->Cancellation.GetToken(),
 						.Attribution = State->Attribution,
-						.Scope = State->Scope.GetToken()});
-				if (!Flight->Task.IsValid())
-					State->QueueCompletion({Flight,
-						{.Message = "Cooked mesh worker admission was rejected."},
-						ECookedMeshTerminalState::Rejected});
+						.Scope = State->Scope.GetToken()}).GetCompletion().GetTaskHandle();
+
 			}
 			else if (Phase == EFlightPhase::Working && Flight->Task.IsComplete())
 			{

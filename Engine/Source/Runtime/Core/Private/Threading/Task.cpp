@@ -593,6 +593,7 @@ namespace Durin
 			ETaskTarget InTarget,
 			ETaskPriority InPriority,
 			uint64 InEstimatedPayloadBytes,
+			bool bInQueueOnSaturation,
 			uint64 InEstimatedResultBytes,
 			FTaskAttribution InAttribution,
 			std::shared_ptr<FTaskScopeState> InScope,
@@ -607,7 +608,7 @@ namespace Durin
 			, SharedCancellationState(InCancellationToken.SharedState)
 			, PendingFunction(std::move(InFunction))
 			, CompletionFunction(std::move(InCompletionFunction))
-			, bHasResultStorage(static_cast<bool>(CompletionFunction))
+			, bHasResultStorage(static_cast<bool>(CompletionFunction) && InEstimatedResultBytes != 0)
 			, RemainingPrerequisites(static_cast<uint32>(InPrerequisites.size()))
 			, State(InPrerequisites.empty() ? ETaskState::Queued : ETaskState::Waiting)
 			, DependencyKind(InDependencyKind)
@@ -615,6 +616,7 @@ namespace Durin
 			, Target(InTarget)
 			, Priority(InPriority)
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
+			, bQueueOnSaturation(bInQueueOnSaturation)
 			, EstimatedResultBytes(InEstimatedResultBytes)
 			, Attribution(InAttribution)
 			, Scope(std::move(InScope))
@@ -656,7 +658,7 @@ namespace Durin
 			PendingFunction = std::move(Function);
 			CompletionFunction = std::move(Completion);
 			CallableStorageBytes = PendingFunction ? PendingFunction->GetStorageBytes() : 0;
-			bHasResultStorage = static_cast<bool>(CompletionFunction);
+			bHasResultStorage = static_cast<bool>(CompletionFunction) && EstimatedResultBytes != 0;
 		}
 		auto ActivateAdmission() -> void
 		{
@@ -969,6 +971,9 @@ namespace Durin
 		auto GetScope() const -> const std::shared_ptr<FTaskScopeState>& { return Scope; }
 		auto GetScopeToken() const -> FTaskScopeToken { return FTaskScopeToken(Scope); }
 		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
+		auto QueuesOnSaturation() const -> bool { return bQueueOnSaturation; }
+		auto SetSchedulerStorageBytes(uint64 Bytes) -> void { SchedulerStorageBytes = Bytes; }
+		auto GetSchedulerStorageBytes() const -> uint64 { return SchedulerStorageBytes; }
 		auto GetGenerationToken() const -> const FTaskGenerationToken& { return GenerationToken; }
 		auto GetCoalescingKey() const -> const std::optional<FTaskCoalescingKey>& { return CoalescingKey; }
 
@@ -1012,6 +1017,8 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
+		bool bQueueOnSaturation = false;
+		uint64 SchedulerStorageBytes = 0;
 		uint64 EstimatedResultBytes = 0;
 		uint64 RetainedResultBytes = 0;
 		FTaskAttribution Attribution;
@@ -1442,8 +1449,8 @@ namespace Durin
 					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					return {};
 				}
-				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
-					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity))
+				if (!Options.bQueueOnSaturation && (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity
+					|| (Target == ETaskTarget::BlockingIO && BlockingIOReservations >= BlockingIOCapacity)))
 				{
 					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					if (AdmissionError) *AdmissionError = {Tasks::ETaskAdmissionErrorCode::CapacityExhausted, 0};
@@ -1479,6 +1486,7 @@ namespace Durin
 						Target,
 						Priority,
 						EstimatedPayloadBytes,
+						Options.bQueueOnSaturation,
 						EstimatedResultBytes,
 						Options.Attribution,
 						SelectedScope,
@@ -1498,6 +1506,9 @@ namespace Durin
 					CheckTaskAdmissionAllocation(4);
 					ActiveTasks.emplace(State->GetTaskId(), State);
 					CheckTaskAdmissionAllocation(5);
+					State->SetSchedulerStorageBytes(sizeof(FTaskStateData) + sizeof(Private::FMoveOnlyTaskFunction)
+						+ (FunctionOwner ? FunctionOwner->GetStorageBytes() : 0)
+						+ PrerequisiteStates.capacity() * sizeof(std::shared_ptr<FTaskStateData>) + EstimatedResultBytes);
 					State->InitializeOwnership(FunctionOwner, CompletionFunction);
 					if (Options.bExternalCompletion) State->ConfigureExternal(Options.bUnknownExecutionRequirement);
 					if (Target == ETaskTarget::BlockingIO) ++BlockingIOReservations;
@@ -1516,6 +1527,26 @@ namespace Durin
 					throw;
 				}
 			}
+			bool bReportOverload = false;
+			{
+				std::lock_guard Lock(Mutex);
+				auto& Storage = ExecutorStorage[static_cast<size_t>(Target)];
+				++Storage.CurrentNodes;
+				++Storage.CurrentPendingNodes;
+				Storage.CurrentPendingBytes += State->GetSchedulerStorageBytes();
+				Storage.PeakPendingNodes = std::max(Storage.PeakPendingNodes, Storage.CurrentPendingNodes);
+				Storage.PeakPendingBytes = std::max(Storage.PeakPendingBytes, Storage.CurrentPendingBytes);
+				Storage.CurrentBytes += State->GetSchedulerStorageBytes();
+				Storage.PeakNodes = std::max(Storage.PeakNodes, Storage.CurrentNodes);
+				Storage.PeakBytes = std::max(Storage.PeakBytes, Storage.CurrentBytes);
+				const uint64 Threshold = Target == ETaskTarget::BlockingIO ? BlockingIOCapacity : TaskReservationCapacity;
+				if (Storage.CurrentNodes == Threshold + 1)
+				{
+					const uint64 Crossings = ++Storage.OverloadCrossings;
+					bReportOverload = (Crossings & (Crossings - 1)) == 0;
+				}
+			}
+			if (bReportOverload) DURIN_WARN("Task executor {} crossed its storage threshold; valid work remains queued.", static_cast<uint32>(Target));
 			RecordAcceptedTask(State->GetAccountingSnapshot());
 			Profiling::TaskEnqueued(
 				State->GetTaskId(),
@@ -1558,6 +1589,7 @@ namespace Durin
 			}
 			catch (const std::bad_alloc&)
 			{
+				requiref(!Options.bQueueOnSaturation, "Task registration allocation failed.");
 				for (size_t Index = RegisteredDependencies; Index < PrerequisiteStates.size(); ++Index)
 					PrerequisiteStates[Index]->ReleaseDependentReservation();
 				State->ActivateAdmission();
@@ -1571,40 +1603,51 @@ namespace Durin
 
 		auto QueueTask(const std::shared_ptr<FTaskStateData>& State) -> void
 		{
-			std::unique_ptr<Private::FMoveOnlyTaskFunction> FunctionOwner = State->TakeFunctionForQueue();
-			if (!FunctionOwner)
+			try
 			{
-				return;
-			}
-			Private::FMoveOnlyTaskFunction Function = std::move(*FunctionOwner);
-			if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
-			{
-				if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
+				std::unique_ptr<Private::FMoveOnlyTaskFunction> FunctionOwner = State->TakeFunctionForQueue();
+				if (!FunctionOwner)
 				{
-					RecordRejectedTask(State->GetAttribution());
-					State->RequestCancellation("GameThread deferred executor rejected task dispatch.", ETaskTerminalReason::DispatchRejected);
+					return;
 				}
-				return;
+				Private::FMoveOnlyTaskFunction Function = std::move(*FunctionOwner);
+				if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
+				{
+					if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
+					{
+						requiref(!State->QueuesOnSaturation() || IsTerminalState(State->GetState()), "Accepted task dispatch failed.");
+					RecordRejectedTask(State->GetAttribution());
+						State->RequestCancellation("GameThread deferred executor rejected task dispatch.", ETaskTerminalReason::DispatchRejected);
+					}
+					return;
+				}
+
+				auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
+				const bool bAccepted = ExecutionPool.Enqueue(
+					State->GetDebugName(),
+					[State, Scheduler = this, Function = std::move(Function)]() mutable {
+						Scheduler->ExecuteTask(State, std::move(Function), State->GetTarget() == ETaskTarget::AnyWorker);
+					},
+					[State]() {
+						State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
+					},
+					State->GetScope() ? State->GetScope()->GetScopeId() : 0,
+					static_cast<EQueuedWorkPriority>(State->GetPriority())
+				);
+
+				if (!bAccepted)
+				{
+					requiref(!State->QueuesOnSaturation() || IsTerminalState(State->GetState()), "Accepted task dispatch failed.");
+					RecordRejectedTask(State->GetAttribution());
+					State->RequestCancellation("Task could not be queued because scheduler shutdown had begun.", ETaskTerminalReason::DispatchRejected);
+				}
 			}
-
-			auto& ExecutionPool = State->GetTarget() == ETaskTarget::BlockingIO ? BlockingIOPool : Pool;
-			const bool bAccepted = ExecutionPool.Enqueue(
-				State->GetDebugName(),
-				[State, Scheduler = this, Function = std::move(Function)]() mutable {
-					Scheduler->ExecuteTask(State, std::move(Function), State->GetTarget() == ETaskTarget::AnyWorker);
-				},
-				[State]() {
-					State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
-				},
-				State->GetScope() ? State->GetScope()->GetScopeId() : 0,
-				static_cast<EQueuedWorkPriority>(State->GetPriority())
-			);
-
-			if (!bAccepted)
+			catch (const std::bad_alloc&)
 			{
-				RecordRejectedTask(State->GetAttribution());
-				State->RequestCancellation("Task could not be queued because scheduler shutdown had begun.", ETaskTerminalReason::DispatchRejected);
+				requiref(!State->QueuesOnSaturation(), "Task dispatch allocation failed.");
+				State->RequestCancellation("Task dispatch allocation failed.", ETaskTerminalReason::DispatchRejected);
 			}
+
 		}
 
 		auto ExecuteTask(
@@ -1616,6 +1659,14 @@ namespace Durin
 			{
 				Function = {};
 				return;
+			}
+			{
+				std::lock_guard Lock(Mutex);
+				auto& Storage = ExecutorStorage[static_cast<size_t>(State->GetTarget())];
+				--Storage.CurrentPendingNodes;
+				Storage.CurrentPendingBytes -= State->GetSchedulerStorageBytes();
+				++Storage.CurrentRunningBodies;
+				Storage.PeakRunningBodies = std::max(Storage.PeakRunningBodies, Storage.CurrentRunningBodies);
 			}
 			OnTaskStarted(State->GetAccountingSnapshot());
 			if (bWorkerExecution) OnWorkerStarted();
@@ -1766,6 +1817,16 @@ namespace Durin
 
 			std::lock_guard Lock(Mutex);
 			if (State->GetTarget() == ETaskTarget::BlockingIO) { require(BlockingIOReservations > 0); --BlockingIOReservations; }
+			auto& Storage = ExecutorStorage[static_cast<size_t>(State->GetTarget())];
+			if (Task.StateBeforeTerminal == ETaskState::Running && !State->IsExternal())
+				--Storage.CurrentRunningBodies;
+			else
+			{
+				--Storage.CurrentPendingNodes;
+				Storage.CurrentPendingBytes -= State->GetSchedulerStorageBytes();
+			}
+			--Storage.CurrentNodes;
+			Storage.CurrentBytes -= State->GetSchedulerStorageBytes();
 			const size_t RemovedTaskCount = ActiveTasks.erase(State->GetTaskId());
 			check(RemovedTaskCount == 1);
 			const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
@@ -1825,10 +1886,6 @@ namespace Durin
 			GetAggregate(Attribution).Increment(ETaskAggregateCounter::CapacityExhausted);
 		}
 
-		auto RecordDuplicateUniqueConsumerClaim() -> void
-		{
-			DuplicateUniqueConsumerClaimCount.fetch_add(1, std::memory_order::acq_rel);
-		}
 
 		auto RecordLongWait(const char* WaiterName, const FTaskDiagnostics& Target, uint64 ElapsedNanoseconds) -> void
 		{
@@ -1875,6 +1932,7 @@ namespace Durin
 		{
 			FTaskSchedulerDiagnostics Snapshot;
 			Snapshot.WorkerCount = WorkerCount;
+			{ std::lock_guard Lock(Mutex); Snapshot.ExecutorStorage = ExecutorStorage; }
 			Snapshot.TaskReservationCapacity = TaskReservationCapacity;
 			Snapshot.CurrentTaskReservationCount = CurrentTaskReservationCount.load(std::memory_order::acquire);
 			Snapshot.PeakTaskReservationCount = PeakTaskReservationCount.load(std::memory_order::acquire);
@@ -1893,7 +1951,6 @@ namespace Durin
 			Snapshot.ScopeRejectedTaskCount = ScopeAccounting->RejectedTaskCount.load(std::memory_order::acquire);
 			SnapshotScopeCounts(Snapshot.LiveScopeCount, Snapshot.OpenScopeCount, Snapshot.NonquiescentScopeCount);
 			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
-			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
 			Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
 			Snapshot.OwnerCategoryDiagnostics = GTaskAttributionRegistry.Snapshot();
 			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
@@ -1976,13 +2033,13 @@ namespace Durin
 		std::atomic<uint64> CurrentTaskReservationCount = 0;
 		std::atomic<uint64> PeakTaskReservationCount = 0;
 		std::atomic<uint64> LongWaitCount = 0;
-		std::atomic<uint64> DuplicateUniqueConsumerClaimCount = 0;
 		std::string LastLongWaiterName;
 		std::string LastLongWaitTargetName;
 		uint64 LastLongWaitTargetTaskId = 0;
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		ETaskState LastLongWaitTargetState = ETaskState::Invalid;
 		uint32 WorkerCount = 0;
+		std::array<FTaskExecutorStorageDiagnostics, 3> ExecutorStorage;
 		uint64 TaskReservationCapacity = 0;
 		bool bAcceptingTasks = false;
 	};
@@ -2078,11 +2135,11 @@ namespace Durin
 			Diagnostics.bAccepting = true;
 		}
 
-		auto ValidatePayload(uint64 Bytes) -> std::optional<Tasks::FTaskAdmissionError>
+		auto ValidatePayload(uint64 Bytes, bool bQueueOnSaturation) -> std::optional<Tasks::FTaskAdmissionError>
 		{
 			std::lock_guard Lock(Mutex);
 			if (!bAccepting) return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::LifetimeClosed};
-			if (Bytes == 0 || Bytes > Config.MaxPayloadBytesPerEntry || Bytes > Config.MaxQueuedPayloadBytes)
+			if (!bQueueOnSaturation && (Bytes == 0 || Bytes > Config.MaxPayloadBytesPerEntry || Bytes > Config.MaxQueuedPayloadBytes))
 				return Tasks::FTaskAdmissionError{Tasks::ETaskAdmissionErrorCode::InvalidPayloadDeclaration};
 			return {};
 		}
@@ -2092,7 +2149,8 @@ namespace Durin
 			auto Entry = std::make_shared<FEntry>();
 			Entry->State = State;
 			Entry->Function = std::move(Function);
-			Entry->PayloadBytes = State->GetEstimatedPayloadBytes();
+			Entry->PayloadBytes = State->QueuesOnSaturation()
+				? sizeof(FEntry) + State->GetSchedulerStorageBytes() : State->GetEstimatedPayloadBytes();
 			Entry->Priority = State->GetPriority();
 			Entry->GenerationToken = State->GetGenerationToken();
 			Entry->CoalescingKey = State->GetCoalescingKey();
@@ -2100,11 +2158,12 @@ namespace Durin
 			std::shared_ptr<FTaskStateData> SupersededState;
 			std::shared_ptr<FEntry> SupersededEntry;
 			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
+			bool bReportOverload = false;
 			{
 				std::lock_guard Lock(Mutex);
 				PurgeTerminalEntriesLocked(DetachedEntries);
 				const uint64 PayloadBytes = Entry->PayloadBytes;
-				if (!bAccepting || PayloadBytes == 0 || PayloadBytes > Config.MaxPayloadBytesPerEntry)
+				if (!bAccepting || (!State->QueuesOnSaturation() && (PayloadBytes == 0 || PayloadBytes > Config.MaxPayloadBytesPerEntry)))
 				{
 					++Diagnostics.RejectedCount;
 					return false;
@@ -2129,13 +2188,22 @@ namespace Durin
 
 				const uint32 ReplacedEntries = Replacement ? 1u : 0u;
 				const uint64 ReplacedBytes = Replacement ? Replacement->PayloadBytes : 0;
-				if (ActiveEntryCount - ReplacedEntries + 1 > Config.MaxQueuedEntries
-					|| QueuedPayloadBytes - ReplacedBytes + PayloadBytes > Config.MaxQueuedPayloadBytes)
+				if (!State->QueuesOnSaturation() && (ActiveEntryCount - ReplacedEntries + 1 > Config.MaxQueuedEntries
+					|| QueuedPayloadBytes - ReplacedBytes + PayloadBytes > Config.MaxQueuedPayloadBytes))
 				{
 					++Diagnostics.RejectedCount;
 					return false;
 				}
 
+				const bool bWasOverloaded = ActiveEntryCount > Config.MaxQueuedEntries
+					|| QueuedPayloadBytes > Config.MaxQueuedPayloadBytes;
+				const bool bWillOverload = ActiveEntryCount - ReplacedEntries + 1 > Config.MaxQueuedEntries
+					|| QueuedPayloadBytes - ReplacedBytes + PayloadBytes > Config.MaxQueuedPayloadBytes;
+				if ((!bWasOverloaded && bWillOverload) || PayloadBytes > Config.MaxPayloadBytesPerEntry)
+				{
+					const uint64 Crossings = ++Diagnostics.OverloadCrossings;
+					bReportOverload = (Crossings & (Crossings - 1)) == 0;
+				}
 				if (Replacement)
 				{
 					SupersededState = Replacement->State;
@@ -2154,6 +2222,7 @@ namespace Durin
 				Diagnostics.PeakQueuedPayloadBytes = std::max(Diagnostics.PeakQueuedPayloadBytes, QueuedPayloadBytes);
 			}
 
+			if (bReportOverload) DURIN_WARN("Deferred task storage crossed a configured threshold; valid work remains queued.");
 			if (SupersededState)
 			{
 				SupersededState->RequestCancellation("GameThread deferred task was superseded.", ETaskTerminalReason::Superseded);
@@ -2517,7 +2586,7 @@ namespace Durin
 		bool bPumping = false;
 	};
 
-	auto Private::ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes)
+	auto Private::ValidateTaskExecution(ETaskTarget Target, ETaskPriority Priority, uint64 PayloadBytes, bool bQueueOnSaturation)
 		-> std::optional<Tasks::FTaskAdmissionError>
 	{
 		using ECode = Tasks::ETaskAdmissionErrorCode;
@@ -2525,14 +2594,14 @@ namespace Durin
 			|| (Priority != ETaskPriority::High && Priority != ETaskPriority::Normal && Priority != ETaskPriority::Low))
 			return Tasks::FTaskAdmissionError{ECode::UnsupportedExecutor};
 		if (Target == ETaskTarget::AnyWorker || Target == ETaskTarget::BlockingIO) return {};
-		if (PayloadBytes == 0) return Tasks::FTaskAdmissionError{ECode::InvalidPayloadDeclaration};
+		if (!bQueueOnSaturation && PayloadBytes == 0) return Tasks::FTaskAdmissionError{ECode::InvalidPayloadDeclaration};
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
 			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
 			Queue = GGameThreadDeferredQueue;
 		}
 		if (!Queue) return Tasks::FTaskAdmissionError{ECode::UnsupportedExecutor};
-		return Queue->ValidatePayload(PayloadBytes);
+		return Queue->ValidatePayload(PayloadBytes, bQueueOnSaturation);
 	}
 
 	auto DispatchGameThreadDeferredTask(
@@ -3382,40 +3451,6 @@ namespace Durin
 		if (Scheduler) Scheduler->PublishProfilerPlots();
 	}
 
-	auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
-	{
-		if (!Function)
-		{
-			FTaskAttribution Attribution = Options.Attribution;
-			if (Private::FTaskAttributionAccess::IsDefault(Attribution) && GCurrentTaskState && GCurrentTaskScheduler)
-			{
-				Attribution = GCurrentTaskState->GetAttribution();
-			}
-			std::lock_guard Lock(GTaskSchedulerMutex);
-			if (GTaskScheduler)
-			{
-				GTaskScheduler->RecordRejectedTask(Attribution, 0);
-			}
-			DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
-			return {};
-		}
-		return LaunchCancelableTask(
-			Name,
-			[Function = std::move(Function)](const FTaskCancellationToken&) mutable {
-				Function();
-			},
-			Options
-		);
-	}
-
-	auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
-	{
-		if (!Function)
-		{
-			return Private::LaunchCancelableTaskWithCompletion(Name, {}, {}, Options);
-		}
-		return Private::LaunchCancelableTaskWithCompletion(Name, std::move(Function), {}, Options);
-	}
 
 	namespace Private
 	{
@@ -3445,39 +3480,17 @@ namespace Durin
 			~FSubmissionGuard() { if (Scheduler) Scheduler->EndSubmission(); }
 		};
 
-		auto LaunchCancelableTaskWithCompletion(
-			const char* Name, FMoveOnlyTaskFunction&& Function,
-			std::function<void(ETaskState)>&& CompletionFunction,
-			const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> FTaskHandle
-		{
-			auto Admission = TryLaunchCancelableTaskWithCompletion(Name, std::move(Function),
-				std::move(CompletionFunction), Options, EstimatedResultBytes);
-			return Admission.HasValue() ? std::move(Admission).TakeValue() : FTaskHandle{};
-		}
-
-		auto LaunchContinuationTask(
-			const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function,
-			std::function<void(ETaskState)>&& CompletionFunction,
-			const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind,
-			uint64 EstimatedResultBytes) -> FTaskHandle
-		{
-			// Legacy deferred declarations remain dispatch-time failures.
-			auto Admission = TryLaunchContinuationTask(Predecessor, Name, std::move(Function),
-				std::move(CompletionFunction), Options, DependencyKind, EstimatedResultBytes, false);
-			return Admission.HasValue() ? std::move(Admission).TakeValue() : FTaskHandle{};
-		}
-
 		auto TryLaunchCancelableTaskWithCompletion(
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
 			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>
+		try
 		{
 			using FAdmission = Tasks::TTaskAdmission<FTaskHandle>;
-			if (Options.bValidateConstruction)
 			{
-				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes))
+				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes, Options.bQueueOnSaturation))
 					return FAdmission::Failure(*Error);
 			}
 			FTaskLaunchOptions ResolvedOptions = Options;
@@ -3524,7 +3537,7 @@ namespace Durin
 				Options.Target,
 				Options.Priority,
 				Options.EstimatedPayloadBytes,
-				EstimatedResultBytes, {}, {}, false, &AdmissionError
+				EstimatedResultBytes, Options.GenerationToken, Options.CoalescingKey, false, &AdmissionError
 			);
 			if (!State)
 			{
@@ -3533,6 +3546,11 @@ namespace Durin
 			}
 			return FAdmission::Success(FTaskHandle(std::move(State)));
 		}
+		catch (const std::bad_alloc&)
+		{
+			return Tasks::TTaskAdmission<FTaskHandle>::Failure({Tasks::ETaskAdmissionErrorCode::CapacityExhausted});
+		}
+
 
 		auto TryLaunchContinuationTask(
 			const FTaskHandle& Predecessor,
@@ -3541,16 +3559,15 @@ namespace Durin
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
 			ETaskDependencyKind DependencyKind,
-			uint64 EstimatedResultBytes,
-			bool bValidateConstruction) -> Tasks::TTaskAdmission<FTaskHandle>
+			uint64 EstimatedResultBytes) -> Tasks::TTaskAdmission<FTaskHandle>
+		try
 		{
 			using FAdmission = Tasks::TTaskAdmission<FTaskHandle>;
 			FTaskAttribution ResolvedAttribution = FTaskAttributionAccess::IsDefault(Options.Attribution) && Predecessor.State
 				? Predecessor.State->GetAttribution()
 				: Options.Attribution;
-			if (bValidateConstruction)
 			{
-				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes))
+				if (auto Error = ValidateTaskExecution(Options.Target, Options.Priority, Options.EstimatedPayloadBytes, Options.bQueueOnSaturation))
 				{
 					std::lock_guard Lock(GTaskSchedulerMutex);
 					if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, Function.GetStorageBytes());
@@ -3595,10 +3612,11 @@ namespace Durin
 
 			FTaskLaunchOptions LaunchOptions;
 			LaunchOptions.Prerequisites = Prerequisites;
+			LaunchOptions.bQueueOnSaturation = Options.bQueueOnSaturation;
 			LaunchOptions.CancellationToken = Options.CancellationToken;
 			LaunchOptions.Attribution = ResolvedAttribution;
 			LaunchOptions.Scope = ResolvedScope;
-			LaunchOptions.ExpectedParentTaskId = bValidateConstruction ? FTaskRuntimeAccess::GetCurrentTaskId() : 0;
+			LaunchOptions.ExpectedParentTaskId = FTaskRuntimeAccess::GetCurrentTaskId();
 
 			{
 			std::lock_guard Lock(GTaskSchedulerMutex);
@@ -3628,6 +3646,13 @@ namespace Durin
 			);
 			return State ? FAdmission::Success(FTaskHandle(std::move(State))) : FAdmission::Failure(AdmissionError);
 		}
+		catch (const std::bad_alloc&)
+		{
+			return Tasks::TTaskAdmission<FTaskHandle>::Failure({Tasks::ETaskAdmissionErrorCode::CapacityExhausted});
+		}
+
+
+		auto FTaskRuntimeAccess::GetAttribution(const FTaskHandle& Task) -> FTaskAttribution { return Task.State ? Task.State->GetAttribution() : FTaskAttribution{}; }
 
 		auto FTaskRuntimeAccess::GetCurrentTaskId() -> uint64 { return GCurrentTaskState && GCurrentTaskState->IsRunningBody() ? GCurrentTaskState->GetTaskId() : 0; }
 
@@ -3748,19 +3773,7 @@ namespace Durin
 			};
 		}
 
-		auto RecordDuplicateUniqueConsumerClaim() -> void
-		{
-			std::lock_guard Lock(GTaskSchedulerMutex);
-			if (GTaskScheduler) GTaskScheduler->RecordDuplicateUniqueConsumerClaim();
-			DURIN_WARN("Unique task consumer registration failed because the result already has a consuming continuation.");
-		}
 
-		auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic, FTaskAttribution Attribution) -> void
-		{
-			std::lock_guard Lock(GTaskSchedulerMutex);
-			if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(Attribution, 0);
-			DURIN_WARN("{} (task: {})", Diagnostic ? Diagnostic : "Unique task registration failed.", Name ? Name : "");
-		}
 	} // namespace Private
 
 	auto CancelTask(const FTaskHandle& Task) -> bool
@@ -4014,20 +4027,20 @@ namespace Durin
 		for (uint32 ChunkIndex = 1; ChunkIndex < EffectiveChunkCount; ++ChunkIndex)
 		{
 			const auto [ChunkStart, ChunkEnd] = GetChunkRange(ChunkIndex);
-			FTaskHandle Task = LaunchCancelableTask(
+			auto Admission = Private::TryLaunchCancelableTaskWithCompletion(
 				Name ? Name : "ParallelFor",
 				[ExecuteChunk, ChunkStart, ChunkEnd](const FTaskCancellationToken& TaskToken) {
 					ExecuteChunk(ChunkStart, ChunkEnd, TaskToken);
-				},
+				}, {},
 				LaunchOptions
 			);
-			if (!Task.IsValid())
+			if (!Admission.HasValue())
 			{
 				bLaunchFailed = true;
 				SharedState->CancellationSource.RequestCancellation();
 				break;
 			}
-			WorkerTasks.emplace_back(std::move(Task));
+			WorkerTasks.emplace_back(std::move(Admission).TakeValue());
 		}
 
 		const auto [CallerChunkStart, CallerChunkEnd] = GetChunkRange(0);

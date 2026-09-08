@@ -239,9 +239,10 @@ Dynamic uniform/storage, staging, mapped writes, and replay state retain their
 owners; VMA or statistics safety does not cover the whole buffer/texture path.
 
 **Implementation decisions and capacity.** Verified landed APIs in
-`Threading/TaskComposition.h` include `FTaskGroup::TryCreate/Close/JoinAsync`,
-`TrySpawn`, `Share`, `TCompletionSource::TryCreate`, `GetCompletion`, and
-capture/result byte estimates. Use a device-owned counted group, shared
+`Threading/TaskComposition.h` include `FTaskGroup` construction/Close/JoinAsync,
+`LaunchTask`, `Share`, `TCompletionSource::Create`, and `GetCompletion`.
+Construction returns directly; device request/payload budgets belong to the
+cache owner, separately from scheduler queueing. Use a device-owned counted group, shared
 immutable results, and independent observer cancellation. Do not directly use
 `TTaskOperationQueue`, whose Pump requires the owner thread, as a concurrent
 cache. Batches return per-item admission/requests in input order; one failed

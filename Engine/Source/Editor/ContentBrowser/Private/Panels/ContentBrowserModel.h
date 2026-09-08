@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Threading/TaskComposition.h"
+
 #include "Panels/ContentBrowserDataSource.h"
 #include "Operations/ContentBrowserPaths.h"
 #include "Panels/ContentBrowserSession.h"
@@ -157,8 +159,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		};
 		std::optional<FItemsRequest> PendingItemsRequest;
 		// The model alone consumes these move-only results after worker completion.
-		TTaskHandle<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
-		TTaskHandle<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
+		Tasks::TTask<std::unique_ptr<FContentBrowserItemsSnapshot>> ItemsTask;
+		Tasks::TTask<std::unique_ptr<FContentBrowserDirectorySnapshot>> TreeTask;
 		std::string ActiveTreeDirectory;
 
 		std::shared_ptr<const FContentBrowserItemsSnapshot> PublishedSnapshot =

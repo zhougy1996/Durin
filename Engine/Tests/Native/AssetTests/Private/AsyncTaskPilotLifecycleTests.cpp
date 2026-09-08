@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
@@ -28,9 +29,9 @@ namespace
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({.MaxQueuedEntries = 1, .MaxQueuedPayloadBytes = 64, .MaxPayloadBytesPerEntry = 64}));
 		ASSERT_TRUE(InitializeAssetCompilingManager());
 		FModuleManager::Get().LoadModuleChecked("TextureBuild");
-		auto Root = LaunchTask("TextureSaturationRoot", [] {});
+		auto Root = Tasks::LaunchTask("TextureSaturationRoot", [] {}).GetCompletion().GetTaskHandle();
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root).TaskState);
-		auto Deferred = Then(Root, "FullDeferredMailbox", [] {}, {.EstimatedPayloadBytes = 32, .Target = ETaskTarget::GameThreadDeferred});
+		auto Deferred = Tasks::Then(Tasks::FTaskCompletion(Root), Tasks::ETaskExecutor::GameThreadDeferred, {}, [] {}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Deferred.IsValid());
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "LargeContent").generic_string() + "/");
 		FPackagePath Path;
@@ -59,7 +60,7 @@ namespace
 
 		FThreadEvent StartedA, StartedB, Release;
 		std::array<FTaskHandle, 8> Blockers;
-		uint32 RejectedCompleted = 0;
+		uint32 SaturatedCompleted = 0;
 		std::array<uint32, 4> Completed{};
 		std::array<DObject*, 4> PendingTextures{};
 		auto HoldWorker = [&](FThreadEvent& Started, const FTaskCancellationToken& Token) {
@@ -74,8 +75,8 @@ namespace
 			std::array<FTaskHandle, 8>& Tasks;
 			~FReleaseBlockers() { Event.Trigger(); ShutdownAssetCompilingManager(); for (const auto& Task : Tasks) if (Task.IsValid()) WaitTask(Task); }
 		} ReleaseBlockers{Release, Blockers};
-		Blockers[0] = LaunchCancelableTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); });
-		Blockers[1] = LaunchCancelableTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); });
+		Blockers[0] = Tasks::LaunchTask("HoldTextureWorkerA", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedA, Token); }).GetCompletion().GetTaskHandle();
+		Blockers[1] = Tasks::LaunchTask("HoldTextureWorkerB", [&](const FTaskCancellationToken& Token) { HoldWorker(StartedB, Token); }).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(StartedA.WaitFor(1.0));
 		ASSERT_TRUE(StartedB.WaitFor(1.0));
 		Testing::RegisterMountPointForTests("/AsyncPilot/", (Testing::GetTestWorkDirectory() / "ShutdownContent").generic_string() + "/");
@@ -83,22 +84,22 @@ namespace
 		// Requests accepted below must still receive failure/cancellation delivery.
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
-			Blockers[Index] = LaunchTask("FillTextureScheduler", [] {});
+			Blockers[Index] = Tasks::LaunchTask("FillTextureScheduler", [] {}).GetCompletion().GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		FTextureSourceData RejectedSource;
-		RejectedSource.Width = 1; RejectedSource.Height = 1; RejectedSource.SourceChannelCount = 4;
-		RejectedSource.Format = ETextureSourceFormat::RGBA8;
-		RejectedSource.Pixels.resize(4);
-		FTexture2DCompilationRequest RejectedRequest;
-		RejectedRequest.Build.ImportedData = FTexture2DImportedData(RejectedSource);
-		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(RejectedRequest), Error,
+		FTextureSourceData SaturatedSource;
+		SaturatedSource.Width = 1; SaturatedSource.Height = 1; SaturatedSource.SourceChannelCount = 4;
+		SaturatedSource.Format = ETextureSourceFormat::RGBA8;
+		SaturatedSource.Pixels.resize(4);
+		FTexture2DCompilationRequest SaturatedRequest;
+		SaturatedRequest.Build.ImportedData = FTexture2DImportedData(SaturatedSource);
+		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest), Error,
 			[&](FTexture2DCompilationResult Result) {
-				EXPECT_EQ(ETexture2DCompilationStatus::Failed, Result.Status);
-				++RejectedCompleted;
+				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
+				++SaturatedCompleted;
 			})) << Error;
 		FAssetCompilingManager::Get().ProcessAsyncTasks({});
-		EXPECT_EQ(1u, RejectedCompleted);
+		EXPECT_EQ(0u, SaturatedCompleted);
 		for (uint32 Index = 2; Index < Blockers.size(); ++Index)
 		{
 			CancelTask(Blockers[Index]);
@@ -121,18 +122,19 @@ namespace
 			std::string Error;
 			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), Error, [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; })) << Error;
 		}
-		// Two queued texture tasks plus the two running blockers leave four slots.
+		// Scheduler thresholds do not reject queued owner work.
 		for (uint32 Index = 2; Index < 6; ++Index)
 		{
-			Blockers[Index] = LaunchTask("FillTextureShutdown", [] {});
+			Blockers[Index] = Tasks::LaunchTask("FillTextureShutdown", [] {}).GetCompletion().GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		EXPECT_FALSE(LaunchTask("SaturatedTextureShutdown", [] {}).IsValid());
+		EXPECT_TRUE(Tasks::LaunchTask("SaturatedTextureShutdown", [] {}).GetCompletion().GetTaskHandle().IsValid());
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(PendingTextures);
 		// Exercise native cancellation without relying on a producer body or deferred callback.
 		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
 		ShutdownAssetCompilingManager();
 		for (uint32 Count : Completed) EXPECT_EQ(1u, Count);
+		EXPECT_EQ(1u, SaturatedCompleted);
 		Release.Trigger();
 		for (const auto& Blocker : Blockers) if (Blocker.IsValid()) WaitTask(Blocker);
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);

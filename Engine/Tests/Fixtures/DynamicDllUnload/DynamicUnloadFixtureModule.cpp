@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "DynamicUnloadFixtureContract.h"
 
 #include "Threading/Task.h"
@@ -137,10 +138,10 @@ namespace Durin
 		{
 			if (Worker.IsValid() || Publisher.IsValid()) return false;
 			auto Capture = std::make_shared<FAsyncCaptureProbe>(InstanceSerial);
-			FTaskLaunchOptions WorkerOptions;
+			Tasks::FTaskExecutionOptions WorkerOptions;
 			WorkerOptions.Scope = AsyncOperations.GetTaskScope();
-			WorkerOptions.CancellationToken = AsyncOperations.GetCancellationToken();
-			Worker = LaunchTask<uint64>(
+			WorkerOptions.Cancellation = AsyncOperations.GetCancellationToken();
+			Worker = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.Worker",
 				[Capture, Serial = InstanceSerial] {
 					RecordHostEvent(
@@ -148,37 +149,33 @@ namespace Durin
 						Serial);
 					return Serial;
 				},
-				WorkerOptions);
+				WorkerOptions));
 			if (!Worker.IsValid()) return false;
 
-			FTaskContinuationOptions PublisherOptions;
+			Tasks::FTaskExecutionOptions PublisherOptions;
 			PublisherOptions.Scope = AsyncOperations.GetTaskScope();
-			PublisherOptions.CancellationToken = AsyncOperations.GetCancellationToken();
-			PublisherOptions.Target = ETaskTarget::GameThreadDeferred;
-			PublisherOptions.EstimatedPayloadBytes = sizeof(uint64);
-			Publisher = ThenOutcome(
-				Worker,
-				"DynamicUnloadFixture.Publish",
-				[Capture, Serial = InstanceSerial](FTaskOutcome<uint64> Outcome) {
-					if (Outcome.State == ETaskState::Succeeded
-						&& Outcome.Result && *Outcome.Result == Serial)
+			PublisherOptions.Cancellation = AsyncOperations.GetCancellationToken();
+			PublisherOptions.DebugName = "DynamicUnloadFixture.Publish";
+			Publisher = Tasks::ThenCompleted(Worker, Tasks::ETaskExecutor::GameThreadDeferred, PublisherOptions,
+				[Capture, Serial = InstanceSerial](const Tasks::TSharedTask<uint64>& Outcome) {
+					if (Outcome.GetState() == ETaskState::Succeeded
+						&& Outcome.GetResult() == Serial)
 					{
 						RecordHostEvent(
 							Tests::EDynamicUnloadFixtureEvent::AsyncPublished,
 							Serial);
 					}
-				},
-				PublisherOptions);
+				}).GetCompletion().GetTaskHandle();
 			return Publisher.IsValid();
 		}
 
 		auto StartRetainedResultForFailure() -> bool override
 		{
 			if (RetainedResult.IsValid()) return false;
-			FTaskLaunchOptions Options;
+			Tasks::FTaskExecutionOptions Options;
 			Options.Scope = FailureOperations.GetTaskScope();
-			Options.CancellationToken = FailureOperations.GetCancellationToken();
-			RetainedResult = LaunchTask<uint64>(
+			Options.Cancellation = FailureOperations.GetCancellationToken();
+			RetainedResult = Tasks::Share(Tasks::LaunchTask(
 				"DynamicUnloadFixture.RetainedResult",
 				[Serial = InstanceSerial] {
 					RecordHostEvent(
@@ -186,7 +183,7 @@ namespace Durin
 						Serial);
 					return Serial;
 				},
-				Options);
+				Options));
 			bRetainResult = RetainedResult.IsValid();
 			return bRetainResult;
 		}
@@ -194,10 +191,10 @@ namespace Durin
 		auto StartBlockingWorkerForFailure() -> bool override
 		{
 			if (BlockingWorker.IsValid()) return false;
-			FTaskLaunchOptions Options;
+			Tasks::FTaskExecutionOptions Options;
 			Options.Scope = FailureOperations.GetTaskScope();
-			Options.CancellationToken = FailureOperations.GetCancellationToken();
-			BlockingWorker = LaunchTask(
+			Options.Cancellation = FailureOperations.GetCancellationToken();
+			BlockingWorker = Tasks::LaunchTask(
 				"DynamicUnloadFixture.BlockingWorker",
 				[Serial = InstanceSerial] {
 					RecordHostEvent(
@@ -208,7 +205,7 @@ namespace Durin
 							Host.WaitForAsyncRelease(Serial);
 						});
 				},
-				Options);
+				Options).GetCompletion().GetTaskHandle();
 			return BlockingWorker.IsValid();
 		}
 
@@ -231,9 +228,9 @@ namespace Durin
 
 		FAsyncOperationGroup AsyncOperations;
 		FAsyncOperationGroup FailureOperations;
-		TTaskHandle<uint64> Worker;
+		Tasks::TSharedTask<uint64> Worker;
 		FTaskHandle Publisher;
-		TTaskHandle<uint64> RetainedResult;
+		Tasks::TSharedTask<uint64> RetainedResult;
 		FTaskHandle BlockingWorker;
 		bool bRetainResult = false;
 		bool bThrowOnShutdown = false;

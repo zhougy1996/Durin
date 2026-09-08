@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "Asset/OfflinePreparation.h"
 #include "Asset/CookDependencies.h"
 #include "DObject/Package.h"
@@ -189,10 +190,8 @@ namespace Durin
 						Flight->Cancellation.RequestCancellation();
 				}
 				Scope.Close(ETaskScopeCloseMode::Cancel);
-				const ETaskScopeWaitResult WaitResult = Scope.WaitFor(5.0);
-				if (WaitResult != ETaskScopeWaitResult::Quiescent)
-					DURIN_ERROR_CATEGORY("Material", "Material compile scope did not become quiescent during shutdown ({}).",
-						static_cast<uint32>(WaitResult));
+				const ETaskScopeWaitResult WaitResult = Scope.Wait();
+				requiref(WaitResult == ETaskScopeWaitResult::Quiescent, "Material compile scope must drain before owner release.");
 				std::scoped_lock Lock(Mutex);
 				Diagnostics.CanceledRequests += OutstandingConsumers;
 				Flights.clear();
@@ -276,12 +275,12 @@ namespace Durin
 					++OutstandingConsumers;
 				}
 
-				FTaskLaunchOptions Options{
-					.CancellationToken = NewFlight->Cancellation.GetToken(),
+				Tasks::FTaskExecutionOptions Options{
+					.Cancellation = NewFlight->Cancellation.GetToken(),
 					.Attribution = Attribution,
 					.Scope = Scope.GetToken(),
 				};
-				NewFlight->Task = LaunchCancelableTask(
+				NewFlight->Task = Tasks::LaunchTask(
 					"MaterialCompile",
 					[this, Flight = NewFlight](const FTaskCancellationToken& Token) {
 						if (Token.IsCancellationRequested())
@@ -298,28 +297,9 @@ namespace Durin
 						}
 						CompleteFlight(Flight, std::move(Compiled),
 							EMaterialCompileState::Ready);
-					}, Options);
-				if (!NewFlight->Task.IsValid())
-				{
-					std::scoped_lock Lock(Mutex);
-					const auto It = Flights.find(NewFlight->Key);
-					if (It != Flights.end() && It->second == NewFlight)
-						Flights.erase(It);
-					for (const FMaterialCompileRequest& Consumer : NewFlight->Consumers)
-						Mailbox.push_back(MakeTerminalResult(
-							Consumer, EMaterialCompileState::Rejected,
-							EMaterialCompileResultCategory::Admission,
-							"The task scheduler rejected material compilation."));
-					++Diagnostics.RejectedRequests;
-				}
-				else
-				{
-					NewFlight->TaskId.store(
-						NewFlight->Task.GetTaskId(), std::memory_order_release);
-				}
-				return NewFlight->Task.IsValid()
-					? EMaterialCompileState::Running
-					: EMaterialCompileState::Pending;
+					}, Options).GetCompletion().GetTaskHandle();
+				NewFlight->TaskId.store(NewFlight->Task.GetTaskId(), std::memory_order_release);
+				return EMaterialCompileState::Running;
 			}
 
 			auto CancelOwner(FObjectHandle Owner) -> bool
@@ -333,6 +313,17 @@ namespace Durin
 				-> std::vector<FMaterialCompileResult>
 			{
 				CheckMaterialCompileGameThread();
+				// A canceled-before-entry body or an exception may never publish its mailbox.
+				std::vector<std::shared_ptr<FMaterialCompileFlight>> TerminalFlights;
+				{
+					std::scoped_lock Lock(Mutex);
+					for (const auto& [Key, Flight] : Flights)
+						if (Flight->Task.IsValid() && Flight->Task.IsComplete())
+							TerminalFlights.push_back(Flight);
+				}
+				for (const auto& Flight : TerminalFlights)
+					CompleteFlight(Flight, {}, Flight->Task.GetState() == ETaskState::Canceled
+						? EMaterialCompileState::Canceled : EMaterialCompileState::Failed);
 				std::vector<FMaterialCompileResult> Results;
 				std::scoped_lock Lock(Mutex);
 				Results.reserve(std::min<size_t>(Mailbox.size(), MaximumCount));

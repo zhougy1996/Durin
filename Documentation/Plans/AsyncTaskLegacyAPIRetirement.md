@@ -4,27 +4,27 @@ Summary: Establish a LaunchTask API that accepts valid work during normal operat
 
 Last reviewed: 2026-09-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-08
 
 ## Current Status
 
-Stage 0 is complete. Stage 1 is the next implementation stage; no runtime API
-or scheduling behavior has changed yet.
-The review baseline is `3e18b1eee21db02aae857750f9d9f45dcff3eda4`.
-The execution checkout was audited at `7618e71a6707f747dfbf587d2667c215665c8ae0`.
-Contrary to the initial inventory, its source-image thumbnail decoder still
-uses legacy void launch and a result mailbox. Production consumers still
-use legacy launch functions, shared result handles, and outcome continuations.
-The selected API contract was revised on 2026-09-08: ordinary callers submit
-through `Tasks::LaunchTask` and receive `TTask<T>` directly. They do not handle
-scheduler admission or declare scheduler payload budgets. This supersedes the
-earlier requirement to migrate business callers to `TrySpawn` and an outer
-`TTaskAdmission` result. Queueing and owner resource policy must implement this
-contract before consumer migration; renaming the existing function is insufficient.
-The Stage 0 handoff below records the corrected inventory, selected signatures,
-resource policy, test mapping, and configured validation targets. All runtime
-acceptance, migration, and removal gates remain open.
+All stages are complete as of 2026-09-08. Ordinary construction and composition
+return tasks directly and queue valid work beyond scheduler thresholds. Engine,
+Editor, Launch, native tests and unload fixtures use the selected ownership
+model; retired entry points and validation-bypass paths have been removed.
+Material, StaticMesh and thumbnail owners reap terminal work even when a body
+never executes. The checked kernel remains limited to Core infrastructure and
+explicit boundary fixtures.
+
+Final validation passed the affected CTest selection, Core correctness,
+dynamic-DLL unload qualification, the revised saturation accounting soak and
+the full `all` build. Exact commands, run evidence and scope limits are recorded
+below. Lasting rules reside in TaskSystem, AssetCompilation, BulkData and
+AsyncAssetOperations; the Stage 0 inventory remains historical execution evidence.
+The review baseline was `3e18b1eee21db02aae857750f9d9f45dcff3eda4`; execution
+began at `7618e71a6707f747dfbf587d2667c215665c8ae0`, and Stage 0 was committed
+as `2a3f5297e`.
 
 ## Goal
 
@@ -345,11 +345,25 @@ caller remains for Stages 1-4.
 
 Depends on Stage 0; complete before migrating production callers.
 
-- [ ] Implement Tasks::LaunchTask with a direct TTask result, and apply the same ordinary submission policy to composition, completion-source creation, and child tasks.
-- [ ] Implement accepted-work queueing and deferred scheduling under saturation without inline execution, busy retries, or GameThread capacity waits.
-- [ ] Move scheduler byte declarations/accounting out of ordinary call sites; preserve manager-owned compute/payload limits and bounded active resource use, with explicit pending-request policy.
-- [ ] Isolate checked admission for the justified infrastructure consumers. Implement scope closure ordering and diagnostic behavior without abandoning accepted tasks or releasing module leases prematurely.
-- [ ] Prove acceptance above the previous nonterminal/deferred limits, eventual completion and cancellation, declared executor affinity, dependency progress, and submission/closure races. Record pending storage and peak-memory behavior under bounded stress.
+Implementation refinement: retain a direct `Tasks::LaunchTask(Name, F, Options)`
+Worker-root convenience overload, with optional borrowed `Options.Scope` and
+support for a cancellation-token callable as well as a context/no-argument
+callable. Unscoped calls inherit an executing task scope, or belong to the scheduler
+lifetime when submitted outside a task. This avoids inventing
+short-lived group controllers for existing owner-polled roots; it uses the same
+accepted-work kernel policy as the explicit group/executor overload, with no
+global compatibility entry point. The erased-completion Then overload uses the
+same success-dependency kernel, inherits predecessor scope/attribution, and
+contributes no result claim. ThreadingTests retains explicitly named local
+SubmitKernel fixtures for native scheduler/deferred/attribution/closure tests;
+new public ownership and saturation tests live in TaskCompositionTests. No
+production owner or unload fixture uses checked admission.
+
+- [x] Implement Tasks::LaunchTask with a direct TTask result, and apply the same ordinary submission policy to composition, completion-source creation, and child tasks.
+- [x] Implement accepted-work queueing and deferred scheduling under saturation without inline execution, busy retries, or GameThread capacity waits.
+- [x] Move scheduler byte declarations/accounting out of ordinary call sites; preserve manager-owned compute/payload limits and bounded active resource use, with explicit pending-request policy.
+- [x] Isolate checked admission for the justified infrastructure consumers. Implement scope closure ordering and diagnostic behavior without abandoning accepted tasks or releasing module leases prematurely.
+- [x] Prove acceptance above the previous nonterminal/deferred limits, eventual completion and cancellation, declared executor affinity, dependency progress, and submission/closure races. Record pending storage and peak-memory behavior under bounded stress.
 
 Completion condition: valid ordinary submissions return usable tasks and continue
 to make progress under saturation; callers do not see scheduler admission details.
@@ -360,11 +374,11 @@ Resource pressure and shutdown have tested owners and explicit behavior.
 Depends on Stage 1. Add the minimum capabilities required by the mapping before
 migrating consumers in groups organized by owner.
 
-- [ ] Migrate typed launches in ContentBrowserModel, SourceReferenceIndex, and EnvironmentLightingBuild to direct-return LaunchTask; preserve fan-out result lifetimes and owner-level load control.
-- [ ] Migrate AssetCompatibilityAudit while preserving generation/serial invalidation, owner shutdown, and terminal publication; ensure cleanup still occurs when a continuation does not run.
-- [ ] Migrate void launches in the material, StaticMesh, and CookedMesh managers, preserving accounting, result delivery, cancellation, module draining, and resource publication order.
-- [ ] Migrate legacy thumbnail decoding with terminal polling, and move Texture compilation and package composition away from public admission handling and scheduler byte estimates; retain domain memory and concurrency policies.
-- [ ] Add or adjust coverage for saturation, exceptions, cancellation, stale results, owner shutdown, and module unloading; run the relevant behavior checks. Retain rejection tests only for the identified internal boundary.
+- [x] Migrate typed launches in ContentBrowserModel, SourceReferenceIndex, and EnvironmentLightingBuild to direct-return LaunchTask; preserve fan-out result lifetimes and owner-level load control.
+- [x] Migrate AssetCompatibilityAudit while preserving generation/serial invalidation, owner shutdown, and terminal publication; ensure cleanup still occurs when a continuation does not run.
+- [x] Migrate void launches in the material, StaticMesh, and CookedMesh managers, preserving accounting, result delivery, cancellation, module draining, and resource publication order.
+- [x] Migrate legacy thumbnail decoding with terminal polling, and move Texture compilation and package composition away from public admission handling and scheduler byte estimates; retain domain memory and concurrency policies.
+- [x] Add or adjust coverage for saturation, exceptions, cancellation, stale results, owner shutdown, and module unloading; run the relevant behavior checks. Retain rejection tests only for the identified internal boundary.
 
 Completion condition: production consumers no longer use retired entry points;
 there are no stuck loading/pending states, leaked reservations, stale
@@ -375,10 +389,10 @@ publications, or premature releases of captured objects.
 Depends on Stage 2. Tests may migrate alongside their consumers, but all gates
 in this stage must still be satisfied.
 
-- [ ] Migrate TaskSchedulerLifecycleSmoke while preserving shutdown, failed dependencies, and wait restrictions; replace ordinary capacity-rejection expectations with acceptance/progress checks and test lifecycle violations at their explicit boundary.
-- [ ] Migrate legacy calls in ThreadingTests, TaskCompositionTests, and related integration/qualification fixtures.
-- [ ] Consolidate duplicate coverage against the revised Stage 0 matrix. Replace public capacity-rejection tests with saturation, pending-work, and progress tests; retain structured rejection coverage for internal checked admission and real execution-failure coverage.
-- [ ] Define boundaries for tests that still exercise the kernel directly; do not restore public legacy wrappers solely for testing.
+- [x] Migrate TaskSchedulerLifecycleSmoke while preserving shutdown, failed dependencies, and wait restrictions; replace ordinary capacity-rejection expectations with acceptance/progress checks and test lifecycle violations at their explicit boundary.
+- [x] Migrate legacy calls in ThreadingTests, TaskCompositionTests, and related integration/qualification fixtures.
+- [x] Consolidate duplicate coverage against the revised Stage 0 matrix. Replace public capacity-rejection tests with saturation, pending-work, and progress tests; retain structured rejection coverage for internal checked admission and real execution-failure coverage.
+- [x] Define boundaries for tests that still exercise the kernel directly; do not restore public legacy wrappers solely for testing.
 
 Completion condition: no tests or tools consume retired entry points; coverage
 proves behavior rather than continued existence of legacy types.
@@ -387,10 +401,10 @@ proves behavior rather than continued existence of legacy types.
 
 Depends on Stage 3.
 
-- [ ] Remove legacy unique/typed launch, consumption, and outcome/aggregation APIs, together with states, helpers, friends, and includes used only by them.
-- [ ] Remove legacy `Private::Launch*` wrappers and compatibility paths that disable construction validation; check for unused parameters and redundant result models.
-- [ ] Retain internal handles, result storage, and scheduler primitives actually used by the new framework. The final Tasks::LaunchTask is the authoritative new implementation, not a legacy alias; do not retain TrySpawn as a second public synonym or restore global compatibility entry points.
-- [ ] Audit fully qualified symbols and signatures, not the LaunchTask spelling alone. Verify zero legacy overload/type references, no admission wrappers or scheduler-byte boilerplate in ordinary consumers, and an exact match to the retained internal consumer inventory.
+- [x] Remove legacy unique/typed launch, consumption, and outcome/aggregation APIs, together with states, helpers, friends, and includes used only by them.
+- [x] Remove legacy `Private::Launch*` wrappers and compatibility paths that disable construction validation; check for unused parameters and redundant result models.
+- [x] Retain internal handles, result storage, and scheduler primitives actually used by the new framework. The final Tasks::LaunchTask is the authoritative new implementation, not a legacy alias; do not retain TrySpawn as a second public synonym or restore global compatibility entry points.
+- [x] Audit fully qualified symbols and signatures, not the LaunchTask spelling alone. Verify zero legacy overload/type references, no admission wrappers or scheduler-byte boilerplate in ordinary consumers, and an exact match to the retained internal consumer inventory.
 
 Completion condition: business callers have only the selected new model; no
 execution semantics or isolated implementations remain solely for legacy calls.
@@ -399,10 +413,10 @@ execution semantics or isolated implementations remain solely for legacy calls.
 
 Depends on Stage 4.
 
-- [ ] Update TaskSystem, affected AssetCompilation and editor asynchronous contracts, and active examples; do not mechanically rewrite historical archives.
-- [ ] Run affected validation for the change set and integration tests covering changed behavior; record actual commands, selections, results, and limitations.
-- [ ] Compile related tools, Launch smoke diagnostics, and qualification targets whose fixtures migrated. Fixture changes alone do not require GPU performance qualification.
-- [ ] Review the complete diff from the baseline to the final implementation, verify production/test entry-point removal, failure coverage, and documentation consistency, then complete this plan.
+- [x] Update TaskSystem, affected AssetCompilation and editor asynchronous contracts, and active examples; do not mechanically rewrite historical archives.
+- [x] Run affected validation for the change set and integration tests covering changed behavior; record actual commands, selections, results, and limitations.
+- [x] Compile related tools, Launch smoke diagnostics, and qualification targets whose fixtures migrated. Fixture changes alone do not require GPU performance qualification.
+- [x] Review the complete diff from the baseline to the final implementation, verify production/test entry-point removal, failure coverage, and documentation consistency, then complete this plan.
 
 Completion condition: all required checks pass, the removal audit finds no
 residual legacy use, and lasting contracts reside in their owning documents.
@@ -424,6 +438,66 @@ For each stage, record passed failure scenarios, test evidence, and remaining
 callers. Compilation alone does not establish lifecycle correctness.
 Implementation commits update this plan and carry accurate Plan/Stage trailers;
 check off tasks only after their acceptance conditions pass.
+
+## Completion Evidence
+
+The final diff was reviewed against the execution baseline. Tracked C++ source,
+headers, tools and templates contain no retired launch, typed-handle, outcome,
+consumption, aggregate or TrySpawn symbols, including fully qualified global
+LaunchTask calls. No ordinary production caller has a task admission wrapper
+or scheduler byte declaration. The only non-Core production checked call is
+the deliberately invalid close probe in Launch smoke. Core ParallelFor retains
+checked partial submission and waits every accepted chunk before return.
+
+| Stage | Behavior and validation evidence |
+| --- | --- |
+| 1 | Direct roots, Share, Then, ThenCompleted, ThenAsync, WhenAll, completion sources and live-parent children use accepted queueing. Pending storage, running-body peaks and rate-limited overload crossings are exposed. Core tests cover above-default count saturation, small byte/count thresholds, CPU/I/O helping, cancellation, allocation rollback/fatal probes, closure races and publication barriers. |
+| 2 | All inventoried owners migrated. Material and StaticMesh add terminal reaping for skipped/failed bodies; material shutdown requires scope quiescence before release. Thumbnail decode tasks retain unique values and serials, settle each active slot once, and preserve unlaunched pending requests. Environment lighting transfers vectors/arrays directly. Asset, editor, thumbnail, material, mesh, texture, world and render lifetime lanes passed in the affected selection. |
+| 3 | ThreadingTests retains explicitly named local kernel fixtures for native scheduler/deferred/attribution/closure behavior. Public ownership tests cover unique drop, running cancellation, throwing consumption, explicit sharing, fan-in failure order, async cancellation, registration races and module leases. Package and ContentBrowser post-close probes now assert lifecycle violations; the CPU saturation soak expects accepted overload. |
+| 4 | Removed legacy global launch/outcome/consume/fan-in wrappers, old result states, unused rejection/duplicate-counter helpers and supporting friends. Native handles, unique storage, cancellation, module scopes, ParallelFor and wait/pump primitives remain. Ordinary completion-source scope/known-requirement construction is private to Detail. |
+| 5 | Authoritative runtime/editor contracts and the active RHI plan example were updated. Historical archives were not rewritten. Related tools, Launch and qualification fixtures compile. Validation uncovered a cold ShaderCook fixture lifetime bug: retained bytecode now has a host-owned control block and shader state is released before provider unload; forced fresh compilation passes. |
+
+Final validation commands on `Win64-Debug-DurinEditor`:
+
+- `.\DevTool.bat test affected`: passed the 82 target processes selected for this
+  run; receipt `Build/.agent-state/logs/20260908-161746-225326-26204-ctest.log`.
+  This includes AsyncTaskPilotLifecycleTests and the changed integration lanes.
+- `.\DevTool.bat test CoreConcurrencyTests`: the focused run passed 146 cases,
+  including the empty-value construction regression and checked ParallelFor
+  partial-submission capture fence; receipt
+  `Build/.agent-state/logs/20260908-160759-639680-40948-CoreConcurrencyTests.log`.
+- `.\DevTool.bat test "@kind=qualification,domain=core,stack=process" --mode qualification`:
+  both dynamic DLL unload targets passed; receipt
+  `Build/.agent-state/logs/20260908-162042-287046-30364-ctest.log`.
+- `.\DevTool.bat test CoreConcurrencyQualificationTests FTaskCapacityQualificationTests.ObservationFreeSaturationSoakReconcilesFinalAccounting --mode qualification`:
+  the complete target compiled and the selected accounting case passed; receipt
+  `Build/.agent-state/logs/20260908-162059-931446-7048-ctest.log`.
+- `.\DevTool.bat test RenderShaderCookIntegrationTests`: forced fresh compilation
+  and provider unload passed after fixing the fixture lifetime; receipt
+  `Build/.agent-state/logs/20260908-160458-281532-17624-RenderShaderCookIntegrationTests.log`.
+- `.\DevTool.bat build`: final `all` build passed, including Launch and tools;
+  receipt `Build/.agent-state/logs/20260908-162107-008169-32908-cmake.log`.
+
+The bounded saturation workload held one Worker body while accepting 17,000
+additional Worker nodes and 1,100 deferred nodes. At the blocked snapshot,
+Worker pending storage peaked at 16,456,000 logical bytes; total Worker-node
+storage was 16,456,976 bytes including the blocker. Deferred pending storage
+peaked at 1,064,800 logical bytes. The final focused run observed a process peak
+working set of 104,714,240 bytes, including the test host and earlier cases.
+All submitted callbacks executed on their declared executor after release;
+shutdown left zero pending nodes/bytes, running bodies and reservations.
+Small-threshold tests separately cover completion sources, fan-in, I/O children,
+queued cancellation and exactly-once capture destruction. The 32-round soak
+accepts 80 nodes per round above a threshold of 64 and reconciles every outcome.
+
+These are bounded correctness/storage observations, not RSS-per-task estimates
+or performance equivalence. CPU timing cases were compiled but not selected;
+no new GPU timing or application-hosted qualification was required. The affected
+GPU correctness/integration lanes did run and pass.
+
+Documentation validation passed with `.\DevTool.bat doc validate --scope changed`
+and `.\DevTool.bat doc plan validate --scope all`; `git diff --check` also passed.
+The implementation commit carries the Plan and Stage provenance.
 
 ## Related Code
 

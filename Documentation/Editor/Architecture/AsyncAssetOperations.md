@@ -4,7 +4,7 @@ Summary: Define completion, compensation, and UI ownership for nonblocking edito
 
 Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, StaticMeshEditor, Engine
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 ## Ownership Layers
 
@@ -24,6 +24,19 @@ values and does not create a generic import job or operation handle.
 Texture2D adapters consume the GameThread terminal result defined by
 [Asset Compilation](../../Runtime/Assets/AssetCompilation.md#texture2d-completion).
 Request identity, cancellation, and supersession remain compilation concerns.
+
+CPU task construction follows the direct-return
+[task contract](../../Runtime/Core/TaskSystem.md): valid ordinary work queues
+under scheduler saturation. Family managers retain request-count, compute and
+payload budgets before submitting work. These owner limits remain legitimate
+domain rejection or pending states.
+
+Every owner must reap failed and canceled terminal tasks even if their body or
+optional publication observer never runs. Loading flags, request reservations
+and serial records are settled once on the owner thread. Shutdown stops new
+requests, cancels or drains accepted tasks, then releases captures and module
+code. Thumbnail decoding retains the unique result until this owner-side reap;
+current serials alone may publish an upload.
 
 ## Compensating Operation Contract
 

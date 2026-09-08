@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "MaterialTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -68,10 +69,10 @@ TEST(FMaterialCompileLifecycleTests,
 			~FReleaseWorkers() { Event.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
 		} ReleaseWorkers{Release, Blockers};
 		for (uint32 Index = 0; Index < WorkerCount; ++Index)
-			Blockers.push_back(Durin::LaunchTask("HoldMaterialSingleFlight", [&] {
+			Blockers.push_back(Durin::Tasks::LaunchTask("HoldMaterialSingleFlight", [&] {
 				if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
 				Release.WaitFor(2.0);
-			}));
+			}).GetCompletion().GetTaskHandle());
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		ASSERT_TRUE(Durin::RequestMaterialRecompile(*First));
 		ASSERT_TRUE(Durin::RequestMaterialRecompile(*Second));

@@ -27,41 +27,22 @@ namespace Durin
 			std::condition_variable Bound;
 			bool bBinding = false;
 			std::variant<FPackageResourceReadResult, FSharedResult> Result;
-			Tasks::FTaskCompletion RejectedProducer;
 			std::atomic_bool bCancelled = false;
 			std::function<void()> OnCancel;
 			std::shared_ptr<FPackageTaskLifetime> Lifetime;
-			uint64 EstimatedBytes = sizeof(FPackageResourceReadResult);
 
 			auto Completion() const -> Tasks::FTaskCompletion
 			{
 				if (const auto* Task = std::get_if<FSharedResult>(&Result)) return Task->GetCompletion();
-				return RejectedProducer;
+				return {};
 			}
-			auto Bind(Tasks::TTaskAdmission<Tasks::TTask<FPackageResourceReadResult>> Admission) -> void
+			auto Bind(Tasks::TTask<FPackageResourceReadResult> Task) -> void
 			{
-				std::variant<FPackageResourceReadResult, FSharedResult> Published;
-				Tasks::FTaskCompletion Rejected;
-				if (Admission.HasValue())
-				{
-					auto Task = std::move(Admission).TakeValue();
-					Rejected = Task.GetCompletion();
-					auto Shared = Tasks::Share(std::move(Task));
-					if (Shared.HasValue()) { Published = std::move(Shared).TakeValue(); Rejected = {}; }
-					else
-					{
-						Tasks::Cancel(Rejected);
-						Published = FPackageResourceReadResult{.Status = EPackageResourceReadStatus::IoError,
-							.Message = "Package result sharing was rejected."};
-					}
-				}
-				else Published = FPackageResourceReadResult{.Status = EPackageResourceReadStatus::IoError,
-					.Message = "Package task admission was rejected."};
+				std::variant<FPackageResourceReadResult, FSharedResult> Published = Tasks::Share(std::move(Task));
 				Tasks::FTaskCompletion CompletionToCancel;
 				{
 					std::lock_guard Lock(Mutex);
 					Result = std::move(Published);
-					RejectedProducer = std::move(Rejected);
 					bBinding = false;
 					if (bCancelled.load(std::memory_order_acquire)) CompletionToCancel = Completion();
 				}
@@ -527,7 +508,6 @@ namespace Durin
 		-> FPackageResourceRequest
 	{
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>();
-		State->EstimatedBytes += InResult.Buffer.GetSize() + InResult.Message.size();
 		State->Result = std::move(InResult);
 		return FPackageResourceRequest(std::move(State));
 	}
@@ -543,13 +523,11 @@ namespace Durin
 			std::unique_lock Lock(Input.State->Mutex);
 			Input.State->Bound.wait(Lock, [&Input] { return !Input.State->bBinding; });
 			State->Lifetime = Input.State->Lifetime;
-			State->EstimatedBytes = Input.State->EstimatedBytes;
 		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
 		Tasks::FTaskExecutionOptions Options;
 		Options.DebugName = "PackageResource.Transform";
 		Options.Attribution = PackageResourceAttribution();
-		Options.EstimatedResultBytes = State->EstimatedBytes;
 		if (Input.State && std::holds_alternative<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result))
 		{
 			State->Bind(Tasks::ThenCompleted(std::get<AssetPrivate::FPackageResourceRequestState::FSharedResult>(Input.State->Result),
@@ -562,7 +540,7 @@ namespace Durin
 		{
 			State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
 			Tasks::FTaskGroup Group(State->Lifetime->Scope.GetToken());
-			State->Bind(Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+			State->Bind(Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
 				[Input = std::move(Input), Function = std::move(Function)]() mutable { return Function(Input.Wait()); }));
 		}
 		return FPackageResourceRequest(std::move(State));
@@ -583,7 +561,6 @@ namespace Durin
 
 		auto State = std::make_shared<AssetPrivate::FPackageResourceRequestState>(true);
 		State->Lifetime = std::make_shared<AssetPrivate::FPackageTaskLifetime>();
-		State->EstimatedBytes += Size;
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
@@ -599,8 +576,7 @@ namespace Durin
 		Tasks::FTaskExecutionOptions Options;
 		Options.DebugName = "PackageResource.ReadRange";
 		Options.Attribution = PackageResourceAttribution();
-		Options.EstimatedResultBytes = State->EstimatedBytes;
-		State->Bind(Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO, Options,
+		State->Bind(Tasks::LaunchTask(Group, Tasks::ETaskExecutor::BlockingIO, Options,
 			[Self = std::move(Self), State, Offset, Size](Tasks::FTaskContext& Context) {
 				if (Context.GetCancellationToken().IsCancellationRequested()
 					|| State->bCancelled.load(std::memory_order_acquire))

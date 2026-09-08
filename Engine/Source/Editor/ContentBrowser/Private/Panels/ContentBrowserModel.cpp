@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserChanges.h"
 #include "Panels/ContentBrowserFilesystem.h"
@@ -24,14 +25,14 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		CancelPendingSnapshots();
 		// Module code must remain loaded until both owned worker bodies have exited.
-		if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetTaskHandle());
-		if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetCompletion().GetTaskHandle());
+		if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetCompletion().GetTaskHandle());
 	}
 
 	auto FContentBrowserModel::InvalidateDirectoryTree() -> void
 	{
 		++TreeGeneration;
-		if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetTaskHandle());
+		if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
 		DirectoryChildrenCache.clear();
 		DirectoryGenerations.clear();
 		RequestedDirectoryChildrenSnapshots.clear();
@@ -40,7 +41,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::CancelPendingSnapshots() -> void
 	{
 		++ItemsGeneration;
-		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
 		PendingItemsRequest.reset();
 		bItemsLoading = false;
 		InvalidateDirectoryTree();
@@ -77,14 +78,17 @@ namespace Durin::Editor::ContentBrowser::Private
 			}
 		}
 		bool bPublished = false;
-		if (ItemsTask.IsComplete())
+		if (ItemsTask.IsCompleted())
 		{
 			if (ActiveItemsGeneration == ItemsGeneration
 				&& ActiveItemsNavigationRevision == Session.NavigationRevision)
 			{
 				bItemsLoading = false;
-				if (const auto Snapshot = ItemsTask.GetResultShared())
-					PublishItems(std::move(**Snapshot));
+				if (ItemsTask.GetState() == ETaskState::Succeeded)
+				{
+					auto Snapshot = std::move(ItemsTask).TakeResult();
+					PublishItems(std::move(*Snapshot));
+				}
 				else
 					ReportTaskFailure("Content scan did not complete: " + ItemsTask.GetDiagnostic());
 				bPublished = true;
@@ -98,7 +102,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			ActiveItemsGeneration = ItemsGeneration;
 			ActiveItemsNavigationRevision = Request.NavigationRevision;
 			ValidatedMountedRevision = std::max(ValidatedMountedRevision, Request.MountedRevision);
-			ItemsTask = LaunchCancelableTask<std::unique_ptr<FContentBrowserItemsSnapshot>>(
+			ItemsTask = Tasks::LaunchTask(
 				"ContentBrowser.Items",
 				[Source = DataSource, Request = std::move(Request), Query = EntryStatusQuery]
 				(const FTaskCancellationToken& Cancellation) {
@@ -106,20 +110,18 @@ namespace Durin::Editor::ContentBrowser::Private
 					return std::make_unique<FContentBrowserItemsSnapshot>(Source->CaptureItems(
 						Request.Directory, Request.bRecursive, Request.Catalog, Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Items"), .Scope = TaskScope});
-			if (!ItemsTask.IsValid())
-			{
-				bItemsLoading = false;
-				ReportTaskFailure("Content scan could not be scheduled.");
-				bPublished = true;
-			}
+
 		}
-		if (TreeTask.IsComplete())
+		if (TreeTask.IsCompleted())
 		{
 			if (ActiveTreeGeneration == TreeGeneration
 				&& ActiveTreeDirectoryGeneration == DirectoryGenerations[ActiveTreeDirectory])
 			{
-				if (auto Snapshot = TreeTask.GetResultShared())
-					PublishDirectory(ActiveTreeDirectory, std::move(**Snapshot));
+				if (TreeTask.GetState() == ETaskState::Succeeded)
+				{
+					auto Snapshot = std::move(TreeTask).TakeResult();
+					PublishDirectory(ActiveTreeDirectory, std::move(*Snapshot));
+				}
 				else
 				{
 					ReportTaskFailure("Directory scan did not complete: " + TreeTask.GetDiagnostic());
@@ -137,7 +139,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			RequestedDirectoryChildrenSnapshots.erase(It);
 			ActiveTreeGeneration = TreeGeneration;
 			ActiveTreeDirectoryGeneration = DirectoryGenerations[ActiveTreeDirectory];
-			TreeTask = LaunchCancelableTask<std::unique_ptr<FContentBrowserDirectorySnapshot>>(
+			TreeTask = Tasks::LaunchTask(
 				"ContentBrowser.Directory",
 				[Directory = ActiveTreeDirectory, Query = EntryStatusQuery]
 				(const FTaskCancellationToken& Cancellation) {
@@ -146,13 +148,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					return std::make_unique<FContentBrowserDirectorySnapshot>(
 						Source.CaptureDirectory(Directory, Cancellation));
 				}, {.Attribution = RegisterTaskAttribution("ContentBrowser", "Directory"), .Scope = TaskScope});
-			if (!TreeTask.IsValid())
-			{
-				ReportTaskFailure("Directory scan could not be scheduled.");
-				DirectoryChildrenCache.emplace(ActiveTreeDirectory,
-					std::make_shared<const FContentBrowserDirectorySnapshot>());
-				ActiveTreeDirectory.clear();
-			}
+
 		}
 		return bPublished;
 	}
@@ -162,8 +158,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		do
 		{
 			(void)PumpPendingSnapshots();
-			if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetTaskHandle());
-			if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetTaskHandle());
+			if (ItemsTask.IsValid()) (void)WaitTask(ItemsTask.GetCompletion().GetTaskHandle());
+			if (TreeTask.IsValid()) (void)WaitTask(TreeTask.GetCompletion().GetTaskHandle());
 		} while (ItemsTask.IsValid() || TreeTask.IsValid() || PendingItemsRequest
 			|| (bAsync && !RequestedDirectoryChildrenSnapshots.empty()));
 	}
@@ -363,7 +359,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!ActiveTreeDirectory.empty() && Invalidates(ActiveTreeDirectory))
 		{
 			++DirectoryGenerations[ActiveTreeDirectory];
-			if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetTaskHandle());
+			if (TreeTask.IsValid()) (void)CancelTask(TreeTask.GetCompletion().GetTaskHandle());
 		}
 		bool bMoved = false;
 		for (const auto& Change : Changes.Changes)
@@ -402,7 +398,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		bSnapshotInjectedForTesting = false;
 		if (bInvalidateDirectoryTree) InvalidateDirectoryTree();
 		++ItemsGeneration;
-		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetTaskHandle());
+		if (ItemsTask.IsValid()) (void)CancelTask(ItemsTask.GetCompletion().GetTaskHandle());
 		if (!Catalog || Catalog->Revision != GetAssetCatalogRevision())
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("ContentBrowser.CaptureCatalog");

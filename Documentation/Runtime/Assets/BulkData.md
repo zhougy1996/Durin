@@ -118,16 +118,16 @@ SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
 checks before/after physical size and rejects a changed segment rather than
 returning a mixed generation.
 
-Package range roots use `Tasks::TrySpawn` on the bounded blocking-I/O executor.
+Package range roots use `Tasks::LaunchTask` on the blocking-I/O executor, with bounded active
+threads and accepted pending work.
 Transforms use `Tasks::ThenCompleted` to inspect the shared task state and
-convert predecessor failure/cancellation into a domain result. The observing edge can itself be canceled or
-rejected. Copied requests observe the same immutable framework result; repeated
+convert predecessor failure/cancellation into a domain result. The observing edge can itself be canceled. Copied requests observe the same immutable framework result; repeated
 `Wait()` calls do not consume it. Synchronously completed validation errors
 remain immediate values. The request binding mutex/CV only coordinates resource
 retirement with initial task installation; Core owns terminal result publication.
 Request lifetimes retain root admission for later transforms and close it when
-the last request owner retires. A sharing-admission failure retains a completion
-observation until the already admitted producer acknowledges cancellation.
+the last request owner retires. Sharing is explicit and returns a shared task directly; scheduler saturation
+does not become an IoError in the request facade.
 
 `FPackageResourceRequest::Wait()` checks the task wait status before synthesizing
 any terminal fallback. An unsupported-thread or dependency-rejected wait returns

@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
 
 #include "Asset/BulkData.h"
@@ -504,7 +505,7 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	ASSERT_TRUE(FirstResource->Started.WaitFor(1.0));
 	ASSERT_TRUE(SecondResource->Started.WaitFor(1.0));
 	FThreadEvent CpuRan;
-	auto Cpu = LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); });
+	auto Cpu = Tasks::LaunchTask("PackageIoIsolation", [&] { CpuRan.Trigger(); }).GetCompletion().GetTaskHandle();
 	EXPECT_TRUE(CpuRan.WaitFor(0.5));
 	auto Copy = First;
 	auto Transform = FPackageResourceRequest::Transform(First, [](FPackageResourceReadResult Value) { return Value; });
@@ -527,20 +528,18 @@ TEST(FPackageResourceTests, BlockingReadsLeaveCpuAvailableAndTransformsShareTerm
 	EXPECT_TRUE(Recovery.Wait());
 }
 
-TEST(FPackageResourceTests, SchedulerRejectionReturnsTerminalRequests)
+TEST(FPackageResourceTests, SubmissionAfterSchedulerClosureIsALifecycleViolation)
 {
 	ShutdownTaskScheduler(true);
-	auto Resource = std::make_shared<FSlowPackageResource>();
-	FPackageResourceRequest Read = Resource->ReadRangeAsync(0, 4);
-	EXPECT_TRUE(Read.IsReady());
-	EXPECT_EQ(Read.Wait().Status, EPackageResourceReadStatus::IoError);
-
-	FPackageResourceRequest Transform = FPackageResourceRequest::Transform(
-		FPackageResourceRequest::Completed({
-			.Status = EPackageResourceReadStatus::Success}),
-		[](FPackageResourceReadResult Result) { return Result; });
-	EXPECT_TRUE(Transform.IsReady());
-	EXPECT_EQ(Transform.Wait().Status, EPackageResourceReadStatus::IoError);
+	EXPECT_DEATH({
+		auto Resource = std::make_shared<FSlowPackageResource>();
+		(void)Resource->ReadRangeAsync(0, 4);
+	}, "");
+	EXPECT_DEATH({
+		(void)FPackageResourceRequest::Transform(
+			FPackageResourceRequest::Completed({.Status = EPackageResourceReadStatus::Success}),
+			[](FPackageResourceReadResult Result) { return Result; });
+	}, "");
 	EXPECT_TRUE(InitializeTaskScheduler(2));
 }
 

@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "TaskSchedulerLifecycleSmoke.h"
 
 #include "CoreGlobals.h"
@@ -34,31 +35,31 @@ namespace Durin
 	{
 		auto State = std::make_shared<FTaskSchedulerLifecycleSmokeState>();
 		FTaskSchedulerLifecycleSmokeState* StatePtr = State.get();
-		State->ShortTask = LaunchTask("EngineSmoke.Short", []() {});
+		State->ShortTask = Tasks::LaunchTask("EngineSmoke.Short", []() {}).GetCompletion().GetTaskHandle();
 		std::array<FTaskHandle, 1> ShortPrerequisites{State->ShortTask};
-		FTaskLaunchOptions DependentOptions;
+		Tasks::FTaskExecutionOptions DependentOptions;
 		DependentOptions.Prerequisites = ShortPrerequisites;
-		State->DependentTask = LaunchTask("EngineSmoke.Dependent", []() {}, DependentOptions);
+		State->DependentTask = Tasks::LaunchTask("EngineSmoke.Dependent", []() {}, DependentOptions).GetCompletion().GetTaskHandle();
 
-		State->FailedTask = LaunchTask("EngineSmoke.Failure", []() {
+		State->FailedTask = Tasks::LaunchTask("EngineSmoke.Failure", []() {
 			throw std::runtime_error("intentional engine lifecycle smoke failure");
-		});
+		}).GetCompletion().GetTaskHandle();
 		std::array<FTaskHandle, 1> FailedPrerequisites{State->FailedTask};
-		FTaskLaunchOptions FailedDependentOptions;
+		Tasks::FTaskExecutionOptions FailedDependentOptions;
 		FailedDependentOptions.Prerequisites = FailedPrerequisites;
-		State->FailedDependentTask = LaunchTask(
-			"EngineSmoke.FailureDependent", []() {}, FailedDependentOptions);
+		State->FailedDependentTask = Tasks::LaunchTask(
+			"EngineSmoke.FailureDependent", []() {}, FailedDependentOptions).GetCompletion().GetTaskHandle();
 
-		State->CancelableTask = LaunchCancelableTask(
+		State->CancelableTask = Tasks::LaunchTask(
 			"EngineSmoke.Canceled",
 			[](const FTaskCancellationToken& Token) {
 				while (!Token.IsCancellationRequested()) std::this_thread::yield();
-			});
+			}).GetCompletion().GetTaskHandle();
 		const bool bCancellationRequested = CancelTask(State->CancelableTask);
 		checkf(bCancellationRequested,
 			"Engine scheduler lifecycle smoke could not cancel its task.");
 
-		State->ParallelTask = LaunchTask("EngineSmoke.ParallelFor", [StatePtr]() {
+		State->ParallelTask = Tasks::LaunchTask("EngineSmoke.ParallelFor", [StatePtr]() {
 			constexpr uint64 Num = 65'536;
 			std::vector<uint64> Output(Num);
 			FParallelForOptions Options;
@@ -77,11 +78,11 @@ namespace Durin
 					Output[Index] = Value;
 				}, Options);
 			StatePtr->ParallelChecksum = Output[Num / 2];
-		});
+		}).GetCompletion().GetTaskHandle();
 
-		State->WaiterTask = LaunchTask("EngineSmoke.Waiter", [StatePtr]() {
+		State->WaiterTask = Tasks::LaunchTask("EngineSmoke.Waiter", [StatePtr]() {
 			StatePtr->WaitedState = WaitTask(StatePtr->DependentTask).TaskState;
-		});
+		}).GetCompletion().GetTaskHandle();
 
 		checkf(State->ShortTask.IsValid() && State->DependentTask.IsValid()
 			&& State->FailedTask.IsValid() && State->FailedDependentTask.IsValid()
@@ -94,32 +95,25 @@ namespace Durin
 			State->ParallelTask, State->WaiterTask};
 		WaitAll(QualificationTasks);
 
-		State->GameThreadSource = LaunchTask("EngineSmoke.GameThreadSource", []() {});
-		FTaskContinuationOptions GameThreadOptions;
-		GameThreadOptions.Target = ETaskTarget::GameThreadDeferred;
-		GameThreadOptions.EstimatedPayloadBytes = 64;
-		State->GameThreadDeferred = Then(
-			State->GameThreadSource,
-			"EngineSmoke.GameThreadDeferred",
-			[StatePtr]() { StatePtr->bGameThreadDeferredRan = IsInGameThread(); },
-			GameThreadOptions);
+		State->GameThreadSource = Tasks::LaunchTask("EngineSmoke.GameThreadSource", []() {}).GetCompletion().GetTaskHandle();
+		Tasks::FTaskExecutionOptions GameThreadOptions;
+		State->GameThreadDeferred = Tasks::Then(Tasks::FTaskCompletion(State->GameThreadSource), Tasks::ETaskExecutor::GameThreadDeferred, GameThreadOptions, [StatePtr]() { StatePtr->bGameThreadDeferredRan = IsInGameThread(); }).GetCompletion().GetTaskHandle();
 		checkf(State->GameThreadSource.IsValid() && State->GameThreadDeferred.IsValid(),
 			"Engine scheduler lifecycle smoke could not launch its deferred chain.");
 
-		State->AdmissionProbe = LaunchTask("EngineSmoke.AdmissionProbe", [StatePtr]() {
+		State->AdmissionProbe = Tasks::LaunchTask("EngineSmoke.AdmissionProbe", [StatePtr]() {
 			StatePtr->AdmissionProbeStarted.Trigger();
 			while (IsTaskSchedulerRunning()) std::this_thread::yield();
-			StatePtr->bAdmissionRejected = !LaunchTask(
-				"EngineSmoke.RejectedAfterClose", []() {}).IsValid();
-		});
+			StatePtr->bAdmissionRejected = !Private::TryLaunchCancelableTaskWithCompletion("EngineSmoke.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue();
+		}).GetCompletion().GetTaskHandle();
 		checkf(State->AdmissionProbe.IsValid(),
 			"Engine scheduler lifecycle smoke could not launch its admission probe.");
 		const bool bAdmissionProbeStarted = State->AdmissionProbeStarted.WaitFor(1.0);
 		checkf(bAdmissionProbeStarted,
 			"Engine scheduler lifecycle smoke admission probe did not start.");
-		State->SlowTask = LaunchTask("EngineSmoke.Long", []() {
+		State->SlowTask = Tasks::LaunchTask("EngineSmoke.Long", []() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
-		});
+		}).GetCompletion().GetTaskHandle();
 		checkf(State->SlowTask.IsValid(),
 			"Engine scheduler lifecycle smoke could not launch its long task.");
 		const FTaskSchedulerDiagnostics Diagnostics = GetTaskSchedulerDiagnostics();

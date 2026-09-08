@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "Source/SourceReferenceIndex.h"
 
 #include "Asset/Asset.h"
@@ -31,13 +32,13 @@ namespace Durin::Editor
 			~FSourceReferenceService()
 			{
 				if (!BuildTask.IsValid()) return;
-				(void)CancelTask(BuildTask.GetTaskHandle());
-				(void)WaitTask(BuildTask.GetTaskHandle()).TaskState;
+				(void)CancelTask(BuildTask.GetCompletion().GetTaskHandle());
+				(void)WaitTask(BuildTask.GetCompletion().GetTaskHandle()).TaskState;
 			}
 
 			std::mutex Mutex;
 			std::shared_ptr<const Private::FSourceReferenceSnapshot> Published;
-			TTaskHandle<Private::FSourceReferenceSnapshot> BuildTask;
+			Tasks::TSharedTask<Private::FSourceReferenceSnapshot> BuildTask;
 			uint64 Generation = 1;
 			uint64 BuildingGeneration = 0;
 			size_t BuildingMaximumPackageInspections = 0;
@@ -117,7 +118,7 @@ namespace Durin::Editor
 
 		auto PublishCompletedBuild(FSourceReferenceService& Service) -> void
 		{
-			if (!Service.BuildTask.IsValid() || !Service.BuildTask.IsComplete()) return;
+			if (!Service.BuildTask.IsValid() || !Service.BuildTask.IsCompleted()) return;
 			const std::shared_ptr<const Private::FSourceReferenceSnapshot> Result =
 				Service.BuildTask.GetResultShared();
 			if (Result && Result->Generation == Service.Generation)
@@ -148,16 +149,12 @@ namespace Durin::Editor
 		{
 			Service.BuildingGeneration = Service.Generation;
 			Service.BuildingMaximumPackageInspections = MaximumPackageInspections;
-			Service.BuildTask = LaunchTask<Private::FSourceReferenceSnapshot>(
+			Service.BuildTask = Tasks::Share(Tasks::LaunchTask(
 				"BuildSourceReferenceIndex",
 				[Generation = Service.Generation, MaximumPackageInspections] {
 					return BuildSnapshot(Generation, MaximumPackageInspections);
-				});
-			if (!Service.BuildTask.IsValid())
-			{
-				Service.BuildingGeneration = 0;
-				Service.BuildingMaximumPackageInspections = 0;
-			}
+				}));
+
 		}
 		Snapshot = Service.Published;
 	}

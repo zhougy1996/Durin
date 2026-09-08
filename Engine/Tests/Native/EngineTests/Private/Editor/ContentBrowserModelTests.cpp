@@ -910,7 +910,7 @@ TEST_F(FContentBrowserModelTests, AsyncScanFailureTerminatesLoadingAndAllowsRetr
 	ASSERT_EQ(Model.GetItems().size(), 1);
 }
 
-TEST_F(FContentBrowserModelTests, AsyncRejectedAdmissionDoesNotFallBackToSynchronousEnumeration)
+TEST_F(FContentBrowserModelTests, AsyncSubmissionAfterOwnerClosureIsALifecycleViolation)
 {
 	InitializeDObjectSystem();
 	auto Scope = CreateTaskScope();
@@ -923,12 +923,8 @@ TEST_F(FContentBrowserModelTests, AsyncRejectedAdmissionDoesNotFallBackToSynchro
 		++*Visits;
 		return Entry.symlink_status(Error);
 	});
-	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
-	Model.RequestDirectoryChildrenSnapshot((Root / "Content").generic_string());
-	Model.WaitForPendingSnapshotsForTesting();
-	EXPECT_FALSE(Model.IsLoading());
+	EXPECT_DEATH({ (void)Model.NavigateToPhysical((Root / "Content").generic_string()); }, "");
 	EXPECT_EQ(Visits->load(), 0);
-	EXPECT_FALSE(Model.GetEnumerationDiagnostics().empty());
 }
 
 TEST_F(FContentBrowserModelTests, AsyncRevealReturnsIdentityBeforeDirectoryCaptureCompletes)

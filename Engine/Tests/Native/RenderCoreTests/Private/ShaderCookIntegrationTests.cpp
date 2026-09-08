@@ -43,10 +43,14 @@ namespace Durin
 			if (Pass == 3) continue;
 			FShaderMapBase Compiled;
 			FShaderCompileOptions Options;
+			Options.bForceRecompile = true;
 			Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", Pass == 2 ? "1" : "0");
 			Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(0.4f)));
 			ASSERT_TRUE(Compiled.InitializeFromShaderTypes(std::span(&FragmentTypes[Pass], 1), Options, Error)) << Error;
 			MaterialStages[Pass].push_back(Compiled.GetCode()->GetCompiledShader(0));
+			// The fixture keeps bytes across provider unload; its control block must
+			// live in the test host, including when cold compilation allocated in the DLL.
+			MaterialStages[Pass].back().Code = std::make_shared<FByteBuffer>(*MaterialStages[Pass].back().Code);
 		}
 
 		Durin::FByteBuffer First;
@@ -85,8 +89,8 @@ namespace Durin
 			CookRoot / std::filesystem::path(ShaderCookedLibraryRelativePath).parent_path());
 		ASSERT_TRUE(FFileHelper::SaveArrayToFile(
 			First, CookRoot / ShaderCookedLibraryRelativePath));
-		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ShaderBuild").Succeeded());
 		ShutdownShaderData();
+		EXPECT_TRUE(FModuleManager::Get().UnloadModule("ShaderBuild").Succeeded());
 		ASSERT_TRUE(InitializeShaderData(
 			FShaderDataConfiguration::Cooked(
 				std::filesystem::absolute(CookRoot).lexically_normal()), Error)) << Error;

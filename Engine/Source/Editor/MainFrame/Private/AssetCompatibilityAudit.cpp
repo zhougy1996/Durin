@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include "AssetCompatibilityAudit.h"
 #include "Misc/StringHelper.h"
 
@@ -231,12 +232,12 @@ namespace Durin::Editor
 
 		State = EAssetCompatibilityAuditState::Running;
 		Cancellation = FTaskCancellationSource{};
-		FTaskLaunchOptions Options;
-		Options.CancellationToken = Cancellation.GetToken();
+		Tasks::FTaskExecutionOptions Options;
+		Options.Cancellation = Cancellation.GetToken();
 		const uint64 Serial = RequestSerial;
 		const std::shared_ptr<FMailbox> WorkerMailbox = Mailbox;
 		const FAssetCompatibilityProbe WorkerProbe = Probe;
-		auto WorkerTask = LaunchCancelableTask<FTerminalSummary>("AssetCompatibility.Audit",
+		auto WorkerTask = Tasks::LaunchTask("AssetCompatibility.Audit",
 			[Serial, WorkerMailbox, WorkerProbe, Inputs = std::move(Inputs),
 				Catalog = std::move(Catalog)](const FTaskCancellationToken& Token) mutable -> FTerminalSummary {
 				auto Queue = [&](FNotice Notice) {
@@ -273,36 +274,28 @@ namespace Durin::Editor
 						.Failure = "Asset compatibility audit failed with an unknown exception."};
 				}
 			}, Options);
-		Task = WorkerTask.GetTaskHandle();
-		if (!WorkerTask.IsValid())
-		{
-			State = EAssetCompatibilityAuditState::Failed;
-			Failure = "The task scheduler rejected the asset compatibility audit.";
-			return false;
-		}
+		Task = WorkerTask.GetCompletion().GetTaskHandle();
 
-		FTaskContinuationOptions TerminalOptions;
-		TerminalOptions.Target = ETaskTarget::GameThreadDeferred;
+		Tasks::FTaskExecutionOptions TerminalOptions;
+		TerminalOptions.DebugName = "AssetCompatibility.PublishTerminal";
 		TerminalOptions.Priority = ETaskPriority::Normal;
-		TerminalOptions.EstimatedPayloadBytes = sizeof(FTerminalSummary) + 512;
 		TerminalOptions.GenerationToken = Generation.Capture();
 		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
-		TerminalTask = ThenOutcome(
-			WorkerTask,
-			"AssetCompatibility.PublishTerminal",
-			[WeakLifetime, Serial](FTaskOutcome<FTerminalSummary> Outcome) {
+		TerminalTask = Tasks::ThenCompleted(
+			Tasks::Share(std::move(WorkerTask)), Tasks::ETaskExecutor::GameThreadDeferred, TerminalOptions,
+			[WeakLifetime, Serial](const Tasks::TSharedTask<FTerminalSummary>& Outcome) {
 				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
 				if (!Lifetime || !Lifetime->Model) return;
 				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
 				if (Model.RequestSerial != Serial || !Model.bAdmissionOpen) return;
 				Model.DrainMailbox();
-				if (Outcome.State == ETaskState::Succeeded && Outcome.Result)
+				if (Outcome.GetState() == ETaskState::Succeeded)
 				{
-					if (Outcome.Result->Serial != Serial) return;
-					Model.State = Outcome.Result->State;
-					Model.Failure = Outcome.Result->Failure;
+					if (Outcome.GetResult().Serial != Serial) return;
+					Model.State = Outcome.GetResult().State;
+					Model.Failure = Outcome.GetResult().Failure;
 				}
-				else if (Outcome.State == ETaskState::Canceled)
+				else if (Outcome.GetState() == ETaskState::Canceled)
 				{
 					Model.State = EAssetCompatibilityAuditState::Cancelled;
 					Model.Failure.clear();
@@ -310,24 +303,13 @@ namespace Durin::Editor
 				else
 				{
 					Model.State = EAssetCompatibilityAuditState::Failed;
-					Model.Failure = Outcome.Diagnostic.empty()
+					Model.Failure = Outcome.GetDiagnostic().empty()
 						? "The asset compatibility audit worker failed."
-						: Outcome.Diagnostic;
+						: Outcome.GetDiagnostic();
 				}
 				Model.InvalidatePresentation();
-			},
-			TerminalOptions
-		);
-		if (!TerminalTask.IsValid())
-		{
-			Cancellation.RequestCancellation();
-			(void)CancelTask(Task);
-			(void)WaitTask(Task).TaskState;
-			DrainMailbox();
-			State = EAssetCompatibilityAuditState::Failed;
-			Failure = "The task scheduler rejected terminal audit publication.";
-			return false;
-		}
+			}).GetCompletion().GetTaskHandle();
+
 		return true;
 	}
 

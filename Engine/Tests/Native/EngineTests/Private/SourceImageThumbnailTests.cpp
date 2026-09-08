@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
 
 #include "Assets/SourceImageThumbnailCache.h"
@@ -238,12 +239,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		const auto BlockingState = std::make_shared<FBlockingTaskState>();
-		const FTaskHandle Blocker = LaunchTask("BlockThumbnailWorker", [BlockingState] {
+		const FTaskHandle Blocker = Tasks::LaunchTask("BlockThumbnailWorker", [BlockingState] {
 			std::unique_lock Lock(BlockingState->Mutex);
 			BlockingState->bEntered = true;
 			BlockingState->Condition.notify_all();
 			BlockingState->Condition.wait(Lock, [&] { return BlockingState->bRelease; });
-		});
+		}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(Blocker.IsValid());
 		{
 			std::unique_lock Lock(BlockingState->Mutex);

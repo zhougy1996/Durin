@@ -109,9 +109,11 @@ The deterministic input/provider identity remains separate from request serials
 and GPU resource readiness.
 
 Texture2D compute returns a unique `Tasks::TTask` result on the CPU executor,
-with interactive/background priority forwarded to Core. The manager retains the
+with interactive/background priority forwarded to Core. LaunchTask accepts valid
+work directly; manager request and memory limits remain separate from scheduler
+queueing. The manager retains the
 task in its request state and checks completion during owner-thread processing.
-Success, framework failure, cancellation and producer-admission rejection reach
+Success, framework failure and cancellation reach
 domain handling on GameThread without submitting another deferred task. Task
 completion means background computation has ended; asset completion is published
 by the manager after result application. Diagnostics retain neither task handles

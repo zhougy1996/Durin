@@ -194,20 +194,14 @@ namespace Durin
 			Options.Attribution = Attribution;
 			Options.Priority = RequestState->Request.Priority == ETexture2DCompilationPriority::Interactive
 				? ETaskPriority::High : ETaskPriority::Low;
-			Options.EstimatedResultBytes = SaturatingAdd(RequestState->EstimatedBytes, sizeof(FTexture2DCompilationWorkResult));
-			auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
+			auto Admission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, Options,
 				[Self, RequestState](Tasks::FTaskContext& Context) {
 					auto Result = Self->RunWorker(RequestState, Context.GetCancellationToken());
 					Self->UpdateDiagnostic(RequestState, Result);
 					return Result;
 				});
-			if (!Admission.HasValue())
-			{
-				CompleteWithoutWorker(RequestState, ETexture2DCompilationPhase::Failed, "Texture build task admission failed.");
-				return;
-			}
 			std::lock_guard Lock(Mutex);
-			RequestState->Task = std::move(Admission).TakeValue();
+			RequestState->Task = std::move(Admission);
 		}
 
 		static auto MakeFailureResult(

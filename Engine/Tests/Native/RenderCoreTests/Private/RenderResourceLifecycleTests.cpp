@@ -1,3 +1,4 @@
+#include "Threading/TaskComposition.h"
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
@@ -240,7 +241,7 @@ namespace Durin
 		std::atomic<bool> bRenderCommandAccepted = false;
 		std::atomic<bool> bRenderCommandExecuted = false;
 		std::atomic<bool> bTaskAdmissionRejected = false;
-		FTaskHandle Probe = LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
+		FTaskHandle Probe = Tasks::LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
 			ProbeStarted.Trigger();
 			while (IsTaskSchedulerRunning())
 			{
@@ -255,9 +256,9 @@ namespace Durin
 					}),
 				std::memory_order_release);
 			bTaskAdmissionRejected.store(
-				!LaunchTask("RenderLifecycle.RejectedAfterClose", []() {}).IsValid(),
+				!Private::TryLaunchCancelableTaskWithCompletion("RenderLifecycle.RejectedAfterClose", [](const FTaskCancellationToken&) {}, {}, {}).HasValue(),
 				std::memory_order_release);
-		});
+		}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(ProbeStarted.WaitFor(1.0));
 
 		ShutdownTaskScheduler(true);
@@ -292,7 +293,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		FThreadEvent RunningTaskStarted;
-		FTaskHandle RunningTask = LaunchCancelableTask(
+		FTaskHandle RunningTask = Tasks::LaunchTask(
 			"RenderLifecycle.RunningDuringDiscard",
 			[&RunningTaskStarted](const FTaskCancellationToken& Token) {
 				RunningTaskStarted.Trigger();
@@ -300,10 +301,10 @@ namespace Durin
 				{
 					std::this_thread::yield();
 				}
-			});
+			}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(RunningTaskStarted.WaitFor(1.0));
-		FTaskHandle QueuedTask = LaunchTask(
-			"RenderLifecycle.QueuedDuringDiscard", []() {});
+		FTaskHandle QueuedTask = Tasks::LaunchTask(
+			"RenderLifecycle.QueuedDuringDiscard", []() {}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(QueuedTask.IsValid());
 
 		ShutdownTaskScheduler(false);
@@ -319,8 +320,8 @@ namespace Durin
 		EXPECT_GE(DiscardDiagnostics.RetainedTerminalHandleCount, 2u);
 
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		FTaskHandle RestartedTask = LaunchTask(
-			"RenderLifecycle.AfterRestart", []() {});
+		FTaskHandle RestartedTask = Tasks::LaunchTask(
+			"RenderLifecycle.AfterRestart", []() {}).GetCompletion().GetTaskHandle();
 		ASSERT_TRUE(RestartedTask.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask).TaskState);
 		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
