@@ -77,6 +77,7 @@ namespace Durin::Tests
 			Reset();
 		}
 
+		auto GetPreviewScene() -> Editor::FThumbnailPreviewScenePool& { return Pool; }
 		auto IsAvailable() const -> bool { return Pool.IsAvailable(); }
 		auto GetDiagnostic() const -> std::string { return Pool.GetDiagnostic(); }
 		auto SetForceLOD0(bool bForceLOD0) -> void

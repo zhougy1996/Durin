@@ -12,9 +12,7 @@ namespace Durin
 	{
 	public:
 		ENGINE_API FVolumeTextureResource(FTextureReference* InTextureReference,
-			std::shared_ptr<const FVolumeTexturePlatformData> InPlatformData,
-			uint64 InRevision,
-			std::shared_ptr<FTextureResourceCompletion> InCompletion);
+			std::shared_ptr<const FVolumeTexturePlatformData> InPlatformData);
 		ENGINE_API ~FVolumeTextureResource() override;
 
 		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;

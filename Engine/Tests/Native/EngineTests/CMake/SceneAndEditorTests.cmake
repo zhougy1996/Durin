@@ -337,15 +337,15 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	KIND integration
 	DOMAINS asset-cook texture
-	MODULES asset-tools engine static-mesh-build renderer asset-forge-builtins
+	MODULES asset-tools engine static-mesh-build renderer asset-forge-builtins vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
 	EDITOR_ONLY
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer
+	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )

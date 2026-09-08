@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-08
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -206,7 +206,7 @@ handles are released as soon as worker use ends.
 CPU readiness is the presence of valid installed platform data. Compilation
 phase and terminal build/DDC diagnostics belong to the manager's active or
 bounded recent operation record; GPU readiness and failure belong to
-`FTextureResourceCompletion` for the current render revision. These owners are
+`DTexture` resource availability, pending operation, and latest consumed result. These owners are
 queried separately. Operation diagnostics retain request identity, timings,
 byte metrics, DDC key, cache-hit/rebuild origin, source-decoder invocation, and
 the matching failure phase; idle textures do not persist those facts.
@@ -254,63 +254,72 @@ and resource-construction hook. The base retains the sole reflected source and
   or duplicate family storage fields. Authored saves emit only the canonical base
   identities.
 
-`DTexture` is the sole high-level owner of one stable `FTextureReference`, one
-revision/completion contract, and at most one current
-`FTextureAssetResource`. The reference and resource are uniquely owned rather
-than shared through C++ smart pointers. Each leaf snapshots validated immutable
-platform data into its topology-specific resource; the common base owns publication, replacement,
-invalidation, release, and deferred cleanup. The concrete resource owns the
-uploaded `FTextureRHIRef`; the stable reference owns a counted
-`FRHITextureReferenceRef` whose target can change without changing the
-consumer-visible binding identity. `FRHITextureReference` derives from
-`FRHITexture`, matching the RHI texture type hierarchy, while current renderer
-binding paths call `GetReferencedTexture_RenderThread()` before operations that
-require a concrete backend allocation.
+`DTexture` owns a stable `FTextureReference`, the last-successful concrete
+`FTextureAssetResource`, and at most one executing `FTextureResourceUpdate`.
+The operation owns its candidate and immutable family platform-data copy.
+During execution, another `UpdateResource()` replaces one retained next input:
+an uninitialized family wrapper containing immutable data, with no queued GPU
+work. Only the latest retained input starts after the active result is consumed.
+An already admitted operation may publish before its successor. No request
+revision or token comparison suppresses it.
 
-Material render data, static-mesh scene proxies, accepted preview work, and
-thumbnail work retain counted copies of the stable RHI reference. They do not
-own the reflected texture asset or a concrete `FTextureResource`. Copying the
-stable RHI reference can keep the referenced GPU allocation alive until RHI
-deferred deletion, but it never extends the lifetime of the concrete C++
-resource object.
+RenderThread initializes the candidate and records every mip upload before
+publication. `FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy upload
+bytes and retain the target allocation; Vulkan replay copies into transfer
+storage retired by GPU completion tokens. CPU initialization completion means
+upload recording and publication have been ordered, not that GPU execution is
+complete. The existing void upload API does not convert later device or replay
+failure into a recoverable per-texture result.
 
-Build requests carry monotonically increasing revisions and immutable platform
-data to the rendering thread. A candidate concrete resource is initialized and
-fully uploaded before publication. If it succeeds and its revision is still
-current, publication retargets the stable reference through
-`FDynamicRHI::RHIUpdateTextureReference()` in render-command order. This is the
-backend extension point for updating descriptor or bindless state together
-with the referenced allocation. Existing material, scene, preview, and
-thumbnail bindings then observe the replacement without rebinding. A stale or
-failed candidate is released and retired without replacing the last successful
-target. Missing or not-yet-ready resources resolve through renderer-owned
-default textures.
+Publication switches the stable reference through
+`FDynamicRHI::RHIUpdateTextureReference()`. Material and scene bindings retain
+counted copies of this stable identity and observe replacements without
+reacquiring the asset. The operation owns the published candidate until
+GameThread consumes its terminal handoff. Only successful consumption moves it
+into the asset's current-resource slot and queues release/deferred C++ cleanup
+of the previous current resource. Failure retires only the candidate and leaves
+the last-successful allocation usable. Delayed old-resource release retains the
+allocation ownership check in `ResetToFallbackIfMatches_RenderThread`.
 
-Ordinary replacement and unload are asynchronous. After publication of a new
-candidate, `DTexture` releases the old concrete resource through
-`FRenderResource` and transfers its C++ storage to ordered deferred RenderCore
-cleanup. Asset destruction first prevents further publication, advances the
-shared revision, releases and retires the concrete resource, then releases and
-retires the base-owned stable reference. Non-owning concrete pointers in
-commands are valid only because their release and cleanup commands are queued
-after every accepted command that can dereference them.
+`PumpTextureResourceUpdates()` runs in `FEngineLoop::TickPostEventFrame` before
+UI and outside the rendering/minimized branch. It consumes terminal operations
+and starts retained successors; getters never advance work. Native hosts use
+this same explicit pump. Pending membership is GameThread-owned, and the pump
+checks membership again before dereferencing its iteration snapshot because
+listeners can destroy other assets. Completion needs neither Task admission nor
+editor polling. The engine shuts the Task system down before asset collection,
+so texture destruction reconciles pending operations independently.
 
-Lifecycle diagnostics identify the resource type, owning asset package,
-revision, lifecycle phase, initialization phase, and pending queue. Producer
-code reads the asset's revision-matched completion state rather than retaining
-the concrete resource. Upload failures are reported only for the matching
-build; a later request clears the prior failure instead of inheriting it
-permanently. At shutdown, RenderCore reports these fields for any live registry
-or deferred-cleanup entry before RHI teardown.
-
-Before creating a texture, the render resource asks the active RHI whether the
-complete structurally valid description is supported. Vulkan queries the exact
-format, image type, tiling, usage, flags, extent, mip, layer, and sample
-combination. An unsupported description is rejected before image creation and
-remains distinguishable from a general creation or upload failure in the
-current revision's render completion. The public capability and support
-contract is documented in
+`HasUsableResource()` reports availability of a consumed successful snapshot;
+`IsResourceUpdatePending()` includes terminal-but-not-consumed operations.
+`GetResourceUpdateState()` reports CPU update progress/result independently.
+`GetRenderFailure()` retains the latest consumed error while a retry is pending;
+a consumed success clears it. Release does not modify another operation's error.
+Unsupported descriptions, creation/upload failures, missing RHI, and rejected
+command admission remain distinct. Missing platform data rejects before admission.
+The exact descriptor support check precedes allocation; see
 [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
+
+Ordinary replacement is asynchronous. `BeginDestroy` stops admission, removes
+pump membership, discards the retained successor, and closes the active operation
+under the same mutex used for publication. It joins accepted CPU initialization,
+then queues release and deferred cleanup of candidates/current before the stable
+reference. No publication can occur after that close boundary. Accepted commands
+retain operation storage without capturing a UObject. Reference and candidate
+initialization share one checked command admission; a rejected command leaves
+both uninitialized. Producers must close initialized owners before RenderCore
+stops accepting required cleanup commands.
+
+`GetResourceSnapshot()` returns a counted immutable successful allocation plus
+a fixed texture reference whose target never changes. These snapshots retain GPU
+allocations, not UObjects or concrete C++ resources. Cube thumbnail rendering uses
+the fixed reference. Material thumbnail sessions retain snapshots for all eight
+built-in texture roles and reject delayed output if an observed dependency changes.
+The GameThread `OnTextureResourceChanged` event distinguishes admitted input,
+consumed completion, and close; it carries no generation. Editor preview caches
+invalidate through this event and source identity changes. Thumbnail acceptance
+checks pending state, retained resource snapshots, and existing package/material
+versions; unchanged stable-reference pointers or cache keys cannot certify it.
 
 RHI pixel-format metadata also owns the tightly packed block layout calculation.
 Platform-data validation and Vulkan uploads use the same block count, row pitch,
@@ -335,7 +344,7 @@ decoded CPU, and GPU stages with schema version, texel count, logical/stored
 bytes, placement capability, provenance, state, diagnostic, and an explicit
 repair classification. They derive those stages from common source metadata,
 installed platform data, any available manager operation diagnostic, cooked
-bulk, and current render completion. Package summaries are construct-free and
+bulk, and current resource availability and update result. Package summaries are construct-free and
 join reflected domain fields with Engine storage inspection; neither form opens
 DDC, rebuilds, or creates runtime resources merely to inspect state.
 
@@ -388,8 +397,8 @@ developer machines where a millisecond threshold would not.
   transparency, and decoded format, without filesystem availability probing;
 - transactional Usage, sRGB, maximum-resolution, and compression-quality
   controls, plus alpha mip mode and coverage threshold;
-- platform format, mip count and range, byte size, residency policy, build
-  revision, and current platform-data status;
+- platform format, mip count and range, byte size, residency policy, update progress,
+  and current platform-data status;
 - normal workspace save, Dirty, close protection, Undo, and Redo behavior.
 
 The editor previews the built platform representation and allows each mip level

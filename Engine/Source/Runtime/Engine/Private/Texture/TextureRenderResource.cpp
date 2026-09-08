@@ -1,107 +1,80 @@
 #include "Texture/TextureRenderResource.h"
-
 #include "RenderingThread.h"
 
 namespace Durin
 {
-	auto FTextureResourceCompletion::BeginRequest(uint64 Revision) -> void
-	{
-		RequestedRevision.store(Revision, std::memory_order_release);
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(
-			ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Pending, Revision);
-	}
+	FTextureResourceUpdate::FTextureResourceUpdate(std::unique_ptr<FTextureAssetResource> InCandidate)
+		: Candidate(std::move(InCandidate)) { check(Candidate != nullptr); }
+	FTextureResourceUpdate::~FTextureResourceUpdate() = default;
 
-	auto FTextureResourceCompletion::MarkBuilding(uint64 Revision) -> bool
+	auto FTextureResourceUpdate::Execute_RenderThread(FRHICommandListBase& Commands,
+		FTextureReference& Reference, bool bInitializeReference) -> void
 	{
-		if (Revision != RequestedRevision.load(std::memory_order_acquire))
-			return false;
-		SetResourceState(ERenderResourceState::Building, Revision);
-		return true;
-	}
-
-	auto FTextureResourceCompletion::MarkReady(uint64 Revision) -> void
-	{
-		if (Revision != RequestedRevision.load(std::memory_order_acquire))
-			return;
-		AdvanceAppliedRevision(Revision);
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(
-			ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Ready, Revision);
-	}
-
-	auto FTextureResourceCompletion::MarkFailed(
-		uint64 Revision, ETextureRenderFailure Reason) -> void
-	{
-		if (Revision != RequestedRevision.load(std::memory_order_acquire))
-			return;
-		FailureReason.store(Reason, std::memory_order_release);
-		FailedRevision.store(Revision, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Failed, Revision);
-	}
-
-	auto FTextureResourceCompletion::MarkReleased(uint64 Revision) -> void
-	{
-		if (Revision != RequestedRevision.load(std::memory_order_acquire))
-			return;
-		AdvanceAppliedRevision(Revision);
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(
-			ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Released, Revision);
-	}
-
-	auto FTextureResourceCompletion::GetResourceState() const
-		-> ERenderResourceState
-	{
-		std::lock_guard Lock(ResourceStateMutex);
-		if (ResourceStateRevision
-			!= RequestedRevision.load(std::memory_order_acquire))
+		CheckRenderingThread();
+		State.store(ETextureResourceUpdateState::Building, std::memory_order_release);
+		try
 		{
-			return ERenderResourceState::Pending;
+			// Accepted reference initialization must run even after close.
+			if (bInitializeReference) Reference.InitResource(Commands);
+			bool bInitialize = false;
+			{
+				std::lock_guard Lock(Mutex);
+				bInitialize = !bClosed;
+			}
+			if (bInitialize)
+			{
+				Candidate->InitResource(Commands);
+				Failure = Candidate->GetFailure_RenderThread();
+				if (!Candidate->GetTextureRHI_RenderThread() && Failure == ETextureRenderFailure::None)
+					Failure = ETextureRenderFailure::CreateOrUpload;
+				if (Failure == ETextureRenderFailure::None)
+				{
+					auto Result = std::make_shared<FTextureResourceSnapshot>();
+					Result->Texture = Candidate->GetTextureRHI_RenderThread();
+					FTextureReference FixedReference(Result->Texture);
+					Result->FixedReference = FixedReference.GetTextureReferenceRHI();
+					std::lock_guard Lock(Mutex);
+					if (!bClosed)
+					{
+						Candidate->PublishTexture_RenderThread();
+						Snapshot = std::move(Result);
+					}
+				}
+			}
 		}
-		return ResourceState;
-	}
-
-	auto FTextureResourceCompletion::SetResourceState(
-		ERenderResourceState State, uint64 Revision) -> void
-	{
-		std::lock_guard Lock(ResourceStateMutex);
-		ResourceState = State;
-		ResourceStateRevision = Revision;
-	}
-
-	auto FTextureResourceCompletion::AdvanceAppliedRevision(uint64 Revision) -> void
-	{
-		uint64 Current = AppliedRevision.load(std::memory_order_acquire);
-		while (Current < Revision
-			&& !AppliedRevision.compare_exchange_weak(
-				Current, Revision, std::memory_order_release,
-				std::memory_order_acquire))
+		catch (...)
 		{
+			// Every admitted CPU operation must terminalize so owner teardown can join it.
+			Failure = ETextureRenderFailure::CreateOrUpload;
 		}
+		{
+			std::lock_guard Lock(Mutex);
+			State.store(bClosed ? ETextureResourceUpdateState::Closed
+				: Snapshot ? ETextureResourceUpdateState::Succeeded
+				: ETextureResourceUpdateState::Failed, std::memory_order_release);
+			bComplete.store(true, std::memory_order_release);
+		}
+		CV.notify_all();
 	}
 
-	FTextureAssetResource::FTextureAssetResource(
-		FTextureReference* InTextureReference,
-		uint64 InRevision,
-		std::shared_ptr<FTextureResourceCompletion> InCompletion)
-		: FTextureResource(InTextureReference)
-		, Revision(InRevision)
-		, Completion(std::move(InCompletion))
+	auto FTextureResourceUpdate::Reject(ETextureRenderFailure Reason) -> void
 	{
-		check(Completion != nullptr);
+		std::lock_guard Lock(Mutex);
+		Failure = Reason;
+		State.store(ETextureResourceUpdateState::Failed, std::memory_order_release);
+		bComplete.store(true, std::memory_order_release);
+		CV.notify_all();
 	}
 
-	FTextureAssetResource::~FTextureAssetResource() = default;
-
-	auto FTextureAssetResource::ReleaseRHI() -> void
+	auto FTextureResourceUpdate::Close() -> void
 	{
-		check(IsInRenderingThread());
-		FTextureResource::ReleaseRHI();
-		Completion->MarkReleased(
-			ReleaseRevision != 0 ? ReleaseRevision : Revision);
+		std::lock_guard Lock(Mutex);
+		bClosed = true;
+	}
+
+	auto FTextureResourceUpdate::Wait() -> void
+	{
+		std::unique_lock Lock(Mutex);
+		CV.wait(Lock, [this]() { return bComplete.load(std::memory_order_acquire); });
 	}
 }

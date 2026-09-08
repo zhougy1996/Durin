@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, MonaImGui
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-08
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -41,7 +41,11 @@ does not authorize immediate C++ destruction.
 
 Texture assets apply this rule to their stable `FTextureReference` and concrete
 `FTextureResource` ownership. Their publication, replacement, invalidation, and
-asset diagnostics are defined by [Texture System](TextureSystem.md).
+asset diagnostics are defined by [Texture System](TextureSystem.md). Texture
+replacement retires the previous resource only after successful publication;
+failed candidates leave it usable. Texture close synchronizes with publication
+and joins CPU initialization before queuing concrete/reference cleanup, including
+when the Task system has already stopped.
 
 ## Cooked mesh readiness
 

@@ -192,14 +192,12 @@ namespace Durin
 	}
 
 	auto DVolumeTexture::CreateRenderResourceCandidate(
-		FTextureReference* TextureReference, uint64 Revision,
-		const std::shared_ptr<FTextureResourceCompletion>& Completion)
+		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureAssetResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FVolumeTextureResource>(TextureReference,
-			std::make_shared<const FVolumeTexturePlatformData>(*PlatformData),
-			Revision, Completion);
+			std::make_shared<const FVolumeTexturePlatformData>(*PlatformData));
 	}
 
 	auto DVolumeTexture::PostLoad() -> void

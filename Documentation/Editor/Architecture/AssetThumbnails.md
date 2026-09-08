@@ -4,7 +4,7 @@ Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, p
 
 Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, LevelEditor
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-08
 
 Asset thumbnails are optional editor-derived data. They never replace authored
 packages or source files, and deleting the thumbnail cache cannot lose project
@@ -86,9 +86,18 @@ all reject the retired generation.
 
 The shared preview pool owns its world, camera/view, environment value, light,
 output target, capture, and readback. Scene renderers attach only session-owned
-content and detach it in reset. TextureCube supplies a stable counted RHI
+content and detach it in reset. TextureCube supplies an immutable allocation snapshot with a fixed counted RHI
 environment value and creates no world content. `DurinEd` contains no concrete
 asset casts, readiness rules, framing rules, or feature diagnostics.
+
+Texture-dependent sessions also retain the actual successful allocation snapshots.
+Cube uses its fixed reference for capture; Material retains all built-in texture
+role dependencies and observes texture input/completion/close events. Any observed
+change invalidates delayed acceptance, including a replacement that leaves the
+stable binding pointer unchanged. Pending updates prevent readiness. Texture
+request revisions are not part of the generic session revision fields; package,
+material and mesh versions retain their own existing contracts. The engine frame
+pump advances texture ownership independently of these read-only session checks.
 
 ## Pool Scheduling And Budgets
 

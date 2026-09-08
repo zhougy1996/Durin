@@ -1,3 +1,4 @@
+#include "TextureResourceUpdateTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -210,18 +211,15 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FRHITexture* InitialCubeTarget =
 		ObservedCubeTarget->load(std::memory_order_acquire);
 	ASSERT_NE(InitialCubeTarget, nullptr);
+	Durin::PumpTextureResourceUpdates();
+	ASSERT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
 
 	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData());
 	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(
-		CubeResult.Asset->GetRenderResourceState(),
-		Durin::ERenderResourceState::Ready
-	);
-	EXPECT_EQ(
-		CubeResult.Asset->GetAppliedRenderRevision(),
-		CubeResult.Asset->GetBuildRevision()
-	);
+	Durin::PumpTextureResourceUpdates();
+	EXPECT_TRUE(CubeResult.Asset->HasUsableResource());
+	EXPECT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
 	struct FObserveReplacementCubeTarget
 	{
 		static constexpr auto GetName() -> const char*

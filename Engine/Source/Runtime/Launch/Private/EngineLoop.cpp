@@ -1,3 +1,4 @@
+#include "Texture/Texture.h"
 #include "EngineLoop.h"
 
 #include "Threading/Task.h"
@@ -310,6 +311,7 @@ namespace Durin
 		}
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
+		PumpTextureResourceUpdates();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		GFrameCounter++;
 

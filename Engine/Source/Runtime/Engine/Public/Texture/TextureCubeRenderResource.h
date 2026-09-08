@@ -14,9 +14,7 @@ namespace Durin
 	public:
 		ENGINE_API FTextureCubeResource(
 			FTextureReference* InTextureReference,
-			std::shared_ptr<const FTextureCubePlatformData> InPlatformData,
-			uint64 InRevision,
-			std::shared_ptr<FTextureResourceCompletion> InCompletion);
+			std::shared_ptr<const FTextureCubePlatformData> InPlatformData);
 		ENGINE_API ~FTextureCubeResource() override;
 
 		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;

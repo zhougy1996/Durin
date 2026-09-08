@@ -233,17 +233,13 @@ namespace Durin
 	}
 
 	auto DTexture2D::CreateRenderResourceCandidate(
-		FTextureReference* TextureReference,
-		uint64 Revision,
-		const std::shared_ptr<FTextureResourceCompletion>& Completion)
+		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureAssetResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FTexture2DResource>(
 			TextureReference,
-			std::make_shared<const FTexturePlatformData>(*PlatformData),
-			Revision,
-			Completion);
+			std::make_shared<const FTexturePlatformData>(*PlatformData));
 	}
 
 	auto DTexture2D::PostLoad() -> void

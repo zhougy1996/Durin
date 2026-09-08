@@ -133,19 +133,13 @@ namespace Durin
 					: "No valid cooked TXPL field is present."};
 		}
 
-		auto MapResourceState(ERenderResourceState State) -> ETexturePayloadState
+		auto MapResourceState(const DTexture& Texture) -> ETexturePayloadState
 		{
-			switch (State)
-			{
-			case ERenderResourceState::Ready: return ETexturePayloadState::Available;
-			case ERenderResourceState::Failed: return ETexturePayloadState::Failed;
-			case ERenderResourceState::Released: return ETexturePayloadState::NotPresent;
-			case ERenderResourceState::Idle:
-			case ERenderResourceState::Pending:
-			case ERenderResourceState::Building:
-				return ETexturePayloadState::Unknown;
-			}
-			return ETexturePayloadState::Unknown;
+			if (Texture.HasUsableResource()) return ETexturePayloadState::Available;
+			if (Texture.IsResourceUpdatePending()) return ETexturePayloadState::Unknown;
+			if (Texture.GetRenderFailure() != ETextureRenderFailure::None)
+				return ETexturePayloadState::Failed;
+			return ETexturePayloadState::NotPresent;
 		}
 	}
 
@@ -378,8 +372,8 @@ namespace Durin
 			.Placement = "ResidentMemory"});
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture.GetRenderResourceState()),
-			.Repair = Texture.GetRenderResourceState() == ERenderResourceState::Failed
+			.State = MapResourceState(Texture),
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
 			.Diagnostic = Texture.GetRenderFailure() == ETextureRenderFailure::UnsupportedFormat
@@ -442,8 +436,8 @@ namespace Durin
 			.Placement = "ResidentMemory"});
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture.GetRenderResourceState()),
-			.Repair = Texture.GetRenderResourceState() == ERenderResourceState::Failed
+			.State = MapResourceState(Texture),
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
 			.Diagnostic = Texture.GetRenderFailure() == ETextureRenderFailure::UnsupportedFormat
@@ -491,8 +485,8 @@ namespace Durin
 			.LogicalByteCount = MipBytes(PlatformData), .Placement = "ResidentMemory"});
 		Result.Entries.push_back({
 			.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource,
-			.State = MapResourceState(Texture.GetRenderResourceState()),
-			.Repair = Texture.GetRenderResourceState() == ERenderResourceState::Failed
+			.State = MapResourceState(Texture),
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
 				? ETexturePayloadRepairAction::RetryRuntimeResource
 				: ETexturePayloadRepairAction::None,
 			.Placement = "GPU"});

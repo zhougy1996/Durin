@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-08
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -96,9 +96,9 @@ face and labeled edge markers matching the source-orientation table.
 
 The TextureCube provider presents the authored cube as an opaque 100-degree
 environment and samples through the face, row, and direction contract above.
-It supplies a counted stable texture reference as one submission-local view
+It retains an immutable allocation snapshot and supplies its fixed texture reference as one submission-local view
 environment; accepted work retains no asset, concrete resource, Actor,
-Component, or Scene membership. Provider identity, scheduling, revision checks,
+Component, or Scene membership. Provider identity, scheduling, snapshot acceptance,
 persistence, failure, and reset behavior are owned by
 [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
 
@@ -336,7 +336,7 @@ source pixel.
   reflected object pointer or concrete render-resource owner; it retains a
   counted stable `FRHITextureReferenceRef`.
 - The abstract `DTexture` base owns the shared source/import state, cooked bulk
-  slot, stable `FTextureReference`, revision/completion state, and current
+  slot, stable `FTextureReference`, owned update and terminal result, and current
   generic texture resource for every texture leaf. `DTextureCube` owns its cube
   build settings, installed typed platform data, family codec, and the hook that
   snapshots validated data into an `FTextureCubeResource`. Common rebuild

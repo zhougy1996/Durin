@@ -4,14 +4,24 @@ Summary: Replace texture completion revisions with one owned resource update per
 
 Last reviewed: 2026-09-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-08
 
 ## Current Status
 
-Stage 0 audit is complete. Runtime migration is next; the legacy protocol remains
-in production until Stage 1 lands. The executable ownership and consumer decisions
-below replace the planning-only handoff. No runtime validation is claimed yet.
+Stages 0, 1, and 2 are complete. Texture2D, TextureCube, and VolumeTexture
+use one owned update and one coalesced successor, retain the last successful
+allocation on failure, and progress through the explicit GameThread pump.
+Production consumers use separate availability/result queries and retained
+allocation snapshots; no texture completion/revision API remains.
+
+The full editor build passed. Affected validation expanded to 86 native targets:
+84 passed initially; the SkyBox host was corrected to consume initial completion
+before replacement and passed on rerun. The material layout timing check exceeded
+50 ms under parallel load (57.229 ms), then passed both alone and in the complete
+112-case MaterialTests selection. No failing target remains after these reruns.
+The previously recorded CoreConcurrencyTests failure did not recur.
+Final receipts and validation boundaries are recorded below.
 
 ## Goal
 
@@ -149,7 +159,7 @@ is not permission to destroy a registered resource on GameThread.
 
 **Consumer seam.** Add a GameThread texture resource-change event for admission
 and consumed completion, carrying the asset and phase, without a counter. Editor
-preview caches combine existing authored-content/build notifications with this
+preview caches combine the authored source identity with this
 event; readiness queries remain independent from availability. Store the actual
 immutable successful RHI allocation snapshot, with a fixed texture reference for
 snapshot consumers. Cube thumbnail sessions retain their input and resource
@@ -183,17 +193,17 @@ behavioral checks; Stage 2 still requires affected validation and a full build.
 
 Depends on Stage 0.
 
-- [ ] Implement the owned update operation, bounded successor coalescing, explicit
+- [x] Implement the owned update operation, bounded successor coalescing, explicit
   result handoff, and automatic progress using the selected existing dispatch seam.
-- [ ] Migrate `DTexture` and Texture2D/Cube/Volume candidates together. Keep immutable
+- [x] Migrate `DTexture` and Texture2D/Cube/Volume candidates together. Keep immutable
   family platform snapshots and preserve descriptor support/failure diagnostics.
-- [ ] Publish only complete candidates; retain the previous usable resource on
+- [x] Publish only complete candidates; retain the previous usable resource on
   failure. Release every displaced/cancelled candidate exactly once.
-- [ ] Implement close/admission rejection and ordered reference/resource cleanup,
+- [x] Implement close/admission rejection and ordered reference/resource cleanup,
   including destruction before execution and between publication and consumption.
-- [ ] Migrate production status and editor/thumbnail consumers in the same buildable
+- [x] Migrate production status and editor/thumbnail consumers in the same buildable
   change; remove completion/revision fields, APIs, constructor parameters, and uses.
-- [ ] Replace revision-specific fixtures with deterministic lifecycle behavior tests.
+- [x] Replace revision-specific fixtures with deterministic lifecycle behavior tests.
 
 Completion: all three families and production consumers compile with no legacy
 texture revision protocol; focused CPU lifecycle tests pass.
@@ -202,20 +212,20 @@ texture revision protocol; focused CPU lifecycle tests pass.
 
 Depends on Stage 1.
 
-- [ ] Test initial success/failure, failed replacement retaining the old allocation,
+- [x] Test initial success/failure, failed replacement retaining the old allocation,
   explicit retry, and success after failure for all three families.
-- [ ] Test A executing with B/C queued: bounded storage, at most one executing
+- [x] Test A executing with B/C queued: bounded storage, at most one executing
   operation, only C follows A, and eventual progress without getter side effects.
-- [ ] Test source replacement during upload, late old-resource release, close at
+- [x] Test source replacement during upload, late old-resource release, close at
   each handoff boundary, stopped command admission, absent RHI, and producer shutdown.
-- [ ] Test editor preview refresh and delayed Cube/Material thumbnail acceptance
+- [x] Test editor preview refresh and delayed Cube/Material thumbnail acceptance
   without relying on render revisions or stable-reference pointer changes.
-- [ ] Run affected native validation and relevant existing texture/thumbnail/Vulkan
+- [x] Run affected native validation and relevant existing texture/thumbnail/Vulkan
   integration selections under the repository test workflow. Validate real reference
   switching and retirement; CPU Task completion alone is not acceptance evidence.
-- [ ] Complete the full build required for changed editor consumers, and record
+- [x] Complete the full build required for changed editor consumers, and record
   native test receipts, any unavailable integration lane, and unrelated failures.
-- [ ] Update Texture System and relevant lifecycle/recovery contracts, remove stale
+- [x] Update Texture System and relevant lifecycle/recovery contracts, remove stale
   revision descriptions, validate documentation, and close this plan only after
   required gates pass.
 
@@ -235,11 +245,50 @@ Prior unrelated validation evidence: the preceding texture key change passed all
 `CoreConcurrencyTests` case
 `FTaskAcceptanceTests.CheckedParallelForPartialSubmissionDrainsAcceptedCaptures`
 failed both in the aggregate and in isolation on 2026-09-08. Preserve that diagnostic
-if it recurs; it is not evidence against or acceptance for this unimplemented plan.
+if it recurs; it is historical context, not acceptance evidence for this implementation.
 
 Each implementation commit updates plan status/checklists and uses exact Plan and
-Stage trailers required by the repository. This planning commit is not completion
-of Stage 0 or validation of runtime changes.
+Stage trailers required by the repository. The implementation commit records both completed implementation and validation
+stages.
+
+### Final handoff — 2026-09-08
+
+- Runtime: candidate initialization and upload recording precede publication;
+  mutex-serialized close prevents later publication. Terminal ownership transfer
+  uses an acquire/release handoff independent of Task shutdown. Failed replacement
+  retires only the failed candidate. Reentrant pump coverage includes a completion
+  callback destroying another pending owner.
+- Consumers: Texture/Volume previews refresh from source identity and Input /
+  Completed events. Event behavior is covered by native tests and widget wiring
+  was inspected and compiled; no interactive GUI session was used as evidence.
+  Real Vulkan Cube/Material delayed capture tests reject replacement even when
+  the stable reference is unchanged, while retaining the captured allocations.
+- Lifecycle tests cover unavailable RHI, stopped admission, initial and replacement
+  failures, retry, immutable A/B/C input coalescing, old-resource release, close
+  before/during execution and after publication, and exception terminalization.
+  Cube readback distinguishes the intermediate A bytes from final C bytes;
+  the existing cooked Texture2D sampling test validates uploaded content.
+- Full editor build: `20260908-202935-487532-24624-cmake.log` passed.
+- Focused TextureTests: 91/91 passed before two additional pump/admission tests;
+  the expanded selection passed in affected validation.
+  TextureCookIntegrationTests: 3/3 passed, including real Vulkan injected failures.
+- Affected build and 86-target CTest receipt:
+  `20260908-202955-575383-35476-cmake.log` and
+  `20260908-203111-257720-35476-ctest.log`. TextureTests,
+  TextureThumbnailTests, TextureCookIntegrationTests, MaterialVulkanTests,
+  AssetThumbnailFixtureTests, and CoreConcurrencyTests passed in this run.
+- SkyBox corrected-host rerun: 1/1 passed,
+  `20260908-203416-845345-26872-SkyBoxVulkanIntegrationTests.log`.
+  Material timing case alone: 1/1 passed,
+  `20260908-203427-492041-21340-MaterialTests.log`;
+  complete MaterialTests rerun: 112/112 passed,
+  `20260908-203439-707015-40452-MaterialTests.log`.
+- Receipts are local under `Build/.agent-state/logs/`. GPU qualification and
+  cross-platform execution were not selected; real Vulkan integration was
+  available and passed. Terminal CPU completion still does not mean GPU completion.
+- Texture System, lifecycle/recovery, Cube/Volume, and thumbnail contracts now
+  describe the implemented protocol. Documentation and plan lifecycle validators
+  pass; removed-API search and whitespace validation are clean.
 
 ## Related Code
 

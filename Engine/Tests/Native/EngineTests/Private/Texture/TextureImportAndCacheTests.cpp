@@ -1,3 +1,4 @@
+#include "TextureResourceUpdateTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -53,6 +54,7 @@ namespace
 
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "TextureImportDerivedDataCache");
@@ -80,7 +82,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(SourceData.IsValid());
 	ASSERT_NE(PlatformData, nullptr);
 	EXPECT_NE(Result.Asset->GetTextureReferenceRHI(), nullptr);
-	EXPECT_EQ(Result.Asset->GetBuildRevision(), 1u);
+	EXPECT_EQ(ResourceRequests.Count(*Result.Asset), 1u);
 	EXPECT_TRUE(SourceData.bHasTransparency);
 	EXPECT_EQ(SourceData.Width, 2u);
 	EXPECT_EQ(SourceData.Height, 1u);
@@ -152,7 +154,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(Loaded->GetSource().GetSourceChannelCount(), 4u);
 	EXPECT_TRUE(Loaded->GetSource().HasTransparency());
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
-	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
+	EXPECT_EQ(ResourceRequests.Count(*Loaded), 1u);
 	std::string ExpectedFilename;
 	std::string FilenameError;
 	const Durin::FAssetPathResult PhysicalPackage =

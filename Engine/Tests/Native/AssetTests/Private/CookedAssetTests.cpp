@@ -1,3 +1,4 @@
+#include "TextureResourceUpdateTestSupport.h"
 #include <gtest/gtest.h>
 #include <gtest/gtest-spi.h>
 
@@ -74,12 +75,13 @@ namespace
 	auto ExpectCookedTextureDecodeBoundaries(
 		TPlatformData PlatformData, std::string_view Family) -> void
 	{
+		Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 		auto* Texture = NewObject<TTexture>(nullptr, "CookedDecodeBoundary");
 		ASSERT_NE(Texture, nullptr);
 		std::string Error;
 		Texture->SetPlatformData(std::make_unique<TPlatformData>(PlatformData));
 		const auto* Installed = Texture->GetPlatformData();
-		const uint64 Revision = Texture->GetBuildRevision();
+		const uint64 Revision = ResourceRequests.Count(*Texture);
 		FByteBuffer ValidBytes;
 		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload);
 		PlatformData.Serialize(Writer, {.TargetPlatform = ECookTargetPlatform::Win64,
@@ -99,7 +101,7 @@ namespace
 			EXPECT_NE(Error.find(std::format("Cooked {} '{}'", Family, Texture->GetObjectPath())),
 				std::string::npos) << Error;
 			EXPECT_EQ(Texture->GetPlatformData(), Installed);
-			EXPECT_EQ(Texture->GetBuildRevision(), Revision);
+			EXPECT_EQ(ResourceRequests.Count(*Texture), Revision);
 			// A failed decoder must release its lock so the payload can be retried.
 			Durin::FByteView LockedBytes;
 			Durin::FBulkDataReadResult LockedBytesLease;
@@ -112,7 +114,7 @@ namespace
 		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
 			*Texture, Bulk, Family, Error)) << Error;
 		EXPECT_TRUE(Texture->HasPlatformData());
-		EXPECT_EQ(Texture->GetBuildRevision(), Revision + 1);
+		EXPECT_EQ(ResourceRequests.Count(*Texture), Revision + 1);
 		EXPECT_NE(Bulk.GetState(), EBulkDataState::ReadLocked);
 		EXPECT_TRUE(Error.empty());
 	}

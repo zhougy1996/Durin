@@ -305,7 +305,7 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 }
 
 TEST(FTextureCubeThumbnailRendererTests,
-	GenerationSessionConfiguresAValueOnlyStableEnvironment)
+	GenerationSessionRejectsAnUnavailableResourceSnapshot)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -332,17 +332,10 @@ TEST(FTextureCubeThumbnailRendererTests,
 		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
 
 	FCapturingTextureCubeThumbnailPreviewScene PreviewScene;
-	ASSERT_TRUE(Session->PreparePreview(PreviewScene, Error)) << Error;
+	EXPECT_FALSE(Session->PreparePreview(PreviewScene, Error));
+	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(PreviewScene.WorldRequests, 0u);
-	EXPECT_NEAR(
-		PreviewScene.LastView.VerticalFieldOfViewDegrees,
-		Durin::Editor::Texture::FTextureCubeThumbnailRendererVisualContract::
-			VerticalFieldOfViewDegrees,
-		1.0e-5);
-	ASSERT_TRUE(PreviewScene.LastEnvironment);
-	EXPECT_EQ(
-		PreviewScene.LastEnvironment->TextureReference,
-		Fixtures.DirectionalCube->GetTextureReferenceRHI());
+	EXPECT_FALSE(PreviewScene.LastEnvironment);
 	Session->ResetPreview();
 	Session.reset();
 	EXPECT_EQ(PreviewScene.WorldRequests, 0u);

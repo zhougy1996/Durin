@@ -9,10 +9,8 @@ namespace Durin
 {
 	FVolumeTextureResource::FVolumeTextureResource(
 		FTextureReference* InTextureReference,
-		std::shared_ptr<const FVolumeTexturePlatformData> InPlatformData,
-		uint64 InRevision,
-		std::shared_ptr<FTextureResourceCompletion> InCompletion)
-		: FTextureAssetResource(InTextureReference, InRevision, std::move(InCompletion))
+		std::shared_ptr<const FVolumeTexturePlatformData> InPlatformData)
+		: FTextureAssetResource(InTextureReference)
 		, PlatformData(std::move(InPlatformData))
 	{
 		check(PlatformData && PlatformData->IsValid());
@@ -23,9 +21,6 @@ namespace Durin
 	auto FVolumeTextureResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
-		const uint64 Revision = GetRevision();
-		const auto& Completion = GetCompletion();
-		if (!Completion->MarkBuilding(Revision)) return;
 		const FVolumeTextureMipData& BaseMip = PlatformData->Mips.front();
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create3D("DVolumeTexture")
 			.SetExtent(BaseMip.Width, BaseMip.Height)
@@ -35,14 +30,14 @@ namespace Durin
 			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
-			Completion->MarkFailed(Revision, ETextureRenderFailure::UnsupportedFormat);
+			SetFailure_RenderThread(ETextureRenderFailure::UnsupportedFormat);
 			return;
 		}
 		auto& CommandList = static_cast<FRHICommandListImmediate&>(RHICmdList);
 		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (!NewTexture)
 		{
-			Completion->MarkFailed(Revision, ETextureRenderFailure::CreateOrUpload);
+			SetFailure_RenderThread(ETextureRenderFailure::CreateOrUpload);
 			return;
 		}
 		for (uint32 MipIndex = 0; MipIndex < PlatformData->Mips.size(); ++MipIndex)
@@ -53,9 +48,6 @@ namespace Durin
 			GDynamicRHI->RHIUpdateTexture3D(CommandList, NewTexture, MipIndex,
 				Region, Mip.RowPitch, Mip.DepthPitch, Mip.Voxels);
 		}
-		if (Revision != Completion->GetRequestedRevision()) return;
 		SetTextureRHI_RenderThread(std::move(NewTexture));
-		PublishTexture_RenderThread();
-		Completion->MarkReady(Revision);
 	}
 }

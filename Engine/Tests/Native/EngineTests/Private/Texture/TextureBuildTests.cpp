@@ -1,3 +1,4 @@
+#include "TextureResourceUpdateTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -225,19 +226,20 @@ TEST(FTextureSourceTests, TextureOwnsSourceAndBuildInputCapturesIdentity)
 
 TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	auto ExpectMissingAuthoredData = []<typename TTexture>() {
+	auto ExpectMissingAuthoredData = [&ResourceRequests]<typename TTexture>() {
 		auto* Texture = Durin::NewObject<TTexture>(nullptr, "MissingAuthoredPlatformData");
 		Durin::DTexture& Base = *Texture;
-		const auto Revision = Texture->GetBuildRevision();
+		const auto Revision = ResourceRequests.Count(*Texture);
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
 		EXPECT_FALSE(Base.HasPlatformData());
 		EXPECT_EQ(Base.GetAssetImportData(), nullptr);
 		EXPECT_EQ(std::as_const(Base).GetAssetImportData(), nullptr);
 		EXPECT_FALSE(Base.EnsurePlatformDataLoadedBlocking());
 		EXPECT_EQ(Texture->GetPlatformData(), nullptr);
-		EXPECT_EQ(Texture->GetBuildRevision(), Revision);
+		EXPECT_EQ(ResourceRequests.Count(*Texture), Revision);
 	};
 	ExpectMissingAuthoredData.template operator()<Durin::DTexture2D>();
 	ExpectMissingAuthoredData.template operator()<Durin::DTextureCube>();
@@ -702,6 +704,7 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 
 TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
@@ -735,10 +738,10 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Texture->SetPlatformData(
 		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData));
 	Texture->UpdateResource();
-	const uint64 ValidRevision = Texture->GetBuildRevision();
+	const uint64 ValidRequestCount = ResourceRequests.Count(*Texture);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_FALSE(Texture->SetSourceData({}, Error));
-	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
+	EXPECT_EQ(ResourceRequests.Count(*Texture), ValidRequestCount);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
 		Expected.Mips.front().Voxels);
@@ -789,20 +792,20 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(CookedLoad) << CookedLoad.Message;
 	ASSERT_NE(CookedTexture, nullptr);
 	const auto BulkStateBeforeGet = CookedTexture->GetCookedPlatformData().GetState();
-	const auto RevisionBeforeGet = CookedTexture->GetBuildRevision();
+	const auto RequestsBeforeGet = ResourceRequests.Count(*CookedTexture);
 	const Durin::DVolumeTexture& ConstTexture = *CookedTexture;
 	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
 	EXPECT_EQ(ConstTexture.GetPlatformData(), nullptr);
 	EXPECT_FALSE(CookedTexture->HasPlatformData());
 	EXPECT_EQ(CookedTexture->GetCookedPlatformData().GetState(), BulkStateBeforeGet);
-	EXPECT_EQ(CookedTexture->GetBuildRevision(), RevisionBeforeGet);
+	EXPECT_EQ(ResourceRequests.Count(*CookedTexture), RequestsBeforeGet);
 	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
 	const auto* InstalledPlatform = CookedTexture->GetPlatformData();
-	const auto InstalledRevision = CookedTexture->GetBuildRevision();
+	const auto InstalledRequestCount = ResourceRequests.Count(*CookedTexture);
 	ASSERT_TRUE(static_cast<Durin::DTexture&>(*CookedTexture).EnsurePlatformDataLoadedBlocking());
 	EXPECT_EQ(CookedTexture->GetPlatformData(), InstalledPlatform);
-	EXPECT_EQ(CookedTexture->GetBuildRevision(), InstalledRevision);
+	EXPECT_EQ(ResourceRequests.Count(*CookedTexture), InstalledRequestCount);
 	auto* MissingPlatform = Durin::NewObject<Durin::DVolumeTexture>(
 		nullptr, "MissingCookedPlatformData");
 	EXPECT_FALSE(MissingPlatform->EnsurePlatformDataLoadedBlocking());
@@ -1609,6 +1612,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 
 TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TransactionalTextureSource.png";
 	WriteTextureFixture(Source);
@@ -1686,14 +1690,14 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 			}, false);
 	};
 
-	const uint64 InitialRevision = Texture->GetBuildRevision();
+	const uint64 InitialRequestCount = ResourceRequests.Count(*Texture);
 	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
-	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
+	EXPECT_GT(ResourceRequests.Count(*Texture), InitialRequestCount);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(Transactions->Undo());

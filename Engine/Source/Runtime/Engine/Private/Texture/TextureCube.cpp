@@ -277,17 +277,13 @@ namespace Durin
 	}
 
 	auto DTextureCube::CreateRenderResourceCandidate(
-		FTextureReference* TextureReference,
-		uint64 Revision,
-		const std::shared_ptr<FTextureResourceCompletion>& Completion)
+		FTextureReference* TextureReference)
 		-> std::unique_ptr<FTextureAssetResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FTextureCubeResource>(
 			TextureReference,
-			std::make_shared<const FTextureCubePlatformData>(*PlatformData),
-			Revision,
-			Completion);
+			std::make_shared<const FTextureCubePlatformData>(*PlatformData));
 	}
 
 	auto DTextureCube::RebuildPlatformData() -> bool

@@ -130,9 +130,7 @@ namespace Durin
 		auto ValidateSettingsAfterImportOrEdit(
 			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(
-			FTextureReference* TextureReference,
-			uint64 Revision,
-			const std::shared_ptr<FTextureResourceCompletion>& Completion)
+			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureAssetResource> override;
 
 	private:

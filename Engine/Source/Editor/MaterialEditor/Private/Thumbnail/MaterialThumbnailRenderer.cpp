@@ -47,6 +47,22 @@ namespace Durin::Editor::Material
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 		}
 
+		auto GetTextureDependencies(DMaterialInterface& Material) -> std::vector<DTexture2D*>
+		{
+			const std::array Names{MaterialParameters::BaseColorTextureName(), MaterialParameters::NormalTextureName(),
+				MaterialParameters::MetallicTextureName(), MaterialParameters::RoughnessTextureName(),
+				MaterialParameters::AmbientOcclusionTextureName(), MaterialParameters::EmissiveTextureName(),
+				MaterialParameters::OpacityTextureName(), MaterialParameters::OpacityMaskTextureName()};
+			std::vector<DTexture2D*> Result;
+			for (const FName& Name : Names)
+			{
+				DTexture2D* Texture = nullptr;
+				if (Material.GetTextureParameterValue(Name, Texture) && Texture
+					&& std::ranges::find(Result, Texture) == Result.end()) Result.push_back(Texture);
+			}
+			return Result;
+		}
+
 		auto GetMaterialResourceRevision(
 			DMaterialInterface* Material,
 			bool& bOutReady,
@@ -91,28 +107,22 @@ namespace Durin::Editor::Material
 					: "The material has no current compiled program.";
 				return 0;
 			}
-			DTexture2D* Texture = nullptr;
-			if (!Material->GetTextureParameterValue(
-					MaterialParameters::BaseColorTextureName(), Texture)
-				|| Texture == nullptr)
+			for (DTexture2D* Texture : GetTextureDependencies(*Material))
 			{
-				bOutReady = true;
-				return Revision;
+				if (!Texture->HasPlatformData())
+				{
+					OutError = "A referenced material texture is not built.";
+					return 0;
+				}
+				if (Texture->IsResourceUpdatePending()) return Revision;
+				if (Texture->GetRenderFailure() != ETextureRenderFailure::None)
+				{
+					OutError = "A referenced material texture render resource failed.";
+					return 0;
+				}
+				if (!Texture->HasUsableResource()) return Revision;
 			}
-			if (!Texture->HasPlatformData())
-			{
-				OutError = "A referenced material texture is not built.";
-				return 0;
-			}
-			const ERenderResourceState State = Texture->GetRenderResourceState();
-			if (State == ERenderResourceState::Failed)
-			{
-				OutError = "A referenced material texture render resource failed.";
-				return 0;
-			}
-			bOutReady = State == ERenderResourceState::Ready;
-			Revision ^= Texture->GetBuildRevision() + 0x9e3779b97f4a7c15ull
-				+ (Revision << 6) + (Revision >> 2);
+			bOutReady = true;
 			return Revision == 0 ? 1 : Revision;
 		}
 
@@ -281,6 +291,21 @@ namespace Durin::Editor::Material
 				std::string& OutError) -> bool override
 			{
 				ResetScenePreview();
+				if (!Material) { OutError = "The material is unavailable."; return false; }
+				DependencySnapshots.clear();
+				bSnapshotInvalidated = false;
+				for (DTexture2D* Texture : GetTextureDependencies(*Material))
+				{
+					auto Snapshot = Texture->GetResourceSnapshot();
+					if (!Snapshot || Texture->IsResourceUpdatePending())
+					{
+						OutError = "The material texture snapshot is not ready.";
+						return false;
+					}
+					DependencySnapshots.emplace_back(Texture, std::move(Snapshot));
+				}
+				if (!ChangeHandle.IsValid())
+					ChangeHandle = OnTextureResourceChanged().AddRaw(this, &FMaterialThumbnailGenerationSession::OnResourceChanged);
 				World = PreviewScene.GetWorld();
 				if (World == nullptr || Sphere == nullptr)
 				{
@@ -317,6 +342,11 @@ namespace Durin::Editor::Material
 				uint64 ExpectedResourceRevision,
 				std::string& OutError) const -> bool override
 			{
+				if (bSnapshotInvalidated)
+				{
+					OutError = "A material texture changed while its thumbnail was being generated.";
+					return false;
+				}
 				const uint64 MaterialAssetRevision = GetMaterialAssetRevision(
 					Material, OutError);
 				if (!OutError.empty()) return false;
@@ -330,6 +360,8 @@ namespace Durin::Editor::Material
 				const uint64 Revision = CombineResourceRevision(
 					MaterialRevision, SphereStatus.Revision);
 				if (!bReady || Material == nullptr
+					|| bSnapshotInvalidated
+					|| !AreDependencySnapshotsCurrent()
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
 					|| MaterialAssetRevision != ExpectedAssetRevision
 					|| Revision != ExpectedResourceRevision)
@@ -343,11 +375,28 @@ namespace Durin::Editor::Material
 			auto ResetPreview() -> void override
 			{
 				ResetScenePreview();
+				OnTextureResourceChanged().Remove(ChangeHandle);
+				ChangeHandle = {};
+				DependencySnapshots.clear();
 				Sphere = nullptr;
 				SphereAsset = {};
 			}
 
 		private:
+			auto OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void
+			{
+				for (const auto& [Dependency, Snapshot] : DependencySnapshots)
+					if (&Texture == Dependency) bSnapshotInvalidated = true;
+			}
+			auto AreDependencySnapshotsCurrent() const -> bool
+			{
+				return std::ranges::all_of(DependencySnapshots, [](const auto& Item) {
+					return !Item.first->IsResourceUpdatePending() && Item.first->GetResourceSnapshot() == Item.second;
+				});
+			}
+			FDelegateHandle ChangeHandle;
+			std::vector<std::pair<DTexture2D*, std::shared_ptr<const FTextureResourceSnapshot>>> DependencySnapshots;
+			bool bSnapshotInvalidated = false;
 			auto ResetScenePreview() -> void
 			{
 				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);

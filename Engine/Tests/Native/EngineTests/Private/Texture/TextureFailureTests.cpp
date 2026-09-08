@@ -1,3 +1,4 @@
+#include "TextureResourceUpdateTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
@@ -9,6 +10,10 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
+#include "Texture/VolumeTexture.h"
+#include "RenderingThread.h"
+#include "RHICommandList.h"
+#include <latch>
 
 static_assert(std::is_base_of_v<
 	Durin::FTextureAssetResource, Durin::FTexture2DResource>);
@@ -30,129 +35,6 @@ namespace
 		Mip.Pixels.resize(static_cast<size_t>(Layout.DataSize));
 		return Result;
 	}
-}
-
-TEST(FTextureResourceCompletionTests, UpdateResourceRejectsMissingPlatformData)
-{
-	Durin::Testing::InitializeDObjectSystemForTests();
-	auto* Texture = Durin::NewObject<Durin::DTexture2D>(
-		nullptr, "MissingPlatformData");
-	ASSERT_NE(Texture, nullptr);
-	Texture->UpdateResource();
-	EXPECT_EQ(Texture->GetBuildRevision(), 0u);
-	EXPECT_EQ(Texture->GetRenderResourceState(), Durin::ERenderResourceState::Idle);
-}
-
-TEST(FTextureResourceCompletionTests, RejectsStaleBuild)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(1);
-	EXPECT_TRUE(Completion.MarkBuilding(1));
-
-	Completion.BeginRequest(2);
-	EXPECT_FALSE(Completion.MarkBuilding(1));
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Pending);
-	EXPECT_EQ(Completion.GetRequestedRevision(), 2u);
-}
-
-TEST(FTextureResourceCompletionTests, RejectsStaleSuccess)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(1);
-	ASSERT_TRUE(Completion.MarkBuilding(1));
-	Completion.BeginRequest(2);
-	Completion.MarkReady(1);
-
-	EXPECT_EQ(Completion.GetAppliedRevision(), 0u);
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Pending);
-}
-
-TEST(FTextureResourceCompletionTests, RejectsStaleFailure)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(1);
-	ASSERT_TRUE(Completion.MarkBuilding(1));
-	Completion.BeginRequest(2);
-	Completion.MarkFailed(
-		1, Durin::ETextureRenderFailure::CreateOrUpload);
-
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Pending);
-	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
-	EXPECT_EQ(
-		Completion.GetFailureReason(),
-		Durin::ETextureRenderFailure::None);
-}
-
-TEST(FTextureResourceCompletionTests, ReportsDistinctCurrentFailureReasons)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(1);
-	ASSERT_TRUE(Completion.MarkBuilding(1));
-	Completion.MarkFailed(
-		1, Durin::ETextureRenderFailure::UnsupportedFormat);
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Failed);
-	EXPECT_EQ(Completion.GetFailedRevision(), 1u);
-	EXPECT_EQ(
-		Completion.GetFailureReason(),
-		Durin::ETextureRenderFailure::UnsupportedFormat);
-
-	Completion.BeginRequest(2);
-	ASSERT_TRUE(Completion.MarkBuilding(2));
-	Completion.MarkFailed(
-		2, Durin::ETextureRenderFailure::CreateOrUpload);
-	EXPECT_EQ(Completion.GetFailedRevision(), 2u);
-	EXPECT_EQ(
-		Completion.GetFailureReason(),
-		Durin::ETextureRenderFailure::CreateOrUpload);
-}
-
-TEST(FTextureResourceCompletionTests, ReportsRelease)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(4);
-	ASSERT_TRUE(Completion.MarkBuilding(4));
-	Completion.MarkReleased(4);
-
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Released);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
-	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
-	EXPECT_EQ(
-		Completion.GetFailureReason(),
-		Durin::ETextureRenderFailure::None);
-}
-
-TEST(FTextureResourceCompletionTests, AppliedRevisionIsMonotonic)
-{
-	Durin::FTextureResourceCompletion Completion;
-	Completion.BeginRequest(2);
-	ASSERT_TRUE(Completion.MarkBuilding(2));
-	Completion.MarkReady(2);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 2u);
-
-	Completion.BeginRequest(3);
-	Completion.MarkFailed(
-		3, Durin::ETextureRenderFailure::UnsupportedFormat);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 2u);
-	EXPECT_EQ(Completion.GetFailedRevision(), 3u);
-
-	Completion.BeginRequest(4);
-	Completion.MarkReleased(4);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
-
-	Completion.BeginRequest(1);
-	ASSERT_TRUE(Completion.MarkBuilding(1));
-	Completion.MarkReady(1);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
 }
 
 TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
@@ -255,6 +137,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 
 TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateDerivedDataCache");
@@ -286,7 +169,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 
 	const Durin::FTexturePlatformData RetainedPlatformData = *Texture->GetPlatformData();
-	const uint64 RetainedRevision = Texture->GetBuildRevision();
+	const uint64 RetainedRequestCount = ResourceRequests.Count(*Texture);
 	{
 		const std::array<uint8, 4> CorruptBytes = {1, 2, 3, 4};
 		std::ofstream Stream(GetTextureCachePath(*Texture), std::ios::binary | std::ios::trunc);
@@ -296,7 +179,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	EXPECT_TRUE(Texture->HasPlatformData());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), RetainedPlatformData);
-	EXPECT_GT(Texture->GetBuildRevision(), RetainedRevision);
+	EXPECT_GT(ResourceRequests.Count(*Texture), RetainedRequestCount);
 	EXPECT_TRUE(Texture->GetSource().IsValid());
 
 	WriteTextureFixture(CopiedSource);
@@ -313,12 +196,12 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 TEST(FTexture2DTests, RenderStatusEnumExposesSharedDisplayMetadata)
 {
 	InitializeDObjectSystem();
-	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ERenderResourceState");
+	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ETextureResourceUpdateState");
 	ASSERT_NE(ResourceStateEnum, nullptr);
-	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Render Resource State");
+	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Texture Resource Update State");
 
 	const Durin::FEnumValue* Building = ResourceStateEnum->FindValueRecordByValue(
-		static_cast<uint64>(Durin::ERenderResourceState::Building));
+		static_cast<uint64>(Durin::ETextureResourceUpdateState::Building));
 	ASSERT_NE(Building, nullptr);
 	EXPECT_EQ(Building->DisplayName, "Building");
 	EXPECT_EQ(ResourceStateEnum->FindValueRecordByValue(255), nullptr);
@@ -326,6 +209,7 @@ TEST(FTexture2DTests, RenderStatusEnumExposesSharedDisplayMetadata)
 
 TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "TextureAsyncUnloadCache");
@@ -338,7 +222,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 	Durin::DTexture2D* Texture = Imported.Asset;
 	ASSERT_NE(Texture, nullptr);
 	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
-	const uint64 LastGoodRevision = Texture->GetBuildRevision();
+	const uint64 LastGoodRequestCount = ResourceRequests.Count(*Texture);
 
 	WriteNpotTextureFixture(Source);
 	std::string Error;
@@ -349,7 +233,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 		*Texture, Error)) << Error;
 	ASSERT_TRUE(Durin::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_TRUE(Texture->HasPlatformData());
-	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision + 1);
+	EXPECT_EQ(ResourceRequests.Count(*Texture), LastGoodRequestCount + 1);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		LastGood.Mips.front().Pixels);
 
@@ -359,6 +243,7 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 
 TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 {
+	Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -382,7 +267,7 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	const std::string PriorSource = ImportedSource->Hint;
 	const Durin::FTexturePlatformData PriorPlatform = *Texture->GetPlatformData();
 	const std::string PriorKey = GetTextureDerivedDataKey(*Texture);
-	const uint64 PriorRevision = Texture->GetBuildRevision();
+	const uint64 PriorRequestCount = ResourceRequests.Count(*Texture);
 	ASSERT_FALSE(Texture->GetPackage()->IsDirty());
 
 	WriteNpotTextureFixture(Source);
@@ -401,11 +286,11 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		PriorPlatform.Mips.front().Pixels);
 	EXPECT_NE(GetTextureDerivedDataKey(*Texture), PriorKey);
-	EXPECT_EQ(Texture->GetBuildRevision(), PriorRevision + 1);
+	EXPECT_EQ(ResourceRequests.Count(*Texture), PriorRequestCount + 1);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 
 	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
-	const uint64 LastGoodRevision = Texture->GetBuildRevision();
+	const uint64 LastGoodRequestCount = ResourceRequests.Count(*Texture);
 	const std::filesystem::path Corrupt =
 		Durin::Testing::GetTestWorkDirectory() / "TextureManagerCorrupt.png";
 	const std::array CorruptBytes{std::byte{0x01}, std::byte{0x02}};
@@ -414,9 +299,264 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	Durin::FReimportManager::ReimportFromFiles(*Texture, Files, {.bSave = false},
 		[&](Durin::FReimportResult Result) { Reimported = std::move(Result); });
 	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
-	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision);
+	EXPECT_EQ(ResourceRequests.Count(*Texture), LastGoodRequestCount);
 	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
+}
+
+namespace
+{
+	class FUpdateTestTexture final : public Durin::FRHITexture {};
+
+	struct FUpdateResourceObservations
+	{
+		int Initialized = 0;
+		int Released = 0;
+		int Destroyed = 0;
+	};
+
+	class FUpdateTestResource final : public Durin::FTextureAssetResource
+	{
+	public:
+		FUpdateTestResource(Durin::FTextureReference& Reference, FUpdateResourceObservations& InEvents,
+			Durin::ETextureRenderFailure InFailure = Durin::ETextureRenderFailure::None,
+			std::function<void()> InInitialize = {})
+			: FTextureAssetResource(&Reference), Events(InEvents), Failure(InFailure), Initialize(std::move(InInitialize)) {}
+		~FUpdateTestResource() override { ++Events.Destroyed; }
+		auto InitRHI(Durin::FRHICommandListBase&) -> void override
+		{
+			++Events.Initialized;
+			if (Initialize) Initialize();
+			if (Failure != Durin::ETextureRenderFailure::None) SetFailure_RenderThread(Failure);
+			else SetTextureRHI_RenderThread(new FUpdateTestTexture());
+		}
+		auto ReleaseRHI() -> void override
+		{
+			++Events.Released;
+			FTextureAssetResource::ReleaseRHI();
+		}
+	private:
+		FUpdateResourceObservations& Events;
+		Durin::ETextureRenderFailure Failure;
+		std::function<void()> Initialize;
+	};
+
+	class FTextureResourceUpdateTests : public testing::Test
+	{
+	protected:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			Durin::InitRenderingThread();
+		}
+		auto TearDown() -> void override
+		{
+			Durin::FlushRenderingCommands();
+			Durin::TryEnqueueRenderCommand("DrainOwnedTextureTestResources", [](Durin::FRHICommandListImmediate&) {
+				for (;;)
+				{
+					std::vector<Durin::FRHIResource*> Resources;
+					Durin::FRHIResource::GatherResourcesToDelete(Resources);
+					if (Resources.empty()) break;
+					Durin::FRHIResource::DeleteResources(Resources);
+				}
+			});
+			Durin::FlushRenderingCommands();
+			EXPECT_EQ(Durin::GetNumInitializedRenderResources(), 0u);
+			Durin::ShutdownRenderingThread();
+		}
+		auto Start(const std::shared_ptr<Durin::FTextureResourceUpdate>& Update,
+			Durin::FTextureReference& Reference, bool bInitialize = false) -> void
+		{
+			Durin::TryEnqueueRenderCommand("OwnedTextureTestUpdate", [Update, &Reference, bInitialize](Durin::FRHICommandListImmediate& Commands) {
+				Update->Execute_RenderThread(Commands, Reference, bInitialize);
+			});
+		}
+		auto Retire(const std::shared_ptr<Durin::FTextureResourceUpdate>& Update) -> void
+		{
+			Update->Wait();
+			auto Candidate = Update->TakeCandidate();
+			if (Candidate->IsInitialized())
+			{
+				Candidate->BeginRelease_GameThread();
+				Durin::BeginCleanupRenderResource(Durin::FDeferredRenderResourceCleanup(std::move(Candidate)));
+			}
+			Durin::FlushRenderingCommands();
+		}
+		auto Resolve(Durin::FTextureReference& Reference) -> Durin::FRHITexture*
+		{
+			Durin::FRHITexture* Result = nullptr;
+			Durin::TryEnqueueRenderCommand("ResolveOwnedTextureTest", [&Reference, &Result](Durin::FRHICommandListImmediate&) {
+				Result = Reference.GetReferencedTexture_RenderThread();
+			});
+			Durin::FlushRenderingCommands();
+			return Result;
+		}
+	};
+}
+
+TEST_F(FTextureResourceUpdateTests, FailedReplacementRetainsAllocationAndLateReleasePreservesNewTarget)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations OldEvents, FailedEvents, NewEvents;
+	auto Old = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, OldEvents));
+	Start(Old, Reference, true);
+	Old->Wait();
+	auto OldSnapshot = Old->GetSnapshot();
+	EXPECT_NE(OldSnapshot, nullptr);
+	auto Failed = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, FailedEvents,
+		Durin::ETextureRenderFailure::UnsupportedFormat));
+	Start(Failed, Reference);
+	Failed->Wait();
+	EXPECT_EQ(Failed->GetFailure(), Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(Resolve(Reference), OldSnapshot->Texture.GetReference());
+	Retire(Failed);
+	EXPECT_EQ(FailedEvents.Released, 1);
+	EXPECT_EQ(FailedEvents.Destroyed, 1);
+	auto New = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, NewEvents));
+	Start(New, Reference);
+	New->Wait();
+	auto NewSnapshot = New->GetSnapshot();
+	EXPECT_NE(NewSnapshot, OldSnapshot);
+	Retire(Old);
+	EXPECT_EQ(Resolve(Reference), NewSnapshot->Texture.GetReference());
+	EXPECT_EQ(Failed->GetFailure(), Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(OldEvents.Released, 1);
+	EXPECT_EQ(OldEvents.Destroyed, 1);
+	Retire(New);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
+TEST_F(FTextureResourceUpdateTests, CloseDuringInitializationPreventsPublication)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations Events;
+	std::latch Started(1), Resume(1);
+	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events,
+		Durin::ETextureRenderFailure::None, [&]() { Started.count_down(); Resume.wait(); }));
+	Start(Update, Reference, true);
+	Started.wait();
+	Update->Close();
+	Resume.count_down();
+	Update->Wait();
+	EXPECT_EQ(Update->GetState(), Durin::ETextureResourceUpdateState::Closed);
+	EXPECT_EQ(Update->GetSnapshot(), nullptr);
+	EXPECT_EQ(Resolve(Reference), nullptr);
+	Retire(Update);
+	EXPECT_EQ(Events.Initialized, 1);
+	EXPECT_EQ(Events.Released, 1);
+	EXPECT_EQ(Events.Destroyed, 1);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
+TEST_F(FTextureResourceUpdateTests, CloseBeforeExecutionSkipsCandidateInitialization)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations Events;
+	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events));
+	Update->Close();
+	Start(Update, Reference, true);
+	Update->Wait();
+	EXPECT_EQ(Resolve(Reference), nullptr);
+	Retire(Update);
+	EXPECT_EQ(Events.Initialized, 0);
+	EXPECT_EQ(Events.Released, 0);
+	EXPECT_EQ(Events.Destroyed, 1);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FTextureResourceAdmissionTests, MissingPlatformDataDoesNotAdmitWork)
+{
+	InitializeDObjectSystem();
+	Durin::Testing::FTextureUpdateRequestRecorder Requests;
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "MissingPlatformData");
+	Texture->UpdateResource();
+	EXPECT_EQ(Requests.Count(*Texture), 0u);
+	EXPECT_FALSE(Texture->IsResourceUpdatePending());
+	EXPECT_FALSE(Texture->HasUsableResource());
+	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Idle);
+}
+
+TEST(FTextureResourceAdmissionTests, CoalescesSuccessorsAndAdvancesWithoutGettersOrTaskExecutor)
+{
+	InitializeDObjectSystem();
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CoalescedResourceInputs");
+	Texture->SetPlatformData(std::make_unique<Durin::FTexturePlatformData>(MakeSingleMipPlatformData()));
+	int Completed = 0;
+	const auto Handle = Durin::OnTextureResourceChanged().AddLambda([&](Durin::DTexture& Changed, Durin::ETextureResourceChange Change) {
+		if (&Changed == Texture && Change == Durin::ETextureResourceChange::Completed) ++Completed;
+	});
+	Texture->UpdateResource();
+	Texture->UpdateResource();
+	Texture->UpdateResource();
+	EXPECT_TRUE(Texture->IsResourceUpdatePending());
+	EXPECT_EQ(Completed, 0);
+	Durin::PumpTextureResourceUpdates();
+	EXPECT_EQ(Completed, 1);
+	EXPECT_TRUE(Texture->IsResourceUpdatePending());
+	Durin::PumpTextureResourceUpdates();
+	EXPECT_EQ(Completed, 2);
+	EXPECT_FALSE(Texture->IsResourceUpdatePending());
+	EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::UnavailableRHI);
+	Durin::PumpTextureResourceUpdates();
+	EXPECT_EQ(Completed, 2);
+	Durin::OnTextureResourceChanged().Remove(Handle);
+}
+
+TEST_F(FTextureResourceUpdateTests, InitializationExceptionStillHandsOffCleanup)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations Events;
+	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events,
+		Durin::ETextureRenderFailure::None, []() { throw std::runtime_error("controlled initialization failure"); }));
+	Start(Update, Reference, true);
+	Update->Wait();
+	EXPECT_EQ(Update->GetState(), Durin::ETextureResourceUpdateState::Failed);
+	EXPECT_EQ(Update->GetFailure(), Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(Resolve(Reference), nullptr);
+	Retire(Update);
+	EXPECT_EQ(Events.Released, 1);
+	EXPECT_EQ(Events.Destroyed, 1);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FTextureResourceAdmissionTests, CompletionListenerCanDestroyAnotherPendingOwner)
+{
+	InitializeDObjectSystem();
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	auto* First = Durin::NewObject<Durin::DTexture2D>(nullptr, "FirstPendingTexture");
+	auto* Second = Durin::NewObject<Durin::DTexture2D>(nullptr, "SecondPendingTexture");
+	Durin::AddToRoot(First);
+	Durin::AddToRoot(Second);
+	First->SetPlatformData(std::make_unique<Durin::FTexturePlatformData>(MakeSingleMipPlatformData()));
+	Second->SetPlatformData(std::make_unique<Durin::FTexturePlatformData>(MakeSingleMipPlatformData()));
+	First->UpdateResource();
+	Second->UpdateResource();
+	int Completions = 0;
+	const auto Handle = Durin::OnTextureResourceChanged().AddLambda([&](Durin::DTexture& Texture, Durin::ETextureResourceChange Change) {
+		if (Change != Durin::ETextureResourceChange::Completed) return;
+		if (&Texture == First)
+		{
+			++Completions;
+			Durin::RemoveFromRoot(Second);
+			Durin::MarkAsGarbage(Second);
+			Durin::CollectGarbage();
+			Durin::PumpTextureResourceUpdates(); // Reentrant pumping is harmless.
+		}
+		else if (&Texture == Second) ++Completions;
+	});
+	Durin::PumpTextureResourceUpdates();
+	EXPECT_EQ(Completions, 1);
+	EXPECT_FALSE(First->IsResourceUpdatePending());
+	Durin::OnTextureResourceChanged().Remove(Handle);
+	Durin::RemoveFromRoot(First);
+	Durin::MarkAsGarbage(First);
+	Durin::CollectGarbage();
 }

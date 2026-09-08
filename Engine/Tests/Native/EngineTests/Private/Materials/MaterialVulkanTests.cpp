@@ -854,6 +854,83 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		CaptureCube = CubeResult.Asset;
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
+		Durin::PumpTextureResourceUpdates();
+		{
+			// A delayed Cube result must be rejected even when the stable binding and content are unchanged.
+			Durin::Editor::Texture::DTextureCubeThumbnailRenderer CubeRenderer;
+			Durin::Editor::Texture::FTextureCubeThumbnailGenerationInput Input(
+				Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(CaptureCubePath));
+			Durin::Editor::FAssetThumbnailGenerationRequest Request;
+			auto Session = CubeRenderer.CreateGenerationSession(Request, Input, Error);
+			ASSERT_NE(Session, nullptr) << Error;
+			const auto Loaded = Session->Load();
+			const auto Ready = Session->PollResources();
+			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
+			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
+			const auto Snapshot = CaptureCube->GetResourceSnapshot();
+			ASSERT_NE(Snapshot, nullptr);
+			EXPECT_NE(Snapshot->FixedReference, CaptureCubeReference);
+			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
+			Durin::FlushRenderingCommands();
+			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			CaptureCube->UpdateResource();
+			Durin::FlushRenderingCommands();
+			Durin::PumpTextureResourceUpdates();
+			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
+			EXPECT_NE(CaptureCube->GetResourceSnapshot(), Snapshot);
+			Durin::FByteBuffer DelayedPixels;
+			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
+			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+			Session->ResetPreview();
+			Pool.Reset();
+		}
+		{
+			Durin::FMaterialProgramValidationResult Validation;
+			ASSERT_TRUE(StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram(), Validation));
+			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
+				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
+			Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*StaticMeshAssetMaterial);
+			ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
+			ASSERT_TRUE(Durin::RefreshAssetRegistry(Durin::EAssetRegistryScanMode::FullValidation));
+			const auto Data = Durin::FindAssetExact(StaticMeshMaterialPath);
+			ASSERT_NE(Data, nullptr);
+			const Durin::Editor::FAssetThumbnailRequest Request = {
+				.Asset = {
+					.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(StaticMeshMaterialPath),
+					.PackagePath = Data->PackagePath,
+					.AssetClassName = Data->AssetClassName,
+					.PackageFormatVersion = Data->FormatVersion,
+					.FileSize = static_cast<uint64>(Data->FileSize),
+					.LastWriteTimeTicks = Data->LastWriteTimeTicks}};
+			Durin::Editor::Material::DMaterialThumbnailRenderer MaterialRenderer(
+				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
+			Durin::Editor::FAssetThumbnailGenerationRequest Captured;
+			ASSERT_TRUE(MaterialRenderer.CaptureGenerationRequest(Request, 1, Captured, Error)) << Error;
+			auto Session = MaterialRenderer.CreateGenerationSession(Captured, *Captured.Input, Error);
+			ASSERT_NE(Session, nullptr);
+			const auto Loaded = Session->Load();
+			Durin::FlushRenderingCommands();
+			Durin::PumpTextureResourceUpdates();
+			const auto Ready = Session->PollResources();
+			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
+			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
+			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
+			Durin::FlushRenderingCommands();
+			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			const auto Stable = TextureResult.Asset->GetTextureReferenceRHI();
+			TextureResult.Asset->UpdateResource();
+			Durin::FlushRenderingCommands();
+			Durin::PumpTextureResourceUpdates();
+			EXPECT_EQ(TextureResult.Asset->GetTextureReferenceRHI(), Stable);
+			Durin::FByteBuffer DelayedPixels;
+			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
+			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));
+			Session->ResetPreview();
+			Pool.Reset();
+			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
+				Durin::MaterialParameters::BaseColorTextureName(), nullptr));
+			ASSERT_TRUE(Durin::SavePackage(StaticMeshAssetMaterial->GetPackage()));
+		}
 
 		Durin::FRHITextureReferenceRef Texture2DReference =
 			TextureResult.Asset->GetTextureReferenceRHI();

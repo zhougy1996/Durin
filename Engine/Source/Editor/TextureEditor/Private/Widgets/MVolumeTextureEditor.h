@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
+#include "Texture/Texture.h"
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Widgets/TexturePreview.h"
@@ -14,7 +15,7 @@ namespace Durin::Editor::Texture
 	{
 	public:
 		explicit MVolumeTextureEditor(::Durin::Editor::FWorkspaceManager& InManager);
-		~MVolumeTextureEditor() override = default;
+		~MVolumeTextureEditor() override;
 		auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
 		auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
 		auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
@@ -35,6 +36,7 @@ namespace Durin::Editor::Texture
 		auto ResetLayout() -> void override;
 
 	private:
+		auto OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void;
 		struct FPreviewState
 		{
 			std::unique_ptr<FTexturePreview> Preview = std::make_unique<FTexturePreview>();
@@ -42,7 +44,8 @@ namespace Durin::Editor::Texture
 			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA;
 			uint32 Mip = 0;
 			uint32 Slice = 0;
-			uint64 Revision = 0;
+			bool bInputChanged = true;
+			FXxHash128 SourceIdentity{};
 			uint64 SelectionKey = std::numeric_limits<uint64>::max();
 			float Zoom = 0.0f;
 		};

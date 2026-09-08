@@ -8,11 +8,8 @@ namespace Durin
 {
 	FTexture2DResource::FTexture2DResource(
 		FTextureReference* InTextureReference,
-		std::shared_ptr<const FTexturePlatformData> InPlatformData,
-		uint64 InRevision,
-		std::shared_ptr<FTextureResourceCompletion> InCompletion)
-		: FTextureAssetResource(
-			InTextureReference, InRevision, std::move(InCompletion))
+		std::shared_ptr<const FTexturePlatformData> InPlatformData)
+		: FTextureAssetResource(InTextureReference)
 		, PlatformData(std::move(InPlatformData))
 	{
 		check(PlatformData && PlatformData->IsValid());
@@ -23,10 +20,6 @@ namespace Durin
 	auto FTexture2DResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
-		const uint64 Revision = GetRevision();
-		const std::shared_ptr<FTextureResourceCompletion>& Completion =
-			GetCompletion();
-		if (!Completion->MarkBuilding(Revision)) return;
 
 		const FTexture2DMipData& BaseMip = PlatformData->Mips.front();
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
@@ -36,8 +29,7 @@ namespace Durin
 			.SetFlags(ETextureCreateFlags::ShaderResource);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
-			Completion->MarkFailed(
-				Revision, ETextureRenderFailure::UnsupportedFormat);
+			SetFailure_RenderThread(ETextureRenderFailure::UnsupportedFormat);
 			return;
 		}
 
@@ -47,8 +39,7 @@ namespace Durin
 			GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (NewTexture == nullptr)
 		{
-			Completion->MarkFailed(
-				Revision, ETextureRenderFailure::CreateOrUpload);
+			SetFailure_RenderThread(ETextureRenderFailure::CreateOrUpload);
 			return;
 		}
 
@@ -63,10 +54,7 @@ namespace Durin
 				Mip.RowPitch, Mip.Pixels);
 		}
 
-		if (Revision != Completion->GetRequestedRevision()) return;
 		SetTextureRHI_RenderThread(std::move(NewTexture));
-		PublishTexture_RenderThread();
-		Completion->MarkReady(Revision);
 	}
 
 }

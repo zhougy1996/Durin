@@ -8,15 +8,46 @@
 
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
+#include "RHICommandList.h"
 #include "Texture/TextureRenderResource.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	namespace
+	{
+		std::vector<DTexture*> UpdatingTextures;
+		FTextureResourceChangedEvent ResourceChanged;
+		bool bPumpingTextureResources = false;
+
+		auto RetireTextureResource(std::unique_ptr<FTextureAssetResource> Resource) -> void
+		{
+			if (!Resource) return;
+			if (!Resource->IsInitialized()) return;
+			Resource->BeginRelease_GameThread();
+			BeginCleanupRenderResource(FDeferredRenderResourceCleanup(std::move(Resource)));
+		}
+	}
+
+	auto OnTextureResourceChanged() -> FTextureResourceChangedEvent& { return ResourceChanged; }
+
+	auto PumpTextureResourceUpdates() -> void
+	{
+		CheckGameThread();
+		if (bPumpingTextureResources) return;
+		bPumpingTextureResources = true;
+		const auto Pending = UpdatingTextures;
+		for (DTexture* Texture : Pending)
+		{
+			if (std::ranges::find(UpdatingTextures, Texture) != UpdatingTextures.end())
+				Texture->ConsumeResourceUpdate();
+		}
+		bPumpingTextureResources = false;
+	}
+
 	DTexture::DTexture(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, TextureReference(std::make_unique<FTextureReference>())
-		, RenderCompletion(std::make_shared<FTextureResourceCompletion>())
 	{
 		Source.BindOwner(this);
 	}
@@ -32,19 +63,24 @@ namespace Durin
 	{
 		bAcceptingRenderResourceBuilds = false;
 		ReleaseRenderResources();
+		ResourceChanged.Broadcast(*this, ETextureResourceChange::Closed);
 		Super::BeginDestroy();
 	}
 
 	auto DTexture::ReleaseRenderResources() -> void
 	{
-		RenderCompletion->BeginRequest(++BuildRevision);
-		if (RenderResource)
+		std::erase(UpdatingTextures, this);
+		NextInput.reset();
+		if (PendingUpdate)
 		{
-			RenderResource->PrepareForRelease(BuildRevision);
-			RenderResource->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(RenderResource)));
+			PendingUpdate->Close();
+			PendingUpdate->Wait();
+			RetireTextureResource(PendingUpdate->TakeCandidate());
+			PendingUpdate.reset();
 		}
+		ResourceSnapshot.reset();
+		RetireTextureResource(std::move(RenderResource));
+		LastUpdateState = ETextureResourceUpdateState::Closed;
 		if (bTextureReferenceInitializationQueued)
 		{
 			TextureReference->BeginRelease_GameThread();
@@ -66,22 +102,9 @@ namespace Durin
 			: FRHITextureReferenceRef{};
 	}
 
-	auto DTexture::GetRenderResourceState() const
-		-> ERenderResourceState
+	auto DTexture::GetResourceUpdateState() const -> ETextureResourceUpdateState
 	{
-		return RenderCompletion->GetResourceState();
-	}
-
-	auto DTexture::GetRenderFailure() const -> ETextureRenderFailure
-	{
-		return RenderCompletion->GetFailedRevision() == BuildRevision
-			? RenderCompletion->GetFailureReason()
-			: ETextureRenderFailure::None;
-	}
-
-	auto DTexture::GetAppliedRenderRevision() const -> uint64
-	{
-		return RenderCompletion->GetAppliedRevision();
+		return PendingUpdate ? PendingUpdate->GetState() : LastUpdateState;
 	}
 
 	auto DTexture::SetSource(FTextureSource Value, std::string& OutError) -> bool
@@ -127,6 +150,7 @@ namespace Durin
 
 	auto DTexture::UpdateResource() -> void
 	{
+		CheckGameThread();
 		if (!bAcceptingRenderResourceBuilds || IsPendingKill())
 		{
 			DURIN_WARN(
@@ -141,41 +165,57 @@ namespace Durin
 				GetObjectPath());
 			return;
 		}
-		const uint64 Revision = ++BuildRevision;
-#if DURIN_BUILD_DEBUG
-		const FName DebugOwner = GetPackage()
-			? FName(GetPackage()->GetPackagePath())
-			: FName("<transient DTexture>");
-#endif
-		RenderCompletion->BeginRequest(Revision);
-		if (GDynamicRHI == nullptr) return;
-		if (!bTextureReferenceInitializationQueued)
-		{
-#if DURIN_BUILD_DEBUG
-			TextureReference->SetDebugOwner(DebugOwner);
-#endif
-			TextureReference->BeginInit_GameThread();
-			bTextureReferenceInitializationQueued = true;
-		}
-
-		std::unique_ptr<FTextureAssetResource> Candidate =
-			CreateRenderResourceCandidate(
-				TextureReference.get(), Revision, RenderCompletion);
+		auto Candidate = CreateRenderResourceCandidate(TextureReference.get());
 		check(Candidate != nullptr);
 #if DURIN_BUILD_DEBUG
-		Candidate->SetDebugOwner(DebugOwner);
+		Candidate->SetDebugOwner(GetPackage()
+			? FName(GetPackage()->GetPackagePath()) : FName("<transient DTexture>"));
 #endif
-		FTextureAssetResource* CandidateView = Candidate.get();
-		std::unique_ptr<FTextureAssetResource> Previous =
-			std::move(RenderResource);
-		RenderResource = std::move(Candidate);
-		CandidateView->BeginInit_GameThread();
-		if (Previous)
+		if (PendingUpdate) NextInput = std::move(Candidate);
+		else StartResourceUpdate(std::move(Candidate));
+		ResourceChanged.Broadcast(*this, ETextureResourceChange::Input);
+	}
+
+	auto DTexture::StartResourceUpdate(std::unique_ptr<FTextureAssetResource> Candidate) -> void
+	{
+		check(!PendingUpdate);
+		PendingUpdate = std::make_shared<FTextureResourceUpdate>(std::move(Candidate));
+		if (std::ranges::find(UpdatingTextures, this) == UpdatingTextures.end())
+			UpdatingTextures.push_back(this);
+		if (!GDynamicRHI)
 		{
-			Previous->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(Previous)));
+			PendingUpdate->Reject(ETextureRenderFailure::UnavailableRHI);
+			return;
 		}
+		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
+		// One admission owns both initialization steps, so rejection leaves no half-admitted reference.
+		const bool bAccepted = TryEnqueueRenderCommand("TextureResourceUpdate",
+			[Update = PendingUpdate, Reference = TextureReference.get(), bInitializeReference]
+			(FRHICommandListImmediate& Commands) {
+				Update->Execute_RenderThread(Commands, *Reference, bInitializeReference);
+			});
+		if (bAccepted) bTextureReferenceInitializationQueued = true;
+		else PendingUpdate->Reject(ETextureRenderFailure::AdmissionRejected);
+	}
+
+	auto DTexture::ConsumeResourceUpdate() -> void
+	{
+		if (!PendingUpdate || !PendingUpdate->IsComplete()) return;
+		LastFailure = PendingUpdate->GetFailure();
+		LastUpdateState = PendingUpdate->GetState();
+		auto Candidate = PendingUpdate->TakeCandidate();
+		if (LastUpdateState == ETextureResourceUpdateState::Succeeded)
+		{
+			ResourceSnapshot = PendingUpdate->GetSnapshot();
+			RetireTextureResource(std::move(RenderResource));
+			RenderResource = std::move(Candidate);
+		}
+		else RetireTextureResource(std::move(Candidate));
+		PendingUpdate.reset();
+		std::erase(UpdatingTextures, this);
+		if (NextInput) StartResourceUpdate(std::move(NextInput));
+		// Callbacks may destroy this asset or admit another update. Do not touch it afterward.
+		ResourceChanged.Broadcast(*this, ETextureResourceChange::Completed);
 	}
 
 	auto DTexture::EnsurePlatformDataLoadedBlocking() -> bool

@@ -1,11 +1,11 @@
 # Volume Textures
 
 Summary: Define source import, normalized data, deterministic build, cooked payload,
-and revisioned GPU-resource contracts for package-backed volume textures.
+and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-08
 
 ## Asset boundary
 
@@ -162,7 +162,7 @@ and GPU failure maps to resource retry.
 `FVolumeTextureResource` creates a public `Texture3D` descriptor with sampled
 usage, qualifies the exact format/extent/mip set, and uploads every mip through
 `UpdateTexture3D` using its row and depth pitch. Publication uses the shared
-`DTexture` reference, revision, completion, replacement, deferred cleanup, and
+`DTexture` reference, owned update, terminal handoff, replacement, deferred cleanup, and
 last-known-good rules. Engine never inspects Vulkan handles.
 
 Logical payload bytes are the sum of exact mip voxel byte counts. Upload bytes

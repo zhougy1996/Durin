@@ -14,9 +14,7 @@ namespace Durin
 	public:
 		ENGINE_API FTexture2DResource(
 			FTextureReference* InTextureReference,
-			std::shared_ptr<const FTexturePlatformData> InPlatformData,
-			uint64 InRevision,
-			std::shared_ptr<FTextureResourceCompletion> InCompletion);
+			std::shared_ptr<const FTexturePlatformData> InPlatformData);
 		ENGINE_API ~FTexture2DResource() override;
 
 		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;

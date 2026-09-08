@@ -139,10 +139,12 @@ namespace Durin::Editor::Texture
 	MTextureEditor::MTextureEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 	{
+		OnTextureResourceChanged().AddRaw(this, &MTextureEditor::OnResourceChanged);
 	}
 
 	MTextureEditor::~MTextureEditor()
 	{
+		OnTextureResourceChanged().RemoveAll(this);
 		FinishActivePropertyEdit(true);
 		for (auto& [ResourceId, Texture] : OpenTextures)
 		{
@@ -150,6 +152,14 @@ namespace Durin::Editor::Texture
 			if (Texture)
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
+	}
+
+	auto MTextureEditor::OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void
+	{
+		for (const auto& [ResourceId, OpenTexture] : OpenTextures)
+			if (OpenTexture.Get() == &Texture)
+				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
+					It->second.bInputChanged = true;
 	}
 
 	auto MTextureEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -531,9 +541,9 @@ namespace Durin::Editor::Texture
 		if (RenderFailure == ETextureRenderFailure::CreateOrUpload)
 		{
 			ImGui::SameLine();
-			const ERenderResourceState RState =
-				Texture->GetRenderResourceState();
-			const std::string StateName = GetEnumValueDisplayName("Durin::ERenderResourceState", static_cast<uint64>(RState));
+			const ETextureResourceUpdateState RState =
+				Texture->GetResourceUpdateState();
+			const std::string StateName = GetEnumValueDisplayName("Durin::ETextureResourceUpdateState", static_cast<uint64>(RState));
 			ImGui::TextDisabled("(GPU state: %s)", StateName.c_str());
 		}
 
@@ -561,7 +571,7 @@ namespace Durin::Editor::Texture
 		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
 		if (!bPlatformAvailable && bSourceAvailable) PreviewState.bPreviewSource = true;
 
-		const bool bRevisionChanged = Texture->GetBuildRevision() != PreviewState.LastObservedRevision;
+		const bool bRevisionChanged = PreviewState.bInputChanged || PreviewState.SourceIdentity != Texture->GetSource().GetIdentity();
 		if (bRevisionChanged) PreviewState.SelectedMipIndex = 0;
 
 		const uint32 MipCount = (!PreviewState.bPreviewSource && bPlatformAvailable)
@@ -618,7 +628,8 @@ namespace Durin::Editor::Texture
 			{
 				Preview.Release();
 				PreviewState.LastUploadedMipIndex = UINT32_MAX;
-				PreviewState.LastObservedRevision = Texture->GetBuildRevision();
+				PreviewState.bInputChanged = false;
+				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				ImGui::Separator();
 				ImGui::TextDisabled("No preview data is available.");
 				ImGui::EndChild();
@@ -645,7 +656,8 @@ namespace Durin::Editor::Texture
 				else
 					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, PreviewState.SelectedChannel);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
-				PreviewState.LastObservedRevision = Texture->GetBuildRevision();
+				PreviewState.bInputChanged = false;
+				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
 				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;
 			}
@@ -860,11 +872,11 @@ namespace Durin::Editor::Texture
 			DrawInfoRow("CPU Status", "Platform data unavailable");
 		}
 
-		DrawInfoRow("Build Revision", std::format("{}", Texture->GetBuildRevision()));
+		DrawInfoRow("GPU Availability", Texture->HasUsableResource() ? "Available" : "Unavailable");
 
-		DrawInfoRow("GPU State", GetEnumValueDisplayName(
-			"Durin::ERenderResourceState",
-			static_cast<uint64>(Texture->GetRenderResourceState())));
+		DrawInfoRow("Resource Update", GetEnumValueDisplayName(
+			"Durin::ETextureResourceUpdateState",
+			static_cast<uint64>(Texture->GetResourceUpdateState())));
 
 		MonaImGui::PropertyEdit::EndTable();
 	}

@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-08
 
 ## Complete-Or-Null Construction
 
@@ -24,6 +24,13 @@ a different pipeline even with the same name. Compute pipelines follow the
 same Vulkan cache policy. Renderer slots and explicit Renderer-owned payloads
 hold logical ownership; the backend cache and recorded commands can also retain
 references. Cache eviction selects only entries with no external references.
+
+Texture assets use the owned update protocol in [Texture System](TextureSystem.md).
+An explicit `UpdateResource()` retries installed immutable input. Availability
+remains true after failed replacement when a prior successful allocation exists;
+resource release never clears the latest completed update error. These assets
+have no render-request generation, and thumbnail readiness is checked separately
+from last-successful fallback availability.
 
 ## Transactional Resource Slots
 

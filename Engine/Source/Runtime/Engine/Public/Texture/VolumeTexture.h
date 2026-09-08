@@ -123,7 +123,7 @@ namespace Durin
 			const FTexturePlatformSerializationContext& Context) -> void;
 	};
 
-	// Package-backed volume asset with revisioned last-known-good GPU publication.
+	// Package-backed volume asset with owned updates and last-successful GPU publication.
 	DCLASS()
 	class DVolumeTexture : public DTexture
 	{
@@ -161,9 +161,7 @@ namespace Durin
 	protected:
 		auto ValidateSettingsAfterImportOrEdit(
 			const FTextureSource& ProposedSource) const -> bool override;
-		auto CreateRenderResourceCandidate(FTextureReference* TextureReference,
-			uint64 Revision,
-			const std::shared_ptr<FTextureResourceCompletion>& Completion)
+		auto CreateRenderResourceCandidate(FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureAssetResource> override;
 
 	private:
