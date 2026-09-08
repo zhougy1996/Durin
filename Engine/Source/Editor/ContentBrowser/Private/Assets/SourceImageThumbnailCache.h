@@ -38,6 +38,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Shutdown() -> void;
 		auto IsShuttingDown() const -> bool;
 		auto GetTrackedTaskCountForTesting() const -> size_t;
+		// Runs on the worker before decoding, allowing deterministic failure injection.
+		auto SetBeforeDecodeForTesting(std::function<void()> Callback) -> void;
 
 	private:
 		struct FImpl;

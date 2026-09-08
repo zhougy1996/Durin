@@ -9,7 +9,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Thumbnail/ThumbnailStorage.h"
-#include "Threading/Task.h"
+#include "Threading/TaskComposition.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -51,7 +51,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		struct FAsyncThumbnailState
 		{
 			std::mutex Mutex;
-			std::vector<FDecodeResult> DecodedResults;
 			std::vector<FUploadResult> UploadedResults;
 			std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = std::make_shared<FSourceImageThumbnailDiskCache>();
 			bool bAcceptingResults = true;
@@ -92,18 +91,18 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::shared_ptr<FAsyncThumbnailState> AsyncState = std::make_shared<FAsyncThumbnailState>();
 		std::optional<FTaskScope> OwnedTaskScope;
 		FTaskScopeToken TaskScope;
-		std::vector<FTaskHandle> Tasks;
+		// Identity survives even when the task fails without publishing a value.
+		struct FDecodeTask
+		{
+			std::string PhysicalPath;
+			uint64 Serial = 0;
+			Tasks::TTask<FDecodeResult> Task;
+		};
+		std::vector<FDecodeTask> DecodeTasks;
+		std::function<void()> BeforeDecodeForTesting;
 		std::unordered_set<std::string> BypassDiskSources;
 		uint64 FrameNumber = 0;
-		uint32 ActiveDecodeCount = 0;
 		bool bShuttingDown = false;
-
-		auto PruneCompletedTasks() -> void
-		{
-			std::erase_if(Tasks, [](const FTaskHandle& Task) {
-				return Task.IsComplete();
-			});
-		}
 
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
@@ -156,21 +155,32 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto DrainDecodeResults() -> void
 		{
-			std::vector<FDecodeResult> Results;
+			for (auto TaskIt = DecodeTasks.begin(); TaskIt != DecodeTasks.end();)
 			{
-				std::lock_guard Lock(AsyncState->Mutex);
-				Results.swap(AsyncState->DecodedResults);
-			}
-			for (FDecodeResult& Result : Results)
-			{
-				if (ActiveDecodeCount > 0) --ActiveDecodeCount;
-				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Loading)
+				if (!TaskIt->Task.IsCompleted())
+				{
+					++TaskIt;
 					continue;
+				}
+				FDecodeTask Completed = std::move(*TaskIt);
+				TaskIt = DecodeTasks.erase(TaskIt);
+				auto It = Entries.find(Completed.PhysicalPath);
+				if (bShuttingDown || It == Entries.end() || It->second.Serial != Completed.Serial || It->second.State != ::Durin::Editor::EAssetThumbnailState::Loading)
+					continue;
+				FEntry& Entry = It->second;
+				if (Completed.Task.GetState() != ETaskState::Succeeded)
+				{
+					Entry.State = ::Durin::Editor::EAssetThumbnailState::Failed;
+					Entry.Error = Completed.Task.GetState() == ETaskState::Canceled
+						? "The thumbnail decode task was canceled."
+						: "The thumbnail decode task failed.";
+					continue;
+				}
+				FDecodeResult Result = std::move(Completed.Task).TakeResult();
 				if (!Result.bSucceeded)
 				{
-					It->second.State = ::Durin::Editor::EAssetThumbnailState::Failed;
-					It->second.Error = std::move(Result.Error);
+					Entry.State = ::Durin::Editor::EAssetThumbnailState::Failed;
+					Entry.Error = std::move(Result.Error);
 					continue;
 				}
 				PendingUploads.push_back(std::move(Result));
@@ -219,7 +229,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::ranges::stable_sort(PendingRequests, [](const FPendingRequest& A, const FPendingRequest& B) { return A.bVisible && !B.bVisible; });
 			for (const FPendingRequest& Request : PendingRequests)
 			{
-				if (ActiveDecodeCount >= MaximumConcurrentDecodes) break;
+				if (DecodeTasks.size() >= MaximumConcurrentDecodes) break;
 				auto It = Entries.find(Request.PhysicalPath);
 				if (It == Entries.end() || It->second.State != ::Durin::Editor::EAssetThumbnailState::Queued) continue;
 				FEntry& Entry = It->second;
@@ -230,26 +240,24 @@ namespace Durin::Editor::ContentBrowser::Private
 				const std::string PhysicalPath = Request.PhysicalPath;
 				const std::shared_ptr<FAsyncThumbnailState> State = AsyncState;
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = State->DiskCache;
-				FTaskLaunchOptions DecodeOptions;
+				Tasks::FTaskGroup Group(TaskScope);
+				Tasks::FTaskExecutionOptions DecodeOptions;
+				DecodeOptions.DebugName = "DecodeSourceImageThumbnail";
+				DecodeOptions.EstimatedResultBytes = sizeof(FDecodeResult) + PhysicalPath.size() + ThumbnailMaximumDimension * ThumbnailMaximumDimension * 4;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
-				DecodeOptions.Scope = TaskScope;
-				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [State, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BypassDisk = BypassDiskSources.contains(PhysicalPath)] {
+				auto Admission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, DecodeOptions, [DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial, BeforeDecode = BeforeDecodeForTesting, BypassDisk = BypassDiskSources.contains(PhysicalPath)] {
+					if (BeforeDecode) BeforeDecode();
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
 					Result.bSucceeded = BypassDisk
-						? DecodeSourceImageThumbnail(PhysicalPath, 256, Result.Thumbnail, Result.Error)
+						? DecodeSourceImageThumbnail(PhysicalPath, ThumbnailMaximumDimension, Result.Thumbnail, Result.Error)
 						: DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime, Result.Thumbnail, Result.Error);
-					{
-						std::lock_guard Lock(State->Mutex);
-						if (!State->bAcceptingResults) return;
-						State->DecodedResults.push_back(std::move(Result));
-					}
-				}, DecodeOptions);
-				if (Task.IsValid())
+					return Result;
+				});
+				if (Admission.HasValue())
 				{
-					++ActiveDecodeCount;
-					Tasks.push_back(Task);
+					DecodeTasks.push_back({PhysicalPath, Serial, std::move(Admission).TakeValue()});
 				}
 				else
 				{
@@ -304,7 +312,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Impl->bShuttingDown) return;
 		++Impl->FrameNumber;
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
-		Impl->PruneCompletedTasks();
 		Impl->DrainUploadResults();
 		Impl->DrainDecodeResults();
 		Impl->SubmitUploads();
@@ -391,6 +398,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FSourceImageThumbnailCache::CancelPendingRequests() -> void
 	{
+		for (const auto& Decode : Impl->DecodeTasks) (void)Tasks::Cancel(Decode.Task.GetCompletion());
 		Impl->PendingRequests.clear();
 		Impl->PendingUploads.clear();
 		for (auto& [Path, Entry] : Impl->Entries)
@@ -434,14 +442,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		{
 			std::lock_guard Lock(Impl->AsyncState->Mutex);
 			Impl->AsyncState->bAcceptingResults = false;
-			Impl->AsyncState->DecodedResults.clear();
 			Impl->AsyncState->UploadedResults.clear();
 		}
 		if (Impl->OwnedTaskScope)
 			(void)Impl->OwnedTaskScope->Close(ETaskScopeCloseMode::Cancel);
-		for (const FTaskHandle& Task : Impl->Tasks) (void)CancelTask(Task);
-		for (const FTaskHandle& Task : Impl->Tasks) (void)WaitTask(Task).TaskState;
-		Impl->Tasks.clear();
+		for (const auto& Decode : Impl->DecodeTasks) (void)Tasks::Cancel(Decode.Task.GetCompletion());
+		for (const auto& Decode : Impl->DecodeTasks) (void)Decode.Task.Wait();
+		Impl->DrainDecodeResults();
 		if (Impl->OwnedTaskScope) (void)Impl->OwnedTaskScope->Wait();
 		if (GRenderingThread) FlushRenderingCommands();
 		Clear();
@@ -456,6 +463,10 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FSourceImageThumbnailCache::GetTrackedTaskCountForTesting() const
 		-> size_t
 	{
-		return Impl->Tasks.size();
+		return Impl->DecodeTasks.size();
+	}
+	auto FSourceImageThumbnailCache::SetBeforeDecodeForTesting(std::function<void()> Callback) -> void
+	{
+		Impl->BeforeDecodeForTesting = std::move(Callback);
 	}
 } // namespace Durin::Editor::ContentBrowser::Private
