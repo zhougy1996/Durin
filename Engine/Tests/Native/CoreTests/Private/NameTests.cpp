@@ -65,6 +65,87 @@ namespace
 		}
 	}
 
+	TEST(FNameTests, DiagnosticsDistinguishCreatedEntriesFromReusedSlots)
+	{
+		const auto Before = Durin::GetNamePoolStats();
+		const Durin::FName First("NamePoolDiagnosticsUniqueMixedCase");
+		const auto FirstStats = Durin::GetNamePoolStats();
+		EXPECT_EQ(FirstStats.CreatedEntries, Before.CreatedEntries + 1);
+		const Durin::FName Repeated("NamePoolDiagnosticsUniqueMixedCase");
+		EXPECT_EQ(Durin::GetNamePoolStats().CreatedEntries, FirstStats.CreatedEntries);
+		const Durin::FName Variant("NAMEPOOLDIAGNOSTICSUNIQUEMIXEDCASE");
+		const auto After = Durin::GetNamePoolStats();
+		EXPECT_EQ(After.CreatedEntries, FirstStats.CreatedEntries + 1);
+		EXPECT_GT(After.EntryBytes, FirstStats.EntryBytes);
+		uint64 ComparisonCreated = 0, DisplayCreated = 0, DisplaySlots = 0;
+		for (size_t Index = 0; Index < Before.ComparisonShards.size(); ++Index)
+		{
+			ComparisonCreated += After.ComparisonShards[Index].CreatedEntries - Before.ComparisonShards[Index].CreatedEntries;
+			DisplayCreated += After.DisplayShards[Index].CreatedEntries - Before.DisplayShards[Index].CreatedEntries;
+			DisplaySlots += After.DisplayShards[Index].UsedSlots - Before.DisplayShards[Index].UsedSlots;
+		}
+		EXPECT_EQ(ComparisonCreated, 1);
+		EXPECT_EQ(DisplayCreated, 1);
+		EXPECT_EQ(DisplaySlots, 2);
+	}
+
+	TEST(FNameTests, PreallocationIsBoundedIdempotentAndPreservesNames)
+	{
+		const Durin::FName Existing("NamePoolPreallocationPreserved");
+		const auto Before = Durin::GetNamePoolStats();
+		ASSERT_LT(Before.AllocatedBlocks, Before.MaxBlocks);
+		const uint32 Target = Before.AllocatedBlocks + 1;
+		EXPECT_TRUE(Durin::ReserveNamePoolBlocks(Target));
+		EXPECT_TRUE(Durin::ReserveNamePoolBlocks(Target));
+		EXPECT_TRUE(Durin::ReserveNamePoolBlocks(0));
+		EXPECT_TRUE(Durin::ReserveNamePoolBlocks(1));
+		EXPECT_FALSE(Durin::ReserveNamePoolBlocks(Before.MaxBlocks + 1));
+		EXPECT_FALSE(Durin::ReserveNamePoolBlocks(~uint32(0)));
+		const auto After = Durin::GetNamePoolStats();
+		EXPECT_EQ(After.AllocatedBlocks, Target);
+		EXPECT_EQ(After.ActiveBlocks, Before.ActiveBlocks);
+		EXPECT_EQ(After.CreatedEntries, Before.CreatedEntries);
+		EXPECT_EQ(After.EntryBytes, Before.EntryBytes);
+		EXPECT_EQ(After.AllocatedBlockBytes, uint64(Target) * After.BlockSizeBytes);
+		EXPECT_EQ(Existing.ToString(), "NamePoolPreallocationPreserved");
+	}
+
+	TEST(FNameTests, SamplesConcurrentInsertionAndConsumesReservedBlocks)
+	{
+		const auto Before = Durin::GetNamePoolStats();
+		const uint32 Target = Before.AllocatedBlocks + 2;
+		ASSERT_TRUE(Durin::ReserveNamePoolBlocks(Target));
+		// Enough unique payload to cross a block boundary, with no numeric suffix folding.
+		const uint32 Count = Before.BlockSizeBytes / 900 + 2;
+		std::vector<std::string> Names;
+		for (uint32 Index = 0; Index < Count; ++Index)
+			Names.push_back("NamePoolConcurrent" + std::to_string(Index) + std::string(900, 'x'));
+		std::atomic<bool> bStart{false};
+		std::jthread Writer([&] {
+			while (!bStart.load()) std::this_thread::yield();
+			for (const auto& Name : Names) { const Durin::FName Stored(Name); }
+		});
+		bStart.store(true);
+		uint64 PreviousCreated = Before.CreatedEntries;
+		for (int Sample = 0; Sample < 32; ++Sample)
+		{
+			EXPECT_TRUE(Durin::ReserveNamePoolBlocks(Target));
+			const auto Snapshot = Durin::GetNamePoolStats();
+			EXPECT_GE(Snapshot.CreatedEntries, PreviousCreated);
+			EXPECT_LE(Snapshot.ActiveBlocks, Snapshot.AllocatedBlocks);
+			EXPECT_LE(Snapshot.EntryBytes, Snapshot.AllocatedBlockBytes);
+			for (const auto& Shard : Snapshot.DisplayShards)
+				EXPECT_LE(Shard.UsedSlots, Shard.Capacity);
+			PreviousCreated = Snapshot.CreatedEntries;
+		}
+		Writer.join();
+		const auto After = Durin::GetNamePoolStats();
+		EXPECT_EQ(After.CreatedEntries, Before.CreatedEntries + Count);
+		EXPECT_GT(After.ActiveBlocks, Before.ActiveBlocks);
+		EXPECT_EQ(After.AllocatedBlocks, Target);
+		for (const auto& Name : Names) EXPECT_EQ(Durin::FName(Name).ToString(), Name);
+	}
+
 	TEST(FNameTests, CanonicalizesNoneAndExplicitOrDetectedNumbers)
 	{
 		const Durin::FName DefaultName;

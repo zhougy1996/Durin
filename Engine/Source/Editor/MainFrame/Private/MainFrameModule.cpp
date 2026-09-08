@@ -1,5 +1,6 @@
 #include "MainFrameModule.h"
 #include "AssetCompatibilityWindow.h"
+#include "NamePoolDiagnosticsWindow.h"
 
 #include "EditorBranding.h"
 #include "ProjectBrowser.h"
@@ -175,6 +176,8 @@ namespace Durin::Editor::MainFrame
 			std::string ProfilingStatusMessage;
 			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
+			bool bNamePoolDiagnosticsOpen = false;
+			FNamePoolDiagnosticsWindow NamePoolDiagnostics;
 			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
 			bool bActivityHistoryRequested = false;
@@ -567,10 +570,16 @@ namespace Durin::Editor::MainFrame
 			const FProfilingToolService& ProfilingTools,
 			std::string& StatusMessage,
 			bool& bStatusOpen,
-			bool& bAssetCompatibilityOpen
+			bool& bAssetCompatibilityOpen,
+			bool& bNamePoolDiagnosticsOpen
 		) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
+			if (ImGui::BeginMenu("Diagnostics"))
+			{
+				ImGui::MenuItem("Name Pool", nullptr, &bNamePoolDiagnosticsOpen);
+				ImGui::EndMenu();
+			}
 			if (ImGui::BeginMenu("Asset Maintenance"))
 			{
 				if (ImGui::MenuItem("Compatibility Audit")) bAssetCompatibilityOpen = true;
@@ -707,7 +716,8 @@ namespace Durin::Editor::MainFrame
 				ImGui::EndMenu();
 			}
 			DrawProfilingMenu(ProfilingTools, ViewState.ProfilingStatusMessage,
-				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen);
+				ViewState.bProfilingStatusOpen, ViewState.bAssetCompatibilityOpen,
+				ViewState.bNamePoolDiagnosticsOpen);
 			if (ImGui::BeginMenu("Window"))
 			{
 				DrawOpenEditorsMenu(WorkspaceManager);
@@ -998,6 +1008,7 @@ namespace Durin::Editor::MainFrame
 					WorkspaceManager, ActiveWorkspace, ProfilingTools, ViewState);
 				ImGui::EndMenuBar();
 			}
+			ViewState.NamePoolDiagnostics.Draw(ViewState.bNamePoolDiagnosticsOpen);
 			DrawAboutDialog(ViewState.bAboutDialogOpen);
 			DrawPreferences(HostSettings, RootWindow, ViewState.bEditorPreferencesOpen);
 			DrawProfilingToolStatusDialog(
@@ -1217,6 +1228,8 @@ namespace Durin
 		check(BootstrapContext == nullptr);
 		check(StartupWindow != nullptr);
 		check(StartupWindow->GetNativeWindow() != nullptr);
+		// Reserve a small entry-storage floor before workspace bootstrap creates names.
+		ReserveNamePoolBlocks(4);
 		BootstrapContext = std::make_shared<FBootstrapContext>();
 		FBootstrapContext& Context = *BootstrapContext;
 		Context.bHasProject = HasCurrentProject();

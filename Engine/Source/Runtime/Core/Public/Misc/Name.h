@@ -11,6 +11,36 @@ inline constexpr uint32_t FNameMaxSize = 1024;
 
 namespace Durin
 {
+	// One shard sampled under its lock; created entries exclude reused lookup entries.
+	struct FNamePoolShardStats
+	{
+		uint32 CreatedEntries = 0;
+		uint32 UsedSlots = 0;
+		uint32 Capacity = 0;
+	};
+
+	// Independently synchronized samples, not a globally atomic view of concurrent inserts.
+	struct FNamePoolStats
+	{
+		std::vector<FNamePoolShardStats> ComparisonShards;
+		std::vector<FNamePoolShardStats> DisplayShards;
+		uint64 CreatedEntries = 0;
+		uint64 EntryBytes = 0; // Includes headers and alignment, excludes block tail waste.
+		uint64 AllocatedBlockBytes = 0;
+		uint64 SlotBytes = 0;
+		uint32 ActiveBlocks = 0;
+		uint32 AllocatedBlocks = 0;
+		uint32 BlockSizeBytes = 0;
+		uint32 MaxBlocks = 0;
+	};
+
+	// May initialize the pool. Takes each shard lock separately, then the allocator lock.
+	CORE_API auto GetNamePoolStats() -> FNamePoolStats;
+
+	// Ensures total block capacity, never shrinks. Zero is a no-op; rejects counts above
+	// the pool limit without allocating. Allocated blocks remain for the process lifetime.
+	CORE_API auto ReserveNamePoolBlocks(uint32 TotalBlocks) -> bool;
+
 	enum class ENameCase : uint8
 	{
 		CaseSensitive,

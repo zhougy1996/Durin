@@ -333,14 +333,27 @@ namespace Durin
 			Blocks[0] = AllocBlock();
 		}
 
-		auto ReserveBlocks(uint32 Num) -> void
+		auto ReserveBlocks(uint32 Num) -> bool
 		{
+			if (Num > FNameMaxBlockCount) return false;
 			std::unique_lock<std::mutex> _(Lock);
-
-			for (uint32 Idx = Num - 1; Idx > CurrentBlock && Blocks[Idx] == nullptr; --Idx)
+			for (uint32 Idx = AllocatedBlocks; Idx < Num; ++Idx)
 			{
 				Blocks[Idx] = AllocBlock();
+				++AllocatedBlocks;
 			}
+			return true;
+		}
+
+		auto GetStats(FNamePoolStats& Stats) -> void
+		{
+			std::unique_lock<std::mutex> _(Lock);
+			Stats.EntryBytes = EntryBytes;
+			Stats.ActiveBlocks = CurrentBlock.load() + 1;
+			Stats.AllocatedBlocks = AllocatedBlocks;
+			Stats.BlockSizeBytes = BlockSizeBytes;
+			Stats.MaxBlocks = FNameMaxBlockCount;
+			Stats.AllocatedBlockBytes = uint64(AllocatedBlocks) * BlockSizeBytes;
 		}
 
 		static auto GetDefaultNameSize(std::string_view Name) -> uint32
@@ -400,22 +413,27 @@ namespace Durin
 
 			uint32 ByteOffset = CurrentByteCursor;
 			CurrentByteCursor += Bytes;
+			EntryBytes += Bytes;
 			return FNameEntryHandle(CurrentBlock, ByteOffset / Stride);
 		}
 
 		static std::byte* AllocBlock()
 		{
-			return static_cast<std::byte*>(FPlatformMisc::AlignedAlloc(BlockSizeBytes, Stride));
+			auto* Block = static_cast<std::byte*>(FPlatformMisc::AlignedAlloc(BlockSizeBytes, Stride));
+			require(Block != nullptr);
+			return Block;
 		}
 
 		void AllocateNewBlock()
 		{
+			require(CurrentBlock.load() + 1 < FNameMaxBlockCount);
 			++CurrentBlock;
 			CurrentByteCursor = 0;
 
 			if (Blocks[CurrentBlock] == nullptr)
 			{
 				Blocks[CurrentBlock] = AllocBlock();
+				++AllocatedBlocks;
 			}
 		}
 
@@ -426,6 +444,8 @@ namespace Durin
 
 		std::atomic<uint32> CurrentBlock = 0;
 		uint32 CurrentByteCursor = 0;
+		uint32 AllocatedBlocks = 1;
+		uint64 EntryBytes = 0;
 		std::atomic<std::byte*> Blocks[FNameMaxBlockCount] = {};
 	};
 
@@ -477,9 +497,10 @@ namespace Durin
 			return CapacityMask + 1;
 		}
 
-		auto NumCreated() const -> uint32
+		auto GetStats() const -> FNamePoolShardStats
 		{
-			return NumCreatedEntries.load(std::memory_order_relaxed);
+			std::shared_lock<std::shared_mutex> _(Lock);
+			return {NumCreatedEntries, UsedSlots, Capacity()};
 		}
 
 		template<ENameCase Sensitivity>
@@ -504,7 +525,7 @@ namespace Durin
 
 		FNameEntryAllocator* Entries = nullptr;
 
-		std::atomic<uint32> NumCreatedEntries{0};
+		uint32 NumCreatedEntries = 0; // Protected by the shard lock.
 	};
 
 	template<ENameCase Sensitivity>
@@ -572,7 +593,7 @@ namespace Durin
 
 			ClaimSlot(Slot, FNameSlot(NewEntryId, Value.Hash.SlotProbeHash));
 
-			NumCreatedEntries.fetch_add(1, std::memory_order_relaxed);
+			++NumCreatedEntries;
 
 			return NewEntryId;
 		}
@@ -681,6 +702,27 @@ namespace Durin
 		FNamePool();
 		~FNamePool() = default;
 
+		auto ReserveBlocks(uint32 Num) -> bool { return Entries.ReserveBlocks(Num); }
+
+		auto GetStats() -> FNamePoolStats
+		{
+			FNamePoolStats Stats;
+			const auto Sample = [&](const auto& Shards, auto& Output) {
+				Output.reserve(FNamePoolShardCount);
+				for (const auto& Shard : Shards)
+				{
+					const auto Snapshot = Shard.GetStats();
+					Output.push_back(Snapshot);
+					Stats.CreatedEntries += Snapshot.CreatedEntries;
+					Stats.SlotBytes += uint64(Snapshot.Capacity) * sizeof(FNameSlot);
+				}
+			};
+			Sample(ComparisonShards, Stats.ComparisonShards);
+			Sample(DisplayShards, Stats.DisplayShards);
+			Entries.GetStats(Stats);
+			return Stats;
+		}
+
 		auto Store(std::string_view Name) -> FNameEntryId;
 
 		auto Find(std::string_view Name) const -> FNameEntryId;
@@ -704,6 +746,18 @@ namespace Durin
 
 		FNamePoolShard<ENameCase::CaseSensitive> DisplayShards[FNamePoolShardCount];
 	};
+
+	auto GetNamePoolStats() -> FNamePoolStats
+	{
+		return FNamePool::Get().GetStats();
+	}
+
+	auto ReserveNamePoolBlocks(uint32 TotalBlocks) -> bool
+	{
+		if (TotalBlocks > FNameMaxBlockCount) return false;
+		if (TotalBlocks == 0) return true;
+		return FNamePool::Get().ReserveBlocks(TotalBlocks);
+	}
 
 	bool FNamePool::bInitialized = false;
 	alignas(FNamePool) static uint8 NamePoolData[sizeof(FNamePool)];
