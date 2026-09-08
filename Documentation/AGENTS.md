@@ -2,6 +2,13 @@
 
 These instructions apply under `Documentation/`.
 
+## Authoring Language
+
+- Write repository plans and technical documentation in English, including
+  titles, summaries, stage tasks, acceptance gates, and handoff notes.
+- Use English for newly authored or revised prose; preserve literal identifiers,
+  commands, paths, and quoted source text where their original spelling matters.
+
 ## Reading Policy
 
 - Read only task-required files. Use `README.md` for navigation, then read the
