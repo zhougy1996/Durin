@@ -25,7 +25,17 @@ namespace Durin::TextureBuilder
 
 	TEXTUREBUILD_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
-	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.
+	// Builds and platform-compresses the complete mip chain. Cube callers override
+	// transparency so every face uses the format selected for the entire cube.
+	TEXTUREBUILD_API auto BuildMipChain(std::span<const Image::FImage> SourceMips, ETextureUsage Usage, bool bSRGB,
+		FTexturePlatformData& OutPlatformData, uint32 MaxResolution = 0,
+		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
+		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
+		float AlphaCoverageThreshold = 0.5f,
+		const FBuildExecutionControl* ExecutionControl = nullptr,
+		std::optional<bool> TransparencyOverride = {}) -> FTexture2DBuildResult;
+
+	// Adapts existing cube-face callers to the image recipe.
 	TEXTUREBUILD_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, uint32 MaxResolution = 0,
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,

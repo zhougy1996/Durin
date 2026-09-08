@@ -27,12 +27,21 @@ cooked-runtime, render-resource, editor, and material boundaries.
   individual mips. `ReleaseSourceMemory` explicitly evicts the cache; existing
   handles remain valid through immutable shared ownership. Source replacement
   installs fresh cache state rather than comparing a separate cache identity.
-- Engine-side texture-family adapters synchronously read `FTextureSource::FMipData`
-  and assemble owned, family-specific build input. Asynchronous builders never
-  retain `FTextureSource`, `FMipData`, or texture objects.
-  Family values such as `FTexture2DImportedData` and `FTextureSourceData` are
-  transient recipe adapters and are never reflected on a texture leaf. Input
-  assembly resolves package storage once; workers never read the live asset.
+- Texture2D request assembly synchronously reads `FTextureSource::FMipData`
+  and captures `Image::FImage` values for the source mip chain together with
+  `FTexture2DBuildSettings`. Images share immutable decoded allocations, but
+  retain no texture, source object, mip handle, or package-read handle. There is
+  no intermediate imported-data or snapshot type. Cube and volume adapters
+  retain their family-specific recipe inputs.
+- A Texture2D build request carries source identity separately from its images
+  and settings. Workers return platform data and diagnostics, never source
+  pixels for installation. Optional source replacements belong to the
+  GameThread result-application context. Rebuilds preserve the existing source;
+  import/reimport commits the retained candidate only after a successful build
+  whose identity matches that candidate.
+- Texture2D builder version 4 analyzes alpha from the input image when selecting
+  its platform format. Cube builds retain their whole-cube transparency override
+  so all six faces use one format.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.
@@ -173,11 +182,11 @@ waiting; an already admitted job is never preempted. A single valid request
 larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
-Each request carries detached source bytes derived from one generic source snapshot, content
-identity, all build settings, Win64/Game target identity, scheduling identity,
+Each request carries owned source mip images, content identity, all build
+settings, Win64/Game target identity, scheduling identity,
 and a manager-owned monotonic request serial. Key computation and a warm DDC
-lookup use source metadata and content identity only. A miss materializes the
-bulk payload into `FTextureSourceData`, then workers generate mips, compress,
+lookup use source metadata and content identity only. Input assembly captures the decoded images before queue admission. On a miss,
+workers consume those images to generate mips, compress,
 validate, and atomically persist DDC data before placing a move-only result in
 the manager mailbox. The Texture compiling manager commits on the GameThread
 only when request id, serial, weak object identity, and complete captured input
@@ -200,8 +209,8 @@ authored edits cancel older work. Unload, destruction, document close, failed st
 normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
 queued and running set, waits for worker quiescence, drains GameThread
 completions, and then destroys the manager-owned queue. Request state and
-completion history are manager-owned and bounded to 256 records; source payload
-handles are released as soon as worker use ends.
+completion history are manager-owned and bounded to 256 records; source image
+buffers are released as soon as worker use ends.
 
 CPU readiness is the presence of valid installed platform data. Compilation
 phase and terminal build/DDC diagnostics belong to the manager's active or

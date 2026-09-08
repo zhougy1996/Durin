@@ -6,12 +6,14 @@
 #include "DObject/ObjectMacros.h"
 #include "PixelFormat.h"
 #include "Texture/TextureSourceFormat.h"
+#include "Image/Image.h"
 
 #include "Texture2DData.gen.h"
 
 namespace Durin
 {
 	class FArchive;
+	struct FTextureSource;
 
 	// Selects semantic color handling and platform-build defaults for a texture.
 	DENUM()
@@ -46,7 +48,8 @@ namespace Durin
 	ENGINE_API auto IsValidTextureAlphaMipMode(ETextureAlphaMipMode Mode) -> bool;
 	ENGINE_API auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool;
 
-	// Owns decoded source pixels before platform-specific conversion.
+	// Decoded RGBA8 interchange for image import and cube-face clients.
+	// Texture2D workers receive FImage values instead.
 	struct FTextureSourceData
 	{
 		FByteBuffer Pixels;
@@ -57,6 +60,9 @@ namespace Durin
 		bool bHasTransparency = false;
 
 		ENGINE_API auto IsValid() const -> bool;
+		// Invalid input produces an empty value. Neither conversion mutates an asset.
+		ENGINE_API auto ToImage() const -> Image::FImage;
+		ENGINE_API auto ToSource() const -> FTextureSource;
 	};
 
 	// Owns one tightly described platform mip and its byte row pitch.

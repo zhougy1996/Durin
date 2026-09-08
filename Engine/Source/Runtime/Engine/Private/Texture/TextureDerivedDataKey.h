@@ -15,7 +15,7 @@ namespace Durin
 
 	struct FTexture2DBuildKeyInput
 	{
-		FXxHash128 ImportedDataIdentity;
+		FXxHash128 SourceIdentity;
 		ETextureUsage Usage = ETextureUsage::Color;
 		bool bSRGB = true;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;

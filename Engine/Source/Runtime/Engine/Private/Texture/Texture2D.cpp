@@ -19,40 +19,6 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
-
-		auto MakeTexture2DBuildInput(const FTextureSource& Source)
-			-> FTexture2DImportedData
-		{
-			FTexture2DImportedData Result;
-			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D)
-				return Result;
-			const FTextureSource::FMipData Mips = Source.GetMipData();
-			if (!Mips.IsValid()) return Result;
-			std::vector<FTextureSourceData> CapturedMips;
-			for (uint32 MipIndex = 0; MipIndex < Source.GetLayers()[0].NumMips; ++MipIndex)
-			{
-				const Image::FImageView View = Mips.GetMipImage(0, 0, MipIndex);
-				if (!View.IsValid()) return {};
-				const auto& Info = View.GetInfo();
-				FTextureSourceData Mip{.Pixels = FByteBuffer(
-					View.GetPixels().begin(), View.GetPixels().end()),
-					.Width = Info.Width, .Height = Info.Height,
-					.SourceChannelCount = Source.GetSourceChannelCount(),
-					.Format = ETextureSourceFormat::RGBA8,
-					.bHasTransparency = Source.HasTransparency()};
-				CapturedMips.push_back(std::move(Mip));
-			}
-			if (CapturedMips.empty()
-				|| !Result.Pixels.UpdatePayload(CapturedMips[0].Pixels)) return {};
-			if (CapturedMips.size() > 1) Result.SuppliedMips = std::move(CapturedMips);
-			Result.Width = Source.GetWidth();
-			Result.Height = Source.GetHeight();
-			Result.SourceChannelCount = Source.GetSourceChannelCount();
-			Result.Format = ETextureSourceFormat::RGBA8;
-			Result.bHasTransparency = Source.HasTransparency();
-			Result.CanonicalSourceIdentity = Source.GetIdentity();
-			return Result;
-		}
 	} // namespace
 
 	auto IsValidTextureUsage(ETextureUsage Usage) -> bool
@@ -92,91 +58,24 @@ namespace Durin
 			&& Height > 0
 			&& Width <= 16384 && Height <= 16384
 			&& static_cast<uint64>(Width) * Height * TextureSourceChannelCount == Pixels.size()
-			&& Pixels.size() <= MaximumTexture2DImportedPixelBytes;
+			&& Pixels.size() <= MaximumTextureSourceBytes;
 	}
 
-	auto FTexture2DImportedData::IsValid() const -> bool
+	auto FTextureSourceData::ToImage() const -> Image::FImage
 	{
-		const uint64 ExpectedByteCount = static_cast<uint64>(Width)
-			* Height * ::Durin::TextureSourceChannelCount;
-		if (!(SchemaVersion == Texture2DImportedDataSchemaVersion
-			&& Format == ETextureSourceFormat::RGBA8
-			&& Width > 0 && Height > 0 && Width <= 16384 && Height <= 16384
-			&& SourceChannelCount > 0 && SourceChannelCount <= TextureSourceChannelCount
-			&& ExpectedByteCount == Pixels.GetPayloadSize()
-			&& ExpectedByteCount <= MaximumTexture2DImportedPixelBytes)) return false;
-		for (size_t Index = 0; Index < SuppliedMips.size(); ++Index)
-		{
-			const FTextureSourceData& Mip = SuppliedMips[Index];
-			if (!Mip.IsValid() || Mip.Width != std::max(1u, Width >> std::min<size_t>(Index, 31))
-				|| Mip.Height != std::max(1u, Height >> std::min<size_t>(Index, 31))) return false;
-		}
-		return SuppliedMips.empty() || (SuppliedMips[0].Width == Width
-			&& SuppliedMips[0].Height == Height && SuppliedMips[0].Pixels.size() == ExpectedByteCount);
+		Image::FImage Result;
+		if (IsValid()) Image::FImage::TryCreate({.Width = Width, .Height = Height,
+			.Format = Image::ERawImageFormat::RGBA8}, Pixels, Result);
+		return Result;
 	}
 
-	FTexture2DImportedData::FTexture2DImportedData(
-		const FTextureSourceData& Source)
+	auto FTextureSourceData::ToSource() const -> FTextureSource
 	{
-		SetSourceData(Source);
-	}
-
-	FTexture2DImportedData::FTexture2DImportedData(
-		FTextureSourceData&& Source)
-	{
-		SetSourceData(Source);
-	}
-
-	auto FTexture2DImportedData::SetSourceData(
-		const FTextureSourceData& Source) -> bool
-	{
-		if (!Source.IsValid()
-			|| !Pixels.UpdatePayload(Source.Pixels))
-			return false;
-		Width = Source.Width;
-		Height = Source.Height;
-		SourceChannelCount = Source.SourceChannelCount;
-		Format = Source.Format;
-		bHasTransparency = Source.bHasTransparency;
-		SchemaVersion = Texture2DImportedDataSchemaVersion;
-		FTextureSource Canonical;
-		const FTextureSourceBlock Block{.Width = Width, .Height = Height};
-		const FTextureSourceLayer Layer{.Format = Format};
-		if (!Canonical.InitLayered(ETextureSourceKind::Texture2D,
-			std::span(&Block, 1), std::span(&Layer, 1),
-			ETextureSourceGammaSpace::Unknown, Source.Pixels,
-			SourceChannelCount, bHasTransparency ? 1 : 0,
-			ETextureSourceCompression::Raw)) return false;
-		CanonicalSourceIdentity = Canonical.GetIdentity();
-		return IsValid();
-	}
-
-	auto FTexture2DImportedData::ToSourceData() const -> FTextureSourceData
-	{
-		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
-		const FByteView Bytes = Payload.GetBytes();
-		return {
-			.Pixels = FByteBuffer(Bytes.begin(), Bytes.end()),
-			.Width = Width,
-			.Height = Height,
-			.SourceChannelCount = SourceChannelCount,
-			.Format = Format,
-			.bHasTransparency = bHasTransparency};
-	}
-
-	auto FTexture2DImportedData::GetIdentity() const -> FXxHash128
-	{
-		if (!IsValid()) return {};
-		if (!CanonicalSourceIdentity.IsZero()) return CanonicalSourceIdentity;
-		FXxHash128Builder Builder;
-		Builder.UpdateValue(SchemaVersion);
-		Builder.UpdateValue(Width);
-		Builder.UpdateValue(Height);
-		Builder.UpdateValue(SourceChannelCount);
-		Builder.UpdateValue(static_cast<uint8>(Format));
-		Builder.UpdateValue(bHasTransparency);
-		Builder.UpdateValue(Pixels.GetPayloadId());
-		return Builder.Finalize();
+		FTextureSource Result;
+		const Image::FImage Image = ToImage();
+		if (Image.IsValid()) Result.Init2D(Image.GetView(), SourceChannelCount,
+			bHasTransparency ? 1 : 0);
+		return Result;
 	}
 
 	auto FTexture2DMipData::IsValid(EPixelFormat PixelFormat) const -> bool
@@ -215,14 +114,10 @@ namespace Durin
 			PlatformData.get(), FName("Durin::DTexture2D"), "Texture2D");
 	}
 
-	auto DTexture2D::GetImportedDataIdentity() const -> FXxHash128
+	auto DTexture2D::CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
+		-> FTexture2DBuildRequest
 	{
-		return MakeTexture2DBuildInput(GetSource()).GetIdentity();
-	}
-
-	auto DTexture2D::CreateBuildInput() const -> FTexture2DImportedData
-	{
-		return MakeTexture2DBuildInput(GetSource());
+		return MakeTexture2DBuildRequest(GetSource(), Settings);
 	}
 
 	auto DTexture2D::SetPlatformData(
@@ -278,15 +173,13 @@ namespace Durin
 		{
 			Error = "Texture2D source data is missing or invalid.";
 		}
-		else if (BuildTexture2DSynchronously(*this, {
-			.ImportedData = MakeTexture2DBuildInput(GetSource()),
-			.Settings = {
+		else if (BuildTexture2DSynchronously(*this, CreateBuildRequest({
 				.Usage = Usage,
 				.CompressionQuality = CompressionQuality,
 				.AlphaMipMode = AlphaMipMode,
 				.AlphaCoverageThreshold = AlphaCoverageThreshold,
 				.MaxResolution = MaxResolution,
-				.bSRGB = bSRGB}}, {
+				.bSRGB = bSRGB}), {
 			.bMarkPackageDirty = false,
 			.bReportLoadMutation = false,
 			.bSourceDecoderInvoked = false}, Error)) return;
@@ -325,41 +218,10 @@ namespace Durin
 	}
 
 	auto DTexture2D::SetSourceData(
-		const FTexture2DImportedData& Value, std::string& OutError) -> bool
+		const FTextureSourceData& Value, std::string& OutError) -> bool
 	{
 		CheckGameThread();
-		if (!Value.IsValid())
-		{
-			OutError = "Texture2D source data could not be captured.";
-			return false;
-		}
-		const FPackageResourceReadResult Read = Value.Pixels.GetPayload().Wait();
-		if (!Read)
-		{
-			OutError = "Texture2D source payload could not be read.";
-			return false;
-		}
-		FTextureSource NewSource;
-		FByteBuffer Decoded(Read.Buffer.GetBytes().begin(), Read.Buffer.GetBytes().end());
-		if (!Value.SuppliedMips.empty())
-		{
-			Decoded.clear();
-			for (const FTextureSourceData& Mip : Value.SuppliedMips)
-				Decoded.insert(Decoded.end(), Mip.Pixels.begin(), Mip.Pixels.end());
-		}
-		const FTextureSourceBlock Block{.Width = Value.Width, .Height = Value.Height};
-		const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8,
-			.NumMips = static_cast<uint32>(std::max<size_t>(1, Value.SuppliedMips.size()))};
-		if (!NewSource.InitLayeredImpl(ETextureSourceKind::Texture2D,
-			std::span(&Block, 1), std::span(&Layer, 1),
-			ETextureSourceGammaSpace::Unknown, Decoded,
-			Value.SourceChannelCount, Value.bHasTransparency ? 1 : 0,
-			ETextureSourceCompression::Raw))
-		{
-			OutError = "Texture2D source data could not be initialized.";
-			return false;
-		}
-		return SetSource(std::move(NewSource), OutError);
+		return SetSource(Value.ToSource(), OutError);
 	}
 
 	auto DTexture2D::SetSourceMipChain(std::span<const Image::FImageView> Mips,
@@ -417,7 +279,7 @@ namespace Durin
 			&& Blocks[0].Depth == 1 && Blocks[0].NumSlices == 1
 			&& Layers[0].Format == ETextureSourceFormat::RGBA8
 			&& Layers[0].NumMips >= 1
-			&& MakeTexture2DBuildInput(ProposedSource).IsValid()
+			&& !MakeTexture2DBuildRequest(ProposedSource).SourceMips.empty()
 			&& IsValidTextureUsage(Usage)
 			&& IsValidTextureCompressionQuality(CompressionQuality)
 			&& IsValidTextureAlphaMipMode(AlphaMipMode)

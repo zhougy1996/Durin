@@ -183,16 +183,15 @@ namespace
 	{
 		Durin::FTexture2DBuildProduct Product;
 		Durin::FTexture2DBuildInputIdentity Identity;
-		const Durin::FTexture2DBuildResult BuildResult = Durin::InvokeTexture2DBuildProvider({
-			.ImportedData = Texture.CreateBuildInput(),
-			.Settings = {
+		auto Request = Texture.CreateBuildRequest({
 				.Usage = Texture.GetUsage(),
 				.CompressionQuality = Texture.GetCompressionQuality(),
 				.AlphaMipMode = Texture.GetAlphaMipMode(),
 				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
 				.MaxResolution = Texture.GetMaxResolution(),
-				.bSRGB = Texture.IsSRGB()},
-			.bPersistDerivedData = false}, Product, Identity);
+				.bSRGB = Texture.IsSRGB()});
+		Request.bPersistDerivedData = false;
+		const auto BuildResult = Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
 		EXPECT_TRUE(BuildResult) << BuildResult.Diagnostic;
 		return Product.DerivedDataKey.ToString();
 	}

@@ -318,6 +318,20 @@ namespace Durin::TextureBuilder
 		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
 		std::span<const FTextureSourceData> SuppliedMips) -> FTexture2DBuildResult
 	{
+		std::vector<Image::FImage> Images;
+		if (SuppliedMips.empty()) Images.push_back(SourceData.ToImage());
+		else for (const auto& Mip : SuppliedMips) Images.push_back(Mip.ToImage());
+		return BuildMipChain(Images, Usage, bSRGB, OutPlatformData, MaxResolution,
+			CompressionQuality, AlphaMipMode, AlphaCoverageThreshold, ExecutionControl,
+			SourceData.bHasTransparency);
+	}
+
+	auto BuildMipChain(std::span<const Image::FImage> SourceMips, ETextureUsage Usage, bool bSRGB,
+		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
+		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
+		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
+		std::optional<bool> TransparencyOverride) -> FTexture2DBuildResult
+	{
 		using FClock = std::chrono::steady_clock;
 		auto IsCancelled = [ExecutionControl] {
 			return ExecutionControl && ExecutionControl->ShouldCancel
@@ -326,7 +340,8 @@ namespace Durin::TextureBuilder
 		if (ExecutionControl && ExecutionControl->Metrics)
 			*ExecutionControl->Metrics = {};
 		OutPlatformData = {};
-		if (!SourceData.IsValid())
+		std::string ValidationError;
+		if (!ValidateTexture2DSourceMips(SourceMips, ValidationError))
 		{
 			return {ETexture2DBuildStatus::Failed,
 				"Texture source data is unavailable or invalid."};
@@ -349,39 +364,47 @@ namespace Durin::TextureBuilder
 			return {ETexture2DBuildStatus::Failed,
 				"Texture alpha coverage threshold must be greater than zero and less than one."};
 		}
-		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, SourceData.bHasTransparency);
+		bool bHasTransparency = TransparencyOverride.value_or(false);
+		if (!TransparencyOverride)
+		{
+			// Supplied lower mips may contain alpha even when the base mip is opaque.
+			for (const Image::FImage& Mip : SourceMips)
+			{
+				const auto Pixels = Mip.GetPixels();
+				const uint32 Width = Mip.GetInfo().Width;
+				for (uint32 Y = 0; Y < Mip.GetInfo().Height && !bHasTransparency; ++Y)
+				{
+					if (Y % CancellationScanlineInterval == 0 && IsCancelled())
+						return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
+					const size_t Row = static_cast<size_t>(Y) * Width * ChannelCount;
+					for (uint32 X = 0; X < Width; ++X)
+						if (Pixels[Row + static_cast<size_t>(X) * ChannelCount + 3] != std::byte{255})
+						{
+							bHasTransparency = true;
+							break;
+						}
+				}
+				if (bHasTransparency) break;
+			}
+		}
+		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, bHasTransparency);
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
 			return {ETexture2DBuildStatus::Failed,
 				"Selected pixel format is not supported by the current RHI backend."};
 		}
 		std::vector<FTexture2DMipData> UncompressedMips;
-		if (!SuppliedMips.empty())
+		for (const Image::FImage& Mip : SourceMips)
 		{
-			for (size_t Index = 0; Index < SuppliedMips.size(); ++Index)
-			{
-				const FTextureSourceData& Supplied = SuppliedMips[Index];
-				if (!Supplied.IsValid() || Supplied.Format != SourceData.Format
-					|| Supplied.Width != std::max(1u, SourceData.Width >> std::min<size_t>(Index, 31))
-					|| Supplied.Height != std::max(1u, SourceData.Height >> std::min<size_t>(Index, 31)))
-				{
-					return {ETexture2DBuildStatus::Failed,
-						"Supplied texture mip chain is invalid."};
-				}
-				UncompressedMips.push_back({.Pixels = Supplied.Pixels,
-					.Width = Supplied.Width, .Height = Supplied.Height,
-					.RowPitch = Supplied.Width * ChannelCount});
-			}
-		}
-		else
-		{
-			UncompressedMips.push_back({.Pixels = SourceData.Pixels,
-				.Width = SourceData.Width, .Height = SourceData.Height,
-				.RowPitch = SourceData.Width * ChannelCount});
+			const auto& Info = Mip.GetInfo();
+			const auto Pixels = Mip.GetPixels();
+			UncompressedMips.push_back({.Pixels = FByteBuffer(Pixels.begin(), Pixels.end()),
+				.Width = Info.Width, .Height = Info.Height,
+				.RowPitch = Info.Width * ChannelCount});
 		}
 		FTexture2DMipData& BaseMip = UncompressedMips.front();
 		const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
-			&& SourceData.bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
+			&& bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
 		double SourceAlphaCoverage = 0.0;
 		if (bPreserveAlphaCoverage
 			&& !CalculateAlphaCoverage(
@@ -395,7 +418,7 @@ namespace Durin::TextureBuilder
 			return {ETexture2DBuildStatus::Cancelled, "Texture build was cancelled."};
 		}
 		const FClock::time_point MipStart = FClock::now();
-		while (SuppliedMips.empty()
+		while (SourceMips.size() == 1
 			&& (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1))
 		{
 			if (IsCancelled())

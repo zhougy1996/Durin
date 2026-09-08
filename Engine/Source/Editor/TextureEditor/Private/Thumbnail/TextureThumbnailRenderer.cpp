@@ -39,8 +39,15 @@ namespace Durin::Editor::Texture
 		DObject* Loaded = nullptr;
 		const FAssetResult Load = LoadObject(Request.Asset.AssetPath, Loaded);
 		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
-		FTextureSourceData BuildInput = Texture
-			? Texture->CreateBuildInput().ToSourceData() : FTextureSourceData{};
+		const auto Mips = Texture ? Texture->GetSource().GetMipData() : FTextureSource::FMipData{};
+		const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
+		FTextureSourceData BuildInput;
+		if (View.IsValid()) BuildInput = {
+			.Pixels = FByteBuffer(View.GetPixels().begin(), View.GetPixels().end()),
+			.Width = View.GetInfo().Width, .Height = View.GetInfo().Height,
+			.SourceChannelCount = Texture->GetSource().GetSourceChannelCount(),
+			.Format = ETextureSourceFormat::RGBA8,
+			.bHasTransparency = Texture->GetSource().HasTransparency()};
 		const FTextureSourceData* Source = BuildInput.IsValid()
 			? &BuildInput : nullptr;
 		if (!Texture || !Source)
@@ -77,7 +84,7 @@ namespace Durin::Editor::Texture
 				std::copy_n(Source->Pixels.begin() + static_cast<ptrdiff_t>(SourcePixel),
 					4, Generated->Pixels.begin() + static_cast<ptrdiff_t>(OutputPixel));
 			}
-		const FXxHash128 Identity = Texture->GetImportedDataIdentity();
+		const FXxHash128 Identity = Texture->GetSource().GetIdentity();
 		Generated->AssetRevision = Identity.HashLow ^ Identity.HashHigh;
 		if (Generated->AssetRevision == 0) Generated->AssetRevision = 1;
 		OutRequest.KeyInput.Asset = Request.Asset;

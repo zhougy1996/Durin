@@ -6,22 +6,28 @@
 
 namespace Durin
 {
-	// Engine-owned orchestration request. Cache persistence policy is intentionally
-	// not forwarded through the recipe-provider boundary.
+	// Owned image mip chain and settings form the worker payload. Source identity
+	// and cache policy belong to Engine orchestration, not the recipe provider.
 	struct FTexture2DBuildRequest
 	{
-		FTexture2DImportedData ImportedData;
+		// One source mip generates a chain; multiple source mips are preserved.
+		std::vector<Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
+		FXxHash128 SourceIdentity;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
 		bool bPersistDerivedData = true;
 	};
 
+	// Captures owned image values synchronously; no texture or package handles enter workers.
+	ENGINE_API auto MakeTexture2DBuildRequest(const FTextureSource& Source,
+		const FTexture2DBuildSettings& Settings = {}) -> FTexture2DBuildRequest;
+
 	// Separates deterministic build/DDC identity from the Engine request serial
 	// used to enforce latest-wins result application for one live object.
 	struct FTexture2DBuildInputIdentity
 	{
-		FXxHash128 ImportedDataIdentity;
+		FXxHash128 SourceIdentity;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;

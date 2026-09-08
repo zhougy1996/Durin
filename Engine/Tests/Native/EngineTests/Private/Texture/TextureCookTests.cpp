@@ -194,7 +194,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_NE(Import.Asset->GetPlatformData(), nullptr);
 	const Durin::FTexturePlatformData ExpectedPlatformData = *Import.Asset->GetPlatformData();
 	const Durin::FXxHash128 SourceIdentityBeforeCook =
-		Import.Asset->GetImportedDataIdentity();
+		Import.Asset->GetSource().GetIdentity();
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	const Durin::FSourceFile* ImportedSource =
 		Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -209,7 +209,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
 		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
 	ASSERT_TRUE(Durin::PublishCookContext(First, CookRoot, &Error)) << Error;
-	EXPECT_EQ(Import.Asset->GetImportedDataIdentity(), SourceIdentityBeforeCook);
+	EXPECT_EQ(Import.Asset->GetSource().GetIdentity(), SourceIdentityBeforeCook);
 
 	Durin::FCookContext Second(
 		Durin::ECookTargetPlatform::Win64,

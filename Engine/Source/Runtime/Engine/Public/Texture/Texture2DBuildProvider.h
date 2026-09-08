@@ -41,8 +41,7 @@ namespace Durin
 
 	struct FTexture2DRecipeBuildRequest
 	{
-		std::reference_wrapper<const FTextureSourceData> SourceData;
-		std::span<const FTextureSourceData> SuppliedMips;
+		std::span<const Image::FImage> SourceMips;
 		FTexture2DBuildSettings Settings;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
@@ -78,6 +77,9 @@ namespace Durin
 		FTexture2DRecipeMetrics* Metrics = nullptr;
 	};
 
+	ENGINE_API auto ValidateTexture2DSourceMips(
+		std::span<const Image::FImage> Mips, std::string& OutError) -> bool;
+
 	ENGINE_API auto ValidateTexture2DBuildSettings(
 		const FTexture2DBuildSettings& Settings,
 		std::string& OutError) -> bool;
@@ -89,7 +91,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.Texture2DBuildProvider";
-		static constexpr uint32 FeatureVersion = 3;
+		static constexpr uint32 FeatureVersion = 4;
 
 		virtual auto GetDescriptor() const -> FTexture2DBuildProviderDescriptor = 0;
 		virtual auto Build(

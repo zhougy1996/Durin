@@ -95,7 +95,7 @@ namespace
 		static auto SetSource(Durin::DTexture2D& Texture, std::byte Value,
 			std::string& Error) -> bool
 		{
-			return Texture.SetSourceData(Durin::FTexture2DImportedData(Durin::FTextureSourceData{
+			return Texture.SetSourceData(Durin::FTextureSourceData(Durin::FTextureSourceData{
 				.Pixels = Durin::FByteBuffer(16, Value), .Width = 2, .Height = 2,
 				.SourceChannelCount = 4, .Format = Durin::ETextureSourceFormat::RGBA8}), Error);
 		}

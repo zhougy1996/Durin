@@ -10,6 +10,13 @@ namespace Durin
 {
 	namespace
 	{
+		auto SourceBytes(std::span<const Image::FImage> Mips) -> uint64
+		{
+			uint64 Bytes = 0;
+			for (const auto& Mip : Mips) Bytes += Mip.GetPixels().size();
+			return Bytes;
+		}
+
 		using FClock = std::chrono::steady_clock;
 
 		auto NowNanoseconds() -> uint64
@@ -36,9 +43,9 @@ namespace Durin
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
 			if (WorkingBytes == 0)
 				WorkingBytes = std::max<uint64>(
-					SaturatingMultiply(Request.ImportedData.Pixels.GetPayloadSize(), 3),
+					SaturatingMultiply(SourceBytes(Request.Build.SourceMips), 3),
 					64ull * 1024ull * 1024ull);
-			return SaturatingAdd(Request.ImportedData.Pixels.GetPayloadSize(), WorkingBytes);
+			return SaturatingAdd(SourceBytes(Request.Build.SourceMips), WorkingBytes);
 		}
 
 		auto PlatformDataBytes(const FTexturePlatformData& PlatformData) -> uint64
@@ -83,8 +90,8 @@ namespace Durin
 		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
 			if (!Completion || IsObjectHandleNull(Request.Owner)
-				|| Request.AssetIdentity.empty() || !Request.ImportedData.IsValid()
-				|| Request.ImportedDataIdentity.IsZero()) return 0;
+				|| Request.AssetIdentity.empty() || Request.Build.SourceMips.empty()
+				|| Request.Build.SourceIdentity.IsZero()) return 0;
 			auto RequestState = std::make_shared<FRequestState>();
 			RequestState->Request = std::move(Request);
 			RequestState->Completion = std::move(Completion);
@@ -214,7 +221,6 @@ namespace Durin
 				.Owner = RequestState.Request.Owner,
 				.RequestSerial = RequestState.Request.RequestSerial,
 				.AssetIdentity = RequestState.Request.AssetIdentity,
-				.Settings = RequestState.Request.Settings,
 				.Error = std::move(Error),
 				.Metrics = {.EstimatedBytes = RequestState.EstimatedBytes},
 				.Phase = Phase,
@@ -276,14 +282,10 @@ namespace Durin
 				return Result;
 			}
 			const uint64 PreparationStart = NowNanoseconds();
-			FTexture2DBuildRequest BuildRequest{
-				.ImportedData = std::move(RequestState->Request.ImportedData)};
+			FTexture2DBuildRequest BuildRequest = std::move(RequestState->Request.Build);
 			Result.Metrics.PreparationNanoseconds = NowNanoseconds() - PreparationStart;
 			Result.Metrics.DecodedBytes = 0;
-			Result.ImportedDataIdentity = RequestState->Request.ImportedDataIdentity;
-
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
-			const FTexture2DBuildSettingsSnapshot& Settings = RequestState->Request.Settings;
 			FTexture2DBuildMetrics RecipeMetrics;
 			bool bEnteredPersisting = false;
 			const FTexture2DBuildExecutionControl Control{
@@ -294,16 +296,6 @@ namespace Durin
 				},
 				.Metrics = &RecipeMetrics};
 			FTexture2DBuildProduct Product;
-			BuildRequest.Settings = {
-					.Usage = Settings.Usage,
-					.CompressionQuality = Settings.CompressionQuality,
-					.AlphaMipMode = Settings.AlphaMipMode,
-					.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-					.MaxResolution = Settings.MaxResolution,
-					.bSRGB = Settings.bSRGB};
-			BuildRequest.TargetPlatform = RequestState->Request.TargetPlatform;
-			BuildRequest.TargetProfile = RequestState->Request.TargetProfile;
-			BuildRequest.bPersistDerivedData = RequestState->Request.bPersistDerivedData;
 			const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
 				BuildRequest, Product, Result.InputIdentity, &Control);
 			if (!BuildResult)
@@ -331,9 +323,7 @@ namespace Durin
 			Result.Origin = Product.Origin;
 			Result.bSourceDecoderInvoked = RequestState->Request.bSourceDecoderInvoked;
 			if (Product.Origin == ETexture2DBuildProductOrigin::Rebuilt)
-				Result.Metrics.DecodedBytes = BuildRequest.ImportedData.Pixels.GetPayloadSize();
-			Result.ImportedData = std::make_unique<FTexture2DImportedData>(
-				std::move(BuildRequest.ImportedData));
+				Result.Metrics.DecodedBytes = SourceBytes(BuildRequest.SourceMips);
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error.clear();
 			Result.Phase = Cancel() ? ETexture2DCompilationPhase::Cancelled : ETexture2DCompilationPhase::UploadPending;
@@ -428,7 +418,7 @@ namespace Durin
 					std::lock_guard Lock(Mutex);
 					Ready->Task = {};
 					Ready->RejectedResult.reset();
-					Ready->Request.ImportedData = {};
+					Ready->Request.Build = {};
 					require(PendingRequestCount > 0);
 					--PendingRequestCount;
 					CompletedOrder.push_back(Ready->Diagnostic.RequestId);

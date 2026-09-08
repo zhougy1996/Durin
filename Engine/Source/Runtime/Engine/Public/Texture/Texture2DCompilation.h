@@ -30,6 +30,8 @@ namespace Durin
 
 	struct FTexture2DResultApplicationContext
 	{
+		// Empty for rebuilds. Authored replacements stay on the GameThread.
+		std::optional<FTextureSource> SourceReplacement;
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
 		bool bSourceDecoderInvoked = true;

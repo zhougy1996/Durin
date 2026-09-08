@@ -28,7 +28,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError,
 		FTexture2DCompilationCompletion Completion = {}) -> bool;
 	// Rebuilds one packaged texture from its resident canonical imported data.
-	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromImportedData(
+	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromSource(
 		DTexture2D& Texture,
 		const FTexture2DBuildSettings& Settings,
 		std::string& OutError,

@@ -729,9 +729,8 @@ namespace Durin::AssetForge::Builtins
 		const FTexture2DBuildExecutionControl Control{
 			.ShouldCancel = IsCancellationRequested};
 		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)) return false;
-		FTexture2DBuildRequest Request{
-			.ImportedData = std::move(SourceData),
-			.Settings = OutProduct.Settings};
+		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
+			SourceData.ToSource(), OutProduct.Settings);
 		FTexture2DBuildInputIdentity Identity;
 		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
 			Request, OutProduct.Product, Identity, &Control);
@@ -740,7 +739,7 @@ namespace Durin::AssetForge::Builtins
 			OutError = BuildResult.Diagnostic;
 			return false;
 		}
-		OutProduct.SourceData = Request.ImportedData.ToSourceData();
+		OutProduct.SourceData = std::move(SourceData);
 		OutError.clear();
 		return true;
 	}

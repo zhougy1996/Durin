@@ -76,16 +76,15 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::FindResidentPackage(AssetPath), Result.Asset->GetPackage());
 	ASSERT_TRUE(Durin::SavePackage(Result.Asset->GetPackage()));
-	const Durin::FTextureSourceData SourceData =
-		Result.Asset->CreateBuildInput().ToSourceData();
+	const auto& SourceData = Result.Asset->GetSource();
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_TRUE(SourceData.IsValid());
 	ASSERT_NE(PlatformData, nullptr);
 	EXPECT_NE(Result.Asset->GetTextureReferenceRHI(), nullptr);
 	EXPECT_EQ(ResourceRequests.Count(*Result.Asset), 1u);
-	EXPECT_TRUE(SourceData.bHasTransparency);
-	EXPECT_EQ(SourceData.Width, 2u);
-	EXPECT_EQ(SourceData.Height, 1u);
+	EXPECT_TRUE(SourceData.HasTransparency());
+	EXPECT_EQ(SourceData.GetWidth(), 2u);
+	EXPECT_EQ(SourceData.GetHeight(), 1u);
 	ASSERT_TRUE(PlatformData->IsValid());
 	EXPECT_TRUE(Result.Asset->IsSRGB());
 	EXPECT_EQ(Result.Asset->GetUsage(), Durin::ETextureUsage::Color);

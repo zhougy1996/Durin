@@ -112,7 +112,7 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 				->GetSourceData().FindByRole("source");
 			ASSERT_NE(Source, nullptr);
 			EXPECT_FALSE(Source->GetContentHash().IsZero());
-			EXPECT_NE(Source->GetContentHash(), Texture->GetImportedDataIdentity());
+			EXPECT_NE(Source->GetContentHash(), Texture->GetSource().GetIdentity());
 		}
 	}
 	EXPECT_TRUE(bSawTexture);

@@ -6,6 +6,59 @@
 
 namespace Durin
 {
+	auto ValidateTexture2DSourceMips(std::span<const Image::FImage> Mips,
+		std::string& OutError) -> bool
+	{
+		if (Mips.empty())
+		{
+			OutError = "Texture2D source mip chain is empty.";
+			return false;
+		}
+		const auto& Base = Mips.front().GetInfo();
+		uint64 Bytes = 0;
+		for (size_t Index = 0; Index < Mips.size(); ++Index)
+		{
+			const auto& Info = Mips[Index].GetInfo();
+			Bytes += Mips[Index].GetPixels().size();
+			if (!Mips[Index].IsValid() || Info.Format != Image::ERawImageFormat::RGBA8
+				|| Info.Depth != 1 || Info.SliceCount != 1
+				|| Base.Width > 16384 || Base.Height > 16384
+				|| Info.Width != std::max(1u, Base.Width >> std::min<size_t>(Index, 31))
+				|| Info.Height != std::max(1u, Base.Height >> std::min<size_t>(Index, 31))
+				|| Info.GammaSpace != Base.GammaSpace || Bytes > MaximumTextureSourceBytes
+				|| (Index > 0 && Mips[Index - 1].GetInfo().Width == 1
+					&& Mips[Index - 1].GetInfo().Height == 1))
+			{
+				OutError = "Texture2D source mip chain is invalid.";
+				return false;
+			}
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto MakeTexture2DBuildRequest(const FTextureSource& Source,
+		const FTexture2DBuildSettings& Settings) -> FTexture2DBuildRequest
+	{
+		FTexture2DBuildRequest Result{.Settings = Settings};
+		if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::Texture2D
+			|| Source.GetBlocks().size() != 1 || Source.GetLayers().size() != 1) return Result;
+		const auto Mips = Source.GetMipData();
+		if (!Mips.IsValid()) return Result;
+		for (uint32 Index = 0; Index < Source.GetLayers()[0].NumMips; ++Index)
+		{
+			const auto View = Mips.GetMipImage(0, 0, Index);
+			Image::FImage Image;
+			if (!View.IsValid() || !Image::FImage::TryCreate(View.GetInfo(),
+				Mips.GetMipData(0, 0, Index), Image)) return {.Settings = Settings};
+			Result.SourceMips.push_back(std::move(Image));
+		}
+		std::string Error;
+		if (!ValidateTexture2DSourceMips(Result.SourceMips, Error)) return {.Settings = Settings};
+		Result.SourceIdentity = Source.GetIdentity();
+		return Result;
+	}
+
 	auto ValidateTexture2DBuildSettings(
 		const FTexture2DBuildSettings& Settings,
 		std::string& OutError) -> bool
@@ -34,8 +87,15 @@ namespace Durin
 		const FTexture2DBuildExecutionControl* ExecutionControl) -> FTexture2DBuildResult
 	{
 		OutProduct = {};
+		OutIdentity = {};
+		std::string Error;
+		if (!ValidateTexture2DSourceMips(Request.SourceMips, Error)
+			|| !ValidateTexture2DBuildSettings(Request.Settings, Error))
+			return {ETexture2DBuildStatus::Failed, std::move(Error)};
+		if (Request.SourceIdentity.IsZero())
+			return {ETexture2DBuildStatus::Failed, "Texture2D source identity is missing."};
 		OutIdentity = {
-			.ImportedDataIdentity = Request.ImportedData.GetIdentity(),
+			.SourceIdentity = Request.SourceIdentity,
 			.Settings = Request.Settings,
 			.TargetPlatform = Request.TargetPlatform,
 			.TargetProfile = Request.TargetProfile};
@@ -53,7 +113,7 @@ namespace Durin
 						"The Texture2D build provider descriptor is invalid."};
 				}
 				const FTexture2DBuildKeyInput KeyInput{
-					.ImportedDataIdentity = OutIdentity.ImportedDataIdentity,
+					.SourceIdentity = OutIdentity.SourceIdentity,
 					.Usage = Request.Settings.Usage,
 					.bSRGB = ResolveTexture2DSRGB(Request.Settings),
 					.CompressionQuality = Request.Settings.CompressionQuality,
@@ -83,13 +143,6 @@ namespace Durin
 					return FTexture2DBuildResult{ETexture2DBuildStatus::Cancelled,
 						"Texture2D build was cancelled."};
 				}
-
-				const FTextureSourceData SourceData = Request.ImportedData.ToSourceData();
-				if (!SourceData.IsValid())
-				{
-					return FTexture2DBuildResult{ETexture2DBuildStatus::Failed,
-						"Texture2D imported data could not be materialized."};
-				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
 				FTexture2DBuildMetrics RecipeMetrics;
 				const FTexture2DRecipeExecutionControl RecipeControl{
@@ -97,8 +150,7 @@ namespace Durin
 						: std::function<bool()>{},
 					.Metrics = &RecipeMetrics};
 				const FTexture2DBuildResult RecipeResult = Provider.Build({
-					.SourceData = std::cref(SourceData),
-					.SuppliedMips = Request.ImportedData.SuppliedMips,
+					.SourceMips = Request.SourceMips,
 					.Settings = Request.Settings,
 					.TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile},

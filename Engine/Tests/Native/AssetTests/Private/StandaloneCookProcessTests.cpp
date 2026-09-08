@@ -215,7 +215,7 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	FTextureSourceData Pixels{.Pixels = FByteBuffer(4 * 4 * 4, std::byte{0xff}),
 		.Width = 4, .Height = 4, .SourceChannelCount = 4, .Format = ETextureSourceFormat::RGBA8};
 	auto* Texture = Make.operator()<DTexture2D>("Texture");
-	ASSERT_TRUE(Texture->SetSourceData(FTexture2DImportedData(Pixels), Error)) << Error;
+	ASSERT_TRUE(Texture->SetSourceData(FTextureSourceData(Pixels), Error)) << Error;
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
 	FTextureCubeSourceData Faces;
 	for (auto& Face : Faces.Faces) Face = Pixels;

@@ -43,7 +43,8 @@ namespace
 		Source.Format = ETextureSourceFormat::RGBA8;
 		Source.Pixels.resize(256 * 256 * 4, std::byte{42});
 		FTexture2DCompilationRequest Request;
-		Request.Build.ImportedData = FTexture2DImportedData(Source);
+		Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
+		Request.ResultApplication.SourceReplacement = Source.ToSource();
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
 		std::string Error;
@@ -92,7 +93,8 @@ namespace
 		SaturatedSource.Format = ETextureSourceFormat::RGBA8;
 		SaturatedSource.Pixels.resize(4);
 		FTexture2DCompilationRequest SaturatedRequest;
-		SaturatedRequest.Build.ImportedData = FTexture2DImportedData(SaturatedSource);
+		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource.ToSource());
+		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource.ToSource();
 		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest), Error,
 			[&](FTexture2DCompilationResult Result) {
 				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
@@ -117,7 +119,8 @@ namespace
 			Source.Format = ETextureSourceFormat::RGBA8;
 			Source.Pixels.resize(64 * 64 * 4, std::byte{42});
 			FTexture2DCompilationRequest Request;
-			Request.Build.ImportedData = FTexture2DImportedData(Source);
+			Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
+			Request.ResultApplication.SourceReplacement = Source.ToSource();
 			Request.Build.bPersistDerivedData = false;
 			std::string Error;
 			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), Error, [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; })) << Error;

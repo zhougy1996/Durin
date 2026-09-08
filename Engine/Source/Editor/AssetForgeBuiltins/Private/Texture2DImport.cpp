@@ -120,11 +120,11 @@ namespace Durin::AssetForge::Builtins
 			const FXxHash128 ContentHash = Snapshot.ContentHash;
 			const uint64 ByteCount = Snapshot.FileSize;
 			const std::string DisplayLabel = PhysicalPath.filename().generic_string();
+			FTextureSource Candidate = SourceData.ToSource();
 			return SubmitTexture2DCompilation(Texture, {
-				.Build = {
-					.ImportedData = std::move(SourceData),
-					.Settings = Settings},
+				.Build = MakeTexture2DBuildRequest(Candidate, Settings),
 				.ResultApplication = {
+					.SourceReplacement = std::move(Candidate),
 					.bMarkPackageDirty = bPublishImportData,
 					.bReportLoadMutation = !bPublishImportData},
 				.Priority = Priority}, OutError,
@@ -212,15 +212,14 @@ namespace Durin::AssetForge::Builtins
 		auto* Texture = NewObject<DTexture2D>(
 			InClass, Package, InName, Flags);
 		if (!Texture) return Failed("Texture2D object could not be created.");
-		if (!BuildTexture2DSynchronously(*Texture, {
-			.ImportedData = std::move(SourceData),
-			.Settings = {
+		FTextureSource Candidate = SourceData.ToSource();
+		if (!BuildTexture2DSynchronously(*Texture, MakeTexture2DBuildRequest(Candidate, {
 				.Usage = Settings.Usage,
 				.CompressionQuality = Settings.CompressionQuality,
 				.AlphaMipMode = Settings.AlphaMipMode,
 				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
 				.MaxResolution = Settings.MaxResolution,
-				.bSRGB = Settings.bSRGB}}, {}, Error))
+				.bSRGB = Settings.bSRGB}), {.SourceReplacement = Candidate}, Error))
 			return Failed(std::move(Error));
 		if (!PublishTexture2DImportData(
 			*Texture, std::move(SourceHint), HintBase,
@@ -369,7 +368,7 @@ namespace Durin::AssetForge::Builtins
 			.bSRGB = Texture.IsSRGB()};
 	}
 
-	auto RebuildTexture2DFromImportedData(
+	auto RebuildTexture2DFromSource(
 		DTexture2D& Texture,
 		const FTexture2DBuildSettings& Settings,
 		std::string& OutError,
@@ -382,9 +381,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		return SubmitTexture2DCompilation(Texture, {
-			.Build = {
-				.ImportedData = Texture.CreateBuildInput(),
-				.Settings = Settings},
+			.Build = Texture.CreateBuildRequest(Settings),
 			.ResultApplication = {
 				.bMarkPackageDirty = true,
 				.bReportLoadMutation = false,
@@ -449,7 +446,7 @@ namespace Durin::AssetForge::Builtins
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.Usage = Usage;
 		Settings.bSRGB = GetDefaultTextureSRGB(Usage);
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 
 	auto SetTexture2DSRGB(
@@ -458,7 +455,7 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.IsSRGB() == bSRGB) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.bSRGB = bSRGB;
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 
 	auto SetTexture2DMaxResolution(
@@ -467,7 +464,7 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.GetMaxResolution() == MaxResolution) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.MaxResolution = MaxResolution;
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 
 	auto SetTexture2DCompressionQuality(
@@ -483,7 +480,7 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.GetCompressionQuality() == Quality) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.CompressionQuality = Quality;
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 
 	auto SetTexture2DAlphaMipMode(
@@ -497,7 +494,7 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.GetAlphaMipMode() == Mode) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.AlphaMipMode = Mode;
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 
 	auto SetTexture2DAlphaCoverageThreshold(
@@ -511,6 +508,6 @@ namespace Durin::AssetForge::Builtins
 		if (Texture.GetAlphaCoverageThreshold() == Threshold) return true;
 		FTexture2DBuildSettings Settings = MakeTexture2DBuildSettings(Texture);
 		Settings.AlphaCoverageThreshold = Threshold;
-		return RebuildTexture2DFromImportedData(Texture, Settings, OutError);
+		return RebuildTexture2DFromSource(Texture, Settings, OutError);
 	}
 }

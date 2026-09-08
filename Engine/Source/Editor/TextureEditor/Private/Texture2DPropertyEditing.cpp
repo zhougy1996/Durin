@@ -118,10 +118,7 @@ namespace Durin::Editor::Texture
 					OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
 					return false;
 				}
-				return BuildTexture2DSynchronously(*Texture, {
-					.ImportedData = Texture->CreateBuildInput(),
-					.Settings = Settings,
-				}, {
+				return BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest(Settings), {
 					.bMarkPackageDirty = true,
 					.bReportLoadMutation = false,
 					.bSourceDecoderInvoked = false,
@@ -140,7 +137,7 @@ namespace Durin::Editor::Texture
 					std::string Error;
 					const auto DeferredCompletion =
 						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
-					if (!AssetForge::Builtins::RebuildTexture2DFromImportedData(
+					if (!AssetForge::Builtins::RebuildTexture2DFromSource(
 						*LiveTexture,
 						Settings,
 						Error,

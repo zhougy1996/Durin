@@ -302,7 +302,8 @@ namespace
 				Source.SourceChannelCount = 4;
 				Source.Format = ETextureSourceFormat::RGBA8;
 				Source.Pixels.resize(64 * 64 * 4, static_cast<std::byte>(Batch + 1));
-				Request.Build.ImportedData = FTexture2DImportedData(Source);
+				Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
+				Request.ResultApplication.SourceReplacement = Source.ToSource();
 				Request.Build.bPersistDerivedData = false;
 			}
 			uint32 Completions = 0;

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Asset/Cook.h"
-#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
 #include "RHIResources.h"
@@ -13,53 +12,8 @@ namespace Durin
 {
 	class FArchive;
 	struct FTextureBuildOperations;
-
-	inline constexpr FGuid Texture2DImportedPixelsPayloadId{
-		0x7f3301ba, 0x7c9f45c6, 0x8a8ab67c, 0xc85dc65e};
-	inline constexpr uint32 Texture2DImportedDataSchemaVersion = 1;
-	inline constexpr uint64 MaximumTexture2DImportedPixelBytes =
-		512ull * 1024ull * 1024ull;
-
-	// Detached request snapshot of canonical RGBA8 source; never asset-resident.
-	DSTRUCT()
-	struct FTexture2DImportedData
-	{
-		GENERATED_BODY()
-
-		FTexture2DImportedData() = default;
-		ENGINE_API FTexture2DImportedData(const FTextureSourceData& Source);
-		ENGINE_API FTexture2DImportedData(FTextureSourceData&& Source);
-
-		DPROPERTY()
-		FEditorBulkData Pixels;
-
-		DPROPERTY()
-		uint32 Width = 0;
-
-		DPROPERTY()
-		uint32 Height = 0;
-
-		DPROPERTY()
-		uint8 SourceChannelCount = 0;
-
-		DPROPERTY()
-		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
-
-		DPROPERTY()
-		bool bHasTransparency = false;
-
-		DPROPERTY()
-		uint32 SchemaVersion = Texture2DImportedDataSchemaVersion;
-
-		// Detached recipe-only mip chain. Persistent authored storage lives in FTextureSource.
-		std::vector<FTextureSourceData> SuppliedMips;
-		FXxHash128 CanonicalSourceIdentity;
-
-		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto SetSourceData(const FTextureSourceData& Source) -> bool;
-		ENGINE_API auto ToSourceData() const -> FTextureSourceData;
-		ENGINE_API auto GetIdentity() const -> FXxHash128;
-	};
+	struct FTexture2DBuildRequest;
+	struct FTexture2DBuildSettings;
 
 	class DTexture2D;
 	class FTextureCompilingManager;
@@ -88,8 +42,10 @@ namespace Durin
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
+		// Replaces authored source on the GameThread and cancels pending builds.
+		using DTexture::SetSource;
 		ENGINE_API auto SetSourceData(
-			const FTexture2DImportedData& Value, std::string& OutError) -> bool;
+			const FTextureSourceData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetSourceMipChain(std::span<const Image::FImageView> Mips,
 			uint8 SourceChannelCount, uint8 TransparencyMask,
 			std::string& OutError) -> bool;
@@ -97,8 +53,9 @@ namespace Durin
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
 			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold,
 			std::string& OutError) -> bool;
-		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
-		ENGINE_API auto CreateBuildInput() const -> FTexture2DImportedData;
+		// Reads/decompresses source on the caller thread. Failure returns an empty mip chain.
+		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
+			-> FTexture2DBuildRequest;
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTexturePlatformData*
 		{

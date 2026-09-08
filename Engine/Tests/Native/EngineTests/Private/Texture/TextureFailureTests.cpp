@@ -87,7 +87,7 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	Source.Format = Durin::ETextureSourceFormat::RGBA8;
 	Source.Pixels.resize(4);
 	std::string Error;
-	ASSERT_TRUE(Texture->SetSourceData(Durin::FTexture2DImportedData(Source), Error)) << Error;
+	ASSERT_TRUE(Texture->SetSourceData(Durin::FTextureSourceData(Source), Error)) << Error;
 	const auto Saved = Durin::SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));

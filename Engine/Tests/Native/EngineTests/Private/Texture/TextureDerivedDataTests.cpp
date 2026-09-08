@@ -90,7 +90,7 @@ namespace
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
 	Durin::FTexture2DBuildKeyInput Input{
-		.ImportedDataIdentity = {0x0123456789abcdefull, 0xfedcba9876543210ull},
+		.SourceIdentity = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.Usage = Durin::ETextureUsage::Color,
 		.bSRGB = true,
 		.CompressionQuality = Durin::ETextureCompressionQuality::Normal,
@@ -101,7 +101,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetProfile = Durin::ECookTargetProfile::Game};
 	const Durin::FCacheKeyProxy Baseline =
 		Durin::BuildTexture2DDerivedDataKey(Input);
-	EXPECT_EQ(Baseline.ToString(), "cdd3bcbe366a71238c7d41125720ceb0");
+	EXPECT_EQ(Baseline.ToString(), "7743071cee9809103a79b69e3c706b09");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DBuildKeyInput& Changed) {
@@ -109,7 +109,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 			Changed), Baseline);
 	};
 	auto Changed = Input;
-	Changed.ImportedDataIdentity.HashLow ^= 1;
+	Changed.SourceIdentity.HashLow ^= 1;
 	ExpectChange(Changed);
 	Changed = Input;
 	Changed.Usage = Durin::ETextureUsage::Normal;

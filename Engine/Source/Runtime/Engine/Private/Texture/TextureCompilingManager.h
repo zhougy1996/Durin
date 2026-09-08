@@ -8,32 +8,15 @@
 
 namespace Durin
 {
-	struct FTexture2DBuildSettingsSnapshot
-	{
-		ETextureUsage Usage = ETextureUsage::Color;
-		bool bSRGB = true;
-		uint32 MaxResolution = 0;
-		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
-		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
-		float AlphaCoverageThreshold = 0.5f;
-
-		auto operator==(const FTexture2DBuildSettingsSnapshot&) const -> bool = default;
-	};
-
 	struct FTexture2DCompilationWork
 	{
 		std::string AssetIdentity;
-		FTexture2DImportedData ImportedData;
-		FXxHash128 ImportedDataIdentity;
-		FTexture2DBuildSettingsSnapshot Settings;
+		FTexture2DBuildRequest Build;
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
 		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
-		bool bPersistDerivedData = true;
 		bool bSourceDecoderInvoked = false;
 	};
 
@@ -43,9 +26,6 @@ namespace Durin
 		FObjectHandle Owner;
 		uint64 RequestSerial = 0;
 		std::string AssetIdentity;
-		FXxHash128 ImportedDataIdentity;
-		FTexture2DBuildSettingsSnapshot Settings;
-		std::unique_ptr<FTexture2DImportedData> ImportedData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		FCacheKeyProxy DerivedDataKey;
 		std::string PersistenceDiagnostic;
