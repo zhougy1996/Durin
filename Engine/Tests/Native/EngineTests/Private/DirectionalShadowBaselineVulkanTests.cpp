@@ -1366,17 +1366,11 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowStaticSplinePrimitiveFactBuilds,
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount);
 	EXPECT_EQ(
-		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowStaticSplinePrimitiveFactReuses, 0u);
-	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowSelectedLODFactBuilds,
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount);
 	EXPECT_EQ(
-		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowSelectedLODFactReuses, 0u);
-	EXPECT_EQ(
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowStaticSplineSectionFactBuilds,
 		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowMembershipPopcount);
-	EXPECT_EQ(
-		ThreeCascades.LastTelemetry.DirectionalShadow.ShadowStaticSplineSectionFactReuses, 0u);
 	EXPECT_GT(SingleLogical.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeLogical.MedianNanoseconds, 0u);
 	EXPECT_GT(CascadeDiscovery.MedianNanoseconds, 0u);

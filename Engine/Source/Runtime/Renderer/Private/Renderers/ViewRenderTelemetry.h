@@ -130,11 +130,8 @@ namespace Durin
 		size_t ShadowMembershipPopcount = 0;
 		size_t ShadowTemporaryBytes = 0;
 		size_t ShadowStaticSplinePrimitiveFactBuilds = 0;
-		size_t ShadowStaticSplinePrimitiveFactReuses = 0;
 		size_t ShadowSelectedLODFactBuilds = 0;
-		size_t ShadowSelectedLODFactReuses = 0;
 		size_t ShadowStaticSplineSectionFactBuilds = 0;
-		size_t ShadowStaticSplineSectionFactReuses = 0;
 		uint64 ShadowDiscoveryMembershipNanoseconds = 0;
 		uint64 ShadowStaticSplinePreparationNanoseconds = 0;
 		uint64 ShadowSortingBatchingNanoseconds = 0;

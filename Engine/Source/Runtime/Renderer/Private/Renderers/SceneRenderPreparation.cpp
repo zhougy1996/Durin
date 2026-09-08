@@ -179,19 +179,11 @@ namespace Durin
 						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplinePrimitiveFactBuilds +=
 							StaticMeshes.SharedPrimitiveFactBuilds;
-						Telemetry.View.DirectionalShadow.
-							ShadowStaticSplinePrimitiveFactReuses +=
-							StaticMeshes.SharedPrimitiveFactReuses;
 						Telemetry.View.DirectionalShadow.ShadowSelectedLODFactBuilds +=
 							StaticMeshes.SelectedLODFactBuilds;
-						Telemetry.View.DirectionalShadow.ShadowSelectedLODFactReuses +=
-							StaticMeshes.SelectedLODFactReuses;
 						Telemetry.View.DirectionalShadow.
 							ShadowStaticSplineSectionFactBuilds +=
 							StaticMeshes.SharedSectionFactBuilds;
-						Telemetry.View.DirectionalShadow.
-							ShadowStaticSplineSectionFactReuses +=
-							StaticMeshes.SharedSectionFactReuses;
 						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 							for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 								for (auto& Draw : *Bucket)
