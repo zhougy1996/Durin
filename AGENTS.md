@@ -11,6 +11,9 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Repository Rules
 
+- Invoke the repository tool as `.\DevTool.bat` on Windows and `./DevTool` on
+  macOS or Linux. When documentation shows the Windows spelling, translate it
+  to the POSIX launcher on a POSIX host.
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
 - Run Git operations with the checkout's absolute path supplied command-locally,
   for example `git -c safe.directory=<absolute-checkout-path> status`; do not

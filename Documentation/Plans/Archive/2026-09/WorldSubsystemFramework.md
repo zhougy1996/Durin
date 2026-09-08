@@ -142,7 +142,7 @@ from the task API available at implementation time.
 - [x] Specify Tick admission for empty, stopped, paused, stepped, editor, and
   preview Worlds, including host update placement and mutation behavior.
 - [x] Select asynchronous retirement mechanics, checking the active
-  [Async Task Framework Refactor](../../AsyncTaskFrameworkRefactor.md) for API overlap;
+  [Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md) for API overlap;
   record any actual implementation dependency before proceeding.
 
 Completion: the above decisions are recorded in this plan with concrete source

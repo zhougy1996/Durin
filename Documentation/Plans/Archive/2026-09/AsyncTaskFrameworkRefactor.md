@@ -4,7 +4,7 @@ Summary: Refactor task composition, admission, owner lifetime, and executor boun
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -13,8 +13,8 @@ Subsequent simplification (2026-09-08): Texture now owns pending-request trackin
 compute-result polling and GameThread delivery directly. The Core owner-operation
 queue/ticket abstraction and separate retained-result byte budget were removed.
 The stage receipts below describe the completed original implementation; current
-behavior is authoritative in [Asset compilation](../Runtime/Assets/AssetCompilation.md)
-and [Task system](../Runtime/Core/TaskSystem.md).
+behavior is authoritative in [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
+and [Task system](../../../Runtime/Core/TaskSystem.md).
 
 Stages 0 through 5 are implemented and qualified. Package reads use bounded
 blocking I/O and shared outcome composition. Texture compute returns unique
@@ -466,7 +466,7 @@ auto ComposePackageRead(
     const Tasks::FTaskExecutionOptions& TransformOptions) -> FReadAdmission
 {
     auto ReadAdmission = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::BlockingIO,
-        ReadOptions, [Snapshot = std::move(Snapshot)](Tasks::FTaskContext& Context) {
+        ReadOptions, [Snapshot = std::move(Snapshot)](../../Tasks::FTaskContext& Context) {
             return Snapshot.Read(Context.GetCancellationToken());
         });
     if (!ReadAdmission.HasValue()) return ReadAdmission;
@@ -474,7 +474,7 @@ auto ComposePackageRead(
     auto Read = std::move(ReadAdmission).TakeValue();
     auto Next = Tasks::Then(std::move(Read), Tasks::ETaskExecutor::Worker,
         TransformOptions,
-        [Transform = std::move(Transform)](FPackageResourceReadResult&& Input) mutable {
+        [Transform = std::move(Transform)](../../FPackageResourceReadResult&& Input) mutable {
             return Transform(std::move(Input));
         });
     if (!Next.HasValue())
@@ -522,7 +522,7 @@ auto FTextureOwner::Accept(FTextureBuildSnapshot Snapshot)
     Tasks::FTaskExecutionOptions Options = Snapshot.ExecutionOptions;
     Options.Cancellation = Ticket.GetCancellationToken();
     auto Build = Tasks::TrySpawn(Group, Tasks::ETaskExecutor::Worker, Options,
-        [Snapshot = std::move(Snapshot)](Tasks::FTaskContext& Context) mutable {
+        [Snapshot = std::move(Snapshot)](../../Tasks::FTaskContext& Context) mutable {
             return Snapshot.Build(Context.GetCancellationToken());
         });
     if (!Build.HasValue())
@@ -537,7 +537,7 @@ auto FTextureOwner::Accept(FTextureBuildSnapshot Snapshot)
 auto FTextureOwner::Pump() -> void
 {
     Records.PumpAuthorizedCommit(CurrentGeneration,
-        [this](FTexture2DCompilationWorkResult&& Work) {
+        [this](../../FTexture2DCompilationWorkResult&& Work) {
             return ApplyTextureResult(std::move(Work));
         });
 }
@@ -1349,8 +1349,8 @@ contracts describe the implemented ownership and completion behavior.
 
 ## Validation and Handoff
 
-Follow [agent build guidance](../Agents/BuildAndRun.md) before build/run work and
-[agent testing guidance](../Agents/Testing.md) before selecting native tests.
+Follow [agent build guidance](../../../Agents/BuildAndRun.md) before build/run work and
+[agent testing guidance](../../../Agents/Testing.md) before selecting native tests.
 Discover current registered targets rather than inferring them from filenames.
 Use bounded synchronization and deterministic fault injection for race tests.
 Run affected validation at each implementation handoff; broaden only for changed
@@ -1373,10 +1373,10 @@ preserve its owner registration and retirement boundary.
 
 ## Related Documentation
 
-- [CPU task system](../Runtime/Core/TaskSystem.md)
-- [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Async asset operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset compilation](../Runtime/Assets/AssetCompilation.md)
+- [CPU task system](../../../Runtime/Core/TaskSystem.md)
+- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Async asset operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset compilation](../../../Runtime/Assets/AssetCompilation.md)
 
 ## Related Code
 

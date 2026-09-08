@@ -4,7 +4,7 @@ Summary: Replace subsystem callback depth with World operation boundaries, retai
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status

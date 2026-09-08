@@ -443,8 +443,8 @@ sentinel. The new `Tasks::ParallelFor` takes `FParallelForPolicyOptions` with
 `Auto`, `Serial`, or `ExplicitBatch`. ExplicitBatch rejects zero. Auto uses a
 16,384-element parallel threshold, a 2,048-element minimum batch above that
 threshold, at most CPU Worker count plus caller chunks, and serial nesting. This decision
-is based on the bounded Windows Release hash workload recorded in the active
-[refactor plan](../../Plans/AsyncTaskFrameworkRefactor.md); it is not a promise
+is based on the bounded Windows Release hash workload recorded in the archived
+[refactor plan](../../Plans/Archive/2026-09/AsyncTaskFrameworkRefactor.md); it is not a promise
 that arbitrary tiny callbacks or other hardware improve. Callers can select
 Serial or an explicitly measured batch for their workload. Cancellation polling
 uses atomic reads; cancellation registration and publication retain their locks.

@@ -20,7 +20,7 @@ below for the confirmed environment cause and retained GPU coverage.
 
 This is the foundation for
 [StaticMesh authored compilation](StaticMeshAuthoredCompilation.md) and
-[StaticMesh payload inspection](../../StaticMeshPayloadInspection.md).
+[StaticMesh payload inspection](StaticMeshPayloadInspection.md).
 
 ## Goal
 

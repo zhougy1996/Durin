@@ -673,11 +673,11 @@ and [Testing workflow](../Agents/Testing.md). Follow repository test-registratio
 rules when adding native tests. Committing this plan runs only documentation and
 plan lifecycle validation; it does not complete any implementation stage above.
 
-[Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md) is changing task
-integration for package reads and texture compilation. Reuse production APIs that
-have been accepted there at the time of use. If this plan needs a capability that
-has not passed that plan's gates, explicitly mark the corresponding task as blocked
-on the dependency. Do not create a second scheduler or migrate its pilot early.
+The archived [Async Task Framework Refactor](Archive/2026-09/AsyncTaskFrameworkRefactor.md)
+qualified task integration for package reads and texture compilation. Reuse the
+landed production APIs, and explicitly record any additional capability this plan
+needs before depending on it. Do not create a second scheduler or migrate its pilot
+early.
 
 UE's [ReloadPackages](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/CoreUObject/ReloadPackages)
 and

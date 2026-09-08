@@ -214,7 +214,7 @@ Depends on Stage 2.
   with generic source snapshots; retain only necessary typed recipe settings.
 - [x] Migrate Texture2D, Cube, Volume, Scene texture imports, previews, and
   thumbnails. Coordinate importer entrypoints with the active
-  [Content Browser Import Extensions plan](../../ContentBrowserImportExtensions.md).
+  [Content Browser Import Extensions plan](ContentBrowserImportExtensions.md).
 - [x] Persist decoded full-precision panoramas; derive cube faces and exposure
   in the recipe. Rebuild after parameter changes without imported-file access.
 - [x] Define supplied-mip preservation versus mip generation explicitly. Publish

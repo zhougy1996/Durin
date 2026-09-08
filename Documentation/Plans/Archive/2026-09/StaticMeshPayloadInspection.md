@@ -4,7 +4,7 @@ Summary: Move StaticMesh inspection aggregation to the editor and expose read-on
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -185,11 +185,11 @@ Completion: read-only behavior, module boundaries, UI, and documentation agree.
 
 ## Validation And Contract Owners
 
-Use [build workflow](../Agents/BuildAndRun.md) and
-[testing workflow](../Agents/Testing.md) for implementation validation.
-Contracts: [StaticMesh Inspector](../Editor/Guides/StaticMeshInspector.md),
-[asset lifecycle](../Runtime/Assets/AssetDataLifecycle.md), and
-[package bulk data](../Runtime/Assets/BulkData.md).
+Use [build workflow](../../../Agents/BuildAndRun.md) and
+[testing workflow](../../../Agents/Testing.md) for implementation validation.
+Contracts: [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md),
+[asset lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md), and
+[package bulk data](../../../Runtime/Assets/BulkData.md).
 
 ## Related Code
 

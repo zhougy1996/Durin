@@ -163,7 +163,7 @@ Depends on Stage 3.
   normal completion publication does not run collision construction.
 - [x] Update asset compilation, asset lifecycle, async editor operations, and
   StaticMesh rendering contracts; supply the diagnostic snapshot API needed by
-  [payload inspection](../../StaticMeshPayloadInspection.md).
+  [payload inspection](StaticMeshPayloadInspection.md).
 - [x] Record actual target results and outstanding host limitations; complete
   only when required acceptance gates are satisfied.
 

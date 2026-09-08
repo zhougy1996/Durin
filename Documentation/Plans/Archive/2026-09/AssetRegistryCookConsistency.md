@@ -4,7 +4,7 @@ Summary: Separate owned Registry queries from live admission and make Cook reuse
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -406,8 +406,8 @@ no unvalidated draft or unresolved input-isolation claim remains.
 
 ## Validation and Handoff
 
-Follow [Build and Run](../Agents/BuildAndRun.md) and
-[Testing](../Agents/Testing.md). Query registered targets rather than inferring
+Follow [Build and Run](../../../Agents/BuildAndRun.md) and
+[Testing](../../../Agents/Testing.md). Query registered targets rather than inferring
 targets from legacy source directory names. Initial relevant registered targets
 include `PackageRegistryContractTests`, `AssetCookTests`, and
 `AssetPackageTests`; use affected selection for handoff and exact integration
@@ -461,8 +461,8 @@ inspect selection; it is not validation evidence. The completed stages supersede
 
 ## References
 
-- [Asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [UE temporary Registry state API](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/AssetRegistry/AssetRegistry/IAssetRegistry/InitializeTempor-?application_version=5.5)
 - [UE Cook development reference](https://dev.epicgames.com/documentation/unreal-engine/cplusplus-cooking-development-reference)
 

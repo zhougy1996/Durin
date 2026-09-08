@@ -4,7 +4,7 @@ Summary: Simplify Cook around a dedicated process and workflow-stable source tre
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -367,8 +367,8 @@ Stage 4 evidence (2026-09-08, macos-xcode-arm64 / MacOS-arm64-Debug-DurinEditor)
 
 ## Validation and Handoff
 
-Follow [Build and Run](../Agents/BuildAndRun.md) and
-[Testing](../Agents/Testing.md) before selecting or running native validation.
+Follow [Build and Run](../../../Agents/BuildAndRun.md) and
+[Testing](../../../Agents/Testing.md) before selecting or running native validation.
 Query registered tool/integration targets; do not infer target names from source
 folders. Use focused tests during migration and affected native selection at
 handoff. Existing Registry, dependency/state, runtime load and mutation tests
@@ -390,5 +390,5 @@ validation with stage commits, and the registered native gates for runtime chang
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp`
 - `Engine/Source/Runtime/Engine/Private/Asset/EngineCookContributors.cpp`
 - `Engine/Source/Runtime/Engine/Public/Asset/Cook.h`
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset catalog and mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset catalog and mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)

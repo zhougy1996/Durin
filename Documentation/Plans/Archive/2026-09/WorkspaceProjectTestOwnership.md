@@ -4,7 +4,7 @@ Summary: Declare workspace projects and project test roots once and use their ow
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status

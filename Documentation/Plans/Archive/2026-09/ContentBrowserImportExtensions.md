@@ -4,7 +4,7 @@ Summary: Register feature-owned Content Browser import workflows and retire the 
 
 Last reviewed: 2026-09-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-07
 
 ## Current Status
@@ -403,12 +403,12 @@ Gaps to close:
 
 ## Related Documentation
 
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

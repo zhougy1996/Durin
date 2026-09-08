@@ -54,9 +54,9 @@ or promise that first use never waits.
   concurrency budgets for one device lifetime. Reuse results, dependencies,
   cancellation, and admission from the
   [CPU Task System](../Runtime/Core/TaskSystem.md), without another generic
-  future framework. Its API is evolving through the
-  [Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md); verify landed
-  interfaces before implementation rather than assuming all its gates passed.
+  future framework. Its API was qualified by the archived
+  [Async Task Framework Refactor](Archive/2026-09/AsyncTaskFrameworkRefactor.md);
+  use the landed interfaces rather than assuming additional capabilities.
 - Backends declare direct, background, and context-required operations. Vulkan
   factories must not access `GCommandListExecutor` or implicitly wait for replay.
   The facade explicitly schedules context operations without another universal
