@@ -1,19 +1,25 @@
 #include "World/WorldServiceTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/PackageSerialization.h"
+#include "Asset/Load.h"
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
 #include "Collision/CollisionGeometry.h"
 #include "Components/ShapeComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
+#include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/Package.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "NativeDObjectTestSupport.h"
+#include "NativeTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsScene.h"
 #include "StaticMesh/StaticMesh.h"
@@ -90,7 +96,7 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 	ASSERT_NE(EnabledProperty, nullptr);
 	auto* Body = BodyProperty->ContainerPtrToValuePtr<Durin::FBodyInstance>(Component);
 	ASSERT_NE(Body, nullptr);
-	ASSERT_EQ(Body->ProfileName, Durin::CollisionProfile::NoCollision);
+	ASSERT_EQ(Body->CollisionProfileName, Durin::CollisionProfile::NoCollision);
 
 	Body->CollisionEnabled = Durin::ECollisionEnabled::QueryOnly;
 	const std::array Path{
@@ -106,6 +112,176 @@ TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePrevious
 	EXPECT_TRUE(Component->GetCollisionProfileName().IsNone());
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, RestoringSettingsDoesNotConvertPresetsToCustom)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	auto* Box = NewObject<DBoxComponent>(nullptr, "RestoredProfile");
+	auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
+	ASSERT_NE(Property, nullptr);
+	auto* Enabled = static_cast<FStructProperty*>(Property)->GetStruct()->FindPropertyByName("CollisionEnabled");
+	ASSERT_NE(Enabled, nullptr);
+	for (const auto Origin : {EPropertyChangeOrigin::Undo, EPropertyChangeOrigin::Redo})
+	{
+		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::Trigger));
+		Box->PostEditChangeProperty({Property, Enabled, {}, EPropertyChangePhase::Committed,
+			EPropertyChangeKind::ValueSet, Origin});
+		EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
+	}
+	Box->PostEditChangeProperty({Property, Enabled, {}, EPropertyChangePhase::Cancelled});
+	EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
+	Box->PostEditChangeProperty({Property, Property, {}, EPropertyChangePhase::Committed});
+	EXPECT_EQ(Box->GetCollisionProfileName(), CollisionProfile::Trigger);
+	MarkObjectHierarchyAsGarbage(Box);
+	CollectGarbage();
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, CollisionArchivesPreserveCustomResponsesAndQueryBehavior)
+{
+	using namespace Durin;
+	auto* World = CreatePhysicsWorld();
+	auto* Box = AddWorldBox(*World, FVector3(0.0), FVector3(1.0));
+	auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
+	ASSERT_NE(Property, nullptr);
+	auto* Body = Property->ContainerPtrToValuePtr<FBodyInstance>(Box);
+	for (const auto Purpose : {EArchivePurpose::PropertySnapshot, EArchivePurpose::Duplicate,
+		EArchivePurpose::AuthoredPackage, EArchivePurpose::CookedPackage})
+	{
+		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::BlockAll));
+		Box->SetCollisionResponseToChannel(ECollisionChannel::Visibility, ECollisionResponse::Ignore);
+		Box->SetCollisionResponseToChannel(ECollisionChannel::Camera, ECollisionResponse::Overlap);
+		FByteBuffer Bytes;
+		FObjectMemoryWriter Writer(Bytes, Purpose);
+		SerializeReflectedPropertyValue(Writer, *Property, Box);
+		ASSERT_FALSE(Writer.HasError());
+		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::NoCollision));
+		FObjectMemoryReader Reader(Bytes, Purpose);
+		SerializeReflectedPropertyValue(Reader, *Property, Box);
+		ASSERT_FALSE(Reader.HasError());
+		EXPECT_TRUE(Box->GetCollisionProfileName().IsNone());
+		EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Visibility), ECollisionResponse::Ignore);
+		EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Camera), ECollisionResponse::Overlap);
+		EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Pawn), ECollisionResponse::Block);
+		Box->RecreatePhysicsState();
+		FHitResult Hit;
+		EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, FVector3(-2.0, 0.0, 0.0),
+			FVector3(2.0, 0.0, 0.0), ECollisionChannel::Visibility));
+		EXPECT_FALSE(World->LineTraceSingleByChannel(Hit, FVector3(-2.0, 0.0, 0.0),
+			FVector3(2.0, 0.0, 0.0), ECollisionChannel::Camera));
+		EXPECT_TRUE(World->LineTraceSingleByChannel(Hit, FVector3(-2.0, 0.0, 0.0),
+			FVector3(2.0, 0.0, 0.0), ECollisionChannel::Pawn));
+	}
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage();
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, ProfileArchivesResolvePresetAndRejectUnknownNames)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	auto* Box = NewObject<DBoxComponent>(nullptr, "ProfileArchive");
+	auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
+	ASSERT_NE(Property, nullptr);
+	auto* Body = Property->ContainerPtrToValuePtr<FBodyInstance>(Box);
+	for (const FName Name : {CollisionProfile::Trigger, FName("MissingProfile")})
+	{
+		Body->CollisionProfileName = Name;
+		Body->Responses = FCollisionResponseContainer(ECollisionResponse::Block);
+		FByteBuffer Bytes;
+		FObjectMemoryWriter Writer(Bytes, EArchivePurpose::PropertySnapshot);
+		SerializeReflectedPropertyValue(Writer, *Property, Box);
+		ASSERT_FALSE(Writer.HasError());
+		FObjectMemoryReader Reader(Bytes, EArchivePurpose::PropertySnapshot);
+		SerializeReflectedPropertyValue(Reader, *Property, Box);
+		EXPECT_EQ(Reader.HasError(), Name != CollisionProfile::Trigger);
+		if (Name == CollisionProfile::Trigger)
+		{
+			EXPECT_EQ(Body->CollisionEnabled, ECollisionEnabled::QueryOnly);
+			for (const auto Response : Body->Responses.Responses)
+				EXPECT_EQ(Response, ECollisionResponse::Overlap);
+		}
+	}
+	MarkObjectHierarchyAsGarbage(Box);
+	CollectGarbage();
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveCollisionSettings)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	const auto Root = Testing::GetTestWorkDirectory() / "CollisionPersistence";
+	Testing::RegisterMountPointForTests("/CollisionPersistence/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CollisionPersistence/Level", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	auto* Actor = Level->SpawnActor<ACameraActor>("CollisionOwner");
+	ASSERT_NE(Actor, nullptr);
+	for (const FName Name : {FName("Trigger"), FName("Custom")})
+	{
+		auto* Box = Cast<DBoxComponent>(Actor->AddInstanceComponent(DBoxComponent::StaticClass(), Name));
+		ASSERT_NE(Box, nullptr);
+		ASSERT_TRUE(Box->SetCollisionProfileName(CollisionProfile::Trigger));
+		if (Name == FName("Custom"))
+		{
+			Box->SetCollisionResponseToChannel(ECollisionChannel::Visibility, ECollisionResponse::Ignore);
+			Box->SetCollisionResponseToChannel(ECollisionChannel::Pawn, ECollisionResponse::Block);
+		}
+	}
+	ASSERT_TRUE(SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
+	DLevel* Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	auto* Copy = DuplicateObject(Loaded, nullptr, "CollisionCopy");
+	ASSERT_NE(Copy, nullptr);
+	for (auto* Current : {Loaded, Copy})
+	{
+		auto* Owner = Current->FindActorByName("CollisionOwner");
+		ASSERT_NE(Owner, nullptr);
+		uint32 BoxCount = 0;
+		for (const auto& Entry : Owner->GetComponents())
+		{
+			auto* Box = Cast<DBoxComponent>(Entry);
+			if (!Box) continue;
+			++BoxCount;
+			auto* Property = Box->GetClass()->FindPropertyByName("BodyInstance");
+			ASSERT_NE(Property, nullptr);
+			const auto* Body = Property->ContainerPtrToValuePtr<FBodyInstance>(Box);
+			const bool bCustom = Box->GetCollisionProfileName().IsNone();
+			EXPECT_EQ(bCustom, Box->GetFName() == FName("Custom"));
+			EXPECT_EQ(Body->CollisionEnabled, ECollisionEnabled::QueryOnly);
+			EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Visibility),
+				bCustom ? ECollisionResponse::Ignore : ECollisionResponse::Overlap);
+			EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Pawn),
+				bCustom ? ECollisionResponse::Block : ECollisionResponse::Overlap);
+			EXPECT_EQ(Body->Responses.GetResponse(ECollisionChannel::Camera), ECollisionResponse::Overlap);
+		}
+		EXPECT_EQ(BoxCount, 2u);
+	}
+	MarkObjectHierarchyAsGarbage(Copy);
+	CollectGarbage();
+	EXPECT_TRUE(UnloadPackage(Path));
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, MigratesLegacyProfileNamesIncludingCustom)
+{
+	using namespace Durin;
+	const std::array Loaded{FName("ProfileName_DEPRECATED")};
+	FDStructPostDeserializeContext Context;
+	Context.LoadedDeprecatedProperties = Loaded;
+	for (const FName Name : {CollisionProfile::Trigger, FName()})
+	{
+		FBodyInstance Body;
+		Body.ProfileName_DEPRECATED = Name;
+		ASSERT_TRUE(TDStructOpsTraits<FBodyInstance>::PostDeserialize(Body, Context));
+		EXPECT_EQ(Body.CollisionProfileName, Name);
+		EXPECT_TRUE(Body.ProfileName_DEPRECATED.IsNone());
+		EXPECT_EQ(Body.Responses.GetResponse(ECollisionChannel::Visibility),
+			Name.IsNone() ? ECollisionResponse::Block : ECollisionResponse::Overlap);
+	}
 }
 
 TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)

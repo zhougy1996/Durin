@@ -42,9 +42,14 @@ namespace Durin
 	};
 
 	// Stores one response for every low-level physics channel.
+	DSTRUCT()
 	struct FCollisionResponseContainer
 	{
-		std::array<ECollisionResponse, MaximumPhysicsChannels> Responses{};
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		ECollisionResponse Responses[32]{};
+		static_assert(MaximumPhysicsChannels == 32);
 
 		ENGINE_API FCollisionResponseContainer();
 		ENGINE_API explicit FCollisionResponseContainer(ECollisionResponse DefaultResponse);

@@ -52,7 +52,7 @@ namespace Durin
 		ENGINE_API auto SetCollisionEnabled(ECollisionEnabled Enabled) -> void;
 		ENGINE_API auto SetCollisionObjectType(ECollisionChannel Channel) -> void;
 		ENGINE_API auto SetCollisionResponseToChannel(ECollisionChannel Channel, ECollisionResponse Response) -> void;
-		auto GetCollisionProfileName() const -> FName { return BodyInstance.ProfileName; }
+		auto GetCollisionProfileName() const -> FName { return BodyInstance.CollisionProfileName; }
 		auto GetCollisionEnabled() const -> ECollisionEnabled { return BodyInstance.CollisionEnabled; }
 		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }

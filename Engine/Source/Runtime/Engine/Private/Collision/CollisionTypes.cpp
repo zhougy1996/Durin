@@ -9,7 +9,7 @@ namespace Durin
 
 	FCollisionResponseContainer::FCollisionResponseContainer(ECollisionResponse DefaultResponse)
 	{
-		Responses.fill(DefaultResponse);
+		std::ranges::fill(Responses, DefaultResponse);
 	}
 
 	auto FCollisionResponseContainer::SetResponse(

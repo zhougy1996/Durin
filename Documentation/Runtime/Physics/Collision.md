@@ -153,7 +153,19 @@ render ownership.
 ## Profiles, queries, and results
 
 Built-in profiles are `NoCollision`, `BlockAll`, `WorldStatic`, `Pawn`, and
-`Trigger`. Responses are resolved from both the querying channel and body
+`Trigger`. `FBodyInstance::CollisionProfileName` selects an authoritative preset;
+an empty name selects Custom. Editing an individual filter setting leaves the
+preset. The response container and every channel response participate in reflected
+serialization, including Custom settings. Struct post-deserialization resolves
+named presets before runtime publication and rejects unknown names. Setters and
+editor callbacks use the same side-effect-free profile resolver.
+
+Historical `ProfileName` fields load through `ProfileName_DEPRECATED` and migrate
+to `CollisionProfileName`; named profiles restore their complete filter data.
+Old Custom responses that were never stored cannot be recovered and retain the
+construction defaults. Physics handles and publication revisions remain transient.
+
+Responses are resolved from both the querying channel and body
 object channel. Ignore removes a candidate, Overlap participates only in
 overlap queries, and Block participates in closest-hit queries.
 

@@ -43,12 +43,13 @@ namespace Durin
 
 	auto DPrimitiveComponent::SetCollisionProfileName(FName ProfileName) -> bool
 	{
-		CollisionProfile::FProfile Profile;
-		if (!CollisionProfile::Resolve(ProfileName, Profile)) return false;
-		BodyInstance.ProfileName = ProfileName;
-		BodyInstance.CollisionEnabled = Profile.Enabled;
-		BodyInstance.ObjectChannel = Profile.ObjectChannel;
-		BodyInstance.Responses = Profile.Responses;
+		const FName PreviousName = BodyInstance.CollisionProfileName;
+		BodyInstance.CollisionProfileName = ProfileName;
+		if (ProfileName.IsNone() || !BodyInstance.LoadProfileData())
+		{
+			BodyInstance.CollisionProfileName = PreviousName;
+			return false;
+		}
 		MarkPackageDirty();
 		OnCollisionSettingsChanged();
 		return true;
@@ -58,7 +59,7 @@ namespace Durin
 	{
 		if (BodyInstance.CollisionEnabled == Enabled) return;
 		BodyInstance.CollisionEnabled = Enabled;
-		BodyInstance.ProfileName = FName();
+		BodyInstance.CollisionProfileName = FName();
 		MarkPackageDirty();
 		OnCollisionSettingsChanged();
 	}
@@ -66,7 +67,7 @@ namespace Durin
 	auto DPrimitiveComponent::SetCollisionObjectType(ECollisionChannel Channel) -> void
 	{
 		BodyInstance.ObjectChannel = Channel;
-		BodyInstance.ProfileName = FName();
+		BodyInstance.CollisionProfileName = FName();
 		MarkPackageDirty();
 		OnCollisionSettingsChanged();
 	}
@@ -76,7 +77,7 @@ namespace Durin
 	) -> void
 	{
 		BodyInstance.Responses.SetResponse(Channel, Response);
-		BodyInstance.ProfileName = FName();
+		BodyInstance.CollisionProfileName = FName();
 		MarkPackageDirty();
 		OnCollisionSettingsChanged();
 	}
@@ -246,22 +247,20 @@ namespace Durin
 		}
 		if (Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
 		const bool bProfileNameChanged = Event.LeafProperty
-										 && Event.LeafProperty->NamePrivate == FName("ProfileName");
-		if (bProfileNameChanged && !BodyInstance.ProfileName.IsNone())
+										 && Event.LeafProperty->NamePrivate == FName("CollisionProfileName");
+		const bool bRestoredSettings = Event.Origin != EPropertyChangeOrigin::Edit
+			|| Event.Phase == EPropertyChangePhase::Cancelled
+			|| !Event.LeafProperty || Event.LeafProperty == Event.MemberProperty;
+		if (bProfileNameChanged || bRestoredSettings)
 		{
-			CollisionProfile::FProfile Profile;
-			if (CollisionProfile::Resolve(BodyInstance.ProfileName, Profile))
-			{
-				BodyInstance.CollisionEnabled = Profile.Enabled;
-				BodyInstance.ObjectChannel = Profile.ObjectChannel;
-				BodyInstance.Responses = Profile.Responses;
-			}
+			if (!BodyInstance.LoadProfileData())
+				BodyInstance.CollisionProfileName = FName();
 		}
-		else if (!bProfileNameChanged)
+		else
 		{
 			// Directly edited filter fields are custom settings. Keeping the old
 			// preset name would immediately overwrite the user's value.
-			BodyInstance.ProfileName = FName();
+			BodyInstance.CollisionProfileName = FName();
 		}
 		OnCollisionSettingsChanged();
 	}
