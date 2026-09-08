@@ -119,10 +119,10 @@ namespace Durin
 		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == Editor::EMouseCaptureState::Captured; }
 
 	protected:
-		auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override;
-		auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void override;
-		auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool override;
-		auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool override;
+		DURINED_API auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override;
+		DURINED_API auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void override;
+		DURINED_API auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool override;
+		DURINED_API auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool override;
 
 	private:
 		DURINED_API auto StartPlaySessionInternal(
@@ -136,9 +136,9 @@ namespace Durin
 			const FViewportClient* SourceClient) -> void;
 
 		auto InitEditorInternal(const FEngineInitContext& Context) -> FEngineInitializationResult;
-		auto CloseSubsystemWork() -> void override;
-		auto RetireHostConsumers() -> void override;
-		auto AreHostConsumersIdle() -> bool override;
+		DURINED_API auto CloseSubsystemWork() -> void override;
+		DURINED_API auto RetireHostConsumers() -> void override;
+		DURINED_API auto AreHostConsumersIdle() -> bool override;
 		FEditorSubsystemCollection EditorSubsystems;
 		bool bEditorInitStarted = false;
 	protected:
