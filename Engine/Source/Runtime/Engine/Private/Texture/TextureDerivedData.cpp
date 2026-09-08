@@ -104,6 +104,7 @@ namespace Durin
 
 	auto FTexture2DBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
+		check(Ar.IsSaving());
 		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
 		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture2D);
 		uint8 EncodedUsage = static_cast<uint8>(Usage);
@@ -119,19 +120,11 @@ namespace Durin
 			<< MaximumResolution << EncodedAlphaCoverageThreshold
 			<< BuilderVersion << PayloadSchemaVersion
 			<< EncodedTargetPlatform << EncodedTargetProfile;
-		if (Ar.IsLoading())
-			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
-				"Texture2D build-key input is save-only.");
 	}
 
 	auto FTextureCubeBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.IsLoading())
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
-				"TextureCube build-key input is save-only.");
-			return;
-		}
+		check(Ar.IsSaving());
 		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
 		{
 			Ar.Fail(EArchiveFailureCode::InvalidData,
@@ -184,12 +177,7 @@ namespace Durin
 
 	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
-		if (Ar.IsLoading())
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
-				"Volume texture build-key input is save-only.");
-			return;
-		}
+		check(Ar.IsSaving());
 		if (Width == 0 || Height == 0 || Depth == 0
 			|| Width > MaximumVolumeTextureDimension
 			|| Height > MaximumVolumeTextureDimension
