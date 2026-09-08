@@ -675,12 +675,17 @@ namespace Durin
 		std::string LogicalPackageId,
 		const std::filesystem::path& PackagePath,
 		const FPackageBulkSegmentSummary& Summary,
-		std::span<const FPackageBulkDataEntry> Entries,
-		FPackageResourceHandle& OutHandle,
-		std::string* OutError) -> bool
+		std::span<const FPackageBulkDataEntry> Entries
+	) -> FPackageResourceRegistrationResult
 	{
-		if (LogicalPackageId.empty() || Summary.Extent == 0
-			|| !ValidatePackageBulkDataMetadata(Summary, Entries, OutError)) return false;
+		require(!LogicalPackageId.empty());
+		std::string MetadataError;
+		if (Summary.Extent == 0) return {.Message = "Loose bulk registration requires a nonempty segment."};
+		if (!ValidatePackageBulkDataMetadata(Summary, Entries, &MetadataError)) return {.Message = std::move(MetadataError)};
+		{
+			std::lock_guard Lock(Mutex);
+			if (bShutdown) return {.Status = EPackageResourceRegistrationStatus::ShuttingDown, .Message = "Package resource manager is shut down."};
+		}
 		std::filesystem::path SegmentPath = PackagePath;
 		SegmentPath.replace_extension(".dbulk");
 		std::filesystem::path BackupPath = SegmentPath;
@@ -695,27 +700,19 @@ namespace Durin
 			if (!ValidateLoosePackageGeneration(
 					BackupPath, Summary, Entries, ValidationStats, BackupValidationError))
 			{
-				if (OutError) *OutError =
-					"Loose package bulk segment does not match the package generation: "
-					+ PrimaryValidationError + " Backup validation failed: "
-					+ BackupValidationError;
-				return false;
+				return {.Status = EPackageResourceRegistrationStatus::InvalidGeneration, .Message = "Loose package bulk segment does not match the package generation: " + PrimaryValidationError + " Backup validation failed: " + BackupValidationError};
 			}
 			FFileHelper::FAtomicFileError PublicationError;
 			if (!FFileHelper::CopyFileAtomically(
 					BackupPath, SegmentPath, &PublicationError))
 			{
-				if (OutError) *OutError = "Loose package bulk backup recovery failed.";
-				return false;
+				return {.Status = EPackageResourceRegistrationStatus::RecoveryFailed, .Message = "Loose package bulk backup recovery failed: " + PublicationError.ToString(), .PublicationError = std::move(PublicationError)};
 			}
 			std::string RecoveredValidationError;
 			if (!ValidateLoosePackageGeneration(SegmentPath, Summary, Entries,
 					ValidationStats, RecoveredValidationError))
 			{
-				if (OutError) *OutError =
-					"Recovered loose package bulk segment failed validation: "
-					+ RecoveredValidationError;
-				return false;
+				return {.Status = EPackageResourceRegistrationStatus::RecoveryFailed, .Message = "Recovered loose package bulk segment failed validation: " + RecoveredValidationError};
 			}
 		}
 		std::filesystem::remove(BackupPath, Error);
@@ -727,17 +724,14 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			if (bShutdown)
 			{
-				if (OutError) *OutError = "Package resource manager is shut down.";
-				return false;
+				return {.Status = EPackageResourceRegistrationStatus::ShuttingDown, .Message = "Package resource manager is shut down."};
 			}
 			auto& Slot = Resources[std::move(LogicalPackageId)];
 			Previous = std::move(Slot);
 			Slot = Resource;
 		}
 		if (Previous) Previous->Retire();
-		OutHandle = std::move(Resource);
-		if (OutError) OutError->clear();
-		return true;
+		return {.Status = EPackageResourceRegistrationStatus::Success, .Resource = std::move(Resource)};
 	}
 
 	auto FPackageResourceManager::RetirePackage(std::string_view LogicalPackageId) -> void

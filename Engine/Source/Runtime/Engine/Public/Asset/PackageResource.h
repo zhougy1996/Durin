@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "Asset/PackageBulkData.h"
 #include "Serialization/SharedByteBuffer.h"
+#include "Misc/FileHelper.h"
 
 namespace Durin
 {
@@ -195,6 +196,25 @@ namespace Durin
 		uint64 MaximumStoredSize,
 		std::string* OutError = nullptr) -> bool;
 
+	enum class EPackageResourceRegistrationStatus : uint8
+	{
+		Success,
+		InvalidMetadata,
+		InvalidGeneration,
+		RecoveryFailed,
+		ShuttingDown,
+	};
+
+	// Owns a published resource or the stage and causes of failed registration.
+	struct [[nodiscard]] FPackageResourceRegistrationResult
+	{
+		EPackageResourceRegistrationStatus Status = EPackageResourceRegistrationStatus::InvalidMetadata;
+		FPackageResourceHandle Resource;
+		std::string Message;
+		FFileHelper::FAtomicFileError PublicationError;
+		explicit operator bool() const { return Status == EPackageResourceRegistrationStatus::Success; }
+	};
+
 	// Owns loose package resources and retires them before package I/O shutdown.
 	class FPackageResourceManager
 	{
@@ -205,9 +225,8 @@ namespace Durin
 			std::string LogicalPackageId,
 			const std::filesystem::path& PackagePath,
 			const FPackageBulkSegmentSummary& Summary,
-			std::span<const FPackageBulkDataEntry> Entries,
-			FPackageResourceHandle& OutHandle,
-			std::string* OutError = nullptr) -> bool;
+			std::span<const FPackageBulkDataEntry> Entries
+		) -> FPackageResourceRegistrationResult;
 		ENGINE_API auto RetirePackage(std::string_view LogicalPackageId) -> void;
 		ENGINE_API auto FindPackage(std::string_view LogicalPackageId) const
 			-> FPackageResourceHandle;

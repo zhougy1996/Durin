@@ -294,13 +294,14 @@ namespace Durin
 	{
 		std::string Error;
 		FTextureCubeBuildRequest Request;
-		if (!MakeTextureCubeBuildRequest(*this, Request, Error)
-			|| !BuildTextureCubeSynchronously(*this, Request, {}, Error))
+		if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 		{
 			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
 			return false;
 		}
-		return true;
+		const auto Result = BuildTextureCubeSynchronously(*this, Request, {});
+		if (!Result) DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Result.Diagnostic);
+		return static_cast<bool>(Result);
 	}
 
 	auto DTextureCube::PostLoad() -> void
@@ -342,8 +343,9 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		if (!BuildTextureCubeSynchronously(*this, Request, {
-			.bMarkPackageDirty = false, .bSourceDecoderInvoked = false}, Error))
+		auto BuildResult = BuildTextureCubeSynchronously(*this, Request, {.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
+		Error = BuildResult.Diagnostic;
+		if (!BuildResult)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 		}

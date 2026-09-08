@@ -242,11 +242,9 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		if (!BuildVolumeTextureSynchronously(*this, {
-			.SourceData = BuildInput,
-			.Settings = BuildSettings}, {
-			.bMarkPackageDirty = false,
-			.bSourceDecoderInvoked = false}, Error))
+		auto BuildResult = BuildVolumeTextureSynchronously(*this, {.SourceData = BuildInput, .Settings = BuildSettings}, {.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
+		Error = BuildResult.Diagnostic;
+		if (!BuildResult)
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 		}

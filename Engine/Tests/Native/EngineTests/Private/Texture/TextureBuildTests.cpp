@@ -308,13 +308,22 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	VolumeSource.Depth = 1;
 	ASSERT_TRUE(VolumeSource.SetVoxelBytes(Durin::FByteBuffer(1)));
 	Durin::FVolumeTextureBuildProduct VolumeProduct;
-	EXPECT_FALSE(Durin::InvokeVolumeTextureBuildProvider({
-		.SourceData = VolumeSource}, VolumeProduct, Error));
+	auto BuildResult1 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = VolumeSource});
+	Error = BuildResult1.Outcome.Diagnostic;
+	VolumeProduct = BuildResult1 ? std::move(BuildResult1.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	EXPECT_FALSE(BuildResult1) << BuildResult1.Outcome.Diagnostic;
+	EXPECT_EQ(BuildResult1.Outcome.Code, Durin::ETextureBuildFailure::Unavailable);
+	EXPECT_FALSE(BuildResult1.Value);
 	EXPECT_EQ(Error, "The VolumeTexture build provider is unavailable.");
 	Durin::FTextureCubeCanonicalBuildInput CubeCanonicalInput;
 	Durin::FTextureCubeBuildProduct CubeProduct;
-	EXPECT_FALSE(Durin::InvokeTextureCubeBuildProvider({}, CubeCanonicalInput,
-		CubeProduct, Error));
+	auto BuildResult2 = Durin::InvokeTextureCubeBuildProvider({});
+	Error = BuildResult2.Outcome.Diagnostic;
+	CubeCanonicalInput = BuildResult2 ? std::move(BuildResult2.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+	CubeProduct = BuildResult2 ? std::move(BuildResult2.Value->Product) : Durin::FTextureCubeBuildProduct{};
+	EXPECT_FALSE(BuildResult2) << BuildResult2.Outcome.Diagnostic;
+	EXPECT_EQ(BuildResult2.Outcome.Code, Durin::ETextureBuildFailure::Unavailable);
+	EXPECT_FALSE(BuildResult2.Value);
 	EXPECT_EQ(Error, "The TextureCube build provider is unavailable.");
 
 	Modules.LoadModuleChecked("TextureBuild");
@@ -626,8 +635,10 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	EXPECT_FALSE(Source.IsValid());
 	Durin::FVolumeTextureBuildProduct Rejected;
 	std::string SchemaError;
-	EXPECT_FALSE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Rejected, SchemaError));
+	auto BuildResult3 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	SchemaError = BuildResult3.Outcome.Diagnostic;
+	Rejected = BuildResult3 ? std::move(BuildResult3.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	EXPECT_FALSE(BuildResult3) << BuildResult3.Outcome.Diagnostic;
 	EXPECT_FALSE(SchemaError.empty());
 	Source.PayloadSchemaVersion = Durin::VolumeTextureSourcePayloadSchemaVersion;
 	const Durin::FVolumeTextureBuildKeyInput GoldenKeyInput{
@@ -645,10 +656,14 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	Durin::FVolumeTextureBuildProduct First;
 	Durin::FVolumeTextureBuildProduct Second;
 	std::string Error;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, First, Error)) << Error;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Second, Error)) << Error;
+	auto BuildResult4 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult4.Outcome.Diagnostic;
+	First = BuildResult4 ? std::move(BuildResult4.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult4) << BuildResult4.Outcome.Diagnostic;
+	auto BuildResult5 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult5.Outcome.Diagnostic;
+	Second = BuildResult5 ? std::move(BuildResult5.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult5) << BuildResult5.Outcome.Diagnostic;
 	EXPECT_EQ(First.DerivedDataKey, Second.DerivedDataKey);
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	EXPECT_TRUE(Second.PersistenceDiagnostic.empty());
@@ -660,22 +675,28 @@ TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
 	CachedBytes.push_back(std::byte{1});
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(CachedBytes, CachePath));
 	Durin::FVolumeTextureBuildProduct Recovered;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Recovered, Error)) << Error;
+	auto BuildResult6 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult6.Outcome.Diagnostic;
+	Recovered = BuildResult6 ? std::move(BuildResult6.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult6) << BuildResult6.Outcome.Diagnostic;
 	EXPECT_EQ(Recovered.Origin, Durin::EVolumeTextureBuildProductOrigin::Rebuilt);
 	EXPECT_EQ(Recovered.DerivedDataKey, First.DerivedDataKey);
 	EXPECT_FALSE(Recovered.PersistenceDiagnostic.empty());
 	EXPECT_LE(Recovered.PersistenceDiagnostic.size(), 2048u);
 	EXPECT_TRUE(Error.empty());
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Second, Error)) << Error;
+	auto BuildResult7 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult7.Outcome.Diagnostic;
+	Second = BuildResult7 ? std::move(BuildResult7.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult7) << BuildResult7.Outcome.Diagnostic;
 	EXPECT_EQ(Second.Origin, Durin::EVolumeTextureBuildProductOrigin::CacheHit);
 	EXPECT_TRUE(Second.PersistenceDiagnostic.empty());
 	Voxels[0] = std::byte{9};
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Changed;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Changed, Error)) << Error;
+	auto BuildResult8 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult8.Outcome.Diagnostic;
+	Changed = BuildResult8 ? std::move(BuildResult8.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult8) << BuildResult8.Outcome.Diagnostic;
 	EXPECT_NE(First.DerivedDataKey, Changed.DerivedDataKey);
 }
 
@@ -694,8 +715,10 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 	Durin::FVolumeTextureBuildProduct Product;
 	std::string Error;
-	ASSERT_TRUE(Durin::InvokeVolumeTextureBuildProvider(
-		{.SourceData = Source}, Product, Error)) << Error;
+	auto BuildResult9 = Durin::InvokeVolumeTextureBuildProvider({.SourceData = Source});
+	Error = BuildResult9.Outcome.Diagnostic;
+	Product = BuildResult9 ? std::move(BuildResult9.Value->Product) : Durin::FVolumeTextureBuildProduct{};
+	ASSERT_TRUE(BuildResult9) << BuildResult9.Outcome.Diagnostic;
 	ASSERT_NE(Product.PlatformData, nullptr);
 	const Durin::FVolumeTexturePlatformData Expected = *Product.PlatformData;
 	const Durin::FCacheKeyProxy ExpectedKey = Product.DerivedDataKey;

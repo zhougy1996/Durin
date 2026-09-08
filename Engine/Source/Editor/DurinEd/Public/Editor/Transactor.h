@@ -40,6 +40,7 @@ namespace Durin::Editor
 		Undoing,
 		Redoing,
 		Destroying,
+		RecoveryRequired,
 	};
 
 	// Distinguishes successful, no-op, discarded, and failed synchronous outcomes.
@@ -50,6 +51,30 @@ namespace Durin::Editor
 		Discarded,
 		Rejected,
 		Failed,
+		RecoveryRequired,
+	};
+
+	enum class ETransactionApplyStatus : uint8
+	{
+		Succeeded,
+		ValidationFailed,
+		Restored,
+		RecoveryRequired
+	};
+
+	struct FTransactionRollbackFailure
+	{
+		size_t RecordIndex = 0;
+		std::string Message;
+	};
+
+	// Separates an unchanged/restored transaction from an incomplete compensation.
+	struct [[nodiscard]] FTransactionApplyResult
+	{
+		ETransactionApplyStatus Status = ETransactionApplyStatus::ValidationFailed;
+		std::string Message;
+		std::vector<FTransactionRollbackFailure> RollbackFailures;
+		explicit operator bool() const { return Status == ETransactionApplyStatus::Succeeded; }
 	};
 
 	struct [[nodiscard]] FTransactorResult
@@ -59,6 +84,7 @@ namespace Durin::Editor
 		FTransactionScopeId ScopeId = 0;
 		uint64 RecordId = 0;
 		std::string Message;
+		std::vector<FTransactionRollbackFailure> RollbackFailures;
 
 		auto IsSuccess() const -> bool { return Code == ETransactorResultCode::Succeeded; }
 		explicit operator bool() const { return IsSuccess(); }
@@ -125,8 +151,8 @@ namespace Durin::Editor
 		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
 		DURINED_API auto Apply(
 			bool bUndo,
-			EPropertyChangeOrigin Origin,
-			std::string* OutError = nullptr) -> bool;
+			EPropertyChangeOrigin Origin
+		) -> FTransactionApplyResult;
 		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) const -> void;
 		DURINED_API auto TryGetOwnedSize(size_t& OutBytes) const -> bool;
 		DURINED_API auto IsDeferredOperationPending() const -> bool;
@@ -319,6 +345,7 @@ namespace Durin
 			bool bCheckpointValid = false;
 		};
 
+		auto HandleApplyFailure(const Editor::FTransaction& Transaction, Editor::FTransactionApplyResult Result) -> Editor::FTransactorResult;
 		auto CheckThread() const -> void;
 		auto Reject(std::string Message) const -> Editor::FTransactorResult;
 		auto CloseScope(Editor::FTransactionScopeId ScopeId, bool bCancel)

@@ -494,14 +494,20 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	Durin::FTextureCubeCanonicalBuildInput InitialCanonical;
 	Durin::FTextureCubeBuildProduct Initial;
 	std::string Error;
-	ASSERT_TRUE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
-		.Image = Panorama, .Settings = Settings}}, InitialCanonical, Initial, Error)) << Error;
+	auto BuildResult1 = Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{.Image = Panorama, .Settings = Settings}});
+	Error = BuildResult1.Outcome.Diagnostic;
+	InitialCanonical = BuildResult1 ? std::move(BuildResult1.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+	Initial = BuildResult1 ? std::move(BuildResult1.Value->Product) : Durin::FTextureCubeBuildProduct{};
+	ASSERT_TRUE(BuildResult1) << BuildResult1.Outcome.Diagnostic;
 	ASSERT_NE(Initial.PlatformData, nullptr);
 
 	Durin::FTextureCubeCanonicalBuildInput CachedCanonical;
 	Durin::FTextureCubeBuildProduct Cached;
-	ASSERT_TRUE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
-		.Image = Panorama, .Settings = Settings}}, CachedCanonical, Cached, Error)) << Error;
+	auto BuildResult2 = Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{.Image = Panorama, .Settings = Settings}});
+	Error = BuildResult2.Outcome.Diagnostic;
+	CachedCanonical = BuildResult2 ? std::move(BuildResult2.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+	Cached = BuildResult2 ? std::move(BuildResult2.Value->Product) : Durin::FTextureCubeBuildProduct{};
+	ASSERT_TRUE(BuildResult2) << BuildResult2.Outcome.Diagnostic;
 	EXPECT_EQ(Cached.Origin, Durin::ETextureCubeBuildProductOrigin::CacheHit);
 	EXPECT_TRUE(CachedCanonical.ImportedData.IsValid());
 	ASSERT_NE(Cached.PlatformData, nullptr);
@@ -510,9 +516,11 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	Panorama.Pixels.clear();
 	Durin::FTextureCubeCanonicalBuildInput InvalidCanonical;
 	Durin::FTextureCubeBuildProduct Invalid;
-	EXPECT_FALSE(Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{
-		.Image = std::move(Panorama), .Settings = Settings}},
-		InvalidCanonical, Invalid, Error));
+	auto BuildResult3 = Durin::InvokeTextureCubeBuildProvider({.Input = Durin::FTextureCubePanoramaBuildInput{.Image = std::move(Panorama), .Settings = Settings}});
+	Error = BuildResult3.Outcome.Diagnostic;
+	InvalidCanonical = BuildResult3 ? std::move(BuildResult3.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+	Invalid = BuildResult3 ? std::move(BuildResult3.Value->Product) : Durin::FTextureCubeBuildProduct{};
+	EXPECT_FALSE(BuildResult3) << BuildResult3.Outcome.Diagnostic;
 	EXPECT_NE(Error.find("pixel storage"), std::string::npos);
 }
 

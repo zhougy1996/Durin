@@ -2,6 +2,7 @@
 
 #include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
+#include "Texture/TextureBuildOutcome.h"
 #include "Modules/ModularFeature.h"
 #include "Texture/VolumeTexture.h"
 
@@ -72,23 +73,23 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.VolumeTextureBuildProvider";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 
 		virtual auto GetDescriptor() const
 			-> FVolumeTextureBuildProviderDescriptor = 0;
 		virtual auto Build(
-			const FVolumeTextureRecipeBuildRequest& Request,
-			FVolumeTextureRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool = 0;
+			const FVolumeTextureRecipeBuildRequest& Request
+		)
+			-> TTextureBuildResult<FVolumeTextureRecipeBuildProduct> = 0;
 	};
 
-	ENGINE_API auto InvokeVolumeTextureBuildProvider(
-		const FVolumeTextureBuildRequest& Request,
-		FVolumeTextureBuildProduct& OutProduct,
-		std::string& OutError) -> bool;
-	ENGINE_API auto BuildVolumeTextureSynchronously(
-		DVolumeTexture& Texture,
-		const FVolumeTextureBuildRequest& Request,
-		const FVolumeTextureResultApplicationContext& Context,
-		std::string& OutError) -> bool;
+	struct FVolumeTextureBuildValue
+	{
+		FVolumeTextureBuildProduct Product;
+	};
+
+	ENGINE_API auto InvokeVolumeTextureBuildProvider(const FVolumeTextureBuildRequest& Request)
+		-> TTextureBuildResult<FVolumeTextureBuildValue>;
+	ENGINE_API auto BuildVolumeTextureSynchronously(DVolumeTexture& Texture, const FVolumeTextureBuildRequest& Request, const FVolumeTextureResultApplicationContext& Context)
+		-> FTextureBuildOutcome;
 }

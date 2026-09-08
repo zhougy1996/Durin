@@ -102,8 +102,11 @@ namespace
 			EXPECT_EQ(Texture->GetBuildRevision(), Revision);
 			// A failed decoder must release its lock so the payload can be retried.
 			Durin::FByteView LockedBytes;
-			ASSERT_TRUE(Bulk.LockReadOnly(LockedBytes, &Error)) << Error;
-			ASSERT_TRUE(Bulk.UnlockReadOnly(&Error)) << Error;
+			Durin::FBulkDataReadResult LockedBytesLease;
+			LockedBytesLease = Bulk.AcquireRead();
+			ASSERT_TRUE(LockedBytesLease) << LockedBytesLease.Error.Message;
+			LockedBytes = LockedBytesLease.Lock.GetBytes();
+			LockedBytesLease.Lock.Reset();
 		}
 		ASSERT_TRUE(FBulkData::TryCreateDetached(ValidBytes, Bulk, &Error)) << Error;
 		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(

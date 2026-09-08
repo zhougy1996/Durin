@@ -66,19 +66,18 @@ namespace Durin::TexturePrivate
 				Family, Texture.GetObjectPath(), Message);
 			return false;
 		};
-		FByteView Bytes;
-		if (!CookedData.LockReadOnly(Bytes, &OutError))
-			return FailCooked(OutError);
+		auto Read = CookedData.AcquireRead();
+		if (!Read) return FailCooked(Read.Error.Message);
+		const FByteView Bytes = Read.Lock.GetBytes();
 		auto Candidate = std::make_unique<TPlatformData>();
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
 		Candidate->Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
 			.TargetProfile = ECookTargetProfile::Game});
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 		{
-			CookedData.UnlockReadOnly();
 			return FailCooked(std::string(Ar.GetError()));
 		}
-		if (!CookedData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
+		Read.Lock.Reset();
 		Texture.SetPlatformData(std::move(Candidate));
 		Texture.UpdateResource();
 		OutError.clear();

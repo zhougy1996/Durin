@@ -561,14 +561,19 @@ namespace Durin
 						.Alignment = Descriptor.Alignment,
 						.ContentId = Descriptor.ContentHash});
 				}
-				FPackageResourceHandle Resource;
-				if (!GetPackageResourceManager().RegisterLoosePackage(
-						Path.ToString(), std::filesystem::path(PhysicalPath),
-						{Header.BulkSegmentExtent, Header.BulkSegmentDigest},
-						Entries, Resource, &BulkDiagnostic))
-					return Error(EAssetError::CorruptFile, std::move(BulkDiagnostic));
+				auto Registration = GetPackageResourceManager().RegisterLoosePackage(
+					Path.ToString(), std::filesystem::path(PhysicalPath),
+					{Header.BulkSegmentExtent, Header.BulkSegmentDigest},
+					Entries
+				);
+				if (!Registration)
+				{
+					const EAssetError Code = Registration.Status == EPackageResourceRegistrationStatus::ShuttingDown ? EAssetError::ShuttingDown : Registration.PublicationError.Operation != FFileHelper::EAtomicFileOperation::None ? EAssetError::IoError :
+																																																										EAssetError::CorruptFile;
+					return Error(Code, std::move(Registration.Message));
+				}
 				bRegisteredBulkResource = true;
-				ReadContext.BulkResource = std::move(Resource);
+				ReadContext.BulkResource = std::move(Registration.Resource);
 			}
 			DPackage* Package = nullptr;
 			Result = Codec->Load(

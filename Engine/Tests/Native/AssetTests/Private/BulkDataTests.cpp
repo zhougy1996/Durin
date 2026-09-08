@@ -25,6 +25,23 @@ namespace
 		return Bytes;
 	}
 
+	class FFailingPackageResource final : public FPackageResource
+	{
+	public:
+		FFailingPackageResource()
+			: FPackageResource(4)
+		{
+		}
+		std::atomic_bool bFail = true;
+
+	private:
+		auto ReadRangeImpl(uint64, uint64 Size, const std::atomic_bool&) -> FPackageResourceReadResult override
+		{
+			if (bFail.load()) return {.Status = EPackageResourceReadStatus::SegmentDigestMismatch, .Message = "Injected digest failure."};
+			return {.Status = EPackageResourceReadStatus::Success, .Buffer = FSharedByteBuffer::Take(FByteBuffer(Size, std::byte{7}))};
+		}
+	};
+
 	class FSlowPackageResource final : public FPackageResource
 	{
 	public:
@@ -107,6 +124,7 @@ TEST(FBulkDataTests, DefaultValueIsEmpty)
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Empty);
 	EXPECT_FALSE(Value.HasData());
 	EXPECT_EQ(Value.GetMetadata().LogicalSize, 0u);
+	EXPECT_EQ(Value.AcquireRead().Status, EBulkReadStatus::Empty);
 }
 
 TEST(FBulkDataTests, DetachedLocksResizeAndCopyOnWrite)
@@ -117,24 +135,32 @@ TEST(FBulkDataTests, DetachedLocksResizeAndCopyOnWrite)
 	ASSERT_TRUE(FBulkData::TryCreateDetached(Bytes, First, &Error)) << Error;
 	FBulkData Second = First;
 	Durin::FByteView Read;
+	Durin::FBulkDataReadResult ReadLease;
 	Durin::FMutableByteView Write;
-	ASSERT_TRUE(First.LockReadOnly(Read, &Error)) << Error;
+	ReadLease = First.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_TRUE(std::ranges::equal(Read, Bytes));
-	EXPECT_FALSE(First.LockReadWrite(Write, &Error));
-	ASSERT_TRUE(First.UnlockReadOnly(&Error)) << Error;
+	EXPECT_EQ(First.TryUnload(), EBulkUnloadResult::Busy);
+	ReadLease.Lock.Reset();
 
-	ASSERT_TRUE(Second.LockReadWrite(Write, &Error)) << Error;
-	ASSERT_TRUE(Second.Resize(2, Write, &Error)) << Error;
+	auto WriteLease = Second.AcquireWrite();
+	ASSERT_TRUE(WriteLease.TryResize(2));
+	Write = WriteLease.GetBytes();
 	Write[0] = std::byte{9};
-	ASSERT_TRUE(Second.UnlockWrite(&Error)) << Error;
-	ASSERT_TRUE(First.LockReadOnly(Read, &Error)) << Error;
+	WriteLease.Reset();
+	ReadLease = First.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_TRUE(std::ranges::equal(Read, Bytes));
-	ASSERT_TRUE(First.UnlockReadOnly(&Error)) << Error;
-	ASSERT_TRUE(Second.LockReadOnly(Read, &Error)) << Error;
+	ReadLease.Lock.Reset();
+	ReadLease = Second.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_EQ(Read.size(), 2u);
 	EXPECT_EQ(Read[0], std::byte{9});
-	ASSERT_TRUE(Second.UnlockReadOnly(&Error)) << Error;
-	EXPECT_FALSE(Second.Unload(&Error));
+	ReadLease.Lock.Reset();
+	EXPECT_EQ(Second.TryUnload(), EBulkUnloadResult::NotResident);
 }
 
 TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
@@ -160,8 +186,11 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	FPackageResourceManager Manager;
 	FPackageResourceHandle Handle;
 	std::string Error;
-	ASSERT_TRUE(Manager.RegisterLoosePackage(
-		"/Tests/Range", PackagePath, Summary, std::span{&Entry, 1}, Handle, &Error)) << Error;
+	auto Registration1 = Manager.RegisterLoosePackage(
+		"/Tests/Range", PackagePath, Summary, std::span{&Entry, 1}
+	);
+	ASSERT_TRUE(Registration1) << Registration1.Message;
+	Handle = std::move(Registration1.Resource);
 	FBulkData Value;
 	ASSERT_TRUE(FBulkData::TryAttach({
 		.LogicalSize = Size,
@@ -173,12 +202,17 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	ASSERT_TRUE(Value.ReloadAsync().Wait()) << Error;
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Resident);
 	Durin::FByteView Read;
-	ASSERT_TRUE(Value.LockReadOnly(Read, &Error)) << Error;
+	Durin::FBulkDataReadResult ReadLease;
+	ReadLease = Value.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_TRUE(std::ranges::equal(Read, Segment));
-	ASSERT_TRUE(Value.UnlockReadOnly(&Error)) << Error;
-	ASSERT_TRUE(Value.Unload(&Error)) << Error;
+	ReadLease.Lock.Reset();
+	ASSERT_EQ(Value.TryUnload(), EBulkUnloadResult::Unloaded);
 	Manager.RetirePackage("/Tests/Range");
-	EXPECT_FALSE(Value.LockReadOnly(Read, &Error));
+	ReadLease = Value.AcquireRead();
+	EXPECT_FALSE(ReadLease) << ReadLease.Error.Message;
+	EXPECT_EQ(ReadLease.Error.Status, EPackageResourceReadStatus::Retired);
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Retired);
 }
 
@@ -209,10 +243,13 @@ TEST(FPackageResourceTests, OwnedCaptureDetachesLazyReadsFromCallerStorage)
 	{
 		ASSERT_TRUE(Value.ReloadAsync().Wait());
 		FByteView Read;
-		ASSERT_TRUE(Value.LockReadOnly(Read, &Error)) << Error;
+		Durin::FBulkDataReadResult ReadLease;
+		ReadLease = Value.AcquireRead();
+		ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+		Read = ReadLease.Lock.GetBytes();
 		EXPECT_EQ(FXxHash128::HashBuffer(Read), Entry.ContentId);
-		ASSERT_TRUE(Value.UnlockReadOnly(&Error)) << Error;
-		ASSERT_TRUE(Value.Unload(&Error)) << Error;
+		ReadLease.Lock.Reset();
+		ASSERT_EQ(Value.TryUnload(), EBulkUnloadResult::Unloaded);
 	}
 	const auto Slice = Handle->ReadRange(1, 7);
 	ASSERT_TRUE(Slice);
@@ -297,8 +334,11 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	FPackageResourceManager Manager;
 	FPackageResourceHandle Handle;
 	std::string Error;
-	ASSERT_TRUE(Manager.RegisterLoosePackage(
-		"/Tests/Ranges", PackagePath, Summary, Entries, Handle, &Error)) << Error;
+	auto Registration2 = Manager.RegisterLoosePackage(
+		"/Tests/Ranges", PackagePath, Summary, Entries
+	);
+	ASSERT_TRUE(Registration2) << Registration2.Message;
+	Handle = std::move(Registration2.Resource);
 	const FPackageResourceReadStats Stats = Handle->GetReadStats();
 	EXPECT_EQ(Stats.ValidationBytesRead, Segment.size());
 	EXPECT_LE(Stats.PeakValidationScratchBytes, 64u * 1024u);
@@ -308,18 +348,24 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	Segment[7] ^= std::byte{0x01};
 	Summary.Digest = FXxHash128::HashBuffer(Segment);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Segment, SegmentPath));
-	EXPECT_FALSE(Manager.RegisterLoosePackage(
-		"/Tests/BadRange", PackagePath, Summary, Entries, Handle, &Error));
-	EXPECT_NE(Error.find("field digest"), std::string::npos);
+	auto Registration3 = Manager.RegisterLoosePackage(
+		"/Tests/BadRange", PackagePath, Summary, Entries
+	);
+	EXPECT_FALSE(Registration3) << Registration3.Message;
+
+	EXPECT_NE(Registration3.Message.find("field digest"), std::string::npos);
 
 	Segment[7] ^= std::byte{0x01};
 	ASSERT_GT(SecondOffset, FirstSize);
 	Segment[static_cast<size_t>(FirstSize)] = std::byte{0x01};
 	Summary.Digest = FXxHash128::HashBuffer(Segment);
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Segment, SegmentPath));
-	EXPECT_FALSE(Manager.RegisterLoosePackage(
-		"/Tests/BadPadding", PackagePath, Summary, Entries, Handle, &Error));
-	EXPECT_NE(Error.find("padding"), std::string::npos);
+	auto Registration4 = Manager.RegisterLoosePackage(
+		"/Tests/BadPadding", PackagePath, Summary, Entries
+	);
+	EXPECT_FALSE(Registration4) << Registration4.Message;
+
+	EXPECT_NE(Registration4.Message.find("padding"), std::string::npos);
 }
 
 namespace
@@ -360,8 +406,9 @@ TEST_F(FPreparedPackageResourceTests, SnapshotSurvivesDiskReplacementAndOwnerRel
 {
 	FPackageResourceManager Manager;
 	FPackageResourceHandle Live;
-	ASSERT_TRUE(Manager.RegisterLoosePackage("/Tests/Prepared", MainPath,
-		Summary, std::span{&Entry, 1}, Live));
+	auto Registration5 = Manager.RegisterLoosePackage("/Tests/Prepared", MainPath, Summary, std::span{&Entry, 1});
+	ASSERT_TRUE(Registration5) << Registration5.Message;
+	Live = std::move(Registration5.Resource);
 	FPreparedPackageResource Prepared;
 	ASSERT_TRUE(Prepare(Prepared));
 	EXPECT_EQ(Prepared.GetRetainedBytes(), Main.size() + Bulk.size());
@@ -378,15 +425,20 @@ TEST_F(FPreparedPackageResourceTests, SnapshotSurvivesDiskReplacementAndOwnerRel
 	Prepared = {};
 	ASSERT_TRUE(Payload.ReloadAsync().Wait());
 	FByteView Read;
-	ASSERT_TRUE(Payload.LockReadOnly(Read));
+	Durin::FBulkDataReadResult ReadLease;
+	ReadLease = Payload.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_EQ(Read[0], std::byte{0x39});
-	ASSERT_TRUE(Payload.UnlockReadOnly());
-	ASSERT_TRUE(Payload.Unload());
+	ReadLease.Lock.Reset();
+	ASSERT_EQ(Payload.TryUnload(), EBulkUnloadResult::Unloaded);
 	std::filesystem::remove(BulkPath);
 	ASSERT_TRUE(Payload.ReloadAsync().Wait());
-	ASSERT_TRUE(Payload.LockReadOnly(Read));
+	ReadLease = Payload.AcquireRead();
+	ASSERT_TRUE(ReadLease) << ReadLease.Error.Message;
+	Read = ReadLease.Lock.GetBytes();
 	EXPECT_EQ(Read[0], std::byte{0x39});
-	ASSERT_TRUE(Payload.UnlockReadOnly());
+	ReadLease.Lock.Reset();
 }
 
 TEST_F(FPreparedPackageResourceTests, RechecksMainContentInsteadOfSizeOrTimestamp)
@@ -673,4 +725,63 @@ TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntime
 	EXPECT_EQ(Editor.GetPayloadSize(), Runtime.GetMetadata().LogicalSize);
 	EXPECT_EQ(Runtime.GetMetadata().Range.Resource, Resource);
 	EXPECT_FALSE(Editor.IsMemoryResident());
+}
+
+TEST(FBulkDataTests, ScopedLocksReleaseOnReturnAndRetainReplacedStorage)
+{
+	FBulkData Value;
+	ASSERT_TRUE(FBulkData::TryCreateDetached(MakeBytes({1, 2}), Value));
+	const auto Visit = [&] {
+		auto Read = Value.AcquireRead();
+		EXPECT_TRUE(Read);
+		EXPECT_EQ(Value.GetState(), EBulkDataState::ReadLocked);
+	};
+	Visit();
+	EXPECT_EQ(Value.GetState(), EBulkDataState::Detached);
+	{
+		auto Write = Value.AcquireWrite();
+		EXPECT_FALSE(Write.TryResize(MaximumBulkDataBytes + 1));
+		EXPECT_EQ(Write.GetBytes().size(), 2u);
+		auto Moved = std::move(Write);
+		Write.Reset();
+		EXPECT_EQ(Value.GetState(), EBulkDataState::WriteLocked);
+		EXPECT_EQ(Value.AcquireRead().Status, EBulkReadStatus::Busy);
+		Moved.GetBytes()[0] = std::byte{9};
+	}
+	EXPECT_EQ(Value.GetState(), EBulkDataState::Detached);
+	auto Read = Value.AcquireRead();
+	ASSERT_TRUE(Read);
+	auto Moved = std::move(Read.Lock);
+	Read.Lock.Reset();
+	Value = FBulkData{};
+	EXPECT_EQ(Moved.GetBytes()[0], std::byte{9});
+	Moved.Reset();
+	Moved.Reset();
+}
+
+TEST(FPackageResourceTests, RegistrationRejectsEmptySegmentsWithOwnedDiagnostics)
+{
+	FPackageResourceManager Manager;
+	const auto Empty = Manager.RegisterLoosePackage("/Tests/Empty", "Empty.dasset", {}, {});
+	EXPECT_EQ(Empty.Status, EPackageResourceRegistrationStatus::InvalidMetadata);
+	EXPECT_FALSE(Empty.Resource);
+	EXPECT_FALSE(Empty.Message.empty());
+}
+
+TEST(FBulkDataTests, ReadFailurePreservesPackageCauseAndSupportsExplicitRetry)
+{
+	auto Resource = std::make_shared<FFailingPackageResource>();
+	FBulkData Value;
+	ASSERT_TRUE(FBulkData::TryAttach({.LogicalSize = 4, .Range = {.Resource = Resource, .StoredSize = 4}}, Value));
+	auto Failed = Value.AcquireRead();
+	EXPECT_EQ(Failed.Status, EBulkReadStatus::ReadFailed);
+	EXPECT_FALSE(Failed.Lock);
+	EXPECT_EQ(Failed.Error.Status, EPackageResourceReadStatus::SegmentDigestMismatch);
+	EXPECT_EQ(Failed.Error.Message, "Injected digest failure.");
+	EXPECT_EQ(Value.GetState(), EBulkDataState::Failed);
+	Resource->bFail.store(false);
+	auto Retry = Value.AcquireRead();
+	ASSERT_TRUE(Retry);
+	EXPECT_EQ(Retry.Status, EBulkReadStatus::Acquired);
+	EXPECT_EQ(Retry.Lock.GetBytes()[0], std::byte{7});
 }

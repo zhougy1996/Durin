@@ -210,56 +210,32 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FTransaction::Apply(
-		bool bUndo,
-		EPropertyChangeOrigin Origin,
-		std::string* OutError) -> bool
+	auto FTransaction::Apply(bool bUndo, EPropertyChangeOrigin Origin) -> FTransactionApplyResult
 	{
-		if (!Validate(OutError)) return false;
+		FTransactionApplyResult Result;
+		if (!Validate(&Result.Message)) return Result;
 		std::vector<size_t> Applied;
 		Applied.reserve(Records.size());
-		bool bSucceeded = true;
-		if (bUndo)
+		for (size_t Step = 0; Step < Records.size(); ++Step)
 		{
-			for (size_t Index = Records.size(); Index-- > 0;)
+			const size_t Index = bUndo ? Records.size() - 1 - Step : Step;
+			if (!Records[Index].Apply(bUndo, Origin, &Result.Message))
 			{
-				if (!Records[Index].Apply(true, Origin, OutError))
+				Result.Status = ETransactionApplyStatus::Restored;
+				for (auto It = Applied.rbegin(); It != Applied.rend(); ++It)
 				{
-					bSucceeded = false;
-					break;
+					std::string Error;
+					if (!Records[*It].Apply(!bUndo, Origin, &Error))
+					{
+						Result.Status = ETransactionApplyStatus::RecoveryRequired;
+						Result.RollbackFailures.push_back({*It, std::move(Error)});
+					}
 				}
-				Applied.push_back(Index);
+				return Result;
 			}
+			Applied.push_back(Index);
 		}
-		else
-		{
-			for (size_t Index = 0; Index < Records.size(); ++Index)
-			{
-				if (!Records[Index].Apply(false, Origin, OutError))
-				{
-					bSucceeded = false;
-					break;
-				}
-				Applied.push_back(Index);
-			}
-		}
-		if (bSucceeded) return true;
-
-		const std::string ApplyError = OutError ? *OutError : std::string{};
-		std::string RollbackError;
-		bool bRollbackSucceeded = true;
-		for (auto It = Applied.rbegin(); It != Applied.rend(); ++It)
-		{
-			if (!Records[*It].Apply(!bUndo, Origin, &RollbackError))
-				bRollbackSucceeded = false;
-		}
-		if (OutError)
-		{
-			*OutError = ApplyError;
-			if (!bRollbackSucceeded)
-				*OutError += std::format(" Rollback also failed: {}", RollbackError);
-		}
-		return false;
+		return {.Status = ETransactionApplyStatus::Succeeded};
 	}
 
 	auto FTransaction::IsDeferredOperationPending() const -> bool
@@ -742,16 +718,12 @@ namespace Durin
 					CompleteDeferredOperation(
 						ETransactionOperation::Execute, TransactionId, bSucceeded);
 				});
-			std::string Error;
-			if (!Transaction.Apply(false, EPropertyChangeOrigin::Edit, &Error))
+			auto ApplyResult = Transaction.Apply(false, EPropertyChangeOrigin::Edit);
+			if (!ApplyResult)
 			{
 				Transaction.SetDeferredOperationCompletion({});
 				PendingTransactionId = 0;
-				State = ETransactorState::Idle;
-				QueueEvent(ETransactionEventType::Failed, Transaction, std::move(Error));
-				return {.Code = ETransactorResultCode::Failed,
-					.TransactionId = TransactionId,
-					.Message = Transaction.GetDetails(ETransactionOperation::Execute)};
+				return HandleApplyFailure(Transaction, std::move(ApplyResult));
 			}
 			if (Transaction.IsDeferredOperationPending())
 			{
@@ -920,15 +892,12 @@ namespace Durin
 				CompleteDeferredOperation(
 					ETransactionOperation::Undo, TransactionId, bSucceeded);
 			});
-		std::string Error;
-		if (!Transaction.Apply(true, EPropertyChangeOrigin::Undo, &Error))
+		auto ApplyResult = Transaction.Apply(true, EPropertyChangeOrigin::Undo);
+		if (!ApplyResult)
 		{
 			Transaction.SetDeferredOperationCompletion({});
 			PendingTransactionId = 0;
-			QueueEvent(ETransactionEventType::Failed, Transaction, Error);
-			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Failed,
-				.TransactionId = Transaction.GetId(), .Message = std::move(Error)};
+			return HandleApplyFailure(Transaction, std::move(ApplyResult));
 		}
 		if (Transaction.IsDeferredOperationPending())
 			return {.Code = ETransactorResultCode::Succeeded,
@@ -966,15 +935,12 @@ namespace Durin
 				CompleteDeferredOperation(
 					ETransactionOperation::Redo, TransactionId, bSucceeded);
 			});
-		std::string Error;
-		if (!Transaction.Apply(false, EPropertyChangeOrigin::Redo, &Error))
+		auto ApplyResult = Transaction.Apply(false, EPropertyChangeOrigin::Redo);
+		if (!ApplyResult)
 		{
 			Transaction.SetDeferredOperationCompletion({});
 			PendingTransactionId = 0;
-			QueueEvent(ETransactionEventType::Failed, Transaction, Error);
-			State = ETransactorState::Idle;
-			return {.Code = ETransactorResultCode::Failed,
-				.TransactionId = Transaction.GetId(), .Message = std::move(Error)};
+			return HandleApplyFailure(Transaction, std::move(ApplyResult));
 		}
 		if (Transaction.IsDeferredOperationPending())
 			return {.Code = ETransactorResultCode::Succeeded,
@@ -988,6 +954,23 @@ namespace Durin
 		State = ETransactorState::Idle;
 		return {.Code = ETransactorResultCode::Succeeded,
 			.TransactionId = Transaction.GetId()};
+	}
+
+	auto DTransBuffer::HandleApplyFailure(const FTransaction& Transaction, FTransactionApplyResult Result) -> FTransactorResult
+	{
+		const bool bRecoveryRequired = Result.Status == ETransactionApplyStatus::RecoveryRequired;
+		State = bRecoveryRequired ? ETransactorState::RecoveryRequired : ETransactorState::Idle;
+		if (bRecoveryRequired)
+		{
+			for (const auto& Transition : Transaction.GetPackageTransitions())
+				if (auto* Package = Cast<DPackage>(Transition.Package.Resolve())) InvalidateSavedState(*Package);
+			for (const auto& Failure : Result.RollbackFailures)
+				Result.Message += std::format(" Rollback record {} failed: {}", Failure.RecordIndex, Failure.Message);
+			Result.Message += " Transaction history is disabled; reload the editor session after recovering affected data.";
+			DURIN_ERROR("Transaction {} requires recovery: {}", Transaction.GetId(), Result.Message);
+		}
+		QueueEvent(ETransactionEventType::Failed, Transaction, Result.Message);
+		return {.Code = bRecoveryRequired ? ETransactorResultCode::RecoveryRequired : ETransactorResultCode::Failed, .TransactionId = Transaction.GetId(), .Message = std::move(Result.Message), .RollbackFailures = std::move(Result.RollbackFailures)};
 	}
 
 	auto DTransBuffer::Reset() -> FTransactorResult

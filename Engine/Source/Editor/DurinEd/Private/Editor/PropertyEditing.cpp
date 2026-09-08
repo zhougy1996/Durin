@@ -922,7 +922,8 @@ namespace Durin::Editor
 				if (!UpdateTransactorRecord(OutError)) return EPropertyEditResult::Failed;
 				TransactorResult = TransactionScope->End();
 				if (TransactorResult.Code == ETransactorResultCode::Rejected
-					|| TransactorResult.Code == ETransactorResultCode::Failed)
+					|| TransactorResult.Code == ETransactorResultCode::Failed
+					|| TransactorResult.Code == ETransactorResultCode::RecoveryRequired)
 				{
 					if (OutError) *OutError = TransactorResult.Message;
 					return EPropertyEditResult::Failed;
@@ -933,7 +934,8 @@ namespace Durin::Editor
 		{
 			const FTransactorResult Result = TransactionScope->Cancel();
 			if (Result.Code == ETransactorResultCode::Rejected
-				|| Result.Code == ETransactorResultCode::Failed)
+				|| Result.Code == ETransactorResultCode::Failed
+				|| Result.Code == ETransactorResultCode::RecoveryRequired)
 			{
 				if (OutError) *OutError = Result.Message;
 				return EPropertyEditResult::Failed;
@@ -960,7 +962,8 @@ namespace Durin::Editor
 		{
 			const FTransactorResult CancelResult = TransactionScope->Cancel();
 			if (CancelResult.Code == ETransactorResultCode::Rejected
-				|| CancelResult.Code == ETransactorResultCode::Failed)
+				|| CancelResult.Code == ETransactorResultCode::Failed
+				|| CancelResult.Code == ETransactorResultCode::RecoveryRequired)
 			{
 				if (OutError) *OutError = CancelResult.Message;
 				return EPropertyEditResult::Failed;

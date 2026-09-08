@@ -132,22 +132,18 @@ namespace Durin::Editor
 	}
 
 	auto FAssetThumbnailRequestQueue::Request(
-		const FAssetThumbnailRequest& Request,
-		std::string& OutError) -> bool
+		const FAssetThumbnailRequest& Request
+	) -> EThumbnailRequestStatus
 	{
 		if (Impl->bShuttingDown)
 		{
-			OutError = "Thumbnail requests are closed during shutdown.";
-			return false;
+			return EThumbnailRequestStatus::ShuttingDown;
 		}
 		const FThumbnailRendererHandle Handle =
 			Impl->Registry.Find(Request.Asset.AssetClassName);
 		if (!Handle)
 		{
-			OutError = std::format(
-				"No thumbnail renderer is registered for asset class {}.",
-				Request.Asset.AssetClassName);
-			return false;
+			return EThumbnailRequestStatus::Unsupported;
 		}
 
 		const std::string AssetPath = Request.Asset.AssetPath.ToString();
@@ -157,16 +153,14 @@ namespace Durin::Editor
 			FImpl::FEntry& Entry = Existing->second;
 			if (Request.RequestSerial < Entry.Request.RequestSerial)
 			{
-				OutError = "A newer thumbnail request is already active for this asset.";
-				return false;
+				return EThumbnailRequestStatus::Superseded;
 			}
 			if (Request.RequestSerial == Entry.Request.RequestSerial
 				&& Request.Asset == Entry.Request.Asset
 				&& Handle.Generation == Entry.RendererGeneration)
 			{
 				Impl->PromoteQueuedRequest(Request.Asset.AssetPath, Request.Priority);
-				OutError.clear();
-				return true;
+				return EThumbnailRequestStatus::Coalesced;
 			}
 			Impl->CancelEntry(Entry);
 			Impl->Entries.erase(Existing);
@@ -175,8 +169,7 @@ namespace Durin::Editor
 		if (Impl->PendingRequests.size() + Impl->CapturedQueue.size()
 			>= Impl->Budgets.MaximumQueuedJobs)
 		{
-			OutError = "The thumbnail request queue budget is exhausted.";
-			return false;
+			return EThumbnailRequestStatus::QueueFull;
 		}
 
 		FImpl::FEntry Entry;
@@ -185,8 +178,7 @@ namespace Durin::Editor
 		Entry.RendererGeneration = Handle.Generation;
 		Impl->Entries.emplace(AssetPath, std::move(Entry));
 		Impl->PendingRequests.push_back(Request);
-		OutError.clear();
-		return true;
+		return EThumbnailRequestStatus::Accepted;
 	}
 
 	auto FAssetThumbnailRequestQueue::Find(const FTopLevelAssetPath& AssetPath) const

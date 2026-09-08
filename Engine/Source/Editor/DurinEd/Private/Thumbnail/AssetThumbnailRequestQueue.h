@@ -4,6 +4,22 @@
 
 namespace Durin::Editor
 {
+	// Admission outcomes are scheduling policy, not generation errors.
+	enum class EThumbnailRequestStatus : uint8
+	{
+		Accepted,
+		Coalesced,
+		Superseded,
+		QueueFull,
+		Unsupported,
+		ShuttingDown,
+	};
+
+	inline auto IsThumbnailRequestAccepted(EThumbnailRequestStatus Status) -> bool
+	{
+		return Status == EThumbnailRequestStatus::Accepted || Status == EThumbnailRequestStatus::Coalesced;
+	}
+
 	struct FAssetThumbnailScheduledRequest
 	{
 		std::string CacheKey;
@@ -24,7 +40,7 @@ namespace Durin::Editor
 		FAssetThumbnailRequestQueue(const FAssetThumbnailRequestQueue&) = delete;
 		FAssetThumbnailRequestQueue& operator=(const FAssetThumbnailRequestQueue&) = delete;
 
-		DURINED_API auto Request(const FAssetThumbnailRequest& Request, std::string& OutError) -> bool;
+		DURINED_API auto Request(const FAssetThumbnailRequest& Request) -> EThumbnailRequestStatus;
 		DURINED_API auto Find(const FTopLevelAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledRequest>;
 		// Selects renderer-generated pixels without waiting behind a resource-bound rendered job.

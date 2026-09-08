@@ -24,6 +24,11 @@ namespace Durin
 {
 	struct FTransBufferTestAccess
 	{
+		static auto InstallHistory(DTransBuffer& Buffer, Editor::FTransaction Transaction) -> void
+		{
+			Buffer.History.push_back(std::move(Transaction));
+			Buffer.Cursor = 1;
+		}
 		static auto SetState(DTransBuffer& Buffer, Editor::ETransactorState State) -> void
 		{
 			Buffer.State = State;
@@ -268,7 +273,16 @@ namespace
 			Value = Before;
 			return true;
 		}
-		auto Redo() -> bool override { Value = After; return true; }
+		auto Redo() -> bool override
+		{
+			if (bFailRedo)
+			{
+				Details = "Injected custom Redo failure.";
+				return false;
+			}
+			Value = After;
+			return true;
+		}
 		auto IsDeferredOperationPending() const -> bool override { return bPending; }
 		auto SetDeferredOperationCompletion(
 			Durin::Editor::FTransactionDeferredCompletion InCompletion) -> void override
@@ -303,6 +317,7 @@ namespace
 		std::string Details;
 		Durin::Editor::FTransactionDeferredCompletion Completion;
 		bool bFailUndo = false;
+		bool bFailRedo = false;
 		bool bDeferUndo = false;
 		bool bPending = false;
 	};
@@ -1019,4 +1034,53 @@ TEST(FTransBufferTests, CustomReferencesAndModuleDrainReleaseHistory)
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+}
+
+TEST(FTransBufferTests, FailedCompensationPreservesEveryCauseAndDisablesHistory)
+{
+	using namespace Durin;
+	using namespace Durin::Editor;
+	InitializeDObjectSystem();
+	auto* Buffer = NewObject<DTransBuffer>(nullptr, "FailedCompensationTransBuffer");
+	TStrongObjectPtr<DObject> Root(Buffer);
+	auto* Package = NewObject<DPackage>(nullptr, "FailedCompensationPackage");
+	TStrongObjectPtr<DObject> PackageRoot(Package);
+	(void)MakeSoftPath();
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TransactionTests/FailedCompensation", PackagePath));
+	Package->InitializeAssetPackage(PackagePath);
+	Buffer->EstablishSavedState(*Package);
+	int First = 1, Second = 2, Third = 3;
+	FTransaction Transaction(1, {.Description = "Compensation test"});
+	auto FailingUndo = std::make_unique<FTestCustomChange>(First, 0, 1);
+	FailingUndo->bFailUndo = true;
+	auto FailingRedo = std::make_unique<FTestCustomChange>(Second, 0, 2);
+	FailingRedo->bFailRedo = true;
+	auto OtherFailingRedo = std::make_unique<FTestCustomChange>(Third, 0, 3);
+	OtherFailingRedo->bFailRedo = true;
+	Transaction.AddRecord(std::move(FailingUndo));
+	Transaction.AddRecord(std::move(FailingRedo));
+	Transaction.AddRecord(std::move(OtherFailingRedo));
+	Transaction.SetPackageTransitions({{.Package = FPersistentObjectRef(Package)}});
+	FTransBufferTestAccess::InstallHistory(*Buffer, std::move(Transaction));
+	const auto Result = Buffer->Undo();
+	EXPECT_EQ(Result.Code, ETransactorResultCode::RecoveryRequired);
+	ASSERT_EQ(Result.RollbackFailures.size(), 2u);
+	EXPECT_EQ(Result.RollbackFailures[0].RecordIndex, 1u);
+	EXPECT_EQ(Result.RollbackFailures[1].RecordIndex, 2u);
+	EXPECT_NE(Result.Message.find("Undo failure"), std::string::npos);
+	EXPECT_EQ(Buffer->GetState(), ETransactorState::RecoveryRequired);
+	ASSERT_TRUE(Buffer->GetPackageRevisionState(*Package));
+	EXPECT_FALSE(Buffer->GetPackageRevisionState(*Package)->bCheckpointValid);
+	EXPECT_TRUE(Package->IsDirty());
+	EXPECT_EQ(Buffer->GetUndoCount(), 1u);
+	EXPECT_FALSE(Buffer->CanUndo());
+	EXPECT_FALSE(Buffer->CanRedo());
+	EXPECT_EQ(Buffer->Undo().Code, ETransactorResultCode::Rejected);
+	EXPECT_EQ(Buffer->Redo().Code, ETransactorResultCode::Rejected);
+	EXPECT_EQ(Buffer->Reset().Code, ETransactorResultCode::Rejected);
+	EXPECT_EQ(Buffer->Begin({.Description = "Blocked"}).Code, ETransactorResultCode::Rejected);
+	EXPECT_EQ(First, 1);
+	EXPECT_EQ(Second, 0);
+	EXPECT_EQ(Third, 0);
 }

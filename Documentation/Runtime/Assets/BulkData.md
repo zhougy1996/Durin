@@ -30,8 +30,21 @@ Only Resident or Detached storage may acquire locks. Reading Attached first
 loads an immutable snapshot. Writing is admitted only for Detached or Empty and
 detaches shared storage before returning. Resize is legal only while
 write-locked, uses checked `uint64` arithmetic, and may not exceed 1 GiB.
-Conflicting locks, unmatched unlock, resize outside a write lock, unload while
-locked/loading, and access after retirement fail without changing state.
+`AcquireRead` returns a move-only read lease or the exact package read failure.
+Read admission distinguishes Acquired, Empty, Busy, Retired, and ReadFailed.
+Empty/loading/write-locked storage rejects admission without changing state.
+`AcquireWrite` requires Empty or Detached storage; violating exclusive write
+ownership is an always-on contract failure. The write lease owns `TryResize`,
+which rejects sizes above 1 GiB without changing bytes. Views are borrowed until
+the lease resets/destructs, and a successful resize invalidates prior write views.
+Lease moves transfer ownership; resetting an empty lease is harmless. Leases
+retain their storage when the owning BulkData value is replaced. Copies may not
+snapshot actively write-locked storage.
+
+Matching release bookkeeping is private and uses development `check` assertions;
+callers no longer expose unmatched unlock operations. `TryUnload` distinguishes
+Unloaded, Busy, and NotResident without allocating an error string. Package I/O,
+cancellation, and retirement remain recoverable outcomes, never assertions.
 
 Copies snapshot metadata, resource ownership, and resident bytes but begin
 unlocked. Immutable allocations may remain shared until one copy takes a write
@@ -112,6 +125,13 @@ requests cancellation for admitted work, waits for one terminal result per
 request, then becomes Retired. Package unload retires the resource before
 withdrawing object publication; Engine shutdown retires all resources before
 filesystem and task services stop.
+
+`RegisterLoosePackage` returns an owned resource or a registration failure with
+its validation/recovery/shutdown stage and diagnostic. Atomic recovery failures
+also retain the structured publication error. Empty logical package identity is
+an internal contract violation; invalid disk metadata remains a normal failure.
+The registration and read mechanisms do not log each propagated error; asset
+operation boundaries decide presentation and recovery.
 
 The backend reports InvalidRange, MissingSegment, TruncatedSegment,
 SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read

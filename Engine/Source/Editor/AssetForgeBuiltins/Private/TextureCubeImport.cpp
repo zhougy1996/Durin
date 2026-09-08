@@ -135,12 +135,12 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 			if (!std::visit([&](auto&& Decoded) {
-					return BuildTextureCubeSynchronously(Texture, {
-						.Input = FTextureCubePanoramaBuildInput{
-							.Image = std::move(Decoded), .Settings = Settings}}, {}, OutError);
-				}, std::move(Panorama))
-				|| !PublishCubeImportData(Texture, std::span(&Source, 1),
-					ETextureCubeSourceLayout::EquirectangularPanorama, OutError)) return false;
+					auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Decoded), .Settings = Settings}}, {});
+					OutError = BuildResult.Diagnostic;
+					return static_cast<bool>(BuildResult);
+				},
+							std::move(Panorama))
+				|| !PublishCubeImportData(Texture, std::span(&Source, 1), ETextureCubeSourceLayout::EquirectangularPanorama, OutError)) return false;
 			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
@@ -172,14 +172,10 @@ namespace Durin::AssetForge::Builtins
 				OutError = "TextureCube canonical imported faces are invalid.";
 				return false;
 			}
-			if (!BuildTextureCubeSynchronously(Texture, {
-					.Input = FTextureCubeFacesBuildInput{
-						.ImportedData = std::move(ImportedData),
-						.OriginalSourceWidth = SourceData.Faces[0].Width,
-						.OriginalSourceHeight = SourceData.Faces[0].Height,
-						.Settings = Settings}}, {}, OutError)
-				|| !PublishCubeImportData(Texture, Sources,
-					ETextureCubeSourceLayout::SixFaces, OutError)) return false;
+			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].Width, .OriginalSourceHeight = SourceData.Faces[0].Height, .Settings = Settings}}, {});
+			OutError = BuildResult.Diagnostic;
+			if (!BuildResult
+				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;
 			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
@@ -460,11 +456,11 @@ namespace Durin::AssetForge::Builtins
 			return {false, "TextureCube canonical imported faces are invalid."};
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
-		if (!InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{
-			.ImportedData = std::move(ImportedData),
-			.OriginalSourceWidth = SourceData.Faces[0].Width,
-			.OriginalSourceHeight = SourceData.Faces[0].Height,
-			.Settings = Settings}}, CanonicalInput, Product, Error))
+		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].Width, .OriginalSourceHeight = SourceData.Faces[0].Height, .Settings = Settings}});
+		Error = BuildResult.Outcome.Diagnostic;
+		CanonicalInput = BuildResult ? std::move(BuildResult.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+		Product = BuildResult ? std::move(BuildResult.Value->Product) : Durin::FTextureCubeBuildProduct{};
+		if (!BuildResult)
 			return {false, std::move(Error)};
 		return MakeValidation(CanonicalInput, Product, false);
 	}
@@ -485,14 +481,15 @@ namespace Durin::AssetForge::Builtins
 		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
 		FTextureCubePanoramaSourceData Panorama;
-		if (!TranslateTextureCubePanoramaSource(Bytes,
-			std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
+		if (!TranslateTextureCubePanoramaSource(Bytes, std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
 			|| !std::visit([&](auto&& Source) {
-				return InvokeTextureCubeBuildProvider({
-					.Input = FTextureCubePanoramaBuildInput{
-						.Image = std::move(Source), .Settings = Settings}},
-					CanonicalInput, Product, Error);
-			}, std::move(Panorama))) return {false, std::move(Error)};
+				   auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubePanoramaBuildInput{.Image = std::move(Source), .Settings = Settings}});
+				   Error = BuildResult.Outcome.Diagnostic;
+				   CanonicalInput = BuildResult ? std::move(BuildResult.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
+				   Product = BuildResult ? std::move(BuildResult.Value->Product) : Durin::FTextureCubeBuildProduct{};
+				   return static_cast<bool>(BuildResult);
+			   },
+						   std::move(Panorama))) return {false, std::move(Error)};
 		return MakeValidation(CanonicalInput, Product, bHDR);
 	}
 

@@ -2,6 +2,7 @@
 
 #include "DerivedDataCacheKeyProxy.h"
 #include "EngineAPI.h"
+#include "Texture/TextureBuildOutcome.h"
 #include "Modules/ModularFeature.h"
 #include "Texture/TextureCube.h"
 
@@ -132,27 +133,27 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.TextureCubeBuildProvider";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 
 		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
 		virtual auto Normalize(
-			const FTextureCubeBuildRequest& Request,
-			FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-			std::string& OutError) -> bool = 0;
+			const FTextureCubeBuildRequest& Request
+		)
+			-> TTextureBuildResult<FTextureCubeCanonicalBuildInput> = 0;
 		virtual auto Build(
-			const FTextureCubeRecipeBuildRequest& Request,
-			FTextureCubeRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool = 0;
+			const FTextureCubeRecipeBuildRequest& Request
+		)
+			-> TTextureBuildResult<FTextureCubeRecipeBuildProduct> = 0;
 	};
 
-	ENGINE_API auto InvokeTextureCubeBuildProvider(
-		const FTextureCubeBuildRequest& Request,
-		FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-		FTextureCubeBuildProduct& OutProduct,
-		std::string& OutError) -> bool;
-	ENGINE_API auto BuildTextureCubeSynchronously(
-		DTextureCube& Texture,
-		const FTextureCubeBuildRequest& Request,
-		const FTextureCubeResultApplicationContext& Context,
-		std::string& OutError) -> bool;
+	struct FTextureCubeBuildValue
+	{
+		FTextureCubeCanonicalBuildInput CanonicalInput;
+		FTextureCubeBuildProduct Product;
+	};
+
+	ENGINE_API auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
+		-> TTextureBuildResult<FTextureCubeBuildValue>;
+	ENGINE_API auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context)
+		-> FTextureBuildOutcome;
 }

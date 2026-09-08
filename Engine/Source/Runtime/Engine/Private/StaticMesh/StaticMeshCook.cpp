@@ -254,17 +254,16 @@ namespace Durin
 
 		const bool bRequiresCollision = BodySetup
 			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
-		FByteView Bytes;
-		if (!CookedRenderData.LockReadOnly(Bytes, &OutError))
-			return FailCooked(OutError);
+		auto Read = CookedRenderData.AcquireRead();
+		if (!Read) return FailCooked(Read.Error.Message);
+		const FByteView Bytes = Read.Lock.GetBytes();
+		FBulkDataReadResult CollisionRead;
 		FByteView CollisionBytes;
 		if (bRequiresCollision)
 		{
-			if (!CookedCollisionData.LockReadOnly(CollisionBytes, &OutError))
-			{
-				CookedRenderData.UnlockReadOnly();
-				return FailCooked(OutError);
-			}
+			CollisionRead = CookedCollisionData.AcquireRead();
+			if (!CollisionRead) return FailCooked(CollisionRead.Error.Message);
+			CollisionBytes = CollisionRead.Lock.GetBytes();
 		}
 
 		FStaticMeshCookedProduct Product;
@@ -278,16 +277,10 @@ namespace Durin
 		if (!DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
 			CollisionMode, CollisionPolicy, Product, ProductError))
 		{
-			if (bRequiresCollision) CookedCollisionData.UnlockReadOnly();
-			CookedRenderData.UnlockReadOnly();
 			return FailCooked(std::move(ProductError.Message));
 		}
-		if (bRequiresCollision && !CookedCollisionData.UnlockReadOnly(&OutError))
-		{
-			CookedRenderData.UnlockReadOnly();
-			return FailCooked(OutError);
-		}
-		if (!CookedRenderData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
+		CollisionRead.Lock.Reset();
+		Read.Lock.Reset();
 
 		if (!CommitRenderDataCandidate(
 			std::move(Product.RenderData), nullptr, OutError, false))

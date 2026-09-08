@@ -376,12 +376,10 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureSourceData SourceData;
 			if (!TranslateVolumeTextureAtlasSource(
 				Captured, Settings, SourceData, OutError)) return false;
-			if (!BuildVolumeTextureSynchronously(Texture, {
-				.SourceData = SourceData,
-				.Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {}, OutError)
-				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase,
-					PhysicalPath,
-					Snapshot, Settings, OutError)) return false;
+			auto BuildResult = BuildVolumeTextureSynchronously(Texture, {.SourceData = SourceData, .Settings = {.OutputFormat = Settings.GetOutputFormat()}}, {});
+			OutError = BuildResult.Diagnostic;
+			if (!BuildResult
+				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase, PhysicalPath, Snapshot, Settings, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Texture.GetPackage();
 			const FAssetResult Saved = SavePackagesAtomically(

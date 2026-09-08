@@ -30,10 +30,9 @@ namespace Durin
 		auto ValidateMetadata(const FBulkDataMetadata& Metadata, std::string* OutError) -> bool
 		{
 			if (Metadata.LogicalSize != Metadata.Range.StoredSize
-				|| Metadata.LogicalSize > MaximumBulkDataBytes
-				|| !ValidatePackageResourceRange(
-					Metadata.Range, MaximumBulkDataBytes, OutError))
+				|| Metadata.LogicalSize > MaximumBulkDataBytes)
 				return BulkDataFail("Bulk data package metadata is invalid or unsupported.", OutError);
+			if (!ValidatePackageResourceRange(Metadata.Range, MaximumBulkDataBytes, OutError)) return false;
 			if (OutError) OutError->clear();
 			return true;
 		}
@@ -43,6 +42,7 @@ namespace Durin
 		{
 			auto Result = NewEmptyState();
 			std::lock_guard Lock(Source->Mutex);
+			require(Source->State != EBulkDataState::WriteLocked);
 			Result->Metadata = Source->Metadata;
 			Result->Allocation = Source->Allocation;
 			if (Source->State == EBulkDataState::Empty) Result->State = EBulkDataState::Empty;
@@ -126,103 +126,129 @@ namespace Durin
 		return State->Metadata.LogicalSize != 0;
 	}
 
-	auto FBulkData::LockReadOnly(
-		FByteView& OutBytes, std::string* OutError) -> bool
+	FBulkDataReadScope::~FBulkDataReadScope() { Reset(); }
+	FBulkDataReadScope::FBulkDataReadScope(FBulkDataReadScope&& Other) noexcept
+		: State(std::move(Other.State))
 	{
-		std::unique_lock Lock(State->Mutex);
+	}
+	auto FBulkDataReadScope::operator=(FBulkDataReadScope&& Other) noexcept -> FBulkDataReadScope&
+	{
+		if (this != &Other)
+		{
+			Reset();
+			State = std::move(Other.State);
+		}
+		return *this;
+	}
+	auto FBulkDataReadScope::GetBytes() const -> FByteView
+	{
+		require(State != nullptr);
+		std::lock_guard Guard(State->Mutex);
+		check(State->State == EBulkDataState::ReadLocked);
+		return *State->Allocation;
+	}
+	auto FBulkDataReadScope::Reset() -> void
+	{
+		if (!State) return;
+		auto Previous = std::move(State);
+		std::lock_guard Guard(Previous->Mutex);
+		// Only the lease implementation can change the matching read count.
+		check(Previous->State == EBulkDataState::ReadLocked && Previous->ReadLocks > 0);
+		if (--Previous->ReadLocks == 0)
+			Previous->State = Previous->Metadata.Range.Resource ? EBulkDataState::Resident : EBulkDataState::Detached;
+	}
+
+	FBulkDataWriteScope::~FBulkDataWriteScope() { Reset(); }
+	FBulkDataWriteScope::FBulkDataWriteScope(FBulkDataWriteScope&& Other) noexcept
+		: State(std::move(Other.State))
+	{
+	}
+	auto FBulkDataWriteScope::operator=(FBulkDataWriteScope&& Other) noexcept -> FBulkDataWriteScope&
+	{
+		if (this != &Other)
+		{
+			Reset();
+			State = std::move(Other.State);
+		}
+		return *this;
+	}
+	auto FBulkDataWriteScope::GetBytes() const -> FMutableByteView
+	{
+		require(State != nullptr);
+		std::lock_guard Guard(State->Mutex);
+		check(State->State == EBulkDataState::WriteLocked);
+		return *State->Allocation;
+	}
+	auto FBulkDataWriteScope::TryResize(uint64 Size) -> bool
+	{
+		require(State != nullptr);
+		std::lock_guard Guard(State->Mutex);
+		check(State->State == EBulkDataState::WriteLocked);
+		if (Size > MaximumBulkDataBytes || Size > std::numeric_limits<size_t>::max()) return false;
+		State->Allocation->resize(static_cast<size_t>(Size));
+		State->Metadata.LogicalSize = Size;
+		State->Metadata.Range.StoredSize = Size;
+		return true;
+	}
+	auto FBulkDataWriteScope::Reset() -> void
+	{
+		if (!State) return;
+		auto Previous = std::move(State);
+		std::lock_guard Guard(Previous->Mutex);
+		check(Previous->State == EBulkDataState::WriteLocked);
+		Previous->State = EBulkDataState::Detached;
+	}
+
+	auto FBulkData::AcquireRead() -> FBulkDataReadResult
+	{
+		std::unique_lock Guard(State->Mutex);
 		if (State->State == EBulkDataState::Attached || State->State == EBulkDataState::Failed)
 		{
 			const FBulkDataMetadata Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
-			Lock.unlock();
-			FPackageResourceReadResult Result = Metadata.Range.Resource->ReadRange(
-				Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
-			Lock.lock();
-			if (!Result || Result.Buffer.GetSize() != Metadata.LogicalSize)
+			Guard.unlock();
+			auto Result = Metadata.Range.Resource->ReadRange(Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
+			Guard.lock();
+			if (Result && Result.Buffer.GetSize() != Metadata.LogicalSize)
+				Result = {.Status = EPackageResourceReadStatus::TruncatedSegment, .Message = "Bulk data logical size does not match the read."};
+			if (!Result)
 			{
-				State->State = Result.Status == EPackageResourceReadStatus::Retired
-					? EBulkDataState::Retired : EBulkDataState::Failed;
-				return BulkDataFail(Result.Message.empty() ? "Bulk data range load failed." : Result.Message, OutError);
+				State->State = Result.Status == EPackageResourceReadStatus::Retired ? EBulkDataState::Retired : EBulkDataState::Failed;
+				return {.Status = State->State == EBulkDataState::Retired ? EBulkReadStatus::Retired : EBulkReadStatus::ReadFailed, .Error = std::move(Result)};
 			}
-			State->Allocation = std::make_shared<FByteBuffer>(
-				Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
+			State->Allocation = std::make_shared<FByteBuffer>(Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
 			State->State = EBulkDataState::Resident;
 		}
-		if (State->State != EBulkDataState::Resident
-			&& State->State != EBulkDataState::ReadLocked
-			&& State->State != EBulkDataState::Detached)
-			return BulkDataFail("Bulk data cannot acquire a read lock in its current state.", OutError);
+		if (State->State == EBulkDataState::Retired)
+			return {.Status = EBulkReadStatus::Retired, .Error = {.Status = EPackageResourceReadStatus::Retired, .Message = "Bulk data resource is retired."}};
+		if (State->State != EBulkDataState::Resident && State->State != EBulkDataState::ReadLocked && State->State != EBulkDataState::Detached)
+			return {.Status = State->State == EBulkDataState::Empty ? EBulkReadStatus::Empty : EBulkReadStatus::Busy, .Error = {.Message = "Bulk data is empty, loading, or write locked."}};
 		++State->ReadLocks;
 		State->State = EBulkDataState::ReadLocked;
-		OutBytes = *State->Allocation;
-		if (OutError) OutError->clear();
-		return true;
+		return {.Status = EBulkReadStatus::Acquired, .Lock = FBulkDataReadScope(State)};
 	}
 
-	auto FBulkData::UnlockReadOnly(std::string* OutError) -> bool
+	auto FBulkData::AcquireWrite() -> FBulkDataWriteScope
 	{
-		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::ReadLocked || State->ReadLocks == 0)
-			return BulkDataFail("Bulk data has no matching read lock.", OutError);
-		if (--State->ReadLocks == 0)
-			State->State = State->Metadata.Range.Resource
-				? EBulkDataState::Resident : EBulkDataState::Detached;
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto FBulkData::LockReadWrite(
-		FMutableByteView& OutBytes, std::string* OutError) -> bool
-	{
-		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::Detached && State->State != EBulkDataState::Empty)
-			return BulkDataFail("Bulk data write locks require detached storage.", OutError);
+		std::lock_guard Guard(State->Mutex);
+		require(State->State == EBulkDataState::Detached || State->State == EBulkDataState::Empty);
 		if (!State->Allocation) State->Allocation = std::make_shared<FByteBuffer>();
 		else if (State->Allocation.use_count() != 1)
 			State->Allocation = std::make_shared<FByteBuffer>(*State->Allocation);
 		State->Metadata.Range.Resource.reset();
 		State->State = EBulkDataState::WriteLocked;
-		OutBytes = *State->Allocation;
-		if (OutError) OutError->clear();
-		return true;
+		return FBulkDataWriteScope(State);
 	}
 
-	auto FBulkData::Resize(
-		uint64 Size, FMutableByteView& OutBytes, std::string* OutError) -> bool
+	auto FBulkData::TryUnload() -> EBulkUnloadResult
 	{
-		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::WriteLocked)
-			return BulkDataFail("Bulk data resize requires a write lock.", OutError);
-		if (Size > MaximumBulkDataBytes || Size > std::numeric_limits<size_t>::max())
-			return BulkDataFail("Bulk data resize exceeds the 1 GiB limit.", OutError);
-		State->Allocation->resize(static_cast<size_t>(Size));
-		State->Metadata.LogicalSize = Size;
-		State->Metadata.Range.StoredSize = Size;
-		OutBytes = *State->Allocation;
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto FBulkData::UnlockWrite(std::string* OutError) -> bool
-	{
-		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::WriteLocked)
-			return BulkDataFail("Bulk data has no matching write lock.", OutError);
-		State->State = EBulkDataState::Detached;
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto FBulkData::Unload(std::string* OutError) -> bool
-	{
-		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::Resident || !State->Metadata.Range.Resource)
-			return BulkDataFail("Only unlocked resource-backed bulk data can unload.", OutError);
+		std::lock_guard Guard(State->Mutex);
+		if (State->State == EBulkDataState::ReadLocked || State->State == EBulkDataState::WriteLocked || State->State == EBulkDataState::Loading)
+			return EBulkUnloadResult::Busy;
+		if (State->State != EBulkDataState::Resident || !State->Metadata.Range.Resource) return EBulkUnloadResult::NotResident;
 		State->Allocation.reset();
-		State->State = State->Metadata.Range.Resource->IsRetired()
-			? EBulkDataState::Retired : EBulkDataState::Attached;
-		if (OutError) OutError->clear();
-		return true;
+		State->State = State->Metadata.Range.Resource->IsRetired() ? EBulkDataState::Retired : EBulkDataState::Attached;
+		return EBulkUnloadResult::Unloaded;
 	}
 
 	auto FBulkData::ReloadAsync() -> FPackageResourceRequest

@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-08
 
 ## Service Ownership
 
@@ -84,13 +84,23 @@ cursor are undoable; entries at or after it are redoable. A new commit after
 Undo discards the complete redo suffix before retaining the new entry. IDs are
 never reused by Reset.
 
-The buffer has Idle, Recording, Executing, Undoing, Redoing, and Destroying
-states. Begin
+The buffer has Idle, Recording, Executing, Undoing, Redoing, RecoveryRequired,
+and Destroying states. Begin
 is rejected during transitions and destruction. Undo, Redo, Reset, and limit
 changes are rejected while recording. Undo validates all records before
 writing, then applies property records in reverse order; Redo applies them
 forward. Partial failure rolls back records already applied and leaves the
-cursor unchanged. Expected-ID transitions reject an ordering mismatch.
+cursor unchanged. `FTransaction::Apply` returns a value distinguishing validation
+failure, restored execution failure, and failed compensation. Each failed rollback
+retains its record index and diagnostic. Record implementations must leave their
+own state unchanged or compensate internally when returning failure.
+
+Failed compensation puts the buffer in RecoveryRequired, invalidates affected
+package checkpoints, emits one error log and a failed event, and returns every
+rollback cause to the caller. Ordinary Begin/Execute/Undo/Redo and Reset remain
+rejected. Resetting history does not repair partially applied data; recovery
+requires restoring affected data and recreating the editor session. Destruction
+still releases history normally. Expected-ID transitions reject an ordering mismatch.
 Explicit entry removal supports targeted retirement, while branch replacement,
 eviction, package forgetting, Reset, and shutdown release records directly.
 

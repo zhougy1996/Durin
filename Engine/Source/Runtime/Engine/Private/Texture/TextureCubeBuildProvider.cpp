@@ -9,45 +9,52 @@ namespace Durin
 {
 	namespace
 	{
-		auto ApplyTextureCubeBuildResult(DTextureCube& Texture,
-			FTextureCubeCanonicalBuildInput CanonicalInput,
-			FTextureCubeBuildProduct Product,
-			const FTextureCubeResultApplicationContext& Context,
-			std::string& OutError) -> bool;
+		auto ApplyTextureCubeBuildResult(DTextureCube& Texture, FTextureCubeCanonicalBuildInput CanonicalInput, FTextureCubeBuildProduct Product, const FTextureCubeResultApplicationContext& Context) -> FTextureBuildOutcome;
 	}
 
-	auto InvokeTextureCubeBuildProvider(
-		const FTextureCubeBuildRequest& Request,
-		FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-		FTextureCubeBuildProduct& OutProduct,
-		std::string& OutError) -> bool
+	auto InvokeTextureCubeBuildProvider(const FTextureCubeBuildRequest& Request)
+		-> TTextureBuildResult<FTextureCubeBuildValue>
 	{
-		OutCanonicalInput = {};
-		OutProduct = {};
+		FTextureBuildOutcome Outcome;
+		FTextureCubeBuildProduct Product;
+		FTextureCubeCanonicalBuildInput CanonicalInput;
 #if !DURIN_WITH_EDITOR
-		OutError = "TextureCube authored build orchestration is unavailable outside editor builds.";
-		return false;
+		Outcome.Diagnostic = "TextureCube authored build orchestration is unavailable outside editor builds.";
+		return {.Outcome = {ETextureBuildFailure::Unavailable, ETextureBuildStage::Provider, std::move(Outcome.Diagnostic)}};
 #else
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<
 			ITextureCubeBuildProvider>([&](ITextureCubeBuildProvider& Provider) {
 				const FTextureCubeBuildProviderDescriptor Descriptor = Provider.GetDescriptor();
 				if (!Descriptor.IsValid())
 				{
-					OutError = "The TextureCube build provider descriptor is invalid.";
+					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
+					Outcome.Diagnostic = "The TextureCube build provider descriptor is invalid.";
 					return false;
 				}
-				if (!Provider.Normalize(Request, OutCanonicalInput, OutError)) return false;
-				const FXxHash128 CanonicalHash = OutCanonicalInput.ImportedData.GetIdentity();
+				Outcome.Stage = ETextureBuildStage::Normalize;
+				auto Normalized = Provider.Normalize(Request);
+				if (!Normalized)
+				{
+					Outcome = std::move(Normalized.Outcome);
+					return false;
+				}
+				CanonicalInput = std::move(*Normalized.Value);
+				if (!CanonicalInput.ImportedData.IsValid())
+				{
+					Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."};
+					return false;
+				}
+				const FXxHash128 CanonicalHash = CanonicalInput.ImportedData.GetIdentity();
 				const FTextureCubeBuildKeyInput KeyInput{
 					.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
-					.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
-						CanonicalHash, CanonicalHash, CanonicalHash},
-					.bSRGB = OutCanonicalInput.bSRGB,
+					.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash},
+					.bSRGB = CanonicalInput.bSRGB,
 					.BuilderVersion = Descriptor.BuilderVersion,
 					.ProjectionVersion = Descriptor.ProjectionVersion,
 					.TargetPlatform = Request.TargetPlatform,
-					.TargetProfile = Request.TargetProfile};
-				const FCacheKeyProxy Key = BuildTextureCubeDerivedDataKey(KeyInput, OutError);
+					.TargetProfile = Request.TargetProfile
+				};
+				const FCacheKeyProxy Key = BuildTextureCubeDerivedDataKey(KeyInput, Outcome.Diagnostic);
 				if (!Key.IsValid()) return false;
 
 				TextureDerivedDataCache::FOperationDiagnostic CacheDiagnostic;
@@ -57,22 +64,22 @@ namespace Durin
 					Request.TargetPlatform, Request.TargetProfile,
 					*PlatformData, CacheDiagnostic) == TextureDerivedDataCache::ELoadResult::Hit)
 				{
-					OutProduct = {.PlatformData = std::move(PlatformData),
-						.DerivedDataKey = Key,
-						.Provider = Descriptor,
-						.Origin = ETextureCubeBuildProductOrigin::CacheHit};
+					Product = {.PlatformData = std::move(PlatformData), .DerivedDataKey = Key, .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::CacheHit};
 					return true;
 				}
 
-				FTextureCubeRecipeBuildProduct RecipeProduct;
-				if (!Provider.Build({
-					.ImportedData = std::cref(OutCanonicalInput.ImportedData),
-					.bSRGB = OutCanonicalInput.bSRGB,
-					.TargetPlatform = Request.TargetPlatform,
-					.TargetProfile = Request.TargetProfile}, RecipeProduct, OutError)) return false;
+				Outcome.Stage = ETextureBuildStage::Recipe;
+				auto Recipe = Provider.Build({.ImportedData = std::cref(CanonicalInput.ImportedData), .bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+				if (!Recipe)
+				{
+					Outcome = std::move(Recipe.Outcome);
+					return false;
+				}
+				auto RecipeProduct = std::move(*Recipe.Value);
 				if (!RecipeProduct.PlatformData || !RecipeProduct.PlatformData->IsValid())
 				{
-					OutError = "TextureCube provider returned invalid platform data.";
+					Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
+					Outcome.Diagnostic = "TextureCube provider returned invalid platform data.";
 					return false;
 				}
 				TextureDerivedDataCache::FOperationDiagnostic StoreDiagnostic;
@@ -81,84 +88,70 @@ namespace Durin
 						Key,
 						Request.TargetPlatform, Request.TargetProfile,
 						*RecipeProduct.PlatformData, StoreDiagnostic);
-				OutProduct = {.PlatformData = std::move(RecipeProduct.PlatformData),
-					.DerivedDataKey = Key,
-					.PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(
-						CacheDiagnostic, StoreDiagnostic),
-					.Provider = Descriptor,
-					.Origin = ETextureCubeBuildProductOrigin::Rebuilt};
+				Product = {.PlatformData = std::move(RecipeProduct.PlatformData), .DerivedDataKey = Key, .PersistenceDiagnostic = AssetDerivedDataCache::CombineDiagnostics(CacheDiagnostic, StoreDiagnostic), .Provider = Descriptor, .Origin = ETextureCubeBuildProductOrigin::Rebuilt};
 				return true;
 			});
 		if (Invocation.Status == EFeatureInvokeStatus::Invoked
 			&& Invocation.Value.has_value() && *Invocation.Value)
 		{
-			OutError.clear();
-			return true;
+			return {.Outcome = {ETextureBuildFailure::None}, .Value = FTextureCubeBuildValue{std::move(CanonicalInput), std::move(Product)}};
 		}
-		OutCanonicalInput = {};
-		OutProduct = {};
 		if (Invocation.Status == EFeatureInvokeStatus::Unavailable)
-			OutError = "The TextureCube build provider is unavailable.";
+		{
+			Outcome.Code = ETextureBuildFailure::Unavailable;
+			Outcome.Stage = ETextureBuildStage::Provider;
+			Outcome.Diagnostic = "The TextureCube build provider is unavailable.";
+		}
 		else if (Invocation.Status == EFeatureInvokeStatus::Ambiguous)
-			OutError = "Multiple TextureCube build providers are registered.";
+		{
+			Outcome.Code = ETextureBuildFailure::Ambiguous;
+			Outcome.Stage = ETextureBuildStage::Provider;
+			Outcome.Diagnostic = "Multiple TextureCube build providers are registered.";
+		}
 		else if (Invocation.Status == EFeatureInvokeStatus::VisitorFailed)
-			OutError = "The TextureCube build provider invocation failed.";
-		else if (OutError.empty())
-			OutError = "The TextureCube build provider failed without a diagnostic.";
-		return false;
+		{
+			Outcome.Code = ETextureBuildFailure::InvocationFailed;
+			Outcome.Stage = ETextureBuildStage::Provider;
+			Outcome.Diagnostic = "The TextureCube build provider invocation failed.";
+		}
+		else if (Outcome.Diagnostic.empty())
+			Outcome.Diagnostic = "The TextureCube build provider failed without a diagnostic.";
+		if (Outcome.Code == ETextureBuildFailure::None) Outcome.Code = ETextureBuildFailure::InvalidProviderOutput;
+		return {.Outcome = std::move(Outcome)};
 #endif
 	}
 
-	auto BuildTextureCubeSynchronously(
-		DTextureCube& Texture,
-		const FTextureCubeBuildRequest& Request,
-		const FTextureCubeResultApplicationContext& Context,
-		std::string& OutError) -> bool
+	auto BuildTextureCubeSynchronously(DTextureCube& Texture, const FTextureCubeBuildRequest& Request, const FTextureCubeResultApplicationContext& Context) -> FTextureBuildOutcome
 	{
 		CheckGameThread();
-		FTextureCubeCanonicalBuildInput CanonicalInput;
-		FTextureCubeBuildProduct Product;
-		return InvokeTextureCubeBuildProvider(Request, CanonicalInput, Product, OutError)
-			&& ApplyTextureCubeBuildResult(Texture, std::move(CanonicalInput),
-				std::move(Product), Context, OutError);
+		auto Result = InvokeTextureCubeBuildProvider(Request);
+		if (!Result) return std::move(Result.Outcome);
+		return ApplyTextureCubeBuildResult(Texture, std::move(Result.Value->CanonicalInput), std::move(Result.Value->Product), Context);
 	}
 
 	namespace
 	{
-	auto ApplyTextureCubeBuildResult(
-		DTextureCube& Texture,
-		FTextureCubeCanonicalBuildInput CanonicalInput,
-		FTextureCubeBuildProduct Product,
-		const FTextureCubeResultApplicationContext& Context,
-		std::string& OutError) -> bool
-	{
-		CheckGameThread();
-		if (!CanonicalInput.ImportedData.IsValid()
-			|| !Product.PlatformData || !Product.PlatformData->IsValid()
-			|| !Product.DerivedDataKey.IsValid())
+		auto ApplyTextureCubeBuildResult(
+			DTextureCube& Texture,
+			FTextureCubeCanonicalBuildInput CanonicalInput,
+			FTextureCubeBuildProduct Product,
+			const FTextureCubeResultApplicationContext& Context
+		) -> FTextureBuildOutcome
 		{
-			OutError = "TextureCube result application requires canonical source, platform data, and a derived-data key.";
-			return false;
-		}
-		auto PlatformData = std::move(Product.PlatformData);
-		const bool bSourceSet = CanonicalInput.AuthoredPanorama.IsValid()
-			? Texture.SetPanoramaSourceData(CanonicalInput.AuthoredPanorama.GetView(),
-				Image::GetRawImageFormatInfo(
-					CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount,
-				0, OutError)
-			: Texture.SetSourceData(CanonicalInput.ImportedData, OutError);
-		if (!bSourceSet
-			|| !Texture.SetBuildSettings(CanonicalInput.SourceLayout,
-				CanonicalInput.PanoramaFaceDimension,
-				CanonicalInput.PanoramaExposureEV,
-				CanonicalInput.OriginalSourceWidth,
-				CanonicalInput.OriginalSourceHeight,
-				CanonicalInput.bSRGB, OutError)) return false;
-		Texture.SetPlatformData(std::move(PlatformData));
-		Texture.UpdateResource();
-		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
-		OutError.clear();
-		return true;
+			CheckGameThread();
+			std::string Error;
+			require(Product.PlatformData != nullptr);
+			// The provider boundary has already validated these value contracts.
+			check(CanonicalInput.ImportedData.IsValid() && Product.DerivedDataKey.IsValid());
+			check(Product.PlatformData->IsValid());
+			auto PlatformData = std::move(Product.PlatformData);
+			const bool bSourceSet = CanonicalInput.AuthoredPanorama.IsValid() ? Texture.SetPanoramaSourceData(CanonicalInput.AuthoredPanorama.GetView(), Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0, Error) : Texture.SetSourceData(CanonicalInput.ImportedData, Error);
+			if (!bSourceSet
+				|| !Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth, CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB, Error)) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply, std::move(Error)};
+			Texture.SetPlatformData(std::move(PlatformData));
+			Texture.UpdateResource();
+			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
+			return {ETextureBuildFailure::None};
 	}
 	}
 }

@@ -622,13 +622,7 @@ namespace Durin::Editor
 					Pipeline.InvalidatePersistentObject(WarmJob.CacheKey);
 					Pipeline.RecordRetry();
 					Scheduler.Cancel(Path);
-					std::string Error;
-					if (Scheduler.Request({
-							.Asset = WarmJob.GenerationRequest.KeyInput.Asset,
-							.Priority = WarmJob.Priority,
-							.RequestSerial =
-								WarmJob.GenerationRequest.RequestSerial},
-						Error))
+					if (IsThumbnailRequestAccepted(Scheduler.Request({.Asset = WarmJob.GenerationRequest.KeyInput.Asset, .Priority = WarmJob.Priority, .RequestSerial = WarmJob.GenerationRequest.RequestSerial})))
 					{
 						if (auto It = Entries.find(Path); It != Entries.end())
 						{
@@ -804,19 +798,13 @@ namespace Durin::Editor
 			Entry.Diagnostic.clear();
 			return;
 		}
-		std::string Error;
-		if (!Impl->Scheduler.Request({
-				.Asset = Asset,
-				.Priority = Priority,
-				.RequestSerial = Entry.Serial},
-			Error))
-		{
-			Entry.Diagnostic = std::move(Error);
-		}
+		const auto Admission = Impl->Scheduler.Request({.Asset = Asset, .Priority = Priority, .RequestSerial = Entry.Serial});
+		// Queue pressure is retried by subsequent visible requests. Old requests
+		// and shutdown need no diagnostic; unsupported assets retain a placeholder.
+		if (Admission == EThumbnailRequestStatus::Unsupported)
+			Entry.Diagnostic = "No thumbnail renderer is registered for this asset class.";
 		else if (!Entry.bUploadFailed)
-		{
 			Entry.Diagnostic.clear();
-		}
 	}
 
 	auto FAssetThumbnailPool::Find(const FTopLevelAssetPath& AssetPath) const

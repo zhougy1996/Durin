@@ -289,16 +289,14 @@ namespace Durin
 		if (!Data && GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
-			FByteView Bytes;
-			std::string Error;
 			DEnvironmentLighting* Mutable = const_cast<DEnvironmentLighting*>(this);
-			if (Mutable->CookedPlatformData.LockReadOnly(Bytes, &Error))
+			if (auto Read = Mutable->CookedPlatformData.AcquireRead())
 			{
 				auto Candidate = std::make_shared<FEnvironmentLightingData>();
-				FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
+				FCanonicalMemoryReader Ar(Read.Lock.GetBytes(), EArchivePurpose::CookedPayload);
 				Candidate->Serialize(Ar);
 				const bool bValid = !Ar.HasError() && RequireArchiveEnd(Ar);
-				Mutable->CookedPlatformData.UnlockReadOnly();
+				Read.Lock.Reset();
 				if (bValid) Mutable->Data = std::move(Candidate);
 			}
 		}

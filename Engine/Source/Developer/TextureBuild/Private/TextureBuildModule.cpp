@@ -37,12 +37,13 @@ namespace Durin
 				.BuilderVersion = VolumeTextureBuilderVersion};
 		}
 
-		auto Build(
-			const FVolumeTextureRecipeBuildRequest& Request,
-			FVolumeTextureRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool override
+		auto Build(const FVolumeTextureRecipeBuildRequest& Request) -> TTextureBuildResult<FVolumeTextureRecipeBuildProduct> override
 		{
-			return BuildVolumeTexture(Request, OutProduct, OutError);
+			FVolumeTextureRecipeBuildProduct Product;
+			std::string Error;
+			if (!BuildVolumeTexture(Request, Product, Error))
+				return {.Outcome = {ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, std::move(Error)}};
+			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
 		}
 	};
 
@@ -56,18 +57,22 @@ namespace Durin
 				.ProjectionVersion = TextureCubeProjectionVersion};
 		}
 
-		auto Normalize(const FTextureCubeBuildRequest& Request,
-			FTextureCubeCanonicalBuildInput& OutCanonicalInput,
-			std::string& OutError) -> bool override
+		auto Normalize(const FTextureCubeBuildRequest& Request) -> TTextureBuildResult<FTextureCubeCanonicalBuildInput> override
 		{
-			return NormalizeTextureCube(Request, OutCanonicalInput, OutError);
+			FTextureCubeCanonicalBuildInput Product;
+			std::string Error;
+			if (!NormalizeTextureCube(Request, Product, Error))
+				return {.Outcome = {ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, std::move(Error)}};
+			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
 		}
 
-		auto Build(const FTextureCubeRecipeBuildRequest& Request,
-			FTextureCubeRecipeBuildProduct& OutProduct,
-			std::string& OutError) -> bool override
+		auto Build(const FTextureCubeRecipeBuildRequest& Request) -> TTextureBuildResult<FTextureCubeRecipeBuildProduct> override
 		{
-			return BuildTextureCube(Request, OutProduct, OutError);
+			FTextureCubeRecipeBuildProduct Product;
+			std::string Error;
+			if (!BuildTextureCube(Request, Product, Error))
+				return {.Outcome = {ETextureBuildFailure::BuildFailed, ETextureBuildStage::Recipe, std::move(Error)}};
+			return {.Outcome = {ETextureBuildFailure::None}, .Value = std::move(Product)};
 		}
 	};
 

@@ -16,9 +16,9 @@ namespace Durin
 			OutError = MaterialCookDiagnostic;
 			return false;
 		};
-		FByteView Bytes;
-		if (!CookedProgramData.LockReadOnly(Bytes, &OutError))
-			return FailCooked(OutError);
+		auto Read = CookedProgramData.AcquireRead();
+		if (!Read) return FailCooked(Read.Error.Message);
+		const FByteView Bytes = Read.Lock.GetBytes();
 
 		FMaterialStaticProperties PayloadProperties;
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
@@ -28,12 +28,10 @@ namespace Durin
 			ECookTargetProfile::Game,
 			PayloadProperties, ProgramCandidate, OutError))
 		{
-			CookedProgramData.UnlockReadOnly();
 			return FailCooked(OutError);
 		}
 		if (PayloadProperties != StaticProperties)
 		{
-			CookedProgramData.UnlockReadOnly();
 			return FailCooked(
 				"payload static properties do not match package metadata.");
 		}
@@ -42,12 +40,10 @@ namespace Durin
 			const auto* Definition = FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)
 			{
-				CookedProgramData.UnlockReadOnly();
 				return FailCooked("payload parameter contract does not match package metadata.");
 			}
 		}
-		if (!CookedProgramData.UnlockReadOnly(&OutError))
-			return FailCooked(OutError);
+		Read.Lock.Reset();
 
 		AcceptedCompiledProgram = std::move(ProgramCandidate);
 		AcceptedCompiledStaticProperties = PayloadProperties;
