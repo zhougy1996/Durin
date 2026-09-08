@@ -566,6 +566,7 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_TRUE(Normalized);
 	EXPECT_TRUE(Input.Program.Nodes.empty());
 	ASSERT_TRUE(Normalized.IR.Nodes.empty());
+	EXPECT_TRUE(Normalized.ActiveParameters.empty());
 	EXPECT_FALSE(Normalized.IR.SurfaceRoot.bAggregate);
 	EXPECT_EQ(Normalized.IR.SurfaceRoot.Inputs[0].Literal,
 		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
@@ -615,6 +616,7 @@ TEST(FMaterialProgramNormalizationTests,
 		Input.Program, Durin::GetCanonicalMaterialParameterDefinitions());
 	EXPECT_EQ(Dependencies.size(),
 		Durin::GetCanonicalMaterialParameterDefinitions().size());
+	EXPECT_EQ(Normalized.ActiveParameters.size(), Dependencies.size());
 	std::string Source;
 	std::string Error;
 	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
@@ -691,6 +693,7 @@ TEST(FMaterialProgramNormalizationTests,
 		EXPECT_EQ(Result.IR, Baseline.IR);
 		EXPECT_EQ(Result.CanonicalBytes, Baseline.CanonicalBytes);
 		EXPECT_EQ(Result.Identity, Baseline.Identity);
+		EXPECT_EQ(Result.ActiveParameters, Baseline.ActiveParameters);
 	};
 
 	Durin::FMaterialCompilerInput Reordered = BaselineInput;

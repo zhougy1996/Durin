@@ -1,5 +1,6 @@
 #include "Materials/MaterialInstance.h"
 
+#include "Asset/Asset.h"
 #include "DObject/DurinPropertyTypes.h"
 
 namespace Durin
@@ -71,15 +72,24 @@ namespace Durin
 			return false;
 		}
 
-		auto IsReachableParameter(
+		auto IsParameterAvailableForOverride(
 			const DMaterialInterface& Material, const FGuid& Id) -> bool
 		{
-			const FMaterialProgram* Program = Material.GetMaterialProgram();
+			// Authored edits may precede asynchronous compilation. This query governs
+			// editing/orphan diagnostics only; render proxies use the accepted contract.
+			if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			{
+				const FMaterialProgram* AuthoredProgram = Material.GetMaterialProgram();
+				if (!AuthoredProgram) return false;
+				const auto Dependencies = InspectMaterialParameterDependencies(
+					*AuthoredProgram, Material.GetParameterDefinitions());
+				return std::ranges::find(Dependencies, Id,
+					&FMaterialParameterDependency::ParameterId) != Dependencies.end();
+			}
+			const auto Program = Material.GetAcceptedCompiledProgram();
 			if (!Program) return false;
-			const std::vector Dependencies = InspectMaterialParameterDependencies(
-				*Program, Material.GetParameterDefinitions());
-			return std::ranges::find(Dependencies, Id,
-				&FMaterialParameterDependency::ParameterId) != Dependencies.end();
+			return std::ranges::find(Program->ActiveParameters, Id,
+				&FMaterialCompilerParameterDeclaration::Id) != Program->ActiveParameters.end();
 		}
 
 	}
@@ -219,7 +229,7 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		if (!Definition || Definition->Type != Type
-			|| !IsReachableParameter(*this, Id)) return false;
+			|| !IsParameterAvailableForOverride(*this, Id)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeParameterValue(Type, Value);
 		if (FMaterialParameterOverride* Override = FindMutableOverride(ParameterOverrides, Id))
 		{
@@ -259,7 +269,7 @@ namespace Durin
 	auto DMaterialInstance::IsParameterOverrideOrphan(const FGuid& Id) const -> bool
 	{
 		if (!HasLocalParameterOverride(Id)) return false;
-		return !IsReachableParameter(*this, Id);
+		return !IsParameterAvailableForOverride(*this, Id);
 	}
 
 	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool
@@ -400,10 +410,11 @@ namespace Durin
 		for (const FMaterialParameterOverride& Override
 			: ParameterOverrides)
 		{
-			if (!IsReachableParameter(*this, Override.ParameterId)) continue;
+			// Preserve dormant overrides in the proxy; resolve against the parent's
+			// current compiled contract when its generation changes.
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Override.ParameterId);
-			if (!Definition) continue;
+			if (!Definition || Definition->Type != Override.Type) continue;
 			Result.Parameters.push_back(
 				BuildMaterialLocalRenderParameter(
 					Override.ParameterId,

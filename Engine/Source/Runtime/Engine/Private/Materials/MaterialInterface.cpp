@@ -165,12 +165,20 @@ namespace Durin
 	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
 	{
 		FMaterialRenderData Result;
+		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		Result.Representation = MakeCanonicalMaterialRenderRepresentation();
 		FMaterialRenderRepresentationBuilder RepresentationBuilder(
 			Result.Representation);
 		bool bRepresentationValid = true;
 		for (const FMaterialParameterDefinition& Definition : GetCanonicalMaterialParameterDefinitions())
 		{
+			if (Result.CompiledProgram)
+			{
+				const auto& Parameters = Result.CompiledProgram->ActiveParameters;
+				const auto Active = std::ranges::find(Parameters, Definition.Id,
+					&FMaterialCompilerParameterDeclaration::Id);
+				if (Active == Parameters.end() || Active->Type != Definition.Type) continue;
+			}
 			FResolvedMaterialParameter Parameter;
 			if (!ResolveParameterValue(Definition.Id, Parameter)) continue;
 			if (Definition.Type == EMaterialParameterType::Texture)
@@ -199,7 +207,6 @@ namespace Durin
 		Result.PlanningPassIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
 		Result.PlanningPassIdentity.bTwoSided = StaticProperties.bTwoSided;
 		Result.PlanningPassIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
-		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		if (Result.CompiledProgram)
 			Result.PlanningPassIdentity.ShaderMap.ProgramIdentity =
 				Result.CompiledProgram->Identity;

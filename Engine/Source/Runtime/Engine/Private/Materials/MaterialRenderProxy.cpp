@@ -244,12 +244,24 @@ namespace Durin
 			CachedResolvedData.Representation =
 				MakeCanonicalMaterialRenderRepresentation();
 		}
+		if (LocalLayer.CompiledProgram)
+		{
+			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
+			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
+				LocalLayer.CompiledProgram->Identity;
+		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder(
 			CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
 		for (const FMaterialLocalRenderParameter& Parameter
 			: LocalLayer.Parameters)
 		{
+			const auto& Program = CachedResolvedData.CompiledProgram;
+			if (!Program) continue;
+			const auto Active = std::ranges::find(Program->ActiveParameters,
+				Parameter.Id, &FMaterialCompilerParameterDeclaration::Id);
+			if (Active == Program->ActiveParameters.end()
+				|| Active->Type != Parameter.Type) continue;
 			if (!ApplyMaterialLocalRenderParameter(
 					RepresentationBuilder, Parameter))
 			{
@@ -261,13 +273,6 @@ namespace Durin
 			ApplyStaticProperties(
 				CachedResolvedData, *LocalLayer.StaticProperties);
 		}
-		if (LocalLayer.CompiledProgram)
-		{
-			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
-			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
-				LocalLayer.CompiledProgram->Identity;
-		}
-
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
 		if (!CachedResolvedData.CompiledProgram

@@ -18,7 +18,7 @@ namespace Durin
 
 	inline constexpr uint32 CurrentMaterialIRVersion = 2;
 	inline constexpr uint32 CurrentMaterialGeneratorVersion = 2;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 3;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 4;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 1;
 
 	struct FMaterialCompilerParameterDeclaration
@@ -106,6 +106,7 @@ namespace Durin
 	{
 		bool bSucceeded = false;
 		FMaterialIR IR;
+		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
 		FByteBuffer CanonicalBytes;
 		FMaterialProgramIdentity Identity;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
@@ -128,6 +129,9 @@ namespace Durin
 		std::string Target;
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
 		FMaterialIR IR;
+		// Sorted unique runtime binding contract, published with these shaders.
+		// Values and resource references remain owned by material definitions/instances.
+		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		std::vector<FCompiledShader> CompiledShaders;

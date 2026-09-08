@@ -92,6 +92,41 @@ namespace
 	}
 }
 
+TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = MakeExpandedMaterial(nullptr, "ChangingContract");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "DormantOverride");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Instance->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.3, 0.8)));
+	auto Proxy = Instance->GetMaterialRenderProxy();
+	const auto Initial = CaptureMaterialProxy(Proxy);
+	ExpectColorNear(GetMaterialBinding(Initial.RenderData).BaseColor,
+		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakeDefaultMaterialProgram(), Validation));
+	const auto Dormant = CaptureMaterialProxy(Proxy);
+	EXPECT_EQ(Dormant.LocalVersion, Initial.LocalVersion);
+	EXPECT_GT(Dormant.ResolvedVersion, Initial.ResolvedVersion);
+	ExpectRenderDataMatches(Dormant.RenderData, Instance->GetRenderData());
+	EXPECT_FALSE(Instance->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.9)));
+	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
+		Durin::MaterialParameters::GetBuiltinParameterIds(
+			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram(), Validation));
+	const auto Restored = CaptureMaterialProxy(Proxy);
+	EXPECT_EQ(Restored.LocalVersion, Initial.LocalVersion);
+	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
+		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleState)
 {
 	FRenderSceneHarness Harness;

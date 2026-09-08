@@ -29,6 +29,7 @@ namespace Durin
 		ENGINE_API auto ClearStaticPropertiesOverride() -> bool;
 		auto HasStaticPropertiesOverride() const -> bool { return bOverrideStaticProperties; }
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterOverride(
 			const FGuid& Id,
 			EMaterialParameterType Type,

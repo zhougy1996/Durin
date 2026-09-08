@@ -137,9 +137,6 @@ namespace Durin
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		std::string MaterialCookDiagnostic;
-		// Parameter values change frequently, while reachability changes only with the authored program.
-		mutable uint64 CachedParameterDependencyRevision = 0;
-		mutable std::vector<FMaterialParameterDependency> CachedParameterDependencies;
 		// Transient monotonic revisions invalidate editor graph caches independently.
 		uint64 MaterialProgramRevision = 1;
 		uint64 MaterialGraphPresentationRevision = 1;

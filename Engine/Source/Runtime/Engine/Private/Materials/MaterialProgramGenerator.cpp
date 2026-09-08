@@ -551,6 +551,7 @@ float4 FragmentMain(
 		}
 		Result.Identity = Normalized.Identity;
 		Result.IR = std::move(Normalized.IR);
+		Result.ActiveParameters = std::move(Normalized.ActiveParameters);
 		Result.Dependencies = Input.Environment.Dependencies;
 		std::string GenerationError;
 		if (!GenerateMaterialProgramSlang(

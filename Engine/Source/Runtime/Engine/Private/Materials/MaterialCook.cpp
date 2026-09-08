@@ -37,6 +37,15 @@ namespace Durin
 			return FailCooked(
 				"payload static properties do not match package metadata.");
 		}
+		for (const auto& Parameter : ProgramCandidate->ActiveParameters)
+		{
+			const auto* Definition = FindParameterDefinition(Parameter.Id);
+			if (!Definition || Definition->Type != Parameter.Type)
+			{
+				CookedProgramData.UnlockReadOnly();
+				return FailCooked("payload parameter contract does not match package metadata.");
+			}
+		}
 		if (!CookedProgramData.UnlockReadOnly(&OutError))
 			return FailCooked(OutError);
 

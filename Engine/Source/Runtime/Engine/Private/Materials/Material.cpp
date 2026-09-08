@@ -346,29 +346,21 @@ namespace Durin
 		-> FMaterialLocalRenderLayer
 	{
 		FMaterialLocalRenderLayer Result;
-		if (CachedParameterDependencyRevision
-			!= MaterialCompileStatus.AuthoredRevision)
-		{
-			CachedParameterDependencies = InspectMaterialParameterDependencies(
-				Program, ParameterDefinitions);
-			CachedParameterDependencyRevision =
-				MaterialCompileStatus.AuthoredRevision;
-		}
-		Result.Parameters.reserve(CachedParameterDependencies.size());
-		for (const FMaterialParameterDependency& Dependency
-			: CachedParameterDependencies)
+		Result.CompiledProgram = GetAcceptedCompiledProgram();
+		Result.StaticProperties = GetRenderableStaticProperties();
+		if (!Result.CompiledProgram) return Result;
+		Result.Parameters.reserve(Result.CompiledProgram->ActiveParameters.size());
+		for (const auto& Parameter : Result.CompiledProgram->ActiveParameters)
 		{
 			const FMaterialParameterDefinition* Definition =
-				FindParameterDefinition(Dependency.ParameterId);
-			if (!Definition) continue;
+				FindParameterDefinition(Parameter.Id);
+			if (!Definition || Definition->Type != Parameter.Type) continue;
 			Result.Parameters.push_back(
 				BuildMaterialLocalRenderParameter(
 					Definition->Id,
 					Definition->Type,
 					Definition->Value));
 		}
-		Result.StaticProperties = GetRenderableStaticProperties();
-		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		return Result;
 	}
 
@@ -388,8 +380,6 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		CachedParameterDependencyRevision = 0;
-		CachedParameterDependencies.clear();
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 				ParameterDefinitions, OutError)
 			|| !ValidateMaterialStaticProperties(

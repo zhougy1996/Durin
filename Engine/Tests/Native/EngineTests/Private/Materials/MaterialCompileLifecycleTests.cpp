@@ -131,6 +131,17 @@ TEST(FMaterialCompileLifecycleTests,
 		InitialProgram->Identity);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
 
+	Durin::FMaterialProgramValidationResult ParameterValidation;
+	ASSERT_TRUE(First->SetMaterialProgram(
+		Durin::MakeStandardSurfaceMaterialProgram(), ParameterValidation));
+	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
+	ASSERT_TRUE(PendingInstance->SetParent(First));
+	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
+	ASSERT_TRUE(PendingInstance->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.2, 0.4)));
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	ASSERT_TRUE(First->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.6, 0.8)));
 	const auto LastKnownGood = First->GetAcceptedCompiledProgram();
 	const Durin::FMaterialStaticProperties LastKnownGoodProperties =
 		First->GetRenderableStaticProperties();
@@ -139,6 +150,8 @@ TEST(FMaterialCompileLifecycleTests,
 	FailedProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
 	FailedProperties.bTwoSided = !FailedProperties.bTwoSided;
 	ASSERT_TRUE(First->SetStaticProperties(FailedProperties));
+	ASSERT_TRUE(First->SetMaterialProgram(
+		Durin::MakeDefaultMaterialProgram(), ParameterValidation));
 	const Durin::FMaterialCompileStatus Pending =
 		First->GetMaterialCompileStatus();
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
@@ -155,6 +168,9 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Failed)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
+	ExpectColorNear(GetMaterialBinding(First->GetRenderData()).BaseColor,
+		Durin::FVector4f(0.2f, 0.6f, 0.8f, 1.0f));
 	EXPECT_EQ(First->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::Failed);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
@@ -205,6 +221,7 @@ TEST(FMaterialCompileLifecycleTests,
 		*First, std::move(WrongDependency)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 
+	Durin::MarkAsGarbage(PendingInstance);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
@@ -228,6 +245,9 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	auto* Material = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "CookedProgramRoundTrip");
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(
+		Durin::MakeStandardSurfaceMaterialProgram(), Validation));
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 
 	Durin::FByteBuffer FirstBytes;
@@ -254,6 +274,10 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProgram->Identity,
 		Material->GetAcceptedCompiledProgram()->Identity);
 	EXPECT_EQ(DecodedProperties, Material->GetStaticProperties());
+	EXPECT_EQ(DecodedProgram->ActiveParameters,
+		Material->GetAcceptedCompiledProgram()->ActiveParameters);
+	EXPECT_EQ(DecodedProgram->ActiveParameters.size(),
+		Durin::GetCanonicalMaterialParameterDefinitions().size());
 	ASSERT_EQ(DecodedProgram->CompiledShaders.size(),
 		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
 	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)
@@ -272,6 +296,19 @@ TEST(FMaterialCompileLifecycleTests,
 	}
 	EXPECT_TRUE(DecodedProgram->IR.Nodes.empty());
 	EXPECT_TRUE(DecodedProgram->GeneratedSource.empty());
+	ASSERT_FALSE(DecodedProgram->ActiveParameters.empty());
+	for (int Corruption = 0; Corruption < 3; ++Corruption)
+	{
+		auto Invalid = *DecodedProgram;
+		if (Corruption == 0) Invalid.ActiveParameters.push_back(Invalid.ActiveParameters.front());
+		if (Corruption == 1) Invalid.ActiveParameters.front().Id = {};
+		if (Corruption == 2) Invalid.ActiveParameters.front().Type =
+			static_cast<Durin::EMaterialParameterType>(255);
+		Durin::FByteBuffer InvalidBytes;
+		EXPECT_FALSE(Durin::EncodeMaterialCookedProgram(Invalid, DecodedProperties,
+			Durin::ECookTargetPlatform::Win64, Durin::ECookTargetProfile::Game,
+			InvalidBytes, Error));
+	}
 
 	EXPECT_FALSE(Durin::DecodeMaterialCookedProgram(
 		FirstBytes, Durin::ECookTargetPlatform::Win64,
@@ -299,6 +336,12 @@ TEST(FMaterialCompileLifecycleTests,
 		WrongEnvironmentBytes, Error)) << Error;
 	EXPECT_FALSE(Durin::DecodeMaterialCookedProgram(
 		WrongEnvironmentBytes, Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game,
+		DecodedProperties, DecodedProgram, Error));
+	Durin::FByteBuffer OldSchemaBytes = FirstBytes;
+	OldSchemaBytes[4] = std::byte{2};
+	EXPECT_FALSE(Durin::DecodeMaterialCookedProgram(
+		OldSchemaBytes, Durin::ECookTargetPlatform::Win64,
 		Durin::ECookTargetProfile::Game,
 		DecodedProperties, DecodedProgram, Error));
 	Durin::FByteBuffer TrailingBytes = FirstBytes;

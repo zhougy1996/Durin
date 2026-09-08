@@ -116,6 +116,11 @@ namespace Durin
 				Ar, Program.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
 			SerializeBoundedSequence(
+				Ar, Program.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
+				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
+					Inner << Parameter.Id << Parameter.Type;
+				});
+			SerializeBoundedSequence(
 				Ar, Program.Dependencies, 64,
 				[](FArchive& Inner, FMaterialCompilerDependency& Dependency) {
 					SerializeDependency(Inner, Dependency);
@@ -152,6 +157,20 @@ namespace Durin
 			}
 			if (!ValidateMaterialStaticProperties(StaticProperties, OutError))
 				return false;
+			if (Program.ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
+				return Fail("Material active parameter count exceeds its limit.", &OutError);
+			FGuid PreviousId;
+			const auto Definitions = GetCanonicalMaterialParameterDefinitions();
+			for (const auto& Parameter : Program.ActiveParameters)
+			{
+				const auto Definition = std::ranges::find(Definitions, Parameter.Id,
+					&FMaterialParameterDefinition::Id);
+				if (!Parameter.Id.IsValid()
+					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id))
+					|| Definition == Definitions.end() || Definition->Type != Parameter.Type)
+					return Fail("Material active parameter contract is invalid.", &OutError);
+				PreviousId = Parameter.Id;
+			}
 			for (const FCompiledShader& Shader : Program.CompiledShaders)
 			{
 				if (!Shader.Code || Shader.Code->empty()

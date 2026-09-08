@@ -338,6 +338,151 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::EAssetRegistryScanMode::FullValidation));
 }
 
+TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		Durin::DefaultMaterialPackagePath, Path));
+	Durin::DMaterial* Source = nullptr;
+	Durin::FAssetResult Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Source, nullptr);
+	Durin::FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Source->SetMaterialProgram(
+		Durin::MakeStandardSurfaceMaterialProgram(), Validation));
+	ASSERT_TRUE(Source->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.7)));
+	auto* AuthoredInstance = Durin::NewObject<Durin::DMaterialInstance>(
+		Source->GetPackage(), "CookedOverrides");
+	ASSERT_TRUE(AuthoredInstance->SetParent(Source));
+	ASSERT_TRUE(AuthoredInstance->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.3, 0.1)));
+	Durin::FObjectPath InstancePath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
+	const Durin::FMaterialProgramIdentity ExpectedIdentity =
+		Source->GetAcceptedCompiledProgram()->Identity;
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(
+		Durin::Testing::CreateTestFixtureDirectory("ActiveMaterialCook"));
+	Durin::FCookContext Cook(
+		Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Durin::ContributeEngineCookAsset(
+		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
+	ASSERT_TRUE(Durin::PublishCookContext(Cook, CookRoot, &Error)) << Error;
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
+	EXPECT_FALSE(std::filesystem::is_regular_file(
+		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
+	Durin::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	auto RuntimeConfiguration = Durin::FAssetRuntimeConfiguration::Authored();
+	Result = Durin::FAssetRuntimeConfiguration::Cooked(
+		CookRoot, RuntimeConfiguration);
+	ASSERT_TRUE(Result) << Result.Message;
+	Result = Durin::InitializeAssetManager(std::move(RuntimeConfiguration));
+	ASSERT_TRUE(Result) << Result.Message;
+	{
+	const std::array CookMountDefinitions{
+		Durin::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::EMountOwner::Test,
+			.Root = CookRoot / "Engine",
+			.bAutoScan = true}};
+	Durin::Testing::FScopedMountRegistryFixture CookMounts(
+		CookMountDefinitions);
+	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
+	Durin::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::InspectAssetPackage(
+		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
+		Inspection));
+	EXPECT_TRUE(std::ranges::any_of(Inspection.Objects, [](const auto& Object) {
+		return Object.FindField("ProgramData") != nullptr;
+	}));
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
+	Durin::DMaterial* Cooked = nullptr;
+	Result = Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Cooked);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Cooked, nullptr);
+	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Cooked->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+	EXPECT_TRUE(Cooked->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_EQ(
+		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
+		Durin::FVector4f(0.2f, 0.4f, 0.7f, 1.0f));
+	EXPECT_TRUE(std::ranges::none_of(Inspection.Objects, [](const auto& Object) {
+		return Object.FindField("Program") != nullptr;
+	}));
+	EXPECT_TRUE(Cooked->GetMaterialProgram()->Nodes.empty());
+	EXPECT_FALSE(Cooked->GetAcceptedCompiledProgram()->ActiveParameters.empty());
+	Durin::DMaterialInstance* Instance = nullptr;
+	Result = Durin::LoadObject(InstancePath, Instance);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Instance, nullptr);
+	EXPECT_EQ(Instance->GetParent(), Cooked);
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedChild");
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CookedDynamicTexture");
+	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
+	ASSERT_TRUE(Child->SetParent(Instance));
+	ASSERT_TRUE(Cooked->SetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), Texture));
+	ASSERT_TRUE(Child->SetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), Texture));
+	ASSERT_TRUE(Child->SetScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName(), 0.23f));
+	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(
+		Durin::MaterialParameters::GetBuiltinParameterIds(
+			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	const bool bOwnsRenderingThread = Durin::GetRenderCommandAdmissionState()
+		== Durin::ERenderCommandAdmissionState::Stopped;
+	if (bOwnsRenderingThread) Durin::InitRenderingThread();
+	Durin::FMaterialRenderData BaseData, ChildData;
+	auto BaseProxy = Cooked->GetMaterialRenderProxy();
+	auto ChildProxy = Child->GetMaterialRenderProxy();
+	struct FCaptureCookedBindingsCommand
+	{
+		static constexpr auto GetName() -> const char* { return "CaptureCookedBindings"; }
+	};
+	Durin::EnqueueRenderCommand<FCaptureCookedBindingsCommand>(
+		[&](Durin::FRHICommandListImmediate&) {
+			BaseData = BaseProxy->Resolve_RenderThread();
+			ChildData = ChildProxy->Resolve_RenderThread();
+		});
+	WaitForRenderingThread();
+	ExpectColorNear(GetMaterialBinding(BaseData).BaseColor,
+		Durin::FVector4f(0.2f, 0.4f, 0.7f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(ChildData).BaseColor,
+		Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
+	EXPECT_EQ(GetMaterialBinding(ChildData).Textures[0], Texture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(BaseData).Textures[0], Texture->GetTextureReferenceRHI());
+	EXPECT_FLOAT_EQ(GetMaterialBinding(ChildData).Roughness, 0.23f);
+	EXPECT_EQ(ChildData.Representation.GetUniformPayload().size(),
+		Child->GetRenderData().Representation.GetUniformPayload().size());
+	EXPECT_TRUE(std::ranges::equal(ChildData.Representation.GetUniformPayload(),
+		Child->GetRenderData().Representation.GetUniformPayload()));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(ChildProxy));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(BaseProxy));
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Texture);
+	Durin::CollectGarbage();
+	WaitForRenderingThread();
+	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
+	}
+
+	Durin::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::InitializeAssetManager());
+	ASSERT_TRUE(Durin::RefreshAssetRegistry(
+		Durin::EAssetRegistryScanMode::FullValidation));
+}
+
 TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
 {
 	InitializeDObjectSystem();

@@ -444,6 +444,13 @@ namespace Durin
 				MakeNormalizationFailure(std::move(EncodeError)));
 			return Result;
 		}
+		// Capture explicit and implicit dependencies from the same validated snapshot
+		// that produced the reachable IR; authoring metadata stays out of the result.
+		for (const FMaterialParameterDependency& Dependency :
+			InspectMaterialParameterDependencies(Input.Program, Definitions))
+			Result.ActiveParameters.push_back({Dependency.ParameterId, Dependency.Type});
+		std::ranges::sort(Result.ActiveParameters, {},
+			&FMaterialCompilerParameterDeclaration::Id);
 		Result.IR = std::move(IR);
 		Result.Identity = BuildMaterialProgramIdentity(
 			Input, Result.CanonicalBytes);

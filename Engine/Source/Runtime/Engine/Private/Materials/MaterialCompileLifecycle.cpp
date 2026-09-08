@@ -61,6 +61,7 @@ namespace Durin
 			uint64 Bytes = sizeof(Result) + Result.GeneratedSource.size()
 				+ Result.CompilerIdentity.size() + Result.Target.size()
 				+ Result.IR.Nodes.size() * sizeof(FMaterialIRNode)
+				+ Result.ActiveParameters.size() * sizeof(FMaterialCompilerParameterDeclaration)
 				+ sizeof(Result.IR.SurfaceRoot);
 			for (const FMaterialIRNode& Node : Result.IR.Nodes)
 				Bytes += Node.Inputs.size() * sizeof(uint32);
