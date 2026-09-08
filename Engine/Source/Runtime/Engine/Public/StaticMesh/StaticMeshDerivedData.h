@@ -70,14 +70,8 @@ namespace Durin
 	};
 
 	// Carries the canonical CPU arrays encoded for one payload LOD.
-	struct FStaticMeshPayloadLOD
+	struct FStaticMeshPayloadLOD : FStaticMeshVertexData
 	{
-		std::vector<FVector3f> Positions;
-		std::vector<FVector3f> Normals;
-		std::vector<FVector4f> Tangents;
-		std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> TexCoords;
-		std::vector<FVector4f> Colors;
-		std::vector<uint32> Indices;
 		std::vector<FStaticMeshPayloadSection> Sections;
 		FBox LocalBounds;
 		float ScreenSize = 0.0f;

@@ -2,9 +2,10 @@
 
 #include "EngineAPI.h"
 #include "Modules/ModularFeature.h"
-#include "Physics/BodySetup.h"
+#include "Physics/BodySetupTypes.h"
+#include "Physics/PhysicsTypes.h"
 #include "StaticMesh/StaticMeshGeometry.h"
-#include "StaticMesh/StaticMeshResources.h"
+#include "StaticMesh/StaticMeshData.h"
 
 namespace Durin
 {
@@ -94,9 +95,11 @@ namespace Durin
 		float NormalizedSize = 1.5f;
 	};
 
+	// Owns complete CPU streams and metadata; Engine assembles runtime resources.
 	struct FStaticMeshRecipeBuildProduct
 	{
-		std::unique_ptr<FStaticMeshRenderData> RenderData;
+		std::vector<FStaticMeshBuildLOD> LODs;
+		FBox LocalBounds;
 		std::vector<FStaticMeshRecipeMaterialSlot> MaterialSlots;
 		bool bSlotMetadataChanged = false;
 	};
@@ -121,7 +124,7 @@ namespace Durin
 	public:
 		static constexpr std::string_view FeatureName =
 			"Engine.StaticMeshBuildProvider";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr uint32 FeatureVersion = 3;
 
 		virtual auto GetDescriptor() const -> FStaticMeshBuildProviderDescriptor = 0;
 		virtual auto BuildRender(

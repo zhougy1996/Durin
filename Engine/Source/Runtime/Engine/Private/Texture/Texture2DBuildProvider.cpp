@@ -1,4 +1,4 @@
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 
 #include "Texture/TextureDerivedData.h"
 #include "TextureDerivedDataCache.h"
@@ -91,7 +91,7 @@ namespace Durin
 						"Texture2D imported data could not be materialized."};
 				}
 				FTexture2DRecipeBuildProduct RecipeProduct;
-				FTexture2DRecipeMetrics RecipeMetrics;
+				FTexture2DBuildMetrics RecipeMetrics;
 				const FTexture2DRecipeExecutionControl RecipeControl{
 					.ShouldCancel = ExecutionControl ? ExecutionControl->ShouldCancel
 						: std::function<bool()>{},

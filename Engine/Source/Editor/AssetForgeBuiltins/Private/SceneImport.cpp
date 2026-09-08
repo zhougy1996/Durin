@@ -16,7 +16,7 @@
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {

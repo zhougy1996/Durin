@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {

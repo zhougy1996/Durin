@@ -2,6 +2,7 @@
 
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
+#include "Texture/TextureSourceFormat.h"
 #include "Image/Image.h"
 
 #include "TextureSource.gen.h"
@@ -27,21 +28,6 @@ namespace Durin
 		Volume,
 		TextureArray,
 		LongLatCube,
-	};
-
-	DENUM()
-	enum class ETextureSourceFormat : uint8
-	{
-		Invalid,
-		RGBA8,
-		R8_UNORM,
-		RG8_UNORM,
-		R16_FLOAT,
-		RGBA16_FLOAT,
-		G16_UNORM,
-		RGBA16_UNORM,
-		R32_FLOAT,
-		RGBA32_FLOAT,
 	};
 
 	DENUM()

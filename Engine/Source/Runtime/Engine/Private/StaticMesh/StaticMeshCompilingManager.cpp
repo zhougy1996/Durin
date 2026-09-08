@@ -1,6 +1,7 @@
 #include "StaticMesh/StaticMeshCompilation.h"
 
 #include "CoreGlobals.h"
+#include "Physics/BodySetup.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Threading/RunnableThread.h"

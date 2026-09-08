@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Math/Box.h"
+#include "StaticMesh/StaticMeshData.h"
 #include "Rendering/PositionVertexBuffer.h"
 #include "StaticMesh/LocalVertexFactory.h"
 
@@ -9,27 +9,6 @@
 
 namespace Durin
 {
-	inline constexpr uint32 MaxStaticMeshUVChannels = 4;
-
-	// Preserves index-ordered imported material metadata in runtime mesh data.
-	struct FStaticMeshMaterialSlot
-	{
-		std::string Name;
-		uint32 SourceMaterialIndex = 0;
-	};
-
-	// Describes one indexed draw range and its local-space bounds.
-	struct FStaticMeshSection
-	{
-		std::string Name;
-		uint32 FirstIndex = 0;
-		uint32 IndexCount = 0;
-		uint32 MinVertexIndex = 0;
-		uint32 MaxVertexIndex = 0;
-		uint32 MaterialSlotIndex = 0;
-		FBox LocalBounds;
-	};
-
 	// Stores one normalized 16-bit tangent frame in the tangent stream.
 	struct FStaticMeshPackedTangentBasis
 	{
@@ -406,10 +385,6 @@ namespace Durin
 		// Detached construction only: false leaves partial bounds that must not be published.
 		ENGINE_API auto RecalculateBounds(const std::function<bool()>& ShouldCancel) -> bool;
 	};
-
-	// Produces the deterministic policy used by builders without authored thresholds.
-	ENGINE_API auto GenerateDefaultStaticMeshLODScreenSizes(
-		uint32 LODCount) -> std::vector<float>;
 
 	// Validates the published policy: finite, [0, 1], strictly descending, and final zero.
 	ENGINE_API auto ValidateStaticMeshLODScreenSizes(

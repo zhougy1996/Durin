@@ -1,6 +1,6 @@
 #include "Texture/TextureCompilingManager.h"
 
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -290,7 +290,7 @@ namespace Durin
 
 			SetPhase(RequestState, ETexture2DCompilationPhase::Building);
 			const FTexture2DBuildSettingsSnapshot& Settings = RequestState->Request.Settings;
-			FTexture2DRecipeMetrics RecipeMetrics;
+			FTexture2DBuildMetrics RecipeMetrics;
 			bool bEnteredPersisting = false;
 			const FTexture2DBuildExecutionControl Control{
 				.ShouldCancel = Cancel,

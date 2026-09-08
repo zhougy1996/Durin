@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Shader/ShaderBuildProvider.h"
 #include "Modules/ModuleTestSupport.h"

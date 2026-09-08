@@ -4,7 +4,7 @@
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "ImportedSceneInternal.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 
 namespace Durin::AssetForge::Builtins
 {

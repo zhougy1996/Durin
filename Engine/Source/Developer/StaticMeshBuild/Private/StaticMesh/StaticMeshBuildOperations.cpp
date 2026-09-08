@@ -187,7 +187,8 @@ namespace Durin
 		std::span<const FStaticMeshRecipeMaterialSlot> PreviousMaterialSlots,
 		float NormalizedSize,
 		const FStaticMeshDecodedGeometry& ImportedData,
-		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+		std::vector<FStaticMeshBuildLOD>& OutLODs,
+		FBox& OutBounds,
 		std::vector<FStaticMeshRecipeMaterialSlot>& OutMaterialSlots,
 		bool& bOutSlotMetadataChanged,
 		std::string& OutError, FRecipeControl& Control) -> bool
@@ -316,13 +317,7 @@ namespace Durin
 		const bool bSlotMetadataChanged =
 			!SlotDefinitionsEqual(PreviousMaterialSlots, ReconciledSlots);
 
-		auto RenderData = std::make_unique<FStaticMeshRenderData>();
-		RenderData->MaterialSlots.reserve(ReconciledSlots.size());
-		for (const FStaticMeshRecipeMaterialSlot& Slot : ReconciledSlots)
-		{
-			Control.Tick();
-			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
-		}
+		std::vector<FStaticMeshBuildLOD> LODs;
 		std::unordered_map<uint32, uint32> ImportedSourceToIndex;
 		for (uint32 ImportedIndex = 0; ImportedIndex < ImportedData.MaterialSlots.size(); ++ImportedIndex)
 		{
@@ -336,22 +331,14 @@ namespace Durin
 			}
 		}
 
-		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		FStaticMeshBuildLOD& LOD = LODs.emplace_back();
 		LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
-		auto& Positions =
-			LOD.VertexBuffers.PositionVertexBuffer.GetMutablePositions();
-		auto& Normals =
-			LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer
-				.GetMutableNormals();
-		auto& Tangents =
-			LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer
-				.GetMutableTangents();
-		auto& TexCoords =
-			LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer
-				.GetMutableTexCoords();
-		auto& Colors =
-			LOD.VertexBuffers.ColorVertexBuffer.GetMutableColors();
-		auto& Indices = LOD.IndexBuffer.GetMutableIndices();
+		auto& Positions = LOD.Positions;
+		auto& Normals = LOD.Normals;
+		auto& Tangents = LOD.Tangents;
+		auto& TexCoords = LOD.TexCoords;
+		auto& Colors = LOD.Colors;
+		auto& Indices = LOD.Indices;
 		std::unordered_map<std::string, uint32> SectionNameCounts;
 		for (const FStaticMeshImportedMesh& ImportedMesh : ImportedData.Meshes)
 		{
@@ -483,10 +470,14 @@ namespace Durin
 			return false;
 		}
 
-		if (!RenderData->RecalculateBounds([&] { return Control.Execution.IsCancelled(); }))
-			throw FRecipeCancelled{};
-		const FVector3f BoundsMin(RenderData->LocalBounds.Min);
-		const FVector3f BoundsMax(RenderData->LocalBounds.Max);
+		FBox SourceBounds;
+		for (const auto& Position : Positions)
+		{
+			Control.Tick();
+			SourceBounds.AddPoint(FVector3(Position));
+		}
+		const FVector3f BoundsMin(SourceBounds.Min);
+		const FVector3f BoundsMax(SourceBounds.Max);
 
 		const FVector3f BoundsCenter = (BoundsMin + BoundsMax) * 0.5f;
 		const FVector3f BoundsExtent = BoundsMax - BoundsMin;
@@ -503,12 +494,24 @@ namespace Durin
 			Control.Tick();
 			Position = (Position - BoundsCenter) * Scale;
 		}
-		LOD.VertexBuffers.Finalize(
-			LOD.NumTexCoords, LOD.bHasColorVertexData);
-		if (!RenderData->RecalculateBounds([&] { return Control.Execution.IsCancelled(); }))
-			throw FRecipeCancelled{};
-
-		OutRenderData = std::move(RenderData);
+		LOD.LocalBounds.Reset();
+		for (const auto& Position : Positions)
+		{
+			Control.Tick();
+			LOD.LocalBounds.AddPoint(FVector3(Position));
+		}
+		for (auto& Section : LOD.Sections)
+		{
+			Section.LocalBounds.Reset();
+			for (uint32 Offset = 0; Offset < Section.IndexCount; ++Offset)
+			{
+				Control.Tick();
+				Section.LocalBounds.AddPoint(FVector3(Positions[Indices[Section.FirstIndex + Offset]]));
+			}
+		}
+		Control.Check();
+		OutBounds = LOD.LocalBounds;
+		OutLODs = std::move(LODs);
 		OutMaterialSlots = std::move(ReconciledSlots);
 		bOutSlotMetadataChanged = bSlotMetadataChanged;
 		OutError.clear();
@@ -533,7 +536,8 @@ namespace Durin
 			Request.PreviousMaterialSlots,
 			Request.NormalizedSize,
 			*Request.Geometry,
-			OutProduct.RenderData,
+			OutProduct.LODs,
+			OutProduct.LocalBounds,
 			OutProduct.MaterialSlots,
 			OutProduct.bSlotMetadataChanged,
 			OutError, Control);

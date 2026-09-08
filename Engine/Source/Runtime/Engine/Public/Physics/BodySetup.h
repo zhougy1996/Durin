@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Physics/BodySetupTypes.h"
 #include "DObject/Object.h"
 #include "Physics/PhysicsTypes.h"
 
@@ -16,22 +17,6 @@ namespace Durin
 		Box,
 		Sphere,
 		Capsule
-	};
-
-	DENUM()
-	enum class EBodySetupCollisionSourceMode : uint8
-	{
-		None = 0,
-		ConvexHullFromLOD0 = 1,
-		TriangleMeshFromLOD0 = 2
-	};
-
-	DENUM()
-	enum class EBodySetupCollisionQueryPolicy : uint8
-	{
-		SimpleOnly,
-		ComplexOnly,
-		SimpleAndComplex
 	};
 
 	// Owns reusable asset collision independently from render data and component transforms.

@@ -7,7 +7,7 @@
 #include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/TextureDerivedData.h"
 #include "Runtime/Engine/Private/Texture/TextureDerivedDataKey.h"

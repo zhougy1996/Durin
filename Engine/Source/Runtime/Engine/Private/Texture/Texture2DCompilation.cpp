@@ -1,6 +1,6 @@
 #include "Texture/Texture2DCompilation.h"
 
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"

@@ -1,5 +1,5 @@
 #include "CookBuildProviders.h"
-#include "Texture/Texture2DBuildProvider.h"
+#include "Texture/Texture2DBuild.h"
 #include "Texture/TextureCubeBuildProvider.h"
 #include "Texture/VolumeTextureBuildProvider.h"
 #include "StaticMesh/StaticMeshBuildProvider.h"

@@ -68,6 +68,40 @@ namespace Durin
 			return true;
 		}
 
+		// Transfers recipe storage without copying vertex streams or initializing RHI resources.
+		auto AssembleRenderData(FStaticMeshRecipeBuildProduct& Product,
+			const std::function<bool()>& ShouldCancel) -> std::unique_ptr<FStaticMeshRenderData>
+		{
+			auto RenderData = std::make_unique<FStaticMeshRenderData>();
+			RenderData->LocalBounds = Product.LocalBounds;
+			RenderData->MaterialSlots.reserve(Product.MaterialSlots.size());
+			for (const auto& Slot : Product.MaterialSlots)
+			{
+				if (ShouldCancel()) return {};
+				RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex});
+			}
+			RenderData->LODResources.reserve(Product.LODs.size());
+			for (auto& Source : Product.LODs)
+			{
+				if (ShouldCancel()) return {};
+				auto& LOD = RenderData->LODResources.emplace_back();
+				auto& Buffers = LOD.VertexBuffers;
+				Buffers.PositionVertexBuffer.GetMutablePositions() = std::move(Source.Positions);
+				Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableNormals() = std::move(Source.Normals);
+				Buffers.StaticMeshVertexBuffer.TangentsVertexBuffer.GetMutableTangents() = std::move(Source.Tangents);
+				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.GetMutableTexCoords() = std::move(Source.TexCoords);
+				Buffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.SetNumTexCoords(Source.NumTexCoords);
+				Buffers.ColorVertexBuffer.GetMutableColors() = std::move(Source.Colors);
+				LOD.IndexBuffer.GetMutableIndices() = std::move(Source.Indices);
+				LOD.Sections = std::move(Source.Sections);
+				LOD.LocalBounds = Source.LocalBounds;
+				LOD.ScreenSize = Source.ScreenSize;
+				LOD.NumTexCoords = Source.NumTexCoords;
+				LOD.bHasColorVertexData = Source.bHasColorVertexData;
+			}
+			return RenderData;
+		}
+
 		auto EncodeRenderData(
 			const FStaticMeshRenderData& RenderData,
 			FByteBuffer& OutBytes,
@@ -237,8 +271,8 @@ namespace Durin
 				return false;
 			}
 			if (IsCancelled()) return false;
-			if (!RecipeProduct.RenderData
-				|| !EncodeRenderData(*RecipeProduct.RenderData, Bytes, OutError, IsCancelled)) return false;
+			auto RenderData = AssembleRenderData(RecipeProduct, IsCancelled);
+			if (!RenderData || !EncodeRenderData(*RenderData, Bytes, OutError, IsCancelled)) return false;
 			std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 			MaterialSlots.reserve(RecipeProduct.MaterialSlots.size());
 			for (size_t Index = 0; Index < RecipeProduct.MaterialSlots.size(); ++Index)
@@ -260,7 +294,7 @@ namespace Durin
 				AssetDerivedDataCache::Store(Key, Bytes,
 					MaximumStaticMeshPayloadBytes, StoreDiagnostic);
 			OutProduct = {
-				.RenderData = std::move(RecipeProduct.RenderData),
+				.RenderData = std::move(RenderData),
 				.MaterialSlots = std::move(MaterialSlots),
 				.NormalizedSize = Request.Reconciliation.NormalizedSize,
 				.DerivedDataKey = Key,

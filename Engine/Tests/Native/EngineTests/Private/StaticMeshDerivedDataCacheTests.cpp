@@ -755,6 +755,54 @@ namespace
 	}
 }
 
+// The provider returns owned CPU values that outlive the borrowed source and invocation.
+TEST(FStaticMeshBuildProviderTests, ReturnsDetachedCPUStreamsAndDiscardsCancelledProduct)
+{
+	using namespace Durin;
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	auto Source = std::make_shared<const FStaticMeshDecodedGeometry>(MakeResidencyGeometry());
+	FStaticMeshRecipeBuildProduct Product;
+	std::string Error;
+	const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
+		[&](IStaticMeshBuildProvider& Provider) {
+			return Provider.BuildRender({.Geometry = Source, .NormalizedSize = 2.0f}, Product, Error);
+		});
+	ASSERT_EQ(Invocation.Status, EFeatureInvokeStatus::Invoked);
+	ASSERT_TRUE(Invocation.Value.has_value());
+	ASSERT_TRUE(*Invocation.Value) << Error;
+	Source.reset();
+	ASSERT_EQ(Product.LODs.size(), 1u);
+	const auto& LOD = Product.LODs.front();
+	ASSERT_EQ(LOD.Positions.size(), 3u);
+	EXPECT_EQ(LOD.Positions[0], FVector3f(-1, -1, 0));
+	EXPECT_EQ(LOD.Positions[1], FVector3f(1, -1, 0));
+	EXPECT_EQ(LOD.Positions[2], FVector3f(-1, 1, 0));
+	EXPECT_EQ(LOD.Indices, (std::vector<uint32>{0, 1, 2}));
+	EXPECT_EQ(LOD.Normals.size(), 3u);
+	EXPECT_EQ(LOD.Tangents.size(), 3u);
+	EXPECT_EQ(LOD.Colors, std::vector<FVector4f>(3, FVector4f(1.0f)));
+	for (const auto& Channel : LOD.TexCoords)
+		EXPECT_EQ(Channel, std::vector<FVector2f>(3, FVector2f(0.0f)));
+	EXPECT_EQ(LOD.NumTexCoords, 0u);
+	EXPECT_FALSE(LOD.bHasColorVertexData);
+	EXPECT_EQ(LOD.ScreenSize, 0.0f);
+	ASSERT_EQ(LOD.Sections.size(), 1u);
+	EXPECT_EQ(LOD.Sections[0].Name, "Fixture");
+	EXPECT_EQ(LOD.Sections[0].LocalBounds.Min, FVector3(-1, -1, 0));
+	EXPECT_EQ(Product.LocalBounds.Max, FVector3(1, 1, 0));
+	ASSERT_EQ(Product.MaterialSlots.size(), 1u);
+	EXPECT_EQ(Product.MaterialSlots[0].Name, FName("Material"));
+	const auto Cancelled = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshBuildProvider>(
+		[&](IStaticMeshBuildProvider& Provider) {
+			return Provider.BuildRender({}, Product, Error, {.ShouldCancel = [] { return true; }});
+		});
+	ASSERT_EQ(Cancelled.Status, EFeatureInvokeStatus::Invoked);
+	ASSERT_TRUE(Cancelled.Value.has_value());
+	EXPECT_EQ(Cancelled.Value->Status, EStaticMeshBuildStatus::Cancelled);
+	EXPECT_TRUE(Product.LODs.empty());
+	EXPECT_TRUE(Product.MaterialSlots.empty());
+}
+
 TEST(FStaticMeshSourceResidencyTests, SharesConcurrentReadsAndSurvivesReleaseCopyAndReplacement)
 {
 	using namespace Durin;

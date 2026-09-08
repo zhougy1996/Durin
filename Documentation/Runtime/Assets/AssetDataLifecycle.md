@@ -164,6 +164,17 @@ visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
+Build contracts remain owned by Engine, and both build modules publicly depend
+on Engine. `Texture2DData.h` carries source/settings values and CPU platform
+mips; `Texture2DBuildProvider.h` exposes only the recipe seam, while
+`Texture2DBuild.h` owns requests, cache identity, persistence controls and
+observations. `StaticMeshData.h` supplies resource-free CPU streams and LOD
+metadata. StaticMesh recipes return those owned values; Engine moves the arrays
+into `FStaticMeshRenderData`, and owns GPU resource initialization. Recipe and
+payload LODs share `FStaticMeshVertexData` without making the recipe product a
+disk-schema object. This boundary separates algorithm and runtime resource
+responsibilities; it does not promise an Engine-free link target.
+
 `StaticMeshBuild` owns only detached render/collision recipes. Engine owns its
 PostLoad scheduling, import/Scene build, cache lookup/validation/fallback, and result
 application. Authored PostLoad returns after metadata admission; source decoding,
