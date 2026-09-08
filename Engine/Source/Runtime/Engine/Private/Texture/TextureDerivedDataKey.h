@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	struct FArchiveFailure;
+
 	inline constexpr std::string_view Texture2DCacheBucket = "Textures/Objects";
 	inline constexpr std::string_view TextureCubeCacheBucket = "TextureCube/Objects";
 	inline constexpr std::string_view VolumeTextureCacheBucket = "VolumeTexture/Objects";
@@ -24,6 +26,8 @@ namespace Durin
 		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		// Optionally reports the first invalid field; success clears the supplied failure.
+		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
@@ -46,6 +50,8 @@ namespace Durin
 		uint32 ProjectionVersion = TextureCubeProjectionVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		// Optionally reports the first invalid field; success clears the supplied failure.
+		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
@@ -60,6 +66,8 @@ namespace Durin
 		uint32 SourcePayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+		// Optionally reports the first invalid field; success clears the supplied failure.
+		ENGINE_API auto IsValid(FArchiveFailure* OutFailure = nullptr) const -> bool;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 

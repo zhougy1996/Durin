@@ -27,6 +27,13 @@ namespace Durin
 #endif
 		}
 
+		auto InvalidBuildKey(FArchiveFailure* OutFailure,
+			EArchiveFailureCode Code, std::string_view Message) -> bool
+		{
+			if (OutFailure) *OutFailure = {.Code = Code, .Message = std::string(Message)};
+			return false;
+		}
+
 		auto IsSupportedTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
 			return Platform == ECookTargetPlatform::Win64
@@ -102,9 +109,31 @@ namespace Durin
 
 	}
 
+	auto FTexture2DBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
+	{
+		if (OutFailure) *OutFailure = {};
+		if (!IsSupportedTarget(TargetPlatform, TargetProfile)
+			|| !IsValidTextureUsage(Usage)
+			|| !IsValidTextureCompressionQuality(CompressionQuality)
+			|| !IsValidTextureAlphaMipMode(AlphaMipMode)
+			|| !IsValidTextureAlphaCoverageThreshold(AlphaCoverageThreshold))
+		{
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
+				"Texture2D derived-data key input is invalid.");
+		}
+		return true;
+	}
+
 	auto FTexture2DBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{
 		check(Ar.IsSaving());
+		FArchiveFailure Failure;
+		if (!IsValid(&Failure))
+		{
+			Ar.Fail(Failure.Code, Failure.Message);
+			return;
+		}
+
 		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
 		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture2D);
 		uint8 EncodedUsage = static_cast<uint8>(Usage);
@@ -122,27 +151,43 @@ namespace Durin
 			<< EncodedTargetPlatform << EncodedTargetProfile;
 	}
 
-	auto FTextureCubeBuildKeyInput::Serialize(FArchive& Ar) -> void
+	auto FTextureCubeBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
-		check(Ar.IsSaving());
+		if (OutFailure) *OutFailure = {};
+
 		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
 		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
 				"TextureCube derived-data target is unsupported.");
-			return;
 		}
 		if (!std::isfinite(ExposureEV)
 			|| std::bit_cast<uint32>(ExposureEV) == 0x80000000u
 			|| ExposureEV < -32.0f || ExposureEV > 32.0f)
 		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
 				"TextureCube panorama exposure is not canonical.");
-			return;
 		}
 		if (FaceDimension > MaximumTextureCubeDimension)
 		{
-			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::LimitExceeded,
 				"TextureCube requested face dimension exceeds the supported limit.");
+		}
+		if (SourceLayout != ETextureCubeBuildSourceLayout::SixFaces
+			&& SourceLayout != ETextureCubeBuildSourceLayout::EquirectangularPanorama)
+		{
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
+				"TextureCube source layout is unsupported.");
+		}
+		return true;
+	}
+
+	auto FTextureCubeBuildKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		check(Ar.IsSaving());
+		FArchiveFailure Failure;
+		if (!IsValid(&Failure))
+		{
+			Ar.Fail(Failure.Code, Failure.Message);
 			return;
 		}
 
@@ -163,10 +208,6 @@ namespace Durin
 				Ar << FaceDimension << EncodedExposure;
 			}
 			break;
-		default:
-			Ar.Fail(EArchiveFailureCode::InvalidData,
-				"TextureCube source layout is unsupported.");
-			return;
 		}
 		uint8 EncodedSRGB = bSRGB ? 1 : 0;
 		uint32 EncodedPlatform = static_cast<uint32>(TargetPlatform);
@@ -175,9 +216,9 @@ namespace Durin
 			<< EncodedPlatform << EncodedProfile;
 	}
 
-	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
+	auto FVolumeTextureBuildKeyInput::IsValid(FArchiveFailure* OutFailure) const -> bool
 	{
-		check(Ar.IsSaving());
+		if (OutFailure) *OutFailure = {};
 		if (Width == 0 || Height == 0 || Depth == 0
 			|| Width > MaximumVolumeTextureDimension
 			|| Height > MaximumVolumeTextureDimension
@@ -185,10 +226,22 @@ namespace Durin
 			|| SourcePayloadSchemaVersion != VolumeTextureSourcePayloadSchemaVersion
 			|| !IsSupportedTarget(TargetPlatform, TargetProfile))
 		{
-			Ar.Fail(EArchiveFailureCode::InvalidData,
+			return InvalidBuildKey(OutFailure, EArchiveFailureCode::InvalidData,
 				"Volume texture derived-data key input is invalid.");
+		}
+		return true;
+	}
+
+	auto FVolumeTextureBuildKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		check(Ar.IsSaving());
+		FArchiveFailure Failure;
+		if (!IsValid(&Failure))
+		{
+			Ar.Fail(Failure.Code, Failure.Message);
 			return;
 		}
+
 		uint32 KeySchema = TextureDerivedDataKeySchemaVersion;
 		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture3D);
 		uint32 Format = static_cast<uint32>(Settings.OutputFormat);
@@ -207,14 +260,16 @@ namespace Durin
 		FByteBuffer Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
+		if (Ar.HasError()) Bytes.clear();
 		return Bytes;
 	}
 
 	auto BuildTexture2DDerivedDataKey(
 		const FTexture2DBuildKeyInput& Input) -> FCacheKeyProxy
 	{
-		return MakeDerivedDataKey(
-			Texture2DCacheBucket, BuildTexture2DDerivedDataKeyBytes(Input));
+		const FByteBuffer Bytes = BuildTexture2DDerivedDataKeyBytes(Input);
+		return Bytes.empty() ? FCacheKeyProxy{}
+			: MakeDerivedDataKey(Texture2DCacheBucket, Bytes);
 	}
 
 	auto BuildTextureCubeDerivedDataKeyBytes(

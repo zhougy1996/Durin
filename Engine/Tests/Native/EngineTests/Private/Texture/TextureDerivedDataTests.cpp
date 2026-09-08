@@ -308,6 +308,86 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 		ChangedPanorama, Error).IsValid());
 }
 
+TEST(FTextureDerivedDataTests, TextureKeyValidationRejectsInvalidInputs)
+{
+	using namespace Durin;
+	auto ExpectInvalid = [](auto Input) {
+		FArchiveFailure Failure;
+		ASSERT_FALSE(Input.IsValid(&Failure));
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataKey);
+		Input.Serialize(Writer);
+		ASSERT_TRUE(Writer.HasError());
+		EXPECT_EQ(Writer.GetFailure()->Code, Failure.Code);
+		EXPECT_EQ(Writer.GetFailure()->Message, Failure.Message);
+		EXPECT_TRUE(Bytes.empty());
+	};
+	FTexture2DBuildKeyInput Texture{
+		.TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game};
+	EXPECT_TRUE(Texture.IsValid());
+	auto InvalidTexture = Texture;
+	InvalidTexture.Usage = static_cast<ETextureUsage>(255);
+	ExpectInvalid(InvalidTexture);
+	EXPECT_FALSE(BuildTexture2DDerivedDataKey(InvalidTexture).IsValid());
+	InvalidTexture = Texture;
+	InvalidTexture.AlphaCoverageThreshold = 1.0f;
+	ExpectInvalid(InvalidTexture);
+	InvalidTexture = Texture;
+	InvalidTexture.TargetPlatform = ECookTargetPlatform::Invalid;
+	ExpectInvalid(InvalidTexture);
+	FVolumeTextureBuildKeyInput Volume{
+		.Width = 4, .Height = 4, .Depth = 4,
+		.TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game};
+	EXPECT_TRUE(Volume.IsValid());
+	auto InvalidVolume = Volume;
+	InvalidVolume.Depth = 0;
+	ExpectInvalid(InvalidVolume);
+	InvalidVolume = Volume;
+	++InvalidVolume.SourcePayloadSchemaVersion;
+	ExpectInvalid(InvalidVolume);
+}
+
+TEST(FTextureDerivedDataTests, InvalidCubeKeyInputsFailBeforeWriting)
+{
+	using namespace Durin;
+	FTextureCubeBuildKeyInput Input{
+		.TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game};
+	FArchiveFailure Failure{.Message = "previous failure"};
+	EXPECT_TRUE(Input.IsValid(&Failure));
+	EXPECT_TRUE(Failure.Message.empty());
+	auto ExpectInvalid = [](const FTextureCubeBuildKeyInput& Invalid,
+		EArchiveFailureCode ExpectedCode) {
+		FArchiveFailure Expected;
+		EXPECT_FALSE(Invalid.IsValid());
+		ASSERT_FALSE(Invalid.IsValid(&Expected));
+		EXPECT_EQ(Expected.Code, ExpectedCode);
+		EXPECT_FALSE(Expected.Message.empty());
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataKey);
+		auto Candidate = Invalid;
+		Candidate.Serialize(Writer);
+		ASSERT_TRUE(Writer.HasError());
+		EXPECT_EQ(Writer.GetFailure()->Code, Expected.Code);
+		EXPECT_EQ(Writer.GetFailure()->Message, Expected.Message);
+		EXPECT_TRUE(Bytes.empty());
+	};
+	auto Invalid = Input;
+	Invalid.TargetPlatform = ECookTargetPlatform::Invalid;
+	ExpectInvalid(Invalid, EArchiveFailureCode::InvalidData);
+	Invalid = Input;
+	Invalid.ExposureEV = -0.0f;
+	ExpectInvalid(Invalid, EArchiveFailureCode::InvalidData);
+	Invalid = Input;
+	Invalid.FaceDimension = MaximumTextureCubeDimension + 1;
+	ExpectInvalid(Invalid, EArchiveFailureCode::LimitExceeded);
+	Invalid = Input;
+	Invalid.SourceLayout = static_cast<ETextureCubeBuildSourceLayout>(99);
+	ExpectInvalid(Invalid, EArchiveFailureCode::InvalidData);
+}
+
 TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterministically)
 {
 	const Durin::FTextureCubePlatformData Expected = MakeCubePlatformData();
