@@ -9,26 +9,9 @@ Completed:
 
 ## Current Status
 
-Planning only; runtime implementation has not started. The user authorized a
-plan-first handoff because this change crosses resource ownership, render-thread
-publication, editor invalidation, and destruction. Existing code still uses
-`FTextureResourceCompletion` and revision comparisons.
-
-Inspected `DTexture`, all three resource initialization paths, RenderCore texture
-reference release, and editor revision consumers. Concrete initialization calls
-currently create/upload/publish within `InitRHI`; Stage 0 must verify the complete
-execution and completion boundary before removing synchronization. The current
-`UpdateResource` queues retirement of the previous resource immediately after
-candidate initialization is queued. The Texture System contract instead describes
-retirement after successful publication. Preserve the documented last-successful
-fallback and characterize this discrepancy before migration.
-
-Local reference inspected: UE 5.8 `Texture.cpp`, `Texture2D.cpp`, and
-`StreamableRenderAsset.cpp` under the installed engine. UE waits for pending
-initialization/streaming before replacement, orders deletion and initialization
-on the render thread, and uses `PendingUpdate` for streaming. This plan retains
-Durin's asynchronous ordinary replacement rather than importing UE's blocking
-wait into every update.
+Stage 0 audit is complete. Runtime migration is next; the legacy protocol remains
+in production until Stage 1 lands. The executable ownership and consumer decisions
+below replace the planning-only handoff. No runtime validation is claimed yet.
 
 ## Goal
 
@@ -101,22 +84,100 @@ Do not replace the removed render revision with a hidden thumbnail generation on
 
 ### Stage 0: Freeze ownership and completion boundaries
 
-- [ ] Trace command admission, upload data consumption, publication, deferred
+- [x] Trace command admission, upload data consumption, publication, deferred
   cleanup, and shutdown for all three families, including inline/no-RHI paths.
-- [ ] Select and document a concrete GameThread completion dispatch or pump that
+- [x] Select and document a concrete GameThread completion dispatch or pump that
   advances operations without rendering, editor polling, or a second update call.
   Audit callback owner lifetime, shutdown drain, and command rejection handling.
-- [ ] Write the ownership table for idle, executing, published-but-not-consumed,
+- [x] Write the ownership table for idle, executing, published-but-not-consumed,
   failed, successor-queued, and closing states. Specify the single transfer point
   for each candidate/current resource and the publication/close synchronization.
-- [ ] Inventory all production and test revision users and select the exact
+- [x] Inventory all production and test revision users and select the exact
   editor/thumbnail invalidation replacement, including delayed thumbnail results.
-- [ ] Characterize failed replacement and delayed old-resource release; resolve
+- [x] Characterize failed replacement and delayed old-resource release; resolve
   the implementation/documentation discrepancy against last-successful fallback.
 
 Completion: one executable transition design with no unresolved owner, completion
 pump, publication cancellation, or editor invalidation decision. Record any change
 to the selected design before implementing it.
+
+#### Stage 0 handoff — 2026-09-08
+
+**Execution and upload boundary.** All three family `InitRHI` implementations
+synchronously create the allocation, record every mip upload, and publish the
+reference. `FDynamicRHI::RHIUpdateTexture2D/3D` forwards to `RHICommandList`;
+`FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy the requested bytes
+and retain the target allocation. Vulkan replay then copies into transfer storage
+retired with its GPU token. The terminal CPU result therefore means complete
+upload recording and ordered publication, never completed GPU execution. The
+existing void upload API cannot report a later device/replay failure as an
+individual recoverable texture error. Preserve that RHI failure boundary.
+The active RHI factory plan remains at its baseline-measurement gate; this work
+must not change factories, replay scheduling, or completion semantics.
+
+**GameThread progress.** Add a texture-resource pump beside
+`PumpGameThreadDeferredWork` in `FEngineLoop::TickPostEventFrame`, before UI and
+outside the minimized/rendering branch. Track only assets with pending updates;
+remove membership in `BeginDestroy`. Pump entry snapshots must check membership
+again before dereferencing an asset because completion listeners can destroy
+another asset. Getters do not pump. This explicit Engine-owned pump avoids
+Task dispatch rejection: `FEngineLoop::Exit` shuts the Task system down before
+asset garbage collection. Native hosts call the same pump explicitly.
+
+**Ownership and transitions.**
+
+| State | Asset/GameThread ownership | Operation/RenderThread ownership | Transfer |
+| --- | --- | --- | --- |
+| Idle | Stable reference and optional last-successful current | None | Admission captures immutable family data |
+| Executing | Current remains owned; one PendingUpdate | PendingUpdate owns candidate and immutable input; command retains operation | No current transfer during initialization |
+| Published, not consumed | Previous current remains owned | Operation owns complete published candidate and terminal result | Pump acquires terminal result, moves candidate into current, retires previous |
+| Failed | Last-successful current remains owned | Operation owns failed candidate and error | Pump retires candidate only and stores latest completed error |
+| Successor queued | One immutable next input, replacing earlier queued input | Exactly one active candidate | Consume active before admitting latest successor |
+| Closing | Stop admission, discard successor, unregister pump | Publication and close use the same operation mutex | Close joins accepted CPU initialization, reconciles candidate, then queues current/reference release |
+
+Use an operation-local terminal handoff and wait, independent of Task execution.
+Close takes the publication mutex before marking the operation closed; publish
+takes that same mutex after initialization. A command already initializing may
+finish recording uploads but cannot publish after close. Destruction may wait;
+ordinary replacement remains asynchronous. Accepted commands retain operation
+storage until they return. Queue candidate/reference initialization together with
+checked render-command admission; rejection destroys only uninitialized storage
+and records an admission failure. Missing RHI terminalizes without initialization.
+Producer shutdown still closes texture owners before stopping RenderCore admission;
+cleanup commands use the existing ordered deferred release path. Stopped admission
+is not permission to destroy a registered resource on GameThread.
+
+**Consumer seam.** Add a GameThread texture resource-change event for admission
+and consumed completion, carrying the asset and phase, without a counter. Editor
+preview caches combine existing authored-content/build notifications with this
+event; readiness queries remain independent from availability. Store the actual
+immutable successful RHI allocation snapshot, with a fixed texture reference for
+snapshot consumers. Cube thumbnail sessions retain their input and resource
+snapshot and render with the fixed reference. Material sessions retain dependency
+snapshots and validate them, pending state, and existing material/package versions
+before accepting delayed output. Never hash a stable-reference pointer or add a
+texture generation. Retaining allocation ownership prevents pointer reuse from
+making an old snapshot appear current. Existing generic thumbnail session revision
+fields can remain for package/material/mesh versions, but carry no texture request
+revision. A new pending request makes an in-flight texture-dependent result
+ineligible until its actual input/resource snapshot can be validated again.
+
+**Fallback discrepancy.** Existing `UpdateResource` moves the candidate directly
+into `RenderResource` and queues previous-resource release before success is known.
+On replacement failure this clears the last-successful target. Move that transfer
+into successful terminal consumption. Preserve
+`ResetToFallbackIfMatches_RenderThread`: delayed release of an old allocation must
+not clear a newer allocation. Release never changes another operation's error.
+
+**Inventory and validation selection.** Production users are the common owner,
+all three family factories/resources, Texture/Volume editors, payload inspection,
+Cube thumbnails, and Material thumbnail dependencies. Test users additionally
+include texture build/import/cook/failure/base-state fixtures, TextureCubeTests,
+CookedAssetTests, AssetThumbnailFixtureTests, and SkyBoxVulkanTests. Registered
+selections include TextureTests, TextureThumbnailTests,
+TextureCookIntegrationTests, MaterialVulkanTests, and
+SkyBoxVulkanIntegrationTests. Stage 1 must replace revision assertions with
+behavioral checks; Stage 2 still requires affected validation and a full build.
 
 ### Stage 1: Migrate the common owner and all texture resources
 
