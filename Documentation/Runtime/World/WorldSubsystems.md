@@ -30,13 +30,11 @@ services. `GetSubsystem<T>()` performs exact concrete lookup, returns null for
 absent or incompletely initialized types, and never constructs an object.
 Registration, lookup, mutation, and lifecycle callbacks are game-thread-only.
 
-`FModuleManager::AcquireCodeLease` pins the exact active load generation.
-Collections retain leases for frozen descriptors, objects retain them through
-physical GC destruction, and retained work gates keep provider and Engine code
-mapped. Shutdown rejects outstanding leases with `OutstandingCodeLease` before
-entering retirement; the module remains active and shutdown may be retried after
-consumers release their leases. This is separate from bounded ModularFeature
-invocation and module async-operation audits.
+Shared descriptor ordering, rollback, GC and code-lease mechanics are owned by
+[the common subsystem contract](../Core/Subsystems.md). `DWorldSubsystem` derives
+from `DSubsystem`; World result/state/error/work-gate names remain compatibility
+aliases. World eligibility, play, Level and Tick policy stay in this adapter.
+Typed World lookup rejects Engine and Editor subsystem classes.
 
 ## Initialization And Shutdown
 

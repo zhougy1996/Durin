@@ -117,9 +117,12 @@ namespace Durin
 		// Call after host context/type selection and before attaching a Level. Never creates on lookup.
 		ENGINE_API auto InitializeSubsystems() -> FWorldSubsystemResult;
 		// During an operation, closes work admission immediately and defers teardown until it exits.
+		// Closes admission without cleaning consumers until a World or host operation boundary.
+		ENGINE_API auto RequestShutdown() -> void;
 		ENGINE_API auto Shutdown() -> void;
 		auto GetSubsystemState() const -> EWorldSubsystemState { return Subsystems.GetState(); }
-		template<typename T> auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
+		template<typename T> requires std::is_base_of_v<DWorldSubsystem, T>
+		auto GetSubsystem() const -> T* { return static_cast<T*>(Subsystems.Find(T::StaticClass())); }
 		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;

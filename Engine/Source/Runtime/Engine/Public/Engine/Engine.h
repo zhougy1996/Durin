@@ -5,6 +5,8 @@
 #include "Input/GameInputState.h"
 #include "SceneOwnership.h"
 #include "Engine/World.h"
+#include "Engine/EngineSubsystem.h"
+#include "DObject/ObjectLifecycle.h"
 
 #include "Engine.gen.h"
 
@@ -77,6 +79,8 @@ namespace Durin
 		// Detaches host-owned consumers while the task system and objects are still alive.
 		ENGINE_API virtual auto PrepareForShutdown() -> void;
 
+		// External callbacks close admission immediately but retire consumers at the next host boundary.
+		ENGINE_API auto DispatchSubsystemCallback(std::function<void()> Callback) -> void;
 		ENGINE_API virtual auto RedrawViewports() -> void;
 
 		ENGINE_API virtual auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void;
@@ -87,6 +91,11 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;
+
+		template<typename T> requires std::is_base_of_v<DEngineSubsystem, T>
+		auto GetSubsystem() const -> T* { return static_cast<T*>(EngineSubsystems.Find(T::StaticClass())); }
+		auto GetSubsystemState() const -> ESubsystemState { return EngineSubsystems.GetState(); }
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 		auto GetMainScene() const -> FSceneInterface* { return MainScene.get(); }
 		auto GetMainSceneViewport() const -> const std::shared_ptr<FSceneViewport>& { return MainSceneViewport; }
@@ -99,6 +108,43 @@ namespace Durin
 		ENGINE_API auto ClearGameInputWindow() -> void;
 		ENGINE_API auto ResetGameInputMouse() -> void;
 
+	protected:
+		// Pins host lifecycle mutation until a complete host callback has returned.
+		class FHostOperationScope
+		{
+		public:
+			ENGINE_API explicit FHostOperationScope(DEngine& InHost, bool bFlushOnExit = true);
+			ENGINE_API ~FHostOperationScope();
+		private:
+			FGarbageCollectionDeferralScope Deferral;
+			DEngine& Host;
+			bool bFlushOnExit;
+		};
+		ENGINE_API virtual auto CloseSubsystemWork() -> void;
+		virtual auto RetireHostConsumers() -> void {}
+		ENGINE_API virtual auto AreHostConsumersIdle() -> bool;
+		ENGINE_API auto InitializeEngineSubsystems() -> FSubsystemResult;
+		FEngineSubsystemCollection EngineSubsystems;
+		bool bShutdownRequested = false;
+		bool bShutdownComplete = false;
+	private:
+		// Tracks unpublished Worlds so host retirement can close their admission during boot.
+		class FWorldInitializationScope
+		{
+		public:
+			ENGINE_API FWorldInitializationScope(DEngine& InHost, DWorld& InWorld);
+			ENGINE_API ~FWorldInitializationScope();
+		private:
+			FHostOperationScope Operation;
+			DEngine& Host;
+			DWorld& World;
+		};
+		std::vector<DWorld*> InitializingWorlds;
+		friend class DWorld;
+		auto InitInternal(const FEngineInitContext& Context) -> FEngineInitializationResult;
+		uint32 HostOperationDepth = 0;
+		bool bPreparingShutdown = false;
+		bool bInitStarted = false;
 	protected:
 		ENGINE_API auto BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView;
 		ENGINE_API auto BuildSceneView(const FSceneViewport* SceneViewport, uint32 Width, uint32 Height, bool bAllowCameraFallback, FSceneView& OutView) const -> bool;

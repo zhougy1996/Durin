@@ -116,13 +116,68 @@ namespace Durin
 	};
 
 	DEngine::DEngine(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
+		: Super(ObjectInitializer), EngineSubsystems(*this)
 	{
 	}
 
 	DEngine::~DEngine() = default;
 
-	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
+	DEngine::FHostOperationScope::FHostOperationScope(DEngine& InHost, bool bInFlushOnExit) : Host(InHost), bFlushOnExit(bInFlushOnExit) { ++Host.HostOperationDepth; }
+	DEngine::FHostOperationScope::~FHostOperationScope()
+	{
+		if (--Host.HostOperationDepth == 0 && bFlushOnExit && Host.bShutdownRequested) Host.PrepareForShutdown();
+	}
+
+	DEngine::FWorldInitializationScope::FWorldInitializationScope(DEngine& InHost, DWorld& InWorld)
+		: Operation(InHost), Host(InHost), World(InWorld)
+	{
+		Host.InitializingWorlds.push_back(&World);
+		if (Host.bShutdownRequested) World.RequestShutdown();
+	}
+
+	DEngine::FWorldInitializationScope::~FWorldInitializationScope()
+	{
+		std::erase(Host.InitializingWorlds, &World);
+	}
+
+	auto DEngine::DispatchSubsystemCallback(std::function<void()> Callback) -> void
+	{
+		if (bShutdownRequested) return;
+		FHostOperationScope Operation(*this, false);
+		Callback();
+	}
+
+	auto DEngine::InitializeEngineSubsystems() -> FSubsystemResult
+	{
+		FHostOperationScope Operation(*this);
+		return EngineSubsystems.Initialize();
+	}
+
+	auto DEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		EngineSubsystems.AddReferencedObjects(Collector);
+		for (DWorld* World : InitializingWorlds)
+		{
+			DObject* Object = World;
+			Collector.AddReferencedObject(Object);
+		}
+	}
+
+	auto DEngine::Init(const FEngineInitContext& Context) -> FEngineInitializationResult
+	{
+		if (bInitStarted || bShutdownRequested) return FEngineInitializationResult::Failure("Engine initialization is one-shot.");
+		bInitStarted = true;
+		FHostOperationScope Operation(*this);
+		FEngineInitializationResult Result;
+		try { Result = InitInternal(Context); }
+		catch (...) { Result = FEngineInitializationResult::Failure("Engine initialization threw an exception."); }
+		if (bShutdownRequested && Result) Result = FEngineInitializationResult::Failure("Engine retired during initialization.");
+		if (!Result) PrepareForShutdown();
+		return Result;
+	}
+
+	auto DEngine::InitInternal(const FEngineInitContext&) -> FEngineInitializationResult
 	{
 		if (!FModuleManager::Get().LoadModule("Engine"))
 			return FEngineInitializationResult::Failure("Engine subsystem providers could not start.");
@@ -166,6 +221,8 @@ namespace Durin
 					Viewport->InitializeViewState(RendererModule);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
+		if (auto Result = InitializeEngineSubsystems(); !Result)
+			return FEngineInitializationResult::Failure(Result.Message);
 		auto* World = NewObject<DWorld>(this, "MainWorld");
 		World->SetWorldType(GetInitialWorldType());
 		World->SetRenderScene(MainScene.get());
@@ -182,6 +239,7 @@ namespace Durin
 
 	auto DEngine::BeginDestroy() -> void
 	{
+		PrepareForShutdown();
 		ClearGameInputWindow();
 		if (MainWorld) MainWorld->Shutdown();
 		AuxiliarySceneViewports.clear();
@@ -203,7 +261,7 @@ namespace Durin
 
 	auto DEngine::IsReadyForFinishDestroy() -> bool
 	{
-		return Super::IsReadyForFinishDestroy()
+		return HostOperationDepth == 0 && !bPreparingShutdown && Super::IsReadyForFinishDestroy()
 			   && (!DestroyFence || DestroyFence->IsFenceComplete());
 	}
 
@@ -217,6 +275,8 @@ namespace Durin
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
+		if (bShutdownRequested) { PrepareForShutdown(); return; }
+		FHostOperationScope Operation(*this);
 		(void)bIdleMode;
 		PumpCookedMeshLoadManager();
 		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
@@ -224,14 +284,29 @@ namespace Durin
 		GameInputState.FinishGameTick();
 	}
 
+	auto DEngine::AreHostConsumersIdle() -> bool { return !MainWorld || MainWorld->IsReadyForFinishDestroy(); }
+
+	auto DEngine::CloseSubsystemWork() -> void
+	{
+		EngineSubsystems.CloseWork();
+		if (MainWorld) MainWorld->RequestShutdown();
+		for (DWorld* World : InitializingWorlds) World->RequestShutdown();
+	}
+
 	auto DEngine::PrepareForShutdown() -> void
 	{
+		bShutdownRequested = true;
+		CloseSubsystemWork();
+		if (HostOperationDepth || bPreparingShutdown || bShutdownComplete || !AreHostConsumersIdle()) return;
+		bPreparingShutdown = true;
+		FGarbageCollectionDeferralScope Deferral;
+		RetireHostConsumers();
 		if (MainWorld) MainWorld->Shutdown();
-		if (MainSceneViewport)
-			MainSceneViewport->ReleaseViewState();
-		for (const std::shared_ptr<FSceneViewport>& Viewport : AuxiliarySceneViewports)
-			if (Viewport)
-				Viewport->ReleaseViewState();
+		EngineSubsystems.Shutdown();
+		if (MainSceneViewport) MainSceneViewport->ReleaseViewState();
+		for (const auto& Viewport : AuxiliarySceneViewports) if (Viewport) Viewport->ReleaseViewState();
+		bShutdownComplete = true;
+		bPreparingShutdown = false;
 	}
 
 	auto DEngine::RedrawViewports() -> void

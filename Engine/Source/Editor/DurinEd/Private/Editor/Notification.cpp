@@ -1,4 +1,5 @@
 #include "Editor/Notification.h"
+#include "Engine/Subsystem.h"
 
 namespace Durin::Editor
 {
@@ -8,17 +9,63 @@ namespace Durin::Editor
 		constexpr float DefaultWarningDuration = 8.0f;
 	}
 
+	FNotificationManager::FNotificationManager(std::shared_ptr<const FSubsystemWorkGate> Gate,
+		std::function<void(std::function<void()>)> InDispatcher)
+		: WorkGate(std::move(Gate)), Dispatcher(std::move(InDispatcher)) {}
+
+	FNotificationManager::~FNotificationManager() { Retire(); }
+
+	auto FNotificationManager::Retire() noexcept -> void
+	{
+		Admission->store(false);
+		std::vector<std::function<void()>> Discarded;
+		{
+			std::scoped_lock Lock(PendingMutex);
+			Discarded.swap(PendingCommands);
+		}
+		Notifications.clear();
+		StatusNotification.reset();
+		History.clear();
+	}
+
+	auto FNotificationManager::GuardCallback(std::function<void()> Callback) const -> std::function<void()>
+	{
+		if (!Callback) return {};
+		return [Open = Admission, Gate = WorkGate, Dispatch = Dispatcher, Callback = std::move(Callback)] {
+			if (!Open->load() || (Gate && !Gate->IsOpen())) return;
+			if (Dispatch) Dispatch(Callback);
+			else Callback();
+		};
+	}
+
+	auto FNotificationManager::GuardAction(std::optional<FNotificationAction> Action) const -> std::optional<FNotificationAction>
+	{
+		if (!Action) return {};
+		Action->Invoke = GuardCallback(std::move(Action->Invoke));
+		Action->IsEnabled = [Open = Admission, Gate = WorkGate, Dispatch = Dispatcher, Enabled = std::move(Action->IsEnabled)] {
+			if (!Open->load() || (Gate && !Gate->IsOpen())) return false;
+			bool bEnabled = true;
+			if (Enabled)
+			{
+				if (Dispatch) Dispatch([&] { bEnabled = Enabled(); });
+				else bEnabled = Enabled();
+			}
+			return bEnabled && Open->load() && (!Gate || Gate->IsOpen());
+		};
+		return Action;
+	}
+
 	auto FNotificationManager::Post(FNotificationDesc Desc) -> FNotificationId
 	{
 		const FNotificationId Id = NextId.fetch_add(1, std::memory_order_relaxed);
-		Enqueue([this, Id, Desc = std::move(Desc)]() mutable {
+		const bool bQueued = Enqueue([this, Id, Desc = std::move(Desc)]() mutable {
 			FNotification Notification;
 			Notification.Id = Id;
 			Notification.Type = Desc.Type;
 			Notification.Message = std::move(Desc.Message);
 			Notification.Details = std::move(Desc.Details);
 			Notification.RemainingSeconds = ResolveDuration(Notification.Type, Desc.DurationSeconds);
-			Notification.Action = std::move(Desc.Action);
+			Notification.Action = GuardAction(std::move(Desc.Action));
 			if (Desc.bRecordInHistory) History.emplace_back(Notification);
 			switch (Desc.Presentation)
 			{
@@ -28,20 +75,20 @@ namespace Durin::Editor
 			default: Notifications.emplace_back(std::move(Notification)); break;
 			}
 		});
-		return Id;
+		return bQueued ? Id : 0;
 	}
 
 	auto FNotificationManager::BeginProgress(FProgressNotificationDesc Desc) -> FNotificationId
 	{
 		const FNotificationId Id = NextId.fetch_add(1, std::memory_order_relaxed);
-		Enqueue([this, Id, Desc = std::move(Desc)]() mutable {
+		const bool bQueued = Enqueue([this, Id, Desc = std::move(Desc)]() mutable {
 			FNotification Notification;
 			Notification.Id = Id;
 			Notification.Type = ENotificationType::Progress;
 			Notification.Message = std::move(Desc.Message);
 			if (Desc.Progress) Notification.Progress = std::clamp(*Desc.Progress, 0.0f, 1.0f);
-			Notification.Action = std::move(Desc.Action);
-			Notification.Cancel = std::move(Desc.Cancel);
+			Notification.Action = GuardAction(std::move(Desc.Action));
+			Notification.Cancel = GuardCallback(std::move(Desc.Cancel));
 			if (Desc.bRecordInHistory) History.emplace_back(Notification);
 			switch (Desc.Presentation)
 			{
@@ -51,7 +98,7 @@ namespace Durin::Editor
 			default: Notifications.emplace_back(std::move(Notification)); break;
 			}
 		});
-		return Id;
+		return bQueued ? Id : 0;
 	}
 
 	auto FNotificationManager::UpdateProgress(FNotificationId Id, std::optional<float> Progress, std::string Message) -> void
@@ -117,6 +164,7 @@ namespace Durin::Editor
 
 	auto FNotificationManager::Tick(float DeltaSeconds) -> void
 	{
+		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return;
 		std::vector<std::function<void()>> Commands;
 		{
 			std::scoped_lock Lock(PendingMutex);
@@ -154,18 +202,22 @@ namespace Durin::Editor
 
 	auto FNotificationManager::InvokeAction(FNotificationId Id) -> bool
 	{
+		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
 		FNotification* Notification = Find(Id);
 		if (!Notification) Notification = FindStatus(Id);
 		if (!Notification) Notification = FindHistory(Id);
 		if (!Notification || !Notification->Action || !Notification->Action->Invoke) return false;
-		if (Notification->Action->IsEnabled && !Notification->Action->IsEnabled()) return false;
-		const std::function<void()> Callback = Notification->Action->Invoke;
+		// Enablement is an extension callback and may retire the manager's entries.
+		const FNotificationAction Action = *Notification->Action;
+		if (Action.IsEnabled && !Action.IsEnabled()) return false;
+		const std::function<void()> Callback = Action.Invoke;
 		Callback();
 		return true;
 	}
 
 	auto FNotificationManager::RequestCancel(FNotificationId Id) -> bool
 	{
+		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
 		FNotification* Notification = Find(Id);
 		if (!Notification) Notification = FindStatus(Id);
 		if (!Notification) Notification = FindHistory(Id);
@@ -181,10 +233,12 @@ namespace Durin::Editor
 		History.clear();
 	}
 
-	auto FNotificationManager::Enqueue(std::function<void()> Command) -> void
+	auto FNotificationManager::Enqueue(std::function<void()> Command) -> bool
 	{
 		std::scoped_lock Lock(PendingMutex);
+		if (!Admission->load() || (WorkGate && !WorkGate->IsOpen())) return false;
 		PendingCommands.emplace_back(std::move(Command));
+		return true;
 	}
 
 	auto FNotificationManager::Find(FNotificationId Id) -> FNotification*

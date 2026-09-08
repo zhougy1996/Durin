@@ -20,11 +20,13 @@
 		"DerivedDataCache"
 	],
     "ReflectHeaders": [
+        "Public/Engine/EngineSubsystem.h",
         "Public/Engine/Actor.h",
         "Public/Engine/Engine.h",
         "Public/Engine/GameEngine.h",
         "Public/Engine/World.h",
         "Public/Engine/WorldSubsystem.h",
+        "Public/Engine/Subsystem.h",
         "Public/Engine/Level.h",
 		"Public/Collision/CollisionTypes.h",
         "Public/Collision/CollisionDebugSubsystem.h",

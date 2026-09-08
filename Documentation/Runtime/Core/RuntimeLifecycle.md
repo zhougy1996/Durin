@@ -270,8 +270,9 @@ recording, replay, flush, and completion are defined by
 
 ## Engine Exit Protocol
 
-`FEngineLoop::Exit()` is the single process-level ordering owner. Launch first
-unloads the selected UI backend, which unregisters its exact backend instance
+`FEngineLoop::Exit()` is the single process-level ordering owner. Launch first retires asset compilation and calls host PrepareForShutdown,
+which closes subsystem work, retires World/editor consumers and deinitializes
+services while base endpoints remain available. It then unloads the selected UI backend, which unregisters its exact backend instance
 and releases backend state. Mona's module shutdown callback then closes its
 windows and renderer, while the stopped Mona module instance remains loaded
 until the ordinary post-object-drain module pass. The function expresses the
@@ -279,10 +280,11 @@ shutdown order directly:
 
 | Step | Boundary |
 | --- | --- |
+| Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
+| Retire host services | After asset compilation retires, prepare the engine host before UI/backend, cooked-mesh and task teardown; see [Subsystems](Subsystems.md). |
 | Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
-| Stop asset compilation | Close every compiling manager, finish accepted object publication in reverse canonical-name order, and release provider values before Core task admission closes. |
 | Stop CPU work | After CPU producers close work admission and publication, shut down both CPU and blocking-I/O pools through the process [task system](TaskSystem.md) in `Drain` mode. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |

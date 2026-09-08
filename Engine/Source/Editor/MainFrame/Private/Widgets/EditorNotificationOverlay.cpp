@@ -108,7 +108,7 @@ namespace Durin::Editor::MainFrame
 	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
-		Notifications.Tick(ImGui::GetIO().DeltaTime);
+		if (GEditor) GEditor->UpdateNotifications(ImGui::GetIO().DeltaTime);
 	}
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float

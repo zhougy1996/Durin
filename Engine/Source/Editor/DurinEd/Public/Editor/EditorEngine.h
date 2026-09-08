@@ -2,6 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
+#include "Editor/EditorSubsystem.h"
 #include "Editor/Transactor.h"
 
 #include "EditorEngine.gen.h"
@@ -87,6 +88,12 @@ namespace Durin
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
 		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
+		template<typename T> requires std::is_base_of_v<DEditorSubsystem, T>
+		auto GetEditorSubsystem() const -> T* { return static_cast<T*>(EditorSubsystems.Find(T::StaticClass())); }
+		auto GetEditorSubsystemState() const -> ESubsystemState { return EditorSubsystems.GetState(); }
+		DURINED_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
+		// MainFrame phase: after transaction event publication and before notification drawing.
+		DURINED_API auto UpdateNotifications(float DeltaSeconds) -> void;
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError = nullptr) -> bool;
@@ -128,7 +135,15 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
-		std::unique_ptr<Editor::FNotificationManager> NotificationManager;
+		auto InitEditorInternal(const FEngineInitContext& Context) -> FEngineInitializationResult;
+		auto CloseSubsystemWork() -> void override;
+		auto RetireHostConsumers() -> void override;
+		auto AreHostConsumersIdle() -> bool override;
+		FEditorSubsystemCollection EditorSubsystems;
+		bool bEditorInitStarted = false;
+	protected:
+		DURINED_API auto InitializeEditorSubsystems() -> FSubsystemResult;
+	private:
 
 		// Sole editor-session transaction history and revision service.
 		DPROPERTY(Transient)
@@ -170,6 +185,7 @@ namespace Durin
 		IEditorHost* EditorHost = nullptr;
 
 		friend struct FEditorEngineTestAccess;
+		friend class FSubsystemEditorHost;
 	};
 
 	extern DURINED_API DEditorEngine* GEditor;

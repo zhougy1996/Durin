@@ -1,4 +1,5 @@
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "WorldOperation.h"
 
 #include "Actors/Controller.h"
@@ -32,8 +33,10 @@ namespace Durin
 	{
 		if (Operation != EOperation::Idle)
 			return {EWorldSubsystemError::InvalidState, "World operation is in progress."};
-		FOperationScope OperationScope(*this, EOperation::Initializing);
 		TStrongObjectPtr<DWorld> InitializationGuard(this);
+		std::optional<DEngine::FWorldInitializationScope> HostScope;
+		if (auto* Host = Cast<DEngine>(GetOuter())) HostScope.emplace(*Host, *this);
+		FOperationScope OperationScope(*this, EOperation::Initializing);
 		auto Result = Subsystems.Initialize();
 		return Result;
 	}
@@ -63,11 +66,16 @@ namespace Durin
 		else if (std::exchange(bEndPlayRequested, false)) EndPlay();
 	}
 
-	auto DWorld::Shutdown() -> void
+	auto DWorld::RequestShutdown() -> void
 	{
 		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		bShutdownRequested = true;
 		Subsystems.CloseWork();
+	}
+
+	auto DWorld::Shutdown() -> void
+	{
+		RequestShutdown();
 		if (Operation != EOperation::Idle) return;
 		if (GetSubsystemState() == EWorldSubsystemState::ShuttingDown || GetSubsystemState() == EWorldSubsystemState::Shutdown) return;
 		FOperationScope OperationScope(*this, EOperation::ShuttingDown);

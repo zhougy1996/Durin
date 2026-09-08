@@ -378,6 +378,8 @@ namespace Durin
 			ShutdownAssetCompilingManager();
 		}
 
+		if (GEngine) GEngine->PrepareForShutdown();
+
 #if DURIN_WITH_EDITOR
 		if (FModuleManager::Get().IsModuleLoaded("MonaImGui"))
 		{
@@ -406,7 +408,6 @@ namespace Durin
 			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		}
 		ShutdownCookedMeshLoadManager();
-		if (GEngine) GEngine->PrepareForShutdown();
 		if (bGameThreadDeferredExecutorStarted)
 		{
 			SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);

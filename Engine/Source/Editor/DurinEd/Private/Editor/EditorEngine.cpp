@@ -1,5 +1,6 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/Notification.h"
+#include "Editor/EditorNotificationSubsystem.h"
 #include "Editor/Transaction.h"
 #include "Editor/Transactor.h"
 
@@ -31,8 +32,7 @@ namespace Durin
 	DEditorEngine* GEditor = nullptr;
 
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
-		, NotificationManager(std::make_unique<Editor::FNotificationManager>())
+		: Super(ObjectInitializer), EditorSubsystems(*this)
 	{
 		Trans = NewObject<DTransBuffer>(this, "Transactor", EObjectFlags::Transient);
 		GEditor = this;
@@ -43,7 +43,34 @@ namespace Durin
 		if (GEditor == this) GEditor = nullptr;
 	}
 
-	auto DEditorEngine::Init(const FEngineInitContext& InitContext)
+	auto DEditorEngine::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		EditorSubsystems.AddReferencedObjects(Collector);
+	}
+
+	auto DEditorEngine::InitializeEditorSubsystems() -> FSubsystemResult
+	{
+		FHostOperationScope Operation(*this);
+		if (!FModuleManager::Get().LoadModule("DurinEd"))
+			return {ESubsystemError::ProviderUnavailable, "DurinEd subsystem providers could not start."};
+		return EditorSubsystems.Initialize();
+	}
+
+	auto DEditorEngine::Init(const FEngineInitContext& Context) -> FEngineInitializationResult
+	{
+		if (bEditorInitStarted || bShutdownRequested) return FEngineInitializationResult::Failure("Editor initialization is one-shot.");
+		bEditorInitStarted = true;
+		FHostOperationScope Operation(*this);
+		FEngineInitializationResult Result;
+		try { Result = InitEditorInternal(Context); }
+		catch (...) { Result = FEngineInitializationResult::Failure("Editor initialization threw an exception."); }
+		if (bShutdownRequested && Result) Result = FEngineInitializationResult::Failure("Editor retired during initialization.");
+		if (!Result) PrepareForShutdown();
+		return Result;
+	}
+
+	auto DEditorEngine::InitEditorInternal(const FEngineInitContext& InitContext)
 		-> FEngineInitializationResult
 	{
 		if (const FProjectInfo* Project = GetCurrentProject())
@@ -68,6 +95,8 @@ namespace Durin
 
 		EditorHost =
 			&FModuleManager::LoadModuleChecked<IEditorHost>("MainFrame");
+		if (auto Result = InitializeEditorSubsystems(); !Result)
+			return FEngineInitializationResult::Failure(Result.Message);
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
@@ -158,6 +187,8 @@ namespace Durin
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
+		if (bShutdownRequested) { PrepareForShutdown(); return; }
+		FHostOperationScope Operation(*this);
 		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
@@ -172,21 +203,34 @@ namespace Durin
 		DEngine::Tick(DeltaSeconds, bIdleMode);
 	}
 
-	auto DEditorEngine::PrepareForShutdown() -> void
+	auto DEditorEngine::CloseSubsystemWork() -> void
+	{
+		EditorSubsystems.CloseWork();
+		if (EditorWorld) EditorWorld->RequestShutdown();
+		if (PlayWorld) PlayWorld->RequestShutdown();
+		Super::CloseSubsystemWork();
+	}
+
+	auto DEditorEngine::AreHostConsumersIdle() -> bool
+	{
+		return Super::AreHostConsumersIdle()
+			&& (!EditorWorld || EditorWorld->IsReadyForFinishDestroy())
+			&& (!PlayWorld || PlayWorld->IsReadyForFinishDestroy());
+	}
+
+	auto DEditorEngine::RetireHostConsumers() -> void
 	{
 		TeardownPlaySession();
 		if (EditorWorld) EditorWorld->Shutdown();
-		DEngine::PrepareForShutdown();
 		if (EditorHost) EditorHost->DestroyEditorHost();
+		EditorSubsystems.Shutdown();
 	}
+
+	auto DEditorEngine::PrepareForShutdown() -> void { Super::PrepareForShutdown(); }
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
-		TeardownPlaySession();
-		if (EditorWorld) EditorWorld->Shutdown();
-		if (EditorHost)
-			EditorHost->DestroyEditorHost();
-		TeardownPlaySession();
+		PrepareForShutdown();
 		if (Trans)
 		{
 			Trans->BeginDestroy();
@@ -232,6 +276,8 @@ namespace Durin
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
+		if (bShutdownRequested) return false;
+		FHostOperationScope Operation(*this);
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
 		if (PlayState != Editor::EPlayState::Stopped)
@@ -621,9 +667,18 @@ namespace Durin
 		return true;
 	}
 
+	auto DEditorEngine::UpdateNotifications(float DeltaSeconds) -> void
+	{
+		if (bShutdownRequested) return;
+		FHostOperationScope Operation(*this);
+		if (auto* Service = GetEditorSubsystem<DEditorNotificationSubsystem>()) Service->GetManager().Tick(DeltaSeconds);
+	}
+
 	auto DEditorEngine::GetNotificationManager() -> Editor::FNotificationManager&
 	{
-		return *NotificationManager;
+		auto* Service = GetEditorSubsystem<DEditorNotificationSubsystem>();
+		require(Service);
+		return Service->GetManager();
 	}
 
 }

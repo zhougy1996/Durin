@@ -10,19 +10,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		struct FRegistrationEntry { uint64 Identity; FWorldSubsystemDescriptor Descriptor; };
-		auto Registry() -> std::vector<FRegistrationEntry>&
-		{
-			// Module-owned registration tokens can retire during static teardown.
-			// Keep their registry alive until operating-system reclamation, as for modular features.
-			static auto* Entries = new std::vector<FRegistrationEntry>();
-			return *Entries;
-		}
-		uint64 NextRegistration = 0;
-	}
-
 	DWorldSubsystem::DWorldSubsystem(const FObjectInitializer& Initializer) : Super(Initializer) {}
 	auto DWorldSubsystem::BeginDestroy() -> void
 	{
@@ -45,142 +32,55 @@ namespace Durin
 	auto DWorldSubsystem::GetWorld() const -> DWorld* { return Cast<DWorld>(GetOuter()); }
 
 	FWorldSubsystemRegistration::FWorldSubsystemRegistration(FWorldSubsystemDescriptor Descriptor)
-		: Identity(++NextRegistration)
-	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		Registry().push_back({Identity, std::move(Descriptor)});
-	}
-	FWorldSubsystemRegistration::~FWorldSubsystemRegistration()
-	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		std::erase_if(Registry(), [this](const auto& Entry) { return Entry.Identity == Identity; });
-	}
+		: FSubsystemRegistration(DWorldSubsystem::StaticClass(),
+			{Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies}, Descriptor) {}
+	FWorldSubsystemRegistration::~FWorldSubsystemRegistration() = default;
 
-	FWorldSubsystemCollection::FWorldSubsystemCollection(DWorld& InWorld) : World(InWorld) {}
+	FWorldSubsystemCollection::FWorldSubsystemCollection(DWorld& InWorld) : FSubsystemCollection(InWorld, DWorldSubsystem::StaticClass()), World(InWorld) {}
 	FWorldSubsystemCollection::~FWorldSubsystemCollection() = default;
 
 	auto FWorldSubsystemCollection::Find(DClass* Type) const -> DWorldSubsystem*
 	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		for (const FEntry& Entry : Entries)
-			if (Entry.Descriptor.Type == Type && Entry.bInitialized) return Entry.Object.Get();
-		return nullptr;
+		return static_cast<DWorldSubsystem*>(FSubsystemCollection::Find(Type));
 	}
 
 	auto FWorldSubsystemCollection::Initialize() -> FWorldSubsystemResult
 	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
 		if (State != EWorldSubsystemState::Uninitialized)
 			return {EWorldSubsystemError::InvalidState, "World subsystem initialization is one-shot."};
-		State = EWorldSubsystemState::Initializing;
-		auto Fail = [&](EWorldSubsystemError Error, std::string Message) {
-			Shutdown();
-			State = EWorldSubsystemState::Failed;
-			return FWorldSubsystemResult{Error, std::move(Message)};
-		};
-		std::vector<FEntry> Selected;
-		for (const auto& Registration : Registry())
+		std::vector<FSubsystemDescriptor> Selected;
+		for (const auto& Registration : FSubsystemRegistration::Snapshot(DWorldSubsystem::StaticClass()))
 		{
-			const auto& Descriptor = Registration.Descriptor;
+			const auto* Policy = std::any_cast<FWorldSubsystemDescriptor>(&Registration.Policy);
+			const FWorldSubsystemDescriptor DefaultPolicy{.Type = Registration.Descriptor.Type,
+				.Provider = Registration.Descriptor.Provider, .Dependencies = Registration.Descriptor.Dependencies};
+			const auto& Descriptor = Policy ? *Policy : DefaultPolicy;
 			if (!Descriptor.WorldTypes.empty() && std::ranges::find(Descriptor.WorldTypes, World.GetWorldType()) == Descriptor.WorldTypes.end()) continue;
-			if (Descriptor.TickGroup >= ETickingGroup::Count || !Descriptor.Type || !CanConstructObjectOfClass(Descriptor.Type, DWorldSubsystem::StaticClass()))
-				return Fail(EWorldSubsystemError::InvalidDescriptor, "A subsystem descriptor has no constructible concrete type.");
-			if (std::ranges::any_of(Selected, [&](const auto& Entry) { return Entry.Descriptor.Type == Descriptor.Type; }))
-				return Fail(EWorldSubsystemError::DuplicateType, Descriptor.Type->GetQualifiedName().ToString());
-			std::shared_ptr<void> Lease;
-			if (!Descriptor.Provider.IsNone())
+			if (Descriptor.TickGroup >= ETickingGroup::Count)
 			{
-				Lease = FModuleManager::Get().AcquireCodeLease(Descriptor.Provider);
-				if (!Lease) return Fail(EWorldSubsystemError::ProviderUnavailable, Descriptor.Provider.ToString());
+				State = EWorldSubsystemState::Failed;
+				return {EWorldSubsystemError::InvalidDescriptor, "Invalid World Tick group."};
 			}
-			Selected.push_back({Descriptor, std::move(Lease)});
+			Selected.push_back({Descriptor.Type, Descriptor.Provider, Descriptor.Dependencies});
+			WorldEntries[Descriptor.Type] = {Descriptor};
 		}
-		std::ranges::sort(Selected, [](const auto& A, const auto& B) {
-			return A.Descriptor.Type->GetQualifiedName().ToString() < B.Descriptor.Type->GetQualifiedName().ToString();
-		});
-		for (const auto& Entry : Selected)
-			for (DClass* Dependency : Entry.Descriptor.Dependencies)
-				if (!std::ranges::any_of(Selected, [&](const auto& Candidate) { return Candidate.Descriptor.Type == Dependency; }))
-					return Fail(EWorldSubsystemError::MissingDependency, Entry.Descriptor.Type->GetQualifiedName().ToString());
-		while (!Selected.empty())
-		{
-			auto Next = std::ranges::find_if(Selected, [&](const auto& Entry) {
-				return std::ranges::all_of(Entry.Descriptor.Dependencies, [&](DClass* Dependency) {
-					return std::ranges::any_of(Entries, [&](const auto& Done) { return Done.Descriptor.Type == Dependency; });
-				});
-			});
-			if (Next == Selected.end()) return Fail(EWorldSubsystemError::DependencyCycle, "World subsystem dependencies contain a cycle.");
-			Entries.push_back(std::move(*Next));
-			Selected.erase(Next);
-		}
-		for (size_t Index = 0; Index < Entries.size(); ++Index)
-		{
-			auto* Object = Cast<DWorldSubsystem>(NewObject(Entries[Index].Descriptor.Type, &World, {}, EObjectFlags::Transient));
-			if (!Object) return Fail(EWorldSubsystemError::InitializationFailed, "Subsystem construction failed.");
-			Entries[Index].Object = Object;
-			Object->ProviderLease = Entries[Index].Lease;
-			Object->WorkGate = std::make_shared<FWorldSubsystemWorkGate>();
-			Object->WorkGate->ProviderLease = Entries[Index].Lease;
-			Object->WorkGate->RuntimeLease = FModuleManager::Get().AcquireCodeLease("Engine");
-			FWorldSubsystemResult Result;
-			try { Result = Object->Initialize(); }
-			catch (...) { Result = {EWorldSubsystemError::InitializationFailed, "Subsystem Initialize threw an exception."}; }
-			if (!Result) return Fail(Result.Error, std::move(Result.Message));
-			Entries[Index].bInitialized = true;
-			if (World.bShutdownRequested) return Fail(EWorldSubsystemError::Aborted, "World retired during subsystem initialization.");
-		}
-		State = EWorldSubsystemState::Ready;
-		return {};
-	}
-
-	auto FWorldSubsystemCollection::CloseWork() -> void
-	{
-		for (auto& Entry : Entries)
-			if (auto* Object = Entry.Object.Get(); Object && Object->WorkGate) Object->WorkGate->Cancellation.RequestCancellation();
-	}
-
-	auto FWorldSubsystemCollection::Shutdown() -> void
-	{
-		require(!GIsGameThreadIdInitialized || IsInGameThread());
-		if (State == EWorldSubsystemState::Shutdown || State == EWorldSubsystemState::ShuttingDown) return;
-		State = EWorldSubsystemState::ShuttingDown;
-		CloseWork();
-		for (size_t Index = Entries.size(); Index-- > 0;)
-		{
-			if (auto* Object = Entries[Index].Object.Get())
-			{
-				Object->Deinitialize();
-				Entries[Index].bInitialized = false;
-				MarkObjectHierarchyAsGarbage(Object);
-			}
-		}
-		Entries.clear();
-		State = EWorldSubsystemState::Shutdown;
-	}
-
-	auto FWorldSubsystemCollection::AddReferencedObjects(FReferenceCollector& Collector) -> void
-	{
-		for (auto& Entry : Entries)
-		{
-			DObject* Object = Entry.Object.Get();
-			Collector.AddReferencedObject(Object);
-		}
+		return FSubsystemCollection::Initialize(std::move(Selected));
 	}
 
 	auto FWorldSubsystemCollection::BeginPlay() -> void
 	{
 		for (size_t Index = 0; Index < Entries.size() && World.CanDispatchSubsystems(); ++Index)
 		{
-			Entries[Index].bPlaying = true;
-			Entries[Index].Object->OnWorldBeginPlay();
+			WorldEntries[Entries[Index].Descriptor.Type].bPlaying = true;
+			static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->OnWorldBeginPlay();
 		}
 	}
 	auto FWorldSubsystemCollection::EndPlay() -> void
 	{
 		for (size_t Index = Entries.size(); Index-- > 0;)
 		{
-			if (!std::exchange(Entries[Index].bPlaying, false)) continue;
-			Entries[Index].Object->OnWorldEndPlay();
+			if (!std::exchange(WorldEntries[Entries[Index].Descriptor.Type].bPlaying, false)) continue;
+			static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->OnWorldEndPlay();
 		}
 	}
 	auto FWorldSubsystemCollection::LevelChanged(DLevel& Level, bool bAttached) -> void
@@ -189,15 +89,15 @@ namespace Durin
 		{
 			if (bAttached && !World.CanDispatchSubsystems()) break;
 			const size_t Index = bAttached ? Offset : Entries.size() - Offset - 1;
-			if (!bAttached && !Entries[Index].bAttached) continue;
-			Entries[Index].bAttached = bAttached;
-			if (bAttached) Entries[Index].Object->OnLevelAttached(Level);
-			else Entries[Index].Object->OnLevelDetached(Level);
+			if (!bAttached && !WorldEntries[Entries[Index].Descriptor.Type].bAttached) continue;
+			WorldEntries[Entries[Index].Descriptor.Type].bAttached = bAttached;
+			if (bAttached) static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->OnLevelAttached(Level);
+			else static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->OnLevelDetached(Level);
 		}
 	}
 	auto FWorldSubsystemCollection::StartTick() -> void
 	{
-		for (auto& Entry : Entries) Entry.bFrameTickEnabled = Entry.Object->IsTickEnabled();
+		for (auto& Entry : Entries) WorldEntries[Entry.Descriptor.Type].bFrameTickEnabled = static_cast<DWorldSubsystem*>(Entry.Object.Get())->IsTickEnabled();
 	}
 	auto FWorldSubsystemCollection::Tick(ETickingGroup Group, float DeltaSeconds, bool bGameplay) -> void
 	{
@@ -205,10 +105,10 @@ namespace Durin
 		for (size_t Index = 0; Index < Entries.size() && World.CanDispatchSubsystems(); ++Index)
 		{
 			if (bGameplay && !World.HasBegunPlay()) break;
-			const auto& Entry = Entries[Index];
+			const auto& Entry = WorldEntries[Entries[Index].Descriptor.Type];
 			if (!Entry.bFrameTickEnabled || !Entry.Descriptor.bTick || Entry.Descriptor.TickGroup != Group) continue;
 			if (!bGameplay && !(bEditor && Entry.Descriptor.bTickInEditorAndPreview)) continue;
-			Entry.Object->Tick(DeltaSeconds);
+			static_cast<DWorldSubsystem*>(Entries[Index].Object.Get())->Tick(DeltaSeconds);
 		}
 	}
 }

@@ -199,3 +199,41 @@ TEST(FNotificationManagerTests, InvokesStatusActionAndDismissesStatusFeedback)
 	ASSERT_EQ(Manager.GetHistory().size(), 1);
 	EXPECT_EQ(Manager.GetHistory().front().Id, Id);
 }
+
+TEST(FNotificationManagerTests, RetirementDiscardsPendingWorkAndInvalidatesRetainedCallbacks)
+{
+	using namespace Durin::Editor;
+	FNotificationManager Manager;
+	int Actions = 0;
+	const auto Id = Manager.BeginProgress({.Message = "Import", .Action = FNotificationAction{
+		.Label = "Open", .Invoke = [&] { ++Actions; }}, .Cancel = [&] { ++Actions; }});
+	Manager.Tick(0.0f);
+	ASSERT_EQ(Manager.GetNotifications().size(), 1u);
+	auto Action = Manager.GetNotifications().front().Action;
+	auto Cancel = Manager.GetNotifications().front().Cancel;
+	Manager.Post({.Message = "Queued"});
+	Manager.Retire(); Manager.Retire();
+	Action->Invoke(); Cancel();
+	EXPECT_FALSE(Action->IsEnabled());
+	EXPECT_EQ(Actions, 0);
+	EXPECT_FALSE(Manager.InvokeAction(Id));
+	EXPECT_FALSE(Manager.RequestCancel(Id));
+	EXPECT_EQ(Manager.Post({.Message = "Too late"}), 0u);
+	Manager.Tick(0.0f);
+	EXPECT_TRUE(Manager.GetNotifications().empty());
+	EXPECT_TRUE(Manager.GetHistory().empty());
+}
+
+TEST(FNotificationManagerTests, EnablementMayRetireEntriesWithoutInvokingTheirAction)
+{
+	using namespace Durin::Editor;
+	FNotificationManager Manager;
+	int Invocations = 0;
+	const auto Id = Manager.Post({.Message = "Retire", .Action = FNotificationAction{
+		.Label = "Retire", .IsEnabled = [&] { Manager.Retire(); return true; },
+		.Invoke = [&] { ++Invocations; }}});
+	Manager.Tick(0.0f);
+	EXPECT_FALSE(Manager.InvokeAction(Id));
+	EXPECT_EQ(Invocations, 0);
+	EXPECT_TRUE(Manager.GetNotifications().empty());
+}
