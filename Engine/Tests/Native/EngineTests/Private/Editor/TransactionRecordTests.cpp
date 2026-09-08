@@ -8,6 +8,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
 #include "DObject/StrongObjectPtr.h"
@@ -776,6 +777,65 @@ TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
 	EXPECT_EQ(Buffer->GetRedoId(), Second.TransactionId);
 	EXPECT_EQ(Buffer->RemoveTransaction(First.TransactionId).Code,
 		Durin::Editor::ETransactorResultCode::NoOp);
+}
+
+TEST(FTransBufferTests, ForgetPackageRetiresHardSnapshotDependenciesOnBothSidesOfCursor)
+{
+	InitializeDObjectSystem();
+	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "PackageDependencyBuffer");
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
+	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "RetiredPackage");
+	auto* Participant = Durin::NewObject<Durin::DObject>(Package, "RetiredParticipant");
+	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "ExternalTarget");
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
+	Durin::TWeakObjectPtr<Durin::DObject> WeakParticipant(Participant);
+	{
+		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Unrelated value"});
+		Scope.Modify(Target);
+		++Target->Value;
+		ASSERT_TRUE(Scope.End());
+	}
+	const auto UnrelatedId = Buffer->GetUndoId();
+	{
+		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Hard after dependency"});
+		Scope.Modify(Target);
+		Target->Hard = Participant;
+		ASSERT_TRUE(Scope.End());
+	}
+	{
+		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Hard before dependency"});
+		Scope.Modify(Target);
+		Target->Hard = nullptr;
+		ASSERT_TRUE(Scope.End());
+	}
+	ASSERT_TRUE(Buffer->Undo());
+	Buffer->ForgetPackage(*Package);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Buffer->GetUndoId(), UnrelatedId);
+	EXPECT_FALSE(Buffer->CanRedo());
+	Target->Hard = nullptr;
+	Durin::CollectGarbage();
+	EXPECT_FALSE(WeakParticipant.IsValid());
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+}
+
+TEST(FTransBufferTests, ForgetPackageRetiresCustomLifetimeDependencies)
+{
+	InitializeDObjectSystem();
+	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "CustomPackageDependencyBuffer");
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
+	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "CustomRetiredPackage");
+	auto* Participant = Durin::NewObject<Durin::DObject>(Package, "CustomRetiredParticipant");
+	Durin::TWeakObjectPtr<Durin::DObject> WeakParticipant(Participant);
+	int Value = 0;
+	ASSERT_TRUE(Buffer->Execute(std::make_unique<FTestCustomChange>(Value, 0, 1, Participant)));
+	Buffer->ForgetPackage(*Package);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
+	EXPECT_EQ(Value, 1);
+	Durin::CollectGarbage();
+	EXPECT_FALSE(WeakParticipant.IsValid());
 }
 
 TEST(FTransBufferTests, RetainsAnEntryAtTheExactOwnedByteLimit)

@@ -723,14 +723,14 @@ TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateAndDiscardsMetadat
 	Manager->EstablishSavedState(*Previous);
 	ASSERT_TRUE(Manager->Execute(std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Previous})));
 
-	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(Manager.Get(), CleanReplacement);
+	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, CleanReplacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
 	ASSERT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
 	EXPECT_TRUE(Manager->GetPackageRevisionState(*CleanReplacement)->bCheckpointValid);
 	EXPECT_FALSE(CleanReplacement->IsDirty());
 
 	DirtyReplacement->MarkDirty();
-	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(Manager.Get(), DirtyReplacement);
+	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(Manager.Get(), CleanReplacement, DirtyReplacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*CleanReplacement).has_value());
 	ASSERT_TRUE(Manager->GetPackageRevisionState(*DirtyReplacement).has_value());
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement)->bCheckpointValid);
@@ -739,6 +739,78 @@ TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateAndDiscardsMetadat
 	Durin::Editor::Level::FLevelDocumentRevisionState::Discard(Manager.Get(), *DirtyReplacement);
 	EXPECT_FALSE(Manager->GetPackageRevisionState(*DirtyReplacement).has_value());
 	EXPECT_FALSE(DirtyReplacement->IsDirty());
+}
+
+TEST(FLevelDocumentRevisionStateTests, PreservesUnrelatedUndoRedoAndSavedCheckpoints)
+{
+	using Durin::Editor::Level::FLevelDocumentRevisionState;
+	auto* Previous = MakeRevisionTestPackage("Previous");
+	auto* Replacement = MakeRevisionTestPackage("Replacement");
+	auto* Material = MakeRevisionTestPackage("Material");
+	auto* Texture = MakeRevisionTestPackage("Texture");
+	int LevelValue = 0;
+	int MaterialValue = 0;
+	int TextureValue = 0;
+	Durin::Tests::FTestTransactorOwner Manager;
+	Manager->EstablishSavedState(*Previous);
+	Manager->EstablishSavedState(*Material);
+	Manager->EstablishSavedState(*Texture);
+	const auto MaterialEdit = Manager->Execute(std::make_unique<FPackageCountingTransaction>(
+		MaterialValue, std::initializer_list{Material}));
+	ASSERT_TRUE(MaterialEdit);
+	Manager->MarkSaved(*Material);
+	ASSERT_TRUE(Manager->Execute(std::make_unique<FPackageCountingTransaction>(
+		LevelValue, std::initializer_list{Previous})));
+	const auto TextureEdit = Manager->Execute(std::make_unique<FPackageCountingTransaction>(
+		TextureValue, std::initializer_list{Texture}));
+	ASSERT_TRUE(TextureEdit);
+	ASSERT_TRUE(Manager->Execute(std::make_unique<FPackageCountingTransaction>(
+		LevelValue, std::initializer_list{Previous})));
+	ASSERT_TRUE(Manager->Undo());
+	ASSERT_TRUE(Manager->Undo());
+	const auto MaterialState = *Manager->GetPackageRevisionState(*Material);
+	const auto TextureState = *Manager->GetPackageRevisionState(*Texture);
+
+	FLevelDocumentRevisionState::Activate(Manager.Get(), Previous, Replacement);
+	EXPECT_FALSE(Manager->GetPackageRevisionState(*Previous).has_value());
+	EXPECT_EQ(Manager->GetUndoId(), MaterialEdit.TransactionId);
+	EXPECT_EQ(Manager->GetRedoId(), TextureEdit.TransactionId);
+	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->CurrentRevision, MaterialState.CurrentRevision);
+	EXPECT_EQ(Manager->GetPackageRevisionState(*Material)->SavedRevision, MaterialState.SavedRevision);
+	EXPECT_EQ(Manager->GetPackageRevisionState(*Texture)->CurrentRevision, TextureState.CurrentRevision);
+	EXPECT_EQ(Manager->GetPackageRevisionState(*Texture)->SavedRevision, TextureState.SavedRevision);
+	EXPECT_FALSE(Material->IsDirty());
+	EXPECT_FALSE(Texture->IsDirty());
+	ASSERT_TRUE(Manager->Redo());
+	EXPECT_EQ(TextureValue, 1);
+	EXPECT_TRUE(Texture->IsDirty());
+	EXPECT_FALSE(Manager->CanRedo());
+	ASSERT_TRUE(Manager->Undo());
+	ASSERT_TRUE(Manager->Undo());
+	EXPECT_EQ(MaterialValue, 0);
+	EXPECT_TRUE(Material->IsDirty());
+	EXPECT_FALSE(Manager->CanUndo());
+	ASSERT_TRUE(Manager->Redo());
+	EXPECT_FALSE(Material->IsDirty());
+}
+
+TEST(FLevelDocumentRevisionStateTests, ReactivatingSamePackagePreservesHistory)
+{
+	auto* Package = MakeRevisionTestPackage();
+	int Value = 0;
+	Durin::Tests::FTestTransactorOwner Manager;
+	Manager->EstablishSavedState(*Package);
+	const auto Edit = Manager->Execute(std::make_unique<FPackageCountingTransaction>(
+		Value, std::initializer_list{Package}));
+	ASSERT_TRUE(Edit);
+	Manager->MarkSaved(*Package);
+	const auto SavedRevision = Manager->GetPackageRevisionState(*Package)->SavedRevision;
+	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(Manager.Get(), Package, Package);
+	EXPECT_EQ(Manager->GetUndoId(), Edit.TransactionId);
+	EXPECT_EQ(Manager->GetPackageRevisionState(*Package)->SavedRevision, SavedRevision);
+	ASSERT_TRUE(Manager->Undo());
+	EXPECT_EQ(Value, 0);
+	EXPECT_TRUE(Package->IsDirty());
 }
 
 TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)

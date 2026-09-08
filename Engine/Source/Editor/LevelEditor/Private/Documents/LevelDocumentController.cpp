@@ -350,7 +350,7 @@ namespace Durin::Editor::Level
 			SetError("The level is already active in another world.");
 			return false;
 		}
-		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), Level->GetPackage());
+		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), PreviousPackage, Level->GetPackage());
 		Context.Synchronize(Context.World);
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())

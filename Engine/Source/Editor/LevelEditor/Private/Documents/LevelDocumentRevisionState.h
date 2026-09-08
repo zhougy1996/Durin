@@ -17,11 +17,15 @@ namespace Durin::Editor::Level
 			if (bSucceeded && Transactions) Transactions->MarkSaved(Package);
 		}
 
-		static auto Activate(::Durin::DTransactor* Transactions, DPackage* Package) -> void
+		static auto Activate(
+			::Durin::DTransactor* Transactions, DPackage* PreviousPackage, DPackage* Package) -> void
 		{
 			if (!Transactions) return;
-			(void)Transactions->Reset();
+			if (PreviousPackage == Package) return;
+			if (PreviousPackage) Transactions->ForgetPackage(*PreviousPackage);
 			if (!Package) return;
+			if (Transactions->GetPackageRevisionState(*Package)) return;
+			if (Transactions->GetPackageRevisionState(*Package)) return;
 			if (Package->IsDirty())
 				Transactions->InvalidateSavedState(*Package);
 			else

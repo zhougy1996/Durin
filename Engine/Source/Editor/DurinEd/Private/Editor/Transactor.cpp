@@ -328,10 +328,23 @@ namespace Durin::Editor
 
 	auto FTransaction::ReferencesPackage(const DPackage& Package) const -> bool
 	{
-		return std::ranges::any_of(PackageTransitions,
-			[&](const FTransactionPackageRevisionTransition& Transition) {
-				return Transition.Package.Resolve() == &Package;
-			});
+		// Lifetime dependencies include snapshot values and custom participants,
+		// even when the transaction does not modify their package.
+		class FPackageReferenceCollector final : public FReferenceCollector
+		{
+		public:
+			explicit FPackageReferenceCollector(const DPackage& InPackage) : Package(InPackage) {}
+			auto AddReferencedObject(DObject*& Object) -> void override
+			{
+				if (Object && (Object == &Package || Object->GetPackage() == &Package))
+					bFound = true;
+			}
+			const DPackage& Package;
+			bool bFound = false;
+		};
+		FPackageReferenceCollector Collector(Package);
+		AddReferencedObjects(Collector);
+		return Collector.bFound;
 	}
 
 	auto FTransaction::AddReferencedObjects(FReferenceCollector& Collector) const -> void

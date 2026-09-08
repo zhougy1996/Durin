@@ -144,6 +144,7 @@ namespace Durin::Editor
 		auto HasPackageTransitions() const -> bool { return !PackageTransitions.empty(); }
 		DURINED_API auto SetPackageTransitions(
 			std::vector<FTransactionPackageRevisionTransition> Transitions) -> void;
+		// Includes modified packages and collector-enumerated hard lifetime dependencies.
 		DURINED_API auto ReferencesPackage(const DPackage& Package) const -> bool;
 
 	private:
