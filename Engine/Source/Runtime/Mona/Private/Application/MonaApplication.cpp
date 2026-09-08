@@ -208,6 +208,8 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
+		// Native intent is not authorization: the window owner may defer or cancel it.
+		PlatformWindow->SetShouldClose(false);
 		const bool bGameHandled = GameEventHandler && GameEventHandler->OnWindowCloseRequested(PlatformWindow);
 		if ((MonaEventHandler && MonaEventHandler->OnWindowCloseRequested(PlatformWindow)) || bGameHandled)
 		{
@@ -217,7 +219,7 @@ namespace Durin::Mona
 		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
 		if (Window)
 		{
-			Window->RequestDestroyWindow();
+			Window->RequestCloseWindow();
 		}
 	}
 

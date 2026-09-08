@@ -35,6 +35,9 @@ namespace Durin
 
 		MONA_API auto GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
+		// User close requests may be deferred by the owner; destruction bypasses this policy.
+		auto SetCloseRequestHandler(std::function<void()> Handler) -> void { CloseRequestHandler = std::move(Handler); }
+		MONA_API auto RequestCloseWindow() -> void;
 		MONA_API auto RequestDestroyWindow() -> void;
 
 		MONA_API auto GetTitle() const -> std::string;
@@ -98,6 +101,8 @@ namespace Durin
 		MONA_API auto MinimizeWindow() -> void;
 
 	protected:
+		std::function<void()> CloseRequestHandler;
+
 		std::string Title;
 
 		EWindowDecorationMode WindowDecorationMode = EWindowDecorationMode::System;

@@ -75,6 +75,10 @@ namespace Durin::Editor
 		// Applies one response to the single pending close without losing it on save or discard failure.
 		DURINED_API auto ResolvePendingDocumentClose(EDocumentCloseResponse Response) -> EDocumentCloseResult;
 		DURINED_API auto RefreshDocumentState() -> void;
+		// Settles previews and refreshes all documents without closing tabs. Pending operations veto exit.
+		DURINED_API auto PrepareForExit() -> bool;
+		// Saves every dirty document, including non-closable tabs; failure keeps all tabs open.
+		DURINED_API auto SaveDocumentsForExit() -> bool;
 		// Updates open and deferred document routing after an authoritative asset move.
 		DURINED_API auto RemapResourceId(
 			std::string_view SourceResourceId,

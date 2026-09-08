@@ -395,6 +395,30 @@ namespace Durin::Editor
 		return RequestCloseDocument(DocumentId);
 	}
 
+	auto FWorkspaceManager::PrepareForExit() -> bool
+	{
+		if (State->PendingCloseDocumentId.IsValid() || !State->DeferredDocumentOpens.empty()) return false;
+		for (const auto& Workspace : GetRegisteredWorkspaces())
+			if (!Workspace->RequestDeactivate()) return false;
+		RefreshDocumentState();
+		return true;
+	}
+
+	auto FWorkspaceManager::SaveDocumentsForExit() -> bool
+	{
+		if (!PrepareForExit()) return false;
+		// Persistence callbacks may update document routing; never borrow vector elements across them.
+		const auto Documents = State->Documents;
+		for (const FDocumentTab& Document : Documents)
+		{
+			const auto Workspace = FindWorkspace(Document.WorkspaceType);
+			if (!Workspace) return false;
+			if (Workspace->IsDocumentDirty(Document) && !Workspace->SaveDocument(Document)) return false;
+		}
+		if (!PrepareForExit()) return false;
+		return std::ranges::none_of(State->Documents, &FDocumentTab::bDirty);
+	}
+
 	auto FWorkspaceManager::RefreshDocumentState() -> void
 	{
 		for (FDocumentTab& Document : State->Documents)

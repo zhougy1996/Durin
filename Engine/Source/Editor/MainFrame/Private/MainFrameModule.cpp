@@ -43,6 +43,7 @@ namespace Durin::Editor::MainFrame
 	{
 		~FBootstrapContext()
 		{
+			if (RootWindow) RootWindow->SetCloseRequestHandler({});
 			if (ContentBrowserTool)
 				ContentBrowserTool->StopRequestAdmission();
 			// Release every UI-held FAssetThumbnail reference before renderer
@@ -67,6 +68,8 @@ namespace Durin::Editor::MainFrame
 			EDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
 		bool bProjectBrowserOpen = false;
+		bool bExitRequested = false;
+		bool bExitSaveFailed = false;
 		std::string FailureMessage;
 		std::shared_ptr<FHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
@@ -391,6 +394,48 @@ namespace Durin::Editor::MainFrame
 			Progress.PhaseIndex = GetBootstrapPhaseIndex(Context.State);
 			Progress.Message = Context.FailureMessage;
 			return Progress;
+		}
+
+		auto DrawExitConfirmation(FBootstrapContext& Context) -> void
+		{
+			if (!Context.bExitRequested) return;
+			auto& Manager = *Context.WorkspaceManager;
+			const bool bPrepared = Manager.PrepareForExit();
+			const bool bDirty = std::ranges::any_of(Manager.GetDocuments(), &Editor::FDocumentTab::bDirty);
+			if (bPrepared && !bDirty && !Context.bExitSaveFailed)
+			{
+				Context.bExitRequested = false;
+				Context.RootWindow->RequestDestroyWindow();
+				return;
+			}
+			ImGui::OpenPopup("Exit Editor###Durin.Editor.ExitConfirmation");
+			if (!ImGui::BeginPopupModal("Exit Editor###Durin.Editor.ExitConfirmation", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
+			ImGui::TextUnformatted("Save all changes before exiting?");
+			for (const auto& Document : Manager.GetDocuments())
+				if (Document.bDirty) ImGui::BulletText("%s", Document.Label.c_str());
+			if (!bPrepared) ImGui::TextWrapped("Finish the pending document operation before exiting.");
+			if (Context.bExitSaveFailed) ImGui::TextWrapped("Some changes could not be saved. Resolve the error and retry, or cancel exit.");
+			bool bExit = false;
+			ImGui::BeginDisabled(!bPrepared);
+			if (ImGui::Button("Save All and Exit"))
+			{
+				bExit = Manager.SaveDocumentsForExit();
+				Context.bExitSaveFailed = !bExit;
+			}
+			ImGui::SameLine();
+			// Discard authorizes teardown only; it must not roll back live documents before approval.
+			if (ImGui::Button("Exit Without Saving")) bExit = Manager.PrepareForExit();
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel") || bExit)
+			{
+				Context.bExitRequested = false;
+				Context.bExitSaveFailed = false;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+			if (bExit) Context.RootWindow->RequestDestroyWindow();
 		}
 
 		auto DrawLoadingState(const FBootstrapContext& Context) -> void
@@ -1267,6 +1312,14 @@ namespace Durin
 
 		const std::weak_ptr<FBootstrapContext> WeakContext =
 			BootstrapContext;
+		Context.RootWindow->SetCloseRequestHandler([WeakContext] {
+			if (const auto Context = WeakContext.lock())
+			{
+				// An existing document confirmation retains ownership of its response.
+				if (!Context->WorkspaceManager->GetPendingCloseDocument())
+					Context->bExitRequested = true;
+			}
+		});
 		Context.ProjectBrowser->SetOpenProject([WeakContext](
 			std::string_view ProjectFile, std::string& OutError) {
 			const std::shared_ptr<FBootstrapContext> Context =
@@ -1338,6 +1391,7 @@ namespace Durin
 					*Context->ContentBrowserTool,
 					*Context->Console,
 					*Context->Activity);
+				DrawExitConfirmation(*Context);
 				return;
 			}
 			if (Context->bProjectBrowserOpen || !Context->bHasProject
@@ -1345,9 +1399,11 @@ namespace Durin
 			{
 				Context->ProjectBrowser->Draw(
 					BrandTexture, bReadyWorkspace && Context->bProjectBrowserOpen);
+				DrawExitConfirmation(*Context);
 				return;
 			}
 			DrawLoadingState(*Context);
+			DrawExitConfirmation(*Context);
 		});
 		Context.RootWindow->SetContent(EditorRootWidget);
 

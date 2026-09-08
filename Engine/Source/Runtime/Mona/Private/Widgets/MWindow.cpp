@@ -116,6 +116,12 @@ namespace Durin
 		return ChildWindows;
 	}
 
+	auto MWindow::RequestCloseWindow() -> void
+	{
+		if (CloseRequestHandler) CloseRequestHandler();
+		else RequestDestroyWindow();
+	}
+
 	auto MWindow::RequestDestroyWindow() -> void
 	{
 		Mona::FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));

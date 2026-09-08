@@ -16,6 +16,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "MonaImGui.h"
+#include "Widgets/MWindow.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -78,7 +79,11 @@ namespace
 		{
 			++SaveCount;
 			LastSavedResource = Document.ResourceId;
-			if (bAllowSave) CloseResult = Durin::Editor::EDocumentCloseResult::Closed;
+			if (bAllowSave)
+			{
+				CloseResult = Durin::Editor::EDocumentCloseResult::Closed;
+				DirtyDocuments.erase(Document.Id.Value);
+			}
 			return bAllowSave;
 		}
 		auto DiscardDocument(const Durin::Editor::FDocumentTab& Document) -> bool override
@@ -89,9 +94,15 @@ namespace
 			return bAllowDiscard;
 		}
 		auto DrawWorkspace(bool) -> bool override { return false; }
+		auto IsDocumentDirty(const Durin::Editor::FDocumentTab& Document) const -> bool override
+		{
+			return bTrackDirtyDocuments ? DirtyDocuments.contains(Document.Id.Value) : Document.bDirty;
+		}
 		auto ResetLayout() -> void override {}
 
 		int ActivationCount = 0;
+		std::unordered_set<uint64_t> DirtyDocuments;
+		bool bTrackDirtyDocuments = false;
 		int DeactivationRequestCount = 0;
 		int CloseRequestCount = 0;
 		int SaveCount = 0;
@@ -219,6 +230,102 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	Durin::MarkObjectHierarchyAsGarbage(Package);
 	Durin::MarkAsGarbage(Editor);
 	Durin::CollectGarbage();
+}
+
+TEST(FEditorWorkspaceManagerTests, WindowCloseRequestsCanBeDeferredAndRepeated)
+{
+	Durin::MWindow Window;
+	int Requests = 0;
+	Window.SetCloseRequestHandler([&Requests] { ++Requests; });
+	Window.RequestCloseWindow();
+	Window.RequestCloseWindow();
+	EXPECT_EQ(Requests, 2);
+	// No Mona application exists: reaching destruction instead of the handler would fail.
+	Window.SetCloseRequestHandler({});
+}
+
+TEST(FEditorWorkspaceManagerTests, ExitSavesAllDirtyDocumentsWithoutClosingTabs)
+{
+	using namespace Durin::Editor;
+	FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
+	Workspace->bTrackDirtyDocuments = true;
+	auto Registration = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
+	const auto First = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+		.DocumentKey = "first", .Label = "First", .bClosable = false});
+	const auto Second = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+		.DocumentKey = "second", .Label = "Second"});
+	ASSERT_TRUE(First.IsValid());
+	ASSERT_TRUE(Second.IsValid());
+	Workspace->DirtyDocuments = {First.Value, Second.Value};
+	ASSERT_TRUE(Manager.PrepareForExit());
+	EXPECT_TRUE(Manager.GetDocuments().front().bDirty);
+	EXPECT_EQ(Workspace->SaveCount, 0);
+	EXPECT_EQ(Workspace->CloseRequestCount, 0);
+	Workspace->bAllowSave = false;
+	EXPECT_FALSE(Manager.SaveDocumentsForExit());
+	EXPECT_EQ(Manager.GetDocuments().size(), 2);
+	EXPECT_EQ(Workspace->DirtyDocuments.size(), 2);
+	Workspace->bAllowSave = true;
+	EXPECT_TRUE(Manager.SaveDocumentsForExit());
+	EXPECT_TRUE(Workspace->DirtyDocuments.empty());
+	EXPECT_EQ(Manager.GetDocuments().size(), 2);
+	EXPECT_EQ(Manager.GetActiveDocument()->Id, Second);
+	EXPECT_EQ(Workspace->CloseRequestCount, 0);
+}
+
+TEST(FEditorWorkspaceManagerTests, ExitRetainsAllWorkspacesWhenALaterSaveFails)
+{
+	using namespace Durin::Editor;
+	FWorkspaceManager Manager;
+	auto First = std::make_shared<FTestWorkspace>("First");
+	auto Second = std::make_shared<FTestWorkspace>("Second");
+	First->bTrackDirtyDocuments = Second->bTrackDirtyDocuments = true;
+	auto Registration = Manager.RegisterBatch({.Workspaces = {
+		MakeWorkspaceRegistration(First), MakeWorkspaceRegistration(Second)}});
+	const auto FirstId = Manager.OpenDocument({.WorkspaceType = First->GetWorkspaceType(),
+		.DocumentKey = "first", .Label = "First"});
+	const auto SecondId = Manager.OpenDocument({.WorkspaceType = Second->GetWorkspaceType(),
+		.DocumentKey = "second", .Label = "Second"});
+	First->DirtyDocuments.insert(FirstId.Value);
+	Second->DirtyDocuments.insert(SecondId.Value);
+	Second->bAllowSave = false;
+	EXPECT_FALSE(Manager.SaveDocumentsForExit());
+	EXPECT_TRUE(First->DirtyDocuments.empty());
+	EXPECT_FALSE(Second->DirtyDocuments.empty());
+	EXPECT_EQ(Manager.GetDocuments().size(), 2);
+	Second->bAllowSave = true;
+	EXPECT_TRUE(Manager.SaveDocumentsForExit());
+	EXPECT_EQ(First->SaveCount, 1);
+	EXPECT_EQ(Second->SaveCount, 2);
+	EXPECT_EQ(Manager.GetDocuments().size(), 2);
+}
+
+TEST(FEditorWorkspaceManagerTests, ExitVetoesUnsettledPreviewsAndPendingDocuments)
+{
+	using namespace Durin::Editor;
+	FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("ExitTest");
+	auto Registration = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
+	const auto Document = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+		.DocumentKey = "first", .Label = "First"});
+	Workspace->bAllowDeactivation = false;
+	EXPECT_FALSE(Manager.PrepareForExit());
+	EXPECT_FALSE(Manager.SaveDocumentsForExit());
+	Workspace->bAllowDeactivation = true;
+	Workspace->CloseResult = EDocumentCloseResult::PendingConfirmation;
+	ASSERT_EQ(Manager.RequestCloseDocument(Document), EDocumentCloseResult::PendingConfirmation);
+	EXPECT_FALSE(Manager.PrepareForExit());
+	Manager.ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel);
+	EXPECT_TRUE(Manager.PrepareForExit());
+	Workspace->OpenResult = EDocumentOpenResult::Deferred;
+	const auto Deferred = Manager.OpenDocument({.WorkspaceType = Workspace->GetWorkspaceType(),
+		.DocumentKey = "deferred", .Label = "Deferred"});
+	EXPECT_FALSE(Manager.PrepareForExit());
+	Manager.CompleteDeferredDocumentOpen(Deferred, false);
+	EXPECT_TRUE(Manager.PrepareForExit());
+	EXPECT_EQ(Manager.GetDocuments().size(), 1);
+	EXPECT_EQ(Workspace->SaveCount, 0);
 }
 
 TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
