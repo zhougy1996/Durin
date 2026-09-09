@@ -28,7 +28,7 @@ references. Cache eviction selects only entries with no external references.
 Texture assets use the owned update protocol in [Texture System](TextureSystem.md).
 An explicit `UpdateResource()` retries installed immutable input. Availability
 remains true after failed replacement when a prior successful allocation exists;
-temporary uploader release leaves the published allocation intact. Failure
+retiring an old resource cannot unbind its replacement. Failure
 details are logged, while the update retains only its completion state. These
 assets have no render-request generation, and thumbnail readiness is checked separately
 from last-successful fallback availability.

@@ -20,12 +20,15 @@ namespace Durin
 	auto FTexture2DResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
+		// Commands copy upload bytes; the persistent render resource needs no CPU payload afterward.
+		auto Input = std::move(PlatformData);
+		check(Input != nullptr);
 
-		const FTexture2DMipData& BaseMip = PlatformData->Mips.front();
+		const FTexture2DMipData& BaseMip = Input->Mips.front();
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 			"DTexture2D", BaseMip.Width, BaseMip.Height,
-			PlatformData->PixelFormat)
-			.SetNumMips(static_cast<uint8>(PlatformData->Mips.size()))
+			Input->PixelFormat)
+			.SetNumMips(static_cast<uint8>(Input->Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
@@ -44,9 +47,9 @@ namespace Durin
 		}
 
 		for (uint32 MipIndex = 0;
-			MipIndex < PlatformData->Mips.size(); ++MipIndex)
+			MipIndex < Input->Mips.size(); ++MipIndex)
 		{
-			const FTexture2DMipData& Mip = PlatformData->Mips[MipIndex];
+			const FTexture2DMipData& Mip = Input->Mips[MipIndex];
 			const FUpdateTextureRegion2D Region(
 				0, 0, 0, 0, Mip.Width, Mip.Height);
 			GDynamicRHI->RHIUpdateTexture2D(

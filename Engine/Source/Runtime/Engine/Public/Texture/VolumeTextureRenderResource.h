@@ -7,7 +7,7 @@ namespace Durin
 {
 	struct FVolumeTexturePlatformData;
 
-	// Uploads one immutable volume payload and publishes it through a texture reference.
+	// Persistent volume render representation; immutable upload input is consumed by initialization.
 	class FVolumeTextureResource final : public FTextureResource
 	{
 	public:

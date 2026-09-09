@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	// Owns one immutable candidate through initialization, close and terminal transfer.
+	// Owns an active candidate and coalesces one uninitialized successor until terminal handoff.
 	// No command captures the UObject. Mutex serializes publication against Close.
 	class FTextureResourceUpdate final
 	{
@@ -22,10 +22,13 @@ namespace Durin
 		auto GetState() const -> ETextureResourceUpdateState { return State.load(std::memory_order_acquire); }
 		// Only after IsComplete/Wait has acquired the terminal handoff.
 		auto TakeCandidate() -> std::unique_ptr<FTextureResource> { return std::move(Candidate); }
-		auto GetPublishedTexture() const -> FTextureRHIRef { return PublishedTexture; }
+		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;
+		// GameThread only. Replaces queued input without touching the executing candidate.
+		ENGINE_API auto SetSuccessor(std::unique_ptr<FTextureResource> Resource) -> void;
+		ENGINE_API auto TakeSuccessor() -> std::unique_ptr<FTextureResource>;
 	private:
 		std::unique_ptr<FTextureResource> Candidate;
-		FTextureRHIRef PublishedTexture;
+		std::unique_ptr<FTextureResource> Successor;
 		std::mutex Mutex;
 		std::condition_variable CV;
 		bool bClosed = false;

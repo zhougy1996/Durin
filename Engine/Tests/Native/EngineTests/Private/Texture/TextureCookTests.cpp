@@ -44,6 +44,8 @@
 #include "VulkanRHIPrivate.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
+#include "Texture/TextureCubeRenderResource.h"
+#include "Texture/VolumeTextureRenderResource.h"
 
 #include "NativeDObjectTestSupport.h"
 
@@ -567,6 +569,28 @@ namespace
 		Durin::AddToRoot(Texture);
 		InstallUpdateInput(*Texture, std::byte{0x11});
 		ASSERT_TRUE(Texture->HasPlatformData());
+		// All families release their private upload copy while retaining the initialized resource.
+		using FPlatformData = std::remove_cvref_t<decltype(*Texture->GetPlatformData())>;
+		auto UploadInput = std::make_shared<const FPlatformData>(*Texture->GetPlatformData());
+		std::weak_ptr<const FPlatformData> RetainedInput = UploadInput;
+		Durin::FTextureReference UploadReference;
+		std::unique_ptr<Durin::FTextureResource> UploadedResource;
+		if constexpr (std::is_same_v<TTexture, Durin::DTexture2D>)
+			UploadedResource = std::make_unique<Durin::FTexture2DResource>(&UploadReference, UploadInput);
+		else if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
+			UploadedResource = std::make_unique<Durin::FTextureCubeResource>(&UploadReference, UploadInput);
+		else
+			UploadedResource = std::make_unique<Durin::FVolumeTextureResource>(&UploadReference, UploadInput);
+		UploadInput.reset();
+		EXPECT_FALSE(RetainedInput.expired());
+		UploadedResource->BeginInit_GameThread();
+		Durin::FlushRenderingCommands();
+		EXPECT_TRUE(RetainedInput.expired());
+		EXPECT_TRUE(UploadedResource->IsInitialized());
+		EXPECT_NE(UploadedResource->GetTextureRHI_GameThread(), nullptr);
+		UploadedResource->BeginRelease_GameThread();
+		Durin::BeginCleanupRenderResource(Durin::FDeferredRenderResourceCleanup(std::move(UploadedResource)));
+		Durin::FlushRenderingCommands();
 		const auto StableReference = Texture->GetTextureReferenceRHI();
 		Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 		Texture->UpdateResource();

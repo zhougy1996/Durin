@@ -176,8 +176,9 @@ namespace Durin
 		RENDERCORE_API auto GetTextureRHI_RenderThread() const
 			-> const FTextureRHIRef&;
 		RENDERCORE_API auto PublishTexture_RenderThread() -> void;
-		// Transfers publication ownership to the stable reference; releasing this uploader leaves its target intact.
-		RENDERCORE_API auto TransferTexture_RenderThread() -> void;
+		// GameThread only, after acquiring completed initialization and before enqueueing release.
+		// The owner must keep this allocation immutable throughout that interval.
+		RENDERCORE_API auto GetTextureRHI_GameThread() const -> FTextureRHIRef;
 
 	protected:
 		RENDERCORE_API auto SetTextureRHI_RenderThread(

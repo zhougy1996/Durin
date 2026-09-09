@@ -21,15 +21,18 @@ namespace Durin
 	auto FTextureCubeResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
+		// Commands copy upload bytes; the persistent render resource needs no CPU payload afterward.
+		auto Input = std::move(PlatformData);
+		check(Input != nullptr);
 
 		const FTexture2DMipData& BaseMip =
-			PlatformData->Faces[0].Mips.front();
+			Input->Faces[0].Mips.front();
 		FRHITextureCreateDesc Desc =
 			FRHITextureCreateDesc::CreateCube("DTextureCube")
 				.SetExtent(BaseMip.Width, BaseMip.Height)
-				.SetFormat(PlatformData->PixelFormat)
+				.SetFormat(Input->PixelFormat)
 				.SetNumMips(static_cast<uint8>(
-					PlatformData->Faces[0].Mips.size()))
+					Input->Faces[0].Mips.size()))
 				.SetFlags(ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::CPUReadback);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
@@ -52,11 +55,11 @@ namespace Durin
 			FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			for (uint32 MipIndex = 0;
-				MipIndex < PlatformData->Faces[FaceIndex].Mips.size();
+				MipIndex < Input->Faces[FaceIndex].Mips.size();
 				++MipIndex)
 			{
 				const FTexture2DMipData& Mip =
-					PlatformData->Faces[FaceIndex].Mips[MipIndex];
+					Input->Faces[FaceIndex].Mips[MipIndex];
 				const FUpdateTextureRegion2D Region(
 					0, 0, 0, 0, Mip.Width, Mip.Height);
 				GDynamicRHI->RHIUpdateTexture2D(

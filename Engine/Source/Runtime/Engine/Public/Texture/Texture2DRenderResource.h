@@ -8,7 +8,7 @@ namespace Durin
 {
 	struct FTexturePlatformData;
 
-	// Initializes one immutable Texture2D input; the update transfers publication to the stable reference.
+	// Persistent Texture2D render representation; immutable upload input is consumed by initialization.
 	class FTexture2DResource final : public FTextureResource
 	{
 	public:

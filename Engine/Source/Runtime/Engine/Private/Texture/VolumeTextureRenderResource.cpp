@@ -21,12 +21,15 @@ namespace Durin
 	auto FVolumeTextureResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
-		const FVolumeTextureMipData& BaseMip = PlatformData->Mips.front();
+		// Commands copy upload bytes; the persistent render resource needs no CPU payload afterward.
+		auto Input = std::move(PlatformData);
+		check(Input != nullptr);
+		const FVolumeTextureMipData& BaseMip = Input->Mips.front();
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create3D("DVolumeTexture")
 			.SetExtent(BaseMip.Width, BaseMip.Height)
 			.SetDepth(static_cast<uint16>(BaseMip.Depth))
-			.SetFormat(PlatformData->PixelFormat)
-			.SetNumMips(static_cast<uint8>(PlatformData->Mips.size()))
+			.SetFormat(Input->PixelFormat)
+			.SetNumMips(static_cast<uint8>(Input->Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
@@ -40,9 +43,9 @@ namespace Durin
 			DURIN_WARN("VolumeTexture GPU texture allocation failed.");
 			return;
 		}
-		for (uint32 MipIndex = 0; MipIndex < PlatformData->Mips.size(); ++MipIndex)
+		for (uint32 MipIndex = 0; MipIndex < Input->Mips.size(); ++MipIndex)
 		{
-			const FVolumeTextureMipData& Mip = PlatformData->Mips[MipIndex];
+			const FVolumeTextureMipData& Mip = Input->Mips[MipIndex];
 			const FUpdateTextureRegion3D Region(0, 0, 0, 0, 0, 0,
 				Mip.Width, Mip.Height, Mip.Depth);
 			GDynamicRHI->RHIUpdateTexture3D(CommandList, NewTexture, MipIndex,

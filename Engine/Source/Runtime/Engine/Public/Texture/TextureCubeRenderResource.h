@@ -8,7 +8,7 @@ namespace Durin
 {
 	struct FTextureCubePlatformData;
 
-	// Initializes one immutable cube input; the update transfers publication to the stable reference.
+	// Persistent cube render representation; immutable upload input is consumed by initialization.
 	class FTextureCubeResource final : public FTextureResource
 	{
 	public:

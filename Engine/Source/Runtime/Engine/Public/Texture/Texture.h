@@ -16,7 +16,7 @@ namespace Durin
 {
 	class FTextureResource;
 	class FTextureReference;
-	struct FTextureResourceState;
+	class FTextureResourceUpdate;
 	class DTexture;
 
 	// Progress of CPU initialization/publication, independent of usable fallback.
@@ -109,7 +109,13 @@ namespace Durin
 		auto ConsumeResourceUpdate() -> void;
 		friend ENGINE_API auto PumpTextureResourceUpdates() -> void;
 
-		std::unique_ptr<FTextureResourceState> ResourceState;
+		// The asset owns its render representation and the stable identity used by consumers.
+		std::unique_ptr<FTextureReference> TextureReference;
+		std::unique_ptr<FTextureResource> RenderResource;
+		std::shared_ptr<FTextureResourceUpdate> PendingUpdate;
+		ETextureResourceUpdateState LastUpdateState = ETextureResourceUpdateState::Idle;
+		bool bTextureReferenceInitializationQueued = false;
+		bool bAcceptingRenderResourceBuilds = true;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

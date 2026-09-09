@@ -263,16 +263,21 @@ and resource-construction hook. The base retains the sole reflected source and
   or duplicate family storage fields. Authored saves emit only the canonical base
   identities.
 
-`DTexture` owns one private resource state containing the stable
-`FTextureReference`, the GameThread's last consumed allocation, and at most one
-executing `FTextureResourceUpdate` plus one retained successor. Concrete
-`FTexture2DResource`, `FTextureCubeResource`, and `FVolumeTextureResource` inherit
-`FTextureResource` directly and exist only for initialization and upload.
-The operation owns its candidate and immutable family platform-data copy.
-During execution, another `UpdateResource()` replaces the retained uninitialized
-successor. Only the latest retained input starts after the active result is
-consumed. An already admitted operation may publish before its successor; no
-request revision or token comparison suppresses it.
+`DTexture` directly owns the current `FTextureResource`, a stable
+`FTextureReference`, and at most one executing `FTextureResourceUpdate`.
+Concrete `FTexture2DResource`, `FTextureCubeResource`, and
+`FVolumeTextureResource` inherit `FTextureResource` directly and remain the
+asset's rendering representation until replacement or teardown. Initialization
+consumes their immutable CPU upload input, releasing that copy even when
+initialization fails; the persistent resource retains only its RHI allocation.
+An explicit retry constructs a new candidate from installed asset platform data.
+
+The update operation owns its candidate and coalesces one uninitialized
+successor. During execution, another `UpdateResource()` replaces that successor.
+Only the latest retained input starts after the active result is consumed.
+An already admitted operation may publish before its successor; no request
+revision or token comparison suppresses it. Closing the operation discards its
+successor without initializing it.
 
 RenderThread initializes the candidate and records every mip upload before
 publication. `FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy upload
@@ -285,17 +290,18 @@ failure into a recoverable per-texture result.
 Publication switches the stable reference through
 `FDynamicRHI::RHIUpdateTextureReference()`. Material and scene bindings retain
 counted copies of this stable identity and observe replacements without
-reacquiring the asset. `TransferTexture_RenderThread()` detaches the temporary
-uploader from publication ownership: its later release drops only its own
-allocation reference and cannot reset the stable target. The stable reference
-owns the published allocation until replacement or asset teardown.
+reacquiring the asset. The operation owns the published candidate until
+GameThread acquires its terminal handoff. Successful consumption installs the
+candidate as the asset's current resource and retires the previous resource;
+failure retires only the candidate and preserves the last successful resource.
+Delayed release resets the stable target only when it still matches the released
+allocation, so retiring an old resource cannot unbind its replacement.
 
-GameThread consumes the completed operation's counted allocation and queues
-release/deferred C++ cleanup of the candidate on both success and failure.
-It never retains a completed concrete resource or its CPU upload input.
-Failed replacement leaves the last successful allocation usable. The separate
-GameThread allocation reference is the synchronized terminal handoff, avoiding
-reads of the stable reference target while RenderThread replaces it.
+There is no extra GameThread allocation cache. The current resource's allocation
+remains immutable from acquired initialization until queued release. Within
+that interval the owning GameThread can capture a counted allocation through
+`GetTextureRHI_GameThread()` without reading the stable reference's mutable
+RenderThread target. New updates always use a separate candidate.
 
 `PumpTextureResourceUpdates()` runs in `FEngineLoop::TickPostEventFrame` before
 UI and outside the rendering/minimized branch. It consumes terminal operations
@@ -320,7 +326,7 @@ support check precedes allocation; see
 Ordinary replacement is asynchronous. `BeginDestroy` stops admission, removes
 pump membership, discards the retained successor, and closes the active operation
 under the same mutex used for publication. It joins accepted CPU initialization,
-then queues release and deferred cleanup of candidates before the stable
+then queues release and deferred cleanup of candidates/current before the stable
 reference. No publication can occur after that close boundary. Accepted commands
 retain operation storage without capturing a UObject. Reference and candidate
 initialization share one checked command admission; a rejected command leaves
@@ -329,7 +335,7 @@ stops accepting required cleanup commands.
 
 `GetPublishedTexture()` is a GameThread-only capture of the last consumed
 successful `FTextureRHIRef`. It retains a concrete allocation, not a UObject or
-C++ uploader, and does not follow later replacements. RHI operations still run
+C++ resource, and does not follow later replacements. RHI operations still run
 on their owning rendering thread. Ordinary long-lived bindings continue to use
 `GetTextureReferenceRHI()` instead.
 

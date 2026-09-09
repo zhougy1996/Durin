@@ -424,9 +424,31 @@ TEST_F(FTextureResourceUpdateTests, FailedReplacementRetainsAllocationAndLateRel
 	EXPECT_EQ(OldEvents.Released, 1);
 	EXPECT_EQ(OldEvents.Destroyed, 1);
 	Retire(New);
-	EXPECT_EQ(Resolve(Reference), NewSnapshot.GetReference());
+	EXPECT_EQ(Resolve(Reference), nullptr);
 	EXPECT_EQ(NewEvents.Destroyed, 1);
 	EXPECT_EQ(Durin::GetNumInitializedRenderResources(), 1u);
+	Reference.BeginRelease_GameThread();
+	Durin::FlushRenderingCommands();
+}
+
+TEST_F(FTextureResourceUpdateTests, SupersededAndClosedSuccessorsNeverInitialize)
+{
+	Durin::FTextureReference Reference;
+	FUpdateResourceObservations ActiveEvents, SupersededEvents, LatestEvents;
+	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(
+		std::make_unique<FUpdateTestResource>(Reference, ActiveEvents));
+	Update->SetSuccessor(std::make_unique<FUpdateTestResource>(Reference, SupersededEvents));
+	Update->SetSuccessor(std::make_unique<FUpdateTestResource>(Reference, LatestEvents));
+	EXPECT_EQ(SupersededEvents.Destroyed, 1);
+	EXPECT_EQ(SupersededEvents.Initialized, 0);
+	Update->Close();
+	EXPECT_EQ(LatestEvents.Destroyed, 1);
+	EXPECT_EQ(LatestEvents.Initialized, 0);
+	Start(Update, Reference, true);
+	Update->Wait();
+	EXPECT_EQ(Update->TakeSuccessor(), nullptr);
+	Retire(Update);
+	EXPECT_EQ(ActiveEvents.Initialized, 0);
 	Reference.BeginRelease_GameThread();
 	Durin::FlushRenderingCommands();
 }

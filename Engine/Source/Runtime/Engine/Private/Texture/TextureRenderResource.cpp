@@ -12,6 +12,7 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		State.store(ETextureResourceUpdateState::Building, std::memory_order_release);
+		bool bPublished = false;
 		try
 		{
 			// Accepted reference initialization must run even after close.
@@ -29,8 +30,8 @@ namespace Durin
 					std::lock_guard Lock(Mutex);
 					if (!bClosed)
 					{
-						Candidate->TransferTexture_RenderThread();
-						PublishedTexture = Candidate->GetTextureRHI_RenderThread();
+						Candidate->PublishTexture_RenderThread();
+						bPublished = true;
 					}
 				}
 			}
@@ -43,11 +44,33 @@ namespace Durin
 		{
 			std::lock_guard Lock(Mutex);
 			State.store(bClosed ? ETextureResourceUpdateState::Closed
-				: PublishedTexture ? ETextureResourceUpdateState::Succeeded
+				: bPublished ? ETextureResourceUpdateState::Succeeded
 				: ETextureResourceUpdateState::Failed, std::memory_order_release);
 			bComplete.store(true, std::memory_order_release);
 		}
 		CV.notify_all();
+	}
+
+	auto FTextureResourceUpdate::GetPublishedTexture() const -> FTextureRHIRef
+	{
+		CheckGameThread();
+		check(IsComplete());
+		return GetState() == ETextureResourceUpdateState::Succeeded && Candidate
+			? Candidate->GetTextureRHI_GameThread() : FTextureRHIRef{};
+	}
+
+	auto FTextureResourceUpdate::SetSuccessor(std::unique_ptr<FTextureResource> Resource) -> void
+	{
+		CheckGameThread();
+		check(!bClosed);
+		Successor = std::move(Resource);
+	}
+
+	auto FTextureResourceUpdate::TakeSuccessor() -> std::unique_ptr<FTextureResource>
+	{
+		CheckGameThread();
+		check(IsComplete());
+		return std::move(Successor);
 	}
 
 	auto FTextureResourceUpdate::Reject() -> void
@@ -60,6 +83,8 @@ namespace Durin
 
 	auto FTextureResourceUpdate::Close() -> void
 	{
+		CheckGameThread();
+		Successor.reset();
 		std::lock_guard Lock(Mutex);
 		bClosed = true;
 	}
