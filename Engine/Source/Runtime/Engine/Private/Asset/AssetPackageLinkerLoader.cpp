@@ -1183,6 +1183,10 @@ namespace Durin::AssetPrivate
 							ExternalPins.emplace_back(Child);
 				}
 			}
+			// Explicit external loads have finished. Constructors, serializers and
+			// migration callbacks must now use only the admitted bindings. A callback
+			// that ignores a rejected live operation still invalidates the batch.
+			FAssetLiveLoadGuard LiveLoadGuard(true);
 			auto LoadOptions = [&](size_t PackageIndex) {
 				FLinkerLoadOptions Result;
 				Result.ShouldFail = [&, PackageIndex](ELinkerLoadPhase Phase, uint64 ObjectIndex) {
@@ -1264,12 +1268,18 @@ namespace Durin::AssetPrivate
 				if (FindPackage(Path.GetView()) != Package)
 					return {S::Stale, Path, "Admitted dependency identity changed during preparation."};
 			}
+			if (auto Result = LiveLoadGuard.GetFailure(); !Result)
+				return {S::Unsupported, CurrentPath, Result.Message};
 			Out = std::move(Candidates);
 			return {};
 		}
 		catch (const std::bad_alloc&)
 		{
 			return {S::BudgetExceeded, CurrentPath, "Allocation failed during package graph preparation."};
+		}
+		catch (...)
+		{
+			return {S::InvalidClosure, CurrentPath, "A callback threw during package graph preparation."};
 		}
 	}
 

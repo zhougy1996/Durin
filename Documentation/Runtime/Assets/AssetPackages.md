@@ -332,6 +332,11 @@ an explicitly supplied, caller-owned `FAssetPackageLoadScope`; without it the ca
 fails without loading. Scoped loading requires resident replacement targets so a
 recursive dependency load cannot publish one of those targets. The caller admits
 ordinary external loading and PostLoad separately from candidate deserialization.
+After these explicit loads finish, a live-operation guard covers candidate
+construction, field/ledger restoration and final validation. Implicit live loads,
+saves, unloads and mutation entry points reject the call; even an ignored rejection
+invalidates the entire batch. Callback exceptions return InvalidClosure (allocation
+failures return BudgetExceeded) after candidate ownership unwinds.
 Graph owners retain exact strong references to their objects and external dependencies
 across GC. Active load transactions and projection fences return Busy; preparation
 rechecks fences after disk validation and never clears a fence.

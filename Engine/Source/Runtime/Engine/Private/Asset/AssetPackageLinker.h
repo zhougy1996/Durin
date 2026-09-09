@@ -86,6 +86,8 @@ namespace Durin::AssetPrivate
 	// external dependencies are pinned by exact identity. Missing dependencies require
 	// an explicit caller-owned load scope; this seam never releases that scope.
 	// Projection fences and active loads fail Busy; other reload admission is caller-owned.
+	// After explicit dependency loads, callbacks cannot load/save/unload live assets.
+	// Ignored guard rejections fail the batch; callback exceptions become InvalidClosure.
 	// Object limits include package/default-inner objects; byte budgets are caller-owned.
 	ENGINE_API auto PreparePackageGraphs(std::span<const FPackageGraphSource> Sources,
 		const FPackageGraphPrepareOptions& Options, std::vector<FPreparedPackageGraph>& Out)

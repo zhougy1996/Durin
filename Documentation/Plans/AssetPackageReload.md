@@ -2,7 +2,7 @@
 
 Summary: Add transactional package reload and live reference replacement, then route editor discard through saved-content restoration.
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 Status: Active
 Completed:
@@ -32,6 +32,13 @@ exceptions, and nested-failure bulk cleanup. Projection-fence and active-load
 rejections are also connected. Full request-level admission, coordinated automatic
 cleanup, complete budgeting, and resource preparation remain to be integrated;
 Stage 2 is not complete, and production Discard behavior has not changed.
+
+Candidate deserialization now guards live load/save/unload and mutation entry
+points after explicit dependency admission. Ignoring a rejection cannot produce a
+successful candidate batch, and callback exceptions unwind candidates into a
+structured failure. A CPU composition regression verifies that saved batch graphs
+can pass through CoreDObject replacement, rebind outside references and survive
+release of preparation owners. This does not qualify runtime-resource publication.
 
 The audit confirmed that existing linker skeletons immediately enter the DPackage
 registry and GDObjectArray, so they cannot directly serve as isolated graphs at
@@ -431,6 +438,27 @@ Completion condition: a complete saved-version candidate graph can be produced.
 Any preparation failure leaves the current package, registration, disk, and other
 packages' dirty states unchanged. A multi-package preparation failure aborts the
 entire batch.
+
+#### Stage 2 progress: guarded callbacks and replacement composition
+
+Candidate constructors, field restoration, ledger restoration and final validation
+now run behind the existing live-operation guard, after explicit external loading.
+Ignored load/save/unload rejections invalidate the batch. Throwing callbacks return
+InvalidClosure and preserve previous outputs; bad allocation remains BudgetExceeded.
+Tests cover second-package failures at every skeleton/value/ledger seam, including
+a real throwing constructor with an already constructed default inner.
+
+A saved-file CPU composition regression passes prepared two-package cycles to
+CoreDObject replacement, checks outside-reference rebinding without dirtying the
+referencer, releases graph owners, retires old handles, and saves the restored
+content. It does not run PostLoad or publish runtime resources.
+
+Both focused regressions passed. All 82 Windows Debug affected targets passed;
+receipt: `Build/.agent-state/logs/20260909-183019-752057-22632-ctest.log`.
+The first affected build failed with TextureEditor's LNK1103 corrupt object debug
+information; deleting only the named generated object and rerunning the same
+command resolved it. Documentation and plan validation and `git diff --check`
+passed. Stage 2's two remaining tasks are still open.
 
 #### Stage 2 progress: owned external dependencies
 

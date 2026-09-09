@@ -2380,6 +2380,79 @@ TEST(FPackageAssetTests, PreparedGraphsRestoreSavedBatchCyclesAndContainersWitho
 	for (const auto& Source : Sources) ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
 }
 
+TEST(FPackageAssetTests, PreparedSavedGraphsTransferToReplacementAndSurviveOwnerRelease)
+{
+	using namespace Durin;
+	using namespace Durin::AssetPrivate;
+	InitializeAssetTests();
+	std::array<FPackageGraphSource, 2> Sources;
+	std::array<DPackageAssetForTest*, 2> Live{};
+	std::array<TWeakObjectPtr<DObject>, 2> OldHandles;
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(FPackagePath::TryCreate(std::format("/TestAssets/PreparedCommit{}", Index), Sources[Index].PackagePath));
+		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Sources[Index].PackagePath, Live[Index]));
+		Live[Index]->Value = static_cast<int32>(31 + Index);
+		OldHandles[Index] = Live[Index];
+	}
+	Live[0]->ExternalReference = Live[1];
+	Live[1]->ExternalReference = Live[0]->DefaultChild;
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		ASSERT_TRUE(SavePackage(Live[Index]->GetPackage()));
+		const auto File = Testing::GetTestWorkDirectory() / "Assets" / std::format("PreparedCommit{}.dasset", Index);
+		ASSERT_TRUE(FPreparedPackageResource::Read(Sources[Index].PackagePath, File, 1024 * 1024, Sources[Index].Storage));
+		Live[Index]->Value = 99;
+		Live[Index]->GetPackage()->MarkDirty();
+	}
+	FPackagePath ObserverPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/PreparedCommitObserver", ObserverPath));
+	DPackageAssetForTest* Observer = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(ObserverPath, Observer));
+	Observer->ExternalReference = Live[0];
+	ASSERT_TRUE(SavePackage(Observer->GetPackage()));
+	const auto ObserverRevision = Observer->GetPackage()->GetEditRevision();
+	FPackageGraphPrepareOptions Options;
+	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	std::vector<FPreparedPackageGraph> Graphs;
+	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
+	std::array<FObjectReplacementPackagePair, 2> Pairs;
+	std::array<DPackageAssetForTest*, 2> Restored{};
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		Pairs[Index] = {Live[Index]->GetPackage(), Graphs[Index].GetPackage()};
+		Restored[Index] = static_cast<DPackageAssetForTest*>(Pairs[Index].Prepared->FindTopLevelAsset(Live[Index]->GetFName()));
+	}
+	FObjectGraphReplacement Replacement;
+	const auto Prepared = Replacement.Prepare(Pairs);
+	ASSERT_TRUE(Prepared) << Prepared.Message;
+	const auto Committed = Replacement.TryCommit();
+	ASSERT_TRUE(Committed) << Committed.Message;
+	Graphs.clear();
+	EXPECT_TRUE(Replacement.Retire());
+	CollectGarbage();
+	for (size_t Index = 0; Index < Sources.size(); ++Index)
+	{
+		EXPECT_FALSE(OldHandles[Index].IsValid());
+		EXPECT_EQ(FindResidentPackage(Sources[Index].PackagePath), Restored[Index]->GetPackage());
+		EXPECT_EQ(Restored[Index]->Value, static_cast<int32>(31 + Index));
+		EXPECT_FALSE(Restored[Index]->GetPackage()->IsDirty());
+		EXPECT_TRUE(Sources[Index].Storage.Revalidate());
+		ASSERT_TRUE(SavePackage(Restored[Index]->GetPackage()));
+	}
+	EXPECT_EQ(Observer->ExternalReference.Get(), Restored[0]);
+	EXPECT_FALSE(Observer->GetPackage()->IsDirty());
+	EXPECT_EQ(Observer->GetPackage()->GetEditRevision(), ObserverRevision);
+	EXPECT_EQ(Restored[0]->ExternalReference.Get(), Restored[1]);
+	EXPECT_EQ(Restored[1]->ExternalReference.Get(), Restored[0]->DefaultChild.Get());
+	Observer->ExternalReference = nullptr;
+	ASSERT_TRUE(SavePackage(Observer->GetPackage()));
+	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(ObserverPath));
+	for (auto* Asset : Restored) Asset->ExternalReference = nullptr;
+	for (auto* Asset : Restored) ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	for (const auto& Source : Sources) ASSERT_TRUE(Testing::RemoveAssetPackageForTests(Source.PackagePath));
+}
+
 TEST(FPackageAssetTests, PreparedGraphsRejectWholeBatchAndPreserveExistingOutput)
 {
 	using namespace Durin;
@@ -2425,10 +2498,52 @@ TEST(FPackageAssetTests, PreparedGraphsRejectWholeBatchAndPreserveExistingOutput
 		CheckUnchanged();
 	}
 	Options.ShouldFail = {};
+	// Ignoring a forbidden operation inside a candidate callback must not turn
+	// the batch into a success or alter the disk/live package through that call.
+	for (const auto Phase : {ELinkerLoadPhase::CreateSkeleton, ELinkerLoadPhase::ApplyValues, ELinkerLoadPhase::RestoreLedger})
+	{
+		bool bAttempted = false;
+		Options.ShouldFail = [&](uint64 PackageIndex, ELinkerLoadPhase Current, uint64) {
+			if (!bAttempted && PackageIndex == 1 && Current == Phase)
+			{
+				bAttempted = true;
+				DPackage* Loaded = nullptr;
+				EXPECT_EQ(LoadPackage(Sources[0].PackagePath, Loaded).Error, EAssetError::InUse);
+				EXPECT_EQ(Loaded, nullptr);
+				EXPECT_EQ(SavePackage(Live[0]->GetPackage()).Error, EAssetError::InUse);
+				EXPECT_EQ(UnloadPackage(Sources[0].PackagePath).Error, EAssetError::InUse);
+			}
+			return false;
+		};
+		EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::Unsupported);
+		EXPECT_TRUE(bAttempted);
+		CheckUnchanged();
+		for (const auto& Source : Sources) EXPECT_TRUE(Source.Storage.Revalidate());
+	}
+	Options.ShouldFail = {};
 	Options.AdmittedClasses = {DObject::StaticClass()};
 	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::Unsupported);
 	CheckUnchanged();
 	Options.AdmittedClasses.push_back(DPackageAssetForTest::StaticClass());
+	for (const auto Phase : {ELinkerLoadPhase::CreateSkeleton, ELinkerLoadPhase::ApplyValues, ELinkerLoadPhase::RestoreLedger})
+	{
+		Options.ShouldFail = [Phase](uint64 PackageIndex, ELinkerLoadPhase Current, uint64) -> bool {
+			if (PackageIndex == 1 && Current == Phase) throw std::runtime_error("Injected preparation callback failure");
+			return false;
+		};
+		EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::InvalidClosure);
+		CheckUnchanged();
+	}
+	Options.ShouldFail = {};
+	uint64 ConstructorCalls = 0;
+	GPackageConstructorLoadProbe = [&] {
+		if (++ConstructorCalls == 2) throw std::runtime_error("Injected second-package constructor failure");
+	};
+	const auto ConstructorResult = PreparePackageGraphs(Sources, Options, Graphs);
+	GPackageConstructorLoadProbe = {};
+	EXPECT_EQ(ConstructorResult.Status, S::InvalidClosure);
+	EXPECT_EQ(ConstructorCalls, 2u);
+	CheckUnchanged();
 	Options.MaximumObjects = 5;
 	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::BudgetExceeded);
 	CheckUnchanged();
