@@ -355,6 +355,39 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 	EXPECT_EQ(Durin::Editor::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
 }
 
+TEST(FReflectedPropertyViewTests, ArrayIndexEnumFiltersGenericArraysAndFallsBackForUnknownEnums)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	DClass TestClass(EC_StaticConstructor, FName("FEnumIndexedArrayViewTestObject"),
+		sizeof(DObject), alignof(DObject), EObjectFlags::Transient,
+		EClassFlags::Native, EClassCastFlags::DClass, nullptr);
+	FNumericProperty Property(FFieldVariant(&TestClass), FName("Values"), EObjectFlags::Transient,
+		EPropertyFlags::Edit, 8, 0, sizeof(float), DurinCodeGen::EPropertyGenFlags::Float, nullptr);
+	TestClass.ChildProperties = &Property;
+	DObject Object(&TestClass, nullptr, FName("Object"));
+	Editor::FPropertyView View;
+	auto CollectIndices = [&]() {
+		std::vector<uint32> Indices;
+		View.EditObject({}, &Object, {
+			.SearchText = "not present",
+			.Filter = [&](const FProperty&, uint32 Index) {
+				Indices.push_back(Index);
+				return true;
+			},
+			.bCreatePropertyTable = false,
+			.bShowEmptyMessage = false,
+		});
+		return Indices;
+	};
+	Property.SetMetaData(FName("ArrayIndexEnum"), "Durin::ECollisionResponse");
+	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2}));
+	EXPECT_EQ(Editor::MakePropertyLabel(Property, 1), "Overlap");
+	Property.SetMetaData(FName("ArrayIndexEnum"), "Missing::Enum");
+	EXPECT_EQ(CollectIndices(), (std::vector<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));
+	EXPECT_EQ(Editor::MakePropertyLabel(Property, 1), "Values[1]");
+}
+
 TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProperties)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
@@ -403,13 +436,28 @@ TEST(FReflectedPropertyViewTests, CategoriesCollapseAndSearchExpandsMatchingProp
 	ImGui::DestroyContext(ImContext);
 }
 
-TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
+TEST(FReflectedPropertyViewTests, CollisionResponsesCollapseAndRenderNamedChannels)
 {
 	InitializeDObjectSystem();
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "StructPropertyView");
 	ASSERT_NE(Component, nullptr);
 	Durin::FProperty* BodyInstance = Component->GetClass()->FindPropertyByName("BodyInstance");
 	ASSERT_NE(BodyInstance, nullptr);
+	auto* BodyStruct = static_cast<Durin::FStructProperty*>(BodyInstance)->GetStruct();
+	auto* Responses = BodyStruct->FindPropertyByName("Responses");
+	ASSERT_NE(Responses, nullptr);
+	auto* ResponseStruct = static_cast<Durin::FStructProperty*>(Responses)->GetStruct();
+	auto* Channels = ResponseStruct->FindPropertyByName("Responses");
+	ASSERT_NE(Channels, nullptr);
+	EXPECT_EQ(Channels->GetArrayDim(), 32u);
+	EXPECT_EQ(Responses->GetMetaData(Durin::FName("DefaultCollapsed")), "true");
+	EXPECT_EQ(Channels->GetMetaData(Durin::FName("ArrayIndexEnum")), "Durin::ECollisionChannel");
+	const char* Labels[] = {"World Static", "World Dynamic", "Pawn", "Visibility", "Camera"};
+	for (uint32 Index = 0; Index < 5; ++Index)
+		EXPECT_EQ(Durin::Editor::MakePropertyLabel(*Channels, Index), Labels[Index]);
+	const auto* ResponseEnum = static_cast<Durin::FEnumProperty*>(Channels)->GetEnum();
+	ASSERT_NE(ResponseEnum, nullptr);
+	EXPECT_EQ(ResponseEnum->GetValues().size(), 3u);
 
 	ImGuiContext* ImContext = ImGui::CreateContext();
 	ASSERT_NE(ImContext, nullptr);
@@ -419,21 +467,35 @@ TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
 	IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
-	ImGui::NewFrame();
-	ImGui::SetNextWindowSize({600.0f, 400.0f}, ImGuiCond_Always);
-	ImGui::Begin("Struct Property View Test");
-	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("StructPropertyRows");
-	if (bTableOpen)
-	{
-		Durin::Editor::FPropertyView PropertyView;
-		EXPECT_FALSE(PropertyView.EditProperty({}, Component, BodyInstance));
-		EXPECT_EQ(ImGui::TableGetRowIndex(), 3);
-		Durin::MonaImGui::PropertyEdit::EndTable();
-	}
-	ImGui::End();
-	ImGui::Render();
+	auto DrawFrame = [&](bool bExpandResponses) {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowSize({600.0f, 400.0f}, ImGuiCond_Always);
+		ImGui::Begin("Struct Property View Test");
+		const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("StructPropertyRows");
+		if (bTableOpen)
+		{
+			if (bExpandResponses)
+			{
+				ImGui::PushID(BodyInstance);
+				ImGui::PushID(0);
+				ImGui::PushID("##Struct");
+				ImGui::PushID(Responses);
+				ImGui::PushID(0);
+				ImGui::GetStateStorage()->SetInt(ImGui::GetID("##Struct"), 1);
+				for (int Index = 0; Index < 5; ++Index) ImGui::PopID();
+			}
+			Durin::Editor::FPropertyView PropertyView;
+			EXPECT_FALSE(PropertyView.EditProperty({}, Component, BodyInstance));
+			EXPECT_EQ(ImGui::TableGetRowIndex(), bExpandResponses ? 9 : 4);
+			Durin::MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::End();
+		ImGui::Render();
+		EXPECT_TRUE(bTableOpen);
+	};
+	DrawFrame(false);
+	DrawFrame(true);
 	ImGui::DestroyContext(ImContext);
-	EXPECT_TRUE(bTableOpen);
 
 	Durin::MarkObjectHierarchyAsGarbage(Component);
 	Durin::CollectGarbage();

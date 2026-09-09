@@ -160,6 +160,12 @@ serialization, including Custom settings. Struct post-deserialization resolves
 named presets before runtime publication and rejects unknown names. Setters and
 editor callbacks use the same side-effect-free profile resolver.
 
+The editor collapses `FBodyInstance::Responses` by default. The response array
+declares `ArrayIndexEnum=Durin::ECollisionChannel` metadata, so the generic property
+view displays only named channel indices, with an Ignore/Overlap/Block enum
+selector for each channel. All 32 response slots remain reflected and serialized;
+the index metadata changes presentation only.
+
 Historical `ProfileName` fields load through `ProfileName_DEPRECATED` and migrate
 to `CollisionProfileName`; named profiles restore their complete filter data.
 Old Custom responses that were never stored cannot be recovered and retain the

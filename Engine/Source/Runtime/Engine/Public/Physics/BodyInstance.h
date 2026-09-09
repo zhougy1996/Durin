@@ -19,7 +19,7 @@ namespace Durin
 		DPROPERTY(Edit)
 		ECollisionChannel ObjectChannel = ECollisionChannel::WorldDynamic;
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, MetaData="DefaultCollapsed")
 		FCollisionResponseContainer Responses;
 
 		DPROPERTY(Edit)

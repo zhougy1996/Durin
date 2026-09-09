@@ -23,6 +23,21 @@ namespace Durin::Editor
 	{
 		using StringUtils::ContainsInsensitive;
 
+		// ArrayIndexEnum maps numeric enum values to storage indices; unknown metadata
+		// falls back to ordinary array editing so a typo cannot hide authored data.
+		auto GetArrayIndexEnum(const FProperty& Property) -> DEnum*
+		{
+			if (Property.GetArrayDim() <= 1) return nullptr;
+			const std::string_view EnumName = Property.GetMetaData(FName("ArrayIndexEnum"));
+			return EnumName.empty() ? nullptr : FindEnumByQualifiedName(FName(EnumName));
+		}
+
+		auto IsVisibleArrayIndex(const FProperty& Property, uint32 ArrayIndex) -> bool
+		{
+			const DEnum* Enum = GetArrayIndexEnum(Property);
+			return !Enum || Enum->FindValueRecordByValue(ArrayIndex) != nullptr;
+		}
+
 		struct FEditableMapEntry
 		{
 			const void* Key = nullptr;
@@ -422,6 +437,7 @@ namespace Durin::Editor
 			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
+				if (!IsVisibleArrayIndex(*Property, ArrayIndex)) continue;
 				if (Options.Filter && !Options.Filter(*Property, ArrayIndex)) continue;
 				if (!ContainsInsensitive(MakePropertySearchText(*Property, ArrayIndex), Options.SearchText)) continue;
 				VisibleProperties.push_back({Property, ArrayIndex});
@@ -484,6 +500,7 @@ namespace Durin::Editor
 	) -> bool
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return false;
+		if (!IsVisibleArrayIndex(*Property, ArrayIndex)) return false;
 		std::string Label = Options.Label;
 		if (Label.empty()) Label = MakePropertyLabel(*Property, ArrayIndex);
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
@@ -657,6 +674,7 @@ namespace Durin::Editor
 		{
 			for (uint32 FieldArrayIndex = 0; FieldArrayIndex < Field->GetArrayDim(); ++FieldArrayIndex)
 			{
+				if (!IsVisibleArrayIndex(*Field, FieldArrayIndex)) continue;
 				ImGui::PushID(Field);
 				ImGui::PushID(static_cast<int>(FieldArrayIndex));
 				const FPropertyEditTarget FieldTarget = EditTarget.ForStructMember(Field, FieldArrayIndex);
@@ -1506,6 +1524,12 @@ namespace Durin::Editor
 
 	auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
 	{
+		if (const DEnum* Enum = GetArrayIndexEnum(Property))
+		{
+			if (const FEnumValue* Value = Enum->FindValueRecordByValue(ArrayIndex))
+				return Value->DisplayName.empty()
+					? StringUtils::HumanizeName(Value->Name.ToString()) : Value->DisplayName;
+		}
 		const FPropertyMetadata& Metadata = Property.GetTypedMetadata();
 		static const FName DisplayNameMetaDataKey("DisplayName");
 		std::string Label = MakePropertyDisplayName(

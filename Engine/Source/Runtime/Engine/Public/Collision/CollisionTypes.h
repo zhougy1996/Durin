@@ -47,7 +47,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		DPROPERTY(Edit)
+		DPROPERTY(Edit, MetaData="ArrayIndexEnum=Durin::ECollisionChannel")
 		ECollisionResponse Responses[32]{};
 		static_assert(MaximumPhysicsChannels == 32);
 
