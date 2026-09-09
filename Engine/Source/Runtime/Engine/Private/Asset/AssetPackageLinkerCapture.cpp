@@ -21,6 +21,13 @@ namespace Durin::AssetPrivate
 	{
 		constexpr std::string_view RedirectorClassName = "Durin::DAssetRedirector";
 
+		auto IsTransientObjectGraph(const DObject* Object) -> bool
+		{
+			for (const DObject* Outer = Object; Outer; Outer = Outer->GetOuter())
+				if (Outer->HasAnyObjectFlags(EObjectFlags::Transient)) return true;
+			return false;
+		}
+
 		enum class ENodeKind : uint8 { Field, Fixed, Array, MapKey, MapValue };
 
 		struct FCapturedNode
@@ -906,7 +913,9 @@ namespace Durin::AssetPrivate
 				uint8 Kind = 0;
 				uint64 Id = 0;
 				std::string_view ExternalPath;
-				if (Value)
+				// Runtime-only targets have no persistent identity, including children
+				// whose own flags do not repeat their transient Outer's flags.
+				if (Value && !IsTransientObjectGraph(Value))
 				{
 					if (auto It = ObjectIds.find(Value); It != ObjectIds.end())
 					{
@@ -1217,6 +1226,7 @@ namespace Durin::AssetPrivate
 		{
 			for (const DObject* Candidate = Object; Candidate; Candidate = Candidate->GetOuter())
 			{
+				if (Candidate->HasAnyObjectFlags(EObjectFlags::Transient)) return true;
 				const FObjectSaveOverride* Override = Overrides
 					? Overrides->FindObject(*Candidate) : nullptr;
 				if (Override && Override->bOmitObject) return true;

@@ -6,6 +6,39 @@
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 
+TEST(FActorComponentTests, LegacyGeneratedRemnantDoesNotDirtyLevelDuringGarbageCollection)
+{
+	using namespace Durin;
+	Testing::InitializeDObjectSystemForTests();
+	const auto Root = Testing::CreateTestFixtureDirectory("GeneratedRemnants");
+	Testing::RegisterMountPointForTests("/GeneratedRemnants/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/GeneratedRemnants/Level", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	auto* Actor = Level->SpawnActor<AStaticMeshActor>("Actor");
+	auto* Remnant = NewObject<DSceneComponent>(Actor, "OldGeneratedComponent");
+	auto* CreationMethod = DActorComponent::StaticClass()->FindPropertyByName("CreationMethod");
+	ASSERT_NE(CreationMethod, nullptr);
+	*CreationMethod->ContainerPtrToValuePtr<EComponentCreationMethod>(Remnant) = EComponentCreationMethod::Generated;
+	Remnant->PostLoad();
+	EXPECT_TRUE(Remnant->HasAnyObjectFlags(EObjectFlags::Transient));
+	ASSERT_TRUE(Remnant->AttachToComponent(Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
+	// Match a legacy export no longer present in the reconstructed ownership graph.
+	EXPECT_FALSE(Actor->OwnsComponent(Remnant));
+	Level->PostLoad();
+	TWeakObjectPtr<DSceneComponent> WeakRemnant(Remnant);
+	ASSERT_TRUE(SavePackage(Level->GetPackage()));
+	CollectGarbage();
+	EXPECT_FALSE(WeakRemnant.IsValid());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	auto* Authored = Actor->AddInstanceComponent(DSceneComponent::StaticClass(), "Authored");
+	ASSERT_NE(Authored, nullptr);
+	Level->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Actor->DestroyInstanceComponent(Authored));
+	EXPECT_TRUE(Level->GetPackage()->IsDirty());
+}
+
 TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 {
 	Durin::FDirectionalLightSceneData SceneData;

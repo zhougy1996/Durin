@@ -1675,6 +1675,40 @@ TEST(FPackageAssetTests, SchemaInspectionClassifiesReadFailuresAsIoErrors)
 	EXPECT_FALSE(Result.Message.empty());
 }
 
+TEST(FPackageAssetTests, SaveOmitsTransientSubtreesAndTheirHardReferences)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/TransientSubtree", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
+	auto* Runtime = NewObject<DPackageAssetForTest>(Asset, "Runtime", EObjectFlags::Transient);
+	auto* Child = NewObject<DPackageAssetForTest>(Runtime, "Child");
+	auto* Persistent = NewObject<DPackageAssetForTest>(Asset, "Persistent");
+	Asset->ExternalReference = Child;
+	Persistent->ExternalReference = Runtime;
+	const auto Saved = SavePackage(Asset->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	EXPECT_EQ(Asset->ExternalReference, Child);
+	EXPECT_EQ(Persistent->ExternalReference, Runtime);
+	FByteBuffer Bytes;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, FindAssetExact(Path)->PhysicalPath));
+	ObjectPackage::FLinkerTables Linker;
+	ASSERT_TRUE(ObjectPackage::ReadPackageV9(Bytes, {}, Path, Linker));
+	// Both persistent objects also construct their own default child.
+	EXPECT_EQ(Linker.Exports.size(), 4u);
+	ASSERT_TRUE(UnloadPackage(Path));
+	DObject* Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	EXPECT_EQ(Cast<DPackageAssetForTest>(Loaded)->ExternalReference, nullptr);
+	const auto Children = GDObjectArray.GetObjectsWithOuter(Loaded, EObjectQueryScope::LiveOnly);
+	ASSERT_EQ(Children.size(), 2u);
+	const auto Found = std::ranges::find(Children, FName("Persistent"), &DObject::GetFName);
+	ASSERT_NE(Found, Children.end());
+	EXPECT_EQ(Cast<DPackageAssetForTest>(*Found)->ExternalReference, nullptr);
+}
+
 TEST(FPackageAssetTests, RemovedAuthoredFieldsDoNotLoadDependenciesOrRewriteSourceUntilSave)
 {
 	InitializeAssetTests();

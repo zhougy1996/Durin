@@ -65,6 +65,9 @@ namespace Durin
 
 	auto DSceneComponent::BeginDestroy() -> void
 	{
+		// GC retirement must not turn attachment cleanup into an authored edit.
+		// Explicit component removal still dirties through DestroyComponent.
+		FScopedPackageDirtySuppression SuppressRetirementDirtying;
 		Super::BeginDestroy();
 	}
 
