@@ -115,7 +115,7 @@ namespace Durin::Editor::Material
 					return 0;
 				}
 				if (Texture->IsResourceUpdatePending()) return Revision;
-				if (Texture->GetRenderFailure() != ETextureRenderFailure::None)
+				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed)
 				{
 					OutError = "A referenced material texture render resource failed.";
 					return 0;
@@ -296,7 +296,7 @@ namespace Durin::Editor::Material
 				bSnapshotInvalidated = false;
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
-					auto Snapshot = Texture->GetResourceSnapshot();
+					auto Snapshot = Texture->GetPublishedTexture();
 					if (!Snapshot || Texture->IsResourceUpdatePending())
 					{
 						OutError = "The material texture snapshot is not ready.";
@@ -391,11 +391,11 @@ namespace Durin::Editor::Material
 			auto AreDependencySnapshotsCurrent() const -> bool
 			{
 				return std::ranges::all_of(DependencySnapshots, [](const auto& Item) {
-					return !Item.first->IsResourceUpdatePending() && Item.first->GetResourceSnapshot() == Item.second;
+					return !Item.first->IsResourceUpdatePending() && Item.first->GetPublishedTexture() == Item.second;
 				});
 			}
 			FDelegateHandle ChangeHandle;
-			std::vector<std::pair<DTexture2D*, std::shared_ptr<const FTextureResourceSnapshot>>> DependencySnapshots;
+			std::vector<std::pair<DTexture2D*, FTextureRHIRef>> DependencySnapshots;
 			bool bSnapshotInvalidated = false;
 			auto ResetScenePreview() -> void
 			{

@@ -16,9 +16,9 @@
 #include <latch>
 
 static_assert(std::is_base_of_v<
-	Durin::FTextureAssetResource, Durin::FTexture2DResource>);
+	Durin::FTextureResource, Durin::FTexture2DResource>);
 static_assert(std::is_base_of_v<
-	Durin::FTextureAssetResource, Durin::FTextureCubeResource>);
+	Durin::FTextureResource, Durin::FTextureCubeResource>);
 
 namespace
 {
@@ -316,29 +316,28 @@ namespace
 		int Destroyed = 0;
 	};
 
-	class FUpdateTestResource final : public Durin::FTextureAssetResource
+	class FUpdateTestResource final : public Durin::FTextureResource
 	{
 	public:
 		FUpdateTestResource(Durin::FTextureReference& Reference, FUpdateResourceObservations& InEvents,
-			Durin::ETextureRenderFailure InFailure = Durin::ETextureRenderFailure::None,
+			bool bInFail = false,
 			std::function<void()> InInitialize = {})
-			: FTextureAssetResource(&Reference), Events(InEvents), Failure(InFailure), Initialize(std::move(InInitialize)) {}
+			: FTextureResource(&Reference), Events(InEvents), bFail(bInFail), Initialize(std::move(InInitialize)) {}
 		~FUpdateTestResource() override { ++Events.Destroyed; }
 		auto InitRHI(Durin::FRHICommandListBase&) -> void override
 		{
 			++Events.Initialized;
 			if (Initialize) Initialize();
-			if (Failure != Durin::ETextureRenderFailure::None) SetFailure_RenderThread(Failure);
-			else SetTextureRHI_RenderThread(new FUpdateTestTexture());
+			if (!bFail) SetTextureRHI_RenderThread(new FUpdateTestTexture());
 		}
 		auto ReleaseRHI() -> void override
 		{
 			++Events.Released;
-			FTextureAssetResource::ReleaseRHI();
+			FTextureResource::ReleaseRHI();
 		}
 	private:
 		FUpdateResourceObservations& Events;
-		Durin::ETextureRenderFailure Failure;
+		bool bFail;
 		std::function<void()> Initialize;
 	};
 
@@ -403,28 +402,31 @@ TEST_F(FTextureResourceUpdateTests, FailedReplacementRetainsAllocationAndLateRel
 	auto Old = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, OldEvents));
 	Start(Old, Reference, true);
 	Old->Wait();
-	auto OldSnapshot = Old->GetSnapshot();
+	auto OldSnapshot = Old->GetPublishedTexture();
 	EXPECT_NE(OldSnapshot, nullptr);
 	auto Failed = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, FailedEvents,
-		Durin::ETextureRenderFailure::UnsupportedFormat));
+		true));
 	Start(Failed, Reference);
 	Failed->Wait();
-	EXPECT_EQ(Failed->GetFailure(), Durin::ETextureRenderFailure::UnsupportedFormat);
-	EXPECT_EQ(Resolve(Reference), OldSnapshot->Texture.GetReference());
+	EXPECT_EQ(Failed->GetState(), Durin::ETextureResourceUpdateState::Failed);
+	EXPECT_EQ(Resolve(Reference), OldSnapshot.GetReference());
 	Retire(Failed);
 	EXPECT_EQ(FailedEvents.Released, 1);
 	EXPECT_EQ(FailedEvents.Destroyed, 1);
 	auto New = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, NewEvents));
 	Start(New, Reference);
 	New->Wait();
-	auto NewSnapshot = New->GetSnapshot();
+	auto NewSnapshot = New->GetPublishedTexture();
 	EXPECT_NE(NewSnapshot, OldSnapshot);
 	Retire(Old);
-	EXPECT_EQ(Resolve(Reference), NewSnapshot->Texture.GetReference());
-	EXPECT_EQ(Failed->GetFailure(), Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(Resolve(Reference), NewSnapshot.GetReference());
+	EXPECT_EQ(Failed->GetState(), Durin::ETextureResourceUpdateState::Failed);
 	EXPECT_EQ(OldEvents.Released, 1);
 	EXPECT_EQ(OldEvents.Destroyed, 1);
 	Retire(New);
+	EXPECT_EQ(Resolve(Reference), NewSnapshot.GetReference());
+	EXPECT_EQ(NewEvents.Destroyed, 1);
+	EXPECT_EQ(Durin::GetNumInitializedRenderResources(), 1u);
 	Reference.BeginRelease_GameThread();
 	Durin::FlushRenderingCommands();
 }
@@ -435,14 +437,14 @@ TEST_F(FTextureResourceUpdateTests, CloseDuringInitializationPreventsPublication
 	FUpdateResourceObservations Events;
 	std::latch Started(1), Resume(1);
 	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events,
-		Durin::ETextureRenderFailure::None, [&]() { Started.count_down(); Resume.wait(); }));
+		false, [&]() { Started.count_down(); Resume.wait(); }));
 	Start(Update, Reference, true);
 	Started.wait();
 	Update->Close();
 	Resume.count_down();
 	Update->Wait();
 	EXPECT_EQ(Update->GetState(), Durin::ETextureResourceUpdateState::Closed);
-	EXPECT_EQ(Update->GetSnapshot(), nullptr);
+	EXPECT_EQ(Update->GetPublishedTexture(), nullptr);
 	EXPECT_EQ(Resolve(Reference), nullptr);
 	Retire(Update);
 	EXPECT_EQ(Events.Initialized, 1);
@@ -502,7 +504,7 @@ TEST(FTextureResourceAdmissionTests, CoalescesSuccessorsAndAdvancesWithoutGetter
 	Durin::PumpTextureResourceUpdates();
 	EXPECT_EQ(Completed, 2);
 	EXPECT_FALSE(Texture->IsResourceUpdatePending());
-	EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::UnavailableRHI);
+	EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 	Durin::PumpTextureResourceUpdates();
 	EXPECT_EQ(Completed, 2);
 	Durin::OnTextureResourceChanged().Remove(Handle);
@@ -513,11 +515,10 @@ TEST_F(FTextureResourceUpdateTests, InitializationExceptionStillHandsOffCleanup)
 	Durin::FTextureReference Reference;
 	FUpdateResourceObservations Events;
 	auto Update = std::make_shared<Durin::FTextureResourceUpdate>(std::make_unique<FUpdateTestResource>(Reference, Events,
-		Durin::ETextureRenderFailure::None, []() { throw std::runtime_error("controlled initialization failure"); }));
+		false, []() { throw std::runtime_error("controlled initialization failure"); }));
 	Start(Update, Reference, true);
 	Update->Wait();
 	EXPECT_EQ(Update->GetState(), Durin::ETextureResourceUpdateState::Failed);
-	EXPECT_EQ(Update->GetFailure(), Durin::ETextureRenderFailure::CreateOrUpload);
 	EXPECT_EQ(Resolve(Reference), nullptr);
 	Retire(Update);
 	EXPECT_EQ(Events.Released, 1);

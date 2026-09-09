@@ -10,7 +10,7 @@ namespace Durin
 	FTextureCubeResource::FTextureCubeResource(
 		FTextureReference* InTextureReference,
 		std::shared_ptr<const FTextureCubePlatformData> InPlatformData)
-		: FTextureAssetResource(InTextureReference)
+		: FTextureResource(InTextureReference)
 		, PlatformData(std::move(InPlatformData))
 	{
 		check(PlatformData && PlatformData->IsValid());
@@ -34,7 +34,7 @@ namespace Durin
 					| ETextureCreateFlags::CPUReadback);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::UnsupportedFormat);
+			DURIN_WARN("TextureCube description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
 			return;
 		}
 
@@ -44,7 +44,7 @@ namespace Durin
 			GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (NewTexture == nullptr)
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::CreateOrUpload);
+			DURIN_WARN("TextureCube GPU texture allocation failed.");
 			return;
 		}
 

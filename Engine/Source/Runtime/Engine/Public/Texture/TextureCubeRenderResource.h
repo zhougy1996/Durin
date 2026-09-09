@@ -8,8 +8,8 @@ namespace Durin
 {
 	struct FTextureCubePlatformData;
 
-	// One asset-owned cube allocation. Only render commands access its RHI state.
-	class FTextureCubeResource final : public FTextureAssetResource
+	// Initializes one immutable cube input; the update transfers publication to the stable reference.
+	class FTextureCubeResource final : public FTextureResource
 	{
 	public:
 		ENGINE_API FTextureCubeResource(

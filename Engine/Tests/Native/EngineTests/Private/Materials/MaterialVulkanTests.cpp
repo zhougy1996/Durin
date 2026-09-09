@@ -867,9 +867,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			const auto Ready = Session->PollResources();
 			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
-			const auto Snapshot = CaptureCube->GetResourceSnapshot();
+			const auto Snapshot = CaptureCube->GetPublishedTexture();
 			ASSERT_NE(Snapshot, nullptr);
-			EXPECT_NE(Snapshot->FixedReference, CaptureCubeReference);
 			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
 			Durin::FlushRenderingCommands();
 			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
@@ -877,7 +876,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FlushRenderingCommands();
 			Durin::PumpTextureResourceUpdates();
 			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
-			EXPECT_NE(CaptureCube->GetResourceSnapshot(), Snapshot);
+			EXPECT_NE(CaptureCube->GetPublishedTexture(), Snapshot);
 			Durin::FByteBuffer DelayedPixels;
 			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
 			EXPECT_FALSE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error));

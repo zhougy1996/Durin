@@ -97,7 +97,7 @@ namespace Durin
 
 	auto DTexture2D::CreateRenderResourceCandidate(
 		FTextureReference* TextureReference)
-		-> std::unique_ptr<FTextureAssetResource>
+		-> std::unique_ptr<FTextureResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FTexture2DResource>(

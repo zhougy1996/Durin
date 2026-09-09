@@ -193,7 +193,7 @@ namespace Durin
 
 	auto DVolumeTexture::CreateRenderResourceCandidate(
 		FTextureReference* TextureReference)
-		-> std::unique_ptr<FTextureAssetResource>
+		-> std::unique_ptr<FTextureResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FVolumeTextureResource>(TextureReference,

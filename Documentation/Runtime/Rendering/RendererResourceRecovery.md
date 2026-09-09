@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 ## Complete-Or-Null Construction
 
@@ -28,8 +28,9 @@ references. Cache eviction selects only entries with no external references.
 Texture assets use the owned update protocol in [Texture System](TextureSystem.md).
 An explicit `UpdateResource()` retries installed immutable input. Availability
 remains true after failed replacement when a prior successful allocation exists;
-resource release never clears the latest completed update error. These assets
-have no render-request generation, and thumbnail readiness is checked separately
+temporary uploader release leaves the published allocation intact. Failure
+details are logged, while the update retains only its completion state. These
+assets have no render-request generation, and thumbnail readiness is checked separately
 from last-successful fallback availability.
 
 ## Transactional Resource Slots

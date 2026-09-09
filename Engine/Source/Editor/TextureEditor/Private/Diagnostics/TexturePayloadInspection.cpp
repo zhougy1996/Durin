@@ -137,7 +137,7 @@ namespace Durin
 		{
 			if (Texture.HasUsableResource()) return ETexturePayloadState::Available;
 			if (Texture.IsResourceUpdatePending()) return ETexturePayloadState::Unknown;
-			if (Texture.GetRenderFailure() != ETextureRenderFailure::None)
+			if (Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed)
 				return ETexturePayloadState::Failed;
 			return ETexturePayloadState::NotPresent;
 		}
@@ -373,13 +373,11 @@ namespace Durin
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
-			.Diagnostic = Texture.GetRenderFailure() == ETextureRenderFailure::UnsupportedFormat
-				? "The current RHI does not support this texture format and usage."
-				: Texture.GetRenderFailure() == ETextureRenderFailure::CreateOrUpload
-					? "GPU texture creation or upload failed." : std::string{}});
+			.Diagnostic = Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+				? "GPU texture update failed. See the log for details." : std::string{}});
 		return Result;
 	}
 
@@ -437,13 +435,11 @@ namespace Durin
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource : ETexturePayloadRepairAction::None,
 			.Placement = "GPU",
-			.Diagnostic = Texture.GetRenderFailure() == ETextureRenderFailure::UnsupportedFormat
-				? "The current RHI does not support this volume texture format and usage."
-				: Texture.GetRenderFailure() == ETextureRenderFailure::CreateOrUpload
-					? "GPU volume texture creation or upload failed." : std::string{}});
+			.Diagnostic = Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+				? "GPU texture update failed. See the log for details." : std::string{}});
 		return Result;
 	}
 
@@ -486,7 +482,7 @@ namespace Durin
 		Result.Entries.push_back({
 			.Domain = "TextureCube", .Stage = ETexturePayloadStage::RuntimeResource,
 			.State = MapResourceState(Texture),
-			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetRenderFailure() != ETextureRenderFailure::None
+			.Repair = !Texture.IsResourceUpdatePending() && Texture.GetResourceUpdateState() == ETextureResourceUpdateState::Failed
 				? ETexturePayloadRepairAction::RetryRuntimeResource
 				: ETexturePayloadRepairAction::None,
 			.Placement = "GPU"});

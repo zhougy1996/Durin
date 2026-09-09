@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -222,8 +222,8 @@ the matching failure phase; idle textures do not persist those facts.
 
 Normal-frame completion drains retain the 64-item cap; callback duration is
 diagnostic rather than a separate time limit. A 16K source has a 1 GiB decoded
-allocation, about 1.33 GiB uncompressed mip chain, and 170.67â€“341.33 MiB BC
-result. Its 2.50â€“2.67 GiB source/intermediate/result working set is admitted
+allocation, about 1.33 GiB uncompressed mip chain, and 170.67¨C341.33 MiB BC
+result. Its 2.50¨C2.67 GiB source/intermediate/result working set is admitted
 alone. Two typical 4K builds remain below the 1 GiB admission budget, while
 larger requests serialize. These are allocation bounds, not wall-clock promises;
 the full 16K high-quality matrix is not a routine gate.
@@ -263,14 +263,16 @@ and resource-construction hook. The base retains the sole reflected source and
   or duplicate family storage fields. Authored saves emit only the canonical base
   identities.
 
-`DTexture` owns a stable `FTextureReference`, the last-successful concrete
-`FTextureAssetResource`, and at most one executing `FTextureResourceUpdate`.
+`DTexture` owns one private resource state containing the stable
+`FTextureReference`, the GameThread's last consumed allocation, and at most one
+executing `FTextureResourceUpdate` plus one retained successor. Concrete
+`FTexture2DResource`, `FTextureCubeResource`, and `FVolumeTextureResource` inherit
+`FTextureResource` directly and exist only for initialization and upload.
 The operation owns its candidate and immutable family platform-data copy.
-During execution, another `UpdateResource()` replaces one retained next input:
-an uninitialized family wrapper containing immutable data, with no queued GPU
-work. Only the latest retained input starts after the active result is consumed.
-An already admitted operation may publish before its successor. No request
-revision or token comparison suppresses it.
+During execution, another `UpdateResource()` replaces the retained uninitialized
+successor. Only the latest retained input starts after the active result is
+consumed. An already admitted operation may publish before its successor; no
+request revision or token comparison suppresses it.
 
 RenderThread initializes the candidate and records every mip upload before
 publication. `FUpdateTexture2DCommand` and `FUpdateTexture3DCommand` copy upload
@@ -283,12 +285,17 @@ failure into a recoverable per-texture result.
 Publication switches the stable reference through
 `FDynamicRHI::RHIUpdateTextureReference()`. Material and scene bindings retain
 counted copies of this stable identity and observe replacements without
-reacquiring the asset. The operation owns the published candidate until
-GameThread consumes its terminal handoff. Only successful consumption moves it
-into the asset's current-resource slot and queues release/deferred C++ cleanup
-of the previous current resource. Failure retires only the candidate and leaves
-the last-successful allocation usable. Delayed old-resource release retains the
-allocation ownership check in `ResetToFallbackIfMatches_RenderThread`.
+reacquiring the asset. `TransferTexture_RenderThread()` detaches the temporary
+uploader from publication ownership: its later release drops only its own
+allocation reference and cannot reset the stable target. The stable reference
+owns the published allocation until replacement or asset teardown.
+
+GameThread consumes the completed operation's counted allocation and queues
+release/deferred C++ cleanup of the candidate on both success and failure.
+It never retains a completed concrete resource or its CPU upload input.
+Failed replacement leaves the last successful allocation usable. The separate
+GameThread allocation reference is the synchronized terminal handoff, avoiding
+reads of the stable reference target while RenderThread replaces it.
 
 `PumpTextureResourceUpdates()` runs in `FEngineLoop::TickPostEventFrame` before
 UI and outside the rendering/minimized branch. It consumes terminal operations
@@ -299,36 +306,43 @@ listeners can destroy other assets. Completion needs neither Task admission nor
 editor polling. The engine shuts the Task system down before asset collection,
 so texture destruction reconciles pending operations independently.
 
-`HasUsableResource()` reports availability of a consumed successful snapshot;
+`HasUsableResource()` reports availability of a consumed successful allocation;
 `IsResourceUpdatePending()` includes terminal-but-not-consumed operations.
 `GetResourceUpdateState()` reports CPU update progress/result independently.
-`GetRenderFailure()` retains the latest consumed error while a retry is pending;
-a consumed success clears it. Release does not modify another operation's error.
-Unsupported descriptions, creation/upload failures, missing RHI, and rejected
-command admission remain distinct. Missing platform data rejects before admission.
-The exact descriptor support check precedes allocation; see
+There is no retained failure-category enum on the asset or resource. Unsupported
+descriptions, failed allocation, missing RHI, exceptions, and rejected command
+admission are logged; the operation retains only its completion state. Editors
+use that state for generic failure and explicit update retry, with details in
+the log. Missing platform data rejects before admission. The exact descriptor
+support check precedes allocation; see
 [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
 Ordinary replacement is asynchronous. `BeginDestroy` stops admission, removes
 pump membership, discards the retained successor, and closes the active operation
 under the same mutex used for publication. It joins accepted CPU initialization,
-then queues release and deferred cleanup of candidates/current before the stable
+then queues release and deferred cleanup of candidates before the stable
 reference. No publication can occur after that close boundary. Accepted commands
 retain operation storage without capturing a UObject. Reference and candidate
 initialization share one checked command admission; a rejected command leaves
 both uninitialized. Producers must close initialized owners before RenderCore
 stops accepting required cleanup commands.
 
-`GetResourceSnapshot()` returns a counted immutable successful allocation plus
-a fixed texture reference whose target never changes. These snapshots retain GPU
-allocations, not UObjects or concrete C++ resources. Cube thumbnail rendering uses
-the fixed reference. Material thumbnail sessions retain snapshots for all eight
-built-in texture roles and reject delayed output if an observed dependency changes.
-The GameThread `OnTextureResourceChanged` event distinguishes admitted input,
-consumed completion, and close; it carries no generation. Editor preview caches
-invalidate through this event and source identity changes. Thumbnail acceptance
-checks pending state, retained resource snapshots, and existing package/material
-versions; unchanged stable-reference pointers or cache keys cannot certify it.
+`GetPublishedTexture()` is a GameThread-only capture of the last consumed
+successful `FTextureRHIRef`. It retains a concrete allocation, not a UObject or
+C++ uploader, and does not follow later replacements. RHI operations still run
+on their owning rendering thread. Ordinary long-lived bindings continue to use
+`GetTextureReferenceRHI()` instead.
+
+Cube thumbnail rendering creates a fixed reference on demand from its captured
+allocation. Material thumbnail sessions retain allocation refs for all eight
+built-in texture roles and reject delayed output if an observed dependency
+changes. No asset-owned snapshot wrapper or eagerly allocated fixed reference
+exists. The GameThread `OnTextureResourceChanged` event distinguishes admitted
+input, consumed completion, and close; it carries no generation. Editor preview
+caches invalidate through this event and source identity changes. Thumbnail
+acceptance checks pending state, captured allocations, and existing
+package/material versions; unchanged stable-reference pointers or cache keys
+cannot certify it.
 
 RHI pixel-format metadata also owns the tightly packed block layout calculation.
 Platform-data validation and Vulkan uploads use the same block count, row pitch,

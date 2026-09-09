@@ -8,7 +8,7 @@ namespace Durin
 	struct FVolumeTexturePlatformData;
 
 	// Uploads one immutable volume payload and publishes it through a texture reference.
-	class FVolumeTextureResource final : public FTextureAssetResource
+	class FVolumeTextureResource final : public FTextureResource
 	{
 	public:
 		ENGINE_API FVolumeTextureResource(FTextureReference* InTextureReference,

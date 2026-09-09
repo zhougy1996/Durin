@@ -8,8 +8,8 @@ namespace Durin
 {
 	struct FTexturePlatformData;
 
-	// One asset-owned Texture2D allocation. Only render commands access its RHI state.
-	class FTexture2DResource final : public FTextureAssetResource
+	// Initializes one immutable Texture2D input; the update transfers publication to the stable reference.
+	class FTexture2DResource final : public FTextureResource
 	{
 	public:
 		ENGINE_API FTexture2DResource(

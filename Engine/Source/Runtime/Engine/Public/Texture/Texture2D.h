@@ -86,7 +86,7 @@ namespace Durin
 			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
-			-> std::unique_ptr<FTextureAssetResource> override;
+			-> std::unique_ptr<FTextureResource> override;
 
 	private:
 		auto LoadCookedPlatformData(std::string& OutError) -> bool override;

@@ -9,7 +9,7 @@ namespace Durin
 	FTexture2DResource::FTexture2DResource(
 		FTextureReference* InTextureReference,
 		std::shared_ptr<const FTexturePlatformData> InPlatformData)
-		: FTextureAssetResource(InTextureReference)
+		: FTextureResource(InTextureReference)
 		, PlatformData(std::move(InPlatformData))
 	{
 		check(PlatformData && PlatformData->IsValid());
@@ -29,7 +29,7 @@ namespace Durin
 			.SetFlags(ETextureCreateFlags::ShaderResource);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::UnsupportedFormat);
+			DURIN_WARN("Texture2D description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
 			return;
 		}
 
@@ -39,7 +39,7 @@ namespace Durin
 			GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (NewTexture == nullptr)
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::CreateOrUpload);
+			DURIN_WARN("Texture2D GPU texture allocation failed.");
 			return;
 		}
 

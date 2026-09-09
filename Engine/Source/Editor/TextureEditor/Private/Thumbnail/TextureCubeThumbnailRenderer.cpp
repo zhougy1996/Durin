@@ -4,6 +4,7 @@
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 #include "Texture/TextureCube.h"
+#include "RenderResource.h"
 
 namespace Durin::Editor::Texture
 {
@@ -157,9 +158,9 @@ namespace Durin::Editor::Texture
 						AssetPath.ToString());
 					return false;
 				}
-				Snapshot = TextureCube->GetResourceSnapshot();
+				Snapshot = TextureCube->GetPublishedTexture();
 				const FRHITextureReferenceRef TextureReference = Snapshot
-					? Snapshot->FixedReference : FRHITextureReferenceRef{};
+					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
 				if (TextureReference == nullptr)
 				{
 					OutError = std::format(
@@ -186,7 +187,7 @@ namespace Durin::Editor::Texture
 				if (!bReady || TextureCube == nullptr
 					|| (TextureCube->GetPackage() ? TextureCube->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
 					|| TextureCube->GetSource().GetIdentity() != SourceIdentity
-					|| bSnapshotInvalidated || !Snapshot || TextureCube->GetResourceSnapshot() != Snapshot
+					|| bSnapshotInvalidated || !Snapshot || TextureCube->GetPublishedTexture() != Snapshot
 					|| Revision != ExpectedResourceRevision)
 				{
 					OutError = "The TextureCube changed while its thumbnail was being generated.";
@@ -199,7 +200,7 @@ namespace Durin::Editor::Texture
 			{
 				OnTextureResourceChanged().Remove(ChangeHandle);
 				ChangeHandle = {};
-				Snapshot.reset();
+				Snapshot = nullptr;
 			}
 
 			~FTextureCubeThumbnailGenerationSession() override { ResetPreview(); }
@@ -216,7 +217,7 @@ namespace Durin::Editor::Texture
 			FDelegateHandle ChangeHandle;
 			bool bSnapshotInvalidated = false;
 			FXxHash128 SourceIdentity{};
-			std::shared_ptr<const FTextureResourceSnapshot> Snapshot;
+			FTextureRHIRef Snapshot;
 			FTopLevelAssetPath AssetPath;
 			DTextureCube* TextureCube = nullptr;
 			uint64 AssetRevision = 0;

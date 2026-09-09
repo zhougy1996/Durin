@@ -367,8 +367,8 @@ namespace Durin
 	void FTextureResource::ReleaseRHI()
 	{
 		check(IsInRenderingThread());
-		TextureReference->ResetToFallbackIfMatches_RenderThread(
-			TextureRHI.GetReference());
+		if (TextureReference)
+			TextureReference->ResetToFallbackIfMatches_RenderThread(TextureRHI.GetReference());
 		TextureRHI = nullptr;
 	}
 
@@ -384,6 +384,12 @@ namespace Durin
 		check(IsInRenderingThread());
 		check(TextureRHI);
 		TextureReference->SetReferencedTexture_RenderThread(TextureRHI);
+	}
+
+	auto FTextureResource::TransferTexture_RenderThread() -> void
+	{
+		PublishTexture_RenderThread();
+		TextureReference = nullptr;
 	}
 
 	void FTextureResource::SetTextureRHI_RenderThread(

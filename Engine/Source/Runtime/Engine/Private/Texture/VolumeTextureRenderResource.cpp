@@ -10,7 +10,7 @@ namespace Durin
 	FVolumeTextureResource::FVolumeTextureResource(
 		FTextureReference* InTextureReference,
 		std::shared_ptr<const FVolumeTexturePlatformData> InPlatformData)
-		: FTextureAssetResource(InTextureReference)
+		: FTextureResource(InTextureReference)
 		, PlatformData(std::move(InPlatformData))
 	{
 		check(PlatformData && PlatformData->IsValid());
@@ -30,14 +30,14 @@ namespace Durin
 			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
 		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::UnsupportedFormat);
+			DURIN_WARN("VolumeTexture description is unsupported by the RHI (format: {}).", static_cast<uint32>(Desc.Format));
 			return;
 		}
 		auto& CommandList = static_cast<FRHICommandListImmediate&>(RHICmdList);
 		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (!NewTexture)
 		{
-			SetFailure_RenderThread(ETextureRenderFailure::CreateOrUpload);
+			DURIN_WARN("VolumeTexture GPU texture allocation failed.");
 			return;
 		}
 		for (uint32 MipIndex = 0; MipIndex < PlatformData->Mips.size(); ++MipIndex)

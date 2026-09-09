@@ -14,9 +14,9 @@
 
 namespace Durin
 {
-	class FTextureAssetResource;
+	class FTextureResource;
 	class FTextureReference;
-	class FTextureResourceUpdate;
+	struct FTextureResourceState;
 	class DTexture;
 
 	// Progress of CPU initialization/publication, independent of usable fallback.
@@ -31,14 +31,6 @@ namespace Durin
 		Closed,
 	};
 
-	// Retains the concrete allocation rendered by an asynchronous consumer.
-	// FixedReference never changes its target after construction on RenderThread.
-	struct FTextureResourceSnapshot
-	{
-		FTextureRHIRef Texture;
-		FRHITextureReferenceRef FixedReference;
-	};
-
 	// Distinguishes input invalidation from terminal resource readiness notifications.
 	enum class ETextureResourceChange : uint8 { Input, Completed, Closed };
 
@@ -47,16 +39,6 @@ namespace Durin
 	ENGINE_API auto OnTextureResourceChanged() -> FTextureResourceChangedEvent&;
 	// Called by the Engine frame loop, including frames with rendering disabled.
 	ENGINE_API auto PumpTextureResourceUpdates() -> void;
-
-	// Identifies the latest completed resource update's actionable failure boundary.
-	enum class ETextureRenderFailure : uint8
-	{
-		None,
-		UnsupportedFormat,
-		CreateOrUpload,
-		UnavailableRHI,
-		AdmissionRejected,
-	};
 
 	// Common reflected boundary and render-resource lifecycle owner for texture assets.
 	DCLASS(Abstract)
@@ -71,14 +53,11 @@ namespace Durin
 		ENGINE_API auto GetTextureReferenceRHI() const
 			-> FRHITextureReferenceRef;
 		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
-		auto HasUsableResource() const -> bool { return ResourceSnapshot != nullptr; }
-		auto IsResourceUpdatePending() const -> bool { return PendingUpdate != nullptr; }
-		auto GetRenderFailure() const -> ETextureRenderFailure { return LastFailure; }
-		// GameThread only. Retaining this snapshot does not retain the UObject.
-		auto GetResourceSnapshot() const -> std::shared_ptr<const FTextureResourceSnapshot>
-		{
-			return ResourceSnapshot;
-		}
+		ENGINE_API auto HasUsableResource() const -> bool;
+		ENGINE_API auto IsResourceUpdatePending() const -> bool;
+		// GameThread only. Captures the last consumed successful allocation, retaining no UObject.
+		// Render commands may retain this value for fixed-input work; ordinary bindings use the stable reference.
+		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;
 		auto GetSource() const -> const FTextureSource& { return Source; }
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
@@ -102,7 +81,7 @@ namespace Durin
 		// authored data. Already-installed data succeeds without another update.
 		// On failure, logs the texture path and reason and returns false.
 		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
-		// Replaces the current concrete resource from installed platform data.
+		// Asynchronously uploads installed platform data; failed replacement retains the prior allocation.
 		ENGINE_API auto UpdateResource() -> void;
 
 	protected:
@@ -120,26 +99,17 @@ namespace Durin
 
 		virtual auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
-			-> std::unique_ptr<FTextureAssetResource> = 0;
+			-> std::unique_ptr<FTextureResource> = 0;
 		// Installs family-specific cooked data and queues its resource update.
 		virtual auto LoadCookedPlatformData(std::string& OutError) -> bool = 0;
 
 	private:
 		auto ReleaseRenderResources() -> void;
-		auto StartResourceUpdate(std::unique_ptr<FTextureAssetResource> Candidate) -> void;
+		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;
 		auto ConsumeResourceUpdate() -> void;
 		friend ENGINE_API auto PumpTextureResourceUpdates() -> void;
 
-		std::unique_ptr<FTextureReference> TextureReference;
-		std::unique_ptr<FTextureAssetResource> RenderResource;
-		std::shared_ptr<FTextureResourceUpdate> PendingUpdate;
-		// An uninitialized family wrapper retains only immutable input, never GPU work.
-		std::unique_ptr<FTextureAssetResource> NextInput;
-		std::shared_ptr<const FTextureResourceSnapshot> ResourceSnapshot;
-		ETextureRenderFailure LastFailure = ETextureRenderFailure::None;
-		ETextureResourceUpdateState LastUpdateState = ETextureResourceUpdateState::Idle;
-		bool bTextureReferenceInitializationQueued = false;
-		bool bAcceptingRenderResourceBuilds = true;
+		std::unique_ptr<FTextureResourceState> ResourceState;
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;

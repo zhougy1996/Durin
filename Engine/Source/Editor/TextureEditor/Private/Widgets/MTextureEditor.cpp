@@ -501,23 +501,16 @@ namespace Durin::Editor::Texture
 	{
 		const FTexture2DCompilationDiagnostic Diagnostic =
 			GetTexture2DCompilationDiagnostic(*Texture);
-		const ETextureRenderFailure RenderFailure = Texture->GetRenderFailure();
+		const bool bResourceFailed = Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed;
 		if (Diagnostic.Phase != ETexture2DCompilationPhase::Failed
-			&& RenderFailure == ETextureRenderFailure::None) return;
+			&& !bResourceFailed) return;
 		const char* Title = "Build Error";
 		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
 		std::string Message = Diagnostic.Message;
-		if (RenderFailure == ETextureRenderFailure::UnsupportedFormat)
+		if (bResourceFailed)
 		{
-			Title = "Unsupported Format";
-			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-			Message = "The selected pixel format is not supported by this GPU.";
-		}
-		else if (RenderFailure == ETextureRenderFailure::CreateOrUpload)
-		{
-			Title = "GPU Upload Failure";
-			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-			Message = "The texture could not be created or uploaded to the GPU.";
+			Title = "GPU Texture Update Failed";
+			Message = "The texture resource could not be updated. See the log for details.";
 		}
 		else if (Message.empty())
 		{
@@ -533,12 +526,13 @@ namespace Durin::Editor::Texture
 		ImGui::PopStyleColor();
 
 		ImGui::Spacing();
-		if (ImGui::Button("Retry Build"))
+		if (ImGui::Button(bResourceFailed ? "Retry GPU Update" : "Retry Build"))
 		{
-			Texture->PostLoad();
+			if (bResourceFailed) Texture->UpdateResource();
+			else Texture->PostLoad();
 		}
 
-		if (RenderFailure == ETextureRenderFailure::CreateOrUpload)
+		if (bResourceFailed)
 		{
 			ImGui::SameLine();
 			const ETextureResourceUpdateState RState =

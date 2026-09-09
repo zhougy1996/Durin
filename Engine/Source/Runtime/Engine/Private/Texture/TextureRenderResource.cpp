@@ -3,7 +3,7 @@
 
 namespace Durin
 {
-	FTextureResourceUpdate::FTextureResourceUpdate(std::unique_ptr<FTextureAssetResource> InCandidate)
+	FTextureResourceUpdate::FTextureResourceUpdate(std::unique_ptr<FTextureResource> InCandidate)
 		: Candidate(std::move(InCandidate)) { check(Candidate != nullptr); }
 	FTextureResourceUpdate::~FTextureResourceUpdate() = default;
 
@@ -24,20 +24,13 @@ namespace Durin
 			if (bInitialize)
 			{
 				Candidate->InitResource(Commands);
-				Failure = Candidate->GetFailure_RenderThread();
-				if (!Candidate->GetTextureRHI_RenderThread() && Failure == ETextureRenderFailure::None)
-					Failure = ETextureRenderFailure::CreateOrUpload;
-				if (Failure == ETextureRenderFailure::None)
+				if (Candidate->GetTextureRHI_RenderThread())
 				{
-					auto Result = std::make_shared<FTextureResourceSnapshot>();
-					Result->Texture = Candidate->GetTextureRHI_RenderThread();
-					FTextureReference FixedReference(Result->Texture);
-					Result->FixedReference = FixedReference.GetTextureReferenceRHI();
 					std::lock_guard Lock(Mutex);
 					if (!bClosed)
 					{
-						Candidate->PublishTexture_RenderThread();
-						Snapshot = std::move(Result);
+						Candidate->TransferTexture_RenderThread();
+						PublishedTexture = Candidate->GetTextureRHI_RenderThread();
 					}
 				}
 			}
@@ -45,22 +38,21 @@ namespace Durin
 		catch (...)
 		{
 			// Every admitted CPU operation must terminalize so owner teardown can join it.
-			Failure = ETextureRenderFailure::CreateOrUpload;
+			DURIN_WARN("Texture initialization threw an exception before publication.");
 		}
 		{
 			std::lock_guard Lock(Mutex);
 			State.store(bClosed ? ETextureResourceUpdateState::Closed
-				: Snapshot ? ETextureResourceUpdateState::Succeeded
+				: PublishedTexture ? ETextureResourceUpdateState::Succeeded
 				: ETextureResourceUpdateState::Failed, std::memory_order_release);
 			bComplete.store(true, std::memory_order_release);
 		}
 		CV.notify_all();
 	}
 
-	auto FTextureResourceUpdate::Reject(ETextureRenderFailure Reason) -> void
+	auto FTextureResourceUpdate::Reject() -> void
 	{
 		std::lock_guard Lock(Mutex);
-		Failure = Reason;
 		State.store(ETextureResourceUpdateState::Failed, std::memory_order_release);
 		bComplete.store(true, std::memory_order_release);
 		CV.notify_all();

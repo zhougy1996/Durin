@@ -572,24 +572,24 @@ namespace
 		Texture->UpdateResource();
 		ConsumeTextureUpdate();
 		EXPECT_FALSE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::CreateOrUpload);
+		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 		Texture->UpdateResource();
 		ConsumeTextureUpdate();
 		EXPECT_TRUE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::None);
-		const auto OldSnapshot = Texture->GetResourceSnapshot();
+		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
+		const auto OldSnapshot = Texture->GetPublishedTexture();
 		Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 		Texture->UpdateResource();
 		ConsumeTextureUpdate();
 		EXPECT_TRUE(Texture->HasUsableResource());
-		EXPECT_EQ(Texture->GetResourceSnapshot(), OldSnapshot);
-		EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::CreateOrUpload);
+		EXPECT_EQ(Texture->GetPublishedTexture(), OldSnapshot);
+		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 		Durin::FRHITexture* Observed = nullptr;
 		Durin::TryEnqueueRenderCommand("CheckFailedTextureFallback", [StableReference, &Observed](Durin::FRHICommandListImmediate&) {
 			Observed = StableReference->GetReferencedTexture_RenderThread();
 		});
 		Durin::FlushRenderingCommands();
-		EXPECT_EQ(Observed, OldSnapshot->Texture.GetReference());
+		EXPECT_EQ(Observed, OldSnapshot.GetReference());
 
 		int Completions = 0;
 		const auto Handle = Durin::OnTextureResourceChanged().AddLambda([&](Durin::DTexture& Changed, Durin::ETextureResourceChange Change) {
@@ -608,25 +608,25 @@ namespace
 		Resume.count_down();
 		Durin::FlushRenderingCommands();
 		EXPECT_TRUE(Texture->IsResourceUpdatePending());
-		EXPECT_EQ(Texture->GetResourceSnapshot(), OldSnapshot);
+		EXPECT_EQ(Texture->GetPublishedTexture(), OldSnapshot);
 		EXPECT_EQ(Completions, 0);
 		Durin::PumpTextureResourceUpdates();
-		const auto Intermediate = Texture->GetResourceSnapshot();
+		const auto Intermediate = Texture->GetPublishedTexture();
 		EXPECT_NE(Intermediate, OldSnapshot);
 		EXPECT_TRUE(Texture->IsResourceUpdatePending());
 		ConsumeTextureUpdate();
 		EXPECT_EQ(Completions, 2);
 		EXPECT_FALSE(Texture->IsResourceUpdatePending());
 		EXPECT_EQ(Texture->GetTextureReferenceRHI(), StableReference);
-		EXPECT_NE(Texture->GetResourceSnapshot(), Intermediate);
-		EXPECT_EQ(Texture->GetRenderFailure(), Durin::ETextureRenderFailure::None);
+		EXPECT_NE(Texture->GetPublishedTexture(), Intermediate);
+		EXPECT_EQ(Texture->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Succeeded);
 		if constexpr (std::is_same_v<TTexture, Durin::DTextureCube>)
 		{
 			Durin::FByteBuffer Earlier, Latest;
-			const auto Current = Texture->GetResourceSnapshot();
+			const auto Current = Texture->GetPublishedTexture();
 			Durin::TryEnqueueRenderCommand("ReadOwnedTextureSnapshots", [Intermediate, Current, &Earlier, &Latest](Durin::FRHICommandListImmediate& Commands) {
-				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Intermediate->Texture, 0, 0, Earlier));
-				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Current->Texture, 0, 0, Latest));
+				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Intermediate, 0, 0, Earlier));
+				EXPECT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(Commands, Current, 0, 0, Latest));
 			});
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(Earlier, Durin::FByteBuffer(4, std::byte{0x11}));
@@ -667,7 +667,7 @@ TEST(FTextureCookTests, OwnedUpdatesRetainFallbackCoalesceInputsAndCloseAcrossAl
 	InstallUpdateInput(*Rejected, std::byte{0x44});
 	Rejected->UpdateResource();
 	Durin::PumpTextureResourceUpdates();
-	EXPECT_EQ(Rejected->GetRenderFailure(), Durin::ETextureRenderFailure::AdmissionRejected);
+	EXPECT_EQ(Rejected->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 	EXPECT_FALSE(Rejected->IsResourceUpdatePending());
 	EXPECT_FALSE(Rejected->HasUsableResource());
 	Durin::MarkAsGarbage(Rejected);
