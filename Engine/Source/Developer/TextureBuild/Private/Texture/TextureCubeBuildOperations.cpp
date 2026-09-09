@@ -110,18 +110,15 @@ namespace Durin
 			return false;
 		}
 		const FTextureCubeSourceData SourceData = Request.ImportedData.get().ToSourceData();
-		const bool bHasTransparency = std::ranges::any_of(
-			SourceData.Faces, [](const FTextureSourceData& Face) {
-				return Face.bHasTransparency;
-			});
+		const bool bHasTransparency = SourceData.TransparencyMask != 0;
 		auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			FTextureSourceData BuildSource = SourceData.Faces[Index];
-			BuildSource.bHasTransparency = bHasTransparency;
 			const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
-				BuildSource, ETextureUsage::Color,
-				Request.bSRGB, PlatformData->Faces[Index]);
+				std::span(&SourceData.Faces[Index], 1), ETextureUsage::Color,
+				Request.bSRGB, PlatformData->Faces[Index], 0,
+				ETextureCompressionQuality::Normal, ETextureAlphaMipMode::Average,
+				0.5f, nullptr, bHasTransparency);
 			if (!BuildResult)
 			{
 				OutError = std::format("{} face platform build failed: {}",

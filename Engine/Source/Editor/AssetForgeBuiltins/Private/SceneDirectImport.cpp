@@ -376,7 +376,7 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", "Texture platform data is invalid.", Descriptor.StableIdentity);
 				}
-				if (!Texture->SetSourceData(Output.Texture.SourceData, Error)
+				if (!Texture->SetSource(Output.Texture.SourceData, Error)
 					|| !Texture->SetBuildSettings(Settings.Usage,
 						ResolveTexture2DSRGB(Settings), Settings.MaxResolution,
 						Settings.CompressionQuality, Settings.AlphaMipMode,

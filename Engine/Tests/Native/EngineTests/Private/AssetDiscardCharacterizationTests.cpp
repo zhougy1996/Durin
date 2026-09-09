@@ -95,9 +95,13 @@ namespace
 		static auto SetSource(Durin::DTexture2D& Texture, std::byte Value,
 			std::string& Error) -> bool
 		{
-			return Texture.SetSourceData(Durin::FTextureSourceData(Durin::FTextureSourceData{
-				.Pixels = Durin::FByteBuffer(16, Value), .Width = 2, .Height = 2,
-				.SourceChannelCount = 4, .Format = Durin::ETextureSourceFormat::RGBA8}), Error);
+			Durin::Image::FImage Image;
+			Durin::FTextureSource Source;
+			return Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+				.Format = Durin::Image::ERawImageFormat::RGBA8},
+				Durin::FByteBuffer(16, Value), Image, &Error)
+				&& Source.Init2D(Image.GetView(), 4)
+				&& Texture.SetSource(std::move(Source), Error);
 		}
 
 		static auto SetSource(Durin::DVolumeTexture& Texture, std::byte Value,

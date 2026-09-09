@@ -41,16 +41,7 @@ namespace Durin::Editor::Texture
 		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
 		const auto Mips = Texture ? Texture->GetSource().GetMipData() : FTextureSource::FMipData{};
 		const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
-		FTextureSourceData BuildInput;
-		if (View.IsValid()) BuildInput = {
-			.Pixels = FByteBuffer(View.GetPixels().begin(), View.GetPixels().end()),
-			.Width = View.GetInfo().Width, .Height = View.GetInfo().Height,
-			.SourceChannelCount = Texture->GetSource().GetSourceChannelCount(),
-			.Format = ETextureSourceFormat::RGBA8,
-			.bHasTransparency = Texture->GetSource().HasTransparency()};
-		const FTextureSourceData* Source = BuildInput.IsValid()
-			? &BuildInput : nullptr;
-		if (!Texture || !Source)
+		if (!Texture || !View.IsValid() || View.GetInfo().Format != Image::ERawImageFormat::RGBA8)
 		{
 			OutError = Load ? "Texture2D canonical source pixels are unavailable." : Load.Message;
 			return false;
@@ -62,26 +53,26 @@ namespace Durin::Editor::Texture
 		Generated->Height = OutputSize;
 		Generated->Pixels.assign(static_cast<size_t>(OutputSize) * OutputSize * 4, std::byte{0});
 		const double Scale = std::min(
-			static_cast<double>(OutputSize) / Source->Width,
-			static_cast<double>(OutputSize) / Source->Height);
+			static_cast<double>(OutputSize) / View.GetInfo().Width,
+			static_cast<double>(OutputSize) / View.GetInfo().Height);
 		const uint32 DrawWidth = std::max(1u,
-			static_cast<uint32>(std::floor(Source->Width * Scale)));
+			static_cast<uint32>(std::floor(View.GetInfo().Width * Scale)));
 		const uint32 DrawHeight = std::max(1u,
-			static_cast<uint32>(std::floor(Source->Height * Scale)));
+			static_cast<uint32>(std::floor(View.GetInfo().Height * Scale)));
 		const uint32 OffsetX = (OutputSize - DrawWidth) / 2;
 		const uint32 OffsetY = (OutputSize - DrawHeight) / 2;
 		for (uint32 Y = 0; Y < DrawHeight; ++Y)
 			for (uint32 X = 0; X < DrawWidth; ++X)
 			{
-				const uint32 SourceX = std::min(Source->Width - 1,
-					static_cast<uint32>((static_cast<uint64>(X) * Source->Width) / DrawWidth));
-				const uint32 SourceY = std::min(Source->Height - 1,
-					static_cast<uint32>((static_cast<uint64>(Y) * Source->Height) / DrawHeight));
+				const uint32 SourceX = std::min(View.GetInfo().Width - 1,
+					static_cast<uint32>((static_cast<uint64>(X) * View.GetInfo().Width) / DrawWidth));
+				const uint32 SourceY = std::min(View.GetInfo().Height - 1,
+					static_cast<uint32>((static_cast<uint64>(Y) * View.GetInfo().Height) / DrawHeight));
 				const size_t SourcePixel =
-					(static_cast<size_t>(SourceY) * Source->Width + SourceX) * 4;
+					(static_cast<size_t>(SourceY) * View.GetInfo().Width + SourceX) * 4;
 				const size_t OutputPixel =
 					(static_cast<size_t>(OffsetY + Y) * OutputSize + OffsetX + X) * 4;
-				std::copy_n(Source->Pixels.begin() + static_cast<ptrdiff_t>(SourcePixel),
+				std::copy_n(View.GetPixels().begin() + static_cast<ptrdiff_t>(SourcePixel),
 					4, Generated->Pixels.begin() + static_cast<ptrdiff_t>(OutputPixel));
 			}
 		const FXxHash128 Identity = Texture->GetSource().GetIdentity();
@@ -96,7 +87,7 @@ namespace Durin::Editor::Texture
 		OutRequest.GeneratedPixels = std::move(Generated);
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
-		OutRequest.bHasTransparency = Source->bHasTransparency;
+		OutRequest.bHasTransparency = Texture->GetSource().HasTransparency();
 		OutRequest.AssetRevision = OutRequest.GeneratedPixels->AssetRevision;
 		OutError.clear();
 		return true;

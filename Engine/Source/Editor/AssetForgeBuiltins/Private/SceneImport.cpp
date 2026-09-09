@@ -721,7 +721,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		else OutProduct.SourceFilename = std::move(SourceFilename);
 		OutProduct.SourceFileSize = Bytes.size();
-		FTextureSourceData SourceData;
+		FTextureSource SourceData;
 		OutProduct.EncodedSourceHash = FXxHash128::HashBuffer(Bytes);
 		OutProduct.Settings = {
 			.Usage = Descriptor.TextureUsage,
@@ -730,7 +730,7 @@ namespace Durin::AssetForge::Builtins
 			.ShouldCancel = IsCancellationRequested};
 		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)) return false;
 		FTexture2DBuildRequest Request = MakeTexture2DBuildRequest(
-			SourceData.ToSource(), OutProduct.Settings);
+			SourceData, OutProduct.Settings);
 		FTexture2DBuildInputIdentity Identity;
 		const FTexture2DBuildResult BuildResult = InvokeTexture2DBuildProvider(
 			Request, OutProduct.Product, Identity, &Control);

@@ -296,14 +296,13 @@ namespace
 			std::array<FTexture2DCompilationRequest, BatchSize> Requests;
 			for (auto& Request : Requests)
 			{
-				FTextureSourceData Source;
-				Source.Width = 64;
-				Source.Height = 64;
-				Source.SourceChannelCount = 4;
-				Source.Format = ETextureSourceFormat::RGBA8;
-				Source.Pixels.resize(64 * 64 * 4, static_cast<std::byte>(Batch + 1));
-				Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
-				Request.ResultApplication.SourceReplacement = Source.ToSource();
+				Image::FImage SourceImage;
+				EXPECT_TRUE(Image::FImage::TryCreate({.Width = 64, .Height = 64,
+					.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, static_cast<std::byte>(Batch + 1)), SourceImage));
+				FTextureSource Source;
+				EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
+				Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+				Request.ResultApplication.SourceReplacement = Source;
 				Request.Build.bPersistDerivedData = false;
 			}
 			uint32 Completions = 0;

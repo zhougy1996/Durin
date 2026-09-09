@@ -35,12 +35,4 @@ namespace Durin::TextureBuilder
 		const FBuildExecutionControl* ExecutionControl = nullptr,
 		std::optional<bool> TransparencyOverride = {}) -> FTexture2DBuildResult;
 
-	// Adapts existing cube-face callers to the image recipe.
-	TEXTUREBUILD_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, uint32 MaxResolution = 0,
-		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
-		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
-		float AlphaCoverageThreshold = 0.5f,
-		const FBuildExecutionControl* ExecutionControl = nullptr,
-		std::span<const FTextureSourceData> SuppliedMips = {}) -> FTexture2DBuildResult;
 }

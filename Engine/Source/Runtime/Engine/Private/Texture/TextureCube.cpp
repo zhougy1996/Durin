@@ -101,31 +101,40 @@ namespace Durin
 
 		auto ValidateCubeSourceData(const FTextureCubeSourceData& SourceData, std::string& OutError) -> bool
 		{
-			const FTextureSourceData& Reference = SourceData.Faces[0];
+			if ((SourceData.TransparencyMask & ~0x3fu) != 0
+				|| SourceData.SourceChannelCounts[0] == 0 || SourceData.SourceChannelCounts[0] > 4)
+			{
+				OutError = "Cube face import metadata is invalid.";
+				return false;
+			}
+			const Image::FImage& Reference = SourceData.Faces[0];
 			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 			{
-				const FTextureSourceData& Face = SourceData.Faces[FaceIndex];
-				if (!Face.IsValid())
+				const Image::FImage& Face = SourceData.Faces[FaceIndex];
+				if (!Face.IsValid() || Face.GetInfo().Format != Image::ERawImageFormat::RGBA8
+					|| Face.GetInfo().Depth != 1 || Face.GetInfo().SliceCount != 1
+					|| Face.GetInfo().Width > 16384 || Face.GetInfo().Height > 16384
+					|| Face.GetInfo().GammaSpace != Image::EImageGammaSpace::Unknown)
 				{
 					OutError = std::format("{} face source data is invalid.", FaceNames[FaceIndex]);
 					return false;
 				}
-				if (Face.Width != Face.Height)
+				if (Face.GetInfo().Width != Face.GetInfo().Height)
 				{
 					OutError = std::format("{} face must be square, but is {}x{}.",
-						FaceNames[FaceIndex], Face.Width, Face.Height);
+						FaceNames[FaceIndex], Face.GetInfo().Width, Face.GetInfo().Height);
 					return false;
 				}
-				if (Face.Width != Reference.Width || Face.Height != Reference.Height)
+				if (Face.GetInfo().Width != Reference.GetInfo().Width || Face.GetInfo().Height != Reference.GetInfo().Height)
 				{
 					OutError = std::format("{} face dimensions {}x{} do not match PositiveX {}x{}; all faces must be identical.",
-						FaceNames[FaceIndex], Face.Width, Face.Height, Reference.Width, Reference.Height);
+						FaceNames[FaceIndex], Face.GetInfo().Width, Face.GetInfo().Height, Reference.GetInfo().Width, Reference.GetInfo().Height);
 					return false;
 				}
-				if (Face.SourceChannelCount != Reference.SourceChannelCount)
+				if (SourceData.SourceChannelCounts[FaceIndex] != SourceData.SourceChannelCounts[0])
 				{
 					OutError = std::format("{} face source channel count {} does not match PositiveX {}; all faces must use an identical source format.",
-						FaceNames[FaceIndex], Face.SourceChannelCount, Reference.SourceChannelCount);
+						FaceNames[FaceIndex], SourceData.SourceChannelCounts[FaceIndex], SourceData.SourceChannelCounts[0]);
 					return false;
 				}
 			}
@@ -157,21 +166,19 @@ namespace Durin
 	{
 		if (!Source.IsValid()) return false;
 		FByteBuffer Bytes;
-		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].Pixels.size())
+		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].GetPixels().size())
 			* TextureCubeFaceCount;
 		if (TotalBytes > MaximumTextureCubeImportedPixelBytes) return false;
 		Bytes.reserve(static_cast<size_t>(TotalBytes));
-		uint8 NewTransparencyMask = 0;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			const FTextureSourceData& Face = Source.Faces[Index];
-			Bytes.insert(Bytes.end(), Face.Pixels.begin(), Face.Pixels.end());
-			if (Face.bHasTransparency) NewTransparencyMask |= static_cast<uint8>(1u << Index);
+			const Image::FImage& Face = Source.Faces[Index];
+			Bytes.insert(Bytes.end(), Face.GetPixels().begin(), Face.GetPixels().end());
 		}
 		if (!Pixels.UpdatePayload(Bytes)) return false;
-		FaceDimension = Source.Faces[0].Width;
-		SourceChannelCount = Source.Faces[0].SourceChannelCount;
-		TransparencyMask = NewTransparencyMask;
+		FaceDimension = Source.Faces[0].GetInfo().Width;
+		SourceChannelCount = Source.SourceChannelCounts[0];
+		TransparencyMask = Source.TransparencyMask;
 		SchemaVersion = TextureCubeImportedDataSchemaVersion;
 		FTextureSource Canonical;
 		const FTextureSourceBlock Block{.Width = FaceDimension,
@@ -189,20 +196,17 @@ namespace Durin
 	{
 		FTextureCubeSourceData Result;
 		if (!IsValid()) return Result;
-		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
-		const FByteView Bytes = Payload.GetBytes();
-		const size_t FaceBytes = static_cast<size_t>(FaceDimension) * FaceDimension * 4;
+		const FPackageResourceReadResult Read = Pixels.GetPayload().Wait();
+		if (!Read || Read.Buffer.GetSize() != Pixels.GetPayloadSize()) return {};
+		const uint64 FaceBytes = static_cast<uint64>(FaceDimension) * FaceDimension * 4;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			const auto Face = Bytes.subspan(Index * FaceBytes, FaceBytes);
-			Result.Faces[Index] = {
-				.Pixels = FByteBuffer(Face.begin(), Face.end()),
-				.Width = FaceDimension,
-				.Height = FaceDimension,
-				.SourceChannelCount = SourceChannelCount,
-				.Format = ETextureSourceFormat::RGBA8,
-				.bHasTransparency = (TransparencyMask & (1u << Index)) != 0};
+			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+				.Format = Image::ERawImageFormat::RGBA8},
+				Read.Buffer.MakeView(Index * FaceBytes, FaceBytes), Result.Faces[Index])) return {};
 		}
+		Result.SourceChannelCounts.fill(SourceChannelCount);
+		Result.TransparencyMask = TransparencyMask;
 		return Result;
 	}
 

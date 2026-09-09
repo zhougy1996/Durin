@@ -43,7 +43,7 @@ namespace Durin::AssetForge::Builtins
 	};
 	struct FSceneTextureBuildProduct
 	{
-		FTextureSourceData SourceData;
+		FTextureSource SourceData;
 		FTexture2DBuildSettings Settings;
 		FTexture2DBuildProduct Product;
 		FXxHash128 EncodedSourceHash;

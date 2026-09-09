@@ -38,13 +38,14 @@ namespace
 		ASSERT_TRUE(FPackagePath::TryCreate("/AsyncPilot/LargeTexture", Path));
 		DTexture2D* Texture = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
-		FTextureSourceData Source;
-		Source.Width = 256; Source.Height = 256; Source.SourceChannelCount = 4;
-		Source.Format = ETextureSourceFormat::RGBA8;
-		Source.Pixels.resize(256 * 256 * 4, std::byte{42});
+		Image::FImage SourceImage;
+		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 256, .Height = 256,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(256 * 256 * 4, std::byte{42}), SourceImage));
+		FTextureSource Source;
+		ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		FTexture2DCompilationRequest Request;
-		Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
-		Request.ResultApplication.SourceReplacement = Source.ToSource();
+		Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+		Request.ResultApplication.SourceReplacement = Source;
 		Request.Build.bPersistDerivedData = false;
 		uint32 LargeCompleted = 0;
 		std::string Error;
@@ -88,13 +89,14 @@ namespace
 			Blockers[Index] = Tasks::LaunchTask("FillTextureScheduler", [] {}).GetCompletion().GetTaskHandle();
 			ASSERT_TRUE(Blockers[Index].IsValid());
 		}
-		FTextureSourceData SaturatedSource;
-		SaturatedSource.Width = 1; SaturatedSource.Height = 1; SaturatedSource.SourceChannelCount = 4;
-		SaturatedSource.Format = ETextureSourceFormat::RGBA8;
-		SaturatedSource.Pixels.resize(4);
+		Image::FImage SaturatedSourceImage;
+		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4), SaturatedSourceImage));
+		FTextureSource SaturatedSource;
+		ASSERT_TRUE(SaturatedSource.Init2D(SaturatedSourceImage.GetView(), 4));
 		FTexture2DCompilationRequest SaturatedRequest;
-		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource.ToSource());
-		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource.ToSource();
+		SaturatedRequest.Build = Durin::MakeTexture2DBuildRequest(SaturatedSource);
+		SaturatedRequest.ResultApplication.SourceReplacement = SaturatedSource;
 		ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(SaturatedRequest), Error,
 			[&](FTexture2DCompilationResult Result) {
 				EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status);
@@ -114,13 +116,14 @@ namespace
 			DTexture2D* Texture = nullptr;
 			ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
 			PendingTextures[Index] = Texture;
-			FTextureSourceData Source;
-			Source.Width = 64; Source.Height = 64; Source.SourceChannelCount = 4;
-			Source.Format = ETextureSourceFormat::RGBA8;
-			Source.Pixels.resize(64 * 64 * 4, std::byte{42});
+			Image::FImage SourceImage;
+			ASSERT_TRUE(Image::FImage::TryCreate({.Width = 64, .Height = 64,
+				.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, std::byte{42}), SourceImage));
+			FTextureSource Source;
+			ASSERT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 			FTexture2DCompilationRequest Request;
-			Request.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource());
-			Request.ResultApplication.SourceReplacement = Source.ToSource();
+			Request.Build = Durin::MakeTexture2DBuildRequest(Source);
+			Request.ResultApplication.SourceReplacement = Source;
 			Request.Build.bPersistDerivedData = false;
 			std::string Error;
 			ASSERT_TRUE(SubmitTexture2DCompilation(*Texture, std::move(Request), Error, [&, Index](FTexture2DCompilationResult Result) { EXPECT_EQ(ETexture2DCompilationStatus::Canceled, Result.Status); ++Completed[Index]; })) << Error;

@@ -170,14 +170,14 @@ namespace
 		uint32 Y
 	) -> std::array<uint8, 4>
 	{
-		const Durin::FTextureSourceData& Source =
+		const Durin::Image::FImage& Source =
 			SourceData.Faces[static_cast<size_t>(Face)];
-		const size_t PixelOffset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
+		const size_t PixelOffset = (static_cast<size_t>(Y) * Source.GetInfo().Width + X) * 4;
 		return {
-			std::to_integer<uint8>(Source.Pixels[PixelOffset]),
-			std::to_integer<uint8>(Source.Pixels[PixelOffset + 1]),
-			std::to_integer<uint8>(Source.Pixels[PixelOffset + 2]),
-			std::to_integer<uint8>(Source.Pixels[PixelOffset + 3])
+			std::to_integer<uint8>(Source.GetPixels()[PixelOffset]),
+			std::to_integer<uint8>(Source.GetPixels()[PixelOffset + 1]),
+			std::to_integer<uint8>(Source.GetPixels()[PixelOffset + 2]),
+			std::to_integer<uint8>(Source.GetPixels()[PixelOffset + 3])
 		};
 	}
 

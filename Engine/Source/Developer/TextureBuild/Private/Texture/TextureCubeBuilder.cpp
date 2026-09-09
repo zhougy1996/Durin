@@ -62,15 +62,6 @@ namespace Durin::TextureCubeBuilder
 			return std::clamp(Numerator / Denominator, 0.0, 1.0);
 		}
 
-		auto InitializeFace(FTextureSourceData& Face, uint32 FaceDimension) -> void
-		{
-			Face.Width = FaceDimension;
-			Face.Height = FaceDimension;
-			Face.SourceChannelCount = LDRChannelCount;
-			Face.Format = ETextureSourceFormat::RGBA8;
-			Face.Pixels.resize(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
-		}
-
 		auto ValidateLDRPanorama(const FTexturePanoramaImage& Panorama, std::string& OutError) -> bool
 		{
 			const uint64 PixelCount = static_cast<uint64>(Panorama.Width) * Panorama.Height;
@@ -176,8 +167,7 @@ namespace Durin::TextureCubeBuilder
 		FTextureCubeSourceData Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
-			FTextureSourceData& Face = Projected.Faces[FaceIndex];
-			InitializeFace(Face, FaceDimension);
+			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
 			for (uint32 Y = 0; Y < FaceDimension; ++Y)
 			{
 				for (uint32 X = 0; X < FaceDimension; ++X)
@@ -202,13 +192,18 @@ namespace Durin::TextureCubeBuilder
 								? ColorConvert::SRGB8ToLinear(Encoded)
 								: static_cast<double>(Encoded) / 255.0);
 						}
-						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
+						Pixels[Destination + Channel] = static_cast<std::byte>(
 							Channel < 3 ? ColorConvert::LinearToSRGB8(Value) : ColorConvert::QuantizeUNorm8(Value));
 					}
-					Face.bHasTransparency |= Face.Pixels[Destination + 3] != static_cast<std::byte>(255);
+					if (Pixels[Destination + 3] != std::byte{255})
+						Projected.TransparencyMask |= static_cast<uint8>(1u << FaceIndex);
 				}
 			}
+			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels),
+				Projected.Faces[FaceIndex], &OutError)) return false;
 		}
+		Projected.SourceChannelCounts.fill(LDRChannelCount);
 		OutSourceData = std::move(Projected);
 		return true;
 	}
@@ -230,8 +225,7 @@ namespace Durin::TextureCubeBuilder
 		FTextureCubeSourceData Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
-			FTextureSourceData& Face = Projected.Faces[FaceIndex];
-			InitializeFace(Face, FaceDimension);
+			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
 			for (uint32 Y = 0; Y < FaceDimension; ++Y)
 			{
 				for (uint32 X = 0; X < FaceDimension; ++X)
@@ -256,13 +250,17 @@ namespace Durin::TextureCubeBuilder
 							OutError = "HDR panorama exposure produced a nonfinite channel.";
 							return false;
 						}
-						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
+						Pixels[Destination + Channel] = static_cast<std::byte>(
 							ColorConvert::LinearToSRGB8(FilmicToneMap(Exposed)));
 					}
-					Face.Pixels[Destination + 3] = static_cast<std::byte>(255);
+					Pixels[Destination + 3] = static_cast<std::byte>(255);
 				}
 			}
+			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+				.Format = Image::ERawImageFormat::RGBA8}, std::move(Pixels),
+				Projected.Faces[FaceIndex], &OutError)) return false;
 		}
+		Projected.SourceChannelCounts.fill(LDRChannelCount);
 		OutSourceData = std::move(Projected);
 		return true;
 	}

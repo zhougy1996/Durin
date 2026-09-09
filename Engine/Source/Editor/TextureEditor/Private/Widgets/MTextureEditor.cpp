@@ -565,16 +565,7 @@ namespace Durin::Editor::Texture
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
 		const auto Mips = Texture ? Texture->GetSource().GetMipData() : FTextureSource::FMipData{};
 		const auto View = Mips.IsValid() ? Mips.GetMipImage(0, 0, 0) : Image::FImageView{};
-		FTextureSourceData BuildInput;
-		if (View.IsValid()) BuildInput = {
-			.Pixels = FByteBuffer(View.GetPixels().begin(), View.GetPixels().end()),
-			.Width = View.GetInfo().Width, .Height = View.GetInfo().Height,
-			.SourceChannelCount = Texture->GetSource().GetSourceChannelCount(),
-			.Format = ETextureSourceFormat::RGBA8,
-			.bHasTransparency = Texture->GetSource().HasTransparency()};
-		const FTextureSourceData* Source = BuildInput.IsValid()
-			? &BuildInput : nullptr;
-		const bool bSourceAvailable = Source && Source->IsValid();
+		const bool bSourceAvailable = View.IsValid() && View.GetInfo().Format == Image::ERawImageFormat::RGBA8;
 		const bool bPlatformAvailable = Platform && Platform->IsValid();
 		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
 		if (!bPlatformAvailable && bSourceAvailable) PreviewState.bPreviewSource = true;
@@ -660,7 +651,7 @@ namespace Durin::Editor::Texture
 			if (bRevisionChanged || bMipChanged || bPreviewModeChanged || !Preview.IsValid())
 			{
 				if (PreviewState.bPreviewSource)
-					Preview.UploadSource(*Source, PreviewState.SelectedChannel);
+					Preview.UploadSource(View, PreviewState.SelectedChannel);
 				else
 					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, PreviewState.SelectedChannel);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;

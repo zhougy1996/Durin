@@ -13,7 +13,6 @@
 namespace Durin
 {
 	class FArchive;
-	struct FTextureSource;
 
 	// Selects semantic color handling and platform-build defaults for a texture.
 	DENUM()
@@ -47,23 +46,6 @@ namespace Durin
 		ETextureCompressionQuality Quality) -> bool;
 	ENGINE_API auto IsValidTextureAlphaMipMode(ETextureAlphaMipMode Mode) -> bool;
 	ENGINE_API auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool;
-
-	// Decoded RGBA8 interchange for image import and cube-face clients.
-	// Texture2D workers receive FImage values instead.
-	struct FTextureSourceData
-	{
-		FByteBuffer Pixels;
-		uint32 Width = 0;
-		uint32 Height = 0;
-		uint8 SourceChannelCount = 0;
-		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
-		bool bHasTransparency = false;
-
-		ENGINE_API auto IsValid() const -> bool;
-		// Invalid input produces an empty value. Neither conversion mutates an asset.
-		ENGINE_API auto ToImage() const -> Image::FImage;
-		ENGINE_API auto ToSource() const -> FTextureSource;
-	};
 
 	// Owns one tightly described platform mip and its byte row pitch.
 	struct FTexture2DMipData

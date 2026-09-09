@@ -5,7 +5,7 @@
 namespace Durin
 {
 	struct FTexturePlatformData;
-	struct FTextureSourceData;
+	namespace Image { class FImageView; }
 }
 
 namespace Durin::Editor::Texture
@@ -40,7 +40,7 @@ namespace Durin::Editor::Texture
 
 		// Upload source RGBA8 data as a fallback preview (single mip).
 		auto UploadSource(
-			const FTextureSourceData& Source,
+			Image::FImageView Source,
 			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA
 		) -> void;
 

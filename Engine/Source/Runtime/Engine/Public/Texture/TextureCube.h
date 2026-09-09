@@ -24,9 +24,13 @@ namespace Durin
 		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
 	};
 
+	// Shares six RGBA8 faces and retains the original per-face import metadata.
+	// Faces use Unknown gamma; the cube build settings supply color interpretation.
 	struct FTextureCubeSourceData
 	{
-		std::array<FTextureSourceData, TextureCubeFaceCount> Faces;
+		std::array<Image::FImage, TextureCubeFaceCount> Faces;
+		std::array<uint8, TextureCubeFaceCount> SourceChannelCounts{};
+		uint8 TransparencyMask = 0;
 
 		ENGINE_API auto IsValid() const -> bool;
 	};

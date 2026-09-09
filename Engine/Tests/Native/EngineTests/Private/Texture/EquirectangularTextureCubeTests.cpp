@@ -15,13 +15,13 @@ namespace Durin::TextureCubeBuilder
 		auto FacePixel(const FTextureCubeSourceData& Cube, ETextureCubeFace Face,
 			uint32 X = 0, uint32 Y = 0) -> std::array<uint8, 4>
 		{
-			const FTextureSourceData& Source = Cube.Faces[static_cast<size_t>(Face)];
-			const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
+			const Image::FImage& Source = Cube.Faces[static_cast<size_t>(Face)];
+			const size_t Offset = (static_cast<size_t>(Y) * Source.GetInfo().Width + X) * 4;
 			return {
-				std::to_integer<uint8>(Source.Pixels[Offset]),
-				std::to_integer<uint8>(Source.Pixels[Offset + 1]),
-				std::to_integer<uint8>(Source.Pixels[Offset + 2]),
-				std::to_integer<uint8>(Source.Pixels[Offset + 3]),
+				std::to_integer<uint8>(Source.GetPixels()[Offset]),
+				std::to_integer<uint8>(Source.GetPixels()[Offset + 1]),
+				std::to_integer<uint8>(Source.GetPixels()[Offset + 2]),
+				std::to_integer<uint8>(Source.GetPixels()[Offset + 3]),
 			};
 		}
 	} // namespace
@@ -117,7 +117,7 @@ namespace Durin::TextureCubeBuilder
 		LDR.Height = 4;
 		FTextureCubeSourceData Cube;
 		EXPECT_FALSE(ProjectEquirectangularTextureCube(LDR, {}, Cube, Error));
-		EXPECT_TRUE(Cube.Faces[0].Pixels.empty());
+		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_NE(Error.find("storage"), std::string::npos);
 
 		FTexturePanoramaFloatImage HDR;
@@ -126,7 +126,7 @@ namespace Durin::TextureCubeBuilder
 		HDR.Pixels.assign(6, 1.0f);
 		HDR.Pixels[0] = std::numeric_limits<float>::quiet_NaN();
 		EXPECT_FALSE(ProjectEquirectangularTextureCube(HDR, {}, Cube, Error));
-		EXPECT_TRUE(Cube.Faces[0].Pixels.empty());
+		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_NE(Error.find("nonfinite"), std::string::npos);
 
 		HDR.Pixels[0] = 1.0f;
@@ -134,6 +134,42 @@ namespace Durin::TextureCubeBuilder
 		Settings.ExposureEV = 17.0f;
 		EXPECT_FALSE(ProjectEquirectangularTextureCube(HDR, Settings, Cube, Error));
 		EXPECT_NE(Error.find("between -16 and 16"), std::string::npos);
+	}
+
+	TEST(FEquirectangularTextureCubeTests, ImportedFacesShareStorageAndRetainMetadataAfterOwnerRelease)
+	{
+		FTextureCubeSourceData Faces;
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			ASSERT_TRUE(Image::FImage::TryCreate({.Width = 2, .Height = 2,
+				.Format = Image::ERawImageFormat::RGBA8},
+				FByteBuffer(16, static_cast<std::byte>(Index + 1)), Faces.Faces[Index]));
+		}
+		Faces.SourceChannelCounts.fill(4);
+		Faces.TransparencyMask = 0x21;
+		FTextureCubeSourceData Decoded;
+		{
+			FTextureCubeImportedData Imported;
+			ASSERT_TRUE(Imported.SetSourceData(Faces));
+			const auto Identity = Imported.GetIdentity();
+			Decoded = Imported.ToSourceData();
+			ASSERT_TRUE(Decoded.IsValid());
+			const auto Payload = Imported.Pixels.GetPayload().Wait().Buffer;
+			for (const auto& Face : Decoded.Faces)
+				EXPECT_TRUE(Face.GetView().GetBuffer().SharesStorageWith(Payload));
+			FTextureCubeImportedData RoundTrip;
+			ASSERT_TRUE(RoundTrip.SetSourceData(Decoded));
+			EXPECT_EQ(RoundTrip.GetIdentity(), Identity);
+		}
+		EXPECT_EQ(Decoded.SourceChannelCounts, Faces.SourceChannelCounts);
+		EXPECT_EQ(Decoded.TransparencyMask, 0x21);
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			EXPECT_EQ(Decoded.Faces[Index].GetPixels().size(), 16u);
+			EXPECT_EQ(Decoded.Faces[Index].GetPixels().front(), static_cast<std::byte>(Index + 1));
+		}
+		Decoded.SourceChannelCounts[1] = 3;
+		EXPECT_FALSE(Decoded.IsValid());
 	}
 
 	TEST(FEquirectangularTextureCubeTests, PropagatesProjectedTransparency)
@@ -150,9 +186,7 @@ namespace Durin::TextureCubeBuilder
 		FTextureCubeSourceData Cube;
 		std::string Error;
 		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
-		EXPECT_TRUE(std::ranges::any_of(Cube.Faces, [](const FTextureSourceData& Face) {
-			return Face.bHasTransparency;
-		}));
+		EXPECT_NE(Cube.TransparencyMask, 0u);
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX)[3], 128u);
 	}
 }

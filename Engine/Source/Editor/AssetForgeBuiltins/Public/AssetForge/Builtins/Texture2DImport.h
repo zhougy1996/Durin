@@ -8,10 +8,10 @@ namespace Durin::AssetForge::Builtins
 {
 	ASSETFORGEBUILTINS_API auto IsTexture2DSourceExtension(
 		std::string_view Extension) -> bool;
-	// Translates one concrete encoded image into Engine's normalized RGBA8 source value.
+	// Decodes one image into detached authored source, retaining original channel metadata.
 	ASSETFORGEBUILTINS_API auto TranslateTexture2DSource(
 		FByteView EncodedBytes,
-		FTextureSourceData& OutSourceData,
+		FTextureSource& OutSourceData,
 		std::string& OutError) -> bool;
 
 	// Reimports from the retained optional source hint. Completion runs on the

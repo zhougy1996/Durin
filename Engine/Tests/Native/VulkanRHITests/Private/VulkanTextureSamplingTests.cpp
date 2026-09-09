@@ -177,17 +177,16 @@ namespace Durin
 			for (uint32 MipIndex = 0; MipIndex < TestMipCount; ++MipIndex)
 			{
 				const uint32 Size = std::max(1u, 4u >> MipIndex);
-				FTextureSourceData Source;
-				Source.Width = Size;
-				Source.Height = Size;
-				Source.SourceChannelCount = 4;
-				Source.Format = ETextureSourceFormat::RGBA8;
-				Source.bHasTransparency = bHasTransparency;
-				Source.Pixels = MakeSolidMip(Size, Colors[MipIndex]);
+				Image::FImage Source;
+				if (!Image::FImage::TryCreate({.Width = Size, .Height = Size,
+					.Format = Image::ERawImageFormat::RGBA8},
+					MakeSolidMip(Size, Colors[MipIndex]), Source)) return {};
 
 				FTexturePlatformData Built;
 				const FTexture2DBuildResult BuildResult = TextureBuilder::BuildMipChain(
-					Source, Usage, bSrgb, Built);
+					std::span(&Source, 1), Usage, bSrgb, Built, 0,
+					ETextureCompressionQuality::Normal, ETextureAlphaMipMode::Average,
+					0.5f, nullptr, bHasTransparency);
 				if (!BuildResult)
 				{
 					ADD_FAILURE() << BuildResult.Diagnostic;

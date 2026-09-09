@@ -44,8 +44,6 @@ namespace Durin
 
 		// Replaces authored source on the GameThread and cancels pending builds.
 		using DTexture::SetSource;
-		ENGINE_API auto SetSourceData(
-			const FTextureSourceData& Value, std::string& OutError) -> bool;
 		ENGINE_API auto SetSourceMipChain(std::span<const Image::FImageView> Mips,
 			uint8 SourceChannelCount, uint8 TransparencyMask,
 			std::string& OutError) -> bool;

@@ -172,7 +172,7 @@ namespace Durin::AssetForge::Builtins
 				OutError = "TextureCube canonical imported faces are invalid.";
 				return false;
 			}
-			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].Width, .OriginalSourceHeight = SourceData.Faces[0].Height, .Settings = Settings}}, {});
+			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
 			OutError = BuildResult.Diagnostic;
 			if (!BuildResult
 				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;
@@ -420,13 +420,28 @@ namespace Durin::AssetForge::Builtins
 		OutSource = {};
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			if (!TranslateTexture2DSource(EncodedFaces[Index], OutSource.Faces[Index], OutError))
+			Image::FDecodedImage Decoded;
+			if (!Image::DecodeImageFromMemory(EncodedFaces[Index], Decoded, OutError,
+				{.MaximumDecodedPixels = 16384ull * 16384ull})
+				|| !Image::FImage::TryCreate({.Width = Decoded.Width, .Height = Decoded.Height,
+					.Format = Image::ERawImageFormat::RGBA8}, std::move(Decoded.Pixels),
+					OutSource.Faces[Index], &OutError))
 			{
 				OutError = std::format("{} TextureCube face decode failed: {}",
 					FaceNames[Index], OutError);
 				OutSource = {};
 				return false;
 			}
+			if (Decoded.Width > 16384 || Decoded.Height > 16384)
+			{
+				OutError = std::format("{} TextureCube face dimensions {}x{} exceed the 16384 pixel limit.",
+					FaceNames[Index], Decoded.Width, Decoded.Height);
+				OutSource = {};
+				return false;
+			}
+			OutSource.SourceChannelCounts[Index] = Decoded.SourceChannelCount;
+			if (Decoded.bHasTransparency)
+				OutSource.TransparencyMask |= static_cast<uint8>(1u << Index);
 		}
 		return true;
 	}
@@ -456,7 +471,7 @@ namespace Durin::AssetForge::Builtins
 			return {false, "TextureCube canonical imported faces are invalid."};
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
-		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].Width, .OriginalSourceHeight = SourceData.Faces[0].Height, .Settings = Settings}});
+		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 		Error = BuildResult.Outcome.Diagnostic;
 		CanonicalInput = BuildResult ? std::move(BuildResult.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 		Product = BuildResult ? std::move(BuildResult.Value->Product) : Durin::FTextureCubeBuildProduct{};

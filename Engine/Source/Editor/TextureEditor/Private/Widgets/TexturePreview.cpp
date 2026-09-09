@@ -390,14 +390,16 @@ namespace Durin::Editor::Texture
 	}
 
 	auto FTexturePreview::UploadSource(
-		const FTextureSourceData& Source,
+		Image::FImageView Source,
 		ETexturePreviewChannel Channel
 	) -> void
 	{
-		if (!Source.IsValid()) return;
+		if (!Source.IsValid() || Source.GetInfo().Format != Image::ERawImageFormat::RGBA8
+			|| Source.GetInfo().Depth != 1 || Source.GetInfo().SliceCount != 1) return;
 		SelectedChannel = Channel;
 		// Source data is always RGBA8; preview it without color-space conversion.
-		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.Width, Source.Height, Source.Width * 4, Source.Pixels);
+		UploadPixels(EPixelFormat::RGBA8_UNORM, Source.GetInfo().Width,
+			Source.GetInfo().Height, Source.GetInfo().Width * 4, Source.GetPixels());
 	}
 
 	auto FTexturePreview::UploadRGBA8(uint32 Width, uint32 Height,

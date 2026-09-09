@@ -80,14 +80,13 @@ TEST(FTexture2DTests, LoadPublishesTextureWhenPostLoadBuildProviderIsUnavailable
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/UnavailableProvider", AssetPath));
 	Durin::DTexture2D* Texture = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
-	Durin::FTextureSourceData Source;
-	Source.Width = 1;
-	Source.Height = 1;
-	Source.SourceChannelCount = 4;
-	Source.Format = Durin::ETextureSourceFormat::RGBA8;
-	Source.Pixels.resize(4);
+	Durin::Image::FImage SourceImage;
+	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceImage));
+	Durin::FTextureSource Source;
+	EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 	std::string Error;
-	ASSERT_TRUE(Texture->SetSourceData(Durin::FTextureSourceData(Source), Error)) << Error;
+	ASSERT_TRUE(Texture->SetSource(std::move(Source), Error)) << Error;
 	const auto Saved = Durin::SavePackage(Texture->GetPackage());
 	ASSERT_TRUE(Saved) << Saved.Message;
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));

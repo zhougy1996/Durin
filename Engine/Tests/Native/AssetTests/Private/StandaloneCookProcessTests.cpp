@@ -212,13 +212,17 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	std::string Error;
 	auto* Saved = Make.operator()<DObject>("Saved");
 	ASSERT_TRUE(SavePackage(Saved->GetPackage()));
-	FTextureSourceData Pixels{.Pixels = FByteBuffer(4 * 4 * 4, std::byte{0xff}),
-		.Width = 4, .Height = 4, .SourceChannelCount = 4, .Format = ETextureSourceFormat::RGBA8};
+	Image::FImage PixelsImage;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4 * 4 * 4, std::byte{0xff}), PixelsImage));
+	FTextureSource Pixels;
+	ASSERT_TRUE(Pixels.Init2D(PixelsImage.GetView(), 4));
 	auto* Texture = Make.operator()<DTexture2D>("Texture");
-	ASSERT_TRUE(Texture->SetSourceData(FTextureSourceData(Pixels), Error)) << Error;
+	ASSERT_TRUE(Texture->SetSource(std::move(Pixels), Error)) << Error;
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
 	FTextureCubeSourceData Faces;
-	for (auto& Face : Faces.Faces) Face = Pixels;
+	for (auto& Face : Faces.Faces) Face = PixelsImage;
+	Faces.SourceChannelCounts.fill(4);
 	FTextureCubeImportedData CubeInput;
 	ASSERT_TRUE(CubeInput.SetSourceData(Faces));
 	auto* Cube = Make.operator()<DTextureCube>("Cube");

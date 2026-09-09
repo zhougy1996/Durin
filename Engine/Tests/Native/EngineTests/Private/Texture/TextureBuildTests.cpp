@@ -169,17 +169,19 @@ TEST(FTextureSourceTests, FailedFamilyEditPreservesAcceptedState)
 	InitializeDObjectSystem();
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "AtomicTextureSourceEdit");
 	ASSERT_NE(Texture, nullptr);
-	Durin::FTextureSourceData Imported;
-	Imported.Width = 1;
-	Imported.Height = 1;
-	Imported.SourceChannelCount = 4;
-	Imported.Format = Durin::ETextureSourceFormat::RGBA8;
-	Imported.Pixels = Durin::FByteBuffer(4, std::byte{1});
+	Durin::Image::FImage ImportedImage;
+	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4, std::byte{1}), ImportedImage));
+	Durin::FTextureSource Imported;
+	EXPECT_TRUE(Imported.Init2D(ImportedImage.GetView(), 4));
 	std::string Error;
-	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
+	ASSERT_TRUE(Texture->SetSource(Imported, Error)) << Error;
 	const Durin::FXxHash128 Identity = Texture->GetSource().GetIdentity();
-	Imported.Pixels = Durin::FByteBuffer(3, std::byte{2});
-	EXPECT_FALSE(Texture->SetSourceData(Imported, Error));
+	EXPECT_FALSE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8},
+		Durin::FByteBuffer(3, std::byte{2}), ImportedImage));
+	Imported.Reset();
+	EXPECT_FALSE(Texture->SetSource(Imported, Error));
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
 }
 
@@ -222,14 +224,13 @@ TEST(FTextureSourceTests, TextureOwnsSourceAndBuildInputCapturesIdentity)
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "OwnedTextureSource");
 	ASSERT_NE(Texture, nullptr);
 	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
-	Durin::FTextureSourceData Imported;
-	Imported.Width = 1;
-	Imported.Height = 1;
-	Imported.SourceChannelCount = 4;
-	Imported.Format = Durin::ETextureSourceFormat::RGBA8;
-	Imported.Pixels = Durin::FByteBuffer(4, std::byte{8});
+	Durin::Image::FImage ImportedImage;
+	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4, std::byte{8}), ImportedImage));
+	Durin::FTextureSource Imported;
+	EXPECT_TRUE(Imported.Init2D(ImportedImage.GetView(), 4));
 	std::string Error;
-	ASSERT_TRUE(Texture->SetSourceData(Imported, Error)) << Error;
+	ASSERT_TRUE(Texture->SetSource(Imported, Error)) << Error;
 	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
 	const auto BuildInput = Texture->CreateBuildRequest({});
 	ASSERT_FALSE(BuildInput.SourceMips.empty());
@@ -244,17 +245,22 @@ TEST(FTextureSourceTests, ImageBuildInputSurvivesSourceReplacementWithoutPixelCo
 {
 	InitializeDObjectSystem();
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "ImagePayloadOwner");
-	Durin::FTextureSourceData Pixels{.Pixels = Durin::FByteBuffer(16, std::byte{17}),
-		.Width = 2, .Height = 2, .SourceChannelCount = 4,
-		.Format = Durin::ETextureSourceFormat::RGBA8};
+	Durin::Image::FImage PixelsImage;
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(16, std::byte{17}), PixelsImage));
+	Durin::FTextureSource Pixels;
+	ASSERT_TRUE(Pixels.Init2D(PixelsImage.GetView(), 4));
 	std::string Error;
-	ASSERT_TRUE(Texture->SetSourceData(Pixels, Error)) << Error;
+	ASSERT_TRUE(Texture->SetSource(Pixels, Error)) << Error;
 	const auto Input = Texture->CreateBuildRequest({.MaxResolution = 1});
 	ASSERT_EQ(Input.SourceMips.size(), 1u);
 	const auto SourceBuffer = Texture->GetSource().GetMipData().GetData();
 	EXPECT_TRUE(Input.SourceMips.front().GetView().GetBuffer().SharesStorageWith(SourceBuffer));
-	Pixels.Pixels.assign(16, std::byte{29});
-	ASSERT_TRUE(Texture->SetSourceData(Pixels, Error)) << Error;
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+		.Format = Durin::Image::ERawImageFormat::RGBA8},
+		Durin::FByteBuffer(16, std::byte{29}), PixelsImage));
+	ASSERT_TRUE(Pixels.Init2D(PixelsImage.GetView(), 4));
+	ASSERT_TRUE(Texture->SetSource(Pixels, Error)) << Error;
 	EXPECT_NE(Input.SourceIdentity, Texture->GetSource().GetIdentity());
 	EXPECT_EQ(Input.SourceMips.front().GetPixels().front(), std::byte{17});
 	EXPECT_EQ(Input.Settings.MaxResolution, 1u);
@@ -288,17 +294,19 @@ TEST(FTextureSourceTests, RebuildPreservesAuthoredStorageAndRejectsMismatchedRep
 	EXPECT_EQ(Texture->GetSource().GetGammaSpace(), Durin::ETextureSourceGammaSpace::SRGB);
 	EXPECT_TRUE(Texture->GetSource().GetMipData().GetData().SharesStorageWith(Buffer));
 	const auto* Platform = Texture->GetPlatformData();
-	Durin::FTextureSourceData Different{.Pixels = Durin::FByteBuffer(64, std::byte{41}),
-		.Width = 4, .Height = 4, .SourceChannelCount = 4,
-		.Format = Durin::ETextureSourceFormat::RGBA8};
+	Durin::Image::FImage DifferentImage;
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 4, .Height = 4,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(64, std::byte{41}), DifferentImage));
+	Durin::FTextureSource Different;
+	ASSERT_TRUE(Different.Init2D(DifferentImage.GetView(), 4));
 	EXPECT_FALSE(Durin::BuildTexture2DSynchronously(*Texture, Texture->CreateBuildRequest({}),
-		{.SourceReplacement = Different.ToSource()}, Error));
+		{.SourceReplacement = Different}, Error));
 	EXPECT_EQ(Texture->GetSource().GetIdentity(), Identity);
 	EXPECT_EQ(Texture->GetPlatformData(), Platform);
 	ASSERT_TRUE(Durin::BuildTexture2DSynchronously(*Texture,
-		Durin::MakeTexture2DBuildRequest(Different.ToSource()),
-		{.SourceReplacement = Different.ToSource()}, Error)) << Error;
-	EXPECT_EQ(Texture->GetSource().GetIdentity(), Different.ToSource().GetIdentity());
+		Durin::MakeTexture2DBuildRequest(Different),
+		{.SourceReplacement = Different}, Error)) << Error;
+	EXPECT_EQ(Texture->GetSource().GetIdentity(), Different.GetIdentity());
 }
 
 TEST(FTexturePlatformDataTests, EnsureDoesNotBuildMissingAuthoredData)
@@ -331,13 +339,12 @@ TEST(FTexture2DBuildProviderTests, RejectsAmbiguityAndKeepsProductsValueOwned)
 	ASSERT_TRUE(Registration.IsValid());
 
 	Durin::FTexture2DBuildRequest Request;
-	Durin::FTextureSourceData SourceData;
-	SourceData.Width = 1;
-	SourceData.Height = 1;
-	SourceData.SourceChannelCount = 4;
-	SourceData.Format = Durin::ETextureSourceFormat::RGBA8;
-	SourceData.Pixels.resize(4);
-	Request = Durin::MakeTexture2DBuildRequest(SourceData.ToSource());
+	Durin::Image::FImage SourceDataImage;
+	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceDataImage));
+	Durin::FTextureSource SourceData;
+	EXPECT_TRUE(SourceData.Init2D(SourceDataImage.GetView(), 4));
+	Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	const Durin::FXxHash128 SourceIdentity =
 		Request.SourceIdentity;
 	const auto Ambiguous = Durin::FModularFeatureRegistry::Get().InvokeSingle<
@@ -365,13 +372,12 @@ TEST(FTextureBuildProviderTests, ModuleRetirementBoundsProviderUnavailability)
 	ASSERT_TRUE(Modules.UnloadModule("TextureBuild").Succeeded());
 
 	Durin::FTexture2DBuildRequest Request;
-	Durin::FTextureSourceData SourceData;
-	SourceData.Width = 1;
-	SourceData.Height = 1;
-	SourceData.SourceChannelCount = 4;
-	SourceData.Format = Durin::ETextureSourceFormat::RGBA8;
-	SourceData.Pixels.resize(4);
-	Request = Durin::MakeTexture2DBuildRequest(SourceData.ToSource());
+	Durin::Image::FImage SourceDataImage;
+	EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceDataImage));
+	Durin::FTextureSource SourceData;
+	EXPECT_TRUE(SourceData.Init2D(SourceDataImage.GetView(), 4));
+	Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildProduct Product;
 	Durin::FTexture2DBuildInputIdentity Identity;
 	const Durin::FTexture2DBuildResult BuildResult =
@@ -442,15 +448,14 @@ TEST(FTexture2DTests, TerminalRequestsRetireObjectRecordsAndBoundDiagnostics)
 		auto* Texture = Durin::NewObject<Durin::DTexture2D>(
 			nullptr, Durin::FName(std::format("TextureCompileLifetime{}", Index)));
 		ASSERT_NE(Texture, nullptr);
-		Durin::FTextureSourceData Source;
-		Source.Width = 1;
-		Source.Height = 1;
-		Source.SourceChannelCount = 4;
-		Source.Format = Durin::ETextureSourceFormat::RGBA8;
-		Source.Pixels.resize(4);
+		Durin::Image::FImage SourceImage;
+		EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceImage));
+		Durin::FTextureSource Source;
+		EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		std::string Error;
 		ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Texture, {
-			.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource(), {.Usage = static_cast<Durin::ETextureUsage>(255)}),
+			.Build = Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}),
 			.Priority = Durin::ETexture2DCompilationPriority::Background}, Error,
 			[&](Durin::FTexture2DCompilationResult Result) {
 				++CompletionCount;
@@ -477,14 +482,13 @@ TEST(FTexture2DTests, PendingLimitIncludesFinishedComputesUntilDeliveryReturns)
 	constexpr uint32 PendingLimit = 1024;
 	uint32 CompletionCount = 0;
 	auto MakeRequest = [] {
-		Durin::FTextureSourceData Source;
-		Source.Width = 1;
-		Source.Height = 1;
-		Source.SourceChannelCount = 4;
-		Source.Format = Durin::ETextureSourceFormat::RGBA8;
-		Source.Pixels.resize(4);
+		Durin::Image::FImage SourceImage;
+		EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, Durin::FByteBuffer(4), SourceImage));
+		Durin::FTextureSource Source;
+		EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		return Durin::FTexture2DCompilationRequest{
-			.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource(), {.Usage = static_cast<Durin::ETextureUsage>(255)})};
+			.Build = Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)})};
 	};
 	auto* Overflow = Durin::NewObject<Durin::DTexture2D>(nullptr, Durin::FName("PendingLimitOverflow"));
 	ASSERT_NE(nullptr, Overflow);
@@ -546,15 +550,15 @@ TEST(FTexture2DTests, SamePathReplacementCannotReceiveDestroyedOwnerCompletion)
 		});
 
 	auto MakeRequest = [](uint64 Hash) {
-		Durin::FTextureSourceData Source;
-		Source.Width = 1;
-		Source.Height = 1;
-		Source.SourceChannelCount = 4;
-		Source.Format = Durin::ETextureSourceFormat::RGBA8;
-		Source.Pixels.resize(4);
-		Source.Pixels[0] = static_cast<std::byte>(Hash);
+		Durin::FByteBuffer SourcePixels = Durin::FByteBuffer(4);
+		SourcePixels[0] = static_cast<std::byte>(Hash);
+		Durin::Image::FImage SourceImage;
+		EXPECT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8}, std::move(SourcePixels), SourceImage));
+		Durin::FTextureSource Source;
+		EXPECT_TRUE(Source.Init2D(SourceImage.GetView(), 4));
 		return Durin::FTexture2DCompilationRequest{
-			.Build = Durin::MakeTexture2DBuildRequest(Source.ToSource(), {.Usage = static_cast<Durin::ETextureUsage>(255)}),
+			.Build = Durin::MakeTexture2DBuildRequest(Source, {.Usage = static_cast<Durin::ETextureUsage>(255)}),
 			.Priority = Durin::ETexture2DCompilationPriority::Interactive};
 	};
 
@@ -1083,18 +1087,21 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 {
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "NormalizedTexture2DBuildDdc");
-	Durin::FTextureSourceData SourceData;
+	Durin::FTextureSource SourceData;
 	std::string Error;
 	const Durin::FByteView TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		TransparentPngData, SourceData, Error)) << Error;
 	ASSERT_TRUE(SourceData.IsValid());
-	EXPECT_EQ(SourceData.Width, 2u);
-	EXPECT_EQ(SourceData.Height, 1u);
+	EXPECT_EQ(SourceData.GetWidth(), 2u);
+	EXPECT_EQ(SourceData.GetHeight(), 1u);
+	EXPECT_EQ(SourceData.GetSourceChannelCount(), 4u);
+	EXPECT_TRUE(SourceData.HasTransparency());
+	EXPECT_EQ(SourceData.GetFormat(), Durin::ETextureSourceFormat::RGBA8);
 
 	Durin::FTexture2DBuildProduct Product;
-	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData.ToSource());
+	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildInputIdentity Identity;
 	const Durin::FTexture2DBuildResult BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
@@ -1118,12 +1125,12 @@ TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
 	FScopedDerivedDataCacheRoot CacheRoot(BlockedRoot);
 	const std::array<std::byte, 1> BlockingFile{std::byte{0xff}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(BlockingFile, BlockedRoot));
-	Durin::FTextureSourceData SourceData;
+	Durin::FTextureSource SourceData;
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		std::as_bytes(std::span{TransparentPngBytes}), SourceData, Error)) << Error;
 	Durin::FTexture2DBuildProduct Product;
-	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData.ToSource());
+	const auto Request = Durin::MakeTexture2DBuildRequest(SourceData);
 	Durin::FTexture2DBuildInputIdentity Identity;
 	const Durin::FTexture2DBuildResult BuildResult =
 		Durin::InvokeTexture2DBuildProvider(Request, Product, Identity);
@@ -1253,7 +1260,7 @@ TEST(FTexture2DTests, CompilationAppliesLatestNormalizedProduct)
 			Source.generic_string(), "/TextureImportTests/SourceDomain");
 	ASSERT_TRUE(Imported) << Imported.Message;
 
-	Durin::FTextureSourceData SourceData;
+	Durin::FTextureSource SourceData;
 	std::string Error;
 	const Durin::FByteView TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
@@ -1262,8 +1269,8 @@ TEST(FTexture2DTests, CompilationAppliesLatestNormalizedProduct)
 	std::optional<Durin::FTexture2DCompilationResult> CompletionResult;
 	int32 CompletionCount = 0;
 	ASSERT_TRUE(Durin::SubmitTexture2DCompilation(*Imported.Asset, {
-		.Build = Durin::MakeTexture2DBuildRequest(SourceData.ToSource(), {.MaxResolution = 1}),
-		.ResultApplication = {.SourceReplacement = SourceData.ToSource()},
+		.Build = Durin::MakeTexture2DBuildRequest(SourceData, {.MaxResolution = 1}),
+		.ResultApplication = {.SourceReplacement = SourceData},
 		.Priority = Durin::ETexture2DCompilationPriority::Interactive}, Error,
 		[&](Durin::FTexture2DCompilationResult Result) {
 			++CompletionCount;
@@ -1296,14 +1303,14 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 
 	const Durin::FByteView Encoded =
 		std::as_bytes(std::span{TransparentPngBytes});
-	auto MakeRequest = [&](Durin::FTextureSourceData SourceData) {
+	auto MakeRequest = [&](Durin::FTextureSource SourceData) {
 		return Durin::FTexture2DCompilationRequest{
-			.Build = Durin::MakeTexture2DBuildRequest(SourceData.ToSource(), {.MaxResolution = 1}),
-			.ResultApplication = {.SourceReplacement = SourceData.ToSource()},
+			.Build = Durin::MakeTexture2DBuildRequest(SourceData, {.MaxResolution = 1}),
+			.ResultApplication = {.SourceReplacement = SourceData},
 			.Priority = Durin::ETexture2DCompilationPriority::Interactive};
 	};
 
-	Durin::FTextureSourceData FailedSource;
+	Durin::FTextureSource FailedSource;
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		Encoded, FailedSource, Error)) << Error;
@@ -1319,8 +1326,8 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 	ASSERT_TRUE(FailedResult.has_value());
 	EXPECT_EQ(FailedResult->Status, Durin::ETexture2DCompilationStatus::Failed);
 
-	Durin::FTextureSourceData FirstSource;
-	Durin::FTextureSourceData SecondSource;
+	Durin::FTextureSource FirstSource;
+	Durin::FTextureSource SecondSource;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
 		Encoded, FirstSource, Error)) << Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
@@ -1482,13 +1489,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 
 TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 {
-	Durin::FTextureSourceData Source;
-	Source.Width = 8;
-	Source.Height = 8;
-	Source.SourceChannelCount = 4;
-	Source.Format = Durin::ETextureSourceFormat::RGBA8;
-	Source.bHasTransparency = true;
-	Source.Pixels.resize(8 * 8 * 4);
+	Durin::FByteBuffer Pixels(8 * 8 * 4);
 	constexpr std::array<uint8, 16> OpaqueCounts = {
 		3, 3, 3, 3,
 		3, 2, 2, 1,
@@ -1504,26 +1505,29 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 			{
 				const uint32 X = BlockX * 2 + Pixel % 2;
 				const uint32 Y = BlockY * 2 + Pixel / 2;
-				const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
-				Source.Pixels[Offset] = static_cast<std::byte>(X * 24);
-				Source.Pixels[Offset + 1] = static_cast<std::byte>(Y * 24);
-				Source.Pixels[Offset + 2] = std::byte{64};
-				Source.Pixels[Offset + 3] = Pixel < OpaqueCount
+				const size_t Offset = (static_cast<size_t>(Y) * 8 + X) * 4;
+				Pixels[Offset] = static_cast<std::byte>(X * 24);
+				Pixels[Offset + 1] = static_cast<std::byte>(Y * 24);
+				Pixels[Offset + 2] = std::byte{64};
+				Pixels[Offset + 3] = Pixel < OpaqueCount
 					? std::byte{255} : std::byte{0};
 			}
 		}
 	}
 
+	Durin::Image::FImage Source;
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 8, .Height = 8,
+		.Format = Durin::Image::ERawImageFormat::RGBA8}, std::move(Pixels), Source));
 	Durin::FTexturePlatformData Average;
 	Durin::FTexturePlatformData Preserved;
 	const Durin::FTexture2DBuildResult AverageResult = Durin::TextureBuilder::BuildMipChain(
-		Source, Durin::ETextureUsage::Color, false,
+		std::span(&Source, 1), Durin::ETextureUsage::Color, false,
 		Average, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::Average, 0.5f);
 	ASSERT_TRUE(AverageResult) << AverageResult.Diagnostic;
 	EXPECT_TRUE(AverageResult.Diagnostic.empty());
 	const Durin::FTexture2DBuildResult PreservedResult = Durin::TextureBuilder::BuildMipChain(
-		Source, Durin::ETextureUsage::Color, false,
+		std::span(&Source, 1), Durin::ETextureUsage::Color, false,
 		Preserved, 0, Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::PreserveCoverage, 0.5f);
 	ASSERT_TRUE(PreservedResult) << PreservedResult.Diagnostic;
@@ -1578,21 +1582,16 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 {
 	static_assert(Durin::TextureBuilder::CancellationBlockInterval == 64);
 	static_assert(Durin::TextureBuilder::CancellationScanlineInterval == 8);
-	Durin::FTextureSourceData Source;
-	Source.Width = 512;
-	Source.Height = 512;
-	Source.SourceChannelCount = 4;
-	Source.Format = Durin::ETextureSourceFormat::RGBA8;
-	Source.Pixels.resize(
-		static_cast<size_t>(Source.Width) * Source.Height
-		* Durin::TextureBuilder::ChannelCount,
-		std::byte{127});
+	Durin::Image::FImage Source;
+	ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 512, .Height = 512,
+		.Format = Durin::Image::ERawImageFormat::RGBA8},
+		Durin::FByteBuffer(512 * 512 * 4, std::byte{127}), Source));
 	uint32 CheckpointCount = 0;
 	const Durin::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [&] { return ++CheckpointCount == 20; }};
 	Durin::FTexturePlatformData Platform;
 	const Durin::FTexture2DBuildResult BuildResult = Durin::TextureBuilder::BuildMipChain(
-		Source,
+		std::span(&Source, 1),
 		Durin::ETextureUsage::DataMask,
 		false,
 		Platform,
@@ -1600,7 +1599,7 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 		Durin::ETextureCompressionQuality::High,
 		Durin::ETextureAlphaMipMode::Average,
 		0.5f,
-		&Control);
+		&Control, false);
 	EXPECT_FALSE(BuildResult);
 	EXPECT_EQ(CheckpointCount, 20u);
 	EXPECT_EQ(BuildResult.Status, Durin::ETexture2DBuildStatus::Cancelled);
@@ -1610,12 +1609,12 @@ TEST(FTexture2DTests, CooperativeBuildCancellationUsesFrozenCheckpointIntervals)
 
 TEST(FTexture2DTests, ValidationFailureIsNotReclassifiedAsCancellation)
 {
-	Durin::FTextureSourceData InvalidSource;
+	Durin::Image::FImage InvalidSource;
 	const Durin::TextureBuilder::FBuildExecutionControl Control{
 		.ShouldCancel = [] { return true; }};
 	Durin::FTexturePlatformData Platform;
 	const Durin::FTexture2DBuildResult BuildResult = Durin::TextureBuilder::BuildMipChain(
-		InvalidSource, Durin::ETextureUsage::Color, true, Platform, 0,
+		std::span(&InvalidSource, 1), Durin::ETextureUsage::Color, true, Platform, 0,
 		Durin::ETextureCompressionQuality::Normal,
 		Durin::ETextureAlphaMipMode::Average, 0.5f, &Control);
 

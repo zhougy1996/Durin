@@ -312,20 +312,6 @@ namespace Durin::TextureBuilder
 		}
 	}
 
-	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
-		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
-		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl,
-		std::span<const FTextureSourceData> SuppliedMips) -> FTexture2DBuildResult
-	{
-		std::vector<Image::FImage> Images;
-		if (SuppliedMips.empty()) Images.push_back(SourceData.ToImage());
-		else for (const auto& Mip : SuppliedMips) Images.push_back(Mip.ToImage());
-		return BuildMipChain(Images, Usage, bSRGB, OutPlatformData, MaxResolution,
-			CompressionQuality, AlphaMipMode, AlphaCoverageThreshold, ExecutionControl,
-			SourceData.bHasTransparency);
-	}
-
 	auto BuildMipChain(std::span<const Image::FImage> SourceMips, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, uint32 MaxResolution,
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,

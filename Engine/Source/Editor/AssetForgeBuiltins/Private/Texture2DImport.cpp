@@ -114,13 +114,13 @@ namespace Durin::AssetForge::Builtins
 				&& !MakeSourceHint(
 					PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
 					HintBase, Filename, OutError)) return false;
-			FTextureSourceData SourceData;
+			FTextureSource SourceData;
 			if (!TranslateTexture2DSource(
 				Snapshot.GetBytes(), SourceData, OutError)) return false;
 			const FXxHash128 ContentHash = Snapshot.ContentHash;
 			const uint64 ByteCount = Snapshot.FileSize;
 			const std::string DisplayLabel = PhysicalPath.filename().generic_string();
-			FTextureSource Candidate = SourceData.ToSource();
+			FTextureSource Candidate = std::move(SourceData);
 			return SubmitTexture2DCompilation(Texture, {
 				.Build = MakeTexture2DBuildRequest(Candidate, Settings),
 				.ResultApplication = {
@@ -205,14 +205,14 @@ namespace Durin::AssetForge::Builtins
 		if (!MakeSourceHint(
 			Input.generic_string(), OwningPackagePath.generic_string(),
 			HintBase, SourceHint, Error)) return Failed(std::move(Error));
-		FTextureSourceData SourceData;
+		FTextureSource SourceData;
 		if (!TranslateTexture2DSource(
 			Snapshot.GetBytes(), SourceData, Error)) return Failed(std::move(Error));
 
 		auto* Texture = NewObject<DTexture2D>(
 			InClass, Package, InName, Flags);
 		if (!Texture) return Failed("Texture2D object could not be created.");
-		FTextureSource Candidate = SourceData.ToSource();
+		FTextureSource Candidate = std::move(SourceData);
 		if (!BuildTexture2DSynchronously(*Texture, MakeTexture2DBuildRequest(Candidate, {
 				.Usage = Settings.Usage,
 				.CompressionQuality = Settings.CompressionQuality,
@@ -327,9 +327,10 @@ namespace Durin::AssetForge::Builtins
 
 	auto TranslateTexture2DSource(
 		FByteView EncodedBytes,
-		FTextureSourceData& OutSourceData,
+		FTextureSource& OutSourceData,
 		std::string& OutError) -> bool
 	{
+		OutSourceData = {};
 		Image::FDecodedImage DecodedImage;
 		if (!Image::DecodeImageFromMemory(
 			EncodedBytes,
@@ -343,14 +344,12 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 
-		OutSourceData = {
-			.Pixels = std::move(DecodedImage.Pixels),
-			.Width = DecodedImage.Width,
-			.Height = DecodedImage.Height,
-			.SourceChannelCount = DecodedImage.SourceChannelCount,
-			.Format = ETextureSourceFormat::RGBA8,
-			.bHasTransparency = DecodedImage.bHasTransparency};
-		if (OutSourceData.IsValid()) return true;
+		Image::FImage Decoded;
+		if (Image::FImage::TryCreate({.Width = DecodedImage.Width,
+			.Height = DecodedImage.Height, .Format = Image::ERawImageFormat::RGBA8},
+			std::move(DecodedImage.Pixels), Decoded, &OutError)
+			&& OutSourceData.Init2D(Decoded.GetView(), DecodedImage.SourceChannelCount,
+				DecodedImage.bHasTransparency ? 1 : 0)) return true;
 		OutSourceData = {};
 		OutError = "Decoded texture source data is invalid.";
 		return false;

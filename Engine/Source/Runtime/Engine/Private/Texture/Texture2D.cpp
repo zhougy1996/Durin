@@ -16,11 +16,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		constexpr uint32 TextureSourceChannelCount = 4;
-	} // namespace
-
 	auto IsValidTextureUsage(ETextureUsage Usage) -> bool
 	{
 		return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal
@@ -49,33 +44,6 @@ namespace Durin
 	auto IsValidTextureAlphaCoverageThreshold(float Threshold) -> bool
 	{
 		return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
-	}
-
-	auto FTextureSourceData::IsValid() const -> bool
-	{
-		return Format == ETextureSourceFormat::RGBA8
-			&& Width > 0
-			&& Height > 0
-			&& Width <= 16384 && Height <= 16384
-			&& static_cast<uint64>(Width) * Height * TextureSourceChannelCount == Pixels.size()
-			&& Pixels.size() <= MaximumTextureSourceBytes;
-	}
-
-	auto FTextureSourceData::ToImage() const -> Image::FImage
-	{
-		Image::FImage Result;
-		if (IsValid()) Image::FImage::TryCreate({.Width = Width, .Height = Height,
-			.Format = Image::ERawImageFormat::RGBA8}, Pixels, Result);
-		return Result;
-	}
-
-	auto FTextureSourceData::ToSource() const -> FTextureSource
-	{
-		FTextureSource Result;
-		const Image::FImage Image = ToImage();
-		if (Image.IsValid()) Result.Init2D(Image.GetView(), SourceChannelCount,
-			bHasTransparency ? 1 : 0);
-		return Result;
 	}
 
 	auto FTexture2DMipData::IsValid(EPixelFormat PixelFormat) const -> bool
@@ -215,13 +183,6 @@ namespace Durin
 
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), GetPackage(), &OutError);
-	}
-
-	auto DTexture2D::SetSourceData(
-		const FTextureSourceData& Value, std::string& OutError) -> bool
-	{
-		CheckGameThread();
-		return SetSource(Value.ToSource(), OutError);
 	}
 
 	auto DTexture2D::SetSourceMipChain(std::span<const Image::FImageView> Mips,
