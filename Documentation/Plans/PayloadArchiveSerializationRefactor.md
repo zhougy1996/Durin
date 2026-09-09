@@ -10,8 +10,13 @@ Completed: 2026-09-09
 ## Current Status
 
 Post-completion cleanup retires the unused public Volume Build/Parse wrappers
-and migrates their regression coverage to Archive boundaries. Explicit target
-arguments remain because counting/hashing Archives do not accept target context.
+and migrates their regression coverage to Archive boundaries. Subsequent context
+unification extends counting/hashing Archives with state and version inputs,
+removes payload-level explicit target parameters, and keeps cancellation
+callbacks separate. All 82 affected test targets passed after this follow-up,
+including context-dependent Core byte selection, both texture profiles, absent
+or unsupported targets, golden payloads, DDC, Cook and cancellation coverage.
+Receipt: `Build/.agent-state/logs/20260909-174333-967602-27080-ctest.log`.
 The plan remains completed in place, without archival. Cleanup validation passed
 all 82 affected test targets, followed by 102 TextureTests after removal of an
 unused Volume error helper. Receipts:
@@ -172,10 +177,10 @@ hashing Archives in codec tests; those paths must preserve source state.
 
 Texture target enums map losslessly to Archive Platform `Win64` and Profile
 `Game`/`EditorValidation`. Production inner archives now carry these facts and
-family customizations read them directly. Optional explicit target parameters
-remain for source compatibility and context-free counting/hashing callers;
-missing facts and conflicts are rejected. StaticMesh likewise reads Win64 from
-Archive context and retains its borrowed cancellation callback, which is not
+family customizations read them directly. Post-completion context unification
+removes the explicit parameter fallback after counting/hashing gain equivalent
+context inputs; missing and unsupported facts are rejected. StaticMesh likewise
+reads Win64 from Archive context and retains its borrowed cancellation callback, which is not
 archive context. No target or producer identity is read from global state.
 Environment payload layout carries no platform field; Cook checks Win64/Game
 at its owner. Package reload's detached product and joint publication contract
@@ -317,9 +322,9 @@ physical envelope packing; DCOL retains bounded streams/body and local leaf-orde
 indices. Geometry validation may construct detached scratch. These are not
 live replacements. The public Volume Build/Parse wrappers retained at initial
 completion were removed during post-completion cleanup after their test callers moved
-to Archive boundaries. Optional explicit target arguments support
-legacy/context-free counting and hashing callers, while production uses Archive
-facts. No schema, cache-key or package-version migration was necessary.
+to Archive boundaries. Subsequent context unification removes explicit target
+arguments; all payload callers now provide target facts through Archive context.
+No schema, cache-key or package-version migration was necessary.
 
 ## Validation And Handoff
 

@@ -26,52 +26,29 @@ namespace Durin::TexturePayloadContainer
 		}
 	}
 
-	auto ResolveContext(FArchive& Ar, const FTexturePlatformSerializationContext& Explicit,
-		FTexturePlatformSerializationContext& Context) -> bool
+	auto ResolveContext(FArchive& Ar, FTargetContext& Context) -> bool
 	{
 		if (Ar.HasError()) return false;
-		Context = Explicit;
 		const auto& Target = Ar.GetTarget();
-		if (!Target.Platform.empty() || !Target.Profile.empty())
+		const auto Profile = Target.Profile == "Game" ? ECookTargetProfile::Game
+			: Target.Profile == "EditorValidation" ? ECookTargetProfile::EditorValidation
+			: ECookTargetProfile::Invalid;
+		if (Target.Platform != "Win64" || Profile == ECookTargetProfile::Invalid)
 		{
-			const auto Profile = Target.Profile == "Game" ? ECookTargetProfile::Game
-				: Target.Profile == "EditorValidation" ? ECookTargetProfile::EditorValidation
-				: ECookTargetProfile::Invalid;
-			if (Target.Platform != "Win64" || Profile == ECookTargetProfile::Invalid
-				|| (Explicit.TargetPlatform != ECookTargetPlatform::Invalid && Explicit.TargetPlatform != ECookTargetPlatform::Win64)
-				|| (Explicit.TargetProfile != ECookTargetProfile::Invalid && Explicit.TargetProfile != Profile))
-			{
-				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture Archive target is missing, unsupported or conflicting.");
-				return false;
-			}
-			Context = {ECookTargetPlatform::Win64, Profile};
-		}
-		if (Context.TargetPlatform != ECookTargetPlatform::Win64
-			|| (Context.TargetProfile != ECookTargetProfile::Game && Context.TargetProfile != ECookTargetProfile::EditorValidation))
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture payload requires a concrete target context.");
+			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture Archive target is missing or unsupported.");
 			return false;
 		}
+		Context = {ECookTargetPlatform::Win64, Profile};
 		return true;
 	}
 
 	auto Serialize(FArchive& Ar, FDescriptor& Descriptor,
-		std::vector<FPayloadRecord>& Records,
-		ECookTargetPlatform ExpectedPlatform, ECookTargetProfile ExpectedProfile) -> void
+		std::vector<FPayloadRecord>& Records) -> void
 	{
-		if (Ar.HasError()) return;
-		const auto& Target = Ar.GetTarget();
-		const std::string_view ProfileName = ExpectedProfile == ECookTargetProfile::Game
-			? "Game" : "EditorValidation";
-		if (ExpectedPlatform != ECookTargetPlatform::Win64
-			|| (ExpectedProfile != ECookTargetProfile::Game
-				&& ExpectedProfile != ECookTargetProfile::EditorValidation)
-			|| (!Target.Platform.empty() && Target.Platform != "Win64")
-			|| (!Target.Profile.empty() && Target.Profile != ProfileName))
-		{
-			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture payload target context is unsupported or conflicting.");
-			return;
-		}
+		FTargetContext Context;
+		if (!ResolveContext(Ar, Context)) return;
+		const auto ExpectedPlatform = Context.TargetPlatform;
+		const auto ExpectedProfile = Context.TargetProfile;
 
 		uint32 Reserved0 = 0, Schema = TexturePayloadSchemaVersion;
 		uint32 HeaderSize = TexturePayloadHeaderSize, RecordSize = TexturePayloadRecordSize;

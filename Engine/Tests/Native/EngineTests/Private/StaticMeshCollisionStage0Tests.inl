@@ -46,8 +46,10 @@ namespace
 		std::string& OutError) -> bool
 	{
 		Durin::FByteBuffer Candidate;
-		FCanonicalMemoryWriter Ar(Candidate, EArchivePurpose::DerivedDataPayload);
-		const_cast<FStaticMeshCollisionPayloadData&>(Payload).Serialize(Ar, Platform);
+		FCanonicalMemoryWriter Ar(Candidate,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+		const_cast<FStaticMeshCollisionPayloadData&>(Payload).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
 		if (Ar.HasError()) return false;
 		OutBytes = std::move(Candidate);
@@ -60,8 +62,10 @@ namespace
 		FStaticMeshCollisionPayloadData& OutPayload) -> FDecodeResult
 	{
 		FStaticMeshCollisionPayloadData Candidate;
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-		Candidate.Serialize(Ar, Platform);
+		FCanonicalMemoryReader Ar(Bytes,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+		Candidate.Serialize(Ar);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
@@ -998,12 +1002,12 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	const auto SavedIndices = Payload.Indices;
 	const auto SavedOrdinals = Payload.SourceOrdinals;
 	const auto SavedLeaves = Payload.LeafTriangles;
-	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
-	Payload.Serialize(Counter, EStaticMeshTargetPlatform::Win64);
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Payload.Serialize(Counter);
 	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
 	EXPECT_EQ(Counter.Tell(), First.size());
-	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
-	Payload.Serialize(Hasher, EStaticMeshTargetPlatform::Win64);
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Payload.Serialize(Hasher);
 	ASSERT_FALSE(Hasher.HasError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(First));
 	EXPECT_EQ(Payload.Indices, SavedIndices);
@@ -1012,16 +1016,18 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	for (size_t Size = 0; Size < First.size(); ++Size)
 	{
 		FStaticMeshCollisionPayloadData Discarded;
-		FCanonicalMemoryReader Reader(FByteView(First).first(Size));
-		Discarded.Serialize(Reader, EStaticMeshTargetPlatform::Win64);
+		FCanonicalMemoryReader Reader(FByteView(First).first(Size),
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {"Win64", "Game"}});
+		Discarded.Serialize(Reader);
 		ASSERT_TRUE(Reader.HasError()) << Size;
 	}
 	FByteBuffer Adjacent = First;
 	Adjacent.insert(Adjacent.end(), First.begin(), First.end());
-	FCanonicalMemoryReader Parent(Adjacent);
+	FCanonicalMemoryReader Parent(Adjacent, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	FStaticMeshCollisionPayloadData Replaced = Payload;
 	Replaced.Nodes.push_back({});
-	Replaced.Serialize(Parent, EStaticMeshTargetPlatform::Win64);
+	Replaced.Serialize(Parent);
 	ASSERT_FALSE(Parent.HasError()) << Parent.GetError();
 	EXPECT_EQ(Replaced.Nodes.size(), Payload.Nodes.size());
 	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), First.size());
@@ -1029,9 +1035,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	FByteBuffer OverflowBytes = First;
 	WriteLittleEndian<uint64>(OverflowBytes, 64 + 24, std::numeric_limits<uint64>::max());
 	WriteLittleEndian<uint64>(OverflowBytes, 48, FXxHash64::HashBuffer(FByteView(OverflowBytes).subspan(64)).HashValue);
-	FCanonicalMemoryReader OverflowReader(OverflowBytes);
+	FCanonicalMemoryReader OverflowReader(OverflowBytes,
+		EArchivePurpose::DerivedDataPayload,
+		{.Target = {"Win64", "Game"}});
 	FStaticMeshCollisionPayloadData Discarded;
-	Discarded.Serialize(OverflowReader, EStaticMeshTargetPlatform::Win64);
+	Discarded.Serialize(OverflowReader);
 	ASSERT_TRUE(OverflowReader.HasError());
 	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
 	EXPECT_TRUE(Discarded.Positions.empty());

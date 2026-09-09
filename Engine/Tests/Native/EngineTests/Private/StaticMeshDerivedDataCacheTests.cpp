@@ -1235,38 +1235,42 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 	const auto CheckCodec = [&](auto& Value) {
 		FByteBuffer Bytes;
 		uint32 Count = 0;
-		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload);
-		Value.Serialize(Writer, EStaticMeshTargetPlatform::Win64, [&] { ++Count; return false; });
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+		Value.Serialize(Writer, [&] { ++Count; return false; });
 		ASSERT_FALSE(Writer.HasError());
 		ASSERT_GT(Count, 20u);
 		const uint32 StopAt = Count / 2;
 		Count = 0;
 		FByteBuffer CancelledBytes;
-		FCanonicalMemoryWriter CancelledWriter(CancelledBytes, EArchivePurpose::DerivedDataPayload);
-		Value.Serialize(CancelledWriter, EStaticMeshTargetPlatform::Win64, [&] { return ++Count == StopAt; });
+		FCanonicalMemoryWriter CancelledWriter(CancelledBytes,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {"Win64", "Game"}});
+		Value.Serialize(CancelledWriter, [&] { return ++Count == StopAt; });
 		EXPECT_TRUE(CancelledWriter.HasError());
 		EXPECT_TRUE(CancelledBytes.empty());
 
 		using TPayload = std::remove_cvref_t<decltype(Value)>;
 		TPayload Decoded;
 		Count = 0;
-		FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload);
-		Decoded.Serialize(Reader, EStaticMeshTargetPlatform::Win64, [&] { ++Count; return false; });
+		FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+		Decoded.Serialize(Reader, [&] { ++Count; return false; });
 		ASSERT_FALSE(Reader.HasError());
 		ASSERT_GT(Count, 20u);
 		const uint32 ReadStopAt = Count / 2;
 		Count = 0;
 		TPayload CancelledDecoded;
-		FCanonicalMemoryReader CancelledReader(Bytes, EArchivePurpose::DerivedDataPayload);
-		CancelledDecoded.Serialize(CancelledReader, EStaticMeshTargetPlatform::Win64,
+		FCanonicalMemoryReader CancelledReader(Bytes,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {"Win64", "Game"}});
+		CancelledDecoded.Serialize(CancelledReader,
 			[&] { return ++Count == ReadStopAt; });
 		EXPECT_TRUE(CancelledReader.HasError());
 		EXPECT_NE(CancelledReader.GetError().find("cancelled"), std::string_view::npos);
 		// Ordinary loading may leave partial storage. The operation owns and
 		// discards that unpublished candidate, then may retry into fresh storage.
 		CancelledDecoded = {};
-		FCanonicalMemoryReader Retry(Bytes, EArchivePurpose::DerivedDataPayload);
-		CancelledDecoded.Serialize(Retry, EStaticMeshTargetPlatform::Win64);
+		FCanonicalMemoryReader Retry(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+		CancelledDecoded.Serialize(Retry);
 		EXPECT_FALSE(Retry.HasError()) << Retry.GetError();
 		EXPECT_TRUE(RequireArchiveEnd(Retry));
 	};

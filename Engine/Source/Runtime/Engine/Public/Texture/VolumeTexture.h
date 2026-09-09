@@ -120,8 +120,7 @@ namespace Durin
 		// Loads one declared payload in place; discard failed destinations. The
 		// owning byte boundary checks completion before publishing a replacement.
 		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const FTexturePlatformSerializationContext& Context = {}) -> void;
+			FArchive& Ar) -> void;
 	};
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.

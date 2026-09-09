@@ -12,14 +12,12 @@ namespace Durin
 	{
 		auto ResolveMeshTarget(FArchive& Ar, EStaticMeshTargetPlatform& TargetPlatform) -> bool
 		{
-			if (TargetPlatform == EStaticMeshTargetPlatform::Unknown && Ar.GetTarget().Platform == "Win64")
-				TargetPlatform = EStaticMeshTargetPlatform::Win64;
-			if (TargetPlatform != EStaticMeshTargetPlatform::Win64
-				|| (!Ar.GetTarget().Platform.empty() && Ar.GetTarget().Platform != "Win64"))
+			if (Ar.GetTarget().Platform != "Win64")
 			{
-				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh target context is unsupported or conflicting.");
+				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh Archive target is missing or unsupported.");
 				return false;
 			}
+			TargetPlatform = EStaticMeshTargetPlatform::Win64;
 			return true;
 		}
 
@@ -680,12 +678,13 @@ namespace Durin
 	}
 
 	auto FStaticMeshPayloadData::Serialize(FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform, const std::function<bool()>& ShouldCancel) -> void
+		const std::function<bool()>& ShouldCancel) -> void
 	try
 	{
 		if (Ar.HasError()) return;
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
+		EStaticMeshTargetPlatform TargetPlatform;
 		if (!ResolveMeshTarget(Ar, TargetPlatform)) return;
 		std::string Error;
 		std::array<FByteBuffer, 6> Buffers;
@@ -765,13 +764,14 @@ namespace Durin
 	}
 
 	auto FStaticMeshCollisionPayloadData::Serialize(FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform, const std::function<bool()>& ShouldCancel) -> void
+		const std::function<bool()>& ShouldCancel) -> void
 	try
 	{
 		if (Ar.HasError()) return;
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
+		EStaticMeshTargetPlatform TargetPlatform;
 		if (!ResolveMeshTarget(Ar, TargetPlatform)) return;
 
 		uint32 Reserved0 = 0, Schema = StaticMeshCollisionPayloadSchemaVersion;

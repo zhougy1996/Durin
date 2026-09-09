@@ -309,11 +309,10 @@ namespace Durin
 			: MakeDerivedDataKey(VolumeTextureCacheBucket, Bytes);
 	}
 
-	auto FTexturePlatformData::Serialize(FArchive& Ar,
-		const FTexturePlatformSerializationContext& ExplicitContext) -> void
+	auto FTexturePlatformData::Serialize(FArchive& Ar) -> void
 	{
-		FTexturePlatformSerializationContext Context;
-		if (!TexturePayloadContainer::ResolveContext(Ar, ExplicitContext, Context)) return;
+		TexturePayloadContainer::FTargetContext Context;
+		if (!TexturePayloadContainer::ResolveContext(Ar, Context)) return;
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
 		if (Ar.HasError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
@@ -342,7 +341,7 @@ namespace Durin
 					.Data = FByteView(Mip.Pixels)});
 			}
 		}
-		TexturePayloadContainer::Serialize(Ar, Descriptor, Records, Context.TargetPlatform, Context.TargetProfile);
+		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
 		if (Ar.HasError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture2D)
 			return Reject(EArchiveFailureCode::InvalidData, "Texture2D payload dimension is invalid.");
@@ -390,11 +389,10 @@ namespace Durin
 	}
 
 
-	auto FTextureCubePlatformData::Serialize(FArchive& Ar,
-		const FTexturePlatformSerializationContext& ExplicitContext) -> void
+	auto FTextureCubePlatformData::Serialize(FArchive& Ar) -> void
 	{
-		FTexturePlatformSerializationContext Context;
-		if (!TexturePayloadContainer::ResolveContext(Ar, ExplicitContext, Context)) return;
+		TexturePayloadContainer::FTargetContext Context;
+		if (!TexturePayloadContainer::ResolveContext(Ar, Context)) return;
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
 		if (Ar.HasError()) return;
 		TexturePayloadContainer::FDescriptor Descriptor{
@@ -428,7 +426,7 @@ namespace Durin
 				}
 			}
 		}
-		TexturePayloadContainer::Serialize(Ar, Descriptor, Records, Context.TargetPlatform, Context.TargetProfile);
+		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
 		if (Ar.HasError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::TextureCube)
 			return Reject(EArchiveFailureCode::InvalidData, "TextureCube payload dimension is invalid.");

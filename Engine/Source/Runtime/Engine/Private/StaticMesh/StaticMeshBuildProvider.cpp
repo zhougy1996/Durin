@@ -112,7 +112,7 @@ namespace Durin
 			if (!MakeStaticMeshPayloadData(RenderData, Payload, OutError, ShouldCancel)) return false;
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
+			Payload.Serialize(Ar, ShouldCancel);
 			if (!Ar.HasError()) return true;
 			OutError = Ar.GetFailure()->Message;
 			OutBytes.clear();
@@ -128,7 +128,7 @@ namespace Durin
 		{
 			FStaticMeshPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
+			Payload.Serialize(Ar, ShouldCancel);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			{
 				OutError = Ar.GetFailure() ? Ar.GetFailure()->Message
@@ -151,7 +151,7 @@ namespace Durin
 				Geometry, Policy, Payload, OutError, ShouldCancel)) return false;
 			OutBytes.clear();
 			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
+			Payload.Serialize(Ar, ShouldCancel);
 			if (!Ar.HasError()) return true;
 			OutError = Ar.GetFailure()->Message;
 			OutBytes.clear();
@@ -168,7 +168,7 @@ namespace Durin
 		{
 			FStaticMeshCollisionPayloadData Payload;
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
+			Payload.Serialize(Ar, ShouldCancel);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar)
 				|| Payload.SourceMode != Mode || Payload.QueryPolicy != Policy)
 			{

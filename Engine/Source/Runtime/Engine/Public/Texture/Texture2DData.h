@@ -58,13 +58,6 @@ namespace Durin
 		ENGINE_API auto IsValid(EPixelFormat PixelFormat) const -> bool;
 	};
 
-	// Supplies the stable target identity carried by a serialized texture platform value.
-	struct FTexturePlatformSerializationContext
-	{
-		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-	};
-
 	// Owns the pixel format and complete mip chain consumed by the render resource.
 	struct FTexturePlatformData
 	{
@@ -74,8 +67,7 @@ namespace Durin
 		ENGINE_API auto IsValid() const -> bool;
 		// Loads canonical TXPL in place; discard failures and check the owning byte boundary.
 		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const FTexturePlatformSerializationContext& Context = {}) -> void;
+			FArchive& Ar) -> void;
 	};
 
 }

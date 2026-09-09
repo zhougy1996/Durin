@@ -102,10 +102,20 @@ growth. Families preserve structured Archive failures through internal calls;
 wire versions. Existing external cache/build boundaries may classify these as
 recoverable misses or operation failures. Offset/hash formats retain bounded
 layout staging on save; borrowing input does not imply allocation-free decoding.
-Production texture and mesh memory archives carry their stable target facts;
-payloads can therefore be invoked as `Serialize(Ar)` or `Ar << Value`. Optional
-explicit target parameters remain for source compatibility and context-free
-counting/hashing archives, and cannot override conflicting Archive facts.
+Texture and mesh payloads resolve stable target facts exclusively from the
+Archive and are invoked as `Serialize(Ar)` or `Ar << Value`. Texture requires
+Win64 and Game/EditorValidation; mesh requires Win64 and retains its independent
+borrowed cancellation callback. Missing or unsupported target facts fail before
+payload transfer. Stored target identities still require validation on load.
+
+`FCountingArchive` and `FHashingArchive` accept optional `FArchiveState` and
+`FArchiveVersionContext`, matching canonical memory archive context inputs.
+Callers supply the same target, filtering, bulk policy and versions for counting,
+hashing and actual writing. Purpose still derives persistence/Cook defaults.
+Counting/hashing force the save direction and advertise only raw-byte and
+position capabilities; capabilities supplied in the context are not inherited.
+Omitted context preserves existing target-independent callers. No payload-level
+explicit target fallback remains.
 
 CoreDObject layers `FObjectArchive` over that byte substrate. It owns reflected
 logical descriptors, object/field/container scopes, hard and soft object

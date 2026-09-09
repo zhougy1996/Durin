@@ -1999,18 +1999,17 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
 	Mip.Voxels = {std::byte{42}};
 	ASSERT_TRUE(Source.IsValid());
-	const FTexturePlatformSerializationContext Context{
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	const FArchiveState Context{.Target = {"Win64", "Game"}};
 	FByteBuffer Bytes;
-	FCanonicalMemoryWriter Writer(Bytes);
-	Source.Serialize(Writer, Context);
+	FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, Context);
+	Source.Serialize(Writer);
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
-	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
-	Source.Serialize(Counter, Context);
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, Context);
+	Source.Serialize(Counter);
 	EXPECT_FALSE(Counter.HasError());
 	EXPECT_EQ(Counter.Tell(), Bytes.size());
-	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
-	Source.Serialize(Hasher, Context);
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, Context);
+	Source.Serialize(Hasher);
 	EXPECT_FALSE(Hasher.HasError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
 	EXPECT_EQ(Source.Mips.size(), 1u);
@@ -2022,10 +2021,10 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	FByteView Region;
 	ASSERT_TRUE(Parent.ReadRegion(Bytes.size(), Region));
 	EXPECT_EQ(Region.data(), Adjacent.data());
-	FCanonicalMemoryReader First(Region);
+	FCanonicalMemoryReader First(Region, EArchivePurpose::DerivedDataPayload, Context);
 	FVolumeTexturePlatformData Loaded = Source;
 	Loaded.Mips.push_back(Source.Mips.front());
-	Loaded.Serialize(First, Context);
+	Loaded.Serialize(First);
 	ASSERT_FALSE(First.HasError()) << First.GetError();
 	EXPECT_TRUE(RequireArchiveEnd(First));
 	EXPECT_EQ(Loaded.Mips.size(), 1u);
@@ -2033,13 +2032,14 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 
 	for (size_t Size = 0; Size < Bytes.size(); ++Size)
 	{
-		FCanonicalMemoryReader Truncated(FByteView(Bytes).first(Size));
+		FCanonicalMemoryReader Truncated(FByteView(Bytes).first(Size),
+			EArchivePurpose::DerivedDataPayload, Context);
 		FVolumeTexturePlatformData Discarded;
-		Discarded.Serialize(Truncated, Context);
+		Discarded.Serialize(Truncated);
 		EXPECT_TRUE(Truncated.HasError()) << Size;
 	}
-	FCanonicalMemoryReader Trailing(Adjacent);
-	Loaded.Serialize(Trailing, Context);
+	FCanonicalMemoryReader Trailing(Adjacent, EArchivePurpose::DerivedDataPayload, Context);
+	Loaded.Serialize(Trailing);
 	ASSERT_FALSE(Trailing.HasError());
 	EXPECT_FALSE(RequireArchiveEnd(Trailing));
 	EXPECT_EQ(Trailing.GetFailure()->Code, EArchiveFailureCode::TrailingData);
@@ -2048,20 +2048,20 @@ TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
 	const uint64 Size = MaximumTexturePayloadBytes + 1;
 	for (uint32 Index = 0; Index < 8; ++Index)
 		Oversized[56 + Index] = static_cast<std::byte>(Size >> (Index * 8));
-	FCanonicalMemoryReader OversizedReader(Oversized);
+	FCanonicalMemoryReader OversizedReader(Oversized, EArchivePurpose::DerivedDataPayload, Context);
 	FVolumeTexturePlatformData Discarded;
-	Discarded.Serialize(OversizedReader, Context);
+	Discarded.Serialize(OversizedReader);
 	ASSERT_TRUE(OversizedReader.HasError());
 	EXPECT_EQ(OversizedReader.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
 	EXPECT_TRUE(Discarded.Mips.empty());
 	EXPECT_EQ(OversizedReader.Tell(), TexturePayloadHeaderSize);
 
-	FArchiveState Conflicting;
-	Conflicting.Target.Platform = "Other";
-	FCanonicalMemoryReader Conflict(Bytes, EArchivePurpose::DerivedDataPayload, Conflicting);
-	Discarded.Serialize(Conflict, Context);
-	EXPECT_TRUE(Conflict.HasError());
-	EXPECT_EQ(Conflict.Tell(), 0u);
+	FArchiveState Unsupported{.Target = {"Other", "Game"}};
+	FCanonicalMemoryReader UnsupportedReader(Bytes, EArchivePurpose::DerivedDataPayload, Unsupported);
+	Discarded.Serialize(UnsupportedReader);
+	ASSERT_TRUE(UnsupportedReader.HasError());
+	EXPECT_EQ(UnsupportedReader.GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
+	EXPECT_EQ(UnsupportedReader.Tell(), 0u);
 }
 
 TEST(FVolumeTextureTests, RawArchiveWithoutBorrowingFailsExplicitly)
@@ -2073,7 +2073,8 @@ TEST(FVolumeTextureTests, RawArchiveWithoutBorrowingFailsExplicitly)
 	public:
 		explicit FRawReader(FByteView Bytes)
 			: FArchive({.Direction = EArchiveDirection::Load,
-				.Capabilities = EArchiveCapability::RawBytes}), Reader(Bytes) {}
+				.Capabilities = EArchiveCapability::RawBytes,
+				.Target = {"Win64", "Game"}}), Reader(Bytes) {}
 		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
 		{
 			Reader.ReadBytes(Bytes);
@@ -2087,14 +2088,13 @@ TEST(FVolumeTextureTests, RawArchiveWithoutBorrowingFailsExplicitly)
 	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
 	Mip.Voxels = {std::byte{42}};
 	FByteBuffer Bytes;
-	const FTexturePlatformSerializationContext Context{
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
-	FCanonicalMemoryWriter Writer(Bytes);
-	Source.Serialize(Writer, Context);
+	const FArchiveState Context{.Target = {"Win64", "Game"}};
+	FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, Context);
+	Source.Serialize(Writer);
 	ASSERT_FALSE(Writer.HasError());
 	FRawReader Reader(Bytes);
 	FVolumeTexturePlatformData Discarded;
-	Discarded.Serialize(Reader, Context);
+	Discarded.Serialize(Reader);
 	ASSERT_TRUE(Reader.HasError());
 	EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::UnsupportedCapability);
 	EXPECT_EQ(Reader.Reader.Tell(), TexturePayloadHeaderSize);

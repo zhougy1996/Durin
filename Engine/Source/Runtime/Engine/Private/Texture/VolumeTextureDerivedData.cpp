@@ -36,11 +36,10 @@ namespace Durin
 		}
 	}
 
-	auto FVolumeTexturePlatformData::Serialize(FArchive& Ar,
-		const FTexturePlatformSerializationContext& ExplicitContext) -> void
+	auto FVolumeTexturePlatformData::Serialize(FArchive& Ar) -> void
 	{
-		FTexturePlatformSerializationContext Context;
-		if (!TexturePayloadContainer::ResolveContext(Ar, ExplicitContext, Context)) return;
+		TexturePayloadContainer::FTargetContext Context;
+		if (!TexturePayloadContainer::ResolveContext(Ar, Context)) return;
 		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) {
 			Ar.Fail(Code, Message);
 		};
@@ -69,8 +68,7 @@ namespace Durin
 					.LayerPitch = Mip.DepthPitch}, .Data = Mip.Voxels});
 			}
 		}
-		TexturePayloadContainer::Serialize(Ar, Descriptor, Records,
-			Context.TargetPlatform, Context.TargetProfile);
+		TexturePayloadContainer::Serialize(Ar, Descriptor, Records);
 		if (Ar.HasError() || Ar.IsSaving()) return;
 		if (Descriptor.Dimension != ETexturePayloadDimension::Texture3D
 			|| Descriptor.SliceCount != 1)

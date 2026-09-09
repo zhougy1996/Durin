@@ -91,9 +91,9 @@ namespace
 		const auto* Installed = Texture->GetPlatformData();
 		const auto RevisionIdentity = Texture->GetPlatformDataShared();
 		FByteBuffer ValidBytes;
-		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload);
-		PlatformData.Serialize(Writer, {.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game});
+		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload,
+			{.Target = {"Win64", "Game"}});
+		PlatformData.Serialize(Writer);
 		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 		FByteBuffer TrailingBytes = ValidBytes;
 		TrailingBytes.push_back(std::byte{0x7f});

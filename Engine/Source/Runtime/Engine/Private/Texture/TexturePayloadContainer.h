@@ -4,10 +4,14 @@
 
 namespace Durin::TexturePayloadContainer
 {
-	// Archive target facts are authoritative. Explicit context remains the
-	// compatibility input for callers of context-free counting/hashing archives.
-	auto ResolveContext(FArchive& Ar, const FTexturePlatformSerializationContext& Explicit,
-		FTexturePlatformSerializationContext& Context) -> bool;
+	struct FTargetContext
+	{
+		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
+		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
+	};
+
+	// Resolves the stable wire identity from Archive target facts.
+	auto ResolveContext(FArchive& Ar, FTargetContext& Context) -> bool;
 
 	struct FDescriptor
 	{
@@ -41,7 +45,6 @@ namespace Durin::TexturePayloadContainer
 	// Transfers one declared container extent. Loaded records borrow the input
 	// archive's storage; the caller retains its owner until family decoding ends.
 	auto Serialize(FArchive& Ar, FDescriptor& Descriptor,
-		std::vector<FPayloadRecord>& Records,
-		ECookTargetPlatform ExpectedPlatform, ECookTargetProfile ExpectedProfile) -> void;
+		std::vector<FPayloadRecord>& Records) -> void;
 
 }

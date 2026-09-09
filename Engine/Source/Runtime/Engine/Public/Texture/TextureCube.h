@@ -72,8 +72,7 @@ namespace Durin
 		ENGINE_API auto IsValid() const -> bool;
 		// Loads canonical six-slice TXPL in place; discard failures and check the owning byte boundary.
 		ENGINE_API auto Serialize(
-			FArchive& Ar,
-			const FTexturePlatformSerializationContext& Context = {}) -> void;
+			FArchive& Ar) -> void;
 	};
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.

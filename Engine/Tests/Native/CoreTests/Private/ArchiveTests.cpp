@@ -243,3 +243,73 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	EXPECT_EQ(External.GetFailure()->Code,
 		Durin::EArchiveFailureCode::UnsupportedCapability);
 }
+
+TEST(FArchiveTests, CountingAndHashingPreserveContextDependentByteSelection)
+{
+	using namespace Durin;
+	struct FContextValue
+	{
+		uint32 Runtime = 17;
+		uint32 Editor = 42;
+		auto Serialize(FArchive& Ar) -> void
+		{
+			Ar << Runtime;
+			if (!Ar.IsFilterEditorOnly()) Ar << Editor;
+			auto Platform = Ar.GetTarget().Platform;
+			auto Profile = Ar.GetTarget().Profile;
+			SerializeBoundedString(Ar, Platform, 32);
+			SerializeBoundedString(Ar, Profile, 32);
+			const auto* Format = Ar.GetVersionContext().FindFormat(FName("ContextFixture"));
+			const auto* Custom = Ar.GetVersionContext().FindCustom(FGuid{1, 2, 3, 4});
+			if (!Format || !Custom)
+			{
+				Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Fixture requires version context.");
+				return;
+			}
+			if (Format->Version >= 2) Ar << Runtime;
+			if (Custom->Version >= 7) Ar << Editor;
+		}
+	};
+	FContextValue Value;
+	FByteBuffer Previous;
+	for (bool FilterEditor : {false, true})
+	{
+		FArchiveState Context{
+			.Direction = EArchiveDirection::Load,
+			.Capabilities = EArchiveCapability::RemainingPayload | EArchiveCapability::ObjectReferences,
+			.bPersistent = true, .bCooking = true, .bFilterEditorOnly = FilterEditor,
+			.BulkDataPolicy = EArchiveBulkDataPolicy::External,
+			.Target = {"Win64", FilterEditor ? "Game" : "EditorValidation"}};
+		FArchiveVersionContext Versions{
+			.Formats = {{FName("ContextFixture"), FilterEditor ? 2u : 1u}},
+			.CustomVersions = {{{1, 2, 3, 4}, FilterEditor ? 7 : 6}}};
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, Context, Versions);
+		FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, Context, Versions);
+		FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, Context, Versions);
+		for (FArchive* Ar : {static_cast<FArchive*>(&Counter), static_cast<FArchive*>(&Hasher)})
+		{
+			EXPECT_TRUE(Ar->IsSaving());
+			EXPECT_TRUE(Ar->IsPersistent());
+			EXPECT_TRUE(Ar->IsCooking());
+			EXPECT_EQ(Ar->IsFilterEditorOnly(), FilterEditor);
+			EXPECT_EQ(Ar->GetBulkDataPolicy(), EArchiveBulkDataPolicy::External);
+			EXPECT_TRUE(Ar->HasCapability(EArchiveCapability::RawBytes | EArchiveCapability::Position));
+			EXPECT_FALSE(Ar->HasCapability(EArchiveCapability::RemainingPayload));
+			EXPECT_FALSE(Ar->HasCapability(EArchiveCapability::ObjectReferences));
+		}
+		Writer << Value;
+		Counter << Value;
+		Hasher << Value;
+		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
+		ASSERT_FALSE(Hasher.HasError()) << Hasher.GetError();
+		EXPECT_EQ(Counter.Tell(), Bytes.size());
+		EXPECT_EQ(Hasher.Tell(), Bytes.size());
+		EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
+		EXPECT_NE(Bytes, Previous);
+		Previous = Bytes;
+		EXPECT_EQ(Value.Runtime, 17u);
+		EXPECT_EQ(Value.Editor, 42u);
+	}
+}

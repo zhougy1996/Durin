@@ -324,7 +324,9 @@ namespace Durin
 	class FCountingArchive final : public FArchive
 	{
 	public:
-		CORE_API explicit FCountingArchive(EArchivePurpose Purpose);
+		CORE_API explicit FCountingArchive(
+			EArchivePurpose Purpose, FArchiveState Context = {},
+			FArchiveVersionContext Versions = {});
 		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return Count; }
 
@@ -336,7 +338,9 @@ namespace Durin
 	class FHashingArchive final : public FArchive
 	{
 	public:
-		CORE_API explicit FHashingArchive(EArchivePurpose Purpose);
+		CORE_API explicit FHashingArchive(
+			EArchivePurpose Purpose, FArchiveState Context = {},
+			FArchiveVersionContext Versions = {});
 		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
 		auto Tell() const -> uint64 override { return Count; }
 		auto Finalize() const -> FXxHash128 { return Builder.Finalize(); }

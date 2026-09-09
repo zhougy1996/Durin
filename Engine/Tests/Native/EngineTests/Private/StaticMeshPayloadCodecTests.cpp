@@ -152,8 +152,10 @@ namespace
 		std::string& OutError) -> bool
 	{
 		Durin::FByteBuffer Candidate;
-		FCanonicalMemoryWriter Ar(Candidate, EArchivePurpose::DerivedDataPayload);
-		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar, Platform);
+		FCanonicalMemoryWriter Ar(Candidate,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
 		if (Ar.HasError()) return false;
 		OutBytes = std::move(Candidate);
@@ -166,8 +168,10 @@ namespace
 		FStaticMeshPayloadData& OutPayload) -> FDecodeResult
 	{
 		FStaticMeshPayloadData Candidate;
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-		Candidate.Serialize(Ar, Platform);
+		FCanonicalMemoryReader Ar(Bytes,
+			EArchivePurpose::DerivedDataPayload,
+			{.Target = {Platform == EStaticMeshTargetPlatform::Win64 ? "Win64" : "", "Game"}});
+		Candidate.Serialize(Ar);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
@@ -938,12 +942,12 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 	FStaticMeshPayloadData Source = MakeSingleSectionFixture();
 	const auto Before = Source;
 	const FByteBuffer Bytes = Encode(Source);
-	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
-	Source.Serialize(Counter, EStaticMeshTargetPlatform::Win64);
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Source.Serialize(Counter);
 	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
 	EXPECT_EQ(Counter.Tell(), Bytes.size());
-	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
-	Source.Serialize(Hasher, EStaticMeshTargetPlatform::Win64);
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Source.Serialize(Hasher);
 	EXPECT_FALSE(Hasher.HasError());
 	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
 	ExpectEquivalent(Source, Before);
@@ -960,28 +964,55 @@ TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSav
 
 	FByteBuffer Adjacent = Bytes;
 	Adjacent.insert(Adjacent.end(), Bytes.begin(), Bytes.end());
-	FCanonicalMemoryReader Parent(Adjacent);
-	Loaded.Serialize(Parent, EStaticMeshTargetPlatform::Win64);
+	FCanonicalMemoryReader Parent(Adjacent, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Loaded.Serialize(Parent);
 	ASSERT_FALSE(Parent.HasError());
 	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
 	EXPECT_FALSE(RequireArchiveEnd(Parent));
 	EXPECT_EQ(Parent.GetFailure()->Code, EArchiveFailureCode::TrailingData);
 
 	FStaticMeshPayloadData Replacement;
-	FCanonicalMemoryReader Cancelled(Bytes);
+	FCanonicalMemoryReader Cancelled(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	uint32 Checks = 0;
-	Replacement.Serialize(Cancelled, EStaticMeshTargetPlatform::Win64,
+	Replacement.Serialize(Cancelled,
 		[&] { return ++Checks >= 2; });
 	EXPECT_TRUE(Cancelled.HasError());
 	EXPECT_NE(Cancelled.GetError().find("cancelled"), std::string_view::npos);
 
 	FByteBuffer Oversized = Bytes;
 	WriteU64(Oversized, 48, MaximumStaticMeshPayloadBytes + 1);
-	FCanonicalMemoryReader Limits(Oversized);
+	FCanonicalMemoryReader Limits(Oversized, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
 	FStaticMeshPayloadData Discarded;
-	Discarded.Serialize(Limits, EStaticMeshTargetPlatform::Win64);
+	Discarded.Serialize(Limits);
 	ASSERT_TRUE(Limits.HasError());
 	EXPECT_EQ(Limits.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
 	EXPECT_EQ(Limits.Tell(), 64u);
 	EXPECT_TRUE(Discarded.LODs.empty());
+}
+
+TEST(FStaticMeshPayloadCodecTests, ArchiveTargetIsRequiredBeforePayloadTransfer)
+{
+	using namespace Durin;
+	auto Check = [](auto Payload) {
+		for (const char* Platform : {"", "Other"})
+		{
+			FArchiveState Context{.Target = {Platform, "Game"}};
+			FByteBuffer Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload, Context);
+			FCountingArchive Counter(EArchivePurpose::DerivedDataPayload, Context);
+			FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload, Context);
+			FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, Context);
+			for (FArchive* Ar : {static_cast<FArchive*>(&Writer), static_cast<FArchive*>(&Counter),
+				static_cast<FArchive*>(&Hasher), static_cast<FArchive*>(&Reader)})
+			{
+				Payload.Serialize(*Ar);
+				ASSERT_TRUE(Ar->HasError());
+				EXPECT_EQ(Ar->GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
+				EXPECT_EQ(Ar->Tell(), 0u);
+			}
+			EXPECT_TRUE(Bytes.empty());
+		}
+	};
+	Check(FStaticMeshPayloadData{});
+	Check(FStaticMeshCollisionPayloadData{});
 }

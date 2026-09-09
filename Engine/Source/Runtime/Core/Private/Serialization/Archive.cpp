@@ -57,6 +57,13 @@ namespace Durin
 				|| Purpose == EArchivePurpose::CookedPayload;
 			return Context;
 		}
+
+		auto MakeByteSinkState(EArchivePurpose Purpose, FArchiveState Context) -> FArchiveState
+		{
+			// Context carries serialization policy, not capabilities implemented by another archive.
+			Context.Capabilities = EArchiveCapability::None;
+			return MakeMemoryState(EArchiveDirection::Save, Purpose, std::move(Context));
+		}
 	}
 
 	auto FArchiveVersionContext::FindFormat(FName Format) const -> const FArchiveFormatVersion*
@@ -383,8 +390,10 @@ namespace Durin
 		return true;
 	}
 
-	FCountingArchive::FCountingArchive(EArchivePurpose Purpose)
-		: FArchive(MakeMemoryState(EArchiveDirection::Save, Purpose, {}))
+	FCountingArchive::FCountingArchive(EArchivePurpose Purpose,
+		FArchiveState Context, FArchiveVersionContext Versions)
+		: FArchive(MakeByteSinkState(Purpose, std::move(Context)),
+			std::move(Versions))
 	{
 	}
 
@@ -399,8 +408,10 @@ namespace Durin
 		Count += static_cast<uint64>(Bytes.size());
 	}
 
-	FHashingArchive::FHashingArchive(EArchivePurpose Purpose)
-		: FArchive(MakeMemoryState(EArchiveDirection::Save, Purpose, {}))
+	FHashingArchive::FHashingArchive(EArchivePurpose Purpose,
+		FArchiveState Context, FArchiveVersionContext Versions)
+		: FArchive(MakeByteSinkState(Purpose, std::move(Context)),
+			std::move(Versions))
 	{
 	}
 

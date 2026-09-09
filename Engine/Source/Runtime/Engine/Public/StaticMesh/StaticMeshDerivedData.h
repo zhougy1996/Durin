@@ -89,7 +89,6 @@ namespace Durin
 		// Loads in place; discard failures. The byte owner checks completion before publication.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown,
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
@@ -106,7 +105,6 @@ namespace Durin
 		// Loads in place; discard failures. The byte owner checks completion before publication.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown,
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 

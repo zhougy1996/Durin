@@ -260,10 +260,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	Durin::FTexturePlatformData DecodedPlatformData;
 	Durin::FCanonicalMemoryReader PayloadAr(
-		FirstBulk, Durin::EArchivePurpose::CookedPayload);
-	DecodedPlatformData.Serialize(PayloadAr, {
-		.TargetPlatform = Durin::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::ECookTargetProfile::Game});
+		FirstBulk, Durin::EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+	DecodedPlatformData.Serialize(PayloadAr);
 	ASSERT_FALSE(PayloadAr.HasError()) << PayloadAr.GetError();
 	ASSERT_TRUE(Durin::RequireArchiveEnd(PayloadAr));
 	ExpectPlatformDataEqual(DecodedPlatformData, ExpectedPlatformData);
