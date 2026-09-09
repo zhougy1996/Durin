@@ -22,20 +22,20 @@ namespace Durin::TextureDerivedDataCache
 			MaximumTexturePayloadBytes, Bytes, OutDiagnostic) == ELoadResult::Miss)
 			return ELoadResult::Miss;
 
-		PlatformDataType Candidate;
+		// The provider owns this unpublished destination and discards it on a miss.
 		FCanonicalMemoryReader Ar(
-			Bytes.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		Candidate.Serialize(Ar, {
-			.TargetPlatform = TargetPlatform,
-			.TargetProfile = TargetProfile});
-		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !Candidate.IsValid())
+			Bytes.GetBytes(), EArchivePurpose::DerivedDataPayload,
+			{.Target = {TargetPlatform == ECookTargetPlatform::Win64 ? "Win64" : "",
+				TargetProfile == ECookTargetProfile::Game ? "Game"
+				: TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : ""}});
+		OutPlatformData.Serialize(Ar);
+		if (Ar.HasError() || !RequireArchiveEnd(Ar) || !OutPlatformData.IsValid())
 		{
 			OutDiagnostic.Message = AssetDerivedDataCache::BoundDiagnostic(
 				Ar.GetFailure() ? Ar.GetFailure()->Message
 					: "Texture DDC payload is invalid or has trailing bytes.");
 			return ELoadResult::Miss;
 		}
-		OutPlatformData = std::move(Candidate);
 		OutDiagnostic.Message.clear();
 		return ELoadResult::Hit;
 	}
@@ -48,10 +48,11 @@ namespace Durin::TextureDerivedDataCache
 	{
 		OutDiagnostic = {};
 		FByteBuffer Bytes;
-		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-		PlatformData.Serialize(Ar, {
-			.TargetPlatform = TargetPlatform,
-			.TargetProfile = TargetProfile});
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload,
+			{.Target = {TargetPlatform == ECookTargetPlatform::Win64 ? "Win64" : "",
+				TargetProfile == ECookTargetProfile::Game ? "Game"
+				: TargetProfile == ECookTargetProfile::EditorValidation ? "EditorValidation" : ""}});
+		PlatformData.Serialize(Ar);
 		if (Ar.HasError())
 		{
 			OutDiagnostic.Message = AssetDerivedDataCache::BoundDiagnostic(

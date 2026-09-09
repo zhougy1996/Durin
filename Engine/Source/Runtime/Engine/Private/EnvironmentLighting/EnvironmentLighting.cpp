@@ -10,7 +10,6 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Serialization/Archive.h"
-#include "Serialization/BoundedPayloadSerialization.h"
 
 namespace Durin
 {
@@ -32,25 +31,20 @@ namespace Durin
 			return Count;
 		}
 
-		auto AppendHalfBytes(FByteBuffer& Bytes, const std::vector<uint16>& Values) -> void
+		auto SerializeEnvironmentBody(FArchive& Ar, FEnvironmentLightingData& Data) -> void
 		{
-			const size_t Offset = Bytes.size();
-			Bytes.resize(Offset + Values.size() * sizeof(uint16));
-			std::memcpy(Bytes.data() + Offset, Values.data(), Values.size() * sizeof(uint16));
-		}
-
-		auto ReadHalfValues(
-			FByteView Bytes,
-			size_t& Offset,
-			size_t Count,
-			std::vector<uint16>& OutValues) -> bool
-		{
-			const size_t ByteCount = Count * sizeof(uint16);
-			if (Offset > Bytes.size() || ByteCount > Bytes.size() - Offset) return false;
-			OutValues.resize(Count);
-			std::memcpy(OutValues.data(), Bytes.data() + Offset, ByteCount);
-			Offset += ByteCount;
-			return true;
+			auto Transfer = [&](std::vector<uint16>& Values, size_t Count) {
+				if (Ar.IsLoading()) Values.resize(Count);
+				for (uint16& Value : Values) Ar << Value;
+			};
+			for (auto& Face : Data.Irradiance)
+				Transfer(Face, EnvironmentIrradianceDimension * EnvironmentIrradianceDimension * 4);
+			for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
+			{
+				const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
+				for (auto& Face : Data.Prefiltered[Mip]) Transfer(Face, Dimension * Dimension * 4);
+			}
+			Transfer(Data.BrdfLut, EnvironmentBrdfLutDimension * EnvironmentBrdfLutDimension * 4);
 		}
 
 		auto LoadAuthoredPayload(
@@ -60,13 +54,12 @@ namespace Durin
 		{
 			const std::filesystem::path PayloadPath =
 				DEnvironmentLighting::GetAuthoredPayloadPath(VirtualPackagePath);
-			if (PayloadPath.empty()
-				|| !FFileHelper::LoadFileToArray(OutBytes, PayloadPath))
-			{
-				return Fail(std::format(
-					"Environment-lighting authored payload is missing for '{}'.",
-					VirtualPackagePath), &OutError);
-			}
+			const auto File = FFileHelper::OpenRead(PayloadPath);
+			if (!File || File->GetSize() != ExpectedElementCount() * sizeof(uint16) + 52)
+				return Fail("Environment-lighting authored payload is missing or has an invalid size.", &OutError);
+			OutBytes.resize(static_cast<size_t>(File->GetSize()));
+			if (!File->ReadAt(0, OutBytes))
+				return Fail("Environment-lighting authored payload read failed.", &OutError);
 			return true;
 		}
 	}
@@ -88,149 +81,72 @@ namespace Durin
 			* EnvironmentBrdfLutDimension * 4;
 	}
 
-	static auto BuildEnvironmentLightingSerializedValue(
-		const FEnvironmentLightingData& Data,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
-	{
-		OutBytes.clear();
-		OutError.clear();
-		if (!Data.IsValid())
-			return Fail("Environment-lighting data is incomplete or malformed.", &OutError);
-
-		FByteBuffer Body;
-		Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
-		for (const std::vector<uint16>& Face : Data.Irradiance) AppendHalfBytes(Body, Face);
-		for (const auto& Mip : Data.Prefiltered)
-			for (const std::vector<uint16>& Face : Mip) AppendHalfBytes(Body, Face);
-		AppendHalfBytes(Body, Data.BrdfLut);
-
-		FBinaryWriter Writer;
-		Writer.WriteHeader({
-			.Magic = 0,
-			.SchemaVersion = EnvironmentLightingPayloadSchemaVersion,
-			.FormatVersion = DefaultStudioEnvironmentBuilderVersion});
-		Writer.WriteU32(EnvironmentLightingStablePixelFormatRgba16Float);
-		Writer.WriteU32(EnvironmentIrradianceDimension);
-		Writer.WriteU32(EnvironmentPrefilterDimension);
-		Writer.WriteU32(EnvironmentPrefilterMipCount);
-		Writer.WriteU32(EnvironmentBrdfLutDimension);
-		Writer.WriteU64(ExpectedElementCount());
-		Writer.WriteU64(FXxHash64::HashBuffer(Body).HashValue);
-		Writer.WriteBytes(Body);
-		OutBytes = Writer.TakeBytes();
-		return true;
-	}
-
-	static auto ParseEnvironmentLightingSerializedValue(
-		FByteView Bytes,
-		FEnvironmentLightingData& OutData) -> FDecodeResult
-	{
-		auto Reject = [](EDecodeError Code, std::string Message) {
-			return FDecodeResult{Code, std::move(Message)};
-		};
-		FBinaryReader Reader(Bytes);
-		uint32 PixelFormat = 0;
-		uint32 IrradianceDimension = 0;
-		uint32 PrefilterDimension = 0;
-		uint32 PrefilterMipCount = 0;
-		uint32 BrdfLutDimension = 0;
-		uint64 ElementCount = 0;
-		uint64 StoredHash = 0;
-		uint32 Reserved0 = 0;
-		uint32 SchemaVersion = 0;
-		uint32 ProducerVersion = 0;
-		uint32 SerializationMarker = 0;
-		if (!Reader.ReadU32(Reserved0)
-			|| !Reader.ReadU32(SchemaVersion)
-			|| !Reader.ReadU32(ProducerVersion)
-			|| !Reader.ReadU32(SerializationMarker)
-			|| !Reader.ReadU32(PixelFormat)
-			|| !Reader.ReadU32(IrradianceDimension)
-			|| !Reader.ReadU32(PrefilterDimension)
-			|| !Reader.ReadU32(PrefilterMipCount)
-			|| !Reader.ReadU32(BrdfLutDimension)
-			|| !Reader.ReadU64(ElementCount)
-			|| !Reader.ReadU64(StoredHash))
-		{
-			return Reject(EDecodeError::Corrupt,
-				"Environment-lighting payload header is invalid.");
-		}
-		if (Reserved0 != 0)
-			return Reject(EDecodeError::Corrupt,
-				"Environment-lighting payload reserved header field is nonzero.");
-		if (SchemaVersion != EnvironmentLightingPayloadSchemaVersion
-			|| SerializationMarker != BinaryFormatMarker
-			|| PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float
-			|| IrradianceDimension != EnvironmentIrradianceDimension
-			|| PrefilterDimension != EnvironmentPrefilterDimension
-			|| PrefilterMipCount != EnvironmentPrefilterMipCount
-			|| BrdfLutDimension != EnvironmentBrdfLutDimension
-			|| ElementCount != ExpectedElementCount())
-		{
-			return Reject(EDecodeError::Incompatible,
-				"Environment-lighting payload layout is incompatible.");
-		}
-		// Producer identity is diagnostic metadata. Runtime compatibility is owned
-		// by the schema and stable value identifiers.
-		(void)ProducerVersion;
-		const uint64 ExpectedBodyBytes = ElementCount * sizeof(uint16);
-		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
-			return Reject(EDecodeError::Corrupt,
-				"Environment-lighting payload size is invalid.");
-		FByteBuffer Body;
-		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
-			|| !Reader.IsAtEnd()
-			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
-		{
-			return Reject(EDecodeError::Corrupt,
-				"Environment-lighting payload checksum does not match.");
-		}
-
-		FEnvironmentLightingData Candidate;
-		size_t Offset = 0;
-		const size_t IrradianceElements = static_cast<size_t>(EnvironmentIrradianceDimension)
-			* EnvironmentIrradianceDimension * 4;
-		for (std::vector<uint16>& Face : Candidate.Irradiance)
-			if (!ReadHalfValues(Body, Offset, IrradianceElements, Face))
-				return Reject(EDecodeError::Corrupt,
-					"Environment-lighting irradiance data is truncated.");
-		for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
-		{
-			const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
-			for (std::vector<uint16>& Face : Candidate.Prefiltered[Mip])
-				if (!ReadHalfValues(Body, Offset, Dimension * Dimension * 4, Face))
-					return Reject(EDecodeError::Corrupt,
-						"Environment-lighting prefilter data is truncated.");
-		}
-		if (!ReadHalfValues(
-				Body, Offset,
-				static_cast<size_t>(EnvironmentBrdfLutDimension)
-					* EnvironmentBrdfLutDimension * 4,
-				Candidate.BrdfLut)
-			|| Offset != Body.size() || !Candidate.IsValid())
-		{
-			return Reject(EDecodeError::Corrupt,
-				"Environment-lighting BRDF LUT data is invalid.");
-		}
-		OutData = std::move(Candidate);
-		return {};
-	}
-
 	auto FEnvironmentLightingData::Serialize(FArchive& Ar) -> void
 	{
-		SerializeBoundedArchivePayload(
-			Ar,
-			*this,
-			{ExpectedElementCount() * sizeof(uint16) + 64,
-				"Environment-lighting payload"},
-			[](const FEnvironmentLightingData& Value,
-				FByteBuffer& Bytes, std::string& Error) {
-				return BuildEnvironmentLightingSerializedValue(Value, Bytes, Error);
-			},
-			[](FByteView Bytes, FEnvironmentLightingData& Candidate) {
-				return ParseEnvironmentLightingSerializedValue(Bytes, Candidate);
-			});
+		if (Ar.HasError()) return;
+		if (Ar.IsSaving() && !IsValid())
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Environment-lighting data is incomplete or malformed.");
+			return;
+		}
+		uint32 Reserved = 0, Schema = EnvironmentLightingPayloadSchemaVersion;
+		uint32 Producer = DefaultStudioEnvironmentBuilderVersion, Marker = BinaryFormatMarker;
+		uint32 Format = EnvironmentLightingStablePixelFormatRgba16Float;
+		uint32 IrradianceSize = EnvironmentIrradianceDimension, PrefilterSize = EnvironmentPrefilterDimension;
+		uint32 MipCount = EnvironmentPrefilterMipCount, BrdfSize = EnvironmentBrdfLutDimension;
+		uint64 ElementCount = ExpectedElementCount(), Hash = 0;
+		FByteBuffer Body;
+		if (Ar.IsSaving())
+		{
+			// Fixed dimensions bound staging before growth; the historical header
+			// precedes the checksum's body, so one canonical body is retained.
+			Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
+			FCanonicalMemoryWriter BodyAr(Body);
+			SerializeEnvironmentBody(BodyAr, *this);
+			if (BodyAr.HasError())
+			{
+				Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
+				return;
+			}
+			Hash = FXxHash64::HashBuffer(Body).HashValue;
+		}
+		Ar << Reserved << Schema << Producer << Marker << Format << IrradianceSize
+			<< PrefilterSize << MipCount << BrdfSize << ElementCount << Hash;
+		if (Ar.HasError()) return;
+		if (Reserved != 0)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Environment-lighting reserved header field is nonzero.");
+			return;
+		}
+		if (Schema != EnvironmentLightingPayloadSchemaVersion || Marker != BinaryFormatMarker
+			|| Format != EnvironmentLightingStablePixelFormatRgba16Float
+			|| IrradianceSize != EnvironmentIrradianceDimension || PrefilterSize != EnvironmentPrefilterDimension
+			|| MipCount != EnvironmentPrefilterMipCount || BrdfSize != EnvironmentBrdfLutDimension)
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Environment-lighting payload layout is incompatible.");
+			return;
+		}
+		if (ElementCount != ExpectedElementCount())
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Environment-lighting element count is invalid.");
+			return;
+		}
+		if (Ar.IsSaving())
+		{
+			Ar.WriteBytes(Body);
+			return;
+		}
+		FByteView Region;
+		if (!Ar.ReadRegion(ElementCount * sizeof(uint16), Region)) return;
+		if (FXxHash64::HashBuffer(Region).HashValue != Hash)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Environment-lighting payload checksum does not match.");
+			return;
+		}
+		FCanonicalMemoryReader BodyAr(Region);
+		SerializeEnvironmentBody(BodyAr, *this);
+		if (!RequireArchiveEnd(BodyAr))
+			Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
 	}
 
 	DEnvironmentLighting::DEnvironmentLighting(const FObjectInitializer& ObjectInitializer)
@@ -275,7 +191,7 @@ namespace Durin
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(PayloadAr);
-		if (PayloadAr.HasError())
+		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), PayloadAr.GetFailure()->Message);
 			return;
@@ -357,7 +273,7 @@ namespace Durin
 		auto Validated = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		Validated->Serialize(PayloadAr);
-		if (PayloadAr.HasError()) return Fail(PayloadAr.GetFailure()->Message, &OutError);
+		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr)) return Fail(PayloadAr.GetFailure()->Message, &OutError);
 		Data = std::move(Validated);
 		return Context.AddPackage(
 			std::string(VirtualPackagePath), GetPackage(), &OutError);

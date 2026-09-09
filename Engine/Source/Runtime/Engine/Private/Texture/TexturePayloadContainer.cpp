@@ -1,202 +1,202 @@
 #include "Texture/TexturePayloadContainer.h"
 
 #include "Hash/XxHash.h"
-#include "Serialization/BinaryFormat.h"
+#include "Serialization/Archive.h"
 #include "Templates/CheckedArithmetic.h"
 
 namespace Durin::TexturePayloadContainer
 {
 	namespace
 	{
-		auto FailContainer(std::string& OutError, std::string Message) -> bool
+		auto SerializeRecord(FArchive& Ar, FRecord& Record) -> void
 		{
-			OutError = std::move(Message);
-			return false;
+			Ar << Record.Coordinate << Record.MipIndex << Record.Width << Record.Height
+				<< Record.RowPitch << Record.LayerPitch << Record.DataOffset << Record.ByteCount;
+		}
+
+		auto ValidRecordCount(const FDescriptor& Descriptor, uint32 Count) -> bool
+		{
+			const uint32 Slices = Descriptor.Dimension == ETexturePayloadDimension::TextureCube ? 6 : 1;
+			return (Descriptor.Dimension == ETexturePayloadDimension::Texture2D
+				|| Descriptor.Dimension == ETexturePayloadDimension::TextureCube
+				|| Descriptor.Dimension == ETexturePayloadDimension::Texture3D)
+				&& Descriptor.SliceCount == Slices && Descriptor.MipCount > 0
+				&& Descriptor.MipCount <= MaximumTextureMipCount
+				&& Count == Slices * Descriptor.MipCount;
 		}
 	}
 
-	auto Build(
-		const FDescriptor& Descriptor,
-		std::span<const FBuildRecord> Records,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool
+	auto ResolveContext(FArchive& Ar, const FTexturePlatformSerializationContext& Explicit,
+		FTexturePlatformSerializationContext& Context) -> bool
 	{
-		OutBytes.clear();
-		OutError.clear();
-		if (Records.size() > std::numeric_limits<uint32>::max())
-			return FailContainer(OutError, "Texture payload has too many records.");
-
-		const uint64 RecordCount = Records.size();
-		const uint64 TableBytes = RecordCount * TexturePayloadRecordSize;
-		if (TableBytes > MaximumTexturePayloadBytes - TexturePayloadHeaderSize)
-			return FailContainer(OutError, "Texture payload record table exceeds its byte limit.");
-
-		uint64 DataOffset = 0;
-		if (!TryAlignUp(TexturePayloadHeaderSize + TableBytes, TexturePayloadAlignment,
-			MaximumTexturePayloadBytes, DataOffset))
-			return FailContainer(OutError, "Texture payload table alignment exceeds its byte limit.");
-		std::vector<uint64> DataOffsets;
-		DataOffsets.reserve(Records.size());
-		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
+		if (Ar.HasError()) return false;
+		Context = Explicit;
+		const auto& Target = Ar.GetTarget();
+		if (!Target.Platform.empty() || !Target.Profile.empty())
 		{
-			DataOffsets.push_back(DataOffset);
-			if (DataOffset > MaximumTexturePayloadBytes
-				|| Records[RecordIndex].Data.size() > MaximumTexturePayloadBytes - DataOffset)
-				return FailContainer(OutError, "Texture payload exceeds its byte limit.");
-			DataOffset += Records[RecordIndex].Data.size();
-			if (RecordIndex + 1 < Records.size())
+			const auto Profile = Target.Profile == "Game" ? ECookTargetProfile::Game
+				: Target.Profile == "EditorValidation" ? ECookTargetProfile::EditorValidation
+				: ECookTargetProfile::Invalid;
+			if (Target.Platform != "Win64" || Profile == ECookTargetProfile::Invalid
+				|| (Explicit.TargetPlatform != ECookTargetPlatform::Invalid && Explicit.TargetPlatform != ECookTargetPlatform::Win64)
+				|| (Explicit.TargetProfile != ECookTargetProfile::Invalid && Explicit.TargetProfile != Profile))
 			{
-				uint64 AlignedOffset = 0;
-				if (!TryAlignUp(DataOffset, TexturePayloadAlignment,
-					MaximumTexturePayloadBytes, AlignedOffset))
-					return FailContainer(OutError, "Texture payload alignment exceeds its byte limit.");
-				DataOffset = AlignedOffset;
+				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture Archive target is missing, unsupported or conflicting.");
+				return false;
 			}
+			Context = {ECookTargetPlatform::Win64, Profile};
 		}
-
-		FBinaryWriter Body;
-		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
+		if (Context.TargetPlatform != ECookTargetPlatform::Win64
+			|| (Context.TargetProfile != ECookTargetProfile::Game && Context.TargetProfile != ECookTargetProfile::EditorValidation))
 		{
-			const FRecord& Record = Records[RecordIndex].Record;
-			Body.WriteU32(Record.Coordinate);
-			Body.WriteU32(Record.MipIndex);
-			Body.WriteU32(Record.Width);
-			Body.WriteU32(Record.Height);
-			Body.WriteU32(Record.RowPitch);
-			Body.WriteU32(Record.LayerPitch);
-			Body.WriteU64(DataOffsets[RecordIndex]);
-			Body.WriteU64(Records[RecordIndex].Data.size());
+			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture payload requires a concrete target context.");
+			return false;
 		}
-
-		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
-		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
-		{
-			Body.WriteBytes(FByteBuffer(
-				static_cast<size_t>(DataOffsets[RecordIndex] - CurrentOffset), std::byte{0}));
-			Body.WriteBytes(Records[RecordIndex].Data);
-			CurrentOffset = DataOffsets[RecordIndex] + Records[RecordIndex].Data.size();
-		}
-		const FByteBuffer BodyBytes = Body.TakeBytes();
-
-		FBinaryWriter Result;
-		Result.WriteU32(0);
-		Result.WriteU32(TexturePayloadSchemaVersion);
-		Result.WriteU32(Descriptor.ProducerVersion);
-		Result.WriteU32(static_cast<uint32>(Descriptor.TargetPlatform));
-		Result.WriteU32(static_cast<uint32>(Descriptor.TargetProfile));
-		Result.WriteU32(static_cast<uint32>(Descriptor.Dimension));
-		Result.WriteU32(static_cast<uint32>(Descriptor.StableFormat));
-		Result.WriteU32(Descriptor.SliceCount);
-		Result.WriteU32(Descriptor.MipCount);
-		Result.WriteU32(TexturePayloadHeaderSize);
-		Result.WriteU32(static_cast<uint32>(RecordCount));
-		Result.WriteU32(TexturePayloadRecordSize);
-		Result.WriteU64(TexturePayloadHeaderSize);
-		Result.WriteU64(DataOffset);
-		Result.WriteU64(FXxHash64::HashBuffer(BodyBytes).HashValue);
-		Result.WriteU64(0);
-		Result.WriteBytes(BodyBytes);
-		OutBytes = Result.TakeBytes();
 		return true;
 	}
 
-	auto Parse(
-		FByteView Bytes,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FDecodedContainer& OutContainer) -> FDecodeResult
+	auto Serialize(FArchive& Ar, FDescriptor& Descriptor,
+		std::vector<FPayloadRecord>& Records,
+		ECookTargetPlatform ExpectedPlatform, ECookTargetProfile ExpectedProfile) -> void
 	{
-		auto Reject = [](EDecodeError Code, std::string Message) {
-			return FDecodeResult{Code, std::move(Message)};
-		};
-		if (Bytes.size() < TexturePayloadHeaderSize)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload header is truncated.");
-
-		uint32 Reserved0 = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
-		uint32 Dimension = 0, StableFormat = 0, SliceCount = 0, MipCount = 0;
-		uint32 HeaderSize = 0, RecordCount = 0, RecordSize = 0;
-		uint64 TableOffset = 0, StoredSize = 0, StoredHash = 0, Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
-			|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
-			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
-			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
-			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
-			|| !ReadLittleEndianAt(Bytes, 48, TableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
-			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload header is truncated.");
-		if (Reserved0 != 0)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload reserved header field is nonzero.");
-		if (Schema != TexturePayloadSchemaVersion)
-			return Reject(EDecodeError::Incompatible,
-				"Texture payload schema version is unsupported.");
-		// Producer identity is diagnostic metadata. Runtime compatibility is owned
-		// by the container schema and the stable identifiers interpreted by callers.
-		if (Platform != static_cast<uint32>(ExpectedPlatform)
-			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Reject(EDecodeError::Incompatible,
-				"Texture payload target platform or profile does not match.");
-		if (HeaderSize != TexturePayloadHeaderSize || RecordSize != TexturePayloadRecordSize
-			|| TableOffset != TexturePayloadHeaderSize || Reserved != 0)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload container layout is invalid.");
-		if (StoredSize != Bytes.size() || StoredSize > MaximumTexturePayloadBytes)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload stored size is invalid.");
-		if (FXxHash64::HashBuffer(Bytes.subspan(TexturePayloadHeaderSize)).HashValue != StoredHash)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload checksum does not match.");
-
-		const uint64 TableBytes = static_cast<uint64>(RecordCount) * RecordSize;
-		if (TableOffset > StoredSize || TableBytes > StoredSize - TableOffset)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload record table is outside the stored object.");
-		const uint64 TableEnd = TableOffset + TableBytes;
-
-		FDecodedContainer Candidate;
-		Candidate.Descriptor = {
-			.ProducerVersion = Producer,
-			.TargetPlatform = static_cast<ECookTargetPlatform>(Platform),
-			.TargetProfile = static_cast<ECookTargetProfile>(Profile),
-			.Dimension = static_cast<ETexturePayloadDimension>(Dimension),
-			.StableFormat = static_cast<ETextureStablePixelFormat>(StableFormat),
-			.SliceCount = SliceCount,
-			.MipCount = MipCount};
-		Candidate.Records.reserve(RecordCount);
-		uint64 PreviousEnd = TableEnd;
-		for (uint32 RecordIndex = 0; RecordIndex < RecordCount; ++RecordIndex)
+		if (Ar.HasError()) return;
+		const auto& Target = Ar.GetTarget();
+		const std::string_view ProfileName = ExpectedProfile == ECookTargetProfile::Game
+			? "Game" : "EditorValidation";
+		if (ExpectedPlatform != ECookTargetPlatform::Win64
+			|| (ExpectedProfile != ECookTargetProfile::Game
+				&& ExpectedProfile != ECookTargetProfile::EditorValidation)
+			|| (!Target.Platform.empty() && Target.Platform != "Win64")
+			|| (!Target.Profile.empty() && Target.Profile != ProfileName))
 		{
-			const size_t Offset = static_cast<size_t>(
-				TableOffset + static_cast<uint64>(RecordIndex) * RecordSize);
-			FRecord& Record = Candidate.Records.emplace_back();
-			if (!ReadLittleEndianAt(Bytes, Offset, Record.Coordinate)
-				|| !ReadLittleEndianAt(Bytes, Offset + 4, Record.MipIndex)
-				|| !ReadLittleEndianAt(Bytes, Offset + 8, Record.Width)
-				|| !ReadLittleEndianAt(Bytes, Offset + 12, Record.Height)
-				|| !ReadLittleEndianAt(Bytes, Offset + 16, Record.RowPitch)
-				|| !ReadLittleEndianAt(Bytes, Offset + 20, Record.LayerPitch)
-				|| !ReadLittleEndianAt(Bytes, Offset + 24, Record.DataOffset)
-				|| !ReadLittleEndianAt(Bytes, Offset + 32, Record.ByteCount))
-				return Reject(EDecodeError::Corrupt,
-					"Texture payload record is truncated.");
-			if (Record.DataOffset % TexturePayloadAlignment != 0
-				|| Record.DataOffset < PreviousEnd || Record.DataOffset > StoredSize
-				|| Record.ByteCount > StoredSize - Record.DataOffset)
-				return Reject(EDecodeError::Corrupt,
-					"Texture payload record range is misaligned, overlapping, or outside the object.");
-			for (uint64 PaddingOffset = PreviousEnd; PaddingOffset < Record.DataOffset; ++PaddingOffset)
-				if (Bytes[static_cast<size_t>(PaddingOffset)] != std::byte{0})
-					return Reject(EDecodeError::Corrupt,
-						"Texture payload contains non-zero alignment padding.");
+			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture payload target context is unsupported or conflicting.");
+			return;
+		}
+
+		uint32 Reserved0 = 0, Schema = TexturePayloadSchemaVersion;
+		uint32 HeaderSize = TexturePayloadHeaderSize, RecordSize = TexturePayloadRecordSize;
+		uint32 RecordCount = Ar.IsSaving() ? static_cast<uint32>(Records.size()) : 0;
+		uint64 TableOffset = TexturePayloadHeaderSize, StoredSize = 0, StoredHash = 0, Reserved = 0;
+		FByteBuffer Body;
+		if (Ar.IsSaving())
+		{
+			if (Records.size() > MaximumTextureMipCount * 6 || !ValidRecordCount(Descriptor, RecordCount))
+			{
+				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Texture payload record count is invalid.");
+				return;
+			}
+			uint64 Offset = TexturePayloadHeaderSize + static_cast<uint64>(RecordCount) * TexturePayloadRecordSize;
+			for (FPayloadRecord& Record : Records)
+			{
+				if (!TryAlignUp(Offset, TexturePayloadAlignment, MaximumTexturePayloadBytes, Offset)
+					|| Record.Data.size() > MaximumTexturePayloadBytes - Offset)
+				{
+					Ar.Fail(EArchiveFailureCode::LimitExceeded, "Texture payload exceeds its byte limit.");
+					return;
+				}
+				Record.Record.DataOffset = Offset;
+				Record.Record.ByteCount = Record.Data.size();
+				Offset += Record.Data.size();
+			}
+			StoredSize = Offset;
+			// The complete layout is bounded before any body allocation. Staging is
+			// required because the historical header hashes the following body.
+			Body.reserve(static_cast<size_t>(StoredSize - TexturePayloadHeaderSize));
+			FCanonicalMemoryWriter BodyAr(Body);
+			for (FPayloadRecord& Record : Records) SerializeRecord(BodyAr, Record.Record);
+			for (const FPayloadRecord& Record : Records)
+			{
+				while (BodyAr.Tell() + TexturePayloadHeaderSize < Record.Record.DataOffset)
+				{
+					uint8 Padding = 0;
+					BodyAr << Padding;
+				}
+				BodyAr.WriteBytes(Record.Data);
+			}
+			if (BodyAr.HasError())
+			{
+				Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
+				return;
+			}
+			StoredHash = FXxHash64::HashBuffer(Body).HashValue;
+		}
+
+		Ar << Reserved0 << Schema << Descriptor.ProducerVersion << Descriptor.TargetPlatform
+			<< Descriptor.TargetProfile << Descriptor.Dimension << Descriptor.StableFormat
+			<< Descriptor.SliceCount << Descriptor.MipCount << HeaderSize << RecordCount
+			<< RecordSize << TableOffset << StoredSize << StoredHash << Reserved;
+		if (Ar.HasError()) return;
+		if (Schema != TexturePayloadSchemaVersion)
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Texture payload schema version is unsupported.");
+			return;
+		}
+		if (Descriptor.TargetPlatform != ExpectedPlatform || Descriptor.TargetProfile != ExpectedProfile)
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Texture payload target platform or profile does not match.");
+			return;
+		}
+		if (Reserved0 != 0 || Reserved != 0 || HeaderSize != TexturePayloadHeaderSize
+			|| RecordSize != TexturePayloadRecordSize || TableOffset != TexturePayloadHeaderSize)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Texture payload container layout is invalid.");
+			return;
+		}
+		if (!ValidRecordCount(Descriptor, RecordCount) || StoredSize > MaximumTexturePayloadBytes)
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Texture payload count or stored size exceeds its limit.");
+			return;
+		}
+		const uint64 TableBytes = static_cast<uint64>(RecordCount) * RecordSize;
+		if (StoredSize < HeaderSize || TableBytes > StoredSize - HeaderSize)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Texture payload record table is outside its extent.");
+			return;
+		}
+		if (Ar.IsSaving())
+		{
+			Ar.WriteBytes(Body);
+			return;
+		}
+
+		FByteView Region;
+		if (!Ar.ReadRegion(StoredSize - HeaderSize, Region)) return;
+		if (FXxHash64::HashBuffer(Region).HashValue != StoredHash)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, "Texture payload checksum does not match.");
+			return;
+		}
+		FCanonicalMemoryReader BodyAr(Region);
+		Records.clear();
+		Records.resize(RecordCount);
+		uint64 PreviousEnd = HeaderSize + TableBytes;
+		for (FPayloadRecord& Entry : Records)
+		{
+			FRecord& Record = Entry.Record;
+			SerializeRecord(BodyAr, Record);
+			if (BodyAr.HasError())
+			{
+				Ar.Fail(BodyAr.GetFailure()->Code, BodyAr.GetFailure()->Message);
+				return;
+			}
+			if (Record.DataOffset % TexturePayloadAlignment != 0 || Record.DataOffset < PreviousEnd
+				|| Record.DataOffset > StoredSize || Record.ByteCount > StoredSize - Record.DataOffset)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, "Texture payload record range is invalid.");
+				return;
+			}
+			for (uint64 Offset = PreviousEnd; Offset < Record.DataOffset; ++Offset)
+				if (Region[static_cast<size_t>(Offset - HeaderSize)] != std::byte{0})
+				{
+					Ar.Fail(EArchiveFailureCode::NonZeroPadding, "Texture payload alignment padding is nonzero.");
+					return;
+				}
+			Entry.Data = Region.subspan(static_cast<size_t>(Record.DataOffset - HeaderSize),
+				static_cast<size_t>(Record.ByteCount));
 			PreviousEnd = Record.DataOffset + Record.ByteCount;
 		}
 		if (PreviousEnd != StoredSize)
-			return Reject(EDecodeError::Corrupt,
-				"Texture payload contains trailing data.");
-		OutContainer = std::move(Candidate);
-		return {};
+			Ar.Fail(EArchiveFailureCode::TrailingData, "Texture payload contains trailing data.");
 	}
+
 }

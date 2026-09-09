@@ -677,43 +677,35 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	ASSERT_TRUE(Durin::VolumeTextureBuilder::BuildMipChain(
 		Source, {}, Platform, Error)) << Error;
 	Durin::FByteBuffer Bytes;
-	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
-		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
+		{.Target = {"Win64", "Game"}});
+	Platform.Serialize(Writer);
+	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
 		"3653410e7207268f7089e69dfa0f3d38");
 	EXPECT_EQ(Bytes.size(), 177u);
 	Durin::FVolumeTexturePlatformData Decoded;
-	Durin::FDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
-		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, Decoded);
-	ASSERT_TRUE(Result) << Result.Message;
+	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload,
+		{.Target = {"Win64", "Game"}});
+	Decoded.Serialize(Reader);
+	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
 	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
 	auto DifferentProducer = Bytes;
 	for (uint32 Byte = 0; Byte < 4; ++Byte)
 		DifferentProducer[8 + Byte] = static_cast<std::byte>(
 			(Durin::VolumeTextureBuilderVersion + 17) >> (Byte * 8));
-	Result = Durin::ParseVolumeTextureSerializedValue(DifferentProducer,
-		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, Decoded);
-	EXPECT_TRUE(Result) << Result.Message;
-	const size_t MipCountBeforeFailure = Decoded.Mips.size();
-	const Durin::FVolumeTextureMipData LastMipBeforeFailure = Decoded.Mips.back();
-	const Durin::EPixelFormat FormatBeforeFailure = Decoded.PixelFormat;
+	Durin::FCanonicalMemoryReader CompatibleReader(DifferentProducer,
+		Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Decoded.Serialize(CompatibleReader);
+	ASSERT_TRUE(Durin::RequireArchiveEnd(CompatibleReader)) << CompatibleReader.GetError();
+	EXPECT_EQ(Decoded.Mips.back().Voxels, Platform.Mips.back().Voxels);
 	Bytes.back() ^= std::byte{1};
-	Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
-		Durin::ECookTargetPlatform::Win64,
-		Durin::ECookTargetProfile::Game, Decoded);
-	EXPECT_FALSE(Result);
-	EXPECT_NE(Result.Message.find("checksum"), std::string::npos);
-	ASSERT_EQ(Decoded.Mips.size(), MipCountBeforeFailure);
-	EXPECT_EQ(Decoded.Mips.back().Width, LastMipBeforeFailure.Width);
-	EXPECT_EQ(Decoded.Mips.back().Height, LastMipBeforeFailure.Height);
-	EXPECT_EQ(Decoded.Mips.back().Depth, LastMipBeforeFailure.Depth);
-	EXPECT_EQ(Decoded.Mips.back().RowPitch, LastMipBeforeFailure.RowPitch);
-	EXPECT_EQ(Decoded.Mips.back().DepthPitch, LastMipBeforeFailure.DepthPitch);
-	EXPECT_EQ(Decoded.Mips.back().Voxels, LastMipBeforeFailure.Voxels);
-	EXPECT_EQ(Decoded.PixelFormat, FormatBeforeFailure);
+	Durin::FVolumeTexturePlatformData Discarded;
+	Durin::FCanonicalMemoryReader CorruptReader(Bytes,
+		Durin::EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Discarded.Serialize(CorruptReader);
+	EXPECT_TRUE(CorruptReader.HasError());
+	EXPECT_NE(CorruptReader.GetError().find("checksum"), std::string::npos);
 }
 
 TEST(FVolumeTextureTests, DdcBuildIsStableAndKeySensitive)
@@ -1996,4 +1988,115 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 		AssetPath,
 		Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));
 	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AssetPath));
+}
+
+TEST(FVolumeTextureTests, ArchiveBoundsReplacementAndSaveImmutability)
+{
+	using namespace Durin;
+	FVolumeTexturePlatformData Source;
+	Source.PixelFormat = EPixelFormat::R8_UNORM;
+	auto& Mip = Source.Mips.emplace_back();
+	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
+	Mip.Voxels = {std::byte{42}};
+	ASSERT_TRUE(Source.IsValid());
+	const FTexturePlatformSerializationContext Context{
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FByteBuffer Bytes;
+	FCanonicalMemoryWriter Writer(Bytes);
+	Source.Serialize(Writer, Context);
+	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
+	Source.Serialize(Counter, Context);
+	EXPECT_FALSE(Counter.HasError());
+	EXPECT_EQ(Counter.Tell(), Bytes.size());
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
+	Source.Serialize(Hasher, Context);
+	EXPECT_FALSE(Hasher.HasError());
+	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
+	EXPECT_EQ(Source.Mips.size(), 1u);
+	EXPECT_EQ(Source.Mips.front().Voxels, FByteBuffer{std::byte{42}});
+
+	FByteBuffer Adjacent = Bytes;
+	Adjacent.insert(Adjacent.end(), Bytes.begin(), Bytes.end());
+	FCanonicalMemoryReader Parent(Adjacent);
+	FByteView Region;
+	ASSERT_TRUE(Parent.ReadRegion(Bytes.size(), Region));
+	EXPECT_EQ(Region.data(), Adjacent.data());
+	FCanonicalMemoryReader First(Region);
+	FVolumeTexturePlatformData Loaded = Source;
+	Loaded.Mips.push_back(Source.Mips.front());
+	Loaded.Serialize(First, Context);
+	ASSERT_FALSE(First.HasError()) << First.GetError();
+	EXPECT_TRUE(RequireArchiveEnd(First));
+	EXPECT_EQ(Loaded.Mips.size(), 1u);
+	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
+
+	for (size_t Size = 0; Size < Bytes.size(); ++Size)
+	{
+		FCanonicalMemoryReader Truncated(FByteView(Bytes).first(Size));
+		FVolumeTexturePlatformData Discarded;
+		Discarded.Serialize(Truncated, Context);
+		EXPECT_TRUE(Truncated.HasError()) << Size;
+	}
+	FCanonicalMemoryReader Trailing(Adjacent);
+	Loaded.Serialize(Trailing, Context);
+	ASSERT_FALSE(Trailing.HasError());
+	EXPECT_FALSE(RequireArchiveEnd(Trailing));
+	EXPECT_EQ(Trailing.GetFailure()->Code, EArchiveFailureCode::TrailingData);
+
+	auto Oversized = Bytes;
+	const uint64 Size = MaximumTexturePayloadBytes + 1;
+	for (uint32 Index = 0; Index < 8; ++Index)
+		Oversized[56 + Index] = static_cast<std::byte>(Size >> (Index * 8));
+	FCanonicalMemoryReader OversizedReader(Oversized);
+	FVolumeTexturePlatformData Discarded;
+	Discarded.Serialize(OversizedReader, Context);
+	ASSERT_TRUE(OversizedReader.HasError());
+	EXPECT_EQ(OversizedReader.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
+	EXPECT_TRUE(Discarded.Mips.empty());
+	EXPECT_EQ(OversizedReader.Tell(), TexturePayloadHeaderSize);
+
+	FArchiveState Conflicting;
+	Conflicting.Target.Platform = "Other";
+	FCanonicalMemoryReader Conflict(Bytes, EArchivePurpose::DerivedDataPayload, Conflicting);
+	Discarded.Serialize(Conflict, Context);
+	EXPECT_TRUE(Conflict.HasError());
+	EXPECT_EQ(Conflict.Tell(), 0u);
+}
+
+TEST(FVolumeTextureTests, RawArchiveWithoutBorrowingFailsExplicitly)
+{
+	using namespace Durin;
+	// Supplies exact raw transfer but cannot lend the backing byte owner.
+	class FRawReader final : public FArchive
+	{
+	public:
+		explicit FRawReader(FByteView Bytes)
+			: FArchive({.Direction = EArchiveDirection::Load,
+				.Capabilities = EArchiveCapability::RawBytes}), Reader(Bytes) {}
+		auto SerializeRawBytes(FMutableByteView Bytes) -> void override
+		{
+			Reader.ReadBytes(Bytes);
+			if (Reader.HasError()) Fail(Reader.GetFailure()->Code, Reader.GetError());
+		}
+		FCanonicalMemoryReader Reader;
+	};
+	FVolumeTexturePlatformData Source;
+	Source.PixelFormat = EPixelFormat::R8_UNORM;
+	auto& Mip = Source.Mips.emplace_back();
+	Mip.Width = Mip.Height = Mip.Depth = Mip.RowPitch = Mip.DepthPitch = 1;
+	Mip.Voxels = {std::byte{42}};
+	FByteBuffer Bytes;
+	const FTexturePlatformSerializationContext Context{
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	FCanonicalMemoryWriter Writer(Bytes);
+	Source.Serialize(Writer, Context);
+	ASSERT_FALSE(Writer.HasError());
+	FRawReader Reader(Bytes);
+	FVolumeTexturePlatformData Discarded;
+	Discarded.Serialize(Reader, Context);
+	ASSERT_TRUE(Reader.HasError());
+	EXPECT_EQ(Reader.GetFailure()->Code, EArchiveFailureCode::UnsupportedCapability);
+	EXPECT_EQ(Reader.Reader.Tell(), TexturePayloadHeaderSize);
+	EXPECT_TRUE(Discarded.Mips.empty());
 }

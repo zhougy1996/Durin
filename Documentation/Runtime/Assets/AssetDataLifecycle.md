@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -38,6 +38,16 @@ providers. These providers use bounded typed modular-feature invocation.
 Providers own recipe metrics and producer versions.
 Engine owns keys, runtime serialization, DDC policy, and object application;
 providers retain no cache keys, origin, persistence diagnostics, or live assets.
+
+Texture cache decoding reuses the provider's unpublished platform destination;
+on a miss that incomplete destination is discarded before recipe application.
+Cooked texture loading and environment-lighting loading retain their input
+buffer or BulkData lease until synchronous decoding finishes and publish only
+after exact payload completion. StaticMesh cooked products keep joint render
+and collision publication at the product boundary, including metadata checks.
+The ordinary family serializer does not own rollback or resource updates; see
+[Serialization](../Core/Serialization.md) for the in-place payload contract.
+Existing layouts, producer versions and DDC-key inputs remain unchanged.
 
 Import translates captured physical sources into canonical authored inputs;
 build transforms detached inputs into derived products; compilation schedules

@@ -58,8 +58,8 @@ namespace Durin
 					"Cooked static-mesh collision payload is missing.");
 			FStaticMeshCollisionPayloadData CollisionPayload;
 			FCanonicalMemoryReader CollisionAr(
-				CollisionBytes, EArchivePurpose::CookedPayload);
-			CollisionPayload.Serialize(CollisionAr, EStaticMeshTargetPlatform::Win64);
+				CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+			CollisionPayload.Serialize(CollisionAr);
 			if (CollisionAr.HasError() || !RequireArchiveEnd(CollisionAr))
 				return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 					std::string(CollisionAr.GetError()));
@@ -83,8 +83,8 @@ namespace Durin
 		}
 
 		FStaticMeshPayloadData Payload;
-		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload);
-		Payload.Serialize(PayloadAr, EStaticMeshTargetPlatform::Win64);
+		FCanonicalMemoryReader PayloadAr(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+		Payload.Serialize(PayloadAr);
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 			return CookedMeshProductFail(OutError, ECookedMeshProductFailure::Schema,
 				std::string(PayloadAr.GetError()));

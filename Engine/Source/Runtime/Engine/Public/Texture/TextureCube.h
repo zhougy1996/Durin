@@ -70,10 +70,10 @@ namespace Durin
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
 		ENGINE_API auto IsValid() const -> bool;
-		// Serializes the canonical six-slice TXPL value for DDC and Cook.
+		// Loads canonical six-slice TXPL in place; discard failures and check the owning byte boundary.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			const FTexturePlatformSerializationContext& Context) -> void;
+			const FTexturePlatformSerializationContext& Context = {}) -> void;
 	};
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.

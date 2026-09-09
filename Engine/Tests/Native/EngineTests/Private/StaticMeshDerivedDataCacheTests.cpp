@@ -1261,10 +1261,14 @@ TEST(FStaticMeshAuthoredCompilationTests, CancellationDiscardsPayloadAndFinaliza
 		CancelledDecoded.Serialize(CancelledReader, EStaticMeshTargetPlatform::Win64,
 			[&] { return ++Count == ReadStopAt; });
 		EXPECT_TRUE(CancelledReader.HasError());
-		if constexpr (std::is_same_v<TPayload, FStaticMeshPayloadData>)
-			EXPECT_TRUE(CancelledDecoded.LODs.empty());
-		else
-			EXPECT_TRUE(CancelledDecoded.Positions.empty());
+		EXPECT_NE(CancelledReader.GetError().find("cancelled"), std::string_view::npos);
+		// Ordinary loading may leave partial storage. The operation owns and
+		// discards that unpublished candidate, then may retry into fresh storage.
+		CancelledDecoded = {};
+		FCanonicalMemoryReader Retry(Bytes, EArchivePurpose::DerivedDataPayload);
+		CancelledDecoded.Serialize(Retry, EStaticMeshTargetPlatform::Win64);
+		EXPECT_FALSE(Retry.HasError()) << Retry.GetError();
+		EXPECT_TRUE(RequireArchiveEnd(Retry));
 	};
 	CheckCodec(Payload);
 	CheckCodec(CollisionPayload);

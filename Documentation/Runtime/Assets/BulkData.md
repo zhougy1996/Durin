@@ -4,7 +4,7 @@ Summary: Define reflected BulkData values, canonical DAST v9 placement, package-
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
@@ -230,6 +230,12 @@ CMNF publication. Cooked load validates the closure first, then attaches
 external fields to the package resource. Metadata load issues no range request;
 first access requests exactly the declared range. There is no Cook-only package
 raw-segment metadata grammar.
+
+Family payload decoding borrows the acquired lease's exact span. The lease stays
+alive until all borrowed regions have been interpreted into owned typed storage;
+the caller checks payload completion and releases the lease before publishing a
+replacement resource. The in-place family Archive contract does not change
+BulkData's atomic load, residency or publication guarantees.
 
 Opaque non-package Cook segments remain a separate explicit plan kind. They
 are validated by their own extent/digest and are never passed to the v9 package

@@ -60,7 +60,7 @@ namespace
 		Durin::FCanonicalMemoryReader Ar(
 			Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 		OutData.Serialize(Ar);
-		if (!Ar.HasError()) return true;
+		if (!Ar.HasError() && Durin::RequireArchiveEnd(Ar)) return true;
 		OutError = Ar.GetFailure()->Message;
 		return false;
 	}
@@ -151,4 +151,41 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		CookedBytes, CookRoot / "Game/StudioEnvironment.dbulk"));
 	EXPECT_EQ(CookedBytes, SourceBytes);
+}
+
+TEST(FEnvironmentLightingTests, ArchivePreservesBaselineBytesAndIsolatesRegions)
+{
+	using namespace Durin;
+	FByteBuffer Baseline;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Baseline,
+		std::filesystem::path(FPaths::EngineContentDir()) / "Renderer/DefaultStudioEnvironment.iblbulk"));
+	FEnvironmentLightingData Data;
+	std::string Error;
+	ASSERT_TRUE(DeserializeEnvironmentLighting(Baseline, Data, Error)) << Error;
+	FByteBuffer Encoded;
+	ASSERT_TRUE(SerializeEnvironmentLighting(Data, Encoded, Error)) << Error;
+	EXPECT_EQ(Encoded, Baseline);
+	const auto Before = Data;
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
+	Data.Serialize(Counter);
+	EXPECT_EQ(Counter.Tell(), Baseline.size());
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
+	Data.Serialize(Hasher);
+	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Baseline));
+	EXPECT_EQ(Data, Before);
+	FByteBuffer Joined = Baseline;
+	Joined.insert(Joined.end(), Baseline.begin(), Baseline.end());
+	FCanonicalMemoryReader Parent(Joined);
+	Data.Serialize(Parent);
+	ASSERT_FALSE(Parent.HasError());
+	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Baseline.size());
+	EXPECT_FALSE(RequireArchiveEnd(Parent));
+	for (size_t Size : {size_t{0}, size_t{51}, size_t{52}, Baseline.size() - 1})
+	{
+		FCanonicalMemoryReader Truncated(FByteView(Baseline).first(Size));
+		FEnvironmentLightingData Discarded;
+		Discarded.Serialize(Truncated);
+		EXPECT_TRUE(Truncated.HasError()) << Size;
+		EXPECT_TRUE(Discarded.BrdfLut.empty());
+	}
 }

@@ -117,9 +117,11 @@ namespace Durin
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
 		ENGINE_API auto IsValid() const -> bool;
+		// Loads one declared payload in place; discard failed destinations. The
+		// owning byte boundary checks completion before publishing a replacement.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			const FTexturePlatformSerializationContext& Context) -> void;
+			const FTexturePlatformSerializationContext& Context = {}) -> void;
 	};
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.

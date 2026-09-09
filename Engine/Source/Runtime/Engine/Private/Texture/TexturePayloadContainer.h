@@ -4,6 +4,11 @@
 
 namespace Durin::TexturePayloadContainer
 {
+	// Archive target facts are authoritative. Explicit context remains the
+	// compatibility input for callers of context-free counting/hashing archives.
+	auto ResolveContext(FArchive& Ar, const FTexturePlatformSerializationContext& Explicit,
+		FTexturePlatformSerializationContext& Context) -> bool;
+
 	struct FDescriptor
 	{
 		uint32 ProducerVersion = 0;
@@ -27,34 +32,16 @@ namespace Durin::TexturePayloadContainer
 		uint64 ByteCount = 0;
 	};
 
-	struct FBuildRecord
+	struct FPayloadRecord
 	{
 		FRecord Record;
 		FByteView Data;
 	};
 
-	struct FDecodedContainer
-	{
-		FDescriptor Descriptor;
-		std::vector<FRecord> Records;
-	};
+	// Transfers one declared container extent. Loaded records borrow the input
+	// archive's storage; the caller retains its owner until family decoding ends.
+	auto Serialize(FArchive& Ar, FDescriptor& Descriptor,
+		std::vector<FPayloadRecord>& Records,
+		ECookTargetPlatform ExpectedPlatform, ECookTargetProfile ExpectedProfile) -> void;
 
-	auto Build(
-		const FDescriptor& Descriptor,
-		std::span<const FBuildRecord> Records,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
-
-	auto Parse(
-		FByteView Bytes,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FDecodedContainer& OutContainer) -> FDecodeResult;
-
-	inline auto GetData(FByteView Bytes, const FRecord& Record)
-		-> FByteView
-	{
-		return Bytes.subspan(static_cast<size_t>(Record.DataOffset),
-			static_cast<size_t>(Record.ByteCount));
-	}
 }

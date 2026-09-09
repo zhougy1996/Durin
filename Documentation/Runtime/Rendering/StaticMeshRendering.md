@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 SplineMesh is a distinct primitive/deformation domain that borrows these
 StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
@@ -443,9 +443,11 @@ partial residency. Ray construction supports borrowed cancellation through its
 triangle/bounds loops and sort/partition work. Null optional ray acceleration
 retains exact reference traversal. Render/collision payload conversion, encoding,
 decoding and validation also accept borrowed predicates and check at most every
-256 scalar/record work units. Cancellation leaves caller-owned output values
-unchanged; archive serialization reports an error and does not publish a decoded
-value. The authored wrapper latches cancellation, so an interrupted cache decode
+256 scalar/record work units. Conversion and reconstruction preserve their
+output on failure. Ordinary payload Archive loading instead fills an unpublished
+destination in place: cancellation reports an error and the caller discards the
+incomplete value. Successful loading clears obsolete optional UV/color streams
+and collision leaf data. The authored wrapper latches cancellation, so an interrupted cache decode
 cannot fall through to a recipe or become a successful cache hit. The cancellable
 bounds overload is for detached construction only: false can leave partial bounds,
 and the caller must discard that candidate. No callback survives its synchronous
@@ -467,6 +469,15 @@ bounds, material-slot count, per-LOD geometry and screen-size policy, sections,
 vertex streams, and indices. Readers validate counts, ranges, numeric data, and
 indices, and skip only optional unknown chunks. Cook strips source/import
 metadata and uses the independent lazy bulk fields described above.
+
+Each render/collision value owns one bidirectional Archive schema. Input regions
+are borrowed from the owning DDC buffer or BulkData lease for synchronous decode;
+the caller checks complete consumption before publication. Render chunk sizes
+and cumulative native vector storage are bounded before stream allocation.
+DCOL validates disjoint ranges, checked element counts and native storage before
+resizing. Offset tables and body hashes retain bounded output staging; collision
+save additionally orders indices by leaf ordinal in local scratch without
+changing the source. None of these scratch values owns live publication.
 
 StaticMesh render schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
 the schema-3 bounded material-slot count rather than slot GUIDs.

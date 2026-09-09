@@ -54,17 +54,4 @@ namespace Durin
 		RGBA16_FLOAT = 12
 	};
 
-	ENGINE_API auto BuildVolumeTextureSerializedValue(
-		const FVolumeTexturePlatformData& PlatformData,
-		ECookTargetPlatform TargetPlatform,
-		ECookTargetProfile TargetProfile,
-		FByteBuffer& OutBytes,
-		std::string& OutError) -> bool;
-	// Decodes into detached storage and preserves the prior output on every failure.
-	ENGINE_API auto ParseVolumeTextureSerializedValue(
-		FByteView Bytes,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult;
-
 }

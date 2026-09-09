@@ -9,36 +9,11 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
-#include "Serialization/BoundedPayloadSerialization.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace
 {
 	using namespace Durin;
-
-	struct FTrackedBoundedPayload
-	{
-		int Value = 0;
-		int* MoveAssignmentCount = nullptr;
-
-		FTrackedBoundedPayload() = default;
-		explicit FTrackedBoundedPayload(int InValue, int& InMoveAssignmentCount)
-			: Value(InValue), MoveAssignmentCount(&InMoveAssignmentCount)
-		{
-		}
-		FTrackedBoundedPayload(const FTrackedBoundedPayload&) = default;
-		FTrackedBoundedPayload(FTrackedBoundedPayload&&) noexcept = default;
-		auto operator=(const FTrackedBoundedPayload&) -> FTrackedBoundedPayload& = default;
-		auto operator=(FTrackedBoundedPayload&& Other) noexcept -> FTrackedBoundedPayload&
-		{
-			if (MoveAssignmentCount) ++*MoveAssignmentCount;
-			Value = Other.Value;
-			return *this;
-		}
-	};
-
-	static_assert(std::is_default_constructible_v<FTrackedBoundedPayload>);
-	static_assert(std::is_move_assignable_v<FTrackedBoundedPayload>);
 
 	DECLARE_RENDER_COMMAND_TAG(
 		FSetPartialStaticMeshReadinessResources,
@@ -193,7 +168,7 @@ namespace
 		FStaticMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Candidate.Serialize(Ar, Platform);
-		if (Ar.HasError())
+		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
@@ -430,315 +405,6 @@ TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTru
 		Rejected, ProductError));
 	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
 
-}
-
-TEST(FBoundedPayloadSerializationTests, PreservesNonDefaultDestinationAcrossEveryFailure)
-{
-	int MoveAssignmentCount = 0;
-	FTrackedBoundedPayload Destination(7, MoveAssignmentCount);
-	auto Build = [](const FTrackedBoundedPayload&,
-		Durin::FByteBuffer& Bytes, std::string&) {
-		Bytes = {std::byte{42}};
-		return true;
-	};
-	auto Parse = [](Durin::FByteView Bytes, FTrackedBoundedPayload& Candidate) {
-		Candidate.Value = std::to_integer<int>(Bytes.front());
-		return Durin::FDecodeResult{};
-	};
-	auto ExpectPreserved = [&] {
-		EXPECT_EQ(Destination.Value, 7);
-		EXPECT_EQ(MoveAssignmentCount, 0);
-	};
-
-	Durin::FByteBuffer PrefailedBytes;
-	Durin::FCanonicalMemoryWriter PrefailedWriter(
-		PrefailedBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	PrefailedWriter.Fail(Durin::EArchiveFailureCode::TruncatedPayload, "prior failure");
-	Durin::SerializeBoundedArchivePayload(
-		PrefailedWriter, Destination, {1, "Fixture payload"}, Build, Parse);
-	ASSERT_TRUE(PrefailedWriter.HasError());
-	EXPECT_EQ(PrefailedWriter.GetFailure()->Code,
-		Durin::EArchiveFailureCode::TruncatedPayload);
-	ExpectPreserved();
-
-	Durin::FByteBuffer BuildFailureBytes;
-	Durin::FCanonicalMemoryWriter BuildFailureWriter(
-		BuildFailureBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		BuildFailureWriter,
-		Destination,
-		{1, "Fixture payload"},
-		[](const FTrackedBoundedPayload&,
-			Durin::FByteBuffer&, std::string& Error) {
-			Error = "build failure";
-			return false;
-		},
-		Parse);
-	ASSERT_TRUE(BuildFailureWriter.HasError());
-	EXPECT_EQ(BuildFailureWriter.GetFailure()->Code,
-		Durin::EArchiveFailureCode::InvalidData);
-	ExpectPreserved();
-
-	Durin::FByteBuffer OversizedSaveBytes;
-	Durin::FCanonicalMemoryWriter OversizedSaveWriter(
-		OversizedSaveBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		OversizedSaveWriter, Destination, {0, "Fixture payload"}, Build, Parse);
-	ASSERT_TRUE(OversizedSaveWriter.HasError());
-	EXPECT_EQ(OversizedSaveWriter.GetFailure()->Code,
-		Durin::EArchiveFailureCode::LimitExceeded);
-	ExpectPreserved();
-
-	Durin::FArchive Unbounded({
-		.Direction = Durin::EArchiveDirection::Load,
-		.Purpose = Durin::EArchivePurpose::DerivedDataPayload});
-	Durin::SerializeBoundedArchivePayload(
-		Unbounded, Destination, {1, "Fixture payload"}, Build, Parse);
-	ASSERT_TRUE(Unbounded.HasError());
-	EXPECT_EQ(Unbounded.GetFailure()->Code,
-		Durin::EArchiveFailureCode::UnsupportedCapability);
-	ExpectPreserved();
-
-	const std::array<std::byte, 1> Encoded{std::byte{42}};
-	Durin::FCanonicalMemoryReader OversizedLoadReader(
-		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		OversizedLoadReader, Destination, {0, "Fixture payload"}, Build, Parse);
-	ASSERT_TRUE(OversizedLoadReader.HasError());
-	EXPECT_EQ(OversizedLoadReader.GetFailure()->Code,
-		Durin::EArchiveFailureCode::LimitExceeded);
-	ExpectPreserved();
-
-	for (const auto [DecodeCode, ArchiveCode] : std::array{
-			std::pair{Durin::EDecodeError::Incompatible,
-				Durin::EArchiveFailureCode::UnsupportedVersion},
-			std::pair{Durin::EDecodeError::Corrupt,
-				Durin::EArchiveFailureCode::InvalidData}})
-	{
-		Durin::FCanonicalMemoryReader Reader(
-			Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-		Durin::SerializeBoundedArchivePayload(
-			Reader,
-			Destination,
-			{Encoded.size(), "Fixture payload"},
-			Build,
-			[DecodeCode](Durin::FByteView, FTrackedBoundedPayload&) {
-				return Durin::FDecodeResult{DecodeCode, "decode failure"};
-			});
-		ASSERT_TRUE(Reader.HasError());
-		EXPECT_EQ(Reader.GetFailure()->Code, ArchiveCode);
-		ExpectPreserved();
-	}
-}
-
-TEST(FBoundedPayloadSerializationTests, EncodesCurrentSourceAndMovesSuccessfulCandidateOnce)
-{
-	int MoveAssignmentCount = 0;
-	FTrackedBoundedPayload Destination(7, MoveAssignmentCount);
-	Durin::FByteBuffer SavedBytes;
-	Durin::FCanonicalMemoryWriter Writer(
-		SavedBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		Writer,
-		Destination,
-		{1, "Fixture payload"},
-		[](const FTrackedBoundedPayload& Value,
-			Durin::FByteBuffer& Bytes, std::string&) {
-			Bytes = {static_cast<std::byte>(Value.Value)};
-			return true;
-		},
-		[](Durin::FByteView, FTrackedBoundedPayload&) {
-			return Durin::FDecodeResult{};
-		});
-	EXPECT_FALSE(Writer.HasError()) << Writer.GetError();
-	EXPECT_EQ(SavedBytes, (Durin::FByteBuffer{std::byte{7}}));
-	EXPECT_EQ(Destination.Value, 7);
-	EXPECT_EQ(MoveAssignmentCount, 0);
-
-	const std::array<std::byte, 1> Encoded{std::byte{42}};
-	Durin::FCanonicalMemoryReader Reader(
-		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		Reader,
-		Destination,
-		{Encoded.size(), "Fixture payload"},
-		[](const FTrackedBoundedPayload&,
-			Durin::FByteBuffer&, std::string&) { return true; },
-		[](Durin::FByteView Bytes, FTrackedBoundedPayload& Candidate) {
-			Candidate.Value = std::to_integer<int>(Bytes.front());
-			return Durin::FDecodeResult{};
-		});
-	EXPECT_FALSE(Reader.HasError()) << Reader.GetError();
-	EXPECT_EQ(Destination.Value, 42);
-	EXPECT_EQ(MoveAssignmentCount, 1);
-}
-
-TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBeforeWriting)
-{
-	Durin::FByteBuffer Bytes;
-	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
-	int Value = 7;
-	bool bParsed = false;
-	Durin::SerializeBoundedArchivePayload(
-		Writer,
-		Value,
-		{2, "Fixture payload"},
-		[](const int&, Durin::FByteBuffer& Encoded, std::string&) {
-			Encoded = {std::byte{1}, std::byte{2}};
-			return true;
-		},
-		[&](Durin::FByteView, int&) {
-			bParsed = true;
-			return Durin::FDecodeResult{};
-		});
-	EXPECT_FALSE(Writer.HasError()) << Writer.GetError();
-	EXPECT_EQ(Bytes, (Durin::FByteBuffer{std::byte{1}, std::byte{2}}));
-	EXPECT_FALSE(bParsed);
-
-	Durin::FByteBuffer OversizedBytes;
-	Durin::FCanonicalMemoryWriter OversizedWriter(
-		OversizedBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		OversizedWriter,
-		Value,
-		{1, "Fixture payload"},
-		[](const int&, Durin::FByteBuffer& Encoded, std::string&) {
-			Encoded = {std::byte{1}, std::byte{2}};
-			return true;
-		},
-		[](Durin::FByteView, int&) {
-			return Durin::FDecodeResult{};
-		});
-	ASSERT_TRUE(OversizedWriter.HasError());
-	EXPECT_EQ(OversizedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
-	EXPECT_TRUE(OversizedBytes.empty());
-
-	Durin::FByteBuffer FailedBytes;
-	Durin::FCanonicalMemoryWriter FailedWriter(
-		FailedBytes, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		FailedWriter,
-		Value,
-		{2, "Fixture payload"},
-		[](const int&, Durin::FByteBuffer&, std::string& Error) {
-			Error = "fixture build failed";
-			return false;
-		},
-		[](Durin::FByteView, int&) {
-			return Durin::FDecodeResult{};
-		});
-	ASSERT_TRUE(FailedWriter.HasError());
-	EXPECT_EQ(FailedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
-	EXPECT_EQ(FailedWriter.GetFailure()->Message, "fixture build failed");
-	EXPECT_TRUE(FailedBytes.empty());
-
-	bool bBuiltAfterFailure = false;
-	Durin::SerializeBoundedArchivePayload(
-		FailedWriter,
-		Value,
-		{2, "Fixture payload"},
-		[&](const int&, Durin::FByteBuffer&, std::string&) {
-			bBuiltAfterFailure = true;
-			return true;
-		},
-		[](Durin::FByteView, int&) {
-			return Durin::FDecodeResult{};
-		});
-	EXPECT_FALSE(bBuiltAfterFailure);
-}
-
-TEST(FBoundedPayloadSerializationTests, LoadRejectsMissingBoundsAndExcessiveInputBeforeParsing)
-{
-	Durin::FArchive Unbounded({
-		.Direction = Durin::EArchiveDirection::Load,
-		.Purpose = Durin::EArchivePurpose::DerivedDataPayload});
-	int Destination = 7;
-	bool bParsed = false;
-	Durin::SerializeBoundedArchivePayload(
-		Unbounded,
-		Destination,
-		{4, "Fixture payload"},
-		[](const int&, Durin::FByteBuffer&, std::string&) { return true; },
-		[&](Durin::FByteView, int&) {
-			bParsed = true;
-			return Durin::FDecodeResult{};
-		});
-	ASSERT_TRUE(Unbounded.HasError());
-	EXPECT_EQ(Unbounded.GetFailure()->Code,
-		Durin::EArchiveFailureCode::UnsupportedCapability);
-	EXPECT_FALSE(bParsed);
-	EXPECT_EQ(Destination, 7);
-
-	const std::array<std::byte, 5> Encoded{};
-	Durin::FCanonicalMemoryReader Oversized(Encoded,
-		Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		Oversized,
-		Destination,
-		{4, "Fixture payload"},
-		[](const int&, Durin::FByteBuffer&, std::string&) { return true; },
-		[&](Durin::FByteView, int&) {
-			bParsed = true;
-			return Durin::FDecodeResult{};
-		});
-	ASSERT_TRUE(Oversized.HasError());
-	EXPECT_EQ(Oversized.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
-	EXPECT_FALSE(bParsed);
-	EXPECT_EQ(Destination, 7);
-}
-
-TEST(FBoundedPayloadSerializationTests, LoadMapsDecodeFailuresAndCommitsOnlySuccess)
-{
-	const std::array<std::byte, 1> Encoded{std::byte{42}};
-	int Published = 7;
-	auto Build = [](const int&, Durin::FByteBuffer&, std::string&) {
-		return true;
-	};
-
-	Durin::FCanonicalMemoryReader IncompatibleReader(
-		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		IncompatibleReader,
-		Published,
-		{Encoded.size(), "Fixture payload"},
-		Build,
-		[](Durin::FByteView, int&) {
-			return Durin::FDecodeResult{
-				Durin::EDecodeError::Incompatible, "unsupported fixture"};
-		});
-	ASSERT_TRUE(IncompatibleReader.HasError());
-	EXPECT_EQ(IncompatibleReader.GetFailure()->Code,
-		Durin::EArchiveFailureCode::UnsupportedVersion);
-	EXPECT_EQ(Published, 7);
-
-	Durin::FCanonicalMemoryReader CorruptReader(
-		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		CorruptReader,
-		Published,
-		{Encoded.size(), "Fixture payload"},
-		Build,
-		[](Durin::FByteView, int&) {
-			return Durin::FDecodeResult{
-				Durin::EDecodeError::Corrupt, "corrupt fixture"};
-		});
-	ASSERT_TRUE(CorruptReader.HasError());
-	EXPECT_EQ(CorruptReader.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
-	EXPECT_EQ(Published, 7);
-
-	Durin::FCanonicalMemoryReader SuccessReader(
-		Encoded, Durin::EArchivePurpose::DerivedDataPayload);
-	Durin::SerializeBoundedArchivePayload(
-		SuccessReader,
-		Published,
-		{Encoded.size(), "Fixture payload"},
-		Build,
-		[](Durin::FByteView Bytes, int& Candidate) {
-			Candidate = std::to_integer<int>(Bytes.front());
-			return Durin::FDecodeResult{};
-		});
-	EXPECT_FALSE(SuccessReader.HasError()) << SuccessReader.GetError();
-	EXPECT_EQ(Published, 42);
 }
 
 TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
@@ -1265,4 +931,57 @@ TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublis
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(EncodePayload(
 		MakeSingleSectionFixture(), static_cast<EStaticMeshTargetPlatform>(2), Bytes, Error));
+}
+
+TEST(FStaticMeshPayloadCodecTests, ArchiveReplacesOptionalStreamsAndPreservesSaveSources)
+{
+	FStaticMeshPayloadData Source = MakeSingleSectionFixture();
+	const auto Before = Source;
+	const FByteBuffer Bytes = Encode(Source);
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
+	Source.Serialize(Counter, EStaticMeshTargetPlatform::Win64);
+	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
+	EXPECT_EQ(Counter.Tell(), Bytes.size());
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
+	Source.Serialize(Hasher, EStaticMeshTargetPlatform::Win64);
+	EXPECT_FALSE(Hasher.HasError());
+	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
+	ExpectEquivalent(Source, Before);
+
+	FStaticMeshPayloadData Loaded = MakeMultiMaterialFixture();
+	FCanonicalMemoryReader Reader(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+	Loaded.Serialize(Reader);
+	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+	ASSERT_TRUE(RequireArchiveEnd(Reader));
+	ExpectEquivalent(Loaded, Source);
+	for (uint32 Channel = 1; Channel < MaxStaticMeshUVChannels; ++Channel)
+		EXPECT_TRUE(Loaded.LODs.front().TexCoords[Channel].empty());
+	EXPECT_TRUE(Loaded.LODs.front().Colors.empty());
+
+	FByteBuffer Adjacent = Bytes;
+	Adjacent.insert(Adjacent.end(), Bytes.begin(), Bytes.end());
+	FCanonicalMemoryReader Parent(Adjacent);
+	Loaded.Serialize(Parent, EStaticMeshTargetPlatform::Win64);
+	ASSERT_FALSE(Parent.HasError());
+	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
+	EXPECT_FALSE(RequireArchiveEnd(Parent));
+	EXPECT_EQ(Parent.GetFailure()->Code, EArchiveFailureCode::TrailingData);
+
+	FStaticMeshPayloadData Replacement;
+	FCanonicalMemoryReader Cancelled(Bytes);
+	uint32 Checks = 0;
+	Replacement.Serialize(Cancelled, EStaticMeshTargetPlatform::Win64,
+		[&] { return ++Checks >= 2; });
+	EXPECT_TRUE(Cancelled.HasError());
+	EXPECT_NE(Cancelled.GetError().find("cancelled"), std::string_view::npos);
+
+	FByteBuffer Oversized = Bytes;
+	WriteU64(Oversized, 48, MaximumStaticMeshPayloadBytes + 1);
+	FCanonicalMemoryReader Limits(Oversized);
+	FStaticMeshPayloadData Discarded;
+	Discarded.Serialize(Limits, EStaticMeshTargetPlatform::Win64);
+	ASSERT_TRUE(Limits.HasError());
+	EXPECT_EQ(Limits.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
+	EXPECT_EQ(Limits.Tell(), 64u);
+	EXPECT_TRUE(Discarded.LODs.empty());
 }

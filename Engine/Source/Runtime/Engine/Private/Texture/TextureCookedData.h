@@ -37,10 +37,8 @@ namespace Durin::TexturePrivate
 				return;
 			}
 			FByteBuffer Bytes;
-			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
-			PlatformData->Serialize(Writer, {
-				.TargetPlatform = ECookTargetPlatform::Win64,
-				.TargetProfile = ECookTargetProfile::Game});
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload, {.Target = Ar.GetTarget()});
+			PlatformData->Serialize(Writer);
 			std::string Error;
 			if (Writer.HasError() || !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
 			{
@@ -71,9 +69,8 @@ namespace Durin::TexturePrivate
 		if (!Read) return FailCooked(Read.Error.Message);
 		const FByteView Bytes = Read.Lock.GetBytes();
 		auto Candidate = std::make_unique<TPlatformData>();
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
-		Candidate->Serialize(Ar, {.TargetPlatform = ECookTargetPlatform::Win64,
-			.TargetProfile = ECookTargetProfile::Game});
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+		Candidate->Serialize(Ar);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 		{
 			return FailCooked(std::string(Ar.GetError()));

@@ -86,9 +86,10 @@ namespace Durin
 		std::vector<FStaticMeshPayloadLOD> LODs;
 		FBox LocalBounds;
 
+		// Loads in place; discard failures. The byte owner checks completion before publication.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform,
+			EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown,
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 
@@ -102,9 +103,10 @@ namespace Durin
 		std::vector<FCollisionGeometryNode> Nodes;
 		std::vector<uint32> LeafTriangles;
 
+		// Loads in place; discard failures. The byte owner checks completion before publication.
 		ENGINE_API auto Serialize(
 			FArchive& Ar,
-			EStaticMeshTargetPlatform TargetPlatform,
+			EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown,
 			const std::function<bool()>& ShouldCancel = {}) -> void;
 	};
 

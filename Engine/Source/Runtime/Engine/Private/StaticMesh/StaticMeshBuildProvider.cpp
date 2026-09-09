@@ -111,8 +111,8 @@ namespace Durin
 			FStaticMeshPayloadData Payload;
 			if (!MakeStaticMeshPayloadData(RenderData, Payload, OutError, ShouldCancel)) return false;
 			OutBytes.clear();
-			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload);
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64, ShouldCancel);
+			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
 			if (!Ar.HasError()) return true;
 			OutError = Ar.GetFailure()->Message;
 			OutBytes.clear();
@@ -127,8 +127,8 @@ namespace Durin
 			const std::function<bool()>& ShouldCancel) -> bool
 		{
 			FStaticMeshPayloadData Payload;
-			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64, ShouldCancel);
+			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			{
 				OutError = Ar.GetFailure() ? Ar.GetFailure()->Message
@@ -150,8 +150,8 @@ namespace Durin
 			if (!MakeStaticMeshCollisionPayloadData(
 				Geometry, Policy, Payload, OutError, ShouldCancel)) return false;
 			OutBytes.clear();
-			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload);
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64, ShouldCancel);
+			FCanonicalMemoryWriter Ar(OutBytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
 			if (!Ar.HasError()) return true;
 			OutError = Ar.GetFailure()->Message;
 			OutBytes.clear();
@@ -167,8 +167,8 @@ namespace Durin
 			const std::function<bool()>& ShouldCancel) -> bool
 		{
 			FStaticMeshCollisionPayloadData Payload;
-			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64, ShouldCancel);
+			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload, {.Target = {"Win64", "Game"}});
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Unknown, ShouldCancel);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar)
 				|| Payload.SourceMode != Mode || Payload.QueryPolicy != Policy)
 			{

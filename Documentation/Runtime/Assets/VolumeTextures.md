@@ -5,7 +5,7 @@ and owned GPU-resource update contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-09
 
 ## Asset boundary
 
@@ -67,6 +67,15 @@ exact depth pitch, and owned bytes. Successive axes independently halve with
 `max(1, previous / 2)` until the final `1x1x1` mip. Validation rejects missing
 tail mips, incorrect pitches or byte counts, unsupported formats, excessive
 dimensions, and malformed progression before result application.
+
+PlatformData uses one bidirectional Archive customization with explicit stable
+target context. The shared texture container borrows its declared body extent,
+checks the bounded record count before allocation, and retains the existing
+80-byte header, 40-byte records, alignment and checksum. Loading fills the
+caller-owned destination in place; callers discard failure and check exact
+completion before resource publication. Buffer callers construct a canonical
+memory Archive with target context and call the same customization; replacement
+transactions belong to the publishing caller.
 
 ## Deterministic build and cache
 

@@ -62,7 +62,7 @@ namespace
 		FStaticMeshCollisionPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Candidate.Serialize(Ar, Platform);
-		if (Ar.HasError())
+		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
 				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
@@ -995,6 +995,48 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		Payload, EStaticMeshTargetPlatform::Win64, Second, Error)) << Error;
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 336u);
+	const auto SavedIndices = Payload.Indices;
+	const auto SavedOrdinals = Payload.SourceOrdinals;
+	const auto SavedLeaves = Payload.LeafTriangles;
+	FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
+	Payload.Serialize(Counter, EStaticMeshTargetPlatform::Win64);
+	ASSERT_FALSE(Counter.HasError()) << Counter.GetError();
+	EXPECT_EQ(Counter.Tell(), First.size());
+	FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
+	Payload.Serialize(Hasher, EStaticMeshTargetPlatform::Win64);
+	ASSERT_FALSE(Hasher.HasError());
+	EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(First));
+	EXPECT_EQ(Payload.Indices, SavedIndices);
+	EXPECT_EQ(Payload.SourceOrdinals, SavedOrdinals);
+	EXPECT_EQ(Payload.LeafTriangles, SavedLeaves);
+	for (size_t Size = 0; Size < First.size(); ++Size)
+	{
+		FStaticMeshCollisionPayloadData Discarded;
+		FCanonicalMemoryReader Reader(FByteView(First).first(Size));
+		Discarded.Serialize(Reader, EStaticMeshTargetPlatform::Win64);
+		ASSERT_TRUE(Reader.HasError()) << Size;
+	}
+	FByteBuffer Adjacent = First;
+	Adjacent.insert(Adjacent.end(), First.begin(), First.end());
+	FCanonicalMemoryReader Parent(Adjacent);
+	FStaticMeshCollisionPayloadData Replaced = Payload;
+	Replaced.Nodes.push_back({});
+	Replaced.Serialize(Parent, EStaticMeshTargetPlatform::Win64);
+	ASSERT_FALSE(Parent.HasError()) << Parent.GetError();
+	EXPECT_EQ(Replaced.Nodes.size(), Payload.Nodes.size());
+	EXPECT_EQ(Parent.GetRemainingPayloadBytes(), First.size());
+	EXPECT_FALSE(RequireArchiveEnd(Parent));
+	FByteBuffer OverflowBytes = First;
+	WriteLittleEndian<uint64>(OverflowBytes, 64 + 24, std::numeric_limits<uint64>::max());
+	WriteLittleEndian<uint64>(OverflowBytes, 48, FXxHash64::HashBuffer(FByteView(OverflowBytes).subspan(64)).HashValue);
+	FCanonicalMemoryReader OverflowReader(OverflowBytes);
+	FStaticMeshCollisionPayloadData Discarded;
+	Discarded.Serialize(OverflowReader, EStaticMeshTargetPlatform::Win64);
+	ASSERT_TRUE(OverflowReader.HasError());
+	EXPECT_EQ(OverflowReader.GetFailure()->Code, EArchiveFailureCode::Overflow);
+	EXPECT_TRUE(Discarded.Positions.empty());
+
+
 	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
 	FStaticMeshCollisionPayloadData Decoded;
 	ASSERT_TRUE(DecodeCollisionPayload(

@@ -77,7 +77,9 @@ namespace
 		{
 			return {
 				.Code = Ar.GetFailure()
-					&& Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedVersion
+					&& (Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedVersion
+					|| Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedTarget
+					|| Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedType)
 					? Durin::EDecodeError::Incompatible
 					: Durin::EDecodeError::Corrupt,
 				.Message = std::string(Ar.GetError())};
@@ -432,4 +434,69 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	EXPECT_TRUE(CorruptReader.HasError());
 	for (size_t FaceIndex = 0; FaceIndex < Existing.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual.Faces[FaceIndex], Existing.Faces[FaceIndex]);
+}
+
+TEST(FTextureDerivedDataTests, ArchivesReplaceSequencesAndBoundAdjacentPayloads)
+{
+	using namespace Durin;
+	const FTexturePlatformSerializationContext Context{
+		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game};
+	auto Check = [&](auto Source) {
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::Discovery);
+		Source.Serialize(Writer, Context);
+		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		FByteBuffer ContextBytes;
+		FCanonicalMemoryWriter ContextWriter(ContextBytes, EArchivePurpose::DerivedDataPayload,
+			{.Target = {"Win64", "Game"}});
+		Source.Serialize(ContextWriter);
+		EXPECT_FALSE(ContextWriter.HasError());
+		EXPECT_EQ(ContextBytes, Bytes);
+		FCanonicalMemoryReader MissingContext(Bytes);
+		auto DiscardedContext = Source;
+		DiscardedContext.Serialize(MissingContext);
+		ASSERT_TRUE(MissingContext.HasError());
+		EXPECT_EQ(MissingContext.GetFailure()->Code, EArchiveFailureCode::UnsupportedTarget);
+		EXPECT_EQ(MissingContext.Tell(), 0u);
+		FCountingArchive Counter(EArchivePurpose::DerivedDataPayload);
+		Source.Serialize(Counter, Context);
+		EXPECT_FALSE(Counter.HasError());
+		EXPECT_EQ(Counter.Tell(), Bytes.size());
+		FHashingArchive Hasher(EArchivePurpose::DerivedDataPayload);
+		Source.Serialize(Hasher, Context);
+		EXPECT_FALSE(Hasher.HasError());
+		EXPECT_EQ(Hasher.Finalize(), FXxHash128::HashBuffer(Bytes));
+		auto Loaded = Source;
+		FCanonicalMemoryReader Reader(Bytes);
+		Loaded.Serialize(Reader, Context);
+		ASSERT_FALSE(Reader.HasError());
+		ASSERT_TRUE(RequireArchiveEnd(Reader));
+		FByteBuffer RoundTrip;
+		FCanonicalMemoryWriter Rewriter(RoundTrip);
+		Loaded.Serialize(Rewriter, Context);
+		EXPECT_EQ(RoundTrip, Bytes);
+		FByteBuffer Joined = Bytes;
+		Joined.insert(Joined.end(), Bytes.begin(), Bytes.end());
+		FCanonicalMemoryReader Parent(Joined);
+		Loaded.Serialize(Parent, Context);
+		ASSERT_FALSE(Parent.HasError());
+		EXPECT_EQ(Parent.GetRemainingPayloadBytes(), Bytes.size());
+		EXPECT_FALSE(RequireArchiveEnd(Parent));
+		for (size_t Size = 0; Size < Bytes.size(); ++Size)
+		{
+			FCanonicalMemoryReader Truncated(FByteView(Bytes).first(Size));
+			decltype(Source) Discarded;
+			Discarded.Serialize(Truncated, Context);
+			ASSERT_TRUE(Truncated.HasError()) << Size;
+		}
+		auto Excessive = Bytes;
+		WriteU32(Excessive, 40, std::numeric_limits<uint32>::max());
+		FCanonicalMemoryReader Limited(Excessive);
+		Loaded.Serialize(Limited, Context);
+		ASSERT_TRUE(Limited.HasError());
+		EXPECT_EQ(Limited.GetFailure()->Code, EArchiveFailureCode::LimitExceeded);
+		EXPECT_EQ(Limited.Tell(), TexturePayloadHeaderSize);
+	};
+	Check(MakePlatformData());
+	Check(MakeCubePlatformData());
 }

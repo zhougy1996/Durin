@@ -121,8 +121,8 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
 				return;
 			}
-			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload);
-			Payload.Serialize(RenderWriter, EStaticMeshTargetPlatform::Win64);
+			FCanonicalMemoryWriter RenderWriter(RenderBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+			Payload.Serialize(RenderWriter);
 			if (RenderWriter.HasError()
 				|| !FBulkData::TryCreateDetached(RenderBytes, RenderProjection, &Error))
 			{
@@ -160,8 +160,8 @@ namespace Durin
 					return;
 				}
 				FCanonicalMemoryWriter CollisionWriter(
-					CollisionBytes, EArchivePurpose::CookedPayload);
-				CollisionPayload.Serialize(CollisionWriter, EStaticMeshTargetPlatform::Win64);
+					CollisionBytes, EArchivePurpose::CookedPayload, {.Target = {"Win64", "Game"}});
+				CollisionPayload.Serialize(CollisionWriter);
 				if (CollisionWriter.HasError() || !FBulkData::TryCreateDetached(
 					CollisionBytes, CollisionProjection, &Error))
 				{

@@ -3,7 +3,6 @@
 #include "Asset/ChunkedPayload.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BinaryFormat.h"
-#include "Serialization/BoundedPayloadSerialization.h"
 
 
 
@@ -11,6 +10,19 @@ namespace Durin
 {
 	namespace
 	{
+		auto ResolveMeshTarget(FArchive& Ar, EStaticMeshTargetPlatform& TargetPlatform) -> bool
+		{
+			if (TargetPlatform == EStaticMeshTargetPlatform::Unknown && Ar.GetTarget().Platform == "Win64")
+				TargetPlatform = EStaticMeshTargetPlatform::Win64;
+			if (TargetPlatform != EStaticMeshTargetPlatform::Win64
+				|| (!Ar.GetTarget().Platform.empty() && Ar.GetTarget().Platform != "Win64"))
+			{
+				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh target context is unsupported or conflicting.");
+				return false;
+			}
+			return true;
+		}
+
 		struct FPayloadBuildCancelled {};
 
 		// Borrowed for this call only; cancellation never crosses the public codec boundary.
@@ -36,8 +48,6 @@ namespace Durin
 		inline constexpr uint32 StaticMeshChunkCompressionZstandard = 1;
 		inline constexpr uint64 StaticMeshMaximumCompressionRatio = 64;
 
-		using FPayloadWriter = FBinaryWriter;
-		using FPayloadReader = FBinaryReader;
 
 		auto IsFinite(const FVector2f& Value) -> bool
 		{
@@ -181,237 +191,182 @@ namespace Durin
 			return true;
 		}
 
-		auto WriteBounds(FPayloadWriter& Writer, const FBox& Bounds) -> void
-		{
-			Writer.WriteFloat(static_cast<float>(Bounds.Min.x));
-			Writer.WriteFloat(static_cast<float>(Bounds.Min.y));
-			Writer.WriteFloat(static_cast<float>(Bounds.Min.z));
-			Writer.WriteFloat(static_cast<float>(Bounds.Max.x));
-			Writer.WriteFloat(static_cast<float>(Bounds.Max.y));
-			Writer.WriteFloat(static_cast<float>(Bounds.Max.z));
-		}
-
-		auto ReadBounds(FPayloadReader& Reader, FBox& Bounds) -> bool
+		auto SerializeBounds(FArchive& Ar, FBox& Bounds) -> void
 		{
 			std::array<float, 6> Values{};
-			for (float& Value : Values)
-				if (!Reader.ReadFloat(Value) || !std::isfinite(Value)) return false;
-			Bounds = FBox(
-				FVector3(Values[0], Values[1], Values[2]),
-				FVector3(Values[3], Values[4], Values[5]));
-			return Bounds.bIsValid;
+			if (Ar.IsSaving())
+				Values = {static_cast<float>(Bounds.Min.x), static_cast<float>(Bounds.Min.y),
+					static_cast<float>(Bounds.Min.z), static_cast<float>(Bounds.Max.x),
+					static_cast<float>(Bounds.Max.y), static_cast<float>(Bounds.Max.z)};
+			for (float& Value : Values) Ar << Value;
+			if (Ar.IsLoading() && !Ar.HasError())
+			{
+				Bounds = FBox(FVector3(Values[0], Values[1], Values[2]), FVector3(Values[3], Values[4], Values[5]));
+				if (!IsValidBounds(Bounds)) Ar.Fail(EArchiveFailureCode::InvalidData, "Static-mesh bounds are invalid.");
+			}
 		}
 
-		auto BuildPayloadChunks(const FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> std::array<FByteBuffer, StaticMeshPayloadRequiredChunkCount>
+		// One schema for the six logical streams. Metadata is validated against
+		// exact chunk extents and native allocation totals before resizing streams.
+		auto SerializePayloadChunks(const std::array<FArchive*, 6>& Chunks,
+			FStaticMeshPayloadData& Payload, FPayloadBuildControl& Control) -> void
 		{
-			std::array<FByteBuffer, StaticMeshPayloadRequiredChunkCount> Chunks;
-
-			FPayloadWriter Bounds;
-			WriteBounds(Bounds, Payload.LocalBounds);
-			Chunks[0] = Bounds.TakeBytes();
-
-			FPayloadWriter MaterialSlots;
-			MaterialSlots.WriteU32(Payload.MaterialSlotCount);
-			Chunks[1] = MaterialSlots.TakeBytes();
-
-			FPayloadWriter LODs;
-			LODs.WriteU32(static_cast<uint32>(Payload.LODs.size()));
-			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
+			FArchive& Metadata = *Chunks[2];
+			const bool Loading = Metadata.IsLoading();
+			SerializeBounds(*Chunks[0], Payload.LocalBounds);
+			*Chunks[1] << Payload.MaterialSlotCount;
+			uint32 LODCount = Loading ? 0 : static_cast<uint32>(Payload.LODs.size());
+			Metadata << LODCount;
+			if (Metadata.HasError()) return;
+			if (LODCount == 0 || LODCount > MaximumStaticMeshLODs)
 			{
-				Control.Tick();
-				LODs.WriteU32(static_cast<uint32>(LOD.Positions.size()));
-				LODs.WriteU32(static_cast<uint32>(LOD.Indices.size()));
-				LODs.WriteU32(static_cast<uint32>(LOD.Sections.size()));
-				LODs.WriteU8(LOD.NumTexCoords);
-				LODs.WriteU8(LOD.bHasVertexColors ? 1 : 0);
-				LODs.WriteU16(0);
-				LODs.WriteFloat(LOD.ScreenSize);
-				WriteBounds(LODs, LOD.LocalBounds);
+				Metadata.Fail(EArchiveFailureCode::LimitExceeded, "Static-mesh LOD count exceeds its limit.");
+				return;
 			}
-			Chunks[2] = LODs.TakeBytes();
-
-			FPayloadWriter Sections;
-			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
+			if (Loading)
 			{
-				Control.Tick();
-				Sections.WriteU32(static_cast<uint32>(LOD.Sections.size()));
-				for (const FStaticMeshPayloadSection& Section : LOD.Sections)
+				if (Metadata.GetRemainingPayloadBytes() != static_cast<uint64>(LODCount) * 44)
 				{
-					Control.Tick();
-					Sections.WriteU32(Section.FirstIndex);
-					Sections.WriteU32(Section.IndexCount);
-					Sections.WriteU32(Section.MinVertexIndex);
-					Sections.WriteU32(Section.MaxVertexIndex);
-					Sections.WriteU32(Section.MaterialSlotIndex);
-					WriteBounds(Sections, Section.LocalBounds);
+					Metadata.Fail(EArchiveFailureCode::InvalidData, "Static-mesh LOD metadata size is invalid.");
+					return;
 				}
+				Payload.LODs.clear();
+				Payload.LODs.resize(LODCount);
 			}
-			Chunks[3] = Sections.TakeBytes();
-
-			FPayloadWriter VertexStreams;
-			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
+			std::array<uint32, MaximumStaticMeshLODs> Vertices{}, Indices{}, Sections{};
+			uint64 SectionBytes = 0, VertexBytes = 0, IndexBytes = 0, NativeBytes = 0;
+			for (uint32 Index = 0; Index < LODCount; ++Index)
 			{
 				Control.Tick();
-				for (const FVector3f& Value : LOD.Positions)
-					for (uint32 Component = 0; Component < 3; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
-				for (const FVector3f& Value : LOD.Normals)
-					for (uint32 Component = 0; Component < 3; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
-				for (const FVector4f& Value : LOD.Tangents)
-					for (uint32 Component = 0; Component < 4; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
-				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-					for (const FVector2f& Value : LOD.TexCoords[Channel])
-						for (uint32 Component = 0; Component < 2; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
-				if (LOD.bHasVertexColors)
-					for (const FVector4f& Value : LOD.Colors)
-						for (uint32 Component = 0; Component < 4; ++Component) { Control.Tick(); VertexStreams.WriteFloat(Value[Component]); }
-			}
-			Chunks[4] = VertexStreams.TakeBytes();
-
-			FPayloadWriter IndexBuffers;
-			for (const FStaticMeshPayloadLOD& LOD : Payload.LODs)
-				for (uint32 Index : LOD.Indices) { Control.Tick(); IndexBuffers.WriteU32(Index); }
-			Chunks[5] = IndexBuffers.TakeBytes();
-			return Chunks;
-		}
-
-		auto ReadPayloadChunks(
-			const std::array<FByteView, StaticMeshPayloadRequiredChunkCount>& Chunks,
-			FStaticMeshPayloadData& OutPayload,
-			std::string& OutError, FPayloadBuildControl& Control) -> bool
-		{
-			FStaticMeshPayloadData Payload;
-
-			FPayloadReader Bounds(Chunks[0]);
-			if (!ReadBounds(Bounds, Payload.LocalBounds) || !Bounds.IsAtEnd())
-				return Fail("Static-mesh bounds chunk is malformed.", &OutError);
-
-			FPayloadReader MaterialSlots(Chunks[1]);
-			uint32 MaterialSlotCount = 0;
-			if (!MaterialSlots.ReadU32(MaterialSlotCount) || MaterialSlotCount == 0 || MaterialSlotCount > MaximumMeshMaterialSlots)
-				return Fail("Static-mesh material-slot chunk has an invalid count.", &OutError);
-			if (Chunks[1].size() != 4ull)
-				return Fail("Static-mesh material-slot chunk has an invalid size.", &OutError);
-			Payload.MaterialSlotCount = MaterialSlotCount;
-
-			FPayloadReader LODs(Chunks[2]);
-			uint32 LODCount = 0;
-			if (!LODs.ReadU32(LODCount) || LODCount == 0 || LODCount > MaximumStaticMeshLODs)
-				return Fail("Static-mesh LOD chunk has an invalid count.", &OutError);
-			if (Chunks[2].size() != 4ull + static_cast<uint64>(LODCount) * 44ull)
-				return Fail("Static-mesh LOD chunk has an invalid size.", &OutError);
-			Payload.LODs.resize(LODCount);
-			std::vector<uint32> VertexCounts(LODCount);
-			std::vector<uint32> IndexCounts(LODCount);
-			std::vector<uint32> SectionCounts(LODCount);
-			uint64 ExpectedSectionBytes = 0;
-			uint64 ExpectedVertexBytes = 0;
-			uint64 ExpectedIndexBytes = 0;
-			for (uint32 LODIndex = 0; LODIndex < LODCount; ++LODIndex)
-			{
-				Control.Tick();
-				FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
-				uint32& VertexCount = VertexCounts[LODIndex];
-				uint32& IndexCount = IndexCounts[LODIndex];
-				uint32& SectionCount = SectionCounts[LODIndex];
-				uint8 Flags = 0;
+				auto& LOD = Payload.LODs[Index];
+				if (!Loading)
+				{
+					Vertices[Index] = static_cast<uint32>(LOD.Positions.size());
+					Indices[Index] = static_cast<uint32>(LOD.Indices.size());
+					Sections[Index] = static_cast<uint32>(LOD.Sections.size());
+				}
+				uint8 Flags = LOD.bHasVertexColors ? 1 : 0;
 				uint16 Reserved = 0;
-				if (!LODs.ReadU32(VertexCount) || !LODs.ReadU32(IndexCount) || !LODs.ReadU32(SectionCount)
-					|| !LODs.ReadU8(LOD.NumTexCoords) || !LODs.ReadU8(Flags) || !LODs.ReadU16(Reserved)
-					|| !LODs.ReadFloat(LOD.ScreenSize)
-					|| !ReadBounds(LODs, LOD.LocalBounds))
-					return Fail("Static-mesh LOD chunk is truncated.", &OutError);
-				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD
-					|| IndexCount == 0 || IndexCount > MaximumStaticMeshIndicesPerLOD
-					|| SectionCount == 0 || SectionCount > MaximumStaticMeshSectionsPerLOD
-					|| LOD.NumTexCoords > MaxStaticMeshUVChannels
-					|| (Flags & ~1u) != 0 || Reserved != 0)
-					return Fail("Static-mesh LOD chunk contains an invalid count, flag, or reserved value.", &OutError);
-				LOD.bHasVertexColors = (Flags & 1u) != 0;
-
-				const uint64 VertexStride = 40ull + static_cast<uint64>(LOD.NumTexCoords) * 8ull
-					+ (LOD.bHasVertexColors ? 16ull : 0ull);
-				const uint64 SectionBytes = 4ull + static_cast<uint64>(SectionCount) * 44ull;
-				const uint64 VertexBytes = static_cast<uint64>(VertexCount) * VertexStride;
-				const uint64 IndexBytes = static_cast<uint64>(IndexCount) * 4ull;
-				if (SectionBytes > MaximumStaticMeshPayloadBytes - ExpectedSectionBytes
-					|| VertexBytes > MaximumStaticMeshPayloadBytes - ExpectedVertexBytes
-					|| IndexBytes > MaximumStaticMeshPayloadBytes - ExpectedIndexBytes)
-					return Fail("Static-mesh payload stream sizes exceed the allocation limit.", &OutError);
-				ExpectedSectionBytes += SectionBytes;
-				ExpectedVertexBytes += VertexBytes;
-				ExpectedIndexBytes += IndexBytes;
+				Metadata << Vertices[Index] << Indices[Index] << Sections[Index]
+					<< LOD.NumTexCoords << Flags << Reserved << LOD.ScreenSize;
+				SerializeBounds(Metadata, LOD.LocalBounds);
+				if (Metadata.HasError()) return;
+				if (Vertices[Index] == 0 || Vertices[Index] > MaximumStaticMeshVerticesPerLOD
+					|| Indices[Index] == 0 || Indices[Index] > MaximumStaticMeshIndicesPerLOD
+					|| Sections[Index] == 0 || Sections[Index] > MaximumStaticMeshSectionsPerLOD
+					|| LOD.NumTexCoords > MaxStaticMeshUVChannels || (Flags & ~1u) != 0 || Reserved != 0)
+				{
+					Metadata.Fail(EArchiveFailureCode::LimitExceeded, "Static-mesh LOD count or flags are invalid.");
+					return;
+				}
+				if (Loading) LOD.bHasVertexColors = (Flags & 1) != 0;
+				const uint64 Stride = 40ull + LOD.NumTexCoords * 8ull + (LOD.bHasVertexColors ? 16ull : 0);
+				SectionBytes += 4ull + Sections[Index] * 44ull;
+				VertexBytes += Vertices[Index] * Stride;
+				IndexBytes += Indices[Index] * 4ull;
+				NativeBytes += static_cast<uint64>(Vertices[Index]) * (sizeof(FVector3f) * 2
+					+ sizeof(FVector4f) + LOD.NumTexCoords * sizeof(FVector2f)
+					+ (LOD.bHasVertexColors ? sizeof(FVector4f) : 0))
+					+ static_cast<uint64>(Indices[Index]) * sizeof(uint32)
+					+ static_cast<uint64>(Sections[Index]) * sizeof(FStaticMeshPayloadSection);
 			}
-			if (Chunks[3].size() != ExpectedSectionBytes || Chunks[4].size() != ExpectedVertexBytes
-				|| Chunks[5].size() != ExpectedIndexBytes)
-				return Fail("Static-mesh payload stream chunk sizes do not match the LOD metadata.", &OutError);
-			for (uint32 LODIndex = 0; LODIndex < LODCount; ++LODIndex)
+			if (NativeBytes > MaximumStaticMeshPayloadBytes
+				|| SectionBytes + VertexBytes + IndexBytes > MaximumStaticMeshPayloadBytes)
 			{
-				Control.Tick();
-				FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
-				const uint32 VertexCount = VertexCounts[LODIndex];
-				Control.Check();
-				LOD.Positions.resize(VertexCount);
-				Control.Check();
-				LOD.Normals.resize(VertexCount);
-				Control.Check();
-				LOD.Tangents.resize(VertexCount);
-				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel) LOD.TexCoords[Channel].resize(VertexCount);
-				if (LOD.bHasVertexColors) LOD.Colors.resize(VertexCount);
-				LOD.Indices.resize(IndexCounts[LODIndex]);
-				LOD.Sections.resize(SectionCounts[LODIndex]);
+				Metadata.Fail(EArchiveFailureCode::LimitExceeded, "Static-mesh decoded allocation budget is exceeded.");
+				return;
 			}
-
-			FPayloadReader Sections(Chunks[3]);
-			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
+			if (Loading && (Chunks[3]->GetRemainingPayloadBytes() != SectionBytes
+				|| Chunks[4]->GetRemainingPayloadBytes() != VertexBytes
+				|| Chunks[5]->GetRemainingPayloadBytes() != IndexBytes))
 			{
-				Control.Tick();
-				uint32 SectionCount = 0;
-				if (!Sections.ReadU32(SectionCount) || SectionCount != LOD.Sections.size())
-					return Fail("Static-mesh section chunk count does not match its LOD.", &OutError);
-				for (FStaticMeshPayloadSection& Section : LOD.Sections)
+				Metadata.Fail(EArchiveFailureCode::InvalidData, "Static-mesh stream sizes do not match LOD metadata.");
+				return;
+			}
+			for (uint32 Index = 0; Index < LODCount; ++Index)
+			{
+				auto& LOD = Payload.LODs[Index];
+				Control.Check();
+				if (Loading)
+				{
+					LOD.Positions.resize(Vertices[Index]);
+					LOD.Normals.resize(Vertices[Index]);
+					LOD.Tangents.resize(Vertices[Index]);
+					for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
+						LOD.TexCoords[Channel].resize(Vertices[Index]);
+					if (LOD.bHasVertexColors) LOD.Colors.resize(Vertices[Index]);
+					LOD.Indices.resize(Indices[Index]);
+					LOD.Sections.resize(Sections[Index]);
+				}
+				uint32 SectionCount = Sections[Index];
+				*Chunks[3] << SectionCount;
+				if (SectionCount != Sections[Index])
+				{
+					Chunks[3]->Fail(EArchiveFailureCode::InvalidData, "Static-mesh section count disagrees with metadata.");
+					return;
+				}
+				for (auto& Section : LOD.Sections)
 				{
 					Control.Tick();
-					if (!Sections.ReadU32(Section.FirstIndex) || !Sections.ReadU32(Section.IndexCount)
-						|| !Sections.ReadU32(Section.MinVertexIndex) || !Sections.ReadU32(Section.MaxVertexIndex)
-						|| !Sections.ReadU32(Section.MaterialSlotIndex) || !ReadBounds(Sections, Section.LocalBounds))
-						return Fail("Static-mesh section chunk is truncated.", &OutError);
+					*Chunks[3] << Section.FirstIndex << Section.IndexCount << Section.MinVertexIndex
+						<< Section.MaxVertexIndex << Section.MaterialSlotIndex;
+					SerializeBounds(*Chunks[3], Section.LocalBounds);
 				}
+				auto Transfer = [&]<typename T>(std::vector<T>& Values, uint32 Components) {
+					for (auto& Value : Values)
+						for (uint32 Component = 0; Component < Components; ++Component)
+						{
+							Control.Tick();
+							*Chunks[4] << Value[Component];
+						}
+				};
+				Transfer(LOD.Positions, 3);
+				Transfer(LOD.Normals, 3);
+				Transfer(LOD.Tangents, 4);
+				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel) Transfer(LOD.TexCoords[Channel], 2);
+				if (LOD.bHasVertexColors) Transfer(LOD.Colors, 4);
+				for (uint32& Value : LOD.Indices) { Control.Tick(); *Chunks[5] << Value; }
 			}
-			if (!Sections.IsAtEnd()) return Fail("Static-mesh section chunk contains trailing bytes.", &OutError);
+			if (Loading) for (FArchive* Chunk : Chunks) RequireArchiveEnd(*Chunk);
+		}
 
-			FPayloadReader VertexStreams(Chunks[4]);
-			auto ReadVector = [&VertexStreams, &Control]<typename TVector>(TVector& Value, uint32 ComponentCount) -> bool
+		// The physical container supplies the declared extent; borrowing keeps
+		// its backing memory alive in the caller through all chunk interpretation.
+		auto ReadMeshRegion(FArchive& Ar, uint32 SizeOffset, uint64 MaximumBytes, FByteView& Bytes) -> bool
+		{
+			FByteView Header;
+			if (!Ar.ReadRegion(64, Header)) return false;
+			uint64 Size = 0;
+			ReadLittleEndianAt(Header, SizeOffset, Size);
+			if (Size < 64 || Size > MaximumBytes)
 			{
-				Control.Tick();
-				for (uint32 Component = 0; Component < ComponentCount; ++Component)
-					if (!VertexStreams.ReadFloat(Value[Component]) || !std::isfinite(Value[Component])) return false;
-				return true;
-			};
-			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
-			{
-				Control.Tick();
-				for (FVector3f& Value : LOD.Positions) if (!ReadVector(Value, 3)) return Fail("Static-mesh positions contain invalid data.", &OutError);
-				for (FVector3f& Value : LOD.Normals) if (!ReadVector(Value, 3)) return Fail("Static-mesh normals contain invalid data.", &OutError);
-				for (FVector4f& Value : LOD.Tangents) if (!ReadVector(Value, 4)) return Fail("Static-mesh tangents contain invalid data.", &OutError);
-				for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-					for (FVector2f& Value : LOD.TexCoords[Channel])
-						if (!ReadVector(Value, 2)) return Fail("Static-mesh UVs contain invalid data.", &OutError);
-				for (FVector4f& Value : LOD.Colors) if (!ReadVector(Value, 4)) return Fail("Static-mesh colors contain invalid data.", &OutError);
+				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Mesh payload stored size is outside its limit.");
+				return false;
 			}
-			if (!VertexStreams.IsAtEnd()) return Fail("Static-mesh vertex-stream chunk contains trailing bytes.", &OutError);
-
-			FPayloadReader IndexBuffers(Chunks[5]);
-			for (FStaticMeshPayloadLOD& LOD : Payload.LODs)
-				for (uint32& Index : LOD.Indices)
-				{
-					Control.Tick();
-					if (!IndexBuffers.ReadU32(Index)) return Fail("Static-mesh index-buffer chunk is truncated.", &OutError);
-				}
-			if (!IndexBuffers.IsAtEnd()) return Fail("Static-mesh index-buffer chunk contains trailing bytes.", &OutError);
-
-			if (!ValidatePayload(Payload, OutError, Control)) return false;
-			OutPayload = std::move(Payload);
+			FByteView Body;
+			if (!Ar.ReadRegion(Size - 64, Body)) return false;
+			if (Body.data() != Header.data() + 64)
+			{
+				Ar.Fail(EArchiveFailureCode::UnsupportedCapability, "Mesh payload requires contiguous borrowed regions.");
+				return false;
+			}
+			Bytes = FByteView(Header.data(), static_cast<size_t>(Size));
 			return true;
+		}
+
+		auto ArchiveChunkFailure(const FChunkedPayloadResult& Result) -> EArchiveFailureCode
+		{
+			if (Result.Kind == EChunkedPayloadFailureKind::Incompatible)
+				return EArchiveFailureCode::UnsupportedVersion;
+			switch (Result.Failure)
+			{
+			case EChunkedPayloadFailure::TruncatedHeader: return EArchiveFailureCode::TruncatedPayload;
+			case EChunkedPayloadFailure::InvalidChunkCount:
+			case EChunkedPayloadFailure::CompressionRatioExceeded: return EArchiveFailureCode::LimitExceeded;
+			case EChunkedPayloadFailure::NonzeroPadding: return EArchiveFailureCode::NonZeroPadding;
+			case EChunkedPayloadFailure::TrailingData: return EArchiveFailureCode::TrailingData;
+			default: return EArchiveFailureCode::InvalidData;
+			}
 		}
 
 		auto GetStaticMeshChunkedPayloadFormat() -> FChunkedPayloadFormat
@@ -436,112 +391,7 @@ namespace Durin
 				.AllowTrailingZeroPadding = true};
 		}
 
-		auto FailChunkedPayload(
-			const FChunkedPayloadResult& Result,
-			std::string& OutError,
-			EDecodeError* OutCode = nullptr) -> bool
-		{
-			if (OutCode && Result.Kind == EChunkedPayloadFailureKind::Incompatible)
-				*OutCode = EDecodeError::Incompatible;
-			return Fail(DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"), &OutError);
-		}
-	}
 
-	auto BuildStaticMeshSerializedValue(
-		const FStaticMeshPayloadData& Payload,
-		EStaticMeshTargetPlatform TargetPlatform,
-		FByteBuffer& OutBytes,
-		std::string& OutError, FPayloadBuildControl& Control) -> bool
-	{
-		OutError.clear();
-		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
-			return Fail("A concrete target platform is required to encode a static-mesh payload.", &OutError);
-		if (!ValidatePayload(Payload, OutError, Control)) return false;
-
-		const auto ChunkBytes = BuildPayloadChunks(Payload, Control);
-		std::array<FChunkedPayloadInput, StaticMeshPayloadRequiredChunkCount> Chunks;
-		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
-			Chunks[Index] = {
-				.Type = Index + 1,
-				.Flags = ChunkedPayloadRequiredFlag,
-				.Bytes = ChunkBytes[Index],
-				.DecodedSize = ChunkBytes[Index].size()};
-
-		Control.Check();
-		const FChunkedPayloadResult Result = EncodeChunkedPayload(
-			{0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
-				static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize,
-				StaticMeshPayloadRequiredChunkCount, 0},
-			Chunks, GetStaticMeshChunkedPayloadFormat(), OutBytes);
-		if (!Result) return FailChunkedPayload(Result, OutError);
-		Control.Check();
-		return true;
-	}
-
-	auto ParseStaticMeshSerializedValueImpl(
-		FByteView Bytes,
-		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError,
-		EDecodeError& OutCode, FPayloadBuildControl& Control) -> bool
-	{
-		OutError.clear();
-		OutCode = EDecodeError::Corrupt;
-		if (Bytes.size() < StaticMeshPayloadHeaderSize) return Fail("Static-mesh payload header is truncated.", &OutError);
-		if (ExpectedPlatform != EStaticMeshTargetPlatform::Win64)
-		{
-			OutCode = EDecodeError::Incompatible;
-			return Fail("A concrete target platform is required to decode a static-mesh payload.", &OutError);
-		}
-
-		uint32 Reserved0 = 0;
-		uint32 SchemaVersion = 0;
-		uint32 BuilderVersion = 0;
-		uint32 Platform = 0;
-		uint32 PayloadFlags = 0;
-		uint32 Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
-			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, PayloadFlags) || !ReadLittleEndianAt(Bytes, 28, Reserved))
-			return Fail("Static-mesh payload header is truncated.", &OutError);
-		if (Reserved0 != 0) return Fail("Static-mesh payload reserved header field is nonzero.", &OutError);
-		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
-		{
-			OutCode = EDecodeError::Incompatible;
-			return Fail("Static-mesh payload schema version is unsupported.", &OutError);
-		}
-		if (BuilderVersion != StaticMeshBuilderVersion)
-		{
-			OutCode = EDecodeError::Incompatible;
-			return Fail("Static-mesh payload builder version is unsupported.", &OutError);
-		}
-		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail("Static-mesh payload target platform does not match.", &OutError);
-		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || Reserved != 0)
-			return Fail("Static-mesh payload header contains invalid flags, sizes, or reserved values.", &OutError);
-		FDecodedChunkedPayload Container;
-		Control.Check();
-		const FChunkedPayloadResult ContainerResult = DecodeChunkedPayload(
-			Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
-		if (!ContainerResult) return FailChunkedPayload(ContainerResult, OutError, &OutCode);
-		std::array<FByteView, StaticMeshPayloadRequiredChunkCount> RequiredChunks;
-		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
-			RequiredChunks[Index] = Container.RequiredChunks[Index];
-		FStaticMeshPayloadData Decoded;
-		if (!ReadPayloadChunks(RequiredChunks, Decoded, OutError, Control)) return false;
-		OutPayload = std::move(Decoded);
-		return true;
-	}
-
-	auto ParseStaticMeshSerializedValue(
-		FByteView Bytes,
-		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload, FPayloadBuildControl& Control) -> FDecodeResult
-	{
-		FDecodeResult Result;
-		if (!ParseStaticMeshSerializedValueImpl(
-			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code, Control))
-			return Result;
-		return {};
 	}
 
 	auto MakeStaticMeshPayloadData(
@@ -690,29 +540,13 @@ namespace Durin
 
 	namespace
 	{
-		auto WriteCollisionU32(FByteBuffer& Bytes, size_t Offset, uint32 Value) -> void
-		{
-			for (uint32 Byte = 0; Byte < 4; ++Byte)
-				Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
-		}
-
-		auto WriteCollisionU64(FByteBuffer& Bytes, size_t Offset, uint64 Value) -> void
-		{
-			for (uint32 Byte = 0; Byte < 8; ++Byte)
-				Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
-		}
-
 		auto AlignCollisionOffset(uint64 Offset) -> uint64
 		{
 			return (Offset + StaticMeshCollisionPayloadAlignment - 1)
 				& ~(static_cast<uint64>(StaticMeshCollisionPayloadAlignment) - 1);
 		}
 
-		auto CollisionDecodeFailure(EDecodeError Code, std::string Message)
-			-> FDecodeResult
-		{
-			return {Code, std::move(Message)};
-		}
+
 	}
 
 	auto MakeStaticMeshCollisionPayloadData(
@@ -845,273 +679,266 @@ namespace Durin
 		return Fail("StaticMesh payload operation was cancelled.", &OutError);
 	}
 
-	auto BuildStaticMeshCollisionSerializedValue(
-		const FStaticMeshCollisionPayloadData& Payload,
-		EStaticMeshTargetPlatform TargetPlatform,
-		FByteBuffer& OutBytes,
-		std::string& OutError, FPayloadBuildControl& Control) -> bool
+	auto FStaticMeshPayloadData::Serialize(FArchive& Ar,
+		EStaticMeshTargetPlatform TargetPlatform, const std::function<bool()>& ShouldCancel) -> void
+	try
 	{
-		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
-			return Fail("A concrete target platform is required for DCOL encoding.", &OutError);
-		FCollisionGeometryRef ValidationGeometry;
-		if (!MakeStaticMeshCollisionGeometry(Payload, ValidationGeometry, OutError, Control.ShouldCancel)) return false;
-		std::vector<uint32> StoredIndices;
-		std::vector<uint32> StoredOrdinals;
-		if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		if (Ar.HasError()) return;
+		FPayloadBuildControl Control{ShouldCancel};
+		Control.Check();
+		if (!ResolveMeshTarget(Ar, TargetPlatform)) return;
+		std::string Error;
+		std::array<FByteBuffer, 6> Buffers;
+		std::array<std::unique_ptr<FArchive>, 6> Owners;
+		std::array<FArchive*, 6> Chunks;
+		FDecodedChunkedPayload Container;
+		if (Ar.IsSaving())
 		{
-			std::map<uint32, uint32> OrdinalToTriangle;
-			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
-				{ Control.Tick(); OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle); }
-			StoredIndices.reserve(Payload.Indices.size());
-			StoredOrdinals.reserve(Payload.LeafTriangles.size());
-			for (uint32 Ordinal : Payload.LeafTriangles)
+			if (!ValidatePayload(*this, Error, Control))
 			{
-				Control.Tick();
-				const auto Found = OrdinalToTriangle.find(Ordinal);
-				if (Found == OrdinalToTriangle.end())
-					return Fail("DCOL leaf ordering references an unknown source ordinal.", &OutError);
-				const uint32 Triangle = Found->second;
-				StoredIndices.insert(StoredIndices.end(), Payload.Indices.begin() + Triangle * 3,
-					Payload.Indices.begin() + Triangle * 3 + 3);
-				StoredOrdinals.push_back(Ordinal);
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
 			}
+			for (uint32 Index = 0; Index < 6; ++Index)
+				Owners[Index] = std::make_unique<FCanonicalMemoryWriter>(Buffers[Index]);
 		}
 		else
 		{
-			StoredIndices = Payload.Indices;
-			StoredOrdinals = Payload.SourceOrdinals;
-		}
-		std::array<FByteBuffer, 4> Chunks;
-		FPayloadWriter Positions;
-		for (const FVector3f& Position : Payload.Positions)
-			for (uint32 Axis = 0; Axis < 3; ++Axis) { Control.Tick(); Positions.WriteFloat(Position[Axis]); }
-		Chunks[0] = Positions.TakeBytes();
-		FPayloadWriter Indices;
-		for (uint32 Index : StoredIndices) { Control.Tick(); Indices.WriteU32(Index); }
-		Chunks[1] = Indices.TakeBytes();
-		FPayloadWriter Ordinals;
-		for (uint32 Ordinal : StoredOrdinals) { Control.Tick(); Ordinals.WriteU32(Ordinal); }
-		Chunks[2] = Ordinals.TakeBytes();
-		FPayloadWriter Nodes;
-		for (const FCollisionGeometryNode& Node : Payload.Nodes)
-		{
-			Control.Tick();
-			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Minimum[Axis]);
-			Nodes.WriteU32(Node.First);
-			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Maximum[Axis]);
-			Nodes.WriteU32(Node.CountOrSecond);
-		}
-		Chunks[3] = Nodes.TakeBytes();
-		const std::array<uint64, 4> Counts{Payload.Positions.size(), StoredIndices.size(),
-			StoredOrdinals.size(), Payload.Nodes.size()};
-		FByteBuffer Bytes(StaticMeshCollisionPayloadHeaderSize
-			+ Chunks.size() * StaticMeshCollisionPayloadChunkEntrySize, std::byte{0});
-		for (uint32 Chunk = 0; Chunk < Chunks.size(); ++Chunk)
-		{
-			Control.Tick();
-			const uint64 Offset = AlignCollisionOffset(Bytes.size());
-			if (Offset > MaximumStaticMeshCollisionPayloadBytes
-				|| Chunks[Chunk].size() > MaximumStaticMeshCollisionPayloadBytes - Offset)
-				return Fail("DCOL payload exceeds the runtime byte limit.", &OutError);
-			Bytes.resize(static_cast<size_t>(Offset), std::byte{0});
-			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
-				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
-			WriteCollisionU32(Bytes, Entry, Chunk + 1);
-			WriteCollisionU32(Bytes, Entry + 4, 1);
-			WriteCollisionU64(Bytes, Entry + 8, Offset);
-			WriteCollisionU64(Bytes, Entry + 16, Chunks[Chunk].size());
-			WriteCollisionU64(Bytes, Entry + 24, Counts[Chunk]);
-			Bytes.insert(Bytes.end(), Chunks[Chunk].begin(), Chunks[Chunk].end());
-		}
-		Control.Check();
-		const uint64 LogicalBytes = Payload.Positions.size() * sizeof(FVector3f)
-			+ Payload.Indices.size() * sizeof(uint32)
-			+ Payload.SourceOrdinals.size() * sizeof(uint32)
-			+ Payload.Nodes.size() * sizeof(FCollisionGeometryNode);
-		WriteCollisionU32(Bytes, 0, 0);
-		WriteCollisionU32(Bytes, 4, StaticMeshCollisionPayloadSchemaVersion);
-		WriteCollisionU32(Bytes, 8, StaticMeshCollisionBuilderVersion);
-		WriteCollisionU32(Bytes, 12, static_cast<uint32>(TargetPlatform));
-		WriteCollisionU32(Bytes, 16, StaticMeshCollisionPayloadHeaderSize);
-		WriteCollisionU32(Bytes, 20, static_cast<uint32>(Chunks.size()));
-		WriteCollisionU32(Bytes, 24, StaticMeshCollisionPayloadAlignment);
-		WriteCollisionU32(Bytes, 28, 0);
-		WriteCollisionU64(Bytes, 32, Bytes.size());
-		WriteCollisionU64(Bytes, 40, LogicalBytes);
-		WriteCollisionU64(Bytes, 48, FXxHash64::HashBuffer(
-			FByteView(Bytes).subspan(64)).HashValue);
-		WriteCollisionU32(Bytes, 56, 0);
-		WriteCollisionU32(Bytes, 60, 0);
-		OutBytes = std::move(Bytes);
-		OutError.clear();
-		Control.Check();
-		return true;
-	}
-
-	auto ParseStaticMeshCollisionSerializedValue(
-		FByteView Bytes,
-		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshCollisionPayloadData& OutPayload, FPayloadBuildControl& Control) -> FDecodeResult
-	{
-		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
-		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
-		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
-		if (Bytes.size() < StaticMeshCollisionPayloadHeaderSize
-			|| !ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
-			|| !ReadLittleEndianAt(Bytes, 8, Builder) || !ReadLittleEndianAt(Bytes, 12, Platform)
-			|| !ReadLittleEndianAt(Bytes, 16, Header) || !ReadLittleEndianAt(Bytes, 20, ChunkCount)
-			|| !ReadLittleEndianAt(Bytes, 24, Alignment) || !ReadLittleEndianAt(Bytes, 28, Mode)
-			|| !ReadLittleEndianAt(Bytes, 32, StoredSize) || !ReadLittleEndianAt(Bytes, 40, LogicalBytes)
-			|| !ReadLittleEndianAt(Bytes, 48, Checksum) || !ReadLittleEndianAt(Bytes, 56, Policy)
-			|| !ReadLittleEndianAt(Bytes, 60, Reserved))
-			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL header is truncated.");
-		if (Schema != StaticMeshCollisionPayloadSchemaVersion
-			|| Builder != StaticMeshCollisionBuilderVersion
-			|| Platform != static_cast<uint32>(ExpectedPlatform))
-			return CollisionDecodeFailure(EDecodeError::Incompatible, "DCOL version or platform is incompatible.");
-		if (Reserved0 != 0 || Header != StaticMeshCollisionPayloadHeaderSize || ChunkCount != 4
-			|| ChunkCount > MaximumStaticMeshCollisionPayloadChunks
-			|| Alignment != StaticMeshCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0
-			|| StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshCollisionPayloadBytes
-			|| Checksum != FXxHash64::HashBuffer(Bytes.subspan(64)).HashValue)
-			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL header values or checksum are invalid.");
-		const std::array<uint64, 4> ElementSizes{12, 4, 4, 32};
-		std::array<FByteView, 4> Chunks;
-		std::array<uint64, 4> Counts{};
-		uint64 PreviousEnd = StaticMeshCollisionPayloadHeaderSize
-			+ ChunkCount * StaticMeshCollisionPayloadChunkEntrySize;
-		for (uint32 Chunk = 0; Chunk < ChunkCount; ++Chunk)
-		{
-			Control.Tick();
-			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
-				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
-			uint32 Type = 0, Flags = 0;
-			uint64 Offset = 0, Size = 0, Count = 0;
-			if (!ReadLittleEndianAt(Bytes, Entry, Type) || !ReadLittleEndianAt(Bytes, Entry + 4, Flags)
-				|| !ReadLittleEndianAt(Bytes, Entry + 8, Offset) || !ReadLittleEndianAt(Bytes, Entry + 16, Size)
-				|| !ReadLittleEndianAt(Bytes, Entry + 24, Count) || Type != Chunk + 1 || Flags != 1
-				|| Offset % Alignment != 0 || Offset < PreviousEnd || Offset > Bytes.size()
-				|| Size > Bytes.size() - Offset || Count > std::numeric_limits<uint64>::max() / ElementSizes[Chunk]
-				|| Count * ElementSizes[Chunk] != Size)
-				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL chunk table is invalid.");
-			for (uint64 Padding = PreviousEnd; Padding < Offset; ++Padding)
+			FByteView Bytes;
+			if (!ReadMeshRegion(Ar, 48, MaximumStaticMeshPayloadBytes, Bytes)) return;
+			const auto Result = DecodeChunkedPayload(Bytes, GetStaticMeshChunkedPayloadFormat(), Container);
+			if (!Result)
 			{
-				Control.Tick();
-				if (Bytes[Padding] != std::byte{0})
-					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL alignment padding is non-zero.");
+				Ar.Fail(ArchiveChunkFailure(Result),
+					DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"));
+				return;
 			}
-			Chunks[Chunk] = Bytes.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size));
-			Counts[Chunk] = Count;
-			PreviousEnd = Offset + Size;
+			const auto& Header = Container.HeaderWords;
+			if (Header[1] != StaticMeshPayloadSchemaVersion || Header[2] != StaticMeshBuilderVersion)
+			{
+				Ar.Fail(EArchiveFailureCode::UnsupportedVersion, "Static-mesh payload schema or builder version is unsupported.");
+				return;
+			}
+			if (Header[3] != static_cast<uint32>(TargetPlatform))
+			{
+				Ar.Fail(EArchiveFailureCode::UnsupportedTarget, "Static-mesh payload target does not match.");
+				return;
+			}
+			if (Header[0] != 0 || Header[7] != 0
+				|| (Header[4] & ~StaticMeshPayloadFlagCompressed) != 0)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, "Static-mesh reserved header fields are nonzero.");
+				return;
+			}
+			for (uint32 Index = 0; Index < 6; ++Index)
+				Owners[Index] = std::make_unique<FCanonicalMemoryReader>(Container.RequiredChunks[Index]);
 		}
-		if (PreviousEnd != Bytes.size() || Counts[0] == 0 || Counts[1] == 0
-			|| Counts[1] % 3 != 0 || Counts[2] != Counts[1] / 3
-			|| Counts[0] > MaximumStaticMeshVerticesPerLOD
-			|| Counts[2] > 2'000'000 || LogicalBytes != Counts[0] * 12 + Counts[1] * 4
-				+ Counts[2] * 4 + Counts[3] * 32)
-			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL counts or logical byte total are invalid.");
-		FStaticMeshCollisionPayloadData Candidate;
-		Candidate.SourceMode = Counts[3] == 0
-			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
-		Candidate.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		Control.Check();
-		FPayloadReader PositionReader(Chunks[0]);
-		Candidate.Positions.resize(static_cast<size_t>(Counts[0]));
-		for (FVector3f& Position : Candidate.Positions)
-			for (uint32 Axis = 0; Axis < 3; ++Axis)
+		for (uint32 Index = 0; Index < 6; ++Index) Chunks[Index] = Owners[Index].get();
+		SerializePayloadChunks(Chunks, *this, Control);
+		for (FArchive* Chunk : Chunks)
+			if (Chunk->HasError())
 			{
-				Control.Tick();
-				if (!PositionReader.ReadFloat(Position[Axis]) || !std::isfinite(Position[Axis]))
-					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL position data is invalid.");
+				Ar.Fail(Chunk->GetFailure()->Code, Chunk->GetFailure()->Message);
+				return;
 			}
-		auto ReadU32Chunk = [&Control](FByteView Bytes, uint64 Count, std::vector<uint32>& Out) {
-			FPayloadReader Reader(Bytes);
-			Control.Check();
-			Out.resize(static_cast<size_t>(Count));
-			for (uint32& Value : Out)
-			{
-				Control.Tick();
-				if (!Reader.ReadU32(Value)) return false;
-			}
-			return Reader.IsAtEnd();
-		};
-		if (!ReadU32Chunk(Chunks[1], Counts[1], Candidate.Indices)
-			|| !ReadU32Chunk(Chunks[2], Counts[2], Candidate.SourceOrdinals))
-			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL index or ordinal data is invalid.");
-		FPayloadReader NodeReader(Chunks[3]);
-		Control.Check();
-		Candidate.Nodes.resize(static_cast<size_t>(Counts[3]));
-		for (FCollisionGeometryNode& Node : Candidate.Nodes)
+		if (Ar.IsLoading())
 		{
-			Control.Tick();
-			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Minimum[Axis]))
-				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
-			if (!NodeReader.ReadU32(Node.First))
-				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
-			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Maximum[Axis]))
-				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
-			if (!NodeReader.ReadU32(Node.CountOrSecond))
-				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
+			if (!ValidatePayload(*this, Error, Control)) Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+			return;
 		}
-		if (Candidate.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
-			Candidate.LeafTriangles = Candidate.SourceOrdinals;
-		FCollisionGeometryRef Geometry;
-		std::string Error;
-		if (!MakeStaticMeshCollisionGeometry(Candidate, Geometry, Error, Control.ShouldCancel))
-			return CollisionDecodeFailure(EDecodeError::Corrupt, std::move(Error));
-		OutPayload = std::move(Candidate);
-		return {};
-	}
-
-	auto FStaticMeshPayloadData::Serialize(
-		FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform,
-		const std::function<bool()>& ShouldCancel) -> void
-	try
-	{
-		FPayloadBuildControl Control{ShouldCancel};
+		std::array<FChunkedPayloadInput, 6> Inputs;
+		for (uint32 Index = 0; Index < 6; ++Index)
+			Inputs[Index] = {.Type = Index + 1, .Flags = ChunkedPayloadRequiredFlag,
+				.Bytes = Buffers[Index], .DecodedSize = Buffers[Index].size()};
+		FByteBuffer Bytes;
+		const auto Result = EncodeChunkedPayload({0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
+			static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize, 6, 0},
+			Inputs, GetStaticMeshChunkedPayloadFormat(), Bytes);
 		Control.Check();
-		SerializeBoundedArchivePayload(
-			Ar,
-			*this,
-			{MaximumStaticMeshPayloadBytes, "Static-mesh payload"},
-			[&](const FStaticMeshPayloadData& Value,
-				FByteBuffer& Bytes, std::string& Error) {
-				return BuildStaticMeshSerializedValue(
-					Value, TargetPlatform, Bytes, Error, Control);
-			},
-			[&](FByteView Bytes, FStaticMeshPayloadData& Candidate) {
-				return ParseStaticMeshSerializedValue(Bytes, TargetPlatform, Candidate, Control);
-			});
+		if (!Result)
+			Ar.Fail(EArchiveFailureCode::InvalidData, DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"));
+		else Ar.WriteBytes(Bytes);
 	}
 	catch (const FPayloadBuildCancelled&)
 	{
 		Ar.Fail(EArchiveFailureCode::InvalidData, "StaticMesh payload operation was cancelled.");
 	}
 
-	auto FStaticMeshCollisionPayloadData::Serialize(
-		FArchive& Ar,
-		EStaticMeshTargetPlatform TargetPlatform,
-		const std::function<bool()>& ShouldCancel) -> void
+	auto FStaticMeshCollisionPayloadData::Serialize(FArchive& Ar,
+		EStaticMeshTargetPlatform TargetPlatform, const std::function<bool()>& ShouldCancel) -> void
 	try
 	{
+		if (Ar.HasError()) return;
 		FPayloadBuildControl Control{ShouldCancel};
 		Control.Check();
-		SerializeBoundedArchivePayload(
-			Ar,
-			*this,
-			{MaximumStaticMeshCollisionPayloadBytes, "DCOL payload"},
-			[&](const FStaticMeshCollisionPayloadData& Value,
-				FByteBuffer& Bytes, std::string& Error) {
-				return BuildStaticMeshCollisionSerializedValue(
-					Value, TargetPlatform, Bytes, Error, Control);
-			},
-			[&](FByteView Bytes,
-				FStaticMeshCollisionPayloadData& Candidate) {
-				return ParseStaticMeshCollisionSerializedValue(
-					Bytes, TargetPlatform, Candidate, Control);
-			});
+		auto Reject = [&](EArchiveFailureCode Code, std::string_view Message) { Ar.Fail(Code, Message); };
+		if (!ResolveMeshTarget(Ar, TargetPlatform)) return;
+
+		uint32 Reserved0 = 0, Schema = StaticMeshCollisionPayloadSchemaVersion;
+		uint32 Builder = StaticMeshCollisionBuilderVersion, Platform = static_cast<uint32>(TargetPlatform);
+		uint32 Header = StaticMeshCollisionPayloadHeaderSize, ChunkCount = 4;
+		uint32 Alignment = StaticMeshCollisionPayloadAlignment, Mode = 0, Policy = 0, Reserved = 0;
+		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
+		const std::array<uint64, 4> ElementSizes{12, 4, 4, 32};
+		std::array<uint64, 4> Counts{}, Offsets{}, Sizes{};
+		std::array<FByteBuffer, 4> Buffers;
+		std::array<std::unique_ptr<FArchive>, 4> Streams;
+		std::vector<uint32> OrderedIndices, OrderedOrdinals;
+		auto* WireIndices = &Indices;
+		auto* WireOrdinals = &SourceOrdinals;
+		FByteBuffer Body;
+		std::string Error;
+
+		auto TransferStreams = [&] {
+			for (auto& Position : Positions)
+				for (uint32 Axis = 0; Axis < 3; ++Axis) { Control.Tick(); *Streams[0] << Position[Axis]; }
+			for (uint32& Index : *WireIndices) { Control.Tick(); *Streams[1] << Index; }
+			for (uint32& Ordinal : *WireOrdinals) { Control.Tick(); *Streams[2] << Ordinal; }
+			for (auto& Node : Nodes)
+			{
+				Control.Tick();
+				for (uint32 Axis = 0; Axis < 3; ++Axis) *Streams[3] << Node.Minimum[Axis];
+				*Streams[3] << Node.First;
+				for (uint32 Axis = 0; Axis < 3; ++Axis) *Streams[3] << Node.Maximum[Axis];
+				*Streams[3] << Node.CountOrSecond;
+			}
+		};
+		auto TransferTable = [&](FArchive& Table) {
+			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
+			{
+				uint32 Type = Chunk + 1, Flags = 1;
+				Table << Type << Flags << Offsets[Chunk] << Sizes[Chunk] << Counts[Chunk];
+				if (Type != Chunk + 1 || Flags != 1)
+					Table.Fail(EArchiveFailureCode::InvalidData, "DCOL chunk identity is invalid.");
+			}
+		};
+		if (Ar.IsSaving())
+		{
+			// Bound all serialization scratch before geometry validation or ordering.
+			Counts = {Positions.size(), Indices.size(), SourceOrdinals.size(), Nodes.size()};
+			StoredSize = 64 + 4 * StaticMeshCollisionPayloadChunkEntrySize;
+			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
+			{
+				if (Counts[Chunk] > MaximumStaticMeshCollisionPayloadBytes / ElementSizes[Chunk])
+					return Reject(EArchiveFailureCode::LimitExceeded, "DCOL count exceeds its byte limit.");
+				Sizes[Chunk] = Counts[Chunk] * ElementSizes[Chunk];
+				Offsets[Chunk] = AlignCollisionOffset(StoredSize);
+				if (Offsets[Chunk] > MaximumStaticMeshCollisionPayloadBytes
+					|| Sizes[Chunk] > MaximumStaticMeshCollisionPayloadBytes - Offsets[Chunk])
+					return Reject(EArchiveFailureCode::LimitExceeded, "DCOL payload exceeds its byte limit.");
+				StoredSize = Offsets[Chunk] + Sizes[Chunk];
+				LogicalBytes += Sizes[Chunk];
+			}
+			FCollisionGeometryRef Validation;
+			if (!MakeStaticMeshCollisionGeometry(*this, Validation, Error, ShouldCancel))
+				return Reject(EArchiveFailureCode::InvalidData, Error);
+			if (SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+			{
+				std::map<uint32, uint32> OrdinalToTriangle;
+				for (uint32 Triangle = 0; Triangle < SourceOrdinals.size(); ++Triangle)
+					{ Control.Tick(); OrdinalToTriangle.emplace(SourceOrdinals[Triangle], Triangle); }
+				OrderedIndices.reserve(Indices.size());
+				OrderedOrdinals.reserve(LeafTriangles.size());
+				for (uint32 Ordinal : LeafTriangles)
+				{
+					Control.Tick();
+					const auto Found = OrdinalToTriangle.find(Ordinal);
+					if (Found == OrdinalToTriangle.end())
+						return Reject(EArchiveFailureCode::InvalidData, "DCOL leaf references an unknown source ordinal.");
+					const size_t Begin = static_cast<size_t>(Found->second) * 3;
+					OrderedIndices.insert(OrderedIndices.end(), Indices.begin() + Begin, Indices.begin() + Begin + 3);
+					OrderedOrdinals.push_back(Ordinal);
+				}
+				if (OrderedIndices.size() != Indices.size() || OrderedOrdinals.size() != SourceOrdinals.size())
+					return Reject(EArchiveFailureCode::InvalidData, "DCOL leaf ordering is incomplete.");
+				WireIndices = &OrderedIndices;
+				WireOrdinals = &OrderedOrdinals;
+			}
+			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
+				Streams[Chunk] = std::make_unique<FCanonicalMemoryWriter>(Buffers[Chunk]);
+			TransferStreams();
+			Body.reserve(static_cast<size_t>(StoredSize - 64));
+			FCanonicalMemoryWriter BodyAr(Body);
+			TransferTable(BodyAr);
+			for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
+			{
+				while (BodyAr.Tell() + 64 < Offsets[Chunk]) { uint8 Zero = 0; BodyAr << Zero; }
+				BodyAr.WriteBytes(Buffers[Chunk]);
+			}
+			if (BodyAr.HasError()) return Reject(BodyAr.GetFailure()->Code, BodyAr.GetError());
+			Checksum = FXxHash64::HashBuffer(Body).HashValue;
+		}
+
+		Ar << Reserved0 << Schema << Builder << Platform << Header << ChunkCount << Alignment << Mode
+			<< StoredSize << LogicalBytes << Checksum << Policy << Reserved;
+		if (Ar.HasError()) return;
+		if (Schema != StaticMeshCollisionPayloadSchemaVersion || Builder != StaticMeshCollisionBuilderVersion)
+			return Reject(EArchiveFailureCode::UnsupportedVersion, "DCOL schema or builder version is unsupported.");
+		if (Platform != static_cast<uint32>(TargetPlatform))
+			return Reject(EArchiveFailureCode::UnsupportedTarget, "DCOL target platform does not match.");
+		if (Reserved0 != 0 || Header != 64 || ChunkCount != 4
+			|| Alignment != StaticMeshCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0)
+			return Reject(EArchiveFailureCode::InvalidData, "DCOL header layout is invalid.");
+		if (StoredSize < 64 + 4 * StaticMeshCollisionPayloadChunkEntrySize
+			|| StoredSize > MaximumStaticMeshCollisionPayloadBytes)
+			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL stored size exceeds its limit.");
+		if (Ar.IsSaving())
+		{
+			Control.Check();
+			Ar.WriteBytes(Body);
+			return;
+		}
+		FByteView Region;
+		if (!Ar.ReadRegion(StoredSize - 64, Region)) return;
+		if (FXxHash64::HashBuffer(Region).HashValue != Checksum)
+			return Reject(EArchiveFailureCode::InvalidData, "DCOL checksum does not match.");
+		FCanonicalMemoryReader TableAr(Region.first(4 * StaticMeshCollisionPayloadChunkEntrySize));
+		TransferTable(TableAr);
+		if (TableAr.HasError()) return Reject(TableAr.GetFailure()->Code, TableAr.GetError());
+		uint64 PreviousEnd = 64 + 4 * StaticMeshCollisionPayloadChunkEntrySize, Total = 0;
+		for (uint32 Chunk = 0; Chunk < 4; ++Chunk)
+		{
+			if (Counts[Chunk] > std::numeric_limits<uint64>::max() / ElementSizes[Chunk])
+				return Reject(EArchiveFailureCode::Overflow, "DCOL element byte count overflows.");
+			if (Offsets[Chunk] % Alignment != 0 || Offsets[Chunk] < PreviousEnd || Offsets[Chunk] > StoredSize
+				|| Sizes[Chunk] > StoredSize - Offsets[Chunk]
+				|| Counts[Chunk] * ElementSizes[Chunk] != Sizes[Chunk])
+				return Reject(EArchiveFailureCode::InvalidData, "DCOL chunk extent or count is invalid.");
+			for (uint64 Offset = PreviousEnd; Offset < Offsets[Chunk]; ++Offset)
+			{
+				Control.Tick();
+				if (Region[static_cast<size_t>(Offset - 64)] != std::byte{0})
+					return Reject(EArchiveFailureCode::NonZeroPadding, "DCOL padding is nonzero.");
+			}
+			Streams[Chunk] = std::make_unique<FCanonicalMemoryReader>(Region.subspan(
+				static_cast<size_t>(Offsets[Chunk] - 64), static_cast<size_t>(Sizes[Chunk])));
+			PreviousEnd = Offsets[Chunk] + Sizes[Chunk];
+			Total += Sizes[Chunk];
+		}
+		if (PreviousEnd != StoredSize) return Reject(EArchiveFailureCode::TrailingData, "DCOL has trailing bytes.");
+		if (Counts[0] == 0 || Counts[0] > MaximumStaticMeshVerticesPerLOD || Counts[1] == 0
+			|| Counts[1] % 3 != 0 || Counts[2] != Counts[1] / 3 || Counts[2] > 2'000'000 || Total != LogicalBytes)
+			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL logical counts are invalid.");
+		const uint64 NativeBytes = Counts[0] * sizeof(FVector3f) + Counts[1] * sizeof(uint32)
+			+ Counts[2] * sizeof(uint32) * (Counts[3] ? 2 : 1) + Counts[3] * sizeof(FCollisionGeometryNode);
+		if (NativeBytes > MaximumStaticMeshCollisionPayloadBytes)
+			return Reject(EArchiveFailureCode::LimitExceeded, "DCOL decoded allocation budget is exceeded.");
+		SourceMode = Counts[3] == 0 ? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
+		QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		Control.Check();
+		Positions.resize(static_cast<size_t>(Counts[0]));
+		Indices.resize(static_cast<size_t>(Counts[1]));
+		SourceOrdinals.resize(static_cast<size_t>(Counts[2]));
+		Nodes.resize(static_cast<size_t>(Counts[3]));
+		LeafTriangles.clear();
+		TransferStreams();
+		for (auto& Stream : Streams)
+			if (!RequireArchiveEnd(*Stream)) return Reject(Stream->GetFailure()->Code, Stream->GetError());
+		if (!Nodes.empty()) LeafTriangles = SourceOrdinals;
+		FCollisionGeometryRef Validation;
+		if (!MakeStaticMeshCollisionGeometry(*this, Validation, Error, ShouldCancel))
+			return Reject(EArchiveFailureCode::InvalidData, Error);
 	}
 	catch (const FPayloadBuildCancelled&)
 	{

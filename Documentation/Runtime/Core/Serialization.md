@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-09
 
 ## Archive And Object Serialization
 
@@ -76,6 +76,36 @@ UE-style member taking a stable owner/context when the value cannot interpret
 itself alone. Archive direction selects loading versus saving. A different
 function is justified only for a materially different semantic layout such as
 Cook streaming, not merely for the opposite direction.
+
+Texture, environment-lighting and StaticMesh payload customizations load into
+caller-owned storage. A failed destination is destructible but incomplete and
+must be discarded; neither the destination nor the cursor is rolled back.
+Successful loading replaces all serialized sequences, including optional
+streams that are absent in the new value. Save, discovery, counting and hashing
+calls do not change persistent source values.
+
+The owning DDC value or BulkData slot supplies an exact memory region and checks
+`RequireArchiveEnd` before publication. Nested physical records consume their
+declared extents rather than the remainder of an enclosing archive. Core
+`ReadRegion` borrows contiguous input from a canonical memory reader without
+copying; archives that cannot lend storage fail with `UnsupportedCapability`.
+The caller must retain the backing buffer or lease through interpretation.
+Payloads retain owned decoded containers, not borrowed input views. A live
+replacement operation owns its detached candidate and publishes it only after
+complete decode and validation; serialization does not add another candidate.
+These rules do not relax transactional Blob, bounded-sequence, BinaryEnvelope,
+BulkData, reflected-Struct, or package-loading contracts.
+
+Stored extents and decoded allocation counts are independently bounded before
+growth. Families preserve structured Archive failures through internal calls;
+`UnsupportedTarget` distinguishes target/context conflicts from unsupported
+wire versions. Existing external cache/build boundaries may classify these as
+recoverable misses or operation failures. Offset/hash formats retain bounded
+layout staging on save; borrowing input does not imply allocation-free decoding.
+Production texture and mesh memory archives carry their stable target facts;
+payloads can therefore be invoked as `Serialize(Ar)` or `Ar << Value`. Optional
+explicit target parameters remain for source compatibility and context-free
+counting/hashing archives, and cannot override conflicting Archive facts.
 
 CoreDObject layers `FObjectArchive` over that byte substrate. It owns reflected
 logical descriptors, object/field/container scopes, hard and soft object

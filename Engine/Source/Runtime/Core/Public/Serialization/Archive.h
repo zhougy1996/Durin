@@ -158,7 +158,8 @@ namespace Durin
 		LimitExceeded,
 		InvalidAlignment,
 		NonZeroPadding,
-		TrailingData
+		TrailingData,
+		UnsupportedTarget
 	};
 
 	struct FArchiveFailure
@@ -214,6 +215,15 @@ namespace Durin
 		CORE_API auto Serialize(void* Data, uint64 Size) -> void;
 		CORE_API auto WriteBytes(FByteView Bytes) -> void;
 		CORE_API auto ReadBytes(FMutableByteView Bytes) -> void;
+		// Borrows an exact region until the input owner is released. Successive
+		// regions belong to the same contiguous backing span. Archives that cannot
+		// lend such storage reject the operation without a fallback copy.
+		virtual auto ReadRegion(uint64 Size, FByteView& OutRegion) -> bool
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Archive does not support borrowed input regions.");
+			return false;
+		}
 		// Transfers an owned byte Blob as a bounded count followed by exact bytes.
 		// Loads commit only after the complete payload has been validated and read.
 		CORE_API auto SerializeByteBlob(FByteBuffer& Bytes) -> void;
@@ -298,7 +308,7 @@ namespace Durin
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
 		CORE_API auto SerializeRawBytes(FMutableByteView Bytes) -> void override;
-		CORE_API auto ReadRegion(uint64 Size, FByteView& OutRegion) -> bool;
+		CORE_API auto ReadRegion(uint64 Size, FByteView& OutRegion) -> bool override;
 		auto Tell() const -> uint64 override { return Offset; }
 		auto GetRemainingPayloadBytes() const -> uint64 override
 		{

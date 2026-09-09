@@ -30,6 +30,7 @@ namespace Durin
 		std::vector<uint16> BrdfLut;
 
 		ENGINE_API auto IsValid() const -> bool;
+		// Loads in place; the caller retains input ownership and publishes only after exact completion.
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 		auto operator==(const FEnvironmentLightingData&) const -> bool = default;
 	};
