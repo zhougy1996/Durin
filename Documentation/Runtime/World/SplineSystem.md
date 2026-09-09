@@ -120,8 +120,12 @@ guarantee equal world-space travel under non-uniform scale.
 Each cubic segment receives an adaptive monotonic distance table. The default
 builder uses an absolute local-length tolerance of `1e-4`, a relative tolerance
 of `1e-5` times the segment Bezier control-polygon length, and maximum depth
-`16`. Recursive children split the parent error budget equally. Linear and
-degenerate segments remain deterministic.
+`16`. Recursive children split the parent error budget equally. Acceptance uses
+restricted Bezier control-polygon excess over the two-chord estimate, plus a
+`2.5e-5` local-unit bound on interior controls relative to linear parameterization.
+This resolves nonuniform collinear speed and inflections that a midpoint-only
+chord test misses. The depth limit still bounds work. Linear and degenerate
+segments remain deterministic.
 
 Open-curve local distances clamp to the endpoints. Closed-curve distances wrap,
 while the explicit end-distance query can still represent the full loop
@@ -171,7 +175,7 @@ orthonormal frame, direction/normal transformation, and conservative bounds.
 It rejects non-finite parameters and a non-positive canonical LOD 0 forward
 extent atomically. A singular up projection uses the least-aligned cardinal
 axis; a zero derivative falls back to the endpoint chord and then the selected
-source axis. Frames are right-handed with `Forward × Side = Up`.
+source axis. Frames are right-handed with `Forward 脳 Side = Up`.
 
 `FSplinePathFrameData` builds immutable consumer-owned frames over the existing
 adaptive distance samples. It uses deterministic minimal-rotation transport,

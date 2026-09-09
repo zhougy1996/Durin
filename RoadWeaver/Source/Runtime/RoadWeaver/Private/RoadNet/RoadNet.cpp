@@ -1,4 +1,5 @@
 #include "RoadNet/RoadNet.h"
+#include "RoadNet/RoadSurface.h"
 #include "Logging/LogMacros.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
@@ -82,9 +83,15 @@ namespace Durin::RoadNet
 	{
 	}
 
-	auto ValidateDefinition(const FDefinition& Definition, std::string& OutError) -> bool
+	static auto ValidateDefinitionImpl(const FDefinition& Definition, std::string& OutError, bool RequireLength) -> bool
 	{
 		OutError.clear();
+		const auto& Planet = Definition.Planet;
+		FVector3 Up;
+		if (!Planet.Id.IsValid() || !IsFinite(Planet.Center) || !std::isfinite(Planet.RadiusMeters)
+			|| Planet.RadiusMeters < 1 || Planet.RadiusMeters > RoadCoordinateLimit
+			|| (!Planet.bRadialUp && !Math::TryNormalize(Planet.ReferenceUp, Up, 1.e-18)))
+		{ OutError = "Road network requires a valid fixed planet binding and reference up."; return false; }
 		std::unordered_set<FGuid> NodeIds;
 		std::unordered_set<FGuid> RoadIds;
 		std::unordered_set<FGuid> LaneIds;
@@ -133,6 +140,12 @@ namespace Durin::RoadNet
 			if (Road.LaneSections.empty())
 			{
 				OutError = std::format("Road Net road '{}' has no lane sections.", Road.Id.ToString());
+				return false;
+			}
+			const double Length = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+			if (RequireLength && std::abs(Road.LaneSections.back().EndDistanceMeters - Length) > std::max(1.e-4, 1.e-6 * Length))
+			{
+				OutError = std::format("Road '{}' lane stations must cover final curve length {}.", Road.Id.ToString(), Length);
 				return false;
 			}
 			double PreviousEnd = 0.0;
@@ -261,11 +274,63 @@ namespace Durin::RoadNet
 		return true;
 	}
 
+	auto ValidateDefinition(const FDefinition& Definition, std::string& OutError) -> bool
+	{
+		return ValidateDefinitionImpl(Definition, OutError, true);
+	}
+
+	auto MigrateRoadDefinition(FDefinition& Definition, std::string& OutError) -> bool
+	{
+		if (!ValidateDefinitionImpl(Definition, OutError, false)) return false;
+		auto Candidate = Definition;
+		for (auto& Road : Candidate.Roads)
+		{
+			const double Length = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+			const double Scale = Length / Road.LaneSections.back().EndDistanceMeters;
+			for (auto& Section : Road.LaneSections)
+			{
+				Section.StartDistanceMeters *= Scale;
+				Section.EndDistanceMeters *= Scale;
+			}
+			Road.LaneSections.back().EndDistanceMeters = Length;
+		}
+		if (!ValidateDefinition(Candidate, OutError)) return false;
+		Definition = std::move(Candidate);
+		return true;
+	}
+
+	auto DRoadNet::InitializeMigratedDefinition(FDefinition InDefinition, std::string& OutError) -> bool
+	{
+		if (!ValidateDefinition(InDefinition, OutError)) return false;
+		Definition = std::move(InDefinition);
+		SchemaVersion = RoadNetSchemaVersion;
+		return true;
+	}
+
+	auto DRoadNet::ValidateCandidate(const FDefinition& Candidate, std::string& OutError) const -> bool
+	{
+		if (!Definition.Roads.empty() && (Candidate.Planet.Id != Definition.Planet.Id
+			|| Candidate.Planet.Center != Definition.Planet.Center
+			|| Candidate.Planet.RadiusMeters != Definition.Planet.RadiusMeters))
+		{
+			OutError = "Planet identity, center and radius are fixed at network creation.";
+			return false;
+		}
+		return ValidateDefinition(Candidate, OutError);
+	}
+
+	auto DRoadNet::FitToSurface(const FRoadSurface& Operation, std::string& OutError) -> bool
+	{
+		auto Candidate = Definition;
+		return FitRoadDefinition(Candidate, Operation, OutError) && SetDefinition(std::move(Candidate), OutError);
+	}
+
 	auto DRoadNet::SetDefinition(FDefinition InDefinition, std::string& OutError) -> bool
 	{
 		if (bPublishing) { OutError = "Reentrant road mutation is unsupported."; return false; }
-		if (!ValidateDefinition(InDefinition, OutError)) return false;
+		if (!ValidateCandidate(InDefinition, OutError)) return false;
 		Definition = std::move(InDefinition);
+		SchemaVersion = RoadNetSchemaVersion;
 		MarkPackageDirty();
 		NotifyMutation();
 		OutError.clear();
@@ -275,7 +340,7 @@ namespace Durin::RoadNet
 	auto DRoadNet::PostLoad() -> void
 	{
 		std::string Error;
-		if (SchemaVersion != 1 && SchemaVersion != RoadNetSchemaVersion)
+		if (SchemaVersion != 0 && SchemaVersion != 1 && SchemaVersion != 2 && SchemaVersion != RoadNetSchemaVersion)
 		{
 			Error = std::format(
 				"Road Net schema version {} is unsupported; expected {}.",
@@ -283,12 +348,14 @@ namespace Durin::RoadNet
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		if (!ValidateDefinition(Definition, Error))
+		auto Candidate = Definition;
+		if (!(SchemaVersion < RoadNetSchemaVersion ? MigrateRoadDefinition(Candidate, Error) : ValidateDefinition(Candidate, Error)))
 		{
-			Error += " Repair the complete graph candidate (endpoints, stations and lane mappings) and resave as schema 2.";
+			Error += " Repair the complete graph candidate (endpoints, stations and lane mappings) and resave as schema 3.";
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
+		Definition = std::move(Candidate);
 		SchemaVersion = RoadNetSchemaVersion;
 		NotifyMutation();
 	}
@@ -304,7 +371,7 @@ namespace Durin::RoadNet
 				OutError = "Road Net edits require a complete detached definition.";
 				return false;
 			}
-			return ValidateDefinition(*Proposal.DraftRootProperty->ContainerPtrToValuePtr<FDefinition>(
+			return ValidateCandidate(*Proposal.DraftRootProperty->ContainerPtrToValuePtr<FDefinition>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex), OutError);
 		}
 		return true;

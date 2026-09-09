@@ -67,22 +67,6 @@ namespace Durin::RoadNet
 		}
 	}
 
-	auto FRoadSurface::HasSameGenerationConfig(const FRoadSurface& Other) const -> bool
-	{
-		if (Mode != Other.Mode) return false;
-		switch (Mode)
-		{
-		case ERoadSurfaceMode::Unconstrained:
-			return Normal == Other.Normal;
-		case ERoadSurfaceMode::Plane:
-			return Origin == Other.Origin && Normal == Other.Normal && ElevationMeters == Other.ElevationMeters;
-		case ERoadSurfaceMode::Sphere:
-			return Origin == Other.Origin && RadiusMeters == Other.RadiusMeters && ElevationMeters == Other.ElevationMeters;
-		default:
-			return false;
-		}
-	}
-
 	auto ValidateRoadPlacement(const FTransform& Placement, std::string& OutError) -> bool
 	{
 		if (Placement.Scale3D != FVector3(1.0) || !Math::IsFinite(Placement.Translation)
@@ -98,111 +82,205 @@ namespace Durin::RoadNet
 		return true;
 	}
 
-	auto FRoadAlignment::Build(const FRoad& Road, const FRoadSurface& InSurface,
+	namespace
+	{
+		auto BuildIntervals(const FRoad& Road, const FRoadSurface& InSurface, bool bProject,
+			std::vector<FRoadInterval>& Intervals, std::string& OutError) -> bool
+		{
+			if (!ValidateSurface(InSurface, OutError) || Road.ReferenceLine.GetNumPoints() < 2) return false;
+			const auto Source = Road.ReferenceLine.BuildEvaluationData();
+			auto Fail = [&](std::string_view Reason) {
+				OutError = std::format("Road '{}' curve intervals: {}", Road.Id.ToString(), Reason);
+				return false;
+			};
+			for (uint32 Segment = 0; Segment < Source->GetNumSegments(); ++Segment)
+			{
+				std::function<bool(double, double, uint32, uint32)> Fit;
+				Fit = [&](double A, double B, uint32 Depth, uint32 Key) -> bool {
+					auto Start = Source->Evaluate({Segment, A});
+					auto End = Source->Evaluate({Segment, B});
+					if (bProject && (!Project(InSurface, Start) || !Project(InSurface, End))) return Fail("singular projection or derivative.");
+					FSplineMeshFrame StartFrame, EndFrame;
+					if (!FrameAt(InSurface, Start.Position, Start.FirstDerivative, StartFrame)
+						|| !FrameAt(InSurface, End.Position, End.FirstDerivative, EndFrame)) return Fail("degenerate reference up.");
+					FSplineMeshParams Params;
+					Params.StartPosition = Start.Position;
+					Params.EndPosition = End.Position;
+					Params.StartTangent = Start.FirstDerivative * (B - A);
+					Params.EndTangent = End.FirstDerivative * (B - A);
+					Params.SplineUpDirection = StartFrame.Up;
+					const auto BaseEnd = FSplineMeshDeformer::Evaluate(Params, 1.0);
+					Params.EndRollRadians = std::atan2(Math::Dot(EndFrame.Forward, Math::Cross(BaseEnd.Frame.Up, EndFrame.Up)),
+						Math::Dot(BaseEnd.Frame.Up, EndFrame.Up));
+					bool Split = Math::Dot(StartFrame.Forward, EndFrame.Forward) <= 0.0 || Math::Dot(StartFrame.Up, EndFrame.Up) <= 0.0;
+					FVector3 Previous = Start.Position;
+					double PolylineLength = 0.0;
+					std::array<double, 5> Distances{};
+					double SpeedIntegral = Math::Length(Start.FirstDerivative) + Math::Length(End.FirstDerivative);
+					for (int Index = 1; Index <= 4; ++Index)
+					{
+						const double T = Index * 0.25;
+						auto Exact = Source->Evaluate({Segment, A + (B - A) * T});
+						if (bProject && !Project(InSurface, Exact)) return Fail("singular interior projection or derivative.");
+						FSplineMeshFrame ExactFrame;
+						if (!FrameAt(InSurface, Exact.Position, Exact.FirstDerivative, ExactFrame)) return Fail("singular interior reference up.");
+						const auto Approx = FSplineMeshDeformer::Evaluate(Params, T);
+						Split |= Math::Length(Approx.Position - Exact.Position) > PositionTolerance
+							|| Math::Dot(Approx.Frame.Up, ExactFrame.Up) < std::cos(FrameTolerance)
+							|| Math::Dot(Approx.Frame.Forward, ExactFrame.Forward) < std::cos(FrameTolerance);
+						PolylineLength += Math::Length(Exact.Position - Previous);
+						Distances[Index] = PolylineLength;
+						Previous = Exact.Position;
+						if (Index < 4) SpeedIntegral += (Index == 2 ? 2.0 : 4.0) * Math::Length(Exact.FirstDerivative);
+					}
+					SpeedIntegral *= (B - A) / 12.0;
+					// Distance-table interpolation must also resolve nonuniform speed on straight cubics.
+					Split |= bProject && (std::abs(Distances[1] - Distances[2] * 0.5) > 1.e-5
+						|| std::abs(Distances[3] - (Distances[2] + Distances[4]) * 0.5) > 1.e-5);
+					// Reserve headroom for the spline foundation's two-chord distance leaves.
+					Split |= bProject && std::abs(SpeedIntegral - PolylineLength) > 1.e-5 * (B - A) / Source->GetNumSegments() + 1.e-7 * SpeedIntegral;
+					// Bernstein coefficients bound squared radius over the entire cubic,
+					// including between the error probes (convex-hull property).
+					if (bProject && InSurface.Mode == ERoadSurfaceMode::Sphere)
+					{
+						const std::array<FVector3, 4> C{Params.StartPosition - InSurface.Origin,
+							Params.StartPosition + Params.StartTangent / 3.0 - InSurface.Origin,
+							Params.EndPosition - Params.EndTangent / 3.0 - InSurface.Origin,
+							Params.EndPosition - InSurface.Origin};
+						constexpr int Choose3[]{1, 3, 3, 1}, Choose6[]{1, 6, 15, 20, 15, 6, 1};
+						const double R = InSurface.RadiusMeters + InSurface.ElevationMeters;
+						for (int K = 0; K <= 6; ++K)
+						{
+							double Coefficient = 0;
+							for (int I = std::max(0, K - 3); I <= std::min(3, K); ++I)
+								Coefficient += Math::Dot(C[I], C[K - I]) * Choose3[I] * Choose3[K - I] / Choose6[K];
+							Split |= Coefficient < (R - PositionTolerance) * (R - PositionTolerance)
+								|| Coefficient > (R + PositionTolerance) * (R + PositionTolerance);
+						}
+					}
+					if (Split)
+					{
+						if (Depth == 16) return Fail("maximum subdivision depth exceeded.");
+						const double Mid = (A + B) * 0.5;
+						return Fit(A, Mid, Depth + 1, Key * 2) && Fit(Mid, B, Depth + 1, Key * 2 + 1);
+					}
+					if (Intervals.size() == 65536) return Fail("maximum interval count exceeded.");
+					Intervals.push_back({Road.ReferenceLine.GetPoints()[Segment].Id, Key, Params, Segment, A, B});
+					return true;
+				};
+				if (!Fit(0.0, 1.0, 0, 1)) return false;
+			}
+			return true;
+		}
+
+		auto FitCurve(FRoad& Road, const FRoadSurface& Surface, std::string& Error) -> bool
+		{
+			if (Surface.Mode == ERoadSurfaceMode::Unconstrained) return true;
+			std::vector<FRoadInterval> Intervals;
+			if (!BuildIntervals(Road, Surface, true, Intervals, Error)) return false;
+			FSplineCurve FinalCurve;
+
+			std::vector<FSplinePoint> Points;
+			for (const auto& Interval : Intervals)
+			{
+				FSplinePoint Point(Interval.Params.StartPosition);
+				if (Points.empty() || Interval.SourcePointId != Intervals[Points.size() - 1].SourcePointId)
+					Point.Id = Interval.SourcePointId;
+				Point.TangentMode = ESplineTangentMode::ManualBroken;
+				Point.LeaveTangent = Interval.Params.StartTangent;
+				Point.ArriveTangent = Points.empty() ? Point.LeaveTangent : Intervals[Points.size() - 1].Params.EndTangent;
+				Points.push_back(Point);
+			}
+			FSplinePoint Last(Intervals.back().Params.EndPosition);
+			Last.Id = Road.ReferenceLine.GetPoints().back().Id;
+			Last.TangentMode = ESplineTangentMode::ManualBroken;
+			Last.ArriveTangent = Intervals.back().Params.EndTangent;
+			Last.LeaveTangent = Last.ArriveTangent;
+			Points.push_back(Last);
+			FinalCurve.SetPoints(std::move(Points));
+			Road.ReferenceLine = std::move(FinalCurve);
+			return true;
+		}
+	}
+
+	auto FitRoadDefinition(FDefinition& Definition, const FRoadSurface& Operation, std::string& OutError) -> bool
+	{
+		if (!ValidateDefinition(Definition, OutError) || !ValidateSurface(Operation, OutError)) return false;
+		auto Candidate = Definition;
+		for (auto& Road : Candidate.Roads)
+		{
+			const double OldLength = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+			if (!FitCurve(Road, Operation, OutError)) return false;
+			const double NewLength = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+			for (auto& Section : Road.LaneSections)
+			{
+				Section.StartDistanceMeters *= NewLength / OldLength;
+				Section.EndDistanceMeters *= NewLength / OldLength;
+			}
+			Road.LaneSections.back().EndDistanceMeters = NewLength;
+		}
+		for (auto& Node : Candidate.Nodes)
+		{
+			// Nodes need positions only: a projection derivative is irrelevant here.
+			if (Operation.Mode == ERoadSurfaceMode::Plane)
+			{
+				const auto N = Math::Normalize(Operation.Normal);
+				Node.Position += N * (Operation.ElevationMeters - Math::Dot(Node.Position - Operation.Origin, N));
+			}
+			else if (Operation.Mode == ERoadSurfaceMode::Sphere)
+			{
+				FVector3 N;
+				if (!Math::TryNormalize(Node.Position - Operation.Origin, N, 1.e-12))
+				{ OutError = std::format("Node '{}' is at the sphere center.", Node.Id.ToString()); return false; }
+				Node.Position = Operation.Origin + N * (Operation.RadiusMeters + Operation.ElevationMeters);
+			}
+		}
+		for (auto& Junction : Candidate.Junctions)
+			for (auto& Connection : Junction.LaneConnections)
+				if (Connection.ConnectorCurve.GetNumPoints() != 0)
+				{
+					FRoad Connector;
+					Connector.Id = Connection.Id;
+					Connector.ReferenceLine = Connection.ConnectorCurve;
+					if (!FitCurve(Connector, Operation, OutError)) return false;
+					Connection.ConnectorCurve = std::move(Connector.ReferenceLine);
+				}
+		Candidate.Planet.bRadialUp = Operation.Mode == ERoadSurfaceMode::Sphere;
+		Candidate.Planet.ReferenceUp = Operation.Normal;
+		if (Candidate.Planet.bRadialUp)
+		{
+			Candidate.Planet.Center = Operation.Origin;
+			Candidate.Planet.RadiusMeters = Operation.RadiusMeters;
+		}
+		if (!ValidateDefinition(Candidate, OutError)) return false;
+		Definition = std::move(Candidate);
+		return true;
+	}
+
+	auto FRoadAlignment::Build(const FRoad& Road, const FRoadPlanet& Planet,
 		std::shared_ptr<const FRoadAlignment>& OutSnapshot, std::string& OutError) -> bool
 	{
-		OutError.clear();
-		if (!ValidateSurface(InSurface, OutError)) return false;
-		// Reuse authored validation without requiring callers to construct the enclosing network.
 		FDefinition Definition;
+		Definition.Planet = Planet;
 		Definition.Roads.push_back(Road);
-		if (Road.ReferenceLine.GetNumPoints() < 2)
-		{
-			OutError = "Road alignment requires two or more source points.";
-			return false;
-		}
+		if (Road.ReferenceLine.GetNumPoints() < 2) { OutError = "Road requires at least two points."; return false; }
 		Definition.Nodes.push_back({.Id = Road.StartNodeId, .Position = Road.ReferenceLine.GetPoints().front().Position});
 		if (Road.EndNodeId != Road.StartNodeId)
 			Definition.Nodes.push_back({.Id = Road.EndNodeId, .Position = Road.ReferenceLine.GetPoints().back().Position});
 		if (!ValidateDefinition(Definition, OutError)) return false;
 		auto Result = std::make_shared<FRoadAlignment>();
-		Result->Surface = InSurface;
+		Result->Planet = Planet;
 		Result->Sections = Road.LaneSections;
-		const auto Source = Road.ReferenceLine.BuildEvaluationData();
-		auto Fail = [&](std::string_view Reason) {
-			OutError = std::format("Road '{}' surface fit: {}", Road.Id.ToString(), Reason);
-			return false;
-		};
-		for (uint32 Segment = 0; Segment < Source->GetNumSegments(); ++Segment)
-		{
-			std::function<bool(double, double, uint32, uint32)> Fit;
-			Fit = [&](double A, double B, uint32 Depth, uint32 Key) -> bool {
-				auto Start = Source->Evaluate({Segment, A});
-				auto End = Source->Evaluate({Segment, B});
-				if (!Project(InSurface, Start) || !Project(InSurface, End)) return Fail("singular projection or derivative.");
-				FSplineMeshFrame StartFrame, EndFrame;
-				if (!FrameAt(InSurface, Start.Position, Start.FirstDerivative, StartFrame)
-					|| !FrameAt(InSurface, End.Position, End.FirstDerivative, EndFrame)) return Fail("degenerate reference up.");
-				FSplineMeshParams Params;
-				Params.StartPosition = Start.Position;
-				Params.EndPosition = End.Position;
-				Params.StartTangent = Start.FirstDerivative * (B - A);
-				Params.EndTangent = End.FirstDerivative * (B - A);
-				Params.SplineUpDirection = StartFrame.Up;
-				const auto BaseEnd = FSplineMeshDeformer::Evaluate(Params, 1.0);
-				Params.EndRollRadians = std::atan2(Math::Dot(EndFrame.Forward, Math::Cross(BaseEnd.Frame.Up, EndFrame.Up)),
-					Math::Dot(BaseEnd.Frame.Up, EndFrame.Up));
-				bool Split = Math::Dot(StartFrame.Forward, EndFrame.Forward) <= 0.0 || Math::Dot(StartFrame.Up, EndFrame.Up) <= 0.0;
-				FVector3 Previous = Start.Position;
-				double PolylineLength = 0.0;
-				std::array<double, 5> Distances{};
-				double SpeedIntegral = Math::Length(Start.FirstDerivative) + Math::Length(End.FirstDerivative);
-				for (int Index = 1; Index <= 4; ++Index)
-				{
-					const double T = Index * 0.25;
-					auto Exact = Source->Evaluate({Segment, A + (B - A) * T});
-					if (!Project(InSurface, Exact)) return Fail("singular interior projection or derivative.");
-					FSplineMeshFrame ExactFrame;
-					if (!FrameAt(InSurface, Exact.Position, Exact.FirstDerivative, ExactFrame)) return Fail("singular interior reference up.");
-					const auto Approx = FSplineMeshDeformer::Evaluate(Params, T);
-					Split |= Math::Length(Approx.Position - Exact.Position) > PositionTolerance
-						|| Math::Dot(Approx.Frame.Up, ExactFrame.Up) < std::cos(FrameTolerance)
-						|| Math::Dot(Approx.Frame.Forward, ExactFrame.Forward) < std::cos(FrameTolerance);
-					PolylineLength += Math::Length(Exact.Position - Previous);
-					Distances[Index] = PolylineLength;
-					Previous = Exact.Position;
-					if (Index < 4) SpeedIntegral += (Index == 2 ? 2.0 : 4.0) * Math::Length(Exact.FirstDerivative);
-				}
-				SpeedIntegral *= (B - A) / 12.0;
-				// Distance-table interpolation must also resolve nonuniform speed on straight cubics.
-				Split |= std::abs(Distances[1] - Distances[2] * 0.5) > 1.e-5
-					|| std::abs(Distances[3] - (Distances[2] + Distances[4]) * 0.5) > 1.e-5;
-				// Reserve headroom for the spline foundation's two-chord distance leaves.
-				Split |= std::abs(SpeedIntegral - PolylineLength) > 1.e-5 * (B - A) / Source->GetNumSegments() + 1.e-7 * SpeedIntegral;
-				if (Split)
-				{
-					if (Depth == 16) return Fail("maximum subdivision depth exceeded.");
-					const double Mid = (A + B) * 0.5;
-					return Fit(A, Mid, Depth + 1, Key * 2) && Fit(Mid, B, Depth + 1, Key * 2 + 1);
-				}
-				if (Result->Intervals.size() == 65536) return Fail("maximum interval count exceeded.");
-				Result->Intervals.push_back({Road.ReferenceLine.GetPoints()[Segment].Id, Key, Params});
-				return true;
-			};
-			if (!Fit(0.0, 1.0, 0, 1)) return false;
-		}
-		FSplineCurve FinalCurve;
-		std::vector<FSplinePoint> Points;
-		for (const auto& Interval : Result->Intervals)
-		{
-			FSplinePoint Point(Interval.Params.StartPosition);
-			Point.TangentMode = ESplineTangentMode::ManualBroken;
-			Point.LeaveTangent = Interval.Params.StartTangent;
-			Point.ArriveTangent = Points.empty() ? Point.LeaveTangent : Result->Intervals[Points.size() - 1].Params.EndTangent;
-			Points.push_back(Point);
-		}
-		FSplinePoint Last(Result->Intervals.back().Params.EndPosition);
-		Last.TangentMode = ESplineTangentMode::ManualBroken;
-		Last.ArriveTangent = Result->Intervals.back().Params.EndTangent;
-		Last.LeaveTangent = Last.ArriveTangent;
-		Points.push_back(Last);
-		FinalCurve.SetPoints(std::move(Points));
-		Result->Evaluation = FinalCurve.BuildEvaluationData();
-		const double Length = Result->GetLengthMeters();
-		if (!std::isfinite(Length) || Length <= 1.e-6) return Fail("degenerate final length.");
-		if (std::abs(Result->Sections.back().EndDistanceMeters - Length) > std::max(1.e-4, 1.e-6 * Length))
-			return Fail(std::format("explicit lane stations end at {} but final evaluated length is {}; update the complete candidate.", Result->Sections.back().EndDistanceMeters, Length));
+		FRoadSurface Frame;
+		Frame.Mode = Planet.bRadialUp ? ERoadSurfaceMode::Sphere : ERoadSurfaceMode::Unconstrained;
+		Frame.Origin = Planet.Center;
+		Frame.Normal = Planet.ReferenceUp;
+		Frame.RadiusMeters = Planet.RadiusMeters;
+		if (!BuildIntervals(Road, Frame, false, Result->Intervals, OutError)) return false;
+		// Preserve the exact authored curve and its one canonical distance table.
+		Result->Evaluation = Road.ReferenceLine.BuildEvaluationData();
 		OutSnapshot = std::move(Result);
+		OutError.clear();
 		return true;
 	}
 
@@ -217,11 +295,13 @@ namespace Durin::RoadNet
 		FRoadSample Result;
 		Result.DistanceMeters = DistanceMeters;
 		Result.Position = Value.Position;
-		if (!FrameAt(Surface, Value.Position, Value.FirstDerivative, Result.Frame))
-		{
-			OutError = "Road station has a degenerate frame.";
-			return false;
-		}
+		const auto Parameter = Evaluation->GetParameterAtLocalDistance(DistanceMeters);
+		const auto Interval = std::ranges::find_if(Intervals, [&](const FRoadInterval& Item) {
+			return Item.SegmentIndex == Parameter.SegmentIndex && Parameter.T <= Item.EndT;
+		});
+		if (Interval == Intervals.end()) { OutError = "Missing preview interval."; return false; }
+		Result.Frame = FSplineMeshDeformer::Evaluate(Interval->Params,
+			(Parameter.T - Interval->StartT) / (Interval->EndT - Interval->StartT)).Frame;
 		const FLaneSection* Section = &Sections.back();
 		for (const auto& Candidate : Sections)
 			if (DistanceMeters < Candidate.EndDistanceMeters) { Section = &Candidate; break; }

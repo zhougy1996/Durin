@@ -8,11 +8,11 @@
 
 namespace Durin::RoadNet
 {
-	// Selects the analytic projection applied after Cartesian spline evaluation.
+	// Selects an explicit editing operation; never used by preview rebuilding.
 	DENUM()
 	enum class ERoadSurfaceMode : uint8 { Unconstrained, Plane, Sphere };
 
-	// Pure authored parameters in network-local meters; snapshots retain their own copy.
+	// Parameters for explicit fitting and legacy Actor deserialization only.
 	DSTRUCT()
 	struct FRoadSurface
 	{
@@ -33,8 +33,6 @@ namespace Durin::RoadNet
 		DPROPERTY(Edit)
 		double ElevationMeters = 0.0;
 
-		// Exact comparison of active inputs; no tolerance may hide a small authored edit.
-		ROADWEAVER_API auto HasSameGenerationConfig(const FRoadSurface& Other) const -> bool;
 	};
 
 	// Signed lateral extents use positive side to the right of the reference curve.
@@ -60,13 +58,16 @@ namespace Durin::RoadNet
 		FGuid SourcePointId;
 		uint32 SubdivisionKey = 1;
 		FSplineMeshParams Params;
+		uint32 SegmentIndex = 0;
+		double StartT = 0.0;
+		double EndT = 1.0;
 	};
 
 	// Built synchronously, then shared read-only; failed builds never replace an output.
 	class FRoadAlignment final
 	{
 	public:
-		ROADWEAVER_API static auto Build(const FRoad& Road, const FRoadSurface& Surface,
+		ROADWEAVER_API static auto Build(const FRoad& Road, const FRoadPlanet& Planet,
 			std::shared_ptr<const FRoadAlignment>& OutSnapshot,
 			std::string& OutError) -> bool;
 		// Rejects non-finite/out-of-range stations; does not clamp authored stationing.
@@ -76,14 +77,19 @@ namespace Durin::RoadNet
 			FRoadSample& OutSample, std::string& OutError) const -> bool;
 		auto GetLengthMeters() const -> double { return Evaluation->GetLocalLength(); }
 		auto GetIntervals() const -> const std::vector<FRoadInterval>& { return Intervals; }
-		auto GetSurface() const -> const FRoadSurface& { return Surface; }
 
 	private:
-		FRoadSurface Surface;
+		FRoadPlanet Planet;
 		std::vector<FLaneSection> Sections;
 		std::vector<FRoadInterval> Intervals;
 		std::shared_ptr<const FSplineEvaluationData> Evaluation;
 	};
+
+	// Fits a detached complete candidate, remaps section stations by normalized road
+	// distance, and synchronizes nodes/connectors. Failure leaves the input untouched.
+	// Cubic sphere fits are certified within 1 mm radial deviation, not exact arcs.
+	ROADWEAVER_API auto FitRoadDefinition(FDefinition& Definition, const FRoadSurface& Operation,
+		std::string& OutError) -> bool;
 
 	ROADWEAVER_API auto ValidateRoadPlacement(const FTransform& Placement, std::string& OutError) -> bool;
 }

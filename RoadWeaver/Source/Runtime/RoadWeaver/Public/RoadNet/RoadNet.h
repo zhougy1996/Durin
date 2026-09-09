@@ -8,7 +8,9 @@
 
 namespace Durin::RoadNet
 {
-	inline constexpr uint32 RoadNetSchemaVersion = 2;
+	struct FRoadSurface;
+
+	inline constexpr uint32 RoadNetSchemaVersion = 3;
 	inline constexpr double RoadEndpointTolerance = 1.e-4;
 	inline constexpr double RoadCoordinateLimit = 1.e7;
 
@@ -45,6 +47,8 @@ namespace Durin::RoadNet
 		// Validates the complete candidate before replacing authored state.
 		ROADWEAVER_API auto SetDefinition(
 			FDefinition InDefinition, std::string& OutError) -> bool;
+		// Explicit edit: publish final fitted geometry and reconciled stationing together.
+		ROADWEAVER_API auto FitToSurface(const FRoadSurface& Operation, std::string& OutError) -> bool;
 		ROADWEAVER_API auto PostLoad() -> void override;
 		ROADWEAVER_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal,
 			std::string& OutError) -> bool override;
@@ -54,17 +58,26 @@ namespace Durin::RoadNet
 		ROADWEAVER_API auto RemoveMutationListener(uint64 Id) -> void;
 
 	private:
+		friend class ARoadNetActor;
+		// Load-only initialization of a detached legacy replacement; does not dirty packages.
+		ROADWEAVER_API auto InitializeMigratedDefinition(FDefinition InDefinition, std::string& OutError) -> bool;
+		auto ValidateCandidate(const FDefinition& Candidate, std::string& OutError) const -> bool;
 		auto NotifyMutation() -> void;
 		std::map<uint64, std::function<void()>> Listeners;
 		uint64 NextListenerId = 1;
 		bool bPublishing = false;
 
+		// Zero also catches old packages that omitted their then-default version.
 		DPROPERTY()
-		uint32 SchemaVersion = RoadNetSchemaVersion;
+		uint32 SchemaVersion = 0;
 
 		DPROPERTY(Edit)
 		FDefinition Definition;
 	};
+
+	// Reconciles legacy explicit stations by normalized interval position without
+	// changing geometry or IDs. Atomic; only for schema 1/2 data.
+	ROADWEAVER_API auto MigrateRoadDefinition(FDefinition& Definition, std::string& OutError) -> bool;
 
 	// Validates stable identities, topology references, and finite authored dimensions.
 	ROADWEAVER_API auto ValidateDefinition(

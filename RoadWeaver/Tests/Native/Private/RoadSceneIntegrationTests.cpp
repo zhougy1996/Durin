@@ -3,6 +3,14 @@
 #include "Components/SplineMeshComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Asset/PackageSerialization.h"
+#include "Asset/PackageInspection.h"
+#include "Engine/Level.h"
+#include "Actors/CameraActor.h"
+#if DURIN_WITH_EDITOR
+#include "AssetForge/Builtins/StaticMeshImportData.h"
+#endif
+#include "DObject/Package.h"
+#include "Math/Operations.h"
 #include "Asset/Asset.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetCompilingManager.h"
@@ -93,34 +101,13 @@ TEST(RoadSceneIntegration, ReuseStaleRecoveryAndDetach)
 	ASSERT_EQ(Components.size(), 1);
 	const auto OriginalState = Components[0]->GetDerivedState();
 	const auto OriginalAlignment = Actor->GetAlignments().front();
-	FRoadSurface InactiveEdit;
-	InactiveEdit.RadiusMeters = 42;
-	Actor->SetSurface(InactiveEdit);
-	EXPECT_EQ(Actor->GetAlignments().front(), OriginalAlignment);
-	InactiveEdit.Mode = ERoadSurfaceMode::Plane;
-	Actor->SetSurface(InactiveEdit);
-	EXPECT_NE(Actor->GetAlignments().front(), OriginalAlignment);
-	const auto PlaneAlignment = Actor->GetAlignments().front();
-	InactiveEdit.RadiusMeters = 84;
-	Actor->SetSurface(InactiveEdit);
-	EXPECT_EQ(Actor->GetAlignments().front(), PlaneAlignment);
-	InactiveEdit.ElevationMeters = 1.e-8;
-	Actor->SetSurface(InactiveEdit);
-	EXPECT_NE(Actor->GetAlignments().front(), PlaneAlignment);
-	Actor->SetSurface({});
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
-	FRoadSurface Surface;
-	const auto LastValidAlignment = Actor->GetAlignments().front();
-	Surface.Mode = ERoadSurfaceMode::Sphere;
-	Surface.RadiusMeters = -1;
-	Actor->SetSurface(Surface);
+	Actor->SetPreviewMesh(nullptr);
 	EXPECT_EQ(Actor->GetGenerationState(), "Stale");
-	ASSERT_FALSE(Actor->GetAlignments().empty());
-	EXPECT_EQ(Actor->GetAlignments().front(), LastValidAlignment);
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>()[0], Components[0]);
 	EXPECT_EQ(Components[0]->GetDerivedState()->DeformedLOD0Positions, OriginalState->DeformedLOD0Positions);
-	Actor->SetSurface({});
+	Actor->SetPreviewMesh(Mesh);
 	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
 	auto Changed = Asset->GetDefinition();
 	const auto BeforeMutation = Actor->GetAlignments().front();
@@ -199,3 +186,151 @@ TEST(RoadSceneIntegration, ReflectedDraftRejectsBeforeApplyAndReplayNotifies)
 	EXPECT_EQ(Notifications, 2);
 	Asset->RemoveMutationListener(Listener);
 }
+
+TEST(RoadSceneIntegration, LegacyInstanceConversionRoundTripsWithoutDirtyingOnLoadOrGC)
+{
+	InitializeTaskScheduler(2);
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Testing::InitializeDObjectSystemForTests();
+	const auto Root = Testing::CreateTestFixtureDirectory("RoadLegacyScene");
+	Testing::RegisterMountPointForTests("/RoadLegacy/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/RoadLegacy/Level", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
+	auto* Source = NewObject<DRoadNet>(Level, "Source");
+	std::string Error;
+	ASSERT_TRUE(Source->SetDefinition(Definition(), Error));
+	auto* Actor = Level->SpawnActor<ARoadNetActor>("LegacyRoad");
+	auto* Mesh = NewObject<DStaticMesh>(Level, "SavedPreviewMesh");
+	FStaticMeshDecodedGeometry Geometry;
+	Geometry.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Strip = Geometry.Meshes.emplace_back();
+	Strip.Name = "Strip";
+	Strip.Positions = {{0, -1, 0}, {1, -1, 0}, {1, 1, 0}, {0, 1, 0}};
+	Strip.Indices = {0, 1, 2, 0, 2, 3};
+	Strip.SourceMaterialIndex = 0;
+	FStaticMeshImportedData Imported;
+	ASSERT_TRUE(Imported.Initialize(std::move(Geometry), Error)) << Error;
+	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh,
+		{.Source = std::move(Imported), .bPersistDerivedData = true, .bMarkPackageDirty = false}, Error)) << Error;
+	Actor->SetPreviewMesh(Mesh);
+	Actor->SetRoadNet(Source);
+	FRoadSurface Sphere;
+	Sphere.Mode = ERoadSurfaceMode::Sphere;
+	Sphere.Origin = {0, 0, -1000};
+	*Actor->GetClass()->FindPropertyByName("Surface")->ContainerPtrToValuePtr<FRoadSurface>(Actor) = Sphere;
+	*Actor->GetClass()->FindPropertyByName("GeometryVersion")->ContainerPtrToValuePtr<uint32>(Actor) = 0;
+	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
+	Actor->PostLoad();
+	ASSERT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
+	EXPECT_NE(Actor->GetRoadNet(), Source);
+	EXPECT_EQ(Source->GetRoads()[0].ReferenceLine.GetPoints().back().Position, FVector3(100, 0, 0));
+	const auto Final = Actor->GetRoadNet()->GetDefinition();
+	EXPECT_LT(Final.Roads[0].ReferenceLine.GetPoints().back().Position.z, 0);
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	// Simulate a legacy generated export omitted from reconstructed ownership.
+	auto* Remnant = NewObject<DSceneComponent>(Actor, "LegacyGenerated");
+	*DActorComponent::StaticClass()->FindPropertyByName("CreationMethod")
+		->ContainerPtrToValuePtr<EComponentCreationMethod>(Remnant) = EComponentCreationMethod::Generated;
+	Remnant->PostLoad();
+	EXPECT_TRUE(Remnant->HasAnyObjectFlags(EObjectFlags::Transient));
+	ASSERT_TRUE(Remnant->AttachToComponent(Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
+	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
+	FAssetPackageInspection Inspection;
+	ASSERT_TRUE(InspectAssetPackage((Root / "Level.dasset").generic_string(), Path, Inspection));
+	for (const auto& Object : Inspection.Objects)
+	{
+		EXPECT_NE(Object.ClassName, "Durin::DSplineMeshComponent");
+		EXPECT_NE(Object.ObjectName, "LegacyGenerated");
+	}
+	Level->PostLoad();
+	TWeakObjectPtr<DSceneComponent> WeakRemnant(Remnant);
+	CollectGarbage();
+	EXPECT_FALSE(WeakRemnant.IsValid());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+	DObject* Loaded = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
+	Level = Cast<DLevel>(Loaded);
+	ASSERT_NE(Level, nullptr);
+	ASSERT_EQ(Level->GetActors().size(), 1);
+	Actor = Cast<ARoadNetActor>(Level->GetActors()[0].Get());
+	ASSERT_NE(Actor, nullptr);
+	EXPECT_EQ(Actor->GetRoadNet()->GetRoads()[0].ReferenceLine.GetPoints(), Final.Roads[0].ReferenceLine.GetPoints());
+	EXPECT_EQ(Actor->GetRoadNet()->GetRoads()[0].LaneSections[0].EndDistanceMeters, Final.Roads[0].LaneSections[0].EndDistanceMeters);
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	CollectGarbage();
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST(RoadSceneIntegration, FailedLegacyFitRetainsSourceAndLegacyParameters)
+{
+	auto* Source = NewObject<DRoadNet>(nullptr, "FailedLegacySource");
+	std::string Error;
+	ASSERT_TRUE(Source->SetDefinition(Definition(), Error));
+	auto* Actor = NewObject<ARoadNetActor>(nullptr, "FailedLegacyActor");
+	Actor->SetRoadNet(Source);
+	auto* Surface = Actor->GetClass()->FindPropertyByName("Surface")->ContainerPtrToValuePtr<FRoadSurface>(Actor);
+	Surface->Mode = ERoadSurfaceMode::Sphere;
+	auto* Version = Actor->GetClass()->FindPropertyByName("GeometryVersion")->ContainerPtrToValuePtr<uint32>(Actor);
+	*Version = 0;
+	Actor->PostLoad();
+	EXPECT_EQ(Actor->GetRoadNet(), Source);
+	EXPECT_EQ(*Version, 0);
+	EXPECT_EQ(Surface->Mode, ERoadSurfaceMode::Sphere);
+	EXPECT_EQ(Actor->GetGenerationState(), "Error");
+	EXPECT_FALSE(Actor->GetDiagnostic().empty());
+	Actor->BeginDestroy();
+}
+
+#if DURIN_WITH_EDITOR
+TEST(RoadSceneIntegration, CheckedInRoadLevelLoadsMigratesAndSurvivesGC)
+{
+	InitializeTaskScheduler(2);
+	Testing::InitializeDObjectSystemForTests();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests()) ASSERT_TRUE(InitializeAssetCompilingManager());
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	const auto Project = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+	const auto Root = Testing::CreateTestFixtureDirectory("CheckedInRoadContent");
+	std::filesystem::copy(Project / "Content", Root, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+	Testing::RegisterMountPointForTests("/Game/", Root.generic_string() + "/");
+	Testing::RegisterMountPointForTests("/Engine/", (Project.parent_path() / "Engine/Content").generic_string() + "/", true, false);
+	ACameraActor::StaticClass();
+	AssetForge::Builtins::DStaticMeshImportData::StaticClass();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	for (const auto& File : {Root / "Levels/L_RoadNet.dasset", Project.parent_path() / "Engine/Content/Models/SplineBox.dasset"})
+	{
+		FAssetPackageInspection Info;
+		ASSERT_TRUE(InspectAssetPackage(File.generic_string(), Info));
+		for (const auto& Object : Info.Objects)
+			EXPECT_NE(FindClassByQualifiedName(FName(Object.ClassName)), nullptr) << Object.ClassName;
+	}
+	FObjectPath ObjectPath;
+	ASSERT_TRUE(FObjectPath::TryCreate("/Game/Levels/L_RoadNet.NewLevel", ObjectPath));
+	DObject* Loaded = nullptr;
+	const auto Result = LoadObject(ObjectPath, Loaded);
+	ASSERT_TRUE(Result) << Result.Message;
+	auto* Level = Cast<DLevel>(Loaded);
+	ASSERT_NE(Level, nullptr);
+	std::string Error;
+	int RoadCount = 0;
+	for (const auto& Item : Level->GetActors())
+		if (auto* Actor = Cast<ARoadNetActor>(Item.Get()))
+		{
+			++RoadCount;
+			EXPECT_EQ(Actor->GetGenerationState(), "Ready") << Actor->GetDiagnostic();
+			ASSERT_NE(Actor->GetRoadNet(), nullptr);
+			EXPECT_TRUE(ValidateDefinition(Actor->GetRoadNet()->GetDefinition(), Error)) << Error;
+		}
+	EXPECT_GT(RoadCount, 0);
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	CollectGarbage();
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	{ const auto Saved = SavePackage(Level->GetPackage()); ASSERT_TRUE(Saved) << Saved.Message; }
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+}
+
+#endif

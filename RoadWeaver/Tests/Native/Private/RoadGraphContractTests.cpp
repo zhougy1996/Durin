@@ -132,7 +132,11 @@ TEST(RoadSurfaceContract, PlaneProjectionUsesFinalLengthAndRigidCoordinates)
 	Surface.ElevationMeters = 2;
 	std::shared_ptr<const FRoadAlignment> Snapshot;
 	std::string Error;
-	ASSERT_TRUE(FRoadAlignment::Build(Road, Surface, Snapshot, Error)) << Error;
+	Definition.Nodes.front().Position = Road.ReferenceLine.GetPoints().front().Position;
+	Definition.Nodes.back().Position = Road.ReferenceLine.GetPoints().back().Position;
+	Road.LaneSections.back().EndDistanceMeters = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+	ASSERT_TRUE(FitRoadDefinition(Definition, Surface, Error)) << Error;
+	ASSERT_TRUE(FRoadAlignment::Build(Definition.Roads[0], Definition.Planet, Snapshot, Error)) << Error;
 	EXPECT_NEAR(Snapshot->GetLengthMeters(), 100, 1.e-6);
 	FRoadSample Sample;
 	ASSERT_TRUE(Snapshot->Sample(50, Sample, Error));
@@ -162,23 +166,28 @@ TEST(RoadSurfaceContract, SphereQuarterArcMeetsRadialAndFrameBudget)
 	Surface.Mode = ERoadSurfaceMode::Sphere;
 	std::shared_ptr<const FRoadAlignment> Snapshot;
 	std::string Error;
-	ASSERT_TRUE(FRoadAlignment::Build(Road, Surface, Snapshot, Error)) << Error;
+	Definition.Nodes.front().Position = Road.ReferenceLine.GetPoints().front().Position;
+	Definition.Nodes.back().Position = Road.ReferenceLine.GetPoints().back().Position;
+	Road.LaneSections.back().EndDistanceMeters = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+	ASSERT_TRUE(FitRoadDefinition(Definition, Surface, Error)) << Error;
+	ASSERT_TRUE(FRoadAlignment::Build(Definition.Roads[0], Definition.Planet, Snapshot, Error)) << Error;
 	EXPECT_NEAR(Snapshot->GetLengthMeters(), Math::HalfPi<double>() * 1000, 1.e-3);
 	for (int Index = 0; Index <= 100; ++Index)
 	{
 		FRoadSample Sample;
-		ASSERT_TRUE(Snapshot->Sample(Snapshot->GetLengthMeters() * Index / 100, Sample, Error)) << Error;
+		ASSERT_TRUE(Snapshot->Sample(Snapshot->GetLengthMeters() * (Index / 100.0), Sample, Error)) << Error;
 		EXPECT_NEAR(Math::Length(Sample.Position), 1000, 1.e-3);
 		EXPECT_NEAR(Math::Dot(Sample.Frame.Up, Math::Normalize(Sample.Position)), 1, 1.e-8);
 		EXPECT_NEAR(Math::Dot(Sample.Frame.Forward, Sample.Frame.Up), 0, 1.e-8);
 		EXPECT_LT(Math::Length(Math::Cross(Sample.Frame.Forward, Sample.Frame.Side) - Sample.Frame.Up), 1.e-8);
 	}
 	const auto Previous = Snapshot;
-	Road.LaneSections[0].EndDistanceMeters = 100;
-	EXPECT_FALSE(FRoadAlignment::Build(Road, Surface, Snapshot, Error));
+	auto& FinalRoad = Definition.Roads[0];
+	FinalRoad.LaneSections[0].EndDistanceMeters = 100;
+	EXPECT_FALSE(FRoadAlignment::Build(FinalRoad, Definition.Planet, Snapshot, Error));
 	EXPECT_EQ(Snapshot, Previous);
-	Road.ReferenceLine.SetPoints({FSplinePoint({1000, 0, 0}), FSplinePoint({-1000, 0, 0})});
-	EXPECT_FALSE(FRoadAlignment::Build(Road, Surface, Snapshot, Error));
+	FinalRoad.ReferenceLine.SetPoints({FSplinePoint({1000, 0, 0}), FSplinePoint({-1000, 0, 0})});
+	EXPECT_FALSE(FRoadAlignment::Build(FinalRoad, Definition.Planet, Snapshot, Error));
 	EXPECT_EQ(Snapshot, Previous);
 }
 
@@ -205,13 +214,17 @@ TEST(RoadSurfaceContract, SphereSeamsPolesAndLongArcsUseTheSameDistanceContract)
 		Surface.Mode = ERoadSurfaceMode::Sphere;
 		std::shared_ptr<const FRoadAlignment> Snapshot;
 		std::string Error;
-		ASSERT_TRUE(FRoadAlignment::Build(Road, Surface, Snapshot, Error)) << Fixture << ": " << Error;
-		EXPECT_NEAR(Snapshot->GetLengthMeters(), Road.LaneSections[0].EndDistanceMeters, 2.e-3);
+		Value.Nodes.front().Position = Points.front().Position;
+		Value.Nodes.back().Position = Points.back().Position;
+		Road.LaneSections.back().EndDistanceMeters = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+		ASSERT_TRUE(FitRoadDefinition(Value, Surface, Error)) << Error;
+		ASSERT_TRUE(FRoadAlignment::Build(Value.Roads[0], Value.Planet, Snapshot, Error)) << Fixture << ": " << Error;
+		EXPECT_NEAR(Snapshot->GetLengthMeters(), Value.Roads[0].LaneSections[0].EndDistanceMeters, 2.e-3);
 		FRoadSample Previous;
 		for (int Index = 0; Index <= 300; ++Index)
 		{
 			FRoadSample Sample;
-			ASSERT_TRUE(Snapshot->Sample(Snapshot->GetLengthMeters() * Index / 300, Sample, Error));
+			ASSERT_TRUE(Snapshot->Sample(Snapshot->GetLengthMeters() * (Index / 300.0), Sample, Error));
 			EXPECT_NEAR(Math::Length(Sample.Position), 1000, 1.e-3);
 			if (Index > 0)
 			{
@@ -241,4 +254,110 @@ TEST(RoadSurfaceContract, NonuniformStraightCubicSamplesByMeters)
 		ASSERT_TRUE(Snapshot->Sample(Index, Sample, Error));
 		EXPECT_NEAR(Sample.Position.x, Index, 1.e-4);
 	}
+}
+
+TEST(RoadSurfaceContract, FinalCurveQueriesAndPreviewAreIdenticalAfterEditingElevation)
+{
+	auto Value = MakeRoad();
+	auto Points = Value.Roads[0].ReferenceLine.GetPoints();
+	Points[0].TangentMode = Points[1].TangentMode = ESplineTangentMode::ManualBroken;
+	Points[0].LeaveTangent = {60, 40, 80};
+	Points[1].ArriveTangent = {70, -20, -40};
+	Value.Roads[0].ReferenceLine.SetPoints(Points);
+	const auto Evaluation = Value.Roads[0].ReferenceLine.BuildEvaluationData();
+	Value.Roads[0].LaneSections[0].EndDistanceMeters = Evaluation->GetLocalLength();
+	std::string Error;
+	std::shared_ptr<const FRoadAlignment> Snapshot;
+	ASSERT_TRUE(FRoadAlignment::Build(Value.Roads[0], Value.Planet, Snapshot, Error)) << Error;
+	EXPECT_EQ(Snapshot->GetLengthMeters(), Evaluation->GetLocalLength());
+	for (const auto& Interval : Snapshot->GetIntervals())
+		for (int I = 0; I <= 10; ++I)
+		{
+			const double T = I / 10.0;
+			const auto Expected = Evaluation->Evaluate({Interval.SegmentIndex, std::lerp(Interval.StartT, Interval.EndT, T)});
+			const auto Mesh = FSplineMeshDeformer::Evaluate(Interval.Params, T);
+			EXPECT_LT(Math::Length(Mesh.Position - Expected.Position), 1.e-9);
+		}
+	for (int I = 0; I <= 100; ++I)
+	{
+		const double Distance = Evaluation->GetLocalLength() * (I / 100.0);
+		FRoadSample Sample;
+		ASSERT_TRUE(Snapshot->Sample(Distance, Sample, Error));
+		EXPECT_EQ(Sample.Position, Evaluation->EvaluateAtLocalDistance(Distance).Position);
+	}
+}
+
+TEST(RoadSurfaceContract, ExplicitFitPreservesIdentityAndStationsAndRejectsAtomically)
+{
+	auto Value = MakeRoad();
+	FRoadSurface Sphere;
+	Sphere.Mode = ERoadSurfaceMode::Sphere;
+	Sphere.Origin = {0, 0, -1000};
+	const auto Before = Value;
+	std::string Error;
+	ASSERT_TRUE(FitRoadDefinition(Value, Sphere, Error)) << Error;
+	EXPECT_EQ(Value.Roads[0].Id, Before.Roads[0].Id);
+	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints().front().Id, Before.Roads[0].ReferenceLine.GetPoints().front().Id);
+	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints().back().Id, Before.Roads[0].ReferenceLine.GetPoints().back().Id);
+	EXPECT_EQ(Value.Roads[0].LaneSections[0].Lanes[0].Id, Before.Roads[0].LaneSections[0].Lanes[0].Id);
+	EXPECT_EQ(Value.Roads[0].LaneSections.back().EndDistanceMeters, Value.Roads[0].ReferenceLine.BuildEvaluationData()->GetLocalLength());
+	const auto FittedPoints = Value.Roads[0].ReferenceLine.GetPoints();
+	Sphere.Origin = Value.Nodes[0].Position;
+	EXPECT_FALSE(FitRoadDefinition(Value, Sphere, Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints(), FittedPoints);
+	EXPECT_EQ(Value.Nodes[0].Position, Before.Nodes[0].Position);
+}
+
+TEST(RoadGraphContract, LegacyStationMigrationIsAtomicAndRetainsLaneTopology)
+{
+	auto Value = MakeRoad();
+	const auto Original = Value;
+	Value.Roads[0].LaneSections[0].EndDistanceMeters = 120;
+	std::string Error;
+	EXPECT_FALSE(ValidateDefinition(Value, Error));
+	ASSERT_TRUE(MigrateRoadDefinition(Value, Error)) << Error;
+	EXPECT_EQ(Value.Roads[0].LaneSections[0].EndDistanceMeters, 100);
+	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints(), Original.Roads[0].ReferenceLine.GetPoints());
+	EXPECT_EQ(Value.Roads[0].LaneSections[0].Lanes[0].Id, Original.Roads[0].LaneSections[0].Lanes[0].Id);
+	Value.Roads[0].LaneSections[0].StartDistanceMeters = 2;
+	EXPECT_FALSE(MigrateRoadDefinition(Value, Error));
+	EXPECT_EQ(Value.Roads[0].LaneSections[0].StartDistanceMeters, 2);
+}
+
+TEST(RoadGraphContract, ExplicitAssetFitRemapsMultipleSectionsAndKeepsPlanetFixed)
+{
+	auto Value = MakeRoad();
+	auto& Road = Value.Roads[0];
+	Road.LaneSections[0].EndDistanceMeters = 25;
+	auto Second = Road.LaneSections[0];
+	Second.StartDistanceMeters = 25;
+	Second.EndDistanceMeters = 100;
+	for (auto& Lane : Second.Lanes) Lane.Id = FGuid::NewGuid();
+	Road.LaneSections.push_back(Second);
+	Road.SectionTransitions = {{Road.LaneSections[0].Lanes[0].Id, Second.Lanes[0].Id},
+		{Second.Lanes[1].Id, Road.LaneSections[0].Lanes[1].Id}};
+	auto* Asset = NewObject<DRoadNet>(nullptr, "ExplicitRoadFit");
+	std::string Error;
+	ASSERT_TRUE(Asset->SetDefinition(Value, Error)) << Error;
+	int Notifications = 0;
+	const auto Listener = Asset->AddMutationListener([&] { ++Notifications; });
+	FRoadSurface Sphere;
+	Sphere.Mode = ERoadSurfaceMode::Sphere;
+	Sphere.Origin = Value.Planet.Center;
+	ASSERT_TRUE(Asset->FitToSurface(Sphere, Error)) << Error;
+	EXPECT_EQ(Notifications, 1);
+	const auto& Final = Asset->GetRoads()[0];
+	const double Length = Final.ReferenceLine.BuildEvaluationData()->GetLocalLength();
+	EXPECT_NEAR(Final.LaneSections[0].EndDistanceMeters, Length * 0.25, 1.e-9);
+	EXPECT_EQ(Final.LaneSections[1].StartDistanceMeters, Final.LaneSections[0].EndDistanceMeters);
+	EXPECT_EQ(Final.SectionTransitions[0].IncomingLaneId, Road.SectionTransitions[0].IncomingLaneId);
+	EXPECT_EQ(Final.SectionTransitions[1].OutgoingLaneId, Road.SectionTransitions[1].OutgoingLaneId);
+	const auto Points = Final.ReferenceLine.GetPoints();
+	Sphere.RadiusMeters *= 2;
+	EXPECT_FALSE(Asset->FitToSurface(Sphere, Error));
+	EXPECT_EQ(Notifications, 1);
+	EXPECT_EQ(Asset->GetRoads()[0].ReferenceLine.GetPoints(), Points);
+	EXPECT_EQ(Asset->GetDefinition().Planet.RadiusMeters, 1000);
+	Asset->RemoveMutationListener(Listener);
 }

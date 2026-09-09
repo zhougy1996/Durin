@@ -517,3 +517,27 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->TangentMode, Durin::ESplineTangentMode::AutomaticClamped);
 	EXPECT_TRUE(Durin::UnloadPackage(Path));
 }
+
+TEST(FSplineCurveTests, DistanceTableResolvesNonuniformCollinearAndInflectedCubics)
+{
+	using namespace Durin;
+	for (bool Inflected : {false, true})
+	{
+		FSplineCurve Curve;
+		FSplinePoint A({0, 0, 0}), B({100, 0, 0});
+		A.TangentMode = B.TangentMode = ESplineTangentMode::ManualBroken;
+		A.LeaveTangent = Inflected ? FVector3(100, 200, 0) : FVector3(10, 0, 0);
+		B.ArriveTangent = Inflected ? FVector3(100, 200, 0) : FVector3(180, 0, 0);
+		Curve.SetPoints({A, B});
+		const auto Data = Curve.BuildEvaluationData();
+		double Integral = 0;
+		constexpr int Steps = 10000;
+		for (int I = 0; I <= Steps; ++I)
+			Integral += (I == 0 || I == Steps ? 1 : (I % 2 ? 4 : 2))
+				* Math::Length(Data->Evaluate({0, I / double(Steps)}).FirstDerivative) / (3 * Steps);
+		EXPECT_NEAR(Data->GetLocalLength(), Integral, 1.e-4);
+		if (!Inflected)
+			for (int I = 0; I <= 100; ++I)
+				EXPECT_NEAR(Data->EvaluateAtLocalDistance(I).Position.x, I, 1.e-4);
+	}
+}

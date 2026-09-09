@@ -86,9 +86,19 @@ namespace Durin
 		{
 			const double MiddleT = (StartT + EndT) * 0.5;
 			const FVector3 Middle = EvaluateSegment(Segment, MiddleT).Position;
-			const double ChordLength = Math::Length(End - Start);
-			const double SplitLength = Math::Length(Middle - Start) + Math::Length(End - Middle);
-			if (SplitLength - ChordLength <= ErrorBudget || Depth >= MaximumSubdivisionDepth)
+						const double SplitLength = Math::Length(Middle - Start) + Math::Length(End - Middle);
+			// Flat or S-shaped cubics can have zero midpoint chord error while
+			// speed varies strongly. Bound both curvature and station interpolation
+			// using the Bezier control polygon of this exact restricted cubic.
+			const auto D0 = EvaluateSegment(Segment, StartT).FirstDerivative * (EndT - StartT);
+			const auto D1 = EvaluateSegment(Segment, EndT).FirstDerivative * (EndT - StartT);
+			const auto C1 = Start + D0 / 3.0;
+			const auto C2 = End - D1 / 3.0;
+			const double PolygonLength = Math::Length(C1 - Start) + Math::Length(C2 - C1) + Math::Length(End - C2);
+			const double StationError = std::max(Math::Length(C1 - Math::Lerp(Start, End, 1.0 / 3.0)),
+				Math::Length(C2 - Math::Lerp(Start, End, 2.0 / 3.0)));
+			if ((PolygonLength - SplitLength <= ErrorBudget && StationError <= AbsoluteLengthError * 0.25)
+				|| Depth >= MaximumSubdivisionDepth)
 			{
 				auto AddSample = [&](double T, const FVector3& Position) {
 					const FSplineDistanceSample& Previous = Segment.DistanceSamples.back();

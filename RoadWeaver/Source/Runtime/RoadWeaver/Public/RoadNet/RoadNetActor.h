@@ -29,7 +29,8 @@ namespace Durin::RoadNet
 		ROADWEAVER_API explicit ARoadNetActor(const FObjectInitializer& ObjectInitializer);
 		ROADWEAVER_API auto SetRoadNet(DRoadNet* Asset) -> void;
 		ROADWEAVER_API auto SetPreviewMesh(DStaticMesh* Mesh) -> void;
-		ROADWEAVER_API auto SetSurface(const FRoadSurface& Value) -> void;
+		ROADWEAVER_API auto PostLoad() -> void override;
+		auto GetRoadNet() const -> DRoadNet* { return RoadNet.Get(); }
 		ROADWEAVER_API auto BeginDestroy() -> void override;
 		ROADWEAVER_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		auto GetGenerationState() const -> const std::string& { return GenerationState; }
@@ -47,9 +48,12 @@ namespace Durin::RoadNet
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> PreviewMesh;
 
-		DPROPERTY(Edit)
+		// Read legacy scene records only. GeometryVersion gates conversion before construction.
+		DPROPERTY()
 		FRoadSurface Surface;
-		FRoadSurface ObservedSurface;
+
+		DPROPERTY()
+		uint32 GeometryVersion = 0;
 
 		DPROPERTY(Edit, ReadOnly, Transient)
 		std::string GenerationState = "Empty";

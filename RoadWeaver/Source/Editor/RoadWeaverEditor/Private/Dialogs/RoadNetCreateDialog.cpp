@@ -5,6 +5,8 @@
 #include "MonaImGui.h"
 #include "RoadNet/RoadNet.h"
 #include "RoadNet/RoadNetBuilder.h"
+#include "RoadNet/RoadSurface.h"
+#include "Math/Operations.h"
 
 namespace Durin::RoadNet::Editor
 {
@@ -13,6 +15,8 @@ namespace Durin::RoadNet::Editor
 	{
 		Callbacks = std::move(InCallbacks);
 		SubmissionError.clear();
+		bSpherical = true;
+		PlanetRadiusMeters = 1000.0;
 		RoadLengthMeters = 100.0;
 		LanesPerDirection = 1;
 		LaneWidthMeters = 3.5;
@@ -35,8 +39,14 @@ namespace Durin::RoadNet::Editor
 			return;
 
 		ImGui::TextUnformatted(
-			"Generate one straight bidirectional road as a new Road Net asset.");
+			"Create a fixed planet binding and one final bidirectional road curve.");
 		ImGui::Spacing();
+		ImGui::SeparatorText("Planet and initial surface");
+		ImGui::InputDouble("Planet radius (m)", &PlanetRadiusMeters, 10.0, 100.0, "%.2f");
+		int SurfaceChoice = bSpherical ? 1 : 0;
+		if (ImGui::Combo("Initial surface", &SurfaceChoice, "Plane\0Sphere\0")) bSpherical = SurfaceChoice == 1;
+		ImGui::TextWrapped("Network origin is at the north pole; planet center is (0, 0, -radius). "
+			"The radius is fixed after creation. Later curve edits may change elevation.");
 		ImGui::SeparatorText("Road");
 		ImGui::InputDouble("Length (m)", &RoadLengthMeters, 1.0, 10.0, "%.2f");
 		ImGui::InputInt("Lanes per direction", &LanesPerDirection);
@@ -58,12 +68,14 @@ namespace Durin::RoadNet::Editor
 			&& RoadLengthMeters > 0.0 && LanesPerDirection >= 1
 			&& LanesPerDirection <= 16 && std::isfinite(LaneWidthMeters)
 			&& LaneWidthMeters > 0.0 && std::isfinite(SpeedLimitKilometersPerHour)
-			&& SpeedLimitKilometersPerHour > 0.0;
+			&& SpeedLimitKilometersPerHour > 0.0
+			&& std::isfinite(PlanetRadiusMeters) && PlanetRadiusMeters >= 1.0 && PlanetRadiusMeters <= RoadCoordinateLimit
+			&& (!bSpherical || RoadLengthMeters < Math::Pi<double>() * PlanetRadiusMeters);
 		if (!DestinationValidation.Message.empty())
 			::Durin::Editor::DrawImportDialogWarning(DestinationValidation.Message);
 		else if (!bParametersValid)
 			::Durin::Editor::DrawImportDialogWarning(
-				"Use a positive length, width, and speed, with 1 to 16 lanes per direction.");
+				"Use positive road dimensions and speed, 1 to 16 lanes, radius 1 to 10000000 m, and a spherical arc shorter than half a circumference.");
 		::Durin::Editor::DrawImportDialogWarning(SubmissionError);
 
 		ImGui::Spacing();
@@ -111,21 +123,25 @@ namespace Durin::RoadNet::Editor
 			return false;
 		}
 
+		const double Angle = RoadLengthMeters / PlanetRadiusMeters;
+		const FVector3 End = bSpherical
+			? FVector3(PlanetRadiusMeters * std::sin(Angle), 0, PlanetRadiusMeters * (std::cos(Angle) - 1))
+			: FVector3(RoadLengthMeters, 0, 0);
 		FRoadNetBuilder Builder;
 		const FGuid StartNodeId = Builder.AddNode(
 			"Start", FVector3{0.0, 0.0, 0.0});
 		const FGuid EndNodeId = Builder.AddNode(
-			"End", FVector3{RoadLengthMeters, 0.0, 0.0});
+			"End", End);
 		FRoad Road;
 		Road.Name = "Main Road";
 		Road.StartNodeId = StartNodeId;
 		Road.EndNodeId = EndNodeId;
 		Road.SpeedLimitMetersPerSecond = SpeedLimitKilometersPerHour / 3.6;
 		Road.ReferenceLine.SetPoints({FSplinePoint(FVector3{0.0, 0.0, 0.0}),
-			FSplinePoint(FVector3{RoadLengthMeters, 0.0, 0.0})});
+			FSplinePoint(End)});
 		FLaneSection Section;
 		Section.StartDistanceMeters = 0.0;
-		Section.EndDistanceMeters = RoadLengthMeters;
+		Section.EndDistanceMeters = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
 		Section.Lanes.reserve(static_cast<size_t>(LanesPerDirection) * 2);
 		for (int32 LaneIndex = 1; LaneIndex <= LanesPerDirection; ++LaneIndex)
 		{
@@ -141,7 +157,15 @@ namespace Durin::RoadNet::Editor
 		Road.LaneSections.push_back(std::move(Section));
 		Builder.AddRoad(std::move(Road));
 		std::string Error;
-		if (!RoadNet->SetDefinition(Builder.TakeDefinition(), Error))
+		auto Candidate = Builder.TakeDefinition();
+		Candidate.Planet.Id = FGuid::NewGuid();
+		Candidate.Planet.Center = {0, 0, -PlanetRadiusMeters};
+		Candidate.Planet.RadiusMeters = PlanetRadiusMeters;
+		FRoadSurface Operation;
+		Operation.Mode = bSpherical ? ERoadSurfaceMode::Sphere : ERoadSurfaceMode::Plane;
+		Operation.Origin = bSpherical ? Candidate.Planet.Center : FVector3(0);
+		Operation.RadiusMeters = PlanetRadiusMeters;
+		if (!FitRoadDefinition(Candidate, Operation, Error) || !RoadNet->SetDefinition(std::move(Candidate), Error))
 		{
 			IAssetTools::Get().DiscardPackage(RoadNet->GetPackage());
 			SetError(Error);

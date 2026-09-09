@@ -5,6 +5,7 @@
 #include "DObject/Property.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Math/Operations.h"
+#include "Logging/LogMacros.h"
 
 namespace Durin::RoadNet
 {
@@ -43,6 +44,8 @@ namespace Durin::RoadNet
 	auto ARoadNetActor::SetRoadNet(DRoadNet* Asset) -> void
 	{
 		RoadNet = Asset;
+		GeometryVersion = 1;
+		Surface = {};
 		BindAsset();
 		MarkPackageDirty();
 		RequestNativeReconstruction();
@@ -55,14 +58,39 @@ namespace Durin::RoadNet
 		RequestNativeReconstruction();
 	}
 
-	auto ARoadNetActor::SetSurface(const FRoadSurface& Value) -> void
+	auto ARoadNetActor::PostLoad() -> void
 	{
-		const bool SameConfig = Surface.HasSameGenerationConfig(Value);
-		Surface = Value;
-		ObservedSurface = Surface;
-		MarkPackageDirty();
-		if (SameConfig) return;
-		RequestNativeReconstruction();
+		if (GeometryVersion == 0)
+		{
+			if (RoadNet && (Surface.Mode != ERoadSurfaceMode::Unconstrained || Surface.Normal != FVector3(0, 0, 1)))
+			{
+				auto Candidate = RoadNet->GetDefinition();
+				std::string Error;
+				if (RoadNet->GetSchemaVersion() > RoadNetSchemaVersion
+					|| !MigrateRoadDefinition(Candidate, Error) || !FitRoadDefinition(Candidate, Surface, Error))
+				{
+					Diagnostic = "Legacy road conversion failed (unsupported schema or invalid geometry): " + Error + " Repair the source and legacy Surface, then reload.";
+					GenerationState = "Error";
+					DURIN_ERROR("{}: {}", GetObjectPath(), Diagnostic);
+					Super::PostLoad();
+					return;
+				}
+				// Each legacy placement can have a different surface. Persist a private
+				// authoritative asset under this actor; never mutate the shared source.
+				auto* Converted = NewObject<DRoadNet>(this, "MigratedRoadNet");
+				if (!Converted || !Converted->InitializeMigratedDefinition(std::move(Candidate), Error))
+				{
+					Diagnostic = "Legacy road conversion could not publish: " + Error;
+					GenerationState = "Error";
+					Super::PostLoad();
+					return;
+				}
+				RoadNet = Converted;
+			}
+			Surface = {};
+			GeometryVersion = 1;
+		}
+		Super::PostLoad();
 	}
 
 	auto ARoadNetActor::BeginDestroy() -> void
@@ -76,13 +104,12 @@ namespace Durin::RoadNet
 
 	auto ARoadNetActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
-		Super::PostEditChangeProperty(Event);
-		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Surface"))
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("RoadNet"))
 		{
-			const bool SameConfig = ObservedSurface.HasSameGenerationConfig(Surface);
-			ObservedSurface = Surface;
-			if (SameConfig) return;
+			GeometryVersion = 1;
+			Surface = {};
 		}
+		Super::PostEditChangeProperty(Event);
 		BindAsset();
 		RequestNativeReconstruction();
 	}
@@ -90,7 +117,6 @@ namespace Durin::RoadNet
 	auto ARoadNetActor::OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool
 	{
 		if (!Super::OnNativeConstruct(Context, OutError)) return false;
-		ObservedSurface = Surface;
 		BindAsset();
 		auto Fail = [&](std::string Message) {
 			Diagnostic = std::move(Message);
@@ -98,6 +124,8 @@ namespace Durin::RoadNet
 			OutError = Diagnostic;
 			return false;
 		};
+		if (GeometryVersion != 1 && RoadNet)
+			return Fail(Diagnostic.empty() ? "Legacy road requires successful PostLoad conversion before preview." : Diagnostic);
 		if (!RoadNet)
 		{
 			Alignments.clear();
@@ -105,6 +133,7 @@ namespace Durin::RoadNet
 			Diagnostic.clear();
 			return true;
 		}
+		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset requires successful schema migration or repair.");
 		if (!ValidateRoadPlacement(GetActorTransform(), OutError)) return Fail(OutError);
 		if (!PreviewMesh) return Fail("Assign a preview StaticMesh with nonzero X and Y extent.");
 		// Package loading submits mesh compilation asynchronously; construction needs its published CPU geometry.
@@ -120,7 +149,7 @@ namespace Durin::RoadNet
 		for (const auto& Road : RoadNet->GetRoads())
 		{
 			std::shared_ptr<const FRoadAlignment> Alignment;
-			if (!FRoadAlignment::Build(Road, Surface, Alignment, OutError)) return Fail(OutError);
+			if (!FRoadAlignment::Build(Road, RoadNet->GetDefinition().Planet, Alignment, OutError)) return Fail(OutError);
 			FRoadSample Start;
 			if (!Alignment->Sample(0, Start, OutError)) return Fail(OutError);
 			double Left = 0, Right = 0;

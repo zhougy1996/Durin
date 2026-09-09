@@ -133,6 +133,7 @@ namespace Durin::RoadNet
 		DPROPERTY(Edit)
 		FGuid EndNodeId;
 
+		// Sole final geometry in network-local meters, including authored elevation.
 		DPROPERTY(Edit)
 		FSplineCurve ReferenceLine;
 
@@ -188,11 +189,38 @@ namespace Durin::RoadNet
 		std::vector<FLaneConnection> LaneConnections;
 	};
 
+	// Identifies one fixed planet in network-local meters. Placement maps this center
+	// and every road together by a rigid transform; these parameters never project geometry.
+	DSTRUCT()
+	struct FRoadPlanet
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit, ReadOnly)
+		FGuid Id = FGuid(0x524F4144, 0x504C414E, 0x45540000, 1);
+
+		DPROPERTY(Edit, ReadOnly)
+		FVector3 Center{0.0, 0.0, -1000.0};
+
+		DPROPERTY(Edit, ReadOnly)
+		double RadiusMeters = 1000.0;
+
+		// Orientation only: radial up for spherical authoring, fixed up for legacy/flat roads.
+		DPROPERTY(Edit)
+		bool bRadialUp = false;
+
+		DPROPERTY(Edit)
+		FVector3 ReferenceUp{0.0, 0.0, 1.0};
+	};
+
 	// Owns one complete authored road-network value before it is installed in an asset.
 	DSTRUCT()
 	struct FDefinition
 	{
 		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		FRoadPlanet Planet;
 
 		DPROPERTY(Edit)
 		std::vector<FNode> Nodes;

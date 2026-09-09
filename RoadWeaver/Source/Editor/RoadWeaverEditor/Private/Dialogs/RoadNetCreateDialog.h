@@ -29,6 +29,8 @@ namespace Durin::RoadNet::Editor
 		::Durin::Editor::FImportDialogDestinationModel Destination;
 		FCreateDialogCallbacks Callbacks;
 		std::string SubmissionError;
+		bool bSpherical = true;
+		double PlanetRadiusMeters = 1000.0;
 		double RoadLengthMeters = 100.0;
 		int32 LanesPerDirection = 1;
 		double LaneWidthMeters = 3.5;
