@@ -17,6 +17,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialProgramCompiler.h"
+#include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
 
@@ -53,12 +54,84 @@ namespace
 	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
-		FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			MakeCanonicalMaterialProgram(), Validation)
+			MakeCanonicalMaterialProgram())
 			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
 	}
+}
+
+TEST(FMaterialGraphOperationsTests, CustomDeclarationsPersistAndDuplicateTheirIdentity)
+{
+	InitializeDObjectSystem();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	const auto Root = Testing::GetTestWorkDirectory() / "CustomDeclarations";
+	Testing::RemoveTestWorkDirectory(Root);
+	Testing::RegisterMountPointForTests("/CustomDeclarations/", Root.generic_string() + "/");
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CustomDeclarations/Base", Path));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Material));
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "LayerTint";
+	Definition.Type = EMaterialParameterType::Vector4;
+	Definition.Value = FMaterialParameterValue::MakeVector4({0.1, 0.2, 0.3, 0.4});
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, {}));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	auto* Duplicate = Cast<DMaterial>(DuplicateObject(Material, nullptr, "CopiedCustomDeclarations"));
+	ASSERT_NE(Duplicate, nullptr);
+	ASSERT_EQ(Duplicate->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Duplicate->GetParameterDefinitions().front(), Definition);
+	MarkObjectHierarchyAsGarbage(Duplicate);
+	ASSERT_TRUE(UnloadPackage(Path));
+	Material = nullptr;
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path), Material));
+	ASSERT_NE(Material, nullptr);
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Material->GetParameterDefinitions().front(), Definition);
+	EXPECT_FALSE(Material->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, DeclarationAndFloat4ReferenceUndoTogether)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "DeclarationTransaction");
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "LayerTint";
+	Definition.Type = EMaterialParameterType::Vector4;
+	Definition.Value = FMaterialParameterValue::MakeVector4({0.1, 0.2, 0.3, 0.4});
+	FMaterialProgram Program;
+	FMaterialProgramNode Parameter;
+	Parameter.Id = FGuid::NewGuid();
+	Parameter.ParameterId = Definition.Id;
+	Parameter.Opcode = EMaterialProgramOpcode::Parameter;
+	Parameter.ResultType = EMaterialProgramValueType::Float4;
+	Program.Nodes.push_back(Parameter);
+	const auto Original = *Material->GetMaterialProgram();
+	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	ASSERT_TRUE(FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
+		*Material, {Definition}, Program, Transactions.Get()));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
+	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Value.Vector4Value,
+		Definition.Value.Vector4Value);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id), nullptr);
+	EXPECT_EQ(*Material->GetMaterialProgram(), Original);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(*Material->GetMaterialProgram(), Program);
+	ASSERT_NE(Material->FindParameterDefinition(Definition.Id), nullptr);
+	EXPECT_EQ(Material->FindParameterDefinition(Definition.Id)->Type, EMaterialParameterType::Vector4);
+	const auto NoChange = FMaterialGraphOperations::ReplaceDefinitionsAndProgram(
+		*Material, {Definition}, Program, Transactions.Get());
+	EXPECT_EQ(NoChange.Status, EMaterialGraphCommandStatus::NoChange);
+	MarkAsGarbage(Material);
+	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -90,8 +163,8 @@ TEST(FMaterialGraphOperationsTests,
 
 	FMaterialProgram Program = *Material->GetMaterialProgram();
 	Program.Outputs.RoughnessDefault.X = 0.75f;
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(std::move(Program), Validation));
+	auto Validation = Material->SetMaterialProgram(std::move(Program));
+	ASSERT_TRUE(Validation);
 	EXPECT_GT(Material->GetMaterialProgramRevision(), InitialProgramRevision);
 	EXPECT_EQ(Material->GetMaterialGraphPresentationRevision(),
 		MovedPresentationRevision);
@@ -581,8 +654,8 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 		Node.ResultType = EMaterialProgramValueType::Float;
 		MaximumProgram.Nodes.push_back(Node);
 	}
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(MaximumProgram, Validation));
+	auto Validation = Material->SetMaterialProgram(MaximumProgram);
+	ASSERT_TRUE(Validation);
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
 
@@ -653,9 +726,9 @@ TEST(FMaterialGraphOperationsTests,
 	DMaterial* Material = NewObject<DMaterial>(
 		Package, "InitializedGraphLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(
-		MakeCanonicalMaterialProgram(), Validation));
+	auto Validation = Material->SetMaterialProgram(
+		MakeCanonicalMaterialProgram());
+	ASSERT_TRUE(Validation);
 	std::string Error;
 	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
 	const FMaterialGraphPresentation& Presentation =
@@ -699,8 +772,8 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 			.Inputs = {{Sources[Sources.size() - Index - 1], 0}},
 		});
 	}
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(Program, Validation));
+	auto Validation = Material->SetMaterialProgram(Program);
+	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
 	auto Y = [&](const FGuid& Id) {
@@ -953,8 +1026,8 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 			.Inputs = {{DenseSources[DenseSources.size() - Index - 1], 0}},
 		});
 	}
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(DenseProgram, Validation));
+	auto Validation = Material->SetMaterialProgram(DenseProgram);
+	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	const int DenseVertices = DrawAtZoom(0.55f);
 	EXPECT_GT(DenseVertices, 100);
@@ -970,7 +1043,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 			.ResultType = EMaterialProgramValueType::Float,
 		});
 	}
-	ASSERT_TRUE(Material->SetMaterialProgram(MaximumProgram, Validation));
+	ASSERT_TRUE((Validation = Material->SetMaterialProgram(MaximumProgram)));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	const int MaximumVertices = DrawAtZoom(0.30f);
 	EXPECT_GT(MaximumVertices, 100);
@@ -1095,8 +1168,8 @@ TEST(FMaterialGraphOperationsTests,
 
 	FMaterialProgram SemanticEdit = *Material->GetMaterialProgram();
 	SemanticEdit.Outputs.RoughnessDefault.X = 0.37f;
-	FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(std::move(SemanticEdit), Validation));
+	auto Validation = Material->SetMaterialProgram(std::move(SemanticEdit));
+	ASSERT_TRUE(Validation);
 	const uint64 SemanticRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
 
@@ -1315,4 +1388,197 @@ TEST(FMaterialGraphOperationsTests,
 	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
+}
+
+
+TEST(FMaterialGraphOperationsTests, ForeignClipboardOwnsLocalDeclarationsAndRejectsConflictsAtomically)
+{
+	InitializeDObjectSystem();
+	DMaterial* Source = NewObject<DMaterial>(nullptr, "ClipboardSource");
+	DMaterial* Target = NewObject<DMaterial>(nullptr, "ClipboardTarget");
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "LayerTint";
+	Definition.DisplayName = "Layer Tint";
+	Definition.Type = EMaterialParameterType::Vector4;
+	Definition.Value = FMaterialParameterValue::MakeVector4({1, 2, 3, 4});
+	FMaterialProgram Program;
+	FMaterialProgramNode Node;
+	Node.Id = FGuid::NewGuid();
+	Node.ParameterId = Definition.Id;
+	Node.Opcode = EMaterialProgramOpcode::Parameter;
+	Node.ResultType = EMaterialProgramValueType::Float4;
+	Program.Nodes.push_back(Node);
+	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Source));
+	ASSERT_TRUE(Target->SetMaterialDefinitionsAndProgram({}, {}));
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Source, std::span(&Node.Id, 1), Payload));
+	ASSERT_EQ(Payload.Definitions.size(), 1u);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto BeforeRevision = Target->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Pasted = FMaterialGraphOperations::Paste(*Target, Payload, 300, 200, Transactions.Get());
+	ASSERT_TRUE(Pasted) << Pasted.Message;
+	ASSERT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	const auto LocalId = Target->GetParameterDefinitions().front().Id;
+	EXPECT_NE(LocalId, Definition.Id);
+	EXPECT_EQ(Target->GetMaterialProgram()->Nodes.front().ParameterId, LocalId);
+	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, BeforeRevision + 1);
+	const auto AfterPresentation = Target->GetMaterialGraphPresentation();
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Target->GetParameterDefinitions().empty());
+	EXPECT_TRUE(Target->GetMaterialProgram()->Nodes.empty());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Target->GetParameterDefinitions().front().Id, LocalId);
+	EXPECT_EQ(Target->GetMaterialGraphPresentation(), AfterPresentation);
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 600, 200));
+	EXPECT_EQ(Target->GetParameterDefinitions().size(), 1u);
+	EXPECT_EQ(Target->GetMaterialProgram()->Nodes.back().ParameterId, LocalId);
+
+	const auto BeforeProgram = *Target->GetMaterialProgram();
+	const auto BeforePresentation = Target->GetMaterialGraphPresentation();
+	const auto Revision = Target->GetMaterialCompileStatus().AuthoredRevision;
+	Payload.Definitions.front().Value.Vector4Value.x = 9;
+	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
+	EXPECT_EQ(*Target->GetMaterialProgram(), BeforeProgram);
+	EXPECT_EQ(Target->GetMaterialGraphPresentation(), BeforePresentation);
+	EXPECT_EQ(Target->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	Payload.Definitions.clear();
+	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
+	EXPECT_EQ(*Target->GetMaterialProgram(), BeforeProgram);
+	MarkAsGarbage(Source);
+	MarkAsGarbage(Target);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, SameRootClipboardUsesCurrentNamesAndDefaults)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "ClipboardRename");
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "Amount";
+	Definition.DisplayName = "Amount";
+	FMaterialProgram Program;
+	FMaterialProgramNode Node;
+	Node.Id = FGuid::NewGuid();
+	Node.ParameterId = Definition.Id;
+	Node.Opcode = EMaterialProgramOpcode::Parameter;
+	Program.Nodes.push_back(Node);
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Material, std::span(&Node.Id, 1), Payload));
+	ASSERT_TRUE(Material->RenameParameterDefinition(Definition.Id, "RenamedAmount"));
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Material, Payload, 400, 0));
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().ParameterId, Definition.Id);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.back().DisplayName, "RenamedAmount");
+	EXPECT_EQ(Material->GetParameterDefinitions().size(), 1u);
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({}, {}));
+	EXPECT_FALSE(FMaterialGraphOperations::Paste(*Material, Payload, 400, 0));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+
+TEST(FMaterialGraphOperationsTests, DeclarationCommandsAndConstantPromotionShareAtomicHistory)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "DeclarationCommands");
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({}, {}));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialParameterDefinition Definition;
+	Definition.Name = "Amount";
+	Definition.DisplayName = "Amount";
+	Definition.Value = FMaterialParameterValue::MakeScalar(0.25f);
+	const auto Created = FMaterialGraphOperations::CreateParameter(*Material, Definition, Transactions.Get());
+	ASSERT_TRUE(Created);
+	ASSERT_EQ(Created.AffectedParameterIds.size(), 1u);
+	const auto Id = Created.AffectedParameterIds.front();
+	ASSERT_TRUE(Id.IsValid());
+	Definition.Value = FMaterialParameterValue::MakeScalar(0.75f);
+	const auto Reused = FMaterialGraphOperations::CreateParameter(*Material, Definition, Transactions.Get());
+	EXPECT_EQ(Reused.Status, EMaterialGraphCommandStatus::NoChange);
+	EXPECT_EQ(Reused.AffectedParameterIds.front(), Id);
+	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.ScalarValue, 0.25f);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(FMaterialGraphOperations::RenameParameter(*Material, Id, "BlendAmount", Transactions.Get()));
+	EXPECT_EQ(Material->FindParameterDefinition(Id)->Name, FName("BlendAmount"));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->FindParameterDefinition(Id)->Name, FName("Amount"));
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(FMaterialGraphOperations::DeleteParameter(*Material, Id, Transactions.Get()));
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
+	Transactions->Reset();
+
+	FMaterialProgram Program;
+	FMaterialProgramNode Constant;
+	Constant.Id = FGuid::NewGuid();
+	Constant.Opcode = EMaterialProgramOpcode::Constant;
+	Constant.ResultType = EMaterialProgramValueType::Float4;
+	Constant.Literal = {1, 2, 3, 4};
+	Program.Nodes.push_back(Constant);
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto Promoted = FMaterialGraphOperations::PromoteConstantToParameter(
+		*Material, Constant.Id, "Tint", Transactions.Get());
+	ASSERT_TRUE(Promoted) << Promoted.Message;
+	ASSERT_EQ(Promoted.AffectedParameterIds.size(), 1u);
+	const auto TintId = Promoted.AffectedParameterIds.front();
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision + 1);
+	EXPECT_EQ(Material->FindParameterDefinition(TintId)->Value.Vector4Value, FVector4(1, 2, 3, 4));
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().Id, Constant.Id);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().ParameterId, TintId);
+	EXPECT_FALSE(FMaterialGraphOperations::DeleteParameter(*Material, TintId, Transactions.Get()));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_EQ(Material->FindParameterDefinition(TintId), nullptr);
+	EXPECT_EQ(*Material->GetMaterialProgram(), Program);
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().ParameterId, TintId);
+	Transactions->Reset();
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCollection)
+{
+	InitializeDObjectSystem();
+	DMaterial* Source = NewObject<DMaterial>(nullptr, "ClipboardTextureSource");
+	DTexture2D* Texture = NewObject<DTexture2D>(nullptr, "ClipboardTexture");
+	TWeakObjectPtr<DTexture2D> WeakTexture(Texture);
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "LayerTexture";
+	Definition.Type = EMaterialParameterType::Texture;
+	Definition.Value = FMaterialParameterValue::MakeTexture(Texture);
+	FMaterialProgram Program;
+	FMaterialProgramNode Node;
+	Node.Id = FGuid::NewGuid();
+	Node.Opcode = EMaterialProgramOpcode::TextureParameter;
+	Node.ParameterId = Definition.Id;
+	Node.ResultType = EMaterialProgramValueType::Texture2D;
+	Program.Nodes.push_back(Node);
+	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Source));
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(*Source, std::span(&Node.Id, 1), Payload));
+	MarkAsGarbage(Source);
+	CollectGarbage();
+	ASSERT_NE(WeakTexture.Get(), nullptr);
+	EXPECT_EQ(Payload.SourceRoot.Get(), nullptr);
+	DMaterial* Target = NewObject<DMaterial>(nullptr, "ClipboardTextureTarget");
+	ASSERT_TRUE(Target->SetMaterialDefinitionsAndProgram({}, {}));
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Target, Payload, 0, 0));
+	EXPECT_EQ(Target->GetParameterDefinitions().front().Value.TextureValue.Get(), WeakTexture.Get());
+	MarkAsGarbage(Target);
+	CollectGarbage();
+	EXPECT_NE(WeakTexture.Get(), nullptr);
+	Payload = {};
+	CollectGarbage();
+	EXPECT_EQ(WeakTexture.Get(), nullptr);
 }

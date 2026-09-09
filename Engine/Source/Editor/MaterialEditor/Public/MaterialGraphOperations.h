@@ -2,6 +2,8 @@
 
 #include "MaterialEditorAPI.h"
 #include "Materials/Material.h"
+#include "DObject/StrongObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 
 #include <array>
 #include <span>
@@ -15,7 +17,7 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 2;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 3;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -32,6 +34,7 @@ namespace Durin::Editor::Material
 		EMaterialGraphCommandStatus Status = EMaterialGraphCommandStatus::Rejected;
 		std::vector<FGuid> AffectedNodeIds;
 		std::vector<FGuid> GeneratedNodeIds;
+		std::vector<FGuid> AffectedParameterIds;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
 		std::string Message;
 
@@ -128,10 +131,13 @@ namespace Durin::Editor::Material
 		int32 RelativeY = 0;
 	};
 
-	// Carries one bounded versioned selection without an asset or viewport owner.
+	// Retains texture defaults independently of the source root's lifetime.
 	struct FMaterialGraphClipboardPayload
 	{
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
+		TWeakObjectPtr<DMaterial> SourceRoot;
+		std::vector<FMaterialParameterDefinition> Definitions;
+		std::vector<FStrongObjectPtr> RetainedTextures;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
 		bool bConnectAggregateSurface = false;
 		FGuid AggregateSourceNodeId;
@@ -206,6 +212,32 @@ namespace Durin::Editor::Material
 			DMaterial& Material,
 			FMaterialGraphCreateNodeRequest Request,
 			DTransactor* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		// One transaction owns both declaration changes and all affected references.
+		MATERIALEDITOR_API static auto CreateParameter(
+			DMaterial& Material, FMaterialParameterDefinition Definition,
+			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto RenameParameter(
+			DMaterial& Material, const FGuid& ParameterId, FName Name,
+			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto DeleteParameter(
+			DMaterial& Material, const FGuid& ParameterId,
+			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto PromoteConstantToParameter(
+			DMaterial& Material, const FGuid& NodeId, FName Name,
+			DTransactor* Transactions = nullptr) -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto ReplaceDefinitionsAndProgram(
+			DMaterial& Material,
+			std::vector<FMaterialParameterDefinition> Definitions,
+			FMaterialProgram Program,
+			DTransactor* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto ReplaceDefinitionsAndProgram(
+			DMaterial& Material,
+			std::vector<FMaterialParameterDefinition> Definitions,
+			FMaterialProgram Program,
+			FMaterialGraphPresentation Presentation,
+			DTransactor* Transactions)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto CreateNodeWithDefaultInputs(
 			DMaterial& Material,

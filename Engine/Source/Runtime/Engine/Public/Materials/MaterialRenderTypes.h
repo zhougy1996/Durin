@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialCompiledLayout.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Misc/EnumClassFlags.h"
 #include "Shader/MaterialShaderIdentity.h"
@@ -13,49 +14,6 @@
 
 namespace Durin
 {
-	// Describes the transient Engine-to-Renderer material payload protocol.
-	enum class EMaterialRenderFieldStorage : uint8
-	{
-		Uniform,
-		Resource,
-	};
-
-	enum class EMaterialRenderValueType : uint8
-	{
-		Scalar,
-		Vector3,
-		Vector4,
-		Texture2D,
-	};
-
-	inline constexpr uint32 MaterialRenderMaxFieldCount = 256;
-	inline constexpr uint32 MaterialRenderMaxResourceCount = 64;
-	inline constexpr uint32 MaterialRenderMaxUniformPayloadBytes = 16 * 1024;
-
-	struct FMaterialRenderField
-	{
-		// The GUID is retained for Engine-side compilation and diagnostics only.
-		FGuid ParameterId;
-		EMaterialRenderFieldStorage Storage = EMaterialRenderFieldStorage::Uniform;
-		EMaterialRenderValueType Type = EMaterialRenderValueType::Scalar;
-		uint16 CompactIndex = 0;
-		uint32 Offset = 0;
-		uint32 Size = 0;
-
-		auto operator==(const FMaterialRenderField&) const -> bool = default;
-	};
-
-	struct FMaterialRenderLayout
-	{
-		FMaterialRenderLayoutIdentity Identity;
-		uint32 UniformPayloadSize = 0;
-		uint16 UniformFieldCount = 0;
-		uint16 ResourceFieldCount = 0;
-		std::vector<FMaterialRenderField> Fields;
-
-		auto operator==(const FMaterialRenderLayout&) const -> bool = default;
-	};
-
 	enum class EMaterialRenderValidationFailure : uint8
 	{
 		None,
@@ -85,6 +43,8 @@ namespace Durin
 		FMaterialRenderLayout Layout;
 		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
+		std::vector<FMaterialSamplerState> Samplers;
+		std::vector<EMaterialTextureFallback> TextureFallbacks;
 	};
 
 	// Immutable after construction; no reflected object or raw resource pointer
@@ -105,51 +65,33 @@ namespace Durin
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
 		ENGINE_API auto IsError() const -> bool;
+		auto GetSamplers() const -> std::span<const FMaterialSamplerState> { return Samplers; }
+		auto GetTextureFallbacks() const -> std::span<const EMaterialTextureFallback> { return TextureFallbacks; }
 
 	private:
 		FMaterialRenderRepresentation(
 			FMaterialRenderLayout InLayout,
 			FByteBuffer InUniformPayload,
 			std::vector<FRHITextureReferenceRef> InResources,
+			std::vector<FMaterialSamplerState> InSamplers,
+			std::vector<EMaterialTextureFallback> InFallbacks,
 			bool bInError);
 
 		FMaterialRenderLayout Layout;
 		FByteBuffer UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
+		std::vector<FMaterialSamplerState> Samplers;
+		std::vector<EMaterialTextureFallback> TextureFallbacks;
 		bool bError = false;
-	};
-
-	// glTF-compatible sampling state retained independently for every texture role.
-	enum class EMaterialSamplerMinFilter : uint8
-	{
-		Nearest,
-		Linear,
-		NearestMipmapNearest,
-		LinearMipmapNearest,
-		NearestMipmapLinear,
-		LinearMipmapLinear,
-	};
-	enum class EMaterialSamplerMagFilter : uint8 { Nearest, Linear };
-	enum class EMaterialSamplerAddressMode : uint8
-	{
-		Repeat,
-		MirroredRepeat,
-		ClampToEdge,
-	};
-
-	struct FMaterialSamplerState
-	{
-		EMaterialSamplerMinFilter MinFilter =
-			EMaterialSamplerMinFilter::LinearMipmapLinear;
-		EMaterialSamplerMagFilter MagFilter = EMaterialSamplerMagFilter::Linear;
-		EMaterialSamplerAddressMode AddressU = EMaterialSamplerAddressMode::Repeat;
-		EMaterialSamplerAddressMode AddressV = EMaterialSamplerAddressMode::Repeat;
-
-		auto operator==(const FMaterialSamplerState&) const -> bool = default;
 	};
 
 	struct FMaterialRenderBinding
 	{
+		FMaterialRenderLayoutIdentity LayoutIdentity;
+		FByteBuffer CompiledUniformPayload;
+		std::vector<FRHITextureReferenceRef> CompiledTextures;
+		std::vector<FMaterialSamplerState> CompiledSamplers;
+		std::vector<EMaterialTextureFallback> CompiledTextureFallbacks;
 		FVector4f BaseColor{0.5f, 0.5f, 0.5f, 1.0f};
 		FVector3f Emissive{0.0f};
 		FVector3f Normal{0.0f, 0.0f, 1.0f};
@@ -190,14 +132,19 @@ namespace Durin
 		ENGINE_API explicit FMaterialRenderRepresentationBuilder(
 			const FMaterialRenderRepresentation& Source);
 
+		ENGINE_API explicit FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout);
+
 		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
 		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
 		// Vector2 values occupy XY of a 16-byte render slot; authored values remain
 		// two-dimensional.
+		ENGINE_API auto SetVector4(const FGuid& ParameterId, const FVector4& Value) -> bool;
 		ENGINE_API auto SetVector2(const FGuid& ParameterId, const FVector2& Value) -> bool;
 		ENGINE_API auto SetTexture(
 			const FGuid& ParameterId,
-			const FRHITextureReferenceRef& Value
+			const FRHITextureReferenceRef& Value,
+			FMaterialSamplerState Sampler = {},
+			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White
 		) -> bool;
 		ENGINE_API auto Build(
 			FMaterialRenderRepresentation& OutRepresentation,

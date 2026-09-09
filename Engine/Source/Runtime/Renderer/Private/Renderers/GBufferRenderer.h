@@ -13,6 +13,7 @@
 
 namespace Durin
 {
+	namespace RendererPrivate { struct FResolvedSurfaceMaterial; }
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 
@@ -65,6 +66,7 @@ namespace Durin
 
 		struct FFragmentParameters
 		{
+			const RendererPrivate::FResolvedSurfaceMaterial* Compiled = nullptr;
 			FRHIUniformBufferRange Material;
 			std::array<FRHITexture*, 8> Textures{};
 			std::array<FRHISampler*, 8> Samplers{};

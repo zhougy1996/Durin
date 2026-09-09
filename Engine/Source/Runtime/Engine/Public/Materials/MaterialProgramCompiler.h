@@ -4,6 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialCompiledLayout.h"
 #include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -16,19 +17,10 @@ namespace Durin
 {
 	class DMaterialInterface;
 
-	inline constexpr uint32 CurrentMaterialIRVersion = 2;
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 2;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 4;
-	inline constexpr uint32 CurrentMaterialPassContractVersion = 1;
-
-	struct FMaterialCompilerParameterDeclaration
-	{
-		FGuid Id;
-		EMaterialParameterType Type = EMaterialParameterType::Scalar;
-
-		auto operator==(const FMaterialCompilerParameterDeclaration&) const
-			-> bool = default;
-	};
+	inline constexpr uint32 CurrentMaterialIRVersion = 3;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 3;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 5;
+	inline constexpr uint32 CurrentMaterialPassContractVersion = 2;
 
 	struct FMaterialCompilerDependency
 	{
@@ -45,6 +37,7 @@ namespace Durin
 		std::string Target = "vulkan-spirv-1.5";
 		uint32 PassContractVersion = CurrentMaterialPassContractVersion;
 		std::vector<FMaterialCompilerDependency> Dependencies;
+		FMaterialCompilerResourceLimits ResourceLimits;
 
 		auto operator==(const FMaterialCompilerEnvironment&) const
 			-> bool = default;
@@ -107,6 +100,7 @@ namespace Durin
 		bool bSucceeded = false;
 		FMaterialIR IR;
 		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+		FMaterialRenderLayout Layout;
 		FByteBuffer CanonicalBytes;
 		FMaterialProgramIdentity Identity;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
@@ -132,6 +126,7 @@ namespace Durin
 		// Sorted unique runtime binding contract, published with these shaders.
 		// Values and resource references remain owned by material definitions/instances.
 		std::vector<FMaterialCompilerParameterDeclaration> ActiveParameters;
+		FMaterialRenderLayout Layout;
 		std::string GeneratedSource;
 		std::vector<FMaterialCompilerDependency> Dependencies;
 		std::vector<FCompiledShader> CompiledShaders;
@@ -141,11 +136,10 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
-	ENGINE_API auto SnapshotMaterialCompilerInput(
+	[[nodiscard]] ENGINE_API auto SnapshotMaterialCompilerInput(
 		const DMaterialInterface& Material,
 		FMaterialCompilerEnvironment Environment,
-		FMaterialCompilerInput& OutInput,
-		FMaterialProgramValidationResult& OutValidation) -> bool;
+		FMaterialCompilerInput& OutInput) -> FMaterialProgramValidationResult;
 
 	ENGINE_API auto BuildDefaultMaterialCompilerEnvironment(
 		FMaterialCompilerEnvironment& OutEnvironment,
@@ -162,8 +156,22 @@ namespace Durin
 
 	ENGINE_API auto BuildMaterialProgramIdentity(
 		const FMaterialCompilerInput& Input,
-		FByteView CanonicalIR)
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity;
+	struct FMaterialSourceGenerationResult
+	{
+		std::string Source;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		explicit operator bool() const { return Diagnostics.empty() && !Source.empty(); }
+	};
+
+	[[nodiscard]] ENGINE_API auto ValidateMaterialCompilerResult(
+		const FMaterialCompilerResult& Result) -> FMaterialLayoutValidationResult;
+	[[nodiscard]] ENGINE_API auto GenerateMaterialProgramSlang(
+		const FMaterialIR& IR, const FMaterialRenderLayout& Layout) -> FMaterialSourceGenerationResult;
+	[[nodiscard]] ENGINE_API auto ValidateMaterialCompiledStages(
+		std::span<const FCompiledShader> Stages, const FMaterialRenderLayout& Layout,
+		const FMaterialCompilerResourceLimits& Limits = {}) -> FMaterialLayoutValidationResult;
 	ENGINE_API auto GenerateMaterialProgramSlang(
 		const FMaterialIR& IR, std::string& OutSource,
 		std::string& OutError) -> bool;

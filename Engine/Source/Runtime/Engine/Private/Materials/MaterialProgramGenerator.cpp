@@ -1,6 +1,7 @@
 #include "Materials/MaterialProgramCompiler.h"
 
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialRenderTypes.h"
 
 #include <array>
 #include <chrono>
@@ -97,8 +98,8 @@ namespace Durin
 		}
 	}
 
-	auto GenerateMaterialProgramSlang(const FMaterialIR& IR,
-		std::string& OutSource, std::string& OutError) -> bool
+	static auto GenerateMaterialProgramSlangImpl(const FMaterialIR& IR,
+		const FMaterialRenderLayout* Layout, std::string& OutSource, std::string& OutError) -> bool
 	{
 		OutSource.clear();
 		OutError.clear();
@@ -178,6 +179,50 @@ float2 GetMaterialUV(VSOutput input, uint role)
         sine * scaled.x + cosine * scaled.y) + transform.zw;
 }
 )";
+		if (Layout)
+		{
+			OutSource.resize(OutSource.find("struct MaterialUniform"));
+			OutSource += "struct MaterialUniform\n{\n    float4 SurfaceParams;\n";
+			for (uint32 Index = 0; Index < Layout->UniformFieldCount; ++Index)
+				OutSource += std::format("    float4 Value{};\n", Index);
+			OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
+				"[[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;\n";
+			for (uint32 Index = 0; Index < Layout->ResourceFieldCount; ++Index)
+				OutSource += std::format(
+					"[[vk::binding({}, 0)]] Texture2D<float4> MaterialTexture{};\n"
+					"[[vk::binding({}, 0)]] SamplerState MaterialSampler{};\n",
+					MaterialTextureBindingBase + 2 * Index, Index,
+					MaterialTextureBindingBase + 2 * Index + 1, Index);
+			OutSource += R"(
+[[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
+[[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
+[[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
+[[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
+[[vk::binding(25, 0)]] Texture2DArray<float> DirectionalShadowTexture;
+[[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
+)";
+		}
+		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
+			if (!Layout) return nullptr;
+			const auto It = std::ranges::find(Layout->Fields, Id, &FMaterialRenderField::ParameterId);
+			return It == Layout->Fields.end() ? nullptr : &*It;
+		};
+		OutSource += R"(
+float2 SelectAuthoredUV(VSOutput input, float channel)
+{
+    uint index = (uint)clamp(floor(channel + 0.5), 0.0, 3.0);
+    return index == 1u ? input.uv1 : (index == 2u ? input.uv2 : (index == 3u ? input.uv3 : input.uv0));
+}
+FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float metallic,
+    float roughness, float ao, float3 emissive, float opacity, float mask)
+{
+    FMaterialSurface s;
+    s.baseColor = baseColor; s.tangentNormal = normal; s.metallic = metallic;
+    s.roughness = roughness; s.ambientOcclusion = ao; s.emissive = emissive;
+    s.opacity = opacity; s.opacityMask = mask;
+    return s;
+}
+)";
 		const bool bUsesStandardSurface = std::ranges::any_of(IR.Nodes,
 			[](const FMaterialIRNode& Node) {
 				return Node.Opcode == EMaterialProgramOpcode::StandardSurface;
@@ -223,16 +268,40 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			std::string Expression;
 			switch (Node.Opcode)
 			{
+			case EMaterialProgramOpcode::UVChannel: Expression = std::format("SelectAuthoredUV(input, {})", Input(0)); break;
+			case EMaterialProgramOpcode::Sine: Expression = std::format("sin({})", Input(0)); break;
+			case EMaterialProgramOpcode::Cosine: Expression = std::format("cos({})", Input(0)); break;
+			case EMaterialProgramOpcode::MakeSurface:
+				Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
+					Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
 			case EMaterialProgramOpcode::StandardSurface:
 				Expression = "EvaluateStandardSurface(input)"; break;
 			case EMaterialProgramOpcode::Constant:
 				Expression = LiteralExpression(Node); break;
 			case EMaterialProgramOpcode::Parameter:
-				Expression = ParameterExpression(Node.ParameterId); break;
+				if (Layout)
+				{
+					if (const auto* Field = FindField(Node.ParameterId))
+					{
+						constexpr std::array<std::string_view, 4> Swizzles{".x", ".xy", ".xyz", ""};
+						Expression = std::format("Material.Value{}{}", Field->CompactIndex,
+							Swizzles[static_cast<size_t>(Node.ResultType)]);
+					}
+				}
+				else Expression = ParameterExpression(Node.ParameterId);
+				break;
 			case EMaterialProgramOpcode::TextureParameter:
 			{
-				const int32 Role = FindRole(Node.ParameterId, true);
-				if (Role >= 0) Expression = std::format("{}Texture", GRoleNames[Role]);
+				if (Layout)
+				{
+					if (const auto* Field = FindField(Node.ParameterId))
+						Expression = std::format("MaterialTexture{}", Field->CompactIndex);
+				}
+				else
+				{
+					const int32 Role = FindRole(Node.ParameterId, true);
+					if (Role >= 0) Expression = std::format("{}Texture", GRoleNames[Role]);
+				}
 				break;
 			}
 			case EMaterialProgramOpcode::TextureCoordinate:
@@ -244,9 +313,18 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::TextureSample2D:
 			{
 				const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
-				const int32 Role = FindRole(TextureNode.ParameterId, true);
-				if (Role >= 0) Expression = std::format(
-					"{}.Sample({}Sampler, {})", Input(0), GRoleNames[Role], Input(1));
+				if (Layout)
+				{
+					if (const auto* Field = FindField(TextureNode.ParameterId))
+						Expression = std::format("{}.Sample(MaterialSampler{}, {})",
+							Input(0), Field->CompactIndex, Input(1));
+				}
+				else
+				{
+					const int32 Role = FindRole(TextureNode.ParameterId, true);
+					if (Role >= 0) Expression = std::format(
+						"{}.Sample({}Sampler, {})", Input(0), GRoleNames[Role], Input(1));
+				}
 				break;
 			}
 			case EMaterialProgramOpcode::Add: Expression = std::format("({} + {})", Input(0), Input(1)); break;
@@ -376,6 +454,11 @@ struct GeometryPassFragmentOutput
 GeometryPassFragmentOutput GeometryFragmentMain(
     VSOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+#if DURIN_MATERIAL_SHADING_MODEL == 1
+    discard;
+    GeometryPassFragmentOutput empty = (GeometryPassFragmentOutput)0;
+    return empty;
+#else
     FMaterialSurface s = EvaluateGeneratedMaterial(input);
     FResolvedGeneratedSurfaceShading shading =
         ResolveGeneratedSurfaceShading(input, s, isFrontFace);
@@ -384,8 +467,6 @@ GeometryPassFragmentOutput GeometryFragmentMain(
             DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
         discard;
 #endif
-    if (Material.SurfaceParams.z < 0.5)
-        discard;
     GeometryPassFragmentOutput o;
     o.material = float4(s.baseColor, s.metallic);
     o.normals = float4(
@@ -395,14 +476,16 @@ GeometryPassFragmentOutput GeometryFragmentMain(
         s.ambientOcclusion, s.opacity, 1.0 / 255.0);
     o.emissive = float4(s.emissive, 0.0);
     return o;
+#endif
 }
 [shader("fragment")]
 void ShadowFragmentMain(VSOutput input)
 {
-    float mask = Material.SurfaceParams.y * OpacityMaskTexture.Sample(
-        OpacityMaskSampler, GetMaterialUV(input, 7u)).r;
+#if DURIN_MATERIAL_BLEND_MODE == 1
+        float mask = DURIN_GENERATED_SHADOW_MASK;
     if (mask < asfloat(uint(DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)))
         discard;
+#endif
 }
 [shader("fragment")]
 float4 FragmentMain(
@@ -410,15 +493,18 @@ float4 FragmentMain(
 {
     FMaterialSurface s = EvaluateGeneratedMaterial(input);
     FResolvedGeneratedSurfaceShading shading;
-    if (Material.SurfaceParams.z >= 0.5)
-        shading = ResolveGeneratedSurfaceShading(input, s, isFrontFace);
+#if DURIN_MATERIAL_SHADING_MODEL == 0
+    shading = ResolveGeneratedSurfaceShading(input, s, isFrontFace);
+#endif
 #if DURIN_MATERIAL_BLEND_MODE == 1
     if (RejectMaterialMask(s.opacityMask, asfloat(uint(
             DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS))))
         discard;
 #endif
-	if (Material.SurfaceParams.z < 0.5)
-		return float4(s.baseColor + s.emissive, s.opacity);
+#if DURIN_MATERIAL_SHADING_MODEL == 1
+    return float4(s.baseColor + s.emissive, s.opacity);
+#else
+    if (Material.SurfaceParams.z < 0.5) return float4(s.baseColor + s.emissive, s.opacity);
     FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
         input.worldPosition, shading.normalFrame.shadingNormal,
         Lighting.ViewPosition.xyz);
@@ -456,8 +542,13 @@ float4 FragmentMain(
         lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
         EnvironmentBrdfLut, EnvironmentSampler);
     return ComposeSurfaceLighting(direct, environment, s.emissive, s.opacity);
+#endif
 }
 )";
+		const std::string_view MaskToken = "DURIN_GENERATED_SHADOW_MASK";
+		OutSource.replace(OutSource.find(MaskToken), MaskToken.size(), Layout
+			? "EvaluateGeneratedMaterial(input).opacityMask"
+			: "Material.SurfaceParams.y * OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u)).r");
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutError = "Generated material Slang exceeds the version-1 byte bound.";
@@ -465,6 +556,157 @@ float4 FragmentMain(
 			return false;
 		}
 		return true;
+	}
+
+	auto GenerateMaterialProgramSlang(const FMaterialIR& IR,
+		std::string& OutSource, std::string& OutError) -> bool
+	{
+		return GenerateMaterialProgramSlangImpl(IR, nullptr, OutSource, OutError);
+	}
+
+	auto GenerateMaterialProgramSlang(const FMaterialIR& IR, const FMaterialRenderLayout& Layout)
+		-> FMaterialSourceGenerationResult
+	{
+		FMaterialSourceGenerationResult Result;
+		const bool bLegacy = Layout.Identity.Version == 3 && Layout.Identity.Id == MaterialRenderLayoutV3Id;
+		if (!bLegacy)
+		{
+			const auto Valid = ValidateCompiledMaterialLayout(Layout);
+			if (!Valid)
+			{
+				Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation,
+					std::string(GetMaterialLayoutErrorText(Valid.Error))));
+				return Result;
+			}
+		}
+		FByteBuffer Canonical;
+		std::string Error;
+		if (!EncodeMaterialIRCanonical(IR, Canonical, Error))
+		{
+			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error)));
+			return Result;
+		}
+		// Rebuild a bounded detached program to validate every input index, type and
+		// depth before the generator's indexed expression traversal.
+		FMaterialProgram Program;
+		std::vector<FMaterialParameterDefinition> Definitions;
+		if (bLegacy) Definitions = MakeCanonicalMaterialParameterDefinitions();
+		else for (const auto& Field : Layout.Fields)
+		{
+			EMaterialParameterType Type;
+			switch (Field.Type)
+			{
+			case EMaterialRenderValueType::Scalar: Type = EMaterialParameterType::Scalar; break;
+			case EMaterialRenderValueType::Vector2: Type = EMaterialParameterType::Vector2; break;
+			case EMaterialRenderValueType::Vector3: Type = EMaterialParameterType::Vector; break;
+			case EMaterialRenderValueType::Vector4: Type = EMaterialParameterType::Vector4; break;
+			default: Type = EMaterialParameterType::Texture; break;
+			}
+			Definitions.push_back({.Id = Field.ParameterId, .Type = Type});
+		}
+		auto NodeId = [](uint32 Index) { return FGuid{0x49524745, 0, 0, Index + 1}; };
+		for (uint32 Index = 0; Index < IR.Nodes.size(); ++Index)
+		{
+			const auto& Node = IR.Nodes[Index];
+			FMaterialProgramNode Authored;
+			Authored.Id = NodeId(Index);
+			Authored.Opcode = Node.Opcode;
+			Authored.ResultType = Node.ResultType;
+			Authored.Literal = Node.Literal;
+			Authored.ParameterId = Node.ParameterId;
+			Authored.SwizzleLength = Node.SwizzleLength;
+			Authored.SwizzleX = Node.SwizzleX; Authored.SwizzleY = Node.SwizzleY;
+			Authored.SwizzleZ = Node.SwizzleZ; Authored.SwizzleW = Node.SwizzleW;
+			for (uint32 Input : Node.Inputs)
+			{
+				if (Input >= Index)
+				{
+					Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation,
+						"Material IR inputs must refer to an earlier expression."));
+					return Result;
+				}
+				Authored.Inputs.push_back({NodeId(Input), 0});
+			}
+			Program.Nodes.push_back(std::move(Authored));
+		}
+		if (IR.SurfaceRoot.bAggregate) Program.Outputs.Surface.SourceNodeId = NodeId(IR.SurfaceRoot.AggregateExpressionIndex);
+		else for (uint32 Index = 0; Index < IR.SurfaceRoot.Inputs.size(); ++Index)
+		{
+			const auto Output = static_cast<EMaterialSurfaceOutput>(Index);
+			const auto& Input = IR.SurfaceRoot.Inputs[Index];
+			if (Input.bExpression) GetMaterialSurfaceOutputLink(Program.Outputs, Output).SourceNodeId = NodeId(Input.ExpressionIndex);
+			else GetMaterialSurfaceOutputDefault(Program.Outputs, Output) = Input.Literal;
+		}
+		const auto Validation = ValidateMaterialProgram(Program, Definitions);
+		if (!Validation)
+		{
+			Result.Diagnostics = Validation.Diagnostics;
+			return Result;
+		}
+		if (!GenerateMaterialProgramSlangImpl(IR, bLegacy ? nullptr : &Layout, Result.Source, Error))
+			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error)));
+		return Result;
+	}
+
+	auto ValidateMaterialCompilerResult(const FMaterialCompilerResult& Result)
+		-> FMaterialLayoutValidationResult
+	{
+		if (!Result.bSucceeded || !Result.Identity.IsValid()
+			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
+			return {.Error = EMaterialLayoutError::InvalidIdentity};
+		if (Result.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		{
+			const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
+			if (!Expected) return Expected.Validation;
+			if (Expected.Layout != Result.Layout) return {.Error = EMaterialLayoutError::InvalidField};
+		}
+		else if (Result.Layout != MakeDefaultMaterialRenderLayout())
+			return {.Error = EMaterialLayoutError::InvalidField};
+		return ValidateMaterialCompiledStages(Result.CompiledShaders, Result.Layout);
+	}
+
+	auto ValidateMaterialCompiledStages(std::span<const FCompiledShader> Stages,
+		const FMaterialRenderLayout& Layout, const FMaterialCompilerResourceLimits& Limits)
+		-> FMaterialLayoutValidationResult
+	{
+		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
+		if (Layout.Identity.Version == 3 && Layout.Identity.Id == MaterialRenderLayoutV3Id)
+		{
+			std::string Error;
+			return ValidateMaterialCompiledStages(Stages, Error) ? FMaterialLayoutValidationResult{} : Rejected;
+		}
+		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
+		if (!Valid) return Valid;
+		constexpr std::array<std::string_view, 3> Entries{"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
+		if (Stages.size() != Entries.size()) return Rejected;
+		for (uint32 Index = 0; Index < Stages.size(); ++Index)
+		{
+			const auto& Stage = Stages[Index];
+			if (!Stage.Code || Stage.Code->empty() || Stage.SourceEntryPoint != Entries[Index]
+				|| Stage.Frequency != EShaderFrequency::Fragment || !Stage.Reflection.PushConstantRanges.empty()
+				|| Stage.Reflection.ResourceBindings.size() > 2 * Layout.ResourceFieldCount + 8)
+				return Rejected;
+			std::unordered_set<uint32> Seen;
+			for (const auto& Binding : Stage.Reflection.ResourceBindings)
+			{
+				if (Binding.SetIndex != 0 || Binding.ArraySize != 1 || Binding.StageFlags != EShaderStageFlags::Fragment
+					|| !Seen.insert(Binding.BindingIndex).second) return Rejected;
+				ERHIBindingType Expected;
+				const auto Slot = Binding.BindingIndex;
+				if (Slot == 2 || (Index == 0 && Slot == 1))
+				{
+					Expected = ERHIBindingType::UniformBuffer;
+					if (Binding.Name != (Slot == 2 ? "Material" : "Lighting")) return Rejected;
+				}
+				else if (Index == 0 && (Slot == 19 || Slot == 20 || Slot == 21 || Slot == 25)) Expected = ERHIBindingType::Texture;
+				else if (Index == 0 && (Slot == 22 || Slot == 26)) Expected = ERHIBindingType::Sampler;
+				else if (Slot >= MaterialTextureBindingBase && Slot - MaterialTextureBindingBase < 2u * Layout.ResourceFieldCount)
+					Expected = (Slot - MaterialTextureBindingBase) % 2 == 0 ? ERHIBindingType::Texture : ERHIBindingType::Sampler;
+				else return Rejected;
+				if (Binding.Type != Expected) return Rejected;
+			}
+		}
+		return {};
 	}
 
 	auto ValidateMaterialCompiledStages(
@@ -552,16 +794,15 @@ float4 FragmentMain(
 		Result.Identity = Normalized.Identity;
 		Result.IR = std::move(Normalized.IR);
 		Result.ActiveParameters = std::move(Normalized.ActiveParameters);
+		Result.Layout = std::move(Normalized.Layout);
 		Result.Dependencies = Input.Environment.Dependencies;
-		std::string GenerationError;
-		if (!GenerateMaterialProgramSlang(
-			Result.IR, Result.GeneratedSource, GenerationError))
+		auto Generated = GenerateMaterialProgramSlang(Result.IR, Result.Layout);
+		if (!Generated)
 		{
-			Result.Diagnostics.push_back(MakeDiagnostic(
-				EMaterialProgramDiagnosticCategory::Generation,
-				std::move(GenerationError)));
+			Result.Diagnostics = std::move(Generated.Diagnostics);
 			return Result;
 		}
+		Result.GeneratedSource = std::move(Generated.Source);
 		const auto CompileBegin = std::chrono::steady_clock::now();
 		Result.Timings.GenerationMicroseconds =
 			std::chrono::duration_cast<std::chrono::microseconds>(
@@ -595,12 +836,12 @@ float4 FragmentMain(
 				std::move(Output.ErrorMessage)));
 			return Result;
 		}
-		std::string ReflectionError;
-		if (!ValidateMaterialCompiledStages(Output.CompiledShaders, ReflectionError))
+		const auto Reflection = ValidateMaterialCompiledStages(Output.CompiledShaders, Result.Layout, Input.Environment.ResourceLimits);
+		if (!Reflection)
 		{
 			Result.Diagnostics.push_back(MakeDiagnostic(
 				EMaterialProgramDiagnosticCategory::Reflection,
-				std::move(ReflectionError)));
+				std::string(GetMaterialLayoutErrorText(Reflection.Error))));
 			return Result;
 		}
 		Result.CompiledShaders = std::move(Output.CompiledShaders);

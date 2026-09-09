@@ -328,9 +328,8 @@ namespace
 			ADD_FAILURE() << "Failed to create the directional-shadow test material.";
 			return {};
 		}
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material->SetMaterialProgram(
-				Durin::MakeCanonicalMaterialProgram(), Validation))
+				Durin::MakeCanonicalMaterialProgram()))
 		{
 			ADD_FAILURE() << "Failed to install the directional-shadow material program.";
 			return {};

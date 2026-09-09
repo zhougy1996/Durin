@@ -102,28 +102,110 @@ namespace Durin
 	}
 
 	auto DMaterial::SetMaterialProgram(
-		FMaterialProgram InProgram,
-		FMaterialProgramValidationResult& OutValidation) -> bool
+		FMaterialProgram InProgram) -> FMaterialProgramValidationResult
 	{
 		if (!UpgradeMaterialProgram(InProgram))
 		{
-			OutValidation = {};
-			OutValidation.Diagnostics.push_back({
+			FMaterialProgramValidationResult Validation;
+			Validation.Diagnostics.push_back({
 				.Category = EMaterialProgramDiagnosticCategory::Schema,
 				.Message = "Material program schema version is unsupported."});
-			return false;
+			return Validation;
 		}
-		OutValidation = ValidateMaterialProgram(
+		auto Validation = ValidateMaterialProgram(
 			InProgram, ParameterDefinitions);
-		if (!OutValidation) return false;
-		if (Program == InProgram) return true;
+		if (!Validation) return Validation;
+		if (Program == InProgram) return Validation;
 		Program = std::move(InProgram);
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceAuthoredRevision();
 		RequestProgramCompile(Program, StaticProperties);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
-		return true;
+		return Validation;
+	}
+
+	auto DMaterial::SetMaterialDefinitionsAndProgram(
+		std::vector<FMaterialParameterDefinition> Definitions,
+		FMaterialProgram InProgram) -> FMaterialParameterEditResult
+	{
+		const auto Declarations = ValidateMaterialParameterDefinitions(Definitions);
+		if (!Declarations) return {Declarations.Error, Declarations.ParameterId};
+		if (!UpgradeMaterialProgram(InProgram))
+			return {.Error = EMaterialParameterError::UnsupportedProgramSchema};
+		auto Validation = ValidateMaterialProgram(InProgram, Definitions);
+		if (!Validation)
+			return {.Error = EMaterialParameterError::InvalidProgram,
+				.Diagnostics = std::move(Validation.Diagnostics)};
+		for (const auto& Definition : Definitions)
+		{
+			const auto* Previous = FindParameterDefinition(Definition.Id);
+			if (Previous && Previous->Type != Definition.Type)
+				return {EMaterialParameterError::TypeConflict, Definition.Id};
+		}
+		if (Definitions == ParameterDefinitions && InProgram == Program) return {};
+		RetainedAcceptedParameters = BuildMaterialLocalRenderLayer().Parameters;
+		ParameterDefinitions = std::move(Definitions);
+		ParameterDeclarationSchemaVersion = 2;
+		Program = std::move(InProgram);
+		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Program);
+		AdvanceRevision(ParameterDefinitionSchemaRevision);
+		AdvanceRevision(MaterialProgramRevision);
+		AdvanceRevision(MaterialGraphPresentationRevision);
+		AdvanceAuthoredRevision();
+		RequestProgramCompile(Program, StaticProperties);
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+		return {};
+	}
+
+	auto DMaterial::CreateParameterDefinition(
+		FMaterialParameterDefinition Definition) -> FMaterialParameterEditResult
+	{
+		if (const auto* Existing = FindParameterDefinition(Definition.Name))
+		{
+			if (Existing->Type != Definition.Type)
+				return {EMaterialParameterError::TypeConflict, Existing->Id};
+			return {.ParameterId = Existing->Id};
+		}
+		if (!Definition.Id.IsValid()) Definition.Id = FGuid::NewGuid();
+		const FGuid Id = Definition.Id;
+		auto Candidate = ParameterDefinitions;
+		Candidate.push_back(std::move(Definition));
+		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), Program);
+		if (Result) Result.ParameterId = Id;
+		return Result;
+	}
+
+	auto DMaterial::RenameParameterDefinition(
+		const FGuid& Id, FName Name) -> FMaterialParameterEditResult
+	{
+		const auto* Existing = FindParameterDefinition(Id);
+		if (!Existing) return {EMaterialParameterError::NotFound, Id};
+		if (Name.IsNone()) return {EMaterialParameterError::InvalidName, Id};
+		if (const auto* Occupant = FindParameterDefinition(Name); Occupant && Occupant->Id != Id)
+			return {EMaterialParameterError::DuplicateName, Id};
+		if (Existing->Name == Name) return {.ParameterId = Id};
+		auto Candidate = ParameterDefinitions;
+		auto& Definition = *std::ranges::find(Candidate, Id, &FMaterialParameterDefinition::Id);
+		Definition.Name = Name;
+		Definition.DisplayName = Name.ToString();
+		auto CandidateProgram = Program;
+		for (auto& Node : CandidateProgram.Nodes)
+			if (Node.ParameterId == Id) Node.DisplayName = Definition.DisplayName;
+		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), std::move(CandidateProgram));
+		if (!Result.ParameterId.IsValid()) Result.ParameterId = Id;
+		return Result;
+	}
+
+	auto DMaterial::DeleteParameterDefinition(const FGuid& Id) -> FMaterialParameterEditResult
+	{
+		auto Candidate = ParameterDefinitions;
+		if (!std::erase_if(Candidate, [&](const auto& Definition) { return Definition.Id == Id; }))
+			return {EMaterialParameterError::NotFound, Id};
+		auto Result = SetMaterialDefinitionsAndProgram(std::move(Candidate), Program);
+		if (!Result.ParameterId.IsValid()) Result.ParameterId = Id;
+		return Result;
 	}
 
 	auto DMaterial::SetMaterialGraphPresentation(
@@ -302,11 +384,32 @@ namespace Durin
 			return SetScalarParameterValue(Definition->Name, Value.ScalarValue);
 		case EMaterialParameterType::Vector2:
 			return SetVector2ParameterValue(Definition->Name, Value.Vector2Value);
+		case EMaterialParameterType::Vector4:
+		{
+			if (!std::isfinite(Value.Vector4Value.x) || !std::isfinite(Value.Vector4Value.y)
+				|| !std::isfinite(Value.Vector4Value.z) || !std::isfinite(Value.Vector4Value.w))
+				return false;
+			auto& Mutable = ParameterDefinitions[static_cast<size_t>(
+				Definition - ParameterDefinitions.data())].Value.Vector4Value;
+			if (Mutable == Value.Vector4Value) return true;
+			Mutable = Value.Vector4Value;
+			MarkPackageDirty();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+			return true;
+		}
 		case EMaterialParameterType::Vector:
 			return SetVectorParameterValue(Definition->Name, Value.VectorValue);
 		case EMaterialParameterType::Texture:
-			return SetTextureParameterValue(
-				Definition->Name, Value.TextureValue.Get());
+		{
+			if (!IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
+			auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value;
+			const auto Canonical = FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
+			if (Mutable == Canonical) return true;
+			Mutable = Canonical;
+			MarkPackageDirty();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+			return true;
+		}
 		}
 		return false;
 	}
@@ -355,7 +458,14 @@ namespace Durin
 		{
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Parameter.Id);
-			if (!Definition || Definition->Type != Parameter.Type) continue;
+			if (!Definition || Definition->Type != Parameter.Type)
+			{
+				const auto Retained = std::ranges::find(RetainedAcceptedParameters,
+					Parameter.Id, &FMaterialLocalRenderParameter::Id);
+				if (Retained != RetainedAcceptedParameters.end() && Retained->Type == Parameter.Type)
+					Result.Parameters.push_back(*Retained);
+				continue;
+			}
 			Result.Parameters.push_back(
 				BuildMaterialLocalRenderParameter(
 					Definition->Id,
@@ -382,10 +492,24 @@ namespace Durin
 	{
 		std::string Error;
 		Super::PostLoad();
-		if (!ValidateCanonicalMaterialParameterDefinitions(
-				ParameterDefinitions, Error)
-			|| !ValidateMaterialStaticProperties(
-				StaticProperties, Error))
+		if (ParameterDeclarationSchemaVersion == 2)
+		{
+			const auto Validation = ValidateMaterialParameterDefinitions(ParameterDefinitions);
+			if (!Validation)
+			{
+				DURIN_ERROR("PostLoad '{}', parameter '{}': {}", GetObjectPath(),
+					Validation.ParameterId.ToString(), GetMaterialParameterErrorText(Validation.Error));
+				return;
+			}
+		}
+		else if (ParameterDeclarationSchemaVersion != 1
+			|| !ValidateCanonicalMaterialParameterDefinitions(ParameterDefinitions, Error))
+		{
+			if (Error.empty()) Error = "Material declaration schema version is unsupported.";
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
+		}
+		if (!ValidateMaterialStaticProperties(StaticProperties, Error))
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;

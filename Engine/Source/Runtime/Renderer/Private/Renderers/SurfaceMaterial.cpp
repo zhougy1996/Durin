@@ -11,6 +11,7 @@
 #include "Resources/RendererResourceCoordinator.h"
 
 #include <bit>
+#include <cstring>
 #include <format>
 
 namespace Durin::RendererPrivate
@@ -72,12 +73,21 @@ namespace Durin::RendererPrivate
 		ESurfaceMaterialPass Pass) -> bool
 	{
 		check(IsInRenderingThread());
+		if (Pass == ESurfaceMaterialPass::OpaqueShadow) return true;
+		const bool bCompiled = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
 		const uint8 RequiredRoles = GetSurfaceMaterialRequiredRoleMask(Pass);
-		for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
+		std::vector<FMaterialSamplerState> RequiredSamplers;
+		if (bCompiled)
 		{
-			if ((RequiredRoles & (uint8{1} << Role)) == 0) continue;
+			RequiredSamplers = Binding.CompiledSamplers;
+			if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
+		}
+		else for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
+			if ((RequiredRoles & (uint8{1} << Role)) != 0) RequiredSamplers.push_back(Binding.Samplers[Role]);
+		for (size_t Role = 0; Role < RequiredSamplers.size(); ++Role)
+		{
 			++State->Counters.SamplerLookups;
-			const FMaterialSamplerState StateKey = Binding.Samplers[Role];
+			const FMaterialSamplerState StateKey = RequiredSamplers[Role];
 			auto& Entry = State->Samplers.FindOrAdd(StateKey);
 			bool bCreationAttempted = false;
 			if (Entry.Slot.Resolve(
@@ -119,6 +129,38 @@ namespace Durin::RendererPrivate
 		const uint8 RequiredRoles = GetSurfaceMaterialRequiredRoleMask(Pass);
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
+		OutMaterial.bCompiledLayout = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
+		if (OutMaterial.bCompiledLayout)
+		{
+			const size_t Count = Binding.CompiledTextures.size();
+			if (Binding.CompiledSamplers.size() != Count || Binding.CompiledTextureFallbacks.size() != Count
+				|| Binding.CompiledUniformPayload.size() < MaterialUniformControlBytes) return false;
+			OutMaterial.CompiledUniformPayload = Binding.CompiledUniformPayload;
+			const FVector4f Controls(0.0f, 0.0f, bLit ? 1.0f : 0.0f, bLit && bEnableSpecularAA ? 1.0f : 0.0f);
+			std::memcpy(OutMaterial.CompiledUniformPayload.data(), &Controls, sizeof(Controls));
+			for (size_t Index = 0; Index < Count; ++Index)
+			{
+				const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
+				if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
+					Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
+				FRHITexture* Texture = Binding.CompiledTextures[Index] != nullptr
+					? Binding.CompiledTextures[Index]->GetReferencedTexture_RenderThread() : nullptr;
+				EDefaultTexture Fallback;
+				switch (Binding.CompiledTextureFallbacks[Index])
+				{
+				case EMaterialTextureFallback::White: Fallback = EDefaultTexture::White; break;
+				case EMaterialTextureFallback::Black: Fallback = EDefaultTexture::Black; break;
+				case EMaterialTextureFallback::FlatRGNormal: Fallback = EDefaultTexture::FlatNormal; break;
+				default: return false;
+				}
+				if (!Texture) Texture = DefaultTextures.Get_RenderThread(Fallback);
+				FRHISampler* Sampler = Entry->Slot.GetPayload()->GetReference();
+				if (!Texture || !Sampler) return false;
+				OutMaterial.CompiledTextures.push_back(Texture);
+				OutMaterial.CompiledSamplers.push_back(Sampler);
+			}
+		}
+		else
 		for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
 		{
 			if ((RequiredRoles & (uint8{1} << Role)) == 0) continue;
@@ -144,6 +186,14 @@ namespace Durin::RendererPrivate
 		}
 
 		if (Pass != ESurfaceMaterialPass::Forward) return true;
+		FRHISampler* FallbackSampler = OutMaterial.Samplers[0];
+		if (OutMaterial.bCompiledLayout)
+		{
+			const auto* Entry = State->Samplers.Find(FMaterialSamplerState{});
+			if (!Entry || HasSelectedRenderResourceGenerationChanged(Entry->Slot.GetPayloadGeneration(),
+				Generation, ERenderResourceGenerationDependency::Device) || !Entry->Slot.GetPayload()) return false;
+			FallbackSampler = Entry->Slot.GetPayload()->GetReference();
+		}
 		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
 		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
 		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
@@ -158,11 +208,11 @@ namespace Durin::RendererPrivate
 		OutMaterial.EnvironmentBrdfLut = bCompleteEnvironment
 			? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
 		OutMaterial.EnvironmentSampler = bCompleteEnvironment
-			? EnvironmentSampler : OutMaterial.Samplers[0];
+			? EnvironmentSampler : FallbackSampler;
 		OutMaterial.DirectionalShadowTexture = DirectionalShadowTexture != nullptr
 			? DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread();
 		OutMaterial.DirectionalShadowSampler = DirectionalShadowSampler != nullptr
-			? DirectionalShadowSampler : OutMaterial.Samplers[0];
+			? DirectionalShadowSampler : FallbackSampler;
 		return OutMaterial.EnvironmentIrradiance != nullptr
 			&& OutMaterial.EnvironmentPrefiltered != nullptr
 			&& OutMaterial.EnvironmentBrdfLut != nullptr
@@ -190,6 +240,58 @@ namespace Durin::RendererPrivate
 		check(IsInRenderingThread());
 		check(State->Counters.IsConserved());
 		return State->Counters;
+	}
+
+	auto BindCompiledSurfaceMaterial(
+		FRHICommandListImmediate& CommandList, FRHIShader* Shader,
+		const FShaderReflectionData& Reflection,
+		const FResolvedSurfaceMaterial& Material,
+		const FRHIUniformBufferRange& MaterialBuffer,
+		const FRHIUniformBufferRange& Lighting) -> bool
+	{
+		if (!Shader || !Material.bCompiledLayout
+			|| Material.CompiledTextures.size() != Material.CompiledSamplers.size()) return false;
+		std::vector<FRHIShaderParameterResource> Resources;
+		for (const auto& Binding : Reflection.ResourceBindings)
+		{
+			if (Binding.SetIndex != 0 || Binding.ArraySize != 1) return false;
+			FRHIShaderParameterResource Resource;
+			Resource.BindingIndex = Binding.BindingIndex;
+			Resource.Type = Binding.Type;
+			ERHIBindingType Expected = ERHIBindingType::Texture;
+			const uint32 Slot = Binding.BindingIndex;
+			if (Slot == 1 || Slot == 2)
+			{
+				const auto& Range = Slot == 1 ? Lighting : MaterialBuffer;
+				Resource.Resource = Range.Buffer;
+				Resource.Offset = Range.Offset;
+				Resource.Size = Range.Size;
+				if (Range.Size == 0) return false;
+				Expected = ERHIBindingType::UniformBuffer;
+				Resource.Type = ERHIBindingType::UniformBufferDynamic;
+			}
+			else if (Slot >= MaterialTextureBindingBase)
+			{
+				const uint32 Index = (Slot - MaterialTextureBindingBase) / 2;
+				if (Index >= Material.CompiledTextures.size()) return false;
+				if ((Slot - MaterialTextureBindingBase) % 2 == 0) Resource.Resource = Material.CompiledTextures[Index];
+				else { Resource.Resource = Material.CompiledSamplers[Index]; Expected = ERHIBindingType::Sampler; }
+			}
+			else switch (Slot)
+			{
+			case 19: Resource.Resource = Material.EnvironmentIrradiance; break;
+			case 20: Resource.Resource = Material.EnvironmentPrefiltered; break;
+			case 21: Resource.Resource = Material.EnvironmentBrdfLut; break;
+			case 22: Resource.Resource = Material.EnvironmentSampler; Expected = ERHIBindingType::Sampler; break;
+			case 25: Resource.Resource = Material.DirectionalShadowTexture; break;
+			case 26: Resource.Resource = Material.DirectionalShadowSampler; Expected = ERHIBindingType::Sampler; break;
+			default: return false;
+			}
+			if (!Resource.Resource || Binding.Type != Expected) return false;
+			Resources.push_back(Resource);
+		}
+		CommandList.SetShaderParameters(Shader, Resources);
+		return true;
 	}
 
 	auto MakeSurfaceForwardParameters(

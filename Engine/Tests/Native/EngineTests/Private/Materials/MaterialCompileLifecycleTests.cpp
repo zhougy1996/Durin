@@ -111,13 +111,13 @@ TEST(FMaterialCompileLifecycleTests,
 
 	const uint64 InitialGeneration =
 		First->GetMaterialCompileStatus().RequestGeneration;
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(First->SetMaterialProgram(
-		EditFirstScalarConstant(*First, 0.03125f), Validation));
+	auto Validation = First->SetMaterialProgram(
+		EditFirstScalarConstant(*First, 0.03125f));
+	ASSERT_TRUE(Validation);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
 	EXPECT_TRUE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
-	ASSERT_TRUE(First->SetMaterialProgram(
-		EditFirstScalarConstant(*First, 0.0625f), Validation));
+	ASSERT_TRUE((Validation = First->SetMaterialProgram(
+		EditFirstScalarConstant(*First, 0.0625f))));
 	EXPECT_EQ(First->GetMaterialCompileStatus().RequestGeneration,
 		InitialGeneration + 2);
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), InitialProgram);
@@ -132,9 +132,10 @@ TEST(FMaterialCompileLifecycleTests,
 		InitialProgram->Identity);
 	EXPECT_FALSE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
 
-	Durin::FMaterialProgramValidationResult ParameterValidation;
-	ASSERT_TRUE(First->SetMaterialProgram(
-		Durin::MakeStandardSurfaceMaterialProgram(), ParameterValidation));
+	auto ParameterValidation = First->SetMaterialProgram(
+		Durin::MakeStandardSurfaceMaterialProgram());
+
+	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
 	ASSERT_TRUE(PendingInstance->SetParent(First));
 	EXPECT_TRUE(First->GetAcceptedCompiledProgram()->ActiveParameters.empty());
@@ -151,8 +152,8 @@ TEST(FMaterialCompileLifecycleTests,
 	FailedProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
 	FailedProperties.bTwoSided = !FailedProperties.bTwoSided;
 	ASSERT_TRUE(First->SetStaticProperties(FailedProperties));
-	ASSERT_TRUE(First->SetMaterialProgram(
-		Durin::MakeDefaultMaterialProgram(), ParameterValidation));
+	ASSERT_TRUE((ParameterValidation = First->SetMaterialProgram(
+		Durin::MakeDefaultMaterialProgram())));
 	const Durin::FMaterialCompileStatus Pending =
 		First->GetMaterialCompileStatus();
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
@@ -222,6 +223,67 @@ TEST(FMaterialCompileLifecycleTests,
 		*First, std::move(WrongDependency)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 
+	// Failed replacement retains the old schema after authored declarations are deleted.
+	{
+		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
+		ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram()));
+		ASSERT_TRUE(WaitForMaterialCompile(*Root));
+		ASSERT_NE(Root, nullptr);
+		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RetainedDeclarationInstance");
+		ASSERT_TRUE(Instance->SetParent(Root));
+		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.65f));
+		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.9f));
+		const auto Accepted = Root->GetAcceptedCompiledProgram();
+		Durin::FMaterialParameterDefinition Definition;
+		Definition.Id = Durin::FGuid::NewGuid();
+		Definition.Name = "IndependentAmount";
+		Durin::FMaterialProgram Program;
+		Durin::FMaterialProgramNode Node;
+		Node.Id = Durin::FGuid::NewGuid();
+		Node.ParameterId = Definition.Id;
+		Node.Opcode = Durin::EMaterialProgramOpcode::Parameter;
+		Program.Nodes.push_back(Node);
+		Program.Outputs.Roughness.SourceNodeId = Node.Id;
+		Durin::FThreadEvent Started, Release;
+		std::atomic<uint32> StartedCount = 0;
+		std::vector<Durin::FTaskHandle> Blockers;
+		const auto WorkerCount = Durin::GetTaskSchedulerDiagnostics().WorkerCount;
+		struct FReleaseWorkers
+		{
+			Durin::FThreadEvent& Release;
+			std::vector<Durin::FTaskHandle>& Tasks;
+			~FReleaseWorkers() { Release.Trigger(); for (const auto& Task : Tasks) Durin::WaitTask(Task); }
+		};
+		{
+			FReleaseWorkers ReleaseWorkers{Release, Blockers};
+			for (uint32 Index = 0; Index < WorkerCount; ++Index)
+				Blockers.push_back(Durin::Tasks::LaunchTask("HoldRetainedSchemaCompile", [&] {
+					if (StartedCount.fetch_add(1) + 1 == WorkerCount) Started.Trigger();
+					Release.WaitFor(10.0);
+				}).GetCompletion().GetTaskHandle());
+			ASSERT_TRUE(Started.WaitFor(2.0));
+			ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+			const auto Pending = Root->GetMaterialCompileStatus();
+			Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Root);
+			Durin::FMaterialCompileResult Failed{
+				.Owner = Durin::MakeObjectHandle(Root),
+				.AuthoredRevision = Pending.AuthoredRevision,
+				.Generation = Pending.RequestGeneration,
+				.DependencyRevision = Pending.DependencyRevision,
+				.ProgramIdentity = Pending.RequestedIdentity,
+				.Target = Pending.Target,
+				.State = Durin::EMaterialCompileState::Failed,
+				.Category = Durin::EMaterialCompileResultCategory::Compile};
+			EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(*Root, std::move(Failed)));
+		}
+		EXPECT_EQ(Root->GetAcceptedCompiledProgram(), Accepted);
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Root->GetRenderData()).Metallic, 0.65f);
+		EXPECT_FLOAT_EQ(GetMaterialBinding(Instance->GetRenderData()).Metallic, 0.9f);
+		Durin::MarkAsGarbage(Instance);
+		Durin::MarkAsGarbage(Root);
+	}
+
 	Durin::MarkAsGarbage(PendingInstance);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
@@ -246,9 +308,9 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	auto* Material = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "CookedProgramRoundTrip");
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(
-		Durin::MakeStandardSurfaceMaterialProgram(), Validation));
+	auto Validation = Material->SetMaterialProgram(
+		Durin::MakeStandardSurfaceMaterialProgram());
+	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 
 	Durin::FByteBuffer FirstBytes;

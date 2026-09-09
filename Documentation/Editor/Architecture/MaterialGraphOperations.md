@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-09
 
 ## Ownership
 
@@ -75,6 +75,27 @@ coexist in a valid program.
 
 ## Transactions and gestures
 
+`ReplaceDefinitionsAndProgram` commits material-owned declarations and graph
+references through one Engine validation boundary and one transaction. Its
+Undo/Redo state retains definitions, graph and presentation; texture defaults
+are enumerated to the reference collector, and owned storage is accounted to
+the transaction buffer. Float4 declarations use the four-component vector
+editor. The overload accepting presentation commits node placement with the
+same declaration and graph transaction. `CreateParameter`, `RenameParameter`
+and `DeleteParameter` wrap Engine's identity-safe mutation results in this
+history boundary. Reuse and rejected edits add no undo entry. Results carry
+parameter GUIDs separately from expression node GUIDs.
+
+The root details panel exposes create/reuse, rename and delete, and displays
+all declaration defaults, including unreachable declarations. Instances retain
+reachable controls and inspectable orphan overrides with explicit removal.
+The canvas constant-node menu and `PromoteConstantToParameter` share one
+operation: preserve the node GUID and links, create or reuse a named numeric
+declaration, and replace the constant with a reference. Float through Float4
+are supported; same-name/type reuse preserves the existing default and metadata.
+The legacy surface-output promotion and texture-branch helpers remain temporary
+role-dependent adapters pending explicit-expression migration.
+
 One user-visible command produces one global editor transaction. Semantic
 commands retain before/after program and presentation values; presentation-only
 commands retain only changed node or Material Output positions; parameter-only
@@ -97,22 +118,34 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 2 contains at most 256 complete nodes,
-internal links, parameter GUIDs, and integral offsets from the selection's
-minimum corner. It contains no object pointer, package path, derived terminal,
-compile result, or viewport state. Copy orders nodes by GUID and drops links to
-unselected nodes. Paste rejects unknown versions, malformed or duplicate IDs,
-invalid bounds, overflow, and any candidate that ordinary program validation
-does not accept.
+`FMaterialGraphClipboardPayload` schema 3 contains at most 256 complete nodes,
+relative positions, referenced declaration snapshots and a weak source-root
+object-generation identity. Counted collector-visible strong references retain
+texture defaults independently of the source material. Replacing or clearing
+the payload releases those references. Clipboard state is process-local; it
+contains no compiler result or viewport state.
 
-Paste generates a fresh GUID for every node in payload order, remaps internal
-links, preserves parameter GUIDs and relative placement, and commits the full
-candidate once. A selection containing the active aggregate source records that
-source; paste reconnects the remapped Surface node atomically without copying
-the derived terminal. Cut is a read-only copy followed by one validated delete
-transaction. Duplicate uses the same payload and paste path with a deterministic
-offset. The canvas stores this structured payload directly, so canvas and
-automation semantics cannot diverge.
+Copy orders nodes by GUID and retains external links for same-root paste.
+Paste generates new node GUIDs and remaps internal links. Same-root paste
+requires each declaration GUID/type to remain available and uses current labels
+and defaults. Foreign paste rejects external links even if a destination node
+happens to have the same GUID. It creates local parameter GUIDs, or reuses a
+same-name/type declaration only when default and metadata match. Missing,
+duplicate, invalid and conflicting declarations reject the entire operation.
+Node placement, declaration creation and graph references commit once and
+Undo/Redo together. Unknown clipboard versions are rejected.
+
+Legacy StandardSurface and role-dependent TextureCoordinate nodes reject
+foreign paste until authored migration replaces their hidden dependencies with
+explicit expressions. This bounded adapter must be removed with Stage 4 of the
+material-parameters plan; it must never remap a custom parameter into a fixed
+role slot.
+
+A selection containing the active aggregate source records that source; paste
+reconnects the remapped Surface node atomically without copying the derived
+terminal. Cut copies before one validated delete. Duplicate uses the same
+payload and paste path with a deterministic offset. The canvas stores this
+structured payload directly, so canvas and automation semantics agree.
 
 Automatic layout is presentation-only and deterministic. It derives consumer
 edges from the semantic DAG, calculates each node's longest distance to a

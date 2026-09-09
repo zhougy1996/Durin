@@ -46,10 +46,14 @@ namespace Durin
 		FMaterialRenderLayout InLayout,
 		FByteBuffer InUniformPayload,
 		std::vector<FRHITextureReferenceRef> InResources,
+		std::vector<FMaterialSamplerState> InSamplers,
+		std::vector<EMaterialTextureFallback> InFallbacks,
 		bool bInError)
 		: Layout(std::move(InLayout))
 		, UniformPayload(std::move(InUniformPayload))
 		, Resources(std::move(InResources))
+		, Samplers(std::move(InSamplers))
+		, TextureFallbacks(std::move(InFallbacks))
 		, bError(bInError)
 	{
 	}
@@ -82,6 +86,17 @@ namespace Durin
 			return false;
 		}
 
+		if (Input.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		{
+			if (Input.Samplers.size() != Input.Resources.size()
+				|| Input.TextureFallbacks.size() != Input.Resources.size())
+				return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidCounts, 0,
+					"Material sampler and fallback counts must match texture resources.");
+			for (uint32 Index = 0; Index < Input.Resources.size(); ++Index)
+				if (!IsValidMaterialSampling(Input.Samplers[Index], Input.TextureFallbacks[Index]))
+					return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, Index,
+						"Material sampling state or fallback is invalid.");
+		}
 		std::vector<bool> Covered(Input.UniformPayload.size(), false);
 		for (uint32 FieldIndex = 0; FieldIndex < Input.Layout.Fields.size(); ++FieldIndex)
 		{
@@ -131,6 +146,8 @@ namespace Durin
 			std::move(Input.Layout),
 			std::move(Input.UniformPayload),
 			std::move(Input.Resources),
+			std::move(Input.Samplers),
+			std::move(Input.TextureFallbacks),
 			false);
 		return true;
 	}
@@ -203,6 +220,16 @@ namespace Durin
 	{
 		OutBinding = FMaterialRenderBinding{};
 		OutDiagnostic = {};
+		if (Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion)
+		{
+			if (!ValidateMaterialRenderLayout(Representation.GetLayout(), OutDiagnostic)) return false;
+			OutBinding.LayoutIdentity = Representation.GetLayout().Identity;
+			OutBinding.CompiledUniformPayload.assign(Representation.GetUniformPayload().begin(), Representation.GetUniformPayload().end());
+			OutBinding.CompiledTextures.assign(Representation.GetResources().begin(), Representation.GetResources().end());
+			OutBinding.CompiledSamplers.assign(Representation.GetSamplers().begin(), Representation.GetSamplers().end());
+			OutBinding.CompiledTextureFallbacks.assign(Representation.GetTextureFallbacks().begin(), Representation.GetTextureFallbacks().end());
+			return true;
+		}
 		static const FMaterialRenderLayout ExpectedLayout =
 			MakeDefaultMaterialRenderLayout();
 		const FMaterialRenderLayout& Layout = Representation.GetLayout();
@@ -279,6 +306,20 @@ namespace Durin
 		Input.Resources.assign(
 			Source.GetResources().begin(),
 			Source.GetResources().end());
+		Input.Samplers.assign(Source.GetSamplers().begin(), Source.GetSamplers().end());
+		Input.TextureFallbacks.assign(Source.GetTextureFallbacks().begin(), Source.GetTextureFallbacks().end());
+	}
+
+	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(const FMaterialRenderLayout& Layout)
+	{
+		Input.Layout = Layout;
+		const auto Valid = ValidateCompiledMaterialLayout(Layout);
+		bInvalid = !Valid;
+		if (bInvalid) return;
+		Input.UniformPayload.resize(Layout.UniformPayloadSize, std::byte{0});
+		Input.Resources.resize(Layout.ResourceFieldCount);
+		Input.Samplers.resize(Layout.ResourceFieldCount);
+		Input.TextureFallbacks.resize(Layout.ResourceFieldCount, EMaterialTextureFallback::White);
 	}
 
 	auto FMaterialRenderRepresentationBuilder::FindField(
@@ -311,7 +352,7 @@ namespace Durin
 		{
 			return RejectField(ParameterId);
 		}
-		if (MaterialParameters::FindBuiltinParameterRole(ParameterId,
+		if (Input.Layout.Identity.Version == 3 && MaterialParameters::FindBuiltinParameterRole(ParameterId,
 				MaterialParameters::EMaterialBuiltinParameterKind::SamplerState)
 				!= MaterialParameters::EMaterialBuiltinParameterRole::Count)
 		{
@@ -353,7 +394,8 @@ namespace Durin
 		// The current render protocol reserves a Vector3 slot for UV transforms.
 		// Preserve that protocol while keeping the authored parameter dimension exact.
 		if (Field->Storage != EMaterialRenderFieldStorage::Uniform
-			|| Field->Type != EMaterialRenderValueType::Vector3)
+			|| (Field->Type != EMaterialRenderValueType::Vector2
+				&& !(Input.Layout.Identity.Version == 3 && Field->Type == EMaterialRenderValueType::Vector3)))
 		{
 			return RejectField(ParameterId);
 		}
@@ -363,9 +405,24 @@ namespace Durin
 		return true;
 	}
 
+	auto FMaterialRenderRepresentationBuilder::SetVector4(const FGuid& ParameterId, const FVector4& Value) -> bool
+	{
+		const auto* Field = FindField(ParameterId);
+		if (!Field) return false;
+		if (Field->Storage != EMaterialRenderFieldStorage::Uniform || Field->Type != EMaterialRenderValueType::Vector4)
+			return RejectField(ParameterId);
+		WriteFloat(Input.UniformPayload, Field->Offset, static_cast<float>(Value.x));
+		WriteFloat(Input.UniformPayload, Field->Offset + 4, static_cast<float>(Value.y));
+		WriteFloat(Input.UniformPayload, Field->Offset + 8, static_cast<float>(Value.z));
+		WriteFloat(Input.UniformPayload, Field->Offset + 12, static_cast<float>(Value.w));
+		return true;
+	}
+
 	auto FMaterialRenderRepresentationBuilder::SetTexture(
 		const FGuid& ParameterId,
-		const FRHITextureReferenceRef& Value
+		const FRHITextureReferenceRef& Value,
+		FMaterialSamplerState Sampler,
+		EMaterialTextureFallback Fallback
 	) -> bool
 	{
 		const FMaterialRenderField* Field = FindField(ParameterId);
@@ -377,6 +434,12 @@ namespace Durin
 			return RejectField(ParameterId);
 		}
 		Input.Resources[Field->CompactIndex] = Value;
+		if (Input.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		{
+			if (!IsValidMaterialSampling(Sampler, Fallback)) return RejectField(ParameterId);
+			Input.Samplers[Field->CompactIndex] = Sampler;
+			Input.TextureFallbacks[Field->CompactIndex] = Fallback;
+		}
 		return true;
 	}
 

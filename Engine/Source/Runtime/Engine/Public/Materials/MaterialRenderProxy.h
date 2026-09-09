@@ -18,6 +18,9 @@ namespace Durin
 		float ScalarValue = 0.0f;
 		FVector2 Vector2Value{0.0};
 		FVector3 VectorValue{0.0};
+		FVector4 Vector4Value{0.0};
+		FMaterialSamplerState SamplerState;
+		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
 		FRHITextureReferenceRef TextureValue;
 	};
 

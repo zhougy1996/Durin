@@ -87,7 +87,7 @@ namespace Durin
 		auto IsValidOpcode(EMaterialProgramOpcode Opcode) -> bool
 		{
 			return Opcode >= EMaterialProgramOpcode::Constant
-				&& Opcode <= EMaterialProgramOpcode::StandardSurface;
+				&& Opcode <= EMaterialProgramOpcode::MakeSurface;
 		}
 
 		auto IsCanonicalTextureParameter(const FGuid& Id) -> bool
@@ -117,6 +117,8 @@ namespace Durin
 				return EMaterialProgramValueType::Float2;
 			case EMaterialParameterType::Vector:
 				return EMaterialProgramValueType::Float3;
+			case EMaterialParameterType::Vector4:
+				return EMaterialProgramValueType::Float4;
 			case EMaterialParameterType::Texture:
 				return EMaterialProgramValueType::Texture2D;
 			}
@@ -194,6 +196,20 @@ namespace Durin
 
 			switch (Node.Opcode)
 			{
+			case EMaterialProgramOpcode::UVChannel:
+				if (RequireCount(1) && (InputType(0) != EMaterialProgramValueType::Float
+					|| Node.ResultType != EMaterialProgramValueType::Float2))
+					AddType(0, "UVChannel requires a Float channel and returns Float2.");
+				break;
+			case EMaterialProgramOpcode::MakeSurface:
+				if (RequireCount(8))
+					for (uint32 Index = 0; Index < 8; ++Index)
+					{
+						const auto Expected = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
+						if (InputType(Index) != Expected) AddType(Index, "MakeSurface input type does not match the surface property.");
+					}
+				if (Node.ResultType != EMaterialProgramValueType::Surface) AddType(0, "MakeSurface must return Surface.");
+				break;
 			case EMaterialProgramOpcode::StandardSurface:
 				RequireCount(0);
 				if (Node.ResultType != EMaterialProgramValueType::Surface)
@@ -284,6 +300,8 @@ namespace Durin
 			case EMaterialProgramOpcode::Absolute:
 			case EMaterialProgramOpcode::Saturate:
 			case EMaterialProgramOpcode::Normalize:
+			case EMaterialProgramOpcode::Sine:
+			case EMaterialProgramOpcode::Cosine:
 				RequireSameNumeric(1);
 				if (Node.Opcode == EMaterialProgramOpcode::Normalize
 					&& Node.ResultType == EMaterialProgramValueType::Float)
@@ -376,9 +394,9 @@ namespace Durin
 	auto UpgradeMaterialProgram(FMaterialProgram& Program) -> bool
 	{
 		if (Program.SchemaVersion == CurrentMaterialProgramSchemaVersion) return true;
-		if (Program.SchemaVersion != 2) return false;
+		if (Program.SchemaVersion != 2 && Program.SchemaVersion != 3) return false;
+		if (Program.SchemaVersion == 2) Program.Outputs.Surface = {};
 		Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
-		Program.Outputs.Surface = {};
 		return true;
 	}
 

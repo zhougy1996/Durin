@@ -12,6 +12,7 @@
 #include <array>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Durin
@@ -28,6 +29,7 @@ namespace Durin
 		Texture,
 		// Appended to preserve the serialized values of the original alternatives.
 		Vector2,
+		Vector4,
 	};
 
 	// Selects editor presentation without changing the parameter's runtime type.
@@ -92,6 +94,53 @@ namespace Durin
 		auto operator==(const FMaterialStaticProperties&) const -> bool = default;
 	};
 
+	// Bounded sampling state belongs to texture values and instance overrides.
+	DENUM()
+	enum class EMaterialSamplerMinFilter : uint8
+	{
+		Nearest,
+		Linear,
+		NearestMipmapNearest,
+		LinearMipmapNearest,
+		NearestMipmapLinear,
+		LinearMipmapLinear,
+	};
+	DENUM()
+	enum class EMaterialSamplerMagFilter : uint8 { Nearest, Linear };
+	DENUM()
+	enum class EMaterialSamplerAddressMode : uint8
+	{
+		Repeat,
+		MirroredRepeat,
+		ClampToEdge,
+	};
+
+	DSTRUCT()
+	struct FMaterialSamplerState
+	{
+		GENERATED_BODY()
+		DPROPERTY()
+		EMaterialSamplerMinFilter MinFilter = EMaterialSamplerMinFilter::LinearMipmapLinear;
+		DPROPERTY()
+		EMaterialSamplerMagFilter MagFilter = EMaterialSamplerMagFilter::Linear;
+		DPROPERTY()
+		EMaterialSamplerAddressMode AddressU = EMaterialSamplerAddressMode::Repeat;
+		DPROPERTY()
+		EMaterialSamplerAddressMode AddressV = EMaterialSamplerAddressMode::Repeat;
+
+		auto operator==(const FMaterialSamplerState&) const -> bool = default;
+	};
+
+	DENUM()
+	enum class EMaterialTextureFallback : uint8
+	{
+		White,
+		Black,
+		FlatRGNormal,
+	};
+
+	ENGINE_API auto IsValidMaterialSampling(FMaterialSamplerState State, EMaterialTextureFallback Fallback) -> bool;
+
 	// Stores the reflected alternatives used by material parameters. Type selects
 	// the only semantically active field.
 	DSTRUCT()
@@ -109,12 +158,23 @@ namespace Durin
 		FVector2 Vector2Value{0.0};
 
 		DPROPERTY()
+		FVector4 Vector4Value{0.0};
+
+		DPROPERTY()
 		TObjectPtr<DTexture2D> TextureValue;
+
+		DPROPERTY()
+		FMaterialSamplerState SamplerState;
+
+		DPROPERTY()
+		EMaterialTextureFallback TextureFallback = EMaterialTextureFallback::White;
 
 		ENGINE_API static auto MakeScalar(float Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector2(const FVector2& Value) -> FMaterialParameterValue;
-		ENGINE_API static auto MakeTexture(DTexture2D* Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeVector4(const FVector4& Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeTexture(DTexture2D* Value, FMaterialSamplerState Sampler = {},
+			EMaterialTextureFallback Fallback = EMaterialTextureFallback::White) -> FMaterialParameterValue;
 
 		auto operator==(const FMaterialParameterValue&) const -> bool = default;
 	};
@@ -164,6 +224,8 @@ namespace Durin
 		// Applies only to Texture parameters.
 		DPROPERTY()
 		ETextureUsage TextureUsage = ETextureUsage::Color;
+
+		auto operator==(const FMaterialParameterDefinition&) const -> bool = default;
 	};
 
 	// Overrides one parameter by stable identifier while retaining all value alternatives.
@@ -422,6 +484,39 @@ namespace Durin
 	}
 
 	ENGINE_API auto GetCanonicalMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>;
+	inline constexpr uint32 MaterialMaxParameterDefinitionCount = 128;
+	inline constexpr uint32 MaterialMaxParameterTextBytes = 128;
+
+	enum class EMaterialParameterError : uint8
+	{
+		None,
+		TooManyDefinitions,
+		InvalidId,
+		DuplicateId,
+		InvalidName,
+		DuplicateName,
+		InvalidText,
+		InvalidType,
+		InvalidDefault,
+		InvalidMetadata,
+		NotFound,
+		TypeConflict,
+		UnsupportedProgramSchema,
+		InvalidProgram,
+	};
+
+	struct FMaterialParameterValidationResult
+	{
+		EMaterialParameterError Error = EMaterialParameterError::None;
+		FGuid ParameterId;
+		explicit operator bool() const { return Error == EMaterialParameterError::None; }
+	};
+
+	// Format only at a diagnostic presentation or logging boundary.
+	ENGINE_API auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view;
+	// Validates authored declarations independently of the legacy PBR template.
+	ENGINE_API auto ValidateMaterialParameterDefinitions(
+		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
 	ENGINE_API auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
 	ENGINE_API auto ValidateCanonicalMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions,

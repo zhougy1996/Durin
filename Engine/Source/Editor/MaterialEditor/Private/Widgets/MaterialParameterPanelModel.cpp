@@ -38,10 +38,12 @@ namespace Durin::Editor::Material
 			}
 			case EMaterialParameterType::Vector2:
 				return FMaterialParameterValue::MakeVector2(Value.Vector2Value);
+			case EMaterialParameterType::Vector4:
+				return FMaterialParameterValue::MakeVector4(Value.Vector4Value);
 			case EMaterialParameterType::Vector:
 				return FMaterialParameterValue::MakeVector(Value.VectorValue);
 			case EMaterialParameterType::Texture:
-				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get());
+				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
 			}
 			return {};
 		}
@@ -122,10 +124,15 @@ namespace Durin::Editor::Material
 			? InspectMaterialParameterDependencies(
 				*Program, Material->GetParameterDefinitions())
 			: std::vector<FMaterialParameterDependency>{};
-		for (const FMaterialParameterDependency& Dependency : Dependencies)
+		std::vector<FGuid> ParameterIds;
+		if (Instance)
+			for (const auto& Dependency : Dependencies) ParameterIds.push_back(Dependency.ParameterId);
+		else
+			for (const auto& Definition : Material->GetParameterDefinitions()) ParameterIds.push_back(Definition.Id);
+		for (const FGuid& ParameterId : ParameterIds)
 		{
 			const FMaterialParameterDefinition* Definition =
-				Material->FindParameterDefinition(Dependency.ParameterId);
+				Material->FindParameterDefinition(ParameterId);
 			if (!Definition) continue;
 			FResolvedMaterialParameter Resolved;
 			if (!Material->ResolveParameterValue(Definition->Id, Resolved)) continue;
@@ -162,7 +169,8 @@ namespace Durin::Editor::Material
 			if (Definition.Type == EMaterialParameterType::Scalar)
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar : EMaterialParameterControlKind::Scalar;
 			return (Definition.Type == EMaterialParameterType::Vector
-				|| Definition.Type == EMaterialParameterType::Vector2)
+				|| Definition.Type == EMaterialParameterType::Vector2
+				|| Definition.Type == EMaterialParameterType::Vector4)
 				? EMaterialParameterControlKind::Vector : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::Integer:
 			return Definition.Type == EMaterialParameterType::Scalar
@@ -180,6 +188,7 @@ namespace Durin::Editor::Material
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar
 					: EMaterialParameterControlKind::Scalar;
 			case EMaterialParameterType::Vector2: return EMaterialParameterControlKind::Vector;
+			case EMaterialParameterType::Vector4: return EMaterialParameterControlKind::Vector;
 			case EMaterialParameterType::Vector: return EMaterialParameterControlKind::Color;
 			case EMaterialParameterType::Texture: return EMaterialParameterControlKind::AssetPicker;
 			}
@@ -196,6 +205,8 @@ namespace Durin::Editor::Material
 	) const -> bool
 	{
 		if (!Entry.Definition || Entry.bOrphan || !Material) return false;
+		if (Entry.Definition->Type == EMaterialParameterType::Texture
+			&& !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(*Entry.Definition, Value);
 		if (Instance)
 		{

@@ -63,6 +63,7 @@ namespace Durin
 				+ Result.CompilerIdentity.size() + Result.Target.size()
 				+ Result.IR.Nodes.size() * sizeof(FMaterialIRNode)
 				+ Result.ActiveParameters.size() * sizeof(FMaterialCompilerParameterDeclaration)
+				+ Result.Layout.Fields.size() * sizeof(FMaterialRenderField)
 				+ sizeof(Result.IR.SurfaceRoot);
 			for (const FMaterialIRNode& Node : Result.IR.Nodes)
 				Bytes += Node.Inputs.size() * sizeof(uint32);
@@ -893,9 +894,12 @@ namespace Durin
 				Status.bHasLastKnownGood = Material.AcceptedCompiledProgram != nullptr;
 				if (Result.State == EMaterialCompileState::Ready
 					&& Result.CompiledProgram
-					&& Result.CompiledProgram->Identity == Result.ProgramIdentity)
+					&& Result.ProgramIdentity == Status.RequestedIdentity
+					&& Result.CompiledProgram->Identity == Result.ProgramIdentity
+					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
 					Material.AcceptedCompiledProgram = std::move(Result.CompiledProgram);
+					Material.RetainedAcceptedParameters.clear();
 					Material.AcceptedCompiledStaticProperties = Result.StaticProperties;
 					Status.CompiledIdentity = Result.ProgramIdentity;
 					Status.CompiledAuthoredRevision = Result.AuthoredRevision;
@@ -911,6 +915,11 @@ namespace Durin
 					return true;
 				}
 
+				if (Result.State == EMaterialCompileState::Ready)
+				{
+					Status.State = EMaterialCompileState::Rejected;
+					Status.ResultCategory = EMaterialCompileResultCategory::Admission;
+				}
 				Status.bLastKnownGoodDisplayed = Material.AcceptedCompiledProgram != nullptr;
 				for (FMaterialCompileDiagnostic& Diagnostic
 					: Material.MaterialCompileDiagnostics)

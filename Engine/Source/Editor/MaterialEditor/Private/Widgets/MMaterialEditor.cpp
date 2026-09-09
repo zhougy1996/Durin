@@ -855,10 +855,64 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
 	{
-		ImGui::SeparatorText("Surface Parameters");
+		DrawParameterDeclarations(Material);
+		ImGui::SeparatorText("Parameter Defaults");
 		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters", MakeMaterialPropertyTableConfig())) return;
 		DrawMaterialParameters(Material);
 		MonaImGui::PropertyEdit::EndTable();
+	}
+
+	auto MMaterialEditor::DrawParameterDeclarations(DMaterial* Material) -> void
+	{
+		if (!ImGui::CollapsingHeader("Manage Parameters")) return;
+		auto* Transactions = GEditor ? GEditor->GetTransactor() : nullptr;
+		ImGui::InputTextWithHint("##NewParameterName", "Parameter name", ParameterNameDraft.data(), ParameterNameDraft.size());
+		ImGui::Combo("Type", &ParameterTypeDraft, "Float\0Float2\0Float3\0Float4\0Texture2D\0");
+		if (ImGui::Button("Create / Reuse") && FinishActivePropertyEdit(false))
+		{
+			constexpr std::array Types{EMaterialParameterType::Scalar, EMaterialParameterType::Vector2,
+				EMaterialParameterType::Vector, EMaterialParameterType::Vector4, EMaterialParameterType::Texture};
+			FMaterialParameterDefinition Definition;
+			Definition.Name = FName(ParameterNameDraft.data());
+			Definition.DisplayName = ParameterNameDraft.data();
+			Definition.Type = Types[ParameterTypeDraft];
+			const auto Result = FMaterialGraphOperations::CreateParameter(*Material, std::move(Definition), Transactions);
+			if (!Result) SetError(Result.Message);
+		}
+		// Commands may replace the material's declaration storage during this frame.
+		const std::vector<FMaterialParameterDefinition> Definitions(
+			Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
+		for (const auto& Definition : Definitions)
+		{
+			ImGui::PushID(Definition.Id.ToString().c_str());
+			ImGui::TextUnformatted(Definition.Name.ToString().c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Rename"))
+			{
+				const auto Name = Definition.Name.ToString();
+				std::snprintf(ParameterRenameDraft.data(), ParameterRenameDraft.size(), "%s", Name.c_str());
+				ImGui::OpenPopup("Rename Parameter");
+			}
+			if (ImGui::BeginPopup("Rename Parameter"))
+			{
+				ImGui::InputText("Name", ParameterRenameDraft.data(), ParameterRenameDraft.size());
+				if (ImGui::Button("Apply") && FinishActivePropertyEdit(false))
+				{
+					const auto Result = FMaterialGraphOperations::RenameParameter(*Material, Definition.Id,
+						FName(ParameterRenameDraft.data()), Transactions);
+					if (!Result) SetError(Result.Message);
+					else ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Delete") && FinishActivePropertyEdit(false))
+			{
+				const auto Result = FMaterialGraphOperations::DeleteParameter(*Material, Definition.Id, Transactions);
+				if (!Result) SetError(Result.Message);
+			}
+			ImGui::PopID();
+		}
 	}
 
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
@@ -1000,6 +1054,13 @@ namespace Durin::Editor::Material
 				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
 			Edited.Vector2Value = Value;
 		}
+		else if (Definition.Type == EMaterialParameterType::Vector4)
+		{
+			FVector4 Value = Entry.Value.Vector4Value;
+			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
+				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
+			Edited.Vector4Value = Value;
+		}
 		else
 		{
 			FVector3 Value = Entry.Value.VectorValue;
@@ -1121,6 +1182,24 @@ namespace Durin::Editor::Material
 			},
 		});
 		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
+		if (ImGui::TreeNode("Sampling"))
+		{
+			FMaterialParameterValue Edited = Entry.Value;
+			auto Combo = [](const char* Label, auto& Value, const char* Options) {
+				int Selected = static_cast<int>(Value);
+				if (!ImGui::Combo(Label, &Selected, Options)) return false;
+				Value = static_cast<std::remove_reference_t<decltype(Value)>>(Selected);
+				return true;
+			};
+			bool Changed = Combo("Minification", Edited.SamplerState.MinFilter,
+				"Nearest\0Linear\0Nearest mip, nearest\0Nearest mip, linear\0Linear mip, nearest\0Linear mip, linear\0");
+			Changed |= Combo("Magnification", Edited.SamplerState.MagFilter, "Nearest\0Linear\0");
+			Changed |= Combo("Address U", Edited.SamplerState.AddressU, "Repeat\0Mirror\0Clamp\0");
+			Changed |= Combo("Address V", Edited.SamplerState.AddressV, "Repeat\0Mirror\0Clamp\0");
+			Changed |= Combo("Missing texture", Edited.TextureFallback, "White\0Black\0Flat normal (RG)\0");
+			if (Changed) Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, false);
+			ImGui::TreePop();
+		}
 	}
 
 	auto MMaterialEditor::DrawOrphanParameter(

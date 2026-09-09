@@ -786,6 +786,14 @@ namespace Durin::Editor::Material
 				}
 				ImGui::EndMenu();
 			}
+			if (Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Promote to Parameter"))
+			{
+				ImGui::InputTextWithHint("##ParameterName", "Parameter name", PromotionNameDraft.data(), PromotionNameDraft.size());
+				if (ImGui::MenuItem("Create / Reuse"))
+					ReportCommand(FMaterialGraphOperations::PromoteConstantToParameter(
+						Material, Edited.Id, FName(PromotionNameDraft.data()), &Transactions), ReportError);
+				ImGui::EndMenu();
+			}
 			if (ImGui::MenuItem("Copy"))
 				CopyNodes(Material, ContextSelection, ReportError);
 			if (ImGui::MenuItem("Duplicate"))

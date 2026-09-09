@@ -168,6 +168,7 @@ namespace Durin::Editor::Material
 		bool bVisualGraphTopologyStale = true;
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
 		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
+		std::array<char, 129> PromotionNameDraft{};
 		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterEditSession;

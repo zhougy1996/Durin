@@ -24,10 +24,20 @@ namespace Durin
 		return Result;
 	}
 
-	auto FMaterialParameterValue::MakeTexture(DTexture2D* Value) -> FMaterialParameterValue
+	auto FMaterialParameterValue::MakeVector4(const FVector4& Value) -> FMaterialParameterValue
+	{
+		FMaterialParameterValue Result;
+		Result.Vector4Value = Value;
+		return Result;
+	}
+
+	auto FMaterialParameterValue::MakeTexture(DTexture2D* Value, FMaterialSamplerState Sampler,
+		EMaterialTextureFallback Fallback) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
 		Result.TextureValue = Value;
+		Result.SamplerState = Sampler;
+		Result.TextureFallback = Fallback;
 		return Result;
 	}
 
@@ -176,6 +186,103 @@ namespace Durin
 	{
 		static const std::vector<FMaterialParameterDefinition> Definitions = MakeCanonicalMaterialParameterDefinitions();
 		return Definitions;
+	}
+
+	auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view
+	{
+		switch (Error)
+		{
+		case EMaterialParameterError::None: return "";
+		case EMaterialParameterError::TooManyDefinitions: return "Material declaration count exceeds its bound.";
+		case EMaterialParameterError::InvalidId: return "Material declaration GUID is invalid.";
+		case EMaterialParameterError::DuplicateId: return "Material declaration GUID is duplicated.";
+		case EMaterialParameterError::InvalidName: return "Material declaration name must not be None.";
+		case EMaterialParameterError::DuplicateName: return "Material declaration name is already occupied.";
+		case EMaterialParameterError::InvalidText: return "Material declaration text is invalid or exceeds its bound.";
+		case EMaterialParameterError::InvalidType: return "Material declaration type is invalid.";
+		case EMaterialParameterError::InvalidDefault: return "Material declaration default must be finite.";
+		case EMaterialParameterError::InvalidMetadata: return "Material declaration metadata is invalid.";
+		case EMaterialParameterError::NotFound: return "Material declaration does not exist.";
+		case EMaterialParameterError::TypeConflict: return "Changing a declaration type requires a new GUID and an unoccupied name.";
+		case EMaterialParameterError::UnsupportedProgramSchema: return "Unsupported material program schema.";
+		case EMaterialParameterError::InvalidProgram: return "Material declaration change would produce an invalid program.";
+		}
+		return "Unknown material parameter error.";
+	}
+
+	auto IsValidMaterialSampling(FMaterialSamplerState State, EMaterialTextureFallback Fallback) -> bool
+	{
+		return State.MinFilter <= EMaterialSamplerMinFilter::LinearMipmapLinear
+			&& State.MagFilter <= EMaterialSamplerMagFilter::Linear
+			&& State.AddressU <= EMaterialSamplerAddressMode::ClampToEdge
+			&& State.AddressV <= EMaterialSamplerAddressMode::ClampToEdge
+			&& Fallback <= EMaterialTextureFallback::FlatRGNormal;
+	}
+
+	auto ValidateMaterialParameterDefinitions(
+		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult
+	{
+		if (Definitions.size() > MaterialMaxParameterDefinitionCount)
+		{
+			return {.Error = EMaterialParameterError::TooManyDefinitions};
+		}
+		std::unordered_set<FGuid> Ids;
+		std::unordered_set<FName> Names;
+		for (const auto& Definition : Definitions)
+		{
+			if (!Definition.Id.IsValid())
+				return {EMaterialParameterError::InvalidId, Definition.Id};
+			if (!Ids.insert(Definition.Id).second)
+				return {EMaterialParameterError::DuplicateId, Definition.Id};
+			if (Definition.Name.IsNone())
+				return {EMaterialParameterError::InvalidName, Definition.Id};
+			if (!Names.insert(Definition.Name).second)
+				return {EMaterialParameterError::DuplicateName, Definition.Id};
+			if (Definition.Name.ToString().size() > MaterialMaxParameterTextBytes
+				|| Definition.DisplayName.size() > MaterialMaxParameterTextBytes
+				|| Definition.GroupName.ToString().size() > MaterialMaxParameterTextBytes
+				|| Definition.DisplayName.find('\0') != std::string::npos)
+			{
+				return {EMaterialParameterError::InvalidText, Definition.Id};
+			}
+			if (Definition.Type == EMaterialParameterType::Texture
+				&& !IsValidMaterialSampling(Definition.Value.SamplerState, Definition.Value.TextureFallback))
+				return {EMaterialParameterError::InvalidMetadata, Definition.Id};
+			bool bFinite = false;
+			switch (Definition.Type)
+			{
+			case EMaterialParameterType::Scalar:
+				bFinite = std::isfinite(Definition.Value.ScalarValue); break;
+			case EMaterialParameterType::Vector2:
+				bFinite = std::isfinite(Definition.Value.Vector2Value.x)
+					&& std::isfinite(Definition.Value.Vector2Value.y); break;
+			case EMaterialParameterType::Vector:
+				bFinite = std::isfinite(Definition.Value.VectorValue.x)
+					&& std::isfinite(Definition.Value.VectorValue.y)
+					&& std::isfinite(Definition.Value.VectorValue.z); break;
+			case EMaterialParameterType::Texture:
+				bFinite = true; break;
+			case EMaterialParameterType::Vector4:
+				bFinite = std::isfinite(Definition.Value.Vector4Value.x)
+					&& std::isfinite(Definition.Value.Vector4Value.y)
+					&& std::isfinite(Definition.Value.Vector4Value.z)
+					&& std::isfinite(Definition.Value.Vector4Value.w); break;
+			default:
+				return {EMaterialParameterError::InvalidType, Definition.Id};
+			}
+			if (!bFinite)
+				return {EMaterialParameterError::InvalidDefault, Definition.Id};
+			if (Definition.Presentation > EMaterialParameterPresentation::AssetPicker
+				|| Definition.TextureUsage > ETextureUsage::DataMask
+				|| (Definition.bHasRange
+					&& (!std::isfinite(Definition.MinimumValue)
+						|| !std::isfinite(Definition.MaximumValue)
+						|| Definition.MinimumValue > Definition.MaximumValue)))
+			{
+				return {EMaterialParameterError::InvalidMetadata, Definition.Id};
+			}
+		}
+		return {};
 	}
 
 	auto ValidateCanonicalMaterialParameterDefinitions(

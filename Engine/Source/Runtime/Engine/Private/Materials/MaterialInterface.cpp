@@ -167,37 +167,30 @@ namespace Durin
 		FMaterialRenderData Result;
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		Result.Representation = MakeCanonicalMaterialRenderRepresentation();
-		FMaterialRenderRepresentationBuilder RepresentationBuilder(
-			Result.Representation);
+		if (auto* Parent = GetParent(); IsValid(Parent) && Parent != this)
+			{
+			const auto ParentData = Parent->GetRenderData();
+			if (ParentData.Representation.IsError()) return GetErrorMaterialRenderData();
+			Result.Representation = ParentData.Representation;
+		}
+		FMaterialRenderRepresentationBuilder RepresentationBuilder = Result.CompiledProgram
+			&& Result.CompiledProgram->Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
+			&& Result.CompiledProgram->Layout.Identity != Result.Representation.GetLayout().Identity
+			? FMaterialRenderRepresentationBuilder(Result.CompiledProgram->Layout)
+			: FMaterialRenderRepresentationBuilder(Result.Representation);
 		bool bRepresentationValid = true;
-		for (const FMaterialParameterDefinition& Definition : GetCanonicalMaterialParameterDefinitions())
+		if (Result.CompiledProgram)
+			Result.PlanningPassIdentity.ShaderMap.RenderLayout = Result.CompiledProgram->Layout.Identity;
+		const auto LocalLayer = BuildMaterialLocalRenderLayer();
+		for (const auto& Parameter : LocalLayer.Parameters)
 		{
-			if (Result.CompiledProgram)
-			{
-				const auto& Parameters = Result.CompiledProgram->ActiveParameters;
-				const auto Active = std::ranges::find(Parameters, Definition.Id,
-					&FMaterialCompilerParameterDeclaration::Id);
-				if (Active == Parameters.end() || Active->Type != Definition.Type) continue;
-			}
-			FResolvedMaterialParameter Parameter;
-			if (!ResolveParameterValue(Definition.Id, Parameter)) continue;
-			if (Definition.Type == EMaterialParameterType::Texture)
-			{
-				DTexture2D* Texture = Parameter.Value.TextureValue.Get();
-				const bool bExpectedSRGB = Definition.TextureUsage == ETextureUsage::Color;
-				if (Texture != nullptr
-					&& (Texture->GetUsage() != Definition.TextureUsage
-						|| Texture->IsSRGB() != bExpectedSRGB))
-				{
-					DURIN_WARN_CATEGORY("Material", "Material '{}' parameter '{}' ignored texture '{}' because its usage or sRGB setting is incompatible.",
-						GetName(), Definition.Name.ToString(), Texture->GetName());
-				}
-			}
-			const FMaterialLocalRenderParameter LocalParameter =
-				BuildMaterialLocalRenderParameter(
-					Definition.Id, Definition.Type, Parameter.Value);
+			if (!Result.CompiledProgram) continue;
+			const auto& Parameters = Result.CompiledProgram->ActiveParameters;
+			const auto Active = std::ranges::find(Parameters, Parameter.Id,
+				&FMaterialCompilerParameterDeclaration::Id);
+			if (Active == Parameters.end() || Active->Type != Parameter.Type) continue;
 			bRepresentationValid = ApplyMaterialLocalRenderParameter(
-				RepresentationBuilder, LocalParameter)
+				RepresentationBuilder, Parameter)
 				&& bRepresentationValid;
 		}
 		const FMaterialStaticProperties StaticProperties =

@@ -14,9 +14,8 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			Outer, std::forward<TName>(Name));
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram())) return nullptr;
 		return Material;
 	}
 
@@ -104,8 +103,8 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	const auto Initial = CaptureMaterialProxy(Proxy);
 	ExpectColorNear(GetMaterialBinding(Initial.RenderData).BaseColor,
 		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakeDefaultMaterialProgram(), Validation));
+	auto Validation = Base->SetMaterialProgram(Durin::MakeDefaultMaterialProgram());
+	ASSERT_TRUE(Validation);
 	const auto Dormant = CaptureMaterialProxy(Proxy);
 	EXPECT_EQ(Dormant.LocalVersion, Initial.LocalVersion);
 	EXPECT_GT(Dormant.ResolvedVersion, Initial.ResolvedVersion);
@@ -115,7 +114,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram(), Validation));
+	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram())));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_EQ(Restored.LocalVersion, Initial.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,

@@ -11,7 +11,17 @@
 
 namespace Durin
 {
-	// Owns canonical base-material definitions and their editable default values.
+	struct FMaterialParameterEditResult
+	{
+		EMaterialParameterError Error = EMaterialParameterError::None;
+		// Created/reused/edited parameter on success, offending parameter on failure.
+		// Batch and program-wide results may have no parameter identity.
+		FGuid ParameterId;
+		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		explicit operator bool() const { return Error == EMaterialParameterError::None; }
+	};
+
+	// Owns base-material declarations, their default values and authored references.
 	DCLASS()
 	class DMaterial : public DMaterialInterface
 	{
@@ -60,9 +70,20 @@ namespace Durin
 		{
 			return MaterialCookDiagnostic;
 		}
-		ENGINE_API auto SetMaterialProgram(
-			FMaterialProgram InProgram,
-			FMaterialProgramValidationResult& OutValidation) -> bool;
+		[[nodiscard]] ENGINE_API auto SetMaterialProgram(
+			FMaterialProgram InProgram) -> FMaterialProgramValidationResult;
+		// Commits definitions and references together only after complete validation.
+		// Callers deleting a referenced definition must remove its references too.
+		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
+			std::vector<FMaterialParameterDefinition> Definitions,
+			FMaterialProgram InProgram) -> FMaterialParameterEditResult;
+		// A same-name/type request reuses the existing definition unchanged.
+		[[nodiscard]] ENGINE_API auto CreateParameterDefinition(
+			FMaterialParameterDefinition Definition) -> FMaterialParameterEditResult;
+		[[nodiscard]] ENGINE_API auto RenameParameterDefinition(
+			const FGuid& Id, FName Name) -> FMaterialParameterEditResult;
+		[[nodiscard]] ENGINE_API auto DeleteParameterDefinition(
+			const FGuid& Id) -> FMaterialParameterEditResult;
 		ENGINE_API auto SetMaterialGraphPresentation(
 			FMaterialGraphPresentation InPresentation) -> bool;
 		// Applies bounded graph-position edits without copying or sanitizing the
@@ -117,9 +138,14 @@ namespace Durin
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
 
-		// Definition identity and metadata are canonical; only the nested Value fields are editable.
+		// Shared semantic commands own structural edits and reference validation.
 		DPROPERTY()
 		std::vector<FMaterialParameterDefinition> ParameterDefinitions;
+
+		// Missing fields identify legacy fixed-PBR packages; semantic declaration
+		// edits explicitly opt into the material-owned declaration schema.
+		DPROPERTY()
+		uint32 ParameterDeclarationSchemaVersion = 1;
 
 		// Missing legacy fields retain the canonical constructor value. PostLoad
 		// logs malformed program data and leaves the accepted render state unchanged.
@@ -133,6 +159,8 @@ namespace Durin
 		FBulkData CookedProgramData;
 
 		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
+		// Value-owned fallback for declarations removed while old code is visible.
+		std::vector<FMaterialLocalRenderParameter> RetainedAcceptedParameters;
 		FMaterialStaticProperties AcceptedCompiledStaticProperties;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;

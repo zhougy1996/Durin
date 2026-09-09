@@ -112,6 +112,14 @@ namespace Durin::VulkanRHI
 		CapabilityCandidate.MinStorageBufferOffsetAlignment = static_cast<uint32>(
 			std::max<vk::DeviceSize>(16, Limits.minStorageBufferOffsetAlignment));
 		CapabilityCandidate.MaxStorageBufferRange = Limits.maxStorageBufferRange;
+		CapabilityCandidate.MaxFragmentSampledImages = std::min(
+			Limits.maxPerStageDescriptorSampledImages, Limits.maxDescriptorSetSampledImages);
+		CapabilityCandidate.MaxFragmentSamplers = std::min(
+			Limits.maxPerStageDescriptorSamplers, Limits.maxDescriptorSetSamplers);
+		CapabilityCandidate.MaxFragmentUniformBuffers = std::min(
+			Limits.maxPerStageDescriptorUniformBuffers, Limits.maxDescriptorSetUniformBuffers);
+		CapabilityCandidate.MaxFragmentResources = Limits.maxPerStageResources;
+		CapabilityCandidate.MaxUniformBufferRange = Limits.maxUniformBufferRange;
 		CapabilityCandidate.MaxComputeWorkGroupCount = {
 			Limits.maxComputeWorkGroupCount[0],
 			Limits.maxComputeWorkGroupCount[1],

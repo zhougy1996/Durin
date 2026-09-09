@@ -203,6 +203,13 @@ namespace Durin
 	) -> bool
 	{
 		OutDiagnostic = {};
+		if (Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
+		{
+			const auto Result = ValidateCompiledMaterialLayout(Layout);
+			if (Result) return true;
+			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidField,
+				Result.FieldIndex, std::string(GetMaterialLayoutErrorText(Result.Error)));
+		}
 		if (Layout.Identity.Version != CurrentMaterialRenderLayoutVersion)
 		{
 			return SetValidationFailure(

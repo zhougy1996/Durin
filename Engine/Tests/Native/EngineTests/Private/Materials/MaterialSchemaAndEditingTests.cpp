@@ -62,11 +62,155 @@ namespace
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram())) return nullptr;
 		return Material;
 	}
+}
+
+TEST(FMaterialTests, CustomDeclarationsReuseRenameAndRejectPartialMutations)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "CustomDeclarations");
+	ASSERT_NE(Material, nullptr);
+	Durin::FMaterialParameterDefinition Definition;
+	Definition.Name = "RustAmount";
+	Definition.Value = Durin::FMaterialParameterValue::MakeScalar(0.25f);
+	const auto Created = Material->CreateParameterDefinition(Definition);
+	ASSERT_TRUE(Created);
+	const auto Id = Created.ParameterId;
+	ASSERT_TRUE(Id.IsValid());
+	const uint64 Revision = Material->GetParameterDefinitionSchemaRevision();
+	Definition.Name = "rustamount";
+	Definition.Value.ScalarValue = 0.9f;
+	const auto Reused = Material->CreateParameterDefinition(Definition);
+	ASSERT_TRUE(Reused);
+	EXPECT_EQ(Reused.ParameterId, Id);
+	EXPECT_EQ(Material->FindParameterDefinition(Id)->Value.ScalarValue, 0.25f);
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
+	Definition.Type = Durin::EMaterialParameterType::Vector;
+	const auto Conflict = Material->CreateParameterDefinition(Definition);
+	EXPECT_FALSE(Conflict);
+	EXPECT_EQ(Conflict.Error, Durin::EMaterialParameterError::TypeConflict);
+	EXPECT_EQ(Conflict.ParameterId, Id);
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
+	const auto MissingId = Durin::FGuid::NewGuid();
+	const auto Missing = Material->RenameParameterDefinition(MissingId, "Unused");
+	EXPECT_EQ(Missing.Error, Durin::EMaterialParameterError::NotFound);
+	EXPECT_EQ(Missing.ParameterId, MissingId);
+	EXPECT_EQ(Material->DeleteParameterDefinition(MissingId).Error,
+		Durin::EMaterialParameterError::NotFound);
+	EXPECT_EQ(Material->RenameParameterDefinition(Id, {}).Error,
+		Durin::EMaterialParameterError::InvalidName);
+	EXPECT_EQ(Material->RenameParameterDefinition(Id, Durin::MaterialParameters::MetallicName()).Error,
+		Durin::EMaterialParameterError::DuplicateName);
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(), Revision);
+
+	Durin::FMaterialProgram Program;
+	Durin::FMaterialProgramNode Parameter;
+	Parameter.Id = Durin::FGuid::NewGuid();
+	Parameter.Opcode = Durin::EMaterialProgramOpcode::Parameter;
+	Parameter.ParameterId = Id;
+	Program.Nodes.push_back(Parameter);
+	Program.Outputs.Roughness.SourceNodeId = Parameter.Id;
+	auto Validation = Material->SetMaterialProgram(Program);
+	ASSERT_TRUE(Validation);
+	ASSERT_TRUE(Material->RenameParameterDefinition(Id, "Weathering"));
+	EXPECT_EQ(Material->FindParameterDefinition("Weathering")->Id, Id);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.front().DisplayName, "Weathering");
+	const auto Before = *Material->GetMaterialProgram();
+	const auto Deleted = Material->DeleteParameterDefinition(Id);
+	EXPECT_FALSE(Deleted);
+	EXPECT_EQ(Deleted.Error, Durin::EMaterialParameterError::InvalidProgram);
+	EXPECT_EQ(Deleted.ParameterId, Id);
+	EXPECT_EQ(Deleted.Diagnostics, Durin::ValidateMaterialProgram(Before, {}).Diagnostics);
+	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
+	EXPECT_NE(Material->FindParameterDefinition(Id), nullptr);
+	auto Definitions = std::vector<Durin::FMaterialParameterDefinition>(
+		Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
+	std::erase_if(Definitions, [&](const auto& Item) { return Item.Id == Id; });
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(Definitions, {}));
+	EXPECT_EQ(Material->FindParameterDefinition(Id), nullptr);
+	Durin::MarkAsGarbage(Material);
+}
+
+TEST(FMaterialTests, CustomDeclarationOverridesRetainOrphansAndRejectRetyping)
+{
+	InitializeDObjectSystem();
+	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "CustomOverrideRoot");
+	auto* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CustomOverrideParent");
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CustomOverrideChild");
+	Durin::FMaterialParameterDefinition Definition;
+	Definition.Id = Durin::FGuid::NewGuid();
+	Definition.Name = "RustAmount";
+	Definition.Value.ScalarValue = 0.25f;
+	Durin::FMaterialProgram Program;
+	Durin::FMaterialProgramNode Parameter;
+	Parameter.Id = Durin::FGuid::NewGuid();
+	Parameter.Opcode = Durin::EMaterialProgramOpcode::Parameter;
+	Parameter.ParameterId = Definition.Id;
+	Program.Nodes.push_back(Parameter);
+	Program.Outputs.Roughness.SourceNodeId = Parameter.Id;
+	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(Parent->SetParent(Root));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	ASSERT_TRUE(Parent->SetParameterOverride(Definition.Id, Definition.Type,
+		Durin::FMaterialParameterValue::MakeScalar(0.75f)));
+	float Value = 0;
+	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
+	EXPECT_EQ(Value, 0.75f);
+	auto Retyped = Definition;
+	Retyped.Type = Durin::EMaterialParameterType::Vector;
+	const auto Retype = Root->SetMaterialDefinitionsAndProgram({Retyped}, {});
+	EXPECT_FALSE(Retype);
+	EXPECT_EQ(Retype.Error, Durin::EMaterialParameterError::TypeConflict);
+	EXPECT_EQ(Retype.ParameterId, Definition.Id);
+	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({}, {}));
+	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	EXPECT_EQ(Parent->GetParameterOverrides().size(), 1u);
+	ASSERT_TRUE(Root->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	EXPECT_FALSE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
+	EXPECT_EQ(Value, 0.75f);
+	auto* OverridesProperty = Parent->GetClass()->FindPropertyByName("ParameterOverrides");
+	ASSERT_NE(OverridesProperty, nullptr);
+	auto* Overrides = OverridesProperty->ContainerPtrToValuePtr<
+		std::vector<Durin::FMaterialParameterOverride>>(Parent);
+	Overrides->front().Type = Durin::EMaterialParameterType::Vector;
+	Parent->PostLoad();
+	EXPECT_EQ(Parent->GetParameterOverrides().size(), 1u);
+	EXPECT_TRUE(Parent->IsParameterOverrideOrphan(Definition.Id));
+	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
+	EXPECT_EQ(Value, 0.25f);
+	ASSERT_TRUE(Parent->ClearParameterOverride(Definition.Id));
+	ASSERT_TRUE(Child->GetScalarParameterValue(Definition.Name, Value));
+	EXPECT_EQ(Value, 0.25f);
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Parent);
+	Durin::MarkAsGarbage(Root);
+}
+
+TEST(FMaterialTests, CustomDeclarationValidationIsBoundedAndChecksActiveDefaults)
+{
+	Durin::FMaterialParameterDefinition Definition;
+	Definition.Id = Durin::FGuid::NewGuid();
+	Definition.Name = "Independent";
+	EXPECT_TRUE(Durin::ValidateMaterialParameterDefinitions({}));
+	std::vector Definitions{Definition};
+	EXPECT_TRUE(Durin::ValidateMaterialParameterDefinitions(Definitions));
+	Definitions.front().Value.ScalarValue = std::numeric_limits<float>::infinity();
+	EXPECT_EQ(Durin::ValidateMaterialParameterDefinitions(Definitions).Error,
+		Durin::EMaterialParameterError::InvalidDefault);
+	Definitions.front() = Definition;
+	Definitions.push_back(Definition);
+	Definitions.back().Id = Durin::FGuid::NewGuid();
+	Definitions.back().Name = "independent";
+	const auto Duplicate = Durin::ValidateMaterialParameterDefinitions(Definitions);
+	EXPECT_EQ(Duplicate.Error, Durin::EMaterialParameterError::DuplicateName);
+	EXPECT_EQ(Duplicate.ParameterId, Definitions.back().Id);
+	Definitions.assign(Durin::MaterialMaxParameterDefinitionCount + 1, Definition);
+	EXPECT_EQ(Durin::ValidateMaterialParameterDefinitions(Definitions).Error,
+		Durin::EMaterialParameterError::TooManyDefinitions);
 }
 
 TEST(FMaterialTests, StaticMeshUsesReflectedMaterialSlotSchema)
@@ -343,7 +487,7 @@ TEST(FMaterialProgramSchemaTests,
 		Durin::GetCanonicalMaterialParameterDefinitions();
 	const auto ExpectCategory = [&](const Durin::FMaterialProgram& Program,
 		Durin::EMaterialProgramDiagnosticCategory Category) {
-		const auto Validation =
+		auto Validation =
 			Durin::ValidateMaterialProgram(Program, Definitions);
 		EXPECT_FALSE(Validation);
 		EXPECT_NE(std::ranges::find(
@@ -507,9 +651,8 @@ TEST(FMaterialProgramSchemaTests,
 
 	Durin::FMaterialProgram Reordered = *Base->GetMaterialProgram();
 	std::ranges::reverse(Reordered.Nodes);
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Base->SetMaterialProgram(Reordered, Validation));
-	EXPECT_TRUE(Validation);
+	auto Validation = Base->SetMaterialProgram(Reordered);
+	ASSERT_TRUE(Validation);
 	EXPECT_EQ(*Base->GetMaterialProgram(), Reordered);
 	EXPECT_EQ(Instance->GetMaterialProgram(), Base->GetMaterialProgram());
 
@@ -517,7 +660,7 @@ TEST(FMaterialProgramSchemaTests,
 	Invalid.Outputs.BaseColorDefault.X =
 		std::numeric_limits<float>::quiet_NaN();
 	const Durin::FMaterialProgram Before = *Base->GetMaterialProgram();
-	EXPECT_FALSE(Base->SetMaterialProgram(std::move(Invalid), Validation));
+	EXPECT_FALSE((Validation = Base->SetMaterialProgram(std::move(Invalid))));
 	EXPECT_FALSE(Validation);
 	EXPECT_EQ(*Base->GetMaterialProgram(), Before);
 
@@ -535,15 +678,14 @@ TEST(FMaterialProgramNormalizationTests,
 	Durin::FMaterialCompilerEnvironment Environment =
 		MakeSyntheticMaterialCompilerInput().Environment;
 	Durin::FMaterialCompilerInput Before;
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(
-		*Material, Environment, Before, Validation));
+	auto Validation = Durin::SnapshotMaterialCompilerInput(
+		*Material, Environment, Before);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->SetScalarParameterValue(
 		Durin::MaterialParameters::MetallicName(), 0.87f));
 	Durin::FMaterialCompilerInput After;
-	ASSERT_TRUE(Durin::SnapshotMaterialCompilerInput(
-		*Material, Environment, After, Validation));
+	ASSERT_TRUE((Validation = Durin::SnapshotMaterialCompilerInput(
+		*Material, Environment, After)));
 	EXPECT_EQ(Before, After);
 	EXPECT_EQ(Before.Program, *Material->GetMaterialProgram());
 	EXPECT_EQ(Before.Parameters.size(),
@@ -603,7 +745,7 @@ TEST(FMaterialProgramNormalizationTests,
 	InitializeDObjectSystem();
 	Durin::FMaterialCompilerInput Input = MakeSyntheticMaterialCompilerInput();
 	Input.Program = Durin::MakeStandardSurfaceMaterialProgram();
-	const auto Validation = Durin::ValidateMaterialProgram(
+	auto Validation = Durin::ValidateMaterialProgram(
 		Input.Program, Durin::GetCanonicalMaterialParameterDefinitions());
 	ASSERT_TRUE(Validation);
 	const auto Normalized = Durin::NormalizeMaterialProgram(Input);
@@ -662,7 +804,7 @@ TEST(FMaterialProgramSchemaTests, AggregateAndPropertyOutputsAreExclusive)
 {
 	Durin::FMaterialProgram Program = Durin::MakeStandardSurfaceMaterialProgram();
 	Program.Outputs.BaseColor = Program.Outputs.Surface;
-	const auto Validation = Durin::ValidateMaterialProgram(
+	auto Validation = Durin::ValidateMaterialProgram(
 		Program, Durin::GetCanonicalMaterialParameterDefinitions());
 	EXPECT_FALSE(Validation);
 	EXPECT_NE(std::ranges::find(Validation.Diagnostics,
@@ -856,7 +998,7 @@ TEST(FMaterialProgramCompilerTests,
 	ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
 	EXPECT_EQ(Compiled.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
 	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
-	EXPECT_EQ(Compiled.CompiledShaders[2].Reflection.ResourceBindings.size(), 3u);
+	EXPECT_TRUE(Compiled.CompiledShaders[2].Reflection.ResourceBindings.empty());
 	std::vector CorruptedStages = Compiled.CompiledShaders;
 	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
 	std::string ReflectionError;
@@ -968,8 +1110,8 @@ TEST(FMaterialProgramPublicationTests,
 
 	Durin::FMaterialProgram Edited = *Base->GetMaterialProgram();
 	Edited.Outputs.RoughnessDefault.X += 0.01f;
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Edited), Validation));
+	auto Validation = Base->SetMaterialProgram(std::move(Edited));
+	ASSERT_TRUE(Validation);
 	const auto ProgramChanged = Base->GetRenderData();
 	ASSERT_TRUE(ProgramChanged.CompiledProgram);
 	EXPECT_NE(ProgramChanged.PlanningPassIdentity.ShaderMap.ProgramIdentity,
@@ -1478,4 +1620,220 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 	}
 	Durin::CollectGarbage();
+}
+
+
+TEST(FMaterialProgramCompilerTests, CompiledLayoutsAreTypedDeterministicAndDeviceBounded)
+{
+	using namespace Durin;
+	std::vector<FMaterialCompilerParameterDeclaration> Parameters{
+		{{0, 0, 0, 5}, EMaterialParameterType::Texture},
+		{{0, 0, 0, 4}, EMaterialParameterType::Vector4},
+		{{0, 0, 0, 3}, EMaterialParameterType::Vector},
+		{{0, 0, 0, 2}, EMaterialParameterType::Vector2},
+		{{0, 0, 0, 1}, EMaterialParameterType::Scalar}};
+	const auto Built = CompileMaterialLayout(Parameters);
+	ASSERT_TRUE(Built);
+	EXPECT_TRUE(ValidateCompiledMaterialLayout(Built.Layout));
+	EXPECT_EQ(Built.Layout.Identity.Version, 4u);
+	EXPECT_EQ(Built.Layout.UniformPayloadSize, 80u);
+	EXPECT_EQ(Built.Layout.UniformFieldCount, 4u);
+	EXPECT_EQ(Built.Layout.ResourceFieldCount, 1u);
+	for (uint32 Index = 0; Index < 4; ++Index)
+	{
+		EXPECT_EQ(Built.Layout.Fields[Index].Offset, 16u * (Index + 1));
+		EXPECT_EQ(Built.Layout.Fields[Index].Size, 4u * (Index + 1));
+	}
+	std::ranges::reverse(Parameters);
+	EXPECT_EQ(CompileMaterialLayout(Parameters).Layout, Built.Layout);
+	auto Broken = Built.Layout;
+	Broken.Fields[1].Offset = Broken.Fields[0].Offset;
+	EXPECT_EQ(ValidateCompiledMaterialLayout(Broken).Error, EMaterialLayoutError::InvalidField);
+	Broken = Built.Layout;
+	Broken.Fields[1].Type = EMaterialRenderValueType::Vector4;
+	EXPECT_FALSE(ValidateCompiledMaterialLayout(Broken));
+	Broken = Built.Layout;
+	Broken.Identity.Id = FGuid::NewGuid();
+	EXPECT_EQ(ValidateCompiledMaterialLayout(Broken).Error, EMaterialLayoutError::InvalidIdentity);
+	Parameters.push_back(Parameters.front());
+	EXPECT_EQ(CompileMaterialLayout(Parameters).Validation.Error, EMaterialLayoutError::DuplicateParameter);
+	Parameters.pop_back();
+	FMaterialCompilerResourceLimits Limits;
+	Limits.Samplers = 2;
+	EXPECT_EQ(CompileMaterialLayout(Parameters, Limits).Validation.Error, EMaterialLayoutError::ResourceLimit);
+	Limits = {};
+	Limits.UniformBufferBytes = 64;
+	EXPECT_EQ(CompileMaterialLayout(Parameters, Limits).Validation.Error, EMaterialLayoutError::ResourceLimit);
+	Parameters.clear();
+	for (uint32 Index = 0; Index < MaterialMaxParameterDefinitionCount; ++Index)
+		Parameters.push_back({{0, 0, 0, Index + 1}, EMaterialParameterType::Vector4});
+	EXPECT_TRUE(CompileMaterialLayout(Parameters));
+	Parameters.push_back({FGuid::NewGuid(), EMaterialParameterType::Scalar});
+	EXPECT_FALSE(CompileMaterialLayout(Parameters));
+}
+
+TEST(FMaterialProgramCompilerTests, CustomNumericTextureAndResourceFreeProgramsCompileWithTheirLayouts)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FMaterialCompilerInput Input;
+	std::string Error;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	Input.StaticProperties.BlendMode = EMaterialBlendMode::Masked;
+	const FGuid Tint{0, 0, 1, 1}, UV{0, 0, 1, 2}, Texture{0, 0, 1, 3}, Amount{0, 0, 1, 4};
+	Input.Parameters = {{Tint, EMaterialParameterType::Vector4}, {UV, EMaterialParameterType::Vector2},
+		{Texture, EMaterialParameterType::Texture}, {Amount, EMaterialParameterType::Scalar}};
+	auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+		FGuid Parameter, std::vector<FMaterialProgramLink> Links = {}) {
+		FMaterialProgramNode Node;
+		Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
+		Node.ParameterId = Parameter; Node.Inputs = std::move(Links);
+		Input.Program.Nodes.push_back(Node);
+		return FMaterialProgramLink{Node.Id, 0};
+	};
+	const auto TintValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float4, Tint);
+	const auto UVValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float2, UV);
+	const auto TextureValue = Add(EMaterialProgramOpcode::TextureParameter, EMaterialProgramValueType::Texture2D, Texture);
+	const auto Sample = Add(EMaterialProgramOpcode::TextureSample2D, EMaterialProgramValueType::Float4, {}, {TextureValue, UVValue});
+	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float4, {}, {TintValue, Sample});
+	Input.Program.Outputs.BaseColor = Add(EMaterialProgramOpcode::TruncateToFloat3, EMaterialProgramValueType::Float3, {}, {Product});
+	Input.Program.Outputs.OpacityMask = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, Amount);
+	const auto Compiled = CompileMaterialProgram(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	EXPECT_EQ(Compiled.Layout.Identity.Version, 4u);
+	EXPECT_EQ(Compiled.Layout.Fields.size(), 4u);
+	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 1u);
+	EXPECT_TRUE(ValidateMaterialCompiledStages(Compiled.CompiledShaders, Compiled.Layout));
+	EXPECT_TRUE(ValidateMaterialCompilerResult(Compiled));
+	FByteBuffer CookedBytes;
+	ASSERT_TRUE(EncodeMaterialCookedProgram(Compiled, Input.StaticProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+	FMaterialStaticProperties CookedProperties;
+	std::shared_ptr<const FMaterialCompilerResult> Cooked;
+	ASSERT_TRUE(DecodeMaterialCookedProgram(CookedBytes, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, CookedProperties, Cooked, Error)) << Error;
+	ASSERT_NE(Cooked, nullptr);
+	EXPECT_EQ(Cooked->Layout, Compiled.Layout);
+	EXPECT_EQ(Cooked->ActiveParameters, Compiled.ActiveParameters);
+	EXPECT_TRUE(Cooked->IR.Nodes.empty());
+	EXPECT_TRUE(Cooked->GeneratedSource.empty());
+	FByteBuffer Reencoded;
+	ASSERT_TRUE(EncodeMaterialCookedProgram(*Cooked, CookedProperties,
+		ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded, Error));
+	EXPECT_EQ(Reencoded, CookedBytes);
+	for (uint32 Mutation = 0; Mutation < 5; ++Mutation)
+	{
+		auto Invalid = Compiled;
+		if (Mutation == 0) Invalid.Layout.Fields.front().Offset += 4;
+		if (Mutation == 1) Invalid.Layout.Identity.Id = FGuid::NewGuid();
+		if (Mutation == 2) Invalid.Layout.UniformPayloadSize += 16;
+		if (Mutation == 3) Invalid.ActiveParameters.pop_back();
+		if (Mutation == 4) Invalid.CompiledShaders.front().BinaryEntryPoint.clear();
+		EXPECT_FALSE(EncodeMaterialCookedProgram(Invalid, Input.StaticProperties,
+			ECookTargetPlatform::Win64, ECookTargetProfile::Game, Reencoded, Error));
+	}
+	const auto AcceptedCooked = Cooked;
+	for (size_t Position : {size_t{4}, CookedBytes.size() / 2, CookedBytes.size() - 1})
+	{
+		auto Broken = CookedBytes; Broken[Position] ^= std::byte{1};
+		EXPECT_FALSE(DecodeMaterialCookedProgram(Broken, ECookTargetPlatform::Win64,
+			ECookTargetProfile::Game, CookedProperties, Cooked, Error));
+		EXPECT_EQ(Cooked, AcceptedCooked);
+	}
+	auto LegacyCooked = CookedBytes; LegacyCooked[4] = std::byte{3};
+	EXPECT_FALSE(DecodeMaterialCookedProgram(LegacyCooked, ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game, CookedProperties, Cooked, Error));
+	EXPECT_NE(Error.find("recook"), std::string::npos);
+
+	auto InvalidResult = Compiled;
+	InvalidResult.ActiveParameters.pop_back();
+	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
+	InvalidResult = Compiled;
+	InvalidResult.CompiledShaders.pop_back();
+	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
+	InvalidResult = Compiled;
+	InvalidResult.bSucceeded = false;
+	EXPECT_FALSE(ValidateMaterialCompilerResult(InvalidResult));
+	EXPECT_NE(Compiled.GeneratedSource.find("MaterialTexture0.Sample(MaterialSampler0"), std::string::npos);
+	EXPECT_EQ(Compiled.GeneratedSource.find("GetMaterialUV"), std::string::npos);
+	std::ranges::reverse(Input.Program.Nodes);
+	std::ranges::reverse(Input.Parameters);
+	const auto Reordered = NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Reordered);
+	EXPECT_EQ(Reordered.Identity, Compiled.Identity);
+	EXPECT_EQ(Reordered.Layout, Compiled.Layout);
+	auto Corrupted = Compiled.CompiledShaders;
+	ASSERT_FALSE(Corrupted.front().Reflection.ResourceBindings.empty());
+	Corrupted.front().Reflection.ResourceBindings.front().Type = ERHIBindingType::StorageBuffer;
+	EXPECT_FALSE(ValidateMaterialCompiledStages(Corrupted, Compiled.Layout));
+	Corrupted = Compiled.CompiledShaders;
+	Corrupted.front().Reflection.ResourceBindings.push_back(Corrupted.front().Reflection.ResourceBindings.front());
+	EXPECT_FALSE(ValidateMaterialCompiledStages(Corrupted, Compiled.Layout));
+	Corrupted.pop_back();
+	EXPECT_FALSE(ValidateMaterialCompiledStages(Corrupted, Compiled.Layout));
+	auto InvalidIR = Compiled.IR;
+	InvalidIR.Nodes.front().Inputs = {0xffffffffu};
+	EXPECT_FALSE(GenerateMaterialProgramSlang(InvalidIR, Compiled.Layout));
+
+	Input.Program = {};
+	Input.Parameters.clear();
+	Input.StaticProperties = {.ShadingModel = EMaterialShadingModel::Unlit};
+	const auto ResourceFree = CompileMaterialProgram(Input);
+	ASSERT_TRUE(ResourceFree) << (ResourceFree.Diagnostics.empty() ? "missing diagnostic" : ResourceFree.Diagnostics.front().Message);
+	EXPECT_TRUE(ResourceFree.Layout.Fields.empty());
+	for (const auto& Stage : ResourceFree.CompiledShaders)
+		EXPECT_TRUE(Stage.Reflection.ResourceBindings.empty()) << Stage.SourceEntryPoint;
+}
+
+TEST(FMaterialProgramCompilerTests, ExplicitUVAndSurfaceCompositionUseOnlyAuthoredInputs)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FMaterialCompilerInput Input;
+	std::string Error;
+	ASSERT_TRUE(BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+	const FGuid Channel = FGuid::NewGuid(), Angle = FGuid::NewGuid();
+	Input.Parameters = {{Channel, EMaterialParameterType::Scalar}, {Angle, EMaterialParameterType::Scalar}};
+	auto Add = [&](EMaterialProgramOpcode Op, EMaterialProgramValueType Type,
+		std::vector<FMaterialProgramLink> Links = {}, FGuid Parameter = {}, FMaterialProgramLiteral Literal = {}) {
+		FMaterialProgramNode Node;
+		Node.Id = FGuid::NewGuid(); Node.Opcode = Op; Node.ResultType = Type;
+		Node.Inputs = std::move(Links); Node.ParameterId = Parameter; Node.Literal = Literal;
+		Input.Program.Nodes.push_back(Node);
+		return FMaterialProgramLink{Node.Id, 0};
+	};
+	const auto ChannelValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, {}, Channel);
+	const auto AngleValue = Add(EMaterialProgramOpcode::Parameter, EMaterialProgramValueType::Float, {}, Angle);
+	const auto UV = Add(EMaterialProgramOpcode::UVChannel, EMaterialProgramValueType::Float2, {ChannelValue});
+	const auto Sin = Add(EMaterialProgramOpcode::Sine, EMaterialProgramValueType::Float, {AngleValue});
+	const auto Cos = Add(EMaterialProgramOpcode::Cosine, EMaterialProgramValueType::Float, {AngleValue});
+	const auto Factor = Add(EMaterialProgramOpcode::MakeFloat2, EMaterialProgramValueType::Float2, {Sin, Cos});
+	const auto Product = Add(EMaterialProgramOpcode::Multiply, EMaterialProgramValueType::Float2, {UV, Factor});
+	const auto X = Add(EMaterialProgramOpcode::TruncateToFloat, EMaterialProgramValueType::Float, {Product});
+	const auto Color = Add(EMaterialProgramOpcode::MakeFloat3, EMaterialProgramValueType::Float3, {X, Sin, Cos});
+	const auto Normal = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float3, {}, {}, {0, 0, 1, 0});
+	const auto Zero = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float);
+	const auto One = Add(EMaterialProgramOpcode::Constant, EMaterialProgramValueType::Float, {}, {}, {1, 0, 0, 0});
+	Input.Program.Outputs.Surface = Add(EMaterialProgramOpcode::MakeSurface, EMaterialProgramValueType::Surface,
+		{Color, Normal, Zero, One, One, Color, One, One});
+	const auto Compiled = CompileMaterialProgram(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty() ? "missing diagnostic" : Compiled.Diagnostics.front().Message);
+	ASSERT_TRUE(ValidateMaterialCompilerResult(Compiled));
+	EXPECT_EQ(Compiled.Layout.Fields.size(), 2u);
+	EXPECT_EQ(Compiled.Layout.ResourceFieldCount, 0u);
+	EXPECT_NE(Compiled.GeneratedSource.find("SelectAuthoredUV(input,"), std::string::npos);
+	EXPECT_EQ(Compiled.GeneratedSource.find("GetMaterialUV"), std::string::npos);
+	EXPECT_EQ(Compiled.GeneratedSource.find("EvaluateStandardSurface"), std::string::npos);
+	Input.Program.Nodes.back().Inputs.pop_back();
+	EXPECT_FALSE(NormalizeMaterialProgram(Input));
+	Input.Program.Nodes.back().Inputs.push_back(One);
+	Input.Program.Nodes[2].Inputs[0] = Color;
+	EXPECT_FALSE(NormalizeMaterialProgram(Input));
+
+	auto Legacy = MakeStandardSurfaceMaterialProgram();
+	Legacy.SchemaVersion = 3;
+	const auto Surface = Legacy.Outputs.Surface;
+	ASSERT_TRUE(UpgradeMaterialProgram(Legacy));
+	EXPECT_EQ(Legacy.SchemaVersion, 4u);
+	EXPECT_EQ(Legacy.Outputs.Surface, Surface);
 }

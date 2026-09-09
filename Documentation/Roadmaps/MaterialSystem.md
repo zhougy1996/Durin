@@ -9,11 +9,11 @@ Completed:
 
 ## Current Status
 
-On 2026-09-09 the user selected the broader refactor below and authorized
-documentation first while another agent works in this checkout. The active
+On 2026-09-09 the user selected the broader refactor below and then authorized
+implementation with environment-dependent qualification deferred. The active
 [Material Parameters and Compiled Layouts plan](../Plans/MaterialParametersAndCompiledLayouts.md)
-owns the first slice, M10. No implementation or qualification is claimed by
-this planning update. M1-M7 retain their historical completion; their fixed-v3
+owns the first slice, M10. Declaration foundations are implemented; M10 remains
+open and custom GPU bindings are not yet delivered. M1-M7 retain their historical completion; their fixed-v3
 decisions describe the migration baseline. M8 follows M10, and reusable
 functions follow as M11. Future child plans are created only at their entry gates.
 
@@ -207,7 +207,8 @@ independent of the eight surface outputs; M10 does not expand shading models.
 
 Coordinate with [Geometry Submission Refactor](../Plans/GeometrySubmissionRefactor.md),
 [RHI Resource Creation Refactor](../Plans/RHIResourceCreationRefactor.md) and
-[Payload Archive Serialization Refactor](../Plans/PayloadArchiveSerializationRefactor.md).
+`Documentation/Plans/PayloadArchiveSerializationRefactor.md` (currently in the
+coordinating checkout).
 Consume their accepted interfaces without introducing a second geometry dispatch,
 resource scheduler or payload publication mechanism.
 

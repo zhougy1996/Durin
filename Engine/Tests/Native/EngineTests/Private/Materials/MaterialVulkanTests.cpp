@@ -71,9 +71,8 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Durin::IsValid(Material)) return nullptr;
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram(), Validation))
+			Durin::MakeCanonicalMaterialProgram()))
 			return nullptr;
 		return Material;
 	}
@@ -742,9 +741,9 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		const Durin::FMaterialProgramIdentity CanonicalProgramIdentity =
 			CaptureMaterial->GetRenderData()
 				.PlanningPassIdentity.ShaderMap.ProgramIdentity;
-		Durin::FMaterialProgramValidationResult ProgramValidation;
-		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
-			std::move(EditedProgram), ProgramValidation));
+		auto ProgramValidation = CaptureMaterial->SetMaterialProgram(
+			std::move(EditedProgram));
+		ASSERT_TRUE(ProgramValidation);
 		FinishMaterialCompilation(CaptureMaterial);
 		const Durin::FMaterialProgramIdentity EditedProgramIdentity =
 			CaptureMaterial->GetRenderData()
@@ -752,8 +751,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_NE(EditedProgramIdentity, CanonicalProgramIdentity);
 		const Durin::FByteBuffer EditedProgramPixels =
 			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetMaterialProgram(
-			CanonicalProgram, ProgramValidation));
+		ASSERT_TRUE((ProgramValidation = CaptureMaterial->SetMaterialProgram(
+			CanonicalProgram)));
 		FinishMaterialCompilation(CaptureMaterial);
 		EXPECT_EQ(CaptureMaterial->GetRenderData()
 			.PlanningPassIdentity.ShaderMap.ProgramIdentity,
@@ -857,6 +856,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;
 		CaptureCube = CubeResult.Asset;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*CaptureCube);
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
 		Durin::PumpGameThreadDeferredWork();
@@ -897,8 +897,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 		}
 		{
-			Durin::FMaterialProgramValidationResult Validation;
-			ASSERT_TRUE(StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram(), Validation));
+			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram());
+			ASSERT_TRUE(Validation);
 			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
 			Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*StaticMeshAssetMaterial);

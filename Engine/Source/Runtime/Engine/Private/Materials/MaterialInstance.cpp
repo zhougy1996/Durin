@@ -37,10 +37,12 @@ namespace Durin
 				return FMaterialParameterValue::MakeScalar(Value.ScalarValue);
 			case EMaterialParameterType::Vector2:
 				return FMaterialParameterValue::MakeVector2(Value.Vector2Value);
+			case EMaterialParameterType::Vector4:
+				return FMaterialParameterValue::MakeVector4(Value.Vector4Value);
 			case EMaterialParameterType::Vector:
 				return FMaterialParameterValue::MakeVector(Value.VectorValue);
 			case EMaterialParameterType::Texture:
-				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get());
+				return FMaterialParameterValue::MakeTexture(Value.TextureValue.Get(), Value.SamplerState, Value.TextureFallback);
 			}
 			return {};
 		}
@@ -51,6 +53,7 @@ namespace Durin
 			{
 			case EMaterialParameterType::Scalar:
 			case EMaterialParameterType::Vector2:
+			case EMaterialParameterType::Vector4:
 			case EMaterialParameterType::Vector:
 			case EMaterialParameterType::Texture:
 				return true;
@@ -209,7 +212,8 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		if (!Definition) return false;
-		if (const FMaterialParameterOverride* Override = FindOverride(ParameterOverrides, Id))
+		if (const FMaterialParameterOverride* Override = FindOverride(ParameterOverrides, Id);
+			Override && Override->Type == Definition->Type)
 		{
 			OutParameter.Definition = Definition;
 			OutParameter.Value = Override->Value;
@@ -231,6 +235,7 @@ namespace Durin
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
 		if (!Definition || Definition->Type != Type
 			|| !IsParameterAvailableForOverride(*this, Id)) return false;
+		if (Type == EMaterialParameterType::Texture && !IsValidMaterialSampling(Value.SamplerState, Value.TextureFallback)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeParameterValue(Type, Value);
 		if (FMaterialParameterOverride* Override = FindMutableOverride(ParameterOverrides, Id))
 		{
@@ -269,8 +274,11 @@ namespace Durin
 
 	auto DMaterialInstance::IsParameterOverrideOrphan(const FGuid& Id) const -> bool
 	{
-		if (!HasLocalParameterOverride(Id)) return false;
-		return !IsParameterAvailableForOverride(*this, Id);
+		const auto* Override = FindOverride(ParameterOverrides, Id);
+		if (!Override) return false;
+		const auto* Definition = FindParameterDefinition(Id);
+		return !Definition || Definition->Type != Override->Type
+			|| !IsParameterAvailableForOverride(*this, Id);
 	}
 
 	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool
@@ -301,8 +309,10 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
-		return SetParameterOverride(
-			Definition->Id, EMaterialParameterType::Texture, FMaterialParameterValue::MakeTexture(Value));
+		FResolvedMaterialParameter Resolved;
+		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
+		Resolved.Value.TextureValue = Value;
+		return SetParameterOverride(Definition->Id, EMaterialParameterType::Texture, Resolved.Value);
 	}
 
 	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool
@@ -415,11 +425,18 @@ namespace Durin
 			// current compiled contract when its generation changes.
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Override.ParameterId);
-			if (!Definition || Definition->Type != Override.Type) continue;
+			if (!Definition || Definition->Type != Override.Type)
+			{
+				const auto Accepted = GetAcceptedCompiledProgram();
+				if (!Accepted) continue;
+				const auto Active = std::ranges::find(Accepted->ActiveParameters,
+					Override.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
+				if (Active == Accepted->ActiveParameters.end() || Active->Type != Override.Type) continue;
+			}
 			Result.Parameters.push_back(
 				BuildMaterialLocalRenderParameter(
 					Override.ParameterId,
-					Definition->Type,
+					Override.Type,
 					Override.Value));
 		}
 		return Result;
@@ -436,9 +453,9 @@ namespace Durin
 		}
 		std::unordered_set<FGuid> OverrideIds;
 		std::erase_if(ParameterOverrides, [&](const FMaterialParameterOverride& Override) {
-			const FMaterialParameterDefinition* Definition = FindParameterDefinition(Override.ParameterId);
 			if (!Override.ParameterId.IsValid() || !IsValidParameterType(Override.Type)
-				|| (Definition && Override.Type != Definition->Type)
+				|| (Override.Type == EMaterialParameterType::Texture
+					&& !IsValidMaterialSampling(Override.Value.SamplerState, Override.Value.TextureFallback))
 				|| !OverrideIds.insert(Override.ParameterId).second)
 			{
 				DURIN_ERROR("PostLoad '{}': discarding invalid or duplicate material parameter override {}.",

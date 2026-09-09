@@ -102,7 +102,7 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(BaseColorTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(NormalTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(MetallicTexture);
@@ -144,9 +144,9 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
+				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityMaskTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacityMaskSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FMaterialShader,
@@ -156,6 +156,10 @@ namespace Durin
 
 		struct FResolvedSurfaceMaterial
 		{
+			bool bCompiledLayout = false;
+			FByteBuffer CompiledUniformPayload;
+			std::vector<FRHITexture*> CompiledTextures;
+			std::vector<FRHISampler*> CompiledSamplers;
 			FSurfaceMaterialUniform Uniform;
 			std::array<FRHITexture*, SurfaceMaterialRoleCount> Textures{};
 			std::array<FRHISampler*, SurfaceMaterialRoleCount> Samplers{};
@@ -181,6 +185,13 @@ namespace Durin
 					+ SamplerFailures;
 			}
 		};
+
+		auto BindCompiledSurfaceMaterial(
+			FRHICommandListImmediate& CommandList, FRHIShader* Shader,
+			const FShaderReflectionData& Reflection,
+			const FResolvedSurfaceMaterial& Material,
+			const FRHIUniformBufferRange& MaterialBuffer,
+			const FRHIUniformBufferRange& Lighting = {}) -> bool;
 
 		class FSurfaceMaterialResources final
 		{

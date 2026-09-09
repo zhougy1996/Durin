@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 				&& *Material.GetMaterialProgram() == MakeCanonicalMaterialProgram())
 			{
 				FMaterialProgramValidationResult Validation;
-				if (Material.SetMaterialProgram(Expected, Validation)
+				if ((Validation = Material.SetMaterialProgram(Expected))
 					&& Material.SetMaterialGraphPresentation(
 						MakeTemplatePresentation(Expected))) return true;
 			}
@@ -136,8 +136,8 @@ namespace Durin::AssetForge::Builtins
 			return nullptr;
 		}
 		FMaterialProgramValidationResult ProgramValidation;
-		if (!Created->SetMaterialProgram(
-			MakeStandardSurfaceMaterialProgram(), ProgramValidation))
+		if (!(ProgramValidation = Created->SetMaterialProgram(
+			MakeStandardSurfaceMaterialProgram())))
 		{
 			OutError = ProgramValidation.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."

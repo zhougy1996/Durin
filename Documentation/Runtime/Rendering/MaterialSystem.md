@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-09
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -27,17 +27,40 @@ diagnostic counters.
   type, base value, display metadata, ordering, presentation, numeric range, and
   texture-usage hint. The Material Editor consumes this schema and does not own
   a parallel descriptor table.
-- `DMaterial` stores one ordered reflected definition collection. Definition
-  identity, type, order, and metadata are canonical; only the nested values are
-  editable. Definitions are a compatibility/value catalog; a definition becomes
+- `DMaterial` stores one ordered reflected definition collection. Declaration
+  schema 1 identifies legacy canonical packages; schema 2 permits up to 128
+  material-owned declarations. Missing version fields retain legacy validation.
+  `SetMaterialDefinitionsAndProgram` validates definitions and graph references
+  before committing either, and submits one compile request. Create reuses an
+  existing same-name/type definition without changing its default; rename keeps
+  the GUID and updates referencing labels. In-place retyping is rejected.
+  Deleting a referenced declaration requires removing its references in the
+  same atomic operation. A definition becomes
   active only when a reachable Parameter, TextureParameter, TextureCoordinate,
   or TextureSample graph node declares it. Definitions reject invalid/duplicate
-  GUIDs, `None`/duplicate names, and deviations from the built-in schema.
+  GUIDs, `None`/duplicate names, oversized text, invalid metadata and nonfinite
+  active defaults. Float4 is an appended reflected value alternative. These
+  authoring APIs do not add custom-parameter support to the current v3 renderer;
+  unsupported reachable declarations produce compilation diagnostics.
+- Declaration validation returns `FMaterialParameterValidationResult` with an
+  `EMaterialParameterError` and offending parameter GUID. Declaration edits and
+  atomic definition-plus-graph replacement return `FMaterialParameterEditResult`;
+  create/reuse returns the parameter GUID, and graph failures retain every
+  `FMaterialProgramDiagnostic`. Failures leave authored state and revisions
+  unchanged. Callers inspect codes rather than parse text; editor/logging
+  boundaries use `GetMaterialParameterErrorText` for presentation.
+  `SetMaterialProgram` and `SnapshotMaterialCompilerInput` return
+  `FMaterialProgramValidationResult` directly; no separate boolean or validation
+  out-parameter duplicates the outcome. Snapshot data remains a separate output
+  and is assigned only on success. Result boolean conversion is a convenience
+  for conditional checks.
 - `DMaterialInstance` references a parent material interface and stores one
   ordered collection of GUID/value overrides plus an optional all-or-nothing
   static-property override. Dynamic resolution walks the current
   instance, its parent instances, and the root material, and reports the object
-  that supplied the value. Parent cycles are rejected.
+  that supplied the value. Only matching GUID/type overrides resolve; valid
+  type-mismatched overrides survive load as inspectable orphans. Parent cycles
+  are rejected.
 - Parent or root-graph changes preserve overrides which are no longer reachable
   as orphans for explicit editor removal. Orphans are never resolved into
   render data, while reconnecting the same parameter GUID restores the retained

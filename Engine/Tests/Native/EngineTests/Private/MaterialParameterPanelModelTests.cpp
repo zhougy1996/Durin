@@ -36,9 +36,8 @@ namespace
 	auto MakeExpandedBase(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram())) return nullptr;
 		return Material;
 	}
 }
@@ -289,19 +288,38 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_NE(TextureEntry, nullptr);
 	auto TextureValue = TextureEntry->Value;
 	TextureValue.TextureValue = Texture;
+	TextureValue.SamplerState.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
+	TextureValue.TextureFallback = Durin::EMaterialTextureFallback::Black;
 	ASSERT_TRUE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	Durin::DTexture2D* ResolvedTexture = nullptr;
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, Texture);
+	Durin::FResolvedMaterialParameter Resolved;
+	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
+	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
+	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, nullptr);
+	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
+	EXPECT_EQ(Resolved.Value.SamplerState.AddressU, Durin::EMaterialSamplerAddressMode::Repeat);
+	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::White);
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Instance->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ResolvedTexture));
 	EXPECT_EQ(ResolvedTexture, Texture);
+	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
+	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
+	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
+	ASSERT_TRUE(Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), nullptr));
+	ASSERT_TRUE(Instance->ResolveParameterValue(TextureEntry->ParameterId, Resolved));
+	EXPECT_EQ(Resolved.Value.SamplerState, TextureValue.SamplerState);
+	EXPECT_EQ(Resolved.Value.TextureFallback, Durin::EMaterialTextureFallback::Black);
+	TextureValue.SamplerState.AddressU = static_cast<Durin::EMaterialSamplerAddressMode>(255);
+	EXPECT_FALSE(Instance->SetParameterOverride(TextureEntry->ParameterId, Durin::EMaterialParameterType::Texture, TextureValue));
+	EXPECT_FALSE(TextureModel.SubmitValueEdit(PropertyView, Context, *TextureEntry, TextureValue, false));
 	EXPECT_TRUE(Error.empty());
 
 	Transactions->Reset();
@@ -348,5 +366,27 @@ TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainPara
 
 	Transactions->Reset();
 	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
+
+TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaults)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "UnreachableDefaults");
+	Durin::FMaterialParameterDefinition Definition;
+	Definition.Id = Durin::FGuid::NewGuid();
+	Definition.Name = "UnusedTint";
+	Definition.Type = Durin::EMaterialParameterType::Vector4;
+	Definition.Value = Durin::FMaterialParameterValue::MakeVector4({1, 2, 3, 4});
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, {}));
+	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
+	ASSERT_EQ(Model.GetEntries().size(), 1u);
+	const auto& Entry = Model.GetEntries().front();
+	EXPECT_EQ(Entry.ParameterId, Definition.Id);
+	EXPECT_EQ(Entry.Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
+	EXPECT_EQ(Entry.Value.Vector4Value, Durin::FVector4(1, 2, 3, 4));
+	EXPECT_FALSE(Entry.bOrphan);
+	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }

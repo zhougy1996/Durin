@@ -390,9 +390,8 @@ namespace Durin::Tests
 
 		auto Created = CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
 		if (!Created) return Fail(Created.Message);
-		FMaterialProgramValidationResult ProgramValidation;
 		if (!OutFixtures.Material->SetMaterialProgram(
-			MakeCanonicalMaterialProgram(), ProgramValidation))
+			MakeCanonicalMaterialProgram()))
 			return Fail("Could not assign the expanded material fixture program.");
 		if (!OutFixtures.Material->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))

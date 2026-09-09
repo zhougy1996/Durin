@@ -19,7 +19,7 @@ namespace Durin
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 3;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 4;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -78,6 +78,10 @@ namespace Durin
 		DecodeNormalRG,
 		BlendNormalsRNM,
 		StandardSurface,
+		UVChannel,
+		Sine,
+		Cosine,
+		MakeSurface,
 	};
 
 	DENUM()

@@ -16,9 +16,8 @@ namespace
 {
 	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
 	{
-		Durin::FMaterialProgramValidationResult Validation;
 		return Material.SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram(), Validation);
+			Durin::MakeCanonicalMaterialProgram());
 	}
 
 	auto RelocateAssetForTest(
@@ -637,8 +636,7 @@ TEST(FMaterialProgramPackageTests,
 		Durin::MakeCanonicalMaterialProgram();
 	std::ranges::reverse(Authored.Nodes);
 	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
-	Durin::FMaterialProgramValidationResult Validation;
-	ASSERT_TRUE(Material->SetMaterialProgram(Authored, Validation));
+	auto Validation = Material->SetMaterialProgram(Authored);
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Durin::SavePackage(Material->GetPackage()));
 
@@ -697,7 +695,7 @@ TEST(FMaterialProgramPackageTests,
 	EXPECT_EQ(Durin::FindResidentPackage(Path), LoadedForRepair->GetPackage());
 	EXPECT_FALSE(Durin::ValidateMaterialProgram(
 		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
-	EXPECT_TRUE(LoadedForRepair->SetMaterialProgram(Authored, Validation));
+	EXPECT_TRUE((Validation = LoadedForRepair->SetMaterialProgram(Authored)));
 	EXPECT_TRUE(Durin::ValidateMaterialProgram(
 		*LoadedForRepair->GetMaterialProgram(), LoadedForRepair->GetParameterDefinitions()));
 	ASSERT_TRUE(Durin::UnloadPackage(Path, Durin::EAssetPackageUnloadPolicy::DiscardUnsaved));

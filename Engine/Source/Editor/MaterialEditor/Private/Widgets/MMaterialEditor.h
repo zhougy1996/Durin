@@ -69,6 +69,7 @@ namespace Durin::Editor::Material
 		auto DrawOverviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
+		auto DrawParameterDeclarations(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
 		auto DrawMaterialParameters(DMaterialInterface* Material) -> void;
@@ -100,6 +101,9 @@ namespace Durin::Editor::Material
 		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
+		std::array<char, 129> ParameterNameDraft{};
+		std::array<char, 129> ParameterRenameDraft{};
+		int ParameterTypeDraft = 0;
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
 		bool bGraphMaximized = false;

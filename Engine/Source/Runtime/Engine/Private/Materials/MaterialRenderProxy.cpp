@@ -250,9 +250,14 @@ namespace Durin
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.ProgramIdentity =
 				LocalLayer.CompiledProgram->Identity;
 		}
-		FMaterialRenderRepresentationBuilder RepresentationBuilder(
-			CachedResolvedData.Representation);
-		bool bRepresentationValid = true;
+		FMaterialRenderRepresentationBuilder RepresentationBuilder = CachedResolvedData.CompiledProgram
+			&& CachedResolvedData.CompiledProgram->Layout.Identity.Version == CompiledMaterialRenderLayoutVersion
+			&& CachedResolvedData.CompiledProgram->Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
+			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->Layout)
+			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
+		bool bRepresentationValid = !ParentData || !ParentData->Representation.IsError();
+		if (CachedResolvedData.CompiledProgram)
+			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->Layout.Identity;
 		for (const FMaterialLocalRenderParameter& Parameter
 			: LocalLayer.Parameters)
 		{
@@ -345,6 +350,14 @@ namespace Durin
 			.Id = Id,
 			.Type = Type,
 		};
+		Result.SamplerState = Value.SamplerState;
+		Result.TextureFallback = Value.TextureFallback;
+		Result.ScalarValue = Value.ScalarValue;
+		Result.Vector2Value = Value.Vector2Value;
+		Result.VectorValue = Value.VectorValue;
+		Result.Vector4Value = Value.Vector4Value;
+		if (Type == EMaterialParameterType::Texture && Value.TextureValue)
+			Result.TextureValue = Value.TextureValue->GetTextureReferenceRHI();
 		const std::span Definitions =
 			GetCanonicalMaterialParameterDefinitions();
 		const auto Definition = std::ranges::find(
@@ -353,6 +366,7 @@ namespace Durin
 		{
 			return Result;
 		}
+		Result.TextureValue = nullptr;
 		switch (Type)
 		{
 		case EMaterialParameterType::Scalar:
@@ -435,16 +449,6 @@ namespace Durin
 		const FMaterialLocalRenderParameter& Parameter
 	) -> bool
 	{
-		const std::span Definitions =
-			GetCanonicalMaterialParameterDefinitions();
-		const auto Definition = std::ranges::find(
-			Definitions, Parameter.Id, &FMaterialParameterDefinition::Id);
-		if (Definition == Definitions.end()
-			|| Definition->Type != Parameter.Type)
-		{
-			return false;
-		}
-
 		switch (Parameter.Type)
 		{
 		case EMaterialParameterType::Scalar:
@@ -456,9 +460,11 @@ namespace Durin
 		case EMaterialParameterType::Vector:
 			return RepresentationBuilder.SetVector(
 				Parameter.Id, Parameter.VectorValue);
+		case EMaterialParameterType::Vector4:
+			return RepresentationBuilder.SetVector4(Parameter.Id, Parameter.Vector4Value);
 		case EMaterialParameterType::Texture:
 			return RepresentationBuilder.SetTexture(
-				Parameter.Id, Parameter.TextureValue);
+				Parameter.Id, Parameter.TextureValue, Parameter.SamplerState, Parameter.TextureFallback);
 		}
 		return false;
 	}

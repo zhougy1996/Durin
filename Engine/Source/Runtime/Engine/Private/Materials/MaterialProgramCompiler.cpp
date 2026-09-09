@@ -4,6 +4,7 @@
 #include "Materials/MaterialRenderTypes.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
+#include "DynamicRHI.h"
 
 #include <algorithm>
 #include <array>
@@ -197,24 +198,23 @@ namespace Durin
 	auto SnapshotMaterialCompilerInput(
 		const DMaterialInterface& Material,
 		FMaterialCompilerEnvironment Environment,
-		FMaterialCompilerInput& OutInput,
-		FMaterialProgramValidationResult& OutValidation) -> bool
+		FMaterialCompilerInput& OutInput) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
 		const FMaterialProgram* Program = Material.GetMaterialProgram();
 		if (Program == nullptr)
 		{
-			OutValidation = {};
-			OutValidation.Diagnostics.push_back({
+			FMaterialProgramValidationResult Validation;
+			Validation.Diagnostics.push_back({
 				.Category = EMaterialProgramDiagnosticCategory::Schema,
 				.LocationKind =
 					EMaterialProgramDiagnosticLocationKind::Program,
 				.Message = "Material has no root authored program."});
-			return false;
+			return Validation;
 		}
 		const auto Definitions = Material.GetParameterDefinitions();
-		OutValidation = ValidateMaterialProgram(*Program, Definitions);
-		if (!OutValidation) return false;
+		auto Validation = ValidateMaterialProgram(*Program, Definitions);
+		if (!Validation) return Validation;
 
 		FMaterialCompilerInput Snapshot;
 		Snapshot.Program = *Program;
@@ -229,7 +229,7 @@ namespace Durin
 		std::ranges::sort(Snapshot.Environment.Dependencies, {},
 			&FMaterialCompilerDependency::VirtualPath);
 		OutInput = std::move(Snapshot);
-		return true;
+		return Validation;
 	}
 
 	auto BuildDefaultMaterialCompilerEnvironment(
@@ -253,6 +253,15 @@ namespace Durin
 			return false;
 
 		FMaterialCompilerEnvironment Environment;
+		if (const auto* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr)
+		{
+			auto& Limits = Environment.ResourceLimits;
+			Limits.SampledImages = std::min(Limits.SampledImages, Capabilities->MaxFragmentSampledImages);
+			Limits.Samplers = std::min(Limits.Samplers, Capabilities->MaxFragmentSamplers);
+			Limits.UniformBuffers = std::min(Limits.UniformBuffers, Capabilities->MaxFragmentUniformBuffers);
+			Limits.StageResources = std::min(Limits.StageResources, Capabilities->MaxFragmentResources);
+			Limits.UniformBufferBytes = std::min(Limits.UniformBufferBytes, Capabilities->MaxUniformBufferRange);
+		}
 		Environment.CompilerIdentity =
 			GetShaderCompilerEnvironmentIdentity();
 		Environment.Dependencies.push_back({
@@ -451,9 +460,26 @@ namespace Durin
 			Result.ActiveParameters.push_back({Dependency.ParameterId, Dependency.Type});
 		std::ranges::sort(Result.ActiveParameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
+		// Temporary v3 adapter for legacy role consumers; removed by authored migration.
+		const bool bLegacy = std::ranges::any_of(IR.Nodes, [](const auto& Node) {
+			return Node.Opcode == EMaterialProgramOpcode::StandardSurface
+				|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinate;
+		});
+		if (bLegacy) Result.Layout = MakeDefaultMaterialRenderLayout();
+		else
+		{
+			auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
+			if (!Layout)
+			{
+				Result.Diagnostics.push_back(MakeNormalizationFailure(std::string(
+					GetMaterialLayoutErrorText(Layout.Validation.Error))));
+				return Result;
+			}
+			Result.Layout = std::move(Layout.Layout);
+		}
 		Result.IR = std::move(IR);
 		Result.Identity = BuildMaterialProgramIdentity(
-			Input, Result.CanonicalBytes);
+			Input, Result.CanonicalBytes, Result.Layout);
 		Result.bSucceeded = Result.Identity.IsValid();
 		if (!Result.bSucceeded)
 			Result.Diagnostics.push_back(MakeNormalizationFailure(
@@ -522,7 +548,7 @@ namespace Durin
 
 	auto BuildMaterialProgramIdentity(
 		const FMaterialCompilerInput& Input,
-		FByteView CanonicalIR)
+		FByteView CanonicalIR, const FMaterialRenderLayout& Layout)
 		-> FMaterialProgramIdentity
 	{
 		FByteBuffer Bytes;
@@ -556,8 +582,13 @@ namespace Durin
 		AppendLittleEndian(Bytes, CurrentMaterialCompilerEnvelopeVersion);
 		AppendString(Bytes, Input.Environment.CompilerIdentity);
 		AppendString(Bytes, Input.Environment.Target);
-		AppendLittleEndian(Bytes, CurrentMaterialRenderLayoutVersion);
-		AppendGuid(Bytes, MaterialRenderLayoutV3Id);
+		AppendLittleEndian(Bytes, Layout.Identity.Version);
+		AppendGuid(Bytes, Layout.Identity.Id);
+		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.SampledImages);
+		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.Samplers);
+		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBuffers);
+		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.StageResources);
+		AppendLittleEndian(Bytes, Input.Environment.ResourceLimits.UniformBufferBytes);
 		AppendLittleEndian(Bytes, Input.Environment.PassContractVersion);
 		constexpr std::array<std::string_view, 3> EntryPoints{
 			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};

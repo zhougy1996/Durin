@@ -63,6 +63,8 @@ namespace Durin::RendererPrivate
 		if (MaterialProgram != nullptr
 			&& (!MaterialProgram->bSucceeded
 				|| MaterialProgram->Identity != Identity.ProgramIdentity
+				|| MaterialProgram->Layout.Identity != Identity.RenderLayout
+				|| !ValidateMaterialCompilerResult(*MaterialProgram)
 				|| MaterialProgram->PassContractVersion
 					!= CurrentMaterialPassContractVersion))
 		{

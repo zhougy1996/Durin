@@ -18,6 +18,13 @@ namespace Durin::RendererPrivate
 		{
 			return false;
 		}
+		if (OutMaterial.Surface.bCompiledLayout)
+		{
+			OutMaterial.Uniform = CommandList.AllocateDynamicUniformBuffer(
+				OutMaterial.Surface.CompiledUniformPayload.data(),
+				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
+			return true;
+		}
 		OutMaterial.Uniform = CommandList.AllocateDynamicUniformBuffer(
 			&OutMaterial.Surface.Uniform,
 			sizeof(OutMaterial.Surface.Uniform)

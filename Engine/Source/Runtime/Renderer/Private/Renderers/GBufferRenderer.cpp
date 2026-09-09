@@ -1,3 +1,4 @@
+#include "Renderers/SurfaceMaterial.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/MeshVertexFactory.h"
 
@@ -19,7 +20,7 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(BaseColorTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(NormalTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(MetallicTexture);
@@ -289,6 +290,9 @@ namespace Durin
 			|| VertexParameters.Binding->GetLayoutKey() != Pipeline.LayoutKey
 			|| !Pipeline.Vertex->Bind(CommandList, VertexParameters.Transform, *VertexParameters.Binding)) return false;
 
+		if (FragmentParameters.Compiled && FragmentParameters.Compiled->bCompiledLayout)
+			return RendererPrivate::BindCompiledSurfaceMaterial(CommandList, Pipeline.Fragment.GetRHIShader(),
+				Pipeline.Fragment.GetReflection(), *FragmentParameters.Compiled, FragmentParameters.Material);
 		FGBufferFragmentShader::FParameters Parameters;
 		Parameters.Material = FragmentParameters.Material;
 		Parameters.BaseColorTexture = FragmentParameters.Textures[0];

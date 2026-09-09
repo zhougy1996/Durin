@@ -124,9 +124,8 @@ namespace
 				<< Name;
 			return nullptr;
 		}
-		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material->SetMaterialProgram(
-				Durin::MakeCanonicalMaterialProgram(), Validation))
+				Durin::MakeCanonicalMaterialProgram()))
 		{
 			ADD_FAILURE() << "Failed to install GBuffer qualification material "
 				"program: " << Name;

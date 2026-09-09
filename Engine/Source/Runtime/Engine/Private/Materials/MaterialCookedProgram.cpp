@@ -1,4 +1,5 @@
 #include "Materials/MaterialCookedProgram.h"
+#include "Materials/MaterialRenderTypes.h"
 
 #include "Serialization/Archive.h"
 
@@ -78,6 +79,17 @@ namespace Durin
 					std::move(Code));
 		}
 
+		auto SerializeLayout(FArchive& Ar, FMaterialRenderLayout& Layout) -> void
+		{
+			Ar << Layout.Identity.Version << Layout.Identity.Id << Layout.UniformPayloadSize
+				<< Layout.UniformFieldCount << Layout.ResourceFieldCount;
+			SerializeBoundedSequence(Ar, Layout.Fields, MaterialRenderMaxFieldCount,
+				[](FArchive& Inner, FMaterialRenderField& Field) {
+					Inner << Field.ParameterId << Field.Storage << Field.Type
+						<< Field.CompactIndex << Field.Offset << Field.Size;
+				});
+		}
+
 		auto SerializePayload(
 			FArchive& Ar,
 			FMaterialCompilerResult& Program,
@@ -115,6 +127,7 @@ namespace Durin
 			SerializeBoundedString(
 				Ar, Program.Target, MaterialCookedProgramMaxStringBytes);
 			SerializeStaticProperties(Ar, StaticProperties);
+			SerializeLayout(Ar, Program.Layout);
 			SerializeBoundedSequence(
 				Ar, Program.ActiveParameters, MaterialProgramMaxReferencedParameterCount,
 				[](FArchive& Inner, FMaterialCompilerParameterDeclaration& Parameter) {
@@ -167,18 +180,19 @@ namespace Durin
 					&FMaterialParameterDefinition::Id);
 				if (!Parameter.Id.IsValid()
 					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id))
-					|| Definition == Definitions.end() || Definition->Type != Parameter.Type)
+					|| (Program.Layout.Identity.Version == 3
+						&& (Definition == Definitions.end() || Definition->Type != Parameter.Type)))
 					return Fail("Material active parameter contract is invalid.", &OutError);
 				PreviousId = Parameter.Id;
 			}
 			for (const FCompiledShader& Shader : Program.CompiledShaders)
 			{
-				if (!Shader.Code || Shader.Code->empty()
+				if (!Shader.Code || Shader.Code->empty() || Shader.BinaryEntryPoint.empty()
 					|| FXxHash128::HashBuffer(*Shader.Code) != Shader.Hash)
 					return Fail("Material cooked shader code hash is invalid.", &OutError);
 			}
-			if (!ValidateMaterialCompiledStages(
-					Program.CompiledShaders, OutError)) return false;
+			const auto Contract = ValidateMaterialCompilerResult(Program);
+			if (!Contract) return Fail(std::string(GetMaterialLayoutErrorText(Contract.Error)), &OutError);
 			OutError.clear();
 			return true;
 		}
@@ -193,6 +207,8 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
+		if (TargetPlatform != ECookTargetPlatform::Win64 || TargetProfile != ECookTargetProfile::Game)
+			return Fail("Material cooked program target is unsupported.", &OutError);
 		if (!Program || !ValidateDecodedProgram(
 				Program, StaticProperties, false, OutError)) return false;
 		FMaterialCompilerResult Copy = Program;
@@ -206,7 +222,12 @@ namespace Durin
 			OutBytes.clear();
 			return false;
 		}
-		if (OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
+		if (!Ar.HasError())
+		{
+			auto Checksum = FXxHash128::HashBuffer(OutBytes);
+			SerializeHash(Ar, Checksum);
+		}
+		if (Ar.HasError() || OutBytes.size() > MaterialCookedProgramMaxPayloadBytes)
 		{
 			OutBytes.clear();
 			return Fail("Material cooked program exceeds its payload byte limit.",
@@ -224,13 +245,24 @@ namespace Durin
 		std::shared_ptr<const FMaterialCompilerResult>& OutProgram,
 		std::string& OutError) -> bool
 	{
-		if (Bytes.empty() || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
+		if (Bytes.size() < 24 || Bytes.size() > MaterialCookedProgramMaxPayloadBytes)
 			return Fail("Material cooked program byte extent is invalid.", &OutError);
+		FCanonicalMemoryReader Header(Bytes.first(8), EArchivePurpose::CookedPayload);
+		uint32 Magic = 0, Version = 0;
+		Header << Magic << Version;
+		if (Header.HasError() || Magic != MaterialCookedProgramMagic || Version != MaterialCookedProgramPayloadSchemaVersion)
+			return Fail("Material cooked program format is incompatible; recook from authored assets.", &OutError);
+		const FByteView Payload = Bytes.first(Bytes.size() - 16);
+		FCanonicalMemoryReader ChecksumReader(Bytes.last(16), EArchivePurpose::CookedPayload);
+		FXxHash128 StoredChecksum;
+		SerializeHash(ChecksumReader, StoredChecksum);
+		if (ChecksumReader.HasError() || StoredChecksum != FXxHash128::HashBuffer(Payload))
+			return Fail("Material cooked program checksum is invalid.", &OutError);
 		FMaterialCompilerResult Candidate;
 		FMaterialStaticProperties CandidateProperties;
 		ECookTargetPlatform Platform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile Profile = ECookTargetProfile::Invalid;
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
+		FCanonicalMemoryReader Ar(Payload, EArchivePurpose::CookedPayload);
 		SerializePayload(Ar, Candidate, CandidateProperties, Platform, Profile);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			return Fail(Ar.GetFailure() ? Ar.GetFailure()->Message
