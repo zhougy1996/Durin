@@ -22,6 +22,8 @@ namespace Durin
 			-> FMaterialStaticProperties override;
 		ENGINE_API auto GetMaterialProgram() const
 			-> const FMaterialProgram* override;
+		ENGINE_API auto GetAcceptedCompiledProgram() const
+			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
 		ENGINE_API auto SetStaticPropertiesOverride(

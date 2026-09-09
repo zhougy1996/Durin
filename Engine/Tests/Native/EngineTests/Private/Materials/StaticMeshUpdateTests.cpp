@@ -12,8 +12,10 @@ namespace
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
+			Durin::MakePBRMaterialParameterDefinitions(),
+			Durin::MakePBRMaterialProgram())) return nullptr;
+		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 

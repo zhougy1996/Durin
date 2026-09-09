@@ -679,8 +679,6 @@ namespace Durin
 		FGBufferRenderer::FFragmentParameters FragmentParameters;
 		FragmentParameters.Material = Material.Uniform;
 		FragmentParameters.Compiled = &Material.Surface;
-		FragmentParameters.Textures = Material.Surface.Textures;
-		FragmentParameters.Samplers = Material.Surface.Samplers;
 		if (!GBuffer.BindPipeline_RenderThread(
 				CommandList, *Pipeline, VertexParameters, FragmentParameters
 			))

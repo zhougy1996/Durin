@@ -359,7 +359,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	auto* SampleMaterial =
 		Durin::NewObject<Durin::DMaterial>(nullptr, "CookedTextureSampleMaterial");
 	const auto SampleMaterialValidation = SampleMaterial->SetMaterialProgram(
-		Durin::MakeCanonicalMaterialProgram());
+		Durin::MakePBRMaterialProgram());
 	ASSERT_TRUE(SampleMaterialValidation);
 	ASSERT_TRUE(SampleMaterial->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));

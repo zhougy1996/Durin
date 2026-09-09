@@ -166,7 +166,7 @@ namespace Durin
 	{
 		FMaterialRenderData Result;
 		Result.CompiledProgram = GetAcceptedCompiledProgram();
-		Result.Representation = MakeCanonicalMaterialRenderRepresentation();
+		Result.Representation = FMaterialRenderRepresentation{};
 		if (auto* Parent = GetParent(); IsValid(Parent) && Parent != this)
 			{
 			const auto ParentData = Parent->GetRenderData();

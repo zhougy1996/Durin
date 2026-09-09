@@ -4,6 +4,7 @@
 #include "NativeDObjectTestSupport.h"
 
 #include "EngineTestSupport.h"
+#include "Materials/MaterialTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -174,12 +175,8 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureMixedV4Texture>(
 				[StaticMeshProxy, &BoundTexture](FRHICommandListImmediate&) {
-					FMaterialRenderBinding Binding;
-					FMaterialRenderValidationDiagnostic Diagnostic;
-					EXPECT_TRUE(TryGetMaterialRenderBinding(
-						StaticMeshProxy->ResolveMaterialRenderData_RenderThread()
-							.Representation,
-						Binding, Diagnostic)) << Diagnostic.Message;
+					const auto Binding = GetMaterialBinding(
+						StaticMeshProxy->ResolveMaterialRenderData_RenderThread());
 					BoundTexture = Binding.Textures[0];
 				});
 			FlushRenderingCommands();
@@ -280,7 +277,7 @@ namespace Durin
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		const auto ProgramValidation = Material->SetMaterialProgram(
-			MakeCanonicalMaterialProgram());
+			MakePBRMaterialProgram());
 		ASSERT_TRUE(ProgramValidation);
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
@@ -315,15 +312,8 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
 				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
-					FMaterialRenderBinding Binding;
-					FMaterialRenderValidationDiagnostic Diagnostic;
-					const bool bValid = TryGetMaterialRenderBinding(
-						StaticMeshProxy
-							->ResolveMaterialRenderData_RenderThread()
-							.Representation,
-						Binding,
-						Diagnostic);
-					EXPECT_TRUE(bValid) << Diagnostic.Message;
+					const auto Binding = GetMaterialBinding(
+						StaticMeshProxy->ResolveMaterialRenderData_RenderThread());
 					Result = Binding.Textures[0];
 				});
 			FlushRenderingCommands();

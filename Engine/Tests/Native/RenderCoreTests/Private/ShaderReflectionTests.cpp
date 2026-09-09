@@ -373,7 +373,7 @@ namespace Durin
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 
-	TEST(FShaderReflectionTests, StaticMeshBasePassModuleExtractionPreservesShaderAbi)
+	TEST(FShaderReflectionTests, ErrorTerminalPreservesVertexAbiWithoutFragmentDescriptors)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
@@ -400,9 +400,8 @@ namespace Durin
 		EXPECT_EQ(FragmentShader.SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(VertexShader.BinaryEntryPoint, "main");
 		EXPECT_EQ(FragmentShader.BinaryEntryPoint, "main");
-		// SPIR-V BuiltIn 17 is FrontFacing. The base pass needs it to orient
-		// the tangent frame for rasterized back faces of two-sided materials.
-		EXPECT_TRUE(HasSpirvInputBuiltIn(FragmentShader, 17u));
+		// Constant error color does not consume the FrontFacing built-in.
+		EXPECT_FALSE(HasSpirvInputBuiltIn(FragmentShader, 17u));
 		EXPECT_EQ(
 			GetSpirvInputLocations(VertexShader),
 			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7})
@@ -418,133 +417,18 @@ namespace Durin
 			ERHIBindingType::UniformBuffer,
 			EShaderStageFlags::Vertex
 		);
-		ASSERT_EQ(
-			FragmentShader.Reflection.ResourceBindings.size(), 24u
-		);
-		ExpectBinding(
-			FragmentShader,
-			"Lighting",
-			1,
-			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Fragment
-		);
-		ExpectBinding(
-			FragmentShader,
-			"Material",
-			2,
-			ERHIBindingType::UniformBuffer,
-			EShaderStageFlags::Fragment
-		);
-		ExpectBinding(
-			FragmentShader,
-			"BaseColorTexture",
-			3,
-			ERHIBindingType::Texture,
-			EShaderStageFlags::Fragment
-		);
-		ExpectBinding(
-			FragmentShader,
-			"NormalTexture",
-			4,
-			ERHIBindingType::Texture,
-			EShaderStageFlags::Fragment
-		);
-		ExpectBinding(FragmentShader, "MetallicTexture", 5, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "RoughnessTexture", 6, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "AmbientOcclusionTexture", 7, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EmissiveTexture", 8, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityTexture", 9, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityMaskTexture", 10, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(
-			FragmentShader,
-			"BaseColorSampler",
-			11,
-			ERHIBindingType::Sampler,
-			EShaderStageFlags::Fragment
-		);
-		ExpectBinding(FragmentShader, "NormalSampler", 12, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "MetallicSampler", 13, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "RoughnessSampler", 14, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "AmbientOcclusionSampler", 15, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EmissiveSampler", 16, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacitySampler", 17, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "OpacityMaskSampler", 18, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentIrradiance", 19, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentPrefiltered", 20, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentBrdfLut", 21, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "EnvironmentSampler", 22, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "DirectionalShadowTexture", 25, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-		ExpectBinding(FragmentShader, "DirectionalShadowSampler", 26, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
-
+		EXPECT_TRUE(FragmentShader.Reflection.ResourceBindings.empty());
+		EXPECT_TRUE(FragmentShader.Reflection.PushConstantRanges.empty());
 		FPipelineLayoutDesc PipelineLayout;
 		std::string ErrorMessage;
-		ASSERT_TRUE(BuildPipelineLayoutFromShaders(
-			Output.CompiledShaders,
-			PipelineLayout,
-			ErrorMessage
-		)) << ErrorMessage;
+		ASSERT_TRUE(BuildPipelineLayoutFromShaders(Output.CompiledShaders,
+			PipelineLayout, ErrorMessage)) << ErrorMessage;
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
-		const auto& SetLayout =
-			PipelineLayout.BindingLayouts[0].BindingLayouts;
-		ASSERT_EQ(SetLayout.size(), 25u);
-		for (uint32 BindingIndex = 0; BindingIndex <= 22; ++BindingIndex)
-		{
-			EXPECT_EQ(
-				SetLayout[BindingIndex].Slot,
-				BindingIndex
-			);
-		}
-		EXPECT_EQ(SetLayout[23].Slot, 25u);
-		EXPECT_EQ(SetLayout[24].Slot, 26u);
-		EXPECT_EQ(
-			SetLayout[0].Type,
-			ERHIBindingType::UniformBuffer
-		);
-		EXPECT_EQ(
-			SetLayout[0].StageFlags,
-			EShaderStageFlags::Vertex
-		);
-		EXPECT_EQ(
-			SetLayout[1].Type,
-			ERHIBindingType::UniformBuffer
-		);
-		EXPECT_EQ(
-			SetLayout[1].StageFlags,
-			EShaderStageFlags::Fragment
-		);
-		EXPECT_EQ(
-			SetLayout[2].Type,
-			ERHIBindingType::UniformBuffer
-		);
-		EXPECT_EQ(
-			SetLayout[2].StageFlags,
-			EShaderStageFlags::Fragment
-		);
-		for (uint32 BindingIndex = 3; BindingIndex <= 10; ++BindingIndex)
-		{
-			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Texture);
-			EXPECT_EQ(
-				SetLayout[BindingIndex].StageFlags,
-				EShaderStageFlags::Fragment
-			);
-		}
-		for (uint32 BindingIndex = 11; BindingIndex <= 18; ++BindingIndex)
-		{
-			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Sampler);
-			EXPECT_EQ(SetLayout[BindingIndex].StageFlags, EShaderStageFlags::Fragment);
-		}
-		for (uint32 BindingIndex = 19; BindingIndex <= 21; ++BindingIndex)
-		{
-			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Texture);
-			EXPECT_EQ(SetLayout[BindingIndex].StageFlags, EShaderStageFlags::Fragment);
-		}
-		EXPECT_EQ(SetLayout[22].Type, ERHIBindingType::Sampler);
-		EXPECT_EQ(SetLayout[22].StageFlags, EShaderStageFlags::Fragment);
-		EXPECT_EQ(SetLayout[23].Type, ERHIBindingType::Texture);
-		EXPECT_EQ(SetLayout[23].StageFlags, EShaderStageFlags::Fragment);
-		EXPECT_EQ(SetLayout[24].Type, ERHIBindingType::Sampler);
-		EXPECT_EQ(SetLayout[24].StageFlags, EShaderStageFlags::Fragment);
-		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
+		const auto& SetLayout = PipelineLayout.BindingLayouts[0].BindingLayouts;
+		ASSERT_EQ(SetLayout.size(), 1u);
+		EXPECT_EQ(SetLayout[0].Slot, 0u);
+		EXPECT_EQ(SetLayout[0].Type, ERHIBindingType::UniformBuffer);
+		EXPECT_EQ(SetLayout[0].StageFlags, EShaderStageFlags::Vertex);
 	}
 
 	TEST(FShaderReflectionTests, GeometryPassPublishesFourTargetsForEveryVertexFactoryDomain)
@@ -584,16 +468,13 @@ namespace Durin
 				<< Name;
 			EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0, 1, 2, 3})) << Name;
 			EXPECT_TRUE(HasSpirvInputBuiltIn(Fragment, 17u)) << Name;
-			ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 17u)
+			ASSERT_TRUE(Fragment.Reflection.ResourceBindings.empty())
 				<< Name;
 			EXPECT_EQ(FindBinding(Fragment, "Lighting"), nullptr) << Name;
 			EXPECT_EQ(FindBinding(Fragment, "EnvironmentIrradiance"), nullptr)
 				<< Name;
 			EXPECT_EQ(FindBinding(Fragment, "DirectionalShadowTexture"), nullptr)
 				<< Name;
-			ExpectBinding(Fragment, "Material", 2, ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
-			ExpectBinding(Fragment, "BaseColorTexture", 3, ERHIBindingType::Texture, EShaderStageFlags::Fragment);
-			ExpectBinding(Fragment, "OpacityMaskSampler", 18, ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 		}
 	}
 

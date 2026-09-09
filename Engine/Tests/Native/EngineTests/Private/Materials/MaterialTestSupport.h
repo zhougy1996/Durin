@@ -6,6 +6,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "Asset/AssetRetention.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"
@@ -44,6 +45,23 @@
 
 namespace
 {
+	auto FinishMaterialCompileForTest(
+		Durin::DMaterial& Material,
+		std::chrono::milliseconds Timeout = std::chrono::seconds(10)) -> bool
+	{
+		const auto Deadline = std::chrono::steady_clock::now() + Timeout;
+		while (std::chrono::steady_clock::now() < Deadline)
+		{
+			Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+			const auto State = Material.GetMaterialCompileStatus().State;
+			if (State != Durin::EMaterialCompileState::Pending
+				&& State != Durin::EMaterialCompileState::Running)
+				return State == Durin::EMaterialCompileState::Ready;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return false;
+	}
+
 	constexpr uint8 MaterialTexturePngBytes[] = {
 		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
 		0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
@@ -230,15 +248,102 @@ namespace
 		Fence.Wait();
 	}
 
+	using namespace Durin;
+	// Test-only projection of familiar PBR names from generic compiled fields.
+	struct FMaterialTestBinding : Durin::FMaterialRenderBinding
+	{
+		FVector4f BaseColor{0.5f, 0.5f, 0.5f, 1.0f};
+		FVector3f Emissive{0.0f};
+		FVector3f Normal{0.0f, 0.0f, 1.0f};
+		float Metallic = 0.0f;
+		float Roughness = 0.5f;
+		float AmbientOcclusion = 1.0f;
+		float OpacityMask = 1.0f;
+		std::array<float, 8> UVChannels{};
+		std::array<FVector2f, 8> UVScales{};
+		std::array<FVector2f, 8> UVOffsets{};
+		std::array<FRHITextureReferenceRef, 8> Textures{};
+		std::array<float, 8> UVRotations{};
+		std::array<FMaterialSamplerState, 8> Samplers{};
+
+		FMaterialTestBinding()
+		{
+			UVScales.fill(FVector2f(1.0f, 1.0f));
+		}
+	};
+
 	auto GetMaterialBinding(
 		const Durin::FMaterialRenderData& RenderData)
-		-> Durin::FMaterialRenderBinding
+		-> FMaterialTestBinding
 	{
-		Durin::FMaterialRenderBinding Binding;
+		FMaterialTestBinding Binding;
 		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 		EXPECT_TRUE(Durin::TryGetMaterialRenderBinding(
 			RenderData.Representation, Binding, Diagnostic))
 			<< Diagnostic.Message;
+		if (Binding.LayoutIdentity.Version
+			== Durin::CompiledMaterialRenderLayoutVersion)
+		{
+			const auto Payload = RenderData.Representation.GetUniformPayload();
+			const auto Resources = RenderData.Representation.GetResources();
+			auto Read = [&](const Durin::FGuid& Id, uint32 Component = 0) {
+				const auto& Fields = RenderData.Representation.GetLayout().Fields;
+				const auto It = std::ranges::find(
+					Fields, Id, &Durin::FMaterialRenderField::ParameterId);
+				float Value = 0.0f;
+				if (It != Fields.end()
+					&& It->Storage == Durin::EMaterialRenderFieldStorage::Uniform
+					&& It->Offset + (Component + 1) * sizeof(float) <= Payload.size())
+					std::memcpy(&Value, Payload.data() + It->Offset
+						+ Component * sizeof(float), sizeof(Value));
+				return Value;
+			};
+			using Role = Durin::MaterialParameters::EMaterialBuiltinParameterRole;
+			using Kind = Durin::MaterialParameters::EMaterialBuiltinParameterKind;
+			const auto ValueId = [](Role R) {
+				return Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::Value);
+			};
+			const auto& Fields = RenderData.Representation.GetLayout().Fields;
+			const auto Has = [&](const Durin::FGuid& Id) {
+				return std::ranges::find(Fields, Id,
+					&Durin::FMaterialRenderField::ParameterId) != Fields.end();
+			};
+			if (Has(ValueId(Role::BaseColor)))
+				Binding.BaseColor = {Read(ValueId(Role::BaseColor), 0),
+					Read(ValueId(Role::BaseColor), 1), Read(ValueId(Role::BaseColor), 2),
+					Has(ValueId(Role::Opacity)) ? Read(ValueId(Role::Opacity)) : Binding.BaseColor.a};
+			if (Has(ValueId(Role::Normal))) Binding.Normal = {Read(ValueId(Role::Normal), 0),
+				Read(ValueId(Role::Normal), 1), Read(ValueId(Role::Normal), 2)};
+			if (Has(ValueId(Role::Metallic))) Binding.Metallic = Read(ValueId(Role::Metallic));
+			if (Has(ValueId(Role::Roughness))) Binding.Roughness = Read(ValueId(Role::Roughness));
+			if (Has(ValueId(Role::AmbientOcclusion))) Binding.AmbientOcclusion = Read(ValueId(Role::AmbientOcclusion));
+			if (Has(ValueId(Role::Emissive))) Binding.Emissive = {Read(ValueId(Role::Emissive), 0),
+				Read(ValueId(Role::Emissive), 1), Read(ValueId(Role::Emissive), 2)};
+			if (Has(ValueId(Role::OpacityMask))) Binding.OpacityMask = Read(ValueId(Role::OpacityMask));
+			for (size_t RoleIndex = 0; RoleIndex < 8; ++RoleIndex)
+			{
+				const Role R = static_cast<Role>(RoleIndex);
+				const auto ChannelId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVChannel);
+				const auto ScaleId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVScale);
+				const auto OffsetId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVOffset);
+				const auto RotationId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::UVRotation);
+				if (Has(ChannelId)) Binding.UVChannels[RoleIndex] = Read(ChannelId);
+				if (Has(ScaleId)) Binding.UVScales[RoleIndex] = {Read(ScaleId, 0), Read(ScaleId, 1)};
+				if (Has(OffsetId)) Binding.UVOffsets[RoleIndex] = {Read(OffsetId, 0), Read(OffsetId, 1)};
+				if (Has(RotationId)) Binding.UVRotations[RoleIndex] = Read(RotationId);
+				const auto TextureId = Durin::MaterialParameters::GetBuiltinParameterId(R, Kind::Texture);
+				const auto Field = std::ranges::find(Fields, TextureId,
+					&Durin::FMaterialRenderField::ParameterId);
+				if (Field != Fields.end() && Field->CompactIndex < Resources.size())
+				{
+					Binding.Textures[RoleIndex] = Resources[Field->CompactIndex];
+					Binding.Samplers[RoleIndex] = Binding.CompiledSamplers[Field->CompactIndex];
+				}
+			}
+		}
+		// Error color is shader-owned; it has no declared uniform field.
+		if (RenderData.Representation.IsError())
+			Binding.BaseColor = Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f);
 		return Binding;
 	}
 
@@ -467,5 +572,100 @@ namespace
 			.ForArrayElement(Definitions->GetInner(), Index)
 			.ForStructMember(ValueProperty)
 			.ForStructMember(Field);
+	}
+}
+
+namespace
+{
+	struct FDualLayerRustFixture
+	{
+		std::vector<Durin::FMaterialParameterDefinition> Definitions;
+		Durin::FMaterialProgram Program;
+	};
+
+	inline auto MakeDualLayerRustFixture() -> FDualLayerRustFixture
+	{
+		using namespace Durin;
+		auto Numeric = [](const char* Name, EMaterialParameterType Type,
+			FMaterialParameterValue Value) {
+			FMaterialParameterDefinition Result;
+			Result.Id = FGuid::NewGuid(); Result.Name = FName(Name);
+			Result.DisplayName = Name; Result.Type = Type; Result.Value = Value;
+			return Result;
+		};
+		auto Texture = [](const char* Name, EMaterialTextureFallback Fallback) {
+			FMaterialParameterDefinition Result;
+			Result.Id = FGuid::NewGuid(); Result.Name = FName(Name);
+			Result.DisplayName = Name; Result.Type = EMaterialParameterType::Texture;
+			Result.Value = FMaterialParameterValue::MakeTexture(nullptr, {}, Fallback);
+			return Result;
+		};
+		std::vector<FMaterialParameterDefinition> Definitions{
+			Texture("MetalColorTexture", EMaterialTextureFallback::White),
+			Texture("MetalNormalTexture", EMaterialTextureFallback::FlatRGNormal),
+			Texture("RustColorTexture", EMaterialTextureFallback::White),
+			Texture("RustNormalTexture", EMaterialTextureFallback::FlatRGNormal),
+			Texture("RustMaskTexture", EMaterialTextureFallback::Black),
+			Numeric("RustAmount", EMaterialParameterType::Scalar,
+				FMaterialParameterValue::MakeScalar(0.35f)),
+			Numeric("RustTiling", EMaterialParameterType::Scalar,
+				FMaterialParameterValue::MakeScalar(2.0f))};
+		const FGuid RustAmountId = Definitions[5].Id;
+		FMaterialProgram Program;
+		auto Add = [&](EMaterialProgramOpcode Opcode, EMaterialProgramValueType Type,
+			std::vector<FMaterialProgramLink> Inputs = {}, FGuid ParameterId = {}) {
+			FMaterialProgramNode Node;
+			Node.Id = FGuid::NewGuid(); Node.Opcode = Opcode; Node.ResultType = Type;
+			Node.Inputs = std::move(Inputs); Node.ParameterId = ParameterId;
+			Program.Nodes.push_back(Node);
+			return FMaterialProgramLink{Node.Id, 0};
+		};
+		auto Swizzle = [&](FMaterialProgramLink Input,
+			EMaterialProgramValueType Type, std::initializer_list<uint8> Channels) {
+			const auto Result = Add(EMaterialProgramOpcode::Swizzle, Type, {Input});
+			auto& Node = Program.Nodes.back(); Node.SwizzleLength = Channels.size();
+			auto It = Channels.begin();
+			if (It != Channels.end()) Node.SwizzleX = *It++;
+			if (It != Channels.end()) Node.SwizzleY = *It++;
+			if (It != Channels.end()) Node.SwizzleZ = *It++;
+			if (It != Channels.end()) Node.SwizzleW = *It;
+			return Result;
+		};
+		const auto Channel = Add(EMaterialProgramOpcode::Constant,
+			EMaterialProgramValueType::Float);
+		const auto UV = Add(EMaterialProgramOpcode::UVChannel,
+			EMaterialProgramValueType::Float2, {Channel});
+		const auto Tiling = Add(EMaterialProgramOpcode::Parameter,
+			EMaterialProgramValueType::Float, {}, Definitions[6].Id);
+		const auto Tiling2 = Add(EMaterialProgramOpcode::Splat2,
+			EMaterialProgramValueType::Float2, {Tiling});
+		const auto ScaledUV = Add(EMaterialProgramOpcode::Multiply,
+			EMaterialProgramValueType::Float2, {UV, Tiling2});
+		auto Sample = [&](size_t DefinitionIndex) {
+			const auto Parameter = Add(EMaterialProgramOpcode::TextureParameter,
+				EMaterialProgramValueType::Texture2D, {}, Definitions[DefinitionIndex].Id);
+			return Add(EMaterialProgramOpcode::TextureSample2D,
+				EMaterialProgramValueType::Float4, {Parameter, ScaledUV});
+		};
+		const auto MetalColor = Swizzle(Sample(0), EMaterialProgramValueType::Float3, {0, 1, 2});
+		const auto MetalNormalRG = Swizzle(Sample(1), EMaterialProgramValueType::Float2, {0, 1});
+		const auto RustColor = Swizzle(Sample(2), EMaterialProgramValueType::Float3, {0, 1, 2});
+		const auto RustNormalRG = Swizzle(Sample(3), EMaterialProgramValueType::Float2, {0, 1});
+		const auto RustMask = Swizzle(Sample(4), EMaterialProgramValueType::Float, {0});
+		const auto Amount = Add(EMaterialProgramOpcode::Parameter,
+			EMaterialProgramValueType::Float, {}, RustAmountId);
+		const auto WeightedMask = Add(EMaterialProgramOpcode::Multiply,
+			EMaterialProgramValueType::Float, {RustMask, Amount});
+		const auto Alpha = Add(EMaterialProgramOpcode::Saturate,
+			EMaterialProgramValueType::Float, {WeightedMask});
+		Program.Outputs.BaseColor = Add(EMaterialProgramOpcode::Lerp,
+			EMaterialProgramValueType::Float3, {MetalColor, RustColor, Alpha});
+		const auto MetalNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
+			EMaterialProgramValueType::Float3, {MetalNormalRG});
+		const auto RustNormal = Add(EMaterialProgramOpcode::DecodeNormalRG,
+			EMaterialProgramValueType::Float3, {RustNormalRG});
+		Program.Outputs.Normal = Add(EMaterialProgramOpcode::Lerp,
+			EMaterialProgramValueType::Float3, {MetalNormal, RustNormal, Alpha});
+		return {std::move(Definitions), std::move(Program)};
 	}
 }

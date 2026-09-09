@@ -460,23 +460,23 @@ namespace Durin
 			Result.ActiveParameters.push_back({Dependency.ParameterId, Dependency.Type});
 		std::ranges::sort(Result.ActiveParameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
-		// Temporary v3 adapter for legacy role consumers; removed by authored migration.
-		const bool bLegacy = std::ranges::any_of(IR.Nodes, [](const auto& Node) {
+		if (std::ranges::any_of(IR.Nodes, [](const auto& Node) {
 			return Node.Opcode == EMaterialProgramOpcode::StandardSurface
 				|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinate;
-		});
-		if (bLegacy) Result.Layout = MakeDefaultMaterialRenderLayout();
-		else
+		}))
 		{
-			auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
-			if (!Layout)
-			{
-				Result.Diagnostics.push_back(MakeNormalizationFailure(std::string(
-					GetMaterialLayoutErrorText(Layout.Validation.Error))));
-				return Result;
-			}
-			Result.Layout = std::move(Layout.Layout);
+			Result.Diagnostics.push_back(MakeNormalizationFailure(
+				"Legacy material expressions must be migrated before compilation."));
+			return Result;
 		}
+		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
+		if (!Layout)
+		{
+			Result.Diagnostics.push_back(MakeNormalizationFailure(std::string(
+				GetMaterialLayoutErrorText(Layout.Validation.Error))));
+			return Result;
+		}
+		Result.Layout = std::move(Layout.Layout);
 		Result.IR = std::move(IR);
 		Result.Identity = BuildMaterialProgramIdentity(
 			Input, Result.CanonicalBytes, Result.Layout);

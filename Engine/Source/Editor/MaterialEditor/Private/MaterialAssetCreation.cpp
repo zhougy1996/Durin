@@ -10,6 +10,15 @@ namespace Durin
 		DMaterial& Material, std::string& OutError) -> bool
 	{
 		OutError.clear();
+		const auto Reset = Material.SetMaterialDefinitionsAndProgram(
+			{}, MakeDefaultMaterialProgram());
+		if (!Reset)
+		{
+			OutError = Reset.Diagnostics.empty()
+				? std::string(GetMaterialParameterErrorText(Reset.Error))
+				: Reset.Diagnostics.front().Message;
+			return false;
+		}
 		FMaterialGraphPresentation Presentation;
 		const auto Layout =
 			Editor::Material::FMaterialGraphOperations::CalculateLayout(

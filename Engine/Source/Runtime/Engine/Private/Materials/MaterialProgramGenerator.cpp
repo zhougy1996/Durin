@@ -12,10 +12,6 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr std::array<std::string_view, 8> GRoleNames{
-			"BaseColor", "Normal", "Metallic", "Roughness",
-			"AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
-
 		auto SlangType(EMaterialProgramValueType Type) -> std::string_view
 		{
 			switch (Type)
@@ -36,33 +32,6 @@ namespace Durin
 			const uint32 Bits = Value == 0.0f
 				? 0u : std::bit_cast<uint32>(Value);
 			return std::format("asfloat(0x{:08x}u)", Bits);
-		}
-
-		auto FindRole(FGuid ParameterId, bool bTexture) -> int32
-		{
-			const auto Kind = bTexture
-				? MaterialParameters::EMaterialBuiltinParameterKind::Texture
-				: MaterialParameters::EMaterialBuiltinParameterKind::Value;
-			const auto Role = MaterialParameters::FindBuiltinParameterRole(
-				ParameterId, Kind);
-			return Role == MaterialParameters::EMaterialBuiltinParameterRole::Count
-				? -1 : static_cast<int32>(Role);
-		}
-
-		auto ParameterExpression(FGuid Id) -> std::string
-		{
-			switch (FindRole(Id, false))
-			{
-			case 0: return "Material.BaseColor.xyz";
-			case 1: return "Material.NormalRoughness.xyz";
-			case 2: return "Material.EmissiveMetallic.w";
-			case 3: return "Material.NormalRoughness.w";
-			case 4: return "Material.SurfaceParams.x";
-			case 5: return "Material.EmissiveMetallic.xyz";
-			case 6: return "Material.BaseColor.w";
-			case 7: return "Material.SurfaceParams.y";
-			default: return {};
-			}
 		}
 
 		auto LiteralExpression(const FMaterialIRNode& Node) -> std::string
@@ -99,7 +68,7 @@ namespace Durin
 	}
 
 	static auto GenerateMaterialProgramSlangImpl(const FMaterialIR& IR,
-		const FMaterialRenderLayout* Layout, std::string& OutSource, std::string& OutError) -> bool
+		const FMaterialRenderLayout& Layout, std::string& OutSource, std::string& OutError) -> bool
 	{
 		OutSource.clear();
 		OutError.clear();
@@ -128,29 +97,18 @@ struct VSOutput
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
 };
-struct MaterialUniform
-{
-    float4 BaseColor;
-    float4 EmissiveMetallic;
-    float4 NormalRoughness;
-    float4 SurfaceParams;
-    float4 UVTransforms[8];
-    float4 UVChannels0;
-    float4 UVChannels1;
-    float4 UVRotations0;
-    float4 UVRotations1;
-};
-[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
-[[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;
 )";
-		for (uint32 Role = 0; Role < GRoleNames.size(); ++Role)
+		OutSource += "struct MaterialUniform\n{\n    float4 SurfaceParams;\n";
+		for (uint32 Index = 0; Index < Layout.UniformFieldCount; ++Index)
+			OutSource += std::format("    float4 Value{};\n", Index);
+		OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
+			"[[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;\n";
+		for (uint32 Index = 0; Index < Layout.ResourceFieldCount; ++Index)
 			OutSource += std::format(
-				"[[vk::binding({}, 0)]] Texture2D<float4> {}Texture;\n",
-				Role + 3, GRoleNames[Role]);
-		for (uint32 Role = 0; Role < GRoleNames.size(); ++Role)
-			OutSource += std::format(
-				"[[vk::binding({}, 0)]] SamplerState {}Sampler;\n",
-				Role + 11, GRoleNames[Role]);
+				"[[vk::binding({}, 0)]] Texture2D<float4> MaterialTexture{};\n"
+				"[[vk::binding({}, 0)]] SamplerState MaterialSampler{};\n",
+				MaterialTextureBindingBase + 2 * Index, Index,
+				MaterialTextureBindingBase + 2 * Index + 1, Index);
 		OutSource += R"(
 [[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
 [[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
@@ -158,54 +116,10 @@ struct MaterialUniform
 [[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
 [[vk::binding(25, 0)]] Texture2DArray<float> DirectionalShadowTexture;
 [[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
-
-float2 GetMaterialUV(VSOutput input, uint role)
-{
-    float channel = role < 4u ? Material.UVChannels0[role]
-        : Material.UVChannels1[role - 4u];
-    uint index = min((uint)(channel + 0.5), 3u);
-    float2 uv = index == 1u ? input.uv1
-        : (index == 2u ? input.uv2 : (index == 3u ? input.uv3 : input.uv0));
-    float4 transform = Material.UVTransforms[role];
-    float rotation = role < 4u ? Material.UVRotations0[role]
-        : Material.UVRotations1[role - 4u];
-    float2 scaled = uv * transform.xy;
-    if (rotation == 0.0)
-        return scaled + transform.zw;
-    float sine;
-    float cosine;
-    sincos(rotation, sine, cosine);
-    return float2(cosine * scaled.x - sine * scaled.y,
-        sine * scaled.x + cosine * scaled.y) + transform.zw;
-}
 )";
-		if (Layout)
-		{
-			OutSource.resize(OutSource.find("struct MaterialUniform"));
-			OutSource += "struct MaterialUniform\n{\n    float4 SurfaceParams;\n";
-			for (uint32 Index = 0; Index < Layout->UniformFieldCount; ++Index)
-				OutSource += std::format("    float4 Value{};\n", Index);
-			OutSource += "};\n[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;\n"
-				"[[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;\n";
-			for (uint32 Index = 0; Index < Layout->ResourceFieldCount; ++Index)
-				OutSource += std::format(
-					"[[vk::binding({}, 0)]] Texture2D<float4> MaterialTexture{};\n"
-					"[[vk::binding({}, 0)]] SamplerState MaterialSampler{};\n",
-					MaterialTextureBindingBase + 2 * Index, Index,
-					MaterialTextureBindingBase + 2 * Index + 1, Index);
-			OutSource += R"(
-[[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
-[[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
-[[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
-[[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
-[[vk::binding(25, 0)]] Texture2DArray<float> DirectionalShadowTexture;
-[[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
-)";
-		}
 		auto FindField = [&](const FGuid& Id) -> const FMaterialRenderField* {
-			if (!Layout) return nullptr;
-			const auto It = std::ranges::find(Layout->Fields, Id, &FMaterialRenderField::ParameterId);
-			return It == Layout->Fields.end() ? nullptr : &*It;
+			const auto It = std::ranges::find(Layout.Fields, Id, &FMaterialRenderField::ParameterId);
+			return It == Layout.Fields.end() ? nullptr : &*It;
 		};
 		OutSource += R"(
 float2 SelectAuthoredUV(VSOutput input, float channel)
@@ -221,36 +135,6 @@ FMaterialSurface MakeAuthoredSurface(float3 baseColor, float3 normal, float meta
     s.roughness = roughness; s.ambientOcclusion = ao; s.emissive = emissive;
     s.opacity = opacity; s.opacityMask = mask;
     return s;
-}
-)";
-		const bool bUsesStandardSurface = std::ranges::any_of(IR.Nodes,
-			[](const FMaterialIRNode& Node) {
-				return Node.Opcode == EMaterialProgramOpcode::StandardSurface;
-			});
-		if (bUsesStandardSurface) OutSource += R"(
-FMaterialSurface EvaluateStandardSurface(VSOutput input)
-{
-    float4 baseSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
-    float4 normalSample = NormalTexture.Sample(NormalSampler, GetMaterialUV(input, 1u));
-    float4 metallicSample = MetallicTexture.Sample(MetallicSampler, GetMaterialUV(input, 2u));
-    float4 roughnessSample = RoughnessTexture.Sample(RoughnessSampler, GetMaterialUV(input, 3u));
-    float4 aoSample = AmbientOcclusionTexture.Sample(AmbientOcclusionSampler, GetMaterialUV(input, 4u));
-    float4 emissiveSample = EmissiveTexture.Sample(EmissiveSampler, GetMaterialUV(input, 5u));
-    float4 opacitySample = OpacityTexture.Sample(OpacitySampler, GetMaterialUV(input, 6u));
-    float4 maskSample = OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u));
-    FMaterialSurface result;
-    result.baseColor = saturate(Material.BaseColor.xyz) * baseSample.xyz;
-    result.tangentNormal = BlendSurfaceNormalsRNM(Material.NormalRoughness.xyz,
-        DecodeTextureNormal(normalSample.xy));
-    result.metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample.z);
-    result.roughness = clamp(saturate(Material.NormalRoughness.w)
-        * saturate(roughnessSample.y), 0.045, 1.0);
-    result.ambientOcclusion = saturate(Material.SurfaceParams.x) * saturate(aoSample.x);
-    result.emissive = max(Material.EmissiveMetallic.xyz, float3(0.0))
-        + max(emissiveSample.xyz, float3(0.0));
-    result.opacity = saturate(Material.BaseColor.w) * saturate(opacitySample.w);
-    result.opacityMask = saturate(Material.SurfaceParams.y) * saturate(maskSample.x);
-    return result;
 }
 )";
 		OutSource += R"(
@@ -275,56 +159,31 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 				Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
 					Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
 			case EMaterialProgramOpcode::StandardSurface:
-				Expression = "EvaluateStandardSurface(input)"; break;
+				break; // Authored migration must expand this opcode.
 			case EMaterialProgramOpcode::Constant:
 				Expression = LiteralExpression(Node); break;
 			case EMaterialProgramOpcode::Parameter:
-				if (Layout)
+				if (const auto* Field = FindField(Node.ParameterId))
 				{
-					if (const auto* Field = FindField(Node.ParameterId))
-					{
-						constexpr std::array<std::string_view, 4> Swizzles{".x", ".xy", ".xyz", ""};
-						Expression = std::format("Material.Value{}{}", Field->CompactIndex,
-							Swizzles[static_cast<size_t>(Node.ResultType)]);
-					}
+					constexpr std::array<std::string_view, 4> Swizzles{".x", ".xy", ".xyz", ""};
+					Expression = std::format("Material.Value{}{}", Field->CompactIndex,
+						Swizzles[static_cast<size_t>(Node.ResultType)]);
 				}
-				else Expression = ParameterExpression(Node.ParameterId);
 				break;
 			case EMaterialProgramOpcode::TextureParameter:
 			{
-				if (Layout)
-				{
-					if (const auto* Field = FindField(Node.ParameterId))
-						Expression = std::format("MaterialTexture{}", Field->CompactIndex);
-				}
-				else
-				{
-					const int32 Role = FindRole(Node.ParameterId, true);
-					if (Role >= 0) Expression = std::format("{}Texture", GRoleNames[Role]);
-				}
+				if (const auto* Field = FindField(Node.ParameterId))
+					Expression = std::format("MaterialTexture{}", Field->CompactIndex);
 				break;
 			}
 			case EMaterialProgramOpcode::TextureCoordinate:
-			{
-				const int32 Role = FindRole(Node.ParameterId, true);
-				if (Role >= 0) Expression = std::format("GetMaterialUV(input, {}u)", Role);
-				break;
-			}
+				break; // Authored migration must expand this opcode.
 			case EMaterialProgramOpcode::TextureSample2D:
 			{
 				const auto& TextureNode = IR.Nodes[Node.Inputs[0]];
-				if (Layout)
-				{
-					if (const auto* Field = FindField(TextureNode.ParameterId))
-						Expression = std::format("{}.Sample(MaterialSampler{}, {})",
-							Input(0), Field->CompactIndex, Input(1));
-				}
-				else
-				{
-					const int32 Role = FindRole(TextureNode.ParameterId, true);
-					if (Role >= 0) Expression = std::format(
-						"{}.Sample({}Sampler, {})", Input(0), GRoleNames[Role], Input(1));
-				}
+				if (const auto* Field = FindField(TextureNode.ParameterId))
+					Expression = std::format("{}.Sample(MaterialSampler{}, {})",
+						Input(0), Field->CompactIndex, Input(1));
 				break;
 			}
 			case EMaterialProgramOpcode::Add: Expression = std::format("({} + {})", Input(0), Input(1)); break;
@@ -546,9 +405,7 @@ float4 FragmentMain(
 }
 )";
 		const std::string_view MaskToken = "DURIN_GENERATED_SHADOW_MASK";
-		OutSource.replace(OutSource.find(MaskToken), MaskToken.size(), Layout
-			? "EvaluateGeneratedMaterial(input).opacityMask"
-			: "Material.SurfaceParams.y * OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u)).r");
+		OutSource.replace(OutSource.find(MaskToken), MaskToken.size(), "EvaluateGeneratedMaterial(input).opacityMask");
 		if (OutSource.size() > MaterialProgramMaxCanonicalBytes)
 		{
 			OutError = "Generated material Slang exceeds the version-1 byte bound.";
@@ -561,15 +418,35 @@ float4 FragmentMain(
 	auto GenerateMaterialProgramSlang(const FMaterialIR& IR,
 		std::string& OutSource, std::string& OutError) -> bool
 	{
-		return GenerateMaterialProgramSlangImpl(IR, nullptr, OutSource, OutError);
+		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
+		for (const auto& Node : IR.Nodes)
+		{
+			if (Node.Opcode != EMaterialProgramOpcode::Parameter
+				&& Node.Opcode != EMaterialProgramOpcode::TextureParameter) continue;
+			EMaterialParameterType Type = EMaterialParameterType::Texture;
+			switch (Node.ResultType)
+			{
+			case EMaterialProgramValueType::Float: Type = EMaterialParameterType::Scalar; break;
+			case EMaterialProgramValueType::Float2: Type = EMaterialParameterType::Vector2; break;
+			case EMaterialProgramValueType::Float3: Type = EMaterialParameterType::Vector; break;
+			case EMaterialProgramValueType::Float4: Type = EMaterialParameterType::Vector4; break;
+			default: break;
+			}
+			const FMaterialCompilerParameterDeclaration Parameter{Node.ParameterId, Type};
+			if (std::ranges::find(Parameters, Parameter) == Parameters.end()) Parameters.push_back(Parameter);
+		}
+		const auto Layout = CompileMaterialLayout(Parameters);
+		if (!Layout) { OutSource.clear(); OutError = GetMaterialLayoutErrorText(Layout.Validation.Error); return false; }
+		const auto Result = GenerateMaterialProgramSlang(IR, Layout.Layout);
+		OutSource = Result.Source;
+		OutError = Result.Diagnostics.empty() ? "" : Result.Diagnostics.front().Message;
+		return static_cast<bool>(Result);
 	}
 
 	auto GenerateMaterialProgramSlang(const FMaterialIR& IR, const FMaterialRenderLayout& Layout)
 		-> FMaterialSourceGenerationResult
 	{
 		FMaterialSourceGenerationResult Result;
-		const bool bLegacy = Layout.Identity.Version == 3 && Layout.Identity.Id == MaterialRenderLayoutV3Id;
-		if (!bLegacy)
 		{
 			const auto Valid = ValidateCompiledMaterialLayout(Layout);
 			if (!Valid)
@@ -590,8 +467,7 @@ float4 FragmentMain(
 		// depth before the generator's indexed expression traversal.
 		FMaterialProgram Program;
 		std::vector<FMaterialParameterDefinition> Definitions;
-		if (bLegacy) Definitions = MakeCanonicalMaterialParameterDefinitions();
-		else for (const auto& Field : Layout.Fields)
+		for (const auto& Field : Layout.Fields)
 		{
 			EMaterialParameterType Type;
 			switch (Field.Type)
@@ -643,7 +519,7 @@ float4 FragmentMain(
 			Result.Diagnostics = Validation.Diagnostics;
 			return Result;
 		}
-		if (!GenerateMaterialProgramSlangImpl(IR, bLegacy ? nullptr : &Layout, Result.Source, Error))
+		if (!GenerateMaterialProgramSlangImpl(IR, Layout, Result.Source, Error))
 			Result.Diagnostics.push_back(MakeDiagnostic(EMaterialProgramDiagnosticCategory::Generation, std::move(Error)));
 		return Result;
 	}
@@ -654,14 +530,9 @@ float4 FragmentMain(
 		if (!Result.bSucceeded || !Result.Identity.IsValid()
 			|| Result.PassContractVersion != CurrentMaterialPassContractVersion)
 			return {.Error = EMaterialLayoutError::InvalidIdentity};
-		if (Result.Layout.Identity.Version == CompiledMaterialRenderLayoutVersion)
-		{
-			const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
-			if (!Expected) return Expected.Validation;
-			if (Expected.Layout != Result.Layout) return {.Error = EMaterialLayoutError::InvalidField};
-		}
-		else if (Result.Layout != MakeDefaultMaterialRenderLayout())
-			return {.Error = EMaterialLayoutError::InvalidField};
+		const auto Expected = CompileMaterialLayout(Result.ActiveParameters);
+		if (!Expected) return Expected.Validation;
+		if (Expected.Layout != Result.Layout) return {.Error = EMaterialLayoutError::InvalidField};
 		return ValidateMaterialCompiledStages(Result.CompiledShaders, Result.Layout);
 	}
 
@@ -670,11 +541,6 @@ float4 FragmentMain(
 		-> FMaterialLayoutValidationResult
 	{
 		const auto Rejected = FMaterialLayoutValidationResult{.Error = EMaterialLayoutError::InvalidReflection};
-		if (Layout.Identity.Version == 3 && Layout.Identity.Id == MaterialRenderLayoutV3Id)
-		{
-			std::string Error;
-			return ValidateMaterialCompiledStages(Stages, Error) ? FMaterialLayoutValidationResult{} : Rejected;
-		}
 		const auto Valid = ValidateCompiledMaterialLayout(Layout, Limits);
 		if (!Valid) return Valid;
 		constexpr std::array<std::string_view, 3> Entries{"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
@@ -707,70 +573,6 @@ float4 FragmentMain(
 			}
 		}
 		return {};
-	}
-
-	auto ValidateMaterialCompiledStages(
-		std::span<const FCompiledShader> Stages,
-		std::string& OutError) -> bool
-	{
-		OutError.clear();
-		constexpr std::array<std::string_view, 3> Entries{
-			"FragmentMain", "GeometryFragmentMain", "ShadowFragmentMain"};
-		constexpr std::array<std::array<uint32, 24>, 1> Forward{{{
-			1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-			17, 18, 19, 20, 21, 22, 25, 26}}};
-		constexpr std::array<uint32, 17> GBuffer{
-			2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18};
-		constexpr std::array<uint32, 3> Shadow{2, 10, 18};
-		if (Stages.size() != Entries.size())
-		{
-			OutError = "Material compilation returned an incomplete stage set.";
-			return false;
-		}
-		auto ExpectedType = [](uint32 Binding) {
-			if (Binding == 1 || Binding == 2)
-				return ERHIBindingType::UniformBuffer;
-			if ((Binding >= 11 && Binding <= 18) || Binding == 22
-				|| Binding == 26) return ERHIBindingType::Sampler;
-			return ERHIBindingType::Texture;
-		};
-		for (size_t StageIndex = 0; StageIndex < Stages.size(); ++StageIndex)
-		{
-			const FCompiledShader& Stage = Stages[StageIndex];
-			std::span<const uint32> Expected = StageIndex == 0
-				? std::span<const uint32>(Forward[0])
-				: (StageIndex == 1 ? std::span<const uint32>(GBuffer)
-					: std::span<const uint32>(Shadow));
-			if (!Stage.Code || Stage.Code->empty()
-				|| Stage.SourceEntryPoint != Entries[StageIndex]
-				|| Stage.Frequency != EShaderFrequency::Fragment
-				|| !Stage.Reflection.PushConstantRanges.empty()
-				|| Stage.Reflection.ResourceBindings.size() > Expected.size())
-			{
-				OutError = std::format(
-					"Material stage {} violates the compiled stage contract.",
-					Entries[StageIndex]);
-				return false;
-			}
-			std::unordered_set<uint32> SeenBindings;
-			for (const FShaderResourceBinding& Binding
-				: Stage.Reflection.ResourceBindings)
-			{
-				if (std::ranges::find(Expected, Binding.BindingIndex)
-					== Expected.end()
-					|| !SeenBindings.insert(Binding.BindingIndex).second
-					|| Binding.SetIndex != 0 || Binding.ArraySize != 1
-					|| Binding.Type != ExpectedType(Binding.BindingIndex)
-					|| Binding.StageFlags != EShaderStageFlags::Fragment)
-				{
-					OutError = std::format(
-						"Material stage {} has an incompatible binding {}.",
-						Entries[StageIndex], Binding.BindingIndex);
-					return false;
-				}
-			}
-		}
-		return true;
 	}
 
 	auto CompileMaterialProgram(const FMaterialCompilerInput& Input,

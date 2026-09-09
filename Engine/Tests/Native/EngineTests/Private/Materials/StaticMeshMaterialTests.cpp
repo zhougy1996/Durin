@@ -17,7 +17,7 @@ namespace
 	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
 	{
 		return Material.SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram());
+			Durin::MakePBRMaterialProgram());
 	}
 
 	auto RelocateAssetForTest(
@@ -597,7 +597,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
-	const Durin::FMaterialRenderBinding LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
+	const auto LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.8f);
 	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.7f);
 	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
@@ -657,7 +657,14 @@ TEST(FMaterialProgramPackageTests,
 			Material, nullptr, "DuplicatedMaterialProgram"));
 	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_NE(Duplicate->GetMaterialProgram(), nullptr);
-	EXPECT_EQ(*Duplicate->GetMaterialProgram(), Authored);
+	const auto Migrated = *Duplicate->GetMaterialProgram();
+	EXPECT_NE(Migrated, Authored);
+	EXPECT_EQ(Migrated.Outputs, Authored.Outputs);
+	EXPECT_EQ(Migrated.Nodes.front().Id, Authored.Nodes.front().Id);
+	EXPECT_EQ(Migrated.Nodes.front().DisplayName, Authored.Nodes.front().DisplayName);
+	EXPECT_TRUE(std::ranges::none_of(Migrated.Nodes, [](const auto& Node) {
+		return Node.Opcode == Durin::EMaterialProgramOpcode::TextureCoordinate;
+	}));
 	EXPECT_NE(Duplicate->GetMaterialProgram(), Material->GetMaterialProgram());
 	Durin::MarkObjectHierarchyAsGarbage(Duplicate);
 
@@ -666,7 +673,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_NE(Loaded->GetMaterialProgram(), nullptr);
-	EXPECT_EQ(*Loaded->GetMaterialProgram(), Authored);
+	EXPECT_EQ(*Loaded->GetMaterialProgram(), Migrated);
 	EXPECT_TRUE(Durin::ValidateMaterialProgram(
 		*Loaded->GetMaterialProgram(), Loaded->GetParameterDefinitions()));
 	const auto CatalogEntry = Durin::FindAssetExact(Path);

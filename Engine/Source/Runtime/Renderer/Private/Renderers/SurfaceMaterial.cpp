@@ -73,17 +73,10 @@ namespace Durin::RendererPrivate
 		ESurfaceMaterialPass Pass) -> bool
 	{
 		check(IsInRenderingThread());
-		if (Pass == ESurfaceMaterialPass::OpaqueShadow) return true;
-		const bool bCompiled = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
-		const uint8 RequiredRoles = GetSurfaceMaterialRequiredRoleMask(Pass);
-		std::vector<FMaterialSamplerState> RequiredSamplers;
-		if (bCompiled)
-		{
-			RequiredSamplers = Binding.CompiledSamplers;
-			if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
-		}
-		else for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
-			if ((RequiredRoles & (uint8{1} << Role)) != 0) RequiredSamplers.push_back(Binding.Samplers[Role]);
+		if (Pass == ESurfaceMaterialPass::OpaqueShadow || Binding.bError) return true;
+		if (Binding.LayoutIdentity.Version != CompiledMaterialRenderLayoutVersion) return false;
+		std::vector<FMaterialSamplerState> RequiredSamplers = Binding.CompiledSamplers;
+		if (Pass == ESurfaceMaterialPass::Forward) RequiredSamplers.emplace_back();
 		for (size_t Role = 0; Role < RequiredSamplers.size(); ++Role)
 		{
 			++State->Counters.SamplerLookups;
@@ -124,9 +117,6 @@ namespace Durin::RendererPrivate
 		OutMaterial = {};
 		if (Pass == ESurfaceMaterialPass::OpaqueShadow) return true;
 
-		OutMaterial.Uniform = MakeSurfaceMaterialUniform(
-			Binding, bLit, bEnableSpecularAA);
-		const uint8 RequiredRoles = GetSurfaceMaterialRequiredRoleMask(Pass);
 		const FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
 		OutMaterial.bCompiledLayout = Binding.LayoutIdentity.Version == CompiledMaterialRenderLayoutVersion;
@@ -138,6 +128,7 @@ namespace Durin::RendererPrivate
 			OutMaterial.CompiledUniformPayload = Binding.CompiledUniformPayload;
 			const FVector4f Controls(0.0f, 0.0f, bLit ? 1.0f : 0.0f, bLit && bEnableSpecularAA ? 1.0f : 0.0f);
 			std::memcpy(OutMaterial.CompiledUniformPayload.data(), &Controls, sizeof(Controls));
+			if (Binding.bError) return Count == 0;
 			for (size_t Index = 0; Index < Count; ++Index)
 			{
 				const auto* Entry = State->Samplers.Find(Binding.CompiledSamplers[Index]);
@@ -160,33 +151,10 @@ namespace Durin::RendererPrivate
 				OutMaterial.CompiledSamplers.push_back(Sampler);
 			}
 		}
-		else
-		for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
-		{
-			if ((RequiredRoles & (uint8{1} << Role)) == 0) continue;
-			const auto* Entry = State->Samplers.Find(Binding.Samplers[Role]);
-			if (Entry == nullptr
-				|| HasSelectedRenderResourceGenerationChanged(
-					Entry->Slot.GetPayloadGeneration(), Generation,
-					ERenderResourceGenerationDependency::Device))
-			{
-				return false;
-			}
-			const FSamplerRHIRef* Sampler = Entry->Slot.GetPayload();
-			if (Sampler == nullptr) return false;
-			FRHITexture* Texture = Binding.Textures[Role] != nullptr
-				? Binding.Textures[Role]->GetReferencedTexture_RenderThread()
-				: nullptr;
-			OutMaterial.Textures[Role] = Texture != nullptr
-				? Texture : DefaultTextures.Get_RenderThread(SurfaceTextureFallbacks[Role]);
-			OutMaterial.Samplers[Role] = Sampler->GetReference();
-			if (OutMaterial.Textures[Role] == nullptr
-				|| OutMaterial.Samplers[Role] == nullptr) return false;
-			OutMaterial.ResolvedRoleMask |= uint8{1} << Role;
-		}
+		else return false;
 
 		if (Pass != ESurfaceMaterialPass::Forward) return true;
-		FRHISampler* FallbackSampler = OutMaterial.Samplers[0];
+		FRHISampler* FallbackSampler = nullptr;
 		if (OutMaterial.bCompiledLayout)
 		{
 			const auto* Entry = State->Samplers.Find(FMaterialSamplerState{});
@@ -294,49 +262,4 @@ namespace Durin::RendererPrivate
 		return true;
 	}
 
-	auto MakeSurfaceForwardParameters(
-		const FResolvedSurfaceMaterial& Material,
-		const FRHIUniformBufferRange& MaterialBuffer,
-		const FRHIUniformBufferRange& Lighting)
-		-> FSurfaceFragmentShader::FParameters
-	{
-		FSurfaceFragmentShader::FParameters Result;
-		Result.Lighting = Lighting;
-		Result.Material = MaterialBuffer;
-		Result.BaseColorTexture = Material.Textures[0];
-		Result.NormalTexture = Material.Textures[1];
-		Result.MetallicTexture = Material.Textures[2];
-		Result.RoughnessTexture = Material.Textures[3];
-		Result.AmbientOcclusionTexture = Material.Textures[4];
-		Result.EmissiveTexture = Material.Textures[5];
-		Result.OpacityTexture = Material.Textures[6];
-		Result.OpacityMaskTexture = Material.Textures[7];
-		Result.BaseColorSampler = Material.Samplers[0];
-		Result.NormalSampler = Material.Samplers[1];
-		Result.MetallicSampler = Material.Samplers[2];
-		Result.RoughnessSampler = Material.Samplers[3];
-		Result.AmbientOcclusionSampler = Material.Samplers[4];
-		Result.EmissiveSampler = Material.Samplers[5];
-		Result.OpacitySampler = Material.Samplers[6];
-		Result.OpacityMaskSampler = Material.Samplers[7];
-		Result.EnvironmentIrradiance = Material.EnvironmentIrradiance;
-		Result.EnvironmentPrefiltered = Material.EnvironmentPrefiltered;
-		Result.EnvironmentBrdfLut = Material.EnvironmentBrdfLut;
-		Result.EnvironmentSampler = Material.EnvironmentSampler;
-		Result.DirectionalShadowTexture = Material.DirectionalShadowTexture;
-		Result.DirectionalShadowSampler = Material.DirectionalShadowSampler;
-		return Result;
-	}
-
-	auto MakeSurfaceMaskedShadowParameters(
-		const FResolvedSurfaceMaterial& Material,
-		const FRHIUniformBufferRange& MaterialBuffer)
-		-> FSurfaceMaskedShadowFragmentShader::FParameters
-	{
-		FSurfaceMaskedShadowFragmentShader::FParameters Result;
-		Result.Material = MaterialBuffer;
-		Result.OpacityMaskTexture = Material.Textures[7];
-		Result.OpacityMaskSampler = Material.Samplers[7];
-		return Result;
-	}
 } // namespace Durin::RendererPrivate

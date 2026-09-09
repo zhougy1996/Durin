@@ -68,13 +68,7 @@ namespace Durin::RendererPrivate
 				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
 				return true;
 			}
-			if (Material == nullptr
-				|| Material->ResolvedRoleMask != (uint8{1} << 7)) return false;
-			SetShaderParameters(
-				CommandList, MaskedShadowShader,
-				MakeSurfaceMaskedShadowParameters(*Material, MaterialBuffer));
-			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
-			return true;
+			return false;
 		case ESurfaceMaterialPass::Forward:
 			if (Material && Material->bCompiledLayout)
 			{
@@ -83,13 +77,7 @@ namespace Durin::RendererPrivate
 				std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
 				return true;
 			}
-			if (Material == nullptr || Material->ResolvedRoleMask != 0xff)
-				return false;
-			SetShaderParameters(
-				CommandList, ForwardShader,
-				MakeSurfaceForwardParameters(*Material, MaterialBuffer, Lighting));
-			std::invoke(std::forward<TDrawSubmission>(SubmitDraw));
-			return true;
+			return false;
 		case ESurfaceMaterialPass::GBuffer:
 			return false;
 		}

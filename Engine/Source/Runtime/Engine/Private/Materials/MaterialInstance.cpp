@@ -176,6 +176,24 @@ namespace Durin
 		return Parent ? Parent->GetMaterialProgram() : nullptr;
 	}
 
+	auto DMaterialInstance::GetAcceptedCompiledProgram() const
+		-> std::shared_ptr<const FMaterialCompilerResult>
+	{
+		if (!Parent) return nullptr;
+		const auto Program = Parent->GetAcceptedCompiledProgram();
+		if (!Program || !bOverrideStaticProperties) return Program;
+		const FMaterialStaticProperties Compiled =
+			Parent->GetRenderableStaticProperties();
+		// Pipeline-only state may reuse the parent's code. Shader-affecting state
+		// must never publish that code as a compatible instance permutation.
+		if (StaticPropertiesOverride.BlendMode != Compiled.BlendMode
+			|| StaticPropertiesOverride.ShadingModel != Compiled.ShadingModel
+			|| StaticPropertiesOverride.OpacityMaskThreshold
+				!= Compiled.OpacityMaskThreshold)
+			return nullptr;
+		return Program;
+	}
+
 	auto DMaterialInstance::SetStaticPropertiesOverride(
 		const FMaterialStaticProperties& InProperties) -> bool
 	{
@@ -464,6 +482,40 @@ namespace Durin
 			}
 			return false;
 		});
+		// Legacy instances stored sampler policy as a packed scalar beside each
+		// texture override. Copy it onto the Texture2D value while retaining the
+		// scalar override as an inspectable unreachable orphan.
+		for (const auto& Entry : MaterialParameters::BuiltinParameters)
+		{
+			const auto* SamplerOverride = FindOverride(
+				ParameterOverrides, Entry.Parameters.SamplerState);
+			if (!SamplerOverride
+				|| SamplerOverride->Type != EMaterialParameterType::Scalar)
+				continue;
+			FMaterialSamplerState State;
+			if (!TryDecodeMaterialSamplerState(
+				SamplerOverride->Value.ScalarValue, State)) continue;
+			auto* TextureOverride = FindMutableOverride(
+				ParameterOverrides, Entry.Parameters.Texture);
+			if (TextureOverride
+				&& TextureOverride->Type == EMaterialParameterType::Texture)
+			{
+				TextureOverride->Value.SamplerState = State;
+				continue;
+			}
+			FResolvedMaterialParameter Resolved;
+			if (Parent && Parent->ResolveParameterValue(
+				Entry.Parameters.Texture, Resolved)
+				&& Resolved.Definition
+				&& Resolved.Definition->Type == EMaterialParameterType::Texture)
+			{
+				Resolved.Value.SamplerState = State;
+				ParameterOverrides.push_back({
+					.ParameterId = Entry.Parameters.Texture,
+					.Type = EMaterialParameterType::Texture,
+					.Value = Resolved.Value});
+			}
+		}
 		std::string Error;
 		if (bOverrideStaticProperties
 			&& !ValidateMaterialStaticProperties(StaticPropertiesOverride, Error))

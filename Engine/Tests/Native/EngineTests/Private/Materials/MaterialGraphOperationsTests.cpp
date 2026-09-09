@@ -53,8 +53,9 @@ namespace
 	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
-		if (!Material || !Material->SetMaterialProgram(
-			MakeCanonicalMaterialProgram())
+		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
+			MakeCanonicalMaterialParameterDefinitions(),
+			MakePBRMaterialProgram())
 			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
 	}
@@ -191,6 +192,7 @@ TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 		Durin::EMaterialCompileState::Ready);
 	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	EXPECT_TRUE(Material->GetParameterDefinitions().empty());
 	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
 	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColorDefault,
 		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
@@ -232,38 +234,64 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 }
 
 TEST(FMaterialGraphOperationsTests,
-	StandardSurfaceCatalogAndAggregateCommandsAreAtomic)
+	MakeSurfaceCatalogAndAggregateCommandsAreAtomic)
 {
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "AggregateSurfaceCommands");
 	ASSERT_NE(Material, nullptr);
 	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog(*Material);
 	const auto Entry = std::ranges::find(Catalog,
-		EMaterialProgramOpcode::StandardSurface,
+		EMaterialProgramOpcode::MakeSurface,
 		[](const FMaterialGraphCatalogEntry& Value) {
 			return Value.NodeTemplate.Opcode;
 		});
 	ASSERT_NE(Entry, Catalog.end());
 	EXPECT_EQ(Entry->NodeTemplate.ResultType, EMaterialProgramValueType::Surface);
-	FMaterialGraphCreateNodeRequest Request{.Node = Entry->NodeTemplate, .X = 100, .Y = 100};
-	Request.Node.Id = {0x57face01, 1, 2, 3};
-	ASSERT_TRUE(FMaterialGraphOperations::CreateNode(*Material, Request));
+	EXPECT_TRUE(std::ranges::none_of(Catalog,
+		[](const FMaterialGraphCatalogEntry& Value) {
+			return Value.NodeTemplate.Opcode
+				== EMaterialProgramOpcode::StandardSurface
+				|| Value.NodeTemplate.Opcode
+					== EMaterialProgramOpcode::TextureCoordinate;
+		}));
+	FMaterialProgram AggregateProgram = MakePBRMaterialProgram();
+	FMaterialProgramNode Surface;
+	Surface.Id = FGuid::NewGuid();
+	Surface.Opcode = EMaterialProgramOpcode::MakeSurface;
+	Surface.ResultType = EMaterialProgramValueType::Surface;
+	Surface.Inputs = {AggregateProgram.Outputs.BaseColor,
+		AggregateProgram.Outputs.Normal, AggregateProgram.Outputs.Metallic,
+		AggregateProgram.Outputs.Roughness,
+		AggregateProgram.Outputs.AmbientOcclusion,
+		AggregateProgram.Outputs.Emissive, AggregateProgram.Outputs.Opacity,
+		AggregateProgram.Outputs.OpacityMask};
+	AggregateProgram.Nodes.push_back(Surface);
+	AggregateProgram.Outputs = {.Surface = {Surface.Id, 0}};
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(
+		MakePBRMaterialParameterDefinitions(), AggregateProgram));
+	const FGuid SurfaceId = Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId;
+	ASSERT_TRUE(SurfaceId.IsValid());
+	FMaterialGraphPresentation AggregatePresentation;
+	AggregatePresentation.Nodes.push_back({SurfaceId, 100, 100});
+	AggregatePresentation.bHasMaterialOutputPosition = true;
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(AggregatePresentation));
+	ASSERT_TRUE(FMaterialGraphOperations::DisconnectAggregateSurface(*Material));
 	ASSERT_TRUE(FMaterialGraphOperations::AssignAggregateSurface(
-		*Material, Request.Node.Id));
+		*Material, SurfaceId));
 	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId,
-		Request.Node.Id);
+		SurfaceId);
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
 	const auto Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_TRUE(Normalized.IR.SurfaceRoot.bAggregate);
-	EXPECT_EQ(Normalized.IR.Nodes.size(), 1u);
+	EXPECT_EQ(Normalized.IR.Nodes.size(), AggregateProgram.Nodes.size());
 	FMaterialGraphClipboardPayload Payload;
 	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(
-		*Material, std::array{Request.Node.Id}, Payload));
+		*Material, std::array{SurfaceId}, Payload));
 	EXPECT_TRUE(Payload.bConnectAggregateSurface);
 	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Material, Payload, 300, 100));
 	EXPECT_NE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId,
-		Request.Node.Id);
+		SurfaceId);
 	ASSERT_TRUE(FMaterialGraphOperations::DisconnectAggregateSurface(*Material));
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
 	MarkAsGarbage(Material);
@@ -272,7 +300,7 @@ TEST(FMaterialGraphOperationsTests,
 
 TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBounded)
 {
-	const FMaterialProgram Program = MakeCanonicalMaterialProgram();
+	const FMaterialProgram Program = MakePBRMaterialProgram();
 	ASSERT_GE(Program.Nodes.size(), 2u);
 	FMaterialGraphPresentation Presentation;
 	Presentation.SchemaVersion = 99;
@@ -317,6 +345,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	InitializeDObjectSystem();
 	DMaterial* Material = MakeExpandedGraphMaterial("PresentationSource");
 	ASSERT_NE(Material, nullptr);
+	Material->PostLoad();
 	const FGuid NodeId = Material->GetMaterialProgram()->Nodes.front().Id;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
 		{.Nodes = {{NodeId, 100, -200}},
@@ -398,6 +427,9 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 		Value <= static_cast<uint8>(EMaterialProgramOpcode::BlendNormalsRNM);
 		++Value)
 	{
+		if (Value == static_cast<uint8>(EMaterialProgramOpcode::TextureCoordinate)
+			|| Value == static_cast<uint8>(EMaterialProgramOpcode::StandardSurface))
+			continue;
 		EXPECT_TRUE(std::ranges::any_of(Catalog,
 			[Value](const FMaterialGraphCatalogEntry& Entry) {
 				return static_cast<uint8>(Entry.NodeTemplate.Opcode) == Value;
@@ -637,7 +669,7 @@ TEST(FMaterialGraphOperationsTests,
 		Package, "InitializedGraphLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	auto Validation = Material->SetMaterialProgram(
-		MakeCanonicalMaterialProgram());
+		MakePBRMaterialProgram());
 	ASSERT_TRUE(Validation);
 	std::string Error;
 	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
@@ -730,6 +762,21 @@ TEST(FMaterialGraphOperationsTests,
 	InitializeDObjectSystem();
 	DMaterial* Material = MakeExpandedGraphMaterial("ClipboardMaterial");
 	ASSERT_NE(Material, nullptr);
+	FMaterialProgram SmallProgram;
+	FMaterialProgramNode Constant;
+	Constant.Id = FGuid::NewGuid();
+	Constant.Opcode = EMaterialProgramOpcode::Constant;
+	Constant.ResultType = EMaterialProgramValueType::Float3;
+	Constant.Literal = {0.2f, 0.4f, 0.6f};
+	SmallProgram.Nodes.push_back(Constant);
+	FMaterialProgramNode Saturate;
+	Saturate.Id = FGuid::NewGuid();
+	Saturate.Opcode = EMaterialProgramOpcode::Saturate;
+	Saturate.ResultType = EMaterialProgramValueType::Float3;
+	Saturate.Inputs = {{Constant.Id, 0}};
+	SmallProgram.Nodes.push_back(Saturate);
+	SmallProgram.Outputs.BaseColor = {Saturate.Id, 0};
+	ASSERT_TRUE(Material->SetMaterialProgram(SmallProgram));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	std::vector<FGuid> AllNodes;
 	for (const FMaterialProgramNode& Node : Material->GetMaterialProgram()->Nodes)
@@ -1109,6 +1156,8 @@ TEST(FMaterialGraphOperationsTests,
 	InitializeDObjectSystem();
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputCommands");
 	ASSERT_NE(Material, nullptr);
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram(
+		MakePBRMaterialParameterDefinitions(), MakeDefaultMaterialProgram()));
 	ASSERT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
 	Durin::Tests::FTestTransactorOwner Transactions;
 
@@ -1177,17 +1226,17 @@ TEST(FMaterialGraphOperationsTests,
 			.X = 400,
 			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Textured) << Textured.Message;
-	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 5u);
+	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 6u);
 	const std::vector TextureDependencies = InspectMaterialParameterDependencies(
 		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
-	ASSERT_EQ(TextureDependencies.size(), 6u);
+	ASSERT_EQ(TextureDependencies.size(), 1u);
 	EXPECT_EQ(TextureDependencies.front().ParameterId,
 		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).Texture);
 	EXPECT_EQ(TextureDependencies.back().ParameterId,
-		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).SamplerState);
+		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).Texture);
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
-	EXPECT_EQ(Normalized.IR.Nodes.size(), 5u);
+	EXPECT_EQ(Normalized.IR.Nodes.size(), 6u);
 	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Normal.SourceNodeId.IsValid());
 

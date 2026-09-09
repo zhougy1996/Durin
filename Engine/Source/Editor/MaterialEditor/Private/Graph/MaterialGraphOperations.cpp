@@ -939,18 +939,6 @@ namespace Durin::Editor::Material
 			Parameter.NodeTemplate.ParameterId = Definition.Id;
 			Parameter.NodeTemplate.DisplayName = Definition.DisplayName;
 			Result.push_back(std::move(Parameter));
-			if (Type == EMaterialProgramValueType::Texture2D
-				&& MaterialParameters::FindBuiltinParameterRole(Definition.Id, MaterialParameters::EMaterialBuiltinParameterKind::Texture)
-					!= MaterialParameters::EMaterialBuiltinParameterRole::Count)
-			{
-				FMaterialGraphCatalogEntry Coordinates = MakeCatalogEntry(
-					EMaterialProgramOpcode::TextureCoordinate,
-					EMaterialProgramValueType::Float2);
-				Coordinates.Name = std::format("{} UV", Definition.DisplayName);
-				Coordinates.SecondaryName = Definition.DisplayName;
-				Coordinates.NodeTemplate.ParameterId = Definition.Id;
-				Result.push_back(std::move(Coordinates));
-			}
 		}
 		Result.push_back(MakeCatalogEntry(
 			EMaterialProgramOpcode::TextureSample2D,
@@ -1024,9 +1012,6 @@ namespace Durin::Editor::Material
 			EMaterialProgramValueType::Float3,
 			{One(EMaterialProgramValueType::Float3),
 				One(EMaterialProgramValueType::Float3)}));
-		Result.push_back(MakeCatalogEntry(
-			EMaterialProgramOpcode::StandardSurface,
-			EMaterialProgramValueType::Surface));
 		Result.push_back(MakeCatalogEntry(EMaterialProgramOpcode::UVChannel,
 			EMaterialProgramValueType::Float2, {One(EMaterialProgramValueType::Float)}));
 		Result.push_back(MakeCatalogEntry(EMaterialProgramOpcode::MakeSurface,
@@ -1667,7 +1652,7 @@ namespace Durin::Editor::Material
 		const bool bNormal = Request.Output == EMaterialSurfaceOutput::Normal;
 		const bool bVector = GetMaterialSurfaceOutputType(Request.Output)
 			== EMaterialProgramValueType::Float3;
-		const size_t RequiredNodeCount = bNormal ? 5u : (bVector ? 4u : 4u);
+		const size_t RequiredNodeCount = bNormal ? 6u : 5u;
 		if (Candidate.Nodes.size() + RequiredNodeCount
 			> MaterialProgramMaxNodeCount)
 			return MakeRejected(
@@ -1701,11 +1686,15 @@ namespace Durin::Editor::Material
 			Material.FindParameterDefinition(TextureRole))
 			Texture.DisplayName = Definition->DisplayName;
 		const FGuid TextureId = Texture.Id;
+		FMaterialProgramNode& Channel = AddNode(
+			EMaterialProgramOpcode::Constant,
+			EMaterialProgramValueType::Float, {},
+			Request.X - 960, Request.Y + 80);
+		Channel.Literal = {};
 		FMaterialProgramNode& UV = AddNode(
-			EMaterialProgramOpcode::TextureCoordinate,
-			EMaterialProgramValueType::Float2, {},
+			EMaterialProgramOpcode::UVChannel,
+			EMaterialProgramValueType::Float2, {{Channel.Id, 0}},
 			Request.X - 640, Request.Y + 80);
-		UV.ParameterId = TextureRole;
 		const FGuid UVId = UV.Id;
 		FMaterialProgramNode& Sample = AddNode(
 			EMaterialProgramOpcode::TextureSample2D,

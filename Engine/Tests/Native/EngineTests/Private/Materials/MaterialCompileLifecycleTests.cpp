@@ -133,7 +133,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_FALSE(First->GetMaterialCompileStatus().bLastKnownGoodDisplayed);
 
 	auto ParameterValidation = First->SetMaterialProgram(
-		Durin::MakeStandardSurfaceMaterialProgram());
+		Durin::MakePBRMaterialProgram());
 
 	ASSERT_TRUE(ParameterValidation);
 	auto* PendingInstance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PendingParameterEdit");
@@ -226,7 +226,7 @@ TEST(FMaterialCompileLifecycleTests,
 	// Failed replacement retains the old schema after authored declarations are deleted.
 	{
 		auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "RetainedDeclarationRoot");
-		ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram()));
+		ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
 		ASSERT_TRUE(WaitForMaterialCompile(*Root));
 		ASSERT_NE(Root, nullptr);
 		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
@@ -309,7 +309,7 @@ TEST(FMaterialCompileLifecycleTests,
 	auto* Material = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "CookedProgramRoundTrip");
 	auto Validation = Material->SetMaterialProgram(
-		Durin::MakeStandardSurfaceMaterialProgram());
+		Durin::MakePBRMaterialProgram());
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
 

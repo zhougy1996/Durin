@@ -271,7 +271,7 @@ TEST(FRendererSceneContractTests, MaterialProgramIdentityParticipatesInRendererK
 {
 	Durin::FEffectiveMeshPipelineKey FirstPipeline;
 	FirstPipeline.Material.ShaderMap.RenderLayout =
-		Durin::MakeDefaultMaterialRenderLayout().Identity;
+		Durin::MakeErrorMaterialRenderLayout().Identity;
 	FirstPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashLow =
 		0x0123456789abcdefull;
 	FirstPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashHigh =
@@ -280,7 +280,7 @@ TEST(FRendererSceneContractTests, MaterialProgramIdentityParticipatesInRendererK
 	SecondPipeline.Material.ShaderMap.ProgramIdentity.Digest.HashLow =
 		0x1123456789abcdefull;
 	const Durin::FMaterialRenderRepresentation Representation =
-		Durin::MakeCanonicalMaterialRenderRepresentation();
+		Durin::FMaterialRenderRepresentation{};
 	const Durin::FVertexDeclarationElementList Elements{};
 	const std::array<uint32, 6> Geometry{};
 	const auto First = Durin::RendererPrivate::MakeMeshDrawSortKey(
@@ -605,96 +605,18 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
 }
 
-TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)
+TEST(FRendererSceneContractTests, ErrorMaterialUsesCompiledBindingWithoutRoleResources)
 {
+	const auto& Error = Durin::GetErrorMaterialRenderData();
 	Durin::FMaterialRenderBinding Binding;
-	Binding.BaseColor = {0.1f, 0.2f, 0.3f, 0.4f};
-	Binding.Emissive = {0.5f, 0.6f, 0.7f};
-	Binding.Metallic = 0.8f;
-	Binding.Normal = {0.9f, 1.0f, 1.1f};
-	Binding.Roughness = 1.2f;
-	Binding.AmbientOcclusion = 0.35f;
-	Binding.OpacityMask = 0.65f;
-	for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-	{
-		Binding.UVScales[Role] = {
-			static_cast<float>(Role + 1), static_cast<float>(Role + 2)
-		};
-		Binding.UVOffsets[Role] = {
-			static_cast<float>(Role + 3), static_cast<float>(Role + 4)
-		};
-		Binding.UVChannels[Role] = static_cast<float>(Role);
-		Binding.UVRotations[Role] = static_cast<float>(Role) * 0.125f;
-	}
-
-	Durin::RendererPrivate::FSurfaceMaterialUniform Expected;
-	Expected.BaseColor = Binding.BaseColor;
-	Expected.EmissiveMetallic = Durin::FVector4f(Binding.Emissive, Binding.Metallic);
-	Expected.NormalRoughness = Durin::FVector4f(Binding.Normal, Binding.Roughness);
-	Expected.SurfaceParams = Durin::FVector4f(
-		Binding.AmbientOcclusion, Binding.OpacityMask, 1.0f, 1.0f
-	);
-	for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
-	{
-		Expected.UVTransforms[Role] = Durin::FVector4f(
-			Binding.UVScales[Role].x, Binding.UVScales[Role].y,
-			Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y
-		);
-	}
-	Expected.UVChannels0 = Durin::FVector4f(
-		Binding.UVChannels[0], Binding.UVChannels[1],
-		Binding.UVChannels[2], Binding.UVChannels[3]
-	);
-	Expected.UVChannels1 = Durin::FVector4f(
-		Binding.UVChannels[4], Binding.UVChannels[5],
-		Binding.UVChannels[6], Binding.UVChannels[7]
-	);
-	Expected.UVRotations0 = Durin::FVector4f(
-		Binding.UVRotations[0], Binding.UVRotations[1],
-		Binding.UVRotations[2], Binding.UVRotations[3]
-	);
-	Expected.UVRotations1 = Durin::FVector4f(
-		Binding.UVRotations[4], Binding.UVRotations[5],
-		Binding.UVRotations[6], Binding.UVRotations[7]
-	);
-
-	const auto Lit = Durin::RendererPrivate::MakeSurfaceMaterialUniform(
-		Binding, true, true
-	);
-	EXPECT_EQ(std::memcmp(&Lit, &Expected, sizeof(Expected)), 0);
-	const auto LitWithoutSpecularAA =
-		Durin::RendererPrivate::MakeSurfaceMaterialUniform(
-			Binding, true, false
-		);
-	Expected.SurfaceParams.w = 0.0f;
-	EXPECT_EQ(
-		std::memcmp(&LitWithoutSpecularAA, &Expected, sizeof(Expected)), 0
-	);
-	const auto Unlit = Durin::RendererPrivate::MakeSurfaceMaterialUniform(
-		Binding, false, true
-	);
-	Expected.SurfaceParams.z = 0.0f;
-	EXPECT_EQ(std::memcmp(&Unlit, &Expected, sizeof(Expected)), 0);
-}
-
-TEST(FRendererSceneContractTests, SurfaceMaterialFallbacksAndPassRolesAreCanonical)
-{
-	using namespace Durin::RendererPrivate;
-	const std::array ExpectedFallbacks{
-		Durin::EDefaultTexture::White,
-		Durin::EDefaultTexture::FlatNormal,
-		Durin::EDefaultTexture::White,
-		Durin::EDefaultTexture::White,
-		Durin::EDefaultTexture::White,
-		Durin::EDefaultTexture::Black,
-		Durin::EDefaultTexture::White,
-		Durin::EDefaultTexture::White
-	};
-	EXPECT_EQ(SurfaceTextureFallbacks, ExpectedFallbacks);
-	EXPECT_EQ(GetSurfaceMaterialRequiredRoleMask(ESurfaceMaterialPass::OpaqueShadow), 0u);
-	EXPECT_EQ(GetSurfaceMaterialRequiredRoleMask(ESurfaceMaterialPass::MaskedShadow), 0x80u);
-	EXPECT_EQ(GetSurfaceMaterialRequiredRoleMask(ESurfaceMaterialPass::Forward), 0xffu);
-	EXPECT_EQ(GetSurfaceMaterialRequiredRoleMask(ESurfaceMaterialPass::GBuffer), 0xffu);
+	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(Durin::TryGetMaterialRenderBinding(Error.Representation, Binding, Diagnostic));
+	EXPECT_TRUE(Binding.bError);
+	EXPECT_EQ(Binding.LayoutIdentity, Error.PlanningPassIdentity.ShaderMap.RenderLayout);
+	EXPECT_EQ(Binding.LayoutIdentity.Version, Durin::CompiledMaterialRenderLayoutVersion);
+	EXPECT_TRUE(Binding.CompiledTextures.empty());
+	EXPECT_TRUE(Binding.CompiledSamplers.empty());
+	EXPECT_EQ(Binding.CompiledUniformPayload.size(), Durin::MaterialUniformControlBytes);
 }
 
 namespace

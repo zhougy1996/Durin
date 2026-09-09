@@ -20,19 +20,6 @@ namespace Durin
 
 	namespace RendererPrivate
 	{
-		inline constexpr size_t SurfaceMaterialRoleCount = 8;
-		inline constexpr std::array<EDefaultTexture, SurfaceMaterialRoleCount>
-			SurfaceTextureFallbacks{
-				EDefaultTexture::White,
-				EDefaultTexture::FlatNormal,
-				EDefaultTexture::White,
-				EDefaultTexture::White,
-				EDefaultTexture::White,
-				EDefaultTexture::Black,
-				EDefaultTexture::White,
-				EDefaultTexture::White,
-			};
-
 		enum class ESurfaceMaterialPass : uint8
 		{
 			OpaqueShadow,
@@ -41,84 +28,12 @@ namespace Durin
 			GBuffer,
 		};
 
-		constexpr auto GetSurfaceMaterialRequiredRoleMask(
-			ESurfaceMaterialPass Pass) -> uint8
-		{
-			switch (Pass)
-			{
-			case ESurfaceMaterialPass::OpaqueShadow: return 0;
-			case ESurfaceMaterialPass::MaskedShadow: return uint8{1} << 7;
-			case ESurfaceMaterialPass::Forward:
-			case ESurfaceMaterialPass::GBuffer: return 0xff;
-			}
-			return 0;
-		}
-
-		struct FSurfaceMaterialUniform
-		{
-			FVector4f BaseColor{1.0f};
-			FVector4f EmissiveMetallic{0.0f};
-			FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
-			FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
-			std::array<FVector4f, SurfaceMaterialRoleCount> UVTransforms{};
-			FVector4f UVChannels0{0.0f};
-			FVector4f UVChannels1{0.0f};
-			FVector4f UVRotations0{0.0f};
-			FVector4f UVRotations1{0.0f};
-		};
-
-		static_assert(sizeof(FSurfaceMaterialUniform) == 256);
-		static_assert(alignof(FSurfaceMaterialUniform) == alignof(FVector4f));
-		static_assert(offsetof(FSurfaceMaterialUniform, UVTransforms) == 64);
-
-		inline auto MakeSurfaceMaterialUniform(
-			const FMaterialRenderBinding& Binding,
-			bool bLit,
-			bool bEnableSpecularAA) -> FSurfaceMaterialUniform
-		{
-			FSurfaceMaterialUniform Result;
-			Result.BaseColor = Binding.BaseColor;
-			Result.EmissiveMetallic = FVector4f(Binding.Emissive, Binding.Metallic);
-			Result.NormalRoughness = FVector4f(Binding.Normal, Binding.Roughness);
-			Result.SurfaceParams = FVector4f(
-				Binding.AmbientOcclusion, Binding.OpacityMask,
-				bLit ? 1.0f : 0.0f,
-				bLit && bEnableSpecularAA ? 1.0f : 0.0f);
-			for (size_t Role = 0; Role < SurfaceMaterialRoleCount; ++Role)
-			{
-				Result.UVTransforms[Role] = FVector4f(
-					Binding.UVScales[Role].x, Binding.UVScales[Role].y,
-					Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y);
-			}
-			Result.UVChannels0 = FVector4f(Binding.UVChannels[0], Binding.UVChannels[1], Binding.UVChannels[2], Binding.UVChannels[3]);
-			Result.UVChannels1 = FVector4f(Binding.UVChannels[4], Binding.UVChannels[5], Binding.UVChannels[6], Binding.UVChannels[7]);
-			Result.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
-			Result.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
-			return Result;
-		}
-
 		class FSurfaceFragmentShader final : public FMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Lighting);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(BaseColorTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(NormalTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(MetallicTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(RoughnessTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(AmbientOcclusionTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EmissiveTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(BaseColorSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(NormalSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(MetallicSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(RoughnessSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(AmbientOcclusionSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(EmissiveSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacitySampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacityMaskSampler);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentIrradiance);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentPrefiltered);
 				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EnvironmentBrdfLut);
@@ -145,8 +60,6 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacityMaskSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FMaterialShader,
@@ -160,16 +73,12 @@ namespace Durin
 			FByteBuffer CompiledUniformPayload;
 			std::vector<FRHITexture*> CompiledTextures;
 			std::vector<FRHISampler*> CompiledSamplers;
-			FSurfaceMaterialUniform Uniform;
-			std::array<FRHITexture*, SurfaceMaterialRoleCount> Textures{};
-			std::array<FRHISampler*, SurfaceMaterialRoleCount> Samplers{};
 			FRHITexture* EnvironmentIrradiance = nullptr;
 			FRHITexture* EnvironmentPrefiltered = nullptr;
 			FRHITexture* EnvironmentBrdfLut = nullptr;
 			FRHISampler* EnvironmentSampler = nullptr;
 			FRHITexture* DirectionalShadowTexture = nullptr;
 			FRHISampler* DirectionalShadowSampler = nullptr;
-			uint8 ResolvedRoleMask = 0;
 		};
 
 		struct FSurfaceMaterialResourceCounters
@@ -230,15 +139,5 @@ namespace Durin
 			std::unique_ptr<FState> State;
 		};
 
-		auto MakeSurfaceForwardParameters(
-			const FResolvedSurfaceMaterial& Material,
-			const FRHIUniformBufferRange& MaterialBuffer,
-			const FRHIUniformBufferRange& Lighting)
-			-> FSurfaceFragmentShader::FParameters;
-
-		auto MakeSurfaceMaskedShadowParameters(
-			const FResolvedSurfaceMaterial& Material,
-			const FRHIUniformBufferRange& MaterialBuffer)
-			-> FSurfaceMaskedShadowFragmentShader::FParameters;
 	} // namespace RendererPrivate
 } // namespace Durin

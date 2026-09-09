@@ -2,52 +2,35 @@
 
 Summary: Replace fixed PBR input identities and bindings with material-owned parameters and compiled layouts across authoring, instances, rendering, migration, and Cook.
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-10
 
 ## Current Status
 
-Execution started on 2026-09-09 as M10 of the
-[Material System roadmap](../Roadmaps/MaterialSystem.md), from clean commit
-`ccc55ddf472192f82d3be0a0a3d935d38b8fde5f`. This task is the source/build writer
-in Durin-worker; the other active Durin task uses Durin-architect.
-The baseline material domain builds and passes its registered routine selection.
-On 2026-09-09 the user explicitly deferred environment-dependent qualification
-and instructed implementation to continue. Stage 0 measurement gates therefore
-remain open but do not block implementation; they still block final qualification.
-No GPU timing baseline or image-parity qualification is claimed.
+M10 is complete under the revised acceptance scope. Implementation uses one compiled-layout v4 path across authoring,
+instances, common rendering and DMAT v4. Material-owned declarations, identity-safe
+editing, bounded layouts, accepted-generation publication, atomic authored
+migration and the seven-parameter dual-layer rust fixture are implemented.
+Fresh editor assets have no declarations; explicit PBR templates and importers
+use ordinary expressions with typed sampler and fallback data.
 
-Stage 1 declaration foundations are implemented: bounded material-owned
-declarations, Float4 persistence/editing, atomic definition-plus-graph changes,
-identity-safe create/reuse/rename/delete, transactional structured replacement,
-type-safe override resolution and orphan retention. Declaration CRUD widgets,
-constant promotion and clipboard v3 now have shared commands and tests. Legacy surface-output promotion/texture helpers still need
-explicit-expression migration, and the complete Stage 1 acceptance audit remains
-open. Stage 2 now has deterministic typed layouts, custom numeric/texture
-source generation, target resource limits and layout-aware reflection validation.
-Stage 3 has initial accepted-layout payload population and common Forward,
-GBuffer and masked-shadow binding. Explicit UV channel selection, sine/cosine,
-Make Surface, and texture sampling controls now use ordinary graph/value data.
-Extended admission validation is implemented; instance static permutations,
-the full accepted-schema audit and the rust fixture remain open.
-Stage 4 now serializes and validates custom compiled layouts in DMAT v4, with
-package Cook/load tests for custom values and instance sampling overrides.
-Authored migration, Cook execution without compiler/source access and Stage 5
-qualification remain open. The existing constructor seed and fixed-v3 renderer are
-temporary baseline adapters assigned to Stage 4 removal.
-The declaration API follow-up replaces string out-parameters with typed errors,
-parameter identities and complete graph diagnostics; this refines Stage 1
-foundations without completing its remaining authoring workflows. Existing
-program mutation and compiler snapshot APIs also return their validation result
-directly, following the user-requested single-result convention.
+The fixed-v3 compiler, exact-table validator, role-ordered runtime binding and
+Renderer adapters have been removed. Supported legacy authored nodes migrate
+before compilation; unmigrated reachable nodes fail with a migration diagnostic.
+Generator version 4 invalidates executable identities from the former adapter.
+The error terminal uses the empty v4 layout, a zeroed 16-byte control payload,
+no material resources and fixed magenta fragments.
 
-The inspected baseline has 56 canonical GUIDs, exact-schema validation,
-role-based StandardSurface generation and exact-v3 render bindings. Preserve
-existing asynchronous compilation, instances, immutable proxies, stale-result
-rejection and Cook. Geometry submission is already being generalized; reconcile
-the current code rather than restoring historical per-family renderer paths.
+On 2026-09-10 the user explicitly cancelled the missing historical baseline
+requirement and instructed execution to continue. The recorded pre-change commit
+`ccc55ddf472192f82d3be0a0a3d935d38b8fde5f` is absent locally and origin returned
+`upload-pack: not our ref`. Historical pre/post image and performance comparisons
+are removed from acceptance, not recorded as passing. Current CPU, GPU correctness,
+migration, Cook, lifecycle and resource-bound validation remain required.
+Earlier dated checkpoints below describe implementation history, not remaining
+adapters or acceptance blockers. Final receipts are recorded in Stage 5.
 
 ## Goal
 
@@ -187,18 +170,20 @@ Selected implementation contracts (implementation status is recorded above):
   samplers and three uniform buffers for external resources, plus the material
   buffer. It permits at most 12 material textures under the 16-image policy.
   Vulkan now publishes descriptor/uniform limits through `FRHICapabilities`;
-  compilation clamps this policy to the active device. Device-budget
-  qualification and the full Stage 0 interface freeze remain open.
+  compilation clamps this policy to the active device. Current tests exercise the target budget and reject oversized layouts;
+  no historical device timing comparison is claimed.
 - Keep sampler min/mag/address enums as bounded typed data, associated with
   texture declarations and instance overrides. Sampler-only changes update
   resources without changing shader code. Sample nodes consume an explicit
   texture and Float2 UV; fallback policy is explicit white, black or flat-RG
   normal data, never inferred from names. Changing shader-affecting decode or
   sampling mode changes executable identity; ordinary sampler selection does not.
-  Migrate each old packed sampler override to its texture GUID, retaining the
-  old scalar declaration/value as unreachable authored data for inspection.
+  Migrate each old packed sampler override to its texture GUID. Remove the
+  redundant root scalar declarations from the migrated schema; retain serialized
+  instance scalar overrides as inspectable unreachable orphans so user-authored
+  override data is not silently discarded.
 - Plan version transitions: authored program 3 to 4 (accept supported 2 via
-  its existing upgrade), clipboard 2 to 3, DMAT 3 to 4, IR/generator 2 to 3,
+  its existing upgrade), clipboard 2 to 3, DMAT 3 to 4, IR 2 to 3 and generator 2 to 4,
   compiler envelope 4 to 5, pass contract 1 to 2 and render layout 3 to 4.
   Presentation remains version 2. These numbers must be rechecked against
   intervening commits before implementation changes the corresponding format.
@@ -233,23 +218,23 @@ routine CTest selection succeeded in 22.02 s. Logs:
 Host profile is windows-msvc-x64 / Win64-Debug-DurinEditor; detected GPU is
 NVIDIA GeForce GTX 1060 6GB, driver 582.66. Durations are diagnostic only.
 
-Qualification preparation still required: capture reproducible pre-change and
-post-change color/GBuffer/depth/masked-shadow images, pin scene inputs, establish
-numeric tolerances and freeze CPU/upload/allocation/retention/GPU budgets.
-Existing thumbnail difference tests do not provide that complete baseline.
-Preserve the source baseline above for a later isolated comparison checkout.
+Historical qualification disposition (2026-09-10): the user cancelled frozen
+pre/post color/GBuffer/depth/masked-shadow image comparisons and CPU/upload/
+allocation/retention/GPU performance budgets. Current deterministic correctness,
+resource limits and lifecycle checks remain in scope. Timing receipts are
+observational and do not establish a performance regression threshold.
 Keep current compiler limits (64 requests, 256 consumers, 128 resident programs,
 2 MiB request and 8 MiB result) and include new layout/schema storage in accounting.
 
 ### Stage 0: Freeze interfaces and qualification
 
 Dependencies: exclusive source writer acquired and current related interfaces
-reconciled. Outcome: selected wire/layout decisions and reproducible baseline.
+reconciled. Outcome: selected wire/layout decisions and current qualification scope.
 
 - [x] Record baseline commit and dirty-state disposition; inventory Engine,
   Renderer, MaterialEditor and importer role-table consumers, current geometry
   pass interfaces, RHI readiness and payload serialization contracts.
-- [ ] Freeze declaration/layout/pass records, alignment and numeric/resource
+- [x] Freeze declaration/layout/pass records, alignment and numeric/resource
   bounds against actual target capabilities. Select explicit sampler and fallback
   representation, including sampler-only invalidation behavior and preservation
   of existing per-instance packed sampler overrides.
@@ -259,12 +244,12 @@ reconciled. Outcome: selected wire/layout decisions and reproducible baseline.
 - [x] Freeze accepted-schema behavior during deletion/type replacement/parent
   edits, static-instance permutations, binding failures and template expansion
   near graph size limits. Resolve blocking design choices before Stage 1.
-- [ ] Select registered CPU/GPU tests; capture fixed scene inputs and baseline
-  images. Record numeric image tolerances, CPU/upload/allocation/retention/GPU
-  budgets and sampling conditions before changing rendering behavior.
+- [x] Select registered current CPU/GPU correctness tests. Historical baseline
+  images and frozen pre/post measurement budgets were cancelled by the user
+  on 2026-09-10; no historical parity or performance result is claimed.
 
-Completion: concrete decisions, schema versions, bounds and baseline receipts
-are recorded here. This draft does not count as passing the baseline gate.
+Completion: concrete decisions, schema versions, bounds, current qualification
+selection and the user-authorized historical-baseline disposition are recorded.
 
 ### Stage 1: Add declarations and identity-safe editing
 
@@ -272,11 +257,11 @@ Dependencies: Stage 0. Outcome: custom declarations persist and resolve.
 
 - [x] Implement bounded declarations and atomic definition-plus-graph mutations;
   add create/reuse/rename/delete and explicit orphan removal via shared commands.
-- [ ] Implement reachability, defaults, multi-level overrides, orphan retention
+- [x] Implement reachability, defaults, multi-level overrides, orphan retention
   and parent-cycle rejection without canonical-role schema validation.
-- [ ] Extend details, catalog, promotion, transactions, clipboard and diagnostics;
+- [x] Extend details, catalog, promotion, transactions, clipboard and diagnostics;
   one semantic operation owns one transaction and compile request.
-- [ ] Verify conflicts, rename, type replacement, duplication, parent switching,
+- [x] Verify conflicts, rename, type replacement, duplication, parent switching,
   cross-root paste, Undo/Redo and save/reload. Assign any temporary adapter its
   Stage 4 removal; never map custom parameters secretly to canonical slots.
 
@@ -333,9 +318,9 @@ and bindings independent of their names or PBR role.
 - [x] Validate reflected forward, GBuffer and masked-shadow bindings against the
   layout; support optimized-out bindings and resource-free opaque shadows. Reject
   overlapping, duplicate, wrong-type and oversized layouts.
-- [ ] Carry layout compatibility and immutable schema through compiler results,
+- [x] Carry layout compatibility and immutable schema through compiler results,
   shared requests, cancellation, stale admission and bounded caches.
-- [ ] Verify value/name/presentation stability versus graph/type/layout identity
+- [x] Verify value/name/presentation stability versus graph/type/layout identity
   changes. Inject invalid reflection, failed compilation and stale completion
   while an older accepted layout remains visible.
 
@@ -383,35 +368,35 @@ mismatched accepted schemas cannot publish.
 
 Dependencies: Stage 2 and reconciled geometry/RHI contracts.
 
-- [ ] Replace fixed-table proxy resolution with accepted-layout population,
+- [x] Replace fixed-table proxy resolution with accepted-layout population,
   retained parent schemas, counted resources and a complete error terminal.
-- [ ] Adapt common mesh-pass bindings and pipelines through current factory/pass
+- [x] Adapt common mesh-pass bindings and pipelines through current factory/pass
   interfaces. Cover StaticMesh, SplineMesh, registered independent geometry,
   Material Preview and thumbnails.
-- [ ] Render the rust fixture with independent asset instances and varied parameter
+- [x] Render the rust fixture with independent asset instances and varied parameter
   names/types/resource counts. Verify edits reuse code and unrelated same-named
   roots retain independent values; test explicit missing-texture fallbacks.
-- [ ] Exercise reload, device invalidation, unavailable resources, rapid edits,
+- [x] Exercise reload, device invalidation, unavailable resources, rapid edits,
   parent changes and teardown. Assert no old-code/new-layout combination during
   pending, failed or superseded compilation.
 
-Completion: production pass tests meet Stage 0 tolerances and resource budgets;
+Completion: current production pass tests satisfy correctness and resource bounds;
 all supported consumers use the same binding contract.
 
 ### Stage 4: Migrate content and Cook; retire fixed bindings
 
 Dependencies: Stage 3. Outcome: one production path handles new/migrated content.
 
-- [ ] Implement bounded authored migration and ordinary-graph PBR templates,
+- [x] Implement bounded authored migration and ordinary-graph PBR templates,
   including StandardSurface, UV/sampler overrides, default assets and importers.
 - [x] Implement DMAT layout/code serialization and strict validation through
   current archive/BulkData APIs. Reject corrupt, trailing, incompatible and old
   cooked payloads; require current successful results for Cook.
-- [ ] Verify migrated base/instance chains, orphan overrides and save/reload;
-  compare baseline images including masked shadows and translucent behavior.
-- [ ] Render new and migrated cooked content with ShaderBuild and authored-source
+- [x] Verify migrated base/instance chains, orphan overrides and save/reload,
+  and current GPU correctness. Historical image comparison was cancelled.
+- [x] Render new and migrated cooked content with ShaderBuild and authored-source
   access unavailable; compare authored/cooked results.
-- [ ] Remove temporary adapters, exact-v3 production validators and hidden role
+- [x] Remove temporary adapters, exact-v3 production validators and hidden role
   lookup from general compilation/rendering. Retain only bounded authored-format
   migration knowledge needed to load supported older packages.
 
@@ -430,24 +415,70 @@ Validation: MaterialTests passes 128 tests
 (`Build/.agent-state/logs/20260909-191118-649495-24780-ctest.log`), and full `all`
 build passes (`Build/.agent-state/logs/20260909-191428-035747-27232-cmake.log`).
 
-Completion: migration parity and cooked tests pass; fixed-role runtime binding
+Completion: migrated-content correctness and cooked tests pass; fixed-role runtime binding
 is unnecessary for default, error, imported and graph-authored materials.
 
 ### Stage 5: Qualify and publish contracts
 
 Dependencies: Stage 4.
 
-- [ ] Run selected tests and compare baseline CPU/upload/allocation/retention/GPU
-  measurements at equivalent scene counts. Investigate regressions against frozen
-  budgets rather than silently relaxing them.
-- [ ] Exercise bounded malformed inputs, repeated compile/edit/load/unload,
+- [x] Run selected current CPU/GPU correctness tests and record final receipts.
+  Historical performance comparisons were cancelled by the user on 2026-09-10.
+- [x] Exercise bounded malformed inputs, repeated compile/edit/load/unload,
   cache eviction and shutdown; record commands, hardware and receipts.
-- [ ] Update implemented Material System and Material Graph Operations contracts
+- [x] Update implemented Material System and Material Graph Operations contracts
   and affected Cook/shader documentation. Update M10 status and hand off stable
   interfaces to future M8/M11 plans.
 
-Completion: every preceding gate passes with recorded evidence and lasting
-contracts are updated. Dynamic instances/functions are not claimed as delivered.
+Completion: all retained plan gates have recorded evidence, cancelled historical
+comparisons and unrelated test exceptions are explicit, and lasting contracts
+are updated. Dynamic instances/functions are not claimed as delivered.
+
+Implementation qualification receipt (2026-09-09): MaterialTests passes 131
+tests and the routine `@material` selection passes MaterialTests plus
+MaterialThumbnailTests
+(`Build/.agent-state/logs/20260909-202244-231338-16814-ctest.log`). The complete
+`all` build passes
+(`Build/.agent-state/logs/20260909-202225-784934-16452-cmake.log`). Changed
+documentation validation passes. The 73-target affected selection reached two
+non-material macOS signal failures in `AssetCookTests` and
+`TextureTests`; both reproduce individually in their texture decode/build tests
+without a material assertion
+(`Build/.agent-state/logs/20260909-202626-293191-17321-ctest.log`). The default
+sandbox reports no Metal device; with explicit authorization the same host
+initializes MoltenVK on Apple M4 and passes MaterialVulkanTests
+(`Build/.agent-state/logs/20260909-232750-633041-21694-ctest.log`). The successful
+run closes current-device execution but not the absent pre-change image and
+performance comparison.
+
+Final retirement and qualification receipt (2026-09-10):
+
+- `./DevTool test affected` passes 71/73 routine targets, including all 133
+  MaterialTests cases, MaterialThumbnailTests, StaticMeshTests,
+  RendererSceneContractTests, shader reflection/service/cache tests,
+  RenderShaderCookIntegrationTests and StandaloneCookProcessTests.
+  `Build/.agent-state/logs/20260910-032145-343556-34999-ctest.log` records
+  the selection. AssetCookTests (SEGFAULT) and TextureTests (Bus error) retain
+  their previously reproduced texture decode/build failures; these are explicit
+  unrelated exceptions, not passing targets.
+- `./DevTool test MaterialVulkanTests --mode qualification` passes outside the
+  default sandbox on Apple M4, Vulkan 1.3.334, MoltenVK driver 0x28a1:
+  `Build/.agent-state/logs/20260910-032227-783029-35388-ctest.log`.
+  Coverage includes independent rust instances, explicit fallbacks, edited legacy
+  migration compared with the ordinary PBR template in opaque/masked/translucent
+  modes, resource recovery, and authored/cooked rendering without live compilation.
+  This is current correctness evidence; timing is diagnostic only.
+- `./DevTool build --target all` succeeds for
+  `MacOS-arm64-Debug-DurinEditor`:
+  `Build/.agent-state/logs/20260910-032251-953804-35460-cmake.log`.
+- Changed GBufferQualificationTests, DirectionalShadowBaselineVulkanTests,
+  SkyBoxVulkanIntegrationTests and TextureCookIntegrationTests also compile
+  successfully with ordinary PBR fixtures. Their qualification executions were
+  not run; historical timing/image comparisons are outside the revised scope.
+- Changed-document, all-plan and all-roadmap validators pass.
+- Lasting Material System contracts and roadmap M10 now describe only the v4
+  production boundary. Historical baseline comparisons remain cancelled; no
+  historical GBuffer/depth/shadow image parity or performance result is claimed.
 
 ## Validation and Coordination
 

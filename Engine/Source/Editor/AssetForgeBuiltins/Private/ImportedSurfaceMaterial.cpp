@@ -15,25 +15,34 @@ namespace Durin::AssetForge::Builtins
 		auto MakeTemplatePresentation(const FMaterialProgram& Program)
 			-> FMaterialGraphPresentation
 		{
-			check(Program.Nodes.size() == 1);
-			return {
-				.Nodes = {{Program.Nodes.front().Id, 0, 0}},
+			FMaterialGraphPresentation Result{
 				.bHasMaterialOutputPosition = true,
-				.MaterialOutputX = 320,
+				.MaterialOutputX = 1280,
 				.MaterialOutputY = 0,
 			};
+			Result.Nodes.reserve(Program.Nodes.size());
+			for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
+				Result.Nodes.push_back({Program.Nodes[Index].Id,
+					static_cast<int32>((Index % 8) * 160),
+					static_cast<int32>((Index / 8) * 96)});
+			return Result;
 		}
 
 		auto EnsureTemplateProgram(DMaterial& Material, bool bAllowMigration,
 			std::string& OutError) -> bool
 		{
-			const FMaterialProgram Expected = MakeStandardSurfaceMaterialProgram();
+			const FMaterialProgram Expected = MakePBRMaterialProgram();
 			if (*Material.GetMaterialProgram() == Expected) return true;
 			if (bAllowMigration
-				&& *Material.GetMaterialProgram() == MakeCanonicalMaterialProgram())
+				&& (*Material.GetMaterialProgram() == MakeCanonicalMaterialProgram()
+					|| *Material.GetMaterialProgram()
+						== MakeStandardSurfaceMaterialProgram()))
 			{
-				FMaterialProgramValidationResult Validation;
-				if ((Validation = Material.SetMaterialProgram(Expected))
+				auto Definitions = std::vector<FMaterialParameterDefinition>(
+					Material.GetParameterDefinitions().begin(),
+					Material.GetParameterDefinitions().end());
+				if (Material.SetMaterialDefinitionsAndProgram(
+						std::move(Definitions), Expected)
 					&& Material.SetMaterialGraphPresentation(
 						MakeTemplatePresentation(Expected))) return true;
 			}
@@ -63,8 +72,14 @@ namespace Durin::AssetForge::Builtins
 						: std::string("an invalid package"));
 				return nullptr;
 			}
-			if (!ValidateCanonicalMaterialParameterDefinitions(
-				Loaded->GetParameterDefinitions(), OutError)) return nullptr;
+			const auto DeclarationValidation = ValidateMaterialParameterDefinitions(
+				Loaded->GetParameterDefinitions());
+			if (!DeclarationValidation)
+			{
+				OutError = std::string(GetMaterialParameterErrorText(
+					DeclarationValidation.Error));
+				return nullptr;
+			}
 			if (!EnsureTemplateProgram(*Loaded, false, OutError)) return nullptr;
 			OutError.clear();
 			return Loaded;
@@ -86,9 +101,12 @@ namespace Durin::AssetForge::Builtins
 					LoadResult.Message);
 				return nullptr;
 			}
-			if (!ValidateCanonicalMaterialParameterDefinitions(
-				Loaded->GetParameterDefinitions(), OutError))
+			const auto DeclarationValidation = ValidateMaterialParameterDefinitions(
+				Loaded->GetParameterDefinitions());
+			if (!DeclarationValidation)
 			{
+				OutError = std::string(GetMaterialParameterErrorText(
+					DeclarationValidation.Error));
 				UnloadPackage(MaterialPath);
 				return nullptr;
 			}
@@ -96,16 +114,6 @@ namespace Durin::AssetForge::Builtins
 			{
 				UnloadPackage(MaterialPath);
 				return nullptr;
-			}
-			if (Loaded->GetPackage()->IsDirty())
-			{
-				const FAssetResult SaveResult = SavePackage(Loaded->GetPackage());
-				if (!SaveResult)
-				{
-					OutError = SaveResult.Message;
-					UnloadPackage(MaterialPath);
-					return nullptr;
-				}
 			}
 			OutError.clear();
 			return Loaded;
@@ -129,25 +137,20 @@ namespace Durin::AssetForge::Builtins
 					? "the asset tool returned no material" : CreateResult.Message);
 			return nullptr;
 		}
-		if (!ValidateCanonicalMaterialParameterDefinitions(
-			Created->GetParameterDefinitions(), OutError))
+		const FMaterialProgram TemplateProgram = MakePBRMaterialProgram();
+		const auto TemplateResult = Created->SetMaterialDefinitionsAndProgram(
+			MakePBRMaterialParameterDefinitions(), TemplateProgram);
+		if (!TemplateResult)
 		{
-			UnloadPackage(Created->GetPackage(), Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
-			return nullptr;
-		}
-		FMaterialProgramValidationResult ProgramValidation;
-		if (!(ProgramValidation = Created->SetMaterialProgram(
-			MakeStandardSurfaceMaterialProgram())))
-		{
-			OutError = ProgramValidation.Diagnostics.empty()
+			OutError = TemplateResult.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."
-				: ProgramValidation.Diagnostics.front().Message;
+				: TemplateResult.Diagnostics.front().Message;
 			UnloadPackage(Created->GetPackage(),
 				Durin::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		if (!Created->SetMaterialGraphPresentation(
-			MakeTemplatePresentation(*Created->GetMaterialProgram())))
+			MakeTemplatePresentation(TemplateProgram)))
 		{
 			OutError = "Failed to initialize the standard imported-surface material graph presentation.";
 			UnloadPackage(Created->GetPackage(),

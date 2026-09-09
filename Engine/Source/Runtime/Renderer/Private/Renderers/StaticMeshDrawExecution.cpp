@@ -25,11 +25,7 @@ namespace Durin::RendererPrivate
 				static_cast<uint32>(OutMaterial.Surface.CompiledUniformPayload.size()));
 			return true;
 		}
-		OutMaterial.Uniform = CommandList.AllocateDynamicUniformBuffer(
-			&OutMaterial.Surface.Uniform,
-			sizeof(OutMaterial.Surface.Uniform)
-		);
-		return true;
+		return false;
 	}
 
 	auto FStaticMeshPrimitiveUniformPreparer::Prepare(

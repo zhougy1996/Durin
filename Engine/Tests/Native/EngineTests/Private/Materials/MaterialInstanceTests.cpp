@@ -6,8 +6,10 @@ namespace
 		-> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
-		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
+			Durin::MakePBRMaterialParameterDefinitions(),
+			Durin::MakePBRMaterialProgram())) return nullptr;
+		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 }
@@ -48,6 +50,35 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::MarkAsGarbage(Component);
 	Base->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.5f);
 	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = MakeExpandedMaterial(nullptr, "StaticPermutationBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+		nullptr, "StaticPermutationInstance");
+	ASSERT_NE(Base, nullptr);
+	ASSERT_TRUE(Instance->SetParent(Base));
+	const auto ParentProgram = Base->GetAcceptedCompiledProgram();
+	ASSERT_NE(ParentProgram, nullptr);
+
+	auto PipelineOnly = Base->GetRenderableStaticProperties();
+	PipelineOnly.bTwoSided = true;
+	ASSERT_TRUE(Instance->SetStaticPropertiesOverride(PipelineOnly));
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), ParentProgram);
+	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
+
+	auto Incompatible = PipelineOnly;
+	Incompatible.BlendMode = Durin::EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Instance->SetStaticPropertiesOverride(Incompatible));
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), nullptr);
+	EXPECT_TRUE(Instance->GetRenderData().Representation.IsError());
+
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Harness.Shutdown();

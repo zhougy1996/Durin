@@ -25,14 +25,12 @@ namespace Durin
 	};
 
 	using FMaterialRenderLayoutVersion = uint32;
-	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 3;
-	inline constexpr FGuid MaterialRenderLayoutV3Id{
-		0xd71bc1d4, 0xa5894f47, 0x9b5c08b5, 0xf42d75b2};
+	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 4;
 
 	struct FMaterialRenderLayoutIdentity
 	{
 		FMaterialRenderLayoutVersion Version = CurrentMaterialRenderLayoutVersion;
-		FGuid Id = MaterialRenderLayoutV3Id;
+		FGuid Id;
 
 		auto operator<=>(const FMaterialRenderLayoutIdentity&) const = default;
 	};

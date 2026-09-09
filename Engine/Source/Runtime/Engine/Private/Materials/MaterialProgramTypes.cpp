@@ -577,6 +577,95 @@ namespace Durin
 		return Program;
 	}
 
+	auto MakePBRMaterialProgram() -> FMaterialProgram
+	{
+		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
+		FMaterialProgram Program = MakeCanonicalMaterialProgram();
+		uint32 NextNodeId = static_cast<uint32>(Program.Nodes.size());
+		auto AddNode = [&](EMaterialProgramOpcode Opcode,
+			EMaterialProgramValueType Type,
+			std::vector<FMaterialProgramLink> Inputs = {},
+			FGuid ParameterId = {},
+			FMaterialProgramLiteral Literal = {}) -> FMaterialProgramLink {
+			FMaterialProgramNode Node;
+			Node.Id = MakeCanonicalNodeId(NextNodeId++);
+			Node.Opcode = Opcode;
+			Node.ResultType = Type;
+			Node.Inputs = std::move(Inputs);
+			Node.ParameterId = ParameterId;
+			Node.Literal = Literal;
+			Program.Nodes.push_back(std::move(Node));
+			return MakeLink(Program.Nodes.back());
+		};
+		auto SwizzleScalar = [&](FMaterialProgramLink Source, uint8 Component) {
+			const auto Link = AddNode(EMaterialProgramOpcode::Swizzle,
+				EMaterialProgramValueType::Float, {Source});
+			auto& Node = Program.Nodes.back();
+			Node.SwizzleLength = 1;
+			Node.SwizzleX = Component;
+			return Link;
+		};
+
+		// Replace every legacy TextureCoordinate occurrence with ordinary UV math.
+		// Existing links target the occurrence GUID, so the final Add node keeps it.
+		std::vector<FMaterialProgramNode> LegacyNodes = std::move(Program.Nodes);
+		Program.Nodes.clear();
+		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
+		NextNodeId = static_cast<uint32>(LegacyNodes.size());
+		for (auto& Node : LegacyNodes)
+		{
+			if (Node.Opcode != EMaterialProgramOpcode::TextureCoordinate)
+			{
+				Program.Nodes.push_back(std::move(Node));
+				continue;
+			}
+			const FGuid PreservedId = Node.Id;
+			const Role TextureRole = MaterialParameters::FindBuiltinParameterRole(
+				Node.ParameterId,
+				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+			const auto Ids = MaterialParameters::GetBuiltinParameterIds(TextureRole);
+			const auto Channel = AddNode(EMaterialProgramOpcode::Parameter,
+				EMaterialProgramValueType::Float, {}, Ids.UVChannel);
+			const auto UV = AddNode(EMaterialProgramOpcode::UVChannel,
+				EMaterialProgramValueType::Float2, {Channel});
+			const auto Scale = AddNode(EMaterialProgramOpcode::Parameter,
+				EMaterialProgramValueType::Float2, {}, Ids.UVScale);
+			const auto Scaled = AddNode(EMaterialProgramOpcode::Multiply,
+				EMaterialProgramValueType::Float2, {UV, Scale});
+			const auto Rotation = AddNode(EMaterialProgramOpcode::Parameter,
+				EMaterialProgramValueType::Float, {}, Ids.UVRotation);
+			const auto Sine = AddNode(EMaterialProgramOpcode::Sine,
+				EMaterialProgramValueType::Float, {Rotation});
+			const auto Cosine = AddNode(EMaterialProgramOpcode::Cosine,
+				EMaterialProgramValueType::Float, {Rotation});
+			const auto X = SwizzleScalar(Scaled, 0);
+			const auto Y = SwizzleScalar(Scaled, 1);
+			const auto CX = AddNode(EMaterialProgramOpcode::Multiply,
+				EMaterialProgramValueType::Float, {Cosine, X});
+			const auto SY = AddNode(EMaterialProgramOpcode::Multiply,
+				EMaterialProgramValueType::Float, {Sine, Y});
+			const auto SX = AddNode(EMaterialProgramOpcode::Multiply,
+				EMaterialProgramValueType::Float, {Sine, X});
+			const auto CY = AddNode(EMaterialProgramOpcode::Multiply,
+				EMaterialProgramValueType::Float, {Cosine, Y});
+			const auto RotatedX = AddNode(EMaterialProgramOpcode::Subtract,
+				EMaterialProgramValueType::Float, {CX, SY});
+			const auto RotatedY = AddNode(EMaterialProgramOpcode::Add,
+				EMaterialProgramValueType::Float, {SX, CY});
+			const auto Rotated = AddNode(EMaterialProgramOpcode::MakeFloat2,
+				EMaterialProgramValueType::Float2, {RotatedX, RotatedY});
+			const auto Offset = AddNode(EMaterialProgramOpcode::Parameter,
+				EMaterialProgramValueType::Float2, {}, Ids.UVOffset);
+			FMaterialProgramNode Final;
+			Final.Id = PreservedId;
+			Final.Opcode = EMaterialProgramOpcode::Add;
+			Final.ResultType = EMaterialProgramValueType::Float2;
+			Final.Inputs = {Rotated, Offset};
+			Program.Nodes.push_back(std::move(Final));
+		}
+		return Program;
+	}
+
 	auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType
 	{

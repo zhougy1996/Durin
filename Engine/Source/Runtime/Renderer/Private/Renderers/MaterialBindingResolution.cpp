@@ -63,7 +63,7 @@ namespace Durin::RendererPrivate
 
 		checkf(
 			false,
-			"ErrorMaterial must satisfy the exact v3 binding contract: %s",
+			"ErrorMaterial must satisfy the compiled layout binding contract: %s",
 			ErrorDiagnostic.Message.c_str());
 		return false;
 	}

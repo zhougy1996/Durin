@@ -42,9 +42,10 @@ Thumbnail sessions follow [Asset Thumbnails](AssetThumbnails.md).
 `MaterialGraphOperations.h` is the UI-independent boundary shared by the canvas,
 tests, and structured callers. Inspection returns detached deterministic node,
 pin, surface-output, presentation, and closed-domain catalog values. Catalog
-entries come from the opcode/type rules and the live canonical material
-parameter definitions, including Standard Surface with a distinct aggregate
-Surface output type.
+entries come from the opcode/type rules and the live material-owned parameter
+definitions. `MakeSurface` exposes the aggregate Surface output type;
+legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
+catalog entries.
 
 Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
 `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
@@ -65,7 +66,7 @@ submits exactly one M6 compile generation. Presentation-only commands sanitize
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 3 keeps ordinary node inputs mandatory but makes each of the
+Program schema 4 keeps ordinary node inputs mandatory but makes each of the
 eight fixed Material Output inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; disconnecting an ordinary required node input still rejects. The
@@ -93,8 +94,10 @@ The canvas constant-node menu and `PromoteConstantToParameter` share one
 operation: preserve the node GUID and links, create or reuse a named numeric
 declaration, and replace the constant with a reference. Float through Float4
 are supported; same-name/type reuse preserves the existing default and metadata.
-The legacy surface-output promotion and texture-branch helpers remain temporary
-role-dependent adapters pending explicit-expression migration.
+Surface-output promotion creates an ordinary Parameter reference. Texture-branch
+creation emits an explicit TextureParameter, constant UV channel, `UVChannel`,
+TextureSample, and required swizzle or normal-decode branch; sampler/fallback
+policy remains typed data on the Texture2D declaration.
 
 One user-visible command produces one global editor transaction. Semantic
 commands retain before/after program and presentation values; presentation-only
@@ -136,10 +139,9 @@ Node placement, declaration creation and graph references commit once and
 Undo/Redo together. Unknown clipboard versions are rejected.
 
 Legacy StandardSurface and role-dependent TextureCoordinate nodes reject
-foreign paste until authored migration replaces their hidden dependencies with
-explicit expressions. This bounded adapter must be removed with Stage 4 of the
-material-parameters plan; it must never remap a custom parameter into a fixed
-role slot.
+foreign paste because their hidden root dependencies cannot be remapped safely.
+Supported loaded packages migrate those nodes to explicit expressions before
+editing; custom parameters are never remapped into fixed role slots.
 
 A selection containing the active aggregate source records that source; paste
 reconnects the remapped Surface node atomically without copying the derived
@@ -209,11 +211,11 @@ the material. Every mutation still routes to the stateless
 `FMaterialGraphOperations` operation boundary.
 
 `Promote to Parameter` is available on an unconnected Material Output input. It
-creates the compatible canonical Parameter node one column upstream, copies the
+creates the compatible material-owned Parameter node one column upstream, copies the
 fallback into the definition value, connects the input, and records program,
 presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
-creates the role's TextureParameter, TextureCoordinate, TextureSample, and
-required channel swizzle or normal decode nodes before replacing the surface
+creates the role's TextureParameter, constant channel, UVChannel, TextureSample,
+and required channel swizzle or normal decode nodes before replacing the surface
 connection in one candidate-validated transaction. Neither workflow creates a
 hidden branch.
 
@@ -229,7 +231,7 @@ do not fabricate a target.
 
 MaterialEditor consumes Engine's detached
 `InspectMaterialParameterDependencies` snapshot rather than enumerating the
-canonical definition catalog. Base Details contains one row per reachable
+material-owned definition catalog. Base Details contains one row per reachable
 declaration in deterministic first-use order. Parameter-node inline controls
 and Details submit the same nested definition-value edit, so continuous edits
 coalesce through the shared property transaction path and produce dynamic render

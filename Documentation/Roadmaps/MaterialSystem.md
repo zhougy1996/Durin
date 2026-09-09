@@ -2,27 +2,29 @@
 
 Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
 Status: Active
 Completed:
 
 ## Current Status
 
-On 2026-09-09 the user selected the broader refactor below and then authorized
-implementation with environment-dependent qualification deferred. The active
-[Material Parameters and Compiled Layouts plan](../Plans/MaterialParametersAndCompiledLayouts.md)
-owns the first slice, M10. Declaration foundations are implemented; M10 remains
-open and custom GPU bindings are not yet delivered. M1-M7 retain their historical completion; their fixed-v3
-decisions describe the migration baseline. M8 follows M10, and reusable
-functions follow as M11. Future child plans are created only at their entry gates.
+The [Material Parameters and Compiled Layouts plan](../Plans/MaterialParametersAndCompiledLayouts.md)
+completed M10 on 2026-09-10: material-owned declarations, compiled layout v4, generic production
+bindings, authored migration, DMAT v4 and the dual-layer rust fixture. The
+fixed-v3 compiler and Renderer adapters are retired. On 2026-09-10 the user
+cancelled the unavailable historical pre/post image and performance baseline;
+current CPU/GPU correctness, migration, Cook and resource-bound checks remain
+required. See the child plan for final receipts and unrelated macOS test exceptions.
+M1-M7 retain their historical completion. M8 follows M10, and reusable functions
+follow as M11; these future slices are not delivered by the M10 plan.
 
-The fixed-schema material stack is production-capable. Material and material-
+The compiled-layout material stack is production-capable. Material and material-
 instance assets provide stable parameter identities, inheritance, serialization,
 dependency tracking, asset-backed default material selection, an independent
 error terminal, immutable render representations, stable render proxies, and
 coalesced publication. StaticMesh and SplineMesh consume the same
-validated v3 PBR surface representation and shared Renderer-private surface
+validated material-specific representation and shared Renderer-private surface
 material execution contract across forward, GBuffer, and shadow passes.
 
 The Material Editor supports base materials and instances, Undo/Redo, grouped
@@ -98,10 +100,10 @@ identities, and runtime consumers use matching code, layout and resource data.
 
 ## Program Decisions and Invariants
 
-- The current v3 representation is the migration baseline. M10 replaces its
-  fixed input table with compiled layouts, retaining the eight surface outputs
-  and shared pass execution. Migrated image parity establishes compatibility;
-  a permanent second renderer path is not required.
+- Compiled layout v4 replaces the historical fixed input table while retaining
+  the eight surface outputs and shared pass execution. Legacy authored content
+  migrates before compilation. Current correctness establishes the retained
+  acceptance scope; historical baseline comparison was cancelled by the user.
 - Authored graph data belongs to Engine material assets. Engine owns validation,
   normalization, material-specific IR and layout policy; RenderCore owns generic
   shader contracts and resource primitives; ShaderBuild owns live Slang
@@ -144,13 +146,13 @@ transition and qualification across StaticMesh, SplineMesh,
 
 ### Landed foundations
 
-- Runtime-owned canonical material parameters, stable GUIDs, base/instance
-  inheritance, static properties, package references, and strict schema
-  validation.
+- Material-owned bounded declarations, stable GUIDs, base/instance inheritance,
+  typed texture sampling/fallback data, static properties, package references,
+  bounded legacy migration, and strict schema validation.
 - Stable material render proxies with lazy parent resolution, publication
   coalescing, stale rejection, startup replay, and counted texture references.
-- Exact v3 immutable PBR representation with 48 uniform fields, eight texture
-  roles, UV transforms, sampler state, and deterministic per-role fallbacks.
+- Deterministic compiled layout v4 with typed numeric fields, compact texture /
+  sampler indices, explicit fallbacks, reflected pass validation, and DMAT v4.
 - Asset-backed DefaultMaterial and asset-independent ErrorMaterial with shared
   whole-material fallback diagnostics.
 - Shared surface uniform/resource resolution and fragment/pass execution for
@@ -165,9 +167,9 @@ transition and qualification across StaticMesh, SplineMesh,
 
 ### Material-specific gaps
 
-- Inputs are 56 fixed GUIDs tied to eight PBR roles. Material-owned declarations
-  and compiler-derived resource layouts are absent. StandardSurface implicitly
-  reads that schema; reusable explicit-input functions are absent.
+- Reusable explicit-input functions remain absent and belong to M11. Legacy
+  role knowledge is confined to authored migration; the independent error
+  terminal uses the resource-free compiled-layout boundary.
 - There is no transient non-asset material instance API. Existing proxy
   coalescing handles ordinary asset edits, but runtime batching, allocation,
   reuse, and stress limits have not been measured.
@@ -190,7 +192,7 @@ transition and qualification across StaticMesh, SplineMesh,
 
 | Milestone | State | Dependencies and entry gate | Deliverable and completion condition |
 | --- | --- | --- | --- |
-| 10. Material-owned parameters and compiled layouts | Required; plan active | Landed M5-M7; reconcile current geometry/RHI/payload interfaces in child Stage 0 | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated parity, fixed-role production bindings retired |
+| 10. Material-owned parameters and compiled layouts | Complete; historical baseline cancelled by user | Landed M5-M7; current correctness and resource bounds | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated-content correctness, fixed-role production bindings retired |
 | 11. Reusable material functions | Required; plan not created | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Context expressions and output extensions | Conditional | Concrete effect selected after M10; M11 where useful | Selected time/world/view inputs, or a separately scoped vertex/shading/domain extension; geometry, shadow, Cook and recovery qualification for that effect |
 
@@ -231,7 +233,7 @@ bounded plan demanded by an actual effect.
 | [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
 | [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
-| [Material Parameters and Compiled Layouts](../Plans/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Active; documentation only |
+| [Material Parameters and Compiled Layouts](../Plans/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M10 |
 | Reusable Material Functions | M11 | Explicit typed calls, dependency lifecycle and standard PBR templates | Create after M10 |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |

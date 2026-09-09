@@ -518,6 +518,10 @@ namespace Durin
 	ENGINE_API auto ValidateMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
 	ENGINE_API auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
+	// Creates the ordinary-graph PBR template declarations. Persistent built-in
+	// identities are reused for compatibility, but packed legacy sampler scalars
+	// are omitted because sampling policy belongs to each Texture2D value.
+	ENGINE_API auto MakePBRMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
 	ENGINE_API auto ValidateCanonicalMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions,
 		std::string& OutError

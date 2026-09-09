@@ -18,26 +18,10 @@ namespace Durin
 			std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value));
 		}
 
-		auto MakeErrorUniformPayload() -> FByteBuffer
-		{
-			FByteBuffer Result(416, std::byte{0});
-			WriteFloat(Result, 0, 1.0f); WriteFloat(Result, 8, 1.0f);
-			WriteFloat(Result, 12, 1.0f); WriteFloat(Result, 40, 1.0f);
-			WriteFloat(Result, 44, 0.5f); WriteFloat(Result, 48, 1.0f);
-			WriteFloat(Result, 52, 1.0f);
-			for (uint32 Role = 0; Role < 8; ++Role)
-			{
-				WriteFloat(Result, 96 + Role * 16, 1.0f);
-				WriteFloat(Result, 100 + Role * 16, 1.0f);
-				WriteFloat(Result, 384 + Role * 4, 13.0f);
-			}
-			return Result;
-		}
 	}
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
-		: Layout(MakeDefaultMaterialRenderLayout())
-		, UniformPayload(MakeErrorUniformPayload())
-		, Resources(8)
+		: Layout(MakeErrorMaterialRenderLayout())
+		, UniformPayload(MaterialUniformControlBytes, std::byte{0})
 		, bError(true)
 	{
 	}
@@ -223,6 +207,7 @@ namespace Durin
 		if (Representation.GetLayout().Identity.Version == CompiledMaterialRenderLayoutVersion)
 		{
 			if (!ValidateMaterialRenderLayout(Representation.GetLayout(), OutDiagnostic)) return false;
+			OutBinding.bError = Representation.IsError();
 			OutBinding.LayoutIdentity = Representation.GetLayout().Identity;
 			OutBinding.CompiledUniformPayload.assign(Representation.GetUniformPayload().begin(), Representation.GetUniformPayload().end());
 			OutBinding.CompiledTextures.assign(Representation.GetResources().begin(), Representation.GetResources().end());
@@ -230,70 +215,9 @@ namespace Durin
 			OutBinding.CompiledTextureFallbacks.assign(Representation.GetTextureFallbacks().begin(), Representation.GetTextureFallbacks().end());
 			return true;
 		}
-		static const FMaterialRenderLayout ExpectedLayout =
-			MakeDefaultMaterialRenderLayout();
-		const FMaterialRenderLayout& Layout = Representation.GetLayout();
-		if (Layout.Identity != ExpectedLayout.Identity)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::UnsupportedIdentity,
-				0,
-				"Material render binding layout identity is not v3.");
-		}
-		if (Layout != ExpectedLayout)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidField,
-				0,
-				"Material render binding layout does not match the v3 contract.");
-		}
-		const auto Payload = Representation.GetUniformPayload();
-		const auto Resources = Representation.GetResources();
-		if (Payload.size() != 416)
-		{
-			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidPayloadSize, 0,
-				"Material render v3 payload size is invalid.");
-		}
-		if (Resources.size() != 8)
-		{
-			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, 0,
-				"Material render v3 resource count is invalid.");
-		}
-		auto ReadFloat = [&Payload](uint32 Offset) {
-			float Value = 0.0f;
-			std::memcpy(&Value, Payload.data() + Offset, sizeof(Value));
-			return Value;
-		};
-		auto ReadVector = [&ReadFloat](uint32 Offset) {
-			return FVector3f(ReadFloat(Offset), ReadFloat(Offset + 4), ReadFloat(Offset + 8));
-		};
-		auto ReadVector2 = [&ReadFloat](uint32 Offset) {
-			return FVector2f(ReadFloat(Offset), ReadFloat(Offset + 4));
-		};
-		OutBinding.BaseColor = FVector4f(ReadFloat(0), ReadFloat(4), ReadFloat(8), ReadFloat(12));
-		OutBinding.Emissive = ReadVector(16);
-		OutBinding.Metallic = ReadFloat(28);
-		OutBinding.Normal = ReadVector(32);
-		OutBinding.Roughness = ReadFloat(44);
-		OutBinding.AmbientOcclusion = ReadFloat(48);
-		OutBinding.OpacityMask = ReadFloat(52);
-		for (uint32 Role = 0; Role < 8; ++Role)
-		{
-			OutBinding.UVChannels[Role] = ReadFloat(64 + Role * 4);
-			OutBinding.UVScales[Role] = ReadVector2(96 + Role * 16);
-			OutBinding.UVOffsets[Role] = ReadVector2(224 + Role * 16);
-			OutBinding.UVRotations[Role] = ReadFloat(352 + Role * 4);
-			if (!TryDecodeMaterialSamplerState(
-				ReadFloat(384 + Role * 4), OutBinding.Samplers[Role]))
-			{
-				return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidField, 40 + Role,
-					"Material render v3 sampler state is invalid.");
-			}
-			OutBinding.Textures[Role] = Resources[Role];
-		}
-		return true;
+		return SetValidationFailure(OutDiagnostic,
+			EMaterialRenderValidationFailure::UnsupportedVersion, 0,
+			"Only compiled material layout v4 can bind.");
 	}
 
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
@@ -352,16 +276,7 @@ namespace Durin
 		{
 			return RejectField(ParameterId);
 		}
-		if (Input.Layout.Identity.Version == 3 && MaterialParameters::FindBuiltinParameterRole(ParameterId,
-				MaterialParameters::EMaterialBuiltinParameterKind::SamplerState)
-				!= MaterialParameters::EMaterialBuiltinParameterRole::Count)
-		{
-			FMaterialSamplerState State;
-			if (!TryDecodeMaterialSamplerState(Value, State))
-			{
-				Value = EncodeMaterialSamplerState({});
-			}
-		}
+
 		WriteFloat(Input.UniformPayload, Field->Offset, Value);
 		return true;
 	}
@@ -391,11 +306,8 @@ namespace Durin
 	{
 		const FMaterialRenderField* Field = FindField(ParameterId);
 		if (Field == nullptr) return false;
-		// The current render protocol reserves a Vector3 slot for UV transforms.
-		// Preserve that protocol while keeping the authored parameter dimension exact.
 		if (Field->Storage != EMaterialRenderFieldStorage::Uniform
-			|| (Field->Type != EMaterialRenderValueType::Vector2
-				&& !(Input.Layout.Identity.Version == 3 && Field->Type == EMaterialRenderValueType::Vector3)))
+			|| Field->Type != EMaterialRenderValueType::Vector2)
 		{
 			return RejectField(ParameterId);
 		}

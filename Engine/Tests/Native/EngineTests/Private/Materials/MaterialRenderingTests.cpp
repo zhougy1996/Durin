@@ -50,8 +50,10 @@ namespace
 		-> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
-		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
+			Durin::MakePBRMaterialParameterDefinitions(),
+			Durin::MakePBRMaterialProgram())) return nullptr;
+		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 
@@ -372,7 +374,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 	for (uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
 		const Durin::FMaterialRenderData& Default = Snapshot.Materials[SlotIndex];
-		const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Default);
+		const auto Binding = GetMaterialBinding(Default);
 		EXPECT_EQ(Binding.Textures[0], nullptr);
 		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 		EXPECT_FALSE(Default.Representation.IsError());

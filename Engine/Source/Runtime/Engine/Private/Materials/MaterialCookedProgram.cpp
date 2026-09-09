@@ -173,15 +173,11 @@ namespace Durin
 			if (Program.ActiveParameters.size() > MaterialProgramMaxReferencedParameterCount)
 				return Fail("Material active parameter count exceeds its limit.", &OutError);
 			FGuid PreviousId;
-			const auto Definitions = GetCanonicalMaterialParameterDefinitions();
 			for (const auto& Parameter : Program.ActiveParameters)
 			{
-				const auto Definition = std::ranges::find(Definitions, Parameter.Id,
-					&FMaterialParameterDefinition::Id);
+
 				if (!Parameter.Id.IsValid()
-					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id))
-					|| (Program.Layout.Identity.Version == 3
-						&& (Definition == Definitions.end() || Definition->Type != Parameter.Type)))
+					|| (PreviousId.IsValid() && !(PreviousId < Parameter.Id)))
 					return Fail("Material active parameter contract is invalid.", &OutError);
 				PreviousId = Parameter.Id;
 			}

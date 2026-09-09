@@ -329,7 +329,7 @@ namespace
 			return {};
 		}
 		if (!Material->SetMaterialProgram(
-				Durin::MakeCanonicalMaterialProgram()))
+				Durin::MakePBRMaterialProgram()))
 		{
 			ADD_FAILURE() << "Failed to install the directional-shadow material program.";
 			return {};

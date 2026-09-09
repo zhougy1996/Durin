@@ -632,7 +632,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 	}
 
 	TEST_F(FShaderCompileServiceTests,
-		M5FixedMaterialPathRecordsCompleteColdAndWarmBaseline)
+		ErrorTerminalRecordsCompleteColdAndWarmBaseline)
 	{
 		const std::filesystem::path Root = GetServiceTestRoot();
 		const std::filesystem::path SourceRoot =
@@ -720,13 +720,13 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			SpirvBytes += Shader.Code->size();
 		}
 		EXPECT_EQ(
-			Cold.CompiledShaders[0].Reflection.ResourceBindings.size(), 24u);
+			Cold.CompiledShaders[0].Reflection.ResourceBindings.size(), 0u);
 		EXPECT_EQ(
-			Cold.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
+			Cold.CompiledShaders[1].Reflection.ResourceBindings.size(), 0u);
 		EXPECT_TRUE(
 			Cold.CompiledShaders[2].Reflection.ResourceBindings.empty());
 		EXPECT_EQ(
-			Cold.CompiledShaders[3].Reflection.ResourceBindings.size(), 3u);
+			Cold.CompiledShaders[3].Reflection.ResourceBindings.size(), 0u);
 
 		const auto WarmBegin = std::chrono::steady_clock::now();
 		const FShaderCompilerOutput Warm = GetOrCompileShader(
@@ -781,7 +781,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		RecordProperty("SpirvBytes", SpirvBytes);
 		RecordProperty("DdcBytes", DdcBytes);
 		std::cout
-			<< "[M5FixedMaterialBaseline] cold_us=" << ColdMicroseconds
+			<< "[ErrorTerminalBaseline] cold_us=" << ColdMicroseconds
 			<< " warm_us=" << WarmMicroseconds
 			<< " dependencies=" << Dependencies.size()
 			<< " source_bytes=" << SourceBytes

@@ -242,7 +242,7 @@ namespace Durin
 		{
 			CachedResolvedData = {};
 			CachedResolvedData.Representation =
-				MakeCanonicalMaterialRenderRepresentation();
+				FMaterialRenderRepresentation{};
 		}
 		if (LocalLayer.CompiledProgram)
 		{

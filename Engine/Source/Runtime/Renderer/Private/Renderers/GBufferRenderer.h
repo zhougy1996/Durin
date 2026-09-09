@@ -68,8 +68,6 @@ namespace Durin
 		{
 			const RendererPrivate::FResolvedSurfaceMaterial* Compiled = nullptr;
 			FRHIUniformBufferRange Material;
-			std::array<FRHITexture*, 8> Textures{};
-			std::array<FRHISampler*, 8> Samplers{};
 		};
 
 		FGBufferRenderer(FRendererResourceCoordinator& InCoordinator);

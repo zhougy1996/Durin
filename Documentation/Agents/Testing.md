@@ -90,6 +90,16 @@ GPU acceptance gates remain outstanding until validated in a capable environment
 Keep GPU tests registered for those environments; do not turn initialization
 failures into unconditional passes.
 
+On macOS, MoltenVK cannot access Metal services from the default Codex sandbox
+and reports `Metal is not available on this device`. Do not run a GPU test or a
+Metal probe in the sandbox merely to reproduce that expected failure. For
+optional coverage, report GPU execution as unavailable as above. When an
+explicit user request or acceptance gate requires GPU execution, request the
+normal sandbox-escalation approval and run the exact registered qualification
+selection outside the sandbox. Record the unsandboxed device name and receipt;
+never bypass authorization or weaken the test to turn sandbox initialization
+failure into a pass.
+
 ## Performance Qualification and Concurrent Agents
 
 Ordinary correctness builds and tests may run while other agents are active,

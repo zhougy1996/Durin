@@ -158,7 +158,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
 	const auto OcclusionMaterialValidation = OcclusionMaterial->SetMaterialProgram(
-		Durin::MakeCanonicalMaterialProgram());
+		Durin::MakePBRMaterialProgram());
 	ASSERT_TRUE(OcclusionMaterialValidation);
 	Durin::FMaterialStaticProperties OcclusionProperties;
 	OcclusionProperties.bTwoSided = true;

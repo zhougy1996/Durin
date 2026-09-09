@@ -188,6 +188,32 @@ namespace Durin
 		return Definitions;
 	}
 
+	auto MakePBRMaterialParameterDefinitions()
+		-> std::vector<FMaterialParameterDefinition>
+	{
+		auto Result = MakeCanonicalMaterialParameterDefinitions();
+		std::erase_if(Result, [](const FMaterialParameterDefinition& Definition) {
+			return MaterialParameters::IsBuiltinParameter(
+				Definition.Id,
+				MaterialParameters::EMaterialBuiltinParameterKind::SamplerState);
+		});
+		for (FMaterialParameterDefinition& Definition : Result)
+		{
+			if (Definition.Type != EMaterialParameterType::Texture) continue;
+			const auto Role = MaterialParameters::FindBuiltinParameterRole(
+				Definition.Id,
+				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+			Definition.Value.TextureFallback = Role
+				== MaterialParameters::EMaterialBuiltinParameterRole::Normal
+				? EMaterialTextureFallback::FlatRGNormal
+				: (Role
+					== MaterialParameters::EMaterialBuiltinParameterRole::Emissive
+					? EMaterialTextureFallback::Black
+					: EMaterialTextureFallback::White);
+		}
+		return Result;
+	}
+
 	auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view
 	{
 		switch (Error)

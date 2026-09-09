@@ -261,9 +261,9 @@ TEST(FMaterialThumbnailRendererTests, PreviewComponentResolvesInstanceInheritanc
 				InstanceProxy->ResolveMaterialRenderData_RenderThread(0);
 		});
 	Durin::FlushRenderingCommands();
-	const Durin::FMaterialRenderBinding MaterialBinding =
+	const auto MaterialBinding =
 		GetMaterialBinding(MaterialData);
-	const Durin::FMaterialRenderBinding InstanceBinding =
+	const auto InstanceBinding =
 		GetMaterialBinding(InstanceData);
 	EXPECT_NE(MaterialBinding.BaseColor, InstanceBinding.BaseColor);
 	EXPECT_NE(

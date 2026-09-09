@@ -18,7 +18,7 @@ namespace Durin
 	class DMaterialInterface;
 
 	inline constexpr uint32 CurrentMaterialIRVersion = 3;
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 3;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 4;
 	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 5;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 2;
 
@@ -174,9 +174,6 @@ namespace Durin
 		const FMaterialCompilerResourceLimits& Limits = {}) -> FMaterialLayoutValidationResult;
 	ENGINE_API auto GenerateMaterialProgramSlang(
 		const FMaterialIR& IR, std::string& OutSource,
-		std::string& OutError) -> bool;
-	ENGINE_API auto ValidateMaterialCompiledStages(
-		std::span<const FCompiledShader> Stages,
 		std::string& OutError) -> bool;
 	ENGINE_API auto CompileMaterialProgram(
 		const FMaterialCompilerInput& Input,

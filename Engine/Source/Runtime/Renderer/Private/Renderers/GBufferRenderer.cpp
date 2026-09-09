@@ -21,22 +21,6 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(Material);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(BaseColorTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(NormalTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(MetallicTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(RoughnessTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(AmbientOcclusionTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(EmissiveTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityTexture);
-				DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(BaseColorSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(NormalSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(MetallicSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(RoughnessSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(AmbientOcclusionSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(EmissiveSampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacitySampler);
-				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacityMaskSampler);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
@@ -293,26 +277,7 @@ namespace Durin
 		if (FragmentParameters.Compiled && FragmentParameters.Compiled->bCompiledLayout)
 			return RendererPrivate::BindCompiledSurfaceMaterial(CommandList, Pipeline.Fragment.GetRHIShader(),
 				Pipeline.Fragment.GetReflection(), *FragmentParameters.Compiled, FragmentParameters.Material);
-		FGBufferFragmentShader::FParameters Parameters;
-		Parameters.Material = FragmentParameters.Material;
-		Parameters.BaseColorTexture = FragmentParameters.Textures[0];
-		Parameters.NormalTexture = FragmentParameters.Textures[1];
-		Parameters.MetallicTexture = FragmentParameters.Textures[2];
-		Parameters.RoughnessTexture = FragmentParameters.Textures[3];
-		Parameters.AmbientOcclusionTexture = FragmentParameters.Textures[4];
-		Parameters.EmissiveTexture = FragmentParameters.Textures[5];
-		Parameters.OpacityTexture = FragmentParameters.Textures[6];
-		Parameters.OpacityMaskTexture = FragmentParameters.Textures[7];
-		Parameters.BaseColorSampler = FragmentParameters.Samplers[0];
-		Parameters.NormalSampler = FragmentParameters.Samplers[1];
-		Parameters.MetallicSampler = FragmentParameters.Samplers[2];
-		Parameters.RoughnessSampler = FragmentParameters.Samplers[3];
-		Parameters.AmbientOcclusionSampler = FragmentParameters.Samplers[4];
-		Parameters.EmissiveSampler = FragmentParameters.Samplers[5];
-		Parameters.OpacitySampler = FragmentParameters.Samplers[6];
-		Parameters.OpacityMaskSampler = FragmentParameters.Samplers[7];
-		SetShaderParameters(CommandList, Pipeline.Fragment, Parameters);
-		return true;
+		return false;
 	}
 
 	auto FGBufferRenderer::ReleaseResources_RenderThread() -> void

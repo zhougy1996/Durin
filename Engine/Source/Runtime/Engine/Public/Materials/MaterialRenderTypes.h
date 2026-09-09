@@ -87,29 +87,13 @@ namespace Durin
 
 	struct FMaterialRenderBinding
 	{
+		bool bError = false;
 		FMaterialRenderLayoutIdentity LayoutIdentity;
 		FByteBuffer CompiledUniformPayload;
 		std::vector<FRHITextureReferenceRef> CompiledTextures;
 		std::vector<FMaterialSamplerState> CompiledSamplers;
 		std::vector<EMaterialTextureFallback> CompiledTextureFallbacks;
-		FVector4f BaseColor{0.5f, 0.5f, 0.5f, 1.0f};
-		FVector3f Emissive{0.0f};
-		FVector3f Normal{0.0f, 0.0f, 1.0f};
-		float Metallic = 0.0f;
-		float Roughness = 0.5f;
-		float AmbientOcclusion = 1.0f;
-		float OpacityMask = 1.0f;
-		std::array<float, 8> UVChannels{};
-		std::array<FVector2f, 8> UVScales{};
-		std::array<FVector2f, 8> UVOffsets{};
-		std::array<FRHITextureReferenceRef, 8> Textures{};
-		std::array<float, 8> UVRotations{};
-		std::array<FMaterialSamplerState, 8> Samplers{};
 
-		FMaterialRenderBinding()
-		{
-			UVScales.fill(FVector2f(1.0f, 1.0f));
-		}
 	};
 
 	ENGINE_API auto TryGetMaterialRenderBinding(
@@ -161,9 +145,7 @@ namespace Durin
 		FGuid InvalidParameterId;
 	};
 
-	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
-	ENGINE_API auto MakeCanonicalMaterialRenderRepresentation()
-		-> FMaterialRenderRepresentation;
+	ENGINE_API auto MakeErrorMaterialRenderLayout() -> FMaterialRenderLayout;
 	ENGINE_API auto ValidateMaterialRenderLayout(
 		const FMaterialRenderLayout& Layout,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
@@ -183,7 +165,7 @@ namespace Durin
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
 		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
-				.RenderLayout = {},
+				.RenderLayout = MakeErrorMaterialRenderLayout().Identity,
 				.BlendMode = FMaterialShaderBlendModeKey(EMaterialBlendMode::Opaque),
 				.ShadingModel = FMaterialShaderShadingModelKey(EMaterialShadingModel::Unlit),
 				.OpacityMaskThreshold = 0.333f,

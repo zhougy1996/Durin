@@ -5,11 +5,14 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialRenderTypes.h"
 #include "Asset/Asset.h"
 #include "DObject/Property.h"
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 
+#include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Durin
@@ -20,6 +23,160 @@ namespace Durin
 		{
 			Revision = Revision == std::numeric_limits<uint64>::max()
 				? 1 : Revision + 1;
+		}
+
+		auto TryMigrateLegacyPBR(
+			std::vector<FMaterialParameterDefinition>& Definitions,
+			FMaterialProgram& Program,
+			bool bLegacyDeclarationSchema,
+			std::string& OutError) -> bool
+		{
+			const bool bCanonical = bLegacyDeclarationSchema
+				&& Program == MakeCanonicalMaterialProgram();
+			const bool bHasLegacyNodes = std::ranges::any_of(Program.Nodes, [](const auto& Node) {
+				return Node.Opcode == EMaterialProgramOpcode::StandardSurface
+					|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinate;
+			});
+			if (!bCanonical && !bHasLegacyNodes) return true;
+			const auto OriginalValidation = ValidateMaterialProgram(Program, Definitions);
+			if (!OriginalValidation)
+			{
+				OutError = "Legacy material graph is invalid; migration left authored data unchanged.";
+				return false;
+			}
+			// Work on detached candidates: any sampler, expansion or graph-bound failure
+			// must leave both authored records intact, including unreachable nodes.
+			auto CandidateDefinitions = Definitions;
+			auto CandidateProgram = Program;
+
+			for (const auto& Entry : MaterialParameters::BuiltinParameters)
+			{
+				const auto SamplerIt = std::ranges::find(CandidateDefinitions,
+					Entry.Parameters.SamplerState,
+					&FMaterialParameterDefinition::Id);
+				const auto TextureIt = std::ranges::find(CandidateDefinitions,
+					Entry.Parameters.Texture,
+					&FMaterialParameterDefinition::Id);
+				if (SamplerIt == CandidateDefinitions.end() || TextureIt == CandidateDefinitions.end())
+				{
+					OutError = "Legacy PBR migration requires its complete texture and sampler declarations.";
+					return false;
+				}
+				FMaterialSamplerState State;
+				if (!TryDecodeMaterialSamplerState(
+					SamplerIt->Value.ScalarValue, State))
+				{
+					OutError = std::format(
+						"Legacy PBR sampler '{}' is invalid.",
+						SamplerIt->Name.ToString());
+					return false;
+				}
+				TextureIt->Value.SamplerState = State;
+				TextureIt->Value.TextureFallback = Entry.Role
+					== MaterialParameters::EMaterialBuiltinParameterRole::Normal
+					? EMaterialTextureFallback::FlatRGNormal
+					: (Entry.Role
+						== MaterialParameters::EMaterialBuiltinParameterRole::Emissive
+						? EMaterialTextureFallback::Black
+						: EMaterialTextureFallback::White);
+			}
+			const auto Template = MakePBRMaterialProgram();
+			if (bCanonical) CandidateProgram = Template;
+			else
+			{
+				std::unordered_set<FGuid> UsedIds;
+				for (const auto& Node : Program.Nodes) UsedIds.insert(Node.Id);
+				std::unordered_map<FGuid, FMaterialProgramLink> Cloned;
+				uint32 NextId = 1;
+				bool bOverflow = false;
+				std::function<FMaterialProgramLink(FMaterialProgramLink)> Clone =
+					[&](FMaterialProgramLink Link) -> FMaterialProgramLink {
+					if (const auto It = Cloned.find(Link.SourceNodeId); It != Cloned.end()) return It->second;
+					const auto Source = std::ranges::find(Template.Nodes, Link.SourceNodeId,
+						&FMaterialProgramNode::Id);
+					if (Source == Template.Nodes.end()) { bOverflow = true; return {}; }
+					auto Node = *Source;
+					for (auto& Input : Node.Inputs) Input = Clone(Input);
+					if (bOverflow || CandidateProgram.Nodes.size() >= MaterialProgramMaxNodeCount)
+					{ bOverflow = true; return {}; }
+					do { Node.Id = FGuid{0x4d494752, 0, 0, NextId++}; }
+					while (!UsedIds.insert(Node.Id).second);
+					const FMaterialProgramLink Result{Node.Id, 0};
+					Cloned.emplace(Link.SourceNodeId, Result);
+					CandidateProgram.Nodes.push_back(std::move(Node));
+					return Result;
+				};
+				const auto LegacyTemplate = MakeCanonicalMaterialProgram();
+				for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
+				{
+					auto Replacement = Program.Nodes[Index];
+					if (Replacement.Opcode == EMaterialProgramOpcode::StandardSurface)
+					{
+						Replacement.Opcode = EMaterialProgramOpcode::MakeSurface;
+						for (uint32 Output = 0; Output < 8; ++Output)
+							Replacement.Inputs.push_back(Clone(GetMaterialSurfaceOutputLink(
+								Template.Outputs, static_cast<EMaterialSurfaceOutput>(Output))));
+					}
+					else if (Replacement.Opcode == EMaterialProgramOpcode::TextureCoordinate)
+					{
+						const auto UV = std::ranges::find_if(LegacyTemplate.Nodes, [&](const auto& Node) {
+							return Node.Opcode == EMaterialProgramOpcode::TextureCoordinate
+								&& Node.ParameterId == Replacement.ParameterId;
+						});
+						if (UV == LegacyTemplate.Nodes.end()) { bOverflow = true; break; }
+						const auto Expanded = std::ranges::find(Template.Nodes, UV->Id,
+							&FMaterialProgramNode::Id);
+						Replacement.Opcode = Expanded->Opcode;
+						Replacement.ParameterId = {};
+						for (const auto& Input : Expanded->Inputs) Replacement.Inputs.push_back(Clone(Input));
+					}
+					CandidateProgram.Nodes[Index] = std::move(Replacement);
+					if (bOverflow) break;
+				}
+				if (bOverflow)
+				{
+					OutError = "Legacy material expansion exceeds graph bounds; authored data is unchanged.";
+					return false;
+				}
+			}
+			std::erase_if(CandidateDefinitions, [&](const FMaterialParameterDefinition& Definition) {
+				return std::ranges::any_of(MaterialParameters::BuiltinParameters,
+					[&](const auto& Entry) { return Entry.Parameters.SamplerState == Definition.Id; })
+					&& std::ranges::none_of(CandidateProgram.Nodes,
+						[&](const auto& Node) { return Node.ParameterId == Definition.Id; });
+			});
+			const auto Validation = ValidateMaterialProgram(CandidateProgram, CandidateDefinitions);
+			if (!Validation)
+			{
+				OutError = "Expanded legacy material failed graph validation; authored data is unchanged.";
+				return false;
+			}
+			Definitions = std::move(CandidateDefinitions);
+			Program = std::move(CandidateProgram);
+			return true;
+		}
+
+		auto CompleteMigratedPresentation(
+			FMaterialGraphPresentation& Presentation,
+			const FMaterialProgram& Program) -> void
+		{
+			std::unordered_set<FGuid> Positioned;
+			for (const auto& Position : Presentation.Nodes)
+				Positioned.insert(Position.NodeId);
+			for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
+			{
+				if (!Positioned.insert(Program.Nodes[Index].Id).second) continue;
+				Presentation.Nodes.push_back({
+					Program.Nodes[Index].Id,
+					static_cast<int32>((Index % 10) * 160),
+					static_cast<int32>((Index / 10) * 96)});
+			}
+			if (!Presentation.bHasMaterialOutputPosition)
+			{
+				Presentation.bHasMaterialOutputPosition = true;
+				Presentation.MaterialOutputX = 1760;
+				Presentation.MaterialOutputY = 0;
+			}
 		}
 	}
 
@@ -492,6 +649,8 @@ namespace Durin
 	{
 		std::string Error;
 		Super::PostLoad();
+		const bool bLegacyDeclarationSchema =
+			ParameterDeclarationSchemaVersion == 1;
 		if (ParameterDeclarationSchemaVersion == 2)
 		{
 			const auto Validation = ValidateMaterialParameterDefinitions(ParameterDefinitions);
@@ -531,22 +690,22 @@ namespace Durin
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
 		}
-		if (!UpgradeMaterialProgram(Program))
+		auto CandidateProgram = Program;
+		auto CandidateDefinitions = ParameterDefinitions;
+		if (!UpgradeMaterialProgram(CandidateProgram))
 		{
 			Error = "Material program schema version is unsupported.";
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		// The only legacy-DAG recognition path is the stable Engine-owned import
-		// parent. Exact graph equality prevents edited or user-authored graphs from
-		// being collapsed during ordinary load; an explicit package resave persists
-		// the compact schema-3 form.
-		if (GetPackage()
-			&& GetPackage()->GetPackagePath() == "/Engine/Materials/ImportedSurface"
-			&& Program == MakeCanonicalMaterialProgram())
-			Program = MakeStandardSurfaceMaterialProgram();
+		if (!TryMigrateLegacyPBR(CandidateDefinitions, CandidateProgram,
+			bLegacyDeclarationSchema, Error))
+		{
+			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			return;
+		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateMaterialProgram(Program, ParameterDefinitions);
+			ValidateMaterialProgram(CandidateProgram, CandidateDefinitions);
 		if (!ProgramValidation)
 		{
 			Error = ProgramValidation.Diagnostics.empty()
@@ -555,6 +714,13 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
+		const bool bMigrated = CandidateProgram != Program;
+		Program = std::move(CandidateProgram);
+		ParameterDefinitions = std::move(CandidateDefinitions);
+		if (bMigrated || Program == MakePBRMaterialProgram())
+			ParameterDeclarationSchemaVersion = 2;
+		if (bMigrated) CompleteMigratedPresentation(GraphPresentation, Program);
+		// Only an explicit user save persists the validated schema-4 candidates.
 		GraphPresentation = SanitizeMaterialGraphPresentation(
 			GraphPresentation, Program);
 		AdvanceRevision(MaterialProgramRevision);

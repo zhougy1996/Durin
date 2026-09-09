@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -13,10 +13,10 @@ editor presentation, and renderer consumption at explicit boundaries.
 property surface. Renderer-facing layout, compatibility, immutable
 representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
-surface directly. Their implementations are separated into canonical authored
-schema, representation/builder, and diagnostics files. The render boundary
-retains only the current v3 table and identity, the error material, and
-diagnostic counters.
+surface directly. Their implementations are separated into authored schema,
+compiled-layout representation/builder, and diagnostics files. The production
+render boundary accepts only material-specific layout v4 data. Legacy role
+knowledge is confined to authored-format migration before compilation.
 
 ## Parameter Domain
 
@@ -36,12 +36,12 @@ diagnostic counters.
   the GUID and updates referencing labels. In-place retyping is rejected.
   Deleting a referenced declaration requires removing its references in the
   same atomic operation. A definition becomes
-  active only when a reachable Parameter, TextureParameter, TextureCoordinate,
-  or TextureSample graph node declares it. Definitions reject invalid/duplicate
+  active only when a reachable Parameter or TextureParameter graph node declares
+  it. Definitions reject invalid/duplicate
   GUIDs, `None`/duplicate names, oversized text, invalid metadata and nonfinite
-  active defaults. Float4 is an appended reflected value alternative. These
-  authoring APIs do not add custom-parameter support to the current v3 renderer;
-  unsupported reachable declarations produce compilation diagnostics.
+  active defaults. Float4 is an appended reflected value alternative. Reachable
+  declarations compile into the accepted material-specific layout and are
+  populated by GUID before Renderer consumes compact offsets and indices.
 - Declaration validation returns `FMaterialParameterValidationResult` with an
   `EMaterialParameterError` and offending parameter GUID. Declaration edits and
   atomic definition-plus-graph replacement return `FMaterialParameterEditResult`;
@@ -83,32 +83,36 @@ diagnostic counters.
   depth policy overrides that default. One-sided materials cull back faces with
   mirrored-transform winding correction; two-sided materials disable culling.
 
-The current shader contract is the canonical metallic/roughness PBR schema.
-It declares BaseColor, tangent-space Normal, Metallic, Roughness, Ambient
-Occlusion, Emissive, Opacity, and OpacityMask constants and Texture2D roles.
-Every texture role also owns UV-channel, UV-scale, UV-offset, UV-rotation, and
-packed sampler-state parameters. The sampler state preserves glTF minification,
-magnification, mip filtering, and independent U/V addressing.
+The surface contract remains metallic/roughness PBR, but shader inputs are
+material-owned. The built-in template declares familiar BaseColor,
+tangent-space Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity,
+and OpacityMask values and Texture2D inputs. UV-channel, scale, offset, and
+rotation are ordinary numeric declarations and expressions. Sampler and fallback
+policy are typed data on each Texture2D value and preserve glTF minification,
+magnification, mip filtering, independent U/V addressing, and explicit white,
+black, or flat-RG-normal recovery.
 Their GUIDs are permanent because serialized overrides must survive renames.
 The built-in identities are maintained by one explicit role-to-parameter-group
 registry. Callers use its shared role/kind lookup rather than duplicating GUID
 switches, individual aliases, or parallel-array knowledge.
-Engine resolution compiles the declarations into the versioned v3 render
-layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
-uniform offsets and eight resource indices. User-authored parameter
-declarations and compiled layouts remain deferred work.
+Engine compiles reachable declarations in GUID order into layout v4. Numeric
+fields occupy zero-padded 16-byte slots after the reserved view-control slot;
+Texture2D fields receive compact resource/sampler indices. Layout identity,
+counts, field types, offsets, and shader reflection are accepted as one schema.
 
 `DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 3 is a bounded typed expression DAG
-with stable node/parameter/link identities, eight fixed typed property inputs,
+`Materials/MaterialProgramTypes.h`. Version 4 is a bounded typed expression DAG
+with stable node/parameter/link identities, eight typed surface outputs,
 and an optional aggregate `Surface` input.
 Each surface input stores a retained fallback literal and an optional source
 link; an invalid source GUID means unconnected. Constants, parameter and texture reads, UV resolution,
 sampling, arithmetic, composition, explicit conversions, safe normal decode,
-and RNM normal blending form the ordinary closed opcode domain. The closed
-`StandardSurface` intrinsic returns Surface from the canonical eight-role
-parameter descriptor; Surface is invalid in arithmetic, texture, conversion,
-and per-property links. `DMaterialInstance`
+and RNM normal blending form the ordinary closed opcode domain. `UVChannel`,
+`Sine`, `Cosine`, and `MakeSurface` express former hidden behavior explicitly.
+Legacy `StandardSurface` and role-bound `TextureCoordinate` values are accepted
+only so supported authored packages can migrate before compilation; the editor
+catalog does not create them. Surface is invalid in arithmetic, texture,
+conversion, and per-property links. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
@@ -118,8 +122,9 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Repository material packages persist schema 3. Schema 2 upgrades value-for-value
-by adding a disconnected aggregate source; unknown schemas fail. An unknown-version or
+Repository material packages persist schema 4. Supported schema 2/3 data first
+upgrades structurally; legacy PBR graphs then expand atomically into ordinary
+expressions while preserving stable parameter GUIDs. Unknown schemas fail. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
@@ -150,8 +155,8 @@ only and do not enter this program digest. Normalized IR owns one special
 Surface Root outside its ordinary node vector. Per-property inputs contain an
 earlier exact-typed expression or an inline finite literal; aggregate mode names
 one earlier Surface expression. A default material therefore has zero ordinary
-IR nodes. StandardSurface remains one aggregate expression and source generation
-lowers its implementation without reconstructing an ordinary DAG.
+IR nodes. Migrated and newly templated PBR materials normalize the same ordinary
+nodes that the editor displays.
 
 The default material compiler environment represents the dedicated
 `/Engine/MaterialCompilerEnvironment` dependency graph with one
@@ -222,10 +227,11 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v2 value in the cooked `ProgramData` BulkData field stores the exact compiler/target/pass/version
-envelope, program identity, static properties, dependencies, and complete
-shader code/reflection set. It is uncompressed, 16-byte aligned, bounded to
-8 MiB, and protected by the DAST field range and raw-segment extent/hash
+DMAT v4 value in the cooked `ProgramData` BulkData field stores the exact
+compiler/target/pass/version envelope, program identity, static properties,
+active declaration contract, compiled layout, and complete shader
+code/reflection set. It is uncompressed, 16-byte aligned, bounded to 8 MiB, and
+protected by an internal checksum plus the DAST field range and raw-segment extent/hash
 contract. Metadata load is range-free; first render-layer construction locks
 and decodes the field. Loading rejects missing, truncated, corrupt, trailing, wrong-target,
 wrong-profile, wrong-version, invalid-stage, or package/payload static-property
@@ -235,18 +241,17 @@ nor live compilation.
 
 Base immutable render data and the base proxy layer carry the shared accepted
 compiler result; its digest extends `FMaterialShaderMapIdentity`. Instances
-inherit the exact parent handle. Dynamic values/textures and pipeline-only
-two-sided/depth changes rebuild only the existing v3 layer and preserve the
-compiled identity. Instance-authored static shader-map overrides remain on the
-existing M5 renderer permutation boundary; M6 does not duplicate a parent
-graph or cooked program in the instance package.
+inherit the exact parent handle. Dynamic values, textures, samplers, fallbacks,
+and pipeline-only two-sided/depth changes rebuild only the accepted layout
+payload and preserve compiled identity. A shader-affecting instance static
+override never reuses incompatible parent code; without an accepted matching
+permutation the complete instance resolves to ErrorMaterial.
 
 `InspectMaterialParameterDependencies` is the UI-independent dependency
 authority. It traverses connected surface branches in fixed surface/input order,
-de-duplicates shared declarations by first use, and adds the UV channel, scale,
-offset, rotation, and sampler GUIDs implied by reachable texture roles.
-StandardSurface obtains its exact dependency set from the shared canonical
-descriptor rather than a parallel role switch. Base
+de-duplicates shared declarations by first use. Texture sampling contributes its
+explicit Texture2D and UV-expression dependencies; sampler/fallback data travels
+with the texture value rather than through a packed scalar role. Base
 Details, instance eligibility/orphans, and local render layers consume this same
 snapshot. Serialized but unreachable values remain intact and are excluded from
 ordinary controls and active local bindings.
@@ -275,8 +280,8 @@ and eviction domains without demonstrated sharing. Maps retain no Material
 asset or render proxy.
 
 Generated forward evaluation uses the same world normal frame, specular-AA,
-directional/local/environment lighting, shadow, UV transform/rotation, and
-exact-v3 binding helpers as the fixed characterization path.
+directional/local/environment lighting and shadow evaluation through compiled
+layout bindings.
 GBuffer uses the same evaluator and publishes the established octahedral
 normal, effective roughness, AO, opacity, and emissive encoding. Shader reload
 rebuilds shader-dependent slots and device invalidation discards then lazily
@@ -302,14 +307,14 @@ result; neither operation reinterprets the authored program.
   array: shared indices apply immediately, entries beyond a smaller mesh are
   dormant, and a later larger mesh reactivates them. Dormant entries bind no
   dependency and never reach the scene proxy; Clear All removes them too.
-- Material-side code resolves the canonical built-in GUIDs into one immutable
+- Material-side code resolves accepted declaration GUIDs into one immutable
   `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
   the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
   is the only GUID-to-layout compilation seam. The renderer consumes the
-  validated v3 binding contract and never performs GUID or `FName` lookup or
+  validated compiled binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
 - StaticMesh and SplineMesh use one Renderer-private material
-  binding resolver. It accepts only the exact v3 field table through
+  binding resolver. It accepts validated compiled layouts through
   `TryGetMaterialRenderBinding`; an unsupported layout records the shared
   fallback reason, emits a renderer-specific `ShaderBinding` diagnostic, and
   selects the code-constructed ErrorMaterial before shader-map or pipeline
@@ -370,8 +375,10 @@ as an error.
 
 Invalid representation construction, material compilation, structural missing
 proxies, Renderer layout rejection, and unavailable default content converge
-on `GetErrorMaterialRenderData()`. This asset-independent exact-v3 terminal is
-opaque, unlit, two-sided, depth-writing magenta with no texture, package, DDC,
+on `GetErrorMaterialRenderData()`. This asset-independent v4 terminal uses the empty compiled layout and
+a zeroed view-control slot. Fixed fragment shaders emit opaque magenta without
+material descriptors; sampler and environment resolution are bypassed. It is
+unlit, two-sided and depth-writing with no texture, package, DDC,
 Cook, Engine, or RHI dependency. Whole-material diagnostics use the distinct
 reasons `UnassignedDefault`, `DefaultAssetUnavailable`, `MaterialDataInvalid`,
 `UnsupportedLayout`, and `MissingProxy`; normal default selection increments a
@@ -381,19 +388,16 @@ whole-material counters.
 
 ## Versioned Render Representation
 
-`FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with
-three parts: a `FMaterialRenderLayoutIdentity`, a validated uniform byte
-payload, and counted RHI texture-reference resources. The current v3 layout is
-416-byte, 16-byte-aligned data with 48 uniform fields and eight resource
-fields; its exact field table is identified by `MaterialRenderLayoutV3Id`.
-The constant, UV channel/scale/offset, and texture fields occupy the first 352
-bytes; eight rotations and eight packed per-role sampler states occupy the v3
-suffix. Material assets persist authored parameters rather than this transient
-render representation, and every production builder starts from the canonical
-v3 seed. No asset load or cook path deserializes a prior render layout, so the
-v1/v2 factories, validators, decoders, binding types, and renderer upgrade
-branches do not form a content compatibility boundary and have been removed.
-Only v3 is accepted.
+`FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with a
+layout identity, validated uniform payload, counted RHI texture references,
+typed sampler states, and explicit texture fallbacks. Compiled layout v4 is
+material-specific: it deterministically packs only reachable declarations and
+is validated against the accepted program and reflected pass bindings. Material
+assets persist authored values rather than this transient representation; DMAT
+v4 persists the accepted layout and code needed by Game loading. Old render
+layouts are rejected with a migration/recompile diagnostic. Generator version 4
+invalidates executable identities from the retired compatibility path. The
+independent error terminal uses the same v4 boundary as custom materials.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
@@ -409,16 +413,18 @@ coalescing, stale-update, startup-replay, and counted-resource contracts.
 ## Renderer Surface Execution
 
 `FSceneRenderer` owns one Renderer-private surface-material resource service.
-StaticMesh and SplineMesh keep their family-specific geometry preparation and
-vertex programs while consuming
-one canonical fragment contract. The contract builds the 256-byte aligned PBR
-surface uniform and resolves the eight ordered roles with fallbacks `White`,
-`FlatNormal`, `White`, `White`, `White`, `Black`, `White`, and `White`.
-Missing or unready referenced textures select the role fallback without
-retaining a raw RHI pointer beyond the current command submission.
+StaticMesh, SplineMesh and registered geometry factories consume compiled
+material layouts through common mesh-pass execution. The service copies the
+accepted uniform payload and resolves compact texture/sampler indices with
+explicit White, Black or FlatRGNormal fallbacks. Missing or unready textures
+select the declared fallback without retaining a raw RHI pointer beyond the
+current command submission. The resource-free error terminal bypasses texture,
+sampler and environment resolution and uses fixed magenta fragment shaders.
+There is no fixed-role compiler or Renderer binding adapter. Supported old
+authored graphs expand into ordinary expressions before reaching this boundary.
 
 The service owns generation-aware sampler slots keyed by the complete
-`FMaterialSamplerState`; identical states across all three geometry families
+`FMaterialSamplerState`; identical states across registered geometry factories
 therefore share one device-generation sampler. Device invalidation and
 renderer shutdown release this owner once, while shader maps, pipelines,
 geometry resources remain family-owned. A failed
@@ -426,9 +432,9 @@ sampler or incomplete resolved packet rejects the smallest owning draw or
 batch, preserving feature-local attempt/result accounting.
 
 Resolution is pass-aware. Opaque shadow draws resolve no material uniform,
-texture, sampler, environment, or receiver-shadow resource. Masked shadow
-draws resolve the uniform and only OpacityMask role 7. Forward and GBuffer
-draws resolve all eight roles; only forward adds lighting, environment, and
+texture, sampler, environment, or receiver-shadow resource. Masked shadow, Forward and GBuffer
+draws resolve the accepted layout and bind only resources present in validated
+pass reflection; only forward adds lighting, environment, and
 directional-shadow inputs. Irradiance, prefilter, BRDF LUT, and environment
 sampler are accepted only as a complete set and otherwise fall back together.
 Directional-shadow texture and sampler each retain their deterministic array
@@ -477,11 +483,19 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 ## Compatibility Boundary
 
-Legacy scalar/vector/texture maps have no compatibility properties or implicit
-migration. The package reader rejects their fields during schema preflight,
-before constructing or publishing any package object. Material assets carry no
-persistent parameter-schema version or upgrade chain; a package written under
-an older parameter schema fails loading rather than being migrated.
+Material declaration schema 1 and supported program schema 2/3 packages have a
+bounded deterministic upgrade. Canonical `StandardSurface` or role-bound UV
+graphs expand to ordinary schema-4 expressions; packed sampler scalars move onto
+their Texture2D values, and corresponding instance values move to texture
+overrides while the old scalar override remains inspectable as an orphan.
+Edited graphs preserve occurrence GUIDs, output links, presentation positions,
+and disconnected expressions during expansion. Shared template dependencies use
+deterministic collision-checked IDs. Definition and graph candidates commit
+together only after sampler and graph validation; redundant packed sampler
+declarations are removed only when no explicit expression references them.
+Migration never auto-saves. Malformed, incomplete, oversized, or unknown data
+fails without overwriting the authored package. Cooked DMAT versions before 4
+require recooking rather than runtime reinterpretation.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The

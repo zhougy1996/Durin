@@ -14,8 +14,10 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(
 			Outer, std::forward<TName>(Name));
-		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram())) return nullptr;
+		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
+			Durin::MakePBRMaterialParameterDefinitions(),
+			Durin::MakePBRMaterialProgram())) return nullptr;
+		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 
@@ -70,10 +72,8 @@ namespace
 		const Durin::FMaterialRenderData& Expected
 	) -> void
 	{
-		const Durin::FMaterialRenderBinding ActualBinding =
-			GetMaterialBinding(Actual);
-		const Durin::FMaterialRenderBinding ExpectedBinding =
-			GetMaterialBinding(Expected);
+		const auto ActualBinding = GetMaterialBinding(Actual);
+		const auto ExpectedBinding = GetMaterialBinding(Expected);
 		ExpectColorNear(ActualBinding.BaseColor, ExpectedBinding.BaseColor);
 		EXPECT_EQ(
 			ActualBinding.Textures[0],
@@ -114,7 +114,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(
 		Durin::MaterialParameters::GetBuiltinParameterIds(
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
-	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram())));
+	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::MakePBRMaterialProgram())));
 	const auto Restored = CaptureMaterialProxy(Proxy);
 	EXPECT_EQ(Restored.LocalVersion, Initial.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
@@ -263,13 +263,15 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		Durin::MaterialParameters::OpacityMaskName(), 0.39f));
 
 	for (const Durin::FMaterialParameterDefinition& Definition
-		: Durin::GetCanonicalMaterialParameterDefinitions())
+		: Base->GetParameterDefinitions())
 	{
 		if (Definition.Type == Durin::EMaterialParameterType::Texture)
 		{
-			ASSERT_TRUE(Base->SetTextureParameterValue(
-				Definition.Name,
-				TextureForUsage(Definition.TextureUsage, false)));
+			auto Value = Definition.Value;
+			Value.TextureValue = TextureForUsage(Definition.TextureUsage, false);
+			Value.SamplerState.AddressU =
+				Durin::EMaterialSamplerAddressMode::ClampToEdge;
+			ASSERT_TRUE(Base->SetParameterValue(Definition.Id, Value));
 		}
 		else if (Durin::MaterialParameters::IsBuiltinParameter(
 			Definition.Id,
@@ -298,15 +300,6 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		{
 			ASSERT_TRUE(Base->SetScalarParameterValue(Definition.Name, 0.75f));
 		}
-		else if (Durin::MaterialParameters::IsBuiltinParameter(
-			Definition.Id,
-			Durin::MaterialParameters::EMaterialBuiltinParameterKind::SamplerState))
-		{
-			Durin::FMaterialSamplerState Sampler;
-			Sampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
-			ASSERT_TRUE(Base->SetScalarParameterValue(
-				Definition.Name, Durin::EncodeMaterialSamplerState(Sampler)));
-		}
 	}
 
 	Durin::FMaterialRenderProxyRef BaseProxy =
@@ -314,8 +307,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	const FMaterialProxySnapshot BaseSnapshot =
 		CaptureMaterialProxy(BaseProxy);
 	ExpectRenderDataMatches(BaseSnapshot.RenderData, Base->GetRenderData());
-	const Durin::FMaterialRenderBinding BaseBinding =
-		GetMaterialBinding(BaseSnapshot.RenderData);
+	const auto BaseBinding = GetMaterialBinding(BaseSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(BaseBinding.Metallic, 0.81f);
 	EXPECT_FLOAT_EQ(BaseBinding.Roughness, 0.23f);
 	EXPECT_EQ(BaseBinding.Normal, Durin::FVector3f(0.0f, 1.0f, 0.0f));
@@ -353,8 +345,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		CaptureMaterialProxy(InstanceProxy);
 	ExpectRenderDataMatches(
 		InstanceSnapshot.RenderData, Instance->GetRenderData());
-	const Durin::FMaterialRenderBinding InstanceBinding =
-		GetMaterialBinding(InstanceSnapshot.RenderData);
+	const auto InstanceBinding = GetMaterialBinding(InstanceSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(InstanceBinding.Metallic, 0.17f);
 	EXPECT_FLOAT_EQ(InstanceBinding.Roughness, 0.5f);
 	EXPECT_EQ(InstanceBinding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
@@ -380,7 +371,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	size_t DefinitionIndex = 0;
 	size_t TextureRole = 0;
 	for (const Durin::FMaterialParameterDefinition& Definition
-		: Durin::GetCanonicalMaterialParameterDefinitions())
+		: Base->GetParameterDefinitions())
 	{
 		switch (Definition.Type)
 		{
@@ -540,8 +531,7 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 
 	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
-	const Durin::FMaterialRenderBinding UpdatedBinding =
-		GetMaterialBinding(Updated.RenderData);
+	const auto UpdatedBinding = GetMaterialBinding(Updated.RenderData);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Metallic, 0.27f);
 	EXPECT_FLOAT_EQ(UpdatedBinding.Roughness, 0.63f);
 	EXPECT_EQ(UpdatedBinding.Emissive, Durin::FVector3f(2.0f, 3.0f, 5.0f));

@@ -71,9 +71,11 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Durin::IsValid(Material)) return nullptr;
-		if (!Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram()))
+		if (!Material->SetMaterialDefinitionsAndProgram(
+			Durin::MakePBRMaterialParameterDefinitions(),
+			Durin::MakePBRMaterialProgram()))
 			return nullptr;
+		if (!FinishMaterialCompileForTest(*Material)) return nullptr;
 		return Material;
 	}
 
@@ -344,6 +346,85 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 			return Pixels;
 		};
+		// Exercise the same seven-declaration fixture as the CPU publication test
+		// through production thumbnail rendering and real texture references.
+		{
+			using namespace Durin;
+			auto [Definitions, Program] = MakeDualLayerRustFixture();
+			Definitions[0].Value = FMaterialParameterValue::MakeTexture(TextureResult.Asset);
+			Definitions[1].Value = FMaterialParameterValue::MakeTexture(
+				NormalTextureResult.Asset, {}, EMaterialTextureFallback::FlatRGNormal);
+			Definitions[2].Value = FMaterialParameterValue::MakeTexture(nullptr, {}, EMaterialTextureFallback::Black);
+			Definitions[4].Value = FMaterialParameterValue::MakeTexture(nullptr, {}, EMaterialTextureFallback::White);
+			auto* Rust = NewObject<DMaterial>(nullptr, "RenderedDualLayerRust");
+			auto* Light = NewObject<DMaterialInstance>(nullptr, "RenderedLightRust");
+			auto* Heavy = NewObject<DMaterialInstance>(nullptr, "RenderedHeavyRust");
+			ASSERT_TRUE(Rust->SetMaterialDefinitionsAndProgram(Definitions, Program));
+			ASSERT_TRUE(FinishMaterialCompileForTest(*Rust));
+			const auto Accepted = Rust->GetAcceptedCompiledProgram();
+			ASSERT_NE(Accepted, nullptr);
+			ASSERT_EQ(Accepted->Layout.ResourceFieldCount, 5u);
+			ASSERT_EQ(Accepted->ActiveParameters.size(), 7u);
+			ASSERT_TRUE(Light->SetParent(Rust));
+			ASSERT_TRUE(Heavy->SetParent(Rust));
+			ASSERT_TRUE(Light->SetScalarParameterValue(FName("RustAmount"), 0.1f));
+			ASSERT_TRUE(Heavy->SetScalarParameterValue(FName("RustAmount"), 0.9f));
+			const auto LightPixels = Capture(Light);
+			const auto HeavyPixels = Capture(Heavy);
+			ASSERT_EQ(LightPixels.size(), 64u * 64u * 4u);
+			EXPECT_NE(LightPixels, HeavyPixels);
+			EXPECT_EQ(Light->GetRenderData().CompiledProgram, Accepted);
+			EXPECT_EQ(Heavy->GetRenderData().CompiledProgram, Accepted);
+			ASSERT_TRUE(Heavy->SetScalarParameterValue(FName("RustAmount"), 0.1f));
+			EXPECT_EQ(Capture(Heavy), LightPixels);
+			ASSERT_TRUE(Heavy->SetParameterOverride(Definitions[0].Id,
+				EMaterialParameterType::Texture, FMaterialParameterValue::MakeTexture(
+					nullptr, {}, EMaterialTextureFallback::Black)));
+			EXPECT_NE(Capture(Heavy), LightPixels);
+			EXPECT_EQ(Rust->GetAcceptedCompiledProgram(), Accepted);
+			auto [OtherDefinitions, OtherProgram] = MakeDualLayerRustFixture();
+			for (size_t Index = 0; Index < Definitions.size(); ++Index)
+				OtherDefinitions[Index].Value = Definitions[Index].Value;
+			OtherDefinitions[5].Value = FMaterialParameterValue::MakeScalar(0.1f);
+			auto* Unrelated = NewObject<DMaterial>(nullptr, "UnrelatedRenderedRust");
+			ASSERT_TRUE(Unrelated->SetMaterialDefinitionsAndProgram(OtherDefinitions, OtherProgram));
+			ASSERT_TRUE(FinishMaterialCompileForTest(*Unrelated));
+			EXPECT_EQ(Capture(Unrelated), LightPixels);
+			ASSERT_TRUE(Unrelated->SetScalarParameterValue(FName("RustAmount"), 0.9f));
+			EXPECT_EQ(Capture(Unrelated), HeavyPixels);
+			EXPECT_EQ(Capture(Light), LightPixels);
+			MarkAsGarbage(Unrelated);
+			MarkAsGarbage(Heavy); MarkAsGarbage(Light); MarkAsGarbage(Rust);
+		}
+		// Compare migrated edited graphs with the ordinary PBR template on this device.
+		for (const auto Blend : {Durin::EMaterialBlendMode::Opaque,
+			Durin::EMaterialBlendMode::Masked, Durin::EMaterialBlendMode::Translucent})
+		{
+			using namespace Durin;
+			auto* Legacy = NewObject<DMaterial>(nullptr, "RenderedLegacyMigration");
+			auto LegacyProgram = MakeStandardSurfaceMaterialProgram();
+			LegacyProgram.Nodes.front().DisplayName = "Edited legacy surface";
+			ASSERT_TRUE(Legacy->SetMaterialProgram(LegacyProgram));
+			auto Properties = Legacy->GetStaticProperties();
+			Properties.BlendMode = Blend;
+			ASSERT_TRUE(Legacy->SetStaticProperties(Properties));
+			ASSERT_TRUE(Legacy->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
+			ASSERT_TRUE(Legacy->SetTextureParameterValue(MaterialParameters::NormalTextureName(), NormalTextureResult.Asset));
+			ASSERT_TRUE(Legacy->SetScalarParameterValue(MaterialParameters::OpacityName(), 0.4f));
+
+			Legacy->PostLoad();
+			ASSERT_TRUE(FinishMaterialCompileForTest(*Legacy));
+			EXPECT_EQ(Legacy->GetAcceptedCompiledProgram()->Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
+			auto* Reference = MakeExpandedMaterial("MigrationReference");
+			ASSERT_NE(Reference, nullptr);
+			ASSERT_TRUE(Reference->SetStaticProperties(Properties));
+			ASSERT_TRUE(Reference->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
+			ASSERT_TRUE(Reference->SetTextureParameterValue(MaterialParameters::NormalTextureName(), NormalTextureResult.Asset));
+			ASSERT_TRUE(Reference->SetScalarParameterValue(MaterialParameters::OpacityName(), 0.4f));
+			EXPECT_EQ(Capture(Legacy), Capture(Reference));
+			MarkAsGarbage(Reference);
+			MarkAsGarbage(Legacy);
+		}
 		const Durin::FByteBuffer MaterialPixels =
 			Capture(CaptureMaterial);
 		ASSERT_EQ(ErrorFallbackMaterial->GetAcceptedCompiledProgram(), nullptr);
@@ -590,8 +671,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Capture(CaptureMaterial);
 		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
-		const Durin::FMaterialRenderBinding TransformedUVBinding =
-			GetMaterialBinding(CaptureMaterial->GetRenderData());
+		const auto TransformedUVBinding = GetMaterialBinding(CaptureMaterial->GetRenderData());
 		EXPECT_FLOAT_EQ(TransformedUVBinding.UVChannels[0], 3.0f);
 		EXPECT_EQ(
 			TransformedUVBinding.UVScales[0],
@@ -609,9 +689,18 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		Durin::FMaterialSamplerState RepeatSampler;
 		RepeatSampler.MinFilter = Durin::EMaterialSamplerMinFilter::Nearest;
 		RepeatSampler.MagFilter = Durin::EMaterialSamplerMagFilter::Nearest;
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
-			Durin::FName("BaseColorSamplerState"),
-			Durin::EncodeMaterialSamplerState(RepeatSampler)));
+		const Durin::FGuid BaseColorTextureId = Durin::MaterialParameters::
+			GetBuiltinParameterIds(Durin::MaterialParameters::
+				EMaterialBuiltinParameterRole::BaseColor).Texture;
+		auto SetBaseColorSampler = [&](const Durin::FMaterialSamplerState& Sampler) {
+			Durin::FResolvedMaterialParameter Resolved;
+			if (!CaptureMaterial->ResolveParameterValue(BaseColorTextureId, Resolved))
+				return false;
+			Resolved.Value.SamplerState = Sampler;
+			return CaptureMaterial->SetParameterValue(
+				BaseColorTextureId, Resolved.Value);
+		};
+		ASSERT_TRUE(SetBaseColorSampler(RepeatSampler));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVRotation"), 1.57079633f));
 		const Durin::FByteBuffer RotatedUVPixels = Capture(CaptureMaterial);
@@ -626,16 +715,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, 2.0)));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.75, 0.75)));
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
-			Durin::FName("BaseColorSamplerState"),
-			Durin::EncodeMaterialSamplerState(RepeatSampler)));
+		ASSERT_TRUE(SetBaseColorSampler(RepeatSampler));
 		const Durin::FByteBuffer RepeatPixels = Capture(CaptureMaterial);
 		Durin::FMaterialSamplerState ClampSampler = RepeatSampler;
 		ClampSampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
 		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
-			Durin::FName("BaseColorSamplerState"),
-			Durin::EncodeMaterialSamplerState(ClampSampler)));
+		ASSERT_TRUE(SetBaseColorSampler(ClampSampler));
 		const Durin::FByteBuffer ClampPixels = Capture(CaptureMaterial);
 		EXPECT_NE(RepeatPixels, ClampPixels);
 		EXPECT_EQ(
@@ -693,8 +778,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			EXPECT_TRUE(std::ranges::equal(
 				ProxyRenderData.Representation.GetResources(),
 				DirectRenderData.Representation.GetResources()));
-			const Durin::FMaterialRenderBinding RoleBinding =
-				GetMaterialBinding(ProxyRenderData);
+			const auto RoleBinding = GetMaterialBinding(ProxyRenderData);
 			EXPECT_EQ(
 				RoleBinding.Textures[Role].GetReference(),
 				RoleTextures[Role]->GetTextureReferenceRHI().GetReference());
@@ -897,7 +981,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Pool.Reset();
 		}
 		{
-			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakeCanonicalMaterialProgram());
+			auto Validation = StaticMeshAssetMaterial->SetMaterialProgram(Durin::MakePBRMaterialProgram());
 			ASSERT_TRUE(Validation);
 			ASSERT_TRUE(StaticMeshAssetMaterial->SetTextureParameterValue(
 				Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));

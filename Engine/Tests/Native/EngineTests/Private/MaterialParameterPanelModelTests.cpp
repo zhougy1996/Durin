@@ -37,7 +37,7 @@ namespace
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeCanonicalMaterialProgram())) return nullptr;
+			Durin::MakePBRMaterialProgram())) return nullptr;
 		return Material;
 	}
 }
