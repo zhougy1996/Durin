@@ -6,6 +6,9 @@
 #include "RHIThread.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#include <future>
 
 namespace Durin
 {
@@ -1001,17 +1004,21 @@ namespace Durin
 	{
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
+		FRHISynchronousOperationTiming Timing;
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
 				throw FRHIRecoverableCreationError("intentional creation failure",
 					ERHIResourceCreationFailure::OutOfMemory);
-			});
+			}, 0, &Timing);
 
 		bool bLaterWorkExecuted = false;
 		const FRHIFallibleOperationResult Success =
 			Executor.ExecuteFallibleSynchronousOperation(false,
 				[&bLaterWorkExecuted]() { bLaterWorkExecuted = true; });
 
+		EXPECT_EQ(Timing.Admitted, 0u);
+		EXPECT_EQ(Timing.WaitBegin, 0u);
+		EXPECT_EQ(Timing.WaitEnd, 0u);
 		EXPECT_FALSE(Failure.IsSuccess());
 		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
 		EXPECT_EQ(Failure.Diagnostic, "intentional creation failure");
@@ -1029,11 +1036,12 @@ namespace Durin
 		ASSERT_TRUE(RHIThread.Start());
 		FRHICommandListExecutor Executor(Context, RHIThread);
 
+		FRHISynchronousOperationTiming Timing;
 		const FRHIFallibleOperationResult Failure =
 			Executor.ExecuteFallibleSynchronousOperation(false, []() {
 				throw FRHIRecoverableCreationError("intentional creation failure",
 					ERHIResourceCreationFailure::OutOfMemory);
-			});
+			}, 0, &Timing);
 		bool bLaterWorkExecutedOnRHIThread = false;
 		const FRHIFallibleOperationResult Success =
 			Executor.ExecuteFallibleSynchronousOperation(false,
@@ -1041,6 +1049,9 @@ namespace Durin
 					bLaterWorkExecutedOnRHIThread = IsInRHIThread();
 				});
 
+		EXPECT_GT(Timing.Admitted, 0u);
+		EXPECT_GE(Timing.WaitBegin, Timing.Admitted);
+		EXPECT_GE(Timing.WaitEnd, Timing.WaitBegin);
 		EXPECT_FALSE(Failure.IsSuccess());
 		EXPECT_EQ(Failure.Failure, ERHIResourceCreationFailure::OutOfMemory);
 		EXPECT_EQ(Failure.Diagnostic,
@@ -1066,6 +1077,131 @@ namespace Durin
 		EXPECT_THROW(Executor.ExecuteFallibleSynchronousOperation(false, [] {
 			throw 7;
 		}), int);
+	}
+
+	TEST(FRHICommandListTests, PendingPipelineBatchesKeepFifoAndExposeCanceledFences)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		for (int Outcome : {0, 1, 2})
+		{
+			SCOPED_TRACE(Outcome);
+			FThreadEvent Entered, Release;
+			FRHICapabilities Capabilities;
+			Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+			FRHIPipelineCreationService::FBackend Backend;
+			Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
+			Backend.CreateCompute = [&](const auto&, const auto&) {
+				Entered.Trigger(); Release.Wait();
+				if (Outcome == 2) throw FRHIRecoverableCreationError("ordinary threaded candidate failure");
+				return MakeRefCount<FRHIComputePipelineState>();
+			};
+			Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
+			FRHIPipelineCreationService Service(Capabilities, std::move(Backend));
+			FRHIThread Thread;
+			ASSERT_TRUE(Thread.Start());
+			FRecordingCommandContext Context;
+			FRHICommandListExecutor Executor(Context, Thread);
+			auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+			FComputePipelineStateInitializer Initializer;
+			Initializer.ComputeShader = Shader;
+			Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Compute, 0, 4});
+			auto Request = Service.RequestCompute(Initializer, "dependency");
+			EXPECT_TRUE(Entered.WaitFor(5.0));
+			EXPECT_TRUE(Request.IsCompute());
+			EXPECT_EQ(Request.GetPipelineLayout()->PushConstantRanges.size(), 1u);
+			{
+				FRHICommandListExecutor InlineExecutor(Context);
+				InlineExecutor.GetImmediateCommandList().EnqueueLambda([&] {
+					EXPECT_FALSE(Request.CanWait());
+					EXPECT_FALSE(Request.Wait());
+				}, 0);
+				InlineExecutor.Submit({}, ERHISubmitFlags::None);
+			}
+			auto& Commands = Executor.GetImmediateCommandList();
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(Request);
+			Commands.Dispatch(1, 1, 1);
+			std::vector<int> Order;
+			Commands.EnqueueLambda([&] { Order.push_back(1); });
+			const auto First = Executor.TrySubmit({}, ERHISubmitFlags::None);
+			auto FirstFence = Executor.CreateFence();
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.EnqueueLambda([&] { Order.push_back(2); });
+			const auto Second = Executor.TrySubmit({}, ERHISubmitFlags::None);
+			auto SecondFence = Executor.CreateFence();
+			EXPECT_TRUE(First.IsAccepted());
+			EXPECT_EQ(Second.Serial, First.Serial + 1);
+			EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Pending);
+			EXPECT_FALSE(SecondFence.IsComplete());
+			if (Outcome == 1)
+			{
+				EXPECT_TRUE(Request.Cancel());
+				EXPECT_FALSE(FirstFence.TryWait());
+				EXPECT_EQ(FirstFence.GetState(), ERHICommandBatchState::Canceled);
+				EXPECT_TRUE(SecondFence.TryWait());
+				EXPECT_EQ(Order, std::vector<int>({2}));
+				Release.Trigger();
+			}
+			else
+			{
+				Release.Trigger();
+				EXPECT_TRUE(SecondFence.TryWait());
+				EXPECT_EQ(FirstFence.IsComplete(), Outcome == 0);
+				EXPECT_EQ(FirstFence.GetState(), Outcome == 0 ? ERHICommandBatchState::Succeeded : ERHICommandBatchState::Failed);
+				EXPECT_EQ(Order, Outcome == 0 ? std::vector<int>({1, 2}) : std::vector<int>({2}));
+			}
+			Service.CloseAndJoin();
+			Thread.Stop();
+			Executor.SetInlineMode();
+		}
+	}
+
+	TEST(FRHICommandListTests, InlinePipelineDependencyFailureSkipsCommandsWithoutFailingExecutor)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { ShutdownTaskScheduler(); RHIFlushDeferredResources(); } } CoreGuard;
+		FRHICapabilities Capabilities;
+		Capabilities.MaxComputeWorkGroupCount = {65535, 65535, 65535};
+		FRHIPipelineCreationService::FBackend Backend;
+		Backend.FindCompute = [](const auto&) -> FComputePipelineStateRHIRef { return {}; };
+		Backend.CreateCompute = [](const auto&, const auto&) -> FComputePipelineStateRHIRef {
+			throw FRHIRecoverableCreationError("ordinary candidate failure");
+		};
+		Backend.PublishTerminalFailure = [](std::exception_ptr) { ADD_FAILURE(); };
+		FRHIPipelineCreationService Service(Capabilities, std::move(Backend));
+		auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(EShaderFrequency::Compute, {}));
+		FComputePipelineStateInitializer Initializer;
+		Initializer.ComputeShader = Shader;
+		auto Request = Service.RequestCompute(Initializer, "failed");
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		auto& Commands = Executor.GetImmediateCommandList();
+		EXPECT_TRUE(Commands.TryAddPipelineDependency(Request));
+		bool Replayed = false;
+		Commands.EnqueueLambda([&] { Replayed = true; });
+		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());
+		auto FailedFence = Executor.CreateFence();
+		EXPECT_FALSE(FailedFence.TryWait());
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
+		EXPECT_FALSE(Replayed);
+		Commands.EnqueueLambda([&] { Replayed = true; });
+		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());
+		EXPECT_TRUE(Executor.CreateFence().TryWait());
+		EXPECT_TRUE(Replayed);
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
+		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Failed);
+		for (uint32 Index = 0; Index < 4096; ++Index)
+		{
+			Commands.EnqueueLambda([] {});
+			Executor.Submit({}, ERHISubmitFlags::None);
+		}
+		EXPECT_EQ(Executor.CreateFence(FailedFence.GetTargetSerial()).GetState(), ERHICommandBatchState::Expired);
+		EXPECT_EQ(FailedFence.GetState(), ERHICommandBatchState::Failed);
 	}
 
 	TEST(FRHICommandListTests, FallibleOperationTerminatesOnThreadFailure)

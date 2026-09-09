@@ -105,6 +105,8 @@ namespace Durin
 		static auto DescribeCompositeTarget(uint32 Width, uint32 Height)
 			-> FRHITextureCreateDesc;
 		auto EnsureDensitySampler_RenderThread() -> FRHISampler*;
+		auto EnsureTemporalResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool;
+		auto EnsureCompositeResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool;
 		auto PrepareRoute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FRenderInput& Input,

@@ -35,6 +35,7 @@ namespace Durin::VulkanRHI
 		{
 			return ViewBackingGeneration;
 		}
+		auto HasExternalBacking() const -> bool { return OwnerType == EImageOwnerType::ExternalOwner; }
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
 			return Allocation.Class;

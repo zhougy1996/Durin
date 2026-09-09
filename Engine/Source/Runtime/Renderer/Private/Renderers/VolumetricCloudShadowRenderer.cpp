@@ -203,7 +203,7 @@ namespace Durin
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = RHIShader;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
+				Candidate.PipelineState = FRenderPipelineRequestScope::Compute(
 					"VolumetricCloudShadowComputePipeline", Initializer);
 				if (!Candidate.PipelineState)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
@@ -256,7 +256,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
 					"VolumetricCloudShadowPipeline", Initializer);
 				if (!Candidate.PipelineState)
 					return FResult::Failure(MakeFailure("VolumetricCloudShadow", "pipeline",

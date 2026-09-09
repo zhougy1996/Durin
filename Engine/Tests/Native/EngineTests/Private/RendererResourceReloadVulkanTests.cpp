@@ -592,6 +592,37 @@ float4 FragmentMain() : SV_Target
 			CacheAfterForcedReload.StructuralLayouts.Capacity);
 		EXPECT_EQ(CacheAfterForcedReload.StructuralLayouts.Evictions, 0u);
 
+		// Exercise the production slot helper with Core active on the actual render
+		// thread. Each preparation attempt returns; only a complete PSO is published.
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> AsyncSlot;
+		FGraphicsPipelineStateRHIRef PreparedPipeline;
+		const auto PrewarmDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		do
+		{
+			struct FPrewarmReloadPipeline { static constexpr auto GetName() -> const char* { return "PrewarmReloadPipeline"; } };
+			EnqueueRenderCommand<FPrewarmReloadPipeline>([&](FRHICommandListImmediate&) {
+				using FResult = TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+				auto* Ready = AsyncSlot.Resolve({}, [&]() -> FResult {
+					FGraphicsPipelineStateInitializer Initializer;
+					Initializer.RenderTargetLayout = MakeReloadRenderTargetLayout();
+					Initializer.BoundShaders = {Forced->Payload->VertexShader.GetRHIShader(), Forced->Payload->FragmentShader.GetRHIShader()};
+					Initializer.VertexDeclaration = Forced->Payload->VertexDeclaration;
+					Initializer.RasterizerState.CullMode = ERHICullMode::None;
+					Initializer.PipelineLayout.PushConstantRanges.push_back({EShaderStageFlags::Vertex, 0, 4});
+					auto Candidate = FRenderPipelineRequestScope::Graphics("AsyncReloadPrewarm", Initializer);
+					if (Candidate) return FResult::Success(std::move(Candidate));
+					return FResult::Failure(MakeReloadError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "prewarm failed"));
+				}, [](const auto&) { ADD_FAILURE() << "Pending must not report a candidate failure"; });
+				if (Ready) PreparedPipeline = *Ready;
+			});
+			FlushRenderingCommands();
+		} while (!PreparedPipeline && std::chrono::steady_clock::now() < PrewarmDeadline);
+		EXPECT_TRUE(PreparedPipeline);
+		if (PreparedPipeline) ExpectReloadColor(*RenderPipeline(PreparedPipeline), 0, 255);
+		AsyncSlot.Reset();
+		PreparedPipeline = nullptr;
+
 		struct FReleaseReloadValidationResource
 		{
 			static constexpr auto GetName() -> const char*
@@ -610,6 +641,7 @@ float4 FragmentMain() : SV_Target
 		FRHICommandListImmediate::Get().SwitchPipeline(
 			ERHIPipeline::None);
 		RHIExit();
+		ShutdownTaskScheduler();
 		ShutdownShaderBuild();
 	}
 } // namespace Durin

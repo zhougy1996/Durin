@@ -72,6 +72,25 @@ namespace Durin
 	}
 
 	auto FSceneRenderPipeline::Execute_RenderThread(
+		FRHICommandListImmediate& CommandList, FScene* Scene, const FSceneView& View,
+		FRHITexture* OutputTarget, bool bPresentOutput, const FSceneViewRenderOptions& Options,
+		FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
+	{
+		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
+			++Renderer.RenderSubmissionSerial;
+		// First consumption joins all admitted PSOs from a preparation attempt on
+		// the render owner. Replay stays available and no graph exists during waits.
+		for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
+		{
+			FRenderPipelinePreparationBatch Batch;
+			const auto Result = ExecutePreparedAttempt_RenderThread(CommandList, Scene, View,
+				OutputTarget, bPresentOutput, Options, OutStatistics, OutRenderGraphCapture);
+			if (!Batch.Wait()) return Result;
+		}
+		return ERenderViewResult::RendererResourcesUnavailable;
+	}
+
+	auto FSceneRenderPipeline::ExecutePreparedAttempt_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -101,8 +120,6 @@ namespace Durin
 		auto& VolumetricCloudRenderer = Renderer.VolumetricCloudRenderer;
 		auto& VolumetricCloudShadowRenderer = Renderer.VolumetricCloudShadowRenderer;
 		auto& EditorAssistanceRenderer = Renderer.EditorAssistanceRenderer;
-		if (Renderer.RenderSubmissionSerial != std::numeric_limits<uint64>::max())
-			++Renderer.RenderSubmissionSerial;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
 			CanonicalizeVolumetricCloudQuality(View.Settings.VolumetricCloud.Quality);
 		Telemetry.View.VolumetricCloud.VolumetricCloudDebugMode =
@@ -302,6 +319,24 @@ namespace Durin
 				true, !bForceCloudFragment);
 			FeaturePlan.CloudSpatial.Decision = Prepared;
 		}
+		bool FixedPipelinesReady = true;
+		if (FeaturePlan.GBuffer.IsEnabled())
+			FixedPipelinesReady = StaticMeshRenderer.PrepareGBufferPipelines_RenderThread(
+				Renderer.GBufferRenderer, PreparedView.Receiver.StaticMeshes) && FixedPipelinesReady;
+		if (FeaturePlan.Deferred.IsEnabled())
+			FixedPipelinesReady = Renderer.DeferredDirectionalLightingRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+		if (FeaturePlan.AmbientOcclusion.IsEnabled())
+			FixedPipelinesReady = Renderer.GroundTruthAmbientOcclusionRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+		if (FeaturePlan.GBufferDebug.IsEnabled())
+			FixedPipelinesReady = Renderer.GBufferDebugRenderer.EnsureResources_RenderThread(CommandList) && FixedPipelinesReady;
+		if (FeaturePlan.CloudSpatial.IsEnabled() && PreparedView.VolumetricCloud)
+		{
+			FixedPipelinesReady = VolumetricCloudRenderer.EnsureCompositeResources_RenderThread(CommandList) && FixedPipelinesReady;
+			if (!FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(RenderView.Settings.VolumetricCloud.Quality).IsFullResolution())
+				FixedPipelinesReady = VolumetricCloudRenderer.EnsureTemporalResources_RenderThread(CommandList) && FixedPipelinesReady;
+		}
+		if (!FixedPipelinesReady || FRenderPipelinePreparationBatch::HasPending())
+			return ERenderViewResult::RendererResourcesUnavailable;
 		FRDGBuilder Graph;
 		FSceneRenderGraphComposition& Composition =
 			Context.Transaction.Composition;

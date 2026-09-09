@@ -1,9 +1,66 @@
 #include "RHIResources.h"
 
 #include <gtest/gtest.h>
+#include <thread>
 
 namespace Durin
 {
+	TEST(FRHIResourceViewValidationTests, ConcurrentFinalReleaseDefersParentsToDeletionOwner)
+	{
+		const auto Owner = std::this_thread::get_id();
+		uint32 Destroyed = 0;
+		class FTrackedResource : public FRHIResource
+		{
+		public:
+			FTrackedResource(std::thread::id InOwner, uint32& InDestroyed,
+				TRefCountPtr<FRHIResource> InParent = {})
+				: FRHIResource(ERHIResourceType::PipelineState), Owner(InOwner),
+				Destroyed(InDestroyed), Parent(std::move(InParent)) {}
+			~FTrackedResource() override
+			{
+				EXPECT_EQ(std::this_thread::get_id(), Owner);
+				++Destroyed;
+			}
+		private:
+			std::thread::id Owner;
+			uint32& Destroyed;
+			TRefCountPtr<FRHIResource> Parent;
+		};
+		std::vector<FRHIResource*> Pending;
+		while (FRHIResource::GetNumPendingDeletes())
+		{
+			FRHIResource::GatherResourcesToDelete(Pending);
+			FRHIResource::DeleteResources(Pending);
+			Pending.clear();
+		}
+		std::array<TRefCountPtr<FRHIResource>, 256> Children;
+		for (auto& Child : Children)
+		{
+			auto Parent = MakeRefCount<FTrackedResource>(Owner, Destroyed);
+			Child = MakeRefCount<FTrackedResource>(Owner, Destroyed, Parent);
+		}
+		{
+			std::array<std::jthread, 4> Workers;
+			for (size_t Worker = 0; Worker < Workers.size(); ++Worker)
+				Workers[Worker] = std::jthread([&, Worker] {
+					for (size_t Index = Worker; Index < Children.size(); Index += Workers.size())
+						Children[Index] = nullptr;
+				});
+		}
+		EXPECT_EQ(Destroyed, 0u);
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), Children.size());
+		FRHIResource::GatherResourcesToDelete(Pending);
+		EXPECT_EQ(Pending.size(), Children.size());
+		FRHIResource::DeleteResources(Pending);
+		EXPECT_EQ(Destroyed, Children.size());
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), Children.size());
+		Pending.clear();
+		FRHIResource::GatherResourcesToDelete(Pending);
+		FRHIResource::DeleteResources(Pending);
+		EXPECT_EQ(Destroyed, Children.size() * 2);
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 0u);
+	}
+
 	TEST(FRHIResourceViewValidationTests, ValidatesBufferRangesKindsAndDefaults)
 	{
 		FRHIBuffer Uniform(FRHIBufferCreateDesc::Create(

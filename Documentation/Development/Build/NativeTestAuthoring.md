@@ -1,6 +1,6 @@
 # Native Test Authoring
 
-Last reviewed: 2026-08-20
+Last reviewed: 2026-09-10
 
 This document defines native-test source ownership, target declarations,
 deployment, writable sandboxes, lifecycle isolation, and resource policy.
@@ -254,6 +254,11 @@ separately registered qualification target. Keep a bounded correctness case in
 the ordinary owning target, and run the qualification target explicitly. A
 physical-resource lock such as `durin-gpu` or `durin-rhi-lifecycle` describes
 lifecycle ownership; it does not make a correctness target a performance test.
+
+Repeated Vulkan creation qualifiers on Windows must follow the
+[validation DLL lifetime policy](NativeTests.md#vulkan-creation-qualification-memory).
+Keep that process-lifetime reference in the owning fixture; do not move this
+measurement policy into engine shutdown or weaken validation to reduce memory.
 
 Case-level parallel safety is the default for explicit case diagnostic mode. If
 a target cannot run cases concurrently, add `SERIAL` to its registration and

@@ -2,6 +2,7 @@
 
 #include "Misc/CoreTypes.h"
 #include "Misc/AssertionMacros.h"
+#include "RenderPipelineCreation.h"
 
 #include <cstddef>
 #include <functional>
@@ -205,9 +206,9 @@ namespace Durin
 		std::optional<FRenderResourceCreateError> Error;
 	};
 
-	// Owns one synchronously created renderer payload and its generation-scoped
-	// attempt state. The factory must return a complete candidate or an owned
-	// failure; it never mutates the live payload.
+	// Owns one complete renderer payload and its generation-scoped attempt state.
+	// Pipeline requests may defer an attempt; only a complete candidate replaces
+	// the live payload, which remains available during a compatible refresh.
 	template <typename PayloadType>
 	class TRenderResourceCreationSlot
 	{
@@ -237,11 +238,19 @@ namespace Durin
 			}
 
 			bResolving = true;
+			struct FResolveGuard { bool& Flag; ~FResolveGuard() { Flag = false; } } ResolveGuard{bResolving};
 			Availability = Payload
 				? ERenderResourceAvailability::Refreshing
 				: ERenderResourceAvailability::Creating;
+			FRenderPipelineRequestScope PipelineScope(PipelineRequests, Generation, !Payload.has_value());
 			auto Result = std::forward<FactoryType>(Factory)();
 			bResolving = false;
+			if (PipelineScope.HasPending())
+			{
+				bHasAttempt = false;
+				return Payload ? &*Payload : nullptr;
+			}
+			PipelineRequests.Reset();
 			bHasAttempt = true;
 			AttemptedGeneration = Generation;
 			if (Result.HasPayload())
@@ -322,6 +331,7 @@ namespace Durin
 
 		auto Reset() -> void
 		{
+			PipelineRequests.Reset();
 			Payload.reset();
 			Failure.reset();
 			FailureFingerprint.reset();
@@ -385,6 +395,7 @@ namespace Durin
 		}
 
 		ERenderResourceGenerationDependency PayloadDependencies;
+		FRenderPipelineRequests PipelineRequests;
 		std::optional<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Failure;
 		std::optional<size_t> FailureFingerprint;

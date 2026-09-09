@@ -26,6 +26,7 @@ namespace Durin
 	class FStaticMeshRenderer final
 	{
 	public:
+		auto PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView) -> bool;
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			RendererPrivate::FSurfaceMaterialResources& InSurfaceMaterials

@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanView.h"
 
 #include "VulkanBuffer.h"
@@ -15,7 +16,6 @@ namespace Durin::VulkanRHI
 		const FRHIBufferViewDesc& InDesc)
 		: FRHIBufferView(InBuffer, InDesc), Device(InDevice)
 	{
-		CheckVulkanRHIThread();
 		if (InDesc.Type != ERHIBufferViewType::Formatted) return;
 		const auto* Buffer = static_cast<const FVulkanBuffer*>(InBuffer);
 		vk::BufferViewCreateInfo CreateInfo;
@@ -26,9 +26,26 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::BufferView);
 #endif
-		BufferView = Device.GetHandle().createBufferView(CreateInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(BufferView,
-			std::format("{}.BufferView", Buffer->GetDebugName()));
+		BufferView = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+			return Device.GetHandle().createBufferView(CreateInfo);
+		}();
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(BufferView,
+				std::format("{}.BufferView", Buffer->GetDebugName()));
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroyBufferView(BufferView);
+			BufferView = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanBufferView::~FVulkanBufferView()
@@ -47,7 +64,6 @@ namespace Durin::VulkanRHI
 		const FRHITextureViewDesc& InDesc)
 		: FRHITextureView(InTexture, InDesc), Device(InDevice)
 	{
-		CheckVulkanRHIThread();
 		const auto* Texture = static_cast<const FVulkanTexture*>(InTexture);
 		SourceImage = Texture->Image;
 		TextureViewBackingGeneration = Texture->GetViewBackingGeneration();
@@ -67,9 +83,26 @@ namespace Durin::VulkanRHI
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ImageView);
 #endif
-		ImageView = Device.GetHandle().createImageView(CreateInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(ImageView,
-			std::format("{}.ImageView", Texture->GetDebugName()));
+		ImageView = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+			return Device.GetHandle().createImageView(CreateInfo);
+		}();
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(ImageView,
+				std::format("{}.ImageView", Texture->GetDebugName()));
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroyImageView(ImageView);
+			ImageView = nullptr;
+			throw;
+		}
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(
 			1, std::memory_order_relaxed) + 1;
 	}

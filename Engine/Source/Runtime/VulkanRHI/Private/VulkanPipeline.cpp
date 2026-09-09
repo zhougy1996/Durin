@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanPipeline.h"
 
 #include "Misc/FileHelper.h"
@@ -67,32 +68,21 @@ namespace Durin::VulkanRHI
 		return ShaderStages;
 	}
 
-	static auto GetPipelineInitializerPayloadBytes(
-		const FGraphicsPipelineStateInitializer& Initializer) -> size_t
+	// Charge both table and result keys plus fixed object/node overhead. Dynamic
+	// capacities are included; native driver allocations are measured separately.
+	template<typename T> static auto PipelineMetadataBytes(const T& Key) -> uint64
 	{
-		size_t Bytes = Initializer.PipelineLayout.BindingLayouts.size()
-			* sizeof(FBindingLayout);
-		Bytes += Initializer.PipelineLayout.PushConstantRanges.size()
-			* sizeof(FPushConstantRange);
-		for (const FBindingLayout& Layout :
-			Initializer.PipelineLayout.BindingLayouts)
+		uint64 Bytes = sizeof(T) + 1024;
+		Bytes += Key.PipelineLayout.BindingLayouts.capacity() * sizeof(FBindingLayout);
+		Bytes += Key.PipelineLayout.PushConstantRanges.capacity() * sizeof(FPushConstantRange);
+		for (const auto& Layout : Key.PipelineLayout.BindingLayouts)
+			Bytes += Layout.BindingLayouts.capacity() * sizeof(FBindingLayoutItem);
+		if constexpr (std::same_as<T, FGraphicsPipelineStateKey>)
 		{
-			Bytes += Layout.BindingLayouts.size()
-				* sizeof(FBindingLayoutItem);
+			Bytes += Key.VertexElements.capacity() * sizeof(FRHIVertexElementIdentity);
+			Bytes += Key.ColorBlendStates.capacity() * sizeof(FRHIColorBlendState);
 		}
-		return Bytes;
-	}
-
-	static auto GetPipelineInitializerPayloadBytes(
-		const FComputePipelineStateInitializer& Initializer) -> size_t
-	{
-		size_t Bytes = Initializer.PipelineLayout.BindingLayouts.size()
-			* sizeof(FBindingLayout);
-		Bytes += Initializer.PipelineLayout.PushConstantRanges.size()
-			* sizeof(FPushConstantRange);
-		for (const FBindingLayout& Layout : Initializer.PipelineLayout.BindingLayouts)
-			Bytes += Layout.BindingLayouts.size() * sizeof(FBindingLayoutItem);
-		return Bytes;
+		return Bytes * 2;
 	}
 
 	static auto ToVulkan_PrimitiveTopology(FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology) -> vk::PrimitiveTopology
@@ -283,11 +273,16 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
-		const FGraphicsPipelineStateInitializer& Initializer,
-		FGraphicsPipelineStateKey InKey, std::string_view DebugName)
+		const FVulkanGraphicsPipelineInputs& Inputs, FGraphicsPipelineStateKey InKey,
+		FVulkanPipelineDependencies Dependencies)
 		: Device(InDevice), Key(std::move(InKey))
 	{
-		CheckVulkanRHIThread();
+		// Immutable dependencies and native object creation do not require replay.
+		const auto& Initializer = Inputs.Initializer;
+		const auto& DebugName = Inputs.DebugName;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationCpuTimingScope PreparationTiming(false);
+#endif
 		checkf(Initializer.RenderTargetLayout.IsValid(), "Graphics pipeline render target layout is invalid.");
 		checkf(Initializer.BoundShaders.VertexShader != nullptr,
 			"Graphics pipeline requires a vertex shader.");
@@ -295,8 +290,8 @@ namespace Durin::VulkanRHI
 			"Graphics pipeline requires a fragment shader.");
 		checkf(Initializer.VertexDeclaration != nullptr,
 			"Graphics pipeline requires a vertex declaration.");
-		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderTargetLayout);
+		RenderPass = Dependencies.RenderPass;
+		check(RenderPass && Dependencies.Layout);
 
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
 
@@ -431,10 +426,8 @@ namespace Durin::VulkanRHI
 			.setAttachments(ColorBlendAttachments)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
-		// Create pipeline layout
-		FVulkanDescriptorSetsLayoutInfo DescriptorSetsLayoutInfo(Initializer.PipelineLayout.BindingLayouts);
-		std::shared_ptr<FVulkanLayout> CandidateLayout =
-			Device.GetPipelineManager().FindOrAddLayout(DescriptorSetsLayoutInfo);
+		// Native construction consumes already acquired structural dependencies.
+		std::shared_ptr<FVulkanLayout> CandidateLayout = std::move(Dependencies.Layout);
 		std::vector<vk::PushConstantRange> PushConstantRanges = CreatePushConstantRanges(Initializer.PipelineLayout);
 
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
@@ -450,7 +443,12 @@ namespace Durin::VulkanRHI
 				EVulkanCreateFailurePoint::PipelineLayout);
 #endif
 			CandidatePipelineLayout =
-				Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
+				[&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanCreationDependencyTimingScope DependencyTiming;
+#endif
+				return Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
+			}();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			GCreatedGraphicsPipelineLayoutCount.fetch_add(
 				1, std::memory_order_release);
@@ -477,9 +475,16 @@ namespace Durin::VulkanRHI
 			ThrowIfVulkanNativeCreateFailureIsArmed(
 				EVulkanCreateFailurePoint::GraphicsPipeline);
 #endif
-			const vk::ResultValue<vk::Pipeline> PipelineCreationResult =
-				Device.GetHandle().createGraphicsPipeline(
-					Device.GetPipelineManager().GetDriverPipelineCache(), pipelineInfo);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			PreparationTiming.Finish();
+#endif
+			const vk::ResultValue<vk::Pipeline> PipelineCreationResult = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+				return Device.GetPipelineManager().CompileGraphicsPipeline(pipelineInfo);
+			}();
+			CandidatePipeline = PipelineCreationResult.value;
 			if (PipelineCreationResult.result != vk::Result::eSuccess)
 			{
 				throw vk::SystemError(vk::make_error_code(PipelineCreationResult.result), std::format(
@@ -488,7 +493,12 @@ namespace Durin::VulkanRHI
 					CandidateLayout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
 					PushConstantRanges.size()));
 			}
-			CandidatePipeline = PipelineCreationResult.value;
+			const std::string BaseName = DebugName.empty()
+				? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
+				: std::string(DebugName);
+			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipeline, BaseName);
+			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipelineLayout,
+				std::format("{}.PipelineLayout", BaseName));
 		}
 		catch (...)
 		{
@@ -510,12 +520,7 @@ namespace Durin::VulkanRHI
 		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
-		const std::string BaseName = DebugName.empty()
-			? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
-			: std::string(DebugName);
-		Device.GetRHI().GetDebugUtils().NameObject(Pipeline, BaseName);
-		Device.GetRHI().GetDebugUtils().NameObject(PipelineLayout,
-			std::format("{}.PipelineLayout", BaseName));
+
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GCommittedGraphicsPipelineCount.fetch_add(1, std::memory_order_release);
 #endif
@@ -557,16 +562,19 @@ namespace Durin::VulkanRHI
 
 	FVulkanComputePipelineState::FVulkanComputePipelineState(
 		FVulkanDevice& InDevice,
-		const FComputePipelineStateInitializer& Initializer,
-		FComputePipelineStateKey InKey, std::string_view DebugName)
+		const FVulkanComputePipelineInputs& Inputs, FComputePipelineStateKey InKey,
+		FVulkanPipelineDependencies Dependencies)
 		: Device(InDevice), Key(std::move(InKey))
 	{
-		CheckVulkanRHIThread();
+		// Immutable dependencies and native object creation do not require replay.
+		const auto& Initializer = Inputs.Initializer;
+		const auto& DebugName = Inputs.DebugName;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationCpuTimingScope PreparationTiming(false);
+#endif
 		const auto* Shader = static_cast<const FVulkanShader*>(Initializer.ComputeShader);
-		FVulkanDescriptorSetsLayoutInfo LayoutInfo(
-			Initializer.PipelineLayout.BindingLayouts);
-		std::shared_ptr<FVulkanLayout> CandidateLayout =
-			Device.GetPipelineManager().FindOrAddLayout(LayoutInfo);
+		check(Dependencies.Layout);
+		std::shared_ptr<FVulkanLayout> CandidateLayout = std::move(Dependencies.Layout);
 		std::vector<vk::PushConstantRange> PushConstantRanges =
 			CreatePushConstantRanges(Initializer.PipelineLayout);
 		for (const vk::PushConstantRange& Range : PushConstantRanges)
@@ -587,20 +595,37 @@ namespace Durin::VulkanRHI
 				EVulkanCreateFailurePoint::PipelineLayout);
 #endif
 			CandidatePipelineLayout =
-				Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
+				[&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanCreationDependencyTimingScope DependencyTiming;
+#endif
+				return Device.GetHandle().createPipelineLayout(PipelineLayoutInfo);
+			}();
 			vk::PipelineShaderStageCreateInfo StageInfo;
 			StageInfo.setStage(vk::ShaderStageFlagBits::eCompute)
 				.setModule(Shader->GetShaderModule())
 				.setPName(Shader->GetEntryPoint());
 			vk::ComputePipelineCreateInfo PipelineInfo;
 			PipelineInfo.setStage(StageInfo).setLayout(CandidatePipelineLayout);
-			const vk::ResultValue<vk::Pipeline> Creation =
-				Device.GetHandle().createComputePipeline(
-					Device.GetPipelineManager().GetDriverPipelineCache(), PipelineInfo);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			PreparationTiming.Finish();
+#endif
+			const vk::ResultValue<vk::Pipeline> Creation = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+				return Device.GetPipelineManager().CompileComputePipeline(PipelineInfo);
+			}();
+			CandidatePipeline = Creation.value;
 			if (Creation.result != vk::Result::eSuccess)
 				throw vk::SystemError(vk::make_error_code(Creation.result), std::format("result={}",
 					vk::to_string(Creation.result)));
-			CandidatePipeline = Creation.value;
+			const std::string BaseName = DebugName.empty()
+				? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
+				: std::string(DebugName);
+			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipeline, BaseName);
+			Device.GetRHI().GetDebugUtils().NameObject(CandidatePipelineLayout,
+				std::format("{}.PipelineLayout", BaseName));
 		}
 		catch (...)
 		{
@@ -612,12 +637,7 @@ namespace Durin::VulkanRHI
 		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
-		const std::string BaseName = DebugName.empty()
-			? Device.GetRHI().GetDebugUtils().MakeInternalName("ComputePipeline")
-			: std::string(DebugName);
-		Device.GetRHI().GetDebugUtils().NameObject(Pipeline, BaseName);
-		Device.GetRHI().GetDebugUtils().NameObject(PipelineLayout,
-			std::format("{}.PipelineLayout", BaseName));
+
 	}
 
 	FVulkanComputePipelineState::~FVulkanComputePipelineState()
@@ -664,6 +684,7 @@ namespace Durin::VulkanRHI
 		GVulkanPipelineLayoutEntryCount.fetch_sub(LayoutMap.size(), std::memory_order_release);
 #endif
 		LayoutMap.clear();
+		std::lock_guard DriverLock(DriverCacheMutex);
 		if (DriverPipelineCache)
 		{
 			Device.GetHandle().destroyPipelineCache(DriverPipelineCache);
@@ -671,97 +692,221 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	namespace
+	{
+		std::mutex GCompilationHookMutex;
+		std::function<void()> GCompilationHook;
+		auto RunCompilationHook() -> void
+		{
+			std::function<void()> Hook;
+			{
+				std::lock_guard Lock(GCompilationHookMutex);
+				Hook = GCompilationHook;
+			}
+			if (Hook) Hook();
+		}
+	}
+	auto SetVulkanPipelineCompilationHookForTest(std::function<void()> Hook) -> void
+	{
+		std::lock_guard Lock(GCompilationHookMutex);
+		GCompilationHook = std::move(Hook);
+	}
+#endif
+
+	auto FVulkanPipelineManager::CompileGraphicsPipeline(
+		const vk::GraphicsPipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
+	{
+		std::lock_guard Lock(DriverCacheMutex);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		RunCompilationHook();
+#endif
+		return Device.GetHandle().createGraphicsPipeline(DriverPipelineCache, Info);
+	}
+
+	auto FVulkanPipelineManager::CompileComputePipeline(
+		const vk::ComputePipelineCreateInfo& Info) -> vk::ResultValue<vk::Pipeline>
+	{
+		std::lock_guard Lock(DriverCacheMutex);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		RunCompilationHook();
+#endif
+		return Device.GetHandle().createComputePipeline(DriverPipelineCache, Info);
+	}
+
+	auto FVulkanPipelineManager::GetOrCreateGraphicsPipelineState(
 		const FGraphicsPipelineStateInitializer& Initializer,
 		FGraphicsPipelineStateKey Key, std::string_view DebugName)
 		-> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
-		CheckVulkanRHIThread();
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().GraphicsPipelines;
-		if (const auto It = GraphicsPipelineMap.find(Key); It != GraphicsPipelineMap.end())
-		{
-			++Stats.Hits;
-			It->second.LastUsed = ++AccessSerial;
-			return It->second.Pipeline;
-		}
+		// Ready hits never wait for a creator or acquire the driver-cache lock.
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get().GraphicsPipelines;
+		const auto FindReady = [&]() -> TRefCountPtr<FVulkanGraphicsPipelineState> {
+			if (const auto It = GraphicsPipelineMap.find(Key); It != GraphicsPipelineMap.end())
+			{
+				++Stats.Hits;
+				It->second.LastUsed = ++AccessSerial;
+				return It->second.Pipeline;
+			}
+			return nullptr;
+		};
+		if (auto Ready = FindReady()) return Ready;
+		StatsAccess.unlock();
+		// Serialize misses without holding the table lock while waiting.
+		std::lock_guard CreatorLock(CreationMutex);
+		StatsAccess.lock();
+		if (auto Ready = FindReady()) return Ready;
 		++Stats.Misses;
-		const bool bNeedsEviction = GraphicsPipelineMap.size() >= Stats.Capacity;
-		if (bNeedsEviction && std::ranges::none_of(GraphicsPipelineMap, [](const auto& Entry) {
-			return Entry.second.Pipeline->GetRefCount() == 1;
-		}))
+		typename decltype(GraphicsPipelineMap)::node_type ReservedVictim;
+		if (GraphicsPipelineMap.size() >= Stats.Capacity)
 		{
-			++Stats.FailedCandidates;
-			throw FRHIRecoverableCreationError("Vulkan graphics pipeline cache is full and has no cache-only entry.");
+			auto Victim = GraphicsPipelineMap.end();
+			for (auto It = GraphicsPipelineMap.begin(); It != GraphicsPipelineMap.end(); ++It)
+			{
+				if (It->second.Pipeline->GetRefCount() != 1) continue;
+				if (Victim == GraphicsPipelineMap.end() || It->second.LastUsed < Victim->second.LastUsed)
+					Victim = It;
+			}
+			if (Victim == GraphicsPipelineMap.end())
+			{
+				++Stats.FailedCandidates;
+				throw FRHIRecoverableCreationError("Vulkan graphics pipeline cache is full and has no cache-only entry.");
+			}
+			// Extraction reserves the slot: concurrent hits cannot pin this victim
+			// after selection. Keep its node and resource alive for failure rollback.
+			ReservedVictim = GraphicsPipelineMap.extract(Victim);
 		}
+		StatsAccess.unlock();
 		TRefCountPtr<FVulkanGraphicsPipelineState> Candidate;
 		try
 		{
+			auto Metadata = Device.ReserveCacheMetadata(PipelineMetadataBytes(Key));
+			const FVulkanGraphicsPipelineInputs Inputs(Initializer, DebugName);
+			auto Dependencies = AcquireGraphicsDependencies(Inputs);
 			Candidate = MakeRefCount<FVulkanGraphicsPipelineState>(
-				Device, Initializer, Key, DebugName);
+				Device, Inputs, Key, std::move(Dependencies));
+			Candidate->MetadataReservation = std::move(Metadata);
+			StatsAccess.lock();
+			++Stats.NativeCreations;
+			const auto [It, Inserted] = GraphicsPipelineMap.emplace(std::move(Key),
+				FPipelineCacheEntry{Candidate, ++AccessSerial});
+			check(Inserted);
+			if (ReservedVictim) ++Stats.Evictions;
+			Stats.Occupancy = GraphicsPipelineMap.size();
+			return It->second.Pipeline;
 		}
 		catch (...)
 		{
+			if (!StatsAccess.owns_lock()) StatsAccess.lock();
+			if (ReservedVictim) GraphicsPipelineMap.insert(std::move(ReservedVictim));
 			++Stats.FailedCandidates;
+			Stats.Occupancy = GraphicsPipelineMap.size();
 			throw;
 		}
-		++Stats.NativeCreations;
-		if (bNeedsEviction && !EvictPipelineIfNeeded())
-			throw std::runtime_error("Vulkan graphics pipeline cache lost its selected eviction candidate.");
-		const auto [It, Inserted] = GraphicsPipelineMap.emplace(std::move(Key),
-			FPipelineCacheEntry{Candidate, ++AccessSerial});
-		check(Inserted);
-		Stats.Occupancy = GraphicsPipelineMap.size();
-		return It->second.Pipeline;
 	}
-
-	auto FVulkanPipelineManager::CreateComputePipelineState(
+	auto FVulkanPipelineManager::GetOrCreateComputePipelineState(
 		const FComputePipelineStateInitializer& Initializer,
 		FComputePipelineStateKey Key, std::string_view DebugName)
 		-> TRefCountPtr<FVulkanComputePipelineState>
 	{
-		CheckVulkanRHIThread();
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().ComputePipelines;
-		if (const auto It = ComputePipelineMap.find(Key);
-			It != ComputePipelineMap.end())
-		{
-			++Stats.Hits;
-			It->second.LastUsed = ++AccessSerial;
-			return It->second.Pipeline;
-		}
+		// Ready hits never wait for a creator or acquire the driver-cache lock.
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get().ComputePipelines;
+		const auto FindReady = [&]() -> TRefCountPtr<FVulkanComputePipelineState> {
+			if (const auto It = ComputePipelineMap.find(Key); It != ComputePipelineMap.end())
+			{
+				++Stats.Hits;
+				It->second.LastUsed = ++AccessSerial;
+				return It->second.Pipeline;
+			}
+			return nullptr;
+		};
+		if (auto Ready = FindReady()) return Ready;
+		StatsAccess.unlock();
+		// Serialize misses without holding the table lock while waiting.
+		std::lock_guard CreatorLock(CreationMutex);
+		StatsAccess.lock();
+		if (auto Ready = FindReady()) return Ready;
 		++Stats.Misses;
-		const bool bNeedsEviction = ComputePipelineMap.size() >= Stats.Capacity;
-		if (bNeedsEviction && std::ranges::none_of(ComputePipelineMap,
-			[](const auto& Entry) { return Entry.second.Pipeline->GetRefCount() == 1; }))
+		typename decltype(ComputePipelineMap)::node_type ReservedVictim;
+		if (ComputePipelineMap.size() >= Stats.Capacity)
 		{
-			++Stats.FailedCandidates;
-			throw FRHIRecoverableCreationError(
-				"Vulkan compute pipeline cache is full and has no cache-only entry.");
+			auto Victim = ComputePipelineMap.end();
+			for (auto It = ComputePipelineMap.begin(); It != ComputePipelineMap.end(); ++It)
+			{
+				if (It->second.Pipeline->GetRefCount() != 1) continue;
+				if (Victim == ComputePipelineMap.end() || It->second.LastUsed < Victim->second.LastUsed)
+					Victim = It;
+			}
+			if (Victim == ComputePipelineMap.end())
+			{
+				++Stats.FailedCandidates;
+				throw FRHIRecoverableCreationError("Vulkan compute pipeline cache is full and has no cache-only entry.");
+			}
+			// Extraction reserves the slot: concurrent hits cannot pin this victim
+			// after selection. Keep its node and resource alive for failure rollback.
+			ReservedVictim = ComputePipelineMap.extract(Victim);
 		}
+		StatsAccess.unlock();
 		TRefCountPtr<FVulkanComputePipelineState> Candidate;
 		try
 		{
+			auto Metadata = Device.ReserveCacheMetadata(PipelineMetadataBytes(Key));
+			const FVulkanComputePipelineInputs Inputs(Initializer, DebugName);
+			auto Dependencies = AcquireComputeDependencies(Inputs);
 			Candidate = MakeRefCount<FVulkanComputePipelineState>(
-				Device, Initializer, Key, DebugName);
+				Device, Inputs, Key, std::move(Dependencies));
+			Candidate->MetadataReservation = std::move(Metadata);
+			StatsAccess.lock();
+			++Stats.NativeCreations;
+			const auto [It, Inserted] = ComputePipelineMap.emplace(std::move(Key),
+				FComputePipelineCacheEntry{Candidate, ++AccessSerial});
+			check(Inserted);
+			if (ReservedVictim) ++Stats.Evictions;
+			Stats.Occupancy = ComputePipelineMap.size();
+			return It->second.Pipeline;
 		}
 		catch (...)
 		{
+			if (!StatsAccess.owns_lock()) StatsAccess.lock();
+			if (ReservedVictim) ComputePipelineMap.insert(std::move(ReservedVictim));
 			++Stats.FailedCandidates;
+			Stats.Occupancy = ComputePipelineMap.size();
 			throw;
 		}
-		++Stats.NativeCreations;
-		if (bNeedsEviction && !EvictComputePipelineIfNeeded())
-			throw std::runtime_error(
-				"Vulkan compute pipeline cache lost its selected eviction candidate.");
-		const auto [It, bInserted] = ComputePipelineMap.emplace(std::move(Key),
-			FComputePipelineCacheEntry{Candidate, ++AccessSerial});
-		check(bInserted);
-		Stats.Occupancy = ComputePipelineMap.size();
-		return It->second.Pipeline;
+	}
+	auto FVulkanPipelineManager::AcquireGraphicsDependencies(
+		const FVulkanGraphicsPipelineInputs& Inputs) -> FVulkanPipelineDependencies
+	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationDependencyTimingScope DependencyTiming;
+#endif
+		FVulkanPipelineDependencies Result;
+		Result.RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(
+			Inputs.Initializer.RenderTargetLayout);
+		Result.Layout = FindOrAddLayout(FVulkanDescriptorSetsLayoutInfo(
+			Inputs.Initializer.PipelineLayout.BindingLayouts));
+		return Result;
+	}
+
+	auto FVulkanPipelineManager::AcquireComputeDependencies(
+		const FVulkanComputePipelineInputs& Inputs) -> FVulkanPipelineDependencies
+	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationDependencyTimingScope DependencyTiming;
+#endif
+		FVulkanPipelineDependencies Result;
+		Result.Layout = FindOrAddLayout(FVulkanDescriptorSetsLayoutInfo(
+			Inputs.Initializer.PipelineLayout.BindingLayouts));
+		return Result;
 	}
 
 	auto FVulkanPipelineManager::FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>
 	{
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().StructuralLayouts;
+		std::lock_guard LayoutLock(LayoutMutex);
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get().StructuralLayouts;
 		const auto It = LayoutMap.find(LayoutInfo);
 		if (It != LayoutMap.end())
 		{
@@ -779,16 +924,25 @@ namespace Durin::VulkanRHI
 			throw FRHIRecoverableCreationError("Vulkan structural layout cache is full and has no cache-only entry.");
 		}
 
-		auto NewLayout = std::make_shared<FVulkanLayout>(Device);
+		StatsAccess.unlock();
+		std::shared_ptr<FVulkanLayout> NewLayout;
 		try
 		{
+			uint64 Bytes = 2048 + LayoutInfo.GetLayouts().capacity()
+				* (2 * sizeof(FVulkanDescriptorSetsLayoutInfo::FSetLayout) + sizeof(vk::DescriptorSetLayout));
+			for (const auto& Set : LayoutInfo.GetLayouts()) Bytes += 2 * Set.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding);
+			auto Metadata = Device.ReserveCacheMetadata(Bytes);
+			NewLayout = std::make_shared<FVulkanLayout>(Device);
+			NewLayout->MetadataReservation = std::move(Metadata);
 			NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
 		}
 		catch (...)
 		{
+			StatsAccess.lock();
 			++Stats.FailedCandidates;
 			throw;
 		}
+		StatsAccess.lock();
 		if (bNeedsEviction && !EvictLayoutIfNeeded())
 			throw std::runtime_error("Vulkan structural layout cache lost its selected eviction candidate.");
 		const auto [InsertedIt, bInserted] =
@@ -816,45 +970,21 @@ namespace Durin::VulkanRHI
 		GVulkanPipelineLayoutEntryCount.fetch_sub(1, std::memory_order_release);
 #endif
 		LayoutMap.erase(Victim);
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().StructuralLayouts;
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get().StructuralLayouts;
 		++Stats.Evictions;
 		Stats.Occupancy = LayoutMap.size();
 		return true;
 	}
 
-	auto FVulkanPipelineManager::EvictPipelineIfNeeded() -> bool
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	namespace { std::filesystem::path GTestPipelineCachePath; }
+	auto SetVulkanPipelineCachePathForTest(std::filesystem::path Path) -> void
 	{
-		auto Victim = GraphicsPipelineMap.end();
-		for (auto It = GraphicsPipelineMap.begin(); It != GraphicsPipelineMap.end(); ++It)
-		{
-			if (It->second.Pipeline->GetRefCount() != 1) continue;
-			if (Victim == GraphicsPipelineMap.end() || It->second.LastUsed < Victim->second.LastUsed)
-				Victim = It;
-		}
-		if (Victim == GraphicsPipelineMap.end()) return false;
-		GraphicsPipelineMap.erase(Victim);
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().GraphicsPipelines;
-		++Stats.Evictions;
-		Stats.Occupancy = GraphicsPipelineMap.size();
-		return true;
+		require(!GDynamicRHI);
+		GTestPipelineCachePath = std::move(Path);
 	}
-
-	auto FVulkanPipelineManager::EvictComputePipelineIfNeeded() -> bool
-	{
-		auto Victim = ComputePipelineMap.end();
-		for (auto It = ComputePipelineMap.begin(); It != ComputePipelineMap.end(); ++It)
-		{
-			if (It->second.Pipeline->GetRefCount() != 1) continue;
-			if (Victim == ComputePipelineMap.end()
-				|| It->second.LastUsed < Victim->second.LastUsed) Victim = It;
-		}
-		if (Victim == ComputePipelineMap.end()) return false;
-		ComputePipelineMap.erase(Victim);
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable().ComputePipelines;
-		++Stats.Evictions;
-		Stats.Occupancy = ComputePipelineMap.size();
-		return true;
-	}
+#endif
 
 	namespace
 	{
@@ -865,6 +995,9 @@ namespace Durin::VulkanRHI
 
 		auto PipelineCachePath() -> std::filesystem::path
 		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (!GTestPipelineCachePath.empty()) return GTestPipelineCachePath;
+#endif
 			return std::filesystem::path(FPaths::LaunchSavedDir()) / "Vulkan" / "PipelineCache-v1.bin";
 		}
 
@@ -880,7 +1013,7 @@ namespace Durin::VulkanRHI
 	{
 		FByteBuffer FileBytes;
 		FByteView InitialData;
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
+		FRHIPipelineCacheStatistics Stats;
 		const auto& Properties = Device.GetGpuProperties();
 		const std::filesystem::path Path = PipelineCachePath();
 		if (FFileHelper::FileExists(Path.generic_string()))
@@ -917,6 +1050,7 @@ namespace Durin::VulkanRHI
 		CreateInfo.setInitialDataSize(InitialData.size()).setPInitialData(InitialData.data());
 		try
 		{
+			std::lock_guard Lock(DriverCacheMutex);
 			DriverPipelineCache = Device.GetHandle().createPipelineCache(CreateInfo);
 			Device.GetRHI().GetDebugUtils().NameObject(
 				DriverPipelineCache, "Durin.DriverPipelineCache");
@@ -926,23 +1060,34 @@ namespace Durin::VulkanRHI
 				Stats.PersistentBytes = InitialData.size();
 			}
 		}
-		catch (const std::exception& Error)
+		catch (const vk::SystemError& Error)
 		{
+			if (!IsRecoverableVulkanCreationError(static_cast<vk::Result>(Error.code().value()))) throw;
 			++Stats.PersistentRejects;
 			DURIN_WARN("Vulkan rejected persisted pipeline cache '{}': {}. Using an empty cache.", Path.generic_string(), Error.what());
+			std::lock_guard Lock(DriverCacheMutex);
 			DriverPipelineCache = Device.GetHandle().createPipelineCache({});
 			Device.GetRHI().GetDebugUtils().NameObject(
 				DriverPipelineCache, "Durin.DriverPipelineCache");
 		}
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		StatsAccess.Get().PersistentLoads += Stats.PersistentLoads;
+		StatsAccess.Get().PersistentRejects += Stats.PersistentRejects;
+		StatsAccess.Get().PersistentBytes = Stats.PersistentBytes;
 	}
 
 	auto FVulkanPipelineManager::SaveDriverPipelineCache() -> void
 	{
-		if (!DriverPipelineCache) return;
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
 		try
 		{
-			const std::vector<uint8_t> Payload = Device.GetHandle().getPipelineCacheData(DriverPipelineCache);
+			std::vector<uint8_t> Payload;
+			{
+				std::lock_guard Lock(DriverCacheMutex);
+				if (!DriverPipelineCache) return;
+				Payload = Device.GetHandle().getPipelineCacheData(DriverPipelineCache);
+			}
+			auto StatsAccess = Device.AccessPipelineCacheStatistics();
+			auto& Stats = StatsAccess.Get();
 			if (Payload.empty() || Payload.size() + PipelineCachePrefixBytes > PipelineCacheMaximumBytes)
 			{
 				++Stats.PersistentRejects;
@@ -971,68 +1116,170 @@ namespace Durin::VulkanRHI
 		}
 		catch (const std::exception& Error)
 		{
-			++Stats.PersistentRejects;
+			++Device.AccessPipelineCacheStatistics().Get().PersistentRejects;
 			DURIN_WARN("Could not query Vulkan pipeline cache for persistence: {}", Error.what());
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	auto FVulkanPipelineManager::FindGraphicsPipelineState(const FGraphicsPipelineStateKey& Key)
+		-> FGraphicsPipelineStateRHIRef
 	{
+		auto Access = Device.AccessPipelineCacheStatistics();
+		if (const auto It = GraphicsPipelineMap.find(Key); It != GraphicsPipelineMap.end())
+		{
+			++Access.Get().GraphicsPipelines.Hits;
+			It->second.LastUsed = ++AccessSerial;
+			return It->second.Pipeline;
+		}
+		return nullptr;
+	}
+	auto FVulkanPipelineManager::FindComputePipelineState(const FComputePipelineStateKey& Key)
+		-> FComputePipelineStateRHIRef
+	{
+		auto Access = Device.AccessPipelineCacheStatistics();
+		if (const auto It = ComputePipelineMap.find(Key); It != ComputePipelineMap.end())
+		{
+			++Access.Get().ComputePipelines.Hits;
+			It->second.LastUsed = ++AccessSerial;
+			return It->second.Pipeline;
+		}
+		return nullptr;
+	}
+	auto FVulkanDynamicRHI::CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend
+	{
+		FRHIPipelineCreationService::FBackend Backend;
+		Backend.FindGraphics = [this](const FGraphicsPipelineStateKey& Key) {
+			return Device->GetPipelineManager().FindGraphicsPipelineState(Key);
+		};
+		Backend.CreateGraphics = [this](const FRHIGraphicsPipelineCreationInputs& Inputs,
+			const FGraphicsPipelineStateKey& Key) -> FGraphicsPipelineStateRHIRef {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanCreationTimingScope TimingScope(false);
+			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FGraphicsPipelineStateKeyHasher{}(Key); }
+#endif
+			FGraphicsPipelineStateRHIRef Result;
+			MakeVulkanCreationOperation([&] {
+				Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
+					Inputs.Initializer, Key, Inputs.DebugName);
+			})();
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
+			return Result;
+		};
+		Backend.FindCompute = [this](const FComputePipelineStateKey& Key) {
+			return Device->GetPipelineManager().FindComputePipelineState(Key);
+		};
+		Backend.CreateCompute = [this](const FRHIComputePipelineCreationInputs& Inputs,
+			const FComputePipelineStateKey& Key) -> FComputePipelineStateRHIRef {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanCreationTimingScope TimingScope(true);
+			if (auto* Timing = TimingScope.Get()) { Timing->bBackground = true; Timing->KeyHash = FComputePipelineStateKeyHasher{}(Key); }
+#endif
+			FComputePipelineStateRHIRef Result;
+			MakeVulkanCreationOperation([&] {
+				Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(
+					Inputs.Initializer, Key, Inputs.DebugName);
+			})();
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
+			return Result;
+		};
+		Backend.PublishTerminalFailure = [](std::exception_ptr Failure) {
+			GCommandListExecutor.ReportExternalFailure(Failure);
+		};
+		Backend.ReserveMetadata = [this](uint64 Bytes) { return Device->ReserveCacheMetadata(Bytes); };
+		return Backend;
+	}
+	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName,
+		const FGraphicsPipelineStateInitializer& Initializer) -> FGraphicsPipelineStateRHIRef
+	{
+		if (RHIIsPipelineCreationClosed() || !IsPipelineCreationPayloadBounded(Initializer, DebugName.ToString())) return nullptr;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(false);
+#endif
 		FGraphicsPipelineStateKey Key;
-		std::string ValidationError;
-		if (!BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key,
-			ValidationError))
+		std::string Error;
+		if (!BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key, Error))
 		{
-			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': {}",
-				DebugName.ToString(), ValidationError);
+			DURIN_ERROR("Invalid graphics pipeline '{}': {}", DebugName.ToString(), Error);
 			return nullptr;
 		}
-		TRefCountPtr<FRHIGraphicsPipelineState> Result;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, Initializer, Key = std::move(Key),
-				 DebugName = DebugName.ToString(), &Result]() mutable {
-					Result = Device->GetPipelineManager()
-						.CreateGraphicsPipelineState(
-							Initializer, std::move(Key), DebugName);
-				},
-				GetPipelineInitializerPayloadBytes(Initializer));
-		if (!CreationResult.IsSuccess())
+		if (auto Ready = Device->GetPipelineManager().FindGraphicsPipelineState(Key))
 		{
-			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': {}",
-				DebugName.ToString(), CreationResult.Diagnostic);
-			return nullptr;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
+#endif
+			return Ready;
 		}
+		if (IsTaskSchedulerRunning())
+		{
+			auto Request = RHIRequestGraphicsPipelineState(Initializer, DebugName.ToString());
+			if (!Request.IsAccepted()) return nullptr;
+			Request.Wait();
+			// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
+			auto Result = Request.GetResult().Graphics;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
+			return Result;
+		}
+		// Explicit startup compatibility: async admission still requires Core startup.
+		FGraphicsPipelineStateRHIRef Result;
+		const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
+			Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(
+				Initializer, std::move(Key), DebugName.ToString());
+		}));
+		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create graphics pipeline: {}", Outcome.Diagnostic);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
-
 	auto FVulkanDynamicRHI::RHICreateComputePipelineState(FName DebugName,
-		const FComputePipelineStateInitializer& Initializer)
-		-> TRefCountPtr<FRHIComputePipelineState>
+		const FComputePipelineStateInitializer& Initializer) -> FComputePipelineStateRHIRef
 	{
+		if (RHIIsPipelineCreationClosed() || !IsPipelineCreationPayloadBounded(Initializer, DebugName.ToString())) return nullptr;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(true);
+#endif
 		FComputePipelineStateKey Key;
-		std::string ValidationError;
-		if (!BuildComputePipelineStateKey(Initializer, RHIGetCapabilities(), Key,
-			ValidationError))
+		std::string Error;
+		if (!BuildComputePipelineStateKey(Initializer, RHIGetCapabilities(), Key, Error))
 		{
-			DURIN_ERROR("Failed to create Vulkan RHI compute pipeline '{}': {}",
-				DebugName.ToString(), ValidationError);
+			DURIN_ERROR("Invalid compute pipeline '{}': {}", DebugName.ToString(), Error);
 			return nullptr;
 		}
-		TRefCountPtr<FRHIComputePipelineState> Result;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, Initializer, Key = std::move(Key),
-				 DebugName = DebugName.ToString(), &Result]() mutable {
-					Result = Device->GetPipelineManager().CreateComputePipelineState(
-						Initializer, std::move(Key), DebugName);
-				}, GetPipelineInitializerPayloadBytes(Initializer));
-		if (!CreationResult.IsSuccess())
+		if (auto Ready = Device->GetPipelineManager().FindComputePipelineState(Key))
 		{
-			DURIN_ERROR("Failed to create Vulkan RHI compute pipeline '{}': {}",
-				DebugName.ToString(), CreationResult.Diagnostic);
-			return nullptr;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) { Timing->bSucceeded = true; Timing->Scheduled = Timing->BodyStart = Timing->Entry; Timing->BodyEnd = VulkanCreationTimestamp(); }
+#endif
+			return Ready;
 		}
+		if (IsTaskSchedulerRunning())
+		{
+			auto Request = RHIRequestComputePipelineState(Initializer, DebugName.ToString());
+			if (!Request.IsAccepted()) return nullptr;
+			Request.Wait();
+			// GetResult preserves fatal native exceptions. Pending cyclic waits return null.
+			auto Result = Request.GetResult().Compute;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
+			return Result;
+		}
+		// Explicit startup compatibility: async admission still requires Core startup.
+		FComputePipelineStateRHIRef Result;
+		const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
+			Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(
+				Initializer, std::move(Key), DebugName.ToString());
+		}));
+		if (!Outcome.IsSuccess()) DURIN_ERROR("Failed to create compute pipeline: {}", Outcome.Diagnostic);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 

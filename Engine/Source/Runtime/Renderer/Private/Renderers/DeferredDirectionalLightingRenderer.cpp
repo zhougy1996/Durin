@@ -176,14 +176,14 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						"DeferredDirectionalLightingPipeline", Initializer
 					);
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeHybridDeferredOutput();
 				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
 				Candidate.ProductionPipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						"DeferredProductionLightingPipeline", Initializer
 					);
 				Candidate.FallbackEnvironmentSampler =

@@ -7,6 +7,7 @@
 #include "PixelFormat.h"
 #include "RHIResources.h"
 #include "RHICapabilities.h"
+#include "RHIPipelineCreation.h"
 
 namespace Durin
 {
@@ -308,10 +309,27 @@ namespace Durin
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;
 
 	protected:
+		virtual auto CreatePipelineCreationBackend() -> FRHIPipelineCreationService::FBackend { return {}; }
+	public:
+		RHI_API auto RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
+			std::string_view DebugName) -> FRHIPipelineCreationRequest;
+		RHI_API auto RHIRequestComputePipelineState(const FComputePipelineStateInitializer& Initializer,
+			std::string_view DebugName) -> FRHIPipelineCreationRequest;
+		RHI_API auto RHIRequestGraphicsPipelineBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
+		RHI_API auto RHIRequestComputePipelineBatch(std::span<const FRHIComputePipelineBatchItem> Items) -> FRHIPipelineCreationBatch;
+		RHI_API auto RHIStopPipelineCreation() -> void;
+		RHI_API auto RHIRetirePipelineCreationResults() -> void;
+		RHI_API auto RHIIsPipelineCreationClosed() const -> bool;
+		RHI_API auto RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics;
+	protected:
 		RHI_API auto PublishCapabilities(FRHICapabilities InCapabilities) -> void;
 		RHI_API auto ClearCapabilities() -> void;
 
 	private:
+		auto GetPipelineCreationService() -> FRHIPipelineCreationService*;
+		mutable std::mutex PipelineCreationMutex;
+		std::unique_ptr<FRHIPipelineCreationService> PipelineCreation;
+		bool PipelineCreationClosed = false;
 		std::optional<FRHICapabilities> Capabilities;
 	};
 

@@ -37,6 +37,7 @@ namespace Durin
 			uint32 Width,
 			uint32 Height) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
+		auto EnsureResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool;
 
 	private:
 		struct FState;

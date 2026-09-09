@@ -8,12 +8,15 @@
 #include "HAL/PlatformLTS.h"
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
+#include <future>
 #include "RenderingThread.h"
 #include "SlangShaderCompiler.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanCreationTiming.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
+#include "VulkanPipeline.h"
 #include "VulkanBuffer.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanGPUTiming.h"
@@ -139,6 +142,7 @@ namespace Durin::VulkanRHI
 
 			auto TearDown() -> void override
 			{
+				SetVulkanPipelineCompilationHookForTest({});
 				if (GDynamicRHI)
 				{
 					RHIExit();
@@ -492,6 +496,42 @@ namespace Durin::VulkanRHI
 		EXPECT_NE(Diagnostic.find("(+4 devices)"), std::string::npos);
 		EXPECT_NE(Diagnostic.find("(+2 reasons)"), std::string::npos);
 		EXPECT_EQ(Diagnostic.find(std::string(257, 'x')), std::string::npos);
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests, CreationTimingBoundsConcurrentRecordsAndClosesExceptionalNativeCalls)
+	{
+		BeginVulkanCreationTimingCapture(2);
+		std::vector<std::thread> Producers;
+		for (uint32 Index = 0; Index < 16; ++Index)
+			Producers.emplace_back([] {
+				FVulkanCreationTimingScope Request(false);
+				auto* Timing = Request.Get();
+				Timing->Scheduled = VulkanCreationTimestamp();
+				FVulkanCreationBodyTimingScope Body(Timing);
+				try
+				{
+					FVulkanNativeCreationTimingScope Native;
+					throw std::runtime_error("timed native failure");
+				}
+				catch (const std::runtime_error&) {}
+			});
+		for (auto& Producer : Producers) Producer.join();
+		uint64 Dropped = 0;
+		const auto Samples = EndVulkanCreationTimingCapture(Dropped);
+		ASSERT_EQ(Samples.size(), 2u);
+		EXPECT_EQ(Dropped, 14u);
+		EXPECT_NE(Samples[0].RequestId, Samples[1].RequestId);
+		for (const auto& Sample : Samples)
+		{
+			EXPECT_FALSE(Sample.bSucceeded);
+			EXPECT_GE(Sample.BodyStart, Sample.Scheduled);
+			EXPECT_GE(Sample.NativeStart, Sample.BodyStart);
+			EXPECT_GE(Sample.NativeEnd, Sample.NativeStart);
+			EXPECT_GE(Sample.BodyEnd, Sample.NativeEnd);
+			EXPECT_GE(Sample.Returned, Sample.BodyEnd);
+		}
+		FVulkanCreationTimingScope Disabled(false);
+		EXPECT_EQ(Disabled.Get(), nullptr);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests, ArmedBoundaryFailsExactlyOnce)
@@ -1206,6 +1246,136 @@ namespace Durin::VulkanRHI
 			ModeSnapshots[1].Naming.ActiveRegionDepth);
 	}
 
+	TEST_F(FVulkanCreateFailureInjectionTests, NativeResourceFactoriesRunOutsideReplayAndRollbackPublication)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR) / "CreationQualification.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		for (const char* Mode : {"threaded", "inline"})
+		{
+			SCOPED_TRACE(Mode);
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			auto& Commands = FRHICommandListImmediate::Get();
+			const auto BufferDesc = FRHIBufferCreateDesc::Create("IndependentBuffer", 256, 0, EBufferUsageFlags::FormattedBuffer);
+			const auto TextureDesc = FRHITextureCreateDesc::Create2D("IndependentTexture", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			auto Buffer = GDynamicRHI->RHICreateBuffer(Commands, BufferDesc);
+			auto Texture = GDynamicRHI->RHICreateTexture(Commands, TextureDesc);
+			ASSERT_TRUE(Buffer); ASSERT_TRUE(Texture);
+			const auto BufferViewDesc = MakeDefaultBufferViewDesc(*Buffer, ERHIBufferViewType::Formatted, EPixelFormat::R32_UINT);
+			const auto TextureViewDesc = MakeDefaultTextureViewDesc(*Texture, ERHITextureViewUsage::Sampled);
+			const auto& Shader = Compiled.CompiledShaders[0];
+			auto ShaderDesc = FRHIShaderCreateDesc::Create("IndependentShader", Shader.Frequency, *Shader.Code, Shader.Hash);
+			ShaderDesc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
+			const std::array<std::function<TRefCountPtr<FRHIResource>()>, 6> Factories{
+				[&] { return GDynamicRHI->RHICreateShader(ShaderDesc); },
+				[&] { return GDynamicRHI->RHICreateSampler({}); },
+				[&] { return GDynamicRHI->RHICreateBuffer(Commands, BufferDesc); },
+				[&] { return GDynamicRHI->RHICreateTexture(Commands, TextureDesc); },
+				[&] { return GDynamicRHI->RHICreateBufferView(Buffer, BufferViewDesc); },
+				[&] { return GDynamicRHI->RHICreateTextureView(Texture, TextureViewDesc); }};
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+			const auto BeforeMemory = GDynamicRHI->RHIGetMemoryStatistics();
+			std::promise<void> Entered, Release;
+			auto EnteredFuture = Entered.get_future();
+			auto Released = Release.get_future().share();
+			if (GRHIThread)
+			{
+				Commands.EnqueueLambda([&] { Entered.set_value(); Released.wait(); }, 0);
+				GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+				EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+			}
+			const auto Before = GCommandListExecutor.GetStats();
+			std::vector<std::future<bool>> Workers;
+			for (uint32 Index = 0; Index < 16; ++Index)
+				Workers.push_back(std::async(std::launch::async, [&] {
+					bool Complete = true;
+					for (const auto& Factory : Factories) { auto Resource = Factory(); Complete = !!Resource && Complete; }
+					return Complete;
+				}));
+			for (auto& Worker : Workers) EXPECT_EQ(Worker.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+			Release.set_value();
+			for (auto& Worker : Workers) EXPECT_TRUE(Worker.get());
+			const auto After = GCommandListExecutor.GetStats();
+			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
+			EXPECT_EQ(After.LastSubmittedSerial, Before.LastSubmittedSerial);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+			GDynamicRHI->RHIBlockUntilGPUIdle();
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
+				ReleaseCompletedVulkanResourcesForTesting();
+			});
+			for (const auto& Factory : Factories)
+			{
+				ArmVulkanCreateFailure(EVulkanCreateFailurePoint::ResourcePublication);
+				EXPECT_FALSE(Factory());
+				EXPECT_FALSE(ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::ResourcePublication));
+			}
+			const auto AfterMemory = GDynamicRHI->RHIGetMemoryStatistics();
+			for (size_t Index = 0; Index < BeforeMemory.Classes.size(); ++Index)
+			{
+				EXPECT_EQ(AfterMemory.Classes[Index].LiveAllocationCount, BeforeMemory.Classes[Index].LiveAllocationCount);
+				EXPECT_EQ(AfterMemory.Classes[Index].LiveBytes, BeforeMemory.Classes[Index].LiveBytes);
+			}
+			Buffer = nullptr; Texture = nullptr;
+			RHIExit();
+		}
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests, VertexDeclarationsDoNotDependOnReplay)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			std::promise<void> ReleaseReplay;
+			auto Released = ReleaseReplay.get_future().share();
+			FRHICommandListFence HeldFence;
+			if (GRHIThread)
+			{
+				auto Started = std::make_shared<std::promise<void>>();
+				auto StartedFuture = Started->get_future();
+				GCommandListExecutor.GetImmediateCommandList().EnqueueLambda([Started, Released] {
+					Started->set_value();
+					Released.wait();
+				}, 0);
+				GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+				HeldFence = GCommandListExecutor.CreateFence();
+				EXPECT_EQ(StartedFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+			}
+			const auto Before = GCommandListExecutor.GetStats();
+			const auto BeforeSerial = GCommandListExecutor.GetLastSubmittedSerial();
+			FVertexDeclarationElementList Elements{};
+			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
+			auto Pending = std::async(std::launch::async, [&] {
+				return GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			});
+			// A regression may enqueue; release replay before get() so failure cannot deadlock teardown.
+			EXPECT_EQ(Pending.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+			ReleaseReplay.set_value();
+			auto Declaration = Pending.get();
+			if (GRHIThread) HeldFence.Wait();
+			ASSERT_TRUE(Declaration);
+			Elements[0].Offset = 4;
+			EXPECT_EQ(Declaration->GetElements()[0].Offset, 0);
+			EXPECT_EQ(Declaration->GetElements()[0].Stride, 12);
+			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::VertexDeclaration);
+			EXPECT_FALSE(GDynamicRHI->RHICreateVertexDeclaration(Elements));
+			auto Recovered = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			ASSERT_TRUE(Recovered);
+			EXPECT_EQ(Recovered->GetElements()[0].Offset, 4);
+			const auto After = GCommandListExecutor.GetStats();
+			EXPECT_EQ(After.SynchronousOperationCount, Before.SynchronousOperationCount);
+			EXPECT_EQ(GCommandListExecutor.GetLastSubmittedSerial(), BeforeSerial);
+			Recovered = nullptr;
+			Declaration = nullptr;
+			RHIExit();
+		}
+	}
+
 	TEST_F(FVulkanCreateFailureInjectionTests,
 		CreationBoundaryPreservesTerminalErrorTypes)
 	{
@@ -1216,25 +1386,25 @@ namespace Durin::VulkanRHI
 			// Execute on the replay owner to cover the direct RHI-thread boundary
 			// as well as inline execution without poisoning the real test device.
 			GCommandListExecutor.ExecuteSynchronousOperation(false, [] {
-				const auto Recoverable = ExecuteFallibleVulkanCreationOperation([] {
+				const auto Recoverable = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::OutOfDeviceMemoryError("expected allocation failure");
-				}, 0);
+				}));
 				EXPECT_FALSE(Recoverable.IsSuccess());
 				EXPECT_EQ(Recoverable.Failure, ERHIResourceCreationFailure::OutOfMemory);
-				const auto Unsupported = ExecuteFallibleVulkanCreationOperation([] {
+				const auto Unsupported = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::FormatNotSupportedError("unsupported descriptor");
-				});
+				}));
 				EXPECT_EQ(Unsupported.Failure,
 					ERHIResourceCreationFailure::UnsupportedDescriptor);
-				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw vk::DeviceLostError("terminal device loss");
-				}, 0), vk::DeviceLostError);
-				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+				})), vk::DeviceLostError);
+				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw std::logic_error("internal invariant failure");
-				}, 0), std::logic_error);
-				EXPECT_THROW(ExecuteFallibleVulkanCreationOperation([] {
+				})), std::logic_error);
+				EXPECT_THROW(ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([] {
 					throw 7;
-				}, 0), int);
+				})), int);
 			});
 			RHIExit();
 		}
@@ -1365,6 +1535,260 @@ namespace Durin::VulkanRHI
 		Created3D = nullptr;
 		CreatedCube = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests, PublicAsyncPipelinesShareCreationAndKeepReplayAvailable)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		struct FCoreGuard { ~FCoreGuard() { if (GDynamicRHI) RHIExit(); ShutdownTaskScheduler(); } } CoreGuard;
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment, EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "CreationQualification.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		for (const char* Mode : {"threaded", "inline"})
+		{
+			SCOPED_TRACE(Mode);
+			_putenv_s("DURIN_RHI_EXECUTION", Mode);
+			ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+			std::array<FShaderRHIRef, 3> Shaders;
+			for (size_t Index = 0; Index < Shaders.size(); ++Index)
+			{
+				const auto& Shader = Compiled.CompiledShaders[Index];
+				auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency, *Shader.Code, Shader.Hash);
+				std::string TemporaryEntryPoint = Shader.BinaryEntryPoint;
+				Desc.SetEntryPoint(TemporaryEntryPoint.c_str());
+				Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
+				TemporaryEntryPoint.assign(TemporaryEntryPoint.size(), 'x');
+				ASSERT_TRUE(Shaders[Index]);
+			}
+			auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
+			FGraphicsPipelineStateInitializer Graphics;
+			Graphics.BoundShaders = {Shaders[0], Shaders[1]};
+			Graphics.VertexDeclaration = Declaration;
+			Graphics.RenderTargetLayout.NumColorRenderTargets = 1;
+			Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+			FComputePipelineStateInitializer Compute;
+			Compute.ComputeShader = Shaders[2];
+			FRHIPipelineCreationRequest SurvivingRequest;
+			for (bool IsCompute : {false, true})
+			{
+				SCOPED_TRACE(IsCompute);
+				const auto Request = [&] { return IsCompute
+					? GDynamicRHI->RHIRequestComputePipelineState(Compute, "async")
+					: GDynamicRHI->RHIRequestGraphicsPipelineState(Graphics, "async"); };
+				auto Warm = Request();
+				ASSERT_TRUE(Warm.Wait());
+				const auto WarmResult = Warm.GetResult();
+				auto& Layout = IsCompute ? Compute.PipelineLayout : Graphics.PipelineLayout;
+				Layout.PushConstantRanges.push_back({
+					IsCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex, 0, 4});
+				std::promise<void> Entered, Release;
+				auto EnteredFuture = Entered.get_future();
+				auto Released = Release.get_future().share();
+				SetVulkanPipelineCompilationHookForTest([&] { Entered.set_value(); Released.wait(); });
+				const auto Before = GDynamicRHI->RHIGetPipelineCacheStatistics();
+				std::vector<FRHIPipelineCreationRequest> Requests;
+				Requests.push_back(Request());
+				EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				std::vector<std::future<FRHIPipelineCreationRequest>> Producers;
+				for (uint32 Index = 1; Index < 16; ++Index)
+					Producers.push_back(std::async(std::launch::async, Request));
+				for (auto& Producer : Producers) Requests.push_back(Producer.get());
+				EXPECT_TRUE(Requests[0].Cancel());
+				std::promise<void> Marker;
+				auto MarkerFuture = Marker.get_future();
+				auto& Immediate = FRHICommandListImmediate::Get();
+				Immediate.EnqueueLambda([&] { Marker.set_value(); });
+				Immediate.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread);
+				EXPECT_EQ(MarkerFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+				Layout.PushConstantRanges.clear();
+				const auto Serial = GCommandListExecutor.GetLastSubmittedSerial();
+				if (IsCompute) EXPECT_EQ(GDynamicRHI->RHICreateComputePipelineState("ready", Compute), WarmResult.Compute);
+				else EXPECT_EQ(GDynamicRHI->RHICreateGraphicsPipelineState("ready", Graphics), WarmResult.Graphics);
+				EXPECT_EQ(GCommandListExecutor.GetLastSubmittedSerial(), Serial);
+				FRHICommandListFence DependencyFence;
+				std::atomic<bool> Dispatched = false;
+				if (IsCompute)
+				{
+					EXPECT_EQ(Requests[1].GetPipelineLayout()->PushConstantRanges.size(), 1u);
+					Immediate.SwitchPipeline(ERHIPipeline::Compute);
+					Immediate.SetComputePipelineState(Requests[1]);
+					Immediate.Dispatch(1, 1, 1);
+					Immediate.SwitchPipeline(ERHIPipeline::None);
+					Immediate.EnqueueLambda([&] { Dispatched = true; });
+					if (std::string_view(Mode) == "threaded")
+					{
+						Immediate.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread);
+						DependencyFence = GCommandListExecutor.CreateFence();
+						EXPECT_EQ(DependencyFence.GetState(), ERHICommandBatchState::Pending);
+						EXPECT_FALSE(Dispatched.load());
+					}
+				}
+				Release.set_value();
+				for (size_t Index = 1; Index < Requests.size(); ++Index) EXPECT_TRUE(Requests[Index].Wait());
+				if (IsCompute)
+				{
+					Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+					EXPECT_TRUE(Dispatched.load());
+					if (std::string_view(Mode) == "threaded") EXPECT_TRUE(DependencyFence.TryWait());
+				}
+				SetVulkanPipelineCompilationHookForTest({});
+				const auto After = GDynamicRHI->RHIGetPipelineCacheStatistics();
+				EXPECT_EQ((IsCompute ? After.ComputePipelines.NativeCreations : After.GraphicsPipelines.NativeCreations)
+					- (IsCompute ? Before.ComputePipelines.NativeCreations : Before.GraphicsPipelines.NativeCreations), 1u);
+				SurvivingRequest = Requests.back();
+			}
+			auto* Device = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDeviceForTesting();
+			const auto Used = Device->GetCacheMetadataBytes();
+			EXPECT_GT(Used, 0u);
+			auto Reservation = Device->ReserveCacheMetadata(64ull * 1024 * 1024 - Used);
+			EXPECT_THROW(Device->ReserveCacheMetadata(1), FRHIRecoverableCreationError);
+			Reservation.reset();
+			EXPECT_EQ(Device->GetCacheMetadataBytes(), Used);
+			Shaders = {};
+			Declaration = nullptr;
+			auto SurvivingLayout = SurvivingRequest.GetPipelineLayout();
+			GDynamicRHI->RHIStopPipelineCreation();
+			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineRequestState::Ready);
+			RHIExit();
+			EXPECT_EQ(SurvivingLayout->PushConstantRanges.size(), 1u);
+			EXPECT_TRUE(SurvivingRequest.GetCompletion().IsReady());
+			EXPECT_EQ(SurvivingRequest.GetState(), ERHIPipelineRequestState::Canceled);
+			EXPECT_FALSE(SurvivingRequest.GetResult().Graphics);
+			EXPECT_FALSE(SurvivingRequest.GetResult().Compute);
+		}
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests,
+		BackgroundPipelinesPreserveReplayProgressAndCapacityReservations)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"VertexMain", "FragmentMain", "ComputeMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment,
+			EShaderFrequency::Compute};
+		FSlangShaderCompiler Compiler;
+		const auto Compiled = Compiler.Compile((std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "CreationQualification.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		ASSERT_NE(GRHIThread, nullptr);
+		std::array<FShaderRHIRef, 3> Shaders;
+		for (size_t Index = 0; Index < Shaders.size(); ++Index)
+		{
+			const auto& Shader = Compiled.CompiledShaders[Index];
+			auto Desc = FRHIShaderCreateDesc::Create(Shader.DebugName.c_str(), Shader.Frequency,
+				*Shader.Code, Shader.Hash);
+			Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
+			Shaders[Index] = GDynamicRHI->RHICreateShader(Desc);
+			ASSERT_TRUE(Shaders[Index]);
+		}
+		auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
+		ASSERT_TRUE(Declaration);
+		auto* Device = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)->GetDeviceForTesting();
+		FGraphicsPipelineStateInitializer Graphics;
+		Graphics.BoundShaders.VertexShader = Shaders[0];
+		Graphics.BoundShaders.FragmentShader = Shaders[1];
+		Graphics.VertexDeclaration = Declaration;
+		Graphics.RenderTargetLayout.NumColorRenderTargets = 1;
+		Graphics.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::RGBA8_UNORM;
+		FComputePipelineStateInitializer Compute;
+		Compute.ComputeShader = Shaders[2];
+		for (bool bCompute : {false, true})
+		{
+			SCOPED_TRACE(bCompute);
+			{
+				auto Access = Device->AccessPipelineCacheStatistics();
+				(bCompute ? Access.Get().ComputePipelines : Access.Get().GraphicsPipelines).Capacity = 2;
+			}
+			const auto Create = [&](uint32 Variant) -> TRefCountPtr<FRHIResource> {
+				auto G = Graphics;
+				auto C = Compute;
+				auto& Layout = bCompute ? C.PipelineLayout : G.PipelineLayout;
+				Layout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+					bCompute ? EShaderStageFlags::Compute : EShaderStageFlags::Vertex,
+					Variant, ERHIBindingType::UniformBuffer);
+				std::string Error;
+				TRefCountPtr<FRHIResource> Result;
+				const auto Outcome = ExecuteFallibleRHICreationOperation(MakeVulkanCreationOperation([&] {
+					if (bCompute)
+					{
+						FComputePipelineStateKey Key;
+						if (!BuildComputePipelineStateKey(C, GDynamicRHI->RHIGetCapabilities(), Key, Error))
+							throw std::runtime_error(Error);
+						Result = Device->GetPipelineManager().GetOrCreateComputePipelineState(C, std::move(Key), "BackgroundCompute");
+					}
+					else
+					{
+						FGraphicsPipelineStateKey Key;
+						if (!BuildGraphicsPipelineStateKey(G, GDynamicRHI->RHIGetCapabilities(), Key, Error))
+							throw std::runtime_error(Error);
+						Result = Device->GetPipelineManager().GetOrCreateGraphicsPipelineState(G, std::move(Key), "BackgroundGraphics");
+					}
+				}));
+				return Outcome.IsSuccess() ? Result : nullptr;
+			};
+			auto Warm = std::async(std::launch::async, [&] { return Create(0); }).get();
+			ASSERT_TRUE(Warm);
+			std::promise<void> Entered, Release;
+			auto EnteredFuture = Entered.get_future();
+			auto Released = Release.get_future().share();
+			SetVulkanPipelineCompilationHookForTest([&] {
+				Entered.set_value();
+				Released.wait();
+			});
+			auto ColdFuture = std::async(std::launch::async, [&] { return Create(1); });
+			EXPECT_EQ(EnteredFuture.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+			auto DuplicateFuture = std::async(std::launch::async, [&] { return Create(1); });
+			auto HitFuture = std::async(std::launch::async, [&] { return Create(0); });
+			std::promise<void> Replayed;
+			auto ReplayFuture = Replayed.get_future();
+			auto& Commands = GCommandListExecutor.GetImmediateCommandList();
+			Commands.EnqueueLambda([&Replayed] { Replayed.set_value(); });
+			GCommandListExecutor.Submit({}, ERHISubmitFlags::None);
+			const auto HitStatus = HitFuture.wait_for(std::chrono::seconds(5));
+			const auto ReplayStatus = ReplayFuture.wait_for(std::chrono::seconds(5));
+			// Release before reporting assertions/getting futures so a regression cannot deadlock cleanup.
+			Release.set_value();
+			auto Cold = ColdFuture.get();
+			EXPECT_EQ(DuplicateFuture.get(), Cold);
+			auto Hit = HitFuture.get();
+			ReplayFuture.wait();
+			SetVulkanPipelineCompilationHookForTest({});
+			EXPECT_EQ(HitStatus, std::future_status::ready);
+			EXPECT_EQ(ReplayStatus, std::future_status::ready);
+			EXPECT_EQ(Hit, Warm);
+			ASSERT_TRUE(Cold);
+			EXPECT_FALSE(std::async(std::launch::async, [&] { return Create(2); }).get());
+			const auto* OldCold = Cold.GetReference();
+			Cold = nullptr;
+			ArmVulkanCreateFailure(EVulkanCreateFailurePoint::PipelineLayout);
+			EXPECT_FALSE(std::async(std::launch::async, [&] { return Create(2); }).get());
+			auto Restored = std::async(std::launch::async, [&] { return Create(1); }).get();
+			EXPECT_EQ(Restored.GetReference(), OldCold);
+			Restored = nullptr;
+			auto Replacement = std::async(std::launch::async, [&] { return Create(2); }).get();
+			EXPECT_TRUE(Replacement);
+			EXPECT_EQ(std::async(std::launch::async, [&] { return Create(0); }).get(), Warm);
+			const auto Stats = Device->GetPipelineCacheStatistics();
+			const auto& Cache = bCompute ? Stats.ComputePipelines : Stats.GraphicsPipelines;
+			EXPECT_EQ(Cache.Occupancy, 2u);
+			EXPECT_EQ(Cache.NativeCreations, 3u);
+			EXPECT_EQ(Cache.FailedCandidates, 2u);
+			EXPECT_EQ(Cache.Evictions, 1u);
+			std::async(std::launch::async, [Warm = std::move(Warm), Hit = std::move(Hit),
+				Replacement = std::move(Replacement)]() mutable {
+				Warm = nullptr;
+				Hit = nullptr;
+				Replacement = nullptr;
+			}).get();
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
@@ -1515,6 +1939,45 @@ namespace Durin::VulkanRHI
 			GetVulkanStructuralCacheTestStats();
 		const FRHIPipelineCacheStatistics CacheStatsBefore =
 			GDynamicRHI->RHIGetPipelineCacheStatistics();
+		// Timing capture is bounded and opt-in; this fixture validates boundaries only.
+		struct FCreationCaptureScope
+		{
+			FCreationCaptureScope() { BeginVulkanCreationTimingCapture(256); }
+			~FCreationCaptureScope()
+			{
+				uint64 Dropped = 0;
+				const auto Samples = EndVulkanCreationTimingCapture(Dropped);
+				EXPECT_EQ(Dropped, 0u);
+				EXPECT_FALSE(Samples.empty());
+				bool bNative = false;
+				bool bReady = false;
+				bool bFailure = false;
+				for (const auto& Sample : Samples)
+				{
+					EXPECT_GT(Sample.RequestId, 0u);
+					EXPECT_GE(Sample.Returned, Sample.Entry);
+					if (Sample.Scheduled)
+					{
+						EXPECT_GE(Sample.Scheduled, Sample.Entry);
+						EXPECT_GE(Sample.BodyStart, Sample.Scheduled);
+						EXPECT_GE(Sample.BodyEnd, Sample.BodyStart);
+						EXPECT_GE(Sample.Returned, Sample.BodyEnd);
+					}
+					if (Sample.NativeStart)
+					{
+						bNative = true;
+						EXPECT_GE(Sample.NativeStart, Sample.BodyStart);
+						EXPECT_GE(Sample.NativeEnd, Sample.NativeStart);
+						EXPECT_GE(Sample.BodyEnd, Sample.NativeEnd);
+					}
+					bReady |= Sample.bSucceeded && !Sample.NativeStart;
+					bFailure |= !Sample.bSucceeded;
+				}
+				EXPECT_TRUE(bNative);
+				EXPECT_TRUE(bReady);
+				EXPECT_TRUE(bFailure);
+			}
+		} CreationCapture;
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::RenderPass);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
 			PipelineName, Initializer));

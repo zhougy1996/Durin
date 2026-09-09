@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanMemory.h"
 
 #define VMA_IMPLEMENTATION
@@ -106,7 +107,11 @@ namespace Durin::VulkanRHI
 				? VK_ERROR_OUT_OF_DEVICE_MEMORY
 				:
 #endif
-			vmaCreateImage(
+			[&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+				return vmaCreateImage(
 			Allocator,
 			reinterpret_cast<const VkImageCreateInfo*>(&ImageCreateInfo),
 			&AllocCreateInfo,
@@ -114,6 +119,7 @@ namespace Durin::VulkanRHI
 			&OutAllocation.Handle,
 			&OutAllocation.Info
 		);
+			}();
 
 		if (Result != VK_SUCCESS)
 		{
@@ -185,7 +191,11 @@ namespace Durin::VulkanRHI
 				? VK_ERROR_OUT_OF_DEVICE_MEMORY
 				:
 #endif
-			vmaCreateBuffer(
+			[&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+				return vmaCreateBuffer(
 			Allocator,
 			reinterpret_cast<const VkBufferCreateInfo*>(&BufferCreateInfo),
 			&AllocCreateInfo,
@@ -193,6 +203,7 @@ namespace Durin::VulkanRHI
 			&OutAllocation.Handle,
 			&OutAllocation.Info
 		);
+			}();
 
 		if (Result != VK_SUCCESS)
 		{

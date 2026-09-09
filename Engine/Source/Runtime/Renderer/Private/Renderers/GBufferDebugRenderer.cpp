@@ -95,30 +95,8 @@ namespace Durin
 			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 	}
 
-	auto FGBufferDebugRenderer::Render_RenderThread(
-		FRHICommandListImmediate& CommandList,
-		FRHITexture* Material,
-		FRHITexture* Normals,
-		FRHITexture* Surface,
-		FRHITexture* Emissive,
-		FRHITexture* Depth,
-		FRHITexture* Output,
-		const FSceneView& View,
-		EGBufferDebugMode Mode,
-		uint32 Width,
-		uint32 Height) -> bool
+	auto FGBufferDebugRenderer::EnsureResources_RenderThread(FRHICommandListImmediate& CommandList) -> bool
 	{
-		check(IsInRenderingThread());
-		check(!CommandList.IsInsideRenderPass());
-		if (Material == nullptr || Normals == nullptr || Surface == nullptr
-			|| Emissive == nullptr || Depth == nullptr || Output == nullptr
-			|| Width == 0 || Height == 0
-			|| Mode == EGBufferDebugMode::Disabled
-			|| Mode >= EGBufferDebugMode::Count)
-		{
-			return false;
-		}
-
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
 		FPayload* Payload = State->Slot.Resolve(
@@ -178,7 +156,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						"GBufferDebugPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
 				{
@@ -193,6 +171,35 @@ namespace Durin
 				return FResult::Success(std::move(Candidate));
 			},
 			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
+		return Payload != nullptr;
+	}
+
+	auto FGBufferDebugRenderer::Render_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* Material,
+		FRHITexture* Normals,
+		FRHITexture* Surface,
+		FRHITexture* Emissive,
+		FRHITexture* Depth,
+		FRHITexture* Output,
+		const FSceneView& View,
+		EGBufferDebugMode Mode,
+		uint32 Width,
+		uint32 Height) -> bool
+	{
+		check(IsInRenderingThread());
+		check(!CommandList.IsInsideRenderPass());
+		if (Material == nullptr || Normals == nullptr || Surface == nullptr
+			|| Emissive == nullptr || Depth == nullptr || Output == nullptr
+			|| Width == 0 || Height == 0
+			|| Mode == EGBufferDebugMode::Disabled
+			|| Mode >= EGBufferDebugMode::Count)
+		{
+			return false;
+		}
+
+		EnsureResources_RenderThread(CommandList);
+		auto* Payload = State->Slot.GetPayload();
 		if (Payload == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)

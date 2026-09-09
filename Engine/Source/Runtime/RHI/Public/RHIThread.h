@@ -58,7 +58,12 @@ namespace Durin
 		FRHIThreadWork(const FRHIThreadWork&) = delete;
 		auto operator=(const FRHIThreadWork&) -> FRHIThreadWork& = delete;
 
+		// Optional output set under the queue lock on admission, before replay can start.
+		// Enqueue consumes and clears this pointer; its storage need only outlive Enqueue.
+		uint64* AdmissionNanoseconds = nullptr;
 		std::function<FRHIThreadWorkResult()> Execute;
+		// A pending head stays queued; later serials never bypass it.
+		std::function<bool()> IsReady;
 		uint32 BatchCount = 0;
 		uint64 PayloadBytes = 0;
 	};
@@ -116,6 +121,8 @@ namespace Durin
 
 		RHI_API auto Start(const FRHIThreadQueueLimits& InLimits = {}) -> bool;
 		RHI_API auto BeginDrain() -> void;
+		RHI_API auto ReportExternalFailure(std::string Diagnostic) -> void;
+		RHI_API auto GetWakeCallback() const -> std::function<void()>;
 		RHI_API auto Stop() -> void;
 
 		// On success this moves Work into the queue. Rejection leaves Work intact.
@@ -137,7 +144,7 @@ namespace Durin
 		class FState;
 		class FRunnableOwner;
 
-		std::unique_ptr<FState> State;
+		std::shared_ptr<FState> State;
 		std::unique_ptr<FRunnableOwner> RunnableOwner;
 		std::unique_ptr<FRunnableThread> Thread;
 	};

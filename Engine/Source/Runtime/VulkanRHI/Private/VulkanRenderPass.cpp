@@ -195,11 +195,10 @@ namespace Durin::VulkanRHI
 			Device.GetRHI().GetDebugUtils().NameObject(RenderPass,
 				Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"));
 		}
-		catch (const std::exception& Error)
+		catch (...)
 		{
-			throw std::runtime_error(std::format(
-				"Vulkan render-pass creation failed: colorAttachments={}, totalAttachments={}, error={}",
-				Key.Layout.NumColorRenderTargets, Attachments.size(), Error.what()));
+			if (RenderPass) Device.GetHandle().destroyRenderPass(RenderPass);
+			throw;
 		}
 	}
 
@@ -207,7 +206,10 @@ namespace Durin::VulkanRHI
 	{
 		if (RenderPass)
 		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::RenderPass, RenderPass);
+			if (bPublished)
+				Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::RenderPass, RenderPass);
+			else
+				Device.GetHandle().destroyRenderPass(RenderPass);
 		}
 	}
 
@@ -234,6 +236,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanRenderPassManager::GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout) -> FVulkanRenderPass*
 	{
+		std::lock_guard Lock(RenderPassMutex);
 		checkf(InLayout.IsValid(), "Cannot create a Vulkan render pass from an invalid render target layout.");
 		const FVulkanRenderPassKey Key(InLayout);
 		if (const auto It = RenderPasses.find(Key); It != RenderPasses.end())
@@ -241,9 +244,14 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
+		if (RenderPasses.size() >= 1024)
+			throw FRHIRecoverableCreationError("Vulkan render-pass cache is full.");
+		auto Metadata = Device.ReserveCacheMetadata(512 + sizeof(FVulkanRenderPass) + sizeof(FVulkanRenderPassKey));
 		auto Candidate = std::make_unique<FVulkanRenderPass>(Device, Key);
+		Candidate->MetadataReservation = std::move(Metadata);
 		auto [It, bInserted] = RenderPasses.emplace(Key, std::move(Candidate));
 		check(bInserted);
+		It->second->bPublished = true;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanRenderPassEntryCount.fetch_add(1, std::memory_order_release);
 #endif

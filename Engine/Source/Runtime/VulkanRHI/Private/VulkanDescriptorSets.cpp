@@ -53,26 +53,37 @@ namespace Durin::VulkanRHI
 			const FVulkanDescriptorSetLayoutEntry& FoundEntry = It->second;
 			return FoundEntry.Handle;
 		}
-		// Create a new descriptor set layout if it doesn't exist in the cache
+		if (DLayoutMap.size() >= 4096)
+			throw FRHIRecoverableCreationError("Vulkan descriptor-set layout cache is full.");
+		// Resident entries remain valid until all creation tasks have joined.
 		vk::DescriptorSetLayoutCreateInfo CreateInfo{};
 		CreateInfo.setBindings(Layout.LayoutBindings);
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
+		NewEntry.MetadataReservation = Device.ReserveCacheMetadata(512 + Layout.LayoutBindings.capacity() * sizeof(vk::DescriptorSetLayoutBinding));
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		ThrowIfVulkanNativeCreateFailureIsArmed(
 			EVulkanCreateFailurePoint::DescriptorSetLayout);
 #endif
 		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(NewEntry.Handle,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
-		NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
-		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
-		check(bInserted);
+		try
+		{
+			Device.GetRHI().GetDebugUtils().NameObject(NewEntry.Handle,
+				Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
+			NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
+			const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
+			check(bInserted);
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroyDescriptorSetLayout(NewEntry.Handle);
+			throw;
+		}
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanDescriptorSetLayoutEntryCount.fetch_add(1, std::memory_order_release);
 #endif
 
-		return InsertedIt->second.Handle;
+		return NewEntry.Handle;
 	}
 
 	void FVulkanDescriptorSetsLayoutInfo::GenerateHash()
@@ -237,7 +248,7 @@ namespace Durin::VulkanRHI
 		if (bIsExpansion)
 		{
 			++Batch.ExpansionCount;
-			++Device.GetPipelineCacheStatisticsMutable().DescriptorPoolExpansions;
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorPoolExpansions;
 		}
 		DURIN_DEBUG("Created Vulkan descriptor pool: batch={}, poolCount={}, maxSets={}, expansions={}",
 			ActiveBatchIndex, Pools.size(), Pools.back()->GetMaxSets(),

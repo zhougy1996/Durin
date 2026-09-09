@@ -1,6 +1,6 @@
 # Native Test Execution
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-10
 
 This is the complete native-test selection, execution, diagnosis, and
 infrastructure specification. Agents selecting routine task validation should
@@ -240,6 +240,41 @@ isolation, stress, report, or qualification command and inspect the retained
 control directory printed by a failed launcher invocation. These tests require
 an active graphical login session. A locked or missing GUI session is a real,
 bounded test failure rather than a skip.
+
+## Vulkan Creation Qualification Memory
+
+On Windows, `VulkanCreationQualificationTests` and
+`MaterialCreationQualificationTests` retain the active Khronos validation DLL
+until test-process exit. Before the first `RHIInit`, the fixture creates and
+destroys a minimal Vulkan instance on the test main thread and acquires one reference to the validation
+DLL selected by the Vulkan loader. The bootstrap is outside measured rounds.
+It runs only when engine policy requests diagnostics; an unavailable validation
+layer leaves ordinary RHI capability negotiation in control. Initializing the
+DLL on a short-lived RHI owner thread and retaining it afterward is insufficient
+and caused crashes in the tested layer. It does not use an SDK path override
+or request a layer when validation is disabled. Every RHI instance, device and resource still follows
+its ordinary teardown. Host receipts record
+`validation_layer_lifetime=main_thread_bootstrap_process_if_available`.
+
+This is a test-host lifetime policy: repeated validation DLL unload/reload can
+retain allocator arenas and dominate process private-memory measurements.
+The verified SDK 1.4.357.0 Windows reproduction grew even with only
+`LoadLibrary`/`FreeLibrary` and no Vulkan calls. Keeping the DLL loaded allows
+its allocator to reuse memory while preserving validation checks. The evidence
+does not require an engine-runtime ownership change or establish that all
+remaining process memory is an engine leak. Detailed historical measurements
+remain in the [creation qualification investigation](../../Investigations/RHICreationQualificationAttribution.md).
+
+Use the same layer-lifetime policy, validation settings, SDK/layer, GPU driver,
+cache seeds and instrumentation for both sides of a memory comparison. Old
+DLL-unload measurements are attribution evidence, not a directly comparable
+acceptance baseline. Retaining the layer does not waive memory budgets or
+replace the documented warm-up and quiet-lane requirements. A test whose
+purpose is DLL unloading must use a separate process or dedicated
+characterization fixture; do not add its churn to creation qualification.
+Do not disable validation or set `MIMALLOC_DESTROY_ON_EXIT` as a general fix.
+The temporary absolute-path diagnostic override and standalone probe were
+removed after attribution; the ordinary test command applies the policy.
 
 ## Qualified Parallel Baseline
 

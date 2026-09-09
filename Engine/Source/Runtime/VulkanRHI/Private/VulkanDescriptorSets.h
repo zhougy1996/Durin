@@ -158,6 +158,7 @@ namespace Durin::VulkanRHI
 		vk::DescriptorSetLayout Handle{};
 		// The unique ID of the layout, in case we want to judge whether two layouts are the same, since the handle may be reused by Vulkan after one of them is destroyed and recreated
 		uint64 HandleId = 0;
+		std::shared_ptr<void> MetadataReservation;
 	};
 
 	// Reuses Vulkan descriptor-set layouts with identical structural descriptions.
@@ -233,6 +234,7 @@ namespace Durin::VulkanRHI
 	private:
 		FVulkanDevice& Device;
 		FVulkanDescriptorSetsLayout DSetsLayout;
+		std::shared_ptr<void> MetadataReservation;
 
 		friend class FVulkanPipelineManager;
 	};

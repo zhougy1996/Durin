@@ -269,7 +269,8 @@ float ShadowMain(float4 p : SV_Position) : SV_Target0 {
 			Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::R32_FLOAT;
 			Initializer.BoundShaders.VertexShader = Map.GetOrCreateShaderRHI(Types[0]);
 			Initializer.BoundShaders.FragmentShader = Map.GetOrCreateShaderRHI(Types[1]);
-			Initializer.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration({});
+			const auto Declaration = GDynamicRHI->RHICreateVertexDeclaration({});
+			Initializer.VertexDeclaration = Declaration;
 			Initializer.RasterizerState.CullMode = ERHICullMode::None;
 			Initializer.PipelineLayout = Map.GetMergedPipelineLayout();
 			const auto Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState("GeometryDepthCapture", Initializer);

@@ -410,7 +410,7 @@ namespace Durin
 				}
 				Initializer.PipelineLayout = Candidate.ShaderMap.GetPipelineLayout();
 				Candidate.PipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						FName(std::format(
 							"StaticMeshPipeline_{}", PipelineEntry.Index
 						)),
@@ -621,6 +621,24 @@ namespace Durin
 			ResolvedView.Observations.GBufferSuccessfulDraws,
 			ResolvedView.Observations.GBufferRejectedDraws,
 			ResolvedView.Observations.GBufferSkippedDraws};
+	}
+
+	auto FStaticMeshRenderer::PrepareGBufferPipelines_RenderThread(FGBufferRenderer& GBuffer, const FPreparedStaticMeshView& PreparedView) -> bool
+	{
+		bool Ready = true;
+		ForEachShadowBucket(PreparedView, [&](const auto& Bucket) {
+			for (const auto& Item : Bucket)
+			{
+				if (!Item.bSupportsGBuffer || Item.Material.PlanningPassIdentity.ShaderMap.ShadingModel != EMaterialShadingModel::Lit) continue;
+				const auto* Primitive = PreparedView.GetPrimitive(Item);
+				if (!Primitive) { Ready = false; continue; }
+				const FStaticMeshGeometryBinding Geometry(*Primitive, Item);
+				if (!Geometry.IsValid()) { Ready = false; continue; }
+				const auto* Pipeline = GBuffer.EnsurePipeline_RenderThread({.Material = Item.PipelineKey.Material, .CompiledProgram = Item.Material.CompiledProgram, .Rasterizer = Item.PipelineKey.Rasterizer, .Depth = Item.PipelineKey.Depth, .VertexDeclaration = Geometry.GetVertexDeclaration(), .FactoryKey = Item.PipelineKey.FactoryKey, .LayoutKey = Item.PipelineKey.LayoutKey, .Topology = Item.PipelineKey.Topology});
+				Ready = Pipeline && Ready;
+			}
+		});
+		return Ready;
 	}
 
 	auto FStaticMeshRenderer::DrawGBufferSection_RenderThread(

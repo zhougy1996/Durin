@@ -17,6 +17,12 @@ otherwise it inherits the executing task scope, or participates in the
 scheduler lifetime when submitted outside a task. `FTaskGroup` owns
 an explicit scope or borrows an existing module scope without taking its drain
 responsibility. Group construction requires a running scheduler.
+`FTaskScopeToken::CanLaunchFromCurrentContext()` exposes context compatibility
+for domain admission: ordinary caller threads and tasks already executing in
+that scope are compatible; a foreign executing task is not. This read-only
+query neither reserves admission nor keeps the scheduler/scope open. Owners
+must independently maintain their lifetime protocol. It does not bypass scope
+inheritance or provide an unchecked construction policy.
 
 A valid submission while its scheduler and owner scope are open is accepted.
 Busy executors queue work. Ordinary roots, continuations, children, fan-in and

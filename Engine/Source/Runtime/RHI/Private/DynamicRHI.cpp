@@ -4,6 +4,75 @@
 
 namespace Durin
 {
+	auto FDynamicRHI::GetPipelineCreationService() -> FRHIPipelineCreationService*
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		if (PipelineCreationClosed || !IsTaskSchedulerRunning() || !Capabilities) return nullptr;
+		if (!PipelineCreation)
+		{
+			auto Backend = CreatePipelineCreationBackend();
+			if (!Backend.FindGraphics || !Backend.FindCompute || !Backend.CreateGraphics
+				|| !Backend.CreateCompute || !Backend.PublishTerminalFailure) return nullptr;
+			PipelineCreation = std::make_unique<FRHIPipelineCreationService>(*Capabilities, std::move(Backend));
+		}
+		return PipelineCreation.get();
+	}
+	auto FDynamicRHI::RHIRequestGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
+		std::string_view Name) -> FRHIPipelineCreationRequest
+	{
+		if (auto* Service = GetPipelineCreationService()) return Service->RequestGraphics(Initializer, Name);
+		return FRHIPipelineCreationRequest::Rejected(RHIIsPipelineCreationClosed()
+			? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
+	}
+	auto FDynamicRHI::RHIRequestComputePipelineState(const FComputePipelineStateInitializer& Initializer,
+		std::string_view Name) -> FRHIPipelineCreationRequest
+	{
+		if (auto* Service = GetPipelineCreationService()) return Service->RequestCompute(Initializer, Name);
+		return FRHIPipelineCreationRequest::Rejected(RHIIsPipelineCreationClosed()
+			? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported);
+	}
+	auto FDynamicRHI::RHIRequestGraphicsPipelineBatch(std::span<const FRHIGraphicsPipelineBatchItem> Items)
+		-> FRHIPipelineCreationBatch
+	{
+		if (auto* Service = GetPipelineCreationService()) return Service->RequestGraphicsBatch(Items);
+		return {.Rejection = RHIIsPipelineCreationClosed() ? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported};
+	}
+	auto FDynamicRHI::RHIRequestComputePipelineBatch(std::span<const FRHIComputePipelineBatchItem> Items)
+		-> FRHIPipelineCreationBatch
+	{
+		if (auto* Service = GetPipelineCreationService()) return Service->RequestComputeBatch(Items);
+		return {.Rejection = RHIIsPipelineCreationClosed() ? ERHIPipelineRequestRejection::Closed : ERHIPipelineRequestRejection::Unsupported};
+	}
+	auto FDynamicRHI::RHIStopPipelineCreation() -> void
+	{
+		FRHIPipelineCreationService* Service;
+		{
+			std::lock_guard Lock(PipelineCreationMutex);
+			PipelineCreationClosed = true;
+			Service = PipelineCreation.get();
+		}
+		if (Service) Service->CloseAndJoin(false);
+	}
+	auto FDynamicRHI::RHIRetirePipelineCreationResults() -> void
+	{
+		FRHIPipelineCreationService* Service;
+		{
+			std::lock_guard Lock(PipelineCreationMutex);
+			Service = PipelineCreation.get();
+		}
+		if (Service) Service->CloseAndJoin();
+	}
+	auto FDynamicRHI::RHIIsPipelineCreationClosed() const -> bool
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		return PipelineCreationClosed || (PipelineCreation && PipelineCreation->IsClosed());
+	}
+	auto FDynamicRHI::RHIGetPipelineCreationStatistics() const -> FRHIPipelineCreationStatistics
+	{
+		std::lock_guard Lock(PipelineCreationMutex);
+		return PipelineCreation ? PipelineCreation->GetStatistics() : FRHIPipelineCreationStatistics{};
+	}
+
 	auto FDynamicRHI::RHITryCreateTexture(FRHICommandListBase& RHICmdList,
 		const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
 		-> TRefCountPtr<FRHITexture>

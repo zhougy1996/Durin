@@ -456,7 +456,7 @@ namespace Durin
 						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout = ShaderSet.GetPipelineLayout();
 					FGraphicsPipelineStateRHIRef Candidate =
-						GDynamicRHI->RHICreateGraphicsPipelineState(
+						FRenderPipelineRequestScope::Graphics(
 							FName(PipelineName), Initializer);
 					if (!Candidate)
 					{

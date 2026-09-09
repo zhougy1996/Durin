@@ -377,4 +377,44 @@ namespace Durin
 			Thread.GetStats().AdmissionState);
 		EXPECT_EQ(nullptr, GRHIThread);
 	}
+
+	TEST(FRHIThreadTests, ExternalFailureWakesWaitersBeforeRunningWorkReturns)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		ASSERT_TRUE(Thread.Start());
+		FThreadEvent Started, Release;
+		FRHIThreadWork Running;
+		Running.Execute = [&] { Started.Trigger(); Release.Wait(); return FRHIThreadWorkResult::Success(); };
+		const auto First = Thread.Enqueue(Running);
+		EXPECT_TRUE(Started.WaitFor(1.0));
+		std::atomic<bool> Replayed = false;
+		FRHIThreadWork Queued;
+		Queued.BatchCount = 1;
+		Queued.PayloadBytes = 512;
+		Queued.Execute = [&] { Replayed = true; return FRHIThreadWorkResult::Success(); };
+		const auto Second = Thread.Enqueue(Queued);
+		Thread.ReportExternalFailure("background device lost");
+		EXPECT_EQ(Thread.WaitForSerial(First.Serial), ERHIThreadWaitResult::Failed);
+		EXPECT_EQ(Thread.WaitForSerial(Second.Serial), ERHIThreadWaitResult::Failed);
+		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 1u);
+		EXPECT_EQ(Thread.GetStats().OutstandingPayloadBytes, 0u);
+		Release.Trigger();
+		Thread.Stop();
+		EXPECT_EQ(Thread.GetStats().CompletedSerial, 0u);
+		EXPECT_EQ(Thread.GetStats().OutstandingEntryCount, 0u);
+		EXPECT_FALSE(Replayed.load());
+	}
+
+	TEST(FRHIThreadTests, ExternalFailureBeforeAdmissionRejectsNewWork)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		ASSERT_TRUE(Thread.Start());
+		Thread.ReportExternalFailure("device lost before first batch");
+		FRHIThreadWork Work;
+		Work.Execute = [] { return FRHIThreadWorkResult::Success(); };
+		EXPECT_EQ(Thread.Enqueue(Work).Result, ERHIThreadEnqueueResult::Failed);
+		EXPECT_TRUE(Work.Execute);
+	}
 } // namespace Durin

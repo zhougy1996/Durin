@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanTexture.h"
 
 #include "RHICommandList.h"
@@ -112,7 +113,6 @@ namespace Durin::VulkanRHI
 		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
 			Device.GetRHI().GetDebugUtils().MakeInternalName("Image"))
 	{
-		CheckVulkanRHIThread();
 		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
@@ -133,7 +133,19 @@ namespace Durin::VulkanRHI
 				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
 				ImageExtent.depth, vk::to_string(Format)));
 		}
-		Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
+		}
+		catch (...)
+		{
+			MemoryManager.DestroyImage(Allocation, Image);
+			Image = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -178,7 +190,6 @@ namespace Durin::VulkanRHI
 	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
 		: Device(InDevice)
 	{
-		CheckVulkanRHIThread();
 		const float MaxAnisotropy = InDesc.MaxAnisotropy >= 1.0f ? InDesc.MaxAnisotropy : 1.0f;
 
 		vk::SamplerCreateInfo SamplerInfo;
@@ -202,9 +213,26 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(
 			EVulkanCreateFailurePoint::Sampler);
 #endif
-		Sampler = Device.GetHandle().createSampler(SamplerInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(Sampler,
-			Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"));
+		Sampler = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+			return Device.GetHandle().createSampler(SamplerInfo);
+		}();
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(Sampler,
+				Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"));
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroySampler(Sampler);
+			Sampler = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanSampler::~FVulkanSampler()
@@ -227,6 +255,9 @@ namespace Durin::VulkanRHI
 		const FRHITextureCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
 		-> FTextureRHIRef
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Texture);
+#endif
 		OutFailure = ERHIResourceCreationFailure::None;
 		std::string ValidationError;
 		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
@@ -239,11 +270,11 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		TRefCountPtr<FVulkanTexture> Texture;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, NormalizedDesc, &Texture]() {
-					Texture = new FVulkanTexture(*Device, NormalizedDesc);
-				});
+		auto CreationOperation = MakeVulkanCreationOperation(
+			[this, NormalizedDesc, &Texture]() {
+				Texture = new FVulkanTexture(*Device, NormalizedDesc);
+			});
+		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			OutFailure = CreationResult.Failure;
@@ -256,6 +287,9 @@ namespace Durin::VulkanRHI
 		{
 			RHICmdList.InitializeTexture(Texture.GetReference());
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Texture;
+#endif
 		return Texture;
 	}
 
@@ -353,18 +387,24 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Sampler);
+#endif
 		TRefCountPtr<FRHISampler> Result;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, CreateDesc, &Result]() {
-					Result = new FVulkanSampler(*Device, CreateDesc);
-				});
+		auto CreationOperation = MakeVulkanCreationOperation(
+			[this, CreateDesc, &Result]() {
+				Result = new FVulkanSampler(*Device, CreateDesc);
+			});
+		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI sampler: {}",
 				CreationResult.Diagnostic);
 			return nullptr;
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 
@@ -372,6 +412,9 @@ namespace Durin::VulkanRHI
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::BufferView);
+#endif
 		std::string Error;
 		if (!ValidateBufferViewDesc(Buffer, Desc, Error))
 		{
@@ -390,15 +433,19 @@ namespace Durin::VulkanRHI
 			}
 		}
 		FBufferViewRHIRef Result;
-		const FRHIFallibleOperationResult CreationResult = ExecuteFallibleVulkanCreationOperation(
+		auto CreationOperation = MakeVulkanCreationOperation(
 			[this, Buffer, Desc, &Result]() {
 				Result = new FVulkanBufferView(*Device, Buffer, Desc);
 			});
+		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan buffer view: {}", CreationResult.Diagnostic);
 			return nullptr;
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 
@@ -406,6 +453,9 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::TextureView);
+#endif
 		std::string Error;
 		if (!ValidateTextureViewDesc(Texture, Desc, Error))
 		{
@@ -413,15 +463,23 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		FTextureViewRHIRef Result;
-		const FRHIFallibleOperationResult CreationResult = ExecuteFallibleVulkanCreationOperation(
+		auto CreationOperation = MakeVulkanCreationOperation(
 			[this, Texture, Desc, &Result]() {
 				Result = new FVulkanTextureView(*Device, Texture, Desc);
 			});
+		FRHIFallibleOperationResult CreationResult;
+		// Swapchain backing changes on replay; only stable local images are caller-domain factories.
+		if (static_cast<FVulkanTexture*>(Texture)->HasExternalBacking() && GRHIThread && !IsInRHIThread())
+			CreationResult = GCommandListExecutor.ExecuteFallibleSynchronousOperation(false, std::move(CreationOperation));
+		else CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan texture view: {}", CreationResult.Diagnostic);
 			return nullptr;
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 

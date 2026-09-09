@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanShader.h"
 
 #include "RHICommandList.h"
@@ -104,7 +105,6 @@ namespace Durin::VulkanRHI
 		, Device(InDevice)
 		, EntryPoint(InCreateDesc.EntryPoint)
 	{
-		CheckVulkanRHIThread();
 		vk::ShaderModuleCreateInfo createInfo;
 		// The shader code is expected to be in SPIR-V bytecode format, which is a binary format where each instruction is 4 bytes (32 bits) long. Therefore, the size of the code should be a multiple of 4 bytes.
 		check(InCreateDesc.Code.size() % sizeof(uint32) == 0);
@@ -122,10 +122,27 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(
 			EVulkanCreateFailurePoint::ShaderModule);
 #endif
-		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
-		Device.GetRHI().GetDebugUtils().NameObject(ShaderModule,
-			InCreateDesc.DebugName ? InCreateDesc.DebugName
-				: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"));
+		ShaderModule = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			FVulkanNativeCreationTimingScope NativeTiming;
+#endif
+			return Device.GetHandle().createShaderModule(createInfo);
+		}();
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(ShaderModule,
+				InCreateDesc.DebugName ? InCreateDesc.DebugName
+						: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"));
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroyShaderModule(ShaderModule);
+			ShaderModule = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanShader::~FVulkanShader()
@@ -140,12 +157,15 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Shader);
+#endif
 		FShaderRHIRef Result;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, InCreateDesc, &Result]() {
-					Result = new FVulkanShader(*Device, InCreateDesc);
-				});
+		auto CreationOperation = MakeVulkanCreationOperation(
+			[this, InCreateDesc, &Result]() {
+				Result = new FVulkanShader(*Device, InCreateDesc);
+			});
+		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI shader '{}': {}",
@@ -153,6 +173,9 @@ namespace Durin::VulkanRHI
 				CreationResult.Diagnostic);
 			return nullptr;
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 }

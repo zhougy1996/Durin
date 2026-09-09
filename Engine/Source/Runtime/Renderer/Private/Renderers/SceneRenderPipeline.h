@@ -90,6 +90,10 @@ namespace Durin
 		) -> ERenderViewResult;
 
 	private:
+		auto ExecutePreparedAttempt_RenderThread(FRHICommandListImmediate& CommandList,
+			FScene* Scene, const FSceneView& View, FRHITexture* OutputTarget,
+			bool bPresentOutput, const FSceneViewRenderOptions& Options,
+			FSceneViewStatistics* OutStatistics, FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult;
 		auto PrepareView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FSceneFrameContext& Context

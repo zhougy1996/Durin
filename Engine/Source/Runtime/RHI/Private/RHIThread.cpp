@@ -61,7 +61,7 @@ namespace Durin
 				{
 					std::unique_lock Lock(State.Mutex);
 					State.WorkCV.wait(Lock, [this]() {
-						return !State.Queue.empty()
+						return (!State.Queue.empty() && (!State.Queue.front().Work.IsReady || State.Queue.front().Work.IsReady()))
 							|| State.AdmissionState != ERHIThreadAdmissionState::Running;
 					});
 					if (State.Queue.empty())
@@ -75,7 +75,7 @@ namespace Durin
 				FRHIThreadWorkResult Result;
 				try
 				{
-					Result = Entry.Work.Execute();
+					if (!Entry.Work.IsReady || Entry.Work.IsReady()) Result = Entry.Work.Execute();
 				}
 				catch (const std::exception& Exception)
 				{
@@ -94,14 +94,21 @@ namespace Durin
 				{
 					std::lock_guard Lock(State.Mutex);
 					ReleaseCapacity(CompletedBatchCount, CompletedPayloadBytes);
+					if (State.FailedSerial != 0)
+					{
+						Result.bSucceeded = false;
+					}
 					if (Result.bSucceeded)
 					{
 						State.CompletedSerial = Entry.Serial;
 					}
 					else
 					{
-						State.FailedSerial = Entry.Serial;
-						State.FailureDiagnostic = std::move(Result.Diagnostic);
+						if (State.FailedSerial == 0)
+						{
+							State.FailedSerial = Entry.Serial;
+							State.FailureDiagnostic = std::move(Result.Diagnostic);
+						}
 						State.AdmissionState = ERHIThreadAdmissionState::Draining;
 						RejectedEntries = std::move(State.Queue);
 						for (const FRHIThreadQueueEntry& RejectedEntry : RejectedEntries)
@@ -172,7 +179,7 @@ namespace Durin
 	}
 
 	FRHIThread::FRHIThread()
-		: State(std::make_unique<FState>())
+		: State(std::make_shared<FState>())
 	{
 	}
 
@@ -259,6 +266,41 @@ namespace Durin
 		RunnableOwner.reset();
 	}
 
+	auto FRHIThread::ReportExternalFailure(std::string Diagnostic) -> void
+	{
+		std::deque<FRHIThreadQueueEntry> Rejected;
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (State->FailedSerial != 0) return;
+			State->FailedSerial = State->CompletedSerial == std::numeric_limits<uint64>::max()
+				? State->CompletedSerial : State->CompletedSerial + 1;
+			State->FailureDiagnostic = std::move(Diagnostic);
+			State->AdmissionState = ERHIThreadAdmissionState::Draining;
+			Rejected.swap(State->Queue);
+			for (const auto& Entry : Rejected)
+			{
+				--State->OutstandingEntryCount;
+				State->OutstandingBatchCount -= Entry.Work.BatchCount;
+				State->OutstandingPayloadBytes -= Entry.Work.PayloadBytes;
+			}
+			State->RejectedWorkCount += Rejected.size();
+		}
+		Rejected.clear();
+		State->CompletionCV.notify_all();
+		State->WorkCV.notify_all();
+	}
+
+	auto FRHIThread::GetWakeCallback() const -> std::function<void()>
+	{
+		return [Weak = std::weak_ptr<FState>(State)] {
+			if (const auto Pinned = Weak.lock())
+			{
+				std::lock_guard Lock(Pinned->Mutex);
+				Pinned->WorkCV.notify_all();
+			}
+		};
+	}
+
 	auto FRHIThread::Enqueue(FRHIThreadWork& Work) -> FRHIThreadSubmission
 	{
 		if (IsInRHIThread())
@@ -337,6 +379,12 @@ namespace Durin
 			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
+		if (Work.AdmissionNanoseconds)
+		{
+			*Work.AdmissionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count());
+			Work.AdmissionNanoseconds = nullptr;
+		}
 		State->Queue.push_back({Serial, std::move(Work)});
 		// std::function's moved-from state is valid but otherwise unspecified.
 		// Make accepted submission ownership explicit on every standard library.
@@ -396,6 +444,12 @@ namespace Durin
 			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
+		if (Work.AdmissionNanoseconds)
+		{
+			*Work.AdmissionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count());
+			Work.AdmissionNanoseconds = nullptr;
+		}
 		State->Queue.push_back({Serial, std::move(Work)});
 		Work = {};
 		State->WorkCV.notify_all();

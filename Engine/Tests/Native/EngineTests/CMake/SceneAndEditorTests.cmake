@@ -363,3 +363,25 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	INCLUDE_DIRECTORIES ${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
 	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )
+
+# Measures material first use separately from routine renderer correctness coverage.
+durin_add_engine_functional_test(MaterialCreationQualificationTests
+	EDITOR_ONLY
+	KIND qualification
+	DOMAINS renderer rhi-creation
+	MODULES engine renderer vulkan-rhi
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Measures a fixed material scene through complete production renderer frames."
+	SOURCES Private/MaterialCreationQualificationTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer VulkanRHI Vulkan::Vulkan
+	INCLUDE_DIRECTORIES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+		${CMAKE_SOURCE_DIR}/Engine/Tests/Native/VulkanRHITests/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
+)
+if(TARGET MaterialCreationQualificationTests AND WIN32)
+	target_link_libraries(MaterialCreationQualificationTests PRIVATE dxgi)
+endif()

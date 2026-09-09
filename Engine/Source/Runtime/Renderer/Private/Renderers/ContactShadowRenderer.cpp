@@ -202,7 +202,7 @@ namespace Durin
 				FComputePipelineStateInitializer Initializer;
 				Initializer.ComputeShader = ComputeRHI;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
+				Candidate.PipelineState = FRenderPipelineRequestScope::Compute(
 					"ContactVisibilityComputePipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -269,7 +269,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
-				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+				Candidate.PipelineState = FRenderPipelineRequestScope::Graphics(
 					"ContactVisibilityPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
 					return FResult::Failure(MakeRendererResourceCreateError(

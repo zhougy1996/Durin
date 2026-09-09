@@ -840,7 +840,7 @@ namespace Durin
 		ASSERT_TRUE(First);
 		EXPECT_EQ(Second.GetReference(), First.GetReference());
 		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
-			Before + 1);
+			Before);
 
 		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
 			RHICmdList,
@@ -859,7 +859,7 @@ namespace Durin
 		ASSERT_TRUE(FirstBufferView);
 		EXPECT_EQ(SecondBufferView.GetReference(), FirstBufferView.GetReference());
 		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
-			BeforeBuffer + 1);
+			BeforeBuffer);
 
 		FTextureViewRHIRef ExplicitFirst = GDynamicRHI->RHICreateTextureView(
 			Texture, SampledDesc);

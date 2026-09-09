@@ -1,3 +1,4 @@
+#include "VulkanCreationTiming.h"
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
@@ -34,7 +35,6 @@ namespace Durin::VulkanRHI
 		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
 			Device.GetRHI().GetDebugUtils().MakeInternalName("Buffer"))
 	{
-		CheckVulkanRHIThread();
 		vk::BufferCreateInfo BufferInfo;
 		BufferInfo.setSize(InCreateDesc.Size);
 		BufferInfo.setUsage(ToVulkan_BufferUsageFlags(InCreateDesc.Usage));
@@ -69,7 +69,19 @@ namespace Durin::VulkanRHI
 				vk::to_string(Result), BufferInfo.size,
 				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
 		}
-		Device.GetRHI().GetDebugUtils().NameObject(Buffer, DebugName);
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ResourcePublication);
+#endif
+			Device.GetRHI().GetDebugUtils().NameObject(Buffer, DebugName);
+		}
+		catch (...)
+		{
+			MemoryManager.DestroyBuffer(Allocation, Buffer);
+			Buffer = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()
@@ -486,6 +498,9 @@ namespace Durin::VulkanRHI
 		const FRHIBufferCreateDesc& CreateDesc, ERHIResourceCreationFailure& OutFailure)
 		-> FBufferRHIRef
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		FVulkanCreationTimingScope TimingScope(EVulkanCreationKind::Buffer);
+#endif
 		OutFailure = ERHIResourceCreationFailure::None;
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
 		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
@@ -494,11 +509,11 @@ namespace Durin::VulkanRHI
 			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
 		}
 		TRefCountPtr<FRHIBuffer> Result;
-		const FRHIFallibleOperationResult CreationResult =
-			ExecuteFallibleVulkanCreationOperation(
-				[this, NormalizedDesc, &Result]() {
-					Result = new FVulkanBuffer(*Device, NormalizedDesc);
-				});
+		auto CreationOperation = MakeVulkanCreationOperation(
+			[this, NormalizedDesc, &Result]() {
+				Result = new FVulkanBuffer(*Device, NormalizedDesc);
+			});
+		const auto CreationResult = ExecuteFallibleRHICreationOperation(CreationOperation);
 		if (!CreationResult.IsSuccess())
 		{
 			OutFailure = CreationResult.Failure;
@@ -513,6 +528,9 @@ namespace Durin::VulkanRHI
 		{
 			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (auto* Timing = TimingScope.Get()) Timing->bSucceeded = !!Result;
+#endif
 		return Result;
 	}
 

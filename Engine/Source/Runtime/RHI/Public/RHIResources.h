@@ -190,6 +190,8 @@ namespace Durin
 		};
 
 		mutable FAtomicFlags AtomicFlags;
+		// Reserved in the resource itself so final release never allocates queue storage.
+		mutable FRHIResource* NextPendingDelete = nullptr;
 
 		ERHIResourceType ResourceType;
 	};

@@ -19,6 +19,11 @@
 
 namespace Durin::VulkanRHI
 {
+	auto FVulkanDevice::ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>
+	{
+		return CacheMetadata.Reserve(Bytes);
+	}
+
 	namespace
 	{
 		auto HasExtension(const std::vector<std::string>& Extensions, std::string_view Name) -> bool
@@ -359,6 +364,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::ResetPipelineCacheStatistics() -> void
 	{
+		std::lock_guard Lock(PipelineCacheStatisticsMutex);
 		const uint64 DescriptorOccupancy = PipelineCacheStatistics.DescriptorSnapshots.Occupancy;
 		const uint64 DescriptorValueOccupancy = PipelineCacheStatistics.DescriptorValueOccupancy;
 		const uint64 LayoutOccupancy = PipelineCacheStatistics.StructuralLayouts.Occupancy;

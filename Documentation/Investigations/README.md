@@ -1,5 +1,9 @@
 # Engineering Investigations
 
+- [RHI creation qualification attribution](RHICreationQualificationAttribution.md) —
+  repeated-device private memory depends strongly on Vulkan diagnostics;
+  following-frame tails are dominated by host completion waits and require
+  allocation-stack/host-trace attribution before assigning a production fix.
 - [macOS MoltenVK argument-buffer instability](MacOSMoltenVKArgumentBufferInstability.md) —
   scene geometry is stable when MoltenVK uses discrete resource indexes; keep
   that qualified workaround until a LunarG SDK containing MoltenVK 1.4.2 or

@@ -3,6 +3,7 @@
 #include "VulkanCommon.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanShader.h"
+#include "RHIPipelineCreation.h"
 
 namespace Durin::VulkanRHI
 {
@@ -14,13 +15,23 @@ namespace Durin::VulkanRHI
 	class FVulkanTexture;
 	class FVulkanSampler;
 
+	using FVulkanGraphicsPipelineInputs = FRHIGraphicsPipelineCreationInputs;
+	using FVulkanComputePipelineInputs = FRHIComputePipelineCreationInputs;
+
+	struct FVulkanPipelineDependencies
+	{
+		// Render-pass handles remain owned by the device's resident cache.
+		const FVulkanRenderPass* RenderPass = nullptr;
+		std::shared_ptr<FVulkanLayout> Layout;
+	};
+
 	// Owns one complete Vulkan compute pipeline and the layout used to bind it.
 	class FVulkanComputePipelineState : public FRHIComputePipelineState
 	{
 	public:
 		FVulkanComputePipelineState(FVulkanDevice& InDevice,
-			const FComputePipelineStateInitializer& Initializer,
-			FComputePipelineStateKey InKey, std::string_view DebugName);
+			const FVulkanComputePipelineInputs& Inputs, FComputePipelineStateKey InKey,
+			FVulkanPipelineDependencies Dependencies);
 		~FVulkanComputePipelineState() override;
 
 		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
@@ -36,7 +47,9 @@ namespace Durin::VulkanRHI
 		std::shared_ptr<FVulkanLayout> Layout;
 		vk::PipelineLayout PipelineLayout{};
 		vk::Pipeline Pipeline{};
+		std::shared_ptr<void> MetadataReservation;
 		FComputePipelineStateKey Key;
+		friend class FVulkanPipelineManager;
 	};
 
 	// Owns one complete Vulkan graphics pipeline and the layout used to bind it.
@@ -44,8 +57,8 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
-			const FGraphicsPipelineStateInitializer& Initializer,
-			FGraphicsPipelineStateKey InKey, std::string_view DebugName);
+			const FVulkanGraphicsPipelineInputs& Inputs, FGraphicsPipelineStateKey InKey,
+			FVulkanPipelineDependencies Dependencies);
 
 		~FVulkanGraphicsPipelineState() override;
 
@@ -67,29 +80,41 @@ namespace Durin::VulkanRHI
 		vk::PipelineLayout PipelineLayout{};
 
 		vk::Pipeline Pipeline{};
+		std::shared_ptr<void> MetadataReservation;
 
 		FGraphicsPipelineStateKey Key;
 
 		friend class FVulkanPipelineManager;
 	};
 
-	// Creates graphics pipelines and owns reusable structural layout data.
+	// Owns cache lookup/publication and acquires candidate dependencies explicitly.
 	class FVulkanPipelineManager
 	{
 	public:
 		FVulkanPipelineManager(FVulkanDevice& InDevice);
 		~FVulkanPipelineManager();
 
-		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
+		auto FindGraphicsPipelineState(const FGraphicsPipelineStateKey& Key) -> FGraphicsPipelineStateRHIRef;
+		auto FindComputePipelineState(const FComputePipelineStateKey& Key) -> FComputePipelineStateRHIRef;
+		VULKANRHI_API auto GetOrCreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
 			FGraphicsPipelineStateKey Key, std::string_view DebugName)
 			-> TRefCountPtr<FVulkanGraphicsPipelineState>;
-		auto CreateComputePipelineState(const FComputePipelineStateInitializer& Initializer,
+		VULKANRHI_API auto GetOrCreateComputePipelineState(const FComputePipelineStateInitializer& Initializer,
 			FComputePipelineStateKey Key, std::string_view DebugName)
 			-> TRefCountPtr<FVulkanComputePipelineState>;
 
 		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>;
-		auto GetDriverPipelineCache() const -> vk::PipelineCache { return DriverPipelineCache; }
+		// Every native access to the shared driver cache uses this exclusive domain.
+		// Callers must not hold a cache-table lock while compiling.
+		auto CompileGraphicsPipeline(const vk::GraphicsPipelineCreateInfo& Info)
+			-> vk::ResultValue<vk::Pipeline>;
+		auto CompileComputePipeline(const vk::ComputePipelineCreateInfo& Info)
+			-> vk::ResultValue<vk::Pipeline>;
 	private:
+		auto AcquireGraphicsDependencies(const FVulkanGraphicsPipelineInputs& Inputs)
+			-> FVulkanPipelineDependencies;
+		auto AcquireComputeDependencies(const FVulkanComputePipelineInputs& Inputs)
+			-> FVulkanPipelineDependencies;
 		struct FLayoutCacheEntry
 		{
 			std::shared_ptr<FVulkanLayout> Layout;
@@ -109,8 +134,6 @@ namespace Durin::VulkanRHI
 		auto InitializeDriverPipelineCache() -> void;
 		auto SaveDriverPipelineCache() -> void;
 		auto EvictLayoutIfNeeded() -> bool;
-		auto EvictPipelineIfNeeded() -> bool;
-		auto EvictComputePipelineIfNeeded() -> bool;
 
 		FVulkanDevice& Device;
 
@@ -119,6 +142,9 @@ namespace Durin::VulkanRHI
 		std::unordered_map<FComputePipelineStateKey, FComputePipelineCacheEntry,
 			FComputePipelineStateKeyHasher> ComputePipelineMap;
 		vk::PipelineCache DriverPipelineCache{};
+		std::mutex DriverCacheMutex;
+		std::mutex CreationMutex;
+		std::mutex LayoutMutex;
 		uint64 AccessSerial = 0;
 	};
 

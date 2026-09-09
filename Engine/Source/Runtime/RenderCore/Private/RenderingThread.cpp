@@ -126,12 +126,13 @@ namespace Durin
 		{
 		}
 
-		auto CompleteRenderCommand(bool bInSucceeded, uint64 InRHISerial) -> void
+		auto CompleteRenderCommand(bool bInSucceeded, uint64 InRHISerial, FRHICommandListFence InFence = {}) -> void
 		{
 			{
 				std::lock_guard Lock(Mutex);
 				bSucceeded = bInSucceeded;
 				RHISerial = InRHISerial;
+				RHIFence = std::move(InFence);
 			}
 			bRenderCommandComplete.store(true, std::memory_order_release);
 			CV.notify_all();
@@ -141,6 +142,7 @@ namespace Durin
 		std::atomic<bool> bRenderCommandComplete = false;
 		bool bSucceeded = true;
 		uint64 RHISerial = 0;
+		FRHICommandListFence RHIFence;
 		std::condition_variable CV;
 		std::mutex Mutex;
 	};
@@ -180,7 +182,8 @@ namespace Durin
 								static_cast<uint32>(Submission.Result));
 						}
 						FenceState->CompleteRenderCommand(
-							Submission.IsAccepted(), Submission.Serial);
+							Submission.IsAccepted(), Submission.Serial,
+							Submission.IsAccepted() ? GCommandListExecutor.CreateFence(Submission.Serial) : FRHICommandListFence{});
 					}
 					catch (...)
 					{
@@ -204,10 +207,11 @@ namespace Durin
 		const bool bSucceeded = FenceState->bSucceeded;
 		const ERenderCommandFenceMode Mode = FenceState->Mode;
 		const uint64 RHISerial = FenceState->RHISerial;
+		const auto RHIFence = FenceState->RHIFence;
 		Lock.unlock();
 		if (bSucceeded && Mode == ERenderCommandFenceMode::RHIThread)
 		{
-			if (!GCommandListExecutor.TryWaitForSerial(RHISerial))
+			if (!RHIFence.TryWait())
 			{
 				DURIN_ERROR(
 					"RHI-inclusive render fence failed while waiting for serial {}.",
@@ -229,8 +233,7 @@ namespace Durin
 		{
 			return true;
 		}
-		return GCommandListExecutor.IsSerialComplete(FenceState->RHISerial)
-			|| GCommandListExecutor.IsSerialFailed(FenceState->RHISerial);
+		return FenceState->RHIFence.GetState() != ERHICommandBatchState::Pending;
 	}
 
 	namespace FFrameSync

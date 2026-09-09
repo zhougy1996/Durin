@@ -83,7 +83,8 @@ namespace Durin::VulkanRHI
 	{
 		if (!CachedDescriptorSets.empty())
 		{
-			auto& Stats = Device.GetPipelineCacheStatisticsMutable();
+			auto StatsAccess = Device.AccessPipelineCacheStatistics();
+			auto& Stats = StatsAccess.Get();
 			check(Stats.DescriptorSnapshots.Occupancy > 0);
 			--Stats.DescriptorSnapshots.Occupancy;
 			check(Stats.DescriptorValueOccupancy >= CachedResources.size());
@@ -170,7 +171,8 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get();
 		if (ResourcesEqual(CachedResources, PendingResources)
 			&& !CachedDescriptorSets.empty())
 		{
@@ -596,12 +598,12 @@ namespace Durin::VulkanRHI
 			FVulkanDescriptorSetCacheEntry& Entry = DescriptorSetCache[Candidate->second];
 			if (AreDescriptorResourcesEqual(Entry.Resources, PendingShaderResources))
 			{
-				++Device.GetPipelineCacheStatisticsMutable().DescriptorSnapshots.Hits;
+				++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Hits;
 				Owner.TouchDescriptorCacheEntry(Entry);
 				return FDescriptorSetsForDraw{&Entry.DescriptorSets, std::move(DynamicOffsets)};
 			}
 		}
-		++Device.GetPipelineCacheStatisticsMutable().DescriptorSnapshots.Misses;
+		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Misses;
 
 		FVulkanDescriptorSetCacheEntry NewEntry;
 		NewEntry.Hash = DescriptorHash;
@@ -704,8 +706,8 @@ namespace Durin::VulkanRHI
 		}
 
 		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
-		++Device.GetPipelineCacheStatisticsMutable().DescriptorSnapshots.NativeCreations;
-		++Device.GetPipelineCacheStatisticsMutable().DescriptorAllocations;
+		++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.NativeCreations;
+		++Device.AccessPipelineCacheStatistics().Get().DescriptorAllocations;
 		DescriptorSetCache.push_back(std::move(NewEntry));
 		DescriptorSetCacheIndex.emplace(DescriptorHash, DescriptorSetCache.size() - 1);
 		FVulkanDescriptorSetCacheEntry& CommittedEntry = DescriptorSetCache.back();
@@ -734,7 +736,8 @@ namespace Durin::VulkanRHI
 		check(DescriptorValueOccupancy <= std::numeric_limits<uint64>::max() - ValueCount);
 		DescriptorEntryOccupancy += EntryCount;
 		DescriptorValueOccupancy += ValueCount;
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get();
 		check(Stats.DescriptorSnapshots.Occupancy
 			<= std::numeric_limits<uint64>::max() - EntryCount);
 		check(Stats.DescriptorValueOccupancy
@@ -753,7 +756,8 @@ namespace Durin::VulkanRHI
 		check(ValueCount <= DescriptorValueOccupancy);
 		DescriptorEntryOccupancy -= EntryCount;
 		DescriptorValueOccupancy -= ValueCount;
-		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
+		auto StatsAccess = Device.AccessPipelineCacheStatistics();
+		auto& Stats = StatsAccess.Get();
 		check(EntryCount <= Stats.DescriptorSnapshots.Occupancy);
 		check(ValueCount <= Stats.DescriptorValueOccupancy);
 		Stats.DescriptorSnapshots.Occupancy -= EntryCount;
@@ -814,7 +818,7 @@ namespace Durin::VulkanRHI
 				VictimState->DescriptorSetCache[VictimIndex].Resources.size());
 			VictimState->DescriptorSetCache.erase(VictimState->DescriptorSetCache.begin() + VictimIndex);
 			VictimState->RebuildCacheIndex();
-			++Device.GetPipelineCacheStatisticsMutable().DescriptorSnapshots.Evictions;
+			++Device.AccessPipelineCacheStatistics().Get().DescriptorSnapshots.Evictions;
 		}
 	}
 

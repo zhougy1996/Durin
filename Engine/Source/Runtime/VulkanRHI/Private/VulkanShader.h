@@ -14,7 +14,7 @@ namespace Durin::VulkanRHI
 
 		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule; }
 
-		auto GetEntryPoint() const -> const char* { return EntryPoint; }
+		auto GetEntryPoint() const -> const char* { return EntryPoint.c_str(); }
 		auto HasReflectedVertexInputs() const -> bool
 		{
 			return bHasReflectedVertexInputs;
@@ -27,7 +27,7 @@ namespace Durin::VulkanRHI
 	protected:
 		FVulkanDevice& Device;
 
-		const char* EntryPoint = nullptr;
+		std::string EntryPoint;
 		bool bHasReflectedVertexInputs = false;
 		std::unordered_set<uint32> VertexInputLocations;
 

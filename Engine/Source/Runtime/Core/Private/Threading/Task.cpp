@@ -2625,6 +2625,11 @@ namespace Durin
 		return State && GCurrentTaskState && GCurrentTaskState->GetScope() == State;
 	}
 
+	auto FTaskScopeToken::CanLaunchFromCurrentContext() const -> bool
+	{
+		return State && (!GCurrentTaskState || GCurrentTaskState->GetScope() == State);
+	}
+
 	auto Private::ProcessGameThreadDeferredScope(
 		const FTaskScopeToken& Scope,
 		bool bCancel,

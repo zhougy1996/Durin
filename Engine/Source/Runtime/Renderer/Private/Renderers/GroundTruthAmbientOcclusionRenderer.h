@@ -177,9 +177,9 @@ namespace Durin
 			const FSceneView& View) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
-	private:
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList) -> bool;
+	private:
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

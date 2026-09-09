@@ -1,5 +1,15 @@
 include(GoogleTest)
 
+add_durin_test(RHIPipelineCreationTests
+	Private/RHIPipelineCreationTests.cpp
+)
+target_link_libraries(RHIPipelineCreationTests PRIVATE Core RHI)
+durin_register_native_test(RHIPipelineCreationTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+
 add_durin_test(RHICommandListTests
 	Private/RHICommandListTests.cpp
 )

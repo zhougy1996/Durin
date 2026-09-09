@@ -238,8 +238,12 @@ namespace Durin
 	auto RHIExit() -> void
 	{
 		check(GDynamicRHI);
+		GDynamicRHI->RHIStopPipelineCreation();
 		RHIReleaseResourcesDelegate.Broadcast();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		FRHICommandListImmediate::Get().ImmediateFlush(
+			EImmediateFlushType::FlushRHIThreadFlushResources);
+		GDynamicRHI->RHIRetirePipelineCreationResults();
 		FRHICommandListImmediate::Get().ImmediateFlush(
 			EImmediateFlushType::FlushRHIThreadFlushResources);
 		if (RHIThreadOwner)

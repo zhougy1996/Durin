@@ -1617,7 +1617,9 @@ namespace Durin
 	}
 
 	// May use a multiple producer single consumer queue here if the contention is high, but currently we don't have that many threads creating resources, so a simple vector with mutex should be fine.
-	std::vector<FRHIResource*> PendingDeletes;
+	FRHIResource* PendingDeleteHead = nullptr;
+	FRHIResource* PendingDeleteTail = nullptr;
+	size_t PendingDeleteCount = 0;
 	std::mutex PendingDeletesMutex;
 
 #if DO_CHECK
@@ -1648,7 +1650,11 @@ namespace Durin
 	auto FRHIResource::EnqueueForDelete() const -> void
 	{
 		std::lock_guard<std::mutex> lock(PendingDeletesMutex);
-		PendingDeletes.push_back(const_cast<FRHIResource*>(this));
+		auto* Resource = const_cast<FRHIResource*>(this);
+		if (PendingDeleteTail) PendingDeleteTail->NextPendingDelete = Resource;
+		else PendingDeleteHead = Resource;
+		PendingDeleteTail = Resource;
+		++PendingDeleteCount;
 	}
 
 	auto FRHIResource::DeleteResources(const std::vector<FRHIResource*>& ResourcesToDelete) -> void
@@ -1674,22 +1680,27 @@ namespace Durin
 
 	auto FRHIResource::GatherResourcesToDelete(std::vector<FRHIResource*>& OutResourcesToDelete) -> void
 	{
-		std::vector<FRHIResource*> LocalTemp;
+		std::lock_guard<std::mutex> Lock(PendingDeletesMutex);
+		// Allocate on the deletion owner before transferring any queue ownership.
+		// If reserve fails, the intact intrusive queue remains available for retry.
+		if (PendingDeleteCount > OutResourcesToDelete.max_size() - OutResourcesToDelete.size())
+			throw std::length_error("RHI deferred deletion batch exceeds vector capacity.");
+		OutResourcesToDelete.reserve(OutResourcesToDelete.size() + PendingDeleteCount);
+		while (PendingDeleteHead)
 		{
-			std::lock_guard<std::mutex> Lock(PendingDeletesMutex);
-			LocalTemp.swap(PendingDeletes);
+			auto* Resource = PendingDeleteHead;
+			PendingDeleteHead = Resource->NextPendingDelete;
+			Resource->NextPendingDelete = nullptr;
+			OutResourcesToDelete.push_back(Resource);
 		}
-		OutResourcesToDelete.insert(
-			OutResourcesToDelete.end(),
-			std::make_move_iterator(LocalTemp.begin()),
-			std::make_move_iterator(LocalTemp.end())
-		);
+		PendingDeleteTail = nullptr;
+		PendingDeleteCount = 0;
 	}
 
 	auto FRHIResource::GetNumPendingDeletes() -> size_t
 	{
 		std::lock_guard<std::mutex> Lock(PendingDeletesMutex);
-		return PendingDeletes.size();
+		return PendingDeleteCount;
 	}
 
 } // namespace Durin

@@ -480,6 +480,8 @@ namespace Durin
 	public:
 		FTaskScopeToken() = default;
 		auto operator==(const FTaskScopeToken&) const -> bool = default;
+		// Context compatibility only; the owner must still keep admission open.
+		CORE_API auto CanLaunchFromCurrentContext() const -> bool;
 
 	private:
 		explicit FTaskScopeToken(std::shared_ptr<FTaskScopeState> InState)

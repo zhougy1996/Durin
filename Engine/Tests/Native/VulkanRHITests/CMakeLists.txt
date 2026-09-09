@@ -6,6 +6,7 @@ if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
 			"macOS Vulkan qualification requires explicitly enabled LaunchServices application tests."
 		SOURCES
 			Private/VulkanRHITestEnvironment.cpp
+			Private/VulkanCreationQualificationTests.cpp
 			Private/VulkanFailureInjectionTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
 			Private/VulkanTextureSamplingTests.cpp
@@ -21,6 +22,7 @@ if(NOT DURIN_WITH_EDITOR)
 			"This integration fixture compiles authored Slang test shaders and is therefore excluded from the compiler-free Game closure."
 		SOURCES
 			Private/VulkanRHITestEnvironment.cpp
+			Private/VulkanCreationQualificationTests.cpp
 			Private/VulkanFailureInjectionTests.cpp
 			Private/VulkanMemoryPolicyTests.cpp
 			Private/VulkanTextureSamplingTests.cpp
@@ -94,4 +96,32 @@ durin_register_native_test(VulkanRHIIntegrationTests
 	PRIVATE_SOURCE_OWNER ShaderBuild
 	PRIVATE_SOURCE_RATIONALE
 		"Owns the ShaderBuild compiler white-box seam used by Vulkan integration coverage."
+)
+
+add_durin_test(VulkanCreationQualificationTests
+	Private/VulkanCreationQualificationTests.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
+)
+target_compile_definitions(VulkanCreationQualificationTests PRIVATE DURIN_VULKAN_TEST_FAILURE_INJECTION=1)
+target_include_directories(VulkanCreationQualificationTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
+)
+target_link_libraries(VulkanCreationQualificationTests PRIVATE
+	Core RHI RenderCore ShaderBuild VulkanRHI Vulkan::Vulkan Slang_Imported)
+if(WIN32)
+	target_link_libraries(VulkanCreationQualificationTests PRIVATE dxgi)
+endif()
+set_target_properties(VulkanCreationQualificationTests PROPERTIES
+	DURIN_TEST_RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
+	DURIN_TEST_HEAVY_RUNTIME_RATIONALE "Measures real Vulkan creation with the opt-in backend timing seam."
+)
+durin_test_deploy_directory_to_data(VulkanCreationQualificationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
+durin_register_native_test(VulkanCreationQualificationTests
+	KIND qualification DOMAINS renderer rhi-creation MODULES rhi vulkan-rhi shaderbuild BACKENDS vulkan
+	PROCESSORS 8 TIMEOUT 900
+	PRIVATE_SOURCE_OWNER ShaderBuild
+	PRIVATE_SOURCE_RATIONALE "Compiles fixed qualification shader inputs before timed device lifetimes."
 )

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIDefinitions.h"
+#include "RHIPipelineCreation.h"
 #include "VulkanMemory.h"
 #include "VulkanExtensions.h"
 
@@ -220,9 +221,31 @@ namespace Durin::VulkanRHI
 		auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
 		auto GetCurrentFrameIndex() const -> uint32;
-		auto GetPipelineCacheStatistics() const -> const FRHIPipelineCacheStatistics& { return PipelineCacheStatistics; }
-		auto GetPipelineCacheStatisticsMutable() -> FRHIPipelineCacheStatistics& { return PipelineCacheStatistics; }
+		auto GetPipelineCacheStatistics() const -> FRHIPipelineCacheStatistics
+		{
+			std::lock_guard Lock(PipelineCacheStatisticsMutex);
+			return PipelineCacheStatistics;
+		}
+		// Descriptor-cache operations compose on replay; recursive ownership lets
+		// their nested accounting remain one coherent snapshot transaction.
+		class FPipelineStatisticsAccess : public std::unique_lock<std::recursive_mutex>
+		{
+		public:
+			explicit FPipelineStatisticsAccess(FVulkanDevice& Owner)
+				: std::unique_lock<std::recursive_mutex>(Owner.PipelineCacheStatisticsMutex),
+				Statistics(Owner.PipelineCacheStatistics) {}
+			auto Get() const -> FRHIPipelineCacheStatistics& { return Statistics; }
+		private:
+			FRHIPipelineCacheStatistics& Statistics;
+		};
+		auto AccessPipelineCacheStatistics() -> FPipelineStatisticsAccess
+		{
+			return FPipelineStatisticsAccess(*this);
+		}
 		auto ResetPipelineCacheStatistics() -> void;
+		VULKANRHI_API auto ReserveCacheMetadata(uint64 Bytes) -> std::shared_ptr<void>;
+		auto GetCacheMetadataBytes() const -> uint64 { return CacheMetadata.GetUsedBytes(); }
+
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 		auto NotifyDeleted_GraphicsPipeline(
@@ -265,7 +288,9 @@ namespace Durin::VulkanRHI
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;
 
+		FRHIPipelineMetadataBudget CacheMetadata;
 		FRHIPipelineCacheStatistics PipelineCacheStatistics;
+		mutable std::recursive_mutex PipelineCacheStatisticsMutex;
 
 		FVulkanQueue* GraphicsQueue = nullptr;
 

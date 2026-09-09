@@ -471,7 +471,7 @@ namespace Durin
 						Initializer.PipelineLayout =
 							Base->ShaderSet.GetPipelineLayout();
 						FGraphicsPipelineStateRHIRef Candidate =
-							GDynamicRHI->RHICreateGraphicsPipelineState(
+							FRenderPipelineRequestScope::Graphics(
 								FName(PipelineName), Initializer);
 						if (Candidate == nullptr)
 						{

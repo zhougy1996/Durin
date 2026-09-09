@@ -155,14 +155,14 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						"SkyBoxPipeline",
 						Initializer
 					);
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeHybridSceneBootstrap();
 				Candidate.HybridBootstrapPipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						"SkyBoxHybridBootstrapPipeline", Initializer
 					);
 

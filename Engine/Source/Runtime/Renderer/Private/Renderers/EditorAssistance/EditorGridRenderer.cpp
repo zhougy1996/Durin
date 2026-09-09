@@ -164,7 +164,7 @@ namespace Durin
 						? "Present"
 						: "Offscreen");
 				FGraphicsPipelineStateRHIRef Candidate =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						FName(PipelineName), Initializer);
 				if (Candidate == nullptr)
 				{

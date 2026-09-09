@@ -256,7 +256,7 @@ namespace Durin
 				Initializer.PipelineLayout =
 					Candidate->ShaderMap.GetPipelineLayout();
 				Candidate->PipelineState =
-					GDynamicRHI->RHICreateGraphicsPipelineState(
+					FRenderPipelineRequestScope::Graphics(
 						FName(std::format("GBufferPipeline_{}",
 							PipelineEntry.Index)),
 						Initializer);

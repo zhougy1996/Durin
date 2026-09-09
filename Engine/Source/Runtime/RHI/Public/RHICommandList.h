@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	RHI_API auto IsExecutingRHICommands() -> bool;
 	struct FRHITextureCreateDesc;
 	struct FRHIRenderPassInfo;
 
@@ -18,6 +19,15 @@ namespace Durin
 	class FRHIGraphicsPipelineState;
 	class FRHIComputePipelineState;
 	class FRHICommandStorage;
+
+	// Optional monotonic nanosecond diagnostics owned by the synchronous caller.
+	// Zero admission/wait timestamps identify inline execution; reads follow return.
+	struct FRHISynchronousOperationTiming
+	{
+		uint64 Admitted = 0;
+		uint64 WaitBegin = 0;
+		uint64 WaitEnd = 0;
+	};
 
 	// Provides backend-neutral command recording shared by regular and immediate lists.
 	class FRHICommandListBase
@@ -85,6 +95,9 @@ namespace Durin
 		RHI_API auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
 		RHI_API auto SetComputePipelineState(FRHIComputePipelineState& State) -> void;
+		RHI_API auto SetGraphicsPipelineState(const FRHIPipelineCreationRequest& Request) -> void;
+		RHI_API auto SetComputePipelineState(const FRHIPipelineCreationRequest& Request) -> void;
+		RHI_API auto TryAddPipelineDependency(const FRHIPipelineCreationRequest& Request) -> bool;
 		RHI_API auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
 		RHI_API auto TransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void;
@@ -183,6 +196,8 @@ namespace Durin
 		ERecordingState RecordingState = ERecordingState::Recording;
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 		FRHIComputePipelineState* ActiveComputePipelineState = nullptr;
+		FRHIPipelineCreationRequest ActiveGraphicsRequest;
+		FRHIPipelineCreationRequest ActiveComputeRequest;
 		bool bInsideRenderPass = false;
 		uint32 DiagnosticRegionDepth = 0;
 		uint32 RenderPassDiagnosticRegionDepth = 0;
@@ -245,6 +260,7 @@ namespace Durin
 		Oversized,
 		SerialExhausted,
 		SelfEnqueue,
+		DependencyWaitUnsupported,
 	};
 
 	struct FRHICommandListSubmission
@@ -279,6 +295,11 @@ namespace Durin
 
 		auto IsSuccess() const -> bool { return bSucceeded; }
 	};
+
+	// Executes immediately on the caller; never schedules, acquires a context, or waits.
+	// Only explicitly recoverable creation errors become failed results.
+	RHI_API auto ExecuteFallibleRHICreationOperation(const std::function<void()>& Operation)
+		-> FRHIFallibleOperationResult;
 
 	// Owns the primary timeline and immediate-only coordination operations.
 	class FRHICommandListImmediate final : public FRHICommandList
@@ -328,12 +349,19 @@ namespace Durin
 		friend class FDynamicRHI;
 	};
 
+	enum class ERHICommandBatchState : uint8 { Pending, Succeeded, Failed, Canceled, Expired };
+	struct FRHICommandBatchCompletion
+	{
+		std::atomic<ERHICommandBatchState> State = ERHICommandBatchState::Pending;
+	};
 	class FRHICommandListFence
 	{
 	public:
 		FRHICommandListFence() = default;
 
 		RHI_API auto IsComplete() const -> bool;
+		RHI_API auto GetState() const -> ERHICommandBatchState;
+		RHI_API auto TryWait() const -> bool;
 		RHI_API auto Wait() const -> void;
 		FORCEINLINE auto GetTargetSerial() const -> uint64 { return TargetSerial; }
 
@@ -342,6 +370,7 @@ namespace Durin
 
 		FRHICommandListExecutor* Executor = nullptr;
 		uint64 TargetSerial = 0;
+		std::shared_ptr<FRHICommandBatchCompletion> Completion;
 
 		friend class FRHICommandListExecutor;
 	};
@@ -376,8 +405,12 @@ namespace Durin
 		RHI_API auto GetCompletedSerial() const -> uint64;
 		RHI_API auto GetFrameNumber() const -> uint64;
 		RHI_API auto GetStats() const -> FRHICommandListExecutorStats;
+		// Capture receipts promptly; lookup of overwritten serial history returns Expired.
+		RHI_API auto CreateFence(uint64 TargetSerial) -> FRHICommandListFence;
 		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
 		RHI_API auto SetInlineMode() -> void;
+		// Called before a background device fault is captured by Core.
+		RHI_API auto ReportExternalFailure(std::exception_ptr Failure) -> void;
 		// Runs one ordered operation on the active replay owner. Threaded callers
 		// block for the exact queue serial; inline diagnostics execute locally.
 		// Callers report heap storage exclusively owned by the queued callback so
@@ -391,7 +424,8 @@ namespace Durin
 		RHI_API auto ExecuteFallibleSynchronousOperation(
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,
-			size_t OwnedPayloadBytes = 0) -> FRHIFallibleOperationResult;
+			size_t OwnedPayloadBytes = 0,
+			FRHISynchronousOperationTiming* Timing = nullptr) -> FRHIFallibleOperationResult;
 
 	private:
 		class FState;
@@ -402,7 +436,6 @@ namespace Durin
 		RHI_API auto IsSerialFailed(uint64 Serial) const -> bool;
 		RHI_API auto TryWaitForSerial(uint64 Serial) const -> bool;
 		auto WaitForSerial(uint64 Serial) const -> void;
-		auto CreateFence(uint64 TargetSerial) -> FRHICommandListFence;
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,

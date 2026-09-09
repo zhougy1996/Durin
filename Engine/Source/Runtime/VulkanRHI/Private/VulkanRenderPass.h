@@ -43,6 +43,9 @@ namespace Durin::VulkanRHI
 
 		vk::RenderPass RenderPass;
 		uint32 AttachmentCount = 0;
+		bool bPublished = false;
+		std::shared_ptr<void> MetadataReservation;
+		friend class FVulkanRenderPassManager;
 	};
 
 	// Caches compatible render passes and framebuffers for one device.
@@ -69,6 +72,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 
 		std::unordered_map<FVulkanRenderPassKey, std::unique_ptr<FVulkanRenderPass>, FVulkanRenderPassKeyHasher> RenderPasses;
+		std::mutex RenderPassMutex;
 
 		std::vector<std::unique_ptr<FVulkanFramebuffer>> FrameBuffers;
 	};

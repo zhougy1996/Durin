@@ -59,12 +59,15 @@ namespace Durin::VulkanRHI
 		QueryPool,
 		MappedMemoryFlush,
 		MappedMemoryInvalidate,
+		ResourcePublication,
 		Count
 	};
 
 	VULKANRHI_API auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void;
 	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
 	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
+	// Installed only by controlled tests; copied before invocation on the creator.
+	VULKANRHI_API auto SetVulkanPipelineCompilationHookForTest(std::function<void()> Hook) -> void;
 	VULKANRHI_API auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void;
 	VULKANRHI_API auto ArmVulkanSwapchainAcquireTimeoutForTest() -> void;
 	VULKANRHI_API auto ConsumeVulkanSwapchainAcquireTimeoutForTest() -> bool;
@@ -203,11 +206,10 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	// Uses the executor only when creation crosses to the RHI thread. Factories
-	// already running on that owner catch locally to avoid self-enqueue/wait.
-	VULKANRHI_API auto ExecuteFallibleVulkanCreationOperation(
-		std::function<void()> Operation,
-		size_t OwnedPayloadBytes = 0) -> FRHIFallibleOperationResult;
+	// Wraps native candidate errors only. The facade selects the execution domain;
+	// constructing or invoking this callback never accesses the executor or waits.
+	VULKANRHI_API auto MakeVulkanCreationOperation(std::function<void()> Operation)
+		-> std::function<void()>;
 
 	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D;
 	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType;
