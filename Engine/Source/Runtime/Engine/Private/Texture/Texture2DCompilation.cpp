@@ -567,11 +567,10 @@ namespace Durin
 		if (!ValidateTexture2DBuildSettings(Settings, OutError)) return false;
 		auto PlatformData = std::make_unique<FTexturePlatformData>(
 			std::move(Product.PlatformData));
-		if (Context.SourceReplacement
-			&& !Texture.SetSource(*Context.SourceReplacement, OutError)) return false;
-		if (!Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
+		if (Context.SourceReplacement) Texture.SetSource(*Context.SourceReplacement);
+		Texture.SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
 				Settings.MaxResolution, Settings.CompressionQuality,
-				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold, OutError)) return false;
+				Settings.AlphaMipMode, Settings.AlphaCoverageThreshold);
 		Texture.SetPlatformData(std::move(PlatformData));
 		Texture.UpdateResource();
 		if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();

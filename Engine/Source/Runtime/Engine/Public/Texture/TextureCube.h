@@ -76,6 +76,16 @@ namespace Durin
 			const FTexturePlatformSerializationContext& Context) -> void;
 	};
 
+	// Prepares detached source on the caller thread; logs failures and returns nullopt.
+	// Payload-backed input may require a synchronous read.
+	ENGINE_API auto PrepareTextureCubeSource(
+		const FTextureCubeImportedData& Value) -> std::optional<FTextureSource>;
+
+	// Prepares detached source on the caller thread; logs failures and returns nullopt.
+	// Converts the supplied in-memory panorama.
+	ENGINE_API auto PrepareTextureCubePanoramaSource(Image::FImageView Value,
+		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>;
+
 	DCLASS()
 	class DTextureCube : public DTexture
 	{
@@ -86,19 +96,19 @@ namespace Durin
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		ENGINE_API auto SetSourceData(
-			const FTextureCubeImportedData& Value, std::string& OutError) -> bool;
-		ENGINE_API auto SetPanoramaSourceData(
-			Image::FImageView Value, uint8 SourceChannelCount,
-			uint8 TransparencyMask, std::string& OutError) -> bool;
-		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
-			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
-			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,
-			bool bInSRGB, std::string& OutError) -> bool;
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
 		auto GetOriginalSourceHeight() const -> uint32 { return OriginalSourceHeight; }
+		auto IsSRGB() const -> bool { return bSRGB; }
+		// GameThread only. Assigns validated settings and cancels pending authored builds.
+		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
+			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
+			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,
+			bool bInSRGB) -> void;
+
+		ENGINE_API auto RebuildPlatformData() -> bool;
+
 		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
@@ -107,6 +117,8 @@ namespace Durin
 		{
 			return PlatformData.get();
 		}
+		// Immutable input identity for uploads and CPU previews; replacement leaves existing readers valid.
+		auto GetPlatformDataShared() const -> std::shared_ptr<const FTextureCubePlatformData> { return PlatformData; }
 		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
@@ -114,25 +126,16 @@ namespace Durin
 		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTextureCubePlatformData> Data) -> void;
-		auto IsSRGB() const -> bool { return bSRGB; }
 
-		ENGINE_API auto RebuildPlatformData() -> bool;
-		ENGINE_API auto PostLoad() -> void override;
-	private:
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
-		ENGINE_API auto ContributeToCook(
-			FCookContext& Context,
-			std::string_view VirtualPackagePath,
-			std::string& OutError) -> bool;
 	protected:
-		auto ValidateSettingsAfterImportOrEdit(
-			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 
 	private:
+		auto ResetPlatformData() -> void override { PlatformData.reset(); }
+		auto BuildPlatformDataForLoad() -> void override;
+		auto LoadCookedPlatformData() -> bool override;
 
 		DPROPERTY(EditorOnly, DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
@@ -152,8 +155,7 @@ namespace Durin
 		DPROPERTY()
 		bool bSRGB = true;
 
-		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
+		std::shared_ptr<FTextureCubePlatformData> PlatformData;
 	};
 
 }

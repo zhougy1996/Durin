@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/BulkData.h"
+#include "Logging/LogMacros.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
 
@@ -59,10 +60,10 @@ namespace Durin::TexturePrivate
 	// through the family's setter after successful payload validation. A failure never updates resources.
 	template<class TPlatformData, class TTexture>
 	auto LoadCookedPlatformData(TTexture& Texture, FBulkData& CookedData,
-		std::string_view Family, std::string& OutError) -> bool
+		std::string_view Family) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
-			OutError = std::format("Cooked {} '{}': {}",
+			DURIN_WARN("Cooked {} '{}': {}",
 				Family, Texture.GetObjectPath(), Message);
 			return false;
 		};
@@ -80,7 +81,6 @@ namespace Durin::TexturePrivate
 		Read.Lock.Reset();
 		Texture.SetPlatformData(std::move(Candidate));
 		Texture.UpdateResource();
-		OutError.clear();
 		return true;
 	}
 }

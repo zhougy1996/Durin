@@ -31,9 +31,10 @@ namespace Durin
 					return false;
 				}
 				const FVolumeTextureSourceData& Source = Request.SourceData.get();
-				if (!Source.IsValid() || Source.Format != Request.Settings.OutputFormat)
+				if (!Source.IsValid() || Source.Format != Request.Settings.OutputFormat
+					|| Request.Settings.MipFilter != EVolumeTextureMipFilter::Box)
 				{
-					Outcome = {ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, "VolumeTexture source and output format are incompatible."};
+					Outcome = {ETextureBuildFailure::InvalidInput, ETextureBuildStage::Normalize, "VolumeTexture source or build settings are invalid or incompatible."};
 					return false;
 				}
 				const FVolumeTextureBuildKeyInput KeyInput{
@@ -132,13 +133,15 @@ namespace Durin
 		) -> FTextureBuildOutcome
 		{
 			CheckGameThread();
-			std::string Error;
 			require(Product.PlatformData != nullptr);
 			// The provider boundary has already validated these value contracts.
 			check(SourceData.IsValid() && SourceData.Format == Settings.OutputFormat && Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
-			if (!Texture.SetSourceData(SourceData, Error)
-				|| !Texture.SetBuildSettings(Settings, Error)) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply, std::move(Error)};
+			auto Source = PrepareVolumeTextureSource(SourceData);
+			if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
+				"VolumeTexture source preparation failed; see log for details."};
+			Texture.SetSource(std::move(*Source));
+			Texture.SetBuildSettings(Settings);
 			Texture.SetPlatformData(std::move(Product.PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();

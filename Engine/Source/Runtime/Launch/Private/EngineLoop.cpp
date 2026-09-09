@@ -311,7 +311,6 @@ namespace Durin
 		}
 		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
-		PumpTextureResourceUpdates();
 		FAssetCompilingManager::Get().ProcessAsyncTasks();
 		GFrameCounter++;
 

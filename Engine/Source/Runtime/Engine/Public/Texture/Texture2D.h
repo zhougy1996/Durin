@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Asset/Cook.h"
 #include "EngineAPI.h"
 #include "Texture/Texture2DData.h"
 #include "RHIResources.h"
@@ -32,6 +31,10 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
+	// Prepares detached source on the caller thread; logs failures and returns nullopt.
+	ENGINE_API auto PrepareTexture2DSourceMipChain(std::span<const Image::FImageView> Mips,
+		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>;
+
 	// Adds 2D build settings and typed platform data to the shared texture state.
 	DCLASS()
 	class DTexture2D : public DTexture
@@ -42,23 +45,28 @@ namespace Durin
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		// Replaces authored source on the GameThread and cancels pending builds.
-		using DTexture::SetSource;
-		ENGINE_API auto SetSourceMipChain(std::span<const Image::FImageView> Mips,
-			uint8 SourceChannelCount, uint8 TransparencyMask,
-			std::string& OutError) -> bool;
+		auto GetUsage() const -> ETextureUsage { return Usage; }
+		auto IsSRGB() const -> bool { return bSRGB; }
+		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
+		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
+		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
+		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
+		// GameThread only. Assigns validated settings and cancels pending authored builds.
 		ENGINE_API auto SetBuildSettings(ETextureUsage InUsage, bool bInSRGB,
 			uint32 InMaxResolution, ETextureCompressionQuality InCompressionQuality,
-			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold,
-			std::string& OutError) -> bool;
+			ETextureAlphaMipMode InAlphaMipMode, float InAlphaCoverageThreshold) -> void;
+
 		// Reads/decompresses source on the caller thread. Failure returns an empty mip chain.
 		ENGINE_API auto CreateBuildRequest(const FTexture2DBuildSettings& Settings) const
 			-> FTexture2DBuildRequest;
+
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FTexturePlatformData*
 		{
 			return PlatformData.get();
 		}
+		// Immutable input identity for uploads and CPU previews; replacement leaves existing readers valid.
+		auto GetPlatformDataShared() const -> std::shared_ptr<const FTexturePlatformData> { return PlatformData; }
 		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
@@ -66,30 +74,19 @@ namespace Durin
 		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FTexturePlatformData> Data) -> void;
-		auto GetUsage() const -> ETextureUsage { return Usage; }
-		auto IsSRGB() const -> bool { return bSRGB; }
-		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
-		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
-		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
-		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
-		ENGINE_API auto PostLoad() -> void override;
-	private:
-		friend class FTextureCompilingManager;
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
-		ENGINE_API auto ContributeToCook(
-			FCookContext& Context,
-			std::string_view VirtualPackagePath,
-			std::string& OutError) -> bool;
+
 	protected:
-		auto ValidateSettingsAfterImportOrEdit(
-			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 
 	private:
-		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
+		friend class FTextureCompilingManager;
+
+		auto ResetPlatformData() -> void override { PlatformData.reset(); }
+		auto BuildPlatformDataForLoad() -> void override;
+		auto LoadCookedPlatformData() -> bool override;
+
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;
 
@@ -112,6 +109,6 @@ namespace Durin
 		float AlphaCoverageThreshold = 0.5f;
 
 		// Installed runtime data is rebuilt from Source but has an independent lifetime.
-		std::unique_ptr<FTexturePlatformData> PlatformData;
+		std::shared_ptr<FTexturePlatformData> PlatformData;
 	};
 }

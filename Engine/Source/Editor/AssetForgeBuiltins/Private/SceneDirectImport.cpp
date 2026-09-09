@@ -376,16 +376,16 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", "Texture platform data is invalid.", Descriptor.StableIdentity);
 				}
-				if (!Texture->SetSource(Output.Texture.SourceData, Error)
-					|| !Texture->SetBuildSettings(Settings.Usage,
-						ResolveTexture2DSRGB(Settings), Settings.MaxResolution,
-						Settings.CompressionQuality, Settings.AlphaMipMode,
-						Settings.AlphaCoverageThreshold, Error))
+				if (!ValidateTexture2DBuildSettings(Settings, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
+				Texture->SetSource(Output.Texture.SourceData);
+				Texture->SetBuildSettings(Settings.Usage, ResolveTexture2DSRGB(Settings),
+					Settings.MaxResolution, Settings.CompressionQuality,
+					Settings.AlphaMipMode, Settings.AlphaCoverageThreshold);
 				Texture->SetPlatformData(std::move(PlatformData));
 				Texture->UpdateResource();
 				Texture->MarkPackageDirty();
@@ -400,9 +400,7 @@ namespace Durin::AssetForge::Builtins
 					.ByteCount = Output.Texture.SourceFileSize});
 				auto* ImportData = NewObject<DAssetImportData>(
 					Output.Candidate, "AssetImportData");
-				if (!ImportData || !ImportData->SetState(std::move(ImportState), Error)
-					|| !Cast<DTexture2D>(Output.Candidate)->SetAssetImportData(
-						*ImportData, Error))
+				if (!ImportData || !ImportData->SetState(std::move(ImportState), Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
@@ -410,6 +408,7 @@ namespace Durin::AssetForge::Builtins
 							? "Scene texture import data could not be published." : std::move(Error),
 						Descriptor.StableIdentity);
 				}
+				Texture->SetAssetImportData(*ImportData);
 				Output.Candidate->MarkPackageDirty();
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh

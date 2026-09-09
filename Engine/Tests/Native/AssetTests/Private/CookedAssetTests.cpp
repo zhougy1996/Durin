@@ -1,4 +1,3 @@
-#include "TextureResourceUpdateTestSupport.h"
 #include <gtest/gtest.h>
 #include <gtest/gtest-spi.h>
 
@@ -15,6 +14,7 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
+#include "Logging/Logger.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -75,13 +75,21 @@ namespace
 	auto ExpectCookedTextureDecodeBoundaries(
 		TPlatformData PlatformData, std::string_view Family) -> void
 	{
-		Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
+		auto& Logger = FLogger::Get();
+		FLogSettings LogSettings;
+		LogSettings.LogDirectory = (Testing::GetTestWorkDirectory() / "CookedDecodeLogs").string();
+		ASSERT_TRUE(Logger.Initialize(LogSettings));
+		struct FScopedLoggerShutdown
+		{
+			~FScopedLoggerShutdown() { FLogger::Get().Shutdown(); }
+		} LoggerShutdown;
+
 		auto* Texture = NewObject<TTexture>(nullptr, "CookedDecodeBoundary");
 		ASSERT_NE(Texture, nullptr);
 		std::string Error;
 		Texture->SetPlatformData(std::make_unique<TPlatformData>(PlatformData));
 		const auto* Installed = Texture->GetPlatformData();
-		const uint64 Revision = ResourceRequests.Count(*Texture);
+		const auto RevisionIdentity = Texture->GetPlatformDataShared();
 		FByteBuffer ValidBytes;
 		FCanonicalMemoryWriter Writer(ValidBytes, EArchivePurpose::CookedPayload);
 		PlatformData.Serialize(Writer, {.TargetPlatform = ECookTargetPlatform::Win64,
@@ -92,16 +100,22 @@ namespace
 
 		FBulkData Bulk;
 		EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-			*Texture, Bulk, Family, Error));
+			*Texture, Bulk, Family));
 		for (const FByteBuffer& InvalidBytes : {FByteBuffer{std::byte{0xff}}, TrailingBytes})
 		{
 			ASSERT_TRUE(FBulkData::TryCreateDetached(InvalidBytes, Bulk, &Error)) << Error;
+			Logger.Flush();
+			const uint64 LogCursor = Logger.ReadRecords(1, 0).NewestAvailableSequence + 1;
 			EXPECT_FALSE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-				*Texture, Bulk, Family, Error));
-			EXPECT_NE(Error.find(std::format("Cooked {} '{}'", Family, Texture->GetObjectPath())),
-				std::string::npos) << Error;
+				*Texture, Bulk, Family));
+			Logger.Flush();
+			const auto Logs = Logger.ReadRecords(LogCursor);
+			const std::string DiagnosticPrefix = std::format("Cooked {} '{}': ", Family, Texture->GetObjectPath());
+			EXPECT_EQ(std::ranges::count_if(Logs.Records, [&](const FLogRecord& Record) {
+				return Record.Level == ELogLevel::Warn && Record.Message.starts_with(DiagnosticPrefix)
+					&& Record.Message.size() > DiagnosticPrefix.size();
+			}), 1);
 			EXPECT_EQ(Texture->GetPlatformData(), Installed);
-			EXPECT_EQ(ResourceRequests.Count(*Texture), Revision);
 			// A failed decoder must release its lock so the payload can be retried.
 			Durin::FByteView LockedBytes;
 			Durin::FBulkDataReadResult LockedBytesLease;
@@ -112,11 +126,10 @@ namespace
 		}
 		ASSERT_TRUE(FBulkData::TryCreateDetached(ValidBytes, Bulk, &Error)) << Error;
 		ASSERT_TRUE(TexturePrivate::LoadCookedPlatformData<TPlatformData>(
-			*Texture, Bulk, Family, Error)) << Error;
+			*Texture, Bulk, Family));
 		EXPECT_TRUE(Texture->HasPlatformData());
-		EXPECT_EQ(ResourceRequests.Count(*Texture), Revision + 1);
+		EXPECT_NE(Texture->GetPlatformDataShared(), RevisionIdentity);
 		EXPECT_NE(Bulk.GetState(), EBulkDataState::ReadLocked);
-		EXPECT_TRUE(Error.empty());
 	}
 
 } // namespace

@@ -2,11 +2,11 @@
 
 #include "EngineAPI.h"
 #include "Asset/AssetImportData.h"
+#include "Asset/Cook.h"
 #include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
-#include "Delegates/Delegate.h"
 #include "RHIResources.h"
 #include "Texture/TextureSource.h"
 
@@ -31,15 +31,6 @@ namespace Durin
 		Closed,
 	};
 
-	// Distinguishes input invalidation from terminal resource readiness notifications.
-	enum class ETextureResourceChange : uint8 { Input, Completed, Closed };
-
-	// GameThread notification for input admission, consumed completion and close.
-	DECLARE_MULTICAST_DELEGATE_TwoParams(FTextureResourceChangedEvent, DTexture&, ETextureResourceChange)
-	ENGINE_API auto OnTextureResourceChanged() -> FTextureResourceChangedEvent&;
-	// Called by the Engine frame loop, including frames with rendering disabled.
-	ENGINE_API auto PumpTextureResourceUpdates() -> void;
-
 	// Common reflected boundary and render-resource lifecycle owner for texture assets.
 	DCLASS(Abstract)
 	class DTexture : public DObject
@@ -48,17 +39,14 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
+		ENGINE_API auto PostLoad() -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 
-		ENGINE_API auto GetTextureReferenceRHI() const
-			-> FRHITextureReferenceRef;
-		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
-		ENGINE_API auto HasUsableResource() const -> bool;
-		ENGINE_API auto IsResourceUpdatePending() const -> bool;
-		// GameThread only. Captures the last consumed successful allocation, retaining no UObject.
-		// Render commands may retain this value for fixed-input work; ordinary bindings use the stable reference.
-		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;
 		auto GetSource() const -> const FTextureSource& { return Source; }
+		// GameThread only. Adopts prepared source compatible with this texture family,
+		// binds ownership and cancels pending authored builds; does not read or validate payloads.
+		ENGINE_API auto SetSource(FTextureSource Value) -> void;
+
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
@@ -67,9 +55,10 @@ namespace Durin
 		{
 			return AssetImportData.Get();
 		}
-		// Accepts validated import data owned by this texture as an inner object.
+		// GameThread only. Accepts validated import data owned by this texture as an inner object.
 		ENGINE_API auto SetAssetImportData(
-			DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value) -> void;
+
 		// Queries installed CPU data without loading bulk data or updating resources.
 		virtual auto HasPlatformData() const -> bool = 0;
 		auto GetCookedPlatformData() const -> const FBulkData&
@@ -81,33 +70,51 @@ namespace Durin
 		// authored data. Already-installed data succeeds without another update.
 		// On failure, logs the texture path and reason and returns false.
 		ENGINE_API auto EnsurePlatformDataLoadedBlocking() -> bool;
+
 		// Asynchronously uploads installed platform data; failed replacement retains the prior allocation.
 		ENGINE_API auto UpdateResource() -> void;
 
+		ENGINE_API auto GetTextureReferenceRHI() const
+			-> FRHITextureReferenceRef;
+		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
+		ENGINE_API auto HasUsableResource() const -> bool;
+		ENGINE_API auto IsResourceUpdatePending() const -> bool;
+		// GameThread only. Captures the last consumed successful allocation, retaining no UObject.
+		// Render commands may retain this value for fixed-input work; ordinary bindings use the stable reference.
+		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;
+
 	protected:
 		ENGINE_API explicit DTexture(const FObjectInitializer& ObjectInitializer);
-		ENGINE_API auto SetSource(FTextureSource Value, std::string& OutError) -> bool;
 		ENGINE_API auto InvalidateAuthoredBuild() -> void;
-		ENGINE_API auto BindTextureSourceOwner() -> void;
-		virtual auto ValidateSettingsAfterImportOrEdit(
-			const FTextureSource& ProposedSource) const -> bool = 0;
 		// Restricted to family serializers and blocking loaders.
 		auto GetMutableCookedPlatformData() -> FBulkData&
 		{
 			return CookedPlatformData;
 		}
 
+		// Drops installed CPU data for lazy cooked loading; leaves published GPU resources intact.
+		virtual auto ResetPlatformData() -> void = 0;
+		// Builds authored data synchronously with load-time mutation policy and updates resources.
+		// Logs failures locally, including the texture path.
+		virtual auto BuildPlatformDataForLoad() -> void = 0;
+
 		virtual auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> = 0;
 		// Installs family-specific cooked data and queues its resource update.
-		virtual auto LoadCookedPlatformData(std::string& OutError) -> bool = 0;
+		// Logs failures locally and returns false without updating resources.
+		virtual auto LoadCookedPlatformData() -> bool = 0;
 
 	private:
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+
+		auto ContributeToCook(FCookContext& Context,
+			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
+
 		auto ReleaseRenderResources() -> void;
 		auto StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void;
 		auto ConsumeResourceUpdate() -> void;
-		friend ENGINE_API auto PumpTextureResourceUpdates() -> void;
 
 		// The asset owns its render representation and the stable identity used by consumers.
 		std::unique_ptr<FTextureReference> TextureReference;

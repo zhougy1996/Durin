@@ -1,4 +1,4 @@
-#include "TextureResourceUpdateTestSupport.h"
+#include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -70,6 +70,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	ASSERT_TRUE(Durin::InitializeTaskScheduler());
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
@@ -211,13 +213,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FRHITexture* InitialCubeTarget =
 		ObservedCubeTarget->load(std::memory_order_acquire);
 	ASSERT_NE(InitialCubeTarget, nullptr);
-	Durin::PumpTextureResourceUpdates();
+	Durin::PumpGameThreadDeferredWork();
 	ASSERT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
 
 	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData());
 	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
 	Durin::FlushRenderingCommands();
-	Durin::PumpTextureResourceUpdates();
+	Durin::PumpGameThreadDeferredWork();
 	EXPECT_TRUE(CubeResult.Asset->HasUsableResource());
 	EXPECT_FALSE(CubeResult.Asset->IsResourceUpdatePending());
 	struct FObserveReplacementCubeTarget
@@ -629,6 +631,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
+	Durin::ShutdownTaskSystem();
 	Durin::RHIExit();
 	Durin::ShutdownAssetCompilingManager();
 }

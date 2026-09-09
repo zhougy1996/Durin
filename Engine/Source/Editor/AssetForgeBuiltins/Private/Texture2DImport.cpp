@@ -62,8 +62,8 @@ namespace Durin::AssetForge::Builtins
 			if (!ImportData)
 				ImportData = NewObject<DAssetImportData>(
 					&Texture, "AssetImportData");
-			if (!ImportData || !ImportData->SetState(std::move(State), OutError)
-				|| !Texture.SetAssetImportData(*ImportData, OutError)) return false;
+			if (!ImportData || !ImportData->SetState(std::move(State), OutError)) return false;
+			Texture.SetAssetImportData(*ImportData);
 			Texture.MarkPackageDirty();
 			return true;
 		}

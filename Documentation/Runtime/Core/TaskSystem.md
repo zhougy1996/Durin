@@ -82,6 +82,11 @@ and crossings of configured count/byte thresholds.
 Terminal publication releases scheduler reservations exactly once; retained
 terminal handles/results have separate lifetimes.
 
+External producers can use `TCompletionSource<T>::Create(Options)` in the
+scheduler lifetime (or an explicitly borrowed scope), or the group overload.
+Register consumers before starting external work so producer acknowledgement
+does not require another submission during shutdown.
+
 ## Unique And Shared Results
 
 `TTask<T>` is move-only. `GetCompletion()` observes execution without value

@@ -38,6 +38,33 @@ namespace Durin
 	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
 
+	TEST(FTaskCompositionTests, SchedulerCompletionSourceSignalsDuringDrainAndCancel)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		for (auto Mode : {ETaskShutdownMode::Drain, ETaskShutdownMode::Cancel})
+		{
+			ASSERT_TRUE(InitializeTaskScheduler(1));
+			ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+			auto Source = Tasks::TCompletionSource<void>::Create();
+			int Calls = 0;
+			auto Handoff = Tasks::Then(Source.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
+				{}, [&] { ++Calls; });
+			std::thread Producer([Source] {
+				while (IsTaskSchedulerRunning()) std::this_thread::yield();
+				EXPECT_TRUE(Source.TrySetValue());
+				EXPECT_FALSE(Source.TrySetValue());
+			});
+			ShutdownTaskSystem(Mode);
+			Producer.join();
+			EXPECT_TRUE(Handoff.IsCompleted());
+			EXPECT_EQ(Calls, Mode == ETaskShutdownMode::Drain ? 1 : 0);
+			EXPECT_EQ(Handoff.GetState(), Mode == ETaskShutdownMode::Drain
+				? ETaskState::Succeeded : ETaskState::Canceled);
+		}
+	}
+
 	TEST(FTaskCompositionTests, ResultAccessWaitsAndPreservesUniqueOwnershipUntilTaken)
 	{
 		ShutdownTaskScheduler(false);

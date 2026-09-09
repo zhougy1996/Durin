@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "RenderResource.h"
+#include "Threading/Task.h"
 #include "Texture/Texture.h"
 
 namespace Durin
@@ -15,6 +16,8 @@ namespace Durin
 		ENGINE_API ~FTextureResourceUpdate();
 		ENGINE_API auto Execute_RenderThread(FRHICommandListBase& Commands,
 			FTextureReference& Reference, bool bInitializeReference) -> void;
+		// GameThread installs the pre-admitted handoff; Close cancels it before owner destruction.
+		auto SetCompletionTask(FTaskHandle Task) -> void { CompletionTask = std::move(Task); }
 		ENGINE_API auto Reject() -> void;
 		ENGINE_API auto Close() -> void;
 		ENGINE_API auto Wait() -> void;
@@ -27,6 +30,7 @@ namespace Durin
 		ENGINE_API auto SetSuccessor(std::unique_ptr<FTextureResource> Resource) -> void;
 		ENGINE_API auto TakeSuccessor() -> std::unique_ptr<FTextureResource>;
 	private:
+		FTaskHandle CompletionTask;
 		std::unique_ptr<FTextureResource> Candidate;
 		std::unique_ptr<FTextureResource> Successor;
 		std::mutex Mutex;

@@ -1,3 +1,4 @@
+#include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Asset/Testing.h"
 #include "VulkanEngineTestSupport.h"
@@ -101,6 +102,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();

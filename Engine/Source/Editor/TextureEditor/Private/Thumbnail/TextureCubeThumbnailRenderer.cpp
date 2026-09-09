@@ -1,4 +1,5 @@
 #include "Thumbnail/TextureCubeThumbnailRenderer.h"
+#include "DObject/WeakObjectPtr.h"
 
 #include "Asset/Asset.h"
 #include "DObject/Package.h"
@@ -50,7 +51,7 @@ namespace Durin::Editor::Texture
 			}
 			const auto State = TextureCube->GetResourceUpdateState();
 			if (TextureCube->IsResourceUpdatePending()) return 0;
-			if (State == ETextureResourceUpdateState::Failed)
+			if (State == ETextureResourceUpdateState::Failed && !TextureCube->HasUsableResource())
 			{
 				OutError = "The TextureCube render resource failed.";
 				return 0;
@@ -111,7 +112,7 @@ namespace Durin::Editor::Texture
 				DObject* Loaded = nullptr;
 				const FAssetResult Result = LoadObject(AssetPath, Loaded);
 				TextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
-				if (!Result || TextureCube == nullptr)
+				if (!Result || !TextureCube.IsValid())
 				{
 					TextureCube = nullptr;
 					return {
@@ -120,8 +121,8 @@ namespace Durin::Editor::Texture
 							? "The requested asset is not a TextureCube."
 							: Result.Message};
 				}
-				AssetRevision = TextureCube->GetPackage() ? TextureCube->GetPackage()->GetEditRevision() : 0;
-				SourceIdentity = TextureCube->GetSource().GetIdentity();
+				AssetRevision = TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0;
+				SourceIdentity = TextureCube.Get()->GetSource().GetIdentity();
 				return {
 					.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
@@ -132,7 +133,7 @@ namespace Durin::Editor::Texture
 				bool bReady = false;
 				std::string Error;
 				const uint64 Revision = CheckTextureCubeReadiness(
-					TextureCube, bReady, Error);
+					TextureCube.Get(), bReady, Error);
 				if (!Error.empty())
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
@@ -151,14 +152,14 @@ namespace Durin::Editor::Texture
 				::Durin::Editor::IThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
-				if (TextureCube == nullptr)
+				if (!TextureCube.IsValid())
 				{
 					OutError = std::format(
 						"The rendered-thumbnail TextureCube {} is unavailable.",
 						AssetPath.ToString());
 					return false;
 				}
-				Snapshot = TextureCube->GetPublishedTexture();
+				Snapshot = TextureCube.Get()->GetPublishedTexture();
 				const FRHITextureReferenceRef TextureReference = Snapshot
 					? FTextureReference(Snapshot).GetTextureReferenceRHI() : FRHITextureReferenceRef{};
 				if (TextureReference == nullptr)
@@ -168,8 +169,6 @@ namespace Durin::Editor::Texture
 						AssetPath.ToString());
 					return false;
 				}
-				if (!ChangeHandle.IsValid())
-					ChangeHandle = OnTextureResourceChanged().AddRaw(this, &FTextureCubeThumbnailGenerationSession::OnResourceChanged);
 				return PreviewScene.SetView(MakeTextureCubeThumbnailView(), OutError)
 					&& PreviewScene.SetViewEnvironment(
 						{.TextureReference = TextureReference}, OutError);
@@ -182,12 +181,12 @@ namespace Durin::Editor::Texture
 			{
 				bool bReady = false;
 				const uint64 Revision = CheckTextureCubeReadiness(
-					TextureCube, bReady, OutError);
+					TextureCube.Get(), bReady, OutError);
 				if (!OutError.empty()) return false;
-				if (!bReady || TextureCube == nullptr
-					|| (TextureCube->GetPackage() ? TextureCube->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
-					|| TextureCube->GetSource().GetIdentity() != SourceIdentity
-					|| bSnapshotInvalidated || !Snapshot || TextureCube->GetPublishedTexture() != Snapshot
+				if (!bReady || !TextureCube.IsValid()
+					|| (TextureCube.Get()->GetPackage() ? TextureCube.Get()->GetPackage()->GetEditRevision() : 0) != ExpectedAssetRevision
+					|| TextureCube.Get()->GetSource().GetIdentity() != SourceIdentity
+					|| !Snapshot || TextureCube.Get()->GetPublishedTexture() != Snapshot
 					|| Revision != ExpectedResourceRevision)
 				{
 					OutError = "The TextureCube changed while its thumbnail was being generated.";
@@ -198,28 +197,14 @@ namespace Durin::Editor::Texture
 
 			auto ResetPreview() -> void override
 			{
-				OnTextureResourceChanged().Remove(ChangeHandle);
-				ChangeHandle = {};
 				Snapshot = nullptr;
 			}
 
-			~FTextureCubeThumbnailGenerationSession() override { ResetPreview(); }
-
 		private:
-			auto OnResourceChanged(DTexture& Texture, ETextureResourceChange Change) -> void
-			{
-				if (&Texture == TextureCube)
-				{
-					bSnapshotInvalidated = true;
-					if (Change == ETextureResourceChange::Closed) TextureCube = nullptr;
-				}
-			}
-			FDelegateHandle ChangeHandle;
-			bool bSnapshotInvalidated = false;
 			FXxHash128 SourceIdentity{};
 			FTextureRHIRef Snapshot;
 			FTopLevelAssetPath AssetPath;
-			DTextureCube* TextureCube = nullptr;
+			TWeakObjectPtr<DTextureCube> TextureCube;
 			uint64 AssetRevision = 0;
 		};
 	} // namespace

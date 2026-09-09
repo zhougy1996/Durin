@@ -576,6 +576,11 @@ namespace Durin::Tasks
 			}
 		};
 	public:
+		// External producer in the scheduler lifetime or an explicitly borrowed scope.
+		static auto Create(const FTaskExecutionOptions& Options = {}) -> TCompletionSource
+		{
+			return CreateInternal(Options.Scope, Options, true);
+		}
 		// Unknown requirements conservatively reject GameThread waiting until a dynamic edge is bound.
 		static auto Create(FTaskGroup& Group, const FTaskExecutionOptions& Options)
 			-> TCompletionSource

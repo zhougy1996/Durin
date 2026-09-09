@@ -1,4 +1,5 @@
 #include "Thumbnail/MaterialThumbnailRenderer.h"
+#include "DObject/WeakObjectPtr.h"
 
 #include "Asset/AssetRetention.h"
 #include "Asset/Asset.h"
@@ -115,7 +116,8 @@ namespace Durin::Editor::Material
 					return 0;
 				}
 				if (Texture->IsResourceUpdatePending()) return Revision;
-				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed)
+				if (Texture->GetResourceUpdateState() == ETextureResourceUpdateState::Failed
+					&& !Texture->HasUsableResource())
 				{
 					OutError = "A referenced material texture render resource failed.";
 					return 0;
@@ -293,7 +295,6 @@ namespace Durin::Editor::Material
 				ResetScenePreview();
 				if (!Material) { OutError = "The material is unavailable."; return false; }
 				DependencySnapshots.clear();
-				bSnapshotInvalidated = false;
 				for (DTexture2D* Texture : GetTextureDependencies(*Material))
 				{
 					auto Snapshot = Texture->GetPublishedTexture();
@@ -302,10 +303,8 @@ namespace Durin::Editor::Material
 						OutError = "The material texture snapshot is not ready.";
 						return false;
 					}
-					DependencySnapshots.emplace_back(Texture, std::move(Snapshot));
+					DependencySnapshots.push_back({Texture, std::move(Snapshot)});
 				}
-				if (!ChangeHandle.IsValid())
-					ChangeHandle = OnTextureResourceChanged().AddRaw(this, &FMaterialThumbnailGenerationSession::OnResourceChanged);
 				World = PreviewScene.GetWorld();
 				if (World == nullptr || Sphere == nullptr)
 				{
@@ -342,7 +341,7 @@ namespace Durin::Editor::Material
 				uint64 ExpectedResourceRevision,
 				std::string& OutError) const -> bool override
 			{
-				if (bSnapshotInvalidated)
+				if (!AreDependencySnapshotsCurrent())
 				{
 					OutError = "A material texture changed while its thumbnail was being generated.";
 					return false;
@@ -360,8 +359,6 @@ namespace Durin::Editor::Material
 				const uint64 Revision = CombineResourceRevision(
 					MaterialRevision, SphereStatus.Revision);
 				if (!bReady || Material == nullptr
-					|| bSnapshotInvalidated
-					|| !AreDependencySnapshotsCurrent()
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
 					|| MaterialAssetRevision != ExpectedAssetRevision
 					|| Revision != ExpectedResourceRevision)
@@ -375,28 +372,27 @@ namespace Durin::Editor::Material
 			auto ResetPreview() -> void override
 			{
 				ResetScenePreview();
-				OnTextureResourceChanged().Remove(ChangeHandle);
-				ChangeHandle = {};
 				DependencySnapshots.clear();
 				Sphere = nullptr;
 				SphereAsset = {};
 			}
 
 		private:
-			auto OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void
-			{
-				for (const auto& [Dependency, Snapshot] : DependencySnapshots)
-					if (&Texture == Dependency) bSnapshotInvalidated = true;
-			}
 			auto AreDependencySnapshotsCurrent() const -> bool
 			{
 				return std::ranges::all_of(DependencySnapshots, [](const auto& Item) {
-					return !Item.first->IsResourceUpdatePending() && Item.first->GetPublishedTexture() == Item.second;
+					const auto* Texture = Item.Texture.Get();
+					return Texture && !Texture->IsResourceUpdatePending()
+						&& Texture->GetPublishedTexture() == Item.Allocation;
 				});
 			}
-			FDelegateHandle ChangeHandle;
-			std::vector<std::pair<DTexture2D*, FTextureRHIRef>> DependencySnapshots;
-			bool bSnapshotInvalidated = false;
+			// Fixed allocations stay alive independently of their weak asset identities.
+			struct FDependencySnapshot
+			{
+				TWeakObjectPtr<DTexture2D> Texture;
+				FTextureRHIRef Allocation;
+			};
+			std::vector<FDependencySnapshot> DependencySnapshots;
 			auto ResetScenePreview() -> void
 			{
 				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);

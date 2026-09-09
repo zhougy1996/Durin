@@ -4,7 +4,6 @@
 
 #include "DObject/Package.h"
 
-#include "Asset/AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"
@@ -197,139 +196,65 @@ namespace Durin
 	{
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FVolumeTextureResource>(TextureReference,
-			std::make_shared<const FVolumeTexturePlatformData>(*PlatformData));
+			PlatformData);
 	}
 
-	auto DVolumeTexture::PostLoad() -> void
+	auto DVolumeTexture::BuildPlatformDataForLoad() -> void
 	{
-		std::string Error;
-		BindTextureSourceOwner();
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
-			{
-				Error = std::format(
-					"Cooked volume texture '{}': required PlatformData field is missing.",
-					GetObjectPath());
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-			PlatformData.reset();
-			return;
-		}
-		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
-		{
-			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy())
-			{
-				Error = "Texture source migration failed.";
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-			if (!SetSource(std::move(Migrated), Error))
-			{
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-		}
 		FVolumeTextureSourceData BuildInput =
 			MakeVolumeTextureBuildInput(GetSource());
 		if (!BuildInput.IsValid())
 		{
-			Error = "VolumeTexture source data is missing or invalid.";
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
+			DURIN_ERROR("PostLoad '{}': VolumeTexture source data is missing or invalid.", GetObjectPath());
 			return;
 		}
-		auto BuildResult = BuildVolumeTextureSynchronously(*this, {.SourceData = BuildInput, .Settings = BuildSettings}, {.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
-		Error = BuildResult.Diagnostic;
-		if (!BuildResult)
-		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-		}
+		const auto Result = BuildVolumeTextureSynchronously(*this,
+			{.SourceData = BuildInput, .Settings = BuildSettings},
+			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
+		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.Diagnostic);
 	}
 
-	auto DVolumeTexture::LoadCookedPlatformData(std::string& OutError) -> bool
+	auto DVolumeTexture::LoadCookedPlatformData() -> bool
 	{
 		return TexturePrivate::LoadCookedPlatformData<FVolumeTexturePlatformData>(
-			*this, GetMutableCookedPlatformData(), "volume texture", OutError);
+			*this, GetMutableCookedPlatformData(), "volume texture");
 	}
 
-	auto DVolumeTexture::ContributeToCook(FCookContext& Context,
-		std::string_view VirtualPackagePath, std::string& OutError) -> bool
+	auto PrepareVolumeTextureSource(
+		const FVolumeTextureSourceData& Value) -> std::optional<FTextureSource>
 	{
-		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
-		{
-			OutError = "Volume textures support only the Win64 game cook target.";
-			return false;
-		}
-		if (!HasPlatformData()) PostLoad();
-		if (!HasPlatformData())
-		{
-			OutError = std::format("Failed to cook VolumeTexture '{}': platform data is unavailable.", GetObjectPath());
-			return false;
-		}
-		return Context.AddPackage(
-			std::string(VirtualPackagePath), GetPackage(), &OutError);
-	}
-
-	auto DVolumeTexture::SetSourceData(
-		const FVolumeTextureSourceData& Value, std::string& OutError) -> bool
-	{
-		CheckGameThread();
 		if (!Value.IsValid())
 		{
-			OutError = "VolumeTexture source data is invalid.";
-			return false;
+			DURIN_WARN("VolumeTexture source data is invalid.");
+			return std::nullopt;
 		}
 		const FPackageResourceReadResult Read = Value.Voxels.GetPayload().Wait();
 		if (!Read)
 		{
-			OutError = "VolumeTexture source payload could not be read.";
-			return false;
+			DURIN_WARN("VolumeTexture source payload could not be read: {}", Read.Message);
+			return std::nullopt;
 		}
 		FTextureSource NewSource;
 		const FTextureSourceBlock Block{.Width = Value.Width, .Height = Value.Height,
 			.Depth = Value.Depth};
 		const FTextureSourceLayer Layer{.Format = ToTextureSourceFormat(Value.Format)};
-		if (!NewSource.InitLayeredImpl(ETextureSourceKind::Volume,
+		if (!NewSource.InitLayered(ETextureSourceKind::Volume,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Linear, Read.Buffer.GetBytes(), 0, 0,
 			ETextureSourceCompression::Raw))
 		{
-			OutError = "VolumeTexture source data could not be initialized.";
-			return false;
+			DURIN_WARN("VolumeTexture source data could not be initialized.");
+			return std::nullopt;
 		}
-		return SetSource(std::move(NewSource), OutError);
-	}
-
-	auto DVolumeTexture::ValidateSettingsAfterImportOrEdit(
-		const FTextureSource& ProposedSource) const -> bool
-	{
-		const auto Blocks = ProposedSource.GetBlocks();
-		const auto Layers = ProposedSource.GetLayers();
-		return ProposedSource.GetKind() == ETextureSourceKind::Volume
-			&& Blocks.size() == 1 && Layers.size() == 1
-			&& Blocks[0].NumSlices == 1 && Layers[0].NumMips == 1
-			&& MakeVolumeTextureBuildInput(ProposedSource).IsValid()
-			&& ToPixelFormat(BuildSettings.OutputFormat) != EPixelFormat::Unknown
-			&& BuildSettings.MipFilter == EVolumeTextureMipFilter::Box;
+		return NewSource;
 	}
 
 	auto DVolumeTexture::SetBuildSettings(
-		FVolumeTextureBuildSettings Value, std::string& OutError) -> bool
+		FVolumeTextureBuildSettings Value) -> void
 	{
 		CheckGameThread();
-		if (ToPixelFormat(Value.OutputFormat) == EPixelFormat::Unknown
-			|| Value.MipFilter != EVolumeTextureMipFilter::Box)
-		{
-			OutError = "VolumeTexture build settings are invalid.";
-			return false;
-		}
 		BuildSettings = Value;
 		InvalidateAuthoredBuild();
-		OutError.clear();
-		return true;
 	}
 
 }

@@ -1,3 +1,4 @@
+#include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
 #include "VulkanEngineTestSupport.h"
@@ -32,6 +33,8 @@
 #include <cmath>
 #include <condition_variable>
 #include <limits>
+#include <vulkan/vulkan.hpp>
+#include "VulkanRHIPrivate.h"
 
 namespace
 {
@@ -137,6 +140,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	WaitForRenderingThread();
 	Durin::ShutdownRenderingThread();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	ASSERT_TRUE(Durin::InitializeTaskScheduler());
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
@@ -854,7 +859,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		CaptureCube = CubeResult.Asset;
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
-		Durin::PumpTextureResourceUpdates();
+		Durin::PumpGameThreadDeferredWork();
 		{
 			// A delayed Cube result must be rejected even when the stable binding and content are unchanged.
 			Durin::Editor::Texture::DTextureCubeThumbnailRenderer CubeRenderer;
@@ -872,9 +877,17 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
 			Durin::FlushRenderingCommands();
 			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			// A failed replacement keeps the captured thumbnail valid while its GPU allocation survives.
+			Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 			CaptureCube->UpdateResource();
 			Durin::FlushRenderingCommands();
-			Durin::PumpTextureResourceUpdates();
+			Durin::PumpGameThreadDeferredWork();
+			EXPECT_EQ(CaptureCube->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+			EXPECT_EQ(CaptureCube->GetPublishedTexture(), Snapshot);
+			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			CaptureCube->UpdateResource();
+			Durin::FlushRenderingCommands();
+			Durin::PumpGameThreadDeferredWork();
 			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
 			EXPECT_NE(CaptureCube->GetPublishedTexture(), Snapshot);
 			Durin::FByteBuffer DelayedPixels;
@@ -909,7 +922,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			ASSERT_NE(Session, nullptr);
 			const auto Loaded = Session->Load();
 			Durin::FlushRenderingCommands();
-			Durin::PumpTextureResourceUpdates();
+			Durin::PumpGameThreadDeferredWork();
 			const auto Ready = Session->PollResources();
 			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
@@ -917,9 +930,15 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FlushRenderingCommands();
 			ASSERT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
 			const auto Stable = TextureResult.Asset->GetTextureReferenceRHI();
+			Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 			TextureResult.Asset->UpdateResource();
 			Durin::FlushRenderingCommands();
-			Durin::PumpTextureResourceUpdates();
+			Durin::PumpGameThreadDeferredWork();
+			EXPECT_EQ(TextureResult.Asset->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
+			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
+			TextureResult.Asset->UpdateResource();
+			Durin::FlushRenderingCommands();
+			Durin::PumpGameThreadDeferredWork();
 			EXPECT_EQ(TextureResult.Asset->GetTextureReferenceRHI(), Stable);
 			Durin::FByteBuffer DelayedPixels;
 			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
@@ -1248,6 +1267,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	// The native suite may create another RHI in the same process; force the
 	// process-wide immediate list to acquire that device's context next time.
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
+	Durin::ShutdownTaskSystem();
 	Durin::RHIExit();
 }
 #include "TextureAssetTestEnvironment.h"

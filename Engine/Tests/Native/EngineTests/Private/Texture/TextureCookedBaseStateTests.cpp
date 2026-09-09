@@ -1,4 +1,3 @@
-#include "TextureResourceUpdateTestSupport.h"
 #include "TextureTestSupport.h"
 
 #include "Asset/PackageInspection.h"
@@ -43,22 +42,21 @@ namespace
 	template<class T>
 	auto ExpectLazyCookedInstall(T& Texture) -> void
 	{
-		Durin::Testing::FTextureUpdateRequestRecorder ResourceRequests;
 		const Durin::DTexture& BaseTexture = Texture;
 		const Durin::EBulkDataState BulkState =
 			BaseTexture.GetCookedPlatformData().GetState();
-		const uint64 Revision = ResourceRequests.Count(BaseTexture);
+		const auto UpdateState = BaseTexture.GetResourceUpdateState();
 		EXPECT_EQ(Texture.GetPlatformData(), nullptr);
 		EXPECT_FALSE(BaseTexture.HasPlatformData());
 		EXPECT_EQ(BaseTexture.GetCookedPlatformData().GetState(), BulkState);
-		EXPECT_EQ(ResourceRequests.Count(BaseTexture), Revision);
+		EXPECT_EQ(BaseTexture.GetResourceUpdateState(), UpdateState);
 		ASSERT_TRUE(Texture.EnsurePlatformDataLoadedBlocking());
 		ASSERT_NE(Texture.GetPlatformData(), nullptr);
 		const auto* Installed = Texture.GetPlatformData();
-		const uint64 InstalledRequestCount = ResourceRequests.Count(Texture);
+		const auto InstalledPlatformDataIdentity = Texture.GetPlatformDataShared();
 		ASSERT_TRUE(Texture.EnsurePlatformDataLoadedBlocking());
 		EXPECT_EQ(Texture.GetPlatformData(), Installed);
-		EXPECT_EQ(ResourceRequests.Count(Texture), InstalledRequestCount);
+		EXPECT_EQ(Texture.GetPlatformDataShared(), InstalledPlatformDataIdentity);
 	}
 }
 

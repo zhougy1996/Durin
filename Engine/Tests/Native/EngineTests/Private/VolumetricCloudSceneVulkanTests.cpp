@@ -1,3 +1,4 @@
+#include "Threading/Task.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 
@@ -120,9 +121,11 @@ namespace Durin
 			Platform->PixelFormat = EPixelFormat::R8_UNORM;
 			Platform->Mips.push_back({.Voxels = {static_cast<std::byte>(Density)},
 				.Width = 1, .Height = 1, .Depth = 1, .RowPitch = 1, .DepthPitch = 1});
-			std::string Error;
-			EXPECT_TRUE(Texture->SetSourceData(Source, Error)) << Error;
-			EXPECT_TRUE(Texture->SetBuildSettings({}, Error)) << Error;
+			auto PreparedTextureSource = Durin::PrepareVolumeTextureSource(Source);
+			EXPECT_TRUE(PreparedTextureSource);
+			if (!PreparedTextureSource) return nullptr;
+			Texture->SetSource(std::move(*PreparedTextureSource));
+			Texture->SetBuildSettings({});
 			Texture->SetPlatformData(std::move(Platform));
 			Texture->UpdateResource();
 			return Texture;
@@ -179,6 +182,7 @@ namespace Durin
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		RHIInit(FRHIInitializationContext::Presentation({
 			.NativeWindowHandle = Window->GetOSNativeWindowHandle()}));
 		ASSERT_NE(GDynamicRHI, nullptr);

@@ -1,9 +1,13 @@
 #include "Texture/Texture.h"
 
 #include "DObject/Package.h"
+#include "DObject/WeakObjectPtr.h"
+#include "Threading/TaskComposition.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Load.h"
+#include "Asset/AssetCook.h"
+#include "Logging/LogMacros.h"
 #include "Asset/BulkData.h"
 
 #include "DynamicRHI.h"
@@ -16,10 +20,6 @@ namespace Durin
 {
 	namespace
 	{
-		std::vector<DTexture*> UpdatingTextures;
-		FTextureResourceChangedEvent ResourceChanged;
-		bool bPumpingTextureResources = false;
-
 		auto RetireTextureResource(std::unique_ptr<FTextureResource> Resource) -> void
 		{
 			if (!Resource) return;
@@ -27,22 +27,6 @@ namespace Durin
 			Resource->BeginRelease_GameThread();
 			BeginCleanupRenderResource(FDeferredRenderResourceCleanup(std::move(Resource)));
 		}
-	}
-
-	auto OnTextureResourceChanged() -> FTextureResourceChangedEvent& { return ResourceChanged; }
-
-	auto PumpTextureResourceUpdates() -> void
-	{
-		CheckGameThread();
-		if (bPumpingTextureResources) return;
-		bPumpingTextureResources = true;
-		const auto Pending = UpdatingTextures;
-		for (DTexture* Texture : Pending)
-		{
-			if (std::ranges::find(UpdatingTextures, Texture) != UpdatingTextures.end())
-				Texture->ConsumeResourceUpdate();
-		}
-		bPumpingTextureResources = false;
 	}
 
 	DTexture::DTexture(const FObjectInitializer& ObjectInitializer)
@@ -59,17 +43,59 @@ namespace Durin
 		check(RenderResource == nullptr);
 	}
 
+	auto DTexture::PostLoad() -> void
+	{
+		Source.BindOwner(this);
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			{
+				DURIN_ERROR("PostLoad '{}': required cooked PlatformData field is missing.", GetObjectPath());
+				return;
+			}
+			ResetPlatformData();
+			return;
+		}
+		if (Source.GetSchemaVersion() != TextureSourceSchemaVersion)
+		{
+			FTextureSource Migrated = Source;
+			if (!Migrated.MigrateLegacy())
+			{
+				DURIN_ERROR("PostLoad '{}': Texture source migration failed.", GetObjectPath());
+				return;
+			}
+			SetSource(std::move(Migrated));
+		}
+		BuildPlatformDataForLoad();
+	}
+
+	auto DTexture::ContributeToCook(FCookContext& Context,
+		std::string_view VirtualPackagePath, std::string& OutError) -> bool
+	{
+		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
+		{
+			OutError = std::format("Texture '{}' supports only the Win64 game cook target.", GetObjectPath());
+			return false;
+		}
+		if (!HasPlatformData()) PostLoad();
+		if (!HasPlatformData())
+		{
+			OutError = std::format("Failed to cook texture '{}': platform data is unavailable.", GetObjectPath());
+			return false;
+		}
+		return Context.AddPackage(std::string(VirtualPackagePath), GetPackage(), &OutError);
+	}
+
 	auto DTexture::BeginDestroy() -> void
 	{
 		bAcceptingRenderResourceBuilds = false;
 		ReleaseRenderResources();
-		ResourceChanged.Broadcast(*this, ETextureResourceChange::Closed);
 		Super::BeginDestroy();
 	}
 
 	auto DTexture::ReleaseRenderResources() -> void
 	{
-		std::erase(UpdatingTextures, this);
 		if (PendingUpdate)
 		{
 			PendingUpdate->Close();
@@ -113,25 +139,12 @@ namespace Durin
 		return RenderResource ? RenderResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 	}
 
-	auto DTexture::SetSource(FTextureSource Value, std::string& OutError) -> bool
+	auto DTexture::SetSource(FTextureSource Value) -> void
 	{
 		CheckGameThread();
-		if (!Value.IsValid() || !ValidateSettingsAfterImportOrEdit(Value))
-		{
-			OutError = "Texture source or authored settings are invalid for this texture type.";
-			return false;
-		}
-		Value.BindOwner(this);
 		Source = std::move(Value);
 		Source.BindOwner(this);
 		InvalidateAuthoredBuild();
-		OutError.clear();
-		return true;
-	}
-
-	auto DTexture::BindTextureSourceOwner() -> void
-	{
-		Source.BindOwner(this);
 	}
 
 	auto DTexture::InvalidateAuthoredBuild() -> void
@@ -140,18 +153,11 @@ namespace Durin
 		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 	}
 
-	auto DTexture::SetAssetImportData(
-		DAssetImportData& Value, std::string& OutError) -> bool
+	auto DTexture::SetAssetImportData(DAssetImportData& Value) -> void
 	{
-		if (Value.GetOuter() != this)
-		{
-			OutError = "Texture import data must be an owned inner object.";
-			return false;
-		}
-		if (!Value.Validate(OutError)) return false;
+		CheckGameThread();
+		check(Value.GetOuter() == this);
 		AssetImportData = &Value;
-		OutError.clear();
-		return true;
 	}
 
 	auto DTexture::UpdateResource() -> void
@@ -179,33 +185,43 @@ namespace Durin
 #endif
 		if (PendingUpdate) PendingUpdate->SetSuccessor(std::move(Candidate));
 		else StartResourceUpdate(std::move(Candidate));
-		ResourceChanged.Broadcast(*this, ETextureResourceChange::Input);
 	}
 
 	auto DTexture::StartResourceUpdate(std::unique_ptr<FTextureResource> Candidate) -> void
 	{
 		check(!PendingUpdate);
 		PendingUpdate = std::make_shared<FTextureResourceUpdate>(std::move(Candidate));
-		if (std::ranges::find(UpdatingTextures, this) == UpdatingTextures.end())
-			UpdatingTextures.push_back(this);
-		if (!GDynamicRHI)
+		if (!GDynamicRHI || !IsTaskSchedulerRunning()
+			|| !GetGameThreadDeferredWorkQueueDiagnostics().bAccepting)
 		{
-			DURIN_WARN("Texture update rejected: RHI is unavailable. (texture: {})", GetObjectPath());
+			DURIN_WARN("Texture update rejected: RHI or GameThread task executor is unavailable. (texture: {})", GetObjectPath());
 			PendingUpdate->Reject();
+			ConsumeResourceUpdate();
 			return;
 		}
+		// Register both nodes before render admission; shutdown never needs a new completion submission.
+		auto Completion = Tasks::TCompletionSource<void>::Create({.DebugName = "TextureInitialization"});
+		auto Handoff = Tasks::Then(Completion.TakeTask(), Tasks::ETaskExecutor::GameThreadDeferred,
+			{.DebugName = "TextureResourceHandoff"},
+			[Owner = TWeakObjectPtr<DTexture>(this), Update = std::weak_ptr(PendingUpdate)] {
+				if (auto* Texture = Owner.Get(); Texture && Texture->PendingUpdate == Update.lock())
+					Texture->ConsumeResourceUpdate();
+			});
+		PendingUpdate->SetCompletionTask(Handoff.GetCompletion().GetTaskHandle());
 		const bool bInitializeReference = !bTextureReferenceInitializationQueued;
 		// One admission owns both initialization steps, so rejection leaves no half-admitted reference.
 		const bool bAccepted = TryEnqueueRenderCommand("TextureResourceUpdate",
-			[Update = PendingUpdate, Reference = TextureReference.get(), bInitializeReference]
+			[Update = PendingUpdate, Reference = TextureReference.get(), bInitializeReference, Completion]
 			(FRHICommandListImmediate& Commands) {
 				Update->Execute_RenderThread(Commands, *Reference, bInitializeReference);
+				Completion.TrySetValue();
 			});
 		if (bAccepted) bTextureReferenceInitializationQueued = true;
 		else
 		{
 			DURIN_WARN("Texture update rejected: render command admission is closed. (texture: {})", GetObjectPath());
 			PendingUpdate->Reject();
+			Completion.TrySetValue();
 		}
 	}
 
@@ -224,32 +240,25 @@ namespace Durin
 		RetireTextureResource(std::move(Candidate));
 		auto Successor = PendingUpdate->TakeSuccessor();
 		PendingUpdate.reset();
-		std::erase(UpdatingTextures, this);
 		if (Successor) StartResourceUpdate(std::move(Successor));
-		// Callbacks may destroy this asset or admit another update. Do not touch it afterward.
-		ResourceChanged.Broadcast(*this, ETextureResourceChange::Completed);
 	}
 
 	auto DTexture::EnsurePlatformDataLoadedBlocking() -> bool
 	{
 		CheckGameThread();
 		if (HasPlatformData()) return true;
-		std::string Error;
 		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			Error = std::format(
+			DURIN_WARN(
 				"Texture '{}': platform data has not been built.", GetObjectPath());
+			return false;
 		}
-		else if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
+		if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
 		{
-			Error = std::format(
+			DURIN_WARN(
 				"Cooked texture '{}': required PlatformData field is missing.", GetObjectPath());
+			return false;
 		}
-		else if (LoadCookedPlatformData(Error))
-		{
-			return true;
-		}
-		DURIN_WARN("{}", Error);
-		return false;
+		return LoadCookedPlatformData();
 	}
 }

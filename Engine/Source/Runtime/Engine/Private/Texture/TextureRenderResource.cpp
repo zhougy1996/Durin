@@ -84,6 +84,7 @@ namespace Durin
 	auto FTextureResourceUpdate::Close() -> void
 	{
 		CheckGameThread();
+		if (CompletionTask.IsValid()) CancelTask(CompletionTask);
 		Successor.reset();
 		std::lock_guard Lock(Mutex);
 		bClosed = true;

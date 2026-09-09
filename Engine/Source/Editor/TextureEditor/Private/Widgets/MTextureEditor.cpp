@@ -139,12 +139,12 @@ namespace Durin::Editor::Texture
 	MTextureEditor::MTextureEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 	{
-		OnTextureResourceChanged().AddRaw(this, &MTextureEditor::OnResourceChanged);
+
 	}
 
 	MTextureEditor::~MTextureEditor()
 	{
-		OnTextureResourceChanged().RemoveAll(this);
+
 		FinishActivePropertyEdit(true);
 		for (auto& [ResourceId, Texture] : OpenTextures)
 		{
@@ -152,14 +152,6 @@ namespace Durin::Editor::Texture
 			if (Texture)
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
-	}
-
-	auto MTextureEditor::OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void
-	{
-		for (const auto& [ResourceId, OpenTexture] : OpenTextures)
-			if (OpenTexture.Get() == &Texture)
-				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
-					It->second.bInputChanged = true;
 	}
 
 	auto MTextureEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -564,7 +556,7 @@ namespace Durin::Editor::Texture
 		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
 		if (!bPlatformAvailable && bSourceAvailable) PreviewState.bPreviewSource = true;
 
-		const bool bRevisionChanged = PreviewState.bInputChanged || PreviewState.SourceIdentity != Texture->GetSource().GetIdentity();
+		const bool bRevisionChanged = PreviewState.PlatformInput.lock() != Texture->GetPlatformDataShared() || PreviewState.SourceIdentity != Texture->GetSource().GetIdentity();
 		if (bRevisionChanged) PreviewState.SelectedMipIndex = 0;
 
 		const uint32 MipCount = (!PreviewState.bPreviewSource && bPlatformAvailable)
@@ -621,7 +613,7 @@ namespace Durin::Editor::Texture
 			{
 				Preview.Release();
 				PreviewState.LastUploadedMipIndex = UINT32_MAX;
-				PreviewState.bInputChanged = false;
+				PreviewState.PlatformInput = Texture->GetPlatformDataShared();
 				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				ImGui::Separator();
 				ImGui::TextDisabled("No preview data is available.");
@@ -649,7 +641,7 @@ namespace Durin::Editor::Texture
 				else
 					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, PreviewState.SelectedChannel);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
-				PreviewState.bInputChanged = false;
+				PreviewState.PlatformInput = Texture->GetPlatformDataShared();
 				PreviewState.SourceIdentity = Texture->GetSource().GetIdentity();
 				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
 				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;

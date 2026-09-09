@@ -82,14 +82,10 @@ namespace Durin
 		FCookContext& Context,
 		std::string& OutError) -> bool
 	{
-		if (Object.IsA(DTexture2D::StaticClass()))
-			return static_cast<DTexture2D&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DTextureCube::StaticClass()))
-			return static_cast<DTextureCube&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DVolumeTexture::StaticClass()))
-			return static_cast<DVolumeTexture&>(Object).ContributeToCook(
+		if (Object.IsA(DTexture2D::StaticClass())
+			|| Object.IsA(DTextureCube::StaticClass())
+			|| Object.IsA(DVolumeTexture::StaticClass()))
+			return static_cast<DTexture&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
 		if (Object.IsA(DStaticMesh::StaticClass()))
 			return static_cast<DStaticMesh&>(Object).ContributeToCook(

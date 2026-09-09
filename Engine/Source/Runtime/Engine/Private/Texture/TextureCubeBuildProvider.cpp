@@ -39,7 +39,13 @@ namespace Durin
 					return false;
 				}
 				CanonicalInput = std::move(*Normalized.Value);
-				if (!CanonicalInput.ImportedData.IsValid())
+				if (!CanonicalInput.ImportedData.IsValid()
+					|| (CanonicalInput.SourceLayout != ETextureCubeSourceLayout::SixFaces
+						&& CanonicalInput.SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
+					|| !std::isfinite(CanonicalInput.PanoramaExposureEV)
+					|| CanonicalInput.PanoramaExposureEV < MinimumTextureCubePanoramaExposureEV
+					|| CanonicalInput.PanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
+					|| CanonicalInput.OriginalSourceWidth == 0 || CanonicalInput.OriginalSourceHeight == 0)
 				{
 					Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."};
 					return false;
@@ -139,15 +145,21 @@ namespace Durin
 		) -> FTextureBuildOutcome
 		{
 			CheckGameThread();
-			std::string Error;
 			require(Product.PlatformData != nullptr);
 			// The provider boundary has already validated these value contracts.
 			check(CanonicalInput.ImportedData.IsValid() && Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
 			auto PlatformData = std::move(Product.PlatformData);
-			const bool bSourceSet = CanonicalInput.AuthoredPanorama.IsValid() ? Texture.SetPanoramaSourceData(CanonicalInput.AuthoredPanorama.GetView(), Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0, Error) : Texture.SetSourceData(CanonicalInput.ImportedData, Error);
-			if (!bSourceSet
-				|| !Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension, CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth, CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB, Error)) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply, std::move(Error)};
+			auto Source = CanonicalInput.AuthoredPanorama.IsValid()
+				? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(),
+					Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
+				: PrepareTextureCubeSource(CanonicalInput.ImportedData);
+			if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
+				"TextureCube source preparation failed; see log for details."};
+			Texture.SetSource(std::move(*Source));
+			Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,
+				CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
+				CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB);
 			Texture.SetPlatformData(std::move(PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();

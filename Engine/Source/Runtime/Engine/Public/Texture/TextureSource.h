@@ -12,9 +12,6 @@
 namespace Durin
 {
 	class DTexture;
-	class DTexture2D;
-	class DTextureCube;
-	class DVolumeTexture;
 	inline constexpr uint32 TextureSourceSchemaVersion = 3;
 	inline constexpr uint32 DescriptorTextureSourceSchemaVersion = 2;
 	inline constexpr uint32 LegacyTextureSourceSchemaVersion = 1;
@@ -248,9 +245,6 @@ namespace Durin
 
 	private:
 		friend class DTexture;
-		friend class DTexture2D;
-		friend class DTextureCube;
-		friend class DVolumeTexture;
 		auto BindOwner(DTexture* InOwner) -> void { Owner = InOwner; }
 		ENGINE_API auto InitLayeredImpl(ETextureSourceKind InKind,
 			std::span<const FTextureSourceBlock> InBlocks,

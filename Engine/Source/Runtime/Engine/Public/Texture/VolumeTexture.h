@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Texture/Texture.h"
@@ -123,6 +122,11 @@ namespace Durin
 			const FTexturePlatformSerializationContext& Context) -> void;
 	};
 
+	// Prepares detached source on the caller thread; logs failures and returns nullopt.
+	// Payload-backed input may require a synchronous read.
+	ENGINE_API auto PrepareVolumeTextureSource(
+		const FVolumeTextureSourceData& Value) -> std::optional<FTextureSource>;
+
 	// Package-backed volume asset with owned updates and last-successful GPU publication.
 	DCLASS()
 	class DVolumeTexture : public DTexture
@@ -134,17 +138,20 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
-		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
-		ENGINE_API auto SetSourceData(
-			const FVolumeTextureSourceData& Value, std::string& OutError) -> bool;
-		ENGINE_API auto SetBuildSettings(
-			FVolumeTextureBuildSettings Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
+		// GameThread only. Assigns validated settings and cancels pending authored builds.
+		ENGINE_API auto SetBuildSettings(
+			FVolumeTextureBuildSettings Value) -> void;
+
+		ENGINE_API auto CreateBuildInput() const -> FVolumeTextureSourceData;
+
 		// Returns installed CPU data only; never loads bulk data or updates resources.
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData*
 		{
 			return PlatformData.get();
 		}
+		// Immutable input identity for uploads and CPU previews; replacement leaves existing readers valid.
+		auto GetPlatformDataShared() const -> std::shared_ptr<const FVolumeTexturePlatformData> { return PlatformData; }
 		auto HasPlatformData() const -> bool override
 		{
 			return PlatformData && PlatformData->IsValid();
@@ -152,23 +159,19 @@ namespace Durin
 		// Adopts data already validated by the producer on GameThread; does not update resources.
 		ENGINE_API auto SetPlatformData(
 			std::unique_ptr<FVolumeTexturePlatformData> Data) -> void;
-		ENGINE_API auto PostLoad() -> void override;
-	private:
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
-		ENGINE_API auto ContributeToCook(FCookContext& Context,
-			std::string_view VirtualPackagePath, std::string& OutError) -> bool;
+
 	protected:
-		auto ValidateSettingsAfterImportOrEdit(
-			const FTextureSource& ProposedSource) const -> bool override;
 		auto CreateRenderResourceCandidate(FTextureReference* TextureReference)
 			-> std::unique_ptr<FTextureResource> override;
 
 	private:
+		auto ResetPlatformData() -> void override { PlatformData.reset(); }
+		auto BuildPlatformDataForLoad() -> void override;
+		auto LoadCookedPlatformData() -> bool override;
+
 		DPROPERTY(EditorOnly)
 		FVolumeTextureBuildSettings BuildSettings;
 
-		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
-		auto LoadCookedPlatformData(std::string& OutError) -> bool override;
+		std::shared_ptr<FVolumeTexturePlatformData> PlatformData;
 	};
 }

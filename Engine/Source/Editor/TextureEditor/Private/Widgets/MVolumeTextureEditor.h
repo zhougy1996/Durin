@@ -7,7 +7,7 @@
 #include "Widgets/TexturePreview.h"
 #include "VolumeTexturePreview.h"
 
-namespace Durin { class DVolumeTexture; }
+namespace Durin { class DVolumeTexture; struct FVolumeTexturePlatformData; }
 
 namespace Durin::Editor::Texture
 {
@@ -15,7 +15,6 @@ namespace Durin::Editor::Texture
 	{
 	public:
 		explicit MVolumeTextureEditor(::Durin::Editor::FWorkspaceManager& InManager);
-		~MVolumeTextureEditor() override;
 		auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
 		auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
 		auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
@@ -36,7 +35,6 @@ namespace Durin::Editor::Texture
 		auto ResetLayout() -> void override;
 
 	private:
-		auto OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void;
 		struct FPreviewState
 		{
 			std::unique_ptr<FTexturePreview> Preview = std::make_unique<FTexturePreview>();
@@ -44,7 +42,7 @@ namespace Durin::Editor::Texture
 			ETexturePreviewChannel Channel = ETexturePreviewChannel::RGBA;
 			uint32 Mip = 0;
 			uint32 Slice = 0;
-			bool bInputChanged = true;
+			std::weak_ptr<const FVolumeTexturePlatformData> PlatformInput;
 			FXxHash128 SourceIdentity{};
 			uint64 SelectionKey = std::numeric_limits<uint64>::max();
 			float Zoom = 0.0f;

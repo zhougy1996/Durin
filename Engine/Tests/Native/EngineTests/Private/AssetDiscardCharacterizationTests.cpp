@@ -97,11 +97,12 @@ namespace
 		{
 			Durin::Image::FImage Image;
 			Durin::FTextureSource Source;
-			return Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
+			if (!Durin::Image::FImage::TryCreate({.Width = 2, .Height = 2,
 				.Format = Durin::Image::ERawImageFormat::RGBA8},
 				Durin::FByteBuffer(16, Value), Image, &Error)
-				&& Source.Init2D(Image.GetView(), 4)
-				&& Texture.SetSource(std::move(Source), Error);
+				|| !Source.Init2D(Image.GetView(), 4)) return false;
+			Texture.SetSource(std::move(Source));
+			return true;
 		}
 
 		static auto SetSource(Durin::DVolumeTexture& Texture, std::byte Value,
@@ -110,8 +111,15 @@ namespace
 			Durin::FVolumeTextureSourceData Source{
 				.Width = 2, .Height = 2, .Depth = 2,
 				.Format = Durin::EVolumeTextureFormat::R8_UNORM};
-			return Source.SetVoxelBytes(Durin::FByteBuffer(8, Value))
-				&& Texture.SetSourceData(Source, Error);
+			if (!Source.SetVoxelBytes(Durin::FByteBuffer(8, Value))) return false;
+			auto PreparedSource = Durin::PrepareVolumeTextureSource(Source);
+			if (!PreparedSource)
+			{
+				Error = "Volume source preparation failed; see log for details.";
+				return false;
+			}
+			Texture.SetSource(std::move(*PreparedSource));
+			return true;
 		}
 
 		Durin::Testing::FScopedMountRegistryFixture Mounts;

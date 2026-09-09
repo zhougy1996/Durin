@@ -9,7 +9,7 @@
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
 
-namespace Durin { class DTexture2D; }
+namespace Durin { class DTexture2D; struct FTexturePlatformData; }
 
 namespace Durin::Editor::Texture
 {
@@ -39,7 +39,6 @@ namespace Durin::Editor::Texture
 		TEXTUREEDITOR_API auto ResetLayout() -> void override;
 
 	private:
-		auto OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void;
 		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
@@ -72,7 +71,7 @@ namespace Durin::Editor::Texture
 			std::unique_ptr<FTexturePreview> Preview = std::make_unique<FTexturePreview>();
 			uint32 SelectedMipIndex = 0;
 			uint32 LastUploadedMipIndex = UINT32_MAX;
-			bool bInputChanged = true;
+			std::weak_ptr<const FTexturePlatformData> PlatformInput;
 			FXxHash128 SourceIdentity{};
 			float Zoom = 0.0f;
 			bool bShowCheckerboard = true;

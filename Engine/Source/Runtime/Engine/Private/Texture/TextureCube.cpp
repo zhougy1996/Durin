@@ -4,7 +4,6 @@
 
 #include "DObject/Package.h"
 
-#include "Asset/AssetCook.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DynamicRHI.h"
@@ -287,7 +286,7 @@ namespace Durin
 		check(PlatformData && PlatformData->IsValid());
 		return std::make_unique<FTextureCubeResource>(
 			TextureReference,
-			std::make_shared<const FTextureCubePlatformData>(*PlatformData));
+			PlatformData);
 	}
 
 	auto DTextureCube::RebuildPlatformData() -> bool
@@ -304,38 +303,9 @@ namespace Durin
 		return static_cast<bool>(Result);
 	}
 
-	auto DTextureCube::PostLoad() -> void
+	auto DTextureCube::BuildPlatformDataForLoad() -> void
 	{
 		std::string Error;
-		BindTextureSourceOwner();
-		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
-		{
-			if (GetCookedPlatformData().GetMetadata().LogicalSize == 0)
-			{
-				Error = std::format(
-					"Cooked TextureCube '{}': required PlatformData field is missing.",
-					GetObjectPath());
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-			PlatformData.reset();
-			return;
-		}
-		if (GetSource().GetSchemaVersion() != TextureSourceSchemaVersion)
-		{
-			FTextureSource Migrated = GetSource();
-			if (!Migrated.MigrateLegacy())
-			{
-				Error = "Texture source migration failed.";
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-			if (!SetSource(std::move(Migrated), Error))
-			{
-				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-				return;
-			}
-		}
 		FTextureCubeBuildRequest Request;
 		if (!MakeTextureCubeBuildRequest(*this, Request, Error))
 		{
@@ -343,111 +313,58 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
 		}
-		auto BuildResult = BuildTextureCubeSynchronously(*this, Request, {.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
-		Error = BuildResult.Diagnostic;
-		if (!BuildResult)
-		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-		}
+		const auto Result = BuildTextureCubeSynchronously(*this, Request,
+			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
+		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.Diagnostic);
 	}
 
-	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
+	auto DTextureCube::LoadCookedPlatformData() -> bool
 	{
 		return TexturePrivate::LoadCookedPlatformData<FTextureCubePlatformData>(
-			*this, GetMutableCookedPlatformData(), "TextureCube", OutError);
+			*this, GetMutableCookedPlatformData(), "TextureCube");
 	}
 
-	auto DTextureCube::ContributeToCook(
-		FCookContext& Context,
-		std::string_view VirtualPackagePath,
-		std::string& OutError) -> bool
+	auto PrepareTextureCubeSource(
+		const FTextureCubeImportedData& Value) -> std::optional<FTextureSource>
 	{
-		if (Context.GetTargetPlatform() != ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != ECookTargetProfile::Game)
-		{
-			OutError = std::format(
-				"TextureCube '{}' supports only the Win64 game cook target.", GetObjectPath());
-			return false;
-		}
-		if (!HasPlatformData()) PostLoad();
-		if (!HasPlatformData())
-		{
-			OutError = std::format("Failed to cook TextureCube '{}': platform data is unavailable.",
-				GetObjectPath());
-			return false;
-		}
-		return Context.AddPackage(
-			std::string(VirtualPackagePath), GetPackage(), &OutError);
-	}
-
-	auto DTextureCube::SetSourceData(
-		const FTextureCubeImportedData& Value, std::string& OutError) -> bool
-	{
-		CheckGameThread();
 		if (!Value.IsValid())
 		{
-			OutError = "TextureCube source data is invalid.";
-			return false;
+			DURIN_WARN("TextureCube source data is invalid.");
+			return std::nullopt;
 		}
 		const FPackageResourceReadResult Read = Value.Pixels.GetPayload().Wait();
 		if (!Read)
 		{
-			OutError = "TextureCube source payload could not be read.";
-			return false;
+			DURIN_WARN("TextureCube source payload could not be read: {}", Read.Message);
+			return std::nullopt;
 		}
 		FTextureSource NewSource;
 		const FTextureSourceBlock Block{.Width = Value.FaceDimension,
 			.Height = Value.FaceDimension, .NumSlices = TextureCubeFaceCount};
 		const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
-		if (!NewSource.InitLayeredImpl(ETextureSourceKind::TextureCube,
+		if (!NewSource.InitLayered(ETextureSourceKind::TextureCube,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Unknown, Read.Buffer.GetBytes(),
 			Value.SourceChannelCount, Value.TransparencyMask,
 			ETextureSourceCompression::Raw))
 		{
-			OutError = "TextureCube source data could not be initialized.";
-			return false;
+			DURIN_WARN("TextureCube source data could not be initialized.");
+			return std::nullopt;
 		}
-		return SetSource(std::move(NewSource), OutError);
+		return NewSource;
 	}
 
-	auto DTextureCube::SetPanoramaSourceData(Image::FImageView Value,
-		uint8 SourceChannelCount, uint8 TransparencyMask,
-		std::string& OutError) -> bool
+	auto PrepareTextureCubePanoramaSource(Image::FImageView Value,
+		uint8 SourceChannelCount, uint8 TransparencyMask) -> std::optional<FTextureSource>
 	{
-		CheckGameThread();
 		FTextureSource NewSource;
 		if (!NewSource.InitLongLatCube(Value, SourceChannelCount,
 			TransparencyMask, ETextureSourceCompression::Raw))
 		{
-			OutError = "TextureCube panorama source data could not be initialized.";
-			return false;
+			DURIN_WARN("TextureCube panorama source data could not be initialized.");
+			return std::nullopt;
 		}
-		return SetSource(std::move(NewSource), OutError);
-	}
-
-	auto DTextureCube::ValidateSettingsAfterImportOrEdit(
-		const FTextureSource& ProposedSource) const -> bool
-	{
-		const auto Blocks = ProposedSource.GetBlocks();
-		const auto Layers = ProposedSource.GetLayers();
-		if (Blocks.size() != 1 || Layers.size() != 1) return false;
-		const bool bFaces = ProposedSource.GetKind() == ETextureSourceKind::TextureCube
-			&& Blocks[0].Width == Blocks[0].Height
-			&& Blocks[0].NumSlices == TextureCubeFaceCount
-			&& Layers[0].Format == ETextureSourceFormat::RGBA8;
-		const bool bPanorama = ProposedSource.GetKind() == ETextureSourceKind::LongLatCube
-			&& Blocks[0].NumSlices == 1
-			&& (Layers[0].Format == ETextureSourceFormat::RGBA8
-				|| Layers[0].Format == ETextureSourceFormat::RGBA32_FLOAT);
-		return (bFaces || bPanorama)
-			&& Blocks[0].Depth == 1
-			&& Layers[0].NumMips == 1
-			&& (SourceLayout == ETextureCubeSourceLayout::SixFaces
-				|| SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
-			&& std::isfinite(PanoramaExposureEV)
-			&& PanoramaExposureEV >= MinimumTextureCubePanoramaExposureEV
-			&& PanoramaExposureEV <= MaximumTextureCubePanoramaExposureEV;
+		return NewSource;
 	}
 
 	auto DTextureCube::SetBuildSettings(
@@ -456,20 +373,9 @@ namespace Durin
 		float InPanoramaExposureEV,
 		uint32 InOriginalSourceWidth,
 		uint32 InOriginalSourceHeight,
-		bool bInSRGB,
-		std::string& OutError) -> bool
+		bool bInSRGB) -> void
 	{
 		CheckGameThread();
-		if ((InSourceLayout != ETextureCubeSourceLayout::SixFaces
-				&& InSourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
-			|| !std::isfinite(InPanoramaExposureEV)
-			|| InPanoramaExposureEV < MinimumTextureCubePanoramaExposureEV
-			|| InPanoramaExposureEV > MaximumTextureCubePanoramaExposureEV
-			|| InOriginalSourceWidth == 0 || InOriginalSourceHeight == 0)
-		{
-			OutError = "TextureCube authored build settings are invalid.";
-			return false;
-		}
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;
@@ -477,7 +383,5 @@ namespace Durin
 		OriginalSourceHeight = InOriginalSourceHeight;
 		bSRGB = bInSRGB;
 		InvalidateAuthoredBuild();
-		OutError.clear();
-		return true;
 	}
 }

@@ -228,19 +228,21 @@ durin_add_engine_functional_test(MaterialTests
 durin_add_engine_functional_test(MaterialVulkanTests
 	KIND integration
 	DOMAINS material thumbnail
-	MODULES asset-tools engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor
+	MODULES asset-tools engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE
 		"Exercises rendered material and thumbnail behavior on Vulkan."
-	RUNTIME_ONLY_RATIONALE
-		"RHIInit selects VulkanRHI dynamically for the rendered material fixture."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Materials/MaterialVulkanTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+	INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
+	COMPILE_DEFINITIONS DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 	LIBRARIES
+		VulkanRHI
+		Vulkan::Vulkan
 		ApplicationCore
 		RenderCore
 		Renderer

@@ -268,7 +268,7 @@ and resource-construction hook. The base retains the sole reflected source and
 Concrete `FTexture2DResource`, `FTextureCubeResource`, and
 `FVolumeTextureResource` inherit `FTextureResource` directly and remain the
 asset's rendering representation until replacement or teardown. Initialization
-consumes their immutable CPU upload input, releasing that copy even when
+consumes their immutable CPU upload input, releasing its shared ownership even when
 initialization fails; the persistent resource retains only its RHI allocation.
 An explicit retry constructs a new candidate from installed asset platform data.
 
@@ -303,14 +303,21 @@ that interval the owning GameThread can capture a counted allocation through
 `GetTextureRHI_GameThread()` without reading the stable reference's mutable
 RenderThread target. New updates always use a separate candidate.
 
-`PumpTextureResourceUpdates()` runs in `FEngineLoop::TickPostEventFrame` before
-UI and outside the rendering/minimized branch. It consumes terminal operations
-and starts retained successors; getters never advance work. Native hosts use
-this same explicit pump. Pending membership is GameThread-owned, and the pump
-checks membership again before dereferencing its iteration snapshot because
-listeners can destroy other assets. Completion needs neither Task admission nor
-editor polling. The engine shuts the Task system down before asset collection,
-so texture destruction reconciles pending operations independently.
+Texture updates pre-register an external task completion source and a
+`GameThreadDeferred` handoff before admitting render work. Render completion
+signals the existing source; it never submits a new task during shutdown.
+`PumpGameThreadDeferredWork()` consumes handoffs before UI, including minimized
+frames. Getters never advance work. The callback resolves a weak asset identity
+and checks the matching operation before transferring ownership. There is no
+texture-specific global pending list, event bus, or pump.
+
+Missing RHI, scheduler, or deferred executor rejects and consumes the candidate synchronously.
+Rejected render admission signals the pre-registered handoff. Normal scheduler
+drain consumes accepted updates; successors are rejected once submission closes.
+Cancel shutdown may discard handoffs: asset destruction cancels its handoff,
+closes and joins render work, and retires candidates independently of task progress.
+Native render hosts initialize the task scheduler and deferred executor as well
+as the rendering thread.
 
 `HasUsableResource()` reports availability of a consumed successful allocation;
 `IsResourceUpdatePending()` includes terminal-but-not-consumed operations.
@@ -323,8 +330,8 @@ the log. Missing platform data rejects before admission. The exact descriptor
 support check precedes allocation; see
 [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
-Ordinary replacement is asynchronous. `BeginDestroy` stops admission, removes
-pump membership, discards the retained successor, and closes the active operation
+Ordinary replacement is asynchronous. `BeginDestroy` stops admission, cancels
+the deferred handoff, discards the retained successor, and closes the active operation
 under the same mutex used for publication. It joins accepted CPU initialization,
 then queues release and deferred cleanup of candidates/current before the stable
 reference. No publication can occur after that close boundary. Accepted commands
@@ -343,12 +350,12 @@ Cube thumbnail rendering creates a fixed reference on demand from its captured
 allocation. Material thumbnail sessions retain allocation refs for all eight
 built-in texture roles and reject delayed output if an observed dependency
 changes. No asset-owned snapshot wrapper or eagerly allocated fixed reference
-exists. The GameThread `OnTextureResourceChanged` event distinguishes admitted
-input, consumed completion, and close; it carries no generation. Editor preview
-caches invalidate through this event and source identity changes. Thumbnail
-acceptance checks pending state, captured allocations, and existing
-package/material versions; unchanged stable-reference pointers or cache keys
-cannot certify it.
+exists. Editor CPU previews compare source identity and weak ownership of
+immutable platform data. Upload candidates share that installed data until
+initialization completes, avoiding a second pixel-buffer copy. Thumbnail
+sessions validate weak asset identity, asset revisions and the actual captured
+GPU allocation. A failed replacement that retains the same allocation does not
+by itself invalidate a thumbnail; no resource-update generation is stored.
 
 RHI pixel-format metadata also owns the tightly packed block layout calculation.
 Platform-data validation and Vulkan uploads use the same block count, row pitch,

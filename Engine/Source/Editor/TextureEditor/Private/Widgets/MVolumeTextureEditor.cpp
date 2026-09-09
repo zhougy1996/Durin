@@ -67,20 +67,7 @@ namespace Durin::Editor::Texture
 	MVolumeTextureEditor::MVolumeTextureEditor(
 		::Durin::Editor::FWorkspaceManager& InManager) : Manager(InManager)
 	{
-		OnTextureResourceChanged().AddRaw(this, &MVolumeTextureEditor::OnResourceChanged);
-	}
 
-	MVolumeTextureEditor::~MVolumeTextureEditor()
-	{
-		OnTextureResourceChanged().RemoveAll(this);
-	}
-
-	auto MVolumeTextureEditor::OnResourceChanged(DTexture& Texture, ETextureResourceChange) -> void
-	{
-		for (const auto& [ResourceId, OpenTexture] : OpenTextures)
-			if (OpenTexture.Get() == &Texture)
-				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
-					It->second.bInputChanged = true;
 	}
 
 	auto MVolumeTextureEditor::GetWorkspaceType() const
@@ -267,7 +254,7 @@ namespace Durin::Editor::Texture
 			| (static_cast<uint64>(State.Axis) << 48)
 			| (static_cast<uint64>(State.Channel) << 52)
 			| (bPlatform ? 1ull << 60 : 0);
-		if ((bPlatform || bSource) && (State.bInputChanged || State.SourceIdentity != Texture->GetSource().GetIdentity()
+		if ((bPlatform || bSource) && (State.PlatformInput.lock() != Texture->GetPlatformDataShared() || State.SourceIdentity != Texture->GetSource().GetIdentity()
 			|| State.SelectionKey != SelectionKey || !State.Preview->IsValid()))
 		{
 			FVolumeTexturePreviewSlice Slice = bPlatform
@@ -277,7 +264,7 @@ namespace Durin::Editor::Texture
 			if (Slice.IsValid()) State.Preview->UploadRGBA8(
 				Slice.Width, Slice.Height, Slice.Pixels, State.Channel);
 			else State.Preview->Release();
-			State.bInputChanged = false;
+			State.PlatformInput = Texture->GetPlatformDataShared();
 			State.SourceIdentity = Texture->GetSource().GetIdentity();
 			State.SelectionKey = SelectionKey;
 		}
