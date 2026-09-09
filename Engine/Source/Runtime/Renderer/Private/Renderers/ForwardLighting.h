@@ -3,7 +3,7 @@
 #include "Rendering/LightSceneProxy.h"
 #include "RHIResources.h"
 #include "RendererAPI.h"
-#include "SceneTypes.h"
+#include "LightComponentId.h"
 
 #include <array>
 #include <vector>
@@ -21,13 +21,13 @@ namespace Durin
 
 	struct FPreparedDirectionalLight
 	{
-		FLightSceneId Id;
+		FLightComponentId Id;
 		FDirectionalLightSceneData Data;
 	};
 
 	struct FPreparedLocalLight
 	{
-		FLightSceneId Id;
+		FLightComponentId Id;
 		ELightSceneProxyKind Kind = ELightSceneProxyKind::Point;
 		FVector3 Position{0.0};
 		FVector3 Direction{1.0, 0.0, 0.0};

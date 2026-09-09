@@ -319,7 +319,7 @@ namespace Durin
 		FSceneInterface* Scene = GetRenderScene();
 		const auto State = GetDerivedState();
 		if (!Scene || !State || !State->IsValid()) return;
-		Scene->UpdateSplineMeshDynamicData(GetPrimitiveSceneId(), FSplineMeshRenderDynamicData{
+		Scene->UpdateSplineMeshDynamicData(GetPrimitiveComponentId(), FSplineMeshRenderDynamicData{
 			.Params = State->Params,
 			.LocalBounds = State->ConservativeLocalBounds,
 			.Revision = State->DeformationRevision});

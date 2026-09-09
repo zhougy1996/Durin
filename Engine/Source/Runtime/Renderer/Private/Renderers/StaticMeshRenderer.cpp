@@ -475,7 +475,7 @@ namespace Durin
 				checkf(bBucketMatches, "StaticMesh prepared bucket does not match its pass.");
 				checkf(bSortKeyMatchesPass, "StaticMesh prepared sort key does not match its bucket.");
 				const bool bComplete = Primitive != nullptr
-									   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
+									   && Primitive->PrimitiveId != InvalidPrimitiveComponentId
 									   && Primitive->CollectedBinding != nullptr
 									   && Primitive->CollectedBinding->Declaration != nullptr
 									   && Item.Geometry.ElementCount != 0
@@ -517,7 +517,7 @@ namespace Durin
 		const FPreparedStaticMeshPrimitive* Primitive =
 			PreparedView.GetPrimitive(Item);
 		const bool bComplete = Primitive != nullptr
-							   && Primitive->PrimitiveId != InvalidPrimitiveSceneId
+							   && Primitive->PrimitiveId != InvalidPrimitiveComponentId
 							   && Primitive->CollectedBinding != nullptr && Primitive->CollectedBinding->Declaration != nullptr
 							   && Item.Geometry.ElementCount != 0 && Item.Pass == Pass
 							   && Item.SortKey.Pipeline[0] == static_cast<uint32>(Pass)

@@ -97,8 +97,8 @@ namespace
 	{
 		auto* Component = Actor->GetStaticMeshComponent();
 		return {{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0},
-			{{1, Component->GetPrimitiveSceneId(), Actor, Component,
-				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
+			{{1, Component->GetPrimitiveComponentId(), Actor, Component,
+				Component->GetPrimitiveComponentId().Value, Component->GetRegistrationGeneration()}}};
 	}
 
 	auto CreateGridStaticMesh(Durin::DLevel* Level, uint32 TriangleCount) -> Durin::DStaticMesh*
@@ -166,7 +166,7 @@ TEST(FViewportPickingContractTests, RejectsOutsideViewAndPreservesExactPrimitive
 	EXPECT_EQ(Pick.Completion.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::SceneGeometry);
 	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Fixture.Actor);
 	EXPECT_EQ(Pick.Completion.Hit->Component.Get(), Fixture.Actor->GetStaticMeshComponent());
-	EXPECT_EQ(Pick.Completion.Hit->PrimitiveId, Fixture.Actor->GetStaticMeshComponent()->GetPrimitiveSceneId());
+	EXPECT_EQ(Pick.Completion.Hit->PrimitiveId, Fixture.Actor->GetStaticMeshComponent()->GetPrimitiveComponentId());
 }
 
 TEST(FViewportPickingContractTests, SupportsPendingPollingCancellationAndSupersession)
@@ -322,7 +322,7 @@ TEST(FViewportPickingContractTests, IntersectsExactSplineMeshDerivedLOD0Surface)
 	ASSERT_TRUE(Component->IsRegistered());
 
 	Durin::Editor::Level::FViewportPickingBackendRequest Request{{1}, {50.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
-	Request.Targets.push_back({1, Component->GetPrimitiveSceneId(), Fixture.Actor, Component, 1,
+	Request.Targets.push_back({1, Component->GetPrimitiveComponentId(), Fixture.Actor, Component, 1,
 		Component->GetRegistrationGeneration()});
 	const auto Completion = Durin::Editor::Level::MakeReferenceViewportPickingBackend()->Submit(std::move(Request));
 	ASSERT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
@@ -452,7 +452,7 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 			auto* Component = Actors[Index]->GetStaticMeshComponent();
 			Component->SetWorldLocation({Position(Generator), Position(Generator), 1.0 + std::abs(Position(Generator))});
 			Component->SetWorldScale3D({Iteration % 3 == 0 ? -1.0 : 1.0, 0.5 + (Index % 4), 1.0});
-			Request.Targets.push_back({static_cast<uint32>(Index + 1), Component->GetPrimitiveSceneId(),
+			Request.Targets.push_back({static_cast<uint32>(Index + 1), Component->GetPrimitiveComponentId(),
 				Actors[Index], Component, static_cast<uint64>(Index), Component->GetRegistrationGeneration()});
 		}
 		if ((Iteration & 1u) != 0) std::ranges::reverse(Request.Targets);

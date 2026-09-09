@@ -70,7 +70,7 @@ namespace Durin
 		requiref(!Primitive->bSceneProxyPublished, "AddPrimitive cannot publish a component twice.");
 		std::unique_ptr<FPrimitiveSceneProxy> Proxy = Primitive->CreateSceneProxy();
 		if (Proxy == nullptr) return;
-		const FPrimitiveSceneId Id = Primitive->EnsurePrimitiveSceneId();
+		const FPrimitiveComponentId Id = Primitive->EnsurePrimitiveComponentId();
 		const AActor* Owner = Primitive->GetOwner();
 		const bool bVisible = Primitive->IsVisible() && (Owner == nullptr || !Owner->IsHidden());
 		const bool bAccepted = TryAddPrimitiveProxy(Id, std::move(Proxy), Primitive->GetRenderMatrix(), bVisible);
@@ -83,7 +83,7 @@ namespace Durin
 		RequireComponentBoundary(Primitive, "RemovePrimitive");
 		requiref(Primitive->GetRenderScene() == this, "RemovePrimitive requires the component to target this scene.");
 		if (!Primitive->bSceneProxyPublished) return;
-		const bool bAccepted = TryRemovePrimitiveProxy(Primitive->GetPrimitiveSceneId());
+		const bool bAccepted = TryRemovePrimitiveProxy(Primitive->GetPrimitiveComponentId());
 		requiref(bAccepted, "RemovePrimitive was rejected for a published render state.");
 		Primitive->bSceneProxyPublished = false;
 	}
@@ -94,7 +94,7 @@ namespace Durin
 		requiref(Light->GetRenderScene() == this, "AddLight requires the component to target this scene.");
 		requiref(Light->SceneProxy == nullptr, "AddLight cannot publish a component twice.");
 		if (const AActor* Owner = Light->GetOwner(); Owner && Owner->IsHidden()) return;
-		auto Proxy = Light->CreateSceneProxy(FLightSceneProxyDesc{Light->EnsureLightSceneId()});
+		auto Proxy = Light->CreateSceneProxy(FLightSceneProxyDesc{Light->EnsureLightComponentId()});
 		if (Proxy == nullptr) return;
 		FLightSceneProxy* Token = Proxy.get();
 		const bool bAccepted = TryAddLightProxy(std::move(Proxy));
@@ -263,7 +263,7 @@ namespace Durin
 		return static_cast<const FSpotLightSceneProxy&>(*Proxy);
 	}
 
-	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FPrimitiveSceneId InId,
+	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FPrimitiveComponentId InId,
 		std::shared_ptr<FPrimitiveSceneProxy> InProxy,
 		const FMatrix& InTransform)
 		: Id(InId)
@@ -309,10 +309,10 @@ namespace Durin
 
 	}
 
-	auto FScene::TryAddPrimitiveProxy(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool
+	auto FScene::TryAddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| PrimitiveId == InvalidPrimitiveSceneId || Proxy == nullptr
+			|| PrimitiveId == InvalidPrimitiveComponentId || Proxy == nullptr
 			|| !Math::IsFinite(Transform)) return false;
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
 		return TryEnqueueRenderCommand("AddPrimitive", [this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
@@ -328,12 +328,12 @@ namespace Durin
 	}
 
 	auto FScene::UpdatePrimitiveVisibility(
-		FPrimitiveSceneId PrimitiveId,
+		FPrimitiveComponentId PrimitiveId,
 		bool bVisible
 	) -> void
 	{
 		RequireActive("UpdatePrimitiveVisibility");
-		if (PrimitiveId == InvalidPrimitiveSceneId) return;
+		if (PrimitiveId == InvalidPrimitiveComponentId) return;
 		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveVisibility", [this, PrimitiveId, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
@@ -345,10 +345,10 @@ namespace Durin
 		requiref(bAccepted, "UpdatePrimitiveVisibility command admission failed.");
 	}
 
-	auto FScene::TryRemovePrimitiveProxy(FPrimitiveSceneId PrimitiveId) -> bool
+	auto FScene::TryRemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> bool
 	{
 		if (LifecycleState.load(std::memory_order_acquire) != ELifecycleState::Active
-			|| PrimitiveId == InvalidPrimitiveSceneId) return false;
+			|| PrimitiveId == InvalidPrimitiveComponentId) return false;
 		return TryEnqueueRenderCommand("RemovePrimitive", [this, PrimitiveId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			const auto Found = PrimitiveInfosById.find(PrimitiveId);
@@ -358,10 +358,10 @@ namespace Durin
 		});
 	}
 
-	auto FScene::UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void
+	auto FScene::UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void
 	{
 		RequireActive("UpdatePrimitiveTransform");
-		if (PrimitiveId == InvalidPrimitiveSceneId || !Math::IsFinite(Transform)) return;
+		if (PrimitiveId == InvalidPrimitiveComponentId || !Math::IsFinite(Transform)) return;
 		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveTransform", [this, PrimitiveId, Transform](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->SetTransform(Transform);
@@ -369,10 +369,10 @@ namespace Durin
 		requiref(bAccepted, "UpdatePrimitiveTransform command admission failed.");
 	}
 
-	auto FScene::UpdatePrimitiveMaterialBinding(FPrimitiveSceneId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void
+	auto FScene::UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void
 	{
 		RequireActive("UpdatePrimitiveMaterialBinding");
-		if (PrimitiveId == InvalidPrimitiveSceneId) return;
+		if (PrimitiveId == InvalidPrimitiveComponentId) return;
 		const bool bAccepted = TryEnqueueRenderCommand("UpdatePrimitiveMaterialBinding", [this, PrimitiveId, Update](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->UpdateMaterialBinding(Update);
@@ -381,12 +381,12 @@ namespace Durin
 	}
 
 	auto FScene::UpdateSplineMeshDynamicData(
-		FPrimitiveSceneId PrimitiveId,
+		FPrimitiveComponentId PrimitiveId,
 		FSplineMeshRenderDynamicData DynamicData
 	) -> void
 	{
 		RequireActive("UpdateSplineMeshDynamicData");
-		if (PrimitiveId == InvalidPrimitiveSceneId || DynamicData.Revision == 0
+		if (PrimitiveId == InvalidPrimitiveComponentId || DynamicData.Revision == 0
 			|| !DynamicData.LocalBounds.bIsValid) return;
 		const bool bAccepted = TryEnqueueRenderCommand("UpdateSplineMeshDynamicData", [this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
 			CheckRenderingThread();

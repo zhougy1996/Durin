@@ -94,7 +94,7 @@ namespace Durin::Editor::Level
 	auto FViewportPickingSceneIndex::IsAdmissible(const FEditorPickingPrimitiveMutation& Mutation) -> bool
 	{
 		return !Mutation.bRetired && Mutation.bVisible && Mutation.Actor.Get() && Mutation.Component.Get()
-			&& Mutation.PrimitiveId != InvalidPrimitiveSceneId
+			&& Mutation.PrimitiveId != InvalidPrimitiveComponentId
 			&& Mutation.Family != EEditorPickingPrimitiveFamily::Unsupported
 			&& Mutation.WorldBounds.bIsValid && Math::IsFinite(Mutation.WorldBounds.Min)
 			&& Math::IsFinite(Mutation.WorldBounds.Max);
@@ -189,7 +189,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FViewportPickingSceneIndex::BuildRange(
-		std::vector<FPrimitiveSceneId>& Ids, size_t Begin, size_t End, uint32 Parent) -> uint32
+		std::vector<FPrimitiveComponentId>& Ids, size_t Begin, size_t End, uint32 Parent) -> uint32
 	{
 		const uint32 NodeIndex = static_cast<uint32>(Nodes.size());
 		Nodes.push_back({});
@@ -213,7 +213,7 @@ namespace Durin::Editor::Level
 		uint32 Axis = Extent.y > Extent.x ? 1u : 0u;
 		if (Extent.z > Extent[Axis]) Axis = 2u;
 		std::stable_sort(Ids.begin() + Begin, Ids.begin() + End,
-			[this, Axis](FPrimitiveSceneId A, FPrimitiveSceneId B)
+			[this, Axis](FPrimitiveComponentId A, FPrimitiveComponentId B)
 			{
 				const double CA = Leaves.at(A.Value).FatBounds.GetCenter()[Axis];
 				const double CB = Leaves.at(B.Value).FatBounds.GetCenter()[Axis];
@@ -239,14 +239,14 @@ namespace Durin::Editor::Level
 			|| (!Leaves.empty() && EstimatedBytes / Leaves.size() > kMaximumBytesPerPrimitive)) return false;
 		if (!Leaves.empty())
 		{
-			std::vector<FPrimitiveSceneId> Ids;
+			std::vector<FPrimitiveComponentId> Ids;
 			Ids.reserve(Leaves.size());
 			for (const auto& [Id, Leaf] : Leaves)
 			{
 				(void)Leaf;
-				Ids.push_back(FPrimitiveSceneId(Id));
+				Ids.push_back(FPrimitiveComponentId(Id));
 			}
-			std::ranges::sort(Ids, {}, &FPrimitiveSceneId::Value);
+			std::ranges::sort(Ids, {}, &FPrimitiveComponentId::Value);
 			Nodes.reserve(Ids.size() * 2 - 1);
 			Root = BuildRange(Ids, 0, Ids.size(), kInvalidNode);
 		}
@@ -262,7 +262,7 @@ namespace Durin::Editor::Level
 		while (NodeIndex != kInvalidNode)
 		{
 			FNode& Node = Nodes[NodeIndex];
-			if (Node.LeafId != InvalidPrimitiveSceneId) Node.Bounds = Leaves.at(Node.LeafId.Value).FatBounds;
+			if (Node.LeafId != InvalidPrimitiveComponentId) Node.Bounds = Leaves.at(Node.LeafId.Value).FatBounds;
 			else Node.Bounds = UnionBounds(Nodes[Node.Left].Bounds, Nodes[Node.Right].Bounds);
 			NodeIndex = Node.Parent;
 		}
@@ -287,7 +287,7 @@ namespace Durin::Editor::Level
 			++Diagnostics.NodeVisits;
 			++Diagnostics.BoundsTests;
 			if (!IntersectRayBox(Origin, Direction, Node.Bounds)) continue;
-			if (Node.LeafId != InvalidPrimitiveSceneId)
+			if (Node.LeafId != InvalidPrimitiveComponentId)
 			{
 				const FLeaf& Leaf = Leaves.at(Node.LeafId.Value);
 				++Diagnostics.BoundsTests;

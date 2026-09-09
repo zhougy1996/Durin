@@ -3,7 +3,7 @@
 #include "GeometrySubmission.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
-#include "SceneTypes.h"
+#include "PrimitiveComponentId.h"
 #include "VertexFactory.h"
 
 namespace Durin
@@ -26,7 +26,7 @@ namespace Durin
 	// Render-thread input whose lifetime is restricted to the collection call.
 	struct FMeshCollectionContext
 	{
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		FMatrix LocalToWorld{1.0};
 		FBox WorldBounds;
 		float NormalizedScreenSize = 1.0f;
@@ -52,7 +52,7 @@ namespace Durin
 	// asset data inside a concrete binding still obeys its retirement fence.
 	struct FMeshBatch
 	{
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 BatchId = 0;
 		FMatrix LocalToWorld{1.0};
 		FBox WorldBounds;
@@ -103,7 +103,7 @@ namespace Durin
 				|| (Purpose == EMeshCollectionPurpose::Shadow && !Batch.bShadowCaster))
 				return EGeometrySubmissionOutcome::Excluded;
 			if (Batch.Elements.empty()) return EGeometrySubmissionOutcome::Empty;
-			if (Batch.PrimitiveId == InvalidPrimitiveSceneId
+			if (Batch.PrimitiveId == InvalidPrimitiveComponentId
 				|| !Math::IsFinite(Batch.LocalToWorld)
 				|| !Batch.WorldBounds.bIsValid
 				|| !Math::IsFinite(Batch.WorldBounds.Min)

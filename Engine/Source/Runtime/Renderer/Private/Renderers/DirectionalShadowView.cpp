@@ -360,7 +360,7 @@ namespace Durin
 
 	auto TryPrepareDirectionalShadowView(
 		const FSceneView& View,
-		FLightSceneId LightId,
+		FLightComponentId LightId,
 		const FDirectionalLightSceneData& Light,
 		FPreparedDirectionalShadowView& OutShadow) -> bool
 	{
@@ -371,7 +371,7 @@ namespace Durin
 			== EDirectionalShadowCandidate::ThreeCascades
 			? EDirectionalShadowCandidate::ThreeCascades
 			: EDirectionalShadowCandidate::SingleMap;
-		if (!Light.bCastShadows || LightId == InvalidLightSceneId
+		if (!Light.bCastShadows || LightId == InvalidLightComponentId
 			|| !Math::IsFinite(Light.Direction)
 			|| Math::LengthSquared(Light.Direction) <= MatrixEpsilon * MatrixEpsilon)
 			return false;

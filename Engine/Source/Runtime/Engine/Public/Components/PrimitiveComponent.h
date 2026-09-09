@@ -2,7 +2,7 @@
 #include "Components/SceneComponent.h"
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Physics/BodyInstance.h"
-#include "SceneTypes.h"
+#include "PrimitiveComponentId.h"
 
 #include "PrimitiveComponent.gen.h"
 
@@ -42,7 +42,7 @@ namespace Durin
 
 		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>;
 		ENGINE_API auto GetRenderMatrix() const -> FMatrix;
-		ENGINE_API auto GetPrimitiveSceneId() const -> FPrimitiveSceneId { return PrimitiveSceneId; }
+		ENGINE_API auto GetPrimitiveComponentId() const -> FPrimitiveComponentId { return PrimitiveComponentId; }
 		ENGINE_API auto DestroyRenderState() -> void;
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
@@ -91,11 +91,11 @@ namespace Durin
 		auto MakePhysicsBodyDesc(
 			const FCollisionGeometryRef& Geometry,
 			const FTransform& Transform) const -> FPhysicsBodyDesc;
-		ENGINE_API auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
+		ENGINE_API auto EnsurePrimitiveComponentId() -> FPrimitiveComponentId;
 		auto UpdatePhysicsState() -> void;
 		auto ApplyPhysicsStateCreationPolicy() -> void;
 
-		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveComponentId = InvalidPrimitiveComponentId;
 		bool bSceneProxyPublished = false;
 		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;

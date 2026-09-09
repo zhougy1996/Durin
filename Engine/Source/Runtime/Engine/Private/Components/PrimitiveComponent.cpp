@@ -10,7 +10,7 @@ namespace Durin
 {
 	namespace
 	{
-		std::atomic<uint64> GNextPrimitiveSceneId = 1;
+		std::atomic<uint64> GNextPrimitiveComponentId = 1;
 	}
 
 	DPrimitiveComponent::DPrimitiveComponent(const FObjectInitializer& ObjectInitializer)
@@ -22,7 +22,7 @@ namespace Durin
 	{
 		Super::OnRegister();
 		++PhysicsRegistrationGeneration;
-		EnsurePrimitiveSceneId();
+		EnsurePrimitiveComponentId();
 		CreateRenderState();
 #if DURIN_WITH_EDITOR
 		NotifyEditorPickingMutation();
@@ -312,7 +312,7 @@ namespace Durin
 		}
 		if (!bSceneProxyPublished) return;
 
-		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();
+		const FPrimitiveComponentId SceneId = EnsurePrimitiveComponentId();
 		const AActor* Owner = GetOwner();
 		const bool bPrimitiveVisible = bVisible && (Owner == nullptr || !Owner->IsHidden());
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
@@ -341,13 +341,13 @@ namespace Durin
 		return false;
 	}
 
-	auto DPrimitiveComponent::EnsurePrimitiveSceneId() -> FPrimitiveSceneId
+	auto DPrimitiveComponent::EnsurePrimitiveComponentId() -> FPrimitiveComponentId
 	{
-		if (PrimitiveSceneId == InvalidPrimitiveSceneId)
+		if (!PrimitiveComponentId.IsValid())
 		{
-			PrimitiveSceneId = FPrimitiveSceneId(GNextPrimitiveSceneId.fetch_add(1, std::memory_order_relaxed));
+			PrimitiveComponentId = FPrimitiveComponentId(GNextPrimitiveComponentId.fetch_add(1, std::memory_order_relaxed));
 		}
-		return PrimitiveSceneId;
+		return PrimitiveComponentId;
 	}
 
 	auto DPrimitiveComponent::OnUpdateTransform() -> void

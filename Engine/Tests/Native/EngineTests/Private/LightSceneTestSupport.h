@@ -6,7 +6,7 @@
 template<typename TProxy, typename TData>
 auto PublishLightForTest(
 	Durin::FScene& Scene,
-	Durin::FLightSceneId Id,
+	Durin::FLightComponentId Id,
 	TData Data) -> TProxy*
 {
 	auto Proxy = std::make_unique<TProxy>(Id, std::move(Data));

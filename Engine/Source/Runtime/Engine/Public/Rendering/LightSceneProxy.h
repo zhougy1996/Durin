@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "SceneTypes.h"
+#include "LightComponentId.h"
 
 namespace Durin
 {
@@ -10,9 +10,9 @@ namespace Durin
 	// Carries stable light identity across the complete proxy-construction boundary.
 	struct FLightSceneProxyDesc
 	{
-		FLightSceneId Id = InvalidLightSceneId;
+		FLightComponentId Id = InvalidLightComponentId;
 
-		auto IsValid() const -> bool { return Id != InvalidLightSceneId; }
+		auto IsValid() const -> bool { return Id != InvalidLightComponentId; }
 	};
 
 	// Captures the renderer-facing directional-light state without retaining a component.
@@ -88,7 +88,7 @@ namespace Durin
 		FDirectionalLightSceneProxy(FLightSceneProxyDesc InDesc,
 			FDirectionalLightSceneData InData)
 			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
-		FDirectionalLightSceneProxy(FLightSceneId Id,
+		FDirectionalLightSceneProxy(FLightComponentId Id,
 			FDirectionalLightSceneData InData)
 			: FDirectionalLightSceneProxy(
 				FLightSceneProxyDesc{Id}, std::move(InData)) {}
@@ -109,7 +109,7 @@ namespace Durin
 		FPointLightSceneProxy(FLightSceneProxyDesc InDesc,
 			FPointLightSceneData InData)
 			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
-		FPointLightSceneProxy(FLightSceneId Id, FPointLightSceneData InData)
+		FPointLightSceneProxy(FLightComponentId Id, FPointLightSceneData InData)
 			: FPointLightSceneProxy(
 				FLightSceneProxyDesc{Id}, std::move(InData)) {}
 
@@ -129,7 +129,7 @@ namespace Durin
 		FSpotLightSceneProxy(FLightSceneProxyDesc InDesc,
 			FSpotLightSceneData InData)
 			: FLightSceneProxy(std::move(InDesc)), Data(std::move(InData)) {}
-		FSpotLightSceneProxy(FLightSceneId Id, FSpotLightSceneData InData)
+		FSpotLightSceneProxy(FLightComponentId Id, FSpotLightSceneData InData)
 			: FSpotLightSceneProxy(
 				FLightSceneProxyDesc{Id}, std::move(InData)) {}
 

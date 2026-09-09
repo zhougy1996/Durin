@@ -116,7 +116,7 @@ namespace Durin
 			AActor* Actor = Component->GetOwner();
 			Mutation.Actor = Actor;
 			Mutation.Component = Component;
-			Mutation.PrimitiveId = Component->GetPrimitiveSceneId();
+			Mutation.PrimitiveId = Component->GetPrimitiveComponentId();
 			Mutation.RegistrationGeneration = Component->GetRegistrationGeneration();
 			Mutation.bVisible = Actor && !Actor->IsHidden();
 			Mutation.bRetired = bRetired;

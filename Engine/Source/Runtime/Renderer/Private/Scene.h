@@ -42,11 +42,11 @@ namespace Durin
 			DVolumetricCloudComponent* Cloud
 		) -> void override;
 		RENDERER_API auto Release() -> void override;
-		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
-		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveSceneId PrimitiveId, bool bVisible) -> void override;
-		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveSceneId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
+		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
+		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;
+		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveComponentId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
 		RENDERER_API auto UpdateSplineMeshDynamicData(
-			FPrimitiveSceneId PrimitiveId,
+			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
 		) -> void override;
 		RENDERER_API auto GetSkyBox_RenderThread(
@@ -77,8 +77,8 @@ namespace Durin
 			Released
 		};
 
-		RENDERER_API auto TryAddPrimitiveProxy(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool;
-		RENDERER_API auto TryRemovePrimitiveProxy(FPrimitiveSceneId PrimitiveId) -> bool;
+		RENDERER_API auto TryAddPrimitiveProxy(FPrimitiveComponentId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> bool;
+		RENDERER_API auto TryRemovePrimitiveProxy(FPrimitiveComponentId PrimitiveId) -> bool;
 		RENDERER_API auto TryAddLightProxy(std::unique_ptr<FLightSceneProxy> Proxy) -> bool;
 		RENDERER_API auto TryRemoveLightProxy(FLightSceneProxy* Proxy) -> bool;
 		RENDERER_API auto TryAddSkyBoxProxy(std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> bool;
@@ -97,7 +97,7 @@ namespace Durin
 		static auto GetAllocatedSceneCount() -> size_t;
 		auto Clear_RenderThread() -> void;
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
-		std::unordered_map<FPrimitiveSceneId, std::unique_ptr<FPrimitiveSceneInfo>, FSceneIdHash> PrimitiveInfosById;
+		std::unordered_map<FPrimitiveComponentId, std::unique_ptr<FPrimitiveSceneInfo>, FPrimitiveComponentIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;

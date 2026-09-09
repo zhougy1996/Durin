@@ -88,8 +88,8 @@ namespace
 	{
 		auto* Component = Actor->GetStaticMeshComponent();
 		return {{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0},
-			{{1, Component->GetPrimitiveSceneId(), Actor, Component,
-				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
+			{{1, Component->GetPrimitiveComponentId(), Actor, Component,
+				Component->GetPrimitiveComponentId().Value, Component->GetRegistrationGeneration()}}};
 	}
 
 	auto CreateGridStaticMesh(Durin::DLevel* Level, uint32 TriangleCount) -> Durin::DStaticMesh*

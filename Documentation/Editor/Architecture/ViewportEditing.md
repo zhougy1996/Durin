@@ -79,13 +79,13 @@ exit without leaving a callback into a retired instance.
 The public result is semantic and backend-independent. It retains hit kind,
 weak Actor and exact component identity, optional typed sub-element,
 non-negative world distance, semantic priority/depth policy, stable tie key,
-and `FPrimitiveSceneId` for scene primitives. Ordinary geometry clicks still
+and `FPrimitiveComponentId` for scene primitives. Ordinary geometry clicks still
 select the Actor; visualization clicks select their exact component or
 sub-element. `FLevelEditorContext`, not the service or backend, performs those
 mutations.
 
 For each scene-geometry request, the service captures a request-local table
-from a non-zero numeric token to `FPrimitiveSceneId`, weak component/Actor, and
+from a non-zero numeric token to `FPrimitiveComponentId`, weak component/Actor, and
 the component registration generation. The built-in reference backend performs
 LOD0, double-sided surface queries for StaticMesh and SplineMesh
 components and returns only a token and world distance. Before exposing a completion, the service verifies client/Level

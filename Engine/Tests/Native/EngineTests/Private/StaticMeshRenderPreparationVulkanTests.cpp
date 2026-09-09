@@ -458,7 +458,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::FSceneTestOwner SceneOwner;
 
 	Durin::FScene& Scene = *SceneOwner;
-	const Durin::FPrimitiveSceneId PrimitiveId(211);
+	const Durin::FPrimitiveComponentId PrimitiveId(211);
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
 		PrimitiveId, std::move(QueuedProxy), Durin::FMatrix(1.0));
 	RenderThreadBlocker.Release();
@@ -545,7 +545,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		[&](Durin::FRHICommandListImmediate&) {
 			using namespace Durin;
 			FMeshCollectionContext Context;
-			Context.PrimitiveId = FPrimitiveSceneId(700);
+			Context.PrimitiveId = FPrimitiveComponentId(700);
 			Context.WorldBounds = RenderData->LocalBounds;
 			Context.ProjectionStatus = EMeshCollectionProjectionStatus::Valid;
 			FStaticMeshSceneProxy StaticProxy(RenderData.get(), {Opaque, Masked, Translucent, Opaque}, 1);
@@ -604,7 +604,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	SplineDynamic.Params.EndTangent = {80.0, 0.0, 10.0};
 	SplineDynamic.Params.SourceForwardMin = -1.0;
 	SplineDynamic.Params.SourceForwardMax = 1.0;
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SplineScene, Durin::FPrimitiveSceneId(72),
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SplineScene, Durin::FPrimitiveComponentId(72),
 		std::make_unique<Durin::FSplineMeshSceneProxy>(RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque},
 			1, SplineDynamic), Durin::FMatrix(1.0));
@@ -625,7 +625,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FlushRenderingCommands();
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SplineSceneOwner);
 	Durin::FlushRenderingCommands();
-	const Durin::FPrimitiveSceneId Id(71);
+	const Durin::FPrimitiveComponentId Id(71);
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::Math::ScaleMatrix(Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
 
@@ -697,14 +697,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FSceneTestOwner OrderingSceneOwner;
 	Durin::FScene& OrderingScene = *OrderingSceneOwner;
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OrderingScene,
-		Durin::FPrimitiveSceneId(90),
+		Durin::FPrimitiveComponentId(90),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
 			1),
 		Durin::Math::TranslationMatrix(Durin::FVector3(0.0, 0.0, 20.0)));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(OrderingScene,
-		Durin::FPrimitiveSceneId(80),
+		Durin::FPrimitiveComponentId(80),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			RenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
@@ -759,8 +759,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveSceneId(80));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveSceneId(90));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveComponentId(80));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(OrderingScene, Durin::FPrimitiveComponentId(90));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneTestOwner GroupingSceneOwner;
@@ -768,7 +768,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	Durin::FScene& GroupingScene = *GroupingSceneOwner;
 	auto AddGroupingPrimitive = [&](uint64 PrimitiveId) {
 		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(GroupingScene,
-			Durin::FPrimitiveSceneId(PrimitiveId),
+			Durin::FPrimitiveComponentId(PrimitiveId),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				RenderData.get(),
 				std::vector<Durin::FMaterialRenderProxyRef>{
@@ -828,7 +828,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(100));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveComponentId(100));
 	Durin::FlushRenderingCommands();
 	AddGroupingPrimitive(100);
 	Durin::FlushRenderingCommands();
@@ -851,15 +851,15 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(100));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveSceneId(200));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveComponentId(100));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(GroupingScene, Durin::FPrimitiveComponentId(200));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneTestOwner MultiLODSceneOwner;
 
 	Durin::FScene& MultiLODScene = *MultiLODSceneOwner;
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(MultiLODScene,
-		Durin::FPrimitiveSceneId(101),
+		Durin::FPrimitiveComponentId(101),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque},
@@ -1009,7 +1009,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	);
 	Durin::FlushRenderingCommands();
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(MultiLODScene,
-		Durin::FPrimitiveSceneId(101),
+		Durin::FPrimitiveComponentId(101),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque},
@@ -1042,20 +1042,20 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(MultiLODScene, Durin::FPrimitiveSceneId(101));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(MultiLODScene, Durin::FPrimitiveComponentId(101));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneTestOwner DegenerateTransformSceneOwner;
 
 	Durin::FScene& DegenerateTransformScene = *DegenerateTransformSceneOwner;
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(DegenerateTransformScene,
-		Durin::FPrimitiveSceneId(102),
+		Durin::FPrimitiveComponentId(102),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 2),
 		Durin::Math::ScaleMatrix(Durin::FVector3(0.0, 1.0, 1.0)));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(DegenerateTransformScene,
-		Durin::FPrimitiveSceneId(103),
+		Durin::FPrimitiveComponentId(103),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			MultiLODRenderData.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 2),
@@ -1074,8 +1074,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			EXPECT_EQ(Prepared.RejectedPrimitives, 2u);
 		});
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveSceneId(102));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveSceneId(103));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveComponentId(102));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(DegenerateTransformScene, Durin::FPrimitiveComponentId(103));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 2), Durin::FMatrix(1.0));
@@ -1172,7 +1172,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 				RenderData.get(), Materials, 1, Dynamic);
 		}
 		EXPECT_TRUE(Durin::FSceneInterfaceTestAccess::TryAddPrimitiveProxy(
-			Scene, Durin::FPrimitiveSceneId(1000 + Index), std::move(Proxy),
+			Scene, Durin::FPrimitiveComponentId(1000 + Index), std::move(Proxy),
 			Durin::FMatrix(1.0)));
 	}
 	Durin::FlushRenderingCommands();
@@ -1307,7 +1307,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	{
 		auto Proxy = std::make_unique<FProceduralProxy>();
 		Proxy->Geometry = Geometries[I]; Proxy->Materials = Materials; Proxy->bReverse = I == 1;
-		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(Scene, FPrimitiveSceneId(100 + I), std::move(Proxy), FMatrix(1.0)));
+		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(Scene, FPrimitiveComponentId(100 + I), std::move(Proxy), FMatrix(1.0)));
 	}
 	FlushRenderingCommands();
 	FPreparedStaticMeshView Snapshot;
@@ -1345,7 +1345,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		MissingProxy->Geometry.Binding = std::make_shared<FProceduralBinding>(*Geometries[0].Binding);
 		MissingProxy->Geometry.Binding->Streams.clear();
 		MissingProxy->Materials = Materials;
-		FPrimitiveSceneInfo MissingInfo(FPrimitiveSceneId(900), MissingProxy, FMatrix(1.0));
+		FPrimitiveSceneInfo MissingInfo(FPrimitiveComponentId(900), MissingProxy, FMatrix(1.0));
 		const std::array<FPrimitiveSceneInfo*, 1> MissingInfos{&MissingInfo};
 		const auto Missing = PrepareStaticMeshView_RenderThread(CommandList, MissingInfos, View, ERasterMode::Solid);
 		EXPECT_TRUE(Missing.bResourceFailure);
@@ -1379,10 +1379,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 			Transform[0][0] = Transform[1][1] = Transform[2][2] = 0.8;
 			Transform[3][0] = 0.05;
 		}
-		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(PairScene, FPrimitiveSceneId(200), std::move(Proxy), Transform));
+		ASSERT_TRUE(FSceneInterfaceTestAccess::TryAddPrimitiveProxy(PairScene, FPrimitiveComponentId(200), std::move(Proxy), Transform));
 		FDirectionalLightSceneData Light;
 		Light.Intensity = 3.0f;
-		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(PairScene, FLightSceneId(1), Light), nullptr);
+		ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(PairScene, FLightComponentId(1), Light), nullptr);
 	}
 	FlushRenderingCommands();
 	EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& CommandList) {
@@ -1492,14 +1492,14 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 	FlushRenderingCommands();
 	FDirectionalLightSceneData ForwardLight;
 	ForwardLight.Intensity = 3.0f;
-	ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*ForwardOwner, FLightSceneId(2), ForwardLight), nullptr);
+	ASSERT_NE(PublishLightForTest<FDirectionalLightSceneProxy>(*ForwardOwner, FLightComponentId(2), ForwardLight), nullptr);
 	for (const auto [LocalFactory, FailShadow] : std::array{std::pair{true, false}, std::pair{false, false}, std::pair{false, true}, std::pair{false, false}})
 	{
 		auto Proxy = std::make_unique<FProceduralProxy>();
 		Proxy->Geometry = LocalFactory ? Geometries[0] : ForwardGeometry;
 		Proxy->Materials = {Materials[0], TranslucentData};
 		Proxy->bFailShadow = FailShadow;
-		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*ForwardOwner, FPrimitiveSceneId(300), std::move(Proxy), FMatrix(1.0)));
+		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(*ForwardOwner, FPrimitiveComponentId(300), std::move(Proxy), FMatrix(1.0)));
 		FlushRenderingCommands();
 		EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>([&](FRHICommandListImmediate& Commands) {
 			FSceneView View;
@@ -1546,7 +1546,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, QualifiesIndependentMultiBatchGeom
 		FlushRenderingCommands();
 		auto Proxy = std::make_unique<FProceduralProxy>();
 		Proxy->Geometry = Geometries[0]; Proxy->Materials = {Materials[1], Materials[0]};
-		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveSceneId(100), std::move(Proxy), FMatrix(1.0)));
+		ASSERT_TRUE(FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, FPrimitiveComponentId(100), std::move(Proxy), FMatrix(1.0)));
 		FlushRenderingCommands();
 		EXPECT_EQ(Scene.GetPrimitiveSceneInfos().size(), 2u);
 		if (Cycle > 0) EXPECT_TRUE(Retired.expired()) << Cycle;

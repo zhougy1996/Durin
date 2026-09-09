@@ -934,7 +934,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		for (size_t Index = 0; Index < Fixture.Primitives.size(); ++Index)
 		{
 			const FPrimitivePlacement& Placement = Fixture.Primitives[Index];
-			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(Index + 1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Placement.bMasked ? Masked : Opaque}, 1), MakeTransform(Placement));
+			Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(Index + 1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Placement.bMasked ? Masked : Opaque}, 1), MakeTransform(Placement));
 		}
 		Durin::FDirectionalLightSceneData Directional;
 		Directional.Direction = Fixture.LightDirection;
@@ -942,7 +942,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		Directional.Intensity = 3.0f;
 		Directional.bCastShadows = Fixture.bCastShadows;
 		PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-			Scene, Durin::FLightSceneId(100), Directional);
+			Scene, Durin::FLightComponentId(100), Directional);
 		Durin::FlushRenderingCommands();
 
 		auto Pixels = std::make_shared<Durin::FByteBuffer>();
@@ -1252,7 +1252,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	{
 		const double Offset = static_cast<double>(Index % 8u) * 0.0001;
 		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
-			Durin::FPrimitiveSceneId(Index + 1u),
+			Durin::FPrimitiveComponentId(Index + 1u),
 			std::make_unique<Durin::FStaticMeshSceneProxy>(
 				Quad.get(),
 				std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
@@ -1265,7 +1265,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
 	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	struct FProfile
@@ -1437,20 +1437,20 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// supplement should refill.
 	Durin::FSceneTestOwner SceneOwner;
 	Durin::FScene& Scene = *SceneOwner;
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	// A vertical wall whose visible face is back-facing relative to the light:
 	// the screen-space supplement must NOT self-occlude it. The camera looks
 	// toward -z (projection maps smaller z to nearer), so the floor at negative
 	// z presents its +z face, which faces the light.
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.35, 0.2, -1.0};
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
 	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	auto RenderCapture = [&](bool bEnableContactShadows,
@@ -1615,7 +1615,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.bCastShadows = false;
 	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer ForwardOnlyOutput;
 	Durin::FByteBuffer ForwardOnlyHDR;
@@ -1732,8 +1732,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent, {0.1, 0.8, 0.25}, Durin::EMaterialShadingModel::Lit, Durin::FVector3(0.0), 0.45);
 	auto MixedUnlit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.12, 0.18, 0.75}, Durin::EMaterialShadingModel::Unlit, {2.0, 0.25, 0.1});
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Translucent}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{MixedUnlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Translucent}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{MixedUnlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer MixedForwardOutput;
 	Durin::FByteBuffer MixedForwardHDR;
@@ -1754,8 +1754,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(MixedHybridTelemetry.GBuffer.GBufferAttemptedDraws, 1u);
 	EXPECT_EQ(MixedHybridTelemetry.GBuffer.GBufferSkippedDraws, 2u);
 	EXPECT_EQ(MixedHybridTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
 
 	const std::array DeferredDebugModes{
@@ -1820,7 +1820,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.bCastShadows = true;
 	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	// Stage 3 consumes the same selected shadow map, comparison sampler, and
@@ -1875,9 +1875,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 
 	auto SetFixtureMaterial = [&](const Durin::FMaterialRenderProxyRef& Material) {
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
-		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
+		Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 		Durin::FlushRenderingCommands();
 	};
 	auto CaptureDeferredTerm = [&](Durin::FByteBuffer& Forward,
@@ -1927,7 +1927,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	Directional.bCastShadows = false;
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	SetFixtureMaterial(PureLit);
 	Durin::FByteBuffer DirectionalOnlyForward;
 	Durin::FByteBuffer DirectionalOnlyDeferred;
@@ -1943,7 +1943,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Point.Intensity = 5.0f;
 	Point.Range = 6.0f;
 	auto* PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(200), Point);
+		Scene, Durin::FLightComponentId(200), Point);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer PointOnlyForward;
 	Durin::FByteBuffer PointOnlyDeferred;
@@ -1962,7 +1962,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Spot.InnerConeAngle = 25.0f;
 	Spot.OuterConeAngle = 40.0f;
 	auto* SpotToken = PublishLightForTest<Durin::FSpotLightSceneProxy>(
-		Scene, Durin::FLightSceneId(201), Spot);
+		Scene, Durin::FLightComponentId(201), Spot);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer SpotOnlyForward;
 	Durin::FByteBuffer SpotOnlyDeferred;
@@ -1972,14 +1972,14 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_NE(SpotOnlyDeferred, PointOnlyDeferred);
 
 	PointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(200), Point);
+		Scene, Durin::FLightComponentId(200), Point);
 	auto PointTwo = Point;
 	PointTwo.Position = {-0.1, -0.45, 0.8};
 	PointTwo.Color = {0.1f, 1.0f, 0.2f};
 	PointTwo.Intensity = 3.0f;
 	PointTwo.Range = 4.0f;
 	auto* PointTwoToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(202), PointTwo);
+		Scene, Durin::FLightComponentId(202), PointTwo);
 	auto SpotTwo = Spot;
 	SpotTwo.Position = {0.45, -0.35, 1.1};
 	SpotTwo.Direction = {0.1, 0.2, -1.0};
@@ -1989,11 +1989,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	SpotTwo.InnerConeAngle = 20.0f;
 	SpotTwo.OuterConeAngle = 45.0f;
 	auto* SpotTwoToken = PublishLightForTest<Durin::FSpotLightSceneProxy>(
-		Scene, Durin::FLightSceneId(203), SpotTwo);
+		Scene, Durin::FLightComponentId(203), SpotTwo);
 	auto OverflowPoint = Point;
 	OverflowPoint.Color = {1.0f, 0.0f, 1.0f};
 	auto* OverflowPointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(204), OverflowPoint);
+		Scene, Durin::FLightComponentId(204), OverflowPoint);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer FourLocalForward;
 	Durin::FByteBuffer FourLocalDeferred;
@@ -2008,7 +2008,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	auto InvalidPoint = Point;
 	InvalidPoint.Range = 0.0f;
 	auto* InvalidPointToken = PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(199), InvalidPoint);
+		Scene, Durin::FLightComponentId(199), InvalidPoint);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer InvalidLocalForward;
 	Durin::FByteBuffer InvalidLocalDeferred;
@@ -2042,7 +2042,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	Directional.bCastShadows = true;
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	SetFixtureMaterial(Opaque);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer ContactForwardOutput;
@@ -2324,7 +2324,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// geometry, not a coplanar self sample. Keep this near-contact range alive
 	// while the following fixture rejects the receiver's own triangle planes.
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
-		Durin::FPrimitiveSceneId(2),
+		Durin::FPrimitiveComponentId(2),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
 		MakeTransform({.Translation = {-0.18, 0.08, -0.485},
@@ -2344,10 +2344,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// re-hits its own two triangles as large wedges; an oriented surface test
 	// must leave the receiver completely visible without suppressing the real
 	// floating-occluder coverage above.
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3));
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
-		Durin::FPrimitiveSceneId(1),
+		Durin::FPrimitiveComponentId(1),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
 		MakeTransform({.Translation = {0.0, 0.0, -0.5},
@@ -2356,7 +2356,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.Direction = {-0.55, 0.0, 0.835};
 	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FlushRenderingCommands();
 
 	// The same shallow receiver must retain a visible contact contribution from
@@ -2364,7 +2364,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// carries N.L, so contact visibility must not fade that response a second
 	// time merely because the light angle is shallow.
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene,
-		Durin::FPrimitiveSceneId(2),
+		Durin::FPrimitiveComponentId(2),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
 		MakeTransform({.Translation = {0.0136, 0.0, -0.4937},
@@ -2379,7 +2379,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			ShallowContactPeak, ByteValue(ShallowContactDebug[Pixel]));
 	EXPECT_GT(ShallowContactPeak, 96u);
 
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer CoplanarOff;
 	Durin::FByteBuffer CoplanarOn;
@@ -2414,7 +2414,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EMaterialShadingModel::Unlit,
 		{4.0, 2.0, 0.5}
 	);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Emissive}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Emissive}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer EmissiveOutput;
 	Durin::FByteBuffer EmissiveHDRScene;
@@ -2431,9 +2431,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		{0.35, 0.22, 0.12},
 		Durin::EMaterialShadingModel::Unlit
 	);
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer UnlitOff;
 	Durin::FByteBuffer UnlitOn;

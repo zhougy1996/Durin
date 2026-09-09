@@ -51,23 +51,23 @@ namespace
 			Durin::DVolumetricCloudComponent*
 		) -> void override {}
 
-		auto UpdatePrimitiveTransform(Durin::FPrimitiveSceneId, const Durin::FMatrix&) -> void override
+		auto UpdatePrimitiveTransform(Durin::FPrimitiveComponentId, const Durin::FMatrix&) -> void override
 		{
 		}
 
-		auto UpdatePrimitiveVisibility(Durin::FPrimitiveSceneId, bool) -> void override
+		auto UpdatePrimitiveVisibility(Durin::FPrimitiveComponentId, bool) -> void override
 		{
 		}
 
 		auto UpdatePrimitiveMaterialBinding(
-			Durin::FPrimitiveSceneId,
+			Durin::FPrimitiveComponentId,
 			const Durin::FMaterialRenderProxyBindingUpdate&
 		) -> void override
 		{
 		}
 
 		auto UpdateSplineMeshDynamicData(
-			Durin::FPrimitiveSceneId,
+			Durin::FPrimitiveComponentId,
 			Durin::FSplineMeshRenderDynamicData
 		) -> void override
 		{
@@ -202,6 +202,40 @@ TEST(FWorldTests, LightComponentRebuildsAndRetiresExactProxyTokens)
 	EXPECT_EQ(Scene.LastRemovedLight, VisibleToken);
 	EXPECT_TRUE(Scene.Lights.empty());
 
+	World->SetRenderScene(nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, ComponentIdsRemainStableAcrossRenderStateAndRegistrationChanges)
+{
+	Durin::DWorld* World = CreateWorld();
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	auto* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("IdentityMesh")->GetStaticMeshComponent();
+	auto* Light = World->SpawnActor<Durin::ADirectionalLightActor>("IdentityLight")->GetLightComponent();
+	const auto PrimitiveId = Mesh->GetPrimitiveComponentId();
+	const auto LightId = Light->GetLightComponentId();
+	ASSERT_TRUE(PrimitiveId.IsValid());
+	ASSERT_TRUE(LightId.IsValid());
+
+	Mesh->RecreateRenderState();
+	Light->SetIntensity(2.0f);
+	EXPECT_EQ(Mesh->GetPrimitiveComponentId(), PrimitiveId);
+	EXPECT_EQ(Light->GetLightComponentId(), LightId);
+	Mesh->UnregisterComponent();
+	Light->UnregisterComponent();
+	EXPECT_EQ(Mesh->GetPrimitiveComponentId(), PrimitiveId);
+	EXPECT_EQ(Light->GetLightComponentId(), LightId);
+	Mesh->RegisterComponent();
+	Light->RegisterComponent();
+	EXPECT_EQ(Mesh->GetPrimitiveComponentId(), PrimitiveId);
+	EXPECT_EQ(Light->GetLightComponentId(), LightId);
+
+	auto* OtherMesh = World->SpawnActor<Durin::AStaticMeshActor>("OtherMesh")->GetStaticMeshComponent();
+	auto* OtherLight = World->SpawnActor<Durin::ADirectionalLightActor>("OtherLight")->GetLightComponent();
+	EXPECT_NE(OtherMesh->GetPrimitiveComponentId(), PrimitiveId);
+	EXPECT_NE(OtherLight->GetLightComponentId(), LightId);
 	World->SetRenderScene(nullptr);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

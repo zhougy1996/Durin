@@ -16,11 +16,11 @@ namespace Durin
 	{
 	public:
 		RENDERER_API FPrimitiveSceneInfo(
-			FPrimitiveSceneId InId,
+			FPrimitiveComponentId InId,
 			std::shared_ptr<FPrimitiveSceneProxy> InProxy,
 			const FMatrix& InTransform);
 
-		auto GetId() const -> FPrimitiveSceneId { return Id; }
+		auto GetId() const -> FPrimitiveComponentId { return Id; }
 		auto GetKind() const -> EPrimitiveSceneProxyKind { return Kind; }
 		auto GetTransform() const -> const FMatrix& { return Transform; }
 		auto GetLocalBounds() const -> const FBox& { return LocalBounds; }
@@ -36,7 +36,7 @@ namespace Durin
 			FSplineMeshRenderDynamicData DynamicData) -> bool;
 
 	private:
-		FPrimitiveSceneId Id = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId Id = InvalidPrimitiveComponentId;
 		std::shared_ptr<FPrimitiveSceneProxy> Proxy;
 		EPrimitiveSceneProxyKind Kind = EPrimitiveSceneProxyKind::StaticMesh;
 		FMatrix Transform{1.0};
@@ -53,7 +53,7 @@ namespace Durin
 			std::shared_ptr<FLightSceneProxy> InProxy);
 		RENDERER_API ~FLightSceneInfo();
 
-		auto GetId() const -> FLightSceneId { return Proxy->GetDesc().Id; }
+		auto GetId() const -> FLightComponentId { return Proxy->GetDesc().Id; }
 		auto GetKind() const -> ELightSceneProxyKind { return Kind; }
 		auto GetInfluenceBounds() const -> const FBox& { return InfluenceBounds; }
 		auto GetProxy() const -> const FLightSceneProxy& { return *Proxy; }

@@ -494,8 +494,8 @@ namespace Durin::Editor::Level
 					{
 						auto* Component = Cast<DPrimitiveComponent>(ComponentPtr.Get());
 						if (!Component || !Component->IsRegistered()) continue;
-						const FPrimitiveSceneId PrimitiveId = Component->GetPrimitiveSceneId();
-						if (PrimitiveId == InvalidPrimitiveSceneId) continue;
+						const FPrimitiveComponentId PrimitiveId = Component->GetPrimitiveComponentId();
+						if (PrimitiveId == InvalidPrimitiveComponentId) continue;
 						Record.Targets.push_back({static_cast<uint32>(Record.Targets.size() + 1), PrimitiveId,
 							Actor, Component, PrimitiveId.Value, Component->GetRegistrationGeneration()});
 					}
@@ -604,7 +604,7 @@ namespace Durin::Editor::Level
 		if (Hit.Kind == EViewportPickHitKind::SceneGeometry)
 		{
 			auto* Primitive = Cast<DPrimitiveComponent>(Component);
-			if (!Primitive || Hit.PrimitiveId == InvalidPrimitiveSceneId || Primitive->GetPrimitiveSceneId() != Hit.PrimitiveId) return false;
+			if (!Primitive || Hit.PrimitiveId == InvalidPrimitiveComponentId || Primitive->GetPrimitiveComponentId() != Hit.PrimitiveId) return false;
 			const auto Target = std::ranges::find(Record.Targets, Hit.PrimitiveId, &FViewportPickingTarget::PrimitiveId);
 			if (Target == Record.Targets.end() || Primitive->GetRegistrationGeneration() != Target->RegistrationGeneration) return false;
 		}

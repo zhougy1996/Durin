@@ -9,7 +9,7 @@ namespace Durin
 {
 	namespace
 	{
-		std::atomic<uint64> GNextLightSceneId = 1;
+		std::atomic<uint64> GNextLightComponentId = 1;
 	}
 
 	DLightComponent::DLightComponent(const FObjectInitializer& ObjectInitializer)
@@ -20,7 +20,7 @@ namespace Durin
 	auto DLightComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
-		EnsureLightSceneId();
+		EnsureLightComponentId();
 		CreateRenderState();
 	}
 
@@ -61,11 +61,11 @@ namespace Durin
 		return std::isfinite(Intensity) ? FMath::Max(0.0f, Intensity) : 0.0f;
 	}
 
-	auto DLightComponent::EnsureLightSceneId() -> FLightSceneId
+	auto DLightComponent::EnsureLightComponentId() -> FLightComponentId
 	{
-		if (LightSceneId == InvalidLightSceneId)
-			LightSceneId = FLightSceneId(GNextLightSceneId.fetch_add(1, std::memory_order_relaxed));
-		return LightSceneId;
+		if (!LightComponentId.IsValid())
+			LightComponentId = FLightComponentId(GNextLightComponentId.fetch_add(1, std::memory_order_relaxed));
+		return LightComponentId;
 	}
 
 	auto DLightComponent::CreateRenderState() -> void

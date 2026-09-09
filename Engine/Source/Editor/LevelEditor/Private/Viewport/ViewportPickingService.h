@@ -15,7 +15,7 @@ namespace Durin::Editor::Level
 	struct FViewportPickingTarget
 	{
 		uint32 Token = 0;
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<DPrimitiveComponent> Component;
 		uint64 StableTieKey = 0;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "SceneTypes.h"
+#include "PrimitiveComponentId.h"
 
 namespace Durin
 {
@@ -35,20 +35,20 @@ namespace Durin
 		virtual auto Release() -> void = 0;
 
 		virtual auto UpdatePrimitiveTransform(
-			FPrimitiveSceneId PrimitiveId,
+			FPrimitiveComponentId PrimitiveId,
 			const FMatrix& Transform
 		) -> void = 0;
 		virtual auto UpdatePrimitiveVisibility(
-			FPrimitiveSceneId PrimitiveId,
+			FPrimitiveComponentId PrimitiveId,
 			bool bVisible
 		) -> void = 0;
 
 		virtual auto UpdatePrimitiveMaterialBinding(
-			FPrimitiveSceneId PrimitiveId,
+			FPrimitiveComponentId PrimitiveId,
 			const FMaterialRenderProxyBindingUpdate& Update
 		) -> void = 0;
 		virtual auto UpdateSplineMeshDynamicData(
-			FPrimitiveSceneId PrimitiveId,
+			FPrimitiveComponentId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData
 		) -> void = 0;
 	};

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Components/SceneComponent.h"
-#include "SceneTypes.h"
+#include "LightComponentId.h"
 
 #ifdef _DHT_PARSER
 namespace Durin
@@ -32,7 +32,7 @@ namespace Durin
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
-		auto GetLightSceneId() const -> FLightSceneId { return LightSceneId; }
+		auto GetLightComponentId() const -> FLightComponentId { return LightComponentId; }
 
 	protected:
 		ENGINE_API auto OnUpdateTransform() -> void override;
@@ -46,9 +46,9 @@ namespace Durin
 		auto MarkRenderStateDirty() -> void;
 
 	private:
-		ENGINE_API auto EnsureLightSceneId() -> FLightSceneId;
+		ENGINE_API auto EnsureLightComponentId() -> FLightComponentId;
 
-		FLightSceneId LightSceneId;
+		FLightComponentId LightComponentId;
 		// Non-owning token used only to retire the exact published proxy.
 		FLightSceneProxy* SceneProxy = nullptr;
 

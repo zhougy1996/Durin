@@ -6,7 +6,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Engine/TickFunction.h"
 #include "Math/Box.h"
-#include "SceneTypes.h"
+#include "PrimitiveComponentId.h"
 
 #include "Level.gen.h"
 
@@ -35,7 +35,7 @@ namespace Durin
 		TWeakObjectPtr<AActor> Actor;
 		DPROPERTY(Transient)
 		TWeakObjectPtr<DPrimitiveComponent> Component;
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		uint64 RegistrationGeneration = 0;
 		EEditorPickingPrimitiveFamily Family = EEditorPickingPrimitiveFamily::Unsupported;
 		FBox WorldBounds;

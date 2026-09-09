@@ -541,7 +541,7 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 	ASSERT_TRUE(CenterPick.Completion.Hit);
 	EXPECT_EQ(CenterPick.Completion.Hit->Actor.Get(), NearActor);
 	EXPECT_EQ(CenterPick.Completion.Hit->Component.Get(), NearActor->GetStaticMeshComponent());
-	EXPECT_EQ(CenterPick.Completion.Hit->PrimitiveId, NearActor->GetStaticMeshComponent()->GetPrimitiveSceneId());
+	EXPECT_EQ(CenterPick.Completion.Hit->PrimitiveId, NearActor->GetStaticMeshComponent()->GetPrimitiveComponentId());
 	const Durin::Editor::Level::FViewportPickSubmission EdgePick = Client.SubmitViewportPick(Level, PickView, {799.0f, 300.0f});
 	EXPECT_EQ(EdgePick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_FALSE(EdgePick.Completion.Hit);

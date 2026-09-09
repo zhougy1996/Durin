@@ -38,7 +38,7 @@ deferred consumption and failure contract.
 Directional, point, and spot lights cross the game/render boundary as detached
 `FLightSceneProxy` values. `DLightComponent` calls the component-level
 `FSceneInterface::AddLight(this)`; Renderer-private `FScene` copies the stable
-`FLightSceneId`, constructs the family proxy synchronously, and sends only that
+`FLightComponentId`, constructs the family proxy synchronously, and sends only that
 proxy to its command queue. The component retains the raw proxy token only after
 internal command admission succeeds, uses `RemoveLight(this)` for retirement,
 and never reads the token. `FLightSceneRegistry` keys ownership by that exact
@@ -71,7 +71,7 @@ part of this contract.
 
 `FPreparedLightView` is command-local copied state. Directional candidates and
 the combined point/spot candidate list are each ordered by ascending
-`FLightSceneId`. Selection takes at most one directional light and four local
+`FLightComponentId`. Selection takes at most one directional light and four local
 lights; point and spot lights compete in the same local budget. Sequential
 views prepare independently and do not retain `FLightSceneInfo` pointers.
 

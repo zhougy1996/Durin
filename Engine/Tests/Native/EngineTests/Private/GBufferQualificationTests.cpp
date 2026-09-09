@@ -529,7 +529,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	auto Translate = [](double X, double Y) {
 		return Durin::Math::TranslationMatrix(Durin::FVector3{X, Y, 0.0});
 	};
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), Translate(-1.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), Translate(-1.0, -1.0));
 	Durin::FSplineMeshRenderDynamicData SplineData{
 		.Params = {},
 		.LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 0.0}),
@@ -540,21 +540,21 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	SplineData.Params.EndTangent = {1.0, 0.0, 0.0};
 	SplineData.Params.SourceForwardMin = 0.0;
 	SplineData.Params.SourceForwardMax = 1.0;
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, SplineData), Translate(0.0, -1.0));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1, SplineData), Translate(0.0, -1.0));
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.35, 0.2, -1.0};
 	Directional.Color = {1.0f, 1.0f, 1.0f};
 	Directional.Intensity = 3.0f;
 	Directional.bCastShadows = true;
 	auto* DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	Durin::FPointLightSceneData PointA;
 	PointA.Position = {-1.5, -0.75, 2.0};
 	PointA.Color = {1.0f, 0.15f, 0.05f};
 	PointA.Intensity = 5.0f;
 	PointA.Range = 6.0f;
 	PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(20), PointA);
+		Scene, Durin::FLightComponentId(20), PointA);
 	Durin::FSpotLightSceneData SpotA;
 	SpotA.Position = {1.5, -0.75, 3.0};
 	SpotA.Direction = {-0.15, 0.1, -1.0};
@@ -564,14 +564,14 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	SpotA.InnerConeAngle = 25.0f;
 	SpotA.OuterConeAngle = 40.0f;
 	PublishLightForTest<Durin::FSpotLightSceneProxy>(
-		Scene, Durin::FLightSceneId(21), SpotA);
+		Scene, Durin::FLightComponentId(21), SpotA);
 	auto PointB = PointA;
 	PointB.Position = {-0.5, 1.25, 1.5};
 	PointB.Color = {0.1f, 1.0f, 0.2f};
 	PointB.Intensity = 3.0f;
 	PointB.Range = 4.0f;
 	PublishLightForTest<Durin::FPointLightSceneProxy>(
-		Scene, Durin::FLightSceneId(22), PointB);
+		Scene, Durin::FLightComponentId(22), PointB);
 	auto SpotB = SpotA;
 	SpotB.Position = {1.25, 1.25, 2.5};
 	SpotB.Direction = {0.1, -0.2, -1.0};
@@ -581,7 +581,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	SpotB.InnerConeAngle = 20.0f;
 	SpotB.OuterConeAngle = 45.0f;
 	PublishLightForTest<Durin::FSpotLightSceneProxy>(
-		Scene, Durin::FLightSceneId(23), SpotB);
+		Scene, Durin::FLightComponentId(23), SpotB);
 	Durin::FlushRenderingCommands();
 
 	auto* SpecularAAMaterialObject = MakeMaterial(
@@ -596,7 +596,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 
 	Durin::FScene& SpecularAAScene = *SpecularAASceneOwner;
 	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(SpecularAAScene,
-		Durin::FPrimitiveSceneId(200),
+		Durin::FPrimitiveComponentId(200),
 		std::make_unique<Durin::FStaticMeshSceneProxy>(
 			SpecularAAQuad.get(),
 			std::vector<Durin::FMaterialRenderProxyRef>{SpecularAAMaterial}, 1),
@@ -606,7 +606,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	SpecularAADirectional.Color = {1.0f, 1.0f, 1.0f};
 	SpecularAADirectional.Intensity = 6.0f;
 	PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		SpecularAAScene, Durin::FLightSceneId(201), SpecularAADirectional);
+		SpecularAAScene, Durin::FLightComponentId(201), SpecularAADirectional);
 	Durin::FlushRenderingCommands();
 	auto CaptureSpecularAASurface = [&Renderer, &SpecularAAScene](
 		bool bEnableSpecularAA, Durin::FByteBuffer& Pixels) {
@@ -1249,7 +1249,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	);
 	RaisedTransform = Durin::Math::Scale(
 		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
 	Durin::FlushRenderingCommands();
 	Durin::FByteBuffer RaisedContactVisibility;
 	Durin::FByteBuffer RaisedContactFilteredVisibility;
@@ -1278,7 +1278,7 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	}
 	EXPECT_GT(FilteredOccludedPixels, 0u);
 	EXPECT_LT(FilteredOccludedPixels, CaptureWidth * CaptureHeight);
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(7));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(7));
 	Durin::FlushRenderingCommands();
 
 	auto* UnlitMaterialObject = MakeMaterial(
@@ -1295,8 +1295,8 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	auto TranslucentMaterial =
 		TranslucentMaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}, 1), Translate(-0.55, -0.45));
-	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}, 1), Translate(-0.35, -0.25));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{UnlitMaterial}, 1), Translate(-0.55, -0.45));
+	Durin::FSceneInterfaceTestAccess::ReplacePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{TranslucentMaterial}, 1), Translate(-0.35, -0.25));
 	Durin::FlushRenderingCommands();
 
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionGBufferQueries;
@@ -1997,13 +1997,13 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
 			384, 216,
 			Durin::EGroundTruthAmbientOcclusionQuality::HalfResolution));
-	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(1), Translate(-0.9, -0.8));
-	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(2), Translate(0.1, -0.9));
-	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(4), Translate(0.1, 0.1));
+	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveComponentId(1), Translate(-0.9, -0.8));
+	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveComponentId(2), Translate(0.1, -0.9));
+	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveComponentId(4), Translate(0.1, 0.1));
 	Directional.Intensity = 4.0f;
 	Durin::FSceneInterfaceTestAccess::TryRemoveLightProxy(Scene, DirectionalToken);
 	DirectionalToken = PublishLightForTest<Durin::FDirectionalLightSceneProxy>(
-		Scene, Durin::FLightSceneId(100), Directional);
+		Scene, Durin::FLightComponentId(100), Directional);
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), {0.2, 0.55, 0.8}));
 	Durin::FlushRenderingCommands();
@@ -2037,12 +2037,12 @@ TEST(FGBufferQualificationTests, StaticAndSplinePassMeetsFrozenRTX3090TimingAndM
 	GBufferQueries.clear();
 	DeferredQueries.clear();
 
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(1));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(2));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(4));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(5));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveSceneId(6));
-	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveSceneId(200));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(1));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(2));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(4));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(5));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(Scene, Durin::FPrimitiveComponentId(6));
+	Durin::FSceneInterfaceTestAccess::TryRemovePrimitiveProxy(SpecularAAScene, Durin::FPrimitiveComponentId(200));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 		[&](Durin::FRHICommandListImmediate&) {

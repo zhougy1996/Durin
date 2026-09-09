@@ -216,7 +216,7 @@ TEST(FVolumetricCloudSceneContractTests, ValidationAndP1TranslationPreserveTheFr
 	Light.Color = {0.5f, 0.25f, 1.0f};
 	Light.Intensity = 2.0f;
 	Light.AmbientIntensity = 0.4f;
-	Lights.Directional.push_back({Durin::FLightSceneId(9), Light});
+	Lights.Directional.push_back({Durin::FLightComponentId(9), Light});
 
 	const auto Parameters = Durin::BuildVolumetricCloudParameters(Data, Lights);
 	EXPECT_DOUBLE_EQ(Parameters.MinimumZ, Data.MinimumZ);

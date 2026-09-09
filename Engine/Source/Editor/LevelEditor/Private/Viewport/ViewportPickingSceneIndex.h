@@ -14,7 +14,7 @@ namespace Durin::Editor::Level
 
 	struct FViewportPickingSceneCandidate
 	{
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<DPrimitiveComponent> Component;
 		uint64 StableTieKey = 0;
@@ -68,7 +68,7 @@ namespace Durin::Editor::Level
 			uint32 Left = std::numeric_limits<uint32>::max();
 			uint32 Right = std::numeric_limits<uint32>::max();
 			uint32 Parent = std::numeric_limits<uint32>::max();
-			FPrimitiveSceneId LeafId = InvalidPrimitiveSceneId;
+			FPrimitiveComponentId LeafId = InvalidPrimitiveComponentId;
 		};
 
 		auto Retire() -> void;
@@ -77,7 +77,7 @@ namespace Durin::Editor::Level
 		auto ApplySnapshot(const FEditorPickingPrimitiveMutationBatch& Batch) -> bool;
 		auto ApplyMutation(const FEditorPickingPrimitiveMutation& Mutation) -> bool;
 		auto Rebuild() -> bool;
-		auto BuildRange(std::vector<FPrimitiveSceneId>& Ids, size_t Begin, size_t End, uint32 Parent) -> uint32;
+		auto BuildRange(std::vector<FPrimitiveComponentId>& Ids, size_t Begin, size_t End, uint32 Parent) -> uint32;
 		auto Refit(uint32 NodeIndex) -> void;
 		static auto IsAdmissible(const FEditorPickingPrimitiveMutation& Mutation) -> bool;
 		static auto MakeFatBounds(const FBox& Exact) -> FBox;

@@ -3,7 +3,7 @@
 #include "LevelEditorAPI.h"
 #include "LevelEditorSelection.h"
 #include "DObject/WeakObjectPtr.h"
-#include "SceneTypes.h"
+#include "PrimitiveComponentId.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -80,7 +80,7 @@ namespace Durin::Editor::Level
 	struct FViewportPickHit
 	{
 		EViewportPickHitKind Kind = EViewportPickHitKind::SceneGeometry;
-		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		FPrimitiveComponentId PrimitiveId = InvalidPrimitiveComponentId;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<DActorComponent> Component;
 		FEditorSubElementSelection Element;

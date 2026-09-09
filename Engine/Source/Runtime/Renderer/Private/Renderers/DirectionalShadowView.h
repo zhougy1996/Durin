@@ -4,7 +4,7 @@
 
 #include "Math/Box.h"
 #include "Rendering/LightSceneProxy.h"
-#include "SceneTypes.h"
+#include "LightComponentId.h"
 #include "SceneView.h"
 
 #include <array>
@@ -89,7 +89,7 @@ namespace Durin
 	// Value-only result for one selected light and one immutable cascade candidate.
 	struct FPreparedDirectionalShadowView
 	{
-		FLightSceneId LightId = InvalidLightSceneId;
+		FLightComponentId LightId = InvalidLightComponentId;
 		bool bEnabled = false;
 		EDirectionalShadowCandidate Candidate =
 			EDirectionalShadowCandidate::SingleMap;
@@ -145,7 +145,7 @@ namespace Durin
 
 	RENDERER_API auto TryPrepareDirectionalShadowView(
 		const FSceneView& View,
-		FLightSceneId LightId,
+		FLightComponentId LightId,
 		const FDirectionalLightSceneData& Light,
 		FPreparedDirectionalShadowView& OutShadow) -> bool;
 
