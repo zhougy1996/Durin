@@ -358,7 +358,10 @@ ordinary PostLoad and runtime publication have not run, and loaded migration/ver
 metadata remains available for the owning resource preparation step. Preparation
 revalidates saved closure digests before returning; failure preserves the output
 and marks only newly created private hierarchies as garbage without running global
-GC. Candidate package/object limits include default inners; additional dependency
+GC. Candidate package/object limits include default inners. The entire batch's
+retained main/bulk bytes are checked with overflow-safe subtraction before parsing
+or constructing any candidate; per-package storage limits cannot replace this
+aggregate check. Additional dependency
 load budgets and decoded/scratch/runtime byte accounting remain the caller's
 responsibility. Graph ownership and destruction
 stay on GameThread. This is an internal deserialization boundary, not a public

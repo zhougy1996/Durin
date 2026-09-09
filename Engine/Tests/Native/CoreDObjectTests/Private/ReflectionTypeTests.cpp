@@ -3291,6 +3291,47 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly, true), MiddleChild));
 	}
 
+	TEST(FCoreDObjectReflectionTests, HierarchyGarbageMarkingVisitsPrivateDeepAndReorderedChildren)
+	{
+		using namespace Durin;
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate("/CoreTests/PrivateGarbage", Path));
+		auto* Package = NewObject<DPackage>(nullptr, "PrivateGarbage");
+		ASSERT_TRUE(Package->InitializePreparedAssetPackage(Path));
+		auto* Outside = NewObject<DObject>(nullptr, "OutsideGarbageHierarchy");
+		AddToRoot(Outside);
+		auto* First = NewObject<DObject>(Package, "First");
+		auto* Moved = NewObject<DObject>(Package, "Moved");
+		auto* Last = NewObject<DObject>(Package, "Last");
+		Moved->SetOuterPrivate(Outside); // Last occupies the removed sibling's slot.
+		std::vector<DObject*> Expected{Package, First, Last};
+		DObject* Parent = First;
+		for (size_t Index = 0; Index < 128; ++Index)
+		{
+			auto* Branch = NewObject<DObject>(Parent, "Branch");
+			auto* Next = NewObject<DObject>(Parent, "Next");
+			Expected.push_back(Branch);
+			Expected.push_back(Next);
+			Parent = Next;
+		}
+		MarkAsGarbage(First); // Already marked ancestors must not hide descendants.
+		const auto Before = GetGarbageObjectCount();
+		MarkObjectHierarchyAsGarbage(Package);
+		EXPECT_EQ(GetGarbageObjectCount(), Before + Expected.size() - 1);
+		for (auto* Object : Expected) EXPECT_TRUE(Object->IsGarbage());
+		EXPECT_FALSE(Outside->IsGarbage());
+		EXPECT_FALSE(Moved->IsGarbage());
+		const auto After = GetGarbageObjectCount();
+		MarkObjectHierarchyAsGarbage(Package);
+		EXPECT_EQ(GetGarbageObjectCount(), After);
+		RemoveFromRoot(Outside);
+		MarkObjectHierarchyAsGarbage(Outside);
+		CollectGarbage();
+		for (auto* Object : Expected) EXPECT_FALSE(GDObjectArray.Contains(Object));
+	}
+
 	TEST(FCoreDObjectReflectionTests, DestroyingWideOuterDetachesAllReachableChildren)
 	{
 		EnsureDObjectInitialized();

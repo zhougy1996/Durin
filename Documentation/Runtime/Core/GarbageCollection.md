@@ -4,7 +4,7 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-09
 
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
@@ -91,7 +91,7 @@ The public lifecycle operations are:
 
 There is no public immediate-destruction API. Systems that retire an independent object remove it from their own active data structures and call `MarkAsGarbage()`. Systems whose lifecycle contract owns a complete structural tree use `MarkObjectHierarchyAsGarbage()` instead of relying on sweep to infer descendants. Package failure rollback and deletion, transient World and Level retirement, PIE teardown, duplication rollback, and engine exit follow this rule. Ordinary Package unload is different: it temporarily clears the Package's `Standalone` residency and lets reachability decide whether the graph can be collected, restoring residency when a live strong reference prevents unload.
 
-Hierarchy marking is an explicit system request, not a GC reachability rule or ownership edge. It snapshots the current Outer tree at request time and remains iterative for deep trees. An object that must outlive a Package, World, PIE session, or other parent must be reparented before that hierarchy is marked; reparenting it afterward cannot reverse its garbage state.
+Hierarchy marking is an explicit system request, not a GC reachability rule or ownership edge. It marks the current Outer tree, including unpublished and already-garbage descendants, using the stable Outer index and sibling back-pointers without allocating temporary storage or recursing. This keeps candidate rollback usable after allocation failure. Marking invokes no callbacks and does not mutate that index. An object that must outlive a Package, World, PIE session, or other parent must be reparented before that hierarchy is marked; reparenting it afterward cannot reverse its garbage state.
 
 Permanent reflected metadata objects are never swept. This includes intrinsic objects and registered reflected type metadata such as `DClass`, `DStruct`, and `DEnum` instances.
 

@@ -181,13 +181,32 @@ namespace Durin
 		CheckObjectThread();
 		if (!RootObject || !GDObjectArray.Contains(RootObject) || RootObject->IsTemplateObject()) return;
 
-		std::vector<DObject*> Pending = {RootObject};
-		while (!Pending.empty())
+		// Marking changes flags/counters only, so the Outer index remains stable.
+		// Follow its sibling back-pointers instead of allocating rollback storage or
+		// recursing on a potentially deep partially constructed hierarchy.
+		DObject* Current = RootObject;
+		for (;;)
 		{
-			DObject* Object = Pending.back();
-			Pending.pop_back();
-			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeUnpublished, true)) Pending.push_back(Child);
-			MarkGarbageInternal(Object);
+			MarkGarbageInternal(Current);
+			const auto Children = GDObjectArray.OuterToObjects.find(Current);
+			if (Children != GDObjectArray.OuterToObjects.end() && !Children->second.empty())
+			{
+				Current = Children->second.front();
+				continue;
+			}
+			while (Current != RootObject)
+			{
+				const auto Slot = GDObjectArray.ObjectToSlot.find(Current);
+				const auto NextIndex = static_cast<size_t>(GDObjectArray.Slots[Slot->second].OuterIndex) + 1;
+				Current = Current->GetOuter();
+				const auto& Siblings = GDObjectArray.OuterToObjects.find(Current)->second;
+				if (NextIndex < Siblings.size())
+				{
+					Current = Siblings[NextIndex];
+					break;
+				}
+			}
+			if (Current == RootObject) break;
 		}
 	}
 

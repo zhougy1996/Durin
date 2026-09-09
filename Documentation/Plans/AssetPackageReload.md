@@ -40,6 +40,11 @@ structured failure. A CPU composition regression verifies that saved batch graph
 can pass through CoreDObject replacement, rebind outside references and survive
 release of preparation owners. This does not qualify runtime-resource publication.
 
+Hierarchy rollback now traverses existing Outer indexes without allocating a
+temporary stack. Candidate preparation also checks aggregate retained closure bytes
+before parsing, in addition to individual storage limits. Decoded/scratch/resource
+accounting and full request coordination remain open.
+
 The audit confirmed that existing linker skeletons immediately enter the DPackage
 registry and GDObjectArray, so they cannot directly serve as isolated graphs at
 the same path. GC enumeration converts TObjectPtr values into temporary pointers
@@ -438,6 +443,28 @@ Completion condition: a complete saved-version candidate graph can be produced.
 Any preparation failure leaves the current package, registration, disk, and other
 packages' dirty states unchanged. A multi-package preparation failure aborts the
 entire batch.
+
+#### Stage 2 progress: allocation-free hierarchy marking and batch storage limits
+
+Candidate graph destruction uses hierarchy marking that follows existing Outer
+indexes and sibling back-pointers without temporary allocations or recursion.
+The traversal retains the existing template/permanent-object rules, visits private
+and already-marked descendants, and does not run callbacks or physical collection.
+This removes temporary traversal storage from the graph owner's failure cleanup;
+it does not claim that every loader or dependency-release path is allocation-free.
+
+Graph preparation checks aggregate retained main/bulk bytes before parsing any
+package, with a 512 MiB default and overflow-safe subtraction. The boundary is
+separate from parser/decoded/native/runtime allocations and external load budgets.
+Tests cover the exact byte limit, a one-byte batch excess, unchanged prior output,
+and a deep private hierarchy after sibling reparenting and repeated garbage marking.
+
+Focused `CoreObjectTests` and `AssetPackageTests` regressions passed. All 82 Windows
+Debug affected targets passed; receipt:
+`Build/.agent-state/logs/20260909-184138-816851-20988-ctest.log`.
+Documentation/plan validation and `git diff --check` passed. Full request admission,
+automatic dependency cleanup, complete budgeting and resource preparation remain
+required before Stage 2 can close.
 
 #### Stage 2 progress: guarded callbacks and replacement composition
 

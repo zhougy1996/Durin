@@ -50,6 +50,9 @@ namespace Durin::AssetPrivate
 		std::vector<const DClass*> AdmittedClasses;
 		uint64 MaximumPackages = 16;
 		uint64 MaximumObjects = 65536;
+		// Aggregate source closures, counted per package. Decoded values, parser
+		// scratch, external loads and runtime products require separate admission.
+		uint64 MaximumRetainedBytes = 512ull * 1024 * 1024;
 		// Optional caller-owned scope for ordinary external dependency loads (and
 		// their PostLoad). The caller admits that closure separately, retains the
 		// scope on failure and releases it after dropping candidate references.

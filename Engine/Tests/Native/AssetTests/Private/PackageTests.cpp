@@ -2472,6 +2472,7 @@ TEST(FPackageAssetTests, PreparedGraphsRejectWholeBatchAndPreserveExistingOutput
 	}
 	FPackageGraphPrepareOptions Options;
 	Options.AdmittedClasses = {DPackageAssetForTest::StaticClass(), DObject::StaticClass()};
+	Options.MaximumRetainedBytes = Sources[0].Storage.GetRetainedBytes() + Sources[1].Storage.GetRetainedBytes();
 	std::vector<FPreparedPackageGraph> Graphs;
 	ASSERT_TRUE(PreparePackageGraphs(Sources, Options, Graphs));
 	DPackage* OriginalOutput = Graphs[0].GetPackage();
@@ -2498,6 +2499,10 @@ TEST(FPackageAssetTests, PreparedGraphsRejectWholeBatchAndPreserveExistingOutput
 		CheckUnchanged();
 	}
 	Options.ShouldFail = {};
+	--Options.MaximumRetainedBytes;
+	EXPECT_EQ(PreparePackageGraphs(Sources, Options, Graphs).Status, S::BudgetExceeded);
+	CheckUnchanged();
+	++Options.MaximumRetainedBytes;
 	// Ignoring a forbidden operation inside a candidate callback must not turn
 	// the batch into a success or alter the disk/live package through that call.
 	for (const auto Phase : {ELinkerLoadPhase::CreateSkeleton, ELinkerLoadPhase::ApplyValues, ELinkerLoadPhase::RestoreLedger})

@@ -1105,6 +1105,13 @@ namespace Durin::AssetPrivate
 		FPackagePath CurrentPath;
 		try
 		{
+			uint64 RetainedBytes = 0;
+			for (const auto& Source : Sources)
+			{
+				if (Source.Storage.GetRetainedBytes() > Options.MaximumRetainedBytes - RetainedBytes)
+					return {S::BudgetExceeded, Source.PackagePath, "Saved batch closures exceed the retained byte budget."};
+				RetainedBytes += Source.Storage.GetRetainedBytes();
+			}
 			std::vector<FLinkerApplication> Applications(Sources.size());
 			std::vector<FPreparedPackageGraph> Candidates(Sources.size());
 			uint64 ObjectCount = 0;

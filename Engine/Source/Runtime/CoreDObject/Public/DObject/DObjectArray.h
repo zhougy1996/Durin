@@ -65,6 +65,7 @@ namespace Durin
 		auto RemoveFromOuterIndex(DObject* Object, const DObject* Outer) -> void;
 
 		friend class DObject;
+		friend COREDOBJECT_API auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 	};
 
