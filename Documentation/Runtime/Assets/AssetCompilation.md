@@ -53,6 +53,14 @@ Cancellation is advisory and does not imply quiescence; a caller requiring an
 asset-visible terminal state follows it with selected finish. Finish-all is
 reserved for actual global barriers.
 
+Package reload applies that exact sequence to only the old target graph before
+candidate construction. Candidate objects have new handles and therefore cannot
+consume late results addressed to the old generation. Texture2D uses the typed
+asynchronous route for ordinary edits but reload PostLoad uses its synchronous
+build boundary; VolumeTexture remains on its actual synchronous provider path.
+Material candidates use their independent request generations and selected finish.
+Reload never drains unrelated compiler work through `FinishAllCompilation`.
+
 Concrete managers retain generation-safe object handles and independently named
 request serial, authored/build identity, target, and dependency qualifiers.
 They admit results only on GameThread after every family-specific qualifier

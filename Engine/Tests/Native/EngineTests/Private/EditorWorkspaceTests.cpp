@@ -723,6 +723,15 @@ TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 	EXPECT_EQ(Manager.GetPendingCloseDocument(), nullptr);
 
 	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::Editor::EDocumentCloseResult::PendingConfirmation);
+	Workspace->bAllowDiscard = false;
+	EXPECT_EQ(
+		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Discard),
+		Durin::Editor::EDocumentCloseResult::PendingConfirmation
+	);
+	ASSERT_NE(Manager.GetPendingCloseDocument(), nullptr);
+	EXPECT_EQ(Manager.GetPendingCloseDocument()->Id, Second);
+	EXPECT_EQ(Manager.GetDocuments().size(), 1);
+	Workspace->bAllowDiscard = true;
 	EXPECT_EQ(
 		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Discard),
 		Durin::Editor::EDocumentCloseResult::Closed

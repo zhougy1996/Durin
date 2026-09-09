@@ -26,6 +26,7 @@ namespace Durin::Editor::Texture
 		TEXTUREEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
 		TEXTUREEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
 		TEXTUREEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		TEXTUREEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
 		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;

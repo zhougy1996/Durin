@@ -47,6 +47,15 @@ failed candidates leave it usable. Texture close synchronizes with publication
 and joins CPU initialization before queuing concrete/reference cleanup, including
 when the Task system has already stopped.
 
+Saved package reload builds each candidate texture against its own unpublished
+`FTextureReference`. With an active RHI, `FinishReloadResourcePreparation` drains
+that texture's admitted upload and requires a usable resource before object
+publication; rejection therefore leaves the live texture and its resource intact.
+Headless CPU validation accepts the prepared platform product but is not GPU
+qualification evidence. After reference commit, cloud and material consumers
+refresh their native texture-reference caches, and displaced resources follow the
+ordinary deferred cleanup boundary.
+
 ## Cooked mesh readiness
 
 StaticMesh CPU residency is independent of render-resource

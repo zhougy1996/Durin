@@ -104,6 +104,12 @@ namespace Durin
 		EligibilityStatus = DiagnoseVolumetricCloudEligibility(Data, {.bOwnerHidden = Owner && Owner->IsHidden(), .bBaseDensityTextureAssigned = BaseDensityTexture.Get() != nullptr, .bBaseDensityTextureReady = IsTextureReady(BaseDensityTexture.Get()), .bDetailDensityTextureAssigned = DetailDensityTexture.Get() != nullptr, .bDetailDensityTextureReady = IsTextureReady(DetailDensityTexture.Get())}).Message;
 	}
 
+	auto DVolumetricCloudComponent::RefreshReloadedAssetBindings() -> void
+	{
+		RefreshEligibilityDiagnostic();
+		MarkRenderStateDirty();
+	}
+
 	auto DVolumetricCloudComponent::PreEditChangeProperty(
 		FPropertyEditProposal& Proposal, std::string& OutError
 	) -> bool

@@ -15,6 +15,8 @@
 #include "RHICommandList.h"
 #include "Texture/TextureRenderResource.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/Task.h"
+#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -133,6 +135,19 @@ namespace Durin
 
 	auto DTexture::HasUsableResource() const -> bool { return RenderResource != nullptr; }
 	auto DTexture::IsResourceUpdatePending() const -> bool { return PendingUpdate != nullptr; }
+	auto DTexture::FinishReloadResourcePreparation() -> bool
+	{
+		CheckGameThread();
+		if (!GDynamicRHI) return HasPlatformData();
+		if (PendingUpdate)
+		{
+			if (GRenderingThread) FlushRenderingCommands();
+			PumpGameThreadDeferredWork();
+			ConsumeResourceUpdate();
+		}
+		return !PendingUpdate && LastUpdateState == ETextureResourceUpdateState::Succeeded
+			&& HasUsableResource();
+	}
 	auto DTexture::GetPublishedTexture() const -> FTextureRHIRef
 	{
 		CheckGameThread();

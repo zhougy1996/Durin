@@ -120,7 +120,25 @@ namespace Durin::Editor::Texture
 
 	auto MVolumeTextureEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
-		return Documents.Discard(Find(Document.ResourceId));
+		return Documents.Discard(Find(Document.ResourceId), {},
+			[this](DPackage* Previous, DPackage* Replacement) {
+				Manager.NotifyPackageReloaded(Previous, Replacement);
+			}, [this](std::string Message) { SetError(std::move(Message)); });
+	}
+
+	auto MVolumeTextureEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
+	{
+		for (auto& [ResourceId, Texture] : OpenTextures)
+			if (Texture.Get() && Texture->GetPackage() == Previous)
+			{
+				Texture = Cast<DVolumeTexture>(Replacement->FindTopLevelAsset(Texture->GetFName()));
+				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
+				{
+					It->second.Preview = std::make_unique<FTexturePreview>();
+					It->second.PlatformInput.reset();
+					It->second.SelectionKey = std::numeric_limits<uint64>::max();
+				}
+			}
 	}
 
 	auto MVolumeTextureEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool

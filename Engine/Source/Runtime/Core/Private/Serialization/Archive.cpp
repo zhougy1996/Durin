@@ -106,11 +106,12 @@ namespace Durin
 	{
 		if (!Failure) return {};
 		static constexpr std::string_view Names[] = {
-			"UnsupportedCapability", "UnsupportedType", "InvalidData", "TruncatedPayload",
+			"UnsupportedCapability", "UnsupportedType", "UnsupportedOperation", "InvalidData", "TruncatedPayload",
 			"UnbalancedScope", "MissingBaseReflectedFields", "DuplicateBaseReflectedFields",
 			"DuplicateField", "MalformedSerializer", "InvalidObjectReference", "InvalidPath",
 			"UnsupportedVersion", "Overflow", "LimitExceeded", "InvalidAlignment",
-			"NonZeroPadding", "TrailingData"};
+			"NonZeroPadding", "TrailingData", "UnsupportedTarget"};
+		static_assert(std::size(Names) == static_cast<size_t>(EArchiveFailureCode::UnsupportedTarget) + 1);
 		return std::format("ArchiveFailure:{}:{}: {}", Names[static_cast<size_t>(Failure->Code)],
 			Failure->Path, Failure->Message);
 	}

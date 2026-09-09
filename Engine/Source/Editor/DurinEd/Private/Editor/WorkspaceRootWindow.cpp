@@ -1,11 +1,14 @@
 #include "Editor/WorkspaceRootWindow.h"
 
+#include "Asset/PackageReload.h"
+
 #include "Asset/PackageSerialization.h"
 #include "Asset/Asset.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
@@ -170,12 +173,52 @@ namespace Durin::Editor
 	}
 
 	auto FEditableAssetDocumentModel::Discard(DObject* Object,
-		const std::function<void()>& BeforeDiscard) -> bool
+		const std::function<void()>& BeforeDiscard,
+		const std::function<void(DPackage*, DPackage*)>& AfterReload,
+		const std::function<void(std::string)>& ReportError) -> bool
 	{
 		if (!CanSave(Object)) return false;
 		if (BeforeDiscard) BeforeDiscard();
-		if (GEditor) GEditor->GetTransactor()->ForgetPackage(*Object->GetPackage());
-		Object->GetPackage()->ClearDirty();
+		DPackage* PreviousPackage = Object->GetPackage();
+		FPackagePath PackagePath;
+		if (!FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PackagePath)) return false;
+		FPackageReloadRequest Request{.Packages = {PreviousPackage}};
+		if (GEditor)
+		{
+			auto Participant = CreateTransactorReloadParticipant(
+				*GEditor->GetTransactor(), Request.Packages);
+			if (!Participant)
+			{
+				if (ReportError) ReportError("Discard requires an idle transaction history.");
+				return false;
+			}
+			Request.Participants.push_back(std::move(Participant));
+		}
+		auto Operation = ReloadPackages(Request);
+		FPackageReloadResult Result = Operation.GetResult();
+		if (Result.Status == EPackageReloadStatus::Failed
+			|| Result.Status == EPackageReloadStatus::Cancelled)
+		{
+			if (ReportError && !Result.Diagnostics.empty())
+				ReportError(Result.Diagnostics.front().Message);
+			return false;
+		}
+		DPackage* ReplacementPackage = FindPackage(PackagePath.GetView());
+		if (!ReplacementPackage || ReplacementPackage == PreviousPackage)
+		{
+			if (ReportError) ReportError("Discard did not publish a replacement package.");
+			return false;
+		}
+		if (AfterReload) AfterReload(PreviousPackage, ReplacementPackage);
+		Result = Operation.Wait();
+		if (!Result.Succeeded())
+		{
+			if (ReportError) ReportError(Result.Diagnostics.empty()
+				? "Discard is waiting for old resource retirement."
+				: Result.Diagnostics.front().Message);
+			return false;
+		}
+		if (GEditor) GEditor->GetTransactor()->EstablishSavedState(*ReplacementPackage);
 		return true;
 	}
 

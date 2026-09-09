@@ -3,6 +3,8 @@
 #include "DurinEdAPI.h"
 #include "Editor/WorkspaceTypes.h"
 
+namespace Durin { class DPackage; }
+
 namespace Durin::Editor
 {
 	// Defines document, history, menu, and layout services hosted by the editor shell.
@@ -35,6 +37,8 @@ namespace Durin::Editor
 			(void)Document;
 			return false;
 		}
+		// Called during package reload publication, before the old graph retires.
+		virtual auto OnPackageReloaded(DPackage*, DPackage*) -> void {}
 		virtual auto IsDocumentDirty(const FDocumentTab& Document) const -> bool { return Document.bDirty; }
 		virtual auto CanSaveActiveDocument() const -> bool { return false; }
 		virtual auto SaveActiveDocument() -> bool { return false; }

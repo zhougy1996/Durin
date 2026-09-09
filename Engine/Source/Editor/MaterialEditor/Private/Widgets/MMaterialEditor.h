@@ -21,7 +21,6 @@ namespace Durin::Editor::Material
 	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
 	class FMaterialEditorSessionSettings;
-	class FMaterialDocumentSnapshot;
 	struct FMaterialParameterPanelEntry;
 
 	// Hosts one material document with preview and parameter editing state.
@@ -40,6 +39,7 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
 		MATERIALEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		MATERIALEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
 		MATERIALEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		MATERIALEDITOR_API auto SaveActiveDocument() -> bool override;
@@ -92,8 +92,6 @@ namespace Durin::Editor::Material
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
-		std::unordered_map<std::string, std::unique_ptr<FMaterialDocumentSnapshot>>
-			MaterialSnapshots;
 		::Durin::Editor::FEditableAssetDocumentModel Documents;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;

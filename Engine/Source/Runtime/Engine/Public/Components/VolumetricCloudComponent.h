@@ -49,6 +49,9 @@ namespace Durin
 		auto GetVolumetricCloudSceneId() const -> const FGuid& { return VolumetricCloudSceneId; }
 		auto GetEligibilityStatus() const -> const std::string& { return EligibilityStatus; }
 		ENGINE_API auto RefreshEligibilityDiagnostic() -> void;
+		// Rebuilds the native scene-proxy texture-reference cache after reflected
+		// package replacement. Does not modify authored state or dirty the package.
+		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 
 		ENGINE_API auto SetEnabled(bool bInEnabled) -> void;
 		ENGINE_API auto SetPriority(int32 InPriority) -> void;

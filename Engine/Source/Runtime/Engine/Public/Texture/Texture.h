@@ -79,6 +79,10 @@ namespace Durin
 		ENGINE_API auto GetResourceUpdateState() const -> ETextureResourceUpdateState;
 		ENGINE_API auto HasUsableResource() const -> bool;
 		ENGINE_API auto IsResourceUpdatePending() const -> bool;
+		// Reload-only prepublication receipt. With an active RHI, drains this
+		// texture's admitted upload and reports whether a usable allocation exists.
+		// A headless runtime accepts the prepared CPU product without GPU evidence.
+		ENGINE_API auto FinishReloadResourcePreparation() -> bool;
 		// GameThread only. Captures the last consumed successful allocation, retaining no UObject.
 		// Render commands may retain this value for fixed-input work; ordinary bindings use the stable reference.
 		ENGINE_API auto GetPublishedTexture() const -> FTextureRHIRef;

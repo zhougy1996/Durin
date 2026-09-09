@@ -2,7 +2,6 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 #include "Graph/MaterialGraphCanvas.h"
-#include "MaterialDocumentSnapshot.h"
 #include "Settings/MaterialEditorSessionSettings.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -330,15 +329,7 @@ namespace Durin::Editor::Material
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		auto Snapshot = std::make_unique<FMaterialDocumentSnapshot>();
-		std::string SnapshotError;
-		if (!Snapshot->Capture(*Material, SnapshotError))
-		{
-			SetError(std::move(SnapshotError));
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
-		MaterialSnapshots.emplace(Document.ResourceId, std::move(Snapshot));
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}
 
@@ -368,7 +359,6 @@ namespace Durin::Editor::Material
 		CaptureCanvasViewport(Document);
 		SessionSettings->Save();
 		OpenMaterials.erase(Document.ResourceId);
-		MaterialSnapshots.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
@@ -384,21 +374,31 @@ namespace Durin::Editor::Material
 	{
 		CancelCanvasInteraction(Document.Id.Value);
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		const auto SnapshotIt = MaterialSnapshots.find(Document.ResourceId);
-		if (!Material || SnapshotIt == MaterialSnapshots.end()) return false;
-		std::string RestoreError;
-		if (!SnapshotIt->second->Restore(*Material, RestoreError))
-		{
-			SetError(std::move(RestoreError));
-			return false;
-		}
-		if (DPackage* Package = Material->GetPackage())
-		{
-			if (GEditor) GEditor->GetTransactor()->ForgetPackage(*Package);
-			Package->ClearDirty();
-		}
-		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
-		return true;
+		if (!Material) return false;
+		return Documents.Discard(Material, {},
+			[this](DPackage* Previous, DPackage* Replacement) {
+				WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
+			}, [this](std::string Message) { SetError(std::move(Message)); });
+	}
+
+	auto MMaterialEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
+	{
+		std::unordered_set<std::string> ReboundResources;
+		for (auto& [ResourceId, Open] : OpenMaterials)
+			if (Open.Get() && Open->GetPackage() == Previous)
+			{
+				Open = Cast<DMaterialInterface>(Replacement->FindTopLevelAsset(Open->GetFName()));
+				ReboundResources.insert(ResourceId);
+			}
+		if (ReboundResources.contains(std::string(Documents.GetActiveResourceId())))
+			MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
+		for (const auto& Document : WorkspaceManager.GetDocuments())
+			if (Document.WorkspaceType == Workspace::Type
+				&& ReboundResources.contains(Document.ResourceId))
+			{
+				MaterialPreviews.erase(Document.Id.Value);
+				MaterialGraphCanvases.erase(Document.Id.Value);
+			}
 	}
 
 	auto MMaterialEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
@@ -474,17 +474,6 @@ namespace Durin::Editor::Material
 		if (!Documents.Save(Material, {}, [this](std::string Message) {
 			SetError(std::move(Message));
 		})) return false;
-		const auto OpenIt = std::ranges::find_if(OpenMaterials,
-			[Material](const auto& Entry) { return Entry.second.Get() == Material; });
-		if (OpenIt == OpenMaterials.end()) return true;
-		auto Snapshot = std::make_unique<FMaterialDocumentSnapshot>();
-		std::string SnapshotError;
-		if (!Snapshot->Capture(*Material, SnapshotError))
-		{
-			SetError(std::move(SnapshotError));
-			return false;
-		}
-		MaterialSnapshots[OpenIt->first] = std::move(Snapshot);
 		return true;
 	}
 

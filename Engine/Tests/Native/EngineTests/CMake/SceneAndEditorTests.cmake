@@ -270,13 +270,27 @@ else()
 	)
 endif()
 
-durin_add_engine_functional_test(AssetDiscardCharacterizationTests
-	KIND characterization
+durin_add_engine_functional_test(AssetPackageReloadVulkanTests
+	KIND qualification
+	DOMAINS asset-package renderer
+	MODULES durin-ed engine renderer texture-build
+	BACKENDS vulkan
+	STACKS editor renderer
+	GPU
+	RUNTIME_STACK_RATIONALE "Qualifies saved package discard with production cloud rendering and pixel readback."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this offscreen test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/AssetPackageReloadVulkanTests.cpp
+	LIBRARIES DurinEd TextureBuild RenderCore Renderer
+)
+
+durin_add_engine_functional_test(AssetPackageReloadTests
+	KIND feature
 	DOMAINS asset-package editor-shell
 	MODULES durin-ed engine texture-build
 	STACKS editor
-	RUNTIME_STACK_RATIONALE "Captures saved texture source loss through editor discard and a live cloud component reference."
-	SOURCES Private/AssetDiscardCharacterizationTests.cpp
+	RUNTIME_STACK_RATIONALE "Exercises saved texture package replacement through editor discard and a live cloud component reference."
+	SOURCES Private/AssetPackageReloadTests.cpp
 	LIBRARIES DurinEd TextureBuild
 )
 

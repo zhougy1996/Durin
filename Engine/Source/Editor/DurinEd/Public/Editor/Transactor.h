@@ -6,6 +6,7 @@
 #include "Editor/Transaction.h"
 #include "Editor/TransactionObjectRecord.h"
 #include "Editor/TransactionRecord.h"
+#include "Asset/PackageReload.h"
 
 #include "Transactor.gen.h"
 
@@ -184,6 +185,7 @@ namespace Durin::Editor
 namespace Durin
 {
 	struct FTransBufferTestAccess;
+	class FTransactorReloadParticipant;
 
 	// Defines the reflected editor recording and Undo/Redo service boundary.
 	DCLASS(Abstract)
@@ -330,6 +332,7 @@ namespace Durin
 		DURINED_API auto GetRedoDescription() const -> std::string_view override;
 
 	private:
+		friend class FTransactorReloadParticipant;
 		struct FSavepoint
 		{
 			Editor::FTransactionScopeId ScopeId = 0;
@@ -394,6 +397,12 @@ namespace Durin
 
 		friend struct FTransBufferTestAccess;
 	};
+
+	// Prepares whole-transaction retirement for every history entry that retains
+	// a target graph. A busy buffer rejects through participant preparation.
+	DURINED_API auto CreateTransactorReloadParticipant(
+		DTransactor& Transactor, std::span<DPackage* const> Packages)
+		-> std::shared_ptr<IPackageReloadParticipant>;
 }
 
 namespace Durin::Editor

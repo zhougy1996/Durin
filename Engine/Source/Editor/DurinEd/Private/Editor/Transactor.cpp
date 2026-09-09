@@ -1439,6 +1439,92 @@ namespace Durin
 		return true;
 	}
 
+	class FTransactorReloadParticipant final : public IPackageReloadParticipant
+	{
+	public:
+		FTransactorReloadParticipant(DTransBuffer& InTransactor,
+			std::span<DPackage* const> InPackages)
+			: Transactor(InTransactor), Packages(InPackages.begin(), InPackages.end()) {}
+
+		auto Prepare(const FObjectReplacementMap& Map) -> FObjectReplacementResult override
+		{
+			if (Transactor.State != Editor::ETransactorState::Idle)
+				return {EObjectReplacementError::Busy,
+					"Package reload requires an idle transaction buffer."};
+			TransactionIds.clear();
+			OtherPackages.clear();
+			for (const Editor::FTransaction& Transaction : Transactor.History)
+				if (std::ranges::any_of(Packages, [&](const DPackage* Package) {
+					return Package && Transaction.ReferencesPackage(*Package);
+				}))
+				{
+					TransactionIds.push_back(Transaction.GetId());
+					for (DPackage* Affected : Transaction.GetAffectedPackages())
+						if (Affected
+							&& std::ranges::find(Packages, Affected) == Packages.end()
+							&& std::ranges::find(OtherPackages, Affected) == OtherPackages.end())
+							OtherPackages.push_back(Affected);
+				}
+			for (DPackage* Package : Packages)
+			{
+				const auto* Entry = Map.Find(Package);
+				if (!Entry || !Entry->Replacement)
+					return {EObjectReplacementError::UnmappedReference,
+						"Transaction reload participant could not map a package."};
+			}
+			return {};
+		}
+
+		auto Validate() const -> bool override
+		{
+			if (Transactor.State != Editor::ETransactorState::Idle) return false;
+			std::vector<Editor::FTransactionId> Current;
+			for (const Editor::FTransaction& Transaction : Transactor.History)
+				if (std::ranges::any_of(Packages, [&](const DPackage* Package) {
+					return Package && Transaction.ReferencesPackage(*Package);
+				})) Current.push_back(Transaction.GetId());
+			return Current == TransactionIds;
+		}
+
+		auto CoversNativeReferences(const DObject& Owner) const -> bool override
+		{
+			return &Owner == &Transactor;
+		}
+		auto GetStrongReferenceCount(const DObject&) const -> uint32 override { return 0; }
+		auto Commit() noexcept -> void override
+		{
+			for (DPackage* Package : Packages) if (Package) Transactor.ForgetPackage(*Package);
+			// A whole cross-package transaction was retired. Preserve the other
+			// package's applied content and dirty bit, but prevent its old save
+			// checkpoint from claiming the shortened history is a clean baseline.
+			for (DPackage* Package : OtherPackages)
+				if (Package)
+					if (auto* PackageState = Transactor.FindPackageState(*Package))
+					{
+						PackageState->SavedRevision = 0;
+						PackageState->bCheckpointValid = false;
+						Transactor.SynchronizeDirtyState(*PackageState);
+					}
+		}
+		auto Abort() noexcept -> void override {}
+		auto CanRetire() const -> bool override { return true; }
+
+	private:
+		DTransBuffer& Transactor;
+		std::vector<DPackage*> Packages;
+		std::vector<DPackage*> OtherPackages;
+		std::vector<Editor::FTransactionId> TransactionIds;
+	};
+
+	auto CreateTransactorReloadParticipant(DTransactor& Transactor,
+		std::span<DPackage* const> Packages)
+		-> std::shared_ptr<IPackageReloadParticipant>
+	{
+		auto* Buffer = Cast<DTransBuffer>(&Transactor);
+		if (!Buffer) return {};
+		return std::make_shared<FTransactorReloadParticipant>(*Buffer, Packages);
+	}
+
 	auto DTransBuffer::EnforceLimits() -> void
 	{
 		while (!History.empty()

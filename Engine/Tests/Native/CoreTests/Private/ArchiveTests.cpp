@@ -25,6 +25,23 @@ namespace ArchiveCustomizationTest
 	inline auto Serialize(Durin::FArchive& Ar, FFreeValue& Value) -> void { Ar << Value.Value; }
 }
 
+TEST(FArchiveTests, FormatsFailuresAfterOperationAndTargetCodesWereAdded)
+{
+	using namespace Durin;
+	const std::pair<EArchiveFailureCode, std::string_view> Cases[] = {
+		{EArchiveFailureCode::UnsupportedOperation, "UnsupportedOperation"},
+		{EArchiveFailureCode::TruncatedPayload, "TruncatedPayload"},
+		{EArchiveFailureCode::TrailingData, "TrailingData"},
+		{EArchiveFailureCode::UnsupportedTarget, "UnsupportedTarget"}};
+	for (const auto& [Code, Name] : Cases)
+	{
+		FByteBuffer Bytes;
+		FCanonicalMemoryReader Reader(Bytes);
+		Reader.Fail(Code, "decode rejected");
+		EXPECT_EQ(Reader.GetError(), std::format("ArchiveFailure:{}:: decode rejected", Name));
+	}
+}
+
 TEST(FArchiveTests, WritesCanonicalLittleEndianPrimitivesAndRoundTrips)
 {
 	Durin::FByteBuffer Bytes;

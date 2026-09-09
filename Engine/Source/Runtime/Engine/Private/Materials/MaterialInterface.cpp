@@ -282,6 +282,11 @@ namespace Durin
 		SubmitMaterialRenderProxyState();
 	}
 
+	auto DMaterialInterface::RefreshReloadedAssetBindings() -> void
+	{
+		PublishMaterialRenderProxyState();
+	}
+
 	auto DMaterialInterface::SubmitMaterialRenderProxyState() const -> void
 	{
 		if (!bAcceptingMaterialProxyPublications

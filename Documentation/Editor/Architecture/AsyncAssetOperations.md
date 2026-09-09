@@ -89,6 +89,14 @@ this utility: each family captures and validates detached state before its
 narrow setter/update seam, then reports synchronous rejection or typed build
 completion through its owning module.
 
+Package discard is a separate saved-content recovery operation. Editable asset
+documents finish active property input, submit package reload, keep close
+confirmation unresolved on failure, rebind every open same-package document to the
+new top-level objects during the publication window, then retire the old graph and
+establish the new save checkpoint. Texture2D, VolumeTexture, Material, and
+MaterialInstance editors share this boundary. The former Material window-open
+discard snapshot was removed; unsaved packages receive an explicit rejection.
+
 ## Standalone StaticMesh Operations
 
 StaticMesh import/reimport captures and decodes physical input into canonical

@@ -86,6 +86,20 @@ namespace Durin
 				Package, EAssetPackageUnloadPolicy::DiscardUnsaved).Succeeded();
 		}
 
+		auto RecoverPackages(const FPackageReloadRequest& Request)
+			-> FPackageReloadOperation override
+		{
+			checkf(IsInGameThread(), "Asset package recovery must run on the game thread.");
+			FPackageReloadRequest Coordinated = Request;
+			if (GEditor && GEditor->GetTransactor())
+			{
+				auto Participant = CreateTransactorReloadParticipant(
+					*GEditor->GetTransactor(), Coordinated.Packages);
+				if (Participant) Coordinated.Participants.push_back(std::move(Participant));
+			}
+			return ReloadPackages(Coordinated);
+		}
+
 		auto DuplicateAsset(const FAssetDuplicateRequest& Request)
 			-> FAssetOperationResult override
 		{

@@ -22,6 +22,7 @@ namespace Durin::Editor::Texture
 		auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
 		auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
 		auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		auto OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void override;
 		auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
 		auto CanSaveActiveDocument() const -> bool override;
 		auto SaveActiveDocument() -> bool override;

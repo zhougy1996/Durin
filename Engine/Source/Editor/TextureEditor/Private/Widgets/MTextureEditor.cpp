@@ -217,7 +217,24 @@ namespace Durin::Editor::Texture
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		return Documents.Discard(Texture, [Texture] {
 			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
-		});
+		}, [this](DPackage* Previous, DPackage* Replacement) {
+			WorkspaceManager.NotifyPackageReloaded(Previous, Replacement);
+		}, [this](std::string Message) { SetError(std::move(Message)); });
+	}
+
+	auto MTextureEditor::OnPackageReloaded(DPackage* Previous, DPackage* Replacement) -> void
+	{
+		for (auto& [ResourceId, Texture] : OpenTextures)
+			if (Texture.Get() && Texture->GetPackage() == Previous)
+			{
+				Texture = Cast<DTexture2D>(Replacement->FindTopLevelAsset(Texture->GetFName()));
+				if (auto It = PreviewStates.find(ResourceId); It != PreviewStates.end())
+				{
+					It->second.Preview = std::make_unique<FTexturePreview>();
+					It->second.PlatformInput.reset();
+					It->second.LastUploadedMipIndex = UINT32_MAX;
+				}
+			}
 	}
 
 	auto MTextureEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool

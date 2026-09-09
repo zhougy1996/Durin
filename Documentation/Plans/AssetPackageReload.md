@@ -4,57 +4,66 @@ Summary: Add transactional package reload and live reference replacement, then r
 
 Last reviewed: 2026-09-09
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-09
 
 ## Current Status
 
-Stage 0 completed CPU content-level regressions, source-boundary audits, and
-interface freezing. The standalone `AssetDiscardCharacterizationTests` captured
-the defects in Windows Debug where cloud components still referenced modified
-source data after discarding Texture2D and VolumeTexture changes, and where a
-subsequent save polluted the disk. Passing these tests means the legacy defects
-were captured successfully; it does not mean Reload is implemented. There is no
-GPU visual-validation evidence.
+Stages 0 through 5 are complete. Saved authored Texture2D, VolumeTexture,
+Material and MaterialInstance packages use transactional graph replacement;
+editor Discard restores the current disk baseline, rebinds package consumers,
+and retires affected history without clearing unrelated package content.
+The existing package format, linker, residency registry, and render-resource
+lifecycle remain authoritative.
 
-Stage 1 completed the CoreDObject in-memory graph replacement primitives and
-shared reflected-container copy support, with all 18 replacement tests passing.
-Stage 2 has started. It now provides unpublished main/bulk closure snapshots,
-codec validation, full-digest revalidation, and a retained-bytes budget. Explicit
-resource/external-reference bindings were extracted from Archive to eliminate
-implicit live lookups; the binding is consistently named `FPackageLoadBindings`,
-with per-package sharing and authored/cooked reuse boundaries made explicit.
-Shared linker stages and private batch value-graph preparation are now connected,
-including in-set cycles and subobject binding, resident external dependencies,
-and isolated cleanup. An explicit load scope can now load non-resident external
-dependencies, with exact-identity release, retryable Reload disk-dependency
-exceptions, and nested-failure bulk cleanup. Projection-fence and active-load
-rejections are also connected. Full request-level admission, coordinated automatic
-cleanup, complete budgeting, and resource preparation remain to be integrated;
-Stage 2 is not complete, and production Discard behavior has not changed.
+Final qualification passed on MacOS arm64 Debug with an Apple M4 GPU. The
+sandbox hides Metal from MoltenVK; the user explicitly authorized GPU execution
+outside it. `AssetPackageReloadVulkanTests` now exercises shared editor Discard
+against a real renderer scene, separately changes its weather and volume inputs,
+and checks that restored readbacks exactly match the saved image. Runtime-product
+and render-publication fault injection preserve the edited frame through GC.
+A subsequent save and fresh load preserve both source identities. The five
+retained PNGs were visually inspected; the edited images show the clear background
+and both restored images reproduce the saved cloud image. This is offscreen scene
+and shared document-service evidence; no native-window manual smoke is claimed.
 
-Candidate deserialization now guards live load/save/unload and mutation entry
-points after explicit dependency admission. Ignoring a rejection cannot produce a
-successful candidate batch, and callback exceptions unwind candidates into a
-structured failure. A CPU composition regression verifies that saved batch graphs
-can pass through CoreDObject replacement, rebind outside references and survive
-release of preparation owners. This does not qualify runtime-resource publication.
+The earlier `AssetCookTests` and `TextureTests` crashes shared an Archive diagnostic
+bug: the error-name table omitted `UnsupportedOperation` and `UnsupportedTarget`,
+shifting names and reading beyond the array for `TrailingData`. The corrected table,
+a compile-time size check, and a focused regression pass. The reload coordinator's
+previously disconnected bulk, PostLoad, participant, history, and render-publication
+fault seams are now exercised. Sixteen coordinator failures preserve the edited
+source, resident registration, cloud reference and Dirty state through GC, and a
+later retry succeeds. History failure also preserves the undoable cross-package
+transaction. A rejected Discard keeps close confirmation and the document open.
 
-Hierarchy rollback now traverses existing Outer indexes without allocating a
-temporary stack. Candidate preparation also checks aggregate retained closure bytes
-before parsing, in addition to individual storage limits. Decoded/scratch/resource
-accounting and full request coordination remain open.
+Final receipts (repository-relative paths):
 
-The audit confirmed that existing linker skeletons immediately enter the DPackage
-registry and GDObjectArray, so they cannot directly serve as isolated graphs at
-the same path. GC enumeration converts TObjectPtr values into temporary pointers
-and therefore cannot perform reference writeback. Loose BulkData reopens files by
-path for every access, while registering a candidate resource also retires the old
-resource. Stage 1 closed the CoreDObject portion of these gaps; complete candidate
-preparation and resource publication remain for Stages 2 and 3, while preserving
-the selected all-or-nothing batch failure contract. See the Stage 0 handoff for
-the frozen boundaries. The Async Task Framework production pilot has not been
-migrated, and its acceptance gates have not been bypassed.
+- `./DevTool test affected --base 8d4388ac1^`: 74/74 targets passed, including
+  `AssetPackageReloadTests` (10 cases), `AssetPackageTests`,
+  `CoreObjectReplacementTests`, `CoreUtilityTests`, `AssetCookTests`,
+  `TextureTests`, `EditorOperationTests` and `MaterialTests`;
+  `Build/.agent-state/logs/20260909-234818-996921-26790-ctest.log`.
+- `DURIN_TEST_KEEP_WORK=1 ./DevTool test AssetPackageReloadVulkanTests --mode qualification`
+  outside the sandbox: passed;
+  `Build/.agent-state/logs/20260909-234730-557462-25924-ctest.log`.
+- `./DevTool test RendererResourceReloadVulkanTests --mode qualification` outside
+  the sandbox: passed;
+  `Build/.agent-state/logs/20260909-233829-552853-22687-ctest.log`.
+- `./DevTool build`: full `all` target passed;
+  `Build/.agent-state/logs/20260909-234859-057602-27755-cmake.log`.
+
+Rendered evidence is retained under
+`Engine/Binaries/MacOS/Debug/Tests/DurinEditor/AssetPackageReloadVulkanTests/Work/Runs/run-p26149-ae5c792a335f44a4b2990a2034a3f6a0/`:
+`saved.png`, `weather-edited.png`, `weather-discarded.png`, `volume-edited.png`,
+and `volume-discarded.png`. Each 96x64 RGBA readback contains 24,576 bytes;
+both restored buffers equal the saved buffer, while both edited buffers differ.
+Use `DURIN_TEST_KEEP_WORK=1` to regenerate inspectable evidence in the next run's
+isolated directory.
+
+The earlier failing receipts remain historical diagnostics, superseded by the
+passing runs above: `20260909-201815-476091-13856-ctest.log` (texture crashes)
+and `20260909-202038-091755-16210-ctest.log` (sandbox Metal admission).
 
 ## Goal
 
@@ -432,10 +441,10 @@ Depends on Stage 1.
 - [x] Extract candidate-graph preparation from the Engine's existing load transaction,
   reusing the canonical linker, schema, authored provenance, and dependency closure
   without returning the currently resident object through ordinary LoadPackage.
-- [ ] Implement consistent closure reads, fingerprint revalidation, BulkData lifetime,
+- [x] Implement consistent closure reads, fingerprint revalidation, BulkData lifetime,
   and budgets; define reuse of resident external dependencies and cycle binding
   within the replacement set.
-- [ ] Implement structured results for new packages, missing/corrupt files, fenced
+- [x] Implement structured results for new packages, missing/corrupt files, fenced
   paths, and Unsupported/Busy/Stale/Cancelled, releasing only this request's
   dependencies and objects when preparation fails.
 
@@ -647,18 +656,18 @@ and plan lifecycle validation passed. No additional GPU qualification was perfor
 Depends on Stage 2. Use the currently implemented task contracts without bypassing
 production-transition gates from other plans.
 
-- [ ] Implement target-graph task-admission blocking, selected cancel/finish, and
+- [x] Implement target-graph task-admission blocking, selected cancel/finish, and
   request-generation validation. Candidate-graph tasks use independent identities;
   old completion notifications must not reapply after cancellation, commit, or
   object retirement.
-- [ ] Integrate candidate preparation and resource publication for Texture2D,
+- [x] Integrate candidate preparation and resource publication for Texture2D,
   VolumeTexture, and Material/MaterialInstance. Handle VolumeTexture through its
   actual compilation route rather than assuming registration in the Texture2D
   asynchronous domain.
-- [ ] Integrate texture-reference and cache refreshes for scenes, materials, and
+- [x] Integrate texture-reference and cache refreshes for scenes, materials, and
   previews; complete ordered RenderThread switching and deferred cleanup of old
   resources; verify that old resources remain usable when recovery fails.
-- [ ] Build the Engine Reload coordinator and staged notifications. Validate
+- [x] Build the Engine Reload coordinator and staged notifications. Validate
   preparation failure, cancellation, close, shutdown, stale callbacks, render-
   admission failure, and that unrelated tasks are not globally drained.
 
@@ -671,16 +680,16 @@ restored result.
 
 Depends on Stage 3.
 
-- [ ] Add a package-level recovery policy to AssetTools. Integrate Pending close
+- [x] Add a package-level recovery policy to AssetTools. Integrate Pending close
   flow, conflict blocking, same-package document impact scope, and error messages
   in DurinEd, with explicit recovery rejection for never-saved packages.
-- [ ] Implement transaction-invalidation preflight/commit, cross-package history
+- [x] Implement transaction-invalidation preflight/commit, cross-package history
   checkpoint handling, and old-to-new edited-object rebinding for documents.
-- [ ] Migrate the Texture2D, VolumeTexture, and Material editors to the shared
+- [x] Migrate the Texture2D, VolumeTexture, and Material editors to the shared
   recovery entry point. Remove superseded discard-only snapshots and dirty-clearing
   paths that do not recover content. Audit callers such as StaticMesh; explicitly
   reject unintegrated types while preserving their original dirty state.
-- [ ] Verify that requested documents close only after successful recovery, while
+- [x] Verify that requested documents close only after successful recovery, while
   other same-package documents continue on new objects. Failures are retryable,
   and closing one window does not lose the resource state of remaining documents.
 
@@ -692,19 +701,29 @@ the representation of disk-saved state.
 
 Depends on Stage 4.
 
-- [ ] Complete the acceptance matrix below and affected-module validation. Record
+- [x] Complete the acceptance matrix below and affected-module validation. Record
   actual test targets, configurations, command receipts, and manual scene evidence;
   documentation validation or compilation success alone cannot complete the plan.
-- [ ] Document implemented ownership, failure, reference, and close semantics in
+- [x] Document implemented ownership, failure, reference, and close semantics in
   AssetPackages, AssetCompilation, Transactors, and the relevant rendering/editor
   contracts, linking from this plan to those authoritative documents.
-- [ ] Remove compatibility bridges and duplicate entry points, confirm no new format
+- [x] Remove compatibility bridges and duplicate entry points, confirm no new format
   or second residency table was added, complete the final cross-module build, and
   update this plan's status and evidence before closing it.
 
 Completion condition: every required scenario passes, fault paths reproducibly
 preserve the original state, lasting rules live in the appropriate contract
 documents, and rejection behavior for unintegrated asset types has tests.
+
+Stage 5 acceptance evidence combines the saved-baseline GPU scene test with
+`AssetPackageReloadTests` for latest-save/dirty-activation/rejected-save behavior,
+all exports, unsupported families, admission, failure retry, batches and history.
+`AssetPackageTests` and `AssetBulkContainerTests` retain the Stage 2 closure,
+fence, dependency, cycle, stale-disk and cancellation coverage;
+`CoreObjectReplacementTests` retains the Stage 1 strong/weak/soft, container,
+subobject, late-reference, participant and deferred-retirement coverage.
+`EditorOperationTests` covers document close refusal and retry, workspace lifetime,
+and transaction shutdown. The lasting contracts are linked below.
 
 ## Acceptance Matrix
 
@@ -747,6 +766,8 @@ evidence for those guarantees.
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/DObjectArray.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectPtr.h`
+- `Engine/Source/Runtime/Engine/Public/Asset/PackageReload.h`
+- `Engine/Source/Runtime/Engine/Private/Asset/PackageReload.cpp`
 - `Engine/Source/Runtime/Engine/Public/Asset/Load.h`
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageLinkerLoader.cpp`
 - `Engine/Source/Runtime/Engine/Public/Asset/PackageSerialization.h`
@@ -756,7 +777,7 @@ evidence for those guarantees.
 - `Engine/Source/Editor/DurinEd/Private/Editor/Transactor.cpp`
 - `Engine/Source/Editor/TextureEditor/Private/Widgets/MTextureEditor.cpp`
 - `Engine/Source/Editor/TextureEditor/Private/Widgets/MVolumeTextureEditor.cpp`
-- `Engine/Source/Editor/MaterialEditor/Private/MaterialDocumentSnapshot.cpp`
+- `Engine/Tests/Native/EngineTests/Private/AssetPackageReloadTests.cpp`
 
 ## Related Contracts
 

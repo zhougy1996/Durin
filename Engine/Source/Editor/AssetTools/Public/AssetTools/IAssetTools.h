@@ -5,6 +5,7 @@
 #include "AssetTools/AssetDuplicate.h"
 #include "AssetTools/AssetMutation.h"
 #include "AssetTools/AssetSave.h"
+#include "Asset/PackageReload.h"
 #include "DObject/Object.h"
 
 namespace Durin
@@ -72,6 +73,11 @@ namespace Durin
 		// Discards a package created through this service. Unsaved state is
 		// intentionally abandoned and the full object hierarchy is collected.
 		virtual auto DiscardPackage(DPackage* Package) -> bool = 0;
+
+		// Restores the bounded package set from its current saved disk closure.
+		// Unlike DiscardPackage, this preserves residency and live references.
+		virtual auto RecoverPackages(const FPackageReloadRequest& Request)
+			-> FPackageReloadOperation = 0;
 
 		// Chooses a collision-free copy identity, clones the persistent graph, and
 		// applies the request's dirty-versus-persisted publication policy.

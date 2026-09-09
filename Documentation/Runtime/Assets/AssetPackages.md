@@ -367,6 +367,33 @@ responsibility. Graph ownership and destruction
 stay on GameThread. This is an internal deserialization boundary, not a public
 reload admission or success result.
 
+## Saved Package Reload
+
+`ReloadPackages` is the public GameThread recovery boundary for authored
+Texture2D, VolumeTexture, Material, and MaterialInstance packages. Requests are
+deduplicated by resident package identity and bounded by package, object,
+reference-slot, retained-CPU, and candidate-GPU limits. Newly created packages,
+cooked runtimes, missing saved files, unregistered top-level classes, projection
+fences, active loads, and non-idle native participants reject without clearing
+Dirty or changing residency.
+
+The coordinator snapshots and validates every saved main/bulk closure, admits
+external dependencies through one exact-identity load scope, creates all private
+graphs, runs family PostLoad/runtime preparation on those private objects, and
+revalidates the complete disk digests. It then prepares one
+`FObjectGraphReplacement` across the batch. Its final referencer scan and
+registration/reference commit occur in one GameThread call, so a failure in a
+later package cannot publish an earlier package. Strong references are rewritten,
+weak handles retain generation safety, soft paths remain unchanged, and unrelated
+referencer packages are not dirtied.
+
+The returned operation remains `Pending` only while the committed old graph waits
+for participant retirement. Callers keep it alive and use `Poll` or `Wait`; only a
+successful retirement reports `Succeeded`. Prior to commit, cancellation and all
+structured failures preserve the old graph. After commit, dependency-release
+diagnostics do not masquerade as rollback because the new graph is already the
+registered generation.
+
 ## Construct-Free Inspection And Mutation
 
 Engine inspection consumes validated v9 linker tables and projects immutable

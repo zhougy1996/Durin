@@ -88,7 +88,9 @@ namespace Durin::Editor
 			const std::function<bool()>& BeforeSave,
 			const std::function<void(std::string)>& ReportError) -> bool;
 		DURINED_API auto Discard(::Durin::DObject* Object,
-			const std::function<void()>& BeforeDiscard = {}) -> bool;
+			const std::function<void()>& BeforeDiscard = {},
+			const std::function<void(::Durin::DPackage*, ::Durin::DPackage*)>& AfterReload = {},
+			const std::function<void(std::string)>& ReportError = {}) -> bool;
 
 		DURINED_API auto CanUndo() const -> bool;
 		DURINED_API auto CanRedo() const -> bool;

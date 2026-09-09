@@ -129,6 +129,17 @@ out-of-band edits invalidate it, and forgetting a package removes its state and
 collector edge. Dirty state is synchronized from revision equality only while
 the checkpoint is valid.
 
+Saved package reload registers a `DTransBuffer` native replacement participant.
+Preparation is accepted only while Idle and records every whole transaction whose
+collector-visible payload, context, custom change, or package transition retains a
+target graph. Validation repeats that set immediately before commit. Atomic commit
+removes those transactions in full rather than rewriting their payloads; unrelated
+entries remain. If a retired transaction also changed another package, its applied
+content and Dirty state remain, but its save checkpoint is invalidated. After
+successful old-graph retirement, the editor establishes the replacement package as
+the new saved checkpoint. A precommit reload failure leaves history, cursor, package
+revisions, checkpoints, and Dirty state unchanged.
+
 Custom changes that report mounted-content mutation advance one monotonic
 discovery revision after each successful Execute, Undo, or Redo. Ordinary
 in-memory object and property edits do not advance it.

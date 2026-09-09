@@ -65,6 +65,9 @@ namespace Durin
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
 		ENGINE_API auto GetMaterialRenderProxy() const
 			-> FMaterialRenderProxyRef;
+		// Refreshes native texture bindings after a referenced texture package was
+		// atomically replaced. Authored material state and dirty flags are unchanged.
+		ENGINE_API auto RefreshReloadedAssetBindings() -> void;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

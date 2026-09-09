@@ -428,6 +428,14 @@ namespace Durin::Editor
 		}
 	}
 
+	auto FWorkspaceManager::NotifyPackageReloaded(
+		DPackage* Previous, DPackage* Replacement) -> void
+	{
+		if (!Previous || !Replacement || Previous == Replacement) return;
+		for (const auto& Workspace : GetRegisteredWorkspaces())
+			Workspace->OnPackageReloaded(Previous, Replacement);
+	}
+
 	auto FWorkspaceManager::RemapResourceId(
 		std::string_view SourceResourceId,
 		std::string_view DestinationResourceId) -> void
