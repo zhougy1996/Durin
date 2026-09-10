@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Repository entrypoint for Codex-style agents. Read only task-relevant docs.
+Repository entrypoint for agents. Read task-relevant guidance once; reread only
+when it changes or needed context is unavailable.
 
 ## Task Routing
 
@@ -11,19 +12,15 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Repository Rules
 
-- Invoke the repository tool as `.\DevTool.bat` on Windows and `./DevTool` on
-  macOS or Linux. When documentation shows the Windows spelling, translate it
-  to the POSIX launcher on a POSIX host.
+- Use `.\DevTool.bat` on Windows or `./DevTool` on macOS/Linux; translate
+  documented commands to the host launcher.
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
 - Run Git operations with the checkout's absolute path supplied command-locally,
   for example `git -c safe.directory=<absolute-checkout-path> status`; do not
   modify the user's global `safe.directory` configuration.
-- Before configuring, building, rebuilding, running, or recovering repository
-  targets, read `Documentation/Agents/BuildAndRun.md`.
-- Before selecting or running native tests, read
-  `Documentation/Agents/Testing.md`.
-- Before creating, moving, removing, validating, completing, or archiving
-  repository documentation, read `Documentation/Agents/Documentation.md`.
+- Configure, build, run, or recovery: read `Documentation/Agents/BuildAndRun.md` first.
+- Native-test selection or execution: read `Documentation/Agents/Testing.md` first.
+- Documentation maintenance: read `Documentation/Agents/Documentation.md` first.
 - Do not start another build while an earlier CMake, Ninja, compiler, or linker
   process tree may still be running.
 

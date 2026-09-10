@@ -4,43 +4,32 @@ These instructions apply under `Documentation/`.
 
 ## Authoring Language
 
-- Write repository plans and technical documentation in English, including
-  titles, summaries, stage tasks, acceptance gates, and handoff notes.
-- Use English for newly authored or revised prose; preserve literal identifiers,
-  commands, paths, and quoted source text where their original spelling matters.
+Write new or revised prose in English; preserve literal identifiers, commands,
+paths, and quoted source text.
 
 ## Reading Policy
 
 - Read only task-required files. When the owning document is unknown, follow
   the discovery and targeted-search policy in `README.md`.
-- Do not read archived plans unless the user names one, an active document requires its provenance, or historical reasoning is necessary.
-- Do not run untargeted content searches under `Plans/Archive/`. Exclude that
-  directory from general documentation searches; when archive lookup is
-  justified, query plan metadata by title or filename first and open a body
-  only after selecting a specific result.
+- Exclude `Plans/Archive/` from general searches. Read archived plans only for
+  named requests, required provenance, or historical reasoning; select by title
+  or filename metadata before opening a body.
 
 ## Document Boundaries
 
-- `Agents`: short, task-triggered operational guides for agents; keep only the
-  minimum decision path needed before an action and route detailed contracts,
-  authoring rules, and exceptional workflows to their authoritative domain
-  documents.
-- `Development`: build, test, tooling, standards, dependency, and
-  version-control workflows; keep build contracts beside their operational
-  guidance.
+- `Agents`: minimal operational decisions with links to detailed contracts and
+  exceptional workflows.
+- `Development`: build, test, tooling, standards, dependency, and version-control
+  workflows and contracts.
 - `Runtime`: implemented engine-runtime contracts and long-lived invariants.
 - `Editor/Architecture`: implemented editor contracts and invariants.
 - `Editor/Design`: visual language, tokens, layout, interaction, and themes.
 - `Editor/Guides`: user-facing editor workflows.
 - `Workspace`: cross-cutting workspace, project, module, and profile ownership.
-- `Tasks`: bounded, selected implementation work discovered with
-  `.\DevTool.bat doc task list` and deleted after validation; task history
-  belongs in Git rather than a documentation archive.
-- `Roadmaps`: cross-plan outcomes, long-term milestone ordering, dependency
-  gates, just-in-time plan boundaries, and links to bounded plans that execute
-  current work; `Roadmaps/Archive` preserves completed program-level sequencing
-  and provenance. Roadmaps do not carry implementation-stage checklists or
-  handoffs, or compete with active-plan acceptance gates.
+- `Tasks`: bounded implementation work; their local rules own completion and
+  deletion.
+- `Roadmaps`: cross-plan outcomes, milestones, dependencies, and plan boundaries;
+  child plans own implementation checklists, handoffs, and acceptance gates.
 - `Plans`: selected paths, stages, and acceptance gates; `Plans/Archive`
   preserves completed decisions and evidence.
 - `Investigations`: verified unresolved problems without a selected path.
@@ -54,18 +43,14 @@ research in ignored `Documentation/Local/` or outside the repository.
 - Prefer links to the authoritative topic document over duplicated guidance.
 - Update direct links when documents move. Keep indexes local; do not create a
   master file catalog.
-- Active and completed documents require valid local links. Archived plans and
-  roadmaps are historical evidence: an explicit archive-inclusive audit reports
-  local targets removed by later repository evolution as warnings. Archive
-  transactions compare diagnostics before and after the move, tolerate those
-  pre-existing warnings, and roll back when they introduce a new diagnostic or
-  leave any error. Keep historical source locations as code-formatted paths
-  rather than live links when they are not expected to follow the current tree.
+- Active and completed documents require valid local links. Archive audits
+  treat targets removed by later evolution as warnings; archive operations must
+  introduce no diagnostics or leave errors. Use code-formatted paths for
+  historical source locations that should not track the current tree.
 - Start implemented Runtime and Editor contract documents with a concise
   `Summary:` line. Add a comma-separated `Modules:` line when source ownership
-  is bounded; use registered module names and omit the field for genuinely
-  code-agnostic or cross-repository guidance. These fields are routing metadata,
-  not substitutes for ownership details in the document body.
+  is bounded, using registered module names; omit it for code-agnostic or
+  cross-repository guidance.
 - Add a `Last reviewed` date where required by the nearest authoring rules.
 
 ### Growth Reviews
@@ -74,18 +59,9 @@ Apply these checks to long-lived `Development`, `Runtime`, `Editor`, and
 `Workspace` documents. Plans, roadmaps, tasks, investigations, and archives
 follow their own lifecycle rules.
 
-- Treat 500 lines as a review trigger, not a size limit. The trigger alone does
-  not require a split, and cohesive wire formats, formulas, state machines, or
-  ordering contracts should remain intact when separation would obscure them.
-- Before materially extending or adding a top-level section to a document at
-  or above the trigger, confirm that the new material has the same authoritative
-  concern, audience, and ownership. Split when two or more concerns can be
-  routed and maintained independently.
-- Before expanding any long-lived document, check the closest domain contracts
-  for an existing authority. Content owned elsewhere gets only the boundary
-  needed for local context plus a direct link; do not restate its mechanics or
-  status, and keep a local example only when it explains a distinct local use.
-- After a split, leave a concise ownership link in the originating document,
-  add reciprocal related-document links where they aid navigation, and update
-  `Documentation/README.md` only when the new document has a distinct task
-  trigger.
+- Before expanding a document, check existing domain authority and link rather
+  than duplicate it; retain only necessary local context.
+- At 500 lines, review ownership before substantial expansion. Split independently
+  maintainable concerns, but keep cohesive contracts intact regardless of size.
+- After splitting, link the owning documents and repair references. Add a
+  `Documentation/README.md` entry only for a distinct task trigger.

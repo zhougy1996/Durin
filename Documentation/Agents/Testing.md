@@ -1,19 +1,12 @@
 # Agent Testing Workflow
 
-Read this short guide before selecting or running native tests. Its purpose is
-to obtain sufficient confidence with the smallest relevant test scope.
-
 ## Select Validation
 
-For simple, low-risk changes such as text, formatting, or missing enum cases
-that follow an established mapping, review the diff and compile the smallest
-relevant target when needed. These changes do not require `test affected` or a
-full build by default. Judge semantic risk rather than diff size: changes to
-control flow, mutation, persistence, ownership, concurrency, or other behavior
-without established coverage need focused tests. Explicit acceptance gates
-still apply. Report the validation performed and any intentionally omitted tests.
+Choose validation by semantic risk. Low-risk text or mechanical edits need diff
+review and compilation when useful; behavior changes need relevant test coverage.
+Honor explicit acceptance gates and report validation performed or omitted.
 
-Choose the smallest sufficient scope; these are alternatives, not a sequence:
+Use the smallest sufficient selection:
 
 ```powershell
 .\DevTool.bat test affected
@@ -26,12 +19,9 @@ Choose the smallest sufficient scope; these are alternatives, not a sequence:
 .\DevTool.bat test all
 ```
 
-`test affected` is the default handoff validation when runtime tests are needed.
-It maps the current staged, unstaged, and untracked paths to configured native
-test modules and domains, prints the exact selection, then builds the targets
-once and runs them in one parallel CTest invocation. Pass `--base <git-ref>` to
-analyze every change relative to a branch or commit. Pass `--explain` to inspect
-the changed paths and decision without building or running.
+`test affected` defaults to staged, unstaged, and untracked changes. Use `--base`
+for changes relative to a Git ref, or `--explain` to inspect selection without
+execution. It is the default handoff selection when runtime tests are needed.
 
 When the target name is not already known, query the configured test registry
 instead of inferring it from the source tree:
@@ -41,47 +31,31 @@ instead of inferring it from the source tree:
 .\DevTool.bat test explain <Target>
 ```
 
-1. During implementation, iterate with the smallest affected named target or
-   failing case.
-2. Before handoff, confirm sufficient coverage of the final code state. Reuse
-   passing results when the tested code, relevant inputs, and environment are
-   unchanged and the recorded selection covers the task's behavior and gates.
-   Otherwise use `test affected` or an explicit acceptance selection. If the
-   working tree includes unrelated changes, inspect `test affected --explain`
-   and choose a task-specific bounded registry set when its coverage is clear;
-   report that selection. Batch whole targets in one invocation rather than
-   assembling coverage through separate commands. Focused iteration and
-   diagnosis may use separate runs.
-3. Use a bounded domain or domain/backend set when behavior crosses test
-   targets.
-4. Use `fast-all` for broad non-integration feedback. It includes `contract`,
-   `feature`, and `infrastructure`, but excludes `integration`,
-   `characterization`, and `qualification`.
-5. If integration behavior changed, run its exact target or matching bounded
-   set even after `fast-all` passes.
-6. Run `test all` only for an explicit gate, a change to shared runtime or test
-   infrastructure, or concrete evidence that bounded validation is
-   insufficient. State the reason before starting it.
+- Iterate and diagnose with a named target or case. Batch whole-target coverage
+  through `affected` or one domain/backend set.
+- Reuse passing results for the final code when relevant inputs and environment
+  are unchanged and recorded coverage satisfies the task and gates. With
+  unrelated working-tree changes, inspect `affected --explain` and use a
+  task-specific registry set when its coverage is clear; report the selection.
+- `fast-all` covers contract, feature, and infrastructure tests; it excludes
+  integration, characterization, and qualification. Changed integration behavior
+  still needs its target or bounded set.
+- Use `test all` only for an explicit gate, shared runtime/test infrastructure
+  changes, or evidence that bounded coverage is insufficient; state the reason.
 
 Application-hosted tests are never implicit validation. Leave
 `DURIN_ENABLE_APPLICATION_TESTS` off unless the user, selected plan gate, or
 active CI job requires that coverage. When required, first read
 [application-host execution](../Development/Build/NativeTests.md#application-hosted-tests).
 
-GPU qualification is not implicit validation for CPU changes or migrated test
-fixtures. `test affected` already excludes qualification targets. Do not append
-GPU qualification solely because a changed fixture belongs to such a target;
-build that target when compile coverage is needed. Run GPU qualification only
-when the changed GPU behavior, an explicit user request, a selected acceptance
-gate, or the active CI job requires it.
+Run GPU qualification only for changed GPU behavior or explicit user, plan, or
+CI requirements. `affected` excludes it; CPU-only fixture changes may need
+compilation of the qualification target, but not GPU execution.
 
-If the current session is known to lack GPU access, do not retry GPU execution
-without evidence that access changed. Report it as unavailable/not run, retain
-any prior failure diagnostic, and continue the supported validation. Optional
-GPU coverage must not become a new completion or downstream-plan gate. Explicit
-GPU acceptance gates remain outstanding until validated in a capable environment.
-Keep GPU tests registered for those environments; do not turn initialization
-failures into unconditional passes.
+If GPU access is unavailable, retain diagnostics, report execution as not run,
+and retry only when access changes. Optional coverage cannot block completion or
+downstream plans; explicit GPU gates remain outstanding. Keep tests registered
+and never convert initialization failures into passes.
 
 Before macOS GPU execution, read
 [GPU environment guidance](../Development/Build/NativeTests.md#gpu-qualification-environments).
@@ -90,26 +64,13 @@ Before timing qualification, read
 Timing acceptance requires an exclusive quiet GPU lane;
 correctness runs may proceed under the ordinary build ownership rules.
 
-Use positional selections. Whole-target execution is the default. Isolate an
-aggregate failure with its named target and case.
-
-Treat test execution and any transitive build as long-running; follow the
-timeout and continuation rules in [Build And Run](BuildAndRun.md). Read-only
-discovery commands such as `test list`, `test explain`, and
-`test affected --explain` do not need a long-running execution budget. A failed assertion,
-crash, or timeout does not require a rebuild; fix or diagnose the cause and
-rerun the same test selection.
+Use positional selections; whole-target execution is the default. Test execution
+and transitive builds follow [Build And Run](BuildAndRun.md) timeout and recovery
+rules. Read-only discovery does not need a long-running execution budget.
 
 ## Read the Complete Specifications
 
-Continue to [Native Test Execution](../Development/Build/NativeTests.md) when
-the task changes discovery, selection, registry consumption, harness execution,
-aggregate behavior, test CI, application hosting, or characterization,
-qualification, stress, report, and case-isolation modes. Use it also for
-failure diagnosis beyond a focused rerun.
-
-Continue to
-[Native Test Authoring](../Development/Build/NativeTestAuthoring.md) when the
-task adds, splits, classifies, or registers a test target, or changes target
-metadata, source ownership, fixtures, sandboxes, runtime dependencies,
-deployment, capability guards, lifecycle isolation, or resource locks.
+- [Native Test Execution](../Development/Build/NativeTests.md): execution
+  mechanisms, advanced modes, CI, or diagnosis beyond a focused rerun.
+- [Native Test Authoring](../Development/Build/NativeTestAuthoring.md): target
+  registration, fixtures, dependencies, or isolation and resource ownership.

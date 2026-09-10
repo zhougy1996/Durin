@@ -1,18 +1,9 @@
 # Agent Documentation Workflow
 
-Read this short guide before creating, moving, removing, validating,
-completing, or archiving repository documentation. Once read for the current
-task, do not reread it unless the file changes.
-
 ## Discover Documents
 
 When the owning document is unknown, follow [Documentation](../README.md)
-for topic routing and compact discovery. Known documents can be opened directly.
-For stage continuation, use the compact plan context:
-
-```powershell
-.\DevTool.bat doc plan context "<title-or-filename>"
-```
+for topic routing and compact discovery; otherwise open it directly.
 
 ## Validate Changes
 
@@ -25,9 +16,8 @@ For content edits, start with changed-document validation:
 For lifecycle changes, use the validator required by the owning rules below.
 Use `doc validate --scope all` for a repository-wide documentation audit; add
 `--include-archive` only for an explicit historical audit.
-Successful mutating documentation commands report the validation they already
-completed transactionally. Do not immediately rerun an equivalent validator;
-validate again only after a later edit or when an explicit audit is required.
+Successful document mutations include a validation receipt; reuse it unless
+later edits or an explicit audit require validation again.
 
 ## Apply Document Operations
 
@@ -46,9 +36,8 @@ Read only the rules for the operation being performed:
 
 ## Read the Owning Rules
 
-Continue to [Documentation Rules](../AGENTS.md) and the nearest directory
-`AGENTS.md` before changing document content or lifecycle state. Use
-[Documentation](../README.md) to route to the authoritative domain document.
+Before editing, read [Documentation Rules](../AGENTS.md) and the nearest
+directory `AGENTS.md`.
 For documentation command changes or diagnosis, start with
 [DurinDevTool documentation commands](../Development/Tooling/DurinDevTool.md#documentation-commands).
 Read [Build And Run](../Development/Build/BuildAndRun.md) only if the issue also
