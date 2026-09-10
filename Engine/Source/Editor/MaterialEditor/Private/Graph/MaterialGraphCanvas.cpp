@@ -52,6 +52,25 @@ namespace Durin::Editor::Material
 				&& AMin.y <= BMax.y && AMax.y >= BMin.y;
 		}
 
+		auto DrawCulledLink(ImDrawList& DrawList, const ImVec2& A, const ImVec2& B,
+			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
+			ImU32 Color, float Thickness) -> void
+		{
+			const float Tangent = std::max(40.0f, std::abs(B.x - A.x) * 0.45f);
+			const ImVec2 ControlA = Add(A, {Tangent, 0.0f});
+			const ImVec2 ControlB = Subtract(B, {Tangent, 0.0f});
+			// The curve stays inside its control hull; include stroke and AA fringe.
+			const float Padding = Thickness * 0.5f + DrawList._FringeScale;
+			const ImVec2 Minimum(
+				std::min({A.x, ControlA.x, ControlB.x, B.x}) - Padding,
+				std::min({A.y, ControlA.y, ControlB.y, B.y}) - Padding);
+			const ImVec2 Maximum(
+				std::max({A.x, ControlA.x, ControlB.x, B.x}) + Padding,
+				std::max({A.y, ControlA.y, ControlB.y, B.y}) + Padding);
+			if (Intersects(Minimum, Maximum, CanvasMinimum, CanvasMaximum))
+				DrawList.AddBezierCubic(A, ControlA, ControlB, B, Color, Thickness);
+		}
+
 		auto TypeColor(EMaterialProgramValueType Type) -> ImU32
 		{
 			switch (Type)
@@ -358,19 +377,13 @@ namespace Durin::Editor::Material
 				if (SourceIt == VisualGraph.Indices.end()) continue;
 				const ImVec2 A = VisualGraph.Nodes[SourceIt->second].OutputPin;
 				const ImVec2 B = Destination.InputPins[InputIndex];
-				const ImVec2 LinkMinimum(std::min(A.x, B.x), std::min(A.y, B.y));
-				const ImVec2 LinkMaximum(std::max(A.x, B.x), std::max(A.y, B.y));
-				if (!Intersects(LinkMinimum, LinkMaximum, CanvasMinimum, CanvasMaximum))
-					continue;
-				const float Tangent = std::max(40.0f, std::abs(B.x - A.x) * 0.45f);
 				const bool bFocused = SelectedNodes.empty()
 					|| SelectedNodes.contains(Destination.View->Node.Id)
 					|| SelectedNodes.contains(
 						VisualGraph.Nodes[SourceIt->second].View->Node.Id);
 				const ImU32 Color = TypeColor(
 					Destination.View->Inputs[InputIndex].SourceType);
-				DrawList.AddBezierCubic(A, Add(A, {Tangent, 0.0f}),
-					Subtract(B, {Tangent, 0.0f}), B,
+				DrawCulledLink(DrawList, A, B, CanvasMinimum, CanvasMaximum,
 					bFocused ? Color : WithAlpha(Color, 72),
 					bFocused ? 3.0f : 1.5f);
 			}
@@ -775,17 +788,11 @@ namespace Durin::Editor::Material
 				if (SourceIt == VisualIndices.end()) continue;
 				const ImVec2 A = VisualNodes[SourceIt->second].OutputPin;
 				const ImVec2 B = SurfacePins[Index];
-				const ImVec2 LinkMinimum(std::min(A.x, B.x), std::min(A.y, B.y));
-				const ImVec2 LinkMaximum(std::max(A.x, B.x), std::max(A.y, B.y));
-				if (!Intersects(LinkMinimum, LinkMaximum, CanvasMinimum, CanvasMaximum))
-					continue;
-				const float Tangent = std::max(40.0f, std::abs(B.x - A.x) * 0.45f);
 				const bool bFocused = SelectedNodes.empty()
 					|| SelectedNodes.contains(VisualNodes[SourceIt->second].View->Node.Id)
 					|| (SelectedSurfaceOutput && static_cast<size_t>(*SelectedSurfaceOutput) == Index);
 				const ImU32 Color = TypeColor(SurfaceTypes[Index]);
-				DrawList->AddBezierCubic(A, Add(A, {Tangent, 0.0f}),
-					Subtract(B, {Tangent, 0.0f}), B,
+				DrawCulledLink(*DrawList, A, B, CanvasMinimum, CanvasMaximum,
 					bFocused ? Color : WithAlpha(Color, 72), bFocused ? 3.0f : 1.5f);
 			}
 
