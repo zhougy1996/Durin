@@ -1328,7 +1328,7 @@ namespace Durin
 		auto EnsureDiagnostics() const -> void;
 		RENDERCORE_API auto CompileForTesting() -> std::string;
 		auto Record(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context, std::string* OutError) -> bool;
+			FRDGExecutionContext* Context, std::string& OutError) -> bool;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
 		struct FDiagnostics;
