@@ -1,0 +1,15 @@
+{
+  "name": "zstd",
+  "version": "1.5.7",
+  "order": 26,
+  "kind": "direct_source",
+  "source_dir": "Engine/External/Source/zstd",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/facebook/zstd.git",
+    "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "marker": "build/cmake/CMakeLists.txt",
+    "required_files": ["LICENSE", "COPYING", "lib/zstd.h", "lib/common", "lib/compress", "lib/decompress"]
+  },
+  "required_files": ["LICENSE", "COPYING", "lib/zstd.h", "build/cmake/CMakeLists.txt"]
+}

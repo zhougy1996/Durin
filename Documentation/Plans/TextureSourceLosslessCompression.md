@@ -9,22 +9,32 @@ Completed:
 
 ## Current Status
 
-Implementation has not started. Repository inspection found Raw and byte-run
-RunLength codecs in `FTextureSource`, but no registered Zstd dependency.
-`GetMipData` already centralizes decoding and canonical pixel-hash validation.
-`GetIdentity` excludes storage compression, and existing tests assert that Raw
-and RunLength representations have equal source identities. These boundaries
-should be retained.
+Stage 0 is complete on Windows. Zstd 1.5.7 is pinned to upstream commit
+`f8745da6ff1ad1e7bab384bd1f9d742439278e99`, prepared through the manifest
+system and linked privately as a static Engine dependency. Dependency validation
+(11 manifests) and `DevTool build --target Engine` passed with the existing
+Win64 Debug editor profile. The source CMake integration uses the active host
+compiler/architecture and PIC; it requires no platform SDK archive or runtime
+codec DLL. macOS compilation/execution is unavailable on this Windows host.
 
-The preceding asset cleanup resaved all repository content, but did not compress
-source pixels. The VintageLighter BaseColor companion contains 4,194,304 bytes.
-The repository currently contains nine texture assets across Sandbox texture,
-model and volume content. Implementation must rediscover all mounted projects;
-this count is a baseline, not a selection filter.
+The level 3 policy is confirmed by the following read-only baseline of all eight
+external texture payloads (the ninth texture is inline and will be included in
+the package-level preview). Measurements use Python zstandard 0.24.0 reporting
+Zstd 1.5.7, single-threaded single frames, one warm-up and median of seven runs;
+these are host diagnostic timings, not a performance gate or Engine Debug timings.
+Every decode was byte-compared against its input. The temporary harness and JSON
+receipt are in ignored `Build/TextureCompressionQualification`.
 
-This work spans dependency preparation, persistent codec validation, import
-defaults, asset-maintenance transactions and repository conversion. It is
-recorded as a staged plan under the user's explicit fallback authorization.
+| Payload | Input bytes | Zstd bytes | Encode ms | Decode ms |
+| --- | ---: | ---: | ---: | ---: |
+| TEXCUBE_PureSky_512x512 | 6291456 | 1800675 | 46.456 | 16.261 |
+| TEX_StoneHead | 1048576 | 424996 | 7.575 | 2.264 |
+| VT_Cloud_Base_Voronoi_128 | 2097152 | 891310 | 20.326 | 4.596 |
+| vintage_lighter_diff_BaseColor | 4194304 | 1325796 | 29.968 | 9.11 |
+| vintage_lighter_diff_Opacity | 4194304 | 147 | 1.367 | 1.359 |
+| vintage_lighter_metal_vintage_lighter_rough_Metallic | 4194304 | 712076 | 19.219 | 8.729 |
+| vintage_lighter_metal_vintage_lighter_rough_Roughness | 4194304 | 888043 | 22.216 | 8.563 |
+| vintage_lighter_nor_gl_Normal | 4194304 | 1638437 | 33.047 | 9.158 |
 
 ## Goal
 
@@ -71,13 +81,13 @@ Original external image files must not be required for conversion.
 
 ### Stage 0: Register and qualify the codec dependency
 
-- [ ] Select and pin an official Zstd release, register dependency preparation,
+- [x] Select and pin an official Zstd release, register dependency preparation,
   license handling and the private static Engine dependency using repository
   conventions. Do not depend on another library's transitive codec copy.
-- [ ] Verify preparation/configuration and build on the available host; review
+- [x] Verify preparation/configuration and build on the available host; review
   supported Windows and macOS target/SDK dependency propagation and record any
   host validation that is unavailable.
-- [ ] Measure level 3 compression size and encode/decode time on the existing
+- [x] Measure level 3 compression size and encode/decode time on the existing
   texture payloads, including the HDR/cube and noise volume inputs. Record the
   baseline and confirm the codec policy before proceeding.
 
