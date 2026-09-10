@@ -335,7 +335,11 @@ namespace Durin
 			FByteView Header;
 			if (!Ar.ReadRegion(64, Header)) return false;
 			uint64 Size = 0;
-			ReadLittleEndianAt(Header, SizeOffset, Size);
+			if (!ReadLittleEndianAt(Header, SizeOffset, Size))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, "Mesh payload stored size is outside its header.");
+				return false;
+			}
 			if (Size < 64 || Size > MaximumBytes)
 			{
 				Ar.Fail(EArchiveFailureCode::LimitExceeded, "Mesh payload stored size is outside its limit.");
