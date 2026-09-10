@@ -81,6 +81,7 @@ namespace
 		Root = 1 << 8,
 		NoIncremental = 1 << 9,
 		DryRun = 1 << 10,
+		RecompressTextures = 1 << 11,
 	};
 
 	constexpr auto OptionBit(EOption Option) -> uint16
@@ -116,6 +117,7 @@ namespace
 		case EOption::Root: return "--root";
 		case EOption::NoIncremental: return "--no-incremental";
 		case EOption::DryRun: return "--dry-run";
+		case EOption::RecompressTextures: return "--recompress-texture-sources";
 		}
 		return "option";
 	}
@@ -128,6 +130,7 @@ namespace
 		bool bHelp = false;
 		bool bWholeProject = false;
 		bool bApply = false;
+		bool bRecompressTextures = false;
 		bool bIncremental = true;
 		bool bDryRun = false;
 		std::filesystem::path OutputRoot;
@@ -145,6 +148,7 @@ namespace
 			<< "  DurinAssetTool check --project=<project.dproject> [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
+			<< "  resave option: --recompress-texture-sources (includes current packages)\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
@@ -175,7 +179,7 @@ namespace
 
 		constexpr uint16 Check = OptionBit(EOption::Project) | OptionBit(EOption::Json);
 		constexpr uint16 Resave = Check | OptionBit(EOption::All)
-								  | OptionBit(EOption::Apply) | OptionBit(EOption::Scope);
+								  | OptionBit(EOption::Apply) | OptionBit(EOption::Scope) | OptionBit(EOption::RecompressTextures);
 		constexpr uint16 Storage = OptionBit(EOption::Project);
 		constexpr uint16 Cook = Check | OptionBit(EOption::Output)
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
@@ -187,7 +191,7 @@ namespace
 		constexpr EOption OrderedOptions[] = {
 			EOption::Json, EOption::All, EOption::Apply, EOption::Scope,
 			EOption::Output, EOption::Target, EOption::Profile, EOption::Root,
-			EOption::NoIncremental, EOption::DryRun
+			EOption::NoIncremental, EOption::DryRun, EOption::RecompressTextures
 		};
 		for (const EOption Option : OrderedOptions)
 			if ((Unexpected & OptionBit(Option)) != 0)
@@ -281,6 +285,11 @@ namespace
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Apply, OutError)) return false;
 				OutOptions.bApply = true;
+			}
+			else if (Argument == "--recompress-texture-sources")
+			{
+				if (!MarkOptionOnce(OutOptions, EOption::RecompressTextures, OutError)) return false;
+				OutOptions.bRecompressTextures = true;
 			}
 			else if (Argument == "--json")
 			{
@@ -635,23 +644,32 @@ namespace
 			std::cerr << "Error: " << Error << '\n';
 			return Result;
 		}
+		Selection.bRecompressTextureSources = Options.bRecompressTextures;
 		const auto Plan = Durin::PlanAssetCanonicalResaves(
 			Records, Selection, [] { return GCancelled.load(std::memory_order_relaxed); }
 		);
 		if (Plan.Status == Durin::EAssetCanonicalResavePlanStatus::Cancelled)
 			return 130;
-		if (Options.bApply)
+		if (Options.bApply || Options.bRecompressTextures)
 		{
 			auto Applied = Durin::ApplyAssetCanonicalResaves(
 				Plan, Catalog,
-				{.PrepareLoadedAsset = PrepareCanonicalResaveAsset},
+				{.bPreview = !Options.bApply, .PrepareLoadedAsset = PrepareCanonicalResaveAsset},
 				[] { return GCancelled.load(std::memory_order_relaxed); }
 			);
 			if (Options.Format == EOutputFormat::Human)
-				std::cout << "canonical-resave apply: " << Applied.ChangedPaths.size()
-						  << " package(s) resaved; " << Applied.Diagnostic << '\n';
+			{
+				std::cout << "canonical-resave " << (Options.bApply ? "apply" : "preview")
+					<< ": " << Applied.ChangedPaths.size() << " changed file(s); " << Applied.Diagnostic << '\n';
+				for (const auto& Package : Applied.Plan.Packages)
+					for (const auto& Source : Package.TextureSources)
+						std::cout << "  " << Source.ObjectPath << ": " << Source.StoredBytesBefore
+							<< " -> " << Source.StoredBytesAfter << " bytes"
+							<< (Source.bChanged ? "" : " (unchanged)") << '\n';
+			}
 			else
-				std::cout << Durin::SerializeAssetCanonicalResaveApplyReport(Applied)
+				std::cout << (Options.bApply ? Durin::SerializeAssetCanonicalResaveApplyReport(Applied)
+					: Durin::SerializeAssetCanonicalResavePlanReport(Applied.Plan))
 						  << '\n';
 			std::cout.flush();
 			if (Applied.Status == Durin::EAssetCanonicalResaveApplyStatus::Cancelled)
@@ -1005,7 +1023,7 @@ int main(int ArgC, char** ArgV)
 		std::cout << SerializeIdentityAudit(Snapshot.Packages) << '\n';
 		return 0;
 	}
-	if (Options.Operation == EOperation::Resave && Options.bApply)
+	if (Options.Operation == EOperation::Resave && (Options.bApply || Options.bRecompressTextures))
 	{
 		const Durin::FAssetCatalogRefreshResult Refresh =
 			Durin::RefreshAssetRegistry(

@@ -127,6 +127,8 @@ namespace Durin
 	{
 		bool bMarkPackageDirty = true;
 		bool bSourceDecoderInvoked = true;
+		// PostLoad/rebuild consumes the installed source without replacing its storage.
+		bool bPreserveSource = false;
 	};
 
 	class ITextureCubeBuildProvider : public IModularFeature

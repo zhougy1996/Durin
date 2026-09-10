@@ -198,6 +198,26 @@ TEST(FTextureSourceTests, ZstdFallsBackAndRejectsDamagedFrames)
 	}
 }
 
+TEST(FTextureSourceTests, RejectsUnknownCodecAndCanonicalHashMismatch)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	Image::FImage Image;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 16, .Height = 16,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(1024, std::byte{31}), Image));
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4));
+	auto* Codec = FTextureSource::StaticStruct()->FindPropertyByName("Compression", false);
+	auto* Hash = FTextureSource::StaticStruct()->FindPropertyByName("CanonicalPayloadHashLow", false);
+	ASSERT_NE(Codec, nullptr); ASSERT_NE(Hash, nullptr);
+	*Codec->ContainerPtrToValuePtr<ETextureSourceCompression>(&Source) = static_cast<ETextureSourceCompression>(255);
+	EXPECT_FALSE(Source.IsValid()); EXPECT_FALSE(Source.GetMipData().IsValid());
+	EXPECT_FALSE(Source.Recompress());
+	*Codec->ContainerPtrToValuePtr<ETextureSourceCompression>(&Source) = ETextureSourceCompression::Zstd;
+	*Hash->ContainerPtrToValuePtr<uint64>(&Source) ^= 1;
+	EXPECT_FALSE(Source.GetMipData().IsValid()); EXPECT_FALSE(Source.Recompress());
+}
+
 TEST(FTextureSourceTests, StorageOnlyCommitKeepsCookedPixelsAndOwner)
 {
 	using namespace Durin;
@@ -1170,6 +1190,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	EXPECT_TRUE(std::ranges::equal(
 		Texture->CreateBuildInput().GetVoxelBytes(), Source.GetVoxelBytes()));
+	EXPECT_EQ(Texture->GetSource().GetCompression(), Durin::ETextureSourceCompression::Raw);
 	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	Texture = nullptr;
 	Durin::ShutdownAssetManager();

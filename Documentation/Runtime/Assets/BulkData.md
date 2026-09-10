@@ -72,12 +72,15 @@ an immutable package-resource range. Copies retain a complete immutable
 snapshot. `UpdatePayload` validates and owns the complete candidate before
 atomically replacing content facts; failure preserves the prior value.
 
-The content ID is XXH3-128 over canonical uncompressed payload bytes, encoded
+The content ID is XXH3-128 over stored opaque payload bytes, encoded
 as little-endian `HashLow` then `HashHigh`. Empty bytes use the ordinary empty
 span digest; there is no sentinel. Content equality uses content ID plus size
 without loading. Instance identity is registration identity only and does not
 enter equality or build keys. Updating an existing value retains its instance
-GUID while replacing content identity.
+GUID while replacing content identity. DAST v9 does not persist that registration
+GUID: its runtime adapter reconstructs it from the stored content hash on load.
+Thus in-memory storage recompression retains the instance GUID, but a subsequent
+load may have a different registration GUID without changing source identity.
 
 `GetPayload` returns an immutable owned/shared buffer request. Memory sources
 may complete inline, but package sources use the same terminal contract through

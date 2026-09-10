@@ -222,6 +222,8 @@ def _run_scoped_operation(
     arguments.extend(scopes)
     if whole_project:
         arguments.append("--all")
+    if bool(getattr(namespace, "recompress_texture_sources", False)):
+        arguments.append("--recompress-texture-sources")
     if bool(getattr(namespace, "apply", False)):
         arguments.append("--apply")
     if getattr(namespace, "format_name", "human") == "json":

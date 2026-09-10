@@ -11,6 +11,10 @@
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
+#include "Texture/Texture.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 
 namespace Durin
 {
@@ -133,6 +137,21 @@ namespace Durin
 				Node.SetChildValue("loaded", Package.bLoaded);
 				Node.SetChildValue("dirty", Package.bDirty);
 				Node.SetChildValue("plainResave", Package.bPlainResaveRequested);
+				Node.SetChildValue("recompressTextureSources", Package.bRecompressTextureSources);
+				FJsonNodeRef Sources = Node.AddArray("textureSources");
+				for (const auto& Source : Package.TextureSources)
+				{
+					auto Item = Sources.AppendObject();
+					Item.SetChildValue("objectPath", Source.ObjectPath);
+					Item.SetChildValue("identity", Source.Identity);
+					Item.SetChildValue("decodedHash", Source.DecodedHash);
+					Item.SetChildValue("bulkInstance", Source.BulkInstance);
+					Item.SetChildValue("descriptor", Source.Descriptor);
+					Item.SetChildValue("decodedBytes", Source.DecodedBytes);
+					Item.SetChildValue("storedBytesBefore", Source.StoredBytesBefore);
+					Item.SetChildValue("storedBytesAfter", Source.StoredBytesAfter);
+					Item.SetChildValue("changed", Source.bChanged);
+				}
 				FJsonNodeRef EvidenceArray = Node.AddArray("evidence");
 				for (const auto& Evidence : Package.Evidence)
 				{
@@ -192,6 +211,8 @@ namespace Durin
 				&& Selection.bAllowPlainResave
 				&& std::ranges::find(Selection.Packages, Record->PackagePath)
 					!= Selection.Packages.end();
+			Package.bRecompressTextureSources = Selection.bRecompressTextureSources
+				&& Record->EntryKind == EAssetRegistryEntryKind::Asset;
 			Package.Evidence = Record->CanonicalizationEvidence;
 			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready
@@ -207,7 +228,7 @@ namespace Durin
 				Package.Diagnostics.push_back("DirtyConflict: loaded package has authored changes.");
 			if (!Package.Diagnostics.empty()) Package.Status = EAssetCanonicalResavePackageStatus::Blocked;
 			else if (Package.Evidence.empty() && Package.DeprecatedRouteEvidence.empty()
-				&& !Package.bPlainResaveRequested)
+				&& !Package.bPlainResaveRequested && !Package.bRecompressTextureSources)
 				Package.Status = EAssetCanonicalResavePackageStatus::Skipped;
 			else Package.Status = EAssetCanonicalResavePackageStatus::Ready;
 		}
@@ -314,6 +335,15 @@ namespace Durin
 			FAssetPackageLoadScope LoadScope;
 			DPackage* Package = FindResidentPackage(PackagePlan.PackagePath);
 			const bool bWasLoaded = Package != nullptr;
+			std::vector<std::pair<DTexture*, FTextureSource>> Originals;
+			bool bStorageCommitted = false;
+			const auto ReleaseLoaded = [&]() {
+				if (!bStorageCommitted)
+					for (auto& [Texture, Source] : Originals)
+						(void)Texture->ReplaceSourceStorage(std::move(Source));
+				Originals.clear();
+				return bWasLoaded ? FAssetResult{} : LoadScope.Release();
+			};
 			FAssetLoadReport LoadReport;
 			if (!Package)
 			{
@@ -328,7 +358,7 @@ namespace Durin
 					PackagePlan.PackagePath, Package, &LoadReport);
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
-					(void)LoadScope.Release();
+					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed;
 					Result.Diagnostic = std::format("CanonicalResaveLoadRejected: {}",
@@ -347,7 +377,7 @@ namespace Durin
 				}
 				if (!Prepared)
 				{
-					if (!bWasLoaded) (void)LoadScope.Release();
+					(void)ReleaseLoaded();
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 					PackagePlan.Diagnostics.push_back(std::format(
 						"CanonicalResavePrepareRejected: {}", Prepared.Message));
@@ -360,16 +390,105 @@ namespace Durin
 			}
 			if (Package->IsDirty())
 			{
-				if (!bWasLoaded) (void)LoadScope.Release();
+				(void)ReleaseLoaded();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Blocked;
 				PackagePlan.Diagnostics.push_back("DirtyConflict: package became dirty after planning.");
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Blocked;
 				Result.Diagnostic = PackagePlan.Diagnostics.back();
 				return Result;
 			}
+			if (PackagePlan.bRecompressTextureSources)
+			{
+				std::vector<std::pair<DTexture*, FTextureSource>> Candidates;
+				PackagePlan.TextureSources.clear();
+				for (DObject* Asset : Package->GetTopLevelAssets())
+				{
+					auto* Texture = Cast<DTexture>(Asset);
+					if (!Texture) continue;
+					const auto& Source = Texture->GetSource();
+					FTextureSource Candidate = Source;
+					if (!Candidate.Recompress())
+					{
+						(void)ReleaseLoaded();
+						PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
+						Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
+							: EAssetCanonicalResaveApplyStatus::Failed;
+						Result.Diagnostic = "TextureSourceRecompressionFailed: source validation or codec failed.";
+						return Result;
+					}
+					auto& Record = PackagePlan.TextureSources.emplace_back();
+					Record.ObjectPath = Texture->GetObjectPath();
+					Record.Identity = Source.GetIdentity().ToString();
+					Record.BulkInstance = Source.GetBulkData().GetInstanceId().ToString();
+					Record.DecodedHash = FXxHash128::HashBuffer(Candidate.GetMipData().GetData().GetBytes()).ToString();
+					Record.Descriptor = std::format("kind={} gamma={} channels={} transparency={}",
+						static_cast<uint8>(Source.GetKind()), static_cast<uint8>(Source.GetGammaSpace()),
+						Source.GetSourceChannelCount(), Source.GetTransparencyMask());
+					for (const auto& Block : Source.GetBlocks())
+						Record.Descriptor += std::format(" block={},{},{},{}", Block.Width, Block.Height, Block.Depth, Block.NumSlices);
+					for (const auto& Layer : Source.GetLayers())
+						Record.Descriptor += std::format(" layer={},{}", static_cast<uint8>(Layer.Format), Layer.NumMips);
+					if (const auto* Image = Cast<DTexture2D>(Texture))
+						Record.Descriptor += std::format(" build2d={},{},{},{},{},{}",
+							static_cast<uint8>(Image->GetUsage()), Image->IsSRGB(), Image->GetMaxResolution(),
+							static_cast<uint8>(Image->GetCompressionQuality()), static_cast<uint8>(Image->GetAlphaMipMode()),
+							Image->GetAlphaCoverageThreshold());
+					if (const auto* Cube = Cast<DTextureCube>(Texture))
+						Record.Descriptor += std::format(" buildcube={},{},{},{},{},{}",
+							static_cast<uint8>(Cube->GetSourceLayout()), Cube->IsSRGB(), Cube->GetPanoramaFaceDimension(),
+							Cube->GetPanoramaExposureEV(), Cube->GetOriginalSourceWidth(), Cube->GetOriginalSourceHeight());
+					if (const auto* Volume = Cast<DVolumeTexture>(Texture))
+						Record.Descriptor += std::format(" buildvolume={},{}",
+							static_cast<uint8>(Volume->GetBuildSettings().OutputFormat), static_cast<uint8>(Volume->GetBuildSettings().MipFilter));
+					Record.DecodedBytes = Source.GetDecodedPayloadSize();
+					Record.StoredBytesBefore = Source.GetBulkData().GetPayloadSize();
+					Record.StoredBytesAfter = Candidate.GetBulkData().GetPayloadSize();
+					Record.bChanged = Source.GetCompression() != Candidate.GetCompression()
+						|| Source.GetBulkData().GetPayloadId() != Candidate.GetBulkData().GetPayloadId();
+					if (Record.bChanged) Candidates.emplace_back(Texture, std::move(Candidate));
+				}
+				if (Options.bPreview || Candidates.empty())
+				{
+					const auto Released = ReleaseLoaded();
+					if (!Released)
+					{
+						Result.Status = EAssetCanonicalResaveApplyStatus::Failed;
+						Result.Diagnostic = Released.Message;
+						return Result;
+					}
+					PackagePlan.Status = Candidates.empty() ? EAssetCanonicalResavePackageStatus::Skipped
+						: EAssetCanonicalResavePackageStatus::Ready;
+					continue;
+				}
+				if (IsCancellationRequested && IsCancellationRequested())
+				{
+					(void)ReleaseLoaded();
+					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Cancelled;
+					Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
+						: EAssetCanonicalResaveApplyStatus::Cancelled;
+					return Result;
+				}
+				for (auto& [Texture, Candidate] : Candidates)
+				{
+					Originals.emplace_back(Texture, Texture->GetSource());
+					if (!Texture->ReplaceSourceStorage(std::move(Candidate)))
+					{
+						(void)ReleaseLoaded();
+						PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
+						Result.Status = EAssetCanonicalResaveApplyStatus::Failed;
+						Result.Diagnostic = "TextureSourceCommitRejected: source changed during preparation.";
+						return Result;
+					}
+				}
+			}
+			else if (Options.bPreview)
+			{
+				(void)ReleaseLoaded();
+				continue;
+			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::SerializePackage, Index))
 			{
-				if (!bWasLoaded) (void)LoadScope.Release();
+				(void)ReleaseLoaded();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
 					: EAssetCanonicalResaveApplyStatus::Failed;
@@ -392,7 +511,7 @@ namespace Durin
 			FAssetResult Save = SavePackagesAtomically(Unit, SaveOptions);
 			if (!Save)
 			{
-				if (!bWasLoaded) (void)LoadScope.Release();
+				(void)ReleaseLoaded();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(Save.Message);
 				Result.Status = Completed ? EAssetCanonicalResaveApplyStatus::Partial
@@ -427,7 +546,7 @@ namespace Durin
 				PackagePlan.Diagnostics.push_back(bRestored
 					? "CanonicalResaveVerificationFailed: prior package closure and registry were restored."
 					: "CanonicalResaveRecoveryRequired: verification failed and the prior package closure or registry could not be restored.");
-				if (!bWasLoaded) (void)LoadScope.Release();
+				(void)ReleaseLoaded();
 				Result.Status = bRestored
 					? (Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed)
 					: EAssetCanonicalResaveApplyStatus::RecoveryRequired;
@@ -438,7 +557,7 @@ namespace Durin
 			{
 				const bool bRestored = RestorePriorClosure();
 				Package->SetCanonicalResaveRecommended(true);
-				if (!bWasLoaded) (void)LoadScope.Release();
+				(void)ReleaseLoaded();
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(bRestored
 					? "CanonicalResaveRegistryReconciliationFailed: prior package closure and registry were restored."
@@ -449,10 +568,11 @@ namespace Durin
 				Result.Diagnostic = PackagePlan.Diagnostics.back();
 				return Result;
 			}
+			bStorageCommitted = true;
 			Package->SetCanonicalResaveRecommended(false);
 			if (!bWasLoaded)
 			{
-				FAssetResult Release = LoadScope.Release();
+				FAssetResult Release = ReleaseLoaded();
 				if (!Release)
 				{
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
@@ -464,7 +584,7 @@ namespace Durin
 			PackagePlan.Status = EAssetCanonicalResavePackageStatus::Resaved;
 			Result.ChangedPaths.push_back(PackagePlan.PhysicalPath);
 			std::error_code CompanionError;
-			if (std::filesystem::is_regular_file(BulkPath, CompanionError))
+			if (BulkSnapshot.bExisted || std::filesystem::is_regular_file(BulkPath, CompanionError))
 				Result.ChangedPaths.push_back(BulkPath.generic_string());
 			++Completed;
 		}

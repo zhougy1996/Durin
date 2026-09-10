@@ -19,6 +19,20 @@ namespace Durin
 		Stale
 	};
 
+	// Storage facts observed from decoded source and its detached recompression candidate.
+	struct FTextureSourceRecompressionRecord
+	{
+		std::string ObjectPath;
+		std::string Identity;
+		std::string DecodedHash;
+		std::string BulkInstance;
+		std::string Descriptor;
+		uint64 DecodedBytes = 0;
+		uint64 StoredBytesBefore = 0;
+		uint64 StoredBytesAfter = 0;
+		bool bChanged = false;
+	};
+
 	struct FAssetCanonicalResavePackagePlan
 	{
 		FPackagePath PackagePath;
@@ -29,6 +43,8 @@ namespace Durin
 		bool bLoaded = false;
 		bool bDirty = false;
 		bool bPlainResaveRequested = false;
+		bool bRecompressTextureSources = false;
+		std::vector<FTextureSourceRecompressionRecord> TextureSources;
 		std::vector<FAssetCanonicalizationEvidence> Evidence;
 		std::vector<FAssetDeprecatedRouteEvidence> DeprecatedRouteEvidence;
 		std::vector<std::string> Diagnostics;
@@ -41,6 +57,7 @@ namespace Durin
 		std::vector<FPackagePath> Packages;
 		bool bWholeProject = false;
 		bool bAllowPlainResave = false;
+		bool bRecompressTextureSources = false;
 	};
 
 	enum class EAssetCanonicalResavePlanStatus : uint8 { Completed, Cancelled };
@@ -75,6 +92,8 @@ namespace Durin
 
 	struct FAssetCanonicalResaveApplyOptions
 	{
+		// Preview loads sources and compresses detached candidates without publishing them.
+		bool bPreview = false;
 		size_t MaximumPackagesPerBatch = MaximumCanonicalResaveBatchPackages;
 		std::function<bool(EAssetCanonicalResaveApplyPhase, size_t)> ShouldFail;
 		// Tool hosts may wait for editor-only post-load recovery and reject an

@@ -243,11 +243,19 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 
 	Durin::FPackagePath AssetPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Convention", AssetPath));
+	const auto StoredId = Result.Asset->GetSource().GetBulkData().GetPayloadId();
+	const auto StoredCodec = Result.Asset->GetSource().GetCompression();
 	ASSERT_TRUE(Durin::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
 	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->GetSource().IsValid());
+	EXPECT_EQ(Loaded->GetSource().GetBulkData().GetPayloadId(), StoredId);
+	EXPECT_EQ(Loaded->GetSource().GetCompression(), StoredCodec);
+	const auto LoadedInstance = Loaded->GetSource().GetBulkData().GetInstanceId();
+	ASSERT_TRUE(Loaded->RebuildPlatformData());
+	EXPECT_EQ(Loaded->GetSource().GetBulkData().GetInstanceId(), LoadedInstance);
+	ASSERT_TRUE(Durin::SavePackage(Loaded->GetPackage()));
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[0]), Faces[0]);

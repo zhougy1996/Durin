@@ -4,12 +4,12 @@ Summary: Compress authored texture pixels with Zstd and repack repository assets
 
 Last reviewed: 2026-09-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-10
 
 ## Current Status
 
-Stages 0 and 1 are complete on Windows. Zstd 1.5.7 is pinned to upstream commit
+All stages are complete on Windows. Zstd 1.5.7 is pinned to upstream commit
 `f8745da6ff1ad1e7bab384bd1f9d742439278e99`, prepared through the manifest
 system and linked privately as a static Engine dependency. Dependency validation
 (11 manifests) and `DevTool build --target Engine` passed with the existing
@@ -46,6 +46,64 @@ external-companion fixtures retain Raw, while the atlas import case validates
 compressed inline placement and package corruption. All explicit Raw preferences
 in production Texture2D, Cube, long-lat and Volume preparation now use Zstd;
 scene/import adapters feed those common preparation boundaries.
+
+Stage 2 is complete. `DevTool test affected --base 07a6dfd38` selected 88
+native targets: 87 passed; the new Cube rebuild test initially attempted to
+unload its deliberately dirty package. After adding the required save to that
+test, `DevTool test TextureTests` passed all 106 cases. No other target failed.
+Receipts: `20260910-125507-273524-8068-ctest.log` and
+`20260910-125806-272693-22428-TextureTests.log`.
+Normal Sandbox and RoadWeaver project hosts enumerate 20 and 8 packages,
+respectively, covering all 22 unique physical packages in Engine, Sandbox and
+RoadWeaver content (6 shared Engine packages). All 9 texture sources are in
+Sandbox; only their deduplicated exact package paths were applied. Standalone
+`Engine.dproject` host startup failed because its enabled roots include the
+launcher program; Engine coverage uses its mounts in both normal project hosts.
+No authored file changed during preview.
+
+The first real preview exposed Cube/Volume PostLoad rebuilding the source itself.
+Their result-application contexts now explicitly preserve installed source during
+PostLoad/rebuild; imports retain source replacement. This prevents implicit
+compression and registration churn when loading ordinary assets.
+
+The GUID acceptance boundary is in-memory registration: DAST v9 does not persist
+bulk instance GUIDs and its existing adapter reconstructs them from the stored
+content hash. Recompression and storage-only commits retain the live GUID;
+reload checks compare semantic source identity, exact decoded hash, complete
+source descriptors and build settings, not that reconstructed registration GUID.
+Persisting registration GUIDs would change the chosen package contract and is
+outside this plan. This boundary is now documented in Package Bulk Data.
+
+After conversion, all 9 saved textures were loaded in fresh asset-tool processes
+and passed those semantic comparisons. Their packages plus companions decreased
+from **30,695,804 to 7,880,874 bytes**, saving **22,814,930 bytes (74.33%)**.
+Opacity moved inline and its exact `.dbulk` was removed. A second apply skipped
+all 9 textures; all 29 remaining repository package/companion files were
+byte-identical by SHA-256. Sandbox and RoadWeaver audits report all 20/8 packages
+compatible, ready and current. Ignored receipts and per-asset descriptors are in
+`Build/TextureCompressionQualification/{before-semantics,before-files,after-files,
+sandbox-preview,sandbox-apply,sandbox-reload,sandbox-repeat,roadweaver-preview,
+roadweaver-reload,sandbox-audit,roadweaver-audit}.json`.
+
+Maintenance tests cover current-package selection, cancellation, read-only
+preview, serialization/publication/verification failure with source and file
+rollback, inline companion removal and repeated-apply stability. Six focused
+maintenance tests and 28 DevTool parser/forwarding tests passed. The full editor
+`all` build passed (`20260910-124829-334795-7180-cmake.log`).
+
+Per-texture conversion receipt (package plus companion bytes):
+
+| Texture | Before | After | Exact decoded XXH3-128 |
+| --- | ---: | ---: | --- |
+| `vintage_lighter_diff_BaseColor` | 4,197,237 | 1,328,729 | `a2a5b0f70a84a1963ce049ec1d31a90d` |
+| `vintage_lighter_diff_Opacity` | 4,197,329 | 3,172 | `a7fa2fde863813638bbf51c6fa494e2f` |
+| `vintage_lighter_metal_vintage_lighter_rough_Metallic` | 4,197,449 | 715,221 | `29ea02cbcc6f386914bc4cfc12c90863` |
+| `vintage_lighter_metal_vintage_lighter_rough_Roughness` | 4,197,453 | 891,192 | `3cc72c9163546052a100c2daa240f69f` |
+| `vintage_lighter_nor_gl_Normal` | 4,197,236 | 1,641,369 | `d7e919cfc6160175c88ff948ce118662` |
+| `TEXCUBE_PureSky_512x512` | 6,294,253 | 1,803,472 | `fa0b83bfc6bc74b61b4065ff87c7641f` |
+| `TEX_StoneHead` | 1,051,317 | 427,737 | `893fb8249da8e173c1313405c27a69b8` |
+| `VT_Cloud_Base_Voronoi_128` | 2,099,268 | 893,426 | `082ef5bec38851fbdeb74b1390e2a348` |
+| `VT_Cloud_Detail_Voronoi_64` | 264,262 | 176,556 | `ccb989826d24e3a3cc6f96b944345296` |
 
 ## Goal
 
@@ -123,19 +181,19 @@ to consumers. Codec errors cannot publish partially replaced source state.
 
 ### Stage 2: Add maintenance and convert all repository textures
 
-- [ ] Add the explicit maintenance option, JSON preview/result reporting and
+- [x] Add the explicit maintenance option, JSON preview/result reporting and
   tests for current-package selection, cancellation and save failure handling.
-- [ ] Enumerate every project and enabled content mount. Include Engine,
+- [x] Enumerate every project and enabled content mount. Include Engine,
   Sandbox and RoadWeaver; deduplicate shared physical packages. Use the normal
   project module loading path and process packages sequentially to bound memory.
-- [ ] Capture per-asset decoded hashes, identities, descriptors and package plus
+- [x] Capture per-asset decoded hashes, identities, descriptors and package plus
   companion sizes. Preview, then apply recompression to every texture source.
-- [ ] Reload saved assets and verify captured semantic facts. Report actual
+- [x] Reload saved assets and verify captured semantic facts. Report actual
   aggregate disk savings, including inline/external payload placement changes.
-- [ ] Run the operation again and confirm package and companion bytes remain
+- [x] Run the operation again and confirm package and companion bytes remain
   unchanged for the pinned codec and policy. Confirm recovery/cleanup respects
   packages whose payload moved inline; never delete companions by wildcard.
-- [ ] Update the implemented source-storage and maintenance documentation,
+- [x] Update the implemented source-storage and maintenance documentation,
   run affected tests and the required full editor build through DevTool, and
   audit each project's content. Commit code and converted assets with evidence.
 

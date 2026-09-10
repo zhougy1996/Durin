@@ -474,3 +474,24 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
             executable_resolver=lambda *_args: executable,
             command_runner=lambda *_args, **_kwargs: pytest.fail("missing project must not launch"),
         )
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_texture_recompression_flag_preserves_preview_apply_boundary(tmp_path: Path, apply: bool) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), dict(asset_command="resave", project_path=project,
+        format_name="json", whole_project=True, scopes=[], apply=apply,
+        recompress_texture_sources=True))()
+    calls = []
+    def runner(arguments, **kwargs):
+        calls.append(arguments)
+        return "{}"
+    assert asset.run(namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+        stdout=io.StringIO(), stderr=io.StringIO(),
+        executable_resolver=lambda *_: executable, command_runner=runner) == 0
+    assert "--recompress-texture-sources" in calls[0]
+    assert "--all" in calls[0]
+    assert ("--apply" in calls[0]) == apply

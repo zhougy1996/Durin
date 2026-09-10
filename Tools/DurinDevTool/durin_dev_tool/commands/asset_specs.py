@@ -64,6 +64,11 @@ COMMAND_SPEC = CommandSpec(
                     action="store_true",
                     help="write the previewed resaves",
                 ),
+                argument(
+                    "--recompress-texture-sources",
+                    action="store_true",
+                    help="recompress texture sources with Zstd, including current packages",
+                ),
                 JSON_ARGUMENT,
             ),
         ),

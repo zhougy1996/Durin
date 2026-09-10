@@ -298,7 +298,8 @@ namespace Durin
 			DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Error);
 			return false;
 		}
-		const auto Result = BuildTextureCubeSynchronously(*this, Request, {});
+		const auto Result = BuildTextureCubeSynchronously(*this, Request,
+			{.bSourceDecoderInvoked = false, .bPreserveSource = true});
 		if (!Result) DURIN_ERROR("RebuildPlatformData '{}': {}", GetObjectPath(), Result.Diagnostic);
 		return static_cast<bool>(Result);
 	}
@@ -314,7 +315,7 @@ namespace Durin
 			return;
 		}
 		const auto Result = BuildTextureCubeSynchronously(*this, Request,
-			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false});
+			{.bMarkPackageDirty = false, .bSourceDecoderInvoked = false, .bPreserveSource = true});
 		if (!Result) DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Result.Diagnostic);
 	}
 

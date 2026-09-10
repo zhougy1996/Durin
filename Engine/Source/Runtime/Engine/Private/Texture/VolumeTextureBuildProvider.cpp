@@ -137,10 +137,13 @@ namespace Durin
 			// The provider boundary has already validated these value contracts.
 			check(SourceData.IsValid() && SourceData.Format == Settings.OutputFormat && Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
-			auto Source = PrepareVolumeTextureSource(SourceData);
-			if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
-				"VolumeTexture source preparation failed; see log for details."};
-			Texture.SetSource(std::move(*Source));
+			if (!Context.bPreserveSource)
+			{
+				auto Source = PrepareVolumeTextureSource(SourceData);
+				if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
+					"VolumeTexture source preparation failed; see log for details."};
+				Texture.SetSource(std::move(*Source));
+			}
 			Texture.SetBuildSettings(Settings);
 			Texture.SetPlatformData(std::move(Product.PlatformData));
 			Texture.UpdateResource();

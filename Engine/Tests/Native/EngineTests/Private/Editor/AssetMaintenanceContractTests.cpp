@@ -11,6 +11,13 @@
 #include "Misc/MountPathTestSupport.h"
 
 #include "NativeTestSupport.h"
+#include "NativeAssetTestSupport.h"
+#include "NativeDObjectTestSupport.h"
+#include "NativeAssetRuntimeTestSupport.h"
+#include "EngineTestSupport.h"
+#include "Texture/Texture2D.h"
+#include "Asset/PackageSerialization.h"
+#include "Misc/FileTime.h"
 
 namespace
 {
@@ -42,7 +49,7 @@ namespace
 				.VirtualRoot = "/Maintenance/",
 				.Owner = Durin::EMountOwner::Test,
 				.Root = Durin::Testing::GetTestWorkDirectory(),
-				.bAutoScan = false}};
+				.bAutoScan = false, .bContentWritable = true}};
 			Mounts = std::make_unique<Durin::Testing::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 		}
@@ -156,4 +163,96 @@ TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlChar
 	EXPECT_EQ(CanonicalPackage.GetView("physicalPath").GetString(), ControlCharacters);
 	EXPECT_EQ(CanonicalPackage.GetView("diagnostics").GetView(0).GetString(),
 		ControlCharacters);
+}
+
+TEST_F(FAssetMaintenanceContractTests, RecompressionSelectsCurrentPackagesAndHonorsCancellation)
+{
+	using namespace Durin;
+	FAssetPackageCompatibilityRecord Record{
+		.PackagePath = MakePath("/Maintenance/Current"),
+		.Inspection = EAssetCompatibilityInspection::Ready,
+		.Compatibility = EAssetPackageCompatibility::Compatible};
+	const std::array Records{Record};
+	const auto Ordinary = PlanAssetCanonicalResaves(Records, {.bWholeProject = true});
+	ASSERT_EQ(Ordinary.Packages.size(), 1u);
+	EXPECT_EQ(Ordinary.Packages[0].Status, EAssetCanonicalResavePackageStatus::Skipped);
+	const auto Plan = PlanAssetCanonicalResaves(Records,
+		{.bWholeProject = true, .bRecompressTextureSources = true});
+	EXPECT_EQ(Plan.Packages[0].Status, EAssetCanonicalResavePackageStatus::Ready);
+	const auto Cancelled = ApplyAssetCanonicalResaves(Plan, {}, {}, [] { return true; });
+	EXPECT_EQ(Cancelled.Status, EAssetCanonicalResaveApplyStatus::Cancelled);
+	EXPECT_TRUE(Cancelled.ChangedPaths.empty());
+}
+
+TEST_F(FAssetMaintenanceContractTests, RecompressionPreviewAndSaveFailurePreserveSourceAndFiles)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Path = MakePath("/Maintenance/TextureStorage");
+	DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Texture));
+	Image::FImage Image;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 1024, .Height = 1024,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(1024 * 1024 * 4, std::byte{17}), Image));
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw));
+	Texture->SetSource(Source);
+	auto Platform = std::make_unique<FTexturePlatformData>();
+	Platform->PixelFormat = EPixelFormat::RGBA8_UNORM;
+	Platform->Mips.push_back({.Pixels = FByteBuffer(4, std::byte{17}),
+		.Width = 1, .Height = 1, .RowPitch = 4});
+	Texture->SetPlatformData(std::move(Platform));
+	const auto Saved = SavePackage(Texture->GetPackage());
+	ASSERT_TRUE(Saved) << Saved.Message;
+	const auto Entry = FindAssetExact(Path);
+	ASSERT_TRUE(Entry);
+	FByteBuffer Before;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Entry->PhysicalPath));
+	std::filesystem::path BulkPath = Entry->PhysicalPath;
+	BulkPath.replace_extension(".dbulk");
+	FByteBuffer BulkBefore;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBefore, BulkPath));
+	const auto MakePlan = [&]() {
+		const FAssetPackageCompatibilityRecord Record{
+			.PackagePath = Path, .PhysicalPath = Entry->PhysicalPath,
+			.Fingerprint = {.FileSize = Before.size(),
+				.LastWriteTimeTicks = FileTime::ToStableTicks(std::filesystem::last_write_time(Entry->PhysicalPath)),
+				.ContentHash = FXxHash128::HashBuffer(Before)},
+			.Inspection = EAssetCompatibilityInspection::Ready,
+			.Compatibility = EAssetPackageCompatibility::Compatible};
+		return PlanAssetCanonicalResaves(std::array{Record},
+			{.bWholeProject = true, .bRecompressTextureSources = true});
+	};
+	const auto Preview = ApplyAssetCanonicalResaves(MakePlan(), {}, {.bPreview = true});
+	ASSERT_EQ(Preview.Status, EAssetCanonicalResaveApplyStatus::Succeeded) << Preview.Diagnostic;
+	ASSERT_EQ(Preview.Plan.Packages[0].TextureSources.size(), 1u);
+	EXPECT_TRUE(Preview.Plan.Packages[0].TextureSources[0].bChanged);
+	EXPECT_EQ(Texture->GetSource().GetCompression(), ETextureSourceCompression::Raw);
+	for (const auto Failure : {EAssetCanonicalResaveApplyPhase::SerializePackage,
+		EAssetCanonicalResaveApplyPhase::PublishPackage, EAssetCanonicalResaveApplyPhase::VerifyPackage})
+	{
+		const auto Failed = ApplyAssetCanonicalResaves(MakePlan(), {},
+			{.ShouldFail = [Failure](auto Phase, size_t) { return Phase == Failure; }});
+		EXPECT_EQ(Failed.Status, EAssetCanonicalResaveApplyStatus::Failed) << Failed.Diagnostic;
+		EXPECT_EQ(Texture->GetSource().GetCompression(), ETextureSourceCompression::Raw);
+		EXPECT_EQ(Texture->GetSource().GetIdentity(), Source.GetIdentity());
+		EXPECT_EQ(Texture->GetSource().GetBulkData().GetInstanceId(), Source.GetBulkData().GetInstanceId());
+		FByteBuffer After, BulkAfter;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(After, Entry->PhysicalPath));
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkAfter, BulkPath));
+		EXPECT_EQ(After, Before);
+		EXPECT_EQ(BulkAfter, BulkBefore);
+	}
+	const auto Applied = ApplyAssetCanonicalResaves(MakePlan(), {});
+	ASSERT_EQ(Applied.Status, EAssetCanonicalResaveApplyStatus::Succeeded) << Applied.Diagnostic;
+	EXPECT_EQ(Texture->GetSource().GetCompression(), ETextureSourceCompression::Zstd);
+	EXPECT_FALSE(std::filesystem::exists(BulkPath));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Before, Entry->PhysicalPath));
+	const auto Repeated = ApplyAssetCanonicalResaves(MakePlan(), {});
+	ASSERT_EQ(Repeated.Status, EAssetCanonicalResaveApplyStatus::Succeeded);
+	EXPECT_TRUE(Repeated.ChangedPaths.empty());
+	FByteBuffer AfterRepeat;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(AfterRepeat, Entry->PhysicalPath));
+	EXPECT_EQ(AfterRepeat, Before);
+	ASSERT_TRUE(UnloadPackage(Path));
 }

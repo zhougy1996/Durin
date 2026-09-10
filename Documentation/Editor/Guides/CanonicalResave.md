@@ -66,3 +66,42 @@ that does not publish family-ready transient state blocks the save rather than
 serializing a partially recovered object. Resolve the named condition and
 create a fresh plan; do not invoke an authored reimport merely to canonicalize
 reflected identities.
+
+## Texture source recompression
+
+Use the explicit storage operation to compress current authored texture sources
+without their original image files. Update executables first: Zstd source codec 2
+cannot be read by older tools. Preview and apply use the same package selection:
+
+```powershell
+.\DevTool.bat asset resave --all --recompress-texture-sources --json
+.\DevTool.bat asset resave --all --recompress-texture-sources --apply --json
+```
+
+With this option, scopes and `--all` include compatible current packages even
+without reflection resave recommendations. The service processes packages in
+sequence and recompresses detached texture source candidates. Preview may load
+assets and rebuild disposable derived data but never changes authored storage.
+Non-texture and already-identical packages are skipped. Ordinary resave does not
+recompress texture sources.
+
+Each report package includes `recompressTextureSources` and `textureSources`.
+Source records include exact decoded hash, semantic identity, source descriptors
+and build settings, decoded and before/after stored byte counts, registration
+GUID, and whether storage would change. Preview reports `Ready` for changes;
+apply reports `Resaved`. Compare source identity and decoded hash across reloads;
+registration GUIDs are reconstructed by DAST v9 and are not persistent identity.
+
+Publication reuses canonical resave transactions. Cancellation stops before
+publishing the next package; preparation/codec failure cannot install a partial
+source. A failed package save restores source storage, and verification failure
+restores the package, companion closure and registry. Successful conversion can
+move a payload inline and remove its exact old companion through normal package
+publication; changed paths include that removed companion. Never clean up
+companions with a wildcard. Repeating the pinned policy skips unchanged sources
+without rewriting package or companion bytes.
+
+For repository-wide work, enumerate workspace project descriptors and their
+enabled mounts and deduplicate physical packages. Engine content is mounted by
+normal game projects; `Engine.dproject` itself is not a standalone asset-tool
+project because its root list includes the launcher program.
