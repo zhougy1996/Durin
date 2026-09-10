@@ -9,6 +9,13 @@ Completed:
 
 ## Current Status
 
+On 2026-09-10 the user selected the
+[Material Instance Shader Variants plan](../Plans/MaterialInstanceShaderVariants.md)
+as M13: one root graph with per-field instance configurations and matching shared
+compiled variants. The plan is authored but implementation has not started. It
+extends the M5/M6 compile and Cook foundations and precedes M8's runtime instance
+API work; it does not introduce runtime shader compilation or complete M11.
+
 The [Material Parameters and Compiled Layouts plan](../Plans/MaterialParametersAndCompiledLayouts.md)
 completed M10 on 2026-09-10: material-owned declarations, compiled layout v4, generic production
 bindings, authored migration, DMAT v4 and the dual-layer rust fixture. The
@@ -167,6 +174,10 @@ transition and qualification across StaticMesh, SplineMesh,
 
 ### Material-specific gaps
 
+- Shader-affecting instance overrides currently have no matching accepted
+  variant and can resolve to ErrorMaterial, including scene-import overrides.
+  M13 owns per-field inheritance, instance compilation/publication, Cook and the
+  editor/import workflow. Its detailed acceptance gates belong to the child plan.
 - Reusable explicit-input functions remain absent and belong to M11. Legacy
   role knowledge is confined to authored migration; the independent error
   terminal uses the resource-free compiled-layout boundary.
@@ -185,7 +196,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 5. Material program and synchronous compiler foundation | Complete | M4; landed Shader Cache and Shader Parameters contracts | Persisted bounded program schema, typed validation/IR, deterministic dependency identity, and one synchronous compiled surface vertical slice through the existing v3 boundary | Fixed surface ABI and multi-family execution are stable; generic compiler/cache infrastructure is available | Authored program round-trips, invalid graphs fail deterministically, two materially distinct programs compile and render, dependency edits invalidate identity, and fixed-schema content retains explicit fallback/transition behavior |
 | 6. Asynchronous compilation, derived data, and cooking | Complete | M5; CPU task and asset lifecycle contracts | Cancelable generation-safe compilation, last-known-good publication, bounded diagnostics, non-duplicative cache ownership, cook/load path, bounded retention, and shutdown handling | M5 identifies immutable inputs/outputs, timings, artifact size, and synchronous failure modes | Editor remains responsive under compile load; stale results cannot publish; warm/miss/cancel/failure/cook/reload/shutdown paths are qualified |
 | 7. Material graph authoring workflow | Complete | M5 schema; M6 request/diagnostic model | Shared graph inspection/command surface, reflected presentation data, human canvas, structured automation, node/pin operations, compiler diagnostics, preview integration, Undo/Redo, copy/paste, and asset lifecycle behavior | Stable serialized schema and compiler diagnostic locations exist | Equivalent canvas and structured authoring workflows survive save/reload, relocation, deletion, compile failure/recovery, and multi-document editing without coordinate-based automation or semantic/identity drift |
-| 8. Runtime dynamic materials and scalability | Required API; optimization evidence-gated | M10 | Transient instances, atomic multi-parameter updates and measured lifetime/cost bounds | Stable compiled layouts; representative workloads defined before optimization | Independent objects update without asset mutation or compilation; measurements justify batching/reuse |
+| 8. Runtime dynamic materials and scalability | Required API; optimization evidence-gated | M10 and M13 | Transient instances, atomic multi-parameter updates and measured lifetime/cost bounds | Stable compiled layouts and accepted variant contract; representative workloads defined before optimization | Independent objects update without asset mutation or compilation; measurements justify batching/reuse |
 | 9. Remaining Material Editor lifecycle polish | Conditional; independently selectable | Shared asset mutation APIs | Explicit parent-chain inspection and any newly selected end-to-end workflow polish | A concrete user workflow remains unserved after M7 | The selected workflow has focused coverage without duplicating shared editor infrastructure |
 
 ## Refactor Milestones
@@ -195,6 +206,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 10. Material-owned parameters and compiled layouts | Complete; historical baseline cancelled by user | Landed M5-M7; current correctness and resource bounds | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated-content correctness, fixed-role production bindings retired |
 | 11. Reusable material functions | Required; plan not created | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Context expressions and output extensions | Conditional | Concrete effect selected after M10; M11 where useful | Selected time/world/view inputs, or a separately scoped vertex/shading/domain extension; geometry, shadow, Cook and recovery qualification for that effect |
+| 13. Material instance shader variants | Selected; plan active | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import qualification |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
 expression occurrences. Names are case-insensitive lookup keys in one root scope.
@@ -216,9 +228,11 @@ resource scheduler or payload publication mechanism.
 
 ## Child Plan Boundaries
 
-M10, M8 and M11 are the selected refactor sequence. M8 and M11 may be selected
-independently after M10, using separate writer checkouts. M12 creates only the
-bounded plan demanded by an actual effect.
+M10 is complete; M13 is the selected next material refactor and establishes the
+accepted variant boundary before M8. M11 remains independently selectable after
+M10, but overlapping material source changes must be sequenced or integrated in
+separate writer checkouts. M12 creates only the bounded plan demanded by an actual
+effect. M13 keeps runtime dynamic edits outside shader compilation.
 
 | Proposed or completed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
@@ -234,7 +248,8 @@ bounded plan demanded by an actual effect.
 | [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | [Material Parameters and Compiled Layouts](../Plans/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
-| Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M10 |
+| [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Selected; Stage 0 next |
+| Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M13 |
 | Reusable Material Functions | M11 | Explicit typed calls, dependency lifecycle and standard PBR templates | Create after M10 |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
@@ -284,7 +299,7 @@ targets, fixtures, profiles, budgets, and final evidence.
 
 ## Completion Criteria
 
-- Historical M5-M7 and required M10, M8 and M11 have passed their exit gates;
+- Historical M5-M7 and required M10, M13, M8 and M11 have passed their exit gates;
   M9 and M12 are completed or explicitly dispositioned with remaining work
   routed to an owning roadmap or plan.
 - Authored compiled materials render through every supported production

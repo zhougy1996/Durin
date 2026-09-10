@@ -26,10 +26,12 @@ namespace Durin
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
+		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
+		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
 		ENGINE_API auto SetStaticPropertiesOverride(
 			const FMaterialStaticProperties& InProperties) -> bool;
 		ENGINE_API auto ClearStaticPropertiesOverride() -> bool;
-		auto HasStaticPropertiesOverride() const -> bool { return bOverrideStaticProperties; }
+		auto HasStaticPropertiesOverride() const -> bool { return PropertyOverrides.HasAnyOverride(); }
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterOverride(
@@ -72,9 +74,14 @@ namespace Durin
 		std::vector<FMaterialParameterOverride> ParameterOverrides;
 
 		DPROPERTY(Edit)
-		bool bOverrideStaticProperties = false;
+		FMaterialPropertyOverrides PropertyOverrides;
 
-		DPROPERTY(Edit)
-		FMaterialStaticProperties StaticPropertiesOverride;
+		DPROPERTY(Deprecated)
+		bool bOverrideStaticProperties_DEPRECATED = false;
+
+		DPROPERTY(Deprecated)
+		FMaterialStaticProperties StaticPropertiesOverride_DEPRECATED;
+
+		mutable FMaterialStaticProperties ResolvedStaticProperties;
 	};
 }

@@ -19,7 +19,7 @@ namespace Durin
 
 	inline constexpr uint32 CurrentMaterialIRVersion = 3;
 	inline constexpr uint32 CurrentMaterialGeneratorVersion = 4;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 5;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 6;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 2;
 
 	struct FMaterialCompilerDependency

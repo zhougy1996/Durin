@@ -30,6 +30,7 @@ namespace Durin
 		std::vector<FMaterialLocalRenderParameter> Parameters;
 		std::optional<FMaterialStaticProperties> StaticProperties;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
+		std::optional<FMaterialPropertyOverrides> PropertyOverrides;
 	};
 
 	class FMaterialRenderProxy;

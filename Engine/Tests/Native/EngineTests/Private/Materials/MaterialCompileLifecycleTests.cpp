@@ -8,8 +8,12 @@
 #include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
+#include <iostream>
+
 namespace
 {
+	auto MeasureInstanceVariantQualificationBaseline() -> void;
+
 	auto WaitForMaterialCompile(
 		Durin::DMaterial& Material,
 		std::chrono::milliseconds Timeout = std::chrono::seconds(10)) -> bool
@@ -46,6 +50,7 @@ TEST(FMaterialCompileLifecycleTests,
 	const bool bOwnsScheduler = !Durin::IsTaskSchedulerRunning();
 	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	MeasureInstanceVariantQualificationBaseline();
 
 	auto* First = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "AsyncCompileFirst");
@@ -299,6 +304,94 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(Shutdown.RetainedProgramBytes, 0u);
 	if (bOwnsScheduler)
 		Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+}
+
+namespace
+{
+auto MeasureInstanceVariantQualificationBaseline() -> void
+{
+	struct FFixtureScope
+	{
+		std::vector<Durin::DObject*> Objects;
+		~FFixtureScope()
+		{
+			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
+			Durin::CollectGarbage();
+		}
+	} Scope;
+	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "VariantFixtureRoot");
+	Scope.Objects.push_back(Root);
+	ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	Durin::FMaterialCompilerInput Input;
+	Input.Program = *Root->GetMaterialProgram();
+	for (const auto& Definition : Root->GetParameterDefinitions())
+		Input.Parameters.push_back({Definition.Id, Definition.Type});
+	std::string Error;
+	ASSERT_TRUE(Durin::BuildDefaultMaterialCompilerEnvironment(Input.Environment, Error)) << Error;
+
+	const auto Before = Durin::GetMaterialCompilationDiagnostics();
+	std::array<Durin::DMaterialInstance*, 8> Instances{};
+	std::vector<Durin::FMaterialProgramIdentity> Identities;
+	uint32 CompatibleOwners = 0;
+	for (size_t Index = 0; Index < Instances.size(); ++Index)
+	{
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr, Durin::FName(std::format("VariantFixture{}", Index)));
+		Scope.Objects.push_back(Instance);
+		Instances[Index] = Instance;
+		ASSERT_TRUE(Instance->SetParent(Index == 7 ? Instances[6]
+			: static_cast<Durin::DMaterialInterface*>(Root)));
+		auto Properties = Root->GetStaticProperties();
+		if (Index == 1) Properties.OpacityMaskThreshold = 0.25f;
+		if (Index == 2 || Index == 3)
+		{
+			Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
+			Properties.OpacityMaskThreshold = Index == 2 ? 0.25f : 0.75f;
+		}
+		if (Index == 4) Properties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+		if (Index == 5)
+		{
+			Properties.bTwoSided = true;
+			Properties.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Disabled;
+		}
+		if (Index != 0 && Index != 7)
+			ASSERT_TRUE(Instance->SetStaticPropertiesOverride(Properties));
+		Input.StaticProperties = Instance->GetStaticProperties();
+		const auto Normalized = Durin::NormalizeMaterialProgram(Input);
+		ASSERT_TRUE(Normalized);
+		if (std::ranges::find(Identities, Normalized.Identity) == Identities.end())
+			Identities.push_back(Normalized.Identity);
+		if (Instance->GetAcceptedCompiledProgram()) ++CompatibleOwners;
+	}
+	ASSERT_TRUE(Instances[7]->SetParent(Instances[2]));
+	EXPECT_EQ(Instances[7]->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Masked);
+	ASSERT_TRUE(Instances[7]->SetParent(Instances[6]));
+	ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.7f));
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	const auto After = Durin::GetMaterialCompilationDiagnostics();
+	// Canonical properties now share inactive cutoffs; independent instance
+	// compilation remains the next qualification stage.
+	EXPECT_EQ(Identities.size(), 4u);
+	EXPECT_EQ(CompatibleOwners, 5u);
+	EXPECT_EQ(After.AcceptedRequests - Before.AcceptedRequests, 0u);
+	EXPECT_EQ(After.InFlightCount, 0u);
+	EXPECT_EQ(After.OutstandingConsumerCount, 0u);
+	EXPECT_EQ(After.PendingPublicationCount, 0u);
+	Durin::FByteBuffer Bytes;
+	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(*Root->GetAcceptedCompiledProgram(),
+		Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
+		Durin::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	std::cout << "Variant baseline: owners=" << Instances.size()
+		<< " effective_identities=" << Identities.size()
+		<< " compatible_instances=" << CompatibleOwners
+		<< " instance_requests=" << After.AcceptedRequests - Before.AcceptedRequests
+		<< " total_requests=" << After.AcceptedRequests
+		<< " completed_requests=" << After.CompletedRequests
+		<< " retained_programs=" << After.RetainedProgramCount
+		<< " retained_bytes=" << After.RetainedProgramBytes
+		<< " root_dmat_bytes=" << Bytes.size() << '\n';
+}
 }
 
 TEST(FMaterialCompileLifecycleTests,

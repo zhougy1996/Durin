@@ -160,6 +160,7 @@ namespace Durin
 		// Value-owned fallback for declarations removed while old code is visible.
 		std::vector<FMaterialLocalRenderParameter> RetainedAcceptedParameters;
 		FMaterialStaticProperties AcceptedCompiledStaticProperties;
+		FMaterialStaticProperties LastRequestedShaderProperties;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		std::string MaterialCookDiagnostic;

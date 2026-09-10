@@ -39,7 +39,7 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
-		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 2;
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 3;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -562,10 +562,11 @@ namespace Durin
 			AppendLittleEndian(Bytes, Dependency.ContentHash.HashHigh);
 		}
 
-		AppendLittleEndian(Bytes, Input.StaticProperties.BlendMode);
-		AppendLittleEndian(Bytes, Input.StaticProperties.ShadingModel);
+		const auto ShaderProperties = CanonicalizeMaterialShaderProperties(Input.StaticProperties);
+		AppendLittleEndian(Bytes, ShaderProperties.BlendMode);
+		AppendLittleEndian(Bytes, ShaderProperties.ShadingModel);
 		AppendLittleEndian(Bytes, CanonicalFloatBits(
-			Input.StaticProperties.OpacityMaskThreshold));
+			ShaderProperties.OpacityMaskThreshold));
 		AppendLittleEndian(Bytes, MaterialProgramIdentitySchemaVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialIRVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialGeneratorVersion);

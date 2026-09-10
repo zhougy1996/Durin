@@ -618,7 +618,7 @@ float4 FragmentMain(
 		Request.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 			std::to_string(std::bit_cast<uint32>(
-				Input.StaticProperties.OpacityMaskThreshold)));
+				CanonicalizeMaterialShaderProperties(Input.StaticProperties).OpacityMaskThreshold)));
 		Request.AllowedImportVirtualPrefixes = {
 			"/Engine/Material/", "/Engine/Lighting/"};
 		Request.bForceRecompile = bForceRecompile;

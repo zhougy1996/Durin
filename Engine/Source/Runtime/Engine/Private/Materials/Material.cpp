@@ -50,6 +50,7 @@ namespace Durin
 		const FMaterialStaticProperties& CandidateProperties,
 		bool bForceRecompile) -> bool
 	{
+		LastRequestedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
 		FModuleManager::Get().LoadModule("RenderCore");
 		FMaterialCompilerEnvironment Environment;
 		std::string EnvironmentError;
@@ -103,6 +104,7 @@ namespace Durin
 			? AcceptedCompiledStaticProperties : StaticProperties;
 		Result.bTwoSided = StaticProperties.bTwoSided;
 		Result.DepthWritePolicy = StaticProperties.DepthWritePolicy;
+		Result.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Result).OpacityMaskThreshold;
 		return Result;
 	}
 
@@ -313,10 +315,8 @@ namespace Durin
 		if (!ValidateMaterialStaticProperties(InProperties, Error)) return false;
 		if (StaticProperties == InProperties) return true;
 		const bool bShaderIdentityChanged =
-			StaticProperties.BlendMode != InProperties.BlendMode
-			|| StaticProperties.ShadingModel != InProperties.ShadingModel
-			|| StaticProperties.OpacityMaskThreshold
-				!= InProperties.OpacityMaskThreshold;
+			CanonicalizeMaterialShaderProperties(StaticProperties)
+				!= CanonicalizeMaterialShaderProperties(InProperties);
 		StaticProperties = InProperties;
 		if (bShaderIdentityChanged)
 		{
@@ -550,7 +550,8 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("Program") || Name == FName("StaticProperties"))
+		if (Name == FName("Program") || (Name == FName("StaticProperties")
+			&& CanonicalizeMaterialShaderProperties(StaticProperties) != LastRequestedShaderProperties))
 		{
 			if (Name == FName("Program"))
 				AdvanceRevision(MaterialProgramRevision);

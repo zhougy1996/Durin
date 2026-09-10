@@ -94,6 +94,43 @@ namespace Durin
 		auto operator==(const FMaterialStaticProperties&) const -> bool = default;
 	};
 
+	// Stores independent authored intent; disabled fields retain their values for later edits.
+	DSTRUCT()
+	struct FMaterialPropertyOverrides
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		bool bOverrideBlendMode = false;
+
+		DPROPERTY(Edit)
+		bool bOverrideShadingModel = false;
+
+		DPROPERTY(Edit)
+		bool bOverrideOpacityMaskThreshold = false;
+
+		DPROPERTY(Edit)
+		bool bOverrideTwoSided = false;
+
+		DPROPERTY(Edit)
+		bool bOverrideDepthWritePolicy = false;
+
+		DPROPERTY(Edit)
+		FMaterialStaticProperties Values;
+
+		auto HasAnyOverride() const -> bool
+		{
+			return bOverrideBlendMode || bOverrideShadingModel || bOverrideOpacityMaskThreshold
+				|| bOverrideTwoSided || bOverrideDepthWritePolicy;
+		}
+		ENGINE_API auto ApplyTo(FMaterialStaticProperties& Properties) const -> void;
+		auto operator==(const FMaterialPropertyOverrides&) const -> bool = default;
+	};
+
+	// Validate authored values first. This projection never changes authored inactive values.
+	ENGINE_API auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
+		-> FMaterialStaticProperties;
+
 	// Bounded sampling state belongs to texture values and instance overrides.
 	DENUM()
 	enum class EMaterialSamplerMinFilter : uint8

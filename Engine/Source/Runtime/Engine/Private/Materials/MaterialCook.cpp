@@ -30,7 +30,7 @@ namespace Durin
 		{
 			return FailCooked(OutError);
 		}
-		if (PayloadProperties != StaticProperties)
+		if (PayloadProperties != GetRenderableStaticProperties())
 		{
 			return FailCooked(
 				"payload static properties do not match package metadata.");
@@ -93,7 +93,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
-					*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,
+					*AcceptedCompiledProgram, GetRenderableStaticProperties(),
 					ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Bytes, Error)
 				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))

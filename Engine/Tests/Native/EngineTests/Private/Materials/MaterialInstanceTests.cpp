@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "Misc/MountPathTestSupport.h"
 
 namespace
 {
@@ -66,23 +67,252 @@ TEST(FMaterialTests, InstanceStaticOverridesNeverReuseIncompatibleParentCode)
 	ASSERT_TRUE(Instance->SetParent(Base));
 	const auto ParentProgram = Base->GetAcceptedCompiledProgram();
 	ASSERT_NE(ParentProgram, nullptr);
+	auto* Component = Harness.CreateStaticMeshComponent("StaticPermutationComponent");
+	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle());
+	Component->SetMaterial(Instance);
+	Component->RegisterComponent();
 
 	auto PipelineOnly = Base->GetRenderableStaticProperties();
 	PipelineOnly.bTwoSided = true;
 	ASSERT_TRUE(Instance->SetStaticPropertiesOverride(PipelineOnly));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), ParentProgram);
 	EXPECT_FALSE(Instance->GetRenderData().Representation.IsError());
+	EXPECT_FALSE(CaptureScene(Harness.Scene).Material.Representation.IsError());
 
 	auto Incompatible = PipelineOnly;
 	Incompatible.BlendMode = Durin::EMaterialBlendMode::Masked;
 	ASSERT_TRUE(Instance->SetStaticPropertiesOverride(Incompatible));
 	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), nullptr);
 	EXPECT_TRUE(Instance->GetRenderData().Representation.IsError());
+	EXPECT_TRUE(CaptureScene(Harness.Scene).Material.Representation.IsError());
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Harness.Shutdown();
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, PerFieldPropertiesPreserveIntentAndResolveSourcesAcrossParents)
+{
+	InitializeDObjectSystem();
+	auto* Root = MakeExpandedMaterial(nullptr, "PropertyRoot");
+	ASSERT_NE(Root, nullptr);
+	auto* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyParent");
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyChild");
+	ASSERT_TRUE(Parent->SetParent(Root));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	Durin::FMaterialPropertyOverrides ParentOverrides;
+	ParentOverrides.bOverrideTwoSided = true;
+	ParentOverrides.Values.bTwoSided = true;
+	ASSERT_TRUE(Parent->SetPropertyOverrides(ParentOverrides));
+	Durin::FMaterialPropertyOverrides ChildOverrides;
+	ChildOverrides.bOverrideOpacityMaskThreshold = true;
+	ChildOverrides.Values.OpacityMaskThreshold = 0.75f;
+	ChildOverrides.bOverrideBlendMode = true;
+	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
+	Durin::FResolvedMaterialProperties Resolved;
+	std::string Error;
+	ASSERT_TRUE(Durin::ResolveMaterialProperties(*Child, Resolved, Error)) << Error;
+	EXPECT_TRUE(Resolved.Properties.bTwoSided);
+	EXPECT_FLOAT_EQ(Resolved.Properties.OpacityMaskThreshold, 0.75f);
+	EXPECT_FLOAT_EQ(Resolved.ShaderProperties.OpacityMaskThreshold, 0.333f);
+	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[0]), Child);
+	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[3]), Parent);
+	EXPECT_EQ(Durin::ResolveObjectHandle(Resolved.Sources[1]), Root);
+	const auto Generation = Root->GetMaterialCompileStatus().RequestGeneration;
+	auto RootProperties = Root->GetStaticProperties();
+	RootProperties.OpacityMaskThreshold = 0.25f;
+	ASSERT_TRUE(Root->SetStaticProperties(RootProperties));
+	EXPECT_EQ(Root->GetMaterialCompileStatus().RequestGeneration, Generation);
+	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), Root->GetAcceptedCompiledProgram());
+	ChildOverrides.Values.BlendMode = Durin::EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
+	EXPECT_FLOAT_EQ(Child->GetStaticProperties().OpacityMaskThreshold, 0.75f);
+	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), nullptr);
+	ChildOverrides.bOverrideBlendMode = false;
+	ChildOverrides.bOverrideOpacityMaskThreshold = false;
+	ASSERT_TRUE(Child->SetPropertyOverrides(ChildOverrides));
+	EXPECT_FLOAT_EQ(Child->GetStaticProperties().OpacityMaskThreshold, 0.25f);
+	EXPECT_FLOAT_EQ(Child->GetPropertyOverrides().Values.OpacityMaskThreshold, 0.75f);
+	EXPECT_EQ(Child->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Opaque);
+	ASSERT_TRUE(Child->SetParent(Root));
+	EXPECT_FALSE(Child->GetStaticProperties().bTwoSided);
+	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(Durin::DuplicateObject(Child, nullptr, "PropertyDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
+	EXPECT_EQ(Duplicate->GetPropertyOverrides(), ChildOverrides);
+	Durin::MarkAsGarbage(Duplicate);
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Parent);
+	Durin::MarkAsGarbage(Root);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, PropertyResolutionRejectsDepthOverflowAndCorruptCycles)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Root = MakeExpandedMaterial(nullptr, "BoundedPropertyRoot");
+	ASSERT_NE(Root, nullptr);
+	std::vector<DMaterialInstance*> Chain;
+	DMaterialInterface* Previous = Root;
+	for (uint32 Index = 1; Index < MaterialMaximumParentDepth; ++Index)
+	{
+		auto* Child = NewObject<DMaterialInstance>(nullptr, FName(std::format("BoundedProperty{}", Index)));
+		ASSERT_TRUE(Child->SetParent(Previous));
+		Chain.push_back(Child);
+		Previous = Child;
+	}
+	FResolvedMaterialProperties Resolved;
+	std::string Error;
+	ASSERT_TRUE(ResolveMaterialProperties(*Previous, Resolved, Error)) << Error;
+	auto* Overflow = NewObject<DMaterialInstance>(nullptr, "PropertyOverflow");
+	EXPECT_FALSE(Overflow->SetParent(Previous));
+	auto* ParentProperty = Chain.front()->GetClass()->FindPropertyByName("Parent");
+	ASSERT_NE(ParentProperty, nullptr);
+	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Chain.back();
+	EXPECT_FALSE(ResolveMaterialProperties(*Previous, Resolved, Error));
+	EXPECT_FALSE(Error.empty());
+	*ParentProperty->ContainerPtrToValuePtr<TObjectPtr<DMaterialInterface>>(Chain.front()) = Root;
+	for (auto* Child : Chain) MarkAsGarbage(Child);
+	MarkAsGarbage(Overflow);
+	MarkAsGarbage(Root);
+	CollectGarbage();
+}
+
+TEST(FMaterialTests, LegacyStaticSnapshotsMigrateOnceWithoutLosingEqualOverrides)
+{
+	InitializeDObjectSystem();
+	auto* Root = MakeExpandedMaterial(nullptr, "LegacyPropertyRoot");
+	ASSERT_NE(Root, nullptr);
+	for (const bool Enabled : {false, true})
+	{
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Enabled ? "LegacyEnabled" : "LegacyDisabled");
+		ASSERT_TRUE(Instance->SetParent(Root));
+		auto* EnabledProperty = Instance->GetClass()->FindPropertyByName("bOverrideStaticProperties_DEPRECATED");
+		auto* ValueProperty = Instance->GetClass()->FindPropertyByName("StaticPropertiesOverride_DEPRECATED");
+		ASSERT_NE(EnabledProperty, nullptr);
+		ASSERT_NE(ValueProperty, nullptr);
+		*EnabledProperty->ContainerPtrToValuePtr<bool>(Instance) = Enabled;
+		auto Legacy = Root->GetStaticProperties();
+		Legacy.OpacityMaskThreshold = 0.75f;
+		*ValueProperty->ContainerPtrToValuePtr<Durin::FMaterialStaticProperties>(Instance) = Legacy;
+		const std::array Loaded{Durin::FName("bOverrideStaticProperties_DEPRECATED"),
+			Durin::FName("StaticPropertiesOverride_DEPRECATED")};
+		Instance->SetLoadedDeprecatedProperties(Loaded);
+		Instance->PostLoad();
+		const auto Migrated = Instance->GetPropertyOverrides();
+		EXPECT_EQ(Migrated.bOverrideBlendMode, Enabled);
+		EXPECT_EQ(Migrated.bOverrideShadingModel, Enabled);
+		EXPECT_EQ(Migrated.bOverrideOpacityMaskThreshold, Enabled);
+		EXPECT_EQ(Migrated.bOverrideTwoSided, Enabled);
+		EXPECT_EQ(Migrated.bOverrideDepthWritePolicy, Enabled);
+		EXPECT_EQ(Migrated.Values, Legacy);
+		ASSERT_TRUE(Instance->SetPropertyOverrides({}));
+		Instance->PostLoad();
+		EXPECT_FALSE(Instance->GetPropertyOverrides().HasAnyOverride());
+		Durin::MarkAsGarbage(Instance);
+	}
+	Durin::MarkAsGarbage(Root);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, PerFieldOverridesRoundTripAndLoadLegacyPackageFields)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	const auto Directory = Testing::GetTestWorkDirectory() / "PropertyOverridePackages";
+	Testing::RemoveTestWorkDirectory(Directory);
+	Testing::RegisterMountPointForTests("/PropertyOverridePackages/", Directory.generic_string() + "/");
+	FPackagePath RootPath, InstancePath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/PropertyOverridePackages/Root", RootPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/PropertyOverridePackages/Instance", InstancePath));
+	DMaterial* Root = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(RootPath, Root));
+	ASSERT_TRUE(SavePackage(Root->GetPackage()));
+	DMaterialInstance* Instance = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(InstancePath, Instance));
+	ASSERT_TRUE(Instance->SetParent(Root));
+	FMaterialPropertyOverrides Overrides;
+	Overrides.bOverrideBlendMode = true;
+	Overrides.bOverrideOpacityMaskThreshold = true;
+	Overrides.Values.OpacityMaskThreshold = 0.75f;
+	ASSERT_TRUE(Instance->SetPropertyOverrides(Overrides));
+	ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+	FByteBuffer CurrentBytes;
+	ASSERT_TRUE(SerializeAssetPackageBytes(Instance->GetPackage(), CurrentBytes));
+	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "bOverrideStaticProperties"));
+	EXPECT_FALSE(ContainsSerializedField(CurrentBytes, InstancePath, "StaticPropertiesOverride"));
+	ASSERT_TRUE(UnloadPackage(InstancePath));
+	ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance));
+	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
+	ASSERT_TRUE(UnloadPackage(InstancePath));
+	for (const bool Enabled : {false, true})
+	{
+		ObjectPackage::FLinkerTables Linker;
+		ASSERT_TRUE(ObjectPackage::ReadPackageV9(CurrentBytes, {}, InstancePath, Linker));
+		const ObjectPackage::FSerializedType BoolType{.Kind = ObjectPackage::EValueKind::Bool};
+		ObjectPackage::FSerializedType ValueType;
+		bool Rewritten = false;
+		for (auto& Export : Linker.Exports)
+		{
+			const auto It = std::ranges::find(Export.Properties, std::string("PropertyOverrides"),
+				&ObjectPackage::FPropertyTag::FieldName);
+			if (It == Export.Properties.end()) continue;
+			const auto SchemaIt = std::ranges::find(Linker.Schemas, It->Type.QualifiedName,
+				&ObjectPackage::FSerializedSchema::QualifiedName);
+			ASSERT_NE(SchemaIt, Linker.Schemas.end());
+			const auto FieldIt = std::ranges::find(SchemaIt->Fields, std::string("Values"),
+				&ObjectPackage::FSerializedField::Name);
+			ASSERT_NE(FieldIt, SchemaIt->Fields.end());
+			ValueType = FieldIt->Type;
+			const auto ValueIt = std::ranges::find(It->Value.FieldNames, "Values");
+			ASSERT_NE(ValueIt, It->Value.FieldNames.end());
+			const auto ValueIndex = static_cast<size_t>(ValueIt - It->Value.FieldNames.begin());
+			auto Values = It->Value.Elements[ValueIndex];
+			auto Flag = *It;
+			Flag.FieldName = "bOverrideStaticProperties";
+			Flag.Type = BoolType;
+			Flag.Value = {};
+			Flag.Value.Bool = Enabled;
+			Flag.Payload.clear();
+			It->FieldName = "StaticPropertiesOverride";
+			It->Type = ValueType;
+			It->Value = std::move(Values);
+			It->Payload.clear();
+			Export.Properties.push_back(std::move(Flag));
+			Rewritten = true;
+		}
+		ASSERT_TRUE(Rewritten);
+		for (auto& Schema : Linker.Schemas)
+		{
+			if (Schema.QualifiedName != "Durin::DMaterialInstance") continue;
+			std::erase_if(Schema.Fields, [](const auto& Field) { return Field.Name == "PropertyOverrides"; });
+			Schema.Fields.push_back({"bOverrideStaticProperties", BoolType});
+			Schema.Fields.push_back({"StaticPropertiesOverride", ValueType});
+		}
+		FByteBuffer LegacyBytes, Bulk;
+		ObjectPackage::FPackageWriterDiagnostic Diagnostic;
+		ASSERT_TRUE(ObjectPackage::WritePackageV9(Linker, LegacyBytes, Bulk, &Diagnostic))
+			<< Diagnostic.LogicalPath << ": " << Diagnostic.Message;
+		ASSERT_TRUE(Bulk.empty());
+		ASSERT_TRUE(FFileHelper::SaveArrayToFile(LegacyBytes, Directory / "Instance.dasset"));
+		const auto Load = LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Instance);
+		ASSERT_TRUE(Load) << Load.Message;
+		const auto Migrated = Instance->GetPropertyOverrides();
+		EXPECT_EQ(Migrated.bOverrideBlendMode, Enabled);
+		EXPECT_EQ(Migrated.bOverrideShadingModel, Enabled);
+		EXPECT_EQ(Migrated.bOverrideOpacityMaskThreshold, Enabled);
+		EXPECT_EQ(Migrated.bOverrideTwoSided, Enabled);
+		EXPECT_EQ(Migrated.bOverrideDepthWritePolicy, Enabled);
+		EXPECT_EQ(Migrated.Values, Overrides.Values);
+		ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+		FByteBuffer Resaved;
+		ASSERT_TRUE(SerializeAssetPackageBytes(Instance->GetPackage(), Resaved));
+		EXPECT_FALSE(ContainsSerializedField(Resaved, InstancePath, "StaticPropertiesOverride"));
+		EXPECT_TRUE(ContainsSerializedField(Resaved, InstancePath, "PropertyOverrides"));
+		ASSERT_TRUE(UnloadPackage(InstancePath));
+	}
+	ASSERT_TRUE(UnloadPackage(RootPath));
 }
 
 TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)

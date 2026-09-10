@@ -12,6 +12,20 @@ namespace Durin
 	class DMaterialInstance;
 	class DTexture2D;
 	struct FMaterialProgram;
+	inline constexpr uint32 MaterialMaximumParentDepth = 64;
+
+	// GameThread resolution reports source owners without retaining their lifetimes.
+	struct FResolvedMaterialProperties
+	{
+		FObjectHandle Root;
+		FMaterialStaticProperties Properties;
+		FMaterialStaticProperties ShaderProperties;
+		// Blend, shading, cutoff, culling, depth, in that order.
+		std::array<FObjectHandle, 5> Sources{};
+	};
+
+	ENGINE_API auto ResolveMaterialProperties(const DMaterialInterface& Material,
+		FResolvedMaterialProperties& OutProperties, std::string& OutError) -> bool;
 
 	enum class EMaterialLoadedQueryOperation : uint8
 	{

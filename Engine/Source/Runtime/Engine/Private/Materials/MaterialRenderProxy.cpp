@@ -278,6 +278,22 @@ namespace Durin
 			ApplyStaticProperties(
 				CachedResolvedData, *LocalLayer.StaticProperties);
 		}
+		if (LocalLayer.PropertyOverrides)
+		{
+			const auto& Pass = CachedResolvedData.PlanningPassIdentity;
+			FMaterialStaticProperties Properties;
+			Properties.BlendMode = static_cast<EMaterialBlendMode>(Pass.ShaderMap.BlendMode.Value);
+			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Pass.ShaderMap.ShadingModel.Value);
+			Properties.OpacityMaskThreshold = Pass.ShaderMap.OpacityMaskThreshold;
+			Properties.bTwoSided = Pass.bTwoSided;
+			Properties.DepthWritePolicy = Pass.DepthWritePolicy;
+			const auto ParentShader = CanonicalizeMaterialShaderProperties(Properties);
+			LocalLayer.PropertyOverrides->ApplyTo(Properties);
+			const auto Shader = CanonicalizeMaterialShaderProperties(Properties);
+			bRepresentationValid = bRepresentationValid && Shader == ParentShader;
+			Properties.OpacityMaskThreshold = Shader.OpacityMaskThreshold;
+			ApplyStaticProperties(CachedResolvedData, Properties);
+		}
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
 		if (!CachedResolvedData.CompiledProgram

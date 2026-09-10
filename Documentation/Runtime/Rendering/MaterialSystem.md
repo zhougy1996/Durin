@@ -54,26 +54,41 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
   and is assigned only on success. Result boolean conversion is a convenience
   for conditional checks.
 - `DMaterialInstance` references a parent material interface and stores one
-  ordered collection of GUID/value overrides plus an optional all-or-nothing
-  static-property override. Dynamic resolution walks the current
+  ordered collection of GUID/value overrides plus reflected
+  `FMaterialPropertyOverrides`. Its five flags independently select blend,
+  shading, cutoff, two-sided and depth-write values. `SetPropertyOverrides`
+  validates the entire edit before applying it; clearing a flag retains its
+  inactive value. Dynamic resolution walks the current
   instance, its parent instances, and the root material, and reports the object
   that supplied the value. Only matching GUID/type overrides resolve; valid
   type-mismatched overrides survive load as inspectable orphans. Parent cycles
-  are rejected.
+  are rejected. `ResolveMaterialProperties` iteratively resolves at most 64
+  owners on GameThread and returns effective authored values, canonical shader
+  values and supplying-owner handles. Missing roots, cycles and depth overflow
+  fail with a bounded diagnostic.
 - Parent or root-graph changes preserve overrides which are no longer reachable
   as orphans for explicit editor removal. Orphans are never resolved into
   render data, while reconnecting the same parameter GUID restores the retained
   base value and override eligibility.
 - `DMaterial` owns one reflected static-property set: blend mode, shading model,
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
-  inherit that complete set through the canonical parent chain unless their
-  validated complete static override is active; scene import uses this boundary
-  for glTF alpha and two-sided state.
+  inherit each field through the canonical parent chain unless its local flag
+  is enabled. The legacy full-static setter temporarily delegates to all five
+  flags for existing import callers. Authored DAST v9 packages migrate the old
+  enabled snapshot through deprecated-field routes to five enabled flags, even
+  for equal values; disabled snapshots leave all flags off. Normal resave emits
+  only the current schema. Reflected proposals validate before mutation, and
+  Undo/Redo restores both values and independent intent.
 - Resolved static properties form a versioned shader-map identity (blend mode,
   shading model, and mask threshold) nested in a pipeline identity (shader map,
   two-sided state, and depth-write policy). The renderer lazily caches shader
   maps by shader identity and PSOs by the complete effective pipeline identity,
   so a pipeline-only change does not rebuild the shader map.
+  `CanonicalizeMaterialShaderProperties` uses cutoff `0.333f` outside Masked,
+  normalizes Masked signed zero, and excludes culling/depth from compiler input
+  identity. Authored inactive cutoffs remain unchanged. Compiler identity schema
+  3/envelope 6 invalidate old keys; generated cutoff macros, accepted renderer
+  shader keys and Cook metadata comparison use the same canonical semantics.
 - Opaque sections disable blending; Masked sections additionally discard the
   saturated OpacityMask constant/texture product only when it is strictly below
   the static threshold; Translucent sections use straight-alpha blending and
@@ -242,6 +257,9 @@ and pipeline-only two-sided/depth changes rebuild only the accepted layout
 payload and preserve compiled identity. A shader-affecting instance static
 override never reuses incompatible parent code; without an accepted matching
 permutation the complete instance resolves to ErrorMaterial.
+The instance proxy carries sparse per-field property intent, so inherited
+pipeline values follow later parent publications. Both synchronous render data
+and render-thread proxy resolution reject incompatible shader overrides.
 
 `InspectMaterialParameterDependencies` is the UI-independent dependency
 authority. It traverses connected surface branches in fixed surface/input order,

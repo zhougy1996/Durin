@@ -849,7 +849,15 @@ TEST(FMaterialProgramNormalizationTests,
 	ExpectDifferent(std::move(ShadingChange));
 	Durin::FMaterialCompilerInput ThresholdChange = BaselineInput;
 	ThresholdChange.StaticProperties.OpacityMaskThreshold = 0.5f;
-	ExpectDifferent(std::move(ThresholdChange));
+	EXPECT_EQ(Durin::NormalizeMaterialProgram(ThresholdChange).Identity, Baseline.Identity);
+	ThresholdChange.StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
+	const auto MaskedIdentity = Durin::NormalizeMaterialProgram(ThresholdChange).Identity;
+	ThresholdChange.StaticProperties.OpacityMaskThreshold = 0.75f;
+	EXPECT_NE(Durin::NormalizeMaterialProgram(ThresholdChange).Identity, MaskedIdentity);
+	ThresholdChange.StaticProperties.OpacityMaskThreshold = -0.0f;
+	const auto ZeroIdentity = Durin::NormalizeMaterialProgram(ThresholdChange).Identity;
+	ThresholdChange.StaticProperties.OpacityMaskThreshold = 0.0f;
+	EXPECT_EQ(Durin::NormalizeMaterialProgram(ThresholdChange).Identity, ZeroIdentity);
 
 	Durin::FMaterialCompilerInput RuntimeOnly = BaselineInput;
 	RuntimeOnly.StaticProperties.bTwoSided = true;
@@ -1310,6 +1318,58 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, ReflectedPropertyOverridesValidateAndRestoreIndependentIntent)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedMaterial("ReflectedPropertyBase");
+	ASSERT_NE(Base, nullptr);
+	auto* Instance = NewObject<DMaterialInstance>(nullptr, "ReflectedPropertyInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	auto* Property = Instance->GetClass()->FindPropertyByName("PropertyOverrides");
+	ASSERT_NE(Property, nullptr);
+	FMaterialPropertyOverrides Overrides;
+	Overrides.bOverrideBlendMode = true;
+	Overrides.bOverrideTwoSided = true;
+	Overrides.Values.bTwoSided = true;
+	ASSERT_TRUE(Instance->SetPropertyOverrides(Overrides));
+	FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(CapturePropertyValue(Property, Instance, 0, Proposed));
+	ASSERT_TRUE(Instance->SetPropertyOverrides({}));
+	Tests::FTestTransactorOwner Transactions;
+	Editor::FPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property),
+		"Edit Rendering Overrides", nullptr, Transactions.Get()));
+	const auto Before = Instance->GetRenderStateVersion();
+	std::string Error;
+	EXPECT_EQ(Session.Apply(Proposed, &Error), Editor::EPropertyEditResult::Changed) << Error;
+	EXPECT_EQ(Session.Commit(), Editor::EPropertyEditResult::Changed);
+	EXPECT_GT(Instance->GetRenderStateVersion(), Before);
+	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(Instance->GetPropertyOverrides().HasAnyOverride());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
+	Transactions->Reset();
+	*Property->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(Instance) = Overrides;
+	Property->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(Instance)->Values.OpacityMaskThreshold = 2.0f;
+	FPropertyValueSnapshot Invalid;
+	ASSERT_TRUE(CapturePropertyValue(Property, Instance, 0, Invalid));
+	ASSERT_TRUE(Instance->SetPropertyOverrides(Overrides));
+	Editor::FPropertyEditSession Rejected;
+	ASSERT_TRUE(Rejected.Begin(Editor::FPropertyEditTarget::ForMember(Instance, Property),
+		"Invalid Rendering Overrides", nullptr, Transactions.Get()));
+	EXPECT_NE(Rejected.Apply(Invalid, &Error), Editor::EPropertyEditResult::Changed);
+	EXPECT_FALSE(Error.empty());
+	Rejected.Cancel();
+	EXPECT_EQ(Instance->GetPropertyOverrides(), Overrides);
+	EXPECT_FALSE(Transactions->CanUndo());
+	Transactions->Reset();
+	MarkAsGarbage(Instance);
+	MarkAsGarbage(Base);
+	CollectGarbage();
 }
 
 TEST(FMaterialTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)

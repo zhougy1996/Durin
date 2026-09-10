@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/Material.h"
 #include "Logging/LogMacros.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
@@ -52,6 +53,58 @@ namespace Durin
 			GMaterialLoadedQueryDiagnostics.LastResultCount = Result.size();
 			return Result;
 		}
+	}
+
+	auto ResolveMaterialProperties(const DMaterialInterface& Material,
+		FResolvedMaterialProperties& OutProperties, std::string& OutError) -> bool
+	{
+		CheckMaterialQueryThread();
+		std::array<const DMaterialInterface*, MaterialMaximumParentDepth> Chain{};
+		size_t Count = 0;
+		const DMaterial* Root = nullptr;
+		for (auto* Current = &Material; Current; Current = Current->GetParent())
+		{
+			if (Count == Chain.size()
+				|| std::find(Chain.begin(), Chain.begin() + Count, Current) != Chain.begin() + Count)
+			{
+				OutError = "Material parent chain exceeds 64 owners or contains a cycle.";
+				return false;
+			}
+			if (!IsValid(Current)) break;
+			Chain[Count++] = Current;
+			if ((Root = Cast<DMaterial>(Current))) break;
+		}
+		if (!Root)
+		{
+			OutError = "Material parent chain has no valid root material.";
+			return false;
+		}
+		FResolvedMaterialProperties Result;
+		Result.Root = MakeObjectHandle(const_cast<DMaterial*>(Root));
+		Result.Properties = Root->GetStaticProperties();
+		if (!ValidateMaterialStaticProperties(Result.Properties, OutError)) return false;
+		Result.Sources.fill(Result.Root);
+		while (Count > 1)
+		{
+			const auto* Instance = Cast<DMaterialInstance>(Chain[--Count - 1]);
+			if (!Instance)
+			{
+				OutError = "Material parent chain contains an unsupported material owner.";
+				return false;
+			}
+			const auto& Overrides = Instance->GetPropertyOverrides();
+			if (!ValidateMaterialStaticProperties(Overrides.Values, OutError)) return false;
+			Overrides.ApplyTo(Result.Properties);
+			const std::array Enabled{Overrides.bOverrideBlendMode, Overrides.bOverrideShadingModel,
+				Overrides.bOverrideOpacityMaskThreshold, Overrides.bOverrideTwoSided,
+				Overrides.bOverrideDepthWritePolicy};
+			for (size_t Index = 0; Index < Enabled.size(); ++Index)
+				if (Enabled[Index]) Result.Sources[Index] = MakeObjectHandle(const_cast<DMaterialInstance*>(Instance));
+		}
+		Result.ShaderProperties = CanonicalizeMaterialShaderProperties(Result.Properties);
+		OutProperties = Result;
+		OutError.clear();
+		return true;
 	}
 
 	auto GetMaterialLoadedQueryDiagnostics() -> FMaterialLoadedQueryDiagnostics

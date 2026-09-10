@@ -3,6 +3,27 @@
 
 namespace Durin
 {
+	auto FMaterialPropertyOverrides::ApplyTo(FMaterialStaticProperties& Properties) const -> void
+	{
+		if (bOverrideBlendMode) Properties.BlendMode = Values.BlendMode;
+		if (bOverrideShadingModel) Properties.ShadingModel = Values.ShadingModel;
+		if (bOverrideOpacityMaskThreshold) Properties.OpacityMaskThreshold = Values.OpacityMaskThreshold;
+		if (bOverrideTwoSided) Properties.bTwoSided = Values.bTwoSided;
+		if (bOverrideDepthWritePolicy) Properties.DepthWritePolicy = Values.DepthWritePolicy;
+	}
+
+	auto CanonicalizeMaterialShaderProperties(FMaterialStaticProperties Properties)
+		-> FMaterialStaticProperties
+	{
+		if (Properties.BlendMode != EMaterialBlendMode::Masked)
+			Properties.OpacityMaskThreshold = FMaterialStaticProperties{}.OpacityMaskThreshold;
+		else if (Properties.OpacityMaskThreshold == 0.0f)
+			Properties.OpacityMaskThreshold = 0.0f;
+		Properties.bTwoSided = false;
+		Properties.DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
+		return Properties;
+	}
+
 	auto FMaterialParameterValue::MakeScalar(float Value) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
