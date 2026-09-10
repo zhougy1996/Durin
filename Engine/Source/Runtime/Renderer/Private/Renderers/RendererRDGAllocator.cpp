@@ -203,19 +203,21 @@ namespace Durin
 				.Failures = State->Failures});
 		};
 
+		std::vector<uint64> RequestLogicalBytes;
+		RequestLogicalBytes.reserve(Requests.size());
 		uint64 RequestedBytes = 0;
 		for (const FRDGAllocationRequest& Request : Requests)
 		{
+			uint64 LogicalBytes = Request.BufferDesc.Size;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 					"RDGBudget", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
-				RequestedBytes = AddSaturated(RequestedBytes,
-					GetLogicalTextureBytes(Desc));
+				LogicalBytes = GetLogicalTextureBytes(Desc);
 			}
-			else RequestedBytes = AddSaturated(
-				RequestedBytes, Request.BufferDesc.Size);
+			RequestLogicalBytes.push_back(LogicalBytes);
+			RequestedBytes = AddSaturated(RequestedBytes, LogicalBytes);
 		}
 		if (!FRendererRDGAllocationPolicy::IsBatchWithinStructuralBudget(
 			RequestedBytes))
@@ -299,20 +301,22 @@ namespace Durin
 			MissingBytes = AddSaturated(MissingBytes, LogicalBytes);
 			return true;
 		};
-		for (const auto& Request : Requests)
+		for (size_t RequestIndex = 0; RequestIndex < Requests.size(); ++RequestIndex)
 		{
+			const auto& Request = Requests[RequestIndex];
+			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
 			bool bPlanned = false;
 			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				auto Desc = FRHITextureCreateDesc::Create("RDGPlan", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
 				bPlanned = PlanCandidate(State->Textures, MakeDescriptorKey(Desc),
-					GetLogicalTextureBytes(Desc));
+					LogicalBytes);
 			}
 			else if (Request.Kind == ERDGResourceKind::Buffer)
 				bPlanned = PlanCandidate(State->Buffers,
 					FBufferDescriptorKey{Request.BufferDesc.Size, Request.BufferDesc.Stride,
-						Request.BufferDesc.Usage}, Request.BufferDesc.Size);
+						Request.BufferDesc.Usage}, LogicalBytes);
 			else return Fail("RDG allocator received a non-physical resource");
 			if (!bPlanned) return false;
 		}
@@ -421,10 +425,12 @@ namespace Durin
 			return true;
 		};
 
-		for (const FRDGAllocationRequest& Request : Requests)
+		for (size_t RequestIndex = 0; RequestIndex < Requests.size(); ++RequestIndex)
 		{
+			const auto& Request = Requests[RequestIndex];
+			const uint64 LogicalBytes = RequestLogicalBytes[RequestIndex];
 			FCandidate Candidate{.ResourceId = Request.ResourceId,
-				.AllocationId = PlannedAllocationIds[Candidates.size()],
+				.AllocationId = PlannedAllocationIds[RequestIndex],
 				.bExtracted = Request.bExtracted};
 			bool bReserved = false;
 			if (Request.Kind == ERDGResourceKind::Texture)
@@ -433,7 +439,7 @@ namespace Durin
 					"RDGTexture", Request.TextureDesc.Dimension);
 				static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
 				bReserved = ReserveCandidate(State->Textures,
-					MakeDescriptorKey(Desc), GetLogicalTextureBytes(Desc), "texture",
+					MakeDescriptorKey(Desc), LogicalBytes, "texture",
 					Request, [&](ERHIResourceCreationFailure& Failure) {
 						return GDynamicRHI->RHITryCreateTexture(
 							FRHICommandListImmediate::Get(), Desc, Failure);
@@ -447,7 +453,7 @@ namespace Durin
 				const FBufferDescriptorKey Key{Request.BufferDesc.Size,
 					Request.BufferDesc.Stride, Request.BufferDesc.Usage};
 				bReserved = ReserveCandidate(State->Buffers, Key,
-					Request.BufferDesc.Size, "buffer", Request,
+					LogicalBytes, "buffer", Request,
 					[&](ERHIResourceCreationFailure& Failure) {
 						return GDynamicRHI->RHITryCreateBuffer(FRHICommandListImmediate::Get(),
 							FRHIBufferCreateDesc::Create("RDGBuffer", Request.BufferDesc), Failure);

@@ -2507,11 +2507,21 @@ namespace Durin
 				.Parameters = Pass.Parameters,
 				.OptionalAliases = Pass.OptionalAliases.View()};
 			Runtime.ResourceIndices.reserve(Pass.Uses.size());
-			Runtime.ValueUses.reserve(Pass.Uses.size());
-			Runtime.BufferTransitionResources.reserve(Pass.Uses.size());
-			Runtime.TextureTransitionResources.reserve(Pass.Uses.size());
-			CompiledPass.BufferTransitions.reserve(Pass.Uses.size());
-			CompiledPass.TextureTransitions.reserve(Pass.Uses.size());
+			size_t ValueUseCount = 0;
+			size_t BufferUseCount = 0;
+			size_t TextureUseCount = 0;
+			for (const auto& Use : Pass.Uses)
+			{
+				if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
+					++ValueUseCount;
+				if (Use.Kind == ERDGResourceKind::Buffer) ++BufferUseCount;
+				else if (Use.Kind == ERDGResourceKind::Texture) ++TextureUseCount;
+			}
+			Runtime.ValueUses.reserve(ValueUseCount);
+			Runtime.BufferTransitionResources.reserve(BufferUseCount);
+			Runtime.TextureTransitionResources.reserve(TextureUseCount);
+			CompiledPass.BufferTransitions.reserve(BufferUseCount);
+			CompiledPass.TextureTransitions.reserve(TextureUseCount);
 			for (const auto& Use : Pass.Uses)
 			{
 				if (LastResourcePass[Use.ResourceIndex] != CompiledPassIndex)
