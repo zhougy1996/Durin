@@ -21,6 +21,7 @@
 #include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 
 #include <gtest/gtest.h>
 
@@ -365,7 +366,7 @@ TEST(FMaterialThumbnailRendererTests,
 }
 
 TEST(FMaterialThumbnailRendererTests,
-	RendererWaitsForCurrentMaterialCompilationBeforeRendering)
+	RendererWaitsForMaterialAndSphereCompilationBeforeRendering)
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	InitializeDObjectSystem();
@@ -415,6 +416,27 @@ TEST(FMaterialThumbnailRendererTests,
 
 	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
 	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+
+	Durin::FObjectPath SpherePath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		Durin::Editor::FThumbnailVisualContract::SphereAssetPath, SpherePath));
+	Durin::DObject* SphereObject = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(SpherePath, SphereObject));
+	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
+	ASSERT_NE(Sphere, nullptr);
+	ASSERT_TRUE(Durin::SubmitStaticMeshCompilation(*Sphere,
+		{.Source = Sphere->GetImportedData(), .bMarkPackageDirty = false}, Error)) << Error;
+	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Sphere));
+	ASSERT_EQ(Sphere->GetRenderResourceStatus().Readiness,
+		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
+	const auto SphereCompiling = Session->PollResources();
+	EXPECT_EQ(SphereCompiling.State,
+		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+		<< SphereCompiling.Diagnostic;
+	EXPECT_TRUE(SphereCompiling.Diagnostic.empty());
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Sphere);
+	EXPECT_FALSE(Durin::HasPendingStaticMeshCompilation(*Sphere));
+	EXPECT_NE(Sphere->GetRenderData(), nullptr);
 
 	Session.reset();
 }

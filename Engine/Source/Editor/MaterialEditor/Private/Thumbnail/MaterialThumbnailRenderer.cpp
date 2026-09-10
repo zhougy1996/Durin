@@ -11,6 +11,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2D.h"
 
 #include <unordered_set>
@@ -230,9 +231,6 @@ namespace Durin::Editor::Material
 							? "The rendered-thumbnail sphere mesh is unavailable."
 							: std::move(SphereError)};
 				}
-				if (Sphere->GetRenderResourceStatus().Readiness
-					== EStaticMeshRenderResourceReadiness::Unavailable)
-					Sphere->InitResources();
 				AssetRevision = GetMaterialAssetRevision(Material, SphereError);
 				if (!SphereError.empty())
 				{
@@ -267,8 +265,26 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.AssetRevision = AssetRevision,
 						.Diagnostic = "The rendered-thumbnail sphere mesh is unavailable."};
-				const FStaticMeshRenderResourceStatus SphereStatus =
+				// PostLoad schedules mesh compilation; asset residency does not imply render data is ready.
+				if (HasPendingStaticMeshCompilation(*Sphere))
+					return {
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
+						.AssetRevision = AssetRevision,
+						.ResourceRevision = MaterialRevision};
+				FStaticMeshRenderResourceStatus SphereStatus =
 					Sphere->GetRenderResourceStatus();
+				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
+				{
+					const FCookedMeshBlockingResult LoadResult = Sphere->EnsureRenderDataLoadedBlocking();
+					if (!LoadResult)
+						return {
+							.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+							.AssetRevision = AssetRevision,
+							.ResourceRevision = SphereStatus.Revision,
+							.Diagnostic = LoadResult.Message};
+					Sphere->InitResources();
+					SphereStatus = Sphere->GetRenderResourceStatus();
+				}
 				if (SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Failed
 					|| SphereStatus.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
 					return {
