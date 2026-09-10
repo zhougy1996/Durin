@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DObject/Object.h"
+#include "Asset/BulkData.h"
+#include "Materials/MaterialCookedProgram.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
@@ -49,14 +51,21 @@ namespace Durin
 		-> FMaterialLoadedQueryDiagnostics;
 	ENGINE_API auto ResetMaterialLoadedQueryDiagnostics() -> void;
 
+	// Complete value-owned render contract swapped only after candidate validation.
+	struct FMaterialAcceptedGeneration
+	{
+		std::shared_ptr<const FMaterialCompilerResult> Program;
+		FMaterialStaticProperties ShaderProperties;
+		FMaterialStaticProperties Properties;
+		std::vector<FMaterialLocalRenderParameter> Parameters;
+	};
+
 	// Per-asset compilation state never retains another material owner.
 	struct FMaterialCompilationOwnerState
 	{
-		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
-		// Value-owned fallback for declarations removed while old code is visible.
-		std::vector<FMaterialLocalRenderParameter> RetainedAcceptedParameters;
-		FMaterialStaticProperties AcceptedCompiledStaticProperties;
+		FMaterialAcceptedGeneration AcceptedGeneration;
 		FMaterialStaticProperties LastRequestedShaderProperties;
+		std::vector<FMaterialCompilerParameterDeclaration> LastRequestedParameters;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
@@ -98,6 +107,16 @@ namespace Durin
 			return CompilationOwner.MaterialCompileStatus;
 		}
 
+		auto GetCookedProgramData() const -> const FBulkData&
+		{
+			return CookedProgramData;
+		}
+		auto GetMaterialCookDiagnostic() const -> std::string_view
+		{
+			return MaterialCookDiagnostic;
+		}
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
+
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
@@ -111,6 +130,11 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
+		ENGINE_API auto LoadCookedProgram(std::string& OutError) -> bool;
+		// A transient runtime owner can select only an already compiled compatible variant.
+		ENGINE_API auto AdoptParentRuntimeProgram() -> bool;
+		FBulkData CookedProgramData;
+		std::string MaterialCookDiagnostic;
 		ENGINE_API auto RequestProgramCompile(
 			const FMaterialProgram& CandidateProgram,
 			const FMaterialStaticProperties& CandidateProperties,
@@ -125,6 +149,13 @@ namespace Durin
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
 
+	private:
+		friend auto ::Durin::ContributeEngineCookAsset(
+			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
+		ENGINE_API auto ContributeToCook(
+			FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError) -> bool;
 	private:
 		friend struct Private::FMaterialCompilationLifecycle;
 		auto SubmitMaterialRenderProxyState() const -> void;

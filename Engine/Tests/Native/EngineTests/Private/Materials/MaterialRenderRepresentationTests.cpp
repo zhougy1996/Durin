@@ -436,6 +436,23 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate(AuthoredInstance->GetObjectPath(), InstancePath));
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
 		Source->GetAcceptedCompiledProgram()->Identity;
+	std::array<Durin::FObjectPath, 3> VariantPaths;
+	std::array<Durin::FMaterialProgramIdentity, 3> VariantIdentities;
+	for (size_t Index = 0; Index < VariantPaths.size(); ++Index)
+	{
+		auto* Variant = Durin::NewObject<Durin::DMaterialInstance>(Source->GetPackage(),
+			Durin::FName(std::format("CookedVariant{}", Index)));
+		Durin::FMaterialPropertyOverrides Overrides;
+		Overrides.bOverrideBlendMode = true;
+		Overrides.bOverrideOpacityMaskThreshold = true;
+		Overrides.Values.BlendMode = Index < 2 ? Durin::EMaterialBlendMode::Masked : Durin::EMaterialBlendMode::Translucent;
+		Overrides.Values.OpacityMaskThreshold = Index == 0 ? 0.25f : 0.75f;
+		ASSERT_TRUE(Variant->SetParentAndPropertyOverrides(AuthoredInstance, Overrides));
+		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
+		VariantIdentities[Index] = Variant->GetAcceptedCompiledProgram()->Identity;
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate(Variant->GetObjectPath(), VariantPaths[Index]));
+	}
+
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(
 		Durin::Testing::CreateTestFixtureDirectory("ActiveMaterialCook"));
@@ -497,6 +514,22 @@ TEST(FDefaultMaterialCookTests, ActiveParametersSurviveGraphStripping)
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Instance, nullptr);
 	EXPECT_EQ(Instance->GetParent(), Cooked);
+	for (size_t Index = 0; Index < VariantPaths.size(); ++Index)
+	{
+		Durin::DMaterialInstance* Variant = nullptr;
+		ASSERT_TRUE(Durin::LoadObject(VariantPaths[Index], Variant));
+		ASSERT_TRUE(Variant);
+		ASSERT_GT(Variant->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
+		ASSERT_TRUE(Variant->GetAcceptedCompiledProgram());
+		EXPECT_EQ(Variant->GetAcceptedCompiledProgram()->Identity, VariantIdentities[Index]);
+		EXPECT_NE(Variant->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->IR.Nodes.empty());
+		EXPECT_TRUE(Variant->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+		EXPECT_FALSE(Variant->GetRenderData().Representation.IsError());
+		ExpectColorNear(GetMaterialBinding(Variant->GetRenderData()).BaseColor,
+			Durin::FVector4f(0.8f, 0.3f, 0.1f, 1.0f));
+	}
+
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CookedChild");
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "CookedDynamicTexture");
 	ASSERT_TRUE(Texture->GetTextureReferenceRHI());

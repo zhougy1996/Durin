@@ -21,11 +21,20 @@ namespace Durin
 		auto SerializeStaticProperties(
 			FArchive& Ar, FMaterialStaticProperties& Properties) -> void
 		{
-			Ar << Properties.BlendMode
-				<< Properties.ShadingModel
-				<< Properties.bTwoSided
-				<< Properties.DepthWritePolicy
-				<< Properties.OpacityMaskThreshold;
+			FMaterialStaticProperties Shader = CanonicalizeMaterialShaderProperties(Properties);
+			Ar << Shader.BlendMode << Shader.ShadingModel << Shader.OpacityMaskThreshold;
+			if (Ar.IsLoading())
+			{
+				std::string Error;
+				if (!ValidateMaterialStaticProperties(Shader, Error)
+					|| Shader != CanonicalizeMaterialShaderProperties(Shader))
+				{
+					Ar.Fail(EArchiveFailureCode::InvalidData, "Noncanonical cooked material shader properties.");
+					return;
+				}
+				Properties = Shader;
+			}
+			Ar << Properties.bTwoSided << Properties.DepthWritePolicy;
 		}
 
 		auto SerializeDependency(

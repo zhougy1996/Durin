@@ -4,6 +4,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2D.h"
@@ -19,8 +20,9 @@ namespace Durin
 			std::string Name,
 			std::vector<FCookContributorHandle>& Handles) -> bool
 		{
+			constexpr uint32 Version = std::is_base_of_v<DMaterialInterface, T> ? 3 : 2;
 			const FCookContributorHandle Handle = RegisterCookContributor(
-				T::StaticClass(), {std::move(Name), 2, 2,
+				T::StaticClass(), {std::move(Name), Version, Version,
 					[](DObject& Object, std::string_view VirtualPath,
 						FCookContext& Context) -> FAssetResult {
 						if (!Object.IsA(T::StaticClass()))
@@ -54,7 +56,7 @@ namespace Durin
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"recipe/" + Family, {}, std::move(Value)});
 						}
-						if constexpr (std::is_same_v<T, DMaterial>)
+						if constexpr (std::is_base_of_v<DMaterialInterface, T>)
 						{
 							const auto Identity = Request.ShaderBuildIdentity;
 							if (Identity.empty()) return {EAssetError::InUse, "Material Cook requires declared ShaderBuild inputs."};
@@ -85,8 +87,8 @@ namespace Durin
 		if (Object.IsA(DStaticMesh::StaticClass()))
 			return static_cast<DStaticMesh&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DMaterial::StaticClass()))
-			return static_cast<DMaterial&>(Object).ContributeToCook(
+		if (Object.IsA(DMaterialInterface::StaticClass()))
+			return static_cast<DMaterialInterface&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
 		OutError = "No Engine family Cook contribution exists for the object class.";
 		return false;
@@ -102,7 +104,8 @@ namespace Durin
 			&& RegisterFamily<DTextureCube>("texture-cube", OutHandles)
 			&& RegisterFamily<DVolumeTexture>("volume-texture", OutHandles)
 			&& RegisterFamily<DStaticMesh>("static-mesh", OutHandles)
-			&& RegisterFamily<DMaterial>("material", OutHandles);
+			&& RegisterFamily<DMaterial>("material", OutHandles)
+			&& RegisterFamily<DMaterialInstance>("material-instance", OutHandles);
 		if (bRegistered)
 		{
 			OutError.clear();

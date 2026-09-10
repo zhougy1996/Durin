@@ -96,14 +96,15 @@ namespace Durin::Editor::Material
 				return 0;
 			}
 			const FMaterialCompileStatus& CompileStatus =
-				BaseMaterial->GetMaterialCompileStatus();
+				Material->GetMaterialCompileStatus();
 			if (!CompileStatus.IsCurrent()
-				|| BaseMaterial->GetAcceptedCompiledProgram() == nullptr)
+				|| Material->GetAcceptedCompiledProgram() == nullptr)
 			{
-				if (CompileStatus.State == EMaterialCompileState::Pending
+				if (CompileStatus.State == EMaterialCompileState::Deferred
+					|| CompileStatus.State == EMaterialCompileState::Pending
 					|| CompileStatus.State == EMaterialCompileState::Running)
 					return Revision == 0 ? 1 : Revision;
-				const auto Diagnostics = BaseMaterial->GetMaterialCompileDiagnostics();
+				const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
 				OutError = !Diagnostics.empty() && !Diagnostics.front().Source.Message.empty()
 					? Diagnostics.front().Source.Message
 					: "The material has no current compiled program.";

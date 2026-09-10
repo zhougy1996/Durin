@@ -46,6 +46,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		auto RenderingThread =
 			std::make_unique<FSceneFixture::FRenderingThreadScope>();
@@ -104,6 +105,15 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 		Durin::DObject* Object = nullptr;
 		EXPECT_TRUE(Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		EXPECT_NE(Object, nullptr);
+		if (auto* Material = Durin::Cast<Durin::DMaterialInstance>(Object))
+		{
+			EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+			EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
+			EXPECT_TRUE(Material->GetPropertyOverrides().bOverrideBlendMode);
+			EXPECT_TRUE(Material->GetPropertyOverrides().bOverrideTwoSided);
+			EXPECT_FALSE(Material->GetPropertyOverrides().bOverrideShadingModel);
+			EXPECT_FALSE(Material->GetPropertyOverrides().bOverrideDepthWritePolicy);
+		}
 		if (const auto* Texture = Durin::Cast<Durin::DTexture2D>(Object))
 		{
 			bSawTexture = true;

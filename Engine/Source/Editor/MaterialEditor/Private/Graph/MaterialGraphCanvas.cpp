@@ -698,7 +698,8 @@ namespace Durin::Editor::Material
 			DrawList->AddRectFilled(CanvasMinimum, CanvasMaximum,
 				IM_COL32(24, 27, 32, 255));
 			const FMaterialCompileStatus& CompileStatus = Material.GetMaterialCompileStatus();
-			if (CompileStatus.State == EMaterialCompileState::Pending
+			if (CompileStatus.State == EMaterialCompileState::Deferred
+				|| CompileStatus.State == EMaterialCompileState::Pending
 				|| CompileStatus.State == EMaterialCompileState::Running
 				|| CompileStatus.State == EMaterialCompileState::Failed
 				|| CompileStatus.State == EMaterialCompileState::Rejected)

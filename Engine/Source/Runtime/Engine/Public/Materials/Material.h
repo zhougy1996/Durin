@@ -53,14 +53,6 @@ namespace Durin
 		}
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
-		auto GetCookedProgramData() const -> const FBulkData&
-		{
-			return CookedProgramData;
-		}
-		auto GetMaterialCookDiagnostic() const -> std::string_view
-		{
-			return MaterialCookDiagnostic;
-		}
 		[[nodiscard]] ENGINE_API auto SetMaterialProgram(
 			FMaterialProgram InProgram) -> FMaterialProgramValidationResult;
 		// Commits definitions and references together only after complete validation.
@@ -102,14 +94,6 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto PostLoad() -> void override;
-		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
-	private:
-		friend auto ::Durin::ContributeEngineCookAsset(
-			DObject&, std::string_view, FCookContext&, std::string&) -> bool;
-		ENGINE_API auto ContributeToCook(
-			FCookContext& Context,
-			std::string_view VirtualPackagePath,
-			std::string& OutError) -> bool;
 	public:
 		ENGINE_API auto PostEditChangeProperty(
 			const FPropertyChangedEvent& Event) -> void override;
@@ -141,15 +125,12 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialGraphPresentation GraphPresentation;
 
-		FBulkData CookedProgramData;
 
-		std::string MaterialCookDiagnostic;
 		// Transient monotonic revisions invalidate editor graph caches independently.
 		uint64 MaterialProgramRevision = 1;
 		uint64 MaterialGraphPresentationRevision = 1;
 		uint64 ParameterDefinitionSchemaRevision = 1;
 
-		auto LoadCookedProgram(std::string& OutError) -> bool;
 
 		friend struct Private::FMaterialCompilationLifecycle;
 	};

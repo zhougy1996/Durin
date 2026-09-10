@@ -24,13 +24,12 @@ namespace Durin
 		FRHITextureReferenceRef TextureValue;
 	};
 
-	// Publishes either a complete base layer or sparse instance overrides.
+	// Publishes a complete accepted contract for either material asset kind.
 	struct FMaterialLocalRenderLayer
 	{
 		std::vector<FMaterialLocalRenderParameter> Parameters;
 		std::optional<FMaterialStaticProperties> StaticProperties;
 		std::shared_ptr<const FMaterialCompilerResult> CompiledProgram;
-		std::optional<FMaterialPropertyOverrides> PropertyOverrides;
 	};
 
 	class FMaterialRenderProxy;
@@ -47,7 +46,6 @@ namespace Durin
 	struct FMaterialRenderProxyPublication
 	{
 		FMaterialLocalRenderLayer LocalLayer;
-		FMaterialRenderProxyRef ParentProxy;
 		uint64 LocalVersion = 0;
 	};
 
@@ -93,16 +91,11 @@ namespace Durin
 			FMaterialRenderProxyPublication Publication
 			) -> bool;
 
-		// Resolves parent-first and reuses the cached snapshot only for the exact
-		// (local version, parent identity, parent resolved version) key.
+		// Builds the accepted layout and caches it by publication version.
 		ENGINE_API auto Resolve_RenderThread() -> const FMaterialRenderData&;
 
 		ENGINE_API auto GetLocalVersion_RenderThread() const -> uint64;
 		ENGINE_API auto GetResolvedVersion_RenderThread() const -> uint64;
-		ENGINE_API auto GetObservedParentResolvedVersion_RenderThread() const
-			-> uint64;
-		ENGINE_API auto GetParentProxyIdentity_RenderThread() const
-			-> const FMaterialRenderProxy*;
 		ENGINE_API auto GetStalePublicationCount_RenderThread() const
 			-> uint64;
 
@@ -113,17 +106,13 @@ namespace Durin
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
 		FMaterialLocalRenderLayer LocalLayer;
-		FMaterialRenderProxyRef ParentProxy;
 		uint64 LocalVersion = 0;
 
 		FMaterialRenderData CachedResolvedData;
-		const FMaterialRenderProxy* CachedParentIdentity = nullptr;
 		uint64 CachedLocalVersion = 0;
-		uint64 ObservedParentResolvedVersion = 0;
 		uint64 ResolvedVersion = 0;
 		uint64 StalePublicationCount = 0;
 		bool bHasResolvedData = false;
-		bool bIsResolving = false;
 
 		// PendingPublication is the game-thread publication wave. It is never
 		// read by render code without taking this mutex; the render-thread state

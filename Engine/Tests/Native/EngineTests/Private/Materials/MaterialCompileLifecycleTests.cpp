@@ -188,7 +188,7 @@ TEST(FMaterialCompileLifecycleTests,
 		First->GetRenderableStaticProperties();
 	EXPECT_EQ(RenderableProperties.BlendMode,
 		LastKnownGoodProperties.BlendMode);
-	EXPECT_EQ(RenderableProperties.bTwoSided, FailedProperties.bTwoSided);
+	EXPECT_EQ(RenderableProperties.bTwoSided, LastKnownGoodProperties.bTwoSided);
 	EXPECT_EQ(First->GetRenderData().PlanningPassIdentity.ShaderMap.BlendMode,
 		LastKnownGoodProperties.BlendMode);
 
@@ -240,6 +240,7 @@ TEST(FMaterialCompileLifecycleTests,
 		ASSERT_NE(Root->GetAcceptedCompiledProgram(), nullptr);
 		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RetainedDeclarationInstance");
 		ASSERT_TRUE(Instance->SetParent(Root));
+		ASSERT_TRUE(WaitForMaterialCompile(*Instance));
 		ASSERT_TRUE(Root->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.65f));
 		ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.9f));
 		const auto Accepted = Root->GetAcceptedCompiledProgram();
@@ -444,13 +445,13 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 			Properties.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Disabled;
 		}
 		if (Index != 0 && Index != 7)
-			ASSERT_TRUE(Instance->SetStaticPropertiesOverride(Properties));
+			ASSERT_TRUE(Instance->SetPropertyOverrides({true, true, true, true, true, Properties}));
 		Input.StaticProperties = Instance->GetStaticProperties();
 		const auto Normalized = Durin::NormalizeMaterialProgram(Input);
 		ASSERT_TRUE(Normalized);
 		if (std::ranges::find(Identities, Normalized.Identity) == Identities.end())
 			Identities.push_back(Normalized.Identity);
-		if (Instance->GetAcceptedCompiledProgram()) ++CompatibleOwners;
+		// Count complete accepted owners only after aggregate finish below.
 	}
 	ASSERT_TRUE(Instances[7]->SetParent(Instances[2]));
 	EXPECT_EQ(Instances[7]->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Masked);
@@ -458,14 +459,23 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 	ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.7f));
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	const auto After = Durin::GetMaterialCompilationDiagnostics();
-	// The lifecycle compiles independent instances; rendering still uses the
-	// Stage 1 compatibility boundary until complete generation publication lands.
+	for (auto* Instance : Instances)
+		if (Instance->GetAcceptedCompiledProgram()) ++CompatibleOwners;
 	EXPECT_EQ(Identities.size(), 4u);
-	EXPECT_EQ(CompatibleOwners, 5u);
+	EXPECT_EQ(CompatibleOwners, 8u);
 	EXPECT_GT(After.AcceptedRequests - Before.AcceptedRequests, 0u);
 	EXPECT_EQ(After.InFlightCount, 0u);
 	EXPECT_EQ(After.OutstandingConsumerCount, 0u);
 	EXPECT_EQ(After.PendingPublicationCount, 0u);
+	uint64 InstancePayloadBytes = 0;
+	for (auto* Instance : Instances)
+	{
+		Durin::FByteBuffer Payload;
+		ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(*Instance->GetAcceptedCompiledProgram(),
+			Instance->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
+			Durin::ECookTargetProfile::Game, Payload, Error)) << Error;
+		InstancePayloadBytes += Payload.size();
+	}
 	Durin::FByteBuffer Bytes;
 	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(*Root->GetAcceptedCompiledProgram(),
 		Root->GetRenderableStaticProperties(), Durin::ECookTargetPlatform::Win64,
@@ -478,6 +488,7 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 		<< " completed_requests=" << After.CompletedRequests
 		<< " retained_programs=" << After.RetainedProgramCount
 		<< " retained_bytes=" << After.RetainedProgramBytes
+		<< " instance_dmat_bytes=" << InstancePayloadBytes
 		<< " root_dmat_bytes=" << Bytes.size() << '\n';
 }
 }

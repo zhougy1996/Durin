@@ -1240,7 +1240,10 @@ namespace Durin::AssetPrivate
 		{
 			if (Discovery.Objects.size() != Objects.size() || Objects.empty()) return false;
 			std::vector<uint8> Reachable(Objects.size(), 0);
-			Reachable[0] = 1;
+			// Every top-level export is a package root. Seeding only the first
+			// asset discards independent material variants in multi-asset packages.
+			for (size_t Index = 0; Index < Discovery.Objects.size(); ++Index)
+				if (Discovery.Objects[Index].OuterId == 0) Reachable[Index] = 1;
 			bool bChanged = true;
 			while (bChanged)
 			{
@@ -1742,7 +1745,7 @@ namespace Durin::AssetPrivate
 				const auto Source = std::ranges::find(Objects, Asset);
 				if (!Asset || Source == Objects.end())
 				{
-					OutError = "A top-level asset is absent from the captured export topology.";
+					OutError = std::format("A top-level asset is absent from the captured export topology: {}.", Asset ? Asset->GetObjectPath() : "<null>");
 					return false;
 				}
 				const size_t SourceIndex = static_cast<size_t>(std::distance(Objects.begin(), Source));

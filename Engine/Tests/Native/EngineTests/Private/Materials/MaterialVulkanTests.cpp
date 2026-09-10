@@ -55,10 +55,8 @@ namespace
 
 	auto FinishMaterialCompilation(Durin::DMaterialInterface* Interface) -> void
 	{
-		while (auto* Instance = Durin::Cast<Durin::DMaterialInstance>(Interface))
-			Interface = Instance->GetParent();
-		auto* Material = Durin::Cast<Durin::DMaterial>(Interface);
-		if (!Durin::IsValid(Material)) return;
+		auto* Material = Interface;
+		if (!Durin::IsValid(Material) || !Material->GetMaterialProgram()) return;
 		if (Material->GetMaterialCompileStatus().State
 			== Durin::EMaterialCompileState::NeverRequested)
 			ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material));
@@ -877,36 +875,40 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			LitPlanningPassIdentity);
 		const Durin::FByteBuffer StaticIdentityPixels =
 			Capture(CaptureMaterial);
+		auto* Variant = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CaptureVariant");
+		ASSERT_TRUE(Variant->SetParent(CaptureMaterial));
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
 		StaticProperties.OpacityMaskThreshold = 0.4f;
-		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+		ASSERT_TRUE(Variant->SetPropertyOverrides({true, true, true, true, true, StaticProperties}));
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.39f));
 		const Durin::FByteBuffer MaskedBelowPixels =
-			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Capture(Variant);
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.4f));
 		const Durin::FByteBuffer MaskedEqualPixels =
-			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Capture(Variant);
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityMaskName(), 0.41f));
 		const Durin::FByteBuffer MaskedAbovePixels =
-			Capture(CaptureMaterial);
+			Capture(Variant);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
-		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+		ASSERT_TRUE(Variant->SetPropertyOverrides({true, true, true, true, true, StaticProperties}));
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.0f));
 		const Durin::FByteBuffer TranslucentZeroPixels =
-			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Capture(Variant);
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 0.4f));
 		const Durin::FByteBuffer TranslucentPartialPixels =
-			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Capture(Variant);
+		ASSERT_TRUE(Variant->SetScalarParameterValue(
 			Durin::MaterialParameters::OpacityName(), 1.0f));
 		const Durin::FByteBuffer TranslucentFullPixels =
-			Capture(CaptureMaterial);
+			Capture(Variant);
+
+		Durin::MarkAsGarbage(Variant);
 
 		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Opaque;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));

@@ -186,7 +186,6 @@ namespace Durin
 			{},
 			&FMaterialLocalRenderParameter::Id));
 		LocalLayer = std::move(Publication.LocalLayer);
-		ParentProxy = std::move(Publication.ParentProxy);
 		LocalVersion = Publication.LocalVersion;
 		GMaterialRenderProxyCounters.PublicationCount.fetch_add(1);
 		return true;
@@ -196,54 +195,16 @@ namespace Durin
 		-> const FMaterialRenderData&
 	{
 		CheckRenderingThread();
-		checkf(
-			!bIsResolving,
-			"Material render proxy parent cycle reached render-thread resolution.");
-		struct FScopedMaterialProxyResolution
-		{
-			explicit FScopedMaterialProxyResolution(bool& InIsResolving)
-				: bIsResolving(InIsResolving)
-			{
-				bIsResolving = true;
-			}
-			~FScopedMaterialProxyResolution()
-			{
-				bIsResolving = false;
-			}
-			bool& bIsResolving;
-		} ResolutionScope(bIsResolving);
-
-		const FMaterialRenderProxy* ParentIdentity =
-			ParentProxy.GetReference();
-		const FMaterialRenderData* ParentData = nullptr;
-		uint64 ParentResolvedVersion = 0;
-		if (ParentProxy)
-		{
-			ParentData = &ParentProxy->Resolve_RenderThread();
-			ParentResolvedVersion =
-				ParentProxy->GetResolvedVersion_RenderThread();
-		}
-
 		if (bHasResolvedData
-			&& CachedLocalVersion == LocalVersion
-			&& CachedParentIdentity == ParentIdentity
-			&& ObservedParentResolvedVersion == ParentResolvedVersion)
+			&& CachedLocalVersion == LocalVersion)
 		{
 			GMaterialRenderProxyCounters.ResolutionCacheHitCount.fetch_add(1);
 			return CachedResolvedData;
 		}
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
-		if (ParentData)
-		{
-			CachedResolvedData = *ParentData;
-		}
-		else
-		{
-			CachedResolvedData = {};
-			CachedResolvedData.Representation =
-				FMaterialRenderRepresentation{};
-		}
+		CachedResolvedData = {};
+		CachedResolvedData.Representation = FMaterialRenderRepresentation{};
 		if (LocalLayer.CompiledProgram)
 		{
 			CachedResolvedData.CompiledProgram = LocalLayer.CompiledProgram;
@@ -255,7 +216,7 @@ namespace Durin
 			&& CachedResolvedData.CompiledProgram->Layout.Identity != CachedResolvedData.Representation.GetLayout().Identity
 			? FMaterialRenderRepresentationBuilder(CachedResolvedData.CompiledProgram->Layout)
 			: FMaterialRenderRepresentationBuilder(CachedResolvedData.Representation);
-		bool bRepresentationValid = !ParentData || !ParentData->Representation.IsError();
+		bool bRepresentationValid = true;
 		if (CachedResolvedData.CompiledProgram)
 			CachedResolvedData.PlanningPassIdentity.ShaderMap.RenderLayout = CachedResolvedData.CompiledProgram->Layout.Identity;
 		for (const FMaterialLocalRenderParameter& Parameter
@@ -278,22 +239,6 @@ namespace Durin
 			ApplyStaticProperties(
 				CachedResolvedData, *LocalLayer.StaticProperties);
 		}
-		if (LocalLayer.PropertyOverrides)
-		{
-			const auto& Pass = CachedResolvedData.PlanningPassIdentity;
-			FMaterialStaticProperties Properties;
-			Properties.BlendMode = static_cast<EMaterialBlendMode>(Pass.ShaderMap.BlendMode.Value);
-			Properties.ShadingModel = static_cast<EMaterialShadingModel>(Pass.ShaderMap.ShadingModel.Value);
-			Properties.OpacityMaskThreshold = Pass.ShaderMap.OpacityMaskThreshold;
-			Properties.bTwoSided = Pass.bTwoSided;
-			Properties.DepthWritePolicy = Pass.DepthWritePolicy;
-			const auto ParentShader = CanonicalizeMaterialShaderProperties(Properties);
-			LocalLayer.PropertyOverrides->ApplyTo(Properties);
-			const auto Shader = CanonicalizeMaterialShaderProperties(Properties);
-			bRepresentationValid = bRepresentationValid && Shader == ParentShader;
-			Properties.OpacityMaskThreshold = Shader.OpacityMaskThreshold;
-			ApplyStaticProperties(CachedResolvedData, Properties);
-		}
 		FMaterialRenderRepresentation CompiledRepresentation;
 		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
 		if (!CachedResolvedData.CompiledProgram
@@ -313,8 +258,6 @@ namespace Durin
 		}
 
 		CachedLocalVersion = LocalVersion;
-		CachedParentIdentity = ParentIdentity;
-		ObservedParentResolvedVersion = ParentResolvedVersion;
 		++ResolvedVersion;
 		if (ResolvedVersion == 0) ++ResolvedVersion;
 		bHasResolvedData = true;
@@ -333,20 +276,6 @@ namespace Durin
 	{
 		CheckRenderingThread();
 		return ResolvedVersion;
-	}
-
-	auto FMaterialRenderProxy::GetObservedParentResolvedVersion_RenderThread() const
-		-> uint64
-	{
-		CheckRenderingThread();
-		return ObservedParentResolvedVersion;
-	}
-
-	auto FMaterialRenderProxy::GetParentProxyIdentity_RenderThread() const
-		-> const FMaterialRenderProxy*
-	{
-		CheckRenderingThread();
-		return ParentProxy.GetReference();
 	}
 
 	auto FMaterialRenderProxy::GetStalePublicationCount_RenderThread() const

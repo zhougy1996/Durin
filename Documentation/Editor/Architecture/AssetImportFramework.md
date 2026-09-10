@@ -4,7 +4,7 @@ Summary: Define Factory-backed standalone import, immutable source capture, fami
 
 Modules: CoreDObject, AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-11
 
 Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, and StaticMesh
@@ -147,6 +147,16 @@ The importer:
 - constructs and validates all peer candidates before publication;
 - binds material and texture relationships in dependency order;
 - saves the complete output package set atomically.
+
+Scene materials share the imported-surface root graph. The importer applies only
+source blend mode, cutoff and two-sided overrides through
+`SetParentAndPropertyOverrides`; shading and depth policy remain inherited.
+Every numeric and texture parameter application is checked. The importer finishes
+all prepared material owners as one selected batch and rejects non-current or
+failed variants through candidate abandonment before publication. A failed root
+default variant does not itself reject an independently valid child variant.
+Scene remains creation-only; this material integration does not add a reimport
+or reconciliation mechanism.
 
 Scene constructs private candidate packages from CoreDObject package/object
 primitives. It does not call single-object `IAssetTools`: doing so would assign

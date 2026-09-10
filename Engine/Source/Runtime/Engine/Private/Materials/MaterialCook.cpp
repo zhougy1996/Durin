@@ -2,13 +2,14 @@
 
 #include "Asset/Asset.h"
 #include "Asset/AssetCook.h"
+#include "Asset/CookDependencies.h"
 #include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialCookedProgram.h"
 
 namespace Durin
 {
-	auto DMaterial::LoadCookedProgram(std::string& OutError) -> bool
+	auto DMaterialInterface::LoadCookedProgram(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
 			MaterialCookDiagnostic = std::format(
@@ -30,7 +31,9 @@ namespace Durin
 		{
 			return FailCooked(OutError);
 		}
-		if (PayloadProperties != GetRenderableStaticProperties())
+		auto ExpectedProperties = GetStaticProperties();
+		ExpectedProperties.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(ExpectedProperties).OpacityMaskThreshold;
+		if (PayloadProperties != ExpectedProperties)
 		{
 			return FailCooked(
 				"payload static properties do not match package metadata.");
@@ -45,8 +48,9 @@ namespace Durin
 		}
 		Read.Lock.Reset();
 
-		CompilationOwner.AcceptedCompiledProgram = std::move(ProgramCandidate);
-		CompilationOwner.AcceptedCompiledStaticProperties = PayloadProperties;
+		CompilationOwner.AcceptedGeneration.Program = std::move(ProgramCandidate);
+		CompilationOwner.AcceptedGeneration.Properties = PayloadProperties;
+		CompilationOwner.AcceptedGeneration.ShaderProperties = CanonicalizeMaterialShaderProperties(PayloadProperties);
 		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
 		CompilationOwner.MaterialCompileStatus.ResultCategory =
 			EMaterialCompileResultCategory::None;
@@ -56,22 +60,22 @@ namespace Durin
 		CompilationOwner.MaterialCompileStatus.CompiledAuthoredRevision =
 			CompilationOwner.MaterialCompileStatus.AuthoredRevision;
 		CompilationOwner.MaterialCompileStatus.RequestedIdentity =
-			CompilationOwner.AcceptedCompiledProgram->Identity;
+			CompilationOwner.AcceptedGeneration.Program->Identity;
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
-			CompilationOwner.AcceptedCompiledProgram->Identity;
-		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.AcceptedCompiledProgram->Target;
+			CompilationOwner.AcceptedGeneration.Program->Identity;
+		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.AcceptedGeneration.Program->Target;
 		CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = true;
 		CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
 		CompilationOwner.MaterialCompileDiagnostics.clear();
 		MaterialCookDiagnostic = std::format(
 			"Loaded cooked material program {} for '{}'.",
-			CompilationOwner.AcceptedCompiledProgram->Identity.ToString(), GetObjectPath());
+			CompilationOwner.AcceptedGeneration.Program->Identity.ToString(), GetObjectPath());
 		PublishMaterialRenderProxyState();
 		OutError.clear();
 		return true;
 	}
 
-	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
+	auto DMaterialInterface::SerializeCooked(FArchive& Ar) -> void
 	{
 		Super::SerializeCooked(Ar);
 		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
@@ -84,7 +88,10 @@ namespace Durin
 		FBulkData* FieldValue = &CookedProgramData;
 		if (Ar.IsSaving())
 		{
-			if (!CompilationOwner.AcceptedCompiledProgram)
+			if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedGeneration.Program
+				|| (!GetAssetRuntimeConfiguration().RequiresCookedPayload()
+					&& CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration())
+				|| CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.AcceptedGeneration.ShaderProperties)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"Material cooked program data is unavailable.");
@@ -93,7 +100,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
-					*CompilationOwner.AcceptedCompiledProgram, GetRenderableStaticProperties(),
+					*CompilationOwner.AcceptedGeneration.Program, GetRenderableStaticProperties(),
 					ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Bytes, Error)
 				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
@@ -103,13 +110,13 @@ namespace Durin
 			}
 			FieldValue = &Projection;
 		}
-		auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterial"),
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterialInterface"),
 			FName("ProgramData"), FArchiveLogicalTypeDescriptor::BulkData()});
 		FieldValue->Serialize(Ar, {.Alignment = EditorBulkDataExternalAlignment,
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
-	auto DMaterial::ContributeToCook(
+	auto DMaterialInterface::ContributeToCook(
 		FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool
@@ -119,13 +126,15 @@ namespace Durin
 			return Fail(std::format(
 				"Material '{}' supports only the Win64 game cook target.",
 				GetObjectPath()), &OutError);
-		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedCompiledProgram)
+		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedGeneration.Program
+			|| CompilationOwner.MaterialCompileStatus.DependencyRevision != GetShaderReloadGeneration()
+			|| CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.AcceptedGeneration.ShaderProperties)
 			return Fail(std::format(
 				"Material '{}' cannot cook because authored revision {} does not have a complete latest target result.",
 				GetObjectPath(), CompilationOwner.MaterialCompileStatus.AuthoredRevision), &OutError);
-		if (CompilationOwner.AcceptedCompiledProgram->Target
+		if (CompilationOwner.AcceptedGeneration.Program->Target
 			!= CompilationOwner.MaterialCompileStatus.Target
-			|| CompilationOwner.AcceptedCompiledProgram->PassContractVersion
+			|| CompilationOwner.AcceptedGeneration.Program->PassContractVersion
 				!= CurrentMaterialPassContractVersion)
 			return Fail(std::format(
 				"Material '{}' compiled target or pass contract is incompatible with Cook.",

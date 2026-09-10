@@ -2,7 +2,7 @@
 
 Summary: Evolve authored materials from fixed PBR inputs to material-owned parameters, compiled layouts, reusable graphs, and runtime instances.
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 Status: Active
 Completed:
@@ -12,7 +12,8 @@ Completed:
 On 2026-09-10 the user selected the
 [Material Instance Shader Variants plan](../Plans/MaterialInstanceShaderVariants.md)
 as M13: one root graph with per-field instance configurations and matching shared
-compiled variants. The plan is authored but implementation has not started. It
+compiled variants. Common ownership, publication, instance Cook and editor/import
+integration are implemented; the plan remains active for final qualification. It
 extends the M5/M6 compile and Cook foundations and precedes M8's runtime instance
 API work; it does not introduce runtime shader compilation or complete M11.
 
@@ -174,8 +175,9 @@ transition and qualification across StaticMesh, SplineMesh,
 
 ### Material-specific gaps
 
-- Shader-affecting instance overrides currently have no matching accepted
-  variant and can resolve to ErrorMaterial, including scene-import overrides.
+- Shader-affecting instance overrides now request matching accepted
+  variants, including scene-import overrides. Final platform/workflow qualification
+  remains active.
   M13 owns per-field inheritance, instance compilation/publication, Cook and the
   editor/import workflow. Its detailed acceptance gates belong to the child plan.
 - Reusable explicit-input functions remain absent and belong to M11. Legacy
@@ -206,7 +208,7 @@ transition and qualification across StaticMesh, SplineMesh,
 | 10. Material-owned parameters and compiled layouts | Complete; historical baseline cancelled by user | Landed M5-M7; current correctness and resource bounds | Custom numeric/Texture2D inputs through editor, instances, renderer and Cook; rust-material vertical slice, migrated-content correctness, fixed-role production bindings retired |
 | 11. Reusable material functions | Required; plan not created | M10's parameter/layout contract is stable | Explicit typed function calls, dependency lifecycle and standard PBR templates; shared edits invalidate callers safely and separate calls keep independent inputs |
 | 12. Context expressions and output extensions | Conditional | Concrete effect selected after M10; M11 where useful | Selected time/world/view inputs, or a separately scoped vertex/shading/domain extension; geometry, shadow, Cook and recovery qualification for that effect |
-| 13. Material instance shader variants | Selected; plan active | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import qualification |
+| 13. Material instance shader variants | Implementation landed; qualification active | M10 complete; reuse M5/M6 lifecycle and current geometry interfaces | One graph with per-field instance configurations, shared matching programs, atomic publication, authored migration, Cook and editor/import qualification |
 
 Parameter GUIDs identify declarations within a root material; node GUIDs identify
 expression occurrences. Names are case-insensitive lookup keys in one root scope.
@@ -248,7 +250,7 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | [Material Parameters and Compiled Layouts](../Plans/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
-| [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Selected; Stage 0 next |
+| [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Implemented; final qualification in progress |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M13 |
 | Reusable Material Functions | M11 | Explicit typed calls, dependency lifecycle and standard PBR templates | Create after M10 |
 | Material Context and Output Extensions | M12 | One selected effect or output domain per bounded plan | Conditional on concrete effect and stage contract |

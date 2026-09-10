@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 ## Ownership
 
@@ -313,3 +313,15 @@ close, deletion cleanup, module unload, or shutdown.
 - [Reflected Property Editing](ReflectedPropertyEditing.md)
 - [Workspace Framework](WorkspaceFramework.md)
 - [Asset Catalog and Mutation](../../Runtime/Assets/AssetCatalogAndMutation.md)
+
+## Instance Rendering Configuration
+
+MaterialEditor exposes independent blend, shading, mask-threshold, two-sided and
+depth-write override flags and values. Clearing a flag resumes inheritance while
+preserving its authored inactive value. Effective supplying-owner labels come
+from the bounded runtime resolver. Edits use the shared reflected whole-member
+transaction path, so Undo/Redo and direct setters trigger the same owner revision
+and variant rules. Toolbar cancellation/recompile, diagnostics, last-known-good
+status and thumbnail readiness refer to the instance owner. A deferred request
+is displayed as waiting for compiler capacity. Graph navigation still belongs
+to the root material document.

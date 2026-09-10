@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -73,8 +73,8 @@ render boundary accepts only material-specific layout v4 data. Built-in role kno
 - `DMaterial` owns one reflected static-property set: blend mode, shading model,
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
   inherit each field through the canonical parent chain unless its local flag
-  is enabled. The legacy full-static setter temporarily delegates to all five
-  flags for existing import callers. Authored DAST v9 packages migrate the old
+  is enabled. `SetParentAndPropertyOverrides` applies a related parent/configuration
+  edit atomically with one request. Authored DAST v9 packages migrate the old
   enabled snapshot through deprecated-field routes to five enabled flags, even
   for equal values; disabled snapshots leave all flags off. Normal resave emits
   only the current schema. Reflected proposals validate before mutation, and
@@ -242,8 +242,9 @@ artifacts follow ShaderBuild's cache-miss/repair contract.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v4 value in the cooked `ProgramData` BulkData field stores the exact
-compiler/target/pass/version envelope, program identity, static properties,
+DMAT v5 value per material or instance in the `DMaterialInterface::ProgramData`
+BulkData field stores the exact
+compiler/target/pass/version envelope, program identity, canonical shader properties and separate pipeline metadata,
 active declaration contract, compiled layout, and complete shader
 code/reflection set. It is uncompressed, 16-byte aligned, bounded to 8 MiB, and
 protected by an internal checksum plus the DAST field range and raw-segment extent/hash
@@ -254,16 +255,26 @@ mismatches before publishing an immutable result. Runtime loading therefore
 requires neither authored IR/generated source, Shader source files, editor DDC,
 nor live compilation.
 
-Base immutable render data and the base proxy layer carry the shared accepted
-compiler result; its digest extends `FMaterialShaderMapIdentity`. Instances
-inherit the exact parent handle. Dynamic values, textures, samplers, fallbacks,
-and pipeline-only two-sided/depth changes rebuild only the accepted layout
-payload and preserve compiled identity. A shader-affecting instance static
-override never reuses incompatible parent code; without an accepted matching
-permutation the complete instance resolves to ErrorMaterial.
-The instance proxy carries sparse per-field property intent, so inherited
-pipeline values follow later parent publications. Both synchronous render data
-and render-thread proxy resolution reject incompatible shader overrides.
+Both material asset kinds publish a complete `FMaterialAcceptedGeneration`:
+shared immutable compiler result, canonical shader contract, accepted pipeline
+properties, and native parameter/resource values. Admission validates the entire
+candidate before swapping. Values resolve through the bounded authored chain by
+stable GUID/type against the variant's active layout; no packed parent bytes or
+parent compilation success are required. Removed declarations retain accepted
+native values/resources until replacement. Dynamic edits refresh compatible
+values and dependent publications without compiling. A shader/pipeline edit
+retains the complete old configuration while pending or failed; pipeline-only
+edits apply immediately when compatible with accepted shader properties.
+
+Cook checks current owner/dependency state and rejects stale/error results.
+Each instance owns its payload and retains ordinary parent package dependencies;
+children never append data to the root package. Equal payload bytes may repeat
+across packages; this is separate from in-process immutable result sharing.
+Older DMAT outputs require recook; material recipe versions invalidate incremental
+outputs. Cooked runtime never compiles. Existing transient owners can select an
+exact compatible parent program without compiling; this does not provide the
+separate M8 runtime-instance API. Missing/broken parent chains retire live child
+state with a dependency diagnostic and ErrorMaterial.
 
 `InspectMaterialParameterDependencies` is the UI-independent dependency
 authority. It traverses connected surface branches in fixed surface/input order,
@@ -343,9 +354,10 @@ result; neither operation reinterprets the authored program.
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
   identity, and parent changes publish through the existing proxy in place.
 - Dirty flags classify the publication that a material mutation produces:
-  dynamic parameters and proxy-safe static properties publish a new immutable
-  local layer, while parent changes publish a new parent-proxy identity and
-  local version. The render thread resolves inherited state lazily.
+  dynamic parameters and compatible static properties publish complete immutable
+  layers. GameThread uses the loaded-dependent query to refresh affected owners;
+  the render thread builds only that owner's layout and caches by local version.
+  It retains no parent proxy and performs no material-object traversal.
 - A material publication owns one pending wave per proxy. Repeated edits before
   the render command is consumed replace that pending wave, so only the newest
   immutable state is applied. The command stream preserves publication order

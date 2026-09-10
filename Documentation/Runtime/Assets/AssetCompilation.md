@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -108,7 +108,10 @@ consumers plus owners deferred by capacity, rather than shared worker flights.
 Both material asset kinds use the same owner state, selected finish/cancel, reload
 and offline preparation boundary. Deferred owners retain only retry intent; each
 pump retries at most 256 owners in rotating handle order using fresh snapshots.
-Stop-admission and cancellation clear that intent.
+Stop-admission and cancellation clear that intent. Each owner admits a complete
+program, parameter contract and render configuration together; equal compiler
+inputs share immutable code while retaining independent status and admission
+tokens. Cooked runtime does not submit material compiler work.
 
 Texture compilation is Engine-owned. One `FTextureCompilingManager` owns
 typed asset state, worker admission, priority fairness, memory budget,

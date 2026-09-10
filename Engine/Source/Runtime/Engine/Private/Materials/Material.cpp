@@ -54,12 +54,7 @@ namespace Durin
 	auto DMaterial::GetRenderableStaticProperties() const
 		-> FMaterialStaticProperties
 	{
-		FMaterialStaticProperties Result = CompilationOwner.AcceptedCompiledProgram
-			? CompilationOwner.AcceptedCompiledStaticProperties : StaticProperties;
-		Result.bTwoSided = StaticProperties.bTwoSided;
-		Result.DepthWritePolicy = StaticProperties.DepthWritePolicy;
-		Result.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Result).OpacityMaskThreshold;
-		return Result;
+		return Super::GetRenderableStaticProperties();
 	}
 
 	auto DMaterial::SetMaterialProgram(
@@ -105,7 +100,7 @@ namespace Durin
 				return {EMaterialParameterError::TypeConflict, Definition.Id};
 		}
 		if (Definitions == ParameterDefinitions && InProgram == Program) return {};
-		CompilationOwner.RetainedAcceptedParameters = BuildMaterialLocalRenderLayer().Parameters;
+		CompilationOwner.AcceptedGeneration.Parameters = BuildMaterialLocalRenderLayer().Parameters;
 		ParameterDefinitions = std::move(Definitions);
 		ParameterDeclarationSchemaVersion = 2;
 		Program = std::move(InProgram);
@@ -409,43 +404,13 @@ namespace Durin
 	auto DMaterial::BuildMaterialLocalRenderLayer() const
 		-> FMaterialLocalRenderLayer
 	{
-		FMaterialLocalRenderLayer Result;
-		Result.CompiledProgram = GetAcceptedCompiledProgram();
-		Result.StaticProperties = GetRenderableStaticProperties();
-		if (!Result.CompiledProgram) return Result;
-		Result.Parameters.reserve(Result.CompiledProgram->ActiveParameters.size());
-		for (const auto& Parameter : Result.CompiledProgram->ActiveParameters)
-		{
-			const FMaterialParameterDefinition* Definition =
-				FindParameterDefinition(Parameter.Id);
-			if (!Definition || Definition->Type != Parameter.Type)
-			{
-				const auto Retained = std::ranges::find(CompilationOwner.RetainedAcceptedParameters,
-					Parameter.Id, &FMaterialLocalRenderParameter::Id);
-				if (Retained != CompilationOwner.RetainedAcceptedParameters.end() && Retained->Type == Parameter.Type)
-					Result.Parameters.push_back(*Retained);
-				continue;
-			}
-			Result.Parameters.push_back(
-				BuildMaterialLocalRenderParameter(
-					Definition->Id,
-					Definition->Type,
-					Definition->Value));
-		}
-		return Result;
+		return Super::BuildMaterialLocalRenderLayer();
 	}
 
 	auto DMaterial::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		if (!CompilationOwner.AcceptedCompiledProgram
-			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedProgramData.GetMetadata().LogicalSize != 0)
-		{
-			std::string Error;
-			const_cast<DMaterial*>(this)->LoadCookedProgram(Error);
-		}
-		return CompilationOwner.AcceptedCompiledProgram;
+		return Super::GetAcceptedCompiledProgram();
 	}
 
 	auto DMaterial::PostLoad() -> void
@@ -474,7 +439,7 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 				return;
 			}
-			CompilationOwner.AcceptedCompiledProgram.reset();
+			CompilationOwner.AcceptedGeneration.Program.reset();
 			CompilationOwner.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = std::format(
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
@@ -505,6 +470,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
+		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
 		if (Name == FName("Program") || (Name == FName("StaticProperties")
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastRequestedShaderProperties))
 		{
@@ -521,6 +487,15 @@ namespace Durin
 		else if (Name == FName("ParameterDefinitions"))
 		{
 			AdvanceRevision(ParameterDefinitionSchemaRevision);
+			std::vector<FMaterialCompilerParameterDeclaration> Declarations;
+			for (const auto& Definition : ParameterDefinitions)
+				Declarations.push_back({Definition.Id, Definition.Type});
+			std::ranges::sort(Declarations, {}, &FMaterialCompilerParameterDeclaration::Id);
+			if (Declarations != CompilationOwner.LastRequestedParameters)
+			{
+				AdvanceAuthoredRevision();
+				RequestProgramCompile(Program, StaticProperties);
+			}
 		}
 	}
 

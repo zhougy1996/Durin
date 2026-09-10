@@ -11,6 +11,7 @@
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Misc/Paths.h"
@@ -115,27 +116,31 @@ namespace
 		const Durin::FVector3& BaseColor,
 		float Metallic = 0.0f,
 		float Roughness = 0.5f,
-		float Opacity = 1.0f) -> Durin::DMaterial*
+		float Opacity = 1.0f) -> Durin::DMaterialInstance*
 	{
-		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		if (Material == nullptr)
+		static Durin::FObjectHandle RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		if (!Durin::IsValid(Root))
 		{
-			ADD_FAILURE() << "Failed to create GBuffer qualification material."
-				<< Name;
-			return nullptr;
+			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "GBufferVariantRoot");
+			if (!Root || !Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()))
+			{
+				ADD_FAILURE() << "Failed to create the shared variant graph.";
+				return {};
+			}
+			RootHandle = Durin::MakeObjectHandle(Root);
 		}
-		if (!Material->SetMaterialProgram(
-				Durin::MakePBRMaterialProgram()))
-		{
-			ADD_FAILURE() << "Failed to install GBuffer qualification material "
-				"program: " << Name;
-			return nullptr;
-		}
-		EXPECT_TRUE(Material->SetStaticProperties(
-			Durin::FMaterialStaticProperties{
-				.BlendMode = BlendMode,
-				.ShadingModel = ShadingModel,
-				.bTwoSided = true}));
+		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
+		Durin::FMaterialPropertyOverrides Overrides;
+		Overrides.bOverrideBlendMode = true;
+		Overrides.bOverrideShadingModel = true;
+		Overrides.bOverrideTwoSided = true;
+		Overrides.bOverrideOpacityMaskThreshold = true;
+		Overrides.Values.BlendMode = BlendMode;
+		Overrides.Values.ShadingModel = ShadingModel;
+		Overrides.Values.bTwoSided = true;
+		Overrides.Values.OpacityMaskThreshold = 0.333f;
+		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(), BaseColor));
 		EXPECT_TRUE(Material->SetScalarParameterValue(

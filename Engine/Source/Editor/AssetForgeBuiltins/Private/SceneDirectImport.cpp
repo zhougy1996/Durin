@@ -459,30 +459,34 @@ namespace Durin::AssetForge::Builtins
 							? "Scene material dependency is unavailable." : std::move(Error),
 						Descriptor.StableIdentity);
 				}
-				(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Standard);
 				auto* Material = Cast<DMaterialInstance>(Output.Candidate);
-				FMaterialStaticProperties Properties = Standard->GetStaticProperties();
+				FMaterialPropertyOverrides Overrides;
+				Overrides.bOverrideBlendMode = true;
+				Overrides.bOverrideOpacityMaskThreshold = true;
+				Overrides.bOverrideTwoSided = true;
+				auto& Properties = Overrides.Values;
 				Properties.BlendMode = Imported->AlphaMode == EImportedAlphaMode::Mask
 					? EMaterialBlendMode::Masked : Imported->AlphaMode == EImportedAlphaMode::Blend
 						? EMaterialBlendMode::Translucent : EMaterialBlendMode::Opaque;
 				Properties.bTwoSided = Imported->bDoubleSided;
 				Properties.OpacityMaskThreshold = Imported->AlphaCutoff;
-				if (!Material || !Material->SetParent(Standard)
-					|| !Material->SetStaticPropertiesOverride(Properties))
+				if (!Material || !Material->SetParentAndPropertyOverrides(Standard, Overrides))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
 						"scene-dependency-binding", "Scene material parent could not be applied.",
 						Descriptor.StableIdentity);
 				}
-				(void)Material->SetVectorParameterValue(
-					MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor));
-				(void)Material->SetScalarParameterValue(
-					MaterialParameters::OpacityName(), Imported->BaseColorFactor.a);
-				(void)Material->SetScalarParameterValue(
-					MaterialParameters::MetallicName(), Imported->MetallicFactor);
-				(void)Material->SetScalarParameterValue(
-					MaterialParameters::RoughnessName(), Imported->RoughnessFactor);
+				if (!Material->SetVectorParameterValue(
+						MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor))
+					|| !Material->SetScalarParameterValue(MaterialParameters::OpacityName(), Imported->BaseColorFactor.a)
+					|| !Material->SetScalarParameterValue(MaterialParameters::MetallicName(), Imported->MetallicFactor)
+					|| !Material->SetScalarParameterValue(MaterialParameters::RoughnessName(), Imported->RoughnessFactor))
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+						"scene-material-parameters", "Scene material parameter application failed.", Descriptor.StableIdentity);
+				}
 				const std::array<const FName*, 8> Names{
 					&MaterialParameters::BaseColorTextureName(),
 					&MaterialParameters::NormalTextureName(),
@@ -495,7 +499,6 @@ namespace Durin::AssetForge::Builtins
 				for (const FSceneMaterialTextureBinding& Binding : Descriptor.TextureBindings)
 				{
 					const FName Name = *Names[Binding.MaterialRole];
-					if (!Material->FindParameterDefinition(Name)) continue;
 					FPreparedSceneOutput* Texture = FindOutput(Binding.TextureIdentity);
 					if (!Texture || !Cast<DTexture2D>(Texture->Candidate))
 					{
@@ -504,8 +507,12 @@ namespace Durin::AssetForge::Builtins
 							"scene-dependency-binding", "Scene texture dependency is unavailable.",
 							Descriptor.StableIdentity);
 					}
-					(void)Material->SetTextureParameterValue(
-						Name, Cast<DTexture2D>(Texture->Candidate));
+					if (!Material->SetTextureParameterValue(Name, Cast<DTexture2D>(Texture->Candidate)))
+					{
+						Abandon(Prepared);
+						return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+							"scene-material-parameters", "Scene material texture application failed.", Descriptor.StableIdentity);
+					}
 				}
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
@@ -535,6 +542,22 @@ namespace Durin::AssetForge::Builtins
 						? "Scene candidate has no validated runtime data." : std::move(Error),
 					Descriptor.StableIdentity);
 			}
+		}
+
+		std::vector<DObject*> Materials;
+		for (auto& Output : Prepared)
+			if (Cast<DMaterialInstance>(Output.Candidate)) Materials.push_back(Output.Candidate);
+		FAssetCompilingManager::Get().FinishCompilationForObjects(Materials);
+		for (auto* Object : Materials)
+		{
+			auto* Material = Cast<DMaterialInstance>(Object);
+			if (Material->GetMaterialCompileStatus().IsCurrent() && Material->GetAcceptedCompiledProgram()) continue;
+			const auto Diagnostics = Material->GetMaterialCompileDiagnostics();
+			const std::string Message = Diagnostics.empty() ? "Scene material variant is not ready."
+				: Diagnostics.front().Source.Message;
+			Abandon(Prepared);
+			return AddError(OutResult, EImportDiagnosticCategory::ValidationFailure,
+				"scene-material-compile", Message);
 		}
 
 		std::vector<DPackage*> Packages;

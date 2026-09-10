@@ -552,6 +552,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
 		Durin::EMaterialParameterType::Texture,
 		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));
+	const std::array<Durin::DObject*, 3> Controls{TextureOnly, FactorOnly, FailedResourceMaterial};
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(Controls);
+	for (auto* Object : Controls)
+		ASSERT_TRUE(Durin::Cast<Durin::DMaterialInstance>(Object)->GetMaterialCompileStatus().IsCurrent());
+
 	Durin::FlushRenderingCommands();
 
 	Durin::Editor::FThumbnailVisualContract Contract;

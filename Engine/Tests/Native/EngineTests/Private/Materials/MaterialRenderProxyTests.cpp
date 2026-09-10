@@ -24,10 +24,8 @@ namespace
 	struct FMaterialProxySnapshot
 	{
 		Durin::FMaterialRenderData RenderData;
-		const Durin::FMaterialRenderProxy* ParentIdentity = nullptr;
 		uint64 LocalVersion = 0;
 		uint64 ResolvedVersion = 0;
-		uint64 ObservedParentResolvedVersion = 0;
 		uint64 StalePublicationCount = 0;
 	};
 
@@ -52,14 +50,10 @@ namespace
 					Snapshot.RenderData =
 						Proxy->Resolve_RenderThread();
 				}
-				Snapshot.ParentIdentity =
-					Proxy->GetParentProxyIdentity_RenderThread();
 				Snapshot.LocalVersion =
 					Proxy->GetLocalVersion_RenderThread();
 				Snapshot.ResolvedVersion =
 					Proxy->GetResolvedVersion_RenderThread();
-				Snapshot.ObservedParentResolvedVersion =
-					Proxy->GetObservedParentResolvedVersion_RenderThread();
 				Snapshot.StalePublicationCount =
 					Proxy->GetStalePublicationCount_RenderThread();
 			});
@@ -106,7 +100,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 	auto Validation = Base->SetMaterialProgram(Durin::MakeDefaultMaterialProgram());
 	ASSERT_TRUE(Validation);
 	const auto Dormant = CaptureMaterialProxy(Proxy);
-	EXPECT_EQ(Dormant.LocalVersion, Initial.LocalVersion);
+	EXPECT_GT(Dormant.LocalVersion, Initial.LocalVersion);
 	EXPECT_GT(Dormant.ResolvedVersion, Initial.ResolvedVersion);
 	ExpectRenderDataMatches(Dormant.RenderData, Instance->GetRenderData());
 	EXPECT_FALSE(Instance->SetVectorParameterValue(
@@ -116,7 +110,7 @@ TEST(FMaterialRenderProxyTests, ParentProgramChangesReevaluateDormantOverrides)
 			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	ASSERT_TRUE((Validation = Base->SetMaterialProgram(Durin::MakePBRMaterialProgram())));
 	const auto Restored = CaptureMaterialProxy(Proxy);
-	EXPECT_EQ(Restored.LocalVersion, Initial.LocalVersion);
+	EXPECT_GT(Restored.LocalVersion, Dormant.LocalVersion);
 	ExpectColorNear(GetMaterialBinding(Restored.RenderData).BaseColor,
 		Durin::FVector4f(0.1f, 0.3f, 0.8f, 1.0f));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
@@ -460,7 +454,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, OrdinarySetterDoesNotRunLoadedMaterialQuery)
+TEST(FMaterialRenderProxyTests, OrdinarySetterPublishesCompleteDependentLayers)
 {
 	FRenderSceneHarness Harness;
 	auto* Material = MakeExpandedMaterial(
@@ -473,11 +467,11 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterDoesNotRunLoadedMaterialQuery)
 		Durin::FVector3(0.25, 0.5, 0.75)));
 	const Durin::FMaterialLoadedQueryDiagnostics Diagnostics =
 		Durin::GetMaterialLoadedQueryDiagnostics();
-	EXPECT_EQ(Diagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::None);
-	EXPECT_EQ(Diagnostics.QueryCount, 0);
-	EXPECT_EQ(Diagnostics.SnapshotCount, 0);
-	EXPECT_EQ(Diagnostics.ScannedObjectCount, 0);
-	EXPECT_EQ(Diagnostics.ScannedMaterialCount, 0);
+	EXPECT_EQ(Diagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::Dependents);
+	EXPECT_EQ(Diagnostics.QueryCount, 1);
+	EXPECT_EQ(Diagnostics.SnapshotCount, 1);
+	EXPECT_GT(Diagnostics.ScannedObjectCount, 0);
+	EXPECT_GT(Diagnostics.ScannedMaterialCount, 0);
 
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
@@ -888,11 +882,11 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		Durin::GetMaterialLoadedQueryDiagnostics();
 	EXPECT_EQ(
 		QueryDiagnostics.LastOperation,
-		Durin::EMaterialLoadedQueryOperation::None);
-	EXPECT_EQ(QueryDiagnostics.QueryCount, 0);
-	EXPECT_EQ(QueryDiagnostics.SnapshotCount, 0);
-	EXPECT_EQ(QueryDiagnostics.ScannedObjectCount, 0);
-	EXPECT_EQ(QueryDiagnostics.ScannedMaterialCount, 0);
+		Durin::EMaterialLoadedQueryOperation::Dependents);
+	EXPECT_EQ(QueryDiagnostics.QueryCount, 12);
+	EXPECT_EQ(QueryDiagnostics.SnapshotCount, 12);
+	EXPECT_GT(QueryDiagnostics.ScannedObjectCount, 0);
+	EXPECT_GT(QueryDiagnostics.ScannedMaterialCount, 0);
 	const Durin::FMaterialRenderProxyCounters ProxyCounters =
 		Durin::GetMaterialRenderProxyCounters();
 	EXPECT_GE(ProxyCounters.PublicationCount, 1);

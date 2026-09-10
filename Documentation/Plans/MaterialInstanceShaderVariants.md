@@ -2,37 +2,37 @@
 
 Summary: Let one base material graph produce inherited instance render configurations with shared compiled variants, atomic publication, and cooked runtime support.
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Execution started on 2026-09-10. Stage 0 is complete: source audit, selected
-contracts, registered qualification lanes and executable baseline receipts are
-recorded below. Stage 1 is complete: per-field properties, bounded resolution,
-deprecated-field migration, canonical identities and safe proxy compatibility
-checks passed 139 MaterialTests and a full editor build. Execution resumed at the user's request on 2026-09-10. Stage 2 implementation
-is complete and passed all 140 MaterialTests. Stage 3 publication is next;
-instances still use the Stage 1 render compatibility boundary until that lands.
-The selected workflow permits authored
-instances to override shader-affecting properties instead of generating a base
-material asset for each rendering configuration.
+Stages 0–2 are committed. Implementation of complete accepted instance
+generations, shared DMAT v5 instance payloads, editor controls and import readiness
+is present; final regression qualification is in progress. The plan remains
+Active until the remaining qualification and scene reimport scope gates below
+are resolved.
 
-The legacy complete setter now delegates to five independent flags; scene import
-still uses that compatibility wrapper pending Stage 5. Non-Masked cutoffs share
-canonical compiler identity while authored values survive. Both
-`GetAcceptedCompiledProgram()` and the render proxy reject shader-affecting
-differences from the parent's accepted configuration. The proxy still inherits
-packed parent representation data; independent variants and accepted layouts
-remain the work of Stages 2 and 3.
+Execution resumed on 2026-09-10 at the user's request. Stage 2 commit is
+`0cc812231`; its 140-test receipt is recorded below. Final-stage work continues
+on 2026-09-11. Stage 3 and Stage 4 code are validated together to preserve the
+existing cooked-instance tests while replacing parent-only publication.
 
-The existing material compiler already supports immutable inputs, deterministic
-identities, shared flights/results, bounded retention, generation-safe admission,
-and last-known-good publication. Its owner APIs and aggregate filtering currently
-target `DMaterial`. Cook serialization likewise belongs to `DMaterial`, while
-instances inherit their parent's accepted result.
+Implementation findings: multi-asset Cook reachability seeded only the first
+export and pruned independent top-level variants. All top-level exports now seed
+reachability; nested graph-only subobjects remain subject to pruning. The new
+nested-variant package roundtrip covers this seam. Material recipe version 3
+invalidates old incremental DMAT output. Existing transient runtime compatibility
+adopts precompiled parent code only; it does not implement M8.
+
+The current Scene importer is creation-only under its owning architecture; there
+is no supported reimport/reconciliation path to qualify. The requested scene
+reimport-reuse gate remains unresolved rather than silently adding a second
+import lifecycle. Win64 Game execution also needs a Windows lane; the local
+macOS editor tests can verify Win64 payload metadata/codec and graph-stripped
+loads but cannot supply native Win64 Game execution evidence.
 
 ## Goal
 
@@ -456,10 +456,10 @@ Production instance rendering intentionally remains behind Stage 3.
 
 Depends on Stage 2.
 
-- [ ] Replace parent-code-only acceptance with the common accepted variant state.
-- [ ] Resolve parameter layers against the accepted variant contract; remove packed
+- [x] Replace parent-code-only acceptance with the common accepted variant state.
+- [x] Resolve parameter layers against the accepted variant contract; remove packed
   parent-layout assumptions and shader-identity mutation through local static layers.
-- [ ] Implement last-known-good retention, compatible dynamic edits during compile,
+- [x] Implement last-known-good retention, compatible dynamic edits during compile,
   atomic pass configuration changes and correct error/resource retirement behavior.
 - [ ] Qualify StaticMesh/SplineMesh (and the current shared geometry submission
   contract), forward/GBuffer/shadow, preview and thumbnail publication paths.
@@ -472,13 +472,13 @@ variant does not depend on successful compilation of the parent's default varian
 
 Depends on Stage 3; follow the accepted shared archive/BulkData interfaces.
 
-- [ ] Generalize Cook admission and codec use to instances; serialize each effective
+- [x] Generalize Cook admission and codec use to instances; serialize each effective
   payload and required parent dependencies without modifying shared root assets.
-- [ ] Enforce current target/dependency/request freshness and strict version,
+- [x] Enforce current target/dependency/request freshness and strict version,
   checksum, effective configuration and parameter-contract checks.
 - [ ] Load nested instance fixtures in Win64 Game without authored graphs, shader
   sources, editor DDC or a live compiler; test corrupted/missing/wrong payloads.
-- [ ] Measure repeated payload storage and document the retained duplication tradeoff.
+- [x] Measure repeated payload storage and document the retained duplication tradeoff.
 
 Exit: all fixture configurations survive Cook/load with matching identities and
 rendering; stale/failed Cook cannot succeed by substituting last-known-good/error.
@@ -487,13 +487,13 @@ rendering; stale/failed Cook cannot succeed by substituting last-known-good/erro
 
 Depends on Stage 4, so the public workflow produces shippable assets.
 
-- [ ] Expose independent rendering override controls, inherit/reset and effective
+- [x] Expose independent rendering override controls, inherit/reset and effective
   source labels; show instance compile status, diagnostics and last-known-good state.
-- [ ] Route UI, reflected edits, Undo/Redo and structured callers through shared
+- [x] Route UI, reflected edits, Undo/Redo and structured callers through shared
   mutation/compile semantics; apply related property edits as one transaction/request.
-- [ ] Keep one imported-surface graph; apply source alpha mode/cutoff/two-sided
+- [x] Keep one imported-surface graph; apply source alpha mode/cutoff/two-sided
   intent to instances through the new API. Remove the full-static setter usage.
-- [ ] Check parameter application outcomes and compilation readiness explicitly;
+- [x] Check parameter application outcomes and compilation readiness explicitly;
   integrate variant failure into the existing import candidate/commit lifecycle.
   Finish shared work in batches where synchronous import publication requires it.
 - [ ] Verify save/reload, reimport reuse, texture alpha, masked threshold boundaries,
@@ -508,16 +508,71 @@ Depends on Stage 5.
 
 - [ ] Run the bounded affected CPU/Cook suites and the explicit GPU matrix below;
   record commands, results, unavailable lanes and resource counter receipts.
-- [ ] Remove obsolete broad override APIs, parent-only compatibility branches and
+- [x] Remove obsolete broad override APIs, parent-only compatibility branches and
   base-only compilation assumptions; retain only required legacy migration readers.
-- [ ] Document implemented contracts in MaterialSystem, asset compilation and the
+- [x] Document implemented contracts in MaterialSystem, asset compilation and the
   relevant editor/import authority, then update the parent roadmap.
-- [ ] Record remaining threshold/deduplication follow-ups as deferred scope without
+- [x] Record remaining threshold/deduplication follow-ups as deferred scope without
   claiming runtime M8 or reusable-function M11 completion.
 
 Exit: every required gate has evidence, migration and clean runtime loading pass,
 and durable documentation describes the implemented behavior. Complete this plan
 only after these gates; planning approval is not implementation completion.
+
+## Execution Evidence (2026-09-11)
+
+The implementation now publishes complete instance generations, routes cooked
+assets through shared DMAT v5 admission, removes broad override setters and
+parent render-layer inheritance, and exposes transactional per-field editor
+controls. Disabled controls display effective inherited values while preserving
+dormant authored overrides. Scene import validates parameter application and
+finishes all candidate variants before commit. Cooked mode rejects all shader
+compile requests, including base construction and setter paths.
+
+All receipts below are under `Build/.agent-state/logs/`. The host profile is
+`macos-xcode-arm64`, preset `MacOS-arm64-Debug-DurinEditor`.
+
+| Command | Result | Receipt |
+| --- | --- | --- |
+| `./DevTool build` | Target `all` passed, including editor integration | `20260911-001451-649038-51970-cmake.log` |
+| `./DevTool test MaterialTests` | 140/140 passed | `20260911-001031-094226-51425-MaterialTests.log` |
+| `./DevTool test MaterialThumbnailTests` | 8/8 passed | `20260911-000455-968106-51030-MaterialThumbnailTests.log` |
+| `./DevTool test SceneImportTests` | 4/4 passed | `20260910-235655-659292-49694-SceneImportTests.log` |
+| `./DevTool test AssetCookTests` | 21/21 passed | `20260911-000159-708252-50765-AssetCookTests.log` |
+| `./DevTool test StandaloneCookProcessTests` | 2/2 passed, including three cross-package nested variants and incremental reuse | `20260911-001236-302109-51717-StandaloneCookProcessTests.log` |
+| `./DevTool test SplineTests` | 42/42 passed | `20260911-001312-231326-51776-SplineTests.log` |
+| `./DevTool test MaterialVulkanTests --mode qualification` | Passed on Apple M4 | `20260911-000524-909441-51107-ctest.log` |
+| `./DevTool test SceneImportVulkanTests --mode qualification` | Passed on Apple M4 | `20260911-000727-839763-51319-ctest.log` |
+| `./DevTool test StaticMeshRenderPreparationVulkanTests --mode qualification` | Passed; instance blend/cull/depth, StaticMesh/SplineMesh and multi-batch geometry | `20260911-001056-895257-51574-ctest.log` |
+
+The eight-instance fixture measures four effective identities, eight accepted
+instances, 13 instance requests / 14 total completed owner requests, four retained
+programs / 670644 bytes, 1062434 total instance DMAT bytes and 130749 root DMAT
+bytes. Shutdown and saturation fixtures verify drain and bounded retry. Payload
+bytes deliberately repeat across packages; threshold parameterization and global
+cooked deduplication remain deferred, and this work does not complete M8 or M11.
+
+Two broader qualification selections failed and are not counted as passing:
+
+- `./DevTool test GBufferQualificationTests --mode qualification`: the combined
+  renderer fixture expected 150 volumetric-cloud timing queries but received zero
+  with clouds disabled, then aborted during cleanup. Instance receipt:
+  `20260911-001131-177541-51603-ctest.log`. Repeating with its original
+  base-material fixture reproduced the same failure:
+  `20260911-001425-030805-51919-ctest.log`.
+- `./DevTool test DirectionalShadowBaselineVulkanTests --mode qualification`:
+  frozen image hashes and exact motion counts differed on Apple M4. Instance
+  receipt: `20260911-001156-514666-51647-ctest.log`. The original base-material
+  fixture reproduced the failure (`20260911-001347-250554-51859-ctest.log`);
+  all 150 reported actual/expected hash entries were identical between runs.
+  The variant fixtures were restored after these control runs; no frozen
+  expectations or required assertions were weakened.
+
+Remaining completion gates: native Win64 Game execution without compiler/DDC;
+resolution of the unsupported scene reimport requirement; and successful required
+GPU qualification evidence. The macOS standalone process test proves standalone
+Cook and editor-hosted graph-stripped loads, not a native Win64 Game launch.
+The reimport scope question has been sent to the user; no scope waiver is assumed.
 
 ## Validation Gates
 

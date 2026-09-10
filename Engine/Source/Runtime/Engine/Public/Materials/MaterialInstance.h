@@ -16,6 +16,9 @@ namespace Durin
 		ENGINE_API explicit DMaterialInstance(const FObjectInitializer& ObjectInitializer);
 
 		ENGINE_API auto SetParent(DMaterialInterface* InParent) -> bool;
+		// Validates and applies a related parent/configuration edit with one request.
+		ENGINE_API auto SetParentAndPropertyOverrides(DMaterialInterface* InParent,
+			const FMaterialPropertyOverrides& Overrides) -> bool;
 		ENGINE_API auto GetParent() const -> DMaterialInterface* override;
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
 		ENGINE_API auto GetRenderableStaticProperties() const
@@ -28,10 +31,6 @@ namespace Durin
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
 		ENGINE_API auto SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool;
 		auto GetPropertyOverrides() const -> const FMaterialPropertyOverrides& { return PropertyOverrides; }
-		ENGINE_API auto SetStaticPropertiesOverride(
-			const FMaterialStaticProperties& InProperties) -> bool;
-		ENGINE_API auto ClearStaticPropertiesOverride() -> bool;
-		auto HasStaticPropertiesOverride() const -> bool { return PropertyOverrides.HasAnyOverride(); }
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		// Authored assets admit edits before compilation; cooked assets use the compiled contract.
 		ENGINE_API auto SetParameterOverride(

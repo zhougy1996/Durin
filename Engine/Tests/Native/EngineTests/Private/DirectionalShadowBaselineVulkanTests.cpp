@@ -16,6 +16,7 @@
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
@@ -328,25 +329,30 @@ namespace
 		-> Durin::FMaterialRenderProxyRef
 	{
 		static uint64 MaterialIndex = 0;
-		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr,
-			std::format("DirectionalShadowMaterial{}", ++MaterialIndex));
-		if (Material == nullptr)
+		++MaterialIndex;
+		static Durin::FObjectHandle RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		if (!Durin::IsValid(Root))
 		{
-			ADD_FAILURE() << "Failed to create the directional-shadow test material.";
-			return {};
+			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "DirectionalShadowVariantRoot");
+			if (!Root || !Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()))
+			{
+				ADD_FAILURE() << "Failed to create the shared variant graph.";
+				return {};
+			}
+			RootHandle = Durin::MakeObjectHandle(Root);
 		}
-		if (!Material->SetMaterialProgram(
-				Durin::MakePBRMaterialProgram()))
-		{
-			ADD_FAILURE() << "Failed to install the directional-shadow material program.";
-			return {};
-		}
-		EXPECT_TRUE(Material->SetStaticProperties(Durin::FMaterialStaticProperties{
-			.BlendMode = BlendMode,
-			.ShadingModel = ShadingModel,
-			.bTwoSided = true,
-			.OpacityMaskThreshold = 0.4f
-		}));
+		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, std::format("DirectionalShadowMaterial{}", MaterialIndex));
+		Durin::FMaterialPropertyOverrides Overrides;
+		Overrides.bOverrideBlendMode = true;
+		Overrides.bOverrideShadingModel = true;
+		Overrides.bOverrideTwoSided = true;
+		Overrides.bOverrideOpacityMaskThreshold = true;
+		Overrides.Values.BlendMode = BlendMode;
+		Overrides.Values.ShadingModel = ShadingModel;
+		Overrides.Values.bTwoSided = true;
+		Overrides.Values.OpacityMaskThreshold = 0.4f;
+		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(), Emissive));
 		EXPECT_TRUE(Material->SetVectorParameterValue(

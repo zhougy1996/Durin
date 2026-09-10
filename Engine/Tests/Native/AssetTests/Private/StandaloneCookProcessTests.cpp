@@ -17,6 +17,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
 
@@ -238,6 +239,20 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(SavePackage(Volume->GetPackage()));
 	auto* Material = Make.operator()<DMaterial>("Material");
 	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	DMaterialInterface* Parent = Material;
+	for (int Index = 0; Index < 3; ++Index)
+	{
+		auto* Instance = Make.operator()<DMaterialInstance>(std::format("Variant{}", Index));
+		FMaterialPropertyOverrides Overrides;
+		Overrides.bOverrideBlendMode = true;
+		Overrides.bOverrideOpacityMaskThreshold = true;
+		Overrides.Values.BlendMode = Index < 2 ? EMaterialBlendMode::Masked : EMaterialBlendMode::Translucent;
+		Overrides.Values.OpacityMaskThreshold = Index == 0 ? 0.25f : 0.75f;
+		ASSERT_TRUE(Instance->SetParentAndPropertyOverrides(Parent, Overrides));
+		ASSERT_TRUE(SavePackage(Instance->GetPackage()));
+		Parent = Instance;
+	}
+
 	auto* Mesh = Make.operator()<DStaticMesh>("Mesh");
 	FStaticMeshDecodedGeometry Geometry;
 	Geometry.MaterialSlots.push_back({"Material", 0, "Material"});
@@ -270,7 +285,7 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	ASSERT_TRUE(SavePackage(Alias->GetPackage()));
 	const auto Before = Inventory(Source);
 	const auto Output = Fixture / "Output";
-	const std::string Roots = "--root=/Game/Alias --root=/Game/Cube --root=/Game/Volume --root=/Game/Material --root=/Game/Mesh --root=/Game/Environment";
+	const std::string Roots = "--root=/Game/Alias --root=/Game/Cube --root=/Game/Volume --root=/Game/Material --root=/Game/Mesh --root=/Game/Environment --root=/Game/Variant2";
 	ASSERT_EQ(RunCook(Project, Output, Roots), 0);
 	EXPECT_EQ(Inventory(Source), Before);
 	const auto First = Inventory(Output / "Game");
@@ -301,6 +316,17 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 		EXPECT_NE(Loaded, nullptr);
 		auto* Asset = Loaded->FindTopLevelAsset(Path.GetPackageName());
 		ASSERT_NE(Asset, nullptr);
+		if (auto* LoadedMaterial = Cast<DMaterialInterface>(Asset))
+		{
+			const auto Program = LoadedMaterial->GetAcceptedCompiledProgram();
+			ASSERT_TRUE(Program) << LoadedMaterial->GetMaterialCookDiagnostic();
+			EXPECT_TRUE(LoadedMaterial->GetMaterialCompileStatus().IsCurrent());
+			EXPECT_TRUE(Program->IR.Nodes.empty());
+			EXPECT_TRUE(Program->GeneratedSource.empty());
+			EXPECT_GT(LoadedMaterial->GetCookedProgramData().GetMetadata().LogicalSize, 0u);
+			EXPECT_FALSE(LoadedMaterial->GetRenderData().Representation.IsError());
+		}
+
 		if (Asset->IsA(DTexture::StaticClass()))
 			EXPECT_TRUE(static_cast<DTexture*>(Asset)->EnsurePlatformDataLoadedBlocking());
 		if (Asset->IsA(DStaticMesh::StaticClass()))

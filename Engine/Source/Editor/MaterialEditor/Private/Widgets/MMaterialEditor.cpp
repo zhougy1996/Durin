@@ -109,6 +109,7 @@ namespace Durin::Editor::Material
 			switch (State)
 			{
 			case EMaterialCompileState::NeverRequested: return "Not compiled";
+			case EMaterialCompileState::Deferred: return "Waiting for compiler capacity";
 			case EMaterialCompileState::Pending: return "Compiling";
 			case EMaterialCompileState::Running: return "Compiling";
 			case EMaterialCompileState::Ready: return "Ready";
@@ -522,21 +523,22 @@ namespace Durin::Editor::Material
 	{
 		if (ImGui::Button("Save")) SaveMaterial(Material);
 		ImGui::SameLine();
-		if (DMaterial* Base = FindCompiledBase(Material))
+		if (Material)
 		{
-			const FMaterialCompileStatus& Status = Base->GetMaterialCompileStatus();
-			const bool bPending = Status.State == EMaterialCompileState::Pending
+			const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
+			const bool bPending = Status.State == EMaterialCompileState::Deferred
+				|| Status.State == EMaterialCompileState::Pending
 				|| Status.State == EMaterialCompileState::Running;
 			if (bPending)
 			{
 				if (ImGui::Button("Cancel Compile"))
-					FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Base);
+					FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Material);
 			}
 			else if (ImGui::Button(Status.State == EMaterialCompileState::Failed
 				|| Status.State == EMaterialCompileState::Rejected
 					? "Retry Compile" : "Recompile"))
 			{
-				RequestMaterialRecompile(*Base, true);
+				RequestMaterialRecompile(*Material, true);
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
@@ -648,12 +650,12 @@ namespace Durin::Editor::Material
 		DMaterialInterface* Material) -> void
 	{
 		DMaterial* Base = FindCompiledBase(Material);
-		if (!Base)
+		if (!Material)
 		{
 			ImGui::TextDisabled("Compiled program: unavailable");
 			return;
 		}
-		const FMaterialCompileStatus& Status = Base->GetMaterialCompileStatus();
+		const FMaterialCompileStatus& Status = Material->GetMaterialCompileStatus();
 		const bool bCanNavigateGraph = Cast<DMaterial>(Material) != nullptr;
 		ImGui::Text("Compile: %s", FormatCompileState(Status.State));
 		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
@@ -667,7 +669,7 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("Preview uses the last known good program.");
 		uint32 DiagnosticIndex = 0;
 		for (const FMaterialCompileDiagnostic& Diagnostic
-			: Base->GetMaterialCompileDiagnostics())
+			: Material->GetMaterialCompileDiagnostics())
 		{
 			ImGui::PushID(static_cast<int>(DiagnosticIndex++));
 			bool bLocated = false;
@@ -675,7 +677,7 @@ namespace Durin::Editor::Material
 			{
 			case EMaterialProgramDiagnosticLocationKind::Node:
 			case EMaterialProgramDiagnosticLocationKind::Input:
-				bLocated = std::ranges::find(
+				bLocated = Base && std::ranges::find(
 					Base->GetMaterialProgram()->Nodes,
 					Diagnostic.Source.NodeId,
 					&FMaterialProgramNode::Id)
@@ -706,7 +708,7 @@ namespace Durin::Editor::Material
 					? " (stale location)" : "");
 			ImGui::PopID();
 		}
-		const std::string_view CookDiagnostic = Base->GetMaterialCookDiagnostic();
+		const std::string_view CookDiagnostic = Material->GetMaterialCookDiagnostic();
 		if (!CookDiagnostic.empty())
 			ImGui::TextWrapped("Cook: %.*s",
 				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
@@ -804,6 +806,60 @@ namespace Durin::Editor::Material
 		{
 			DrawParentPicker(Instance);
 			MonaImGui::PropertyEdit::EndTable();
+		}
+		ImGui::SeparatorText("Rendering Overrides");
+		auto Overrides = Instance->GetPropertyOverrides();
+		const std::array<const char*, 5> Labels{"Blend mode", "Shading model", "Mask threshold", "Two sided", "Depth write"};
+		const std::array<bool*, 5> Flags{&Overrides.bOverrideBlendMode, &Overrides.bOverrideShadingModel,
+			&Overrides.bOverrideOpacityMaskThreshold, &Overrides.bOverrideTwoSided, &Overrides.bOverrideDepthWritePolicy};
+		FResolvedMaterialProperties Resolved;
+		std::string ResolveError;
+		const bool bResolved = ResolveMaterialProperties(*Instance, Resolved, ResolveError);
+		bool bChanged = false;
+		for (size_t Index = 0; Index < Labels.size(); ++Index)
+		{
+			ImGui::PushID(static_cast<int>(Index));
+			bChanged |= ImGui::Checkbox(Labels[Index], Flags[Index]);
+			ImGui::SameLine();
+			auto InheritedValues = bResolved ? Resolved.Properties : Overrides.Values;
+			auto& DisplayValues = *Flags[Index] ? Overrides.Values : InheritedValues;
+			ImGui::BeginDisabled(!*Flags[Index]);
+			if (Index == 0 || Index == 1 || Index == 4)
+			{
+				int Value = Index == 0 ? static_cast<int>(DisplayValues.BlendMode)
+					: Index == 1 ? static_cast<int>(DisplayValues.ShadingModel)
+					: static_cast<int>(DisplayValues.DepthWritePolicy);
+				const char* Items = Index == 0 ? "Opaque\0Masked\0Translucent\0"
+					: Index == 1 ? "Lit\0Unlit\0" : "Automatic\0Enabled\0Disabled\0";
+				if (ImGui::Combo("##Value", &Value, Items))
+				{
+					bChanged = true;
+					if (Index == 0) DisplayValues.BlendMode = static_cast<EMaterialBlendMode>(Value);
+					else if (Index == 1) DisplayValues.ShadingModel = static_cast<EMaterialShadingModel>(Value);
+					else DisplayValues.DepthWritePolicy = static_cast<EMaterialDepthWritePolicy>(Value);
+				}
+			}
+			else if (Index == 2)
+				bChanged |= ImGui::InputFloat("##Value", &DisplayValues.OpacityMaskThreshold, 0, 0, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue);
+			else bChanged |= ImGui::Checkbox("Enabled", &DisplayValues.bTwoSided);
+			ImGui::EndDisabled();
+			if (bResolved)
+			{
+				const auto* Source = ResolveObjectHandle(Resolved.Sources[Index]);
+				ImGui::TextDisabled("Source: %s", Source ? Source->GetObjectPath().c_str() : "unavailable");
+			}
+			ImGui::PopID();
+		}
+		ImGui::TextDisabled("Clear a checkbox to inherit that property.");
+		if (!bResolved) ImGui::TextWrapped("%s", ResolveError.c_str());
+		if (bChanged)
+		{
+			if (auto* Property = Instance->GetClass()->FindPropertyByName(FName("PropertyOverrides")))
+				PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
+					::Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property),
+					[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+						*ScratchProperty->ContainerPtrToValuePtr<FMaterialPropertyOverrides>(ScratchContainer, ScratchArrayIndex) = Overrides;
+					}, false);
 		}
 		ImGui::SeparatorText("Parameter Overrides");
 		if (!MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig())) return;

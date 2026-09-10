@@ -107,10 +107,21 @@ namespace Durin
 
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool
 	{
-		if (WouldCreateParentCycle(this, InParent)) return false;
-		if (Parent == InParent) return true;
+		return SetParentAndPropertyOverrides(InParent, PropertyOverrides);
+	}
+
+	auto DMaterialInstance::SetParentAndPropertyOverrides(DMaterialInterface* InParent,
+		const FMaterialPropertyOverrides& Overrides) -> bool
+	{
+		std::string Error;
+		if (WouldCreateParentCycle(this, InParent)
+			|| !ValidateMaterialStaticProperties(Overrides.Values, Error)) return false;
+		const bool bParentChanged = Parent != InParent;
+		if (!bParentChanged && PropertyOverrides == Overrides) return true;
 		Parent = InParent;
-		InvalidateMaterialCompilation();
+		PropertyOverrides = Overrides;
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) AdoptParentRuntimeProgram();
+		else InvalidateMaterialCompilation(true, !bParentChanged);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		return true;
@@ -154,8 +165,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("PropertyOverrides"))
 		{
-			if (CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.LastRequestedShaderProperties)
-				InvalidateMaterialCompilation();
+			InvalidateMaterialCompilation(true, true);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
 		}
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"))
@@ -182,16 +192,7 @@ namespace Durin
 	auto DMaterialInstance::GetRenderableStaticProperties() const
 		-> FMaterialStaticProperties
 	{
-		FResolvedMaterialProperties Resolved;
-		std::string Error;
-		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
-		FMaterialStaticProperties Result = Parent != nullptr
-			? Parent->GetRenderableStaticProperties()
-			: Super::GetRenderableStaticProperties();
-		PropertyOverrides.ApplyTo(Result);
-		const auto Shader = CanonicalizeMaterialShaderProperties(Result);
-		Result.OpacityMaskThreshold = Shader.OpacityMaskThreshold;
-		return Result;
+		return Super::GetRenderableStaticProperties();
 	}
 
 	auto DMaterialInstance::GetMaterialProgram() const
@@ -200,7 +201,8 @@ namespace Durin
 		FResolvedMaterialProperties Resolved;
 		std::string Error;
 		if (!ResolveMaterialProperties(*this, Resolved, Error)) return nullptr;
-		return Parent ? Parent->GetMaterialProgram() : nullptr;
+		auto* Root = Cast<DMaterialInterface>(ResolveObjectHandle(Resolved.Root));
+		return Root ? Root->GetMaterialProgram() : nullptr;
 	}
 
 	auto DMaterialInstance::GetAcceptedCompiledProgram() const
@@ -209,43 +211,12 @@ namespace Durin
 		FResolvedMaterialProperties Resolved;
 		std::string Error;
 		if (!ResolveMaterialProperties(*this, Resolved, Error)) return nullptr;
-		if (!Parent) return nullptr;
-		const auto Program = Parent->GetAcceptedCompiledProgram();
-		if (!Program) return nullptr;
-		const FMaterialStaticProperties Compiled =
-			Parent->GetRenderableStaticProperties();
-		// Pipeline-only state may reuse the parent's code. Shader-affecting state
-		// must never publish that code as a compatible instance permutation.
-		if (CanonicalizeMaterialShaderProperties(GetRenderableStaticProperties())
-			!= CanonicalizeMaterialShaderProperties(Compiled))
-			return nullptr;
-		return Program;
-	}
-
-	auto DMaterialInstance::SetStaticPropertiesOverride(
-		const FMaterialStaticProperties& InProperties) -> bool
-	{
-		return SetPropertyOverrides({true, true, true, true, true, InProperties});
+		return Super::GetAcceptedCompiledProgram();
 	}
 
 	auto DMaterialInstance::SetPropertyOverrides(const FMaterialPropertyOverrides& Overrides) -> bool
 	{
-		std::string Error;
-		if (!ValidateMaterialStaticProperties(Overrides.Values, Error)) return false;
-		if (PropertyOverrides == Overrides) return true;
-		PropertyOverrides = Overrides;
-		InvalidateMaterialCompilation(true, true);
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
-		return true;
-	}
-
-	auto DMaterialInstance::ClearStaticPropertiesOverride() -> bool
-	{
-		if (!PropertyOverrides.HasAnyOverride()) return false;
-		FMaterialPropertyOverrides Cleared;
-		Cleared.Values = PropertyOverrides.Values;
-		return SetPropertyOverrides(Cleared);
+		return SetParentAndPropertyOverrides(Parent.Get(), Overrides);
 	}
 
 	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
@@ -253,7 +224,8 @@ namespace Durin
 		FResolvedMaterialProperties Resolved;
 		std::string Error;
 		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
-		return Parent != nullptr ? Parent->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
+		auto* Root = Cast<DMaterialInterface>(ResolveObjectHandle(Resolved.Root));
+		return Root ? Root->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
 	}
 
 	auto DMaterialInstance::GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>
@@ -263,20 +235,27 @@ namespace Durin
 
 	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
-		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
+		const auto* Definition = FindParameterDefinition(Id);
 		if (!Definition) return false;
-		if (const FMaterialParameterOverride* Override = FindOverride(ParameterOverrides, Id);
-			Override && Override->Type == Definition->Type)
+		// Property resolution already bounded and validated this chain. Walk it
+		// once instead of recursively repeating declaration lookup at every layer.
+		const DMaterialInterface* Owner = this;
+		for (uint32 Depth = 0; Owner && Depth < MaterialMaximumParentDepth; ++Depth)
 		{
-			OutParameter.Definition = Definition;
-			OutParameter.Value = Override->Value;
-			OutParameter.Source = const_cast<DMaterialInstance*>(this);
-			OutParameter.bHasLocalOverride = true;
-			return true;
+			const auto* Instance = Cast<DMaterialInstance>(Owner);
+			if (!Instance) return Owner->ResolveParameterValue(Id, OutParameter);
+			if (const auto* Override = FindOverride(Instance->ParameterOverrides, Id);
+				Override && Override->Type == Definition->Type)
+			{
+				OutParameter.Definition = Definition;
+				OutParameter.Value = Override->Value;
+				OutParameter.Source = const_cast<DMaterialInstance*>(Instance);
+				OutParameter.bHasLocalOverride = Instance == this;
+				return true;
+			}
+			Owner = Instance->GetParent();
 		}
-		if (Parent == nullptr || !Parent->ResolveParameterValue(Id, OutParameter)) return false;
-		OutParameter.bHasLocalOverride = false;
-		return true;
+		return false;
 	}
 
 	auto DMaterialInstance::SetParameterOverride(
@@ -467,32 +446,7 @@ namespace Durin
 	auto DMaterialInstance::BuildMaterialLocalRenderLayer() const
 		-> FMaterialLocalRenderLayer
 	{
-		FMaterialLocalRenderLayer Result;
-		if (PropertyOverrides.HasAnyOverride())
-			Result.PropertyOverrides = PropertyOverrides;
-		Result.Parameters.reserve(ParameterOverrides.size());
-		for (const FMaterialParameterOverride& Override
-			: ParameterOverrides)
-		{
-			// Preserve dormant overrides in the proxy; resolve against the parent's
-			// current compiled contract when its generation changes.
-			const FMaterialParameterDefinition* Definition =
-				FindParameterDefinition(Override.ParameterId);
-			if (!Definition || Definition->Type != Override.Type)
-			{
-				const auto Accepted = GetAcceptedCompiledProgram();
-				if (!Accepted) continue;
-				const auto Active = std::ranges::find(Accepted->ActiveParameters,
-					Override.ParameterId, &FMaterialCompilerParameterDeclaration::Id);
-				if (Active == Accepted->ActiveParameters.end() || Active->Type != Override.Type) continue;
-			}
-			Result.Parameters.push_back(
-				BuildMaterialLocalRenderParameter(
-					Override.ParameterId,
-					Override.Type,
-					Override.Value));
-		}
-		return Result;
+		return Super::BuildMaterialLocalRenderLayer();
 	}
 
 	auto DMaterialInstance::PostLoad() -> void
@@ -531,8 +485,16 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}; disabling static property overrides.", GetObjectPath(), Error);
 			PropertyOverrides = {};
 		}
-		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			RequestMaterialRecompile(*this);
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload())
+		{
+			CompilationOwner.AcceptedGeneration = {};
+			if (CookedProgramData.GetMetadata().LogicalSize == 0)
+			{
+				MaterialCookDiagnostic = "Cooked material instance requires its own ProgramData field.";
+				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), MaterialCookDiagnostic);
+			}
+		}
+		else RequestMaterialRecompile(*this);
 		PublishMaterialRenderProxyState();
 	}
 }

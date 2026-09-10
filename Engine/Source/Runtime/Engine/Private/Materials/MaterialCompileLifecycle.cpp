@@ -806,9 +806,9 @@ namespace Durin
 				Material.CompilationOwner.MaterialCompileStatus.CacheOutcome =
 					EMaterialCompileCacheOutcome::None;
 				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood =
-					Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+					Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
-					Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+					Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 
 				FMaterialCompileRequest Request{
@@ -839,9 +839,37 @@ namespace Durin
 							>= MaterialProgramMaxDiagnosticCount) break;
 						Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 							Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-							Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
+							Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
 					}
 					return false;
+				}
+
+				// Tooling can adopt the root's exact immutable result through normal
+				// owner admission even when no asynchronous retained store is running.
+				if (!bForceRecompile && (!Compilation || !Compilation->IsAccepting()
+					|| FScopedOfflinePreparation::IsActive()))
+				{
+					for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+					{
+						auto* Owner = Cast<DMaterialInterface>(Object);
+						if (!IsValid(Owner)) continue;
+						const auto Program = Owner->CompilationOwner.AcceptedGeneration.Program;
+						if (Program && Program->Identity == Request.ProgramIdentity)
+						{
+							return Admit(Material, {
+								.Owner = Request.Owner,
+								.AuthoredRevision = Request.AuthoredRevision,
+								.Generation = Request.Generation,
+								.DependencyRevision = Request.DependencyRevision,
+								.ParentChainRevision = Request.ParentChainRevision,
+								.ProgramIdentity = Request.ProgramIdentity,
+								.StaticProperties = Request.CompilerInput.StaticProperties,
+								.Target = Request.Target,
+								.State = EMaterialCompileState::Ready,
+								.CacheOutcome = EMaterialCompileCacheOutcome::RetainedHit,
+								.CompiledProgram = Program});
+						}
+					}
 				}
 
 				if (FScopedOfflinePreparation::IsActive()
@@ -877,7 +905,7 @@ namespace Durin
 							: Compiled.Diagnostics)
 							Result.Diagnostics.push_back(MakeDiagnostic(
 								Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-								Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
+								Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
 					Admit(Material, std::move(Result));
 					return Material.CompilationOwner.MaterialCompileStatus.State
 						== EMaterialCompileState::Ready;
@@ -904,7 +932,7 @@ namespace Durin
 						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
 						{.Category = EMaterialProgramDiagnosticCategory::Compile,
 						 .Message = "Material compile admission was rejected."},
-						Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
+						Material.CompilationOwner.AcceptedGeneration.Program != nullptr));
 					return false;
 				}
 				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
@@ -944,26 +972,48 @@ namespace Durin
 				Status.CacheOutcome = Result.CacheOutcome;
 				Status.TaskId = Result.TaskId;
 				Material.CompilationOwner.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
-				Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+				Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				if (Result.State == EMaterialCompileState::Ready
 					&& Result.CompiledProgram
 					&& Result.ProgramIdentity == Status.RequestedIdentity
 					&& Result.CompiledProgram->Identity == Result.ProgramIdentity
 					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
-					Material.CompilationOwner.AcceptedCompiledProgram = std::move(Result.CompiledProgram);
-					Material.CompilationOwner.RetainedAcceptedParameters.clear();
-					Material.CompilationOwner.AcceptedCompiledStaticProperties = Result.StaticProperties;
+					FMaterialAcceptedGeneration Candidate;
+					Candidate.Program = Result.CompiledProgram;
+					Candidate.ShaderProperties = CanonicalizeMaterialShaderProperties(Result.StaticProperties);
+					Candidate.Properties = Material.GetStaticProperties();
+					Candidate.Properties.OpacityMaskThreshold = Candidate.ShaderProperties.OpacityMaskThreshold;
+					if (CanonicalizeMaterialShaderProperties(Candidate.Properties) != Candidate.ShaderProperties)
+					{
+						Status.State = EMaterialCompileState::Superseded;
+						Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
+						return false;
+					}
+					for (const auto& Parameter : Candidate.Program->ActiveParameters)
+					{
+						FResolvedMaterialParameter Resolved;
+						if (!Material.ResolveParameterValue(Parameter.Id, Resolved)
+							|| !Resolved.Definition || Resolved.Definition->Type != Parameter.Type)
+						{
+							Status.State = EMaterialCompileState::Rejected;
+							Status.ResultCategory = EMaterialCompileResultCategory::Admission;
+							Status.bLastKnownGoodDisplayed = Status.bHasLastKnownGood;
+							return false;
+						}
+						Candidate.Parameters.push_back(BuildMaterialLocalRenderParameter(
+							Parameter.Id, Parameter.Type, Resolved.Value));
+					}
+					Material.CompilationOwner.AcceptedGeneration = std::move(Candidate);
 					Status.CompiledIdentity = Result.ProgramIdentity;
 					Status.CompiledAuthoredRevision = Result.AuthoredRevision;
 					Status.DurationMicroseconds =
-						Material.CompilationOwner.AcceptedCompiledProgram->Timings.NormalizationMicroseconds
-						+ Material.CompilationOwner.AcceptedCompiledProgram->Timings.GenerationMicroseconds
-						+ Material.CompilationOwner.AcceptedCompiledProgram->Timings.CompilationMicroseconds;
+						Material.CompilationOwner.AcceptedGeneration.Program->Timings.NormalizationMicroseconds
+						+ Material.CompilationOwner.AcceptedGeneration.Program->Timings.GenerationMicroseconds
+						+ Material.CompilationOwner.AcceptedGeneration.Program->Timings.CompilationMicroseconds;
 					Status.bHasLastKnownGood = true;
 					Status.bLastKnownGoodDisplayed = false;
-					// Instances publish only after the complete generation boundary is installed.
-					if (Cast<DMaterial>(&Material)) Material.MarkRenderDataDirty(
+					Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
 							| EMaterialRenderDirtyFlags::PipelineState);
 					return true;
@@ -974,7 +1024,7 @@ namespace Durin
 					Status.State = EMaterialCompileState::Rejected;
 					Status.ResultCategory = EMaterialCompileResultCategory::Admission;
 				}
-				Status.bLastKnownGoodDisplayed = Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+				Status.bLastKnownGoodDisplayed = Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 				for (FMaterialCompileDiagnostic& Diagnostic
 					: Material.CompilationOwner.MaterialCompileDiagnostics)
 					Diagnostic.bLastKnownGoodDisplayed = Status.bLastKnownGoodDisplayed;
@@ -988,7 +1038,7 @@ namespace Durin
 			Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 				EMaterialCompileResultCategory::Cancellation;
 			Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
-				Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+				Material.CompilationOwner.AcceptedGeneration.Program != nullptr;
 		}
 
 		auto FMaterialCompilationLifecycle::RetryDeferred(DMaterialInterface& Material) -> void
@@ -1008,8 +1058,8 @@ namespace Durin
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
 				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
 				Material.CompilationOwner.MaterialCompileStatus.ResultCategory = EMaterialCompileResultCategory::Dependency;
-				Material.CompilationOwner.AcceptedCompiledProgram.reset();
-				Material.CompilationOwner.RetainedAcceptedParameters.clear();
+				Material.CompilationOwner.AcceptedGeneration.Program.reset();
+				Material.CompilationOwner.AcceptedGeneration.Parameters.clear();
 				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = false;
 				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
 				Material.CompilationOwner.MaterialCompileDiagnostics = {{

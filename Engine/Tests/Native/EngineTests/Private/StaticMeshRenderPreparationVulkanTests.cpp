@@ -26,6 +26,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
@@ -67,14 +68,24 @@ namespace
 				? "PreparationTranslucentMaterial"
 				: (bTwoSided ? "PreparationTwoSidedMaterial"
 					: "PreparationOpaqueMaterial"));
-		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
-		EXPECT_TRUE(Material->SetStaticProperties(Durin::FMaterialStaticProperties{
-			.BlendMode = BlendMode,
-			.ShadingModel = Durin::EMaterialShadingModel::Lit,
-			.bTwoSided = bTwoSided,
-			.DepthWritePolicy = DepthWrite,
-			.OpacityMaskThreshold = 0.4f
-		}));
+		static Durin::FObjectHandle RootHandle;
+		auto* Root = Durin::Cast<Durin::DMaterial>(Durin::ResolveObjectHandle(RootHandle));
+		if (!Durin::IsValid(Root))
+		{
+			Root = Durin::NewObject<Durin::DMaterial>(nullptr, "PreparationVariantRoot");
+			RootHandle = Durin::MakeObjectHandle(Root);
+		}
+		auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, Name);
+		Durin::FMaterialPropertyOverrides Overrides;
+		Overrides.bOverrideBlendMode = true;
+		Overrides.bOverrideOpacityMaskThreshold = true;
+		Overrides.bOverrideTwoSided = true;
+		Overrides.bOverrideDepthWritePolicy = true;
+		Overrides.Values.BlendMode = BlendMode;
+		Overrides.Values.bTwoSided = bTwoSided;
+		Overrides.Values.DepthWritePolicy = DepthWrite;
+		Overrides.Values.OpacityMaskThreshold = 0.4f;
+		EXPECT_TRUE(Material->SetParentAndPropertyOverrides(Root, Overrides));
 		return Material->GetMaterialRenderProxy();
 	}
 
@@ -497,6 +508,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	Durin::Testing::RemoveTestWorkDirectory(Root);
+	Durin::InitializeAssetManager();
 }
 
 TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecomputesPerViewFacts)

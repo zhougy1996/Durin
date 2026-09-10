@@ -42,6 +42,7 @@ if(DURIN_WITH_EDITOR)
 	target_include_directories(SceneImportTests PRIVATE
 		${_durin_texture_test_include_directories})
 	target_link_libraries(SceneImportTests PRIVATE
+		ShaderBuild
 		${_durin_texture_test_libraries}
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo)
