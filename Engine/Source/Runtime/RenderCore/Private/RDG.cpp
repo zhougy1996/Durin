@@ -75,17 +75,9 @@ namespace Durin
 			{
 				std::ranges::copy(Aliases, Data.get());
 			}
-			FOptionalAliasTable(const FOptionalAliasTable& Other)
-				: FOptionalAliasTable(Other.View())
-			{
-			}
-			auto operator=(const FOptionalAliasTable& Other)
-				-> FOptionalAliasTable&
-			{
-				if (this != &Other)
-					*this = FOptionalAliasTable(Other);
-				return *this;
-			}
+			FOptionalAliasTable(const FOptionalAliasTable&) = delete;
+			auto operator=(const FOptionalAliasTable&)
+				-> FOptionalAliasTable& = delete;
 			FOptionalAliasTable(FOptionalAliasTable&&) noexcept = default;
 			auto operator=(FOptionalAliasTable&&) noexcept
 				-> FOptionalAliasTable& = default;
@@ -118,6 +110,20 @@ namespace Durin
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
 			FOptionalAliasTable OptionalAliases;
+		};
+
+		// Borrows frozen builder declarations and a separately owned terminal export.
+		// Neither owner may mutate its passes while compiler views are in use.
+		struct FGraphPassView final
+		{
+			std::span<const FGraphPass> Declarations;
+			const FGraphPass* Export = nullptr;
+
+			auto size() const -> size_t
+			{ return Declarations.size() + (Export != nullptr ? 1 : 0); }
+
+			auto operator[](size_t Index) const -> const FGraphPass&
+			{ return Index < Declarations.size() ? Declarations[Index] : *Export; }
 		};
 
 		struct FGraphParameterAllocation final
@@ -1144,7 +1150,7 @@ namespace Durin
 			return {};
 		}
 
-		auto ValidateGraphPasses(std::span<const FGraphPass> Passes,
+		auto ValidateGraphPasses(FGraphPassView Passes,
 			std::span<const FGraphResource> Resources,
 			FDependencyGraph& Graph) -> std::string
 		{
@@ -1174,20 +1180,20 @@ namespace Durin
 			return {};
 		}
 
-		auto BuildResourceUseTable(std::span<const FGraphPass> Passes,
+		auto BuildResourceUseTable(FGraphPassView Passes,
 			uint32 ResourceCount) -> FResourceUseTable
 		{
 			FResourceUseTable ResourceUses(ResourceCount);
 			std::vector<size_t> ResourceUseCounts(ResourceCount, 0);
-			for (const auto& Pass : Passes)
-				for (const auto& Use : Pass.Uses)
+			for (size_t Index = 0; Index < Passes.size(); ++Index)
+				for (const auto& Use : Passes[Index].Uses)
 					++ResourceUseCounts[Use.ResourceIndex];
 			for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount;
 				++ResourceIndex)
 				ResourceUses[ResourceIndex].reserve(
 					ResourceUseCounts[ResourceIndex]);
-			for (const auto& Pass : Passes)
-				for (const auto& Use : Pass.Uses)
+			for (size_t Index = 0; Index < Passes.size(); ++Index)
+				for (const auto& Use : Passes[Index].Uses)
 					ResourceUses[Use.ResourceIndex].push_back(&Use);
 			return ResourceUses;
 		}
@@ -1349,7 +1355,7 @@ namespace Durin
 			return {};
 		}
 
-		auto BuildHazardDependencies(std::span<const FGraphPass> Passes,
+		auto BuildHazardDependencies(FGraphPassView Passes,
 			std::span<const FGraphResource> Resources,
 			FResourceCells& Cells, FDependencyGraph& Graph, FRangeWork& Work)
 			-> std::string
@@ -1421,7 +1427,7 @@ namespace Durin
 			return {};
 		}
 
-		auto FindRetainedPasses(std::span<const FGraphPass> Passes,
+		auto FindRetainedPasses(FGraphPassView Passes,
 			std::span<const FRDGDependency> Dependencies, bool bEnableCulling)
 			-> std::vector<bool>
 		{
@@ -1583,7 +1589,8 @@ namespace Durin
 			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
-			FOptionalAliasTable OptionalAliases;
+			// Borrows immutable declaration storage for the builder execution lifetime.
+			std::span<const FOptionalAlias> OptionalAliases;
 			std::vector<uint32> ResourceIndices;
 			std::vector<std::pair<uint32, ERDGUse>> ValueUses;
 			std::vector<uint32> BufferTransitionResources;
@@ -2352,17 +2359,6 @@ namespace Durin
 			!Error.empty())
 			return Fail(std::move(Error));
 
-		// Compiler scratch copies declarations only; callbacks keep one owner.
-		std::vector<FGraphPass> Passes;
-		Passes.reserve(State->Passes.size() + 1);
-		for (const auto& Pass : State->Passes)
-			Passes.push_back({.Name = Pass.Name, .Type = Pass.Type,
-				.Uses = Pass.Uses, .Prerequisites = Pass.Prerequisites,
-				.bRoot = Pass.bRoot, .bExport = Pass.bExport,
-				.RootReason = Pass.RootReason, .bParameterized = Pass.bParameterized,
-				.bDeclarationsValidated = Pass.bDeclarationsValidated,
-				.ParameterLayout = Pass.ParameterLayout, .Parameters = Pass.Parameters,
-				.OptionalAliases = Pass.OptionalAliases});
 		FGraphPass Export;
 		Export.Name = "RDG.Export";
 		Export.bRoot = true;
@@ -2385,19 +2381,20 @@ namespace Durin
 		}
 		if (!Export.Uses.empty())
 		{
-			while (std::ranges::any_of(Passes, [&](const FGraphPass& Pass) {
+			while (std::ranges::any_of(State->Passes, [&](const FGraphPass& Pass) {
 				return Pass.Name == Export.Name;
 			}))
 				Export.Name += ".Output";
-			Passes.push_back(std::move(Export));
 		}
 
+		const FGraphPassView Passes{State->Passes, bHasExport ? &Export : nullptr};
 		const uint32 PassCount = static_cast<uint32>(Passes.size());
 		const uint32 ResourceCount = static_cast<uint32>(State->Resources.size());
 		size_t DeclaredUseCount = 0;
 		size_t ExplicitDependencyCount = 0;
-		for (const auto& Pass : Passes)
+		for (size_t Index = 0; Index < Passes.size(); ++Index)
 		{
+			const auto& Pass = Passes[Index];
 			DeclaredUseCount += Pass.Uses.size();
 			ExplicitDependencyCount += Pass.Prerequisites.size();
 		}
@@ -2485,7 +2482,7 @@ namespace Durin
 					? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
 				.ParameterLayout = Pass.ParameterLayout,
 				.Parameters = Pass.Parameters,
-				.OptionalAliases = Pass.OptionalAliases};
+				.OptionalAliases = Pass.OptionalAliases.View()};
 			Runtime.ResourceIndices.reserve(Pass.Uses.size());
 			Runtime.ValueUses.reserve(Pass.Uses.size());
 			Runtime.BufferTransitionResources.reserve(Pass.Uses.size());
@@ -2585,8 +2582,8 @@ namespace Durin
 					< std::tie(B.BeforePass, B.AfterPass, B.Cause);
 			});
 		CompiledState->Retained = Retained;
-		if (Passes.size() > State->Passes.size())
-			CompiledState->ExportPass = std::move(Passes.back());
+		if (bHasExport)
+			CompiledState->ExportPass = std::move(Export);
 		CompiledState->CompileMicroseconds = static_cast<uint64>(
 			std::chrono::duration_cast<std::chrono::microseconds>(
 				std::chrono::steady_clock::now() - Started).count());
@@ -3036,7 +3033,7 @@ namespace Durin
 			{
 				const FRDGPassResources Resources(*this, Index);
 				const FRDGParameterResolver Resolver(Resources,
-					Runtime.ParameterLayout, Runtime.OptionalAliases.View(),
+					Runtime.ParameterLayout, Runtime.OptionalAliases,
 					Runtime.Parameters,
 					Pass.Name, Pass.Type);
 				(*Runtime.ParameterizedExecute)(CommandList, Resolver);

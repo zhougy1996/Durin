@@ -2765,6 +2765,51 @@ namespace Durin
 			}
 	}
 
+	TEST_F(FRDGTests, ExportDeclarationSurvivesCompilationAndLateFailurePublishesNothing)
+	{
+		for (bool bFail : {false, true})
+		{
+			FRDGCapture Capture;
+			{
+				FRDGBuilder Builder;
+				if (bFail) Builder.SetBudget({.MaxBufferTransitions = 1});
+				const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "Output");
+				const auto Write = Builder.AddPass("RDG.Export", ERDGPassType::Compute);
+				Builder.UseBuffer(Write, Buffer, 0, 64, ERDGUse::Write,
+					ERHIAccess::ComputeShaderReadWrite, true);
+				Builder.AddPass("RDG.Export.Output", ERDGPassType::Compute);
+				FBufferRHIRef Destination;
+				Builder.QueueBufferExtraction(Buffer, &Destination, ERHIAccess::ComputeShaderRead);
+				EXPECT_FALSE(Builder.Capture().bCompiled);
+				const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+				EXPECT_EQ(Result.IsSuccess(), !bFail) << Result.Error;
+				EXPECT_EQ(Builder.HasCompiledPlan(), !bFail);
+				EXPECT_FALSE(Destination);
+				if (bFail)
+					EXPECT_EQ(Result.Error,
+						"render graph safety limit exceeded: buffer-transitions actual=2 limit=1");
+				Capture = Builder.Capture();
+			}
+			EXPECT_EQ(Capture.bCompiled, !bFail);
+			if (bFail)
+			{
+				EXPECT_TRUE(Capture.Passes.empty());
+				EXPECT_TRUE(Capture.Dependencies.empty());
+				EXPECT_TRUE(Capture.Transitions.empty());
+				EXPECT_TRUE(Capture.CullingDecisions.empty());
+			}
+			else
+			{
+				ASSERT_EQ(Capture.Passes.size(), 3u);
+				EXPECT_EQ(Capture.Passes.back().Name, "RDG.Export.Output.Output");
+				EXPECT_EQ(Capture.Uses.size(), 2u);
+				EXPECT_EQ(Capture.Transitions.size(), 2u);
+				EXPECT_NE(Capture.Dump.find("RDG.Export.Output.Output"), std::string::npos);
+			}
+		}
+	}
+
 	TEST_F(FRDGTests, ExtractionRequiresCompleteBufferContents)
 	{
 		for (bool Cull : {false, true})
