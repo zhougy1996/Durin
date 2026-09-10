@@ -61,7 +61,7 @@ class TestBuildRegistry:
 
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test CoreTests Core.* --timeout 45', 'test all --mode report --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh -DFEATURE=ON --define LIMIT=4 --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test CoreTests Core.* --timeout 45', 'test all --mode report --report Build/results.xml', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -236,18 +236,19 @@ class TestBuildRegistry:
         request = handler.request_from_namespace(namespace)
         assert request.module_kind is ModuleKind.DEVELOPER
 
-    def test_agent_build_preset_selects_plain_compact_output_and_allows_override(self) -> None:
-        request = handler.request_from_namespace(self.parse(['build', '--agent']))
-        assert request.agent
-        assert request.plain
-        assert request.output_mode is OutputMode.COMPACT
-
-        overridden = handler.request_from_namespace(
-            self.parse(['build', '--agent', '--output', 'full'])
+    def test_build_output_options_do_not_need_agent_preset(self) -> None:
+        request = handler.request_from_namespace(self.parse(['build']))
+        assert not request.plain
+        assert request.output_mode is OutputMode.AUTO
+        explicit = handler.request_from_namespace(
+            self.parse(['build', '--plain', '--output', 'compact'])
         )
-        assert overridden.agent
-        assert overridden.plain
-        assert overridden.output_mode is OutputMode.FULL
+        assert explicit.plain
+        assert explicit.output_mode is OutputMode.COMPACT
+        for command in ('configure', 'build', 'clean', 'recover', 'rebuild', 'test'):
+            help_text = self.registry.format_command_help((command,))
+            assert '--agent' not in help_text
+            assert '--output' in help_text
 
     def test_preset_command_preserves_inspection_semantics(self) -> None:
         spec, namespace = self.registry.parse(['preset', 'Win64-Debug-DurinEditor'])

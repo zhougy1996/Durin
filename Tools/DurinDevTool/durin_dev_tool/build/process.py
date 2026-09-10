@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 from .errors import BuildToolError, BuildToolInterruptedError
 from .settings import default_build_paths
 from .locking import state_file_component
-from .output import BuildOutput
+from .output import BuildOutput, NINJA_PROGRESS_PATTERN
 
 
 COMMAND_LOG_LIMIT = 40
@@ -37,12 +37,17 @@ class CommandTranscript:
     def __init__(self) -> None:
         self.tail: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
         self.diagnostics: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
+        self.latest_progress = ""
 
     def add(self, text: str) -> None:
         clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
         if not clean:
             return
         self.tail.append(clean)
+        if NINJA_PROGRESS_PATTERN.match(clean) or clean.startswith(("-- ", "ninja:")):
+            # Publish one immutable snapshot for the waiting thread. Routine
+            # diagnostics must not displace the latest build status.
+            self.latest_progress = clean[:240]
         if DIAGNOSTIC_PATTERN.search(clean):
             self.diagnostics.append(clean)
 
@@ -283,7 +288,7 @@ def run_command(
     process_job = WindowsProcessJob() if wait_for_descendants and os.name == "nt" else None
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log = log_path.open("w", encoding="utf-8", newline="")
+        log = log_path.open("w", encoding="utf-8", newline="", buffering=1)
     except OSError as exc:
         if process_job:
             process_job.close()
@@ -293,6 +298,8 @@ def run_command(
             log_path=log_path,
         ) from exc
     try:
+        if output.compact:
+            output.raw_line(f'Full output: "{log_path}"')
         process = subprocess.Popen(
             command_list,
             cwd=cwd,
@@ -376,8 +383,12 @@ def run_command(
                 return_code = process.wait(timeout=wait_seconds)
                 break
             except subprocess.TimeoutExpired:
-                if show_heartbeat:
-                    output.info(f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).")
+                if output.compact or show_heartbeat:
+                    progress = transcript.latest_progress
+                    detail = f" Latest progress: {progress}" if progress else ""
+                    output.raw_line(
+                        f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).{detail}"
+                    )
         if process_job:
             # Relaunched editors inherit job membership, so active membership
             # reaches zero only after the final instance exits.
@@ -438,5 +449,4 @@ def run_command(
     if output.compact:
         if summary := transcript.success_summary():
             output.child_output(summary + "\n", colorize_test_output=colorize_test_output)
-        output.info(f'Full output: "{log_path}"')
     return "".join(captured)

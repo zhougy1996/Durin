@@ -1,6 +1,7 @@
 import pytest
 import io
 import os
+import threading
 from pathlib import Path
 from unittest import mock
 from . import build_request_fixtures as request_fixtures
@@ -12,6 +13,84 @@ from durin_dev_tool.build.output import BuildOutput
 class TestCore:
     make_profile = staticmethod(request_fixtures.make_profile)
     make_preset = staticmethod(request_fixtures.make_preset)
+
+    @pytest.mark.parametrize('mode, terminal, agent, heartbeat', [
+        (models.OutputMode.AUTO, False, False, True),
+        (models.OutputMode.COMPACT, True, False, True),
+        (models.OutputMode.PROGRESS, False, False, True),
+        (models.OutputMode.PROGRESS, True, False, False),
+        (models.OutputMode.FULL, False, False, False),
+        (models.OutputMode.FULL, False, True, True),
+    ])
+    def test_heartbeat_and_log_visibility_during_command(
+        self, tmp_path, mode, terminal, agent, heartbeat
+    ) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, output_mode=mode, force_terminal=terminal,
+                             stdout=stdout, stderr=io.StringIO())
+        log_path = tmp_path / 'command.log'
+        drained = threading.Event()
+        release_reader = threading.Event()
+
+        class ChildOutput(io.StringIO):
+            def __iter__(self):
+                yield '\x1b[32m[12/80] Building CXX object sample.cpp\x1b[0m\n'
+                yield 'routine diagnostic\n'
+                drained.set()
+                assert release_reader.wait(5)
+
+        process = mock.Mock(stdout=ChildOutput())
+        waits = 0
+
+        def launch(*args, **kwargs):
+            assert (str(log_path) in stdout.getvalue()) == output.compact
+            return process
+
+        def wait(timeout):
+            nonlocal waits
+            assert timeout == 30.0
+            try:
+                assert drained.wait(5)
+                # The reader still has the log open: it must already be readable.
+                assert 'routine diagnostic' in log_path.read_text(encoding='utf-8')
+                waits += 1
+                if waits == 1:
+                    raise build_process.subprocess.TimeoutExpired('cmake', timeout)
+                return 0
+            finally:
+                release_reader.set()
+
+        process.wait.side_effect = wait
+        with mock.patch.object(build_process, 'command_log_path', return_value=log_path), \
+             mock.patch.object(build_process.subprocess, 'Popen', side_effect=launch):
+            build_process.run_command(['cmake', '--build', '.'], environment={}, output=output,
+                                      show_heartbeat=agent, cwd=tmp_path, state_directory=tmp_path)
+        rendered = stdout.getvalue()
+        assert ('still running' in rendered) == heartbeat
+        if heartbeat:
+            assert 's elapsed). Latest progress: [12/80] Building CXX object sample.cpp' in rendered
+        if output.compact:
+            assert 'routine diagnostic' not in rendered
+            assert rendered.count(str(log_path)) == 1
+
+    def test_silent_compact_command_still_emits_heartbeat(self, tmp_path) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        process = mock.Mock(stdout=io.StringIO())
+        process.wait.side_effect = [build_process.subprocess.TimeoutExpired('cmake', 30), 0]
+        with mock.patch.object(build_process.subprocess, 'Popen', return_value=process):
+            build_process.run_command(['cmake'], environment={}, output=output,
+                                      cwd=tmp_path, state_directory=tmp_path)
+        assert 'still running' in stdout.getvalue()
+        assert 'Latest progress' not in stdout.getvalue()
+
+    def test_transcript_retains_latest_configure_status(self) -> None:
+        transcript = build_process.CommandTranscript()
+        transcript.add('-- Configuring done (1.0s)\n')
+        transcript.add('routine diagnostic\n')
+        assert transcript.latest_progress == '-- Configuring done (1.0s)'
+        transcript.add('[3/4] Linking CXX executable app\n')
+        assert transcript.latest_progress == '[3/4] Linking CXX executable app'
 
     def test_keyboard_interrupt_terminates_child_process_tree(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         process = mock.Mock()

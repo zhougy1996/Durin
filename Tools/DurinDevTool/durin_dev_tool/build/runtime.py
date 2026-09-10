@@ -97,7 +97,6 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
             interruption_message="Native test run was interrupted.",
             timeout_seconds=request.test_timeout_seconds or None,
             colorize_test_output=True,
-            show_heartbeat=request.agent,
             cwd=paths.root,
             state_directory=paths.state_directory,
         )
@@ -254,7 +253,6 @@ def _run_all_native_test_phase(
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",
             colorize_test_output=True,
-            show_heartbeat=request.agent,
             cwd=paths.root,
             state_directory=paths.state_directory,
         )
@@ -351,7 +349,6 @@ def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> Non
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",
             colorize_test_output=True,
-            show_heartbeat=request.agent,
             cwd=paths.root,
             state_directory=paths.state_directory,
         )

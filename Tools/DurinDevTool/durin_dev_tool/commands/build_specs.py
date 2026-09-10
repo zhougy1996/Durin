@@ -10,13 +10,12 @@ from .specification import ArgumentSpec, CommandSpec, argument
 CMAKE = argument("--cmake", help="CMake executable override")
 ENVIRONMENT_SETUP = argument("--environment-setup", help="toolchain environment script override")
 JOBS = argument("--jobs", type=int, choices=range(1, 257), metavar="1..256", help="parallel build job limit")
-AGENT = argument("--agent", action="store_true", help="use stable compact output with liveness heartbeats for Agent execution")
 OUTPUT_MODE = argument(
     "--output", dest="output_mode", choices=("auto", "compact", "progress", "full"),
     default=None, help="child output mode (default: auto)",
 )
 CHILD_OUTPUT_ARGUMENTS = (PLAIN, OUTPUT_MODE)
-TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, AGENT, PLAIN, OUTPUT_MODE)
+TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
 STATUS_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
 HANDLER = "durin_dev_tool.build.handler:run"
 

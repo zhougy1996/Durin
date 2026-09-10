@@ -99,7 +99,6 @@ class TestCore:
             recovery_required_on_interrupt=False,
             interruption_message='Native test run was interrupted.',
             colorize_test_output=True,
-            show_heartbeat=False,
             cwd=settings.default_build_paths().root,
             state_directory=settings.default_build_paths().state_directory,
         )

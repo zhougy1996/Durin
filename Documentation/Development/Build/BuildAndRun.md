@@ -280,7 +280,7 @@ back to compact output.
 Compact mode keeps stage boundaries, command lines, heartbeats, and final
 results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
 It writes the complete raw output under `Build/.agent-state/logs/`, reports the
-log path after each successful child command, and prints a bounded diagnostic
+log path before each child command starts, and prints a bounded diagnostic
 excerpt plus the log path when a child fails. The newest 40 command logs are
 retained. Use `--output full` to stream every child-output line, or
 `--output compact` to suppress routine child output in an interactive terminal:
@@ -311,20 +311,13 @@ failures retain a bounded evidence directory below that test's
 packaging, signing, and installation are unrelated to this internal test
 artifact.
 
-Agents invoke toolchain-backed commands with `--agent`. This preset selects
-plain compact output and emits a short heartbeat every 30 seconds while a
-configure, build, clean, or test child command remains alive. An explicit
-`--output` value overrides the compact-output part of the preset. Complete raw
-child output remains available in the command log, including DHT cache and
-generation summaries suppressed by compact mode:
-
-```powershell
-.\DevTool.bat build --target all --agent
-```
-
-Ordinary human-driven commands do not emit liveness heartbeats. The interactive
-`run` command also suppresses them because the runtime is expected to remain
-open until the user exits it.
+Compact mode emits a short heartbeat every 30 seconds while a child command
+remains alive. It reports elapsed time and the latest CMake/Ninja status when
+available, including Ninja's completed count and action. Logs are flushed as
+lines arrive so they can be read during execution. Non-interactive callers need
+no extra flags; the redundant `--agent` option has been removed. Use `--plain`
+and `--output compact` to request the same display explicitly in a terminal.
+Progress and full output modes stream child output without default heartbeats.
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. DurinDevTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 

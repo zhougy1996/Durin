@@ -20,7 +20,6 @@ class RequestContext:
 class OutputOptions:
     plain: bool = False
     mode: OutputMode = OutputMode.AUTO
-    agent: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,10 +54,6 @@ class BaseRequest:
     @property
     def output_mode(self) -> OutputMode:
         return self.output.mode
-
-    @property
-    def agent(self) -> bool:
-        return self.output.agent
 
     def with_preset(self, preset: str) -> "BaseRequest":
         return replace(self, context=replace(self.context, preset=preset))

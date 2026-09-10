@@ -146,7 +146,6 @@ def configure_build_tree(
             command,
             environment=context.environment or os.environ,
             output=output,
-            show_heartbeat=context.request.agent,
             cwd=paths.root,
             state_directory=paths.state_directory,
         )
@@ -185,7 +184,6 @@ def perform_action(
                 [context.cmake, "--build", str(build_directory), "--target", "clean"],
                 environment=environment,
                 output=output,
-                show_heartbeat=request.agent,
                 cwd=paths.root,
                 state_directory=paths.state_directory,
             )
@@ -199,7 +197,6 @@ def perform_action(
                     [context.cmake, "--build", str(build_directory), "--target", "clean"],
                     environment=environment,
                     output=output,
-                    show_heartbeat=request.agent,
                     cwd=paths.root,
                     state_directory=paths.state_directory,
                 )
@@ -235,7 +232,6 @@ def perform_action(
             [context.cmake, "--build", str(build_directory), "--target", *targets, "-j", str(context.jobs)],
             environment=environment,
             output=output,
-            show_heartbeat=request.agent,
             cwd=paths.root,
             state_directory=paths.state_directory,
         )
