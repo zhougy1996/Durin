@@ -214,7 +214,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	auto* SourceOnly = Durin::NewObject<Durin::DTextureCube>(nullptr, "SourceOnlyCube");
 	const auto& Source = Result.Asset->GetSource();
 	Durin::FTextureCubeImportedData ImportedData;
-	ImportedData.Pixels = Source.GetBulkData();
+	ASSERT_TRUE(ImportedData.Pixels.UpdatePayload(Source.GetMipData().GetData()));
 	ImportedData.FaceDimension = Source.GetWidth();
 	ImportedData.SourceChannelCount = Source.GetSourceChannelCount();
 	ImportedData.TransparencyMask = Source.GetTransparencyMask();

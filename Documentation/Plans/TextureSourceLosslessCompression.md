@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete on Windows. Zstd 1.5.7 is pinned to upstream commit
+Stages 0 and 1 are complete on Windows. Zstd 1.5.7 is pinned to upstream commit
 `f8745da6ff1ad1e7bab384bd1f9d742439278e99`, prepared through the manifest
 system and linked privately as a static Engine dependency. Dependency validation
 (11 manifests) and `DevTool build --target Engine` passed with the existing
@@ -35,6 +35,17 @@ receipt are in ignored `Build/TextureCompressionQualification`.
 | vintage_lighter_metal_vintage_lighter_rough_Metallic | 4194304 | 712076 | 19.219 | 8.729 |
 | vintage_lighter_metal_vintage_lighter_rough_Roughness | 4194304 | 888043 | 22.216 | 8.563 |
 | vintage_lighter_nor_gl_Normal | 4194304 | 1638437 | 33.047 | 9.158 |
+
+Stage 1 validation: `DevTool test TextureTests` passed all 105 tests (receipt
+`20260910-123945-256612-20196-TextureTests.log`). Added byte/floating layered
+volume round trips, repeated storage no-op, rollback, retained handles, bulk
+GUID/owner and source-key invariance, malformed/truncated/trailing/concatenated,
+dictionary/size/window rejection, and identical serialized texture build output.
+Existing source-only Cube fixtures now decode through `GetMipData`; explicit
+external-companion fixtures retain Raw, while the atlas import case validates
+compressed inline placement and package corruption. All explicit Raw preferences
+in production Texture2D, Cube, long-lat and Volume preparation now use Zstd;
+scene/import adapters feed those common preparation boundaries.
 
 ## Goal
 
@@ -95,16 +106,16 @@ Completion: reproducible dependency integration and measured repository results.
 
 ### Stage 1: Implement source compression and bounded decoding
 
-- [ ] Add the codec, initialization default, bounded decode and transactional
+- [x] Add the codec, initialization default, bounded decode and transactional
   recompression API while retaining all source identity inputs.
-- [ ] Audit Texture2D, cube, long-lat cube, volume and scene import callers for
+- [x] Audit Texture2D, cube, long-lat cube, volume and scene import callers for
   explicit Raw preferences and ensure the intended default reaches each path.
-- [ ] Extend existing texture tests for exact pixel round trips across byte,
+- [x] Extend existing texture tests for exact pixel round trips across byte,
   floating-point, layered, multi-mip and volume sources; Raw fallback; corrupt
   input rejection; unchanged source identity and failed-operation rollback.
-- [ ] Verify bulk instance identity preservation, release/reload behavior and
+- [x] Verify bulk instance identity preservation, release/reload behavior and
   existing detached-buffer lifetime guarantees.
-- [ ] Verify the same source/build settings produce the same derived-data key
+- [x] Verify the same source/build settings produce the same derived-data key
   and cooked texture content before and after recompression.
 
 Completion: focused tests pass and storage changes are semantically invisible

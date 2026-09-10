@@ -186,7 +186,7 @@ namespace Durin
 		if (!Canonical.InitLayered(ETextureSourceKind::TextureCube,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Unknown, Bytes, SourceChannelCount,
-			TransparencyMask, ETextureSourceCompression::Raw)) return false;
+			TransparencyMask, ETextureSourceCompression::Zstd)) return false;
 		CanonicalSourceIdentity = Canonical.GetIdentity();
 		return IsValid();
 	}
@@ -346,7 +346,7 @@ namespace Durin
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Unknown, Read.Buffer.GetBytes(),
 			Value.SourceChannelCount, Value.TransparencyMask,
-			ETextureSourceCompression::Raw))
+			ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("TextureCube source data could not be initialized.");
 			return std::nullopt;
@@ -359,7 +359,7 @@ namespace Durin
 	{
 		FTextureSource NewSource;
 		if (!NewSource.InitLongLatCube(Value, SourceChannelCount,
-			TransparencyMask, ETextureSourceCompression::Raw))
+			TransparencyMask, ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("TextureCube panorama source data could not be initialized.");
 			return std::nullopt;

@@ -36,8 +36,9 @@ namespace Durin
 	DENUM()
 	enum class ETextureSourceCompression : uint8
 	{
-		Raw,
-		RunLength,
+		Raw = 0,
+		RunLength = 1,
+		Zstd = 2,
 	};
 
 	DSTRUCT()
@@ -197,22 +198,27 @@ namespace Durin
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto Init2D(Image::FImageView Image, uint8 InSourceChannelCount,
 			uint8 InTransparencyMask = 0,
-			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto InitCube(std::span<const Image::FImageView> Faces,
 			uint8 InSourceChannelCount, uint8 InTransparencyMask = 0,
-			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto InitVolume(Image::FImageView Image,
-			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto InitLongLatCube(Image::FImageView Image,
 			uint8 InSourceChannelCount, uint8 InTransparencyMask = 0,
-			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto InitLayered(ETextureSourceKind InKind,
 			std::span<const FTextureSourceBlock> InBlocks,
 			std::span<const FTextureSourceLayer> InLayers,
 			ETextureSourceGammaSpace InGammaSpace,
 			FByteView DecodedPayload,
 			uint8 InSourceChannelCount = 0, uint8 InTransparencyMask = 0,
-			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
+		// Storage-only transaction. Requires exclusive source ownership; preserves owner,
+		// bulk instance and semantic identity. Existing byte buffers stay valid on success.
+		// Failure leaves the source unchanged; an identical representation is a no-op.
+		ENGINE_API auto Recompress(
+			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Zstd) -> bool;
 		ENGINE_API auto Reset() -> void;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,

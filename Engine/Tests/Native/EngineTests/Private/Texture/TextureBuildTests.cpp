@@ -114,6 +114,123 @@ TEST(FTextureSourceTests, InitApisKeepCanonicalIdentityAcrossLosslessStorage)
 	EXPECT_TRUE(std::ranges::equal(FirstMips.GetData().GetBytes(), Pixels));
 }
 
+TEST(FTextureSourceTests, ZstdRecompressionPreservesIdentityBuffersAndRollback)
+{
+	using namespace Durin;
+	for (const auto Format : {ETextureSourceFormat::RGBA8, ETextureSourceFormat::RGBA32_FLOAT})
+	{
+		const FTextureSourceBlock Block{.Width = 16, .Height = 16, .Depth = 2, .NumSlices = 2};
+		const FTextureSourceLayer Layers[] = {{.Format = Format, .NumMips = 2},
+			{.Format = ETextureSourceFormat::R8_UNORM, .NumMips = 1}};
+		const size_t Stride = Format == ETextureSourceFormat::RGBA8 ? 4 : 16;
+		FByteBuffer Pixels((16 * 16 * 4 + 8 * 8 * 2) * Stride + 16 * 16 * 4);
+		for (size_t Index = 0; Index < Pixels.size(); ++Index)
+			Pixels[Index] = static_cast<std::byte>(Index % 251);
+		FTextureSource Source;
+		ASSERT_TRUE(Source.InitLayered(ETextureSourceKind::Volume, std::span(&Block, 1),
+			Layers, ETextureSourceGammaSpace::Linear, Pixels, 4, 0, ETextureSourceCompression::Raw));
+		const auto Identity = Source.GetIdentity();
+		const auto Instance = Source.GetBulkData().GetInstanceId();
+		const auto Prior = Source.GetMipData().GetData();
+		const auto Key = BuildTexture2DDerivedDataKey({.SourceIdentity = Identity,
+			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game});
+		ASSERT_TRUE(Source.Recompress());
+		EXPECT_EQ(Source.GetCompression(), ETextureSourceCompression::Zstd);
+		EXPECT_EQ(Source.GetIdentity(), Identity);
+		EXPECT_EQ(Source.GetBulkData().GetInstanceId(), Instance);
+		EXPECT_EQ(BuildTexture2DDerivedDataKey({.SourceIdentity = Source.GetIdentity(),
+			.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game}), Key);
+		EXPECT_TRUE(std::ranges::equal(Prior.GetBytes(), Pixels));
+		Source.ReleaseSourceMemory();
+		const auto Reloaded = Source.GetMipData().GetData();
+		EXPECT_TRUE(std::ranges::equal(Reloaded.GetBytes(), Pixels));
+		const auto Stored = Source.GetBulkData().GetPayload().Wait().Buffer;
+		ASSERT_TRUE(Source.Recompress());
+		EXPECT_TRUE(Source.GetBulkData().GetPayload().Wait().Buffer.SharesStorageWith(Stored));
+		EXPECT_FALSE(Source.Recompress(static_cast<ETextureSourceCompression>(255)));
+		EXPECT_TRUE(Source.GetMipData().GetData().SharesStorageWith(Reloaded));
+		EXPECT_EQ(Source.GetIdentity(), Identity);
+		ASSERT_TRUE(Source.Recompress(ETextureSourceCompression::RunLength));
+		ASSERT_TRUE(Source.Recompress(ETextureSourceCompression::Raw));
+		EXPECT_TRUE(std::ranges::equal(Source.GetMipData().GetData().GetBytes(), Pixels));
+	}
+}
+
+TEST(FTextureSourceTests, ZstdFallsBackAndRejectsDamagedFrames)
+{
+	using namespace Durin;
+	Image::FImage Image;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 1, .Height = 1,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(4, std::byte{9}), Image));
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4));
+	EXPECT_EQ(Source.GetCompression(), ETextureSourceCompression::Raw);
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 64, .Height = 64,
+		.Format = Image::ERawImageFormat::RGBA8}, FByteBuffer(64 * 64 * 4, std::byte{9}), Image));
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4));
+	ASSERT_EQ(Source.GetCompression(), ETextureSourceCompression::Zstd);
+	const auto Read = Source.GetBulkData().GetPayload().Wait();
+	ASSERT_TRUE(Read);
+	const FByteBuffer Valid(Read.Buffer.GetBytes().begin(), Read.Buffer.GetBytes().end());
+	std::vector<FByteBuffer> Damaged;
+	for (size_t Size = 1; Size < Valid.size(); ++Size)
+		Damaged.emplace_back(Valid.begin(), Valid.begin() + Size);
+	Damaged.push_back(Valid); Damaged.back().push_back(std::byte{0});
+	Damaged.push_back(Valid); Damaged.back().insert(Damaged.back().end(), Valid.begin(), Valid.end());
+	Damaged.push_back(Valid); Damaged.back()[0] ^= std::byte{1};
+	Damaged.push_back(Valid); Damaged.back().back() ^= std::byte{1};
+	// The single-segment frame uses a two-byte content size. Add a dictionary ID,
+	// alter its decoded length, and advertise an excessive non-single window.
+	ASSERT_EQ(std::to_integer<uint8>(Valid[4]), 0x60u);
+	Damaged.push_back(Valid); Damaged.back()[4] |= std::byte{1};
+	Damaged.back().insert(Damaged.back().begin() + 5, std::byte{1});
+	Damaged.push_back(Valid); Damaged.back()[5] ^= std::byte{1};
+	Damaged.push_back(Valid); Damaged.back()[4] = std::byte{0};
+	Damaged.back()[5] = std::byte{0xf8};
+	for (const auto& Bytes : Damaged)
+	{
+		Source.ReleaseSourceMemory();
+		ASSERT_TRUE(const_cast<FEditorBulkData&>(Source.GetBulkData()).UpdatePayload(Bytes));
+		EXPECT_FALSE(Source.GetMipData().IsValid());
+		const auto Before = Source.GetBulkData().GetPayloadId();
+		EXPECT_FALSE(Source.Recompress());
+		EXPECT_EQ(Source.GetBulkData().GetPayloadId(), Before);
+	}
+}
+
+TEST(FTextureSourceTests, StorageOnlyCommitKeepsCookedPixelsAndOwner)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	auto* Texture = NewObject<DTexture2D>(nullptr, "StorageOnlyTexture");
+	Image::FImage Image;
+	ASSERT_TRUE(Image::FImage::TryCreate({.Width = 16, .Height = 16,
+		.Format = Image::ERawImageFormat::RGBA8, .GammaSpace = Image::EImageGammaSpace::SRGB},
+		FByteBuffer(16 * 16 * 4, std::byte{71}), Image));
+	FTextureSource Source;
+	ASSERT_TRUE(Source.Init2D(Image.GetView(), 4, 0, ETextureSourceCompression::Raw));
+	Texture->SetSource(Source);
+	const auto Build = [&]() {
+		const auto Input = Texture->CreateBuildRequest({});
+		FTexturePlatformData Platform;
+		EXPECT_TRUE(TextureBuilder::BuildMipChain(Input.SourceMips, ETextureUsage::Color, true, Platform));
+		FByteBuffer Bytes;
+		FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::DerivedDataPayload,
+			{.Target = {"Win64", "Game"}});
+		Platform.Serialize(Writer);
+		EXPECT_FALSE(Writer.HasError());
+		return Bytes;
+	};
+	const auto Before = Build();
+	ASSERT_TRUE(Source.Recompress());
+	ASSERT_TRUE(Texture->ReplaceSourceStorage(Source));
+	EXPECT_EQ(Texture->GetSource().GetOwner(), Texture);
+	EXPECT_EQ(Build(), Before);
+	FTextureSource Different;
+	ASSERT_TRUE(Different.Init2D(Image.GetView(), 4));
+	EXPECT_FALSE(Texture->ReplaceSourceStorage(Different));
+}
+
 TEST(FTextureSourceTests, Texture2DPreservesSuppliedMipChainForRecipeBuild)
 {
 	InitializeDObjectSystem();
@@ -933,6 +1050,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(AssetPath, Texture));
 	auto PreparedTextureSource = Durin::PrepareVolumeTextureSource(Source);
 	ASSERT_TRUE(PreparedTextureSource);
+	ASSERT_TRUE(PreparedTextureSource->Recompress(Durin::ETextureSourceCompression::Raw));
 	Texture->SetSource(std::move(*PreparedTextureSource));
 	Texture->SetBuildSettings({});
 	Texture->SetPlatformData(
@@ -1171,6 +1289,11 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
 	ASSERT_TRUE(Imported.Asset->GetSource().IsValid());
+	// This case exercises companion corruption and reload, so retain external Raw storage.
+	auto ExternalSource = Imported.Asset->GetSource();
+	ASSERT_TRUE(ExternalSource.Recompress(Durin::ETextureSourceCompression::Raw));
+	ASSERT_TRUE(Imported.Asset->ReplaceSourceStorage(std::move(ExternalSource)));
+	ASSERT_TRUE(Durin::SavePackage(Imported.Asset->GetPackage()));
 	const Durin::FXxHash128 ImportedIdentity =
 		Imported.Asset->GetSource().GetIdentity();
 	EXPECT_FALSE(ImportedIdentity.IsZero());

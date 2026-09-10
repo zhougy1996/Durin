@@ -101,7 +101,7 @@ namespace Durin
 		if (Canonical.InitLayered(ETextureSourceKind::Volume,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Linear, Bytes, 0, 0,
-			ETextureSourceCompression::Raw))
+			ETextureSourceCompression::Zstd))
 			CanonicalSourceIdentity = Canonical.GetIdentity();
 		return true;
 	}
@@ -241,7 +241,7 @@ namespace Durin
 		if (!NewSource.InitLayered(ETextureSourceKind::Volume,
 			std::span(&Block, 1), std::span(&Layer, 1),
 			ETextureSourceGammaSpace::Linear, Read.Buffer.GetBytes(), 0, 0,
-			ETextureSourceCompression::Raw))
+			ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("VolumeTexture source data could not be initialized.");
 			return std::nullopt;

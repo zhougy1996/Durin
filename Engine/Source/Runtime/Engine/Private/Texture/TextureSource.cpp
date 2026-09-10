@@ -2,6 +2,9 @@
 
 #include "Hash/XxHash.h"
 
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
 namespace Durin
 {
 	namespace
@@ -111,6 +114,28 @@ namespace Durin
 			return true;
 		}
 
+		auto DecodeZstd(FByteView Bytes, uint64 DecodedSize, FByteBuffer& OutBytes) -> bool
+		{
+			if (DecodedSize == 0 || DecodedSize > MaximumTextureSourceBytes) return false;
+			ZSTD_frameHeader Header{};
+			if (ZSTD_getFrameHeader(&Header, Bytes.data(), Bytes.size()) != 0
+				|| Header.frameType != ZSTD_frame || Header.dictID != 0
+				|| Header.frameContentSize != DecodedSize
+				|| Header.windowSize > MaximumTextureSourceBytes) return false;
+			const size_t FrameSize = ZSTD_findFrameCompressedSize(Bytes.data(), Bytes.size());
+			if (ZSTD_isError(FrameSize) || FrameSize != Bytes.size()) return false;
+			std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> Context(
+				ZSTD_createDCtx(), &ZSTD_freeDCtx);
+			if (!Context || ZSTD_isError(ZSTD_DCtx_setParameter(
+				Context.get(), ZSTD_d_windowLogMax, 29))) return false;
+			FByteBuffer Result(static_cast<size_t>(DecodedSize));
+			const size_t Size = ZSTD_decompressDCtx(Context.get(), Result.data(),
+				Result.size(), Bytes.data(), Bytes.size());
+			if (ZSTD_isError(Size) || Size != DecodedSize) return false;
+			OutBytes = std::move(Result);
+			return true;
+		}
+
 		auto IsKindValid(ETextureSourceKind Kind) -> bool
 		{
 			return Kind >= ETextureSourceKind::Texture2D
@@ -182,7 +207,8 @@ namespace Durin
 			&& CanonicalPayloadHashHigh == 0)) return false;
 		if (Compression == ETextureSourceCompression::Raw)
 			return Payload.GetPayloadSize() == Total;
-		return Compression == ETextureSourceCompression::RunLength
+		return (Compression == ETextureSourceCompression::RunLength
+			|| Compression == ETextureSourceCompression::Zstd)
 			&& Payload.GetPayloadSize() > 0 && Payload.GetPayloadSize() < Total;
 	}
 
@@ -208,8 +234,14 @@ namespace Durin
 		ETextureSourceCompression PreferredCompression) -> bool
 	{
 		if (PreferredCompression != ETextureSourceCompression::Raw
-			&& PreferredCompression != ETextureSourceCompression::RunLength)
+			&& PreferredCompression != ETextureSourceCompression::RunLength
+			&& PreferredCompression != ETextureSourceCompression::Zstd)
 			return false;
+		FTextureSourceMipInfo Ignored;
+		uint64 Total = 0;
+		if (InSourceChannelCount > 4 || !ResolveMipInfo(InKind, InGammaSpace,
+			InBlocks, InLayers, 0, 0, 0, Ignored, &Total)
+			|| Total != DecodedPayload.size()) return false;
 		FTextureSource NewSource;
 		NewSource.Kind = InKind;
 		NewSource.GammaSpace = InGammaSpace;
@@ -225,10 +257,17 @@ namespace Durin
 		FByteBuffer Stored;
 		if (PreferredCompression == ETextureSourceCompression::RunLength)
 			Stored = EncodeRunLength(DecodedPayload);
-		if (PreferredCompression == ETextureSourceCompression::RunLength
-			&& !Stored.empty() && Stored.size() < DecodedPayload.size())
+		if (PreferredCompression == ETextureSourceCompression::Zstd)
 		{
-			NewSource.Compression = ETextureSourceCompression::RunLength;
+			Stored.resize(ZSTD_compressBound(DecodedPayload.size()));
+			const size_t Size = ZSTD_compress(Stored.data(), Stored.size(),
+				DecodedPayload.data(), DecodedPayload.size(), 3);
+			if (ZSTD_isError(Size)) return false;
+			Stored.resize(Size);
+		}
+		if (!Stored.empty() && Stored.size() < DecodedPayload.size())
+		{
+			NewSource.Compression = PreferredCompression;
 			if (!NewSource.Payload.UpdatePayload(Stored)) return false;
 		}
 		else
@@ -314,6 +353,35 @@ namespace Durin
 			InSourceChannelCount, InTransparencyMask, PreferredCompression);
 	}
 
+	auto FTextureSource::Recompress(ETextureSourceCompression PreferredCompression) -> bool
+	{
+		// Decode a detached snapshot so failed operations cannot change this residency.
+		FTextureSource Snapshot = *this;
+		Snapshot.MipDataState = std::make_shared<FMipDataState>();
+		const FMipData Original = Snapshot.GetMipData();
+		if (!Original.IsValid()) return false;
+		FTextureSource Candidate;
+		if (!Candidate.InitLayered(Kind, Blocks, Layers, GammaSpace,
+			Original.GetData().GetBytes(), SourceChannelCount, TransparencyMask,
+			PreferredCompression)) return false;
+		const FMipData Verified = Candidate.GetMipData();
+		if (!Verified.IsValid() || Candidate.GetIdentity() != GetIdentity()
+			|| !std::ranges::equal(Original.GetData().GetBytes(), Verified.GetData().GetBytes()))
+			return false;
+		const auto Stored = Candidate.Payload.GetPayload().Wait();
+		if (!Stored) return false;
+		if (Compression == Candidate.Compression
+			&& Payload.GetPayloadId() == Candidate.Payload.GetPayloadId()) return true;
+		FEditorBulkData Replacement(Payload.GetInstanceId());
+		if (!Replacement.UpdatePayload(Stored.Buffer)) return false;
+		// Detach rather than clearing residency shared with independent source copies.
+		auto NewState = std::make_shared<FMipDataState>();
+		Payload = std::move(Replacement);
+		Compression = Candidate.Compression;
+		MipDataState = std::move(NewState);
+		return true;
+	}
+
 	auto FTextureSource::Reset() -> void
 	{
 		DTexture* PreviousOwner = Owner;
@@ -373,6 +441,12 @@ namespace Durin
 				FByteBuffer Bytes;
 				if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
 					return {};
+				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
+			}
+			if (Compression == ETextureSourceCompression::Zstd)
+			{
+				FByteBuffer Bytes;
+				if (!DecodeZstd(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes)) return {};
 				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
 			}
 			if (FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{

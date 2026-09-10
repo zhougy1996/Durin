@@ -46,6 +46,9 @@ namespace Durin
 		// GameThread only. Adopts prepared source compatible with this texture family,
 		// binds ownership and cancels pending authored builds; does not read or validate payloads.
 		ENGINE_API auto SetSource(FTextureSource Value) -> void;
+		// GameThread storage-only commit. Rejects different pixels, descriptors or bulk
+		// instance identity; preserves build state, ownership and acquired byte buffers.
+		ENGINE_API auto ReplaceSourceStorage(FTextureSource Value) -> bool;
 
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{

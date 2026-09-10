@@ -167,7 +167,7 @@ namespace Durin
 				Base.GammaSpace == Image::EImageGammaSpace::SRGB
 					? ETextureSourceGammaSpace::SRGB : ETextureSourceGammaSpace::Linear,
 				Bytes, SourceChannelCount, TransparencyMask,
-				ETextureSourceCompression::Raw))
+				ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("Texture2D supplied mip chain could not be initialized.");
 			return std::nullopt;

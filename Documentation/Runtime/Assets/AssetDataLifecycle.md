@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -19,6 +19,27 @@ branches are removed; transparency is derived from the current channel mask.
 The obsolete EditorBulkData `ReplaceBytes` adapters are removed; authored
 callers use `UpdatePayload`. Existing current-format validation remains active.
 Old Cook outputs are disposable and must be regenerated from current content.
+
+## Texture source storage compression
+
+`FTextureSource` owns lossless storage: Raw (0), byte-run RunLength (1) and
+Zstd (2) retain schema 3 and identical semantic source identities. Initialization
+prefers pinned Zstd 1.5.7 level 3, a single frame without dictionaries or worker
+threads, falling back to Raw only when compression succeeds without a size win.
+Older executables cannot read codec 2; update tools before converting assets.
+Descriptors and decoded sizes are validated before compression or allocation.
+Decoding requires exactly one complete frame, its declared content size, a
+window no larger than the 512 MiB source limit, no dictionary, and the canonical
+pixel hash. Trailing data, concatenated/skippable frames and unknown codecs fail.
+
+`Recompress` prepares and verifies a detached candidate, preserving the owner,
+bulk instance GUID and source identity. Failed operations leave storage and
+residency unchanged; identical storage is a no-op. Replaced residency is detached,
+while previously acquired byte buffers remain valid. Source mutation requires
+exclusive ownership. `DTexture::ReplaceSourceStorage` commits a verified storage
+candidate on GameThread without invalidating build or rendering state. Imports
+compress detached source work; ordinary loads, saves, reads and audits do not
+implicitly recompress. GPU formats, DDC keys and Cook inputs remain unchanged.
 
 ## Serialization and production ownership
 

@@ -457,11 +457,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		V6Inspection, V6Descriptors, &Error)) << Error;
 	ASSERT_EQ(V6Descriptors.size(), 1u);
 	EXPECT_EQ(V6Descriptors.front().StorageKind,
-		EEditorBulkDataStorageKind::External);
+		EEditorBulkDataStorageKind::Inline);
 	std::vector<std::filesystem::path> V6Companions;
 	ASSERT_TRUE(InspectEditorBulkDataCompanionPaths(
 		PackageEntry->PhysicalPath, V6Inspection, V6Companions, &Error)) << Error;
-	ASSERT_EQ(V6Companions.size(), 1u);
+	ASSERT_TRUE(V6Companions.empty());
+	const std::filesystem::path SourceStoragePath = PackageEntry->PhysicalPath;
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
 	ASSERT_TRUE(Reimported.bSucceeded) << Reimported.Diagnostic;
@@ -486,14 +487,14 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	Durin::FByteBuffer CompanionBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, V6Companions.front()));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, SourceStoragePath));
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* CorruptLoad = nullptr;
 	EXPECT_FALSE(LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), CorruptLoad));
 	CompanionBytes.back() ^= std::byte{1};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, SourceStoragePath));
 	DVolumeTexture* Reloaded = nullptr;
 	const FAssetResult Loaded = LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -507,7 +508,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(FindAssetExact(AssetPath)->FormatVersion,
 		ObjectPackage::DastV9FormatVersion);
-	EXPECT_TRUE(std::filesystem::is_regular_file(V6Companions.front()));
+	EXPECT_TRUE(std::filesystem::is_regular_file(SourceStoragePath));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasRollbackCook");
@@ -527,5 +528,5 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(RepeatedCookedBulk, V6CookedBulk);
 	ASSERT_TRUE(UnloadPackage(AssetPath));
 	ASSERT_TRUE(Testing::RemoveAssetPackageForTests(AssetPath));
-	EXPECT_FALSE(std::filesystem::exists(V6Companions.front()));
+	EXPECT_FALSE(std::filesystem::exists(SourceStoragePath));
 }

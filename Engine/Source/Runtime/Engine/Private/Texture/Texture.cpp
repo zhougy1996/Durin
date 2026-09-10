@@ -149,6 +149,20 @@ namespace Durin
 		return RenderResource ? RenderResource->GetTextureRHI_GameThread() : FTextureRHIRef{};
 	}
 
+	auto DTexture::ReplaceSourceStorage(FTextureSource Value) -> bool
+	{
+		CheckGameThread();
+		if (!Value.IsValid() || Value.GetIdentity() != Source.GetIdentity()
+			|| Value.GetBulkData().GetInstanceId() != Source.GetBulkData().GetInstanceId()) return false;
+		const auto Before = Source.GetMipData();
+		const auto After = Value.GetMipData();
+		if (!Before.IsValid() || !After.IsValid()
+			|| !std::ranges::equal(Before.GetData().GetBytes(), After.GetData().GetBytes())) return false;
+		Source = std::move(Value);
+		Source.BindOwner(this);
+		return true;
+	}
+
 	auto DTexture::SetSource(FTextureSource Value) -> void
 	{
 		CheckGameThread();

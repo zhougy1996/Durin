@@ -4,13 +4,19 @@ Summary: Define reflected BulkData values, canonical DAST v9 placement, package-
 
 Modules: Engine, CoreDObject, AssetRegistry
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
 BulkData is a reflected field contract. The field owns bounded logical storage
 facts and optional memory; the package owns physical placement and integrity;
 the asset family owns the meaning of the bytes. A BulkData value never stores a
 physical filename, DDC key, target platform, asset schema, or source-control
 policy.
+
+For texture source data, the bulk content digest and logical size describe the
+stored bytes (possibly Zstd-compressed), while `FTextureSource`'s canonical hash
+and decoded size describe exact pixels. BulkData remains opaque; source codecs
+do not add a package compression layer or change DAST v9. See
+[texture source storage](AssetDataLifecycle.md#texture-source-storage-compression).
 
 ## Runtime Field State
 
