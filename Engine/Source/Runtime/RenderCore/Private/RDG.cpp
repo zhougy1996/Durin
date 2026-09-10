@@ -514,27 +514,6 @@ namespace Durin
 				: A.BufferOffset == B.BufferOffset && A.BufferSize == B.BufferSize;
 		}
 
-		auto ContainsRange(const FGraphUse& Outer, const FGraphUse& Inner) -> bool
-		{
-			if (Outer.ResourceIndex != Inner.ResourceIndex || Outer.Kind != Inner.Kind)
-				return false;
-			if (Outer.Kind == ERDGResourceKind::Token) return true;
-			if (Outer.Kind == ERDGResourceKind::Buffer)
-				return Outer.BufferOffset <= Inner.BufferOffset
-					&& Inner.BufferOffset + Inner.BufferSize
-						<= Outer.BufferOffset + Outer.BufferSize;
-			const auto& A = Outer.TextureRange;
-			const auto& B = Inner.TextureRange;
-			return EnumHasAnyFlags(A.Aspects, B.Aspects)
-				&& (static_cast<uint8>(A.Aspects) & static_cast<uint8>(B.Aspects))
-					== static_cast<uint8>(B.Aspects)
-				&& A.FirstMip <= B.FirstMip
-				&& B.FirstMip + B.NumMips <= A.FirstMip + A.NumMips
-				&& A.FirstArrayLayer <= B.FirstArrayLayer
-				&& B.FirstArrayLayer + B.NumArrayLayers
-					<= A.FirstArrayLayer + A.NumArrayLayers;
-		}
-
 		auto DependencyKindName(ERDGDependencyKind Kind) -> const char*
 		{
 			switch (Kind)
@@ -1071,14 +1050,87 @@ namespace Durin
 			{ return SafetyLimit("cell-visits", Visits, Budget.MaxCellVisits); }
 		};
 
+		// Indexes the immutable partition; state changes never change cell order or bounds.
 		struct FResourceCells final
 		{
+			struct FTextureRow final
+			{
+				std::pair<ERHITextureAspect, uint32> Key;
+				size_t Begin;
+				size_t End;
+			};
 			std::vector<FRangeState> States;
 			std::vector<size_t> Offsets;
+			std::vector<FTextureRow> TextureRows;
+			std::vector<size_t> TextureRowOffsets;
 			auto ForResource(uint32 Index) -> std::span<FRangeState>
 			{
 				return std::span(States).subspan(Offsets[Index],
 					Offsets[Index + 1] - Offsets[Index]);
+			}
+
+			auto IndexTextureRows() -> void
+			{
+				TextureRowOffsets.resize(Offsets.size());
+				for (size_t Resource = 0; Resource + 1 < Offsets.size(); ++Resource)
+				{
+					TextureRowOffsets[Resource] = TextureRows.size();
+					for (size_t Cell = Offsets[Resource]; Cell < Offsets[Resource + 1];)
+					{
+						if (States[Cell].Use.Kind != ERDGResourceKind::Texture) break;
+						const auto& Range = States[Cell].Use.TextureRange;
+						const auto Key = std::pair{Range.Aspects, Range.FirstMip};
+						const size_t Begin = Cell++;
+						while (Cell < Offsets[Resource + 1]
+							&& States[Cell].Use.TextureRange.Aspects == Key.first
+							&& States[Cell].Use.TextureRange.FirstMip == Key.second) ++Cell;
+						TextureRows.push_back({Key, Begin, Cell});
+					}
+				}
+				TextureRowOffsets.back() = TextureRows.size();
+			}
+
+			// Uses must come from the declarations that built this partition: every use
+			// endpoint is a cell boundary. Binary searches therefore need only starts.
+			// The visitor preserves canonical order and stops at the first error.
+			template <typename FVisitor>
+			auto VisitUse(const FGraphUse& Use, FVisitor&& Visitor) -> std::string
+			{
+				auto Visit = [&](auto Begin, auto End) -> std::string {
+					for (auto It = Begin; It != End; ++It)
+						if (auto Error = Visitor(*It); !Error.empty()) return Error;
+					return {};
+				};
+				auto Cells = ForResource(Use.ResourceIndex);
+				if (Use.Kind == ERDGResourceKind::Token) return Visit(Cells.begin(), Cells.end());
+				if (Use.Kind == ERDGResourceKind::Buffer)
+				{
+					auto Offset = [](const FRangeState& Cell) { return Cell.Use.BufferOffset; };
+					const auto Begin = std::ranges::lower_bound(Cells, Use.BufferOffset, {}, Offset);
+					const auto End = std::lower_bound(Begin, Cells.end(), Use.BufferOffset + Use.BufferSize,
+						[&](const FRangeState& Cell, uint64 Value) { return Offset(Cell) < Value; });
+					return Visit(Begin, End);
+				}
+				const auto Rows = std::span(TextureRows).subspan(TextureRowOffsets[Use.ResourceIndex],
+					TextureRowOffsets[Use.ResourceIndex + 1] - TextureRowOffsets[Use.ResourceIndex]);
+				const auto& Range = Use.TextureRange;
+				for (ERHITextureAspect Aspect : {ERHITextureAspect::Color,
+					ERHITextureAspect::Depth, ERHITextureAspect::Stencil})
+				{
+					if (!EnumHasAnyFlags(Range.Aspects, Aspect)) continue;
+					for (auto Row = std::ranges::lower_bound(Rows, std::pair{Aspect, Range.FirstMip},
+						{}, &FTextureRow::Key); Row != Rows.end() && Row->Key.first == Aspect
+						&& Row->Key.second < Range.FirstMip + Range.NumMips; ++Row)
+					{
+						auto Layers = std::span(States).subspan(Row->Begin, Row->End - Row->Begin);
+						auto Layer = [](const FRangeState& Cell) { return Cell.Use.TextureRange.FirstArrayLayer; };
+						const auto Begin = std::ranges::lower_bound(Layers, Range.FirstArrayLayer, {}, Layer);
+						const auto End = std::lower_bound(Begin, Layers.end(), Range.FirstArrayLayer + Range.NumArrayLayers,
+							[&](const FRangeState& Cell, uint32 Value) { return Layer(Cell) < Value; });
+						if (auto Error = Visit(Begin, End); !Error.empty()) return Error;
+					}
+				}
+				return {};
 			}
 		};
 
@@ -1353,6 +1405,7 @@ namespace Durin
 				}
 			}
 			Result.Offsets.back() = Cells.size();
+			Result.IndexTextureRows();
 			return {};
 		}
 
@@ -1363,10 +1416,9 @@ namespace Durin
 		{
 			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
 				for (const auto& Use : Passes[PassIndex].Uses)
-					for (auto& Cell : Cells.ForResource(Use.ResourceIndex))
+					if (auto Error = Cells.VisitUse(Use, [&](FRangeState& Cell) -> std::string
 					{
 						if (!Work.Visit()) return Work.Error();
-						if (!ContainsRange(Use, Cell.Use)) continue;
 						const auto& Resource = Resources[Use.ResourceIndex];
 						if (Use.Use != ERDGUse::Write && !Use.bDiscard
 							&& !Cell.bProduced)
@@ -1382,7 +1434,7 @@ namespace Durin
 							// by this pass can only be the last reader.
 							if (Cell.Readers.empty() || Cell.Readers.back() != PassIndex)
 								Cell.Readers.push_back(PassIndex);
-							continue;
+							return {};
 						}
 						if (Use.Use == ERDGUse::ReadWrite && !Use.bDiscard
 							&& Cell.Producer != std::numeric_limits<uint32>::max())
@@ -1400,7 +1452,8 @@ namespace Durin
 							? PassIndex : std::numeric_limits<uint32>::max();
 						Cell.bProduced = Use.bStore;
 						Cell.Readers.clear();
-					}
+						return {};
+					}); !Error.empty()) return Error;
 			return {};
 		}
 
@@ -2477,10 +2530,9 @@ namespace Durin
 				Lifetime.LastPass = CompiledPassIndex;
 				Lifetime.bCulled = false;
 				const auto& Resource = State->Resources[Use.ResourceIndex];
-				for (auto& Cell : ExecutionCells.ForResource(Use.ResourceIndex))
+				if (auto Error = ExecutionCells.VisitUse(Use, [&](FRangeState& Cell) -> std::string
 				{
 					if (!Work.Visit()) return Work.Error();
-					if (!ContainsRange(Use, Cell.Use)) continue;
 					const ERHIAccess Before = Cell.Access;
 					if (Use.Kind != ERDGResourceKind::Token
 						&& NeedsRangeBarrier(Cell, Use))
@@ -2501,7 +2553,8 @@ namespace Durin
 						}
 					}
 					AdvanceRangeState(Cell, Use);
-				}
+					return {};
+				}); !Error.empty()) return Error;
 			}
 			CompiledState->Passes.push_back(std::move(CompiledPass));
 			CompiledState->RuntimePasses.push_back(std::move(Runtime));
@@ -2652,9 +2705,9 @@ namespace Durin
 		{
 			const uint32 DeclarationIndex = Compiled->Passes[PassIndex].DeclarationIndex;
 			for (const auto& Use : DeclaredPass(DeclarationIndex).Uses)
-				for (auto& Cell : Cells.ForResource(Use.ResourceIndex))
+			{
+				const auto VisitError = Cells.VisitUse(Use, [&](FRangeState& Cell) -> std::string
 				{
-					if (!ContainsRange(Use, Cell.Use)) continue;
 					const ERHIAccess Before = Cell.Access;
 					if ((Use.Kind != ERDGResourceKind::Token && NeedsRangeBarrier(Cell, Use))
 						|| Use.bPassManagedTransition)
@@ -2671,7 +2724,10 @@ namespace Durin
 						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
 						std::string(Use.ParameterPath), std::string(Use.ShaderBindingName),
 						Use.ShaderBindingType});
-				}
+					return {};
+				});
+				requiref(VisitError.empty(), "compiled RDG diagnostic traversal failed: {}", VisitError);
+			}
 		}
 		for (const auto& Cell : Cells.States)
 		{

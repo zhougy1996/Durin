@@ -3434,6 +3434,111 @@ namespace Durin
 		EXPECT_TRUE(Compile({.MaxRangeCells = 4, .MaxRangeCellCandidates = 4}).empty());
 	}
 
+	TEST_F(FRDGTests, BufferUseIndexVisitsOnlyCoveredCells)
+	{
+		for (uint32 Count : {32u, 256u})
+		{
+			FRDGBuilder Builder;
+			// Sweep costs 2N-1 visits; dependency and transition walks cost 2N each.
+			Builder.SetBudget({.MaxRangeCells = Count, .MaxCellVisits = 6 * Count});
+			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferCreateDesc::Create(
+				"Sparse", Count * 16, 4, EBufferUsageFlags::UnorderedAccess)}, "Sparse");
+			for (uint32 Index = Count; Index-- > 0;)
+			{
+				const auto Write = Builder.AddPass("Write" + std::to_string(Index), ERDGPassType::Compute);
+				Builder.UseBuffer(Write, Buffer, Index * 16, 8, ERDGUse::Write,
+					ERHIAccess::ComputeShaderReadWrite, true);
+				const auto Read = Builder.AddPass("Read" + std::to_string(Index), ERDGPassType::Compute);
+				Builder.UseBuffer(Read, Buffer, Index * 16, 8, ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+			}
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			const auto Capture = Builder.Capture();
+			EXPECT_EQ(Capture.Dependencies.size(), Count);
+			ASSERT_EQ(Capture.Uses.size(), 2u * Count);
+			EXPECT_EQ(Capture.Transitions.size(), 2u * Count);
+			for (uint32 Index = 0; Index < Capture.Uses.size(); ++Index)
+			{
+				EXPECT_EQ(Capture.Uses[Index].BufferOffset, (Count - 1 - Index / 2) * 16u);
+				EXPECT_EQ(Capture.Uses[Index].BufferSize, 8u);
+				EXPECT_EQ(Capture.Uses[Index].Version, 1u);
+			}
+		}
+	}
+
+	TEST_F(FRDGTests, TextureUseIndexKeepsDepthAndStencilStatesSeparate)
+	{
+		FRDGBuilder Builder;
+		const auto Texture = CreateTestTexture(Builder, "DepthStencil",
+			MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D("DepthStencil", 64, 64,
+				EPixelFormat::D24S8).SetFlags(ETextureCreateFlags::DepthStencilTargetable
+					| ETextureCreateFlags::ShaderResource)));
+		const auto Write = Builder.AddPass("WriteBoth", ERDGPassType::Graphics);
+		Builder.UseTexture(Write, Texture,
+			{ERHITextureAspect::Depth | ERHITextureAspect::Stencil, 0, 1, 0, 1},
+			ERDGUse::Write, ERHIAccess::DepthStencilReadWrite, true);
+		const auto Read = Builder.AddPass("ReadStencil", ERDGPassType::Graphics);
+		Builder.UseTexture(Read, Texture, {ERHITextureAspect::Stencil, 0, 1, 0, 1},
+			ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
+		const auto Overwrite = Builder.AddPass("OverwriteDepth", ERDGPassType::Graphics);
+		Builder.UseTexture(Overwrite, Texture, {ERHITextureAspect::Depth, 0, 1, 0, 1},
+			ERDGUse::Write, ERHIAccess::DepthStencilReadWrite, true);
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Builder.Capture();
+		EXPECT_EQ(Capture.Dependencies.size(), 2u);
+		ASSERT_EQ(Capture.Uses.size(), 4u);
+		const std::array Aspects{ERHITextureAspect::Depth, ERHITextureAspect::Stencil,
+			ERHITextureAspect::Stencil, ERHITextureAspect::Depth};
+		for (size_t Index = 0; Index < Aspects.size(); ++Index)
+		{
+			EXPECT_EQ(Capture.Uses[Index].TextureRange.Aspects, Aspects[Index]);
+			EXPECT_EQ(Capture.Uses[Index].Version, Index == 3 ? 2u : 1u);
+		}
+		ASSERT_EQ(Builder.GetPasses()[1].TextureTransitions.size(), 1u);
+		EXPECT_EQ(Builder.GetPasses()[1].TextureTransitions[0].Range.Aspects, ERHITextureAspect::Stencil);
+	}
+
+	TEST_F(FRDGTests, TextureUseIndexBoundsSparseLayersAcrossMips)
+	{
+		FRDGBuilder Builder;
+		constexpr uint32 Layers = 64;
+		constexpr uint32 Mips = 4;
+		// Includes sparse sweep work and two visits per use, with no full row scans.
+		Builder.SetBudget({.MaxRangeCells = Layers * Mips, .MaxCellVisits = 6 * Layers * Mips});
+		auto Desc = DescribeGraphTexture(*MakeGraphTexture("SparseLayers", Mips));
+		Desc.Texture.ArraySize = Layers * 2;
+		const auto Texture = Builder.CreateTexture(Desc, "SparseLayers");
+		for (uint32 Layer = Layers; Layer-- > 0;)
+		{
+			for (uint32 Mip = 0; Mip < Mips; ++Mip)
+			{
+				const auto Write = Builder.AddPass("Write" + std::to_string(Layer) + "."
+					+ std::to_string(Mip), ERDGPassType::Compute);
+				Builder.UseTexture(Write, Texture, {ERHITextureAspect::Color, Mip, 1, Layer * 2, 1},
+					ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			}
+			const auto Read = Builder.AddPass("Read" + std::to_string(Layer), ERDGPassType::Compute);
+			Builder.UseTexture(Read, Texture, {ERHITextureAspect::Color, 0, Mips, Layer * 2, 1},
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		}
+		const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Builder.Capture();
+		EXPECT_EQ(Capture.Dependencies.size(), Layers * Mips);
+		ASSERT_EQ(Capture.Uses.size(), 2u * Layers * Mips);
+		EXPECT_EQ(Capture.Transitions.size(), 2u * Layers * Mips);
+		for (uint32 Index = 0; Index < Capture.Uses.size(); ++Index)
+		{
+			const auto& Use = Capture.Uses[Index];
+			EXPECT_EQ(Use.TextureRange.FirstMip, Index % Mips);
+			EXPECT_EQ(Use.TextureRange.NumMips, 1u);
+			EXPECT_EQ(Use.TextureRange.FirstArrayLayer, (Layers - 1 - Index / (2 * Mips)) * 2);
+			EXPECT_EQ(Use.TextureRange.NumArrayLayers, 1u);
+			EXPECT_EQ(Use.Version, 1u);
+		}
+	}
+
 	TEST_F(FRDGTests, ResourceCellIndexBoundsMultiResourceInterleavedWork)
 	{
 		FRDGBuilder Builder;
