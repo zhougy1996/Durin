@@ -42,14 +42,12 @@ namespace Durin
             static auto GetRDGParametersMetadata() -> const FRDGParametersMetadata*
             {
                 static const std::array Members{
-                    MakeRDGShaderResourceParameterMemberMetadata<FPassParameters,FRDGTextureParameter,FRDGTextureParameter>(
-                        "Source", offsetof(FPassParameters,Source), ERDGParameterMemberKind::Texture,
-                        ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
-                        ERDGUse::Read, ERHIAccess::ComputeShaderRead, ERHIBindingType::Texture),
-                    MakeRDGShaderResourceParameterMemberMetadata<FPassParameters,FRDGTextureParameter,FRDGTextureParameter>(
-                        "Output", offsetof(FPassParameters,Output), ERDGParameterMemberKind::Texture,
-                        ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
-                        ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, ERHIBindingType::StorageImage, nullptr, true)};
+                    WithRDGShaderBinding(
+                        MakeRDGTextureReadMetadata<FPassParameters, FRDGTextureParameter, ERDGPassType::Compute>(
+                            "Source", offsetof(FPassParameters, Source)), ERHIBindingType::Texture),
+                    WithRDGShaderBinding(
+                        MakeRDGComputeTextureWriteMetadata<FPassParameters, FRDGTextureParameter>(
+                            "Output", offsetof(FPassParameters, Output)), ERHIBindingType::StorageImage)};
                 static const auto Metadata = MakeInlineRDGParametersMetadata<FPassParameters>("SkyLightingPass", Members);
                 return &Metadata;
             }
