@@ -7,19 +7,15 @@ namespace Durin::Tasks
 	namespace Detail
 	{
 		struct FCompletionSourceAccess;
-		inline auto CreateGroupScope() -> FTaskScope
-		{
-			try { return CreateTaskScope(); }
-			catch (const std::bad_alloc&) { requiref(false, "Task group allocation failed."); std::terminate(); }
-		}
+		CORE_API auto CreateGroupScope() -> FTaskScope;
+		[[noreturn]] CORE_API auto FailConstruction(FTaskAdmissionError Error) -> void;
 		// Construction failures are programming/lifetime violations or allocation failure.
 		// This is never used to turn ordinary scheduler saturation into an assertion.
 		template<typename T> struct TConstruction
 		{
 			[[noreturn]] static auto Failure(FTaskAdmissionError Error) -> T
 			{
-				requiref(false, "Task construction failed (code {}, task {}).", static_cast<uint32>(Error.Code), Error.RelatedTaskId);
-				std::terminate();
+				FailConstruction(Error);
 			}
 			static auto Success(T Value) -> T { return Value; }
 		};
@@ -38,6 +34,15 @@ namespace Durin::Tasks
 		uint64 RelatedTaskId = 0;
 		size_t InputIndex = 0;
 	};
+
+	namespace Detail
+	{
+		// Result access requires both a supported wait and successful execution in every build.
+		CORE_API auto WaitForSuccess(const FTaskHandle& Handle) -> void;
+		// Requires failure; absent stored failure uses the override or the native terminal reason.
+		CORE_API auto ReadFailure(const FTaskHandle& Handle, const FTaskFailure* Failure,
+			std::optional<ETaskTerminalReason> FallbackReason = {}) -> FTaskFailure;
+	}
 	template<typename T> using TTaskValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
 	// Execution and owner identity; scheduler storage accounting is internal.
@@ -62,27 +67,8 @@ namespace Durin::Tasks
 		FTaskAttribution Attribution;
 		FTaskScopeToken Scope;
 	};
-	inline auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
-		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult
-	{
-		FParallelForOptions Native;
-		Native.CancellationToken = Options.Cancellation;
-		Native.Attribution = Options.Attribution;
-		Native.Scope = Options.Scope;
-		switch (Options.Policy)
-		{
-		case EParallelForPolicy::Auto:
-			if (Num >= 16'384) Native.MinBatchSize = 2048;
-			break;
-		case EParallelForPolicy::Serial: break;
-		case EParallelForPolicy::ExplicitBatch:
-			if (Options.BatchSize == 0) return {ETaskState::Invalid, "ExplicitBatch requires a positive batch size.", 0};
-			Native.MinBatchSize = Options.BatchSize;
-			break;
-		default: return {ETaskState::Invalid, "Unknown ParallelFor policy.", 0};
-		}
-		return Durin::ParallelFor(Name, Num, std::move(Function), Native);
-	}
+	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function,
+		const FParallelForPolicyOptions& Options = {}) -> FParallelForResult;
 
 	// Non-consuming observation carries no access to the unique result.
 	class FTaskCompletion
@@ -100,17 +86,17 @@ namespace Durin::Tasks
 		FTaskHandle Handle;
 		FTaskScopeToken Group;
 	};
-	inline auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult { return Completion.GetTaskHandle().IsValid() ? WaitTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::WaitGroup(Completion.GetGroupToken()); }
-	inline auto Cancel(const FTaskCompletion& Completion) -> bool { return Completion.GetTaskHandle().IsValid() ? CancelTask(Completion.GetTaskHandle()) : Durin::Private::FTaskRuntimeAccess::CloseGroup(Completion.GetGroupToken(), ETaskScopeCloseMode::Cancel) == ETaskScopeCloseResult::Closed; }
+	CORE_API auto Wait(const FTaskCompletion& Completion) -> FTaskWaitResult;
+	CORE_API auto Cancel(const FTaskCompletion& Completion) -> bool;
 
 	// Owns admission lifetime; owners explicitly close and join before destroying captures.
 	class FTaskGroup
 	{
 	public:
-		FTaskGroup() : Scope(Detail::CreateGroupScope()) { requiref(Scope.IsValid(), "Task group requires a running scheduler."); }
+		CORE_API FTaskGroup();
 		// Borrowed module scope retains the module owner's stronger drain authority.
 		explicit FTaskGroup(FTaskScopeToken InScope) : BorrowedScope(std::move(InScope)) {}
-		~FTaskGroup() { if (Scope.IsValid()) Durin::Private::FTaskRuntimeAccess::DiagnoseGroupDestruction(Scope.GetToken()); }
+		CORE_API ~FTaskGroup();
 		FTaskGroup(FTaskGroup&&) noexcept = default;
 		FTaskGroup(const FTaskGroup&) = delete;
 		auto operator=(const FTaskGroup&) -> FTaskGroup& = delete;
@@ -164,22 +150,19 @@ namespace Durin::Tasks
 		// Requires a failed terminal state; returns a copy independent of result ownership.
 		auto GetFailure() const -> FTaskFailure
 		{
-			require(GetState() == ETaskState::Failed);
-			return Failure ? *Failure : FTaskFailure{Handle.GetDiagnostics().TerminalReason};
+			return Detail::ReadFailure(Handle.GetTaskHandle(), Failure.get());
 		}
 		// Waits for success. The reference is invalidated by result consumption or task destruction.
 		auto GetResult() const -> std::conditional_t<std::is_void_v<T>, void, const TTaskValue<T>&>
 		{
-			const auto WaitResult = Wait();
-			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
+			Detail::WaitForSuccess(Handle.GetTaskHandle());
 			if constexpr (!std::is_void_v<T>) return *Durin::Private::FUniqueTaskAccess::GetResultState(Handle)->PeekPublished();
 		}
 		// Waits for success, then transfers the result exactly once and invalidates this task.
 		// Rejected waits, failure and cancellation must be handled before requesting a result.
 		auto TakeResult() && -> T
 		{
-			const auto WaitResult = Wait();
-			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
+			Detail::WaitForSuccess(Handle.GetTaskHandle());
 			const auto ProducerLifetime = Handle.GetTaskHandle();
 			auto Storage = Durin::Private::FUniqueTaskAccess::GetResultState(Handle);
 			const auto Claim = Storage->ReserveClaim();
@@ -195,6 +178,9 @@ namespace Durin::Tasks
 		TUniqueTaskHandle<TTaskValue<T>> Handle;
 		std::shared_ptr<FTaskFailure> Failure;
 	};
+
+	// A void task retains the same move-only ownership and completion contract.
+	using FTask = TTask<void>;
 
 	// Explicit immutable fan-out shares the result storage without a consuming alias.
 	template<typename T>
@@ -216,15 +202,13 @@ namespace Durin::Tasks
 		// Requires a failed terminal state; preserves the producer's failure identity.
 		auto GetFailure() const -> FTaskFailure
 		{
-			require(GetState() == ETaskState::Failed);
-			return Failure ? *Failure : FTaskFailure{ETaskTerminalReason::DependencyFailed};
+			return Detail::ReadFailure(Handle, Failure.get(), ETaskTerminalReason::DependencyFailed);
 		}
 		// Waits for success. The immutable reference is valid while this shared task is retained.
 		// Use GetResultShared when the result must outlive the task handle.
 		auto GetResult() const -> std::conditional_t<std::is_void_v<T>, void, const TTaskValue<T>&>
 		{
-			const auto WaitResult = Wait();
-			require(WaitResult.WaitStatus == ETaskWaitStatus::Completed && GetState() == ETaskState::Succeeded);
+			Detail::WaitForSuccess(Handle);
 			if constexpr (!std::is_void_v<T>) return *Storage->PeekPublished();
 		}
 

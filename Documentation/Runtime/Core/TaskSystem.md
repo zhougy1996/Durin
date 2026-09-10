@@ -4,13 +4,14 @@ Summary: Define accepted CPU work, typed ownership, dependencies, cancellation, 
 
 Modules: Core
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-10
 
 ## Construction And Acceptance
 
 `Threading/TaskComposition.h` defines the ordinary API in `Durin::Tasks`.
 `LaunchTask(Group, Executor, Options, Callable)` returns `TTask<T>` directly,
-including `TTask<void>` for a void callable. Callables accept no arguments,
+including `TTask<void>` (also named `FTask`) for a void callable. The alias keeps
+the same move-only ownership contract. Callables accept no arguments,
 `FTaskContext&`, or a cancellation token. `LaunchTask(Name, Callable, Options)`
 is the Worker convenience form; `Options.Scope` may borrow an owner scope,
 otherwise it inherits the executing task scope, or participates in the

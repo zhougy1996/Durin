@@ -37,6 +37,9 @@ namespace Durin
 
 	static_assert(!std::is_default_constructible_v<Tasks::TTaskAdmission<FTaskHandle>>);
 	static_assert(!std::is_copy_constructible_v<Tasks::TTaskAdmission<std::unique_ptr<int>>>);
+	static_assert(std::is_same_v<Tasks::FTask, Tasks::TTask<void>>);
+	static_assert(std::is_move_constructible_v<Tasks::FTask>);
+	static_assert(!std::is_copy_constructible_v<Tasks::FTask>);
 
 	TEST(FTaskCompositionTests, SchedulerCompletionSourceSignalsDuringDrainAndCancel)
 	{
@@ -87,7 +90,7 @@ namespace Durin
 		EXPECT_EQ(42, *Value);
 		EXPECT_FALSE(Task.IsValid());
 		auto VoidAdmission = Tasks::LaunchTask(Group, Tasks::ETaskExecutor::Worker, {}, [] {});
-		auto VoidTask = std::move(VoidAdmission);
+		Tasks::FTask VoidTask = std::move(VoidAdmission);
 		VoidTask.GetResult();
 		EXPECT_TRUE(VoidTask.IsValid());
 		std::move(VoidTask).TakeResult();
