@@ -113,6 +113,8 @@ namespace Durin
 			bool bExport = false;
 			std::string RootReason;
 			bool bParameterized = false;
+			// Only frozen uses may retain validation across later graph declarations.
+			bool bDeclarationsValidated = false;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
 			FOptionalAliasTable OptionalAliases;
@@ -934,7 +936,9 @@ namespace Durin
 			return Traverse(Metadata, {});
 		}
 
-		auto ValidatePassUses(const FGraphPass& Pass,
+		// Resource indices, kinds and shapes remain stable after declaration.
+		// Resource final states and graph topology are validated separately.
+		auto ValidatePassDeclarations(const FGraphPass& Pass,
 			std::span<const FGraphResource> Resources, std::string& OutError)
 			-> bool
 		{
@@ -942,17 +946,16 @@ namespace Durin
 			for (uint32 UseIndex = 0; UseIndex < Pass.Uses.size(); ++UseIndex)
 			{
 				const auto& Use = Pass.Uses[UseIndex];
-				const std::string Prefix = PassUsePrefix(Pass, Use);
 				if (Use.ResourceIndex >= Resources.size()
 					|| Resources[Use.ResourceIndex].Kind != Use.Kind)
 				{
-					OutError = Prefix + " has an invalid resource handle";
+					OutError = PassUsePrefix(Pass, Use) + " has an invalid resource handle";
 					return false;
 				}
 				const auto& Resource = Resources[Use.ResourceIndex];
 				if (Pass.bExport && !IsExportAccessAllowed(Use.Kind, Use.Access))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' has invalid final access";
 					return false;
 				}
@@ -960,14 +963,14 @@ namespace Durin
 					&& (Use.Access == ERHIAccess::None
 						|| EnumHasAnyFlags(Use.Access, ERHIAccess::Discard)))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' has invalid required access";
 					return false;
 				}
 				if (Use.Kind != ERDGResourceKind::Token
 					&& !Pass.bExport && !IsAccessAllowed(Pass.Type, Use.Access))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' access is incompatible with pass domain";
 					return false;
 				}
@@ -977,20 +980,20 @@ namespace Durin
 						|| (Use.Use == ERDGUse::Write
 							&& !AccessHasWrite(Use.Access))))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' access disagrees with use mode";
 					return false;
 				}
 				if (Use.bDiscard && Use.Use == ERDGUse::Read)
 				{
-					OutError = Prefix + " cannot discard a read";
+					OutError = PassUsePrefix(Pass, Use) + " cannot discard a read";
 					return false;
 				}
 				if (Use.bPassManagedTransition
 					&& (Use.ResultAccess == ERHIAccess::None
 						|| EnumHasAnyFlags(Use.ResultAccess, ERHIAccess::Discard)))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' has invalid managed attachment result access";
 					return false;
 				}
@@ -1000,7 +1003,7 @@ namespace Durin
 						|| Use.BufferSize > Resource.BufferDesc.Size
 							- Use.BufferOffset))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' has invalid buffer range";
 					return false;
 				}
@@ -1017,7 +1020,7 @@ namespace Durin
 							GetTextureAspects(Resource.TextureDesc.Format),
 							Use.TextureRange.Aspects)))
 				{
-					OutError = Prefix + " resource '" + Resource.Name
+					OutError = PassUsePrefix(Pass, Use) + " resource '" + Resource.Name
 						+ "' has invalid texture range";
 					return false;
 				}
@@ -1025,7 +1028,7 @@ namespace Durin
 				for (uint32 OtherUse : EarlierUses)
 					if (RangesOverlap(Use, Pass.Uses[OtherUse]))
 					{
-						OutError = Prefix
+						OutError = PassUsePrefix(Pass, Use)
 							+ " declares overlapping uses of resource '"
 							+ Resource.Name + "' with ";
 						if (!Pass.Uses[OtherUse].ParameterPath.empty())
@@ -1164,7 +1167,8 @@ namespace Durin
 						ERDGDependencyKind::Explicit)) return Graph.Error;
 				}
 				std::string UseError;
-				if (!ValidatePassUses(Pass, Resources, UseError))
+				if (!Pass.bDeclarationsValidated
+					&& !ValidatePassDeclarations(Pass, Resources, UseError))
 					return UseError;
 			}
 			return {};
@@ -1997,10 +2001,12 @@ namespace Durin
 		RequireBuilding();
 		const FRDGParametersMetadata* Metadata = Layout != nullptr
 			? Layout->Metadata : nullptr;
-		const std::string StructName = Metadata != nullptr
-			&& Metadata->StructName != nullptr ? Metadata->StructName : "FParameters";
-		const std::string RootPrefix = "pass '" + std::string(Name)
-			+ "' parameter '" + StructName + "'";
+		const auto RootPrefix = [&] {
+			const char* StructName = Metadata != nullptr
+				&& Metadata->StructName != nullptr ? Metadata->StructName : "FParameters";
+			return "pass '" + std::string(Name)
+				+ "' parameter '" + StructName + "'";
+		};
 		auto Allocation = std::ranges::find_if(
 			State->ParameterStorage.Allocations,
 			[&](const auto& Candidate) {
@@ -2012,13 +2018,13 @@ namespace Durin
 			|| (*Allocation)->Layout != Layout)
 		{
 			State->DeclarationErrors.push_back(
-				RootPrefix + " has an invalid or foreign parameter allocation");
+				RootPrefix() + " has an invalid or foreign parameter allocation");
 			return {};
 		}
 		if ((*Allocation)->bFrozen)
 		{
 			State->DeclarationErrors.push_back(
-				RootPrefix + " was already submitted");
+				RootPrefix() + " was already submitted");
 			return {};
 		}
 		(*Allocation)->bFrozen = true;
@@ -2076,11 +2082,12 @@ namespace Durin
 		ParameterizedPass.OptionalAliases = FOptionalAliasTable(OptionalAliases);
 
 		std::string UseError;
-		if (!ValidatePassUses(ParameterizedPass, State->Resources, UseError))
+		if (!ValidatePassDeclarations(ParameterizedPass, State->Resources, UseError))
 		{
 			State->DeclarationErrors.push_back(std::move(UseError));
 			return {};
 		}
+		ParameterizedPass.bDeclarationsValidated = true;
 		const uint32 Index = static_cast<uint32>(State->Passes.size());
 		State->Passes.push_back(std::move(ParameterizedPass));
 		return {State->Owner, Index};
@@ -2353,6 +2360,7 @@ namespace Durin
 				.Uses = Pass.Uses, .Prerequisites = Pass.Prerequisites,
 				.bRoot = Pass.bRoot, .bExport = Pass.bExport,
 				.RootReason = Pass.RootReason, .bParameterized = Pass.bParameterized,
+				.bDeclarationsValidated = Pass.bDeclarationsValidated,
 				.ParameterLayout = Pass.ParameterLayout, .Parameters = Pass.Parameters,
 				.OptionalAliases = Pass.OptionalAliases});
 		FGraphPass Export;

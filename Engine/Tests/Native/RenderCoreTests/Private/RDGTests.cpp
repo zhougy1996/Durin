@@ -1598,6 +1598,42 @@ namespace Durin
 		}
 	}
 
+	TEST_F(FRDGTests, ValidatedParameterDeclarationsStillRequireGraphValidation)
+	{
+		{
+			FRDGBuilder Builder;
+			for (uint32 Index = 0; Index < 2; ++Index)
+			{
+				auto Parameters = Builder.AllocParameters<FComposedTextureArrayParameters>();
+				ASSERT_TRUE(Builder.AddPass("Duplicate", ERDGPassType::Graphics,
+					std::move(Parameters)).IsValid());
+			}
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				"duplicate pass name 'Duplicate'");
+		}
+		{
+			FRDGBuilder Builder;
+			auto Parameters = Builder.AllocParameters<FComposedTextureArrayParameters>();
+			const auto Pass = Builder.AddPass("Cyclic", ERDGPassType::Graphics,
+				std::move(Parameters));
+			ASSERT_TRUE(Pass.IsValid());
+			Builder.AddDependency(Pass, Pass);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				"graph contains a dependency cycle");
+		}
+		{
+			FRDGBuilder Builder;
+			const auto Texture = CreateTestTexture(Builder, "Missing", MakeGraphTexture("Missing"));
+			auto Parameters = Builder.AllocParameters<FComposedTextureArrayParameters>();
+			Parameters->Textures[0] = FRDGTextureParameter{Texture, WholeColor()};
+			ASSERT_TRUE(Builder.AddPass("Read", ERDGPassType::Graphics,
+				std::move(Parameters)).IsValid());
+			const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
+		}
+	}
+
 	TEST_F(FRDGTests, ParameterizedPassRejectsMixedAndConsumedAuthority)
 	{
 		{
