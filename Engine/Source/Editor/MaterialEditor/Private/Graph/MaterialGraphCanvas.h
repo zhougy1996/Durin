@@ -49,6 +49,7 @@ namespace Durin::Editor::Material
 		}
 
 	private:
+		friend struct FMaterialGraphCanvasTestAccess;
 		struct FVisualNode;
 		struct FVisualGraph;
 
@@ -165,6 +166,7 @@ namespace Durin::Editor::Material
 		uint64 CachedSchemaRevision = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;
 		FMaterialGraphView CachedView;
+		std::unordered_map<FGuid, size_t> CachedNodeIndices;
 		std::unique_ptr<FVisualGraph> CachedVisualGraph;
 		bool bVisualGraphTopologyStale = true;
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};

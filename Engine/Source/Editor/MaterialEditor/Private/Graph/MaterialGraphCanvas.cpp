@@ -199,16 +199,42 @@ namespace Durin::Editor::Material
 			++CatalogRevision;
 		}
 		if (CachedMaterial != &Material
-			|| CachedProgramRevision != ProgramRevision
-			|| CachedPresentationRevision != PresentationRevision
-			|| CachedSchemaRevision != SchemaRevision)
+			|| CachedProgramRevision != ProgramRevision)
 		{
 			CachedView = FMaterialGraphOperations::Inspect(Material, Catalog);
+			CachedNodeIndices.clear();
+			CachedNodeIndices.reserve(CachedView.Nodes.size());
+			for (size_t Index = 0; Index < CachedView.Nodes.size(); ++Index)
+				CachedNodeIndices.emplace(CachedView.Nodes[Index].Node.Id, Index);
 			CachedMaterial = &Material;
 			CachedProgramRevision = ProgramRevision;
 			CachedPresentationRevision = PresentationRevision;
 			CachedSchemaRevision = SchemaRevision;
 			bVisualGraphTopologyStale = true;
+		}
+		if (CachedSchemaRevision != SchemaRevision)
+		{
+			for (FMaterialGraphNodeView& Node : CachedView.Nodes)
+			{
+				Node.SecondaryLabel = Node.Node.DisplayName;
+				if (Node.Node.ParameterId.IsValid())
+					if (const auto* Definition = Material.FindParameterDefinition(Node.Node.ParameterId))
+						Node.SecondaryLabel = Definition->DisplayName;
+			}
+			CachedSchemaRevision = SchemaRevision;
+		}
+		if (CachedPresentationRevision != PresentationRevision)
+		{
+			const auto& Presentation = Material.GetMaterialGraphPresentation();
+			for (const auto& Position : Presentation.Nodes)
+			{
+				const auto It = CachedNodeIndices.find(Position.NodeId);
+				check(It != CachedNodeIndices.end());
+				CachedView.Nodes[It->second].Presentation = Position;
+			}
+			CachedView.MaterialOutputPosition = {
+				Presentation.MaterialOutputX, Presentation.MaterialOutputY};
+			CachedPresentationRevision = PresentationRevision;
 		}
 		SurfaceGraphPosition = {
 			static_cast<float>(CachedView.MaterialOutputPosition.first),
@@ -1390,6 +1416,7 @@ namespace Durin::Editor::Material
 				}
 				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
+					ResetInteraction();
 					if (HoveredInputNode)
 						ReportCommand(FMaterialGraphOperations::Connect(Material, {
 							.SourceNodeId = SourceNode,
@@ -1407,14 +1434,14 @@ namespace Durin::Editor::Material
 							.SourceNodeId = SourceNode,
 						}, &Transactions), ReportError);
 					}
-					else if (bHovered)
+					else if (bCanvasPointerInteractionAvailable && !HoveredNode
+						&& !HoveredOutput && !Contains(SurfaceMinimum, SurfaceMaximum, Mouse))
 					{
 						Interaction = FNodeCreationMenuInteraction{
 							.SourceNode = SourceNode,
 							.GraphPosition = Multiply(
 								Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 					}
-					else ResetInteraction();
 				}
 			}
 			if (const auto* Reconnecting =

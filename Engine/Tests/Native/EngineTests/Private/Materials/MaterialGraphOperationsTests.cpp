@@ -22,6 +22,27 @@
 
 #include "NativeDObjectTestSupport.h"
 
+namespace Durin::Editor::Material
+{
+	struct FMaterialGraphCanvasTestAccess
+	{
+		static auto Prepare(FMaterialGraphCanvas& Canvas, DMaterial& Material)
+			-> const FMaterialGraphView& { return Canvas.PrepareView(Material); }
+		static auto PrepareVisuals(FMaterialGraphCanvas& Canvas) -> void
+		{
+			Canvas.PrepareVisualGraph(Canvas.CachedView, {});
+		}
+		static auto TopologyStale(const FMaterialGraphCanvas& Canvas) -> bool
+		{ return Canvas.bVisualGraphTopologyStale; }
+		static auto Idle(const FMaterialGraphCanvas& Canvas) -> bool
+		{ return std::holds_alternative<FMaterialGraphCanvas::FIdleInteraction>(Canvas.Interaction); }
+		static auto Linking(const FMaterialGraphCanvas& Canvas) -> bool
+		{ return std::holds_alternative<FMaterialGraphCanvas::FLinkingInteraction>(Canvas.Interaction); }
+		static auto Menu(const FMaterialGraphCanvas& Canvas) -> bool
+		{ return std::holds_alternative<FMaterialGraphCanvas::FNodeCreationMenuInteraction>(Canvas.Interaction); }
+	};
+}
+
 namespace
 {
 	using namespace Durin;
@@ -1073,6 +1094,146 @@ TEST(FMaterialGraphOperationsTests, DiagnosticNavigationIsLocatedAndDocumentLoca
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 		.LocationIndex = 99,
 	}));
+}
+
+TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorage)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CanvasPositionCache");
+	FMaterialParameterDefinition Definition;
+	Definition.Id = FGuid::NewGuid();
+	Definition.Name = "CanvasParameter";
+	Definition.Type = EMaterialParameterType::Scalar;
+	Definition.Value = FMaterialParameterValue::MakeScalar(0.5f);
+	const FGuid ParameterId = FGuid::NewGuid();
+	FMaterialProgram Program;
+	Program.Nodes = {
+		{.Id = ParameterId, .Opcode = EMaterialProgramOpcode::Parameter,
+			.ResultType = EMaterialProgramValueType::Float, .ParameterId = Definition.Id},
+		{.Id = FGuid::NewGuid(), .Opcode = EMaterialProgramOpcode::Saturate,
+			.ResultType = EMaterialProgramValueType::Float, .Inputs = {{ParameterId, 0}}}};
+	ASSERT_TRUE(Material->SetMaterialDefinitionsAndProgram({Definition}, Program));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
+	FMaterialGraphCanvas Canvas;
+	const auto& View = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	ASSERT_FALSE(View.Nodes.empty());
+	FMaterialGraphCanvasTestAccess::PrepareVisuals(Canvas);
+	const auto* Nodes = View.Nodes.data();
+	std::vector<const FMaterialGraphPinView*> Pins;
+	for (const auto& Node : View.Nodes) Pins.push_back(Node.Inputs.data());
+	for (int Sample = 0; Sample < 20; ++Sample)
+	{
+		auto Presentation = Material->GetMaterialGraphPresentation();
+		Presentation.Nodes.front().X += 7;
+		Presentation.MaterialOutputY += 3;
+		ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+		FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+		EXPECT_EQ(View.Nodes.data(), Nodes);
+		EXPECT_FALSE(FMaterialGraphCanvasTestAccess::TopologyStale(Canvas));
+		EXPECT_EQ(FindViewNode(View, Presentation.Nodes.front().NodeId)->Presentation,
+			Presentation.Nodes.front());
+		EXPECT_EQ(View.MaterialOutputPosition.second, Presentation.MaterialOutputY);
+		for (size_t Index = 0; Index < Pins.size(); ++Index)
+			EXPECT_EQ(View.Nodes[Index].Inputs.data(), Pins[Index]);
+	}
+	const auto ParameterNode = std::ranges::find_if(View.Nodes,
+		[](const auto& Node) { return Node.Node.ParameterId.IsValid(); });
+	ASSERT_NE(ParameterNode, View.Nodes.end());
+	ASSERT_TRUE(Material->RenameParameterDefinition(ParameterNode->Node.ParameterId,
+		FName("RenamedCanvasParameter")));
+	FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	EXPECT_EQ(FindViewNode(View, ParameterId)->SecondaryLabel,
+		Material->FindParameterDefinition(Definition.Id)->DisplayName);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "CanvasLinkRelease");
+	const FGuid Source = FGuid::NewGuid();
+	const FGuid Destination = FGuid::NewGuid();
+	const FGuid PreviousSource = FGuid::NewGuid();
+	FMaterialProgram Program;
+	Program.Nodes = {
+		{.Id = PreviousSource, .Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = EMaterialProgramValueType::Float},
+		{.Id = Source, .Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = EMaterialProgramValueType::Float},
+		{.Id = Destination, .Opcode = EMaterialProgramOpcode::Saturate,
+			.ResultType = EMaterialProgramValueType::Float, .Inputs = {{PreviousSource, 0}}}};
+	ASSERT_TRUE(Material->SetMaterialProgram(Program));
+	auto Presentation = Material->GetMaterialGraphPresentation();
+	Presentation.Nodes = {{Source, 0, 0}, {Destination, 350, 0}, {PreviousSource, 0, 300}};
+	Presentation.MaterialOutputX = 700;
+	Presentation.MaterialOutputY = 0;
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 720};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(1.0f, {40, 40});
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0});
+		ImGui::SetNextWindowSize({1200, 720});
+		ImGui::Begin("Link Release", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, *Transactions.Get(), 660,
+			[&](std::string) { ++Errors; });
+		const auto ChildMinimum = ImGui::GetItemRectMin();
+		Origin = {ChildMinimum.x + ImGui::GetStyle().WindowPadding.x + 40,
+			ChildMinimum.y + ImGui::GetStyle().WindowPadding.y
+				+ ImGui::GetFrameHeightWithSpacing() + 40};
+		ImGui::End();
+		ImGui::Render();
+	};
+	Frame({1100, 600}, false);
+	Frame({1100, 600}, false);
+	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
+	const ImVec2 Output{Origin.x + Metrics.NodeWidth, Origin.y + PinY};
+	const auto Drop = [&](ImVec2 Target, bool Replace) {
+		IO.AddKeyEvent(ImGuiMod_Shift, Replace);
+		Frame(Output, false);
+		Frame(Output, true);
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Linking(Canvas));
+		Frame(Target, true);
+		Frame(Target, false);
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+		Frame({1100, 600}, false);
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Idle(Canvas));
+	};
+	Drop({Origin.x + 350, Origin.y + PinY}, false);
+	EXPECT_EQ(Errors, 1);
+	Drop({Origin.x + 350, Origin.y + PinY}, true);
+	EXPECT_EQ(Errors, 1);
+	EXPECT_EQ(FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination)
+		->Node.Inputs.front().SourceNodeId, Source);
+	Drop({Origin.x + 700, Origin.y + FMaterialGraphGeometry::GetSurfacePinOffset(3)}, false);
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Roughness.SourceNodeId, Source);
+	Drop({Origin.x + 700, Origin.y + FMaterialGraphGeometry::GetSurfacePinOffset(0)}, false);
+	EXPECT_EQ(Errors, 2);
+	Drop({Origin.x + 380, Origin.y + 10}, false);
+	Frame(Output, false);
+	Frame(Output, true);
+	Frame({500, 500}, true);
+	Frame({500, 500}, false);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Menu(Canvas));
+	Canvas.CancelInteraction();
+	Transactions->Reset();
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material);
+	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
