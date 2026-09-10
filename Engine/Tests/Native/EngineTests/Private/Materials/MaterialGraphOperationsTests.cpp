@@ -3,6 +3,7 @@
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialAssetCreation.h"
 #include "Graph/MaterialGraphCanvas.h"
+#include "Workspace/MaterialEditorWorkspace.h"
 
 #include "MaterialTestSupport.h"
 
@@ -1253,9 +1254,9 @@ TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)
 		ImGui::Begin("Link Release", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 		Canvas.Draw(*Material, *Transactions.Get(), 660,
 			[&](std::string) { ++Errors; });
-		const auto ChildMinimum = ImGui::GetItemRectMin();
-		Origin = {ChildMinimum.x + ImGui::GetStyle().WindowPadding.x + 40,
-			ChildMinimum.y + ImGui::GetStyle().WindowPadding.y
+		const ImGuiWindow* GraphWindow = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {GraphWindow->Pos.x + GraphWindow->WindowPadding.x + 40,
+			GraphWindow->Pos.y + GraphWindow->WindowPadding.y
 				+ ImGui::GetFrameHeightWithSpacing() + 40};
 		ImGui::End();
 		ImGui::Render();
@@ -1915,4 +1916,68 @@ TEST(FMaterialGraphOperationsTests, ClipboardRetainsTextureDefaultsAfterSourceCo
 	Payload = {};
 	CollectGarbage();
 	EXPECT_EQ(WeakTexture.Get(), nullptr);
+}
+
+TEST(FMaterialGraphOperationsTests, DocumentDockLayoutsRemainIsolatedAndSurviveHiddenFrames)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.DisplaySize = {1600.0f, 1000.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	const FDocumentTab Wide{.DocumentKey = "/Test/Wide"};
+	const FDocumentTab Narrow{.DocumentKey = "/Test/Narrow"};
+	const auto WideType = Workspace::MakeDocumentDockType(Wide);
+	const auto NarrowType = Workspace::MakeDocumentDockType(Narrow);
+	const ImGuiID WideId = WorkspaceUI::MakeDockSpaceId(WideType, Workspace::LayoutVersion);
+	const ImGuiID NarrowId = WorkspaceUI::MakeDockSpaceId(NarrowType, Workspace::LayoutVersion);
+	EXPECT_NE(WideId, NarrowId);
+	EXPECT_NE(WorkspaceUI::MakeDockClassId(WideType), WorkspaceUI::MakeDockClassId(NarrowType));
+	ImGuiID GraphId = 0;
+	ImGuiID PreviewId = 0;
+	for (int Frame = 0; Frame < 5; ++Frame)
+	{
+		ImGui::NewFrame();
+		for (const auto* Document : {&Wide, &Narrow})
+		{
+			const auto DockType = Workspace::MakeDocumentDockType(*Document);
+			const bool bWide = Document == &Wide;
+			const ImVec2 Size = bWide ? ImVec2(1400.0f, 800.0f) : ImVec2(600.0f, 500.0f);
+			ImGui::SetNextWindowSize(Size);
+			ImGui::Begin(bWide ? "WideHost" : "NarrowHost");
+			if (Frame == 0) Workspace::BuildDefaultLayout(*Document, Size);
+			WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size,
+				Frame == 2 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
+			if (Frame != 2)
+			{
+				for (const char* Key : {"Graph", "Preview", "Details", "Diagnostics"})
+				{
+					if (Frame == 0 && std::string_view(Key) == "Diagnostics") continue;
+					WorkspaceUI::BeginDockablePanel(DockType, Key, Key);
+					const ImGuiWindow* Window = ImGui::GetCurrentWindow();
+					EXPECT_NE(Window->DockId, 0u);
+					if (!bWide) EXPECT_EQ(Window->DockId, NarrowId);
+					else if (std::string_view(Key) == "Graph")
+					{
+						if (Frame == 0) GraphId = Window->DockId;
+						EXPECT_EQ(Window->DockId, GraphId);
+					}
+					else if (std::string_view(Key) == "Preview")
+					{
+						if (Frame == 0) PreviewId = Window->DockId;
+						EXPECT_EQ(Window->DockId, PreviewId);
+						EXPECT_NE(Window->DockId, GraphId);
+					}
+					else if (std::string_view(Key) == "Diagnostics")
+						EXPECT_NE(Window->DockId, GraphId);
+					ImGui::End();
+				}
+			}
+			ImGui::End();
+		}
+		ImGui::Render();
+	}
+	ImGui::DestroyContext(Context);
 }

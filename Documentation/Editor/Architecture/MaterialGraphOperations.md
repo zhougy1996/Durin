@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-09-09
+Last reviewed: 2026-09-10
 
 ## Ownership
 
@@ -25,6 +25,20 @@ snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
 and per-document controller state. None of those values are serialized.
+
+## Editor panels
+
+Each material document owns an isolated ImGui dock space, keyed by its stable
+`DocumentKey`, using the shared WorkspaceUI panel and docking helpers. Preview,
+Material Graph, Details, and Diagnostics are dockable windows. Wide initial
+layouts place Preview on the left, Details on the right, and Diagnostics below
+the graph; small initial layouts use dock tabs. Resizing does not rebuild a
+user's arrangement. Hidden document roots keep their dock spaces alive.
+
+Window controls reopen optional panels and reset the default layout. Material
+Info is a collapsed section in Details. ImGui persists docking geometry; the
+material session settings retain panel visibility and per-asset graph viewports.
+Preview visibility follows the actual preview panel, including dock-tab hiding.
 
 ## Preview Resources
 

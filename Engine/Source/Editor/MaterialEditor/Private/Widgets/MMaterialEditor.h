@@ -59,15 +59,12 @@ namespace Durin::Editor::Material
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
-		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawToolbar(DMaterialInterface* Material) -> void;
 		auto DrawCompileStatus(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
-		auto DrawDiagnosticsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
-		auto DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
-		auto DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawDockLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawGraphPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
-		auto DrawOverviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
-		auto DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void;
+		auto DrawDetailsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawParameterDeclarations(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
@@ -104,7 +101,7 @@ namespace Durin::Editor::Material
 		int ParameterTypeDraft = 0;
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
-		bool bGraphMaximized = false;
+		std::unordered_set<uint64> PendingLayoutResets;
 		FAssetMoveObserverHandle MoveObserverHandle = 0;
 	};
 }

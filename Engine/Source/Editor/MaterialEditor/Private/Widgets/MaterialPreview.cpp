@@ -141,8 +141,9 @@ namespace Durin::Editor::Material
 
 		auto Draw(DMaterialInterface* Material, float PanelHeight) -> void
 		{
-			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, PanelHeight), ImGuiChildFlags_Borders))
+			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, PanelHeight), ImGuiChildFlags_None))
 			{
+				SetVisible(false);
 				ImGui::EndChild();
 				return;
 			}
@@ -155,7 +156,6 @@ namespace Durin::Editor::Material
 			}
 
 			SetVisible(true);
-			ImGui::SeparatorText("Preview");
 			const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
 			if (ImGui::BeginCombo("Preview Mesh", ShapeLabel))

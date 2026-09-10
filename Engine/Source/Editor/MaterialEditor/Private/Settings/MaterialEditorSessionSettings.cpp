@@ -25,12 +25,6 @@ namespace Durin::Editor::Material
 
 		const FYamlNodeView Root = Document.GetRootView();
 		const FYamlNodeView Layout = Root.GetView("Layout");
-		LeftPaneRatio = static_cast<float>(std::clamp(
-			Layout.GetView("LeftPaneRatio").GetDouble(LeftPaneRatio), 0.12, 0.40));
-		RightPaneRatio = static_cast<float>(std::clamp(
-			Layout.GetView("RightPaneRatio").GetDouble(RightPaneRatio), 0.16, 0.45));
-		DiagnosticsRatio = static_cast<float>(std::clamp(
-			Layout.GetView("DiagnosticsRatio").GetDouble(DiagnosticsRatio), 0.12, 0.55));
 		bPreviewVisible = Layout.GetView("PreviewVisible").GetBool(true);
 		bDetailsVisible = Layout.GetView("DetailsVisible").GetBool(true);
 		bDiagnosticsVisible = Layout.GetView("DiagnosticsVisible").GetBool(false);
@@ -60,9 +54,6 @@ namespace Durin::Editor::Material
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
 		FYamlNodeRef Layout = Root.AddMap("Layout");
-		Layout.SetChildValue("LeftPaneRatio", static_cast<double>(LeftPaneRatio));
-		Layout.SetChildValue("RightPaneRatio", static_cast<double>(RightPaneRatio));
-		Layout.SetChildValue("DiagnosticsRatio", static_cast<double>(DiagnosticsRatio));
 		Layout.SetChildValue("PreviewVisible", bPreviewVisible);
 		Layout.SetChildValue("DetailsVisible", bDetailsVisible);
 		Layout.SetChildValue("DiagnosticsVisible", bDiagnosticsVisible);

@@ -26,17 +26,6 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr float DefaultLeftPaneRatio = 0.22f;
-		constexpr float DefaultRightPaneRatio = 0.26f;
-		constexpr float DefaultDiagnosticsRatio = 0.24f;
-		constexpr float WideLayoutMinimumWidth = 980.0f;
-		constexpr float MinimumSidebarWidth = 220.0f;
-		constexpr float MinimumDetailsWidth = 300.0f;
-		constexpr float MinimumGraphWidth = 420.0f;
-		constexpr float MinimumPreviewHeight = 220.0f;
-		constexpr float MinimumOverviewHeight = 110.0f;
-		constexpr float MinimumDiagnosticsHeight = 100.0f;
-		constexpr float MinimumMainHeight = 260.0f;
 		constexpr float MaximumMaterialValueColumnWidthInEm = 34.0f;
 		constexpr float MaximumMaterialVectorWidthInEm = 30.0f;
 
@@ -364,6 +353,7 @@ namespace Durin::Editor::Material
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
+		PendingLayoutResets.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
 		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
@@ -443,21 +433,28 @@ namespace Durin::Editor::Material
 				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
 			},
 			[this](const ::Durin::Editor::FDocumentTab& Document, bool bVisible) {
-				if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
-					PreviewIt->second->SetVisible(bVisible);
+				if (!bVisible)
+				{
+					if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
+						PreviewIt->second->SetVisible(false);
+					const auto DockType = Workspace::MakeDocumentDockType(Document);
+					if (ImGui::DockBuilderGetNode(::Durin::Editor::WorkspaceUI::MakeDockSpaceId(
+						DockType, Workspace::LayoutVersion)))
+						::Durin::Editor::WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion,
+							{0.0f, 0.0f}, ImGuiDockNodeFlags_KeepAliveOnly);
+				}
 			}
 		);
 	}
 
 	auto MMaterialEditor::ResetLayout() -> void
 	{
-		SessionSettings->LeftPaneRatio = DefaultLeftPaneRatio;
-		SessionSettings->RightPaneRatio = DefaultRightPaneRatio;
-		SessionSettings->DiagnosticsRatio = DefaultDiagnosticsRatio;
 		SessionSettings->bPreviewVisible = true;
 		SessionSettings->bDetailsVisible = true;
 		SessionSettings->bDiagnosticsVisible = false;
-		bGraphMaximized = false;
+		for (const auto& Document : WorkspaceManager.GetDocuments())
+			if (Document.WorkspaceType == Workspace::Type)
+				PendingLayoutResets.insert(Document.Id.Value);
 	}
 
 	auto MMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
@@ -512,19 +509,16 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		DrawToolbar(Document, Material);
+		DrawToolbar(Material);
 		ImGui::Spacing();
 
-		if (ImGui::GetContentRegionAvail().x >= MonaImGui::ScaleUI(WideLayoutMinimumWidth))
-			DrawWideLayout(Document, Material);
-		else
-			DrawNarrowLayout(Document, Material);
+		DrawDockLayout(Document, Material);
 
 		if (Documents.GetActiveResourceId() != Document.ResourceId) return;
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
 	}
 
-	auto MMaterialEditor::DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawToolbar(DMaterialInterface* Material) -> void
 	{
 		if (ImGui::Button("Save")) SaveMaterial(Material);
 		ImGui::SameLine();
@@ -548,152 +542,66 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
 				Status.bLastKnownGoodDisplayed ? " (showing last known good)" : "");
 		}
-		ImGui::TextDisabled("Material");
 		ImGui::SameLine();
-		ImGui::TextWrapped("%s", Document.ResourceId.c_str());
-		if (ImGui::Button(bGraphMaximized ? "Restore Panels" : "Maximize Graph"))
-			bGraphMaximized = !bGraphMaximized;
-		if (!bGraphMaximized)
+		if (ImGui::Button("Window")) ImGui::OpenPopup("MaterialWindows");
+		if (ImGui::BeginPopup("MaterialWindows"))
 		{
-			ImGui::SameLine();
-			if (ImGui::Button(SessionSettings->bPreviewVisible ? "Hide Preview" : "Show Preview"))
-				SessionSettings->bPreviewVisible = !SessionSettings->bPreviewVisible;
-			ImGui::SameLine();
-			if (ImGui::Button(SessionSettings->bDetailsVisible ? "Hide Parameters" : "Show Parameters"))
-				SessionSettings->bDetailsVisible = !SessionSettings->bDetailsVisible;
-			ImGui::SameLine();
-			if (ImGui::Button(SessionSettings->bDiagnosticsVisible ? "Hide Diagnostics" : "Diagnostics"))
-				SessionSettings->bDiagnosticsVisible = !SessionSettings->bDiagnosticsVisible;
+			ImGui::MenuItem("Preview", nullptr, &SessionSettings->bPreviewVisible);
+			ImGui::MenuItem("Details", nullptr, &SessionSettings->bDetailsVisible);
+			ImGui::MenuItem("Diagnostics", nullptr, &SessionSettings->bDiagnosticsVisible);
+			ImGui::Separator();
+			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
+			ImGui::EndPopup();
 		}
 	}
 
-	auto MMaterialEditor::DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawDockLayout(
+		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
-		const ImVec2 Available = ImGui::GetContentRegionAvail();
-		if (bGraphMaximized)
-		{
-			DrawGraphPanel(Document, Material, Available.y);
-			return;
-		}
+		const auto DockType = Workspace::MakeDocumentDockType(Document);
+		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(DockType, Workspace::LayoutVersion);
+		const ImVec2 Size = ImGui::GetContentRegionAvail();
+		if (Size.x <= 0.0f || Size.y <= 0.0f) return;
+		const bool bReset = PendingLayoutResets.erase(Document.Id.Value) != 0;
+		if (!ImGui::DockBuilderGetNode(DockSpaceId) || bReset)
+			Workspace::BuildDefaultLayout(Document, Size);
+		::Durin::Editor::WorkspaceUI::SubmitDockSpace(DockType, Workspace::LayoutVersion, Size);
 
-		const bool bShowDiagnostics = SessionSettings->bDiagnosticsVisible
-			&& Available.y >= MonaImGui::ScaleUI(
-				MinimumMainHeight + MinimumDiagnosticsHeight) + Metrics.SplitterThickness;
-		float MainHeight = Available.y;
-		if (bShowDiagnostics)
+		const auto BeginPanel = [&](const char* Label, const char* Key, bool* Open = nullptr) {
+			const bool bVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+				DockType, Label, Key, Open, ImGuiWindowFlags_NoCollapse);
+			if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+			{
+				const auto* Active = WorkspaceManager.GetActiveDocument();
+				if (!Active || Active->Id != Document.Id)
+					WorkspaceManager.ActivateDocument(Document.Id);
+			}
+			return bVisible;
+		};
+		if (BeginPanel("Material Graph", "Graph")) DrawGraphPanel(Document, Material, 0.0f);
+		ImGui::End();
+		if (SessionSettings->bPreviewVisible)
 		{
-			const float MainRatio = 1.0f - SessionSettings->DiagnosticsRatio;
-			MainHeight = std::clamp(MainRatio * Available.y,
-				MonaImGui::ScaleUI(MinimumMainHeight),
-				std::max(MonaImGui::ScaleUI(MinimumMainHeight),
-					Available.y - Metrics.SplitterThickness
-						- MonaImGui::ScaleUI(MinimumDiagnosticsHeight)));
+			const bool bPreviewShown = BeginPanel("Preview", "Preview", &SessionSettings->bPreviewVisible);
+			if (bPreviewShown) DrawPreviewPanel(Document, Material, 0.0f);
+			else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
+				It->second->SetVisible(false);
+			ImGui::End();
 		}
-		const float ScaledMinimumSidebarWidth = MonaImGui::ScaleUI(MinimumSidebarWidth);
-		const float ScaledMinimumDetailsWidth = MonaImGui::ScaleUI(MinimumDetailsWidth);
-		const float ScaledMinimumGraphWidth = MonaImGui::ScaleUI(MinimumGraphWidth);
-		const bool bShowPreview = SessionSettings->bPreviewVisible;
-		const bool bShowDetails = SessionSettings->bDetailsVisible;
-		const float SidebarWidth = bShowPreview ? std::clamp(
-			Available.x * SessionSettings->LeftPaneRatio,
-			ScaledMinimumSidebarWidth,
-			std::max(ScaledMinimumSidebarWidth, Available.x - ScaledMinimumGraphWidth
-				- (bShowDetails ? ScaledMinimumDetailsWidth + Metrics.SplitterThickness : 0.0f))) : 0.0f;
-		const float DetailsWidth = bShowDetails ? std::clamp(
-			Available.x * SessionSettings->RightPaneRatio,
-			ScaledMinimumDetailsWidth,
-			std::max(ScaledMinimumDetailsWidth, Available.x - ScaledMinimumGraphWidth
-				- (bShowPreview ? SidebarWidth + Metrics.SplitterThickness : 0.0f))) : 0.0f;
-		const float GraphWidth = std::max(Available.x - SidebarWidth - DetailsWidth
-			- (bShowPreview ? Metrics.SplitterThickness : 0.0f)
-			- (bShowDetails ? Metrics.SplitterThickness : 0.0f), 0.0f);
-
-		if (bShowPreview && ImGui::BeginChild("MaterialEditorSidebar", ImVec2(SidebarWidth, MainHeight)))
+		else if (const auto It = MaterialPreviews.find(Document.Id.Value); It != MaterialPreviews.end())
+			It->second->SetVisible(false);
+		if (SessionSettings->bDetailsVisible)
 		{
-			const float OverviewHeight = MonaImGui::ScaleUI(MinimumOverviewHeight);
-			DrawPreviewPanel(Document, Material,
-				std::max(MainHeight - OverviewHeight - Metrics.SplitterThickness, 0.0f));
-			ImGui::Spacing();
-			DrawOverviewPanel(Document, Material, 0.0f);
+			if (BeginPanel("Details", "Details", &SessionSettings->bDetailsVisible))
+				DrawDetailsPanel(Document, Material);
+			ImGui::End();
 		}
-		if (bShowPreview)
+		if (SessionSettings->bDiagnosticsVisible)
 		{
-			ImGui::EndChild();
-			ImGui::SameLine();
-			SessionSettings->LeftPaneRatio = SidebarWidth / std::max(Available.x, 1.0f);
-			MonaImGui::DrawSplitter("MaterialEditorLeftSplitter",
-				MonaImGui::EUISplitterAxis::X, MainHeight, Available.x,
-				ScaledMinimumSidebarWidth, ScaledMinimumGraphWidth
-					+ (bShowDetails ? DetailsWidth + Metrics.SplitterThickness : 0.0f),
-				SessionSettings->LeftPaneRatio);
-			ImGui::SameLine();
+			if (BeginPanel("Diagnostics", "Diagnostics", &SessionSettings->bDiagnosticsVisible))
+				DrawCompileStatus(Document, Material);
+			ImGui::End();
 		}
-		if (ImGui::BeginChild("MaterialEditorGraphColumn", ImVec2(GraphWidth, MainHeight)))
-			DrawGraphPanel(Document, Material, 0.0f);
-		ImGui::EndChild();
-		if (bShowDetails)
-		{
-			ImGui::SameLine();
-			const float RightTotal = GraphWidth + DetailsWidth + Metrics.SplitterThickness;
-			float GraphRatio = GraphWidth / std::max(RightTotal, 1.0f);
-			const bool bRightPaneResized = MonaImGui::DrawSplitter("MaterialEditorRightSplitter",
-				MonaImGui::EUISplitterAxis::X, MainHeight,
-				RightTotal,
-				ScaledMinimumGraphWidth, ScaledMinimumDetailsWidth, GraphRatio);
-			if (bRightPaneResized)
-				SessionSettings->RightPaneRatio = std::clamp(
-					(RightTotal * (1.0f - GraphRatio) - Metrics.SplitterThickness)
-						/ std::max(Available.x, 1.0f), 0.16f, 0.45f);
-			ImGui::SameLine();
-			if (ImGui::BeginChild("MaterialEditorDetailsColumn", ImVec2(DetailsWidth, MainHeight)))
-				DrawDetailsPanel(Material, 0.0f);
-			ImGui::EndChild();
-		}
-		if (bShowDiagnostics)
-		{
-			float MainRatio = MainHeight / std::max(Available.y, 1.0f);
-			MonaImGui::DrawSplitter("MaterialEditorDiagnosticsSplitter",
-				MonaImGui::EUISplitterAxis::Y, Available.x, Available.y,
-				MonaImGui::ScaleUI(MinimumMainHeight),
-				MonaImGui::ScaleUI(MinimumDiagnosticsHeight), MainRatio);
-			SessionSettings->DiagnosticsRatio = 1.0f - MainRatio;
-			DrawDiagnosticsPanel(Document, Material, 0.0f);
-		}
-	}
-
-	auto MMaterialEditor::DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
-	{
-		const float Height = ImGui::GetContentRegionAvail().y;
-		if (bGraphMaximized)
-		{
-			DrawGraphPanel(Document, Material, Height);
-			return;
-		}
-		if (!ImGui::BeginTabBar("MaterialEditorNarrowPanels")) return;
-		if (ImGui::BeginTabItem("Graph"))
-		{
-			DrawGraphPanel(Document, Material, 0.0f);
-			ImGui::EndTabItem();
-		}
-		if (SessionSettings->bPreviewVisible && ImGui::BeginTabItem("Preview"))
-		{
-			DrawPreviewPanel(Document, Material,
-				std::max(Height - MonaImGui::ScaleUI(MinimumOverviewHeight), 0.0f));
-			DrawOverviewPanel(Document, Material, 0.0f);
-			ImGui::EndTabItem();
-		}
-		if (SessionSettings->bDetailsVisible && ImGui::BeginTabItem("Parameters"))
-		{
-			DrawDetailsPanel(Material, 0.0f);
-			ImGui::EndTabItem();
-		}
-		if (SessionSettings->bDiagnosticsVisible && ImGui::BeginTabItem("Diagnostics"))
-		{
-			DrawDiagnosticsPanel(Document, Material, 0.0f);
-			ImGui::EndTabItem();
-		}
-		ImGui::EndTabBar();
 	}
 
 	auto MMaterialEditor::DrawPreviewPanel(
@@ -716,9 +624,8 @@ namespace Durin::Editor::Material
 		if (!Base)
 		{
 			if (ImGui::BeginChild("MaterialGraphInstance", ImVec2(0.0f, Height),
-				ImGuiChildFlags_Borders))
+				ImGuiChildFlags_None))
 			{
-				ImGui::SeparatorText("Material Graph");
 				ImGui::TextWrapped("Material instances inherit their graph from the root base material. Open the base material to author it.");
 			}
 			ImGui::EndChild();
@@ -734,38 +641,6 @@ namespace Durin::Editor::Material
 			[this](std::string Message) { SetError(std::move(Message)); });
 		const auto [Zoom, Pan] = Canvas.GetViewport();
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
-	}
-
-	auto MMaterialEditor::DrawOverviewPanel(
-		const ::Durin::Editor::FDocumentTab& Document,
-		DMaterialInterface* Material,
-		float Height
-	) -> void
-	{
-		if (ImGui::BeginChild("MaterialOverview", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
-		{
-			ImGui::SeparatorText("Material Overview");
-			ImGui::TextDisabled("Asset");
-			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
-			ImGui::Spacing();
-			ImGui::TextDisabled("Type");
-			ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
-		}
-		ImGui::EndChild();
-	}
-
-	auto MMaterialEditor::DrawDiagnosticsPanel(
-		const ::Durin::Editor::FDocumentTab& Document,
-		DMaterialInterface* Material,
-		float Height) -> void
-	{
-		if (ImGui::BeginChild("MaterialDiagnostics", ImVec2(0.0f, Height),
-			ImGuiChildFlags_Borders))
-		{
-			ImGui::SeparatorText("Compile Diagnostics");
-			DrawCompileStatus(Document, Material);
-		}
-		ImGui::EndChild();
 	}
 
 	auto MMaterialEditor::DrawCompileStatus(
@@ -819,6 +694,9 @@ namespace Durin::Editor::Material
 				{
 					GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(
 						Diagnostic.Source);
+					const auto GraphName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName(
+						"Material Graph", Workspace::MakeDocumentDockType(Document), "Graph");
+					ImGui::SetWindowFocus(GraphName.c_str());
 				}
 				ImGui::SameLine();
 			}
@@ -834,21 +712,25 @@ namespace Durin::Editor::Material
 				static_cast<int>(CookDiagnostic.size()), CookDiagnostic.data());
 	}
 
-	auto MMaterialEditor::DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void
+	auto MMaterialEditor::DrawDetailsPanel(
+		const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		if (ImGui::BeginChild("MaterialDetails", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
+		if (ImGui::CollapsingHeader("Material Info"))
 		{
-			ImGui::SeparatorText("Parameters");
-			if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
-			else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
+			ImGui::TextDisabled("Asset");
+			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
+			ImGui::TextDisabled("Type");
+			ImGui::TextWrapped("%s", Material->GetClass()->GetQualifiedName().ToString().c_str());
+			ImGui::Spacing();
 		}
-		ImGui::EndChild();
+		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
+		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
 	}
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
 	{
 		DrawParameterDeclarations(Material);
-		ImGui::SeparatorText("Parameter Defaults");
+		ImGui::Spacing();
 		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters", MakeMaterialPropertyTableConfig())) return;
 		DrawMaterialParameters(Material);
 		MonaImGui::PropertyEdit::EndTable();

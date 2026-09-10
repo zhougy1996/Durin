@@ -657,7 +657,7 @@ namespace Durin::Editor::Material
 	{
 		ImGui::PushID(this);
 		if (ImGui::BeginChild("MaterialGraph", ImVec2(0.0f, Height),
-			ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar
+			ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar
 				| ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			const bool bFrameAllRequested = ImGui::Button("Frame All");
@@ -675,8 +675,11 @@ namespace Durin::Editor::Material
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
 				? "Overview" : DetailLevel == EMaterialGraphDetailLevel::Editing
 					? "Editing" : "Readable";
-			ImGui::TextDisabled("%s | Wheel: zoom  MMB: pan  LMB: select/drag  Shift: add/replace",
-				DetailName);
+			ImGui::TextDisabled("%s", DetailName);
+			ImGui::SameLine();
+			ImGui::TextDisabled("(?)");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Wheel: zoom\nMMB: pan\nLMB: select / drag\nShift: add selection / replace link");
 
 			const FMaterialGraphView& View = PrepareView(Material);
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
@@ -746,10 +749,10 @@ namespace Durin::Editor::Material
 			{
 				for (float X = std::fmod(Pan.x, GridStep); X < CanvasSize.x; X += GridStep)
 					DrawList->AddLine(Add(CanvasMinimum, {X, 0.0f}),
-						Add(CanvasMinimum, {X, CanvasSize.y}), IM_COL32(48, 52, 60, 90));
+						Add(CanvasMinimum, {X, CanvasSize.y}), IM_COL32(48, 52, 60, 45));
 				for (float Y = std::fmod(Pan.y, GridStep); Y < CanvasSize.y; Y += GridStep)
 					DrawList->AddLine(Add(CanvasMinimum, {0.0f, Y}),
-						Add(CanvasMinimum, {CanvasSize.x, Y}), IM_COL32(48, 52, 60, 90));
+						Add(CanvasMinimum, {CanvasSize.x, Y}), IM_COL32(48, 52, 60, 45));
 			}
 
 			const FVisualGraph& VisualGraph = PrepareVisualGraph(View, CanvasMinimum);

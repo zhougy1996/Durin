@@ -24,9 +24,6 @@ namespace Durin::Editor::Material
 		auto MoveViewport(std::string_view OldResourceId,
 			std::string_view NewResourceId) -> void;
 
-		float LeftPaneRatio = 0.22f;
-		float RightPaneRatio = 0.26f;
-		float DiagnosticsRatio = 0.24f;
 		bool bPreviewVisible = true;
 		bool bDetailsVisible = true;
 		bool bDiagnosticsVisible = false;
