@@ -113,8 +113,8 @@ namespace Durin
 			if (Lifetime->Closed.load()) Source.TrySetCanceled();
 			else
 			{
-				Published.store(Publication);
-				if (!Source.TrySetValue()) Published.store({});
+				std::atomic_store(&Published, Publication);
+				if (!Source.TrySetValue()) std::atomic_store(&Published, FPublished{});
 			}
 			Lifetime->Changed.notify_all();
 		}
@@ -128,12 +128,13 @@ namespace Durin
 		auto Retire() -> void
 		{
 			Cancel();
-			if (const auto Value = Published.load()) Value->Retire();
+			if (const auto Value = std::atomic_load(&Published)) Value->Retire();
 		}
 		std::shared_ptr<FRequestLifetime> Lifetime;
 		Tasks::TCompletionSource<void> Source;
 		Tasks::TSharedTask<void> Task;
-		std::atomic<FPublished> Published;
+		// Use shared_ptr atomic operations for standard libraries without atomic<shared_ptr> support.
+		FPublished Published;
 		// Accessed only under the service mutex, and cleared at publication.
 		std::shared_ptr<const FKey> PendingKey;
 		std::shared_ptr<const FKey> Identity;
@@ -151,7 +152,7 @@ namespace Durin
 		if (State->Lifetime->Failed.load()) return ERHIPipelineRequestState::Failed;
 		if (State->Lifetime->Retired.load()) return ERHIPipelineRequestState::Canceled;
 		if (State->Task.GetState() == ETaskState::Succeeded)
-			if (const auto Value = State->Published.load()) return Value->Result.State;
+			if (const auto Value = std::atomic_load(&State->Published)) return Value->Result.State;
 		if (State->Task.GetState() == ETaskState::Canceled) return ERHIPipelineRequestState::Canceled;
 		if (State->Task.GetState() == ETaskState::Failed) return ERHIPipelineRequestState::Failed;
 		return ERHIPipelineRequestState::Pending;
@@ -163,7 +164,7 @@ namespace Durin
 			std::rethrow_exception(State->Lifetime->TerminalFailure);
 		if (State->Lifetime->Retired.load()) return {.State = ERHIPipelineRequestState::Canceled};
 		if (State->Task.GetState() == ETaskState::Succeeded)
-			if (const auto Value = State->Published.load()) return Value->Snapshot();
+			if (const auto Value = std::atomic_load(&State->Published)) return Value->Snapshot();
 		if (State->Task.GetState() == ETaskState::Canceled) return {.State = ERHIPipelineRequestState::Canceled};
 		if (State->Task.GetState() == ETaskState::Failed)
 			return {.State = ERHIPipelineRequestState::Failed, .Diagnostic = "Pipeline observer completion failed."};
