@@ -1097,6 +1097,12 @@ namespace Durin
 		auto AddDependencyEdge(FDependencyGraph& Graph, uint32 Before,
 			uint32 After, const std::string& Cause, ERDGDependencyKind Kind) -> bool
 		{
+			if (Before >= After)
+			{
+				Graph.Error = "dependency must point forward: producer["
+					+ std::to_string(Before) + "] consumer[" + std::to_string(After) + "]";
+				return false;
+			}
 			const uint64 Key = (static_cast<uint64>(Before) << 32) | After;
 			const auto Found = Graph.EdgeIndices.find(Key);
 			if (Found != Graph.EdgeIndices.end())
@@ -1168,7 +1174,7 @@ namespace Durin
 				{
 					if (Prerequisite >= Passes.size())
 						return "pass '" + Pass.Name
-							+ "' has an invalid prerequisite";
+							+ "' has an invalid producer pass handle";
 					if (!AddDependencyEdge(Graph, Prerequisite, PassIndex, "explicit",
 						ERDGDependencyKind::Explicit)) return Graph.Error;
 				}
@@ -2144,19 +2150,19 @@ namespace Durin
 		State->Budget = Budget;
 	}
 
-	auto FRDGBuilder::AddDependency(FRDGPassHandle Pass,
-		FRDGPassHandle Prerequisite) -> void
+	auto FRDGBuilder::AddPassDependency(FRDGPassHandle Producer,
+		FRDGPassHandle Consumer) -> void
 	{
 		RequireBuilding();
-		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
+		if (Consumer.Owner != State->Owner || Consumer.Index >= State->Passes.size())
 		{
 			State->DeclarationErrors.emplace_back(
-				"dependency has an invalid destination pass handle");
+				"dependency has an invalid consumer pass handle");
 			return;
 		}
-		State->Passes[Pass.Index].Prerequisites.push_back(
-			Prerequisite.Owner == State->Owner ? Prerequisite.Index
-				: std::numeric_limits<uint32>::max());
+		State->Passes[Consumer.Index].Prerequisites.push_back(
+			Producer.Owner == State->Owner && Producer.Index < State->Passes.size()
+				? Producer.Index : std::numeric_limits<uint32>::max());
 	}
 
 	auto FRDGBuilder::UseTexture(FRDGPassHandle Pass,

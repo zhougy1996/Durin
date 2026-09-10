@@ -9,7 +9,9 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. Implementation and native validation are next.
+Stages 0 and 1 are complete. RenderContractTests passed all 145 tests in
+Win64-Debug-DurinEditor (2026-09-10). Forward validation is centralized before
+edge deduplication; invalid handles retain deferred compile failure.
 
 Audit: all six RDG call sites are in RDGTests.cpp. The lifecycle death test
 keeps its Building-state expectation; the typed-parameter self-edge and the
@@ -102,13 +104,13 @@ resolve the design before proceeding with that caller.
 
 Depends on Stage 0.
 
-- [ ] Introduce `AddPassDependency(Producer, Consumer)` and migrate all RDG callers
+- [x] Introduce `AddPassDependency(Producer, Consumer)` and migrate all RDG callers
   with the correct argument order; remove the old public API.
-- [ ] Validate ownership, bounds, self-dependency, and forward direction with
+- [x] Validate ownership, bounds, self-dependency, and forward direction with
   deterministic error messages. Preserve duplicate-edge idempotence.
-- [ ] Enforce the forward-edge invariant for generated dependencies as well as
+- [x] Enforce the forward-edge invariant for generated dependencies as well as
   explicit declarations, retaining structural dependency-budget enforcement.
-- [ ] Add focused contract coverage for valid forward edges, duplicate edges,
+- [x] Add focused contract coverage for valid forward edges, duplicate edges,
   invalid/foreign handles, self edges, backward edges, and invalid unreachable
   declarations. Preserve read-before-producer rejection.
 

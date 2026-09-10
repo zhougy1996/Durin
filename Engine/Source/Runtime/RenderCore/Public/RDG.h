@@ -1199,8 +1199,10 @@ namespace Durin
 				Layout, Data,
 				std::move(Lifetime), {}, std::move(ErasedExecute));
 		}
-		RENDERCORE_API auto AddDependency(FRDGPassHandle Pass,
-			FRDGPassHandle Prerequisite) -> void;
+		// Building only: Producer must precede Consumer in this builder. Retaining
+		// Consumer retains Producer; invalid declarations fail compilation.
+		RENDERCORE_API auto AddPassDependency(FRDGPassHandle Producer,
+			FRDGPassHandle Consumer) -> void;
 		RENDERCORE_API auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
 		RENDERCORE_API auto EnablePassCulling() -> void;

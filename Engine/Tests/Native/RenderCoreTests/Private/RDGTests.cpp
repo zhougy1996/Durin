@@ -850,7 +850,7 @@ namespace Durin
 		EXPECT_DEATH(Builder.AllocParameters<FNestedGraphParameters>(), "require Building state");
 		EXPECT_DEATH(Builder.SetBudget({}), "require Building state");
 		EXPECT_DEATH(Builder.EnablePassCulling(), "require Building state");
-		EXPECT_DEATH(Builder.AddDependency(Pass, Pass), "require Building state");
+		EXPECT_DEATH(Builder.AddPassDependency(Pass, Pass), "require Building state");
 		EXPECT_DEATH(Builder.MarkPassRoot(Pass), "require Building state");
 		EXPECT_DEATH(Builder.UseToken(Pass, Token, ERDGUse::Read), "require Building state");
 		EXPECT_DEATH(Builder.QueueBufferExtraction({}, nullptr, ERHIAccess::None), "require Building state");
@@ -1617,9 +1617,9 @@ namespace Durin
 			const auto Pass = Builder.AddPass("Cyclic", ERDGPassType::Graphics,
 				std::move(Parameters));
 			ASSERT_TRUE(Pass.IsValid());
-			Builder.AddDependency(Pass, Pass);
+			Builder.AddPassDependency(Pass, Pass);
 			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
-				"graph contains a dependency cycle");
+				"dependency must point forward: producer[0] consumer[0]");
 		}
 		{
 			FRDGBuilder Builder;
@@ -2123,7 +2123,7 @@ namespace Durin
 			ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::ColorAttachmentReadWrite}));
 	}
 
-	TEST_F(FRDGTests, RejectsMissingProducerForeignHandleAndCycle)
+	TEST_F(FRDGTests, RejectsMissingProducerForeignHandleAndInvalidOrder)
 	{
 		auto Texture = MakeGraphTexture("Missing");
 		FRDGBuilder MissingProducer;
@@ -2148,19 +2148,51 @@ namespace Durin
 		FRDGBuilder Cyclic;
 		const auto A = Cyclic.AddPass("A", ERDGPassType::Compute);
 		const auto B = Cyclic.AddPass("B", ERDGPassType::Compute);
-		Cyclic.AddDependency(A, B);
-		Cyclic.AddDependency(B, A);
+		Cyclic.AddPassDependency(A, B);
+		Cyclic.AddPassDependency(B, A);
 		auto Cycle = FRDGBuilderTestAccessor::Compile(Cyclic);
 		EXPECT_FALSE(Cycle.IsSuccess());
-		EXPECT_EQ(Cycle.Error, "graph contains a dependency cycle");
+		EXPECT_EQ(Cycle.Error, "dependency must point forward: producer[1] consumer[0]");
 
 		FRDGBuilder SelfDependent;
 		const auto Self = SelfDependent.AddPass(
 			"Self", ERDGPassType::Compute);
-		SelfDependent.AddDependency(Self, Self);
+		SelfDependent.AddPassDependency(Self, Self);
 		auto SelfCycle = FRDGBuilderTestAccessor::Compile(SelfDependent);
 		EXPECT_FALSE(SelfCycle.IsSuccess());
-		EXPECT_EQ(SelfCycle.Error, "graph contains a dependency cycle");
+		EXPECT_EQ(SelfCycle.Error, "dependency must point forward: producer[0] consumer[0]");
+	}
+
+	TEST_F(FRDGTests, ValidatesDependencyHandlesBeforeCulling)
+	{
+		for (bool bInvalidConsumer : {false, true})
+			for (bool bForeign : {false, true})
+			{
+				FRDGBuilder Owner;
+				const auto Foreign = Owner.AddPass("Foreign", ERDGPassType::Compute);
+				FRDGBuilder Builder;
+				Builder.EnablePassCulling();
+				const auto Local = Builder.AddPass("Local", ERDGPassType::Compute);
+				const auto Invalid = bForeign ? Foreign : FRDGPassHandle{};
+				Builder.AddPassDependency(bInvalidConsumer ? Local : Invalid,
+					bInvalidConsumer ? Invalid : Local);
+				EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+					bInvalidConsumer ? "dependency has an invalid consumer pass handle"
+					: "pass 'Local' has an invalid producer pass handle");
+				EXPECT_TRUE(Builder.GetPasses().empty());
+			}
+		for (bool bSelf : {false, true})
+		{
+			FRDGBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto First = Builder.AddPass("First", ERDGPassType::Compute);
+			const auto Second = Builder.AddPass("Second", ERDGPassType::Compute);
+			Builder.AddPassDependency(bSelf ? First : Second, First);
+			EXPECT_EQ(FRDGBuilderTestAccessor::Compile(Builder).Error,
+				bSelf ? "dependency must point forward: producer[0] consumer[0]"
+				: "dependency must point forward: producer[1] consumer[0]");
+			EXPECT_TRUE(Builder.GetPasses().empty());
+		}
 	}
 
 	TEST_F(FRDGTests, RejectsTextureAspectsOutsideResourceFormat)
@@ -3393,7 +3425,8 @@ namespace Durin
 		Builder.SetBudget({.MaxDependencies = 1});
 		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
 		const auto Read = Builder.AddPass("Read", ERDGPassType::Compute);
-		Builder.AddDependency(Read, Write);
+		Builder.AddPassDependency(Write, Read);
+		Builder.AddPassDependency(Write, Read);
 		for (uint32 Index = 0; Index < 8; ++Index)
 		{
 			const auto Token = Builder.CreateToken("Token" + std::to_string(Index));
