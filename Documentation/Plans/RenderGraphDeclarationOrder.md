@@ -4,12 +4,12 @@ Summary: Adopt forward-only AddPassDependency declarations, execute retained pas
 
 Last reviewed: 2026-09-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-10
 
 ## Current Status
 
-Stages 0 through 2 are complete. RenderContractTests passed all 149 tests in
+All stages and acceptance gates are complete. RenderContractTests passed all 149 tests in
 Win64-Debug-DurinEditor (2026-09-10). Forward validation is centralized before
 edge deduplication; invalid handles retain deferred compile failure. Ordering
 now directly filters declaration indices. Retention indexes finalized retaining
@@ -148,26 +148,85 @@ remain equivalent for previously valid forward graphs.
 
 Depends on Stage 2.
 
-- [ ] Run the owning native contract tests and affected caller checks selected
+- [x] Run the owning native contract tests and affected caller checks selected
   through the build/test guides. Add renderer or backend checks only where the
   caller audit identifies changed production wiring or transition behavior.
-- [ ] Compare representative forward-graph captures for scheduled passes,
+- [x] Compare representative forward-graph captures for scheduled passes,
   retention, dependencies, resource lifetimes, and barriers. Document intentional
   diagnostic changes for formerly accepted backward declarations.
-- [ ] Check increasing independent-pass and sparse-chain graph sizes, including
+- [x] Check increasing independent-pass and sparse-chain graph sizes, including
   culling enabled and disabled. Record graph sizes, configuration, and observed
   timings; use structural/code evidence for complexity rather than a flaky
   wall-clock pass/fail threshold. Do not attribute all compile time to traversal.
-- [ ] Update the authoritative Render Graph contract with declaration ordering,
+- [x] Update the authoritative Render Graph contract with declaration ordering,
   the new API's argument order and retention semantics, failure behavior, and
   migration examples. Remove obsolete stable-topological/cycle wording where it
   describes the replaced implementation; retain unrelated historical evidence.
-- [ ] Validate changed documentation and plan lifecycle metadata, record actual
+- [x] Validate changed documentation and plan lifecycle metadata, record actual
   validation evidence and limitations, and mark the plan complete only after all
   required gates pass.
 
 Completion condition: implementation, callers, tests, and authoritative contract
 agree; the removed API has no live RDG callers; all required validation is recorded.
+
+## Validation Evidence
+
+- Final owning selection: `.\DevTool.bat test RenderContractTests`,
+  Win64-Debug-DurinEditor, 149/149 tests passed in 3.31 seconds; build 5.45 seconds.
+  Receipt: `Build/.agent-state/logs/20260910-141834-888600-8196-RenderContractTests.log`.
+- `test affected --explain` expands the shared Engine test project to unrelated
+  asset/editor/GPU targets. The plan's explicit owning-target gate was used
+  instead. No production caller moved, no backend transition implementation
+  changed, and GPU/application execution was not required or run.
+- Before/after scheduler captures: two complete deterministic dumps (culling on
+  and off) of a buffer/token graph with independent work, multiple roots, shared
+  predecessors and an Execution-to-Value upgrade matched byte for byte. This
+  compares scheduled passes, dependencies, culling, lifetimes, uses and barriers.
+  Receipts: `20260910-141545-557198-29964-RenderContractTests.log` and
+  `20260910-141735-405178-33644-RenderContractTests.log` under the same log directory.
+  The baseline run exposed a new test's incorrect assumption that public edges
+  retain insertion order; the test now finds endpoints in canonical order. Final
+  coverage also ensures the upgraded edge alone retains its producer.
+- Existing extraction, overwrite-pruning, lazy capture, normalized range/version,
+  barrier, budget and terminal-builder tests remain green. Added tests cover
+  invalid unreachable edges, foreign/default handles on both endpoints, duplicate
+  edges at the structural limit, read-before-producer with an explicit edge,
+  read/write retention, shared ancestors and declaration subsequences.
+- Removed API scan finds only the unrelated private RHI pipeline helper.
+  BuildStablePassOrder and its outgoing/indegree/emitted state are absent.
+- Changed-document and all-plan lifecycle validators passed; diff whitespace
+  validation passed. The authoritative RenderGraph contract contains the API,
+  migration, failure and retention rules.
+
+### Diagnostic Scaling Samples
+
+Single compile samples in milliseconds on this Windows MSVC Debug profile,
+with the last pass rooted. Each row also ran without roots, and empty graphs
+were checked. Both independent and chain graphs contain no resources; a sparse
+chain has P - 1 explicit edges. Construction and capture are outside the timer;
+all compiler work is inside it. These observations are not performance thresholds
+or an attribution of all compile time to ordering/retention.
+
+| Shape | Culling | Passes | Before | After |
+| --- | --- | --- | --- | --- |
+| Independent | Off | 128 | 3.418 | 1.116 |
+| Independent | Off | 1024 | 139.670 | 8.941 |
+| Independent | Off | 8192 | 8371.478 | 75.000 |
+| Chain | Off | 128 | 3.968 | 1.837 |
+| Chain | Off | 1024 | 143.622 | 14.765 |
+| Chain | Off | 8192 | 8269.497 | 120.107 |
+| Independent | On | 128 | 2.514 | 0.522 |
+| Independent | On | 1024 | 130.228 | 3.635 |
+| Independent | On | 8192 | 8265.360 | 31.288 |
+| Chain | On | 128 | 4.187 | 2.014 |
+| Chain | On | 1024 | 148.806 | 16.173 |
+| Chain | On | 8192 | 8427.674 | 133.639 |
+
+Structural evidence: one declaration-index loop emits retained passes; one
+final-edge loop builds predecessor lists; the root loop and mark-before-enqueue
+worklist expand each pass at most once and each retaining edge at most once.
+Disabled culling returns before predecessor allocation. Canonical edge storage,
+kind upgrades, sorting for diagnostics and resource analysis are unchanged.
 
 ## Execution and Handoff
 

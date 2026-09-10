@@ -97,20 +97,33 @@ execution state. Compilation never mutates a command list.
 
 ## Compilation and Ordering
 
-Passes retain declaration order when dependencies leave them independent.
+The executable sequence is the declaration sequence filtered by retention.
+`AddPassDependency(Producer, Consumer)` is legal only while Building and requires
+valid handles from this builder with `Producer.Index < Consumer.Index`. It may
+be called after both passes are declared. Retaining the consumer retains its
+producer; duplicate edges are idempotent. Invalid/foreign handles, self edges,
+and backward edges produce deterministic compile errors even on unreachable
+passes. Compilation failure consumes the builder and publishes no partial result.
+
+Migrate `AddDependency(Consumer, Producer)` to
+`AddPassDependency(Producer, Consumer)`; the old API is removed. A formerly
+backward declaration must move the producer before the consumer, with resource
+versions and callback capture lifetimes reviewed. Explicit edges cannot repair
+a resource read declared before its producer.
+
 Each normalized range carries a produced-value version. Value edges connect a
 producer to readers and read/write consumers; explicit edges also participate
 in reachability. A separate minimal execution frontier preserves required RAW,
 WAR, and WAW order without making overwritten values reachable. A discard
-write starts a new version. Stable topological compilation rejects cycles and
-never performs performance reordering. A same-range overwrite chain therefore
+write starts a new version. Every generated dependency also points forward;
+compilation performs no reordering. A same-range overwrite chain therefore
 produces linear rather than all-pairs dependencies.
 
 Compilation fails as one complete result for invalid or foreign handles,
 unnamed or duplicate identities, missing producers, illegal access/use pairs,
 overlapping declarations within a pass, invalid normalized ranges or usage,
-pass-domain/access mismatch, and dependency cycles. No pass callback runs and
-no transition records when compilation fails.
+pass-domain/access mismatch, and invalid dependency direction. No pass callback
+runs and no transition records when compilation fails.
 
 Logical tokens express compatibility-only ordering edges without transitions
 or backend state. Graph-owned typed values use those same value versions,
@@ -120,8 +133,14 @@ lifetimes for non-RHI outcomes.
 Pass culling is opt-in and root-driven. Present, offscreen output, temporal
 publication, readback, capture, timestamps, and other external effects mark an
 explicit root reason. Compilation retains each root and its complete reverse
-dependency closure; other passes are reported as unreachable. Declaration and
-cycle validation still cover the complete graph before culling.
+Value/Explicit predecessor closure; Execution edges do not propagate retention.
+Other passes are reported as unreachable. Full declaration validation precedes
+culling. Predecessor lists are built once from finalized edges, including any
+Execution-to-retaining upgrades. Each pass is marked before enqueueing and
+expanded at most once. Ordering costs O(P); retention indexing and traversal
+cost O(P + E) after edge generation. With culling disabled all passes are retained
+and predecessor lists are not allocated. These bounds do not describe the entire
+compiler, range analysis, transitions, or capture generation.
 
 Every resource reports its first/last retained scheduled pass. A resource used
 only by unreachable passes reports a culled lifetime. These logical intervals
