@@ -1265,6 +1265,44 @@ namespace Durin
 		EXPECT_EQ(Parameters->Nested.Completion.Token, TokenHandle);
 	}
 
+	TEST_F(FRDGTests, ParameterReferencesSurviveGrowthMovesAndReverseSubmission)
+	{
+		FRDGBuilder Builder;
+		std::vector<TRDGParametersRef<FFirstLifetimeGraphParameters>> Parameters;
+		for (size_t Index = 0; Index < 256; ++Index)
+			Parameters.push_back(Builder.AllocParameters<FFirstLifetimeGraphParameters>());
+		size_t Calls = 0;
+		for (size_t Index = Parameters.size(); Index-- > 0;)
+		{
+			const auto* Address = &Parameters[Index].Get();
+			auto Moved = std::move(Parameters[Index]);
+			EXPECT_FALSE(Parameters[Index].IsValid());
+			TRDGParametersRef<FFirstLifetimeGraphParameters> Assigned;
+			Assigned = std::move(Moved);
+			EXPECT_FALSE(Moved.IsValid());
+			if (Index % 2 == 0)
+			{
+				EXPECT_TRUE(Builder.AddPass("Typed" + std::to_string(Index), ERDGPassType::Copy,
+					std::move(Assigned), [&, Address](FRHICommandListImmediate&,
+						const FFirstLifetimeGraphParameters& Values,
+						const FRDGParameterResolver&) {
+						EXPECT_EQ(&Values, Address);
+						++Calls;
+					}).IsValid());
+			}
+			else
+			{
+				EXPECT_TRUE(Builder.AddPass("Untyped" + std::to_string(Index), ERDGPassType::Copy,
+					std::move(Assigned), [&](FRHICommandListImmediate&,
+						const FRDGPassResources&) { ++Calls; }).IsValid());
+			}
+			EXPECT_FALSE(Assigned.IsValid());
+		}
+		const auto Result = Builder.Execute(GetCommandList());
+		EXPECT_EQ(Result.Status, ERDGExecutionStatus::Recorded) << Result.Error;
+		EXPECT_EQ(Calls, Parameters.size());
+	}
+
 	TEST_F(FRDGTests, RejectsMalformedGraphParameterMetadataAtomically)
 	{
 		FRDGBuilder Builder;
@@ -1671,6 +1709,8 @@ namespace Durin
 			FRDGBuilder Owner;
 			auto Parameters = Owner.AllocParameters<FNestedGraphParameters>();
 			FRDGBuilder Other;
+			// The foreign index is in range and has the same layout locally.
+			auto Local = Other.AllocParameters<FNestedGraphParameters>();
 			EXPECT_FALSE(Other.AddPass("ForeignAllocation",
 				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = FRDGBuilderTestAccessor::Compile(Other);

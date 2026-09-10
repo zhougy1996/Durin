@@ -553,7 +553,8 @@ namespace Durin
 		TRDGParametersRef(TRDGParametersRef&& Other) noexcept
 			: Data(std::exchange(Other.Data, nullptr)),
 			  Lifetime(std::move(Other.Lifetime)),
-			  Layout(std::exchange(Other.Layout, nullptr))
+			  Layout(std::exchange(Other.Layout, nullptr)),
+			  AllocationIndex(std::exchange(Other.AllocationIndex, InvalidAllocationIndex))
 		{
 		}
 		auto operator=(TRDGParametersRef&& Other) noexcept
@@ -564,6 +565,7 @@ namespace Durin
 				Data = std::exchange(Other.Data, nullptr);
 				Lifetime = std::move(Other.Lifetime);
 				Layout = std::exchange(Other.Layout, nullptr);
+				AllocationIndex = std::exchange(Other.AllocationIndex, InvalidAllocationIndex);
 			}
 			return *this;
 		}
@@ -585,14 +587,19 @@ namespace Durin
 	private:
 		friend class FRDGBuilder;
 		TRDGParametersRef(ParameterStruct* InData,
-			std::weak_ptr<void> InLifetime, const FRDGParameterLayout* InLayout)
-			: Data(InData), Lifetime(std::move(InLifetime)), Layout(InLayout)
+			std::weak_ptr<void> InLifetime, const FRDGParameterLayout* InLayout,
+			size_t InAllocationIndex)
+			: Data(InData), Lifetime(std::move(InLifetime)), Layout(InLayout),
+			  AllocationIndex(InAllocationIndex)
 		{
 		}
 
 		ParameterStruct* Data = nullptr;
 		std::weak_ptr<void> Lifetime;
 		const FRDGParameterLayout* Layout = nullptr;
+		static constexpr size_t InvalidAllocationIndex = std::numeric_limits<size_t>::max();
+		// Builder allocations are append-only, so indices survive vector growth.
+		size_t AllocationIndex = InvalidAllocationIndex;
 	};
 
 	// Exposes only resources declared by the executing graph to pass callbacks.
@@ -1166,8 +1173,10 @@ namespace Durin
 			if (Layout == nullptr)
 				Layout = GetRDGParameterLayout<ParameterStruct>();
 			Parameters.Lifetime.reset();
+			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
+				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
 			return AddParameterizedPass(Name, Type,
-				Layout, Data,
+				Layout, Data, AllocationIndex,
 				std::move(Lifetime), std::move(Execute), {});
 		}
 		template<typename ParameterStruct, typename Execute>
@@ -1195,8 +1204,10 @@ namespace Durin
 			if (Layout == nullptr)
 				Layout = GetRDGParameterLayout<ParameterStruct>();
 			Parameters.Lifetime.reset();
+			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
+				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
 			return AddParameterizedPass(Name, Type,
-				Layout, Data,
+				Layout, Data, AllocationIndex,
 				std::move(Lifetime), {}, std::move(ErasedExecute));
 		}
 		// Building only: Producer must precede Consumer in this builder. Retaining
@@ -1220,6 +1231,7 @@ namespace Durin
 			static_assert(std::destructible<ParameterStruct>,
 				"Render graph parameter structs must be destructible");
 			std::weak_ptr<void> Lifetime;
+			size_t AllocationIndex = TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex;
 			const auto& LayoutResult =
 				GetRDGParameterLayoutBuildResult<ParameterStruct>();
 			void* Storage = AllocateParameterStorage(sizeof(ParameterStruct),
@@ -1227,13 +1239,13 @@ namespace Durin
 				ParameterStruct::GetRDGParametersMetadata(),
 				LayoutResult,
 				[](void* Value) { std::destroy_at(
-					static_cast<ParameterStruct*>(Value)); }, Lifetime);
+					static_cast<ParameterStruct*>(Value)); }, Lifetime, AllocationIndex);
 			if (Storage == nullptr) return {};
 			FStorageConstructionScope Construction(*this);
 			auto* Parameters = std::construct_at(
 				static_cast<ParameterStruct*>(Storage));
-			MarkParameterStorageConstructed(Storage);
-			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get()};
+			MarkParameterStorageConstructed(AllocationIndex);
+			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get(), AllocationIndex};
 		}
 
 		RENDERCORE_API auto UseTexture(FRDGPassHandle Pass,
@@ -1335,7 +1347,7 @@ namespace Durin
 
 		RENDERCORE_API auto AddParameterizedPass(std::string_view Name,
 			ERDGPassType Type,
-			const FRDGParameterLayout* Layout, void* Parameters,
+			const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
 			std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
 			FRDGParameterizedPassExecute ParameterizedExecute)
 			-> FRDGPassHandle;
@@ -1344,8 +1356,9 @@ namespace Durin
 		RENDERCORE_API auto AllocateParameterStorage(size_t Size, size_t Alignment,
 			const FRDGParametersMetadata* Metadata,
 			const FRDGParameterLayoutBuildResult& LayoutResult,
-			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
-		RENDERCORE_API auto MarkParameterStorageConstructed(void* Storage) -> void;
+			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime,
+			size_t& OutAllocationIndex) -> void*;
+		RENDERCORE_API auto MarkParameterStorageConstructed(size_t AllocationIndex) -> void;
 		RENDERCORE_API auto AllocateValueStorage(std::string_view Name,
 			std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
 			size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*;

@@ -1735,7 +1735,8 @@ namespace Durin
 	auto FRDGBuilder::AllocateParameterStorage(size_t Size,
 		size_t Alignment, const FRDGParametersMetadata* Metadata,
 		const FRDGParameterLayoutBuildResult& LayoutResult,
-		void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*
+		void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime,
+		size_t& OutAllocationIndex) -> void*
 	{
 		RequireBuilding();
 		if (LayoutResult.Layout == nullptr)
@@ -1756,18 +1757,16 @@ namespace Durin
 		Allocation->Layout = LayoutResult.Layout.get();
 		void* Data = Allocation->Data;
 		OutLifetime = Allocation;
+		OutAllocationIndex = State->ParameterStorage.Allocations.size();
 		State->ParameterStorage.Allocations.push_back(std::move(Allocation));
 		return Data;
 	}
 
-	auto FRDGBuilder::MarkParameterStorageConstructed(void* Storage)
+	auto FRDGBuilder::MarkParameterStorageConstructed(size_t AllocationIndex)
 		-> void
 	{
-		auto Allocation = std::ranges::find_if(
-			State->ParameterStorage.Allocations,
-			[Storage](const auto& Candidate) { return Candidate->Data == Storage; });
-		if (Allocation != State->ParameterStorage.Allocations.end())
-			(*Allocation)->bConstructed = true;
+		require(AllocationIndex < State->ParameterStorage.Allocations.size());
+		State->ParameterStorage.Allocations[AllocationIndex]->bConstructed = true;
 	}
 
 	auto FRDGBuilder::StateOwner() const -> uint64
@@ -2034,7 +2033,7 @@ namespace Durin
 
 	auto FRDGBuilder::AddParameterizedPass(std::string_view Name,
 		ERDGPassType Type,
-		const FRDGParameterLayout* Layout, void* Parameters,
+		const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
 		std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
 		FRDGParameterizedPassExecute ParameterizedExecute)
 		-> FRDGPassHandle
@@ -2048,27 +2047,24 @@ namespace Durin
 			return "pass '" + std::string(Name)
 				+ "' parameter '" + StructName + "'";
 		};
-		auto Allocation = std::ranges::find_if(
-			State->ParameterStorage.Allocations,
-			[&](const auto& Candidate) {
-				return Candidate.get() == Lifetime.get()
-					&& Candidate->Data == Parameters;
-			});
+		auto* Allocation = AllocationIndex < State->ParameterStorage.Allocations.size()
+			? State->ParameterStorage.Allocations[AllocationIndex].get() : nullptr;
 		if (Parameters == nullptr || Lifetime == nullptr || Layout == nullptr
-			|| Allocation == State->ParameterStorage.Allocations.end()
-			|| (*Allocation)->Layout != Layout)
+			|| Allocation == nullptr || Allocation != Lifetime.get()
+			|| Allocation->Data != Parameters || Allocation->Layout != Layout
+			|| !Allocation->bConstructed)
 		{
 			State->DeclarationErrors.push_back(
 				RootPrefix() + " has an invalid or foreign parameter allocation");
 			return {};
 		}
-		if ((*Allocation)->bFrozen)
+		if (Allocation->bFrozen)
 		{
 			State->DeclarationErrors.push_back(
 				RootPrefix() + " was already submitted");
 			return {};
 		}
-		(*Allocation)->bFrozen = true;
+		Allocation->bFrozen = true;
 
 		FGraphPass ParameterizedPass;
 		ParameterizedPass.Name = Name;
