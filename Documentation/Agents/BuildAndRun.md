@@ -34,12 +34,15 @@ Machine-local tool and build-profile overrides belong in
 linked worktree.
 
 Treat configure, build, rebuild, and any command that invokes them transitively
-as long-running. Give the execution tool at least 10 minutes
-(`timeout_ms: 600000`), and at least one hour (`timeout_ms: 3600000`) for a full
-`all` build or rebuild.
+as long-running. If the execution tool supports a process timeout, allow at
+least 10 minutes, or at least one hour for a full `all` build or rebuild; raise
+it when prior measurements require more. Use the tool's supported parameters.
+A yield or polling interval is not a process timeout.
 
-If execution yields a running process or cell ID, wait on that same invocation
-in intervals no longer than 60 seconds. Stop waiting after its final result.
+If execution yields a running session or cell ID, use its matching continuation
+tool to wait on that same invocation. Prefer blocking waits of 30–60 seconds
+where supported, with no wait longer than 60 seconds; avoid rapid polling.
+Stop waiting after its final result.
 Quiet output, a heartbeat, a yield, or elapsed UI time does not authorize a
 second build or recovery inspection.
 
@@ -58,9 +61,12 @@ cancelled, externally terminated, or lost its controlling DurinDevTool process:
 Ordinary compiler, linker, configuration, clean, test, assertion, timeout,
 process, and application failures do not require recovery or rebuilding.
 
-For a user-visible editor change, complete a successful full `all` build before
-handoff and link the verified editor executable from the same Agent Build
-Profile. Other changes need no executable link after a partial build.
+For editor changes, use the smallest build and test scope that covers the
+changed behavior, following [Testing](Testing.md). Use `all` only when an
+explicit acceptance gate or integration risk requires it; user visibility
+alone does not require a full build. When handing off a runnable editor, build
+its required targets and link the verified executable from the same Agent
+Build Profile. Other handoffs need no executable link after a partial build.
 
 ## macOS Application Smoke
 

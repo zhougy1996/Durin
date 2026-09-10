@@ -437,9 +437,9 @@ Do not configure or build every registered preset in every worktree. An
 ordinary feature worktree maintains only the selected host profile's default
 preset and uses the smallest build target and native-test selection that cover
 the change. The current defaults are `Win64-Debug-DurinEditor` on Windows and
-`MacOS-arm64-Debug-DurinEditor` on macOS. A user-visible Editor change still
-requires the full default Editor `all` build at handoff, as described in the
-agent workflow.
+`MacOS-arm64-Debug-DurinEditor` on macOS. Editor handoff coverage follows the
+risk-based rules in the [agent workflow](../../Agents/BuildAndRun.md); user
+visibility alone does not require an `all` build.
 
 Add another preset only when it is registered for the selected host profile and
 the changed behavior needs its distinct configuration or runtime graph:
@@ -595,7 +595,10 @@ editors is documented in `Documentation/Development/Tooling/IDECodeModel.md`.
 
 ## Recovery
 
-For Agent-driven `build` and `rebuild` commands, give the shell invocation a timeout of at least 10 minutes and raise it for a full build when prior measurements justify that. If the runner returns a running cell ID, wait on that same cell in intervals no longer than 60 seconds. Do not call `wait` after a final exit result. A runner yield, quiet output, or elapsed UI window alone does not mean that DurinDevTool stopped and must not trigger a second build or recovery-state inspection.
+For Agent-driven commands, follow the long-running execution and continuation
+rules in the [agent workflow](../../Agents/BuildAndRun.md). A runner yield,
+quiet output, or elapsed UI window alone does not mean that DurinDevTool
+stopped and must not trigger a second build or recovery-state inspection.
 
 The recovery marker covers only operations that mutate configured or compiled build state. A normal compiler, linker, configuration, or clean failure removes the in-progress marker; fix the reported error and rerun the same command. For `test`, the marker is cleared as soon as its target finishes building, before the test executable starts. Failed assertions, test-process crashes, test timeouts, interrupted tests, and application exits therefore never require a rebuild.
 

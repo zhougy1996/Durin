@@ -6,41 +6,25 @@ task, do not reread it unless the file changes.
 
 ## Discover Documents
 
-Use DurinDevTool from the repository root and open only the closest result:
+When the owning document is unknown, follow [Documentation](../README.md)
+for topic routing and compact discovery. Known documents can be opened directly.
+For stage continuation, use the compact plan context:
 
 ```powershell
-.\DevTool.bat doc find "<task terms>" --limit 5
-.\DevTool.bat doc task list
-.\DevTool.bat doc plan list
 .\DevTool.bat doc plan context "<title-or-filename>"
-.\DevTool.bat doc roadmap list
-.\DevTool.bat doc plan list --scope completed
-.\DevTool.bat doc roadmap list --scope completed
-```
-
-Query a named historical plan or roadmap instead of listing an entire archive:
-
-```powershell
-.\DevTool.bat doc plan list --scope archive --query "<title-or-filename>"
-.\DevTool.bat doc roadmap list --scope archive --query "<title-or-filename>"
 ```
 
 ## Validate Changes
 
-Start with the smallest applicable validation and use the lifecycle validators
-when plan or roadmap metadata changes:
+For content edits, start with changed-document validation:
 
 ```powershell
 .\DevTool.bat doc validate --scope changed
-.\DevTool.bat doc validate --scope all
-.\DevTool.bat doc plan validate --scope all
-.\DevTool.bat doc roadmap validate --scope all
-.\DevTool.bat doc validate --scope all --include-archive
 ```
 
-Archive-inclusive validation is an explicit historical audit. Missing local
-targets in archived plans and roadmaps are warnings because later repository
-evolution may remove them; active and completed documents remain strict.
+For lifecycle changes, use the validator required by the owning rules below.
+Use `doc validate --scope all` for a repository-wide documentation audit; add
+`--include-archive` only for an explicit historical audit.
 Successful mutating documentation commands report the validation they already
 completed transactionally. Do not immediately rerun an equivalent validator;
 validate again only after a later edit or when an explicit audit is required.
@@ -50,29 +34,22 @@ validate again only after a later edit or when an explicit audit is required.
 Document move, task removal, and monthly archive commands apply immediately and
 validate transactionally. Pass `--dry-run` only when a preview is needed.
 Create specialized files directly from the minimal template in the nearest
-`AGENTS.md`, then run the applicable validator. The former `--apply` spelling
-remains accepted for compatibility but is unnecessary:
+`AGENTS.md`, then run the applicable validator. Review the generated diff,
+including every reported referencing file after structural operations.
 
-```powershell
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
-.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --dry-run
-.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
-.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md --dry-run
-.\DevTool.bat doc plan archive YYYY-MM
-.\DevTool.bat doc plan archive YYYY-MM --dry-run
-.\DevTool.bat doc roadmap archive YYYY-MM
-.\DevTool.bat doc roadmap archive YYYY-MM --dry-run
-```
+Read only the rules for the operation being performed:
 
-Archive transactions repair direct references, reject newly introduced
-diagnostics, and tolerate only pre-existing missing-target warnings from older
-archives. Review every reported referencing file after applying an operation.
+- [Task lifecycle](../Tasks/AGENTS.md#lifecycle)
+- [Plan completion and archive](../Plans/AGENTS.md#archive-workflow)
+- [Roadmap lifecycle and archive](../Roadmaps/AGENTS.md#lifecycle)
+- [Move commands and transaction behavior](../Development/Tooling/DurinDevTool.md#documentation-commands)
 
 ## Read the Owning Rules
 
 Continue to [Documentation Rules](../AGENTS.md) and the nearest directory
 `AGENTS.md` before changing document content or lifecycle state. Use
 [Documentation](../README.md) to route to the authoritative domain document.
-Read the complete [Build And Run](../Development/Build/BuildAndRun.md) guide
-only when changing or diagnosing DurinDevTool's documentation implementation or
-command behavior.
+For documentation command changes or diagnosis, start with
+[DurinDevTool documentation commands](../Development/Tooling/DurinDevTool.md#documentation-commands).
+Read [Build And Run](../Development/Build/BuildAndRun.md) only if the issue also
+involves setup, build ownership, or recovery.

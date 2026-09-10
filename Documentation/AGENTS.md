@@ -11,9 +11,8 @@ These instructions apply under `Documentation/`.
 
 ## Reading Policy
 
-- Read only task-required files. Use `README.md` for navigation, then read the
-  authoritative topic; discover with `rg --files Documentation` and targeted
-  searches.
+- Read only task-required files. When the owning document is unknown, follow
+  the discovery and targeted-search policy in `README.md`.
 - Do not read archived plans unless the user names one, an active document requires its provenance, or historical reasoning is necessary.
 - Do not run untargeted content searches under `Plans/Archive/`. Exclude that
   directory from general documentation searches; when archive lookup is

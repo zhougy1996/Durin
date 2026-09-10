@@ -84,6 +84,14 @@ Discover configured choices without building them:
 production-private source seam. The report is derived from the active registry
 and may be empty.
 
+For example, the former monolithic `EngineTests` executable was intentionally
+split into cohesive functional and lifecycle targets. Its
+`Engine/Tests/Native/EngineTests` source directory remains, but `EngineTests`
+is not a runnable selection and must not be inferred or restored from that
+directory name. A test beneath it may belong to a focused target such as
+`ViewportTests`; use `test list viewport` to discover that target before
+running it, or select a registered domain when the behavior crosses targets.
+
 Set selectors start with `@`. `@viewport` is shorthand for
 `@domain=viewport`. Within a dimension, `+` is union; comma-separated
 dimensions intersect. For example,
@@ -113,12 +121,10 @@ measurements that should not extend routine correctness feedback.
 Choose validation by risk and preserve the resolved target names in the
 handoff or CI log:
 
-- Routine implementation loops run the smallest named target that owns the
-  changed behavior, then use `test affected` once for handoff coverage.
-- Never assemble coverage by invoking two or more whole targets separately.
-  Use `test affected` or one registry set so target builds and CTest execution
-  remain batched and parallel. Separate focused commands are for failure
-  diagnosis after the batch identifies a target or case.
+- Routine implementation and handoff follow the selection and result-reuse
+  rules in [Agent Testing Workflow](../../Agents/Testing.md#select-validation).
+  Batch whole-target coverage with `test affected` or one bounded registry set;
+  focused iteration and failure diagnosis may use separate commands.
 - Broad local non-integration feedback runs `test fast-all`; it never replaces
   an affected integration target or backend/domain set.
 - Cross-module behavior runs its feature domain, such as `test "@world"` or
@@ -199,6 +205,8 @@ DurinDevTool> test all
 DurinDevTool rejects `test` for an IDE-only or custom preset that does not
 enable `BUILD_TESTING`.
 
+## Application-Hosted Tests
+
 On macOS, the default `MacOS-arm64-Debug-DurinEditor` preset sets the
 application-test capability to its default of `OFF`. Tests that require
 LaunchServices, together with their Host and Controller infrastructure, are
@@ -240,6 +248,41 @@ isolation, stress, report, or qualification command and inspect the retained
 control directory printed by a failed launcher invocation. These tests require
 an active graphical login session. A locked or missing GUI session is a real,
 bounded test failure rather than a skip.
+
+## GPU Qualification Environments
+
+On macOS, MoltenVK cannot access Metal services from the default Codex sandbox
+and reports `Metal is not available on this device`. Do not run a GPU test or a
+Metal probe in the sandbox merely to reproduce that expected failure. For
+optional coverage, report GPU execution as unavailable under the
+[agent testing rules](../../Agents/Testing.md). When an
+explicit user request or acceptance gate requires GPU execution, request the
+normal sandbox-escalation approval and run the exact registered qualification
+selection outside the sandbox. Record the unsandboxed device name and receipt;
+never bypass authorization or weaken the test to turn sandbox initialization
+failure into a pass.
+
+## Performance Qualification and Concurrent Agents
+
+Ordinary correctness builds and tests may run while other agents are active,
+subject to the repository's single-writer and no-overlapping-build rules. GPU
+timing qualification is different: results are authoritative only from an
+exclusive quiet GPU lane with no competing agent test, editor, browser workload,
+capture tool, or other GPU application. A machine reboot is not required when
+the qualification supplies its documented warm-up.
+
+The `durin-gpu` resource lock serializes physical GPU owners within one CTest
+scheduler. `durin-rhi-lifecycle` separately serializes real backend startup,
+shutdown, and module replacement while allowing CPU-only tests to overlap.
+Neither lock coordinates independent DevTool/CTest invocations, separate
+worktrees, agents, or external applications. When any of those may be competing,
+run correctness coverage normally but label timing output diagnostic only: do
+not rebaseline a threshold, accept a performance gate, or claim a regression
+from it. Rerun the exact qualification selection in a quiet window; prefer
+consecutive passes and report the warm-up/sample count and median/p95.
+Statistical stability checks can reject bursty contention, but stable sustained
+contention is indistinguishable from a code regression without exclusive
+execution.
 
 ## Vulkan Creation Qualification Memory
 

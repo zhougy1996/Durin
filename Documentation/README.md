@@ -1,8 +1,9 @@
 # Documentation
 
 Use this file only when the task needs repository-specific guidance and the
-owning document is not already known. Read the first matching topic below; do
-not open the other rows or scan an entire directory.
+owning document is not already known. Start with the most specific matching
+topic below. Add coding standards, domain contracts, and validation guidance
+as the task requires; do not read unrelated topics or scan an entire directory.
 
 | Task trigger | Read first |
 | --- | --- |
@@ -73,12 +74,13 @@ not open the other rows or scan an entire directory.
 | Named historical plan or required provenance | Run `.\DevTool.bat doc plan list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
 | Verified unresolved engineering problem | [Open investigations](Investigations/README.md) |
 
-If no row matches, run
+If routing leaves the owning document unclear, run
 `.\DevTool.bat doc find "<task terms>" --limit 5`; its ranked result includes
 available summaries and owning modules without printing document bodies. Fall
 back to `rg --files Documentation` or a targeted `rg` content query only when
-the compact search has no useful result. Open only the closest document and
-follow its direct references only when the task requires them. Never load
+the compact search has no useful result. Start with the closest document and
+expand through direct references or targeted searches when task scope,
+dependencies, or validation requirements remain unclear. Never load
 `Documentation/` as one corpus or maintain a repository-wide file index.
 
 Authoring and lifecycle rules are in the nearest `AGENTS.md`.

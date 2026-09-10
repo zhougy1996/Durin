@@ -16,8 +16,10 @@ These instructions apply under `Documentation/Plans/`.
   headings. Run `.\DevTool.bat doc plan context "<title-or-filename>"` to
   receive the header, current status, stage progress, first stage with open
   tasks, immediately preceding handoff, and related-code list in one compact
-  result. Expand to a named decision or earlier stage only when that context
-  references it or the code conflicts with the recorded handoff.
+  result. Expand to a named decision or earlier stage when that context
+  references it, the code conflicts with the recorded handoff, or the context
+  is insufficient to establish scope, dependencies, or acceptance conditions.
+  Keep additional reads targeted to the missing information.
 - Humans run `.\DevTool.bat` without arguments for an interactive
   shell whose `list` command defaults to readable terminal output with automatic
   ANSI color. Direct agent routing, generated Markdown, and piped output use the

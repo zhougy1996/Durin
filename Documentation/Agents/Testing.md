@@ -13,7 +13,7 @@ control flow, mutation, persistence, ownership, concurrency, or other behavior
 without established coverage need focused tests. Explicit acceptance gates
 still apply. Report the validation performed and any intentionally omitted tests.
 
-Use the first scope that covers the changed behavior:
+Choose the smallest sufficient scope; these are alternatives, not a sequence:
 
 ```powershell
 .\DevTool.bat test affected
@@ -41,20 +41,17 @@ instead of inferring it from the source tree:
 .\DevTool.bat test explain <Target>
 ```
 
-For example, the former monolithic `EngineTests` executable was intentionally
-split into cohesive functional and lifecycle targets. Its
-`Engine/Tests/Native/EngineTests` source directory remains, but `EngineTests`
-is not a runnable selection and must not be inferred or restored from that
-directory name. A test beneath it may belong to a focused target such as
-`ViewportTests`; use `test list viewport` to discover that target before
-running it, or select a registered domain when the behavior crosses targets.
-
 1. During implementation, iterate with the smallest affected named target or
    failing case.
-2. Before handoff, run `test affected` once when runtime tests are needed, unless
-   an explicit acceptance gate names a different selection. Do not execute two or more targets through
-   separate commands to assemble coverage; use `affected` or one bounded set so
-   the build and CTest scheduler can batch them.
+2. Before handoff, confirm sufficient coverage of the final code state. Reuse
+   passing results when the tested code, relevant inputs, and environment are
+   unchanged and the recorded selection covers the task's behavior and gates.
+   Otherwise use `test affected` or an explicit acceptance selection. If the
+   working tree includes unrelated changes, inspect `test affected --explain`
+   and choose a task-specific bounded registry set when its coverage is clear;
+   report that selection. Batch whole targets in one invocation rather than
+   assembling coverage through separate commands. Focused iteration and
+   diagnosis may use separate runs.
 3. Use a bounded domain or domain/backend set when behavior crosses test
    targets.
 4. Use `fast-all` for broad non-integration feedback. It includes `contract`,
@@ -66,14 +63,10 @@ running it, or select a registered domain when the behavior crosses targets.
    infrastructure, or concrete evidence that bounded validation is
    insufficient. State the reason before starting it.
 
-Application-hosted tests are never implicit validation. Unless the user, a
-selected plan acceptance gate, or the active CI job explicitly requires
-application-host coverage, leave `DURIN_ENABLE_APPLICATION_TESTS` off and do
-not run those targets. If that coverage is required but the current sandbox or
-session cannot use LaunchServices, validate configuration or compilation when
-useful and report application execution as not run. Do not leave the current
-sandbox, change machine authorization, relocate artifacts, or substitute the
-product application merely to make this optional lane pass.
+Application-hosted tests are never implicit validation. Leave
+`DURIN_ENABLE_APPLICATION_TESTS` off unless the user, selected plan gate, or
+active CI job requires that coverage. When required, first read
+[application-host execution](../Development/Build/NativeTests.md#application-hosted-tests).
 
 GPU qualification is not implicit validation for CPU changes or migrated test
 fixtures. `test affected` already excludes qualification targets. Do not append
@@ -90,45 +83,22 @@ GPU acceptance gates remain outstanding until validated in a capable environment
 Keep GPU tests registered for those environments; do not turn initialization
 failures into unconditional passes.
 
-On macOS, MoltenVK cannot access Metal services from the default Codex sandbox
-and reports `Metal is not available on this device`. Do not run a GPU test or a
-Metal probe in the sandbox merely to reproduce that expected failure. For
-optional coverage, report GPU execution as unavailable as above. When an
-explicit user request or acceptance gate requires GPU execution, request the
-normal sandbox-escalation approval and run the exact registered qualification
-selection outside the sandbox. Record the unsandboxed device name and receipt;
-never bypass authorization or weaken the test to turn sandbox initialization
-failure into a pass.
-
-## Performance Qualification and Concurrent Agents
-
-Ordinary correctness builds and tests may run while other agents are active,
-subject to the repository's single-writer and no-overlapping-build rules. GPU
-timing qualification is different: results are authoritative only from an
-exclusive quiet GPU lane with no competing agent test, editor, browser workload,
-capture tool, or other GPU application. A machine reboot is not required when
-the qualification supplies its documented warm-up.
-
-The `durin-gpu` resource lock serializes physical GPU owners within one CTest
-scheduler. `durin-rhi-lifecycle` separately serializes real backend startup,
-shutdown, and module replacement while allowing CPU-only tests to overlap.
-Neither lock coordinates independent DevTool/CTest invocations, separate
-worktrees, agents, or external applications. When any of those may be competing,
-run correctness coverage normally but label timing output diagnostic only: do
-not rebaseline a threshold, accept a performance gate, or claim a regression
-from it. Rerun the exact qualification selection in a quiet window; prefer
-consecutive passes and report the warm-up/sample count and median/p95.
-Statistical stability checks can reject bursty contention, but stable sustained
-contention is indistinguishable from a code regression without exclusive
-execution.
+Before macOS GPU execution, read
+[GPU environment guidance](../Development/Build/NativeTests.md#gpu-qualification-environments).
+Before timing qualification, read
+[performance qualification](../Development/Build/NativeTests.md#performance-qualification-and-concurrent-agents).
+Timing acceptance requires an exclusive quiet GPU lane;
+correctness runs may proceed under the ordinary build ownership rules.
 
 Use positional selections. Whole-target execution is the default. Isolate an
 aggregate failure with its named target and case.
 
-Treat every test command as long-running and give the execution tool an
-explicit timeout of at least 10 minutes. A failed assertion, crash, or timeout
-does not require a rebuild; fix or diagnose the cause and rerun the same test
-selection.
+Treat test execution and any transitive build as long-running; follow the
+timeout and continuation rules in [Build And Run](BuildAndRun.md). Read-only
+discovery commands such as `test list`, `test explain`, and
+`test affected --explain` do not need a long-running execution budget. A failed assertion,
+crash, or timeout does not require a rebuild; fix or diagnose the cause and
+rerun the same test selection.
 
 ## Read the Complete Specifications
 
