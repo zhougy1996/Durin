@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Durin
@@ -40,6 +42,38 @@ namespace Durin
 			EBufferUsageFlags Usage = EBufferUsageFlags::None;
 
 			auto operator==(const FBufferDescriptorKey&) const -> bool = default;
+		};
+
+		// Hash semantic fields only: descriptor struct padding is not identity.
+		struct FDescriptorHash final
+		{
+			static auto Combine(size_t& Hash, uint64 Value) -> void
+			{
+				Hash ^= std::hash<uint64>{}(Value) + size_t(0x9e3779b9)
+					+ (Hash << 6) + (Hash >> 2);
+			}
+
+			auto operator()(const FTextureDescriptorKey& Key) const -> size_t
+			{
+				size_t Hash = 0;
+				for (uint64 Value : {uint64(Key.Dimension), uint64(Key.Flags),
+					uint64(Key.Format), uint64(Key.Extent.x), uint64(Key.Extent.y),
+					uint64(Key.Depth), uint64(Key.ArraySize), uint64(Key.NumMips),
+					uint64(Key.NumSamples), uint64(Key.ClearBinding)})
+					Combine(Hash, Value);
+				for (std::byte Value : Key.ClearValue)
+					Combine(Hash, std::to_integer<uint64>(Value));
+				return Hash;
+			}
+
+			auto operator()(const FBufferDescriptorKey& Key) const -> size_t
+			{
+				size_t Hash = 0;
+				Combine(Hash, Key.Size);
+				Combine(Hash, Key.Stride);
+				Combine(Hash, uint64(Key.Usage));
+				return Hash;
+			}
 		};
 
 		auto MakeDescriptorKey(const FRHITextureCreateDesc& Desc)
@@ -112,10 +146,91 @@ namespace Durin
 			uint32 ObservationTag = 0;
 		};
 
-		using FTextureEntry = TEntry<FTextureDescriptorKey, FTextureRHIRef>;
-		using FBufferEntry = TEntry<FBufferDescriptorKey, FBufferRHIRef>;
-		std::vector<FTextureEntry> Textures;
-		std::vector<FBufferEntry> Buffers;
+		// Stable compaction preserves sequence order. All indices are rebuilt once
+		// after compaction; ordered bucket members also support retrying old entries.
+		template<typename Descriptor, typename Resource>
+		struct TPool final
+		{
+			using FEntry = TEntry<Descriptor, Resource>;
+			struct FBucket final
+			{
+				std::set<size_t> Physical;
+				std::set<size_t> Empty;
+				std::set<size_t> Failed;
+			};
+			std::vector<FEntry> Entries;
+			std::unordered_map<Descriptor, FBucket, FDescriptorHash> Buckets;
+			std::unordered_map<uint64, size_t> AllocationIndices;
+
+			auto begin() { return Entries.begin(); }
+			auto end() { return Entries.end(); }
+			auto size() const -> size_t { return Entries.size(); }
+			auto operator[](size_t Index) -> FEntry& { return Entries[Index]; }
+
+			auto clear() -> void
+			{
+				Entries.clear();
+				Buckets.clear();
+				AllocationIndices.clear();
+			}
+
+			auto IndexEntry(size_t Index) -> void
+			{
+				const auto& Entry = Entries[Index];
+				AllocationIndices.emplace(Entry.Sequence + 1, Index);
+				auto& Bucket = Buckets[Entry.Key];
+				auto& Members = Entry.Physical ? Bucket.Physical : Bucket.Empty;
+				Members.insert(Members.end(), Index);
+				if (!Entry.Physical && Entry.FailedGeneration)
+					Bucket.Failed.insert(Bucket.Failed.end(), Index);
+			}
+
+			auto RebuildIndices() -> void
+			{
+				Buckets.clear();
+				AllocationIndices.clear();
+				for (size_t Index = 0; Index < Entries.size(); ++Index)
+					IndexEntry(Index);
+			}
+
+			template<typename Predicate>
+			auto EraseIf(Predicate Remove) -> void
+			{
+				if (std::erase_if(Entries, Remove) != 0) RebuildIndices();
+			}
+
+			auto Find(uint64 AllocationId) -> FEntry*
+			{
+				const auto It = AllocationIndices.find(AllocationId);
+				return It == AllocationIndices.end() ? nullptr : &Entries[It->second];
+			}
+
+			auto FindEmpty(const Descriptor& Key) -> FEntry*
+			{
+				const auto It = Buckets.find(Key);
+				return It == Buckets.end() || It->second.Empty.empty()
+					? nullptr : &Entries[*It->second.Empty.begin()];
+			}
+
+			auto Add(FEntry Entry) -> FEntry*
+			{
+				Entries.push_back(std::move(Entry));
+				IndexEntry(Entries.size() - 1);
+				return &Entries.back();
+			}
+
+			auto Materialize(FEntry& Entry, Resource Physical) -> void
+			{
+				const size_t Index = AllocationIndices.at(Entry.Sequence + 1);
+				auto& Bucket = Buckets.at(Entry.Key);
+				Bucket.Empty.erase(Index);
+				Bucket.Failed.erase(Index);
+				Bucket.Physical.insert(Bucket.Physical.end(), Index);
+				Entry.Physical = std::move(Physical);
+			}
+		};
+		TPool<FTextureDescriptorKey, FTextureRHIRef> Textures;
+		TPool<FBufferDescriptorKey, FBufferRHIRef> Buffers;
 		std::optional<uint64> DeviceGeneration;
 		uint64 NextSequence = 0;
 		std::optional<FRenderResourceGeneration> RetryGeneration;
@@ -253,10 +368,12 @@ namespace Durin
 					--State->RetainedResources;
 					Entry.Physical = {};
 				}
-			std::erase_if(Entries, [&](const auto& Entry) {
+			std::erase_if(Entries.Entries, [&](const auto& Entry) {
 				return Entry.Sequence >= FirstNewSequence
 					&& Entry.Sequence != PreserveSequence;
 			});
+			// Physical state can change even when no entry was removed.
+			Entries.RebuildIndices();
 		};
 		auto Rollback = [&](uint64 PreserveSequence =
 			std::numeric_limits<uint64>::max()) {
@@ -277,26 +394,33 @@ namespace Durin
 		std::vector<uint64> PlannedAllocationIds;
 		PlannedAllocationIds.reserve(Requests.size());
 		uint64 MissingBytes = 0;
+		// Cursors live only during planning, before any bucket can be mutated.
+		std::unordered_map<const void*, std::set<size_t>::const_iterator> BucketCursors;
 		auto PlanCandidate = [&](const auto& Entries, const auto& Key,
 			uint64 LogicalBytes) -> bool {
-			const auto It = std::ranges::find_if(Entries, [&](const auto& Entry) {
-				return Entry.Key == Key && Entry.Physical
-					&& !ActiveAllocationIds.contains(Entry.Sequence + 1);
-			});
-			if (It != Entries.end())
+			const auto BucketIt = Entries.Buckets.find(Key);
+			if (BucketIt != Entries.Buckets.end())
 			{
-				PlannedAllocationIds.push_back(It->Sequence + 1);
-				ActiveAllocationIds.insert(It->Sequence + 1);
-				return true;
+				const auto& Bucket = BucketIt->second;
+				auto& Cursor = BucketCursors.try_emplace(
+					&Bucket, Bucket.Physical.begin()).first->second;
+				if (Cursor != Bucket.Physical.end())
+				{
+					const uint64 Id = Entries.Entries[*Cursor++].Sequence + 1;
+					PlannedAllocationIds.push_back(Id);
+					ActiveAllocationIds.insert(Id);
+					return true;
+				}
+				if (!Bucket.Failed.empty())
+				{
+					const auto& Failed = Entries.Entries[*Bucket.Failed.begin()];
+					if (!HasSelectedRenderResourceGenerationChanged(
+						*Failed.FailedGeneration, Generation, RetryDependencies)
+						&& (Failed.Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
+							|| Now < Failed.NextRetryTime))
+						return Fail("RDG allocation retry is suppressed for an unavailable descriptor");
+				}
 			}
-			const auto Failed = std::ranges::find_if(Entries, [&](const auto& Entry) {
-				return Entry.Key == Key && !Entry.Physical && Entry.FailedGeneration;
-			});
-			if (Failed != Entries.end() && !HasSelectedRenderResourceGenerationChanged(
-				*Failed->FailedGeneration, Generation, RetryDependencies)
-				&& (Failed->Failure == ERHIResourceCreationFailure::UnsupportedDescriptor
-					|| Now < Failed->NextRetryTime))
-				return Fail("RDG allocation retry is suppressed for an unavailable descriptor");
 			PlannedAllocationIds.push_back(0);
 			MissingBytes = AddSaturated(MissingBytes, LogicalBytes);
 			return true;
@@ -324,37 +448,46 @@ namespace Durin
 			return Fail("RDG allocation is waiting for the memory-pressure retry interval");
 
 		auto EvictUntil = [&](uint64 Limit) {
-			while (State->RetainedBytes > Limit)
-			{
-				uint64 OldestSequence = std::numeric_limits<uint64>::max();
-				bool bTexture = false;
-				size_t OldestIndex = 0;
-				auto SelectOldest = [&](const auto& Entries, bool bEntriesAreTextures) {
-					for (size_t Index = 0; Index < Entries.size(); ++Index)
-						if (Entries[Index].Physical
-							&& !ActiveAllocationIds.contains(Entries[Index].Sequence + 1)
-							&& Entries[Index].Sequence < OldestSequence)
-						{
-							OldestSequence = Entries[Index].Sequence;
-							OldestIndex = Index;
-							bTexture = bEntriesAreTextures;
-						}
-				};
-				SelectOldest(State->Textures, true);
-				SelectOldest(State->Buffers, false);
-				if (OldestSequence == std::numeric_limits<uint64>::max()) break;
-				if (bTexture)
-				{
-					State->RetainedBytes -= State->Textures[OldestIndex].LogicalBytes;
-					State->Textures.erase(State->Textures.begin() + OldestIndex);
-				}
-				else
-				{
-					State->RetainedBytes -= State->Buffers[OldestIndex].LogicalBytes;
-					State->Buffers.erase(State->Buffers.begin() + OldestIndex);
-				}
+			if (State->RetainedBytes <= Limit) return;
+			size_t TextureIndex = 0;
+			size_t BufferIndex = 0;
+			std::optional<uint64> LastEvictedSequence;
+			auto SkipReserved = [&](auto& Entries, size_t& Index) {
+				while (Index < Entries.size()
+					&& (!Entries[Index].Physical
+						|| ActiveAllocationIds.contains(Entries[Index].Sequence + 1)))
+					++Index;
+			};
+			auto Select = [&](const auto& Entry) {
+				LastEvictedSequence = Entry.Sequence;
+				State->RetainedBytes -= Entry.LogicalBytes;
 				--State->RetainedResources;
 				++State->Evictions;
+			};
+			// Both pools are sequence ordered. Merge once, then compact each pool
+			// once; reserved and failed entries survive the selected prefix.
+			while (State->RetainedBytes > Limit)
+			{
+				SkipReserved(State->Textures, TextureIndex);
+				SkipReserved(State->Buffers, BufferIndex);
+				if (TextureIndex == State->Textures.size()
+					&& BufferIndex == State->Buffers.size()) break;
+				if (BufferIndex == State->Buffers.size()
+					|| (TextureIndex < State->Textures.size()
+						&& State->Textures[TextureIndex].Sequence
+							< State->Buffers[BufferIndex].Sequence))
+					Select(State->Textures[TextureIndex++]);
+				else
+					Select(State->Buffers[BufferIndex++]);
+			}
+			if (LastEvictedSequence)
+			{
+				auto Remove = [&](const auto& Entry) {
+					return Entry.Physical && Entry.Sequence <= *LastEvictedSequence
+						&& !ActiveAllocationIds.contains(Entry.Sequence + 1);
+				};
+				State->Textures.EraseIf(Remove);
+				State->Buffers.EraseIf(Remove);
 			}
 		};
 		const auto PreviousEvictions = State->Evictions;
@@ -372,20 +505,16 @@ namespace Durin
 			uint64 LogicalBytes, std::string_view Kind,
 			const FRDGAllocationRequest& Request, auto CreatePhysical,
 			auto AssignPhysical, FCandidate& Candidate) -> bool {
-			auto It = std::ranges::find_if(Entries, [&](const auto& Entry) {
-				return Entry.Physical && Entry.Sequence + 1 == Candidate.AllocationId;
-			});
-			Candidate.bReuseHit = It != Entries.end();
+			auto* It = Entries.Find(Candidate.AllocationId);
+			Candidate.bReuseHit = It != nullptr;
 			if (Candidate.bReuseHit) ++State->ReuseHits;
 			else ++State->ReuseMisses;
-			if (It == Entries.end())
+			if (!It)
 			{
-				It = std::ranges::find_if(Entries, [&](const auto& Entry) {
-					return Entry.Key == Key && !Entry.Physical;
-				});
-				if (It == Entries.end())
-					It = Entries.emplace(Entries.end(),
-						typename std::remove_reference_t<decltype(Entries)>::value_type{
+				It = Entries.FindEmpty(Key);
+				if (!It)
+					It = Entries.Add(
+						typename std::remove_reference_t<decltype(Entries)>::FEntry{
 							.Key = Key, .Sequence = State->NextSequence++,
 							.LogicalBytes = LogicalBytes, .ObservationTag = Request.ObservationTag});
 				if (It->FailedGeneration && HasSelectedRenderResourceGenerationChanged(
@@ -410,7 +539,7 @@ namespace Durin
 						+ std::to_string(Request.ResourceId), It->Sequence);
 				}
 				CreatedAllocationIds.insert(It->Sequence + 1);
-				It->Physical = std::move(Physical);
+				Entries.Materialize(*It, std::move(Physical));
 				It->FailedGeneration.reset();
 				It->RetryFailures = 0;
 				It->Failure = ERHIResourceCreationFailure::None;
@@ -496,7 +625,7 @@ namespace Durin
 			if (Candidate.bExtracted)
 				ExportedAllocationIds.insert(Candidate.AllocationId);
 		auto DetachExports = [&](auto& Entries) {
-			std::erase_if(Entries, [&](const auto& Entry) {
+			Entries.EraseIf([&](const auto& Entry) {
 				if (!ExportedAllocationIds.contains(Entry.Sequence + 1)) return false;
 				State->RetainedBytes -= Entry.LogicalBytes;
 				--State->RetainedResources;

@@ -2349,13 +2349,16 @@ namespace Durin::Tests
 		{
 			bool bTexture;
 			uint32 Megabytes;
+			bool bExtracted = false;
 		};
 
 		auto ExecuteAllocationBatch(FRendererRDGAllocator& Allocator,
-			std::initializer_list<FRDGTestRequest> Requests) -> FRDGCapture
+			std::span<const FRDGTestRequest> Requests) -> FRDGCapture
 		{
 			FRHICommandListExecutor Executor;
 			FRDGBuilder Builder;
+			std::vector<FTextureRHIRef> ExportedTextures(Requests.size());
+			std::vector<FBufferRHIRef> ExportedBuffers(Requests.size());
 			uint32 Index = 0;
 			for (const auto& Request : Requests)
 			{
@@ -2370,6 +2373,9 @@ namespace Durin::Tests
 					Builder.UseColorAttachment(Pass, Texture,
 						{ERHITextureAspect::Color, 0, 1, 0, 1},
 						ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
+					if (Request.bExtracted)
+						Builder.QueueTextureExtraction(Texture, &ExportedTextures[Index - 1],
+							ERHIAccess::ColorAttachmentReadWrite);
 				}
 				else
 				{
@@ -2378,6 +2384,9 @@ namespace Durin::Tests
 					const auto Pass = Builder.AddPass("Write" + Name, ERDGPassType::Compute);
 					Builder.UseBuffer(Pass, Buffer, 0, Request.Megabytes * MiB,
 						ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+					if (Request.bExtracted)
+						Builder.QueueBufferExtraction(Buffer, &ExportedBuffers[Index - 1],
+							ERHIAccess::ComputeShaderReadWrite);
 				}
 			}
 			FRDGExecutionContext Context{Allocator};
@@ -2385,6 +2394,142 @@ namespace Durin::Tests
 			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << Result.Result.Message;
 			return Builder.Capture();
 		}
+
+		auto ExecuteAllocationBatch(FRendererRDGAllocator& Allocator,
+			std::initializer_list<FRDGTestRequest> Requests) -> FRDGCapture
+		{
+			return ExecuteAllocationBatch(Allocator,
+				std::span<const FRDGTestRequest>(Requests.begin(), Requests.size()));
+		}
+	}
+
+	TEST(FRendererSceneContractTests, RDGBucketsReserveDuplicateDescriptorsInCreationOrder)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			std::vector<FRDGTestRequest> Requests;
+			for (uint32 Index = 0; Index < 64; ++Index)
+			{
+				Requests.push_back({true, 1});
+				Requests.push_back({false, 1});
+			}
+			const auto First = ExecuteAllocationBatch(Allocator, Requests);
+			ASSERT_EQ(First.AllocationStatistics.ActiveResources, 128u);
+			for (auto& Request : Requests) Request.bTexture = !Request.bTexture;
+			for (uint32 Batch = 0; Batch < 3; ++Batch)
+			{
+				const auto Reused = ExecuteAllocationBatch(Allocator, Requests);
+				ASSERT_EQ(Reused.AllocationStatistics.ActiveResources, 128u);
+				for (size_t Index = 0; Index < Requests.size(); ++Index)
+					EXPECT_EQ(Reused.Resources[Index].PhysicalAllocationId,
+						First.Resources[Index ^ 1].PhysicalAllocationId);
+			}
+			EXPECT_EQ(RHI.Creates, 128u);
+			const auto Replaced = ExecuteAllocationBatch(Allocator, {{false, 640}});
+			EXPECT_EQ(Replaced.AllocationStatistics.Evictions, 128u);
+			EXPECT_EQ(Replaced.AllocationStatistics.RetainedResources, 1u);
+			const auto Restored = ExecuteAllocationBatch(Allocator, Requests);
+			EXPECT_EQ(Restored.AllocationStatistics.ActiveResources, 128u);
+			EXPECT_EQ(Restored.AllocationStatistics.Evictions, 129u);
+			EXPECT_EQ(RHI.Creates, 257u);
+			EXPECT_LE(RHI.PeakBytes, 640 * MiB);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGBatchEvictionMergesKindsAndReindexesSurvivors)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			const auto First = ExecuteAllocationBatch(Allocator,
+				{{true, 100}, {false, 100}, {true, 100}, {false, 100},
+					{true, 100}, {false, 100}});
+			const auto Evicted = ExecuteAllocationBatch(Allocator,
+				{{false, 240}, {true, 100}});
+			ASSERT_EQ(Evicted.AllocationStatistics.ActiveResources, 2u);
+			EXPECT_EQ(Evicted.AllocationStatistics.Evictions, 2u);
+			EXPECT_EQ(Evicted.AllocationStatistics.RetainedBytes, 640 * MiB);
+			EXPECT_EQ(RHI.Collections, 1u);
+			const auto Reused = ExecuteAllocationBatch(Allocator,
+				{{true, 100}, {true, 100}, {false, 100}, {false, 100}, {false, 240}});
+			ASSERT_EQ(Reused.AllocationStatistics.ActiveResources, 5u);
+			EXPECT_EQ(Reused.Resources[0].PhysicalAllocationId, First.Resources[0].PhysicalAllocationId);
+			EXPECT_EQ(Reused.Resources[1].PhysicalAllocationId, First.Resources[4].PhysicalAllocationId);
+			EXPECT_EQ(Reused.Resources[2].PhysicalAllocationId, First.Resources[3].PhysicalAllocationId);
+			EXPECT_EQ(Reused.Resources[3].PhysicalAllocationId, First.Resources[5].PhysicalAllocationId);
+			EXPECT_EQ(Reused.Resources[4].PhysicalAllocationId, Evicted.Resources[0].PhysicalAllocationId);
+			EXPECT_EQ(RHI.Creates, 7u);
+			EXPECT_LE(RHI.PeakBytes, 640 * MiB);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGExportCompactionRemovesIdsAndPreservesBucketOrder)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			const auto First = ExecuteAllocationBatch(Allocator,
+				{{true, 1, true}, {true, 1}, {false, 1, true}, {false, 1}});
+			ASSERT_EQ(First.AllocationStatistics.ActiveResources, 4u);
+			EXPECT_EQ(First.AllocationStatistics.RetainedResources, 2u);
+			const auto Second = ExecuteAllocationBatch(Allocator,
+				{{true, 1}, {true, 1}, {false, 1}, {false, 1}});
+			ASSERT_EQ(Second.AllocationStatistics.ActiveResources, 4u);
+			EXPECT_EQ(Second.Resources[0].PhysicalAllocationId, First.Resources[1].PhysicalAllocationId);
+			EXPECT_EQ(Second.Resources[2].PhysicalAllocationId, First.Resources[3].PhysicalAllocationId);
+			EXPECT_GT(Second.Resources[1].PhysicalAllocationId, First.Resources[3].PhysicalAllocationId);
+			EXPECT_GT(Second.Resources[3].PhysicalAllocationId, First.Resources[3].PhysicalAllocationId);
+			EXPECT_EQ(RHI.Creates, 6u);
+			Allocator.Release_RenderThread();
+			const auto Released = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			EXPECT_EQ(Released.AllocationStatistics.ActiveResources, 2u);
+			EXPECT_EQ(RHI.Creates, 8u);
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::Device, {});
+			const auto Invalidated = ExecuteAllocationBatch(Allocator, {{true, 1}, {false, 1}});
+			EXPECT_EQ(Invalidated.AllocationStatistics.ActiveResources, 2u);
+			EXPECT_EQ(RHI.Creates, 10u);
+		});
+		FlushRenderingCommands();
+	}
+
+	TEST(FRendererSceneContractTests, RDGRetryRollbackReindexesEmptyAndFailedBucketMembers)
+	{
+		FRenderingThreadScope RenderingThread;
+		EnqueueRenderCommand<FRDGAllocatorTestCommand>([](FRHICommandListImmediate&) {
+			FRDGAllocationTestRHI RHI;
+			FRendererResourceCoordinator Coordinator;
+			FRendererRDGAllocator Allocator(Coordinator);
+			RHI.Failure = ERHIResourceCreationFailure::UnsupportedDescriptor;
+			RHI.FailOnCreate = 1;
+			ExecuteAllocationBatch(Allocator, {{true, 1}});
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+			RHI.FailOnCreate = 4;
+			const auto Failed = ExecuteAllocationBatch(Allocator,
+				{{true, 1}, {true, 1}, {false, 2}});
+			EXPECT_EQ(Failed.AllocationStatistics.RetainedResources, 0u);
+			ExecuteAllocationBatch(Allocator, {{false, 2}});
+			EXPECT_EQ(RHI.Creates, 4u);
+			Coordinator.Apply_RenderThread(ERendererResourceInvalidationCause::ManualRetry, {});
+			const auto Recovered = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 1}});
+			ASSERT_EQ(Recovered.AllocationStatistics.ActiveResources, 2u);
+			EXPECT_EQ(Recovered.Resources[0].PhysicalAllocationId, 1u);
+			EXPECT_GT(Recovered.Resources[1].PhysicalAllocationId, 1u);
+			const auto Reused = ExecuteAllocationBatch(Allocator, {{true, 1}, {true, 1}});
+			ASSERT_EQ(Reused.AllocationStatistics.ActiveResources, 2u);
+			EXPECT_EQ(Reused.Resources[0].PhysicalAllocationId, Recovered.Resources[0].PhysicalAllocationId);
+			EXPECT_EQ(Reused.Resources[1].PhysicalAllocationId, Recovered.Resources[1].PhysicalAllocationId);
+			EXPECT_EQ(RHI.Creates, 6u);
+		});
+		FlushRenderingCommands();
 	}
 
 	TEST(FRendererSceneContractTests, RDGReservesWholeBatchAndCollectsBeforeCreating)
