@@ -12,7 +12,7 @@ namespace Durin::TextureCubeBuilder
 			return (std::filesystem::path(DURIN_TEST_DATA_DIR) / "EquirectangularPanorama" / Name).generic_string();
 		}
 
-		auto FacePixel(const FTextureCubeSourceData& Cube, ETextureCubeFace Face,
+		auto FacePixel(const FTextureCubeDecodedFaces& Cube, ETextureCubeFace Face,
 			uint32 X = 0, uint32 Y = 0) -> std::array<uint8, 4>
 		{
 			const Image::FImage& Source = Cube.Faces[static_cast<size_t>(Face)];
@@ -40,7 +40,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeSourceData Cube;
+		FTextureCubeDecodedFaces Cube;
 		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{0, 255, 0, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::NegativeX), (std::array<uint8, 4>{255, 0, 0, 255}));
@@ -61,7 +61,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeSourceData Cube;
+		FTextureCubeDecodedFaces Cube;
 		std::string Error;
 		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{188, 188, 188, 255}));
@@ -78,7 +78,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeSourceData Cube;
+		FTextureCubeDecodedFaces Cube;
 		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{232, 245, 252, 255}));
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::NegativeX), (std::array<uint8, 4>{115, 165, 206, 255}));
@@ -153,7 +153,7 @@ namespace Durin::TextureCubeBuilder
 		FTexturePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
-		FTextureCubeSourceData Cube;
+		FTextureCubeDecodedFaces Cube;
 		EXPECT_FALSE(ProjectEquirectangularTextureCube(LDR, {}, Cube, Error));
 		EXPECT_FALSE(Cube.Faces[0].IsValid());
 		EXPECT_NE(Error.find("storage"), std::string::npos);
@@ -174,9 +174,9 @@ namespace Durin::TextureCubeBuilder
 		EXPECT_NE(Error.find("between -16 and 16"), std::string::npos);
 	}
 
-	TEST(FEquirectangularTextureCubeTests, ImportedFacesShareStorageAndRetainMetadataAfterOwnerRelease)
+	TEST(FEquirectangularTextureCubeTests, DecodedFacesShareSourceStorageAndRetainMetadataAfterOwnerRelease)
 	{
-		FTextureCubeSourceData Faces;
+		FTextureCubeDecodedFaces Faces;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			ASSERT_TRUE(Image::FImage::TryCreate({.Width = 2, .Height = 2,
@@ -185,19 +185,19 @@ namespace Durin::TextureCubeBuilder
 		}
 		Faces.SourceChannelCounts.fill(4);
 		Faces.TransparencyMask = 0x21;
-		FTextureCubeSourceData Decoded;
+		FTextureCubeDecodedFaces Decoded;
 		{
-			FTextureCubeImportedData Imported;
-			ASSERT_TRUE(Imported.SetSourceData(Faces));
-			const auto Identity = Imported.GetIdentity();
-			Decoded = Imported.ToSourceData();
+			auto Source = PrepareTextureCubeSource(Faces);
+			ASSERT_TRUE(Source);
+			const auto Identity = Source->GetIdentity();
+			Decoded = ReadTextureCubeFaces(*Source);
 			ASSERT_TRUE(Decoded.IsValid());
-			const auto Payload = Imported.Pixels.GetPayload().Wait().Buffer;
+			const auto Payload = Source->GetMipData().GetData();
 			for (const auto& Face : Decoded.Faces)
 				EXPECT_TRUE(Face.GetView().GetBuffer().SharesStorageWith(Payload));
-			FTextureCubeImportedData RoundTrip;
-			ASSERT_TRUE(RoundTrip.SetSourceData(Decoded));
-			EXPECT_EQ(RoundTrip.GetIdentity(), Identity);
+			auto RoundTrip = PrepareTextureCubeSource(Decoded);
+			ASSERT_TRUE(RoundTrip);
+			EXPECT_EQ(RoundTrip->GetIdentity(), Identity);
 		}
 		EXPECT_EQ(Decoded.SourceChannelCounts, Faces.SourceChannelCounts);
 		EXPECT_EQ(Decoded.TransparencyMask, 0x21);
@@ -221,7 +221,7 @@ namespace Durin::TextureCubeBuilder
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
-		FTextureCubeSourceData Cube;
+		FTextureCubeDecodedFaces Cube;
 		std::string Error;
 		ASSERT_TRUE(ProjectEquirectangularTextureCube(Panorama, Settings, Cube, Error)) << Error;
 		EXPECT_NE(Cube.TransparencyMask, 0u);

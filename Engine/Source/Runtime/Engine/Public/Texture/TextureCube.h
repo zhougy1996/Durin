@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
@@ -9,14 +8,8 @@
 
 #include "TextureCube.gen.h"
 
-	namespace Durin
+namespace Durin
 {
-	inline constexpr FGuid TextureCubeImportedFacesPayloadId{
-		0x8b2cd073, 0x19654a69, 0x8730d84e, 0x54fd72e1};
-	inline constexpr uint32 TextureCubeImportedDataSchemaVersion = 1;
-	inline constexpr uint64 MaximumTextureCubeImportedPixelBytes =
-		512ull * 1024ull * 1024ull;
-
 	// Selects display-ready LDR or preserved linear panorama radiance.
 	DENUM(DisplayName = "Texture Cube Output")
 	enum class ETextureCubeOutput : uint8
@@ -32,44 +25,15 @@
 		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
 	};
 
-	// Shares six RGBA8 faces and retains the original per-face import metadata.
+	// Immutable shared RGBA8 images used by decoding, projection, and build recipes.
 	// Faces use Unknown gamma; the cube build settings supply color interpretation.
-	struct FTextureCubeSourceData
+	struct FTextureCubeDecodedFaces
 	{
 		std::array<Image::FImage, TextureCubeFaceCount> Faces;
 		std::array<uint8, TextureCubeFaceCount> SourceChannelCounts{};
 		uint8 TransparencyMask = 0;
 
 		ENGINE_API auto IsValid() const -> bool;
-	};
-
-	// Owns the six decoder-free RGBA8 faces used by every cube build.
-	DSTRUCT()
-	struct FTextureCubeImportedData
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FEditorBulkData Pixels;
-
-		DPROPERTY()
-		uint32 FaceDimension = 0;
-
-		DPROPERTY()
-		uint8 SourceChannelCount = 0;
-
-		DPROPERTY()
-		uint8 TransparencyMask = 0;
-
-		DPROPERTY()
-		uint32 SchemaVersion = TextureCubeImportedDataSchemaVersion;
-
-		FXxHash128 CanonicalSourceIdentity;
-
-		ENGINE_API auto IsValid() const -> bool;
-		ENGINE_API auto SetSourceData(const FTextureCubeSourceData& Source) -> bool;
-		ENGINE_API auto ToSourceData() const -> FTextureCubeSourceData;
-		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
 	struct FTextureCubePlatformData
@@ -83,10 +47,13 @@
 			FArchive& Ar) -> void;
 	};
 
+	// May synchronously load source pixels; returned images retain shared storage independently.
+	ENGINE_API auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeDecodedFaces;
+
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
-	// Payload-backed input may require a synchronous read.
+	// Packs the supplied faces into the canonical authored source.
 	ENGINE_API auto PrepareTextureCubeSource(
-		const FTextureCubeImportedData& Value) -> std::optional<FTextureSource>;
+		const FTextureCubeDecodedFaces& Value) -> std::optional<FTextureSource>;
 
 	// Prepares detached source on the caller thread; logs failures and returns nullopt.
 	// Converts the supplied in-memory panorama.

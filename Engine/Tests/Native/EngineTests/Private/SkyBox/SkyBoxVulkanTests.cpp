@@ -35,7 +35,7 @@ namespace
 	auto ProjectPanoramaFixture(
 		const std::filesystem::path& Path,
 		const Durin::AssetForge::Builtins::FTextureCubePanoramaImportSettings& Settings,
-		Durin::FTextureCubeSourceData& OutSource,
+		Durin::FTextureCubeDecodedFaces& OutSource,
 		std::string& OutError
 	) -> bool
 	{
@@ -140,7 +140,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
-	Durin::FTextureCubeSourceData SourceData;
+	Durin::FTextureCubeDecodedFaces SourceData;
 	std::string ProjectionError;
 	ASSERT_TRUE(ProjectPanoramaFixture(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga"),

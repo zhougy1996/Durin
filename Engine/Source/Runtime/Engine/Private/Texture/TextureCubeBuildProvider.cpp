@@ -40,7 +40,7 @@ namespace Durin
 				}
 				CanonicalInput = std::move(*Normalized.Value);
 				const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
-				if ((!bHDR && !CanonicalInput.ImportedData.IsValid())
+				if ((!bHDR && !CanonicalInput.DecodedFaces.IsValid())
 					|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
 					|| (bHDR && (!CanonicalInput.AuthoredPanorama.IsValid() || CanonicalInput.bSRGB
 						|| CanonicalInput.AuthoredPanorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
@@ -55,12 +55,19 @@ namespace Durin
 					Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."};
 					return false;
 				}
-				FXxHash128 CanonicalHash = CanonicalInput.ImportedData.GetIdentity();
-				if (bHDR)
+				FXxHash128 CanonicalHash = CanonicalInput.SourceIdentity;
+				if (bHDR || CanonicalHash.IsZero())
 				{
-					auto Source = PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(), 4, 0);
-					if (!Source) return false;
-					CanonicalHash = Source->GetIdentity();
+					auto CanonicalSource = bHDR
+						? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(), 4, 0)
+						: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
+					if (!CanonicalSource)
+					{
+						Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize,
+							"TextureCube canonical source preparation failed."};
+						return false;
+					}
+					CanonicalHash = CanonicalSource->GetIdentity();
 				}
 				const FTextureCubeBuildKeyInput KeyInput{
 					.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama
@@ -90,7 +97,7 @@ namespace Durin
 				}
 
 				Outcome.Stage = ETextureBuildStage::Recipe;
-				auto Recipe = Provider.Build({.ImportedData = std::cref(CanonicalInput.ImportedData),
+				auto Recipe = Provider.Build({.DecodedFaces = std::cref(CanonicalInput.DecodedFaces),
 					.bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform,
 					.TargetProfile = Request.TargetProfile,
 					.HDRPanorama = bHDR ? &CanonicalInput.AuthoredPanorama : nullptr,
@@ -167,7 +174,7 @@ namespace Durin
 			CheckGameThread();
 			require(Product.PlatformData != nullptr);
 			// The provider boundary has already validated these value contracts.
-			check((CanonicalInput.ImportedData.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR)
+			check((CanonicalInput.DecodedFaces.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR)
 				&& Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
 			auto PlatformData = std::move(Product.PlatformData);
@@ -176,7 +183,7 @@ namespace Durin
 				auto Source = CanonicalInput.AuthoredPanorama.IsValid()
 					? PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(),
 						Image::GetRawImageFormatInfo(CanonicalInput.AuthoredPanorama.GetInfo().Format).ChannelCount, 0)
-					: PrepareTextureCubeSource(CanonicalInput.ImportedData);
+					: PrepareTextureCubeSource(CanonicalInput.DecodedFaces);
 				if (!Source) return {ETextureBuildFailure::ApplicationFailed, ETextureBuildStage::Apply,
 					"TextureCube source preparation failed; see log for details."};
 				Texture.SetSource(std::move(*Source));

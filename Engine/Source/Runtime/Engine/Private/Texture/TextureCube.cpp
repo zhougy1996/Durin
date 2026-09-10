@@ -22,32 +22,17 @@ namespace Durin
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
-		auto MakeTextureCubeImportedData(const FTextureSource& Source)
-			-> FTextureCubeImportedData
-		{
-			FTextureCubeImportedData Result;
-			if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
-				return Result;
-			const FTextureSource::FMipData Mips = Source.GetMipData();
-			if (!Mips.IsValid()
-				|| !Result.Pixels.UpdatePayload(Mips.GetData())) return {};
-			Result.FaceDimension = Source.GetWidth();
-			Result.SourceChannelCount = Source.GetSourceChannelCount();
-			Result.TransparencyMask = Source.GetTransparencyMask();
-			Result.CanonicalSourceIdentity = Source.GetIdentity();
-			return Result.IsValid() ? std::move(Result) : FTextureCubeImportedData{};
-		}
-
 		auto MakeTextureCubeBuildRequest(const DTextureCube& Texture,
 			FTextureCubeBuildRequest& OutRequest, std::string& OutError) -> bool
 		{
 			const FTextureSource& Source = Texture.GetSource();
 			if (Source.GetKind() == ETextureSourceKind::TextureCube)
 			{
-				FTextureCubeImportedData Imported = MakeTextureCubeImportedData(Source);
-				if (!Imported.IsValid()) return false;
+				FTextureCubeDecodedFaces Faces = ReadTextureCubeFaces(Source);
+				if (!Faces.IsValid()) return false;
 				OutRequest.Input = FTextureCubeFacesBuildInput{
-					.ImportedData = std::move(Imported),
+					.DecodedFaces = std::move(Faces),
+					.SourceIdentity = Source.GetIdentity(),
 					.SourceLayout = ETextureCubeSourceLayout::SixFaces,
 					.OriginalSourceWidth = Texture.GetOriginalSourceWidth(),
 					.OriginalSourceHeight = Texture.GetOriginalSourceHeight(),
@@ -98,7 +83,7 @@ namespace Durin
 			return true;
 		}
 
-		auto ValidateCubeSourceData(const FTextureCubeSourceData& SourceData, std::string& OutError) -> bool
+		auto ValidateCubeSourceData(const FTextureCubeDecodedFaces& SourceData, std::string& OutError) -> bool
 		{
 			if ((SourceData.TransparencyMask & ~0x3fu) != 0
 				|| SourceData.SourceChannelCounts[0] == 0 || SourceData.SourceChannelCounts[0] > 4)
@@ -107,6 +92,11 @@ namespace Durin
 				return false;
 			}
 			const Image::FImage& Reference = SourceData.Faces[0];
+		if (Reference.GetPixels().size() > (512ull * 1024ull * 1024ull) / TextureCubeFaceCount)
+		{
+			OutError = "Cube face pixels exceed the build input limit.";
+			return false;
+		}
 			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 			{
 				const Image::FImage& Face = SourceData.Faces[FaceIndex];
@@ -142,84 +132,32 @@ namespace Durin
 
 	}
 
-	auto FTextureCubeSourceData::IsValid() const -> bool
+	auto FTextureCubeDecodedFaces::IsValid() const -> bool
 	{
 		std::string Error;
 		return ValidateCubeSourceData(*this, Error);
 	}
 
-	auto FTextureCubeImportedData::IsValid() const -> bool
+	auto ReadTextureCubeFaces(const FTextureSource& Source) -> FTextureCubeDecodedFaces
 	{
-		const uint64 ExpectedByteCount = static_cast<uint64>(FaceDimension)
-			* FaceDimension * 4ull * TextureCubeFaceCount;
-		return SchemaVersion == TextureCubeImportedDataSchemaVersion
-			&& FaceDimension > 0 && FaceDimension <= 16384
-			&& SourceChannelCount > 0 && SourceChannelCount <= 4
-			&& ExpectedByteCount == Pixels.GetPayloadSize()
-			&& ExpectedByteCount <= MaximumTextureCubeImportedPixelBytes
-			&& (TransparencyMask & ~0x3fu) == 0;
-	}
-
-	auto FTextureCubeImportedData::SetSourceData(
-		const FTextureCubeSourceData& Source) -> bool
-	{
-		if (!Source.IsValid()) return false;
-		FByteBuffer Bytes;
-		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].GetPixels().size())
-			* TextureCubeFaceCount;
-		if (TotalBytes > MaximumTextureCubeImportedPixelBytes) return false;
-		Bytes.reserve(static_cast<size_t>(TotalBytes));
+		FTextureCubeDecodedFaces Result;
+		if (!Source.IsValid() || Source.GetKind() != ETextureSourceKind::TextureCube)
+			return Result;
+		const FTextureSource::FMipData Mips = Source.GetMipData();
+		const Image::FImageView View = Mips.GetMipImage(0, 0, 0);
+		if (!View.IsValid() || View.GetInfo().Format != Image::ERawImageFormat::RGBA8
+			|| View.GetInfo().SliceCount != TextureCubeFaceCount) return {};
+		const uint64 FaceBytes = static_cast<uint64>(Source.GetWidth()) * Source.GetHeight() * 4;
+		if (Mips.GetData().GetSize() != FaceBytes * TextureCubeFaceCount) return {};
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			const Image::FImage& Face = Source.Faces[Index];
-			Bytes.insert(Bytes.end(), Face.GetPixels().begin(), Face.GetPixels().end());
-		}
-		if (!Pixels.UpdatePayload(Bytes)) return false;
-		FaceDimension = Source.Faces[0].GetInfo().Width;
-		SourceChannelCount = Source.SourceChannelCounts[0];
-		TransparencyMask = Source.TransparencyMask;
-		SchemaVersion = TextureCubeImportedDataSchemaVersion;
-		FTextureSource Canonical;
-		const FTextureSourceBlock Block{.Width = FaceDimension,
-			.Height = FaceDimension, .NumSlices = TextureCubeFaceCount};
-		const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
-		if (!Canonical.InitLayered(ETextureSourceKind::TextureCube,
-			std::span(&Block, 1), std::span(&Layer, 1),
-			ETextureSourceGammaSpace::Unknown, Bytes, SourceChannelCount,
-			TransparencyMask, ETextureSourceCompression::Zstd)) return false;
-		CanonicalSourceIdentity = Canonical.GetIdentity();
-		return IsValid();
-	}
-
-	auto FTextureCubeImportedData::ToSourceData() const -> FTextureCubeSourceData
-	{
-		FTextureCubeSourceData Result;
-		if (!IsValid()) return Result;
-		const FPackageResourceReadResult Read = Pixels.GetPayload().Wait();
-		if (!Read || Read.Buffer.GetSize() != Pixels.GetPayloadSize()) return {};
-		const uint64 FaceBytes = static_cast<uint64>(FaceDimension) * FaceDimension * 4;
-		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-		{
-			if (!Image::FImage::TryCreate({.Width = FaceDimension, .Height = FaceDimension,
+			if (!Image::FImage::TryCreate({.Width = Source.GetWidth(), .Height = Source.GetHeight(),
 				.Format = Image::ERawImageFormat::RGBA8},
-				Read.Buffer.MakeView(Index * FaceBytes, FaceBytes), Result.Faces[Index])) return {};
+				View.GetBuffer().MakeView(Index * FaceBytes, FaceBytes), Result.Faces[Index])) return {};
 		}
-		Result.SourceChannelCounts.fill(SourceChannelCount);
-		Result.TransparencyMask = TransparencyMask;
-		return Result;
-	}
-
-	auto FTextureCubeImportedData::GetIdentity() const -> FXxHash128
-	{
-		if (!IsValid()) return {};
-		if (!CanonicalSourceIdentity.IsZero()) return CanonicalSourceIdentity;
-		FXxHash128Builder Builder;
-		Builder.UpdateValue(SchemaVersion);
-		Builder.UpdateValue(FaceDimension);
-		Builder.UpdateValue(SourceChannelCount);
-		Builder.UpdateValue(TransparencyMask);
-		Builder.UpdateValue(Pixels.GetPayloadId());
-		return Builder.Finalize();
+		Result.SourceChannelCounts.fill(Source.GetSourceChannelCount());
+		Result.TransparencyMask = Source.GetTransparencyMask();
+		return Result.IsValid() ? std::move(Result) : FTextureCubeDecodedFaces{};
 	}
 
 	auto FTextureCubePlatformData::IsValid() const -> bool
@@ -326,27 +264,25 @@ namespace Durin
 	}
 
 	auto PrepareTextureCubeSource(
-		const FTextureCubeImportedData& Value) -> std::optional<FTextureSource>
+		const FTextureCubeDecodedFaces& Value) -> std::optional<FTextureSource>
 	{
 		if (!Value.IsValid())
 		{
 			DURIN_WARN("TextureCube source data is invalid.");
 			return std::nullopt;
 		}
-		const FPackageResourceReadResult Read = Value.Pixels.GetPayload().Wait();
-		if (!Read)
-		{
-			DURIN_WARN("TextureCube source payload could not be read: {}", Read.Message);
-			return std::nullopt;
-		}
+		FByteBuffer Bytes;
+		Bytes.reserve(Value.Faces[0].GetPixels().size() * TextureCubeFaceCount);
+		for (const auto& Face : Value.Faces)
+			Bytes.insert(Bytes.end(), Face.GetPixels().begin(), Face.GetPixels().end());
 		FTextureSource NewSource;
-		const FTextureSourceBlock Block{.Width = Value.FaceDimension,
-			.Height = Value.FaceDimension, .NumSlices = TextureCubeFaceCount};
+		const FTextureSourceBlock Block{.Width = Value.Faces[0].GetInfo().Width,
+			.Height = Value.Faces[0].GetInfo().Width, .NumSlices = TextureCubeFaceCount};
 		const FTextureSourceLayer Layer{.Format = ETextureSourceFormat::RGBA8};
 		if (!NewSource.InitLayered(ETextureSourceKind::TextureCube,
 			std::span(&Block, 1), std::span(&Layer, 1),
-			ETextureSourceGammaSpace::Unknown, Read.Buffer.GetBytes(),
-			Value.SourceChannelCount, Value.TransparencyMask,
+			ETextureSourceGammaSpace::Unknown, Bytes,
+			Value.SourceChannelCounts[0], Value.TransparencyMask,
 			ETextureSourceCompression::Zstd))
 		{
 			DURIN_WARN("TextureCube source data could not be initialized.");

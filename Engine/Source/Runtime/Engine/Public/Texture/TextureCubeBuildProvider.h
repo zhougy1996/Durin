@@ -45,7 +45,9 @@ namespace Durin
 	// Canonical faces may retain panorama authoring metadata when used by PostLoad.
 	struct FTextureCubeFacesBuildInput
 	{
-		FTextureCubeImportedData ImportedData;
+		FTextureCubeDecodedFaces DecodedFaces;
+		// Installed source identity for rebuilds; imports let Engine prepare the canonical identity.
+		FXxHash128 SourceIdentity;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
 		uint32 OriginalSourceHeight = 0;
@@ -85,7 +87,9 @@ namespace Durin
 	// Engine-owned canonical authoring state produced while normalizing panorama input.
 	struct FTextureCubeCanonicalBuildInput
 	{
-		FTextureCubeImportedData ImportedData;
+		FTextureCubeDecodedFaces DecodedFaces;
+		// Installed source identity for rebuilds; imports let Engine prepare the canonical identity.
+		FXxHash128 SourceIdentity;
 		Image::FImage AuthoredPanorama;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		uint32 OriginalSourceWidth = 0;
@@ -114,7 +118,7 @@ namespace Durin
 
 	struct FTextureCubeRecipeBuildRequest
 	{
-		std::reference_wrapper<const FTextureCubeImportedData> ImportedData;
+		std::reference_wrapper<const FTextureCubeDecodedFaces> DecodedFaces;
 		bool bSRGB = true;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
@@ -140,7 +144,7 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.TextureCubeBuildProvider";
-		static constexpr uint32 FeatureVersion = 2;
+		static constexpr uint32 FeatureVersion = 3;
 
 		virtual auto GetDescriptor() const -> FTextureCubeBuildProviderDescriptor = 0;
 		virtual auto Normalize(

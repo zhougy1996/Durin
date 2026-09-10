@@ -38,10 +38,10 @@ namespace Durin::TextureCubeBuilder
 	// Projects top-left-origin sRGB RGBA8 panorama pixels into the canonical six-face source boundary.
 	TEXTUREBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool;
+		FTextureCubeDecodedFaces& OutSourceData, std::string& OutError) -> bool;
 
 	// Applies exposure and the fixed filmic curve while projecting a linear Radiance HDR panorama.
 	TEXTUREBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool;
+		FTextureCubeDecodedFaces& OutSourceData, std::string& OutError) -> bool;
 }

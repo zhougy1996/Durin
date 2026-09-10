@@ -17,10 +17,21 @@ save, and failure handling. One immutable source capture supplies the
 bytes, hash, size, path, and fingerprint used by each operation. TextureBuild
 owns source-independent face/panorama recipes and recipe versions behind
 `ITextureCubeBuildProvider`. Engine owns typed request variants, canonical
-imported values, DDC keys and Get/Put policy, derived-only result validation,
+decoded values, DDC keys and Get/Put policy, derived-only result validation,
 uncooked PostLoad, object result application, diagnostics, and resource invalidation. AssetForgeBuiltins captures
 and translates physical sources through Engine contracts and has no compile-time
 TextureBuild dependency.
+
+Six-face decoding, LDR panorama projection, and recipe requests use
+`FTextureCubeDecodedFaces`: six shared RGBA8 images plus channel/transparency
+metadata, with a 512 MiB aggregate pixel limit. It has no reflected fields,
+bulk storage, schema, or independent content identity. `ReadTextureCubeFaces`
+reads the installed `FTextureSource` and returns images sharing its decoded
+allocation; they remain valid after source-memory release or source destruction.
+Rebuild requests carry the installed Source identity separately from images.
+For imports, Engine prepares canonical `FTextureSource` values for DDC identity
+and authored installation. Recipes consume image values without package reads. HDR recipes
+continue to consume the linear panorama directly.
 
 ## Coordinate System
 

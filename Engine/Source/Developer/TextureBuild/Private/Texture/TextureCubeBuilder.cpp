@@ -253,7 +253,7 @@ namespace Durin::TextureCubeBuilder
 
 	auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
+		FTextureCubeDecodedFaces& OutSourceData, std::string& OutError) -> bool
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -264,7 +264,7 @@ namespace Durin::TextureCubeBuilder
 			return false;
 		}
 
-		FTextureCubeSourceData Projected;
+		FTextureCubeDecodedFaces Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
@@ -310,7 +310,7 @@ namespace Durin::TextureCubeBuilder
 
 	auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
-		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
+		FTextureCubeDecodedFaces& OutSourceData, std::string& OutError) -> bool
 	{
 		OutSourceData = {};
 		uint32 FaceDimension = 0;
@@ -322,7 +322,7 @@ namespace Durin::TextureCubeBuilder
 		}
 		const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
 
-		FTextureCubeSourceData Projected;
+		FTextureCubeDecodedFaces Projected;
 		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			FByteBuffer Pixels(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);

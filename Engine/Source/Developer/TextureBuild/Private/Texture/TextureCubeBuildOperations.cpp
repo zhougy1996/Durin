@@ -24,12 +24,13 @@ namespace Durin
 		}
 		if (const auto* Faces = std::get_if<FTextureCubeFacesBuildInput>(&Request.Input))
 		{
-			if (!Faces->ImportedData.IsValid())
+			if (!Faces->DecodedFaces.IsValid())
 			{
-				OutError = "TextureCube canonical imported faces are invalid.";
+				OutError = "TextureCube decoded faces are invalid.";
 				return false;
 			}
-			OutCanonicalInput = {.ImportedData = Faces->ImportedData,
+			OutCanonicalInput = {.DecodedFaces = Faces->DecodedFaces,
+				.SourceIdentity = Faces->SourceIdentity,
 				.SourceLayout = Faces->SourceLayout,
 				.OriginalSourceWidth = Faces->OriginalSourceWidth,
 				.OriginalSourceHeight = Faces->OriginalSourceHeight,
@@ -48,7 +49,7 @@ namespace Durin
 			return false;
 		}
 		return std::visit([&](const auto& Image) {
-			FTextureCubeSourceData SourceData;
+			FTextureCubeDecodedFaces SourceData;
 			const bool bHDR = Panorama.Settings.Output == ETextureCubeOutput::HDR;
 			if (bHDR)
 			{
@@ -65,10 +66,9 @@ namespace Durin
 			else if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
 				Image, {Panorama.Settings.FaceDimension, Panorama.Settings.ExposureEV},
 				SourceData, OutError)) return false;
-			FTextureCubeImportedData ImportedData;
-			if (!bHDR && !ImportedData.SetSourceData(SourceData))
+			if (!bHDR && !SourceData.IsValid())
 			{
-				OutError = "TextureCube canonical imported faces are invalid.";
+				OutError = "TextureCube decoded faces are invalid.";
 				return false;
 			}
 			Durin::Image::FImage AuthoredPanorama;
@@ -103,7 +103,7 @@ namespace Durin
 			}
 			if (!Durin::Image::FImage::TryCreate(Info,
 				std::move(AuthoredBytes), AuthoredPanorama, &OutError)) return false;
-			OutCanonicalInput = {.ImportedData = std::move(ImportedData),
+			OutCanonicalInput = {.DecodedFaces = std::move(SourceData),
 				.AuthoredPanorama = std::move(AuthoredPanorama),
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
 				.OriginalSourceWidth = Image.Width,
@@ -137,12 +137,12 @@ namespace Durin
 		}
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game
-			|| !Request.ImportedData.get().IsValid())
+			|| !Request.DecodedFaces.get().IsValid())
 		{
 			OutError = "TextureCube canonical build request is invalid.";
 			return false;
 		}
-		const FTextureCubeSourceData SourceData = Request.ImportedData.get().ToSourceData();
+		const FTextureCubeDecodedFaces& SourceData = Request.DecodedFaces.get();
 		const bool bHasTransparency = SourceData.TransparencyMask != 0;
 		auto PlatformData = std::make_unique<FTextureCubePlatformData>();
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)

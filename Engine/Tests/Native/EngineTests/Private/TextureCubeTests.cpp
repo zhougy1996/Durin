@@ -213,14 +213,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_TRUE(Result.Asset->HasPlatformData());
 	auto* SourceOnly = Durin::NewObject<Durin::DTextureCube>(nullptr, "SourceOnlyCube");
 	const auto& Source = Result.Asset->GetSource();
-	Durin::FTextureCubeImportedData ImportedData;
-	ASSERT_TRUE(ImportedData.Pixels.UpdatePayload(Source.GetMipData().GetData()));
-	ImportedData.FaceDimension = Source.GetWidth();
-	ImportedData.SourceChannelCount = Source.GetSourceChannelCount();
-	ImportedData.TransparencyMask = Source.GetTransparencyMask();
-	auto PreparedSourceOnlySource = Durin::PrepareTextureCubeSource(ImportedData);
-	ASSERT_TRUE(PreparedSourceOnlySource);
-	SourceOnly->SetSource(std::move(*PreparedSourceOnlySource));
+	SourceOnly->SetSource(Source);
 	ASSERT_TRUE(SourceOnly->GetSource().IsValid());
 	EXPECT_EQ(SourceOnly->GetPlatformData(), nullptr);
 	EXPECT_EQ(SourceOnly->GetBuiltFaceDimension(), 0u);
@@ -563,7 +556,7 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 	Cached = BuildResult2 ? std::move(BuildResult2.Value->Product) : Durin::FTextureCubeBuildProduct{};
 	ASSERT_TRUE(BuildResult2) << BuildResult2.Outcome.Diagnostic;
 	EXPECT_EQ(Cached.Origin, Durin::ETextureCubeBuildProductOrigin::CacheHit);
-	EXPECT_TRUE(CachedCanonical.ImportedData.IsValid());
+	EXPECT_TRUE(CachedCanonical.DecodedFaces.IsValid());
 	ASSERT_NE(Cached.PlatformData, nullptr);
 	EXPECT_TRUE(Cached.PlatformData->IsValid());
 
@@ -581,12 +574,14 @@ TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 {
 	InitializeCubeMount();
-	Durin::FTextureCubeImportedData Imported;
-	Imported.FaceDimension = 1;
-	Imported.SourceChannelCount = 4;
-	ASSERT_TRUE(Imported.Pixels.UpdatePayload(Durin::FByteBuffer(24, std::byte{127})));
-	ASSERT_TRUE(Imported.IsValid());
-	auto Source = Durin::PrepareTextureCubeSource(Imported);
+	Durin::FTextureCubeDecodedFaces Faces;
+	Faces.SourceChannelCounts.fill(4);
+	for (auto& Face : Faces.Faces)
+		ASSERT_TRUE(Durin::Image::FImage::TryCreate({.Width = 1, .Height = 1,
+			.Format = Durin::Image::ERawImageFormat::RGBA8},
+			Durin::FByteBuffer(4, std::byte{127}), Face));
+	ASSERT_TRUE(Faces.IsValid());
+	auto Source = Durin::PrepareTextureCubeSource(Faces);
 	ASSERT_TRUE(Source);
 	auto* Texture = Durin::NewObject<Durin::DTextureCube>(nullptr, "CubeSettingsBoundary");
 	ASSERT_NE(Texture, nullptr);
@@ -597,7 +592,7 @@ TEST(FTextureCubeTests, RejectsInvalidAuthoredSettingsBeforeSourceReplacement)
 	for (uint32 InvalidField = 0; InvalidField < 4; ++InvalidField)
 	{
 		Durin::FTextureCubeFacesBuildInput Input{
-			.ImportedData = Imported, .OriginalSourceWidth = 1, .OriginalSourceHeight = 1};
+			.DecodedFaces = Faces, .OriginalSourceWidth = 1, .OriginalSourceHeight = 1};
 		if (InvalidField == 0) Input.SourceLayout = static_cast<Durin::ETextureCubeSourceLayout>(255);
 		if (InvalidField == 1) Input.PanoramaExposureEV = std::numeric_limits<float>::infinity();
 		if (InvalidField == 2) Input.OriginalSourceWidth = 0;

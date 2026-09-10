@@ -219,13 +219,11 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	auto* Texture = Make.operator()<DTexture2D>("Texture");
 	Texture->SetSource(std::move(Pixels));
 	ASSERT_TRUE(SavePackage(Texture->GetPackage()));
-	FTextureCubeSourceData Faces;
+	FTextureCubeDecodedFaces Faces;
 	for (auto& Face : Faces.Faces) Face = PixelsImage;
 	Faces.SourceChannelCounts.fill(4);
-	FTextureCubeImportedData CubeInput;
-	ASSERT_TRUE(CubeInput.SetSourceData(Faces));
 	auto* Cube = Make.operator()<DTextureCube>("Cube");
-	auto PreparedCubeSource = Durin::PrepareTextureCubeSource(CubeInput);
+	auto PreparedCubeSource = Durin::PrepareTextureCubeSource(Faces);
 	ASSERT_TRUE(PreparedCubeSource);
 	Cube->SetSource(std::move(*PreparedCubeSource));
 	Cube->SetBuildSettings(ETextureCubeSourceLayout::SixFaces, 4, 0, 4, 4, true);

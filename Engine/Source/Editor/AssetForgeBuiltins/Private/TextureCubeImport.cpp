@@ -163,16 +163,10 @@ namespace Durin::AssetForge::Builtins
 				}
 				Encoded[Index] = Sources[Index].Snapshot.GetBytes();
 			}
-			FTextureCubeSourceData SourceData;
-			FTextureCubeImportedData ImportedData;
+			FTextureCubeDecodedFaces SourceData;
 			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError))
 				return false;
-			if (!ImportedData.SetSourceData(SourceData))
-			{
-				OutError = "TextureCube canonical imported faces are invalid.";
-				return false;
-			}
-			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
+			auto BuildResult = BuildTextureCubeSynchronously(Texture, {.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}}, {});
 			OutError = BuildResult.Diagnostic;
 			if (!BuildResult
 				|| !PublishCubeImportData(Texture, Sources, ETextureCubeSourceLayout::SixFaces, OutError)) return false;
@@ -414,7 +408,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto TranslateTextureCubeFaceSources(
 		const std::array<FByteView, TextureCubeFaceCount>& EncodedFaces,
-		FTextureCubeSourceData& OutSource,
+		FTextureCubeDecodedFaces& OutSource,
 		std::string& OutError) -> bool
 	{
 		OutSource = {};
@@ -450,7 +444,7 @@ namespace Durin::AssetForge::Builtins
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
 	{
-		FTextureCubeSourceData SourceData;
+		FTextureCubeDecodedFaces SourceData;
 		std::array<FByteBuffer, TextureCubeFaceCount> Bytes;
 		std::array<FByteView, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
@@ -466,12 +460,9 @@ namespace Durin::AssetForge::Builtins
 		}
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
 			return {false, std::move(Error)};
-		FTextureCubeImportedData ImportedData;
-		if (!ImportedData.SetSourceData(SourceData))
-			return {false, "TextureCube canonical imported faces are invalid."};
 		FTextureCubeCanonicalBuildInput CanonicalInput;
 		FTextureCubeBuildProduct Product;
-		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.ImportedData = std::move(ImportedData), .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
+		auto BuildResult = InvokeTextureCubeBuildProvider({.Input = FTextureCubeFacesBuildInput{.DecodedFaces = SourceData, .OriginalSourceWidth = SourceData.Faces[0].GetInfo().Width, .OriginalSourceHeight = SourceData.Faces[0].GetInfo().Height, .Settings = Settings}});
 		Error = BuildResult.Outcome.Diagnostic;
 		CanonicalInput = BuildResult ? std::move(BuildResult.Value->CanonicalInput) : Durin::FTextureCubeCanonicalBuildInput{};
 		Product = BuildResult ? std::move(BuildResult.Value->Product) : Durin::FTextureCubeBuildProduct{};

@@ -24,7 +24,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto TranslateTextureCubeFaceSources(
 		const std::array<FByteView, TextureCubeFaceCount>& EncodedFaces,
-		FTextureCubeSourceData& OutSource,
+		FTextureCubeDecodedFaces& OutSource,
 		std::string& OutError) -> bool;
 
 	struct FTextureCubeImportValidation
