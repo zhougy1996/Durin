@@ -45,63 +45,17 @@ namespace Durin
 		}
 	}
 
-	auto DMaterial::RequestProgramCompile(
-		const FMaterialProgram& CandidateProgram,
-		const FMaterialStaticProperties& CandidateProperties,
-		bool bForceRecompile) -> bool
-	{
-		LastRequestedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
-		FModuleManager::Get().LoadModule("RenderCore");
-		FMaterialCompilerEnvironment Environment;
-		std::string EnvironmentError;
-		if (!BuildDefaultMaterialCompilerEnvironment(
-			Environment, EnvironmentError))
-		{
-			MaterialCompileStatus.RequestGeneration =
-				MaterialCompileStatus.RequestGeneration
-					== std::numeric_limits<uint64>::max()
-					? 1 : MaterialCompileStatus.RequestGeneration + 1;
-			MaterialCompileStatus.State = EMaterialCompileState::Failed;
-			MaterialCompileStatus.ResultCategory =
-				EMaterialCompileResultCategory::Dependency;
-			MaterialCompileStatus.bHasLastKnownGood =
-				AcceptedCompiledProgram != nullptr;
-			MaterialCompileStatus.bLastKnownGoodDisplayed =
-				AcceptedCompiledProgram != nullptr;
-			MaterialCompileDiagnostics = {{
-				.Category = EMaterialCompileResultCategory::Dependency,
-				.Source = {
-					.Category = EMaterialProgramDiagnosticCategory::Dependency,
-					.Message = std::move(EnvironmentError)},
-				.AssetPath = GetObjectPath(),
-				.Generation = MaterialCompileStatus.RequestGeneration,
-				.bLastKnownGoodDisplayed = AcceptedCompiledProgram != nullptr,
-			}};
-			return false;
-		}
-		FMaterialCompilerInput Input;
-		Input.Program = CandidateProgram;
-		Input.StaticProperties = CandidateProperties;
-		Input.Environment = std::move(Environment);
-		Input.Parameters.reserve(ParameterDefinitions.size());
-		for (const FMaterialParameterDefinition& Definition : ParameterDefinitions)
-			Input.Parameters.push_back({Definition.Id, Definition.Type});
-		std::ranges::sort(Input.Parameters, {},
-			&FMaterialCompilerParameterDeclaration::Id);
-		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile);
-	}
-
 	auto DMaterial::AdvanceAuthoredRevision() -> void
 	{
-		AdvanceRevision(MaterialCompileStatus.AuthoredRevision);
+		AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
+		InvalidateMaterialCompilation(false);
 	}
 
 	auto DMaterial::GetRenderableStaticProperties() const
 		-> FMaterialStaticProperties
 	{
-		FMaterialStaticProperties Result = AcceptedCompiledProgram
-			? AcceptedCompiledStaticProperties : StaticProperties;
+		FMaterialStaticProperties Result = CompilationOwner.AcceptedCompiledProgram
+			? CompilationOwner.AcceptedCompiledStaticProperties : StaticProperties;
 		Result.bTwoSided = StaticProperties.bTwoSided;
 		Result.DepthWritePolicy = StaticProperties.DepthWritePolicy;
 		Result.OpacityMaskThreshold = CanonicalizeMaterialShaderProperties(Result).OpacityMaskThreshold;
@@ -151,7 +105,7 @@ namespace Durin
 				return {EMaterialParameterError::TypeConflict, Definition.Id};
 		}
 		if (Definitions == ParameterDefinitions && InProgram == Program) return {};
-		RetainedAcceptedParameters = BuildMaterialLocalRenderLayer().Parameters;
+		CompilationOwner.RetainedAcceptedParameters = BuildMaterialLocalRenderLayer().Parameters;
 		ParameterDefinitions = std::move(Definitions);
 		ParameterDeclarationSchemaVersion = 2;
 		Program = std::move(InProgram);
@@ -231,7 +185,7 @@ namespace Durin
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		uint64 ExpectedAuthoredRevision) -> bool
 	{
-		if (MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
+		if (CompilationOwner.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
 			|| Positions.size() > MaterialProgramMaxNodeCount)
 			return false;
 		std::unordered_set<FGuid> RequestedNodes;
@@ -275,7 +229,7 @@ namespace Durin
 	auto DMaterial::ApplyMaterialGraphOutputPosition(
 		int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool
 	{
-		if (MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
+		if (CompilationOwner.MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
 			|| X < -MaterialGraphPresentationCoordinateLimit
 			|| X > MaterialGraphPresentationCoordinateLimit
 			|| Y < -MaterialGraphPresentationCoordinateLimit
@@ -320,9 +274,10 @@ namespace Durin
 		StaticProperties = InProperties;
 		if (bShaderIdentityChanged)
 		{
-			AdvanceAuthoredRevision();
+			AdvanceRevision(CompilationOwner.MaterialCompileStatus.AuthoredRevision);
 			RequestProgramCompile(Program, StaticProperties);
 		}
+		InvalidateMaterialCompilation(false, true);
 		MarkPackageDirty();
 		MarkRenderDataDirty(
 			EMaterialRenderDirtyFlags::ShaderMap
@@ -465,9 +420,9 @@ namespace Durin
 				FindParameterDefinition(Parameter.Id);
 			if (!Definition || Definition->Type != Parameter.Type)
 			{
-				const auto Retained = std::ranges::find(RetainedAcceptedParameters,
+				const auto Retained = std::ranges::find(CompilationOwner.RetainedAcceptedParameters,
 					Parameter.Id, &FMaterialLocalRenderParameter::Id);
-				if (Retained != RetainedAcceptedParameters.end() && Retained->Type == Parameter.Type)
+				if (Retained != CompilationOwner.RetainedAcceptedParameters.end() && Retained->Type == Parameter.Type)
 					Result.Parameters.push_back(*Retained);
 				continue;
 			}
@@ -483,14 +438,14 @@ namespace Durin
 	auto DMaterial::GetAcceptedCompiledProgram() const
 		-> std::shared_ptr<const FMaterialCompilerResult>
 	{
-		if (!AcceptedCompiledProgram
+		if (!CompilationOwner.AcceptedCompiledProgram
 			&& GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedProgramData.GetMetadata().LogicalSize != 0)
 		{
 			std::string Error;
 			const_cast<DMaterial*>(this)->LoadCookedProgram(Error);
 		}
-		return AcceptedCompiledProgram;
+		return CompilationOwner.AcceptedCompiledProgram;
 	}
 
 	auto DMaterial::PostLoad() -> void
@@ -519,8 +474,8 @@ namespace Durin
 				DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 				return;
 			}
-			AcceptedCompiledProgram.reset();
-			MaterialCompileDiagnostics.clear();
+			CompilationOwner.AcceptedCompiledProgram.reset();
+			CompilationOwner.MaterialCompileDiagnostics.clear();
 			MaterialCookDiagnostic = std::format(
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
@@ -551,7 +506,7 @@ namespace Durin
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("Program") || (Name == FName("StaticProperties")
-			&& CanonicalizeMaterialShaderProperties(StaticProperties) != LastRequestedShaderProperties))
+			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastRequestedShaderProperties))
 		{
 			if (Name == FName("Program"))
 				AdvanceRevision(MaterialProgramRevision);

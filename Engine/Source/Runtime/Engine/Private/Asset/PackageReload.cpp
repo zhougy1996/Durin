@@ -160,7 +160,7 @@ namespace Durin
 							std::format("Runtime product preparation failed for {}.", Object->GetObjectPath()));
 						return false;
 					}
-					if (auto* Material = Cast<DMaterial>(Object);
+					if (auto* Material = Cast<DMaterialInterface>(Object);
 						GDynamicRHI && Material
 						&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Failed)
 					{

@@ -99,6 +99,7 @@ TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitive
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
 	ASSERT_TRUE(Other->SetParent(Unrelated));
+	Durin::ResetMaterialLoadedQueryDiagnostics();
 
 	const std::vector<Durin::FObjectHandle> Direct = Durin::GetLoadedDirectMaterialChildren(Base);
 	const Durin::FMaterialLoadedQueryDiagnostics DirectDiagnostics =

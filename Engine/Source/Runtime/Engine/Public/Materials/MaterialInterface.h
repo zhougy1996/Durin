@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
+#include "Materials/MaterialCompileLifecycle.h"
 
 #include "MaterialInterface.gen.h"
 
@@ -48,6 +49,19 @@ namespace Durin
 		-> FMaterialLoadedQueryDiagnostics;
 	ENGINE_API auto ResetMaterialLoadedQueryDiagnostics() -> void;
 
+	// Per-asset compilation state never retains another material owner.
+	struct FMaterialCompilationOwnerState
+	{
+		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
+		// Value-owned fallback for declarations removed while old code is visible.
+		std::vector<FMaterialLocalRenderParameter> RetainedAcceptedParameters;
+		FMaterialStaticProperties AcceptedCompiledStaticProperties;
+		FMaterialStaticProperties LastRequestedShaderProperties;
+		FMaterialCompileStatus MaterialCompileStatus;
+		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
+		bool bDeferredForceRecompile = false;
+	};
+
 	// Defines the shared parameter-resolution and render-update contract for materials.
 	DCLASS()
 	class DMaterialInterface : public DObject
@@ -74,6 +88,16 @@ namespace Durin
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
 
+		auto GetMaterialCompileDiagnostics() const
+			-> std::span<const FMaterialCompileDiagnostic>
+		{
+			return CompilationOwner.MaterialCompileDiagnostics;
+		}
+		auto GetMaterialCompileStatus() const -> const FMaterialCompileStatus&
+		{
+			return CompilationOwner.MaterialCompileStatus;
+		}
+
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
@@ -87,12 +111,22 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
+		ENGINE_API auto RequestProgramCompile(
+			const FMaterialProgram& CandidateProgram,
+			const FMaterialStaticProperties& CandidateProperties,
+			bool bForceRecompile = false) -> bool;
+		// Invalidates authored dependencies before requesting detached replacements.
+		ENGINE_API auto InvalidateMaterialCompilation(bool bIncludeSelf = true,
+			bool bOnlyIfShaderChanged = false) -> void;
+		FMaterialCompilationOwnerState CompilationOwner;
+
 		ENGINE_API virtual auto BuildMaterialLocalRenderLayer() const
 			-> FMaterialLocalRenderLayer;
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
 
 	private:
+		friend struct Private::FMaterialCompilationLifecycle;
 		auto SubmitMaterialRenderProxyState() const -> void;
 
 		uint64 RenderStateVersion = 1;

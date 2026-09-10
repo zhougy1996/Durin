@@ -1,6 +1,8 @@
 #include "Materials/MaterialInterface.h"
 
 #include "Asset/Asset.h"
+#include "Asset/AssetCompilingManager.h"
+#include "Modules/ModuleManager.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
@@ -125,6 +127,73 @@ namespace Durin
 			? FMaterialRenderProxyRef{}
 			: MakeRefCount<FMaterialRenderProxy>())
 	{
+	}
+
+	auto DMaterialInterface::RequestProgramCompile(
+		const FMaterialProgram& CandidateProgram,
+		const FMaterialStaticProperties& CandidateProperties,
+		bool bForceRecompile) -> bool
+	{
+		CompilationOwner.LastRequestedShaderProperties = CanonicalizeMaterialShaderProperties(CandidateProperties);
+		FModuleManager::Get().LoadModule("RenderCore");
+		FMaterialCompilerEnvironment Environment;
+		std::string EnvironmentError;
+		if (!BuildDefaultMaterialCompilerEnvironment(
+			Environment, EnvironmentError))
+		{
+			CompilationOwner.MaterialCompileStatus.RequestGeneration =
+				CompilationOwner.MaterialCompileStatus.RequestGeneration
+					== std::numeric_limits<uint64>::max()
+					? 1 : CompilationOwner.MaterialCompileStatus.RequestGeneration + 1;
+			CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+			CompilationOwner.MaterialCompileStatus.ResultCategory =
+				EMaterialCompileResultCategory::Dependency;
+			CompilationOwner.MaterialCompileStatus.bHasLastKnownGood =
+				CompilationOwner.AcceptedCompiledProgram != nullptr;
+			CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
+				CompilationOwner.AcceptedCompiledProgram != nullptr;
+			CompilationOwner.MaterialCompileDiagnostics = {{
+				.Category = EMaterialCompileResultCategory::Dependency,
+				.Source = {
+					.Category = EMaterialProgramDiagnosticCategory::Dependency,
+					.Message = std::move(EnvironmentError)},
+				.AssetPath = GetObjectPath(),
+				.Generation = CompilationOwner.MaterialCompileStatus.RequestGeneration,
+				.bLastKnownGoodDisplayed = CompilationOwner.AcceptedCompiledProgram != nullptr,
+			}};
+			return false;
+		}
+		FMaterialCompilerInput Input;
+		Input.Program = CandidateProgram;
+		Input.StaticProperties = CandidateProperties;
+		Input.Environment = std::move(Environment);
+		Input.Parameters.reserve(GetParameterDefinitions().size());
+		for (const FMaterialParameterDefinition& Definition : GetParameterDefinitions())
+			Input.Parameters.push_back({Definition.Id, Definition.Type});
+		std::ranges::sort(Input.Parameters, {},
+			&FMaterialCompilerParameterDeclaration::Id);
+		return Private::FMaterialCompilationLifecycle::Submit(
+			*this, std::move(Input), bForceRecompile);
+	}
+
+	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged) -> void
+	{
+		CheckMaterialQueryThread();
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		for (const FObjectHandle Handle : GetLoadedMaterialDependents(this))
+		{
+			auto* Owner = Cast<DMaterialInterface>(ResolveObjectHandle(Handle));
+			if (!IsValid(Owner) || (!bIncludeSelf && Owner == this)) continue;
+			if (bOnlyIfShaderChanged
+				&& CanonicalizeMaterialShaderProperties(Owner->GetStaticProperties())
+					== Owner->CompilationOwner.LastRequestedShaderProperties) continue;
+			auto& Status = Owner->CompilationOwner.MaterialCompileStatus;
+			Status.AuthoredRevision = Status.AuthoredRevision == std::numeric_limits<uint64>::max()
+				? 1 : Status.AuthoredRevision + 1;
+			Status.ParentChainRevision = Status.ParentChainRevision == std::numeric_limits<uint64>::max()
+				? 1 : Status.ParentChainRevision + 1;
+			RequestMaterialRecompile(*Owner);
+		}
 	}
 
 	auto DMaterialInterface::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
@@ -295,6 +364,7 @@ namespace Durin
 
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		bAcceptingMaterialProxyPublications = false;
 		ReleaseMaterialRenderProxy_GameThread(
 			std::move(MaterialRenderProxy));

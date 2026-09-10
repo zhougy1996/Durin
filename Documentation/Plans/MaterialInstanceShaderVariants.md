@@ -13,8 +13,9 @@ Execution started on 2026-09-10. Stage 0 is complete: source audit, selected
 contracts, registered qualification lanes and executable baseline receipts are
 recorded below. Stage 1 is complete: per-field properties, bounded resolution,
 deprecated-field migration, canonical identities and safe proxy compatibility
-checks passed 139 MaterialTests and a full editor build. Execution stops after
-the Stage 1 commit as requested by the user; Stage 2 has not started.
+checks passed 139 MaterialTests and a full editor build. Execution resumed at the user's request on 2026-09-10. Stage 2 implementation
+is complete and passed all 140 MaterialTests. Stage 3 publication is next;
+instances still use the Stage 1 render compatibility boundary until that lands.
 The selected workflow permits authored
 instances to override shader-affecting properties instead of generating a base
 material asset for each rendering configuration.
@@ -420,25 +421,36 @@ Stage 1 handoff (2026-09-10):
 - Lasting implemented property/migration rules are documented in
   [Material System](../Runtime/Rendering/MaterialSystem.md). The broad wrapper,
   base-only compile state and parent-layout inheritance remain explicit future
-  work. Do not report the full plan complete or start Stage 2 without a new
-  continuation after the user's requested stop.
+  work. The user supplied the continuation on 2026-09-10; Stage 2 now proceeds.
 
 ### Stage 2: Generalize compilation ownership and variant reuse
 
 Depends on Stage 1.
 
-- [ ] Refactor base-only lifecycle APIs/state and aggregate filters to accept both
+- [x] Refactor base-only lifecycle APIs/state and aggregate filters to accept both
   material asset kinds, preserving the base-material behavior.
-- [ ] Snapshot effective instance inputs and implement exact-key reuse, per-owner
+- [x] Snapshot effective instance inputs and implement exact-key reuse, per-owner
   status/admission, dependency fan-out, cancellation, reload and bounded retry.
-- [ ] Include bootstrap/tooling and offline preparation in the same owner contract.
-- [ ] Test identical-input single-flight/cache reuse, masked cutoff differences,
+- [x] Include bootstrap/tooling and offline preparation in the same owner contract.
+- [x] Test identical-input single-flight/cache reuse, masked cutoff differences,
   zero compilation for dynamic/pipeline edits, supersession, capacity recovery,
   parent deletion/reparenting and shutdown without retained object ownership.
 
 Exit: instances obtain matching results with asset-qualified status; equal inputs
 share compiler work while generations remain independently validated. Results are
 not exposed to production rendering until Stage 3's publication boundary is ready.
+
+Stage 2 validation: `./DevTool test MaterialTests` passed 140/140 tests on
+2026-09-10; receipt `Build/.agent-state/logs/20260910-234312-661178-48221-MaterialTests.log`.
+The expanded lifecycle fixture covers common owner status, selected finish,
+retained reuse, distinct Masked identity, nested and reparented owners, inactive
+root cutoff changes affecting Masked descendants, zero dynamic/pipeline requests,
+and 264 consumers with deferred recovery and cancellation. Existing lifecycle
+coverage retains single-flight sharing, stale admission and shutdown checks.
+The shared eight-instance fixture now measures four effective identities, four
+retained programs / 670644 bytes, and zero consumers/flights after drain. The
+root payload remains 130749 bytes; instance payload measurement awaits Stage 4.
+Production instance rendering intentionally remains behind Stage 3.
 
 ### Stage 3: Publish complete instance rendering generations
 

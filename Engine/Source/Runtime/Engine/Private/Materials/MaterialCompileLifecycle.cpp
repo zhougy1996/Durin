@@ -1,5 +1,6 @@
 #include "Threading/TaskComposition.h"
 #include "Asset/OfflinePreparation.h"
+#include "Asset/Asset.h"
 #include "Asset/CookDependencies.h"
 #include "DObject/Package.h"
 #include "Materials/MaterialCompileLifecycle.h"
@@ -224,12 +225,14 @@ namespace Durin
 				{
 					std::scoped_lock Lock(Mutex);
 					SupersedeOwnerLocked(Request.Owner);
-					if (!bAcceptingRequests || !Scope.IsValid()
-						|| OutstandingConsumers >= MaterialCompileMaxConsumers)
+					if (!bAcceptingRequests || !Scope.IsValid())
 					{
 						++Diagnostics.RejectedRequests;
 						return EMaterialCompileState::Rejected;
 					}
+
+					if (OutstandingConsumers >= MaterialCompileMaxConsumers)
+						return EMaterialCompileState::Deferred;
 
 					if (!Request.bForceRecompile)
 					{
@@ -262,10 +265,7 @@ namespace Durin
 						return EMaterialCompileState::Pending;
 					}
 					if (Flights.size() >= MaterialCompileMaxConcurrentRequests)
-					{
-						++Diagnostics.RejectedRequests;
-						return EMaterialCompileState::Rejected;
-					}
+						return EMaterialCompileState::Deferred;
 
 					NewFlight = std::make_shared<FMaterialCompileFlight>();
 					NewFlight->Key = Key;
@@ -389,6 +389,7 @@ namespace Durin
 					.AuthoredRevision = Request.AuthoredRevision,
 					.Generation = Request.Generation,
 					.DependencyRevision = Request.DependencyRevision,
+					.ParentChainRevision = Request.ParentChainRevision,
 					.ProgramIdentity = Request.ProgramIdentity,
 					.StaticProperties = Request.CompilerInput.StaticProperties,
 					.Target = Request.Target,
@@ -411,6 +412,7 @@ namespace Durin
 					.AuthoredRevision = Request.AuthoredRevision,
 					.Generation = Request.Generation,
 					.DependencyRevision = Request.DependencyRevision,
+					.ParentChainRevision = Request.ParentChainRevision,
 					.ProgramIdentity = Request.ProgramIdentity,
 					.StaticProperties = Request.CompilerInput.StaticProperties,
 					.Target = Request.Target,
@@ -492,6 +494,7 @@ namespace Durin
 						.AuthoredRevision = Consumer.AuthoredRevision,
 						.Generation = Consumer.Generation,
 						.DependencyRevision = Consumer.DependencyRevision,
+					.ParentChainRevision = Consumer.ParentChainRevision,
 						.ProgramIdentity = Consumer.ProgramIdentity,
 						.StaticProperties = Consumer.CompilerInput.StaticProperties,
 						.Target = Consumer.Target,
@@ -603,7 +606,17 @@ namespace Durin
 
 
 		std::atomic_uint8_t GPendingShaderReloadMode = 0;
-		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool;
+		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool;
+
+		auto GetDeferredMaterialOwners() -> std::vector<DMaterialInterface*>
+		{
+			std::vector<DMaterialInterface*> Result;
+			for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
+				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
+					&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred)
+					Result.push_back(Material);
+			return Result;
+		}
 
 		auto PumpMaterialCompileResultsDetailed(
 			FMaterialCompilationState& State, uint32 MaximumCount)
@@ -617,7 +630,7 @@ namespace Durin
 				const std::vector<DObject*> Objects =
 					GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
 				for (DObject* Object : Objects)
-					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+					if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 					{
 						const FMaterialRenderProxyRef Proxy =
 							Material->GetMaterialRenderProxy();
@@ -633,11 +646,29 @@ namespace Durin
 			for (FMaterialCompileResult& Result : Results)
 			{
 				DObject* Object = ResolveObjectHandle(Result.Owner);
-				if (auto* Material = Cast<DMaterial>(Object); IsValid(Material)
+				if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material)
 					&& Private::FMaterialCompilationLifecycle::Admit(
 						*Material, std::move(Result)))
 					Processed.SuccessfullyCompiledAssets.emplace_back(Material);
 				State.ConsumeOutstanding();
+			}
+			static uint32 RetryCursor = 0;
+			auto Deferred = GetDeferredMaterialOwners();
+			std::ranges::sort(Deferred, {}, [](DMaterialInterface* Material) {
+				return MakeObjectHandle(Material).Index;
+			});
+			const auto Start = std::ranges::upper_bound(Deferred, RetryCursor, {},
+				[](DMaterialInterface* Material) { return MakeObjectHandle(Material).Index; });
+			std::rotate(Deferred.begin(), Start, Deferred.end());
+			uint32 Retried = 0;
+			for (auto* Material : Deferred)
+			{
+				if (!State.IsAccepting())
+					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
+				else
+					Private::FMaterialCompilationLifecycle::RetryDeferred(*Material);
+				RetryCursor = MakeObjectHandle(Material).Index;
+				if (++Retried == MaterialCompileMaxConsumers) break;
 			}
 			return Processed;
 		}
@@ -660,10 +691,13 @@ namespace Durin
 			auto StopAdmission() -> void override
 			{
 				State.StopAdmission();
+				for (auto* Material : GetDeferredMaterialOwners())
+					Private::FMaterialCompilationLifecycle::MarkCanceled(*Material);
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
-				return State.GetDiagnostics().OutstandingConsumerCount;
+				return State.GetDiagnostics().OutstandingConsumerCount
+					+ GetDeferredMaterialOwners().size();
 			}
 			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 				-> FAssetCompileProcessResult override
@@ -677,10 +711,12 @@ namespace Durin
 				FAssetCompileProcessResult Aggregate;
 				std::vector<FObjectHandle> Owners;
 				for (DObject* Object : Objects)
-					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+					if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 						Owners.push_back(MakeObjectHandle(Material));
 				while (std::ranges::any_of(Owners, [this](FObjectHandle Owner) {
-					return State.HasOwner(Owner);
+					auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Owner));
+					return State.HasOwner(Owner) || (IsValid(Material)
+						&& Material->GetMaterialCompileStatus().State == EMaterialCompileState::Deferred);
 				}))
 				{
 					auto Item = PumpMaterialCompileResultsDetailed(
@@ -698,7 +734,7 @@ namespace Durin
 				-> void override
 			{
 				for (DObject* Object : Objects)
-					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
+					if (auto* Material = Cast<DMaterialInterface>(Object); IsValid(Material))
 						CancelMaterialCompileDomain(*Material);
 			}
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override
@@ -739,7 +775,7 @@ namespace Durin
 	namespace Private
 	{
 		auto FMaterialCompilationLifecycle::Submit(
-			DMaterial& Material,
+			DMaterialInterface& Material,
 			FMaterialCompilerInput Input,
 			bool bForceRecompile) -> bool
 		{
@@ -753,44 +789,45 @@ namespace Durin
 			if (IsObjectHandleNull(MakeObjectHandle(&Material))
 				&& Compilation && Compilation->IsAccepting())
 			{
-				Material.MaterialCompileStatus.State =
+				Material.CompilationOwner.MaterialCompileStatus.State =
 					EMaterialCompileState::NeverRequested;
 				return true;
 			}
 			const FMaterialNormalizationResult Normalized =
 					NormalizeMaterialProgram(Input);
-				Material.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
-					Material.MaterialCompileStatus.RequestGeneration);
-				Material.MaterialCompileStatus.DependencyRevision =
+				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
+					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
+				Material.CompilationOwner.MaterialCompileStatus.DependencyRevision =
 					GetShaderReloadGeneration();
-				Material.MaterialCompileStatus.Target = Input.Environment.Target;
-				Material.MaterialCompileStatus.RequestedIdentity =
+				Material.CompilationOwner.MaterialCompileStatus.Target = Input.Environment.Target;
+				Material.CompilationOwner.MaterialCompileStatus.RequestedIdentity =
 					Normalized.Identity;
-				Material.MaterialCompileStatus.TaskId = 0;
-				Material.MaterialCompileStatus.CacheOutcome =
+				Material.CompilationOwner.MaterialCompileStatus.TaskId = 0;
+				Material.CompilationOwner.MaterialCompileStatus.CacheOutcome =
 					EMaterialCompileCacheOutcome::None;
-				Material.MaterialCompileStatus.bHasLastKnownGood =
-					Material.AcceptedCompiledProgram != nullptr;
-				Material.MaterialCompileStatus.bLastKnownGoodDisplayed =
-					Material.AcceptedCompiledProgram != nullptr;
-				Material.MaterialCompileDiagnostics.clear();
+				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood =
+					Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
+					Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+				Material.CompilationOwner.MaterialCompileDiagnostics.clear();
 
 				FMaterialCompileRequest Request{
 					.Owner = MakeObjectHandle(&Material),
-					.AuthoredRevision = Material.MaterialCompileStatus.AuthoredRevision,
-					.Generation = Material.MaterialCompileStatus.RequestGeneration,
-					.DependencyRevision = Material.MaterialCompileStatus.DependencyRevision,
+					.AuthoredRevision = Material.CompilationOwner.MaterialCompileStatus.AuthoredRevision,
+					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration,
+					.DependencyRevision = Material.CompilationOwner.MaterialCompileStatus.DependencyRevision,
+					.ParentChainRevision = Material.CompilationOwner.MaterialCompileStatus.ParentChainRevision,
 					.ProgramIdentity = Normalized.Identity,
 					.CompilerInput = std::move(Input),
 					.AssetPath = Material.GetObjectPath(),
-					.Target = Material.MaterialCompileStatus.Target,
+					.Target = Material.CompilationOwner.MaterialCompileStatus.Target,
 					.bForceRecompile = bForceRecompile,
 				};
 
 				if (!Normalized)
 				{
-					Material.MaterialCompileStatus.State = EMaterialCompileState::Failed;
-					Material.MaterialCompileStatus.ResultCategory =
+					Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+					Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 						Normalized.Diagnostics.empty()
 							? EMaterialCompileResultCategory::Normalization
 							: MapProgramCategory(
@@ -798,11 +835,11 @@ namespace Durin
 					for (const FMaterialProgramDiagnostic& Diagnostic
 						: Normalized.Diagnostics)
 					{
-						if (Material.MaterialCompileDiagnostics.size()
+						if (Material.CompilationOwner.MaterialCompileDiagnostics.size()
 							>= MaterialProgramMaxDiagnosticCount) break;
-						Material.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
+						Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 							Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-							Material.AcceptedCompiledProgram != nullptr));
+							Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
 					}
 					return false;
 				}
@@ -819,6 +856,7 @@ namespace Durin
 						.AuthoredRevision = Request.AuthoredRevision,
 						.Generation = Request.Generation,
 						.DependencyRevision = Request.DependencyRevision,
+					.ParentChainRevision = Request.ParentChainRevision,
 						.ProgramIdentity = Request.ProgramIdentity,
 						.StaticProperties = Request.CompilerInput.StaticProperties,
 						.Target = Request.Target,
@@ -839,77 +877,93 @@ namespace Durin
 							: Compiled.Diagnostics)
 							Result.Diagnostics.push_back(MakeDiagnostic(
 								Request, MapProgramCategory(Diagnostic.Category), Diagnostic,
-								Material.AcceptedCompiledProgram != nullptr));
+								Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
 					Admit(Material, std::move(Result));
-					return Material.MaterialCompileStatus.State
+					return Material.CompilationOwner.MaterialCompileStatus.State
 						== EMaterialCompileState::Ready;
 				}
 
-				Material.MaterialCompileStatus.State = EMaterialCompileState::Pending;
-				Material.MaterialCompileStatus.ResultCategory =
+				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
+				Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 					EMaterialCompileResultCategory::None;
 				const EMaterialCompileState Submitted =
 					Compilation->Submit(std::move(Request));
 				if (Submitted == EMaterialCompileState::Rejected)
 				{
-					Material.MaterialCompileStatus.State = EMaterialCompileState::Rejected;
-					Material.MaterialCompileStatus.ResultCategory =
+					Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Rejected;
+					Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 						EMaterialCompileResultCategory::Admission;
 					FMaterialCompileRequest DiagnosticRequest;
 					DiagnosticRequest.Owner = MakeObjectHandle(&Material);
 					DiagnosticRequest.Generation =
-						Material.MaterialCompileStatus.RequestGeneration;
+						Material.CompilationOwner.MaterialCompileStatus.RequestGeneration;
 					DiagnosticRequest.ProgramIdentity =
-						Material.MaterialCompileStatus.RequestedIdentity;
+						Material.CompilationOwner.MaterialCompileStatus.RequestedIdentity;
 					DiagnosticRequest.AssetPath = Material.GetObjectPath();
-					Material.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
+					Material.CompilationOwner.MaterialCompileDiagnostics.push_back(MakeDiagnostic(
 						DiagnosticRequest, EMaterialCompileResultCategory::Admission,
 						{.Category = EMaterialProgramDiagnosticCategory::Compile,
 						 .Message = "Material compile admission was rejected."},
-						Material.AcceptedCompiledProgram != nullptr));
+						Material.CompilationOwner.AcceptedCompiledProgram != nullptr));
 					return false;
 				}
-				Material.MaterialCompileStatus.State = Submitted;
+				Material.CompilationOwner.bDeferredForceRecompile = bForceRecompile;
+				Material.CompilationOwner.MaterialCompileStatus.State = Submitted;
 				return true;
 		}
 
 		auto FMaterialCompilationLifecycle::Admit(
-			DMaterial& Material, FMaterialCompileResult Result) -> bool
+			DMaterialInterface& Material, FMaterialCompileResult Result) -> bool
 		{
 				CheckMaterialCompileGameThread();
-				FMaterialCompileStatus& Status = Material.MaterialCompileStatus;
+				FMaterialCompileStatus& Status = Material.CompilationOwner.MaterialCompileStatus;
 				if (Result.Generation != Status.RequestGeneration
 					|| Result.AuthoredRevision != Status.AuthoredRevision
 					|| Result.DependencyRevision != Status.DependencyRevision
+					|| Result.ParentChainRevision != Status.ParentChainRevision
 					|| Result.Target != Status.Target)
 				{
 					return false;
+				}
+
+				const auto OwnerHandle = MakeObjectHandle(&Material);
+				if (!IsObjectHandleNull(OwnerHandle))
+				{
+					if (!SameOwner(Result.Owner, OwnerHandle)) return false;
+					FResolvedMaterialProperties Resolved;
+					std::string Error;
+					if (!ResolveMaterialProperties(Material, Resolved, Error))
+					{
+						RequestCurrent(Material, false);
+						return false;
+					}
 				}
 
 				Status.State = Result.State;
 				Status.ResultCategory = Result.Category;
 				Status.CacheOutcome = Result.CacheOutcome;
 				Status.TaskId = Result.TaskId;
-				Material.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
-				Status.bHasLastKnownGood = Material.AcceptedCompiledProgram != nullptr;
+				Material.CompilationOwner.MaterialCompileDiagnostics = std::move(Result.Diagnostics);
+				Status.bHasLastKnownGood = Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
 				if (Result.State == EMaterialCompileState::Ready
 					&& Result.CompiledProgram
 					&& Result.ProgramIdentity == Status.RequestedIdentity
 					&& Result.CompiledProgram->Identity == Result.ProgramIdentity
 					&& ValidateMaterialCompilerResult(*Result.CompiledProgram))
 				{
-					Material.AcceptedCompiledProgram = std::move(Result.CompiledProgram);
-					Material.RetainedAcceptedParameters.clear();
-					Material.AcceptedCompiledStaticProperties = Result.StaticProperties;
+					Material.CompilationOwner.AcceptedCompiledProgram = std::move(Result.CompiledProgram);
+					Material.CompilationOwner.RetainedAcceptedParameters.clear();
+					Material.CompilationOwner.AcceptedCompiledStaticProperties = Result.StaticProperties;
 					Status.CompiledIdentity = Result.ProgramIdentity;
 					Status.CompiledAuthoredRevision = Result.AuthoredRevision;
 					Status.DurationMicroseconds =
-						Material.AcceptedCompiledProgram->Timings.NormalizationMicroseconds
-						+ Material.AcceptedCompiledProgram->Timings.GenerationMicroseconds
-						+ Material.AcceptedCompiledProgram->Timings.CompilationMicroseconds;
+						Material.CompilationOwner.AcceptedCompiledProgram->Timings.NormalizationMicroseconds
+						+ Material.CompilationOwner.AcceptedCompiledProgram->Timings.GenerationMicroseconds
+						+ Material.CompilationOwner.AcceptedCompiledProgram->Timings.CompilationMicroseconds;
 					Status.bHasLastKnownGood = true;
 					Status.bLastKnownGoodDisplayed = false;
-					Material.MarkRenderDataDirty(
+					// Instances publish only after the complete generation boundary is installed.
+					if (Cast<DMaterial>(&Material)) Material.MarkRenderDataDirty(
 						EMaterialRenderDirtyFlags::ShaderMap
 							| EMaterialRenderDirtyFlags::PipelineState);
 					return true;
@@ -920,28 +974,54 @@ namespace Durin
 					Status.State = EMaterialCompileState::Rejected;
 					Status.ResultCategory = EMaterialCompileResultCategory::Admission;
 				}
-				Status.bLastKnownGoodDisplayed = Material.AcceptedCompiledProgram != nullptr;
+				Status.bLastKnownGoodDisplayed = Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
 				for (FMaterialCompileDiagnostic& Diagnostic
-					: Material.MaterialCompileDiagnostics)
+					: Material.CompilationOwner.MaterialCompileDiagnostics)
 					Diagnostic.bLastKnownGoodDisplayed = Status.bLastKnownGoodDisplayed;
 				return false;
 		}
 
 		auto FMaterialCompilationLifecycle::MarkCanceled(
-			DMaterial& Material) -> void
+			DMaterialInterface& Material) -> void
 		{
-			Material.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
-			Material.MaterialCompileStatus.ResultCategory =
+			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
+			Material.CompilationOwner.MaterialCompileStatus.ResultCategory =
 				EMaterialCompileResultCategory::Cancellation;
-			Material.MaterialCompileStatus.bLastKnownGoodDisplayed =
-				Material.AcceptedCompiledProgram != nullptr;
+			Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed =
+				Material.CompilationOwner.AcceptedCompiledProgram != nullptr;
+		}
+
+		auto FMaterialCompilationLifecycle::RetryDeferred(DMaterialInterface& Material) -> void
+		{
+			RequestCurrent(Material, Material.CompilationOwner.bDeferredForceRecompile);
 		}
 
 		auto FMaterialCompilationLifecycle::RequestCurrent(
-			DMaterial& Material, bool bForceRecompile) -> bool
+			DMaterialInterface& Material, bool bForceRecompile) -> bool
 		{
+			if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return false;
+			FResolvedMaterialProperties Resolved;
+			std::string Error;
+			if (!ResolveMaterialProperties(Material, Resolved, Error) || !Material.GetMaterialProgram())
+			{
+				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
+					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
+				Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Failed;
+				Material.CompilationOwner.MaterialCompileStatus.ResultCategory = EMaterialCompileResultCategory::Dependency;
+				Material.CompilationOwner.AcceptedCompiledProgram.reset();
+				Material.CompilationOwner.RetainedAcceptedParameters.clear();
+				Material.CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = false;
+				Material.CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
+				Material.CompilationOwner.MaterialCompileDiagnostics = {{
+					.Category = EMaterialCompileResultCategory::Dependency,
+					.Source = {.Category = EMaterialProgramDiagnosticCategory::Dependency,
+						.Message = Error.empty() ? "Material has no authored program." : Error},
+					.AssetPath = Material.GetObjectPath(),
+					.Generation = Material.CompilationOwner.MaterialCompileStatus.RequestGeneration}};
+				return false;
+			}
 			return Material.RequestProgramCompile(
-				Material.Program, Material.StaticProperties, bForceRecompile);
+				*Material.GetMaterialProgram(), Material.GetStaticProperties(), bForceRecompile);
 		}
 	}
 
@@ -969,7 +1049,7 @@ namespace Durin
 	}
 
 	auto RequestMaterialRecompile(
-		DMaterial& Material, bool bForceRecompile) -> bool
+		DMaterialInterface& Material, bool bForceRecompile) -> bool
 	{
 		return Private::FMaterialCompilationLifecycle::RequestCurrent(
 			Material, bForceRecompile);
@@ -977,13 +1057,13 @@ namespace Durin
 
 	namespace
 	{
-		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool
+		auto CancelMaterialCompileDomain(DMaterialInterface& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
 			const auto Manager = GetMaterialCompilingManager();
 			const bool bCanceled = Manager
 				&& Manager->GetState().CancelOwner(MakeObjectHandle(&Material));
-			if (bCanceled)
+			if (bCanceled || Material.GetMaterialCompileStatus().State == EMaterialCompileState::Deferred)
 				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
 			return bCanceled;
 		}

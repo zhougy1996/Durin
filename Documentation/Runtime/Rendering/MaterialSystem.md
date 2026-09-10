@@ -198,9 +198,10 @@ retains no publishable partial stage set.
 
 ## Compile Lifecycle and Cooked Programs
 
-Engine registers `DMaterial` to the built-in `Durin.Material` typed manager of its
+Engine registers `DMaterial` and `DMaterialInstance` to the built-in `Durin.Material` typed manager of its
 [asset-compilation aggregate](../Assets/AssetCompilation.md) between task-system
-startup and shutdown. GameThread snapshots a base material into a value-owned request,
+startup and shutdown. `DMaterialInterface` owns non-reflected compilation state.
+GameThread snapshots root graph/declarations and effective owner properties into a value-owned request,
 normalizes it to obtain the M5 program identity, and submits the expensive
 compiler call to the `Engine/MaterialCompile` task scope. Workers retain no
 `DObject`, editor, Renderer, RHI, registry, or borrowed-container state. The
@@ -215,7 +216,7 @@ request removes the same owner from obsolete work, requests cooperative
 cancellation when a flight loses its last consumer, and leaves the accepted
 last-known-good program visible. GameThread admits a mailbox result only when
 the live object-handle generation, authored revision, request generation,
-dependency generation, target, and program identity all match. Successful
+dependency generation, parent-chain revision, target, and program identity all match. Successful
 admission atomically replaces the complete three-stage result and proxy state;
 failure, cancellation, supersession, rejection, deletion, or shutdown cannot
 replace it. A material with no accepted result uses ErrorMaterial.
@@ -226,9 +227,12 @@ limits, and in-process retained results to 128 identities and 256 MiB FIFO.
 Equal identities share one flight and retained immutable result while keeping
 asset-local generations and diagnostics. Aggregate counters retain no asset or
 terminal-request history. Aggregate selected finish and advisory cancellation
-filter `DMaterial`; aggregate shutdown closes admission, publishes accepted
+filter both material asset classes; aggregate shutdown closes admission, publishes accepted
 terminal results, empties the mailbox, and releases flights and retained
-results before task-system teardown.
+results before task-system teardown. Capacity overflow records `Deferred` state
+without retaining a request or another owner. A rotating GameThread scan retries
+at most 256 owners per pump; finish operations include deferred owners and
+cancellation/stop-admission clears their intent.
 
 ShaderBuild owns compiled-output DDC and local dependency manifests as defined
 by [Shader Cache](ShaderCache.md). Materials add no second persistent cache for

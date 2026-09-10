@@ -45,27 +45,27 @@ namespace Durin
 		}
 		Read.Lock.Reset();
 
-		AcceptedCompiledProgram = std::move(ProgramCandidate);
-		AcceptedCompiledStaticProperties = PayloadProperties;
-		MaterialCompileStatus.State = EMaterialCompileState::Ready;
-		MaterialCompileStatus.ResultCategory =
+		CompilationOwner.AcceptedCompiledProgram = std::move(ProgramCandidate);
+		CompilationOwner.AcceptedCompiledStaticProperties = PayloadProperties;
+		CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Ready;
+		CompilationOwner.MaterialCompileStatus.ResultCategory =
 			EMaterialCompileResultCategory::None;
-		MaterialCompileStatus.CacheOutcome =
+		CompilationOwner.MaterialCompileStatus.CacheOutcome =
 			EMaterialCompileCacheOutcome::None;
-		MaterialCompileStatus.RequestGeneration = 1;
-		MaterialCompileStatus.CompiledAuthoredRevision =
-			MaterialCompileStatus.AuthoredRevision;
-		MaterialCompileStatus.RequestedIdentity =
-			AcceptedCompiledProgram->Identity;
-		MaterialCompileStatus.CompiledIdentity =
-			AcceptedCompiledProgram->Identity;
-		MaterialCompileStatus.Target = AcceptedCompiledProgram->Target;
-		MaterialCompileStatus.bHasLastKnownGood = true;
-		MaterialCompileStatus.bLastKnownGoodDisplayed = false;
-		MaterialCompileDiagnostics.clear();
+		CompilationOwner.MaterialCompileStatus.RequestGeneration = 1;
+		CompilationOwner.MaterialCompileStatus.CompiledAuthoredRevision =
+			CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+		CompilationOwner.MaterialCompileStatus.RequestedIdentity =
+			CompilationOwner.AcceptedCompiledProgram->Identity;
+		CompilationOwner.MaterialCompileStatus.CompiledIdentity =
+			CompilationOwner.AcceptedCompiledProgram->Identity;
+		CompilationOwner.MaterialCompileStatus.Target = CompilationOwner.AcceptedCompiledProgram->Target;
+		CompilationOwner.MaterialCompileStatus.bHasLastKnownGood = true;
+		CompilationOwner.MaterialCompileStatus.bLastKnownGoodDisplayed = false;
+		CompilationOwner.MaterialCompileDiagnostics.clear();
 		MaterialCookDiagnostic = std::format(
 			"Loaded cooked material program {} for '{}'.",
-			AcceptedCompiledProgram->Identity.ToString(), GetObjectPath());
+			CompilationOwner.AcceptedCompiledProgram->Identity.ToString(), GetObjectPath());
 		PublishMaterialRenderProxyState();
 		OutError.clear();
 		return true;
@@ -84,7 +84,7 @@ namespace Durin
 		FBulkData* FieldValue = &CookedProgramData;
 		if (Ar.IsSaving())
 		{
-			if (!AcceptedCompiledProgram)
+			if (!CompilationOwner.AcceptedCompiledProgram)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
 					"Material cooked program data is unavailable.");
@@ -93,7 +93,7 @@ namespace Durin
 			FByteBuffer Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
-					*AcceptedCompiledProgram, GetRenderableStaticProperties(),
+					*CompilationOwner.AcceptedCompiledProgram, GetRenderableStaticProperties(),
 					ECookTargetPlatform::Win64,
 					ECookTargetProfile::Game, Bytes, Error)
 				|| !FBulkData::TryCreateDetached(Bytes, Projection, &Error))
@@ -119,13 +119,13 @@ namespace Durin
 			return Fail(std::format(
 				"Material '{}' supports only the Win64 game cook target.",
 				GetObjectPath()), &OutError);
-		if (!MaterialCompileStatus.IsCurrent() || !AcceptedCompiledProgram)
+		if (!CompilationOwner.MaterialCompileStatus.IsCurrent() || !CompilationOwner.AcceptedCompiledProgram)
 			return Fail(std::format(
 				"Material '{}' cannot cook because authored revision {} does not have a complete latest target result.",
-				GetObjectPath(), MaterialCompileStatus.AuthoredRevision), &OutError);
-		if (AcceptedCompiledProgram->Target
-			!= MaterialCompileStatus.Target
-			|| AcceptedCompiledProgram->PassContractVersion
+				GetObjectPath(), CompilationOwner.MaterialCompileStatus.AuthoredRevision), &OutError);
+		if (CompilationOwner.AcceptedCompiledProgram->Target
+			!= CompilationOwner.MaterialCompileStatus.Target
+			|| CompilationOwner.AcceptedCompiledProgram->PassContractVersion
 				!= CurrentMaterialPassContractVersion)
 			return Fail(std::format(
 				"Material '{}' compiled target or pass contract is incompatible with Cook.",

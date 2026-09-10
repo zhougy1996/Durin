@@ -13,9 +13,10 @@
 namespace
 {
 	auto MeasureInstanceVariantQualificationBaseline() -> void;
+	auto QualifyInstanceCompilationOwners() -> void;
 
 	auto WaitForMaterialCompile(
-		Durin::DMaterial& Material,
+		Durin::DMaterialInterface& Material,
 		std::chrono::milliseconds Timeout = std::chrono::seconds(10)) -> bool
 	{
 		const auto Deadline = std::chrono::steady_clock::now() + Timeout;
@@ -25,7 +26,8 @@ namespace
 			const Durin::EMaterialCompileState State =
 				Material.GetMaterialCompileStatus().State;
 			if (State != Durin::EMaterialCompileState::Pending
-				&& State != Durin::EMaterialCompileState::Running)
+				&& State != Durin::EMaterialCompileState::Running
+				&& State != Durin::EMaterialCompileState::Deferred)
 				return State == Durin::EMaterialCompileState::Ready;
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
@@ -51,6 +53,7 @@ TEST(FMaterialCompileLifecycleTests,
 	if (bOwnsScheduler) ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	MeasureInstanceVariantQualificationBaseline();
+	QualifyInstanceCompilationOwners();
 
 	auto* First = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "AsyncCompileFirst");
@@ -308,6 +311,91 @@ TEST(FMaterialCompileLifecycleTests,
 
 namespace
 {
+auto QualifyInstanceCompilationOwners() -> void
+{
+	struct FFixtureScope
+	{
+		std::vector<Durin::DObject*> Objects;
+		~FFixtureScope()
+		{
+			for (auto* Object : Objects) Durin::MarkAsGarbage(Object);
+			Durin::CollectGarbage();
+			Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+		}
+	} Scope;
+	auto* Root = Durin::NewObject<Durin::DMaterial>(nullptr, "InstanceCompileRoot");
+	Scope.Objects.push_back(Root);
+	ASSERT_TRUE(Root->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(WaitForMaterialCompile(*Root));
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileChild");
+	auto* Grandchild = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "InstanceCompileGrandchild");
+	Scope.Objects.push_back(Child);
+	Scope.Objects.push_back(Grandchild);
+	ASSERT_TRUE(Child->SetParent(Root));
+	ASSERT_TRUE(Grandchild->SetParent(Child));
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Grandchild);
+	ASSERT_TRUE(Grandchild->GetMaterialCompileStatus().IsCurrent());
+	EXPECT_EQ(Grandchild->GetMaterialCompileStatus().CompiledIdentity,
+		Root->GetMaterialCompileStatus().CompiledIdentity);
+	EXPECT_EQ(Grandchild->GetMaterialCompileStatus().CacheOutcome,
+		Durin::EMaterialCompileCacheOutcome::RetainedHit);
+	Durin::FMaterialPropertyOverrides Overrides;
+	Overrides.bOverrideBlendMode = true;
+	Overrides.Values.BlendMode = Durin::EMaterialBlendMode::Masked;
+	ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
+	ASSERT_TRUE(WaitForMaterialCompile(*Grandchild));
+	ASSERT_TRUE(WaitForMaterialCompile(*Child));
+	EXPECT_EQ(Child->GetMaterialCompileStatus().CompiledIdentity,
+		Grandchild->GetMaterialCompileStatus().CompiledIdentity);
+	EXPECT_NE(Child->GetMaterialCompileStatus().CompiledIdentity,
+		Root->GetMaterialCompileStatus().CompiledIdentity);
+	// An inactive root cutoff remains active in a masked descendant.
+	const auto FirstMaskedIdentity = Child->GetMaterialCompileStatus().CompiledIdentity;
+	auto Properties = Root->GetStaticProperties();
+	Properties.OpacityMaskThreshold = 0.75f;
+	ASSERT_TRUE(Root->SetStaticProperties(Properties));
+	ASSERT_TRUE(WaitForMaterialCompile(*Grandchild));
+	EXPECT_NE(Grandchild->GetMaterialCompileStatus().CompiledIdentity, FirstMaskedIdentity);
+	const auto BeforeDynamic = Durin::GetMaterialCompilationDiagnostics().AcceptedRequests;
+	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.42f));
+	Overrides.bOverrideTwoSided = true;
+	Overrides.Values.bTwoSided = true;
+	ASSERT_TRUE(Child->SetPropertyOverrides(Overrides));
+	EXPECT_EQ(Durin::GetMaterialCompilationDiagnostics().AcceptedRequests, BeforeDynamic);
+	const auto ChainRevision = Grandchild->GetMaterialCompileStatus().ParentChainRevision;
+	ASSERT_TRUE(Grandchild->SetParent(Root));
+	ASSERT_TRUE(WaitForMaterialCompile(*Grandchild));
+	EXPECT_GT(Grandchild->GetMaterialCompileStatus().ParentChainRevision, ChainRevision);
+	EXPECT_EQ(Grandchild->GetMaterialCompileStatus().CompiledIdentity,
+		Root->GetMaterialCompileStatus().CompiledIdentity);
+	ASSERT_TRUE(Grandchild->SetParent(nullptr));
+	EXPECT_EQ(Grandchild->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Failed);
+	EXPECT_FALSE(Grandchild->GetMaterialCompileDiagnostics().empty());
+	// Retained results still consume bounded mailbox slots. Overflow must retry
+	// through aggregate finish without retaining detached requests or objects.
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	std::vector<Durin::DMaterialInstance*> Fanout;
+	for (uint32 Index = 0; Index < Durin::MaterialCompileMaxConsumers + 8; ++Index)
+	{
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr,
+			Durin::FName(std::format("InstanceFanout{}", Index)));
+		Scope.Objects.push_back(Instance);
+		Fanout.push_back(Instance);
+		ASSERT_TRUE(Instance->SetParent(Root));
+	}
+	EXPECT_EQ(Fanout.back()->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Deferred);
+	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Fanout.back());
+	EXPECT_EQ(Fanout.back()->GetMaterialCompileStatus().State, Durin::EMaterialCompileState::Canceled);
+	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
+	for (size_t Index = 0; Index + 1 < Fanout.size(); ++Index)
+	{
+		EXPECT_TRUE(Fanout[Index]->GetMaterialCompileStatus().IsCurrent());
+		EXPECT_EQ(Fanout[Index]->GetMaterialCompileStatus().CompiledIdentity,
+			Root->GetMaterialCompileStatus().CompiledIdentity);
+	}
+	EXPECT_EQ(Durin::GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 0u);
+}
+
 auto MeasureInstanceVariantQualificationBaseline() -> void
 {
 	struct FFixtureScope
@@ -370,11 +458,11 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 	ASSERT_TRUE(Instances[0]->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.7f));
 	Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	const auto After = Durin::GetMaterialCompilationDiagnostics();
-	// Canonical properties now share inactive cutoffs; independent instance
-	// compilation remains the next qualification stage.
+	// The lifecycle compiles independent instances; rendering still uses the
+	// Stage 1 compatibility boundary until complete generation publication lands.
 	EXPECT_EQ(Identities.size(), 4u);
 	EXPECT_EQ(CompatibleOwners, 5u);
-	EXPECT_EQ(After.AcceptedRequests - Before.AcceptedRequests, 0u);
+	EXPECT_GT(After.AcceptedRequests - Before.AcceptedRequests, 0u);
 	EXPECT_EQ(After.InFlightCount, 0u);
 	EXPECT_EQ(After.OutstandingConsumerCount, 0u);
 	EXPECT_EQ(After.PendingPublicationCount, 0u);

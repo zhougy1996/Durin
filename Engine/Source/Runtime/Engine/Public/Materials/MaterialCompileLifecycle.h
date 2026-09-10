@@ -11,7 +11,7 @@
 
 namespace Durin
 {
-	class DMaterial;
+	class DMaterialInterface;
 
 	inline constexpr uint32 MaterialCompileMaxConcurrentRequests = 64;
 	inline constexpr uint32 MaterialCompileMaxConsumers = 256;
@@ -24,6 +24,7 @@ namespace Durin
 	{
 		NeverRequested,
 		Pending,
+		Deferred,
 		Running,
 		Ready,
 		Failed,
@@ -81,6 +82,7 @@ namespace Durin
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
+		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
 		FMaterialCompilerInput CompilerInput;
 		std::string AssetPath;
@@ -96,6 +98,7 @@ namespace Durin
 		uint64 AuthoredRevision = 0;
 		uint64 Generation = 0;
 		uint64 DependencyRevision = 0;
+		uint64 ParentChainRevision = 0;
 		FMaterialProgramIdentity ProgramIdentity;
 		FMaterialStaticProperties StaticProperties;
 		std::string Target;
@@ -116,6 +119,7 @@ namespace Durin
 		uint64 RequestGeneration = 0;
 		uint64 CompiledAuthoredRevision = 0;
 		uint64 DependencyRevision = 0;
+		uint64 ParentChainRevision = 0;
 		uint64 TaskId = 0;
 		EMaterialCompileState State = EMaterialCompileState::NeverRequested;
 		EMaterialCompileResultCategory ResultCategory =
@@ -162,22 +166,23 @@ namespace Durin
 	// Thread-safe reload notification; object discovery and requests remain GameThread-only.
 	ENGINE_API auto NotifyMaterialShaderReload(bool bForceRecompile) -> void;
 	ENGINE_API auto RequestMaterialRecompile(
-		DMaterial& Material, bool bForceRecompile = false) -> bool;
+		DMaterialInterface& Material, bool bForceRecompile = false) -> bool;
 
 	namespace Private
 	{
 		struct FMaterialCompilationLifecycle
 		{
 			ENGINE_API static auto Submit(
-				DMaterial& Material,
+				DMaterialInterface& Material,
 				FMaterialCompilerInput Input,
 				bool bForceRecompile) -> bool;
 			ENGINE_API static auto Admit(
-				DMaterial& Material,
+				DMaterialInterface& Material,
 				FMaterialCompileResult Result) -> bool;
-			ENGINE_API static auto MarkCanceled(DMaterial& Material) -> void;
+			ENGINE_API static auto MarkCanceled(DMaterialInterface& Material) -> void;
+			ENGINE_API static auto RetryDeferred(DMaterialInterface& Material) -> void;
 			ENGINE_API static auto RequestCurrent(
-				DMaterial& Material, bool bForceRecompile) -> bool;
+				DMaterialInterface& Material, bool bForceRecompile) -> bool;
 		};
 	}
 }

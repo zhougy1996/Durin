@@ -57,15 +57,6 @@ namespace Durin
 		{
 			return CookedProgramData;
 		}
-		auto GetMaterialCompileDiagnostics() const
-			-> std::span<const FMaterialCompileDiagnostic>
-		{
-			return MaterialCompileDiagnostics;
-		}
-		auto GetMaterialCompileStatus() const -> const FMaterialCompileStatus&
-		{
-			return MaterialCompileStatus;
-		}
 		auto GetMaterialCookDiagnostic() const -> std::string_view
 		{
 			return MaterialCookDiagnostic;
@@ -129,10 +120,6 @@ namespace Durin
 			-> FMaterialLocalRenderLayer override;
 
 	private:
-		ENGINE_API auto RequestProgramCompile(
-			const FMaterialProgram& CandidateProgram,
-			const FMaterialStaticProperties& CandidateProperties,
-			bool bForceRecompile = false) -> bool;
 		auto AdvanceAuthoredRevision() -> void;
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
@@ -156,13 +143,6 @@ namespace Durin
 
 		FBulkData CookedProgramData;
 
-		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
-		// Value-owned fallback for declarations removed while old code is visible.
-		std::vector<FMaterialLocalRenderParameter> RetainedAcceptedParameters;
-		FMaterialStaticProperties AcceptedCompiledStaticProperties;
-		FMaterialStaticProperties LastRequestedShaderProperties;
-		FMaterialCompileStatus MaterialCompileStatus;
-		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		std::string MaterialCookDiagnostic;
 		// Transient monotonic revisions invalidate editor graph caches independently.
 		uint64 MaterialProgramRevision = 1;

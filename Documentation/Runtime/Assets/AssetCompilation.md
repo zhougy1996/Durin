@@ -4,7 +4,7 @@ Summary: Define the Engine-owned object-aware compilation aggregate, class routi
 
 Modules: Engine, Launch, TextureBuild, StaticMeshBuild
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-10
 
 `FAssetCompilingManager` is the one process authority for asynchronous asset
 compilation. Launch starts it after Core task scheduling and pumps it once per
@@ -14,7 +14,7 @@ post-compile notification, and shutdown placement. It does not impose one
 typeless compiler payload, DDC key, queue, or result-application policy;
 each Engine-owned typed manager retains its values and invariants.
 
-The built-in compilers are `Durin.Material`, routed from `DMaterial`, and
+The built-in compilers are `Durin.Material`, routed from `DMaterial` and `DMaterialInstance`, and
 `Durin.Texture`, routed from `DTexture2D`, and `Durin.StaticMesh`, routed from
 `DStaticMesh`. Optional modules may register additional
 compilers and class routes while the aggregate is accepting requests. Runtime Engine does not require
@@ -104,7 +104,11 @@ Material compilation remains Engine-owned. It preserves program-identity
 single-flight sharing, retained program results, last-known-good visibility,
 generation-safe admission, Renderer publication, reload behavior, and cooked
 program rules. Remaining count is the number of live outstanding material
-consumers rather than shared worker flights.
+consumers plus owners deferred by capacity, rather than shared worker flights.
+Both material asset kinds use the same owner state, selected finish/cancel, reload
+and offline preparation boundary. Deferred owners retain only retry intent; each
+pump retries at most 256 owners in rotating handle order using fresh snapshots.
+Stop-admission and cancellation clear that intent.
 
 Texture compilation is Engine-owned. One `FTextureCompilingManager` owns
 typed asset state, worker admission, priority fairness, memory budget,

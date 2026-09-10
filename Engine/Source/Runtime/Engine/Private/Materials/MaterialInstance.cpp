@@ -110,6 +110,7 @@ namespace Durin
 		if (WouldCreateParentCycle(this, InParent)) return false;
 		if (Parent == InParent) return true;
 		Parent = InParent;
+		InvalidateMaterialCompilation();
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		return true;
@@ -152,9 +153,14 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("PropertyOverrides"))
+		{
+			if (CanonicalizeMaterialShaderProperties(GetStaticProperties()) != CompilationOwner.LastRequestedShaderProperties)
+				InvalidateMaterialCompilation();
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+		}
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent"))
 		{
+			InvalidateMaterialCompilation();
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		}
 	}
@@ -228,6 +234,7 @@ namespace Durin
 		if (!ValidateMaterialStaticProperties(Overrides.Values, Error)) return false;
 		if (PropertyOverrides == Overrides) return true;
 		PropertyOverrides = Overrides;
+		InvalidateMaterialCompilation(true, true);
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
 		return true;
@@ -524,6 +531,8 @@ namespace Durin
 			DURIN_ERROR("PostLoad '{}': {}; disabling static property overrides.", GetObjectPath(), Error);
 			PropertyOverrides = {};
 		}
+		if (!GetAssetRuntimeConfiguration().RequiresCookedPayload())
+			RequestMaterialRecompile(*this);
 		PublishMaterialRenderProxyState();
 	}
 }

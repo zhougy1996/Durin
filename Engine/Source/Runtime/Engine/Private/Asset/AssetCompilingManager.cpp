@@ -5,6 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCompilingManager.h"
@@ -481,7 +482,7 @@ namespace Durin
 		if (!Aggregate.Start(&Error)) return false;
 		auto MaterialRegistration = Aggregate.RegisterCompiler({
 			.Name = FName("Durin.Material"),
-			.AssetClasses = {DMaterial::StaticClass()},
+			.AssetClasses = {DMaterial::StaticClass(), DMaterialInstance::StaticClass()},
 			.Manager = CreateMaterialCompilingManager()}, &Error);
 		if (!MaterialRegistration.IsValid())
 		{
