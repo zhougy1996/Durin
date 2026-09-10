@@ -342,7 +342,7 @@ namespace Durin::VulkanRHI
 				FRDGExecutionContext RejectedContext{RejectedAllocator};
 				const auto Rejected = RejectedBuilder.Execute(Commands, &RejectedContext);
 				EXPECT_EQ(Rejected.Status, ERDGExecutionStatus::PreparationFailed);
-				AllocationError = Rejected.Error;
+				AllocationError = Rejected.Result.Message;
 			}
 			EXPECT_FALSE(bExecuted);
 			EXPECT_EQ(AllocationError, "injected allocation failure");
@@ -371,7 +371,7 @@ namespace Durin::VulkanRHI
 				FTransitionTestRDGAllocator Allocator(Buffer, Texture);
 				FRDGExecutionContext Context{Allocator};
 				const auto Result = Builder.Execute(Commands, &Context);
-				ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+				ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 				EXPECT_EQ(Builder.Execute(Commands, &Context).Status, ERDGExecutionStatus::InvalidState);
 			}
 			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
@@ -394,7 +394,7 @@ namespace Durin::VulkanRHI
 			Next.UseBuffer(Rewrite, External, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
-			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Error;
+			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Result.Message;
 			ASSERT_EQ(Next.GetPasses()[0].BufferTransitions.size(), 1u);
 			EXPECT_EQ(Next.GetPasses()[0].BufferTransitions[0].ExpectedBefore,
 				ERHIAccess::VertexBufferRead);

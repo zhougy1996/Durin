@@ -627,7 +627,7 @@ namespace Durin
 					}
 					FRDGExecutionContext Context{Allocator};
 					const auto Result = Builder.Execute(CommandList, &Context);
-					ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+					ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 					(*Captures)[Index] = Builder.Capture();
 				}
 				Allocator.Release_RenderThread();

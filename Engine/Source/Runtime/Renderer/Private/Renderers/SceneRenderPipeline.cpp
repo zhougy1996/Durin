@@ -372,7 +372,7 @@ namespace Durin
 		if (Result.Status == ERDGExecutionStatus::CompileFailed)
 		{
 			DURIN_WARN("Scene render graph compilation failed: {}",
-				Result.Error);
+				Result.Result.Message);
 			return ESceneRenderGraphExecutionStatus::CompileFailed;
 		}
 		const FRDGStatistics Statistics = Graph.GetStatistics();
@@ -397,7 +397,7 @@ namespace Durin
 			&& !std::exchange(Observation.bReportedExecutionFailure, true))
 		{
 			DURIN_WARN("Scene render graph execution failed: {}",
-				Result.Error.empty() ? "unspecified error" : Result.Error);
+				Result.Result.Message.empty() ? "unspecified error" : Result.Result.Message);
 		}
 		PublishSceneRenderGraphCapture(
 			Graph, OutRenderGraphCapture);

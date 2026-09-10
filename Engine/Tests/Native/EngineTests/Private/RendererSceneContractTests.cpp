@@ -1274,7 +1274,7 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		Durin::FRHICommandListExecutor Executor;
 		const auto Result = Builder.Execute(Executor.GetImmediateCommandList());
-		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Result.Message;
 		Durin::PublishSceneRenderGraphCapture(Builder, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
@@ -2382,7 +2382,7 @@ namespace Durin::Tests
 			}
 			FRDGExecutionContext Context{Allocator};
 			const auto Result = Builder.Execute(Executor.GetImmediateCommandList(), &Context);
-			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << Result.Error;
+			EXPECT_NE(Result.Status, ERDGExecutionStatus::CompileFailed) << Result.Result.Message;
 			return Builder.Capture();
 		}
 	}

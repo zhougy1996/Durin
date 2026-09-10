@@ -5,6 +5,29 @@
 
 namespace Durin
 {
+	// Stable failure categories; diagnostic text is never a success indicator.
+	enum class ERDGError : uint8
+	{
+		None,
+		InvalidState,
+		InvalidDeclaration,
+		InvalidParameterMetadata,
+		InvalidDependency,
+		MissingProducer,
+		SafetyLimitExceeded,
+		AllocationFailed,
+		MissingAllocation,
+		IncompatibleAllocation
+	};
+
+	// Owns the outcome of one RDG operation, including failures without a message.
+	struct [[nodiscard]] FRDGResult final
+	{
+		ERDGError Error = ERDGError::None;
+		std::string Message;
+		auto IsSuccess() const -> bool { return Error == ERDGError::None; }
+	};
+
 	class FRHICommandListImmediate;
 	class FRDGBuilder;
 	class FRDGBuilderTestAccessor;
@@ -319,7 +342,7 @@ namespace Durin
 	struct FRDGParameterLayoutBuildResult final
 	{
 		std::unique_ptr<const FRDGParameterLayout> Layout;
-		std::string Error;
+		FRDGResult Result{ERDGError::InvalidParameterMetadata, {}};
 	};
 
 	RENDERCORE_API auto BuildRDGParameterLayout(
@@ -1095,7 +1118,7 @@ namespace Durin
 	struct FRDGExecutionResult final
 	{
 		ERDGExecutionStatus Status = ERDGExecutionStatus::InvalidState;
-		std::string Error;
+		FRDGResult Result{ERDGError::InvalidState, {}};
 		auto IsSuccess() const -> bool { return Status == ERDGExecutionStatus::Recorded; }
 	};
 
@@ -1324,11 +1347,11 @@ namespace Durin
 		friend class FRDGBuilderTestAccessor;
 		friend class FRDGPassResources;
 		RENDERCORE_API auto RequireBuilding() const -> void;
-		auto Compile() -> std::string;
+		auto Compile() -> FRDGResult;
 		auto EnsureDiagnostics() const -> void;
-		RENDERCORE_API auto CompileForTesting() -> std::string;
+		RENDERCORE_API auto CompileForTesting() -> FRDGResult;
 		auto Record(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context, std::string& OutError) -> bool;
+			FRDGExecutionContext* Context) -> FRDGResult;
 		struct FCompiledState;
 		std::unique_ptr<FCompiledState> Compiled;
 		struct FDiagnostics;

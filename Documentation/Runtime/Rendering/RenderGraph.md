@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-10
 
 ## Ownership Boundary
 
@@ -26,7 +26,13 @@ The thread-confined lifecycle is Building -> Compiling -> Preparing -> Recording
 -> Recorded, with terminal Failed on supported failures or C++ unwinding. Every
 execution attempt consumes Building, including compile and preparation failure.
 `FRDGExecutionResult` distinguishes CompileFailed, PreparationFailed, Recorded,
-and InvalidState. Recorded means CPU recording succeeded, not GPU completion.
+and InvalidState. Its `Result` contains an `FRDGResult`: `ERDGError` identifies
+success (`None`) or the failure category, while `Message` supplies diagnostic
+context. Internal validation, compilation, dependency insertion, and recording
+propagate this same result; deferred declaration errors preserve their category.
+Success never depends on message emptiness. The allocator's existing boolean
+failure is adapted to `AllocationFailed` even when it supplies no diagnostic text.
+Recorded means CPU recording succeeded, not GPU completion.
 A second or reentrant Execute returns InvalidState before allocations, commands,
 callbacks, or extraction, without changing the original execution report or
 compiler evidence. Supported exceptions propagate with terminal Failed state;
