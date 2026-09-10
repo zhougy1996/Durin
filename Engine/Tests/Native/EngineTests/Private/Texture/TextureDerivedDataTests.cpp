@@ -256,7 +256,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	std::string Error;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "7a2da53a236b7527a36561b24ea3ef5f");
+	EXPECT_EQ(Baseline.ToString(), "c47e835607a638240312eebad9fc0105");
 	EXPECT_EQ(Baseline.ToString().size(), 32u);
 
 	auto Changed = Input;
@@ -285,7 +285,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	Changed.TargetProfile = Durin::ECookTargetProfile::Game;
 	Baseline = Durin::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_TRUE(Baseline.IsValid()) << Error;
-	EXPECT_EQ(Baseline.ToString(), "1abd0937fc15c134e3b1479d853916f7");
+	EXPECT_EQ(Baseline.ToString(), "febe6b7242ff430fa645a7bd7ed90b10");
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
 	Key = Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
@@ -398,7 +398,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	ASSERT_FALSE(SecondWriter.HasError());
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
-		"8e22a84dac1195860e4e3860199b8dda");
+		"7ce2cb929232337de973aeddcfbb32d5");
 	EXPECT_EQ(First.size(), 1376u);
 
 	Durin::FTextureCubePlatformData Actual;

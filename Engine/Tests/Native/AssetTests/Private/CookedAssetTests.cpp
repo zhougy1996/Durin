@@ -11,7 +11,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Logging/Logger.h"
@@ -395,7 +394,6 @@ TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
 	EXPECT_FALSE(HasPublicAddToCook<DVolumeTexture>);
 	EXPECT_FALSE(HasPublicAddToCook<DStaticMesh>);
 	EXPECT_FALSE(HasPublicAddToCook<DMaterial>);
-	EXPECT_FALSE(HasPublicAddToCook<DEnvironmentLighting>);
 }
 
 TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)

@@ -41,13 +41,32 @@ namespace Durin
 		}
 
 		const auto& Panorama = std::get<FTextureCubePanoramaBuildInput>(Request.Input);
+		if (Panorama.Settings.Output != ETextureCubeOutput::LDR
+			&& Panorama.Settings.Output != ETextureCubeOutput::HDR)
+		{
+			OutError = "TextureCube output range is invalid.";
+			return false;
+		}
 		return std::visit([&](const auto& Image) {
 			FTextureCubeSourceData SourceData;
-			if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
+			const bool bHDR = Panorama.Settings.Output == ETextureCubeOutput::HDR;
+			if (bHDR)
+			{
+				if constexpr (std::is_same_v<std::decay_t<decltype(Image)>, FTextureCubePanoramaFloatImage>)
+				{
+					if (!TextureCubeBuilder::ValidateHDRTextureCubePanorama(Image, Panorama.Settings, OutError)) return false;
+				}
+				else
+				{
+					OutError = "HDR cube output requires a linear float panorama.";
+					return false;
+				}
+			}
+			else if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
 				Image, {Panorama.Settings.FaceDimension, Panorama.Settings.ExposureEV},
 				SourceData, OutError)) return false;
 			FTextureCubeImportedData ImportedData;
-			if (!ImportedData.SetSourceData(SourceData))
+			if (!bHDR && !ImportedData.SetSourceData(SourceData))
 			{
 				OutError = "TextureCube canonical imported faces are invalid.";
 				return false;
@@ -91,7 +110,7 @@ namespace Durin
 				.OriginalSourceHeight = Image.Height,
 				.PanoramaFaceDimension = Panorama.Settings.FaceDimension,
 				.PanoramaExposureEV = Panorama.Settings.ExposureEV,
-				.bSRGB = true};
+				.bSRGB = !bHDR, .Output = Panorama.Settings.Output};
 			OutError.clear();
 			return true;
 		}, Panorama.Image);
@@ -102,6 +121,20 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (Request.HDRPanorama != nullptr)
+		{
+			if (Request.TargetPlatform != ECookTargetPlatform::Win64
+				|| Request.TargetProfile != ECookTargetProfile::Game || Request.bSRGB)
+			{
+				OutError = "HDR cube build target or color space is invalid.";
+				return false;
+			}
+			auto PlatformData = std::make_unique<FTextureCubePlatformData>();
+			if (!TextureCubeBuilder::BuildHDRTextureCube(*Request.HDRPanorama,
+				Request.PanoramaSettings, *PlatformData, OutError)) return false;
+			OutProduct.PlatformData = std::move(PlatformData);
+			return true;
+		}
 		if (Request.TargetPlatform != ECookTargetPlatform::Win64
 			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| !Request.ImportedData.get().IsValid())

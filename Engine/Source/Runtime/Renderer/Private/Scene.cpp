@@ -1,9 +1,11 @@
 #include "Scene.h"
+#include "Renderers/SceneRenderer.h"
 #include "SceneRegistry.h"
 
 #include "Components/LightComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkyBoxComponent.h"
+#include "Components/ProceduralSkyComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Actor.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -46,8 +48,8 @@ namespace Durin
 		}
 	} // namespace
 
-	FScene::FScene()
-		: Lights(std::make_unique<FLightSceneRegistry>())
+	FScene::FScene(FSceneRenderer* InRenderer)
+		: Renderer(InRenderer), Lights(std::make_unique<FLightSceneRegistry>())
 		, SkyBoxes(std::make_unique<FSkyBoxSceneRegistry>())
 		, VolumetricClouds(std::make_unique<FVolumetricCloudSceneRegistry>())
 	{
@@ -62,6 +64,15 @@ namespace Durin
 		requiref(IsEmpty_RenderThread(), "Renderer scenes must have empty registries before destruction.");
 		GAllocatedSceneCount.fetch_sub(1, std::memory_order_relaxed);
 	}
+
+    auto FScene::UpdateSkyLighting() -> void
+    {
+        require(IsInGameThread());
+        if (Renderer && LifecycleState.load() == ELifecycleState::Active)
+            TryEnqueueRenderCommand("UpdateSkyLighting", [this](FRHICommandListImmediate& Commands) {
+                Renderer->PendingSkyScenes.insert(this);
+            });
+    }
 
 	auto FScene::AddPrimitive(DPrimitiveComponent* Primitive) -> void
 	{
@@ -110,6 +121,103 @@ namespace Durin
 		const bool bAccepted = TryRemoveLightProxy(Light->SceneProxy);
 		requiref(bAccepted, "RemoveLight was rejected for a published render state.");
 		Light->SceneProxy = nullptr;
+	}
+
+	auto FScene::AddProceduralSky(DProceduralSkyComponent* ProceduralSky) -> void
+	{
+		RequireComponentBoundary(ProceduralSky, "AddProceduralSky");
+		RequireActive("AddProceduralSky");
+		require(ProceduralSky->GetRenderScene() == this && ProceduralSky->SceneProxy == nullptr);
+		auto Proxy = ProceduralSky->CreateSceneProxy();
+		const auto* Token = Proxy.get();
+		const bool bAccepted = TryEnqueueRenderCommand("AddProceduralSky", [this, Proxy](FRHICommandListImmediate&) {
+			ProceduralSkies.emplace(Proxy.get(), Proxy);
+		});
+		require(bAccepted);
+		ProceduralSky->SceneProxy = Token;
+	}
+
+	auto FScene::RemoveProceduralSky(DProceduralSkyComponent* ProceduralSky) -> void
+	{
+		RequireComponentBoundary(ProceduralSky, "RemoveProceduralSky");
+		RequireActive("RemoveProceduralSky");
+		require(ProceduralSky->GetRenderScene() == this);
+		const auto* Token = ProceduralSky->SceneProxy;
+		if (!Token) return;
+		const bool bAccepted = TryEnqueueRenderCommand("RemoveProceduralSky", [this, Token](FRHICommandListImmediate&) {
+			ProceduralSkies.erase(Token);
+		});
+		require(bAccepted);
+		ProceduralSky->SceneProxy = nullptr;
+	}
+
+	auto FScene::AddSkyLight(DSkyLightComponent* SkyLight) -> void
+	{
+		RequireComponentBoundary(SkyLight, "AddSkyLight");
+		RequireActive("AddSkyLight");
+		require(SkyLight->GetRenderScene() == this && SkyLight->SceneProxy == nullptr);
+		auto Proxy = SkyLight->CreateSceneProxy();
+		const auto* Token = Proxy.get();
+		const bool bAccepted = TryEnqueueRenderCommand("AddSkyLight", [this, Proxy](FRHICommandListImmediate&) {
+			SkyLights.emplace(Proxy.get(), Proxy);
+		});
+		require(bAccepted);
+		SkyLight->SceneProxy = Token;
+	}
+
+	auto FScene::RemoveSkyLight(DSkyLightComponent* SkyLight) -> void
+	{
+		RequireComponentBoundary(SkyLight, "RemoveSkyLight");
+		RequireActive("RemoveSkyLight");
+		require(SkyLight->GetRenderScene() == this);
+		const auto* Token = SkyLight->SceneProxy;
+		if (!Token) return;
+		const bool bAccepted = TryEnqueueRenderCommand("RemoveSkyLight", [this, Token](FRHICommandListImmediate&) {
+			SkyLights.erase(Token);
+		});
+		require(bAccepted);
+		SkyLight->SceneProxy = nullptr;
+	}
+
+	auto FScene::GetProceduralSky_RenderThread() const -> std::shared_ptr<const FProceduralSkySceneProxy>
+	{
+		CheckRenderingThread();
+		std::shared_ptr<const FProceduralSkySceneProxy> Selected;
+		for (const auto& [Token, Candidate] : ProceduralSkies)
+		{
+			if (!Candidate->bEligible) continue;
+			if (!Selected || Candidate->Priority > Selected->Priority
+				|| (Candidate->Priority == Selected->Priority
+					&& std::pair(Candidate->PersistentId, Candidate->SelectionKey)
+						< std::pair(Selected->PersistentId, Selected->SelectionKey))) Selected = Candidate;
+		}
+		return Selected;
+	}
+
+	auto FScene::GetSkyLight_RenderThread() const -> std::shared_ptr<const FSkyLightSceneProxy>
+	{
+		CheckRenderingThread();
+		std::shared_ptr<const FSkyLightSceneProxy> Selected;
+		for (const auto& [Token, Candidate] : SkyLights)
+		{
+			if (!Candidate->bEligible) continue;
+            if (Candidate->SourceMode == ESkyLightSourceMode::CapturedSky && !GetProceduralSky_RenderThread())
+            {
+                Candidate->UpdateStatus->State.store(ESkyLightUpdateState::MissingProvider);
+                continue;
+            }
+			if (Candidate->SourceMode == ESkyLightSourceMode::SpecifiedCube)
+			{
+				const auto* Texture = Candidate->Texture ? Candidate->Texture->GetReferencedTexture_RenderThread() : nullptr;
+				if (!Texture || Texture->GetDimension() != ETextureDimension::TextureCube
+					|| Texture->GetFormat() != EPixelFormat::RGBA32_FLOAT || Texture->GetSizeX() > 512) continue;
+			}
+			if (!Selected || Candidate->Priority > Selected->Priority
+				|| (Candidate->Priority == Selected->Priority
+					&& std::pair(Candidate->PersistentId, Candidate->SelectionKey)
+						< std::pair(Selected->PersistentId, Selected->SelectionKey))) Selected = Candidate;
+		}
+		return Selected;
 	}
 
 	auto FScene::AddSkyBox(DSkyBoxComponent* SkyBox) -> void
@@ -402,7 +510,7 @@ namespace Durin
 		CheckRenderingThread();
 		return PrimitiveInfosById.empty() && PrimitiveSceneInfos.empty()
 			   && Lights->Num() == 0 && SkyBoxes->Num() == 0
-			   && VolumetricClouds->Num() == 0;
+			   && VolumetricClouds->Num() == 0 && SkyLights.empty() && ProceduralSkies.empty();
 	}
 
 	auto FScene::Clear_RenderThread() -> void
@@ -413,6 +521,10 @@ namespace Durin
 		Lights->Clear();
 		SkyBoxes->Clear();
 		VolumetricClouds->Clear();
+		SkyLights.clear();
+		if (Renderer) Renderer->PendingSkyScenes.erase(this);
+		SkyLighting = {};
+		ProceduralSkies.clear();
 	}
 
 	auto FLightSceneRegistry::Attach(FLightSceneInfo& Info) -> void

@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "RHIResources.h"
+#include "Rendering/ProceduralSkySceneProxy.h"
 
 namespace Durin
 {
@@ -12,6 +13,7 @@ namespace Durin
 		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
 		FVector3f Tint{1.0f, 1.0f, 1.0f};
 		float Intensity = 1.0f;
+		FProceduralSkyUniform ProceduralSky;
 	};
 
 	class FSkyBoxSceneProxy final

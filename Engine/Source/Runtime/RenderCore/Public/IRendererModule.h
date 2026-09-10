@@ -3,6 +3,7 @@
 #include "SceneOwnership.h"
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
+#include "RHIResources.h"
 
 namespace Durin
 {
@@ -25,6 +26,11 @@ namespace Durin
 	{
 	public:
 		virtual auto CreateScene() -> FScenePtr = 0;
+		// Called inside an active RHI frame, independently of viewport submission.
+		virtual auto UpdateScenes_RenderThread(FRHICommandListImmediate&) -> void {}
+		// Opt-in GPU graph timing. Set/clear on the render thread; the sink owns
+		// each query until its nonblocking completion. Empty disables all overhead.
+		virtual auto SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void {}
 		// Creates an opt-in persistent stream; registry mutation is render-thread ordered.
 		virtual auto CreateViewState() -> FSceneViewStateOwner = 0;
 		virtual auto InvalidateViewState(FSceneViewStateId Id) -> void = 0;

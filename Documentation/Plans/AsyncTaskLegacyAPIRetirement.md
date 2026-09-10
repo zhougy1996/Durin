@@ -507,7 +507,7 @@ The implementation commit carries the Plan and Stage provenance.
 - `Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserModel.cpp`
 - `Engine/Source/Editor/DurinEd/Private/Source/SourceReferenceIndex.cpp`
 - `Engine/Source/Editor/MainFrame/Private/AssetCompatibilityAudit.cpp`
-- `Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLightingBuild.cpp`
+- The former CPU environment builder was removed by [Dynamic Sky Lighting](DynamicSkyLighting.md); runtime filtering now uses Renderer RDG passes.
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp`
 - `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshCompilingManager.cpp`
 - `Engine/Source/Runtime/Engine/Private/Asset/CookedMeshLoadManager.cpp`

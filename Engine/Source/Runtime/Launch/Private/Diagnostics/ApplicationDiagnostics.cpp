@@ -1,4 +1,5 @@
 #include "ApplicationDiagnostics.h"
+#include "Diagnostics/SkyLightingRuntimeSmoke.h"
 
 #include "Diagnostics/EditorPIELifecycleSmoke.h"
 #include "Diagnostics/NativeGameplayLifecycleSmoke.h"
@@ -45,12 +46,16 @@ namespace Durin
 			FillCrashLogGap();
 			RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 		}
+		if (Request.bRunSkyLightingRuntimeSmoke)
+			SkyLightingState = BeginSkyLightingRuntimeSmoke();
 		if (Request.bRunRendererContactRuntimeSmoke)
 			RendererContactRuntimeState = BeginRendererContactRuntimeSmoke();
 	}
 
 	auto FApplicationDiagnostics::Tick() -> void
 	{
+		if (SkyLightingState && !bSkyLightingCompleted)
+			bSkyLightingCompleted = TickSkyLightingRuntimeSmoke(SkyLightingState);
 #if DURIN_WITH_EDITOR
 		if (Request.bRunEditorPIELifecycleSmoke
 			&& !bEditorPIELifecycleSmokeCompleted && GEditor)
@@ -72,6 +77,8 @@ namespace Durin
 
 	auto FApplicationDiagnostics::BeginConsumerDetachment() -> void
 	{
+		checkf(!SkyLightingState || bSkyLightingCompleted, "Sky lighting smoke did not complete.");
+		EndSkyLightingRuntimeSmoke(SkyLightingState);
 #if DURIN_WITH_EDITOR
 		checkf(!Request.bRunEditorPIELifecycleSmoke
 			|| bEditorPIELifecycleSmokeCompleted,

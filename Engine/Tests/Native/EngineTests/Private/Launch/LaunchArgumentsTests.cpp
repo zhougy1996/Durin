@@ -55,6 +55,22 @@ TEST(FLaunchArgumentsTests, ParsesRendererContactRuntimeSmoke)
 	EXPECT_EQ(Result.Request->Automation.ExitAfterTicks, 240u);
 }
 
+TEST(FLaunchArgumentsTests, SkyLightingQualificationRequiresExplicitOptIn)
+{
+	auto Default = Parse({});
+	ASSERT_TRUE(Default);
+	EXPECT_FALSE(Default.Request->Diagnostics.bRunSkyLightingRuntimeSmoke);
+
+	auto Result = Parse({"--sky-lighting-runtime-smoke", "--hidden-window", "--exit-after-ticks=8000"});
+	ASSERT_TRUE(Result);
+	EXPECT_TRUE(Result.Request->Diagnostics.bRunSkyLightingRuntimeSmoke);
+	EXPECT_TRUE(Result.Request->Host.bSuppressWindowDisplay);
+	EXPECT_EQ(Result.Request->Automation.ExitAfterTicks, 8000u);
+	ExpectRejected({"--sky-lighting-runtime-smoke", "--sky-lighting-runtime-smoke"},
+		"--sky-lighting-runtime-smoke");
+	ExpectRejected({"--startup-command=Cook", "--sky-lighting-runtime-smoke"}, "--startup-command");
+}
+
 TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 {
 	ExpectRejected({"--unknown"}, "--unknown");

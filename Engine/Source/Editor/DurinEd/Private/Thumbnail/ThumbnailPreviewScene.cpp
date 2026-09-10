@@ -1,3 +1,4 @@
+#include "Preview/StudioLighting.h"
 #include "Thumbnail/ThumbnailPreviewScene.h"
 
 #include "Components/DirectionalLightComponent.h"
@@ -202,6 +203,7 @@ namespace Durin::Editor
 				Error = PreviewScene->GetDiagnostic();
 				return;
 			}
+			(void)Editor::AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
 				"RenderedAssetThumbnailLightActor"
 			);

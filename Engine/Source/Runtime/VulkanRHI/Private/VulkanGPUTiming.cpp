@@ -187,9 +187,9 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanGPUTimingManager::MarkSubmitted(FVulkanCompletionToken Token,
-		std::span<FVulkanGPUTimingQuery* const> Queries) -> void
+		std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void
 	{
-		for (FVulkanGPUTimingQuery* Query : Queries)
+		for (const auto& Query : Queries)
 		{
 			Query->SubmissionToken = Token;
 			PendingQueries.emplace_back(Query);

@@ -65,7 +65,7 @@ namespace Durin
 			const auto& Info = View.GetInfo();
 			FTextureCubePanoramaBuildInput Panorama;
 			Panorama.Settings = {.FaceDimension = Texture.GetPanoramaFaceDimension(),
-				.ExposureEV = Texture.GetPanoramaExposureEV()};
+				.ExposureEV = Texture.GetPanoramaExposureEV(), .Output = Texture.GetOutput()};
 			if (Info.Format == Image::ERawImageFormat::RGBA32F)
 			{
 				FTextureCubePanoramaFloatImage Image;
@@ -374,7 +374,7 @@ namespace Durin
 		float InPanoramaExposureEV,
 		uint32 InOriginalSourceWidth,
 		uint32 InOriginalSourceHeight,
-		bool bInSRGB) -> void
+		bool bInSRGB, ETextureCubeOutput InOutput) -> void
 	{
 		CheckGameThread();
 		SourceLayout = InSourceLayout;
@@ -383,6 +383,7 @@ namespace Durin
 		OriginalSourceWidth = InOriginalSourceWidth;
 		OriginalSourceHeight = InOriginalSourceHeight;
 		bSRGB = bInSRGB;
+		Output = InOutput;
 		InvalidateAuthoredBuild();
 	}
 }

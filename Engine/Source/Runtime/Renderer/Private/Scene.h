@@ -1,16 +1,20 @@
 #pragma once
 
 #include "RendererAPI.h"
+#include "Resources/EnvironmentLightingResources.h"
 
 #include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SkyBoxSceneProxy.h"
+#include "Rendering/SkyLightSceneProxy.h"
+#include "Rendering/ProceduralSkySceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
 #include "SceneInterface.h"
 
 namespace Durin
 {
 	class FScene;
+	class FSceneRenderer;
 	class FPrimitiveSceneInfo;
 	class FLightSceneInfo;
 	class FVolumetricCloudSceneInfo;
@@ -35,12 +39,21 @@ namespace Durin
 		RENDERER_API auto RemoveLight(DLightComponent* Light) -> void override;
 		RENDERER_API auto AddSkyBox(DSkyBoxComponent* SkyBox) -> void override;
 		RENDERER_API auto RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void override;
+		RENDERER_API auto AddProceduralSky(DProceduralSkyComponent* Sky) -> void override;
+		RENDERER_API auto RemoveProceduralSky(DProceduralSkyComponent* Sky) -> void override;
+		RENDERER_API auto GetProceduralSky_RenderThread() const -> std::shared_ptr<const FProceduralSkySceneProxy>;
+		RENDERER_API auto AddSkyLight(DSkyLightComponent* SkyLight) -> void override;
+		RENDERER_API auto RemoveSkyLight(DSkyLightComponent* SkyLight) -> void override;
+		// Returns an immutable selected candidate with no managed-object ownership.
+		RENDERER_API auto GetSkyLight_RenderThread() const -> std::shared_ptr<const FSkyLightSceneProxy>;
 		RENDERER_API auto AddVolumetricCloud(
 			DVolumetricCloudComponent* Cloud
 		) -> void override;
 		RENDERER_API auto RemoveVolumetricCloud(
 			DVolumetricCloudComponent* Cloud
 		) -> void override;
+		RENDERER_API auto UpdateSkyLighting() -> void override;
+		std::shared_ptr<FSkyLightingSceneState> SkyLighting = std::make_shared<FSkyLightingSceneState>();
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveComponentId PrimitiveId, const FMatrix& Transform) -> void override;
 		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveComponentId PrimitiveId, bool bVisible) -> void override;
@@ -67,7 +80,8 @@ namespace Durin
 			-> const FVolumetricCloudSceneInfo*;
 
 	private:
-		RENDERER_API FScene();
+		RENDERER_API explicit FScene(FSceneRenderer* InRenderer = nullptr);
+		FSceneRenderer* Renderer = nullptr;
 		RENDERER_API ~FScene() override;
 
 		enum class ELifecycleState : uint8
@@ -102,6 +116,8 @@ namespace Durin
 		std::unique_ptr<FLightSceneRegistry> Lights;
 		std::unique_ptr<FSkyBoxSceneRegistry> SkyBoxes;
 		std::unique_ptr<FVolumetricCloudSceneRegistry> VolumetricClouds;
+		std::unordered_map<const FSkyLightSceneProxy*, std::shared_ptr<const FSkyLightSceneProxy>> SkyLights;
+		std::unordered_map<const FProceduralSkySceneProxy*, std::shared_ptr<const FProceduralSkySceneProxy>> ProceduralSkies;
 		FSkyBoxSceneProxy* PublishedSkyBoxProxy = nullptr;
 		std::atomic<ELifecycleState> LifecycleState{ELifecycleState::Active};
 

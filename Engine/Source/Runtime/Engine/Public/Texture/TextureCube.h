@@ -9,13 +9,21 @@
 
 #include "TextureCube.gen.h"
 
-namespace Durin
+	namespace Durin
 {
 	inline constexpr FGuid TextureCubeImportedFacesPayloadId{
 		0x8b2cd073, 0x19654a69, 0x8730d84e, 0x54fd72e1};
 	inline constexpr uint32 TextureCubeImportedDataSchemaVersion = 1;
 	inline constexpr uint64 MaximumTextureCubeImportedPixelBytes =
 		512ull * 1024ull * 1024ull;
+
+	// Selects display-ready LDR or preserved linear panorama radiance.
+	DENUM(DisplayName = "Texture Cube Output")
+	enum class ETextureCubeOutput : uint8
+	{
+		LDR = 0,
+		HDR = 1,
+	};
 
 	DENUM(DisplayName = "Texture Cube Source Layout")
 	enum class ETextureCubeSourceLayout : uint8
@@ -97,6 +105,7 @@ namespace Durin
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
+		auto GetOutput() const -> ETextureCubeOutput { return Output; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
 		auto GetOriginalSourceHeight() const -> uint32 { return OriginalSourceHeight; }
 		auto IsSRGB() const -> bool { return bSRGB; }
@@ -104,7 +113,7 @@ namespace Durin
 		ENGINE_API auto SetBuildSettings(ETextureCubeSourceLayout InSourceLayout,
 			uint32 InPanoramaFaceDimension, float InPanoramaExposureEV,
 			uint32 InOriginalSourceWidth, uint32 InOriginalSourceHeight,
-			bool bInSRGB) -> void;
+			bool bInSRGB, ETextureCubeOutput InOutput = ETextureCubeOutput::LDR) -> void;
 
 		ENGINE_API auto RebuildPlatformData() -> bool;
 
@@ -144,6 +153,10 @@ namespace Durin
 
 		DPROPERTY(EditorOnly, DisplayName = "Panorama Exposure EV")
 		float PanoramaExposureEV = 0.0f;
+
+		// Missing fields in old packages retain the original LDR recipe.
+		DPROPERTY(EditorOnly, DisplayName = "Output Range")
+		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
 
 		DPROPERTY(EditorOnly)
 		uint32 OriginalSourceWidth = 0;

@@ -1,3 +1,4 @@
+#include "Preview/StudioLighting.h"
 #include "Preview/AssetPreviewHost.h"
 
 #include "Client/SceneViewport.h"
@@ -47,6 +48,7 @@ namespace Durin::Editor
 				return;
 			}
 
+			(void)Editor::AddStudioSkyLight(*PreviewScene->GetWorld()->GetCurrentLevel());
 			ContentActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.ContentActorName);
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(Config.LightActorName);
 			Light = LightActor

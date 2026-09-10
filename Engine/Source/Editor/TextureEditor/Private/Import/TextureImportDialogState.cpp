@@ -31,6 +31,7 @@ namespace Durin::Editor::Texture
 		PanoramaFaceDimension = 0;
 		PanoramaCustomFaceDimension = 0;
 		PanoramaExposureEV = 0.0f;
+		bPreserveHDR = false;
 		ValidatedSourceWidth = 0;
 		ValidatedSourceHeight = 0;
 		ValidatedDimension = 0;

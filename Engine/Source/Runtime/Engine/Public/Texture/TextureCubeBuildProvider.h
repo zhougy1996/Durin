@@ -23,6 +23,7 @@ namespace Durin
 	{
 		uint32 FaceDimension = 0;
 		float ExposureEV = 0.0f;
+		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
 	};
 
 	struct FTextureCubePanoramaImage
@@ -92,6 +93,7 @@ namespace Durin
 		uint32 PanoramaFaceDimension = 0;
 		float PanoramaExposureEV = 0.0f;
 		bool bSRGB = true;
+		ETextureCubeOutput Output = ETextureCubeOutput::LDR;
 	};
 
 	enum class ETextureCubeBuildProductOrigin : uint8
@@ -116,6 +118,9 @@ namespace Durin
 		bool bSRGB = true;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;
+		// Borrowed only for this synchronous invocation; HDR bypasses RGBA8 scratch faces.
+		const Image::FImage* HDRPanorama = nullptr;
+		FTextureCubePanoramaBuildSettings PanoramaSettings;
 	};
 
 	struct FTextureCubeRecipeBuildProduct

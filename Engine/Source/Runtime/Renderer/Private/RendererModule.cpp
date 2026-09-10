@@ -61,6 +61,10 @@ namespace Durin
 	FRendererModule::FRendererModule() = default;
 
 	FRendererModule::~FRendererModule() = default;
+    auto FRendererModule::UpdateScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
+    { if (SceneRenderer) SceneRenderer->UpdatePendingScenes_RenderThread(Commands); }
+    auto FRendererModule::SetViewGPUTimingSink_RenderThread(std::function<void(FGPUTimingQueryRHIRef)> Sink) -> void
+    { CheckRenderingThread(); if (SceneRenderer) SceneRenderer->ViewGPUTimingSink=std::move(Sink); }
 
 	auto FRendererModule::StartupModule() -> void
 	{
@@ -151,7 +155,7 @@ namespace Durin
 	auto FRendererModule::CreateScene() -> FScenePtr
 	{
 		check(IsInGameThread());
-		return FScenePtr(new FScene(), FSceneDeleter(&FScene::DestroyScene));
+		return FScenePtr(new FScene(SceneRenderer.get()), FSceneDeleter(&FScene::DestroyScene));
 	}
 
 	auto FRendererModule::CreateViewState() -> FSceneViewStateOwner

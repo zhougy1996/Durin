@@ -1511,7 +1511,9 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 			}
 			Template->GetClass()->ForEachProperty([&](Durin::FProperty* Property) {
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
-					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")) return;
+					|| Property->NamePrivate == Durin::FName("VolumetricCloudSceneId")
+					|| Property->NamePrivate == Durin::FName("SkyLightSceneId")
+					|| Property->NamePrivate == Durin::FName("ProceduralSkySceneId")) return;
 				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
 					Durin::FPropertyIdentityDiagnostic IdentityDiagnostic;

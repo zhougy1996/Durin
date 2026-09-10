@@ -164,6 +164,10 @@ namespace Durin::Editor::Texture
 			const bool bHDRSource =
 				IsRadianceHDRPath(Cube.PanoramaPathBuffer.data());
 			ImGui::BeginDisabled(!bHDRSource);
+			if (ImGui::Checkbox("Preserve HDR radiance", &Cube.bPreserveHDR))
+				RevalidateTextureCubeSources();
+			if (Cube.bPreserveHDR)
+				ImGui::TextDisabled("Linear float output; maximum 512 pixels per face.");
 			ImGui::DragFloat("Exposure", &Cube.PanoramaExposureEV,
 				0.1f, -16.0f, 16.0f, "%+.1f EV",
 				ImGuiSliderFlags_AlwaysClamp);
@@ -349,7 +353,9 @@ namespace Durin::Editor::Texture
 			PanoramaSettings = {
 				.FaceDimension = Cube.PanoramaFaceDimension,
 				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
-					? Cube.PanoramaExposureEV : 0.0f};
+					? Cube.PanoramaExposureEV : 0.0f,
+				.Output = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data()) && Cube.bPreserveHDR
+					? ETextureCubeOutput::HDR : ETextureCubeOutput::LDR};
 		}
 		const std::string Path = AssetPath.ToString();
 		auto* Factory = NewObject<AssetForge::Builtins::DTextureCubeFactory>(

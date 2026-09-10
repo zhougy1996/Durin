@@ -6,6 +6,8 @@ and diagnostic shutdown ownership.
 
 Modules: RHI, VulkanRHI, RenderCore, ApplicationCore
 
+Last reviewed: 2026-09-10
+
 ## Diagnostic Configuration and Lifetime
 
 `DURIN_VULKAN_VALIDATION` accepts `auto`, `on`, and `off`. Invalid or unset
@@ -67,6 +69,12 @@ admission. One query cannot overlap, cross command lists, or be reused while
 recording or pending. `RHIGetGPUTimingResult` is a const, nonblocking read with
 `Unsupported`, `Pending`, `Ready`, or `Invalid` state; it never submits, flushes,
 waits, resets a query, or changes ordering.
+
+After replay records an interval end, the Vulkan command context retains the
+query until GPU submission transfers ownership to the timing manager. That
+manager retains it through completion. Dropping the caller's reference between
+CPU replay and native submission is valid; neither the context nor the manager
+may rely on a raw pointer across that ownership boundary.
 
 Vulkan lazily allocates at most twenty pages of 64 intervals (128 timestamp
 slots per page, 1,280 live intervals total). Each pair is reset and written in

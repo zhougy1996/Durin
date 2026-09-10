@@ -1,9 +1,99 @@
+#include "Actors/ProceduralSkyActor.h"
+#include "Components/ProceduralSkyComponent.h"
 #include "NativeAssetTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Math/Operations.h"
+#include "Actors/SkyLightActor.h"
+#include "Components/SkyLightComponent.h"
+
+TEST(FSkyLightTests, SerializesSourceIdentityAndRejectsNonfiniteIntensity)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::ASkyLightActor>(nullptr, "AuthoredSkyLight");
+	auto* Component = Actor->GetSkyLightComponent();
+	ASSERT_NE(Component, nullptr);
+	Component->SetIntensity(100.0f);
+	EXPECT_EQ(Component->GetIntensity(), 16.0f);
+	Component->SetIntensity(std::numeric_limits<float>::quiet_NaN());
+	EXPECT_EQ(Component->GetIntensity(), 16.0f);
+	Component->SetPriority(-2000);
+	EXPECT_EQ(Component->GetPriority(), -1000);
+	Component->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
+	const auto Id = Component->GetPersistentId();
+	EXPECT_TRUE(Id.IsValid());
+	Durin::FByteBuffer Bytes;
+	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
+	auto* Loaded = Durin::Cast<Durin::ASkyLightActor>(Durin::LoadObjectGraphFromMemory(Bytes));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetPersistentId(), Id);
+	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetSourceMode(), Durin::ESkyLightSourceMode::CapturedSky);
+	EXPECT_EQ(Loaded->GetSkyLightComponent()->GetIntensity(), 16.0f);
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::MarkObjectHierarchyAsGarbage(Loaded);
+	Durin::CollectGarbage();
+}
+
+TEST(FSkyLightTests, SelectsDeterministicallyAndRetiresExactSnapshots)
+{
+	InitializeDObjectSystem();
+	Durin::InitRenderingThread();
+	FSkyBoxTestEngine Engine;
+	auto* Scene = Engine.CreateTestScene();
+	Durin::GEngine = &Engine;
+	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "SkyLightWorld");
+	ASSERT_TRUE(World->InitializeSubsystems());
+	ASSERT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "SkyLightLevel")));
+	Engine.SetWorld(World);
+	auto* First = World->SpawnActor<Durin::ASkyLightActor>("First");
+	auto* Second = World->SpawnActor<Durin::ASkyLightActor>("Second");
+	auto* A = First->GetSkyLightComponent();
+	auto* B = Second->GetSkyLightComponent();
+	A->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
+	B->SetSource(Durin::ESkyLightSourceMode::CapturedSky, nullptr);
+	auto Observe = [&] {
+		std::shared_ptr<const Durin::FSkyLightSceneProxy> Result;
+		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&](Durin::FRHICommandListImmediate&) {
+			Result = Scene->GetSkyLight_RenderThread();
+		});
+		Durin::FlushRenderingCommands();
+		return Result;
+	};
+	EXPECT_FALSE(Observe());
+	auto* Provider = World->SpawnActor<Durin::AProceduralSkyActor>("Provider");
+	EXPECT_NE(Provider, nullptr);
+	auto Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_EQ(Selected->PersistentId, std::min(A->GetPersistentId(), B->GetPersistentId()));
+	B->SetPriority(2);
+	Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_EQ(Selected->PersistentId, B->GetPersistentId());
+	const auto Frozen = Selected;
+	B->Recapture();
+	Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_GT(Selected->RequestSerial, Frozen->RequestSerial);
+	EXPECT_EQ(Selected->SourceEpoch, Frozen->SourceEpoch);
+	Second->SetHidden(true);
+	Selected = Observe();
+	ASSERT_TRUE(Selected);
+	EXPECT_EQ(Selected->PersistentId, A->GetPersistentId());
+	A->SetEnabled(false);
+	EXPECT_FALSE(Observe());
+	EXPECT_TRUE(Frozen->bEligible);
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	EXPECT_FALSE(Observe());
+	Engine.SetWorld(nullptr);
+	Engine.ResetTestScene();
+	Durin::FlushRenderingCommands();
+	Durin::GEngine = nullptr;
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+	Durin::ShutdownRenderingThread();
+}
 
 TEST(FSkyBoxTests, SceneAcceptsOneSkyBoxAndAppliesFifoReplacement)
 {

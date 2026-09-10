@@ -841,9 +841,13 @@ namespace Durin::VulkanRHI
 			ASSERT_TRUE(Orphaned);
 			Immediate.BeginGPUTimingQuery(Orphaned);
 			Immediate.EndGPUTimingQuery(Orphaned);
+			// Replay without submitting, then drop the caller's last reference.
+			// The Vulkan context must own the recorded interval until submission.
+			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+			Orphaned = nullptr;
+			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 			Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 				ERHISubmitFlags::SubmitToGPU);
-			Orphaned = nullptr;
 			for (uint32 Attempt = 0; Attempt < 500; ++Attempt)
 			{
 				GCommandListExecutor.ExecuteSynchronousOperation(false, []() {

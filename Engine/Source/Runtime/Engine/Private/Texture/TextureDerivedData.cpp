@@ -44,6 +44,7 @@ namespace Durin
 		{
 			switch (Format)
 			{
+			case EPixelFormat::RGBA32_FLOAT: OutFormat = ETextureStablePixelFormat::RGBA32_FLOAT; return true;
 			case EPixelFormat::BC1_UNORM: OutFormat = ETextureStablePixelFormat::BC1_UNORM; return true;
 			case EPixelFormat::BC1_UNORM_SRGB: OutFormat = ETextureStablePixelFormat::BC1_UNORM_SRGB; return true;
 			case EPixelFormat::BC3_UNORM: OutFormat = ETextureStablePixelFormat::BC3_UNORM; return true;
@@ -59,6 +60,7 @@ namespace Durin
 		{
 			switch (static_cast<ETextureStablePixelFormat>(StableFormat))
 			{
+			case ETextureStablePixelFormat::RGBA32_FLOAT: OutFormat = EPixelFormat::RGBA32_FLOAT; return true;
 			case ETextureStablePixelFormat::BC1_UNORM: OutFormat = EPixelFormat::BC1_UNORM; return true;
 			case ETextureStablePixelFormat::BC1_UNORM_SRGB: OutFormat = EPixelFormat::BC1_UNORM_SRGB; return true;
 			case ETextureStablePixelFormat::BC3_UNORM: OutFormat = EPixelFormat::BC3_UNORM; return true;

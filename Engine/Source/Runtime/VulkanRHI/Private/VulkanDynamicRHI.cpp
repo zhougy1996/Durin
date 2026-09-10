@@ -124,7 +124,14 @@ namespace Durin::VulkanRHI
 			Limits.maxComputeWorkGroupCount[0],
 			Limits.maxComputeWorkGroupCount[1],
 			Limits.maxComputeWorkGroupCount[2]};
-		const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
+		const auto Float32 = Device->GetGpu().getFormatProperties(vk::Format::eR32G32B32A32Sfloat).optimalTilingFeatures;
+        const auto Float16 = Device->GetGpu().getFormatProperties(vk::Format::eR16G16B16A16Sfloat).optimalTilingFeatures;
+        const auto Sampled = vk::FormatFeatureFlagBits::eSampledImage | vk::FormatFeatureFlagBits::eSampledImageFilterLinear;
+        CapabilityCandidate.bSupportsSkyLighting = (Float32 & Sampled) == Sampled
+            && (Float16 & (Sampled | vk::FormatFeatureFlagBits::eStorageImage)) == (Sampled | vk::FormatFeatureFlagBits::eStorageImage)
+            && Limits.maxComputeWorkGroupInvocations >= 64 && Limits.maxComputeWorkGroupSize[0] >= 8
+            && Limits.maxComputeWorkGroupSize[1] >= 8 && Limits.maxImageDimensionCube >= 512;
+        const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
 		CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
 		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
 		CapabilityCandidate.bSupportsWideLines = Features.wideLines == vk::True;

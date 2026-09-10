@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	struct FSkyLightingRuntimeSmokeState;
 	struct FTaskSchedulerLifecycleSmokeState;
 	struct FRendererContactRuntimeSmokeState;
 
@@ -26,6 +27,8 @@ namespace Durin
 		auto FillCrashLogGap() const -> void;
 
 		FLaunchDiagnosticsRequest Request;
+		std::shared_ptr<FSkyLightingRuntimeSmokeState> SkyLightingState;
+		bool bSkyLightingCompleted = false;
 		std::shared_ptr<FTaskSchedulerLifecycleSmokeState> TaskSchedulerState;
 		std::shared_ptr<FRendererContactRuntimeSmokeState>
 			RendererContactRuntimeState;

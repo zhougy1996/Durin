@@ -6,7 +6,6 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "IRendererModule.h"
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Renderers/ForwardLighting.h"

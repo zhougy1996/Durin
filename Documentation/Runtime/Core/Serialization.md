@@ -77,7 +77,7 @@ itself alone. Archive direction selects loading versus saving. A different
 function is justified only for a materially different semantic layout such as
 Cook streaming, not merely for the opposite direction.
 
-Texture, environment-lighting and StaticMesh payload customizations load into
+Texture and StaticMesh payload customizations load into
 caller-owned storage. A failed destination is destructible but incomplete and
 must be discarded; neither the destination nor the cursor is rolled back.
 Successful loading replaces all serialized sequences, including optional

@@ -196,7 +196,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         EnvironmentIrradiance,
         EnvironmentPrefiltered,
         EnvironmentBrdfLut,
-        EnvironmentSampler);
+        EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
     float4 composed = ComposeSurfaceLighting(
         directional + local,
         environment,

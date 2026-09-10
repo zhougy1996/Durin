@@ -4,7 +4,7 @@ Summary: Define cube-texture assets, source capture, platform payloads, upload, 
 
 Modules: Engine, AssetForgeBuiltins, TextureBuild, Renderer, RHI
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-10
 
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
@@ -130,7 +130,7 @@ delete.
 Six-face imports retain one normalized, explicitly based physical source hint
 for each canonical face role; panorama imports retain one panorama hint.
 Provenance stores exact XXH3-128 encoded-source hashes. Generic Source identity
-covers decoded pixels and interpretation; projection version 2 is part of build
+covers decoded pixels and interpretation; projection version 3 is part of build
 identity. Import never copies, moves, or deletes source art, and
 moving or deleting a package does not affect potentially shared source files.
 
@@ -224,7 +224,9 @@ finite EV value in `[-16, 16]` and is applied first:
 x = decodedLinear * exp2(EV)
 ```
 
-Each exposed channel then uses the fixed ACES fitted filmic curve:
+`ETextureCubeOutput::LDR` (serialized value 0) preserves the original behavior
+and is the default when older packages omit `Output`. In this mode each exposed
+channel uses the fixed ACES fitted filmic curve:
 
 ```text
 filmic(x) = clamp(
@@ -239,7 +241,28 @@ clamping them. Values whose finite curve result exceeds one are clamped to
 one; there is no adjustable white point. The result is converted to sRGB and
 RGBA8 with the LDR encoding and quantization rule above.
 
-The following scalar cases are golden ground truth. Decimal intermediates are
+`ETextureCubeOutput::HDR` (value 1) instead preserves exposed linear radiance in
+uncompressed `RGBA32_FLOAT` platform data with alpha one and `bSRGB=false`.
+Only float panoramas are admitted; face dimensions are limited to 512 and exposed
+channels to 16384. Invalid values fail before publication. There is no filmic
+curve, sRGB encoding or BC compression in this recipe. The import dialog exposes
+**Preserve HDR radiance**, and ordinary reimport preserves the selected mode.
+
+HDR projection bypasses legacy RGBA8 imported-face scratch data. Mip zero samples
+panorama directions at cube pixel centers. Each lower ordinary mip integrates an
+8-by-8 grid over its angular footprint directly from the original panorama,
+weighted by the cube solid-angle Jacobian. These are radiance texture mips, not
+GGX prefilter levels. The existing viewport/thumbnail display mapping runs after
+GPU sampling and never modifies stored radiance.
+
+The HDR DDC key contains the canonical panorama identity, requested dimension,
+exposure, linear color policy and recipe versions; it cannot alias the LDR face
+recipe. Builder version 4 and projection version 3 invalidate prior derived
+results. TXPL schema 2 adds stable pixel-format ID 13 for RGBA32F without changing
+its record layout; existing IDs retain their meanings. Ordinary package source,
+lazy cooked platform data and upload share the existing texture mechanisms.
+
+The following LDR scalar cases are golden ground truth. Decimal intermediates are
 shown for review; the final byte is authoritative for tests and rebuilds.
 
 | Linear input | EV | Exposed | Filmic | sRGB | Byte |
@@ -395,3 +418,6 @@ in [Texture Cube Workflow](../../Editor/Guides/TextureCubeWorkflow.md).
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
 - `Engine/Shaders/Slang/SkyBox.slang`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
+
+Independent procedural capture and transient environment generations follow
+[Sky Lighting](SkyLighting.md).

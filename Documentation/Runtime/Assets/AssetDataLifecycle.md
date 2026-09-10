@@ -72,7 +72,7 @@ providers retain no cache keys, origin, persistence diagnostics, or live assets.
 
 Texture cache decoding reuses the provider's unpublished platform destination;
 on a miss that incomplete destination is discarded before recipe application.
-Cooked texture loading and environment-lighting loading retain their input
+Cooked texture loading retains its input
 buffer or BulkData lease until synchronous decoding finishes and publish only
 after exact payload completion. StaticMesh cooked products keep joint render
 and collision publication at the product boundary, including metadata checks.
@@ -107,6 +107,11 @@ Neither kind identifies a DDC key, `.bin` object, `.dbulk` file, or
 byte offset, and asset paths and source hints are not interchangeable.
 
 ## Runtime Data Domain
+
+Standalone Game selects the Cooked domain before loading Engine/project assets
+and mounts the executable's cooked Engine/Game directories read-only. Material
+bytecode validates the saved runtime ABI without requiring a compiler provider;
+source-independent sky lighting uses ordinary cooked TextureCube dependencies.
 
 Engine has one immutable `FAssetRuntimeConfiguration` for each initialized
 runtime lifetime. `Authored()` selects the authored execution domain with
@@ -329,7 +334,6 @@ The implemented family projections are:
 | Texture2D, TextureCube, VolumeTexture | `PlatformData` | texture resource upload |
 | StaticMesh | `RenderData`, `CollisionData` | render and physics publication |
 | Material | `ProgramData` | material render-layer publication |
-| EnvironmentLighting | `PlatformData` | lighting resource upload |
 
 The three texture families store their cooked `FBulkData` in one `DTexture`
 slot, but their serializers continue to expose the stable concrete wire fields
@@ -502,8 +506,9 @@ without declarations. Declarations use stable logical names and these semantics:
 Built-in Texture2D, TextureCube, VolumeTexture, and StaticMesh declarations include
 native recipe-provider descriptors. Material declares shader source/compiler
 identity evaluated once per run without retaining source bytes; compiler calls
-use ordinary stable files. EnvironmentLighting declares and reads its `.iblbulk`
-file. StaticMesh pending authored mutation remains an invalid offline input.
+use ordinary stable files. Sky Light references are normal TextureCube package
+dependencies; filtered lighting is transient GPU state, with no external IBL
+payload. StaticMesh pending authored mutation remains an invalid offline input.
 
 `CookState.bin` version 2 persists canonical per-package dependency records,
 separately from CMNF. Version 1, invalid, duplicate, truncated, or incompatible

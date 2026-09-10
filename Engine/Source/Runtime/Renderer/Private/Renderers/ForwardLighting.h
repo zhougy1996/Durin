@@ -94,6 +94,8 @@ namespace Durin
 		FForwardDirectionalLightUniform Directional;
 		FForwardDirectionalShadowUniform DirectionalShadow;
 		std::array<FForwardLocalLightUniform, MaxPreparedLocalLights> Local{};
+		FVector4f EnvironmentRotation{0,0,0,1};
+		FVector4f EnvironmentControl{0,7,0,0};
 	};
 
 	static_assert(sizeof(FForwardDirectionalLightUniform) == 32);
@@ -105,7 +107,7 @@ namespace Durin
 	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, ValidRegion) == 112);
 	static_assert(sizeof(FForwardDirectionalShadowUniform) == 448);
 	static_assert(offsetof(FForwardDirectionalShadowUniform, Cascades) == 64);
-	static_assert(sizeof(FForwardLightingUniform) == 768);
+	static_assert(sizeof(FForwardLightingUniform) == 800);
 	static_assert(alignof(FForwardLightingUniform) == 16);
 	static_assert(offsetof(FForwardLightingUniform, DirectionalShadow) == 64);
 	static_assert(offsetof(FForwardLightingUniform, Local) == 512);

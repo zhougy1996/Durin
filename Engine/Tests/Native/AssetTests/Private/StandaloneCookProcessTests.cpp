@@ -16,7 +16,6 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Materials/Material.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/Task.h"
@@ -255,21 +254,17 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")
 		->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material", .DefaultMaterial = Material}};
 	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));
-	auto* Environment = Make.operator()<DEnvironmentLighting>("Environment");
-	FEnvironmentLightingData Lighting;
-	for (auto& Face : Lighting.Irradiance)
-		Face.assign(static_cast<size_t>(EnvironmentIrradianceDimension) * EnvironmentIrradianceDimension * 4, 1);
-	for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
-		for (auto& Face : Lighting.Prefiltered[Mip])
-			Face.assign(static_cast<size_t>(EnvironmentPrefilterDimension >> Mip) * (EnvironmentPrefilterDimension >> Mip) * 4, 2);
-	Lighting.BrdfLut.assign(static_cast<size_t>(EnvironmentBrdfLutDimension) * EnvironmentBrdfLutDimension * 4, 3);
-	FByteBuffer LightingBytes;
-	FCanonicalMemoryWriter Writer(LightingBytes, EArchivePurpose::DerivedDataPayload);
-	Lighting.Serialize(Writer);
-	ASSERT_FALSE(Writer.HasError());
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(LightingBytes,
-		DEnvironmentLighting::GetAuthoredPayloadPath("/Game/Environment")));
-	ASSERT_TRUE(SavePackage(Environment->GetPackage()));
+    auto* Environment = Make.operator()<DTextureCube>("Environment");
+    Image::FImage HdrImage;
+    std::vector<float> HdrPixels(8*4*4,4.0f);
+    const auto HdrBytes=std::as_bytes(std::span(HdrPixels));
+    ASSERT_TRUE(Image::FImage::TryCreate({.Width=8,.Height=4,.Format=Image::ERawImageFormat::RGBA32F,
+        .GammaSpace=Image::EImageGammaSpace::Linear},FByteBuffer(HdrBytes.begin(),HdrBytes.end()),HdrImage));
+    auto HdrSource=PrepareTextureCubePanoramaSource(HdrImage.GetView(),4,0);
+    ASSERT_TRUE(HdrSource);
+    Environment->SetSource(std::move(*HdrSource));
+    Environment->SetBuildSettings(ETextureCubeSourceLayout::EquirectangularPanorama,4,0,8,4,false,ETextureCubeOutput::HDR);
+    ASSERT_TRUE(SavePackage(Environment->GetPackage()));
 	FPackagePath AliasPath;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Game/Alias", AliasPath));
 	DAssetRedirector* Alias = nullptr;
@@ -312,8 +307,15 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 			EXPECT_TRUE(static_cast<DTexture*>(Asset)->EnsurePlatformDataLoadedBlocking());
 		if (Asset->IsA(DStaticMesh::StaticClass()))
 			EXPECT_TRUE(static_cast<DStaticMesh*>(Asset)->EnsureRenderDataLoadedBlocking());
-		if (Asset->IsA(DEnvironmentLighting::StaticClass()))
-			EXPECT_NE(static_cast<DEnvironmentLighting*>(Asset)->GetData(), nullptr);
+        if (Path.GetView()=="/Game/Environment")
+        {
+            auto* Hdr=Cast<DTextureCube>(Asset);
+            ASSERT_NE(Hdr,nullptr);
+            EXPECT_EQ(Hdr->GetBuiltPixelFormat(),EPixelFormat::RGBA32_FLOAT);
+            float Value=0;
+            std::memcpy(&Value,Hdr->GetPlatformData()->Faces[0].Mips[0].Pixels.data(),sizeof(float));
+            EXPECT_FLOAT_EQ(Value,4.0f);
+        }
 	}
 	EXPECT_EQ(Inventory(Source), Before);
 }

@@ -95,6 +95,44 @@ namespace Durin::TextureCubeBuilder
 		EXPECT_EQ(FacePixel(Cube, ETextureCubeFace::PositiveX), (std::array<uint8, 4>{221, 221, 221, 255}));
 	}
 
+	TEST(FEquirectangularTextureCubeTests, HDRConstantRadianceSurvivesEveryOrdinaryMip)
+	{
+		std::array<float, 32> Pixels;
+		for (size_t Index = 0; Index < 8; ++Index)
+		{
+			Pixels[Index * 4] = 2.0f;
+			Pixels[Index * 4 + 1] = 4.0f;
+			Pixels[Index * 4 + 2] = 8.0f;
+			Pixels[Index * 4 + 3] = 1.0f;
+		}
+		Image::FImage Panorama;
+		std::string Error;
+		const auto Bytes = std::as_bytes(std::span(Pixels));
+		ASSERT_TRUE(Image::FImage::TryCreate({.Width = 4, .Height = 2,
+			.Format = Image::ERawImageFormat::RGBA32F, .GammaSpace = Image::EImageGammaSpace::Linear},
+			FByteBuffer(Bytes.begin(), Bytes.end()), Panorama, &Error)) << Error;
+		FTextureCubePlatformData Cube;
+		ASSERT_TRUE(BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 8, .ExposureEV = 1.0f, .Output = ETextureCubeOutput::HDR}, Cube, Error)) << Error;
+		for (const auto& Face : Cube.Faces)
+		{
+			ASSERT_EQ(Face.Mips.size(), 4u);
+			for (const auto& Mip : Face.Mips)
+				for (size_t Offset = 0; Offset < Mip.Pixels.size(); Offset += 16)
+				{
+					std::array<float, 4> Pixel;
+					std::memcpy(Pixel.data(), Mip.Pixels.data() + Offset, 16);
+					EXPECT_EQ(Pixel, (std::array<float, 4>{4, 8, 16, 1}));
+				}
+		}
+		EXPECT_FALSE(BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 513, .Output = ETextureCubeOutput::HDR}, Cube, Error));
+		EXPECT_FALSE(Cube.IsValid());
+		EXPECT_FALSE(BuildHDRTextureCube(Panorama,
+			{.FaceDimension = 8, .ExposureEV = 16, .Output = ETextureCubeOutput::HDR}, Cube, Error));
+		EXPECT_FALSE(Cube.IsValid());
+	}
+
 	TEST(FEquirectangularTextureCubeTests, RejectsInvalidDimensionsStorageExposureAndAllocationLimits)
 	{
 		FEquirectangularTextureCubeProjectionSettings Settings;

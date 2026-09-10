@@ -1,3 +1,4 @@
+#include "SceneInterface.h"
 #include "Engine/World.h"
 #include "WorldOperation.h"
 
@@ -206,6 +207,7 @@ namespace Durin
 			if (!CanDispatchSubsystems()) break;
 			if (bGameplay && (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group))) break;
 		}
+		if (CanDispatchSubsystems() && RenderScene) RenderScene->UpdateSkyLighting();
 	}
 
 	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool

@@ -492,24 +492,18 @@ upgrade branch, or migration path. Authored packages using those schemas are
 incompatible; repository content was recreated directly under the current
 schema.
 
+Cooked material decoding uses saved target, schema, layout/stage contracts and
+code hashes. Compiler identity remains production provenance in the Cooked
+domain; standalone Game never requires ShaderBuild to validate its bytecode.
+
 ## Environment Lighting
 
-The studio image-based-lighting baseline is a hidden Engine asset at
-`/Engine/Renderer/DefaultStudioEnvironment`, shared by level, preview, and
-thumbnail rendering. It is neither a user material parameter nor scene
-SkyBox state. The checked-in authoring payload contains deterministic
-irradiance, GGX-prefiltered radiance, and a split-sum BRDF LUT generated only
-by the independent `EnvironmentLightingBake` offline tool.
-
-`DEnvironmentLighting` validates the versioned, checksummed authoring payload
-and owns its Cook operation. Cook projects it into the `PlatformData` BulkData
-field and may place that field in the generic raw package segment without
-consulting DDC. Runtime loading accepts only a valid target-qualified field.
-Renderer creates the RHI resources
-on the render thread; an absent, invalid, or unavailable set resolves as one
-black environment set, preserving direct lighting and Emissive. This internal
-asset follows Engine content and asset-cook ownership rather than `DevTool`
-build orchestration.
+[Sky Lighting](SkyLighting.md) owns independent Sky Light components, ordinary
+HDR cube sources, procedural capture, GPU filtering, and generation lifetime.
+Forward and deferred materials sample the same complete irradiance/prefilter
+set and shared BRDF LUT. Intensity and specified-cube rotation are sample-time
+controls; missing eligible sources contribute black without affecting direct
+lighting or Emissive. Studio lighting is ordinary scene/component content.
 
 ## Geometry and Editor Consumers
 

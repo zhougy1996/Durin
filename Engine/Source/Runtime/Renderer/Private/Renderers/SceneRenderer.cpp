@@ -33,32 +33,26 @@ namespace Durin
 
 	FSceneRenderer::~FSceneRenderer() = default;
 
+    auto FSceneRenderer::UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void
+    {
+        CheckRenderingThread();
+        for (auto* Scene : PendingSkyScenes)
+        {
+            UpdateSkyLighting_RenderThread(Commands,*Scene);
+            Scene->SkyLighting->WorldUpdateFrame=GRenderFrameCounterRenderThread;
+        }
+        PendingSkyScenes.clear();
+    }
+
+    auto FSceneRenderer::UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void
+    {
+        EnvironmentLighting.UpdateScene_RenderThread(Commands, Scene, RDGAllocator, DefaultTextures.GetCube_RenderThread());
+    }
+
 	auto FSceneRenderer::Start(
 		FConsoleCommandRegistry& Registry
 	) -> bool
 	{
-		FObjectPath EnvironmentPath;
-		DEnvironmentLighting* EnvironmentAsset = nullptr;
-		std::string PathError;
-		FAssetResult EnvironmentResult =
-			FObjectPath::TryCreate(
-				"/Engine/Renderer/DefaultStudioEnvironment.DefaultStudioEnvironment",
-				EnvironmentPath,
-				&PathError
-			) ?
-				LoadObject(EnvironmentPath, EnvironmentAsset) :
-				FAssetResult{EAssetError::InvalidPath, std::move(PathError)};
-		if (EnvironmentResult && EnvironmentAsset != nullptr)
-		{
-			EnvironmentLighting.Initialize(EnvironmentAsset->GetData());
-		}
-		else
-		{
-			DURIN_ERROR(
-				"Failed to load the built-in studio environment: {}",
-				EnvironmentResult.Message
-			);
-		}
 		return Coordinator.Start(
 			Registry,
 			[this](ERendererResourceInvalidationCause Cause) {

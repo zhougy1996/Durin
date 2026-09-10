@@ -17,7 +17,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformMisc.h"
 #include "Json/Json.h"
 #include "Logging/Logger.h"
@@ -909,7 +908,7 @@ int main(int ArgC, char** ArgV)
 		Durin::LoggerInit();
 		Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
 	}
-	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error))
+	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error, Options.Operation != EOperation::Cook))
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;

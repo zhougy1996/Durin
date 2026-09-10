@@ -53,6 +53,7 @@ namespace Durin::Editor::Texture
 		uint32 PanoramaFaceDimension = 0;
 		uint32 PanoramaCustomFaceDimension = 0;
 		float PanoramaExposureEV = 0.0f;
+		bool bPreserveHDR = false;
 		uint32 ValidatedSourceWidth = 0;
 		uint32 ValidatedSourceHeight = 0;
 		uint32 ValidatedDimension = 0;

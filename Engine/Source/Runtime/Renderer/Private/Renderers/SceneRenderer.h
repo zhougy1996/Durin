@@ -45,7 +45,11 @@ namespace Durin
 		FSceneRenderer(const FSceneRenderer&) = delete;
 		auto operator=(const FSceneRenderer&) -> FSceneRenderer& = delete;
 
-		auto Start(FConsoleCommandRegistry& Registry) -> bool;
+		auto UpdateSkyLighting_RenderThread(FRHICommandListImmediate& Commands, FScene& Scene) -> void;
+		std::unordered_set<FScene*> PendingSkyScenes;
+		std::function<void(FGPUTimingQueryRHIRef)> ViewGPUTimingSink;
+        auto UpdatePendingScenes_RenderThread(FRHICommandListImmediate& Commands) -> void;
+        auto Start(FConsoleCommandRegistry& Registry) -> bool;
 		auto Stop() -> void;
 		auto InitializeStartupResources_RenderThread(
 			FRHICommandListImmediate& CommandList

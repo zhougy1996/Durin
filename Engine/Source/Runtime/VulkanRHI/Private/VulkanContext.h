@@ -156,7 +156,9 @@ namespace Durin::VulkanRHI
 		uint32 BoundIndexBufferOffset = 0;
 
 		std::vector<FVulkanPayload*> Payloads;
-		std::vector<FVulkanGPUTimingQuery*> PendingTimingQueries;
+		// Own recorded intervals until submission transfers them to the timing
+		// manager; the caller may release its query after recording ends.
+		std::vector<TRefCountPtr<FVulkanGPUTimingQuery>> PendingTimingQueries;
 
 		struct FPendingAttachmentState
 		{

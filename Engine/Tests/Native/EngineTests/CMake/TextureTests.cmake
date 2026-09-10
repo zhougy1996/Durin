@@ -70,6 +70,7 @@ else()
 			Private/Texture/TextureBuildTests.cpp
 			Private/Texture/VolumeTextureSourceImportTests.cpp
 			Private/Texture/TextureFailureTests.cpp
+			Private/Texture/TextureCookedBaseStateTests.cpp
 			Private/Texture/SceneImportTests.cpp
 			Private/Texture/SingleAssetImportTests.cpp
 			Private/Texture/EquirectangularTextureCubeTests.cpp

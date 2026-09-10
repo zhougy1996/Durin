@@ -1,3 +1,10 @@
+#include "Actors/ProceduralSkyActor.h"
+#include "Resources/RendererResourceCoordinator.h"
+#include "Actors/SkyLightActor.h"
+#include "Components/ProceduralSkyComponent.h"
+#include "Components/SkyLightComponent.h"
+#include <glm/gtc/packing.hpp>
+#include <thread>
 #include "Threading/Task.h"
 #include "NativeAssetTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -48,6 +55,8 @@ namespace
 		}, Panorama);
 	}
 } // namespace
+
+static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer);
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
@@ -124,22 +133,18 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> HdrCubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
-		{.FaceDimension = 64, .ExposureEV = 1.0f}
+		{.FaceDimension = 64, .ExposureEV = 1.0f, .Output = Durin::ETextureCubeOutput::HDR}
 	);
 	ASSERT_TRUE(HdrCubeResult) << HdrCubeResult.Message;
+	ASSERT_EQ(HdrCubeResult.Asset->GetBuiltPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
 	Durin::FTextureCubeSourceData SourceData;
-	Durin::FTextureCubeSourceData HdrSourceData;
 	std::string ProjectionError;
 	ASSERT_TRUE(ProjectPanoramaFixture(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga"),
 		{.FaceDimension = 64}, SourceData, ProjectionError)) << ProjectionError;
-	ASSERT_TRUE(ProjectPanoramaFixture(
-		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr"),
-		{.FaceDimension = 64, .ExposureEV = 1.0f},
-		HdrSourceData, ProjectionError)) << ProjectionError;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
 	std::array<std::array<uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
@@ -147,13 +152,21 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		SourceColors[FaceIndex] = GetSourceColor(
 			SourceData, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
 		);
-		HdrSourceColors[FaceIndex] = GetSourceColor(
-			HdrSourceData, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
-		);
+		std::array<float, 4> Linear;
+		std::memcpy(Linear.data(), HdrPlatformData->Faces[FaceIndex].Mips[0].Pixels.data()
+			+ (32 * 64 + 32) * 16, 16);
+		const auto Mapped = Durin::DisplayMapping::MapSceneLinearToDisplayLinear(
+			{Linear[0], Linear[1], Linear[2]}, 0.0f);
+		for (uint32 Channel = 0; Channel < 3; ++Channel)
+		{
+			const float Value = Mapped[Channel];
+			const float Encoded = Value <= 0.0031308f ? Value * 12.92f
+				: 1.055f * std::pow(Value, 1.0f / 2.4f) - 0.055f;
+			HdrSourceColors[FaceIndex][Channel] = static_cast<uint8>(std::lround(std::clamp(Encoded, 0.0f, 1.0f) * 255.0f));
+		}
+		HdrSourceColors[FaceIndex][3] = 255;
 		SourceColors[FaceIndex] =
 			MapSrgbReferenceThroughDisplay(SourceColors[FaceIndex]);
-		HdrSourceColors[FaceIndex] =
-			MapSrgbReferenceThroughDisplay(HdrSourceColors[FaceIndex]);
 	}
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
@@ -586,6 +599,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
 	}
 
+	ValidateDynamicSkyLighting(Renderer);
 	Durin::FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
 	Durin::FlushRenderingCommands();
 	SkyBox.TextureReference = nullptr;
@@ -634,4 +648,219 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::ShutdownTaskSystem();
 	Durin::RHIExit();
 	Durin::ShutdownAssetCompilingManager();
+}
+
+static void ValidateDynamicSkyLighting(Durin::FRendererModule& Renderer)
+{
+    using namespace Durin;
+    TryEnqueueRenderCommand("BeginSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
+    auto SceneOwner=Renderer.CreateScene();
+    auto& Scene=static_cast<FScene&>(*SceneOwner);
+    auto* World=NewObject<DWorld>(nullptr,"DynamicSkyWorld");
+    AddToRoot(World);
+    EXPECT_TRUE(World->InitializeSubsystems());
+    World->SetRenderScene(&Scene);
+    EXPECT_TRUE(World->SetCurrentLevel(NewObject<DLevel>(World,"SkyLevel")));
+    auto* Sky=World->SpawnActor<AProceduralSkyActor>("Sky")->GetSkyComponent();
+    auto* Light=World->SpawnActor<ASkyLightActor>("Light")->GetSkyLightComponent();
+    auto OtherSceneOwner=Renderer.CreateScene();
+    auto& OtherScene=static_cast<FScene&>(*OtherSceneOwner);
+    auto* OtherWorld=NewObject<DWorld>(nullptr,"OtherSkyWorld");
+    AddToRoot(OtherWorld); EXPECT_TRUE(OtherWorld->InitializeSubsystems());
+    OtherWorld->SetRenderScene(&OtherScene);
+    EXPECT_TRUE(OtherWorld->SetCurrentLevel(NewObject<DLevel>(OtherWorld,"OtherSkyLevel")));
+    OtherWorld->SpawnActor<AProceduralSkyActor>("OtherSky")->GetSkyComponent()->SetRadianceColors({1,3,5},{1,3,5},{1,3,5},{0,0,0});
+    auto* OtherLight=OtherWorld->SpawnActor<ASkyLightActor>("OtherLight")->GetSkyLightComponent();
+    OtherLight->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
+    OtherLight->SetRefreshPolicy(true,0.25f);
+    Sky->SetExposure(4);
+    Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
+    Light->SetRefreshPolicy(true,0.25f);
+    TryEnqueueRenderCommand("EndSkySetup",[](FRHICommandListImmediate& Cmd) { GDynamicRHI->RHIEndFrame_RenderThread(Cmd); });
+    FlushRenderingCommands();
+    bool Ready=false;
+    uint64 Revision=0;
+    FByteBuffer Before,After;
+    const auto Pump=[&](bool Read) {
+        TryEnqueueRenderCommand("BeginSkyTick",[](FRHICommandListImmediate& Cmd) { ++GRenderFrameCounterRenderThread; GDynamicRHI->RHIBeginFrame_RenderThread(Cmd); });
+        World->Tick({.DeltaSeconds=0.02f});
+        OtherWorld->Tick({.DeltaSeconds=0.02f});
+        TryEnqueueRenderCommand("EndSkyTick",[&](FRHICommandListImmediate& Cmd) {
+            Renderer.UpdateScenes_RenderThread(Cmd);
+            Ready=bool(Scene.SkyLighting->Active);
+            if (Ready)
+            {
+                const auto& G=*Scene.SkyLighting->Active;
+                Revision=G.Revision;
+                EXPECT_EQ(G.Radiance->GetNumMips(),8u);
+                EXPECT_EQ(G.Prefiltered->GetNumMips(),8u);
+                EXPECT_EQ(G.Irradiance->GetSizeX(),16u);
+                if(Read) EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Radiance,0,4,After));
+            }
+            GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
+        });
+        FlushRenderingCommands();
+    };
+    for(int i=0;i<150 && !Ready;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+    EXPECT_TRUE(Ready) << "Scene tick must generate GPU lighting without any view";
+    if(Ready)
+    {
+        Pump(true);
+        Before=After;
+        const uint64 FirstRevision=Revision;
+        const auto Half=[&](const FByteBuffer& Bytes,size_t Index) {
+            if (Bytes.size() < Index*2+2) return 0.0f;
+            uint16 Bits; std::memcpy(&Bits,Bytes.data()+Index*2,2);
+            return glm::unpackHalf2x16(uint32(Bits)).x;
+        };
+        EXPECT_GT(Half(Before,(64*128+64)*4),1.0f);
+        Sky->SetSunDirection(FVector3f(0,0,1));
+        for(int i=0;i<100 && Revision==FirstRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_GT(Revision,FirstRevision);
+        Pump(true);
+        EXPECT_NE(Before,After);
+        Sky->SetExposure(0);
+        Sky->SetRadianceColors({0,0,0},{0,0,0},{0,0,0},{16,8,4});
+        const uint64 HotspotRevision=Revision;
+        for(int i=0;i<100 && Revision==HotspotRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_GT(Revision,HotspotRevision);
+        TryEnqueueRenderCommand("ValidateSkyHotspot",[&](FRHICommandListImmediate& Cmd) {
+            GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
+            const auto& G=*Scene.SkyLighting->Active;
+            FByteBuffer Pixels;
+            EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Irradiance,0,4,Pixels));
+            // Analytic hemisphere integral of 16*cos(theta)^16*cos(theta).
+            EXPECT_NEAR(Half(Pixels,(8*16+8)*4),16.f*2.f*3.14159265f/18.f,0.20f);
+            std::array<float,8> Peaks{};
+            for(uint32 Mip=0;Mip<8;++Mip)
+            {
+                EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Prefiltered,Mip,4,Pixels));
+                for(size_t Pixel=0;Pixel<Pixels.size()/8;++Pixel) Peaks[Mip]=std::max(Peaks[Mip],Half(Pixels,Pixel*4));
+            }
+            EXPECT_GT(Peaks[0],15.f);
+            EXPECT_GT(Peaks[0],Peaks[2]);
+            EXPECT_GT(Peaks[2],Peaks[4]);
+            EXPECT_GT(Peaks[4],Peaks[7]);
+            EXPECT_LT(Peaks[7],3.f);
+            // Visible sky uses the same radiance, then display mapping.
+            auto Color=GDynamicRHI->RHICreateTexture(Cmd,FRHITextureCreateDesc::Create2D("VisibleAnalyticSky",17,17,EPixelFormat::SRGBA8_UNORM)
+                .SetFlags(ETextureCreateFlags::RenderTargetable|ETextureCreateFlags::ShaderResource|ETextureCreateFlags::CPUReadback));
+            EXPECT_EQ(Renderer.RenderView(Cmd,&Scene,MakePrincipalAxisView({0,0,1},{},17,17),Color,false,{}),ERenderViewResult::Success);
+            EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,Color,0,0,Pixels));
+            const auto Mapped=DisplayMapping::MapSceneLinearToDisplayLinear({16,8,4},0);
+            std::array<uint8,4> Expected{0,0,0,255};
+            for(uint32 C=0;C<3;++C) Expected[C]=uint8(std::lround((1.055f*std::pow(Mapped[C],1.f/2.4f)-0.055f)*255));
+            ExpectRgbNear(Pixels,17,8,8,Expected,4);
+            GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
+        });
+        FlushRenderingCommands();
+        Sky->SetRadianceColors({2,4,8},{2,4,8},{2,4,8},{0,0,0});
+        const uint64 PreviousRevision=Revision;
+        for(int i=0;i<100 && Revision==PreviousRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_GT(Revision,PreviousRevision);
+        TryEnqueueRenderCommand("ValidateSkyEnergy",[&](FRHICommandListImmediate& Cmd) {
+            GDynamicRHI->RHIBeginFrame_RenderThread(Cmd);
+            EXPECT_TRUE(OtherScene.SkyLighting->Active);
+            if (OtherScene.SkyLighting->Active)
+            {
+                FByteBuffer OtherPixels;
+                EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,OtherScene.SkyLighting->Active->Irradiance,0,4,OtherPixels));
+                EXPECT_NEAR(Half(OtherPixels,(8*16+8)*4),3.14159265f,0.01f);
+                EXPECT_NE(OtherScene.SkyLighting->Active->Owner,Scene.SkyLighting->Active->Owner);
+            }
+            const auto& G=*Scene.SkyLighting->Active;
+            for(uint32 Face=0;Face<6;++Face)
+            {
+                FByteBuffer Pixels;
+                EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Irradiance,0,Face,Pixels));
+                for(uint32 Channel=0;Channel<3;++Channel)
+                    EXPECT_NEAR(Half(Pixels,(8*16+8)*4+Channel),3.14159265f*float(2u<<Channel),0.025f);
+                for(uint32 Mip=0;Mip<8;++Mip)
+                {
+                    EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(Cmd,G.Prefiltered,Mip,Face,Pixels));
+                    for(uint32 Channel=0;Channel<3;++Channel)
+                        EXPECT_NEAR(Half(Pixels,Channel),float(2u<<Channel),0.01f);
+                }
+            }
+            GDynamicRHI->RHIEndFrame_RenderThread(Cmd);
+        });
+        FlushRenderingCommands();
+        // Retain old generations deliberately until allocation admission fails.
+        // Failure must leave the last complete active set available, then recover
+        // when the outstanding consumers release their references.
+        std::vector<std::shared_ptr<const FSkyLightingGeneration>> Retained;
+        bool Backpressured=false;
+        for(int Attempt=0;Attempt<8 && !Backpressured;++Attempt)
+        {
+            TryEnqueueRenderCommand("RetainSkyConsumer",[&](FRHICommandListImmediate&) { Retained.push_back(Scene.SkyLighting->Active); });
+            FlushRenderingCommands();
+            Light->Recapture();
+            std::this_thread::sleep_for(std::chrono::milliseconds(270));
+            Pump(false);
+            Backpressured=Light->GetUpdateStatus()->State.load()==ESkyLightUpdateState::Backpressure;
+        }
+        EXPECT_TRUE(Backpressured);
+        TryEnqueueRenderCommand("CheckLastGoodSky",[&](FRHICommandListImmediate&) {
+            EXPECT_EQ(Scene.SkyLighting->Active,Retained.back());
+            Retained.clear();
+        });
+        FlushRenderingCommands();
+        for(int i=0;i<100 && Light->GetUpdateStatus()->State.load()!=ESkyLightUpdateState::Ready;++i)
+        { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_EQ(Light->GetUpdateStatus()->State.load(),ESkyLightUpdateState::Ready);
+        // Manual refresh is independent of the automatic policy. Continuous
+        // animation must not cancel a generation already admitted to the GPU.
+        Light->SetRefreshPolicy(false,0.25f);
+        const uint64 StableRevision=Revision;
+        Sky->SetSunDirection({1,0,0});
+        Pump(false);
+        EXPECT_EQ(Revision,StableRevision);
+        Light->Recapture();
+        for(int i=0;i<100 && Revision==StableRevision;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_GT(Revision,StableRevision);
+        Pump(false);
+        TryEnqueueRenderCommand("ReportSkyTiming",[&](FRHICommandListImmediate&) {
+            const auto Selected=Scene.GetSkyLight_RenderThread();
+            std::cout << "Dynamic sky GPU update: " << Selected->UpdateStatus->UpdateMilliseconds.load() << " ms\n";
+        });
+        FlushRenderingCommands();
+        // Invalidate while the scene is inactive: old ownership must disappear
+        // without waiting for another world tick or view submission.
+        EXPECT_TRUE(Renderer.RequestResourceInvalidation(ERendererResourceInvalidationCause::Device).bSuccess);
+        TryEnqueueRenderCommand("CheckSkyInvalidation",[&](FRHICommandListImmediate&) {
+            EXPECT_FALSE(Scene.SkyLighting->Active);
+            EXPECT_FALSE(Scene.SkyLighting->InFlight);
+            EXPECT_FALSE(OtherScene.SkyLighting->Active);
+        });
+        FlushRenderingCommands();
+        Ready=false;
+        for(int i=0;i<150 && !Ready;++i) { Pump(false); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        EXPECT_TRUE(Ready);
+        // Rapid replacement cannot reuse a previous authority's generation.
+        for(int i=0;i<12;++i)
+        {
+            Light->SetSource(ESkyLightSourceMode::SpecifiedCube,nullptr);
+            Pump(false); EXPECT_FALSE(Ready);
+            Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
+            Pump(false);
+        }
+        Sky->SetEnabled(false); Pump(false); EXPECT_FALSE(Ready);
+        Sky->SetEnabled(true);
+        Light->SetEnabled(false);
+        Pump(false);
+        EXPECT_FALSE(Ready);
+    }
+    // Detach the second world directly after admitting a manual refresh.
+    OtherLight->Recapture(); Pump(false);
+    EXPECT_TRUE(OtherWorld->SetCurrentLevel(nullptr)); OtherWorld->SetRenderScene(nullptr);
+    OtherWorld->Shutdown(); RemoveFromRoot(OtherWorld); MarkObjectHierarchyAsGarbage(OtherWorld);
+    FSceneInterfaceTestAccess::ReleaseScene(OtherSceneOwner);
+    EXPECT_TRUE(World->SetCurrentLevel(nullptr));
+    World->SetRenderScene(nullptr);
+    World->Shutdown();
+    RemoveFromRoot(World);
+    MarkObjectHierarchyAsGarbage(World);
+    CollectGarbage();
+    FSceneInterfaceTestAccess::ReleaseScene(SceneOwner);
+    FlushRenderingCommands();
 }

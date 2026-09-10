@@ -3,7 +3,6 @@
 #include "Shader/ShaderBuildProvider.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Materials/Material.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
@@ -55,10 +54,6 @@ namespace Durin
 							Out.push_back({ECookBuildDependencyKind::SchemaProducerVersion,
 								"recipe/" + Family, {}, std::move(Value)});
 						}
-						if constexpr (std::is_same_v<T, DEnvironmentLighting>)
-							Out.push_back({ECookBuildDependencyKind::ExternalFile,
-								Request.Package.ToString() + ".iblbulk",
-								DEnvironmentLighting::GetAuthoredPayloadPath(Request.Package.GetView()), {}});
 						if constexpr (std::is_same_v<T, DMaterial>)
 						{
 							const auto Identity = Request.ShaderBuildIdentity;
@@ -93,9 +88,6 @@ namespace Durin
 		if (Object.IsA(DMaterial::StaticClass()))
 			return static_cast<DMaterial&>(Object).ContributeToCook(
 				Context, VirtualPackagePath, OutError);
-		if (Object.IsA(DEnvironmentLighting::StaticClass()))
-			return static_cast<DEnvironmentLighting&>(Object).ContributeToCook(
-				Context, VirtualPackagePath, OutError);
 		OutError = "No Engine family Cook contribution exists for the object class.";
 		return false;
 	}
@@ -110,9 +102,7 @@ namespace Durin
 			&& RegisterFamily<DTextureCube>("texture-cube", OutHandles)
 			&& RegisterFamily<DVolumeTexture>("volume-texture", OutHandles)
 			&& RegisterFamily<DStaticMesh>("static-mesh", OutHandles)
-			&& RegisterFamily<DMaterial>("material", OutHandles)
-			&& RegisterFamily<DEnvironmentLighting>(
-				"environment-lighting", OutHandles);
+			&& RegisterFamily<DMaterial>("material", OutHandles);
 		if (bRegistered)
 		{
 			OutError.clear();

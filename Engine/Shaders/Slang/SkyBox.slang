@@ -1,3 +1,5 @@
+import ProceduralSky;
+
 struct SkyBoxVSOutput
 {
     float4 Position : SV_Position;
@@ -8,6 +10,7 @@ struct SkyBoxUniform
 {
     float4x4 ClipToSkyDirection;
     float4 TintIntensity;
+    FProceduralSkyUniform ProceduralSky;
 };
 
 [[vk::binding(0, 0)]] TextureCube<float4> SkyTexture;
@@ -37,7 +40,9 @@ float4 FragmentMain(SkyBoxVSOutput input) : SV_Target0
     // coordinates from destabilizing cubemap derivatives and mip selection.
     float3 sampleDirection = normalize(mul(
         Sky.ClipToSkyDirection, float4(input.ClipPosition, 1.0, 1.0)).xyz);
-    float3 linearColor = SkyTexture.Sample(SkySampler, sampleDirection).rgb;
+    float3 linearColor = Sky.ProceduralSky.ToSunEnabled.w > 0.5
+        ? EvaluateProceduralSky(Sky.ProceduralSky, sampleDirection)
+        : SkyTexture.Sample(SkySampler, sampleDirection).rgb;
     return float4(
         linearColor * Sky.TintIntensity.rgb * Sky.TintIntensity.a, 1.0);
 }

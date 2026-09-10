@@ -99,7 +99,11 @@ namespace Durin
 		);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		std::string MountError;
-		if (!FMountPaths::InitDefaultMountPoints(&MountError))
+		std::filesystem::path CookedMountRoot;
+#if !DURIN_WITH_EDITOR
+        CookedMountRoot=std::filesystem::path(FPaths::LaunchDir()).lexically_normal();
+#endif
+        if (!FMountPaths::InitDefaultMountPoints(&MountError,true,CookedMountRoot))
 		{
 			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
 			Exit();
@@ -150,6 +154,24 @@ namespace Durin
 			return false;
 		}
 		DObjectInit();
+#if !DURIN_WITH_EDITOR
+        // Establish the cooked domain before any Engine or project asset loads.
+        FAssetRuntimeConfiguration AssetConfiguration=FAssetRuntimeConfiguration::Authored();
+        const auto ConfigurationResult=FAssetRuntimeConfiguration::Cooked(
+            std::filesystem::path(FPaths::LaunchDir()).lexically_normal(),AssetConfiguration);
+        if (!ConfigurationResult)
+        {
+            DURIN_ERROR("Cooked asset configuration failed: {}",ConfigurationResult.Message);
+            Exit(); return false;
+        }
+        ShutdownAssetManager();
+        const auto AssetResult=InitializeAssetManager(std::move(AssetConfiguration));
+        if (!AssetResult)
+        {
+            DURIN_ERROR("Cooked asset initialization failed: {}",AssetResult.Message);
+            Exit(); return false;
+        }
+#endif
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		State = EEngineLoopState::PreInitialized;
 		return true;

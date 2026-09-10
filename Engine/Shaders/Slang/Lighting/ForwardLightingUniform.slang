@@ -22,4 +22,6 @@ public struct FForwardLightingUniform
     public float4 DirectionalShadowLightTransition;
     public FDirectionalShadowCascadeUniform DirectionalShadowCascades[3];
     public FForwardLocalLightUniform Local[4];
+    public float4 EnvironmentRotation;
+    public float4 EnvironmentControl;
 };

@@ -1,11 +1,3 @@
-durin_add_engine_functional_test(EnvironmentLightingTests
-	KIND feature
-	DOMAINS environment-lighting
-	MODULES engine
-	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
-	SOURCES Private/EnvironmentLightingTests.cpp
-)
-
 durin_add_engine_functional_test(RendererSceneContractTests
 	KIND contract
 	DOMAINS renderer

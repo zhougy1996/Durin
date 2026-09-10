@@ -316,7 +316,7 @@ namespace Durin::AssetForge::Builtins
 					OwningPackagePath.generic_string(), SourcePath, Error))
 				bSucceeded = RebuildPanorama(*Texture, SourcePath,
 					{.FaceDimension = Texture->GetPanoramaFaceDimension(),
-						.ExposureEV = Texture->GetPanoramaExposureEV()}, Error, nullptr);
+						.ExposureEV = Texture->GetPanoramaExposureEV(), .Output = Texture->GetOutput()}, Error, nullptr);
 		}
 		else if (Texture && Texture->GetSourceLayout() == ETextureCubeSourceLayout::SixFaces)
 		{
@@ -355,7 +355,7 @@ namespace Durin::AssetForge::Builtins
 				std::filesystem::absolute(Filenames.front()).lexically_normal();
 			bSucceeded = RebuildPanorama(*Texture, Requested.generic_string(),
 				{.FaceDimension = Texture->GetPanoramaFaceDimension(),
-					.ExposureEV = Texture->GetPanoramaExposureEV()}, Error, nullptr);
+					.ExposureEV = Texture->GetPanoramaExposureEV(), .Output = Texture->GetOutput()}, Error, nullptr);
 		}
 		else if (Texture && Texture->GetSourceLayout() == ETextureCubeSourceLayout::SixFaces
 			&& Filenames.size() == TextureCubeFaceCount)

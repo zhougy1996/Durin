@@ -8,6 +8,8 @@ namespace Durin
 	class DLightComponent;
 	class DPrimitiveComponent;
 	class DSkyBoxComponent;
+	class DSkyLightComponent;
+	class DProceduralSkyComponent;
 	class DVolumetricCloudComponent;
 	struct FMaterialRenderProxyBindingUpdate;
 	struct FSplineMeshRenderDynamicData;
@@ -25,12 +27,18 @@ namespace Durin
 		virtual auto RemoveLight(DLightComponent* Light) -> void = 0;
 		virtual auto AddSkyBox(DSkyBoxComponent* SkyBox) -> void = 0;
 		virtual auto RemoveSkyBox(DSkyBoxComponent* SkyBox) -> void = 0;
+		virtual auto AddProceduralSky(DProceduralSkyComponent* Sky) -> void = 0;
+		virtual auto RemoveProceduralSky(DProceduralSkyComponent* Sky) -> void = 0;
+		virtual auto AddSkyLight(DSkyLightComponent* SkyLight) -> void = 0;
+		virtual auto RemoveSkyLight(DSkyLightComponent* SkyLight) -> void = 0;
 		virtual auto AddVolumetricCloud(
 			DVolumetricCloudComponent* Cloud
 		) -> void = 0;
 		virtual auto RemoveVolumetricCloud(
 			DVolumetricCloudComponent* Cloud
 		) -> void = 0;
+
+		virtual auto UpdateSkyLighting() -> void = 0;
 
 		virtual auto Release() -> void = 0;
 

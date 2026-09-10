@@ -345,6 +345,6 @@ commit as implementation. Stage checkboxes remain open until their gates pass.
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/TexturePayloadContainer.h`
-- `Engine/Source/Runtime/Engine/Private/EnvironmentLighting/EnvironmentLighting.cpp`
+- The former environment payload was removed by [Dynamic Sky Lighting](DynamicSkyLighting.md); ordinary texture payloads now own its source data.
 - `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageArchive.h`

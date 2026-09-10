@@ -146,10 +146,13 @@ namespace Durin
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
-		// Generated IBL uploads must finish before entering the Scene Color pass.
+		// Generate before Scene Color. World-driven scenes already admitted work
+		// at frame start; extra views must not move their refresh deadline.
 		// Failure is non-fatal: StaticMeshRenderer binds the complete black
 		// environment fallback set instead.
-		EnvironmentLighting.EnsureResources_RenderThread(CommandList);
+		if (Scene && Scene->SkyLighting->WorldUpdateFrame!=GRenderFrameCounterRenderThread)
+			Renderer.UpdateSkyLighting_RenderThread(CommandList, *Scene);
+		EnvironmentLighting.SelectScene_RenderThread(Scene);
 		// Sky resources include a static index upload, so initialize them before
 		// entering the Scene Color render pass.
 		const bool bSkyBoxResourcesReady =
@@ -368,7 +371,15 @@ namespace Durin
 	) -> ESceneRenderGraphExecutionStatus
 	{
 		FRDGExecutionContext ExecutionContext{Renderer.RDGAllocator};
+		FGPUTimingQueryRHIRef Timing;
+		if (Renderer.ViewGPUTimingSink) Timing=GDynamicRHI->RHICreateGPUTimingQuery();
+		if (Timing) CommandList.BeginGPUTimingQuery(Timing);
 		const auto Result = Graph.Execute(CommandList, &ExecutionContext);
+		if (Timing)
+		{
+			CommandList.EndGPUTimingQuery(Timing);
+			Renderer.ViewGPUTimingSink(std::move(Timing));
+		}
 		if (Result.Status == ERDGExecutionStatus::CompileFailed)
 		{
 			DURIN_WARN("Scene render graph compilation failed: {}",

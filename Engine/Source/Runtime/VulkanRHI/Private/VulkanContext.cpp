@@ -164,7 +164,7 @@ namespace Durin::VulkanRHI
 	{
 		auto* VulkanQuery = static_cast<FVulkanGPUTimingQuery*>(Query);
 		Device.GetGPUTimingManager().End(*GetCommandBuffer(), *VulkanQuery);
-		PendingTimingQueries.push_back(VulkanQuery);
+		PendingTimingQueries.emplace_back(VulkanQuery);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void

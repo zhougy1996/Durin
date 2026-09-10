@@ -4,6 +4,7 @@
 #include "Asset/Asset.h"
 #include "Asset/EditorBulkData.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -422,6 +423,11 @@ namespace Durin::Editor
 		{
 			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
 			return {};
+		}
+		if (auto* SkyLight = Cast<DSkyLightComponent>(Object))
+		{
+			SkyLight->RefreshEligibilityDiagnostic();
+			if (ImGui::Button("Recapture Sky Light")) SkyLight->Recapture();
 		}
 		if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object))
 			Cloud->RefreshEligibilityDiagnostic();

@@ -14,6 +14,7 @@ namespace Durin::SkyBoxRendering
 		// positions in the fragment shader when the near clip is very small.
 		FMatrix4f ClipToSkyDirection{1.0f};
 		FVector4f TintIntensity{1.0f};
+		FProceduralSkyUniform ProceduralSky;
 	};
 
 	// Builds the shader snapshot without retaining scene objects or camera

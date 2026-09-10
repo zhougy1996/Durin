@@ -92,13 +92,18 @@ public float3 EvaluateSurfaceEnvironmentLighting(
     TextureCube<float4> irradianceTexture,
     TextureCube<float4> prefilteredTexture,
     Texture2D<float4> brdfLutTexture,
-    SamplerState environmentSampler)
+    SamplerState environmentSampler,
+    float4 environmentRotation, float4 environmentControl)
 {
+    float3 normal = frame.normal + 2.0 * cross(environmentRotation.xyz,
+        cross(environmentRotation.xyz, frame.normal) + environmentRotation.w * frame.normal);
+    float3 reflection = frame.reflectionDirection + 2.0 * cross(environmentRotation.xyz,
+        cross(environmentRotation.xyz, frame.reflectionDirection) + environmentRotation.w * frame.reflectionDirection);
     float3 irradiance = irradianceTexture.Sample(
-        environmentSampler, frame.normal).rgb;
+        environmentSampler, normal).rgb * environmentControl.x;
     float3 prefiltered = prefilteredTexture.SampleLevel(
-        environmentSampler, frame.reflectionDirection,
-        roughness * 6.0).rgb;
+        environmentSampler, reflection,
+        roughness * environmentControl.y).rgb * environmentControl.x;
     float2 environmentBrdf = brdfLutTexture.Sample(
         environmentSampler, float2(frame.NoV, roughness)).rg;
     return EvaluatePBREnvironmentLighting(

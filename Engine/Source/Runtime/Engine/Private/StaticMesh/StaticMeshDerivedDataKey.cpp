@@ -1,8 +1,8 @@
 #include "StaticMesh/StaticMeshDerivedDataKey.h"
 
-#include "DerivedDataCache/DerivedDataCache.h"
-
 #if DURIN_WITH_EDITOR
+
+#include "DerivedDataCache/DerivedDataCache.h"
 
 #include "Serialization/Archive.h"
 

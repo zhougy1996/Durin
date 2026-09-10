@@ -92,6 +92,106 @@ namespace Durin::TextureCubeBuilder
 		}
 	} // namespace
 
+	auto ValidateHDRTextureCubePanorama(const FTexturePanoramaFloatImage& Panorama,
+		const FTextureCubePanoramaBuildSettings& Settings, std::string& OutError) -> bool
+	{
+		uint32 Dimension = 0;
+		if (Settings.Output != ETextureCubeOutput::HDR
+			|| !ValidateEquirectangularTextureCubeProjection(Panorama.Width, Panorama.Height,
+				{Settings.FaceDimension, Settings.ExposureEV}, true, Dimension, OutError)
+			|| !ValidateHDRPanorama(Panorama, OutError)) return false;
+		if (Dimension > 512)
+		{
+			OutError = "HDR cube output is limited to 512 pixels per face.";
+			return false;
+		}
+		const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
+		if (std::ranges::any_of(Panorama.Pixels, [Exposure](float Value) {
+			return static_cast<double>(Value) * Exposure > 16384.0;
+		}))
+		{
+			OutError = "Exposed HDR radiance exceeds the 16384 lighting limit.";
+			return false;
+		}
+		return true;
+	}
+
+	auto BuildHDRTextureCube(const Image::FImage& Panorama,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		FTextureCubePlatformData& OutData, std::string& OutError) -> bool
+	{
+		OutData = {};
+		if (!Panorama.IsValid() || Panorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
+			|| Panorama.GetInfo().GammaSpace != Image::EImageGammaSpace::Linear
+			|| Panorama.GetInfo().Depth != 1 || Panorama.GetInfo().SliceCount != 1)
+		{
+			OutError = "HDR cube requires a single linear RGBA32F panorama.";
+			return false;
+		}
+		FTexturePanoramaFloatImage Input;
+		Input.Width = Panorama.GetInfo().Width;
+		Input.Height = Panorama.GetInfo().Height;
+		const size_t PixelCount = static_cast<size_t>(Input.Width) * Input.Height;
+		Input.Pixels.resize(PixelCount * 3);
+		for (size_t Index = 0; Index < PixelCount; ++Index)
+			std::memcpy(Input.Pixels.data() + Index * 3,
+				Panorama.GetPixels().data() + Index * 16, 3 * sizeof(float));
+		if (!ValidateHDRTextureCubePanorama(Input, Settings, OutError)) return false;
+		const uint32 BaseDimension = Settings.FaceDimension == 0
+			? std::max(Input.Width / 4, 1u) : Settings.FaceDimension;
+		const double Exposure = std::exp2(static_cast<double>(Settings.ExposureEV));
+		FTextureCubePlatformData Candidate;
+		Candidate.PixelFormat = EPixelFormat::RGBA32_FLOAT;
+		for (uint32 Face = 0; Face < TextureCubeFaceCount; ++Face)
+		{
+			auto& Output = Candidate.Faces[Face];
+			Output.PixelFormat = Candidate.PixelFormat;
+			for (uint32 Dimension = BaseDimension;; Dimension = std::max(Dimension / 2, 1u))
+			{
+				FTexture2DMipData Mip;
+				Mip.Width = Mip.Height = Dimension;
+				Mip.RowPitch = Dimension * 16;
+				Mip.Pixels.resize(static_cast<size_t>(Mip.RowPitch) * Dimension);
+				// Integrate each angular footprint against the original panorama. The
+				// cube Jacobian avoids overweighting face corners in ordinary mips.
+				const uint32 Grid = Dimension == BaseDimension ? 1u : 8u;
+				for (uint32 Y = 0; Y < Dimension; ++Y)
+					for (uint32 X = 0; X < Dimension; ++X)
+					{
+						std::array<double, 3> Sum{};
+						double Weight = 0;
+						for (uint32 SY = 0; SY < Grid; ++SY)
+							for (uint32 SX = 0; SX < Grid; ++SX)
+							{
+								FVector3 Direction;
+								if (!ResolveTextureCubeFacePixelDirection(static_cast<ETextureCubeFace>(Face),
+									X * Grid + SX, Y * Grid + SY, Dimension * Grid, Direction)) return false;
+								const double A = 2.0 * (X + (SX + 0.5) / Grid) / Dimension - 1.0;
+								const double B = 2.0 * (Y + (SY + 0.5) / Grid) / Dimension - 1.0;
+								const double W = std::pow(1.0 + A * A + B * B, -1.5);
+								const auto Sample = MakeBilinearSample(Direction, Input.Width, Input.Height);
+								for (uint32 Channel = 0; Channel < 3; ++Channel)
+									for (uint32 Tap = 0; Tap < 4; ++Tap)
+										Sum[Channel] += W * Sample.Weights[Tap]
+											* Input.Pixels[Sample.PixelIndices[Tap] * 3 + Channel];
+								Weight += W;
+							}
+						const std::array<float, 4> Pixel{static_cast<float>(Sum[0] / Weight * Exposure),
+							static_cast<float>(Sum[1] / Weight * Exposure),
+							static_cast<float>(Sum[2] / Weight * Exposure), 1.0f};
+						std::memcpy(Mip.Pixels.data() + static_cast<size_t>(Y) * Mip.RowPitch + X * 16,
+							Pixel.data(), 16);
+					}
+				Output.Mips.push_back(std::move(Mip));
+				if (Dimension == 1) break;
+			}
+		}
+		if (!Candidate.IsValid()) return false;
+		OutData = std::move(Candidate);
+		OutError.clear();
+		return true;
+	}
+
 	auto ValidateEquirectangularTextureCubeProjection(uint32 Width, uint32 Height,
 		const FEquirectangularTextureCubeProjectionSettings& Settings, bool bHDR,
 		uint32& OutFaceDimension, std::string& OutError) -> bool

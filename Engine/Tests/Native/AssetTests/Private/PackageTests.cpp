@@ -1,7 +1,6 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshCompilation.h"
 #include "Texture/Texture2DBuild.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Shader/ShaderBuildProvider.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Asset/RegistryOperations.h"
@@ -8587,51 +8586,6 @@ TEST(FPackageAssetTests, CookResolvesAliasesAndDiscoversExternalRoots)
 	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
 	ASSERT_EQ(Result.Packages.size(), 1u);
 	EXPECT_EQ(Result.Packages.front().PackagePath, B);
-}
-
-TEST(FPackageAssetTests, CookBuiltinEnvironmentUsesSavedAuthoredPayload)
-{
-	InitializeAssetTests();
-	using namespace Durin;
-	FCookShaderStub Shader;
-	FModuleTestOwner Owner("CookEnvironmentFixture");
-	auto Provider = Owner.RegisterFeature<IShaderBuildProvider>(Shader);
-	std::vector<FCookContributorHandle> Handles;
-	std::string Error;
-	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
-	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
-	FPackagePath Path;
-	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/CookEnvironment", Path));
-	DEnvironmentLighting* Asset = nullptr;
-	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	FEnvironmentLightingData Data;
-	for (auto& Face : Data.Irradiance)
-		Face.assign(static_cast<size_t>(EnvironmentIrradianceDimension) * EnvironmentIrradianceDimension * 4, 1);
-	for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
-		for (auto& Face : Data.Prefiltered[Mip])
-			Face.assign(static_cast<size_t>(EnvironmentPrefilterDimension >> Mip) * (EnvironmentPrefilterDimension >> Mip) * 4, 2);
-	Data.BrdfLut.assign(static_cast<size_t>(EnvironmentBrdfLutDimension) * EnvironmentBrdfLutDimension * 4, 3);
-	ASSERT_TRUE(Data.IsValid());
-	FByteBuffer Payload;
-	FCanonicalMemoryWriter Writer(Payload, EArchivePurpose::DerivedDataPayload);
-	Data.Serialize(Writer);
-	ASSERT_FALSE(Writer.HasError());
-	const auto PayloadPath = DEnvironmentLighting::GetAuthoredPayloadPath(Path.GetView());
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Payload, PayloadPath));
-	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	MarkObjectHierarchyAsGarbage(Asset->GetPackage()); CollectGarbage();
-	FCookRequest Request{.OutputRoot = Testing::GetTestWorkDirectory() / "EnvironmentCaptureOutput",
-		.TargetPlatform = ECookTargetPlatform::Win64, .TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {Path}};
-	FCookRunResult Result;
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
-	FByteBuffer Cooked;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(Cooked, Request.OutputRoot / "TestAssets/CookEnvironment.dbulk"));
-	EXPECT_EQ(Cooked, Payload);
-	EXPECT_EQ(FindPackage(Path.GetView()), nullptr);
-	Request.ReportProgress = {};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Payload, PayloadPath));
-	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
-	EXPECT_EQ(Result.Packages.front().Status, ECookPackageStatus::CookHit);
 }
 
 TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilation)

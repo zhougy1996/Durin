@@ -395,7 +395,7 @@ float4 FragmentMain(
     float3 environment = EvaluateSurfaceEnvironmentLighting(s.baseColor,
         s.metallic, shading.effectiveRoughness, s.ambientOcclusion,
         lightingFrame, EnvironmentIrradiance, EnvironmentPrefiltered,
-        EnvironmentBrdfLut, EnvironmentSampler);
+        EnvironmentBrdfLut, EnvironmentSampler, Lighting.EnvironmentRotation, Lighting.EnvironmentControl);
     return ComposeSurfaceLighting(direct, environment, s.emissive, s.opacity);
 #endif
 }

@@ -73,7 +73,7 @@ namespace Durin::VulkanRHI
 		auto End(FVulkanCommandBuffer& CommandBuffer,
 			FVulkanGPUTimingQuery& Query) -> void;
 		auto MarkSubmitted(FVulkanCompletionToken Token,
-			std::span<FVulkanGPUTimingQuery* const> Queries) -> void;
+			std::span<const TRefCountPtr<FVulkanGPUTimingQuery>> Queries) -> void;
 		auto Poll() -> void;
 		auto Snapshot() const -> FVulkanGPUTimingStatistics;
 		auto ResetStatistics() -> void;

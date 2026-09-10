@@ -1,3 +1,5 @@
+#include "Actors/SkyLightActor.h"
+#include "Components/SkyLightComponent.h"
 #include "Asset/Asset.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageSerialization.h"
@@ -475,4 +477,39 @@ TEST_F(FAssetPackageReloadTests, DiscardUsesLatestSaveDespiteDirtyActivationAndF
 	EXPECT_FALSE(Cloud->GetWeatherTexture()->GetPackage()->IsDirty());
 	Cloud->SetWeatherTexture(nullptr);
 	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST_F(FAssetPackageReloadTests, SkyLightUndoRedoAndPackageReopenPreserveSourceAndIdentity)
+{
+    using namespace Durin;
+    FPackagePath Path;
+    ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/SkyLightHistory",Path));
+    ASkyLightActor* Actor=nullptr;
+    ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path,Actor));
+    auto* Light=Actor->GetSkyLightComponent();
+    const auto Identity=Light->GetPersistentId();
+    auto* Transactions=NewObject<DTransBuffer>(nullptr,"SkyLightHistory");
+    TStrongObjectPtr<DTransBuffer> Root(Transactions);
+    {
+        Editor::FScopedTransaction Scope(Transactions,{"test","Change Sky Light"});
+        Scope.Modify(Light);
+        Light->SetSource(ESkyLightSourceMode::CapturedSky,nullptr);
+        Light->SetIntensity(3);
+        ASSERT_TRUE(Scope.End());
+    }
+    ASSERT_TRUE(Transactions->Undo());
+    EXPECT_EQ(Light->GetSourceMode(),ESkyLightSourceMode::SpecifiedCube);
+    EXPECT_EQ(Light->GetIntensity(),1);
+    ASSERT_TRUE(Transactions->Redo());
+    EXPECT_EQ(Light->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
+    EXPECT_EQ(Light->GetIntensity(),3);
+    ASSERT_TRUE(Transactions->Reset()); Root.Reset();
+    ASSERT_TRUE(SavePackage(Actor->GetPackage()));
+    ASSERT_TRUE(UnloadPackage(Path));
+    ASkyLightActor* Reopened=nullptr;
+    ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(Path),Reopened));
+    EXPECT_EQ(Reopened->GetSkyLightComponent()->GetPersistentId(),Identity);
+    EXPECT_EQ(Reopened->GetSkyLightComponent()->GetSourceMode(),ESkyLightSourceMode::CapturedSky);
+    EXPECT_EQ(Reopened->GetSkyLightComponent()->GetIntensity(),3);
+    ASSERT_TRUE(UnloadPackage(Path));
 }

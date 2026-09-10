@@ -489,6 +489,52 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_TRUE(std::filesystem::is_regular_file(Panorama));
 }
 
+TEST(FTextureCubeTests, HDRPanoramaPreservesRadianceAcrossRebuildAndReload)
+{
+	InitializeCubeMount();
+	const auto Source = CopyPanorama("AnalyticalHDR.hdr", "PreservedHDR.hdr");
+	auto Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
+		Source.generic_string(), "/TextureCubeTests/PreservedHDR",
+		{.FaceDimension = 4, .Output = Durin::ETextureCubeOutput::HDR});
+	ASSERT_TRUE(Result) << Result.Message;
+	auto* Texture = Result.Asset;
+	ASSERT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::RGBA32_FLOAT);
+	EXPECT_FALSE(Texture->IsSRGB());
+	const auto Expected = *Texture->GetPlatformData();
+	float Peak = 0.0f;
+	for (const auto& Face : Expected.Faces)
+		for (const auto& Mip : Face.Mips)
+			for (size_t Offset = 0; Offset < Mip.Pixels.size(); Offset += sizeof(float))
+			{
+				float Value;
+				std::memcpy(&Value, Mip.Pixels.data() + Offset, sizeof(Value));
+				EXPECT_TRUE(std::isfinite(Value));
+				Peak = std::max(Peak, Value);
+			}
+	EXPECT_GT(Peak, 1.0f);
+	ASSERT_TRUE(std::filesystem::remove(Source));
+	ASSERT_TRUE(Texture->RebuildPlatformData());
+	ASSERT_TRUE(Durin::SavePackage(Texture->GetPackage()));
+	EXPECT_EQ(Texture->GetOutput(), Durin::ETextureCubeOutput::HDR);
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/PreservedHDR", Path));
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
+	Durin::DTextureCube* Loaded = nullptr;
+	ASSERT_TRUE(Durin::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+		Path, Path.GetPackageName()), Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetOutput(), Durin::ETextureCubeOutput::HDR);
+	ASSERT_TRUE(Loaded->HasPlatformData());
+	for (size_t Face = 0; Face < Durin::TextureCubeFaceCount; ++Face)
+	{
+		ASSERT_EQ(Loaded->GetPlatformData()->Faces[Face].Mips.size(), Expected.Faces[Face].Mips.size());
+		for (size_t Mip = 0; Mip < Expected.Faces[Face].Mips.size(); ++Mip)
+			EXPECT_EQ(Loaded->GetPlatformData()->Faces[Face].Mips[Mip].Pixels, Expected.Faces[Face].Mips[Mip].Pixels);
+	}
+	ASSERT_TRUE(Durin::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(Path));
+}
+
 TEST(FTextureCubeTests, PanoramaBuildRequiresCanonicalPixelsBeforeDdcLookup)
 {
 	InitializeCubeMount();
@@ -717,17 +763,24 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 
 TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 {
+	for (const bool bHDR : {false, true})
+	{
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = CopyConventionFaces("CookedCubeSources");
-	const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Import = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
+	const auto Panorama = CopyPanorama("AnalyticalHDR.hdr", "CookHDR.hdr");
+	const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Import = bHDR
+		? Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(Panorama.generic_string(),
+			"/TextureCubeTests/CookedCube", {.FaceDimension = 4, .Output = Durin::ETextureCubeOutput::HDR})
+		: Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/CookedCube");
 	ASSERT_TRUE(Import) << Import.Message;
+	ASSERT_TRUE(std::filesystem::remove(Panorama));
 	ASSERT_NE(Import.Asset, nullptr);
 	const Durin::FTextureCubePlatformData Expected = *Import.Asset->GetPlatformData();
 	const std::filesystem::path FirstRoot = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "TextureCubeCookFirst");
+		Durin::Testing::GetTestWorkDirectory() / (bHDR ? "HDRTextureCubeCookFirst" : "TextureCubeCookFirst"));
 	const std::filesystem::path SecondRoot = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "TextureCubeCookSecond");
+		Durin::Testing::GetTestWorkDirectory() / (bHDR ? "HDRTextureCubeCookSecond" : "TextureCubeCookSecond"));
 	Durin::Testing::RemoveTestWorkDirectory(FirstRoot);
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	std::string Error;
@@ -762,6 +815,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
+		if (bHDR) { ASSERT_TRUE(std::filesystem::remove(Faces[FaceIndex])); continue; }
 		std::filesystem::path PhysicalPath;
 		ASSERT_TRUE(ResolveCubeSourceHint(*Import.Asset,
 			GetSourceHint(*Import.Asset, FaceRoles[FaceIndex]),
@@ -771,6 +825,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath AuthoredPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::UnloadPackage(AuthoredPath));
+	ASSERT_TRUE(Durin::Testing::RemoveAssetPackageForTests(AuthoredPath));
 	Durin::Testing::RemoveTestWorkDirectory(SecondRoot);
 	Durin::Testing::FScopedAssetRuntimeForTests AssetRuntime;
 	ASSERT_TRUE(AssetRuntime.RestartCooked(FirstRoot));
@@ -814,4 +869,5 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
 	ASSERT_TRUE(Durin::UnloadPackage(CookedPath));
 	ASSERT_TRUE(AssetRuntime.Restore());
+	}
 }

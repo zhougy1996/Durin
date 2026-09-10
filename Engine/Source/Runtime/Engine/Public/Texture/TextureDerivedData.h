@@ -12,8 +12,8 @@ namespace Durin
 	inline constexpr uint32 TexturePayloadSchemaVersion = 2;
 	inline constexpr uint32 Texture2DBuilderVersion = 4;
 	inline constexpr uint32 Texture2DPayloadProducerVersion = 4;
-	inline constexpr uint32 TextureCubeBuilderVersion = 3;
-	inline constexpr uint32 TextureCubeProjectionVersion = 2;
+	inline constexpr uint32 TextureCubeBuilderVersion = 4;
+	inline constexpr uint32 TextureCubeProjectionVersion = 3;
 	inline constexpr uint32 VolumeTextureBuilderVersion = 3;
 	inline constexpr uint32 TextureDerivedDataKeySchemaVersion = 3;
 	inline constexpr uint32 TexturePayloadHeaderSize = 80;
@@ -51,7 +51,8 @@ namespace Durin
 		RG8_UNORM = 9,
 		RGBA8_UNORM = 10,
 		R16_FLOAT = 11,
-		RGBA16_FLOAT = 12
+		RGBA16_FLOAT = 12,
+		RGBA32_FLOAT = 13
 	};
 
 }

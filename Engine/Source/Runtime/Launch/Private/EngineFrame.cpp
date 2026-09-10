@@ -1,4 +1,6 @@
 #include "EngineFrame.h"
+#include "Diagnostics/SkyLightingRuntimeSmoke.h"
+#include "IRendererModule.h"
 
 #include "Engine/Engine.h"
 #include "EngineGlobals.h"
@@ -52,9 +54,13 @@ namespace Durin
 
 			const uint64 LogicFrameCounter = GFrameCounter;
 			const uint64 RenderFrameCounter = GRenderFrameCounter;
+			auto* Renderer = GEngine ? GEngine->GetRendererModule() : nullptr;
 			ENQUEUE_RENDER_COMMAND(BeginFrame)(
-				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& CommandList) {
+				[LogicFrameCounter, RenderFrameCounter, Renderer](FRHICommandListImmediate& CommandList) {
 					BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
+					BeginSkyLightingSmokeFrame(CommandList);
+					if (Renderer) Renderer->UpdateScenes_RenderThread(CommandList);
+					AfterSkyLightingSmokeUpdate(CommandList);
 				});
 
 			Mona::NewFrame();
@@ -64,6 +70,7 @@ namespace Durin
 
 			ENQUEUE_RENDER_COMMAND(EndFrame)(
 				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
+					EndSkyLightingSmokeFrame(RHICmdList);
 					EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
 				});
 			const double SyncStarted = FTime::Seconds();

@@ -1,5 +1,6 @@
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialRenderTypes.h"
+#include "Asset/Load.h"
 
 #include "Serialization/Archive.h"
 
@@ -157,7 +158,11 @@ namespace Durin
 					!= CurrentMaterialPassContractVersion)
 				return Fail("Material cooked program identity or environment is invalid.",
 					&OutError);
-			if (bRequireCurrentEnvironment)
+			if (bRequireCurrentEnvironment && Program.Target != "vulkan-spirv-1.5")
+				return Fail("Material cooked program target is incompatible.", &OutError);
+			// Cooked execution has no compiler provider. Versions, target, layout,
+			// stage contracts and byte hashes validate its source-independent ABI.
+			if (bRequireCurrentEnvironment && !GetAssetRuntimeConfiguration().IsCooked())
 			{
 				const std::string CurrentCompilerIdentity =
 					GetShaderCompilerEnvironmentIdentity();

@@ -1335,6 +1335,10 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
+	Durin::FPackagePath StudioPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Renderer/DefaultStudioCube", StudioPath));
+	ASSERT_TRUE(Durin::UnloadPackage(StudioPath));
+	Durin::CollectGarbage();
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

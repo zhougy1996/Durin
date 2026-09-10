@@ -632,13 +632,31 @@ namespace Durin
 		return true;
 	}
 
-	auto FMountPaths::InitDefaultMountPoints(std::string* OutError) -> bool
+	auto FMountPaths::InitDefaultMountPoints(std::string* OutError, bool bLogMounts, const std::filesystem::path& CookedRoot) -> bool
 	{
 		checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
 		if (bRegistryPublished) return true;
 		std::vector<FMountPoint> Definitions;
 		if (!BuildDefaultMountDefinitions(Definitions, OutError)) return false;
-		return FMountPaths::PublishMountRegistry(Definitions, OutError);
+		if (!CookedRoot.empty())
+		{
+			if (!CookedRoot.is_absolute())
+			{
+				if (OutError) *OutError = "Cooked mount root must be absolute.";
+				return false;
+			}
+			for (auto& Definition : Definitions)
+			{
+				Definition.Root = CookedRoot / Definition.VirtualRoot.substr(1, Definition.VirtualRoot.size() - 2);
+				Definition.ContentPath = ".";
+				Definition.bContentWritable = false;
+			}
+		}
+		const bool PreviousSuppress = bSuppressMountLog;
+        bSuppressMountLog = !bLogMounts;
+        const bool Result = FMountPaths::PublishMountRegistry(Definitions, OutError);
+        bSuppressMountLog = PreviousSuppress;
+        return Result;
 	}
 
 	auto FMountPaths::ValidateDefaultMountPoints(std::string* OutError) -> bool

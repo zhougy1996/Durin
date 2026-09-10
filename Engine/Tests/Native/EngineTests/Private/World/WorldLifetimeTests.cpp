@@ -44,6 +44,11 @@ namespace
 
 		auto AddSkyBox(Durin::DSkyBoxComponent*) -> void override {}
 		auto RemoveSkyBox(Durin::DSkyBoxComponent*) -> void override {}
+		auto AddProceduralSky(Durin::DProceduralSkyComponent*) -> void override {}
+		auto RemoveProceduralSky(Durin::DProceduralSkyComponent*) -> void override {}
+		auto UpdateSkyLighting() -> void override {}
+		auto AddSkyLight(Durin::DSkyLightComponent*) -> void override {}
+		auto RemoveSkyLight(Durin::DSkyLightComponent*) -> void override {}
 		auto AddVolumetricCloud(
 			Durin::DVolumetricCloudComponent*
 		) -> void override {}

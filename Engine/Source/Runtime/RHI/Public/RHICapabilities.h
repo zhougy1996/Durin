@@ -25,6 +25,8 @@ namespace Durin
 		uint32 MaxFragmentResources = 0;
 		uint32 MaxUniformBufferRange = 0;
 		std::array<uint32, 3> MaxComputeWorkGroupCount = {};
+		// RGBA32F linear sampling, RGBA16F linear sampling/storage and 8x8 compute.
+		bool bSupportsSkyLighting = false;
 		bool bSupportsNonSolidFill = false;
 		bool bSupportsDepthClamp = false;
 		bool bSupportsWideLines = false;

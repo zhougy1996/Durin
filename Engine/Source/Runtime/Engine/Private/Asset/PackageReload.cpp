@@ -7,6 +7,7 @@
 #include "AssetPackageLinker.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
@@ -206,6 +207,8 @@ namespace Durin
 				{
 					if (auto* Cloud = Cast<DVolumetricCloudComponent>(Object))
 						Cloud->RefreshReloadedAssetBindings();
+					if (auto* SkyLight = Cast<DSkyLightComponent>(Object))
+						SkyLight->RefreshReloadedAssetBindings();
 					if (auto* Material = Cast<DMaterialInterface>(Object))
 						Material->RefreshReloadedAssetBindings();
 				}

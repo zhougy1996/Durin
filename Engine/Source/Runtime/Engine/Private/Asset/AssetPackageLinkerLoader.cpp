@@ -814,7 +814,7 @@ namespace Durin::AssetPrivate
 				if (!Class)
 				{
 					LinkerApplyFail(Diagnostic, EAssetError::UnknownClass,
-						"Serialized class is unavailable.", 0, Object.Path);
+						std::format("Serialized class '{}' is unavailable.", Object.Export->ClassName), 0, Object.Path);
 					return {EAssetError::UnknownClass, Diagnostic.Message};
 				}
 				for (const ObjectPackage::FPropertyTag& Property : Object.Export->Properties)
@@ -900,7 +900,7 @@ namespace Durin::AssetPrivate
 				DClass* Class = FindClassByQualifiedName(FName(Descriptor.Export->ClassName));
 				if (!Class || !Class->ClassConstructor)
 				{
-					LinkerApplyFail(Diagnostic, EAssetError::UnknownClass, "Serialized class is unavailable.", 0, Descriptor.Path);
+					LinkerApplyFail(Diagnostic, EAssetError::UnknownClass, std::format("Serialized class '{}' is unavailable.", Descriptor.Export->ClassName), 0, Descriptor.Path);
 					return {EAssetError::UnknownClass, Diagnostic.Message};
 				}
 				DObject* Outer = Descriptor.OuterId == 0 ? static_cast<DObject*>(Package)

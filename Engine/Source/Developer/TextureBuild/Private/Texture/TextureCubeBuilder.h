@@ -14,6 +14,14 @@ namespace Durin::TextureCubeBuilder
 	using FTexturePanoramaImage = FTextureCubePanoramaImage;
 	using FTexturePanoramaFloatImage = FTextureCubePanoramaFloatImage;
 
+	// Validates linear radiance and the bounded HDR output envelope before allocation.
+	TEXTUREBUILD_API auto ValidateHDRTextureCubePanorama(const FTexturePanoramaFloatImage& Panorama,
+		const FTextureCubePanoramaBuildSettings& Settings, std::string& OutError) -> bool;
+	// Builds ordinary radiance mips directly from the retained panorama, without RGBA8 scratch data.
+	TEXTUREBUILD_API auto BuildHDRTextureCube(const Image::FImage& Panorama,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		FTextureCubePlatformData& OutData, std::string& OutError) -> bool;
+
 	// Selects output resolution and the offline HDR exposure transform.
 	struct FEquirectangularTextureCubeProjectionSettings
 	{

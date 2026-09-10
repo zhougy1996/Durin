@@ -1,3 +1,4 @@
+#include "Preview/StudioLighting.h"
 #include "LevelEditorModule.h"
 
 #include "ContentBrowser/ContentBrowserContracts.h"
@@ -43,6 +44,7 @@ namespace Durin
 				OutError = Created.Message;
 				return false;
 			}
+			if (auto* Level = Cast<DLevel>(Created.Asset)) (void)Editor::AddStudioSkyLight(*Level);
 			const FAssetResult Result = SavePackage(Created.Package);
 			if (!Result)
 			{

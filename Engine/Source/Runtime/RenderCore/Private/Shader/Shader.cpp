@@ -766,6 +766,12 @@ namespace Durin
 								? ERHITextureViewUsage::Storage
 								: ERHITextureViewUsage::Sampled);
 						Desc.Range = GraphTexture->Range;
+                        // A cube storage write addresses a 2D face (or a face array),
+                        // while sampling retains the cube interpretation.
+                        if (Binding.Type == ERHIBindingType::StorageImage
+                            && Texture->GetDimension() == ETextureDimension::TextureCube)
+                            Desc.Dimension = Desc.Range.NumArrayLayers == 1
+                                ? ERHITextureViewDimension::Texture2D : ERHITextureViewDimension::Texture2DArray;
 						FTextureViewRHIRef View;
 						if (GDynamicRHI)
 							View = GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);

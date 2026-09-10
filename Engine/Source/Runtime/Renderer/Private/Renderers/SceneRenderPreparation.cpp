@@ -6,12 +6,12 @@
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
 #include "Asset/Asset.h"
-#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Scene.h"
 #include "SceneInfo.h"
 #include "SceneView.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -50,6 +50,12 @@ namespace Durin
 			PrepareSceneVisibility(
 				*Scene, RenderView, Telemetry.View, Visibility
 			);
+			if (!PreparedView.Environment)
+				if (const auto Sky = Scene->GetProceduralSky_RenderThread())
+				{
+					PreparedView.Environment.emplace();
+					PreparedView.Environment->SkyBox.ProceduralSky = MakeProceduralSkyUniform(Sky->Parameters);
+				}
 			const FSkyBoxSceneProxy* SkyBox =
 				Scene->GetSkyBoxProxy_RenderThread();
 			if (!PreparedView.Environment && SkyBox != nullptr)
@@ -320,11 +326,21 @@ namespace Durin
 		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
 			DirectionalShadowSampler;
 
-		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
+		FForwardLightingUniform Lighting = BuildForwardLightingUniform(
 			PreparedView.Lighting.Lights, View,
 			bShadowReady && DirectionalShadowTexture != nullptr
 				&& DirectionalShadowSampler != nullptr
 				? &PreparedView.DirectionalShadow->View : nullptr);
+        if (const auto* Scene = Context.Logical.Scene)
+            if (const auto Light = Scene->GetSkyLight_RenderThread())
+            {
+                Lighting.EnvironmentControl.x = Light->Intensity;
+                if (Light->SourceMode == ESkyLightSourceMode::SpecifiedCube)
+                {
+                    const auto Q = Math::Inverse(Light->Rotation);
+                    Lighting.EnvironmentRotation = FVector4f(float(Q.x),float(Q.y),float(Q.z),float(Q.w));
+                }
+            }
 		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
 		ResolvedSceneResources.Lighting.UniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));

@@ -39,7 +39,12 @@ namespace Durin
 					return false;
 				}
 				CanonicalInput = std::move(*Normalized.Value);
-				if (!CanonicalInput.ImportedData.IsValid()
+				const bool bHDR = CanonicalInput.Output == ETextureCubeOutput::HDR;
+				if ((!bHDR && !CanonicalInput.ImportedData.IsValid())
+					|| (CanonicalInput.Output != ETextureCubeOutput::LDR && !bHDR)
+					|| (bHDR && (!CanonicalInput.AuthoredPanorama.IsValid() || CanonicalInput.bSRGB
+						|| CanonicalInput.AuthoredPanorama.GetInfo().Format != Image::ERawImageFormat::RGBA32F
+						|| CanonicalInput.SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama))
 					|| (CanonicalInput.SourceLayout != ETextureCubeSourceLayout::SixFaces
 						&& CanonicalInput.SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
 					|| !std::isfinite(CanonicalInput.PanoramaExposureEV)
@@ -50,10 +55,20 @@ namespace Durin
 					Outcome = {ETextureBuildFailure::InvalidProviderOutput, ETextureBuildStage::Normalize, "TextureCube provider returned invalid canonical input."};
 					return false;
 				}
-				const FXxHash128 CanonicalHash = CanonicalInput.ImportedData.GetIdentity();
+				FXxHash128 CanonicalHash = CanonicalInput.ImportedData.GetIdentity();
+				if (bHDR)
+				{
+					auto Source = PrepareTextureCubePanoramaSource(CanonicalInput.AuthoredPanorama.GetView(), 4, 0);
+					if (!Source) return false;
+					CanonicalHash = Source->GetIdentity();
+				}
 				const FTextureCubeBuildKeyInput KeyInput{
-					.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
+					.SourceLayout = bHDR ? ETextureCubeBuildSourceLayout::EquirectangularPanorama
+						: ETextureCubeBuildSourceLayout::SixFaces,
 					.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash, CanonicalHash},
+					.PanoramaContentHash = bHDR ? CanonicalHash : FXxHash128{},
+					.FaceDimension = bHDR ? CanonicalInput.PanoramaFaceDimension : 0,
+					.ExposureEV = bHDR && CanonicalInput.PanoramaExposureEV != 0.0f ? CanonicalInput.PanoramaExposureEV : 0.0f,
 					.bSRGB = CanonicalInput.bSRGB,
 					.BuilderVersion = Descriptor.BuilderVersion,
 					.ProjectionVersion = Descriptor.ProjectionVersion,
@@ -75,7 +90,12 @@ namespace Durin
 				}
 
 				Outcome.Stage = ETextureBuildStage::Recipe;
-				auto Recipe = Provider.Build({.ImportedData = std::cref(CanonicalInput.ImportedData), .bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform, .TargetProfile = Request.TargetProfile});
+				auto Recipe = Provider.Build({.ImportedData = std::cref(CanonicalInput.ImportedData),
+					.bSRGB = CanonicalInput.bSRGB, .TargetPlatform = Request.TargetPlatform,
+					.TargetProfile = Request.TargetProfile,
+					.HDRPanorama = bHDR ? &CanonicalInput.AuthoredPanorama : nullptr,
+					.PanoramaSettings = {.FaceDimension = CanonicalInput.PanoramaFaceDimension,
+						.ExposureEV = CanonicalInput.PanoramaExposureEV, .Output = CanonicalInput.Output}});
 				if (!Recipe)
 				{
 					Outcome = std::move(Recipe.Outcome);
@@ -147,7 +167,8 @@ namespace Durin
 			CheckGameThread();
 			require(Product.PlatformData != nullptr);
 			// The provider boundary has already validated these value contracts.
-			check(CanonicalInput.ImportedData.IsValid() && Product.DerivedDataKey.IsValid());
+			check((CanonicalInput.ImportedData.IsValid() || CanonicalInput.Output == ETextureCubeOutput::HDR)
+				&& Product.DerivedDataKey.IsValid());
 			check(Product.PlatformData->IsValid());
 			auto PlatformData = std::move(Product.PlatformData);
 			if (!Context.bPreserveSource)
@@ -162,7 +183,7 @@ namespace Durin
 			}
 			Texture.SetBuildSettings(CanonicalInput.SourceLayout, CanonicalInput.PanoramaFaceDimension,
 				CanonicalInput.PanoramaExposureEV, CanonicalInput.OriginalSourceWidth,
-				CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB);
+				CanonicalInput.OriginalSourceHeight, CanonicalInput.bSRGB, CanonicalInput.Output);
 			Texture.SetPlatformData(std::move(PlatformData));
 			Texture.UpdateResource();
 			if (Context.bMarkPackageDirty) Texture.MarkPackageDirty();
