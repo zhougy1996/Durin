@@ -445,6 +445,9 @@ namespace Durin
 					: Result.VectorValue / std::sqrt(LengthSquared);
 			}
 			break;
+		case EMaterialParameterType::Vector4:
+			// Built-in PBR definitions have no Vector4 constraints; preserve the copied value.
+			break;
 		case EMaterialParameterType::Texture:
 			if (DTexture2D* Texture = Value.TextureValue.Get();
 				Texture != nullptr
