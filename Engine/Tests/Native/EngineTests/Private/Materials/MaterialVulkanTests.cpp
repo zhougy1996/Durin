@@ -67,6 +67,23 @@ namespace
 			std::span<Durin::DObject* const>(&Object, 1));
 	}
 
+	// Render completion precedes the task-scheduled GameThread publication receipt.
+	// Pump until the consumer's state changes, including any queued successor upload.
+	template <typename FPredicate>
+	auto WaitForResourcePublication(FPredicate&& IsComplete) -> testing::AssertionResult
+	{
+		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		for (;;)
+		{
+			Durin::FlushRenderingCommands();
+			Durin::PumpGameThreadDeferredWork();
+			if (IsComplete()) return testing::AssertionSuccess();
+			if (std::chrono::steady_clock::now() >= Deadline)
+				return testing::AssertionFailure() << "Timed out waiting for render resource publication.";
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
+
 	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
 	{
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
@@ -913,8 +930,6 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		CaptureCube = CubeResult.Asset;
 		Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*CaptureCube);
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
-		Durin::FlushRenderingCommands();
-		Durin::PumpGameThreadDeferredWork();
 		{
 			// A delayed Cube result must be rejected even when the stable binding and content are unchanged.
 			Durin::Editor::Texture::DTextureCubeThumbnailRenderer CubeRenderer;
@@ -924,7 +939,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			auto Session = CubeRenderer.CreateGenerationSession(Request, Input, Error);
 			ASSERT_NE(Session, nullptr) << Error;
 			const auto Loaded = Session->Load();
-			const auto Ready = Session->PollResources();
+			Durin::Editor::FThumbnailRendererSessionUpdate Ready;
+			ASSERT_TRUE(WaitForResourcePublication([&] {
+				Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+				Ready = Session->PollResources();
+				return Ready.State != Durin::Editor::EThumbnailRendererSessionState::WaitingForResources;
+			}));
 			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
 			const auto Snapshot = CaptureCube->GetPublishedTexture();
@@ -935,14 +955,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			// A failed replacement keeps the captured thumbnail valid while its GPU allocation survives.
 			Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 			CaptureCube->UpdateResource();
-			Durin::FlushRenderingCommands();
-			Durin::PumpGameThreadDeferredWork();
+			ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 			EXPECT_EQ(CaptureCube->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 			EXPECT_EQ(CaptureCube->GetPublishedTexture(), Snapshot);
 			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
 			CaptureCube->UpdateResource();
-			Durin::FlushRenderingCommands();
-			Durin::PumpGameThreadDeferredWork();
+			ASSERT_TRUE(WaitForResourcePublication([&] { return !CaptureCube->IsResourceUpdatePending(); }));
 			EXPECT_EQ(CaptureCube->GetTextureReferenceRHI(), CaptureCubeReference);
 			EXPECT_NE(CaptureCube->GetPublishedTexture(), Snapshot);
 			Durin::FByteBuffer DelayedPixels;
@@ -976,9 +994,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			auto Session = MaterialRenderer.CreateGenerationSession(Captured, *Captured.Input, Error);
 			ASSERT_NE(Session, nullptr);
 			const auto Loaded = Session->Load();
-			Durin::FlushRenderingCommands();
-			Durin::PumpGameThreadDeferredWork();
-			const auto Ready = Session->PollResources();
+			Durin::Editor::FThumbnailRendererSessionUpdate Ready;
+			ASSERT_TRUE(WaitForResourcePublication([&] {
+				Durin::FAssetCompilingManager::Get().ProcessAsyncTasks();
+				Ready = Session->PollResources();
+				return Ready.State != Durin::Editor::EThumbnailRendererSessionState::WaitingForResources;
+			}));
 			ASSERT_EQ(Ready.State, Durin::Editor::EThumbnailRendererSessionState::ReadyToRender) << Ready.Diagnostic;
 			ASSERT_TRUE(Session->PreparePreview(Pool.GetPreviewScene(), Error)) << Error;
 			ASSERT_TRUE(Pool.GetPreviewScene().BeginCapture(Error)) << Error;
@@ -987,13 +1008,11 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			const auto Stable = TextureResult.Asset->GetTextureReferenceRHI();
 			Durin::VulkanRHI::ArmVulkanCreateFailure(Durin::VulkanRHI::EVulkanCreateFailurePoint::Image);
 			TextureResult.Asset->UpdateResource();
-			Durin::FlushRenderingCommands();
-			Durin::PumpGameThreadDeferredWork();
+			ASSERT_TRUE(WaitForResourcePublication([&] { return !TextureResult.Asset->IsResourceUpdatePending(); }));
 			EXPECT_EQ(TextureResult.Asset->GetResourceUpdateState(), Durin::ETextureResourceUpdateState::Failed);
 			EXPECT_TRUE(Session->ValidateRevisions(Loaded.AssetRevision, Ready.ResourceRevision, Error)) << Error;
 			TextureResult.Asset->UpdateResource();
-			Durin::FlushRenderingCommands();
-			Durin::PumpGameThreadDeferredWork();
+			ASSERT_TRUE(WaitForResourcePublication([&] { return !TextureResult.Asset->IsResourceUpdatePending(); }));
 			EXPECT_EQ(TextureResult.Asset->GetTextureReferenceRHI(), Stable);
 			Durin::FByteBuffer DelayedPixels;
 			EXPECT_EQ(Pool.GetPreviewScene().PollCapture(DelayedPixels, Error), Durin::Editor::EThumbnailCaptureState::Ready);
