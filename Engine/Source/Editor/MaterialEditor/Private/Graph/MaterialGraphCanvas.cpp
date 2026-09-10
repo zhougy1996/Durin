@@ -1,3 +1,5 @@
+#include "Graph/MaterialGraphControls.h"
+#include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
 
 #include "Editor/Transaction.h"
@@ -69,88 +71,6 @@ namespace Durin::Editor::Material
 			return (Color & IM_COL32(255, 255, 255, 0)) | IM_COL32(0, 0, 0, Alpha);
 		}
 
-		auto TypeName(EMaterialProgramValueType Type) -> const char*
-		{
-			switch (Type)
-			{
-			case EMaterialProgramValueType::Float: return "Float";
-			case EMaterialProgramValueType::Float2: return "Float2";
-			case EMaterialProgramValueType::Float3: return "Float3";
-			case EMaterialProgramValueType::Float4: return "Float4";
-			case EMaterialProgramValueType::Texture2D: return "Texture2D";
-			case EMaterialProgramValueType::Surface: return "Surface";
-			}
-			return "Unknown";
-		}
-
-		auto PaletteEntryKey(const FMaterialGraphCatalogEntry& Entry) -> std::string
-		{
-			return std::format("{}|{}|{}|{}", Entry.OperationName,
-				Entry.SecondaryName, static_cast<uint32>(Entry.NodeTemplate.ResultType),
-				Entry.NodeTemplate.ParameterId.ToString());
-		}
-
-		auto FormatInputSignature(const FMaterialGraphCatalogEntry& Entry) -> std::string
-		{
-			std::string Result;
-			for (size_t Index = 0; Index < Entry.AcceptedInputTypes.size(); ++Index)
-			{
-				if (!Result.empty()) Result += ", ";
-				Result += Index < Entry.InputNames.size()
-					? Entry.InputNames[Index] : std::format("Input {}", Index + 1);
-				Result += ": ";
-				for (size_t TypeIndex = 0;
-					TypeIndex < Entry.AcceptedInputTypes[Index].size(); ++TypeIndex)
-				{
-					if (TypeIndex != 0) Result += '/';
-					Result += TypeName(Entry.AcceptedInputTypes[Index][TypeIndex]);
-				}
-			}
-			return Result.empty() ? "No inputs" : Result;
-		}
-
-		auto DrawNumericDragEditor(const char* Label,
-			EMaterialProgramValueType Type, float* Value) -> bool
-		{
-			constexpr float DragSpeed = 0.01f;
-			switch (Type)
-			{
-			case EMaterialProgramValueType::Float:
-				return ImGui::DragFloat(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
-			case EMaterialProgramValueType::Float2:
-				return ImGui::DragFloat2(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
-			case EMaterialProgramValueType::Float3:
-				return ImGui::DragFloat3(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
-			case EMaterialProgramValueType::Float4:
-				return ImGui::DragFloat4(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
-			case EMaterialProgramValueType::Texture2D:
-			case EMaterialProgramValueType::Surface:
-				return false;
-			}
-			return false;
-		}
-
-		auto DrawNumericInputEditor(const char* Label,
-			EMaterialProgramValueType Type, float* Value) -> bool
-		{
-			constexpr ImGuiInputTextFlags Flags = ImGuiInputTextFlags_EnterReturnsTrue;
-			switch (Type)
-			{
-			case EMaterialProgramValueType::Float:
-				return ImGui::InputFloat(Label, Value, 0.0f, 0.0f, "%.3f", Flags);
-			case EMaterialProgramValueType::Float2:
-				return ImGui::InputFloat2(Label, Value, "%.3f", Flags);
-			case EMaterialProgramValueType::Float3:
-				return ImGui::InputFloat3(Label, Value, "%.3f", Flags);
-			case EMaterialProgramValueType::Float4:
-				return ImGui::InputFloat4(Label, Value, "%.3f", Flags);
-			case EMaterialProgramValueType::Texture2D:
-			case EMaterialProgramValueType::Surface:
-				return false;
-			}
-			return false;
-		}
-
 		auto SurfaceLinks(const FMaterialSurfaceOutputs& Outputs)
 			-> std::array<const FMaterialProgramLink*, 9>
 		{
@@ -194,20 +114,6 @@ namespace Durin::Editor::Material
 			return std::format("{}...", Text.substr(0, Capacity - 3));
 		}
 
-		auto ReportCommand(
-			const FMaterialGraphCommandResult& Result,
-			const FMaterialGraphCanvas::FReportError& ReportError) -> void
-		{
-			if (Result || !ReportError) return;
-			std::string Message = Result.Message;
-			if (!Result.Diagnostics.empty())
-			{
-				if (!Message.empty()) Message += " ";
-				Message += Result.Diagnostics.front().Message;
-			}
-			ReportError(Message.empty()
-				? "The material graph command failed." : std::move(Message));
-		}
 	}
 
 	struct FMaterialGraphCanvas::FVisualNode
@@ -287,11 +193,9 @@ namespace Durin::Editor::Material
 			Material.GetMaterialGraphPresentationRevision();
 		const uint64 SchemaRevision =
 			Material.GetParameterDefinitionSchemaRevision();
-		if (CachedMaterial != &Material
-			|| CatalogSchemaRevision != SchemaRevision || Catalog.empty())
+		if (Catalog.empty())
 		{
-			Catalog = FMaterialGraphOperations::EnumerateCatalog(Material);
-			CatalogSchemaRevision = SchemaRevision;
+			Catalog = FMaterialGraphOperations::EnumerateCatalog();
 			++CatalogRevision;
 		}
 		if (CachedMaterial != &Material
@@ -566,175 +470,9 @@ namespace Durin::Editor::Material
 		if (Removed) SelectedNodes.clear();
 	}
 
-	auto FMaterialGraphCanvas::DrawPalette(
-		DMaterial& Material,
-		DTransactor& Transactions,
-		const FMaterialGraphView& View,
-		const FReportError& ReportError) -> void
+	auto FMaterialGraphCanvas::HasClipboard() const -> bool
 	{
-		auto* Palette = std::get_if<FPaletteInteraction>(&Interaction);
-		if (Palette && Palette->bOpenRequested)
-		{
-			Palette->Search.fill('\0');
-			Palette->Selection = 0;
-			ImGui::OpenPopup("MaterialNodePalette");
-			Palette->bOpenRequested = false;
-		}
-		const ImGuiViewport* MainViewport = ImGui::GetMainViewport();
-		ImGui::SetNextWindowPos(
-			{MainViewport->Pos.x + MainViewport->Size.x * 0.5f,
-				MainViewport->Pos.y + MainViewport->Size.y * 0.5f},
-			ImGuiCond_Appearing, {0.5f, 0.5f});
-		ImGui::SetNextWindowSize({MonaImGui::ScaleUI(660.0f),
-			MonaImGui::ScaleUI(520.0f)}, ImGuiCond_Appearing);
-		if (!ImGui::BeginPopup("MaterialNodePalette", ImGuiWindowFlags_NoSavedSettings))
-		{
-			if (Palette) ResetInteraction();
-			return;
-		}
-		Palette = std::get_if<FPaletteInteraction>(&Interaction);
-		if (!Palette)
-		{
-			ImGui::CloseCurrentPopup();
-			ImGui::EndPopup();
-			return;
-		}
-
-		if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const bool bSearchSubmitted = ImGui::InputTextWithHint(
-			"##NodePaletteSearch", "Search nodes, parameters, categories, or types",
-			Palette->Search.data(), Palette->Search.size(),
-			ImGuiInputTextFlags_EnterReturnsTrue);
-		if (ImGui::IsItemEdited()) Palette->Selection = 0;
-
-		std::optional<EMaterialProgramValueType> SourceType;
-		const auto Source = std::ranges::find(View.Nodes, Palette->SourceNode,
-			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
-		if (Palette->SourceNode.IsValid() && Source != View.Nodes.end())
-			SourceType = Source->Node.ResultType;
-		const bool bPaletteResultsStale =
-			CachedPaletteCatalogRevision != CatalogRevision
-			|| CachedFavoritePaletteRevision != FavoritePaletteRevision
-			|| CachedRecentPaletteRevision != RecentPaletteRevision
-			|| CachedPaletteQuery != Palette->Search.data()
-			|| CachedPaletteSourceType != SourceType;
-		if (bPaletteResultsStale)
-		{
-			CachedPaletteResults = FMaterialGraphOperations::SearchCatalogIndices(
-				Catalog, Palette->Search.data(), SourceType);
-			if (Palette->Search.front() == '\0')
-			{
-				const auto RecentRank = [this](size_t Index) {
-					const auto It = std::ranges::find(RecentPaletteEntries,
-						PaletteEntryKey(Catalog[Index]));
-					return It == RecentPaletteEntries.end()
-						? RecentPaletteEntries.size()
-						: static_cast<size_t>(It - RecentPaletteEntries.begin());
-				};
-				std::ranges::stable_sort(CachedPaletteResults,
-					[this, &RecentRank](size_t A, size_t B) {
-						const bool bFavoriteA = FavoritePaletteEntries.contains(
-							PaletteEntryKey(Catalog[A]));
-						const bool bFavoriteB = FavoritePaletteEntries.contains(
-							PaletteEntryKey(Catalog[B]));
-						if (bFavoriteA != bFavoriteB) return bFavoriteA;
-						return RecentRank(A) < RecentRank(B);
-					});
-			}
-			CachedPaletteCatalogRevision = CatalogRevision;
-			CachedFavoritePaletteRevision = FavoritePaletteRevision;
-			CachedRecentPaletteRevision = RecentPaletteRevision;
-			CachedPaletteQuery = Palette->Search.data();
-			CachedPaletteSourceType = SourceType;
-		}
-		const std::vector<size_t>& Results = CachedPaletteResults;
-
-		Palette->Selection = std::clamp(Palette->Selection, 0,
-			std::max(static_cast<int32>(Results.size()) - 1, 0));
-		if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !Results.empty())
-			Palette->Selection = std::min(Palette->Selection + 1,
-				static_cast<int32>(Results.size()) - 1);
-		if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && !Results.empty())
-			Palette->Selection = std::max(Palette->Selection - 1, 0);
-		if (SourceType)
-			ImGui::TextDisabled("Compatible with %s output", TypeName(*SourceType));
-		else ImGui::TextDisabled("Favorites and recent nodes appear first");
-		ImGui::Separator();
-
-		bool bActivateSelection = bSearchSubmitted;
-		if (ImGui::BeginChild("NodePaletteResults",
-			{0.0f, -ImGui::GetFrameHeightWithSpacing()}))
-		{
-			for (size_t EntryIndex = 0; EntryIndex < Results.size(); ++EntryIndex)
-			{
-				const FMaterialGraphCatalogEntry& Entry = Catalog[Results[EntryIndex]];
-				const std::string Key = PaletteEntryKey(Entry);
-				ImGui::PushID(static_cast<int>(EntryIndex));
-				const bool bFavorite = FavoritePaletteEntries.contains(Key);
-				if (ImGui::SmallButton(bFavorite ? "*" : "+"))
-				{
-					if (bFavorite) FavoritePaletteEntries.erase(Key);
-					else FavoritePaletteEntries.insert(Key);
-					++FavoritePaletteRevision;
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip(bFavorite
-						? "Remove from favorites" : "Add to favorites");
-				ImGui::SameLine();
-				const std::string Label = std::format("{}{}{}  -> {}\n{}\n{} | {}",
-					bFavorite ? "* " : "", Entry.OperationName,
-					Entry.SecondaryName.empty() ? ""
-						: std::format(" - {}", Entry.SecondaryName),
-					TypeName(Entry.NodeTemplate.ResultType), Entry.Description,
-					Entry.Category, FormatInputSignature(Entry));
-				if (ImGui::Selectable(Label.c_str(),
-					Palette->Selection == static_cast<int32>(EntryIndex),
-					ImGuiSelectableFlags_AllowDoubleClick))
-				{
-					Palette->Selection = static_cast<int32>(EntryIndex);
-					bActivateSelection = true;
-				}
-				ImGui::Separator();
-				ImGui::PopID();
-			}
-		}
-		ImGui::EndChild();
-
-		if (bActivateSelection && !Results.empty())
-		{
-			const FMaterialGraphCatalogEntry& Entry = Catalog[
-				Results[static_cast<size_t>(Palette->Selection)]];
-			FMaterialProgramNode Candidate = Entry.NodeTemplate;
-			if (SourceType) Candidate.Inputs.front() = {Palette->SourceNode, 0};
-			const FMaterialGraphCommandResult Created =
-				FMaterialGraphOperations::CreateNodeWithDefaultInputs(Material, {
-					.Node = std::move(Candidate),
-					.X = static_cast<int32>(std::round(Palette->GraphPosition.x)),
-					.Y = static_cast<int32>(std::round(Palette->GraphPosition.y)),
-				}, Entry.AcceptedInputTypes, &Transactions);
-			ReportCommand(Created, ReportError);
-			if (Created)
-			{
-				if (!Created.GeneratedNodeIds.empty())
-					SelectedNodes = {Created.GeneratedNodeIds.front()};
-				const std::string Key = PaletteEntryKey(Entry);
-				std::erase(RecentPaletteEntries, Key);
-				RecentPaletteEntries.insert(RecentPaletteEntries.begin(), Key);
-				if (RecentPaletteEntries.size() > 8) RecentPaletteEntries.resize(8);
-				++RecentPaletteRevision;
-				ResetInteraction();
-				ImGui::CloseCurrentPopup();
-			}
-		}
-		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-		{
-			ResetInteraction();
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("Up/Down navigate   Enter create   Esc close");
-		ImGui::EndPopup();
+		return GraphClipboard.has_value();
 	}
 
 	auto FMaterialGraphCanvas::DrawContextMenu(
@@ -754,8 +492,6 @@ namespace Durin::Editor::Material
 		const FGuid ContextNode = Context ? Context->ContextNode : FGuid{};
 		const std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput =
 			Context ? Context->SurfaceOutput : std::nullopt;
-		const ImVec2 ContextGraphPosition =
-			Context ? Context->GraphPosition : ImVec2{};
 		const auto ContextNodeIt = std::ranges::find(View.Nodes, ContextNode,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		const FMaterialGraphNodeView* ContextNodeView =
@@ -767,22 +503,36 @@ namespace Durin::Editor::Material
 				ContextSelection.assign(SelectedNodes.begin(), SelectedNodes.end());
 			else ContextSelection = {ContextNodeView->Node.Id};
 			FMaterialProgramNode Edited = ContextNodeView->Node;
-			if (ImGui::BeginMenu("Parameter"))
+			if ((Edited.Opcode == EMaterialProgramOpcode::Parameter
+				|| Edited.Opcode == EMaterialProgramOpcode::TextureParameter) && ImGui::BeginMenu("Parameter"))
 			{
-				for (const FMaterialGraphCatalogEntry& Entry : Catalog)
+				for (const auto& Definition : Material.GetParameterDefinitions())
 				{
-					if (Entry.NodeTemplate.Opcode != Edited.Opcode
-						|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
-					ImGui::PushID(Entry.NodeTemplate.ParameterId.ToString().c_str());
-					if (ImGui::MenuItem(Entry.Name.c_str()))
+					if (GetProgramType(Definition.Type) != Edited.ResultType) continue;
+					ImGui::PushID(Definition.Id.ToString().c_str());
+					if (ImGui::MenuItem(Definition.Name.ToString().c_str()))
 					{
-						Edited.ParameterId = Entry.NodeTemplate.ParameterId;
-						Edited.ResultType = Entry.NodeTemplate.ResultType;
-						Edited.DisplayName = Entry.NodeTemplate.DisplayName;
+						Edited.ParameterId = Definition.Id;
+						Edited.DisplayName = Definition.DisplayName;
 						ReportCommand(FMaterialGraphOperations::ReplaceNode(
 							Material, Edited, &Transactions), ReportError);
 					}
 					ImGui::PopID();
+				}
+				ImGui::EndMenu();
+			}
+			if (Edited.Opcode == EMaterialProgramOpcode::Constant && ImGui::BeginMenu("Type"))
+			{
+				for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
+					EMaterialProgramValueType::Float2, EMaterialProgramValueType::Float3,
+					EMaterialProgramValueType::Float4})
+				{
+					if (ImGui::MenuItem(GetProgramTypeName(Type), nullptr, Edited.ResultType == Type))
+					{
+						Edited.ResultType = Type;
+						ReportCommand(FMaterialGraphOperations::ReplaceNode(
+							Material, Edited, &Transactions), ReportError);
+					}
 				}
 				ImGui::EndMenu();
 			}
@@ -839,22 +589,6 @@ namespace Durin::Editor::Material
 					ReportCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
 						Material, NodeRequest, &Transactions), ReportError);
 			}
-		}
-		else
-		{
-			if (GraphClipboard && ImGui::MenuItem("Paste"))
-				PasteNodes(Material, Transactions, ContextGraphPosition, ReportError);
-			if (ImGui::MenuItem("Auto Layout"))
-			{
-				const FMaterialGraphCommandResult Layout = FMaterialGraphOperations::Layout(
-					Material, {}, &Transactions);
-				ReportCommand(Layout, ReportError);
-				if (Layout) SurfaceGraphPosition.reset();
-			}
-			if (ImGui::MenuItem("Create Node...", "Space"))
-				Interaction = FPaletteInteraction{
-					.SourceNode = Context ? Context->SourceNode : FGuid{},
-					.GraphPosition = ContextGraphPosition};
 		}
 		ImGui::EndPopup();
 	}
@@ -1101,7 +835,7 @@ namespace Durin::Editor::Material
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& !bInlineEditorVisible)
 				{
-					const std::string ResultLabel = TypeName(Visual.View->Node.ResultType);
+					const std::string ResultLabel = GetProgramTypeName(Visual.View->Node.ResultType);
 					const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
 						GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
 					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
@@ -1223,19 +957,8 @@ namespace Durin::Editor::Material
 								Visual.View->Node.ParameterId, Resolved);
 						if (bEditValue)
 						{
-							std::array ConstantDraft{Resolved.Value.ScalarValue,
-								static_cast<float>(Resolved.Value.Vector2Value.y),
-								static_cast<float>(Resolved.Value.VectorValue.z), 0.0f};
-							if (Visual.View->Node.ResultType == EMaterialProgramValueType::Float2)
-								ConstantDraft = {
-									static_cast<float>(Resolved.Value.Vector2Value.x),
-									static_cast<float>(Resolved.Value.Vector2Value.y), 0.0f, 0.0f};
-							else if (Visual.View->Node.ResultType
-								== EMaterialProgramValueType::Float3)
-								ConstantDraft = {
-									static_cast<float>(Resolved.Value.VectorValue.x),
-									static_cast<float>(Resolved.Value.VectorValue.y),
-									static_cast<float>(Resolved.Value.VectorValue.z), 0.0f};
+							const auto Literal = ReadParameterLiteral(Visual.View->Node.ResultType, Resolved.Value);
+							std::array ConstantDraft{Literal.X, Literal.Y, Literal.Z, Literal.W};
 							if (const auto* Inline =
 								std::get_if<FInlineEditingInteraction>(&Interaction);
 								Inline && Inline->Node == Visual.View->Node.Id)
@@ -1257,16 +980,8 @@ namespace Durin::Editor::Material
 							}
 							else if (bValueChanged)
 							{
-								FMaterialParameterValue Value = Resolved.Value;
-								if (Visual.View->Node.ResultType
-									== EMaterialProgramValueType::Float)
-									Value.ScalarValue = ConstantDraft[0];
-								else if (Visual.View->Node.ResultType
-									== EMaterialProgramValueType::Float2)
-									Value.Vector2Value = {ConstantDraft[0],
-										ConstantDraft[1]};
-								else Value.VectorValue = {ConstantDraft[0],
-									ConstantDraft[1], ConstantDraft[2]};
+								const auto Value = MakeParameterValue(Visual.View->Node.ResultType,
+									{ConstantDraft[0], ConstantDraft[1], ConstantDraft[2], ConstantDraft[3]});
 								if (!ParameterEditSession.IsActive())
 									ReportCommand(ParameterEditSession.Begin(Material,
 										Visual.View->Node.ParameterId, &Transactions), ReportError);
@@ -1292,17 +1007,15 @@ namespace Durin::Editor::Material
 								? "Select parameter" : Visual.View->SecondaryLabel.c_str();
 							if (ImGui::BeginCombo("##InlineParameter", Preview))
 							{
-								for (const FMaterialGraphCatalogEntry& Entry : Catalog)
+								for (const auto& Definition : Material.GetParameterDefinitions())
 								{
-									if (Entry.NodeTemplate.Opcode != Visual.View->Node.Opcode
-										|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
-									if (ImGui::Selectable(Entry.SecondaryName.c_str(),
-										Entry.NodeTemplate.ParameterId == Visual.View->Node.ParameterId))
+									if (GetProgramType(Definition.Type) != Visual.View->Node.ResultType) continue;
+									if (ImGui::Selectable((Definition.DisplayName + "##" + Definition.Id.ToString()).c_str(),
+										Definition.Id == Visual.View->Node.ParameterId))
 									{
 										FMaterialProgramNode Edited = Visual.View->Node;
-										Edited.ParameterId = Entry.NodeTemplate.ParameterId;
-										Edited.ResultType = Entry.NodeTemplate.ResultType;
-										Edited.DisplayName = Entry.SecondaryName;
+										Edited.ParameterId = Definition.Id;
+										Edited.DisplayName = Definition.DisplayName;
 										ReportCommand(FMaterialGraphOperations::ReplaceNode(
 											Material, std::move(Edited), &Transactions), ReportError);
 									}
@@ -1379,7 +1092,7 @@ namespace Durin::Editor::Material
 				ImGui::TextUnformatted(HoveredNode->View->PrimaryLabel.c_str());
 				if (!HoveredNode->View->SecondaryLabel.empty())
 					ImGui::TextDisabled("%s", HoveredNode->View->SecondaryLabel.c_str());
-				ImGui::TextDisabled("Output: %s", TypeName(HoveredNode->View->Node.ResultType));
+				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}
 			DrawList->AddRectFilled(SurfaceMinimum, SurfaceMaximum,
@@ -1421,7 +1134,7 @@ namespace Durin::Editor::Material
 						IM_COL32(190, 145, 55, 75));
 				DrawList->AddCircleFilled(SurfacePins[Index], std::max(2.0f, 5.0f * Zoom),
 					TypeColor(SurfaceTypes[Index]));
-				if (DetailLevel == EMaterialGraphDetailLevel::Editing)
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 				{
 					const ImVec4 LabelClip(
 						SurfaceMinimum.x + NodePadding * Zoom,
@@ -1434,7 +1147,24 @@ namespace Durin::Editor::Material
 							{NodePadding * Zoom, -GraphBodyFontSize * 0.5f}),
 						IM_COL32(210, 214, 222, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
-					if (Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
+					if (DetailLevel == EMaterialGraphDetailLevel::Readable
+						&& Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
+					{
+						const auto& Value = GetMaterialSurfaceOutputDefault(View.Outputs,
+							static_cast<EMaterialSurfaceOutput>(Index));
+						const std::string Text = SurfaceTypes[Index] == EMaterialProgramValueType::Float3
+							? std::format("{:.3g}, {:.3g}, {:.3g}", Value.X, Value.Y, Value.Z)
+							: std::format("{:.3g}", Value.X);
+						const float ValueX = SurfaceMinimum.x + (NodePadding
+							+ Metrics.SurfaceLabelWidth + Metrics.SurfaceValueGap) * Zoom;
+						const ImVec4 ValueClip(ValueX, LabelClip.y,
+							SurfaceMaximum.x - NodePadding * Zoom, LabelClip.w);
+						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
+							{ValueX, SurfacePins[Index].y - GraphBodyFontSize * 0.5f},
+							IM_COL32(165, 172, 186, 255), Text.c_str(), nullptr, 0.0f, &ValueClip);
+					}
+					if (DetailLevel == EMaterialGraphDetailLevel::Editing
+						&& Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
 					{
 						const EMaterialSurfaceOutput Output =
 							static_cast<EMaterialSurfaceOutput>(Index);
@@ -1503,13 +1233,13 @@ namespace Durin::Editor::Material
 					|| ImGui::IsMouseClicked(ImGuiMouseButton_Middle)
 					|| ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 				ImGui::SetWindowFocus();
-			const bool bOpenPaletteByDoubleClick = bCanvasPointerInteractionAvailable
+			const bool bOpenCreationMenuByDoubleClick = bCanvasPointerInteractionAvailable
 				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
 				&& !HoveredNode && !HoveredOutput && !HoveredInputNode
 				&& !HoveredSurfaceOutput && !bHoveredMaterialOutputHeader;
-			if (bOpenPaletteByDoubleClick)
+			if (bOpenCreationMenuByDoubleClick)
 			{
-				Interaction = FPaletteInteraction{
+				Interaction = FNodeCreationMenuInteraction{
 					.SourceNode = {},
 					.GraphPosition = Multiply(
 						Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
@@ -1524,7 +1254,7 @@ namespace Durin::Editor::Material
 				ResetInteraction();
 			}
 
-			if (bCanvasPointerInteractionAvailable && !bOpenPaletteByDoubleClick
+			if (bCanvasPointerInteractionAvailable && !bOpenCreationMenuByDoubleClick
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
 				if (HoveredInputNode)
@@ -1679,7 +1409,7 @@ namespace Durin::Editor::Material
 					}
 					else if (bHovered)
 					{
-						Interaction = FPaletteInteraction{
+						Interaction = FNodeCreationMenuInteraction{
 							.SourceNode = SourceNode,
 							.GraphPosition = Multiply(
 								Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
@@ -1774,26 +1504,31 @@ namespace Durin::Editor::Material
 			if (bCanvasPointerInteractionAvailable
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 			{
-				Interaction = FContextMenuInteraction{
-					.SourceNode = HoveredOutput
-						? HoveredOutput->View->Node.Id : FGuid{},
-					.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
-						: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
-					.SurfaceOutput = HoveredSurfaceOutput,
-					.GraphPosition = Multiply(
-						Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
-				ImGui::OpenPopup("MaterialGraphContext");
+				if (!HoveredNode && !HoveredInputNode && !HoveredSurfaceOutput)
+				{
+					Interaction = FNodeCreationMenuInteraction{
+						.GraphPosition = Multiply(
+							Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
+				}
+				else
+				{
+					Interaction = FContextMenuInteraction{
+						.ContextNode = HoveredNode ? HoveredNode->View->Node.Id
+							: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{},
+						.SurfaceOutput = HoveredSurfaceOutput};
+					ImGui::OpenPopup("MaterialGraphContext");
+				}
 			}
 			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Space))
 			{
-				Interaction = FPaletteInteraction{
+				Interaction = FNodeCreationMenuInteraction{
 					.SourceNode = {},
 					.GraphPosition = Multiply(
 						Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 			}
 
 			DrawContextMenu(Material, Transactions, View, ReportError);
-			DrawPalette(Material, Transactions, View, ReportError);
+			DrawCreationMenu(Material, Transactions, View, ReportError);
 
 			DrawList->PopClipRect();
 		}

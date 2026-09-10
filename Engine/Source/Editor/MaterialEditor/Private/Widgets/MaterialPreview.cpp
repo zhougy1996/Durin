@@ -173,6 +173,13 @@ namespace Durin::Editor::Material
 			}
 
 			UpdateScene(Material);
+			if (!SceneStatus.empty())
+			{
+				SetVisible(false);
+				ImGui::TextWrapped("%s", SceneStatus.c_str());
+				ImGui::EndChild();
+				return;
+			}
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			const float Width = std::max(8.0f, Available.x);
 			const float Height = std::max(8.0f, Available.y);
@@ -213,11 +220,11 @@ namespace Durin::Editor::Material
 				DStaticMesh* Mesh = GetSelectedMesh();
 				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
 				{
-					Error = Mesh && HasPendingStaticMeshCompilation(*Mesh)
+					SceneStatus = Mesh && HasPendingStaticMeshCompilation(*Mesh)
 						? "Building preview mesh..." : "The selected material preview mesh has no render data.";
 					return;
 				}
-				Error.clear();
+				SceneStatus.clear();
 				PreviewMesh->SetStaticMesh(Mesh);
 				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
 					PreviewMesh->SetMaterial(SlotIndex, Material);
@@ -236,6 +243,8 @@ namespace Durin::Editor::Material
 		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
+		// Mesh readiness is retried each frame; initialization errors are terminal.
+		std::string SceneStatus;
 		std::string Error;
 	};
 

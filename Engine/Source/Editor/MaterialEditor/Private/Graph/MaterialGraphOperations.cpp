@@ -1,3 +1,4 @@
+#include "Graph/MaterialGraphValueTypes.h"
 #include "MaterialGraphOperations.h"
 
 #include "DObject/ObjectLifecycle.h"
@@ -71,34 +72,6 @@ namespace Durin::Editor::Material
 			}
 		}
 
-		auto GetProgramType(EMaterialParameterType Type)
-			-> EMaterialProgramValueType
-		{
-			switch (Type)
-			{
-			case EMaterialParameterType::Scalar: return EMaterialProgramValueType::Float;
-			case EMaterialParameterType::Vector2: return EMaterialProgramValueType::Float2;
-			case EMaterialParameterType::Vector: return EMaterialProgramValueType::Float3;
-			case EMaterialParameterType::Vector4: return EMaterialProgramValueType::Float4;
-			case EMaterialParameterType::Texture: return EMaterialProgramValueType::Texture2D;
-			}
-			return EMaterialProgramValueType::Float;
-		}
-
-		auto GetProgramTypeName(EMaterialProgramValueType Type) -> const char*
-		{
-			switch (Type)
-			{
-			case EMaterialProgramValueType::Float: return "Float";
-			case EMaterialProgramValueType::Float2: return "Float2";
-			case EMaterialProgramValueType::Float3: return "Float3";
-			case EMaterialProgramValueType::Float4: return "Float4";
-			case EMaterialProgramValueType::Texture2D: return "Texture2D";
-			case EMaterialProgramValueType::Surface: return "Surface";
-			}
-			return "Unknown";
-		}
-
 		auto GetOpcodeName(EMaterialProgramOpcode Opcode) -> const char*
 		{
 			switch (Opcode)
@@ -147,12 +120,11 @@ namespace Durin::Editor::Material
 			-> FMaterialGraphCatalogEntry
 		{
 			FMaterialGraphCatalogEntry Entry;
-			Entry.Name = GetOpcodeName(Opcode);
-			Entry.OperationName = Entry.Name;
+			Entry.OperationName = GetOpcodeName(Opcode);
 			Entry.Category = GetCategory(Opcode);
 			switch (Opcode)
 			{
-			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value."; break;
+			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value. Choose Float, Float2, Float3, or Float4 from the node type menu."; break;
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A value exposed by the material parameter definition."; break;
 			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a 2D texture at the supplied coordinates."; break;
@@ -203,7 +175,6 @@ namespace Durin::Editor::Material
 		{
 			Entry.NormalizedSearchFields = {
 				NormalizeSearchText(Entry.OperationName),
-				NormalizeSearchText(Entry.SecondaryName),
 				NormalizeSearchText(Entry.Category),
 				NormalizeSearchText(Entry.Description),
 				NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
@@ -224,26 +195,6 @@ namespace Durin::Editor::Material
 			const auto It = std::ranges::find(Program.Nodes, Id,
 				&FMaterialProgramNode::Id);
 			return It == Program.Nodes.end() ? nullptr : &*It;
-		}
-
-		auto MakeParameterValue(
-			EMaterialProgramValueType Type,
-			const FMaterialProgramLiteral& Literal) -> FMaterialParameterValue
-		{
-			switch (Type)
-			{
-			case EMaterialProgramValueType::Float:
-				return FMaterialParameterValue::MakeScalar(Literal.X);
-			case EMaterialProgramValueType::Float2:
-				return FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y});
-			case EMaterialProgramValueType::Float3:
-				return FMaterialParameterValue::MakeVector(
-					{Literal.X, Literal.Y, Literal.Z});
-			case EMaterialProgramValueType::Float4:
-				return FMaterialParameterValue::MakeVector4(
-					{Literal.X, Literal.Y, Literal.Z, Literal.W});
-			default: return {};
-			}
 		}
 
 		auto MakeRejected(
@@ -786,7 +737,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::Inspect(const DMaterial& Material)
 		-> FMaterialGraphView
 	{
-		const std::vector Catalog = EnumerateCatalog(Material);
+		const std::vector Catalog = EnumerateCatalog();
 		return Inspect(Material, Catalog);
 	}
 
@@ -795,23 +746,6 @@ namespace Durin::Editor::Material
 		std::span<const FMaterialGraphCatalogEntry> Catalog)
 		-> FMaterialGraphView
 	{
-		struct FCatalogShapeKey
-		{
-			EMaterialProgramOpcode Opcode;
-			EMaterialProgramValueType ResultType;
-			FGuid ParameterId;
-
-			auto operator==(const FCatalogShapeKey&) const -> bool = default;
-		};
-		struct FCatalogShapeKeyHash
-		{
-			auto operator()(const FCatalogShapeKey& Key) const -> size_t
-			{
-				size_t Hash = static_cast<size_t>(Key.Opcode);
-				Hash = Hash * 31 + static_cast<size_t>(Key.ResultType);
-				return Hash * 31 + std::hash<FGuid>{}(Key.ParameterId);
-			}
-		};
 		const auto BaseShapeKey = [](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType ResultType) {
 			return static_cast<uint32>(Opcode) << 8
@@ -828,20 +762,9 @@ namespace Durin::Editor::Material
 		for (const FMaterialProgramNode& Node : Program.Nodes)
 			NodesById.emplace(Node.Id, &Node);
 		std::unordered_map<uint32, const FMaterialGraphCatalogEntry*> BaseShapes;
-		std::unordered_map<FCatalogShapeKey,
-			const FMaterialGraphCatalogEntry*, FCatalogShapeKeyHash> ParameterShapes;
 		BaseShapes.reserve(Catalog.size());
-		ParameterShapes.reserve(Catalog.size());
-		for (const FMaterialGraphCatalogEntry& Entry : Catalog)
-		{
-			BaseShapes.emplace(BaseShapeKey(
-				Entry.NodeTemplate.Opcode, Entry.NodeTemplate.ResultType), &Entry);
-			if (Entry.NodeTemplate.ParameterId.IsValid())
-				ParameterShapes.emplace(FCatalogShapeKey{
-					Entry.NodeTemplate.Opcode,
-					Entry.NodeTemplate.ResultType,
-					Entry.NodeTemplate.ParameterId}, &Entry);
-		}
+		for (const auto& Entry : Catalog)
+			BaseShapes.emplace(BaseShapeKey(Entry.NodeTemplate.Opcode, Entry.NodeTemplate.ResultType), &Entry);
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
 		Positions.reserve(Presentation.Nodes.size());
 		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
@@ -851,23 +774,14 @@ namespace Durin::Editor::Material
 		{
 			FMaterialGraphNodeView View{.Node = Node};
 			const FMaterialGraphCatalogEntry* Shape = nullptr;
-			if (Node.ParameterId.IsValid())
-			{
-				const auto It = ParameterShapes.find({
-					Node.Opcode, Node.ResultType, Node.ParameterId});
-				if (It != ParameterShapes.end()) Shape = It->second;
-			}
-			else
-			{
-				const auto It = BaseShapes.find(BaseShapeKey(
-					Node.Opcode, Node.ResultType));
-				if (It != BaseShapes.end()) Shape = It->second;
-			}
+			const auto ShapeIt = BaseShapes.find(BaseShapeKey(Node.Opcode, Node.ResultType));
+			if (ShapeIt != BaseShapes.end()) Shape = ShapeIt->second;
 			View.PrimaryLabel = Shape
 				? Shape->OperationName : GetOpcodeName(Node.Opcode);
 			View.SecondaryLabel = Node.DisplayName;
-			if (View.SecondaryLabel.empty() && Shape)
-				View.SecondaryLabel = Shape->SecondaryName;
+			if (Node.ParameterId.IsValid())
+				if (const auto* Definition = Material.FindParameterDefinition(Node.ParameterId))
+					View.SecondaryLabel = Definition->DisplayName;
 			View.Inputs.reserve(Node.Inputs.size());
 			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
 			{
@@ -905,7 +819,7 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphOperations::EnumerateCatalog(const DMaterial& Material)
+	auto FMaterialGraphOperations::EnumerateCatalog()
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
@@ -919,20 +833,19 @@ namespace Durin::Editor::Material
 		for (EMaterialProgramValueType Type : NumericTypes)
 			Result.push_back(MakeCatalogEntry(
 				EMaterialProgramOpcode::Constant, Type));
-		for (const FMaterialParameterDefinition& Definition
-			: Material.GetParameterDefinitions())
+		for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
+			EMaterialProgramValueType::Float2, EMaterialProgramValueType::Float3,
+			EMaterialProgramValueType::Float4, EMaterialProgramValueType::Texture2D})
 		{
-			const EMaterialProgramValueType Type = GetProgramType(Definition.Type);
-			FMaterialGraphCatalogEntry Parameter = MakeCatalogEntry(
-				Type == EMaterialProgramValueType::Texture2D
-					? EMaterialProgramOpcode::TextureParameter
-					: EMaterialProgramOpcode::Parameter,
-				Type);
-			Parameter.Name = Definition.DisplayName;
-			Parameter.SecondaryName = Definition.DisplayName;
-			Parameter.NodeTemplate.ParameterId = Definition.Id;
-			Parameter.NodeTemplate.DisplayName = Definition.DisplayName;
-			Result.push_back(std::move(Parameter));
+			auto Entry = MakeCatalogEntry(Type == EMaterialProgramValueType::Texture2D
+				? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter, Type);
+			const char* Name = Type == EMaterialProgramValueType::Float ? "Scalar Parameter"
+				: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
+				: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
+				: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Parameter";
+			Entry.OperationName = Name;
+			Entry.Description = "Create a new parameter or reference an existing parameter of this type.";
+			Result.push_back(std::move(Entry));
 		}
 		Result.push_back(MakeCatalogEntry(
 			EMaterialProgramOpcode::TextureSample2D,
@@ -1012,18 +925,17 @@ namespace Durin::Editor::Material
 			EMaterialProgramValueType::Surface, {One(EMaterialProgramValueType::Float3), One(EMaterialProgramValueType::Float3),
 				One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float),
 				One(EMaterialProgramValueType::Float3), One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float)}));
-		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::Name);
+		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::OperationName);
 		for (FMaterialGraphCatalogEntry& Entry : Result) PrepareSearchFields(Entry);
 		return Result;
 	}
 
 	auto FMaterialGraphOperations::SearchCatalog(
-		const DMaterial& Material,
 		std::string_view Query,
 		std::optional<EMaterialProgramValueType> SourceType)
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
-		return SearchCatalog(EnumerateCatalog(Material), Query, SourceType);
+		return SearchCatalog(EnumerateCatalog(), Query, SourceType);
 	}
 
 	auto FMaterialGraphOperations::SearchCatalog(
@@ -1057,6 +969,9 @@ namespace Durin::Editor::Material
 		for (size_t Ordinal = 0; Ordinal < Catalog.size(); ++Ordinal)
 		{
 			const FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
+			// Keep dimensional shapes for inspection; the palette creates one scalar Constant.
+			if (Entry.NodeTemplate.Opcode == EMaterialProgramOpcode::Constant
+				&& Entry.NodeTemplate.ResultType != EMaterialProgramValueType::Float) continue;
 			if (SourceType)
 			{
 				if (Entry.AcceptedInputTypes.empty()
@@ -1064,15 +979,14 @@ namespace Durin::Editor::Material
 						== Entry.AcceptedInputTypes.front().end()) continue;
 			}
 			uint8 Match = Needle.empty() ? 3 : 4;
-			std::array<std::string, 5> FallbackSearchFields;
-			const std::array<std::string, 5>* SearchFields =
+			std::array<std::string, 4> FallbackSearchFields;
+			const std::array<std::string, 4>* SearchFields =
 				&Entry.NormalizedSearchFields;
 			if (std::ranges::all_of(*SearchFields,
 				[](const std::string& Field) { return Field.empty(); }))
 			{
 				FallbackSearchFields = {
 					NormalizeSearchText(Entry.OperationName),
-					NormalizeSearchText(Entry.SecondaryName),
 					NormalizeSearchText(Entry.Category),
 					NormalizeSearchText(Entry.Description),
 					NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
@@ -1145,14 +1059,10 @@ namespace Durin::Editor::Material
 		Definition.Id = FGuid::NewGuid();
 		Definition.Name = Name;
 		Definition.DisplayName = Name.ToString();
-		switch (Node->ResultType)
-		{
-		case EMaterialProgramValueType::Float: Definition.Type = EMaterialParameterType::Scalar; break;
-		case EMaterialProgramValueType::Float2: Definition.Type = EMaterialParameterType::Vector2; break;
-		case EMaterialProgramValueType::Float3: Definition.Type = EMaterialParameterType::Vector; break;
-		case EMaterialProgramValueType::Float4: Definition.Type = EMaterialParameterType::Vector4; break;
-		default: return MakeRejected("Only a numeric constant can be promoted to a parameter.");
-		}
+		const auto Type = GetParameterType(Node->ResultType);
+		if (!Type || *Type == EMaterialParameterType::Texture)
+			return MakeRejected("Only a numeric constant can be promoted to a parameter.");
+		Definition.Type = *Type;
 		Definition.Value = MakeParameterValue(Node->ResultType, Node->Literal);
 		std::vector<FMaterialParameterDefinition> Definitions(
 			Material.GetParameterDefinitions().begin(), Material.GetParameterDefinitions().end());
@@ -1253,6 +1163,42 @@ namespace Durin::Editor::Material
 	{
 		if (AcceptedInputTypes.size() != Request.Node.Inputs.size())
 			return MakeRejected("The node palette input shape is stale.");
+		if (!Request.Node.ParameterId.IsValid()
+			&& (Request.Node.Opcode == EMaterialProgramOpcode::Parameter
+				|| Request.Node.Opcode == EMaterialProgramOpcode::TextureParameter))
+		{
+			FMaterialParameterDefinition Definition;
+			Definition.Id = FGuid::NewGuid();
+			const auto Type = GetParameterType(Request.Node.ResultType);
+			if (!Type) return MakeRejected("Unsupported parameter type.");
+			Definition.Type = *Type;
+			const std::string BaseName = Definition.Type == EMaterialParameterType::Texture
+				? "TextureParameter" : std::string(GetProgramTypeName(Request.Node.ResultType)) + "Parameter";
+			Definition.Name = FName(BaseName);
+			for (uint32 Suffix = 1; Material.FindParameterDefinition(Definition.Name); ++Suffix)
+				Definition.Name = FName(std::format("{}{}", BaseName, Suffix));
+			Definition.DisplayName = Definition.Name.ToString();
+			std::vector<FMaterialParameterDefinition> Definitions(
+				Material.GetParameterDefinitions().begin(), Material.GetParameterDefinitions().end());
+			Definitions.push_back(Definition);
+			if (!Request.Node.Id.IsValid()) Request.Node.Id = FGuid::NewGuid();
+			const FGuid NodeId = Request.Node.Id;
+			Request.Node.ParameterId = Definition.Id;
+			Request.Node.DisplayName = Definition.DisplayName;
+			auto Program = *Material.GetMaterialProgram();
+			Program.Nodes.push_back(std::move(Request.Node));
+			auto Presentation = Material.GetMaterialGraphPresentation();
+			Presentation.Nodes.push_back({NodeId, Request.X, Request.Y});
+			auto Result = ReplaceDefinitionsAndProgram(Material, std::move(Definitions),
+				std::move(Program), std::move(Presentation), Transactions);
+			if (Result)
+			{
+				Result.GeneratedNodeIds = {NodeId};
+				Result.AffectedNodeIds = {NodeId};
+				Result.AffectedParameterIds = {Definition.Id};
+			}
+			return Result;
+		}
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		if (!Request.Node.Id.IsValid()) Request.Node.Id = FGuid::NewGuid();
 		if (FindNode(Candidate, Request.Node.Id))

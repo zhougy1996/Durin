@@ -87,7 +87,8 @@ and `DeleteParameter` wrap Engine's identity-safe mutation results in this
 history boundary. Reuse and rejected edits add no undo entry. Results carry
 parameter GUIDs separately from expression node GUIDs.
 
-The root details panel exposes create/reuse, rename and delete, and displays
+The root details panel exposes create/reuse, rename and delete, marks declarations
+with no graph references as Unused without deleting them, and displays
 all declaration defaults, including unreachable declarations. Instances retain
 reachable controls and inspectable orphan overrides with explicit removal.
 The canvas constant-node menu and `PromoteConstantToParameter` share one
@@ -164,6 +165,10 @@ Material Output movement persist presentation through ordinary transactions.
 
 ## Canvas and diagnostics
 
+Creation-menu rendering is isolated from canvas rendering and pointer gestures.
+Numeric controls and parameter/literal type conversions are shared by graph
+editing paths so each supported vector dimension has one conversion contract.
+
 The MaterialEditor canvas uses the existing ImGui draw/input stack and one
 logical geometry authority shared with layout and native tests. Nodes use a
 stable 224-unit width and height derived from their named pin rows. Operation
@@ -186,7 +191,9 @@ automatic layout derives and persists a fresh position. It pans and zooms with
 the graph, participates in bounds and diagnostic framing, and remains absent
 from the semantic material program. Per-property mode owns fixed Base Color,
 Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
-Mask rows; aggregate mode owns one typed Surface row. Editing mode exposes inline fallback controls for
+Mask rows; aggregate mode owns one typed Surface row. Readable mode retains
+these input names and read-only fallback values so zooming out does not leave
+an unlabeled terminal. Editing mode exposes inline fallback controls for
 unconnected rows; each completed gesture is one validated transaction, while
 Escape and document lifecycle cancellation discard the draft.
 
@@ -195,10 +202,33 @@ output are selected, unrelated links dim while adjacent paths receive a thicker
 typed stroke. Occupied-input reconnection retains its authored link until a
 valid source drop succeeds as one replace transaction.
 
-The centered searchable creation palette opens from Space, an empty-canvas
-double click, or an output link dropped on empty space. It focuses search,
-supports complete arrow/Enter/Escape navigation, surfaces category and pin type
-signatures, and places favorites and recent choices first. Search ranks exact,
+Constant creation exposes one entry, initially Float. The node context menu's
+Type selector switches between Float, Float2, Float3, and Float4 through the
+validated node replacement command. It retains the node GUID, literal components,
+and links, rejects incompatible consumers atomically, and records successful
+changes in Undo/Redo. Constants remain independent literals unless the graph
+explicitly fans out one node's output or promotes it to a named parameter.
+
+Parameter creation exposes five generic entries: Scalar, Vector2, Vector3,
+Vector4, and Texture Parameter. Selecting a type opens a choice inside the same
+menu: create a new parameter or filter and reference an existing declaration of
+that type. Only creating a new parameter adds a uniquely named declaration; both
+paths create and place the reference node in one transaction. Cancelling the
+choice does not mutate the graph or declarations. The node catalog is independent
+of material declarations: inspection resolves labels from live declarations, and
+binding controls enumerate declarations directly. A node's Parameter menu binds any existing declaration of the
+same type, allowing multiple nodes to share one value without changing links.
+PBR role names and UV controls remain template declarations, not node kinds.
+
+The node creation context menu opens at the pointer from an empty-canvas right
+click, Space, an empty-canvas double click, or an output link dropped on empty
+space. It focuses search and supports arrow/Enter/Escape navigation. Compact
+node rows are grouped by category; favorites and recently used nodes form
+separate leading groups when no search is active. Descriptions and input
+signatures appear in hover tooltips. Search keeps matching entries grouped
+by category and preserves relevance within each group. Paste and Auto Layout
+remain available below the creation list when no source link is active.
+Right-clicking a node or surface input retains its editing context menu. Search ranks exact,
 prefix, and substring matches, then uses stable category, operation, type,
 parameter GUID, and catalog order ties. Opening from a source output filters the
 first input by compatible type. Selection creates and connects the requested

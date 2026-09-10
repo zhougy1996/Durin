@@ -871,10 +871,18 @@ namespace Durin::Editor::Material
 		// Commands may replace the material's declaration storage during this frame.
 		const std::vector<FMaterialParameterDefinition> Definitions(
 			Material->GetParameterDefinitions().begin(), Material->GetParameterDefinitions().end());
+		std::unordered_set<FGuid> ReferencedParameters;
+		for (const auto& Node : Material->GetMaterialProgram()->Nodes)
+			if (Node.ParameterId.IsValid()) ReferencedParameters.insert(Node.ParameterId);
 		for (const auto& Definition : Definitions)
 		{
 			ImGui::PushID(Definition.Id.ToString().c_str());
 			ImGui::TextUnformatted(Definition.Name.ToString().c_str());
+			if (!ReferencedParameters.contains(Definition.Id))
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("(Unused)");
+			}
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Rename"))
 			{

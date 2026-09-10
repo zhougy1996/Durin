@@ -54,12 +54,10 @@ namespace Durin::Editor::Material
 		std::vector<EMaterialProgramValueType> AcceptedTypes;
 	};
 
-	// Describes one creatable closed-domain node shape and its stable pin types.
+	// Describes a material-independent node shape; creation search selects exposed variants.
 	struct FMaterialGraphCatalogEntry
 	{
-		std::string Name;
 		std::string OperationName;
-		std::string SecondaryName;
 		std::string Category;
 		std::string Description;
 		FMaterialProgramNode NodeTemplate;
@@ -67,7 +65,7 @@ namespace Durin::Editor::Material
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 		// Prepared once with the catalog so repeated palette searches do not
 		// allocate and normalize every searchable field.
-		std::array<std::string, 5> NormalizedSearchFields;
+		std::array<std::string, 4> NormalizedSearchFields;
 	};
 
 	// Describes one node and its shared authored position without exposing mutable storage.
@@ -191,10 +189,9 @@ namespace Durin::Editor::Material
 			const DMaterial& Material,
 			std::span<const FMaterialGraphCatalogEntry> Catalog)
 			-> FMaterialGraphView;
-		MATERIALEDITOR_API static auto EnumerateCatalog(const DMaterial& Material)
+		MATERIALEDITOR_API static auto EnumerateCatalog()
 			-> std::vector<FMaterialGraphCatalogEntry>;
 		MATERIALEDITOR_API static auto SearchCatalog(
-			const DMaterial& Material,
 			std::string_view Query,
 			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<FMaterialGraphCatalogEntry>;

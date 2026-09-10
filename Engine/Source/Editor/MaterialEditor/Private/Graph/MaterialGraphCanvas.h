@@ -76,20 +76,20 @@ namespace Durin::Editor::Material
 			std::array<float, 4> ConstantDraft{};
 			std::array<int, 4> SwizzleDraft{};
 		};
-		struct FPaletteInteraction
+		struct FNodeCreationMenuInteraction
 		{
 			FGuid SourceNode;
 			ImVec2 GraphPosition{};
 			bool bOpenRequested = true;
 			int32 Selection = 0;
 			std::array<char, 96> Search{};
+			std::optional<FMaterialProgramNode> PendingParameter;
+			std::array<char, 96> ParameterFilter{};
 		};
 		struct FContextMenuInteraction
 		{
-			FGuid SourceNode;
 			FGuid ContextNode;
 			std::optional<EMaterialSurfaceOutput> SurfaceOutput;
-			ImVec2 GraphPosition{};
 		};
 		using FInteraction = std::variant<
 			FIdleInteraction,
@@ -99,7 +99,7 @@ namespace Durin::Editor::Material
 			FReconnectingSurfaceInteraction,
 			FMarqueeInteraction,
 			FInlineEditingInteraction,
-			FPaletteInteraction,
+			FNodeCreationMenuInteraction,
 			FContextMenuInteraction>;
 
 		auto PrepareView(DMaterial& Material) -> const FMaterialGraphView&;
@@ -132,7 +132,9 @@ namespace Durin::Editor::Material
 		auto DrawContextMenu(DMaterial& Material,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
-		auto DrawPalette(DMaterial& Material,
+		auto RememberCreation(const FMaterialProgramNode& Node) -> void;
+		auto HasClipboard() const -> bool;
+		auto DrawCreationMenu(DMaterial& Material,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
@@ -146,19 +148,18 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
 		bool bMaterialOutputSelected = false;
 		bool bPendingFrameSurface = false;
-		std::vector<std::string> RecentPaletteEntries;
-		std::unordered_set<std::string> FavoritePaletteEntries;
+		std::vector<std::string> RecentCreationMenuEntries;
+		std::unordered_set<std::string> FavoriteCreationMenuEntries;
 		DMaterial* CachedMaterial = nullptr;
-		uint64 CatalogSchemaRevision = 0;
 		uint64 CatalogRevision = 0;
-		uint64 FavoritePaletteRevision = 0;
-		uint64 RecentPaletteRevision = 0;
-		uint64 CachedPaletteCatalogRevision = 0;
-		uint64 CachedFavoritePaletteRevision = 0;
-		uint64 CachedRecentPaletteRevision = 0;
-		std::string CachedPaletteQuery;
-		std::optional<EMaterialProgramValueType> CachedPaletteSourceType;
-		std::vector<size_t> CachedPaletteResults;
+		uint64 FavoriteCreationMenuRevision = 0;
+		uint64 RecentCreationMenuRevision = 0;
+		uint64 CachedCreationMenuCatalogRevision = 0;
+		uint64 CachedFavoriteCreationMenuRevision = 0;
+		uint64 CachedRecentCreationMenuRevision = 0;
+		std::string CachedCreationMenuQuery;
+		std::optional<EMaterialProgramValueType> CachedCreationMenuSourceType;
+		std::vector<size_t> CachedCreationMenuResults;
 		uint64 CachedProgramRevision = 0;
 		uint64 CachedPresentationRevision = 0;
 		uint64 CachedSchemaRevision = 0;
