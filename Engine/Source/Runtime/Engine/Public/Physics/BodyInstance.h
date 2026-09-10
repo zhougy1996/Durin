@@ -25,10 +25,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		FName CollisionProfileName = CollisionProfile::NoCollision;
 
-		// Read only to migrate assets authored before CollisionProfileName existed.
-		DPROPERTY(Deprecated)
-		FName ProfileName_DEPRECATED;
-
 		// Resolves named presets without dirtying an owner or publishing physics state.
 		auto LoadProfileData() -> bool
 		{
@@ -55,9 +51,6 @@ namespace Durin
 
 		static auto PostDeserialize(FBodyInstance& Value, FDStructPostDeserializeContext& Context) -> bool
 		{
-			if (Context.WasDeprecatedPropertyLoaded(FName("ProfileName_DEPRECATED")))
-				Value.CollisionProfileName = Value.ProfileName_DEPRECATED;
-			Value.ProfileName_DEPRECATED = FName();
 			if (!Value.LoadProfileData()) return Context.Fail("Unknown collision profile.");
 			return true;
 		}

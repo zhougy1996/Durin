@@ -142,13 +142,11 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FMaterialParameterDefinition> ParameterDefinitions;
 
-		// Missing fields identify legacy fixed-PBR packages; semantic declaration
-		// edits explicitly opt into the material-owned declaration schema.
+		// Version of the authored declaration contract.
 		DPROPERTY()
-		uint32 ParameterDeclarationSchemaVersion = 1;
+		uint32 ParameterDeclarationSchemaVersion = 2;
 
-		// Missing legacy fields retain the canonical constructor value. PostLoad
-		// logs malformed program data and leaves the accepted render state unchanged.
+		// PostLoad validates the current authored program before publication.
 		DPROPERTY(EditorOnly)
 		FMaterialProgram Program;
 

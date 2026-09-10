@@ -1097,7 +1097,6 @@ namespace Durin::Editor::Material
 					&& (Visual.View->Node.Opcode == EMaterialProgramOpcode::Constant
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureCoordinate
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle);
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& !bInlineEditorVisible)
@@ -1202,8 +1201,7 @@ namespace Durin::Editor::Material
 						ImGui::Dummy({0.0f, 0.0f});
 					}
 					else if ((Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
-						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
+						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter)
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
 					{
 						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();

@@ -178,28 +178,6 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorBulkData::ReplaceBytes(FByteView Bytes) -> bool
-	{
-		return UpdatePayload(Bytes);
-	}
-
-	auto FEditorBulkData::ReplaceBytes(
-		FGuid LegacyInstanceId, FByteView Bytes) -> bool
-	{
-		if (!LegacyInstanceId.IsValid() || Bytes.size() > MaximumAuthoredBulkBytes) return false;
-		const FSharedByteBuffer Buffer = FSharedByteBuffer::Copy(Bytes);
-		const FXxHash128 CandidateId = FXxHash128::HashBuffer(Buffer.GetBytes());
-		auto Expected = std::atomic_load_explicit(&State, std::memory_order_acquire);
-		while (true)
-		{
-			const FGuid InstanceId = Expected->InstanceId.IsValid()
-				? Expected->InstanceId : LegacyInstanceId;
-			const auto Candidate = MakeMemoryState(InstanceId, CandidateId, Buffer);
-			if (std::atomic_compare_exchange_weak_explicit(&State, &Expected, Candidate,
-				std::memory_order_release, std::memory_order_acquire)) return true;
-		}
-	}
-
 	auto FEditorBulkData::Serialize(FArchive& Ar) -> void
 	{
 		const auto Snapshot = std::atomic_load_explicit(&State, std::memory_order_acquire);

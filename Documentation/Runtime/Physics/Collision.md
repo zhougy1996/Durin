@@ -166,10 +166,10 @@ view displays only named channel indices, with an Ignore/Overlap/Block enum
 selector for each channel. All 32 response slots remain reflected and serialized;
 the index metadata changes presentation only.
 
-Historical `ProfileName` fields load through `ProfileName_DEPRECATED` and migrate
-to `CollisionProfileName`; named profiles restore their complete filter data.
-Old Custom responses that were never stored cannot be recovered and retain the
-construction defaults. Physics handles and publication revisions remain transient.
+`CollisionProfileName` is the only persisted profile field. Repository packages
+were resaved before removing `ProfileName_DEPRECATED` and its load conversion.
+Named profiles still restore their complete filter data; physics handles and
+publication revisions remain transient.
 
 Responses are resolved from both the querying channel and body
 object channel. Ignore removes a candidate, Overlap participates only in

@@ -101,12 +101,6 @@ namespace Durin
 		FMaterialRenderBinding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
-	ENGINE_API auto EncodeMaterialSamplerState(
-		const FMaterialSamplerState& State) -> float;
-	ENGINE_API auto TryDecodeMaterialSamplerState(
-		float Encoded,
-		FMaterialSamplerState& OutState) -> bool;
-
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
 	// resulting representation through offsets and resource indices.

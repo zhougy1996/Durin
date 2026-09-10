@@ -84,6 +84,18 @@ namespace Durin
 			return Field && Field->TryReadScalar(OutValue);
 		}
 
+		auto ReadSourceDimensions(const std::vector<FAssetPackageField>& SourceFields,
+			uint32& Width, uint32& Height, uint32& Depth, uint32& NumSlices) -> void
+		{
+			std::vector<std::vector<FAssetPackageField>> Blocks;
+			const auto* Field = FindField(SourceFields, "Blocks");
+			if (!Field || !Field->TryInspectStructArray(Blocks) || Blocks.empty()) return;
+			ReadScalar(Blocks.front(), "Width", Width);
+			ReadScalar(Blocks.front(), "Height", Height);
+			ReadScalar(Blocks.front(), "Depth", Depth);
+			ReadScalar(Blocks.front(), "NumSlices", NumSlices);
+		}
+
 		auto MakeCookedFieldEntry(std::string Domain, const FBulkData& Field)
 			-> FTexturePayloadInspectionEntry
 		{
@@ -152,14 +164,13 @@ namespace Durin
 		const std::string VolumeClass = DVolumeTexture::StaticClass()->GetQualifiedName().ToString();
 		if (Package.Header.AssetClassName == Texture2DClass)
 		{
-			uint32 Width = 0, Height = 0;
+			uint32 Width = 0, Height = 0, Depth = 1, NumSlices = 1;
 			uint64 SourceBytes = 0;
 			std::vector<FAssetPackageField> SourceFields;
 			if (const FAssetPackageField* SourceField = Package.FindField("Source");
 				SourceField && SourceField->TryInspectStructFields(SourceFields))
 			{
-				ReadScalar(SourceFields, "Width", Width);
-				ReadScalar(SourceFields, "Height", Height);
+				ReadSourceDimensions(SourceFields, Width, Height, Depth, NumSlices);
 			}
 			std::string SourcePath;
 			FAssetImportInfo CommonInfo;
@@ -205,15 +216,12 @@ namespace Durin
 			std::vector<FAssetPackageField> SourceFields;
 			const bool bReadable = SourceField
 				&& SourceField->TryInspectStructFields(SourceFields);
-			uint32 Width = 0, Height = 0, Depth = 0, SchemaVersion = 0;
-			uint8 NumSlices = 1;
+			uint32 Width = 0, Height = 0, Depth = 1, SchemaVersion = TextureSourceSchemaVersion;
+			uint32 NumSlices = 1;
 			uint64 DecodedPayloadSize = 0;
 			if (bReadable)
 			{
-				ReadScalar(SourceFields, "Width", Width);
-				ReadScalar(SourceFields, "Height", Height);
-				ReadScalar(SourceFields, "Depth", Depth);
-				ReadScalar(SourceFields, "NumSlices", NumSlices);
+				ReadSourceDimensions(SourceFields, Width, Height, Depth, NumSlices);
 				ReadScalar(SourceFields, "SchemaVersion", SchemaVersion);
 				ReadScalar(SourceFields, "DecodedPayloadSize", DecodedPayloadSize);
 			}

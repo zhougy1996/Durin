@@ -15,8 +15,7 @@ representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into authored schema,
 compiled-layout representation/builder, and diagnostics files. The production
-render boundary accepts only material-specific layout v4 data. Legacy role
-knowledge is confined to authored-format migration before compilation.
+render boundary accepts only material-specific layout v4 data. Built-in role knowledge is confined to explicit PBR template construction.
 
 ## Parameter Domain
 
@@ -28,8 +27,8 @@ knowledge is confined to authored-format migration before compilation.
   texture-usage hint. The Material Editor consumes this schema and does not own
   a parallel descriptor table.
 - `DMaterial` stores one ordered reflected definition collection. Declaration
-  schema 1 identifies legacy canonical packages; schema 2 permits up to 128
-  material-owned declarations. Missing version fields retain legacy validation.
+  schema 2 permits up to 128 material-owned declarations; older declaration
+  schemas are unsupported.
   `SetMaterialDefinitionsAndProgram` validates definitions and graph references
   before committing either, and submits one compile request. Create reuses an
   existing same-name/type definition without changing its default; rename keeps
@@ -109,9 +108,7 @@ link; an invalid source GUID means unconnected. Constants, parameter and texture
 sampling, arithmetic, composition, explicit conversions, safe normal decode,
 and RNM normal blending form the ordinary closed opcode domain. `UVChannel`,
 `Sine`, `Cosine`, and `MakeSurface` express former hidden behavior explicitly.
-Legacy `StandardSurface` and role-bound `TextureCoordinate` values are accepted
-only so supported authored packages can migrate before compilation; the editor
-catalog does not create them. Surface is invalid in arithmetic, texture,
+Retired opcode values 3 and 30 are rejected; their numeric slots are not reused. Surface is invalid in arithmetic, texture,
 conversion, and per-property links. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
@@ -122,9 +119,8 @@ BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
 eight property links to be disconnected; per-property mode requires the
 aggregate source to be disconnected. Retained fallbacks survive either mode.
-Repository material packages persist schema 4. Supported schema 2/3 data first
-upgrades structurally; legacy PBR graphs then expand atomically into ordinary
-expressions while preserving stable parameter GUIDs. Unknown schemas fail. An unknown-version or
+Repository material packages persist schema 4. Older and unknown schemas fail
+without rewriting authored data. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
@@ -483,19 +479,11 @@ publish through the stable proxy and dynamic-only changes reuse shader identity.
 
 ## Compatibility Boundary
 
-Material declaration schema 1 and supported program schema 2/3 packages have a
-bounded deterministic upgrade. Canonical `StandardSurface` or role-bound UV
-graphs expand to ordinary schema-4 expressions; packed sampler scalars move onto
-their Texture2D values, and corresponding instance values move to texture
-overrides while the old scalar override remains inspectable as an orphan.
-Edited graphs preserve occurrence GUIDs, output links, presentation positions,
-and disconnected expressions during expansion. Shared template dependencies use
-deterministic collision-checked IDs. Definition and graph candidates commit
-together only after sampler and graph validation; redundant packed sampler
-declarations are removed only when no explicit expression references them.
-Migration never auto-saves. Malformed, incomplete, oversized, or unknown data
-fails without overwriting the authored package. Cooked DMAT versions before 4
-require recooking rather than runtime reinterpretation.
+Repository content in Engine, Sandbox and RoadWeaver was explicitly resaved
+before retiring old authored readers. Only declaration schema 2, program schema
+4 and DMAT v4 are supported. Packed sampler scalars, implicit role-dependent
+expressions and automatic graph upgrades are removed. Sampling policy is stored
+on Texture2D parameter values. Old Cook outputs must be discarded and rebuilt.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The

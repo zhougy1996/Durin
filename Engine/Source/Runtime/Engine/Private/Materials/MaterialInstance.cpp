@@ -482,40 +482,6 @@ namespace Durin
 			}
 			return false;
 		});
-		// Legacy instances stored sampler policy as a packed scalar beside each
-		// texture override. Copy it onto the Texture2D value while retaining the
-		// scalar override as an inspectable unreachable orphan.
-		for (const auto& Entry : MaterialParameters::BuiltinParameters)
-		{
-			const auto* SamplerOverride = FindOverride(
-				ParameterOverrides, Entry.Parameters.SamplerState);
-			if (!SamplerOverride
-				|| SamplerOverride->Type != EMaterialParameterType::Scalar)
-				continue;
-			FMaterialSamplerState State;
-			if (!TryDecodeMaterialSamplerState(
-				SamplerOverride->Value.ScalarValue, State)) continue;
-			auto* TextureOverride = FindMutableOverride(
-				ParameterOverrides, Entry.Parameters.Texture);
-			if (TextureOverride
-				&& TextureOverride->Type == EMaterialParameterType::Texture)
-			{
-				TextureOverride->Value.SamplerState = State;
-				continue;
-			}
-			FResolvedMaterialParameter Resolved;
-			if (Parent && Parent->ResolveParameterValue(
-				Entry.Parameters.Texture, Resolved)
-				&& Resolved.Definition
-				&& Resolved.Definition->Type == EMaterialParameterType::Texture)
-			{
-				Resolved.Value.SamplerState = State;
-				ParameterOverrides.push_back({
-					.ParameterId = Entry.Parameters.Texture,
-					.Type = EMaterialParameterType::Texture,
-					.Value = Resolved.Value});
-			}
-		}
 		std::string Error;
 		if (bOverrideStaticProperties
 			&& !ValidateMaterialStaticProperties(StaticPropertiesOverride, Error))

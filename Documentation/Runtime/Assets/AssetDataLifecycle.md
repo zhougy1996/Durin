@@ -10,6 +10,16 @@ Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
 merely whether a file contains binary bytes.
 
+## Authored source compatibility
+
+Repository assets were resaved before retiring historical domain readers.
+TextureSource accepts only schema 3 block/layer descriptors, canonical payload
+hashes and compression metadata. The v1 size/format mirrors and v1/v2 upgrade
+branches are removed; transparency is derived from the current channel mask.
+The obsolete EditorBulkData `ReplaceBytes` adapters are removed; authored
+callers use `UpdatePayload`. Existing current-format validation remains active.
+Old Cook outputs are disposable and must be regenerated from current content.
+
 ## Serialization and production ownership
 
 Persistent values use the common archive protocol rather than paired

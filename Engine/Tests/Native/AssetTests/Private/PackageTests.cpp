@@ -1983,7 +1983,7 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	const Durin::FGuid PayloadId{1, 2, 3, 4};
 	const std::array Initial{std::byte{1}, std::byte{2}, std::byte{3}};
 	Durin::FEditorBulkData First(PayloadId);
-	ASSERT_TRUE(First.ReplaceBytes(Initial));
+	ASSERT_TRUE(First.UpdatePayload(Initial));
 	Durin::FEditorBulkData Shared = First;
 	const Durin::FSharedByteBuffer FirstPayload = First.GetPayload().Wait().Buffer;
 	const Durin::FSharedByteBuffer SharedPayload = Shared.GetPayload().Wait().Buffer;
@@ -1991,11 +1991,10 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(First.Identical(Shared));
 
 	const std::array Replacement{std::byte{9}, std::byte{8}};
-	ASSERT_TRUE(Shared.ReplaceBytes(Replacement));
+	ASSERT_TRUE(Shared.UpdatePayload(Replacement));
 	EXPECT_TRUE(std::ranges::equal(First.GetPayload().Wait().Buffer.GetBytes(), Initial));
 	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
 	EXPECT_FALSE(First.Identical(Shared));
-	EXPECT_FALSE(Shared.ReplaceBytes({}, Replacement));
 	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
 }
 
@@ -2935,7 +2934,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	Durin::FByteBuffer Payload(
 		static_cast<size_t>(Durin::EditorBulkDataExternalThreshold + 17),
 		std::byte{0x5a});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 
 	const Durin::FAssetResult V6Save = Durin::SavePackage(
 		Asset->GetPackage());
@@ -2982,7 +2981,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		BeforeFailedReplacement, Companions.front()));
 	std::ranges::fill(Payload, std::byte{0x63});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	Durin::DPackage* ReplacementUnit[] = {Asset->GetPackage()};
 	const Durin::FAssetResult FailedReplacement =
 		Durin::SavePackagesAtomically(ReplacementUnit,
@@ -3170,7 +3169,7 @@ TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
 	Durin::FByteBuffer Payload(
 		static_cast<size_t>(Durin::EditorBulkDataExternalThreshold + 3),
 		std::byte{0x71});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	ASSERT_TRUE(Durin::SavePackage(Asset->GetPackage()));
 
 	const std::filesystem::path Root =
@@ -3822,7 +3821,7 @@ TEST(FPackageAssetTests, V9LoadsOwnedBulkWithoutGlobalRegistrationOrSourceFiles)
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	const auto& Codec = DastV9::GetCodec();
 	FAssetPackageEncodedClosure Closure;
@@ -3893,7 +3892,7 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	Durin::FByteBuffer Payload(
 		static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	const FAssetResult BulkSaveResult = SavePackage(Asset->GetPackage());
 	ASSERT_TRUE(BulkSaveResult) << BulkSaveResult.Message;
 	const FAssetCatalogEntry Data = FindAssetExact(Path);
@@ -8510,7 +8509,7 @@ TEST(FPackageAssetTests, CookReadsOrdinaryLazyBulk)
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
 	FByteBuffer Payload(static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
-	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
+	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
 	auto BulkFile = std::filesystem::path(FindAssetExact(Path)->PhysicalPath);
 	BulkFile.replace_extension(".dbulk");

@@ -279,34 +279,6 @@ namespace Durin::RoadNet
 		return ValidateDefinitionImpl(Definition, OutError, true);
 	}
 
-	auto MigrateRoadDefinition(FDefinition& Definition, std::string& OutError) -> bool
-	{
-		if (!ValidateDefinitionImpl(Definition, OutError, false)) return false;
-		auto Candidate = Definition;
-		for (auto& Road : Candidate.Roads)
-		{
-			const double Length = Road.ReferenceLine.BuildEvaluationData()->GetLocalLength();
-			const double Scale = Length / Road.LaneSections.back().EndDistanceMeters;
-			for (auto& Section : Road.LaneSections)
-			{
-				Section.StartDistanceMeters *= Scale;
-				Section.EndDistanceMeters *= Scale;
-			}
-			Road.LaneSections.back().EndDistanceMeters = Length;
-		}
-		if (!ValidateDefinition(Candidate, OutError)) return false;
-		Definition = std::move(Candidate);
-		return true;
-	}
-
-	auto DRoadNet::InitializeMigratedDefinition(FDefinition InDefinition, std::string& OutError) -> bool
-	{
-		if (!ValidateDefinition(InDefinition, OutError)) return false;
-		Definition = std::move(InDefinition);
-		SchemaVersion = RoadNetSchemaVersion;
-		return true;
-	}
-
 	auto DRoadNet::ValidateCandidate(const FDefinition& Candidate, std::string& OutError) const -> bool
 	{
 		if (!Definition.Roads.empty() && (Candidate.Planet.Id != Definition.Planet.Id
@@ -340,7 +312,7 @@ namespace Durin::RoadNet
 	auto DRoadNet::PostLoad() -> void
 	{
 		std::string Error;
-		if (SchemaVersion != 0 && SchemaVersion != 1 && SchemaVersion != 2 && SchemaVersion != RoadNetSchemaVersion)
+		if (SchemaVersion != RoadNetSchemaVersion)
 		{
 			Error = std::format(
 				"Road Net schema version {} is unsupported; expected {}.",
@@ -349,7 +321,7 @@ namespace Durin::RoadNet
 			return;
 		}
 		auto Candidate = Definition;
-		if (!(SchemaVersion < RoadNetSchemaVersion ? MigrateRoadDefinition(Candidate, Error) : ValidateDefinition(Candidate, Error)))
+		if (!ValidateDefinition(Candidate, Error))
 		{
 			Error += " Repair the complete graph candidate (endpoints, stations and lane mappings) and resave as schema 3.";
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);

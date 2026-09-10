@@ -39,10 +39,6 @@ namespace Durin
 			FEditorBulkData& OutValue,
 			std::string* OutError = nullptr) -> bool;
 
-		// Transitional v6 reader/import adapter; authored callers migrate to UpdatePayload.
-		ENGINE_API auto ReplaceBytes(FByteView Bytes) -> bool;
-		ENGINE_API auto ReplaceBytes(FGuid LegacyInstanceId, FByteView Bytes) -> bool;
-
 		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;
 

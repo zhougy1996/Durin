@@ -53,7 +53,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.6f));
 
 	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
-	ASSERT_EQ(Model.GetEntries().size(), 56u);
+	ASSERT_EQ(Model.GetEntries().size(), 48u);
 	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	const auto* Texture = FindEntry(Model, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture);
 	const auto* Opacity = FindEntry(Model, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value);

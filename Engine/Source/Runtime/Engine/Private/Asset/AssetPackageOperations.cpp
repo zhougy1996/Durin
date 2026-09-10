@@ -1534,38 +1534,65 @@ namespace Durin
 		return TryReadBulkDataStorageDescriptor(OutValue);
 	}
 
+	namespace
+	{
+		auto ReadInspectedStructFields(FByteReader& Reader, uint32 SourceFormatVersion,
+			std::vector<FAssetPackageField>& OutFields) -> bool
+		{
+			std::string StructName;
+			uint64 FieldCount = 0;
+			if (!Reader.ReadString(StructName, MaximumPackageStringBytes)
+				|| !Reader.Read(FieldCount) || FieldCount > 100000) return false;
+			OutFields.reserve(static_cast<size_t>(FieldCount));
+			for (uint64 Index = 0; Index < FieldCount; ++Index)
+			{
+				FAssetPackageField Field;
+				uint8 FieldKind = 0;
+				uint64 PayloadSize = 0;
+				if (!Reader.ReadString(Field.DeclaringClass, MaximumPackageStringBytes)
+					|| !Reader.ReadString(Field.Name, MaximumPackageStringBytes)
+					|| !Reader.Read(FieldKind)
+					|| !Reader.ReadString(Field.TypeSignature, MaximumPackageStringBytes)
+					|| !Reader.Read(PayloadSize)
+					|| Reader.Offset > Reader.Bytes.size()
+					|| PayloadSize > Reader.Bytes.size() - Reader.Offset) return false;
+				Field.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind);
+				Field.SourceFormatVersion = SourceFormatVersion;
+				Field.Payload.resize(static_cast<size_t>(PayloadSize));
+				if (PayloadSize != 0
+					&& !Reader.ReadBytes(Field.Payload.data(), static_cast<size_t>(PayloadSize)))
+					return false;
+				OutFields.push_back(std::move(Field));
+			}
+			return true;
+		}
+	}
+
 	auto FAssetPackageField::TryInspectStructFields(
 		std::vector<FAssetPackageField>& OutFields) const -> bool
 	{
 		OutFields.clear();
 		if (Kind != DurinCodeGen::EPropertyGenFlags::Struct) return false;
 		FByteReader Reader{Payload};
-		std::string StructName;
-		uint64 FieldCount = 0;
-		if (!Reader.ReadString(StructName, MaximumPackageStringBytes)
-			|| !Reader.Read(FieldCount) || FieldCount > 100000) return false;
-		OutFields.reserve(static_cast<size_t>(FieldCount));
-		for (uint64 Index = 0; Index < FieldCount; ++Index)
-		{
-			FAssetPackageField Field;
-			uint8 FieldKind = 0;
-			uint64 PayloadSize = 0;
-			if (!Reader.ReadString(Field.DeclaringClass, MaximumPackageStringBytes)
-				|| !Reader.ReadString(Field.Name, MaximumPackageStringBytes)
-				|| !Reader.Read(FieldKind)
-				|| !Reader.ReadString(Field.TypeSignature, MaximumPackageStringBytes)
-				|| !Reader.Read(PayloadSize)
-				|| Reader.Offset > Reader.Bytes.size()
-				|| PayloadSize > Reader.Bytes.size() - Reader.Offset) return false;
-			Field.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind);
-			Field.SourceFormatVersion = SourceFormatVersion;
-			Field.Payload.resize(static_cast<size_t>(PayloadSize));
-			if (PayloadSize != 0
-				&& !Reader.ReadBytes(Field.Payload.data(), static_cast<size_t>(PayloadSize)))
-				return false;
-			OutFields.push_back(std::move(Field));
-		}
-		return Reader.Offset == Payload.size();
+		return ReadInspectedStructFields(Reader, SourceFormatVersion, OutFields)
+			&& Reader.Offset == Payload.size();
+	}
+
+	auto FAssetPackageField::TryInspectStructArray(
+		std::vector<std::vector<FAssetPackageField>>& OutElements) const -> bool
+	{
+		OutElements.clear();
+		if (Kind != DurinCodeGen::EPropertyGenFlags::Array
+			|| !TypeSignature.starts_with("Array<Struct<")) return false;
+		FByteReader Reader{Payload};
+		uint64 Count = 0;
+		if (!Reader.Read(Count) || Count > 100000 || Count > Payload.size() / 16) return false;
+		std::vector<std::vector<FAssetPackageField>> Elements(static_cast<size_t>(Count));
+		for (auto& Fields : Elements)
+			if (!ReadInspectedStructFields(Reader, SourceFormatVersion, Fields)) return false;
+		if (Reader.Offset != Payload.size()) return false;
+		OutElements = std::move(Elements);
+		return true;
 	}
 
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool

@@ -885,6 +885,12 @@ int main(int ArgC, char** ArgV)
 	Durin::FPlatformMisc::AddRuntimeBinaryDirectory(
 		Durin::FPaths::EngineThirdPartyRuntimeBinariesDir().c_str()
 	);
+	// Mount discovery logs must not precede the machine-readable report on stdout.
+	if (Options.Operation != EOperation::Cook)
+	{
+		Durin::LoggerInit();
+		Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
+	}
 	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error))
 	{
 		std::cerr << "Error: " << Error << '\n';
@@ -916,7 +922,6 @@ int main(int ArgC, char** ArgV)
 			return 1;
 		}
 	}
-	else Durin::LoggerInit();
 	struct FScopedLoggerShutdown final
 	{
 		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
@@ -973,9 +978,9 @@ int main(int ArgC, char** ArgV)
 		}
 	}
 #endif
-	if (Options.Operation == EOperation::Cook)
-		for (const auto& Module : Durin::GetCurrentProject()->EnabledRootModules)
-			Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
+	// Project asset classes must be registered before inspection captures the schema.
+	for (const auto& Module : Durin::GetCurrentProject()->EnabledRootModules)
+		Durin::FModuleManager::Get().LoadModuleChecked(Durin::FName(Module));
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	if (Options.Operation == EOperation::Cook) return RunCook(Options);
 	const Durin::FReflectionCompatibilityCatalog Catalog =

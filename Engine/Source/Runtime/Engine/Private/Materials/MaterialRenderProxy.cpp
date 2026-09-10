@@ -359,7 +359,7 @@ namespace Durin
 		if (Type == EMaterialParameterType::Texture && Value.TextureValue)
 			Result.TextureValue = Value.TextureValue->GetTextureReferenceRHI();
 		const std::span Definitions =
-			GetCanonicalMaterialParameterDefinitions();
+			GetPBRMaterialParameterDefinitions();
 		const auto Definition = std::ranges::find(
 			Definitions, Id, &FMaterialParameterDefinition::Id);
 		if (Definition == Definitions.end() || Definition->Type != Type)

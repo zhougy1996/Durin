@@ -59,7 +59,6 @@ namespace Durin
 		ENGINE_API auto DestroyComponent() -> void;
 
 		ENGINE_API auto BeginDestroy() -> void override;
-		ENGINE_API auto PostLoad() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
 		auto GetCreationMethod() const -> EComponentCreationMethod { return CreationMethod; }

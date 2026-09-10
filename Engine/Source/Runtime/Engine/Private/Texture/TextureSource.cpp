@@ -172,28 +172,12 @@ namespace Durin
 
 	auto FTextureSource::IsValid() const -> bool
 	{
-		if (SchemaVersion == LegacyTextureSourceSchemaVersion)
-		{
-			const uint32 ByteWidth = BytesPerTexel(Format);
-			if (ByteWidth == 0 || Width == 0 || Height == 0 || Depth == 0 || NumSlices == 0)
-				return false;
-			if (!IsKindValid(Kind)) return false;
-			const Image::FImageInfo Info{.Width = Width, .Height = Height,
-				.Depth = Depth, .SliceCount = NumSlices,
-				.Format = ToImageFormat(Format)};
-			uint64 ExpectedSize = 0;
-			return Info.GetByteSize(ExpectedSize)
-				&& ExpectedSize == Payload.GetPayloadSize();
-		}
-		if (SchemaVersion != DescriptorTextureSourceSchemaVersion
-			&& SchemaVersion != TextureSourceSchemaVersion) return false;
+		if (SchemaVersion != TextureSourceSchemaVersion) return false;
 		FTextureSourceMipInfo Ignored;
 		uint64 Total = 0;
 		if (!ResolveMipInfo(Kind, GammaSpace, Blocks, Layers, 0, 0, 0,
 			Ignored, &Total)) return false;
 		if (SourceChannelCount > 4) return false;
-		if (SchemaVersion == DescriptorTextureSourceSchemaVersion)
-			return Total == Payload.GetPayloadSize();
 		if (DecodedPayloadSize != Total || (CanonicalPayloadHashLow == 0
 			&& CanonicalPayloadHashHigh == 0)) return false;
 		if (Compression == ETextureSourceCompression::Raw)
@@ -231,18 +215,8 @@ namespace Durin
 		NewSource.GammaSpace = InGammaSpace;
 		NewSource.Blocks.assign(InBlocks.begin(), InBlocks.end());
 		NewSource.Layers.assign(InLayers.begin(), InLayers.end());
-		if (!NewSource.Blocks.empty())
-		{
-			NewSource.Width = NewSource.Blocks[0].Width;
-			NewSource.Height = NewSource.Blocks[0].Height;
-			NewSource.Depth = NewSource.Blocks[0].Depth;
-			NewSource.NumSlices = static_cast<uint8>(std::min<uint32>(
-				NewSource.Blocks[0].NumSlices, std::numeric_limits<uint8>::max()));
-		}
-		if (!NewSource.Layers.empty()) NewSource.Format = NewSource.Layers[0].Format;
 		NewSource.SourceChannelCount = InSourceChannelCount;
 		NewSource.TransparencyMask = InTransparencyMask;
-		NewSource.bHasTransparency = InTransparencyMask != 0;
 		NewSource.SchemaVersion = TextureSourceSchemaVersion;
 		NewSource.DecodedPayloadSize = DecodedPayload.size();
 		const FXxHash128 PayloadHash = FXxHash128::HashBuffer(DecodedPayload);
@@ -348,33 +322,6 @@ namespace Durin
 		Owner = PreviousOwner;
 	}
 
-	auto FTextureSource::MigrateLegacy() -> bool
-	{
-		if (SchemaVersion == TextureSourceSchemaVersion) return IsValid();
-		if (!IsValid()) return false;
-		FTextureSource Migrated = *this;
-		if (SchemaVersion == LegacyTextureSourceSchemaVersion)
-		{
-			Migrated.Blocks = {{.Width = Width, .Height = Height, .Depth = Depth,
-				.NumSlices = NumSlices}};
-			Migrated.Layers = {{.Format = Format, .NumMips = 1}};
-			Migrated.GammaSpace = (Kind == ETextureSourceKind::Volume)
-				? ETextureSourceGammaSpace::Linear : ETextureSourceGammaSpace::Unknown;
-		}
-		const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
-		if (!Read) return false;
-		Migrated.DecodedPayloadSize = Read.Buffer.GetSize();
-		const FXxHash128 Hash = FXxHash128::HashBuffer(Read.Buffer.GetBytes());
-		Migrated.CanonicalPayloadHashLow = Hash.HashLow;
-		Migrated.CanonicalPayloadHashHigh = Hash.HashHigh;
-		Migrated.Compression = ETextureSourceCompression::Raw;
-		Migrated.SchemaVersion = TextureSourceSchemaVersion;
-		if (!Migrated.IsValid()) return false;
-		InvalidateMipData();
-		*this = std::move(Migrated);
-		return true;
-	}
-
 	auto FTextureSource::GetIdentity() const -> FXxHash128
 	{
 		if (!IsValid()) return {};
@@ -384,12 +331,6 @@ namespace Durin
 		Builder.UpdateValue(GammaSpace);
 		Builder.UpdateValue(SourceChannelCount);
 		Builder.UpdateValue(TransparencyMask);
-		if (SchemaVersion == LegacyTextureSourceSchemaVersion)
-		{
-			Builder.UpdateValue(Width); Builder.UpdateValue(Height);
-			Builder.UpdateValue(Depth); Builder.UpdateValue(NumSlices);
-			Builder.UpdateValue(Format);
-		}
 		for (const FTextureSourceBlock& Block : Blocks)
 		{
 			Builder.UpdateValue(Block.Width); Builder.UpdateValue(Block.Height);
@@ -399,12 +340,9 @@ namespace Durin
 		{
 			Builder.UpdateValue(Layer.Format); Builder.UpdateValue(Layer.NumMips);
 		}
-		const uint64 CanonicalSize = SchemaVersion == TextureSourceSchemaVersion
-			? DecodedPayloadSize : Payload.GetPayloadSize();
-		const FXxHash128 CanonicalHash = SchemaVersion == TextureSourceSchemaVersion
-			? FXxHash128{.HashLow = CanonicalPayloadHashLow,
-				.HashHigh = CanonicalPayloadHashHigh}
-			: Payload.GetPayloadId();
+		const uint64 CanonicalSize = DecodedPayloadSize;
+		const FXxHash128 CanonicalHash{.HashLow = CanonicalPayloadHashLow,
+			.HashHigh = CanonicalPayloadHashHigh};
 		Builder.UpdateValue(CanonicalSize);
 		Builder.UpdateValue(CanonicalHash);
 		return Builder.Finalize();
@@ -430,16 +368,14 @@ namespace Durin
 			const FPackageResourceReadResult Read = Payload.GetPayload().Wait();
 			if (!Read) return {};
 			FSharedByteBuffer Decoded = Read.Buffer;
-			if (SchemaVersion == TextureSourceSchemaVersion
-				&& Compression == ETextureSourceCompression::RunLength)
+			if (Compression == ETextureSourceCompression::RunLength)
 			{
 				FByteBuffer Bytes;
 				if (!DecodeRunLength(Read.Buffer.GetBytes(), DecodedPayloadSize, Bytes))
 					return {};
 				Decoded = FSharedByteBuffer::Take(std::move(Bytes));
 			}
-			if (SchemaVersion == TextureSourceSchemaVersion
-				&& FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{
+			if (FXxHash128::HashBuffer(Decoded.GetBytes()) != FXxHash128{
 					.HashLow = CanonicalPayloadHashLow,
 					.HashHigh = CanonicalPayloadHashHigh}) return {};
 			State->LockedMipData = std::move(Decoded);

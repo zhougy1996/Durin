@@ -292,12 +292,6 @@ namespace Durin
 	{
 	}
 
-	auto DObject::RestoreTransientOnLoad() -> void
-	{
-		require(GetOuter() && !Cast<DPackage>(GetOuter()));
-		ObjectFlags |= EObjectFlags::Transient;
-	}
-
 	auto DObject::GetLoadedCustomVersion(const FGuid& Key) const -> std::optional<int32>
 	{
 		const auto It = std::ranges::find(LoadedCustomVersions, Key,

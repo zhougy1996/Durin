@@ -79,15 +79,6 @@ namespace Durin
 		Super::BeginDestroy();
 	}
 
-	auto DActorComponent::PostLoad() -> void
-	{
-		Super::PostLoad();
-		// Older package writers exported generated components without persisting
-		// their transient construction flags. Do not export those remnants again.
-		if (CreationMethod == EComponentCreationMethod::Generated)
-			RestoreTransientOnLoad();
-	}
-
 	auto DActorComponent::InitializeComponent() -> void
 	{
 		check(bRegistered);

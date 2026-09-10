@@ -266,24 +266,6 @@ TEST(FPrimitiveComponentCollisionEditingTests, LevelPackageAndDuplicatePreserveC
 	EXPECT_TRUE(UnloadPackage(Path));
 }
 
-TEST(FPrimitiveComponentCollisionEditingTests, MigratesLegacyProfileNamesIncludingCustom)
-{
-	using namespace Durin;
-	const std::array Loaded{FName("ProfileName_DEPRECATED")};
-	FDStructPostDeserializeContext Context;
-	Context.LoadedDeprecatedProperties = Loaded;
-	for (const FName Name : {CollisionProfile::Trigger, FName()})
-	{
-		FBodyInstance Body;
-		Body.ProfileName_DEPRECATED = Name;
-		ASSERT_TRUE(TDStructOpsTraits<FBodyInstance>::PostDeserialize(Body, Context));
-		EXPECT_EQ(Body.CollisionProfileName, Name);
-		EXPECT_TRUE(Body.ProfileName_DEPRECATED.IsNone());
-		EXPECT_EQ(Body.Responses.GetResponse(ECollisionChannel::Visibility),
-			Name.IsNone() ? ECollisionResponse::Block : ECollisionResponse::Overlap);
-	}
-}
-
 TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
 {
 	static_assert(std::same_as<decltype(std::declval<Durin::DWorld&>().GetPhysicsScene()), Durin::FPhysicsScene&>);

@@ -112,26 +112,10 @@ namespace Durin
 			return Result;
 		}
 
-		auto HasCanonicalMetadata(
-			const FMaterialParameterDefinition& Definition,
-			const FMaterialParameterDefinition& Canonical
-		) -> bool
-		{
-			return Definition.Id == Canonical.Id
-				&& Definition.Name == Canonical.Name
-				&& Definition.Type == Canonical.Type
-				&& Definition.DisplayName == Canonical.DisplayName
-				&& Definition.GroupName == Canonical.GroupName
-				&& Definition.SortOrder == Canonical.SortOrder
-				&& Definition.Presentation == Canonical.Presentation
-				&& Definition.bHasRange == Canonical.bHasRange
-				&& Definition.MinimumValue == Canonical.MinimumValue
-				&& Definition.MaximumValue == Canonical.MaximumValue
-				&& Definition.TextureUsage == Canonical.TextureUsage;
-		}
+
 	}
 
-	auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>
+	auto MakePBRMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>
 	{
 		using namespace MaterialParameters;
 		std::vector<FMaterialParameterDefinition> Result;
@@ -175,28 +159,8 @@ namespace Durin
 			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVRotation), FName(std::string(RoleNames[Role]) + "UVRotation"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Rotation (Radians)", Sort + 5, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::SamplerState), FName(std::string(RoleNames[Role]) + "SamplerState"), EMaterialParameterType::Scalar,
-				FMaterialParameterValue::MakeScalar(EncodeMaterialSamplerState({})), "Sampler State", Sort + 6, EMaterialParameterPresentation::Integer,
-				true, 0.0f, 255.0f, ETextureUsage::Color, Group));
+
 		}
-		return Result;
-	}
-
-	auto GetCanonicalMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>
-	{
-		static const std::vector<FMaterialParameterDefinition> Definitions = MakeCanonicalMaterialParameterDefinitions();
-		return Definitions;
-	}
-
-	auto MakePBRMaterialParameterDefinitions()
-		-> std::vector<FMaterialParameterDefinition>
-	{
-		auto Result = MakeCanonicalMaterialParameterDefinitions();
-		std::erase_if(Result, [](const FMaterialParameterDefinition& Definition) {
-			return MaterialParameters::IsBuiltinParameter(
-				Definition.Id,
-				MaterialParameters::EMaterialBuiltinParameterKind::SamplerState);
-		});
 		for (FMaterialParameterDefinition& Definition : Result)
 		{
 			if (Definition.Type != EMaterialParameterType::Texture) continue;
@@ -212,6 +176,12 @@ namespace Durin
 					: EMaterialTextureFallback::White);
 		}
 		return Result;
+	}
+
+	auto GetPBRMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>
+	{
+		static const std::vector<FMaterialParameterDefinition> Definitions = MakePBRMaterialParameterDefinitions();
+		return Definitions;
 	}
 
 	auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view
@@ -309,54 +279,6 @@ namespace Durin
 			}
 		}
 		return {};
-	}
-
-	auto ValidateCanonicalMaterialParameterDefinitions(
-		std::span<const FMaterialParameterDefinition> Definitions,
-		std::string& OutError
-	) -> bool
-	{
-		OutError.clear();
-		const std::span Canonical = GetCanonicalMaterialParameterDefinitions();
-		if (Definitions.size() != Canonical.size())
-		{
-			OutError = std::format("Material parameter schema contains {} definitions; expected {}.", Definitions.size(), Canonical.size());
-			return false;
-		}
-
-		std::unordered_set<FGuid> Ids;
-		std::unordered_set<FName> Names;
-		for (size_t Index = 0; Index < Definitions.size(); ++Index)
-		{
-			const FMaterialParameterDefinition& Definition = Definitions[Index];
-			if (!Definition.Id.IsValid())
-			{
-				OutError = std::format("Material parameter definition {} has an invalid GUID.", Index);
-				return false;
-			}
-			if (!Ids.insert(Definition.Id).second)
-			{
-				OutError = std::format("Material parameter schema contains duplicate GUID {}.", Definition.Id.ToString());
-				return false;
-			}
-			if (Definition.Name.IsNone())
-			{
-				OutError = std::format("Material parameter definition {} has a None name.", Index);
-				return false;
-			}
-			if (!Names.insert(Definition.Name).second)
-			{
-				OutError = std::format("Material parameter schema contains duplicate name '{}'.", Definition.Name.ToString());
-				return false;
-			}
-			if (!HasCanonicalMetadata(Definition, Canonical[Index]))
-			{
-				OutError = std::format("Material parameter definition {} ('{}') does not match the canonical identity, type, order, or metadata.",
-					Index, Definition.Name.ToString());
-				return false;
-			}
-		}
-		return true;
 	}
 
 	auto ValidateMaterialStaticProperties(

@@ -396,35 +396,6 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			MarkAsGarbage(Unrelated);
 			MarkAsGarbage(Heavy); MarkAsGarbage(Light); MarkAsGarbage(Rust);
 		}
-		// Compare migrated edited graphs with the ordinary PBR template on this device.
-		for (const auto Blend : {Durin::EMaterialBlendMode::Opaque,
-			Durin::EMaterialBlendMode::Masked, Durin::EMaterialBlendMode::Translucent})
-		{
-			using namespace Durin;
-			auto* Legacy = NewObject<DMaterial>(nullptr, "RenderedLegacyMigration");
-			auto LegacyProgram = MakeStandardSurfaceMaterialProgram();
-			LegacyProgram.Nodes.front().DisplayName = "Edited legacy surface";
-			ASSERT_TRUE(Legacy->SetMaterialProgram(LegacyProgram));
-			auto Properties = Legacy->GetStaticProperties();
-			Properties.BlendMode = Blend;
-			ASSERT_TRUE(Legacy->SetStaticProperties(Properties));
-			ASSERT_TRUE(Legacy->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
-			ASSERT_TRUE(Legacy->SetTextureParameterValue(MaterialParameters::NormalTextureName(), NormalTextureResult.Asset));
-			ASSERT_TRUE(Legacy->SetScalarParameterValue(MaterialParameters::OpacityName(), 0.4f));
-
-			Legacy->PostLoad();
-			ASSERT_TRUE(FinishMaterialCompileForTest(*Legacy));
-			EXPECT_EQ(Legacy->GetAcceptedCompiledProgram()->Layout.Identity.Version, CompiledMaterialRenderLayoutVersion);
-			auto* Reference = MakeExpandedMaterial("MigrationReference");
-			ASSERT_NE(Reference, nullptr);
-			ASSERT_TRUE(Reference->SetStaticProperties(Properties));
-			ASSERT_TRUE(Reference->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
-			ASSERT_TRUE(Reference->SetTextureParameterValue(MaterialParameters::NormalTextureName(), NormalTextureResult.Asset));
-			ASSERT_TRUE(Reference->SetScalarParameterValue(MaterialParameters::OpacityName(), 0.4f));
-			EXPECT_EQ(Capture(Legacy), Capture(Reference));
-			MarkAsGarbage(Reference);
-			MarkAsGarbage(Legacy);
-		}
 		const Durin::FByteBuffer MaterialPixels =
 			Capture(CaptureMaterial);
 		ASSERT_EQ(ErrorFallbackMaterial->GetAcceptedCompiledProgram(), nullptr);

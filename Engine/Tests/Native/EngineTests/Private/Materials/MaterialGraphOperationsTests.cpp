@@ -54,7 +54,7 @@ namespace
 	{
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		if (!Material || !Material->SetMaterialDefinitionsAndProgram(
-			MakeCanonicalMaterialParameterDefinitions(),
+			MakePBRMaterialParameterDefinitions(),
 			MakePBRMaterialProgram())
 			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
@@ -250,9 +250,9 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_TRUE(std::ranges::none_of(Catalog,
 		[](const FMaterialGraphCatalogEntry& Value) {
 			return Value.NodeTemplate.Opcode
-				== EMaterialProgramOpcode::StandardSurface
+				== static_cast<EMaterialProgramOpcode>(30)
 				|| Value.NodeTemplate.Opcode
-					== EMaterialProgramOpcode::TextureCoordinate;
+					== static_cast<EMaterialProgramOpcode>(3);
 		}));
 	FMaterialProgram AggregateProgram = MakePBRMaterialProgram();
 	FMaterialProgramNode Surface;
@@ -427,8 +427,8 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 		Value <= static_cast<uint8>(EMaterialProgramOpcode::BlendNormalsRNM);
 		++Value)
 	{
-		if (Value == static_cast<uint8>(EMaterialProgramOpcode::TextureCoordinate)
-			|| Value == static_cast<uint8>(EMaterialProgramOpcode::StandardSurface))
+		if (Value == static_cast<uint8>(static_cast<EMaterialProgramOpcode>(3))
+			|| Value == static_cast<uint8>(static_cast<EMaterialProgramOpcode>(30)))
 			continue;
 		EXPECT_TRUE(std::ranges::any_of(Catalog,
 			[Value](const FMaterialGraphCatalogEntry& Entry) {

@@ -140,7 +140,6 @@ namespace Durin
 				break;
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
-			case EMaterialProgramOpcode::TextureCoordinate:
 				OutNode.ParameterId = Node.ParameterId;
 				break;
 			case EMaterialProgramOpcode::Swizzle:
@@ -460,15 +459,6 @@ namespace Durin
 			Result.ActiveParameters.push_back({Dependency.ParameterId, Dependency.Type});
 		std::ranges::sort(Result.ActiveParameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
-		if (std::ranges::any_of(IR.Nodes, [](const auto& Node) {
-			return Node.Opcode == EMaterialProgramOpcode::StandardSurface
-				|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinate;
-		}))
-		{
-			Result.Diagnostics.push_back(MakeNormalizationFailure(
-				"Legacy material expressions must be migrated before compilation."));
-			return Result;
-		}
 		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
 		if (!Layout)
 		{

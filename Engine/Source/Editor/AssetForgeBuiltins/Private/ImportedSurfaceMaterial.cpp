@@ -28,25 +28,12 @@ namespace Durin::AssetForge::Builtins
 			return Result;
 		}
 
-		auto EnsureTemplateProgram(DMaterial& Material, bool bAllowMigration,
+		auto EnsureTemplateProgram(DMaterial& Material,
 			std::string& OutError) -> bool
 		{
 			const FMaterialProgram Expected = MakePBRMaterialProgram();
 			if (*Material.GetMaterialProgram() == Expected) return true;
-			if (bAllowMigration
-				&& (*Material.GetMaterialProgram() == MakeCanonicalMaterialProgram()
-					|| *Material.GetMaterialProgram()
-						== MakeStandardSurfaceMaterialProgram()))
-			{
-				auto Definitions = std::vector<FMaterialParameterDefinition>(
-					Material.GetParameterDefinitions().begin(),
-					Material.GetParameterDefinitions().end());
-				if (Material.SetMaterialDefinitionsAndProgram(
-						std::move(Definitions), Expected)
-					&& Material.SetMaterialGraphPresentation(
-						MakeTemplatePresentation(Expected))) return true;
-			}
-			OutError = "ImportedSurface has a modified or stale material program; run the exact built-in template migration before importing.";
+			OutError = "ImportedSurface has a modified or stale material program; restore the current built-in template before importing.";
 			return false;
 		}
 	}
@@ -80,7 +67,7 @@ namespace Durin::AssetForge::Builtins
 					DeclarationValidation.Error));
 				return nullptr;
 			}
-			if (!EnsureTemplateProgram(*Loaded, false, OutError)) return nullptr;
+			if (!EnsureTemplateProgram(*Loaded, OutError)) return nullptr;
 			OutError.clear();
 			return Loaded;
 		}
@@ -110,7 +97,7 @@ namespace Durin::AssetForge::Builtins
 				UnloadPackage(MaterialPath);
 				return nullptr;
 			}
-			if (!EnsureTemplateProgram(*Loaded, true, OutError))
+			if (!EnsureTemplateProgram(*Loaded, OutError))
 			{
 				UnloadPackage(MaterialPath);
 				return nullptr;

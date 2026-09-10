@@ -633,7 +633,7 @@ TEST(FMaterialProgramPackageTests,
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::CreatePackageLeafAssetForTesting(Path, Material));
 	Durin::FMaterialProgram Authored =
-		Durin::MakeCanonicalMaterialProgram();
+		Durin::MakePBRMaterialProgram();
 	std::ranges::reverse(Authored.Nodes);
 	Authored.Nodes.front().DisplayName = "Persisted presentation metadata";
 	auto Validation = Material->SetMaterialProgram(Authored);
@@ -658,12 +658,12 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_NE(Duplicate->GetMaterialProgram(), nullptr);
 	const auto Migrated = *Duplicate->GetMaterialProgram();
-	EXPECT_NE(Migrated, Authored);
+	EXPECT_EQ(Migrated, Authored);
 	EXPECT_EQ(Migrated.Outputs, Authored.Outputs);
 	EXPECT_EQ(Migrated.Nodes.front().Id, Authored.Nodes.front().Id);
 	EXPECT_EQ(Migrated.Nodes.front().DisplayName, Authored.Nodes.front().DisplayName);
 	EXPECT_TRUE(std::ranges::none_of(Migrated.Nodes, [](const auto& Node) {
-		return Node.Opcode == Durin::EMaterialProgramOpcode::TextureCoordinate;
+		return Node.Opcode == static_cast<Durin::EMaterialProgramOpcode>(3);
 	}));
 	EXPECT_NE(Duplicate->GetMaterialProgram(), Material->GetMaterialProgram());
 	Durin::MarkObjectHierarchyAsGarbage(Duplicate);

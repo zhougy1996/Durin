@@ -52,13 +52,11 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Constant:
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
-			case EMaterialProgramOpcode::UVChannel:
-			case EMaterialProgramOpcode::TextureCoordinate: return "Inputs";
+			case EMaterialProgramOpcode::UVChannel: return "Inputs";
 			case EMaterialProgramOpcode::TextureSample2D:
 			case EMaterialProgramOpcode::DecodeNormalRG:
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
-			case EMaterialProgramOpcode::MakeSurface:
-			case EMaterialProgramOpcode::StandardSurface: return "Surface";
+			case EMaterialProgramOpcode::MakeSurface: return "Surface";
 			case EMaterialProgramOpcode::Swizzle:
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
@@ -108,7 +106,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Constant: return "Constant";
 			case EMaterialProgramOpcode::Parameter: return "Parameter";
 			case EMaterialProgramOpcode::TextureParameter: return "Texture Parameter";
-			case EMaterialProgramOpcode::TextureCoordinate: return "Texture Coordinate";
 			case EMaterialProgramOpcode::TextureSample2D: return "Texture Sample 2D";
 			case EMaterialProgramOpcode::Add: return "Add";
 			case EMaterialProgramOpcode::Subtract: return "Subtract";
@@ -139,7 +136,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Sine: return "Sine";
 			case EMaterialProgramOpcode::Cosine: return "Cosine";
 			case EMaterialProgramOpcode::MakeSurface: return "Make Surface";
-			case EMaterialProgramOpcode::StandardSurface: return "Standard Surface";
 			}
 			return "Unknown";
 		}
@@ -159,7 +155,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value."; break;
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A value exposed by the material parameter definition."; break;
-			case EMaterialProgramOpcode::TextureCoordinate: Entry.Description = "Texture coordinates associated with a texture parameter."; break;
 			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a 2D texture at the supplied coordinates."; break;
 			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
 			case EMaterialProgramOpcode::Subtract: Entry.Description = "Subtracts the second value from the first."; break;
@@ -190,7 +185,6 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::Sine: Entry.Description = "Returns the component-wise sine in radians."; break;
 			case EMaterialProgramOpcode::Cosine: Entry.Description = "Returns the component-wise cosine in radians."; break;
 			case EMaterialProgramOpcode::MakeSurface: Entry.Description = "Combines eight explicit surface properties without hidden parameter access."; break;
-			case EMaterialProgramOpcode::StandardSurface: Entry.Description = "Builds the Engine standard PBR surface from canonical material parameters."; break;
 			}
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
@@ -2092,9 +2086,6 @@ namespace Durin::Editor::Material
 		{
 			FMaterialProgramNode Node = *FindNode(Program, Id);
 			if (Node.ParameterId.IsValid()) Referenced.insert(Node.ParameterId);
-			if (Node.Opcode == EMaterialProgramOpcode::StandardSurface)
-				for (const auto& Definition : Material.GetParameterDefinitions())
-					Referenced.insert(Definition.Id);
 			const FMaterialGraphNodePresentation& Position = Positions.at(Id);
 			OutPayload.Nodes.push_back({
 				.Node = std::move(Node),
@@ -2206,9 +2197,6 @@ namespace Durin::Editor::Material
 		{
 			FMaterialProgramNode Node = ClipboardNode.Node;
 			Node.Id = Remap.at(ClipboardNode.Node.Id);
-			if (!bSameRoot && (Node.Opcode == EMaterialProgramOpcode::StandardSurface
-				|| Node.Opcode == EMaterialProgramOpcode::TextureCoordinate))
-				return MakeRejected("Cross-root paste requires migration of legacy role-dependent nodes to explicit expressions.");
 			if (Node.ParameterId.IsValid())
 			{
 				const auto Parameter = ParameterRemap.find(Node.ParameterId);

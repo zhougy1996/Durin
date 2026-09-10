@@ -58,15 +58,10 @@ namespace Durin
 			ResetPlatformData();
 			return;
 		}
-		if (Source.GetSchemaVersion() != TextureSourceSchemaVersion)
+		if (!Source.IsValid())
 		{
-			FTextureSource Migrated = Source;
-			if (!Migrated.MigrateLegacy())
-			{
-				DURIN_ERROR("PostLoad '{}': Texture source migration failed.", GetObjectPath());
-				return;
-			}
-			SetSource(std::move(Migrated));
+			DURIN_ERROR("PostLoad '{}': invalid or unsupported texture source.", GetObjectPath());
+			return;
 		}
 		BuildPlatformDataForLoad();
 	}

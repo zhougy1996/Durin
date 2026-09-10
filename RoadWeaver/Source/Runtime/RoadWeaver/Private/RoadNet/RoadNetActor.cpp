@@ -44,8 +44,6 @@ namespace Durin::RoadNet
 	auto ARoadNetActor::SetRoadNet(DRoadNet* Asset) -> void
 	{
 		RoadNet = Asset;
-		GeometryVersion = 1;
-		Surface = {};
 		BindAsset();
 		MarkPackageDirty();
 		RequestNativeReconstruction();
@@ -56,41 +54,6 @@ namespace Durin::RoadNet
 		PreviewMesh = Mesh;
 		MarkPackageDirty();
 		RequestNativeReconstruction();
-	}
-
-	auto ARoadNetActor::PostLoad() -> void
-	{
-		if (GeometryVersion == 0)
-		{
-			if (RoadNet && (Surface.Mode != ERoadSurfaceMode::Unconstrained || Surface.Normal != FVector3(0, 0, 1)))
-			{
-				auto Candidate = RoadNet->GetDefinition();
-				std::string Error;
-				if (RoadNet->GetSchemaVersion() > RoadNetSchemaVersion
-					|| !MigrateRoadDefinition(Candidate, Error) || !FitRoadDefinition(Candidate, Surface, Error))
-				{
-					Diagnostic = "Legacy road conversion failed (unsupported schema or invalid geometry): " + Error + " Repair the source and legacy Surface, then reload.";
-					GenerationState = "Error";
-					DURIN_ERROR("{}: {}", GetObjectPath(), Diagnostic);
-					Super::PostLoad();
-					return;
-				}
-				// Each legacy placement can have a different surface. Persist a private
-				// authoritative asset under this actor; never mutate the shared source.
-				auto* Converted = NewObject<DRoadNet>(this, "MigratedRoadNet");
-				if (!Converted || !Converted->InitializeMigratedDefinition(std::move(Candidate), Error))
-				{
-					Diagnostic = "Legacy road conversion could not publish: " + Error;
-					GenerationState = "Error";
-					Super::PostLoad();
-					return;
-				}
-				RoadNet = Converted;
-			}
-			Surface = {};
-			GeometryVersion = 1;
-		}
-		Super::PostLoad();
 	}
 
 	auto ARoadNetActor::BeginDestroy() -> void
@@ -104,11 +67,6 @@ namespace Durin::RoadNet
 
 	auto ARoadNetActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
-		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("RoadNet"))
-		{
-			GeometryVersion = 1;
-			Surface = {};
-		}
 		Super::PostEditChangeProperty(Event);
 		BindAsset();
 		RequestNativeReconstruction();
@@ -124,8 +82,6 @@ namespace Durin::RoadNet
 			OutError = Diagnostic;
 			return false;
 		};
-		if (GeometryVersion != 1 && RoadNet)
-			return Fail(Diagnostic.empty() ? "Legacy road requires successful PostLoad conversion before preview." : Diagnostic);
 		if (!RoadNet)
 		{
 			Alignments.clear();
@@ -133,7 +89,7 @@ namespace Durin::RoadNet
 			Diagnostic.clear();
 			return true;
 		}
-		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset requires successful schema migration or repair.");
+		if (RoadNet->GetSchemaVersion() != RoadNetSchemaVersion) return Fail("Road asset has an unsupported schema.");
 		if (!ValidateRoadPlacement(GetActorTransform(), OutError)) return Fail(OutError);
 		if (!PreviewMesh) return Fail("Assign a preview StaticMesh with nonzero X and Y extent.");
 		// Package loading submits mesh compilation asynchronously; construction needs its published CPU geometry.

@@ -138,10 +138,9 @@ duplicate, invalid and conflicting declarations reject the entire operation.
 Node placement, declaration creation and graph references commit once and
 Undo/Redo together. Unknown clipboard versions are rejected.
 
-Legacy StandardSurface and role-dependent TextureCoordinate nodes reject
-foreign paste because their hidden root dependencies cannot be remapped safely.
-Supported loaded packages migrate those nodes to explicit expressions before
-editing; custom parameters are never remapped into fixed role slots.
+Retired StandardSurface and role-dependent TextureCoordinate opcode values are
+invalid in both authored graphs and clipboard payloads. Custom parameters are
+never remapped into fixed role slots.
 
 A selection containing the active aggregate source records that source; paste
 reconnects the remapped Surface node atomically without copying the derived

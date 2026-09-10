@@ -182,10 +182,6 @@ namespace Durin
 		COREDOBJECT_API auto DeferredRegister(DClass* InDClassStaticClass, const char* InPackageName, const char* InName) -> void;
 
 
-	protected:
-		// Restores runtime-only status for legacy inner objects admitted by PostLoad.
-		COREDOBJECT_API auto RestoreTransientOnLoad() -> void;
-
 	private:
 		COREDOBJECT_API static auto GetPrivateStaticClass() -> DClass*;
 

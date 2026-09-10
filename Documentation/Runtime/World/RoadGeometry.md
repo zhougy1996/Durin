@@ -1,6 +1,6 @@
 # Road Geometry
 
-Summary: Define final-curve road authority, explicit plane/sphere authoring, fixed planet ownership, and legacy scene conversion.
+Summary: Define final-curve road authority, explicit plane/sphere authoring, fixed planet ownership, and current-schema persistence.
 
 Modules: RoadWeaver, RoadWeaverEditor, Engine
 
@@ -15,8 +15,7 @@ occurs during preview rebuilding.
 `FDefinition.Planet` identifies one fixed planet and stores its center and radius
 in network-local double-precision meters. New networks receive a planet GUID at
 creation. In the absence of a planet actor/asset abstraction in these modules,
-this small value is the binding; it introduces no new planet framework. Legacy
-networks without identity use the reserved default planet binding. Applications
+this small value is the binding; it introduces no new planet framework. The default planet binding is reserved. Applications
 creating several networks for the same planet supply the same binding.
 
 Actor placement is a rigid network-to-world transform: it transforms roads and
@@ -91,33 +90,16 @@ not mark packages Dirty merely by regenerating.
 
 ## Compatibility
 
-Schema 3 introduces final-curve authority and planet binding. Schema 1/2 assets,
-including older records omitting the then-default version, retain Cartesian
-geometry and stable graph IDs. Valid legacy station ranges are normalized to
-the curve length before admission. Invalid topology or station ordering is not
-repaired by guessing: load logs the entity diagnostic and retains the original
-data for explicit repair. Unsupported future versions cannot preview as Ready.
+Only schema 3 final-curve assets are supported. Repository `NewRoadNet` and
+`L_RoadNet` were resaved before removing the old station normalization and
+per-instance projection conversion. Actor `Surface` and `GeometryVersion` are
+removed. Converted placements retain their persistent private road subobjects;
+loading and reconstruction never project or refit their geometry.
 
-Legacy Actor `Surface` is hidden from editing and retained solely as a serialized
-conversion input. `GeometryVersion` gates conversion in `PostLoad`, before native
-construction. A constrained legacy instance is converted into an Actor-owned
-persistent `DRoadNet` subobject, and its `RoadNet` reference is replaced only
-after complete validation. This preserves distinct instance shapes without
-modifying a shared external asset. After success the legacy descriptor is cleared;
-all further previews derive from the private final curve. No second active
-geometry definition exists. Save persists the replacement graph and version;
-reload does not fit it again. Unconstrained instances retain their shared asset.
-
-Failure preserves the source reference, legacy parameters and version, reports
-an actionable diagnostic and prevents fallback to incorrectly shaped raw geometry.
-Repair the original graph/legacy descriptor and reload, or assign a validated
-replacement asset. Migration itself does not dirty packages or write files;
-an explicit save persists it. The checked-in `NewRoadNet` and `L_RoadNet` remain
-legacy regression inputs and migrate on opening.
-
-The transient subtree exclusion, legacy Generated component flag restoration,
-and GC attachment-cleanup Dirty suppression from commit `85cb90399` remain intact.
-Road integration tests inspect saved exports, round-trip converted geometry,
-open a sandbox copy of the checked-in level and collect obsolete generated
-components without setting Dirty. They do not substitute for interactive picking
-or full editor transaction replay qualification in the broader foundation plan.
+Current-schema topology, station and placement validation remains mandatory.
+Unsupported schemas cannot preview as Ready. Transient subtree exclusion and
+GC attachment-cleanup Dirty suppression remain intact. The loader no longer
+repairs historical generated-component persistence flags. Road integration
+tests open a sandbox copy of the current checked-in level and collect obsolete
+generated components without setting Dirty. This does not substitute for the
+interactive picking or full editor transaction replay qualification gates.

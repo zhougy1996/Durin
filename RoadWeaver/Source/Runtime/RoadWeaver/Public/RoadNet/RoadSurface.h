@@ -12,7 +12,7 @@ namespace Durin::RoadNet
 	DENUM()
 	enum class ERoadSurfaceMode : uint8 { Unconstrained, Plane, Sphere };
 
-	// Parameters for explicit fitting and legacy Actor deserialization only.
+	// Parameters for explicit fitting of authored road geometry.
 	DSTRUCT()
 	struct FRoadSurface
 	{

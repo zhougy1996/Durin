@@ -260,7 +260,6 @@ namespace Durin
 		FGuid ParameterId;
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
 		uint32 FirstUseOrder = 0;
-		bool bImplicitTextureRole = false;
 		FName Name;
 		std::string DisplayName;
 		FName GroupName;
@@ -295,7 +294,6 @@ namespace Durin
 			UVScale,
 			UVOffset,
 			UVRotation,
-			SamplerState,
 			Count,
 		};
 
@@ -308,7 +306,6 @@ namespace Durin
 			FGuid UVScale;
 			FGuid UVOffset;
 			FGuid UVRotation;
-			FGuid SamplerState;
 		};
 
 		// Maps one surface role to its complete persistent parameter identity group.
@@ -335,8 +332,7 @@ namespace Durin
 				.UVChannel = {0x672ac603,0xe3b849d3,0xa0bd40a7,0x808f40d9},
 				.UVScale = {0xefb7f324,0x0be949d7,0xb5e2aaf5,0xfb4e6805},
 				.UVOffset = {0x7f06899b,0x33f5416d,0x9d07e4b0,0x86d9f512},
-				.UVRotation = {0x35f1f695,0xc8bb4c59,0x89f55c74,0x8e297b22},
-				.SamplerState = {0xc907df56,0x6d4c440b,0xa6dd53c9,0x6333f11d}},
+				.UVRotation = {0x35f1f695,0xc8bb4c59,0x89f55c74,0x8e297b22}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::Normal,
@@ -346,8 +342,7 @@ namespace Durin
 				.UVChannel = {0x5bd333c3,0x4f7b4794,0x8719fbbc,0xf6c55aa5},
 				.UVScale = {0xa5a9c83b,0x4eb44263,0x83a69589,0xbc5c51fa},
 				.UVOffset = {0xd8f1ff6d,0x0da845d3,0xb263bf33,0x6b268992},
-				.UVRotation = {0xef2664e3,0xf45b4f20,0xaad6baa4,0x6486f63f},
-				.SamplerState = {0xd378b044,0x9d8b439d,0xaf82bac2,0x3476970b}},
+				.UVRotation = {0xef2664e3,0xf45b4f20,0xaad6baa4,0x6486f63f}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::Metallic,
@@ -357,8 +352,7 @@ namespace Durin
 				.UVChannel = {0x4555094e,0x5e2146f8,0x8fa5461c,0x2855e779},
 				.UVScale = {0xd24b6330,0xa6b94232,0xb929e02e,0xee5eb8cb},
 				.UVOffset = {0x823917fc,0x577e4492,0xaee15bf5,0x1f7f99c9},
-				.UVRotation = {0x3c598714,0x16174535,0x936eb4db,0xe5a210cd},
-				.SamplerState = {0x44ef5b74,0xbdcb4fae,0xb233f499,0xcc99814e}},
+				.UVRotation = {0x3c598714,0x16174535,0x936eb4db,0xe5a210cd}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::Roughness,
@@ -368,8 +362,7 @@ namespace Durin
 				.UVChannel = {0x5f31c554,0x120d438c,0xac871567,0xea3dfb2c},
 				.UVScale = {0x52b3dde0,0x3355417b,0xbf05eb11,0xa4d57d74},
 				.UVOffset = {0xe8c9892e,0xfe2c471b,0xb76eeef3,0xd38a0eab},
-				.UVRotation = {0x682ca789,0x18bd4ec4,0xa00f271a,0xd7527e59},
-				.SamplerState = {0x71086444,0x963c4638,0x98d929c1,0xaaab3dc2}},
+				.UVRotation = {0x682ca789,0x18bd4ec4,0xa00f271a,0xd7527e59}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::AmbientOcclusion,
@@ -379,8 +372,7 @@ namespace Durin
 				.UVChannel = {0x22268e45,0x22ea4186,0x8c8032ae,0xbf3563a6},
 				.UVScale = {0x8cd74420,0x60764ea4,0x88fb76ac,0xc08804d4},
 				.UVOffset = {0xfcc40232,0xb6604de4,0x95123d02,0xe05dde5e},
-				.UVRotation = {0x82b3fdc3,0x0f8840ad,0xbe12abdb,0xbc5732b1},
-				.SamplerState = {0x6075e231,0x6c8647db,0x815a4575,0xa72a06ca}},
+				.UVRotation = {0x82b3fdc3,0x0f8840ad,0xbe12abdb,0xbc5732b1}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::Emissive,
@@ -390,8 +382,7 @@ namespace Durin
 				.UVChannel = {0xe3da1eb1,0xb9374251,0xb671d414,0x3589b22a},
 				.UVScale = {0xb9e82178,0x3fcd43e7,0x94aa7826,0x15b81866},
 				.UVOffset = {0x165e8be8,0x46a44106,0xb22d3a0f,0x25bd23cb},
-				.UVRotation = {0x76c5afe3,0xd08148cb,0x86c9125d,0x8accbce1},
-				.SamplerState = {0xa89564f2,0xd936422a,0xa48871f7,0x21873f76}},
+				.UVRotation = {0x76c5afe3,0xd08148cb,0x86c9125d,0x8accbce1}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::Opacity,
@@ -401,8 +392,7 @@ namespace Durin
 				.UVChannel = {0x9390003c,0x799e47e6,0x8aa7085f,0x02682928},
 				.UVScale = {0x15e6d53d,0x890241ca,0x915eb4d1,0x32b0caa0},
 				.UVOffset = {0xad888dbb,0x10934047,0x82901991,0x3f0ea763},
-				.UVRotation = {0x5751ef57,0xf71d45e4,0x906ce613,0x9d22b2c4},
-				.SamplerState = {0xc98a80bb,0x03cb4ed9,0x80fe2dfc,0xb6a89821}},
+				.UVRotation = {0x5751ef57,0xf71d45e4,0x906ce613,0x9d22b2c4}},
 			},
 			{
 				.Role = EMaterialBuiltinParameterRole::OpacityMask,
@@ -412,8 +402,7 @@ namespace Durin
 				.UVChannel = {0xfe9b13ed,0x48be4534,0xae1d9f02,0x4e56aed0},
 				.UVScale = {0x89485eda,0xbf1d448a,0x8142d9b3,0xcc7705d1},
 				.UVOffset = {0xefb2320e,0x8b514460,0xb3e92d3a,0x973d358a},
-				.UVRotation = {0x4a40ca6b,0xa7fe48ae,0xb2af647a,0x7027f949},
-				.SamplerState = {0x666771a5,0x71034a00,0xaf2a479d,0x097947b8}},
+				.UVRotation = {0x4a40ca6b,0xa7fe48ae,0xb2af647a,0x7027f949}},
 			},
 		}};
 
@@ -438,7 +427,6 @@ namespace Durin
 			case EMaterialBuiltinParameterKind::UVScale: return Ids.UVScale;
 			case EMaterialBuiltinParameterKind::UVOffset: return Ids.UVOffset;
 			case EMaterialBuiltinParameterKind::UVRotation: return Ids.UVRotation;
-			case EMaterialBuiltinParameterKind::SamplerState: return Ids.SamplerState;
 			default: return {};
 			}
 		}
@@ -483,7 +471,7 @@ namespace Durin
 		ENGINE_API auto OpacityMaskTextureName() -> const FName&;
 	}
 
-	ENGINE_API auto GetCanonicalMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>;
+	ENGINE_API auto GetPBRMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>;
 	inline constexpr uint32 MaterialMaxParameterDefinitionCount = 128;
 	inline constexpr uint32 MaterialMaxParameterTextBytes = 128;
 
@@ -514,18 +502,12 @@ namespace Durin
 
 	// Format only at a diagnostic presentation or logging boundary.
 	ENGINE_API auto GetMaterialParameterErrorText(EMaterialParameterError Error) -> std::string_view;
-	// Validates authored declarations independently of the legacy PBR template.
+	// Validates material-owned authored declarations.
 	ENGINE_API auto ValidateMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions) -> FMaterialParameterValidationResult;
-	ENGINE_API auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
-	// Creates the ordinary-graph PBR template declarations. Persistent built-in
-	// identities are reused for compatibility, but packed legacy sampler scalars
-	// are omitted because sampling policy belongs to each Texture2D value.
+	// Creates the ordinary-graph PBR template declarations. Sampling policy belongs
+	// to each Texture2D value.
 	ENGINE_API auto MakePBRMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
-	ENGINE_API auto ValidateCanonicalMaterialParameterDefinitions(
-		std::span<const FMaterialParameterDefinition> Definitions,
-		std::string& OutError
-	) -> bool;
 	ENGINE_API auto ValidateMaterialStaticProperties(
 		const FMaterialStaticProperties& Properties,
 		std::string& OutError

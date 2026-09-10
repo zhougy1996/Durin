@@ -87,14 +87,8 @@ namespace Durin
 		auto IsValidOpcode(EMaterialProgramOpcode Opcode) -> bool
 		{
 			return Opcode >= EMaterialProgramOpcode::Constant
-				&& Opcode <= EMaterialProgramOpcode::MakeSurface;
-		}
-
-		auto IsCanonicalTextureParameter(const FGuid& Id) -> bool
-		{
-			return MaterialParameters::FindBuiltinParameterRole(Id,
-				MaterialParameters::EMaterialBuiltinParameterKind::Texture)
-				!= MaterialParameters::EMaterialBuiltinParameterRole::Count;
+				&& Opcode <= EMaterialProgramOpcode::MakeSurface
+				&& static_cast<uint8>(Opcode) != 3 && static_cast<uint8>(Opcode) != 30;
 		}
 
 		auto FindParameter(
@@ -210,24 +204,6 @@ namespace Durin
 					}
 				if (Node.ResultType != EMaterialProgramValueType::Surface) AddType(0, "MakeSurface must return Surface.");
 				break;
-			case EMaterialProgramOpcode::StandardSurface:
-				RequireCount(0);
-				if (Node.ResultType != EMaterialProgramValueType::Surface)
-					AddType(0, "StandardSurface must return Surface.");
-				for (const auto& Entry : MaterialParameters::BuiltinParameters)
-					for (auto Kind : {MaterialParameters::EMaterialBuiltinParameterKind::Value,
-						MaterialParameters::EMaterialBuiltinParameterKind::Texture,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVChannel,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVScale,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVOffset,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVRotation,
-						MaterialParameters::EMaterialBuiltinParameterKind::SamplerState})
-				{
-					const FGuid Id = MaterialParameters::GetBuiltinParameterId(Entry.Role, Kind);
-					if (FindParameter(Definitions, Id)) ReferencedParameters.insert(Id);
-					else AddType(0, "StandardSurface requires the complete canonical parameter descriptor.");
-				}
-				break;
 			case EMaterialProgramOpcode::Constant:
 			{
 				RequireCount(0);
@@ -243,7 +219,6 @@ namespace Durin
 			}
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
-			case EMaterialProgramOpcode::TextureCoordinate:
 			{
 				RequireCount(0);
 				const FMaterialParameterDefinition* Definition =
@@ -254,13 +229,6 @@ namespace Durin
 					break;
 				}
 				ReferencedParameters.insert(Node.ParameterId);
-				if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
-				{
-					if (!IsCanonicalTextureParameter(Node.ParameterId)
-						|| Node.ResultType != EMaterialProgramValueType::Float2)
-						AddType(0, "TextureCoordinate must reference a canonical texture role and return Float2.");
-				}
-				else
 				{
 					const EMaterialProgramValueType Expected = GetProgramType(Definition->Type);
 					const bool bTextureOpcode = Node.Opcode
@@ -391,29 +359,7 @@ namespace Durin
 		return {};
 	}
 
-	auto UpgradeMaterialProgram(FMaterialProgram& Program) -> bool
-	{
-		if (Program.SchemaVersion == CurrentMaterialProgramSchemaVersion) return true;
-		if (Program.SchemaVersion != 2 && Program.SchemaVersion != 3) return false;
-		if (Program.SchemaVersion == 2) Program.Outputs.Surface = {};
-		Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
-		return true;
-	}
-
-	auto MakeStandardSurfaceMaterialProgram() -> FMaterialProgram
-	{
-		FMaterialProgram Program;
-		FMaterialProgramNode Node;
-		Node.Id = MakeCanonicalNodeId(0);
-		Node.Opcode = EMaterialProgramOpcode::StandardSurface;
-		Node.ResultType = EMaterialProgramValueType::Surface;
-		Node.DisplayName = "Standard Surface";
-		Program.Nodes.push_back(Node);
-		Program.Outputs.Surface = MakeLink(Program.Nodes.front());
-		return Program;
-	}
-
-	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
+	auto MakePBRMaterialProgram() -> FMaterialProgram
 	{
 		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
 		const auto& BaseIds = MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
@@ -425,6 +371,7 @@ namespace Durin
 		const auto& OpacityIds = MaterialParameters::GetBuiltinParameterIds(Role::Opacity);
 		const auto& OpacityMaskIds = MaterialParameters::GetBuiltinParameterIds(Role::OpacityMask);
 		FMaterialProgram Program;
+		std::vector<std::pair<FGuid, FGuid>> UVExpressions;
 		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
 		auto AddNode = [&](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType Type,
@@ -452,8 +399,9 @@ namespace Durin
 				EMaterialProgramOpcode::TextureParameter,
 				EMaterialProgramValueType::Texture2D, {}, TextureId);
 			auto& UV = AddNode(
-				EMaterialProgramOpcode::TextureCoordinate,
-				EMaterialProgramValueType::Float2, {}, TextureId);
+				EMaterialProgramOpcode::Add,
+				EMaterialProgramValueType::Float2);
+			UVExpressions.emplace_back(UV.Id, TextureId);
 			return AddNode(
 				EMaterialProgramOpcode::TextureSample2D,
 				EMaterialProgramValueType::Float4,
@@ -574,15 +522,8 @@ namespace Durin
 			.Emissive = MakeLink(Emissive),
 			.Opacity = MakeLink(Opacity),
 			.OpacityMask = MakeLink(OpacityMask)};
-		return Program;
-	}
-
-	auto MakePBRMaterialProgram() -> FMaterialProgram
-	{
-		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
-		FMaterialProgram Program = MakeCanonicalMaterialProgram();
 		uint32 NextNodeId = static_cast<uint32>(Program.Nodes.size());
-		auto AddNode = [&](EMaterialProgramOpcode Opcode,
+		auto AppendNode = [&](EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType Type,
 			std::vector<FMaterialProgramLink> Inputs = {},
 			FGuid ParameterId = {},
@@ -597,8 +538,8 @@ namespace Durin
 			Program.Nodes.push_back(std::move(Node));
 			return MakeLink(Program.Nodes.back());
 		};
-		auto SwizzleScalar = [&](FMaterialProgramLink Source, uint8 Component) {
-			const auto Link = AddNode(EMaterialProgramOpcode::Swizzle,
+		auto AppendSwizzleScalar = [&](FMaterialProgramLink Source, uint8 Component) {
+			const auto Link = AppendNode(EMaterialProgramOpcode::Swizzle,
 				EMaterialProgramValueType::Float, {Source});
 			auto& Node = Program.Nodes.back();
 			Node.SwizzleLength = 1;
@@ -606,55 +547,56 @@ namespace Durin
 			return Link;
 		};
 
-		// Replace every legacy TextureCoordinate occurrence with ordinary UV math.
-		// Existing links target the occurrence GUID, so the final Add node keeps it.
-		std::vector<FMaterialProgramNode> LegacyNodes = std::move(Program.Nodes);
+		// Complete UV expression slots after assigning the stable surface node identities.
+		std::vector<FMaterialProgramNode> SurfaceNodes = std::move(Program.Nodes);
 		Program.Nodes.clear();
 		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
-		NextNodeId = static_cast<uint32>(LegacyNodes.size());
-		for (auto& Node : LegacyNodes)
+		NextNodeId = static_cast<uint32>(SurfaceNodes.size());
+		for (auto& Node : SurfaceNodes)
 		{
-			if (Node.Opcode != EMaterialProgramOpcode::TextureCoordinate)
+			const auto UVExpression = std::ranges::find(UVExpressions, Node.Id,
+				&std::pair<FGuid, FGuid>::first);
+			if (UVExpression == UVExpressions.end())
 			{
 				Program.Nodes.push_back(std::move(Node));
 				continue;
 			}
 			const FGuid PreservedId = Node.Id;
 			const Role TextureRole = MaterialParameters::FindBuiltinParameterRole(
-				Node.ParameterId,
+				UVExpression->second,
 				MaterialParameters::EMaterialBuiltinParameterKind::Texture);
 			const auto Ids = MaterialParameters::GetBuiltinParameterIds(TextureRole);
-			const auto Channel = AddNode(EMaterialProgramOpcode::Parameter,
+			const auto Channel = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float, {}, Ids.UVChannel);
-			const auto UV = AddNode(EMaterialProgramOpcode::UVChannel,
+			const auto UV = AppendNode(EMaterialProgramOpcode::UVChannel,
 				EMaterialProgramValueType::Float2, {Channel});
-			const auto Scale = AddNode(EMaterialProgramOpcode::Parameter,
+			const auto Scale = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float2, {}, Ids.UVScale);
-			const auto Scaled = AddNode(EMaterialProgramOpcode::Multiply,
+			const auto Scaled = AppendNode(EMaterialProgramOpcode::Multiply,
 				EMaterialProgramValueType::Float2, {UV, Scale});
-			const auto Rotation = AddNode(EMaterialProgramOpcode::Parameter,
+			const auto Rotation = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float, {}, Ids.UVRotation);
-			const auto Sine = AddNode(EMaterialProgramOpcode::Sine,
+			const auto Sine = AppendNode(EMaterialProgramOpcode::Sine,
 				EMaterialProgramValueType::Float, {Rotation});
-			const auto Cosine = AddNode(EMaterialProgramOpcode::Cosine,
+			const auto Cosine = AppendNode(EMaterialProgramOpcode::Cosine,
 				EMaterialProgramValueType::Float, {Rotation});
-			const auto X = SwizzleScalar(Scaled, 0);
-			const auto Y = SwizzleScalar(Scaled, 1);
-			const auto CX = AddNode(EMaterialProgramOpcode::Multiply,
+			const auto X = AppendSwizzleScalar(Scaled, 0);
+			const auto Y = AppendSwizzleScalar(Scaled, 1);
+			const auto CX = AppendNode(EMaterialProgramOpcode::Multiply,
 				EMaterialProgramValueType::Float, {Cosine, X});
-			const auto SY = AddNode(EMaterialProgramOpcode::Multiply,
+			const auto SY = AppendNode(EMaterialProgramOpcode::Multiply,
 				EMaterialProgramValueType::Float, {Sine, Y});
-			const auto SX = AddNode(EMaterialProgramOpcode::Multiply,
+			const auto SX = AppendNode(EMaterialProgramOpcode::Multiply,
 				EMaterialProgramValueType::Float, {Sine, X});
-			const auto CY = AddNode(EMaterialProgramOpcode::Multiply,
+			const auto CY = AppendNode(EMaterialProgramOpcode::Multiply,
 				EMaterialProgramValueType::Float, {Cosine, Y});
-			const auto RotatedX = AddNode(EMaterialProgramOpcode::Subtract,
+			const auto RotatedX = AppendNode(EMaterialProgramOpcode::Subtract,
 				EMaterialProgramValueType::Float, {CX, SY});
-			const auto RotatedY = AddNode(EMaterialProgramOpcode::Add,
+			const auto RotatedY = AppendNode(EMaterialProgramOpcode::Add,
 				EMaterialProgramValueType::Float, {SX, CY});
-			const auto Rotated = AddNode(EMaterialProgramOpcode::MakeFloat2,
+			const auto Rotated = AppendNode(EMaterialProgramOpcode::MakeFloat2,
 				EMaterialProgramValueType::Float2, {RotatedX, RotatedY});
-			const auto Offset = AddNode(EMaterialProgramOpcode::Parameter,
+			const auto Offset = AppendNode(EMaterialProgramOpcode::Parameter,
 				EMaterialProgramValueType::Float2, {}, Ids.UVOffset);
 			FMaterialProgramNode Final;
 			Final.Id = PreservedId;
@@ -1059,8 +1001,7 @@ namespace Durin
 		std::unordered_set<FGuid> VisitedNodes;
 		std::unordered_set<FGuid> AddedParameters;
 		std::vector<FMaterialParameterDependency> Result;
-		auto Add = [&](const FGuid& SourceNodeId, const FGuid& ParameterId,
-			bool bImplicitTextureRole) {
+		auto Add = [&](const FGuid& SourceNodeId, const FGuid& ParameterId) {
 			if (!ParameterId.IsValid()
 				|| !AddedParameters.insert(ParameterId).second) return;
 			const FMaterialParameterDefinition* Definition = FindParameter(
@@ -1071,7 +1012,6 @@ namespace Durin
 				.ParameterId = ParameterId,
 				.Type = Definition->Type,
 				.FirstUseOrder = static_cast<uint32>(Result.size()),
-				.bImplicitTextureRole = bImplicitTextureRole,
 				.Name = Definition->Name,
 				.DisplayName = Definition->DisplayName,
 				.GroupName = Definition->GroupName,
@@ -1086,47 +1026,7 @@ namespace Durin
 				Visit(Input.SourceNodeId);
 			if (Node.Opcode == EMaterialProgramOpcode::Parameter
 				|| Node.Opcode == EMaterialProgramOpcode::TextureParameter)
-				Add(Node.Id, Node.ParameterId, false);
-			if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
-			{
-				const auto Role = MaterialParameters::FindBuiltinParameterRole(
-					Node.ParameterId,
-					MaterialParameters::EMaterialBuiltinParameterKind::Texture);
-				if (Role != MaterialParameters::EMaterialBuiltinParameterRole::Count)
-				{
-					const auto& Ids = MaterialParameters::GetBuiltinParameterIds(Role);
-					Add(Node.Id, Ids.UVChannel, true);
-					Add(Node.Id, Ids.UVScale, true);
-					Add(Node.Id, Ids.UVOffset, true);
-					Add(Node.Id, Ids.UVRotation, true);
-				}
-			}
-			if (Node.Opcode == EMaterialProgramOpcode::TextureSample2D
-				&& !Node.Inputs.empty())
-			{
-				const auto TextureIt = Nodes.find(Node.Inputs.front().SourceNodeId);
-				if (TextureIt != Nodes.end())
-				{
-					const auto Role = MaterialParameters::FindBuiltinParameterRole(
-						TextureIt->second->ParameterId,
-						MaterialParameters::EMaterialBuiltinParameterKind::Texture);
-					if (Role != MaterialParameters::EMaterialBuiltinParameterRole::Count)
-						Add(Node.Id, MaterialParameters::GetBuiltinParameterIds(
-							Role).SamplerState, true);
-				}
-			}
-			if (Node.Opcode == EMaterialProgramOpcode::StandardSurface)
-				for (const auto& Entry : MaterialParameters::BuiltinParameters)
-					for (auto Kind : {MaterialParameters::EMaterialBuiltinParameterKind::Value,
-						MaterialParameters::EMaterialBuiltinParameterKind::Texture,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVChannel,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVScale,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVOffset,
-						MaterialParameters::EMaterialBuiltinParameterKind::UVRotation,
-						MaterialParameters::EMaterialBuiltinParameterKind::SamplerState})
-						Add(Node.Id, MaterialParameters::GetBuiltinParameterId(Entry.Role, Kind),
-							Kind != MaterialParameters::EMaterialBuiltinParameterKind::Value
-							&& Kind != MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+				Add(Node.Id, Node.ParameterId);
 		};
 		if (Program.Outputs.Surface.SourceNodeId.IsValid())
 			Visit(Program.Outputs.Surface.SourceNodeId);

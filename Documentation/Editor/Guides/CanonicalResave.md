@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-10
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -38,6 +38,16 @@ below that path. Use `--all` instead of scopes for the complete project, and
 `--project <descriptor>` only to override the configured default. Add `--json`
 for automation. The lower-level host accepts the corresponding
 `DurinAssetTool resave --project=<project.dproject> <scope>...` grammar.
+
+Project selection is explicit: the default command does not enumerate sibling
+projects. Repeat with `--project` for each project descriptor; shared Engine
+content needs only one pass. Project modules are loaded before schema capture
+so project-defined asset classes participate in inspection and resave.
+
+Folder scopes and `--all` select recommended identity repairs. To force a plain
+load-and-save of an already canonical package, pass its exact package path.
+This is required when persisting an in-memory domain upgrade before removing
+the corresponding old reader.
 
 Canonical resave always writes the current canonical DURF/DAST v9 closure;
 there is no format-selection or legacy-writer option. `--apply` is the only

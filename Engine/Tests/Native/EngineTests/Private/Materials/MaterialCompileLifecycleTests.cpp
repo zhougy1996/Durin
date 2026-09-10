@@ -340,7 +340,7 @@ TEST(FMaterialCompileLifecycleTests,
 	EXPECT_EQ(DecodedProgram->ActiveParameters,
 		Material->GetAcceptedCompiledProgram()->ActiveParameters);
 	EXPECT_EQ(DecodedProgram->ActiveParameters.size(),
-		Durin::GetCanonicalMaterialParameterDefinitions().size());
+		Durin::GetPBRMaterialParameterDefinitions().size());
 	ASSERT_EQ(DecodedProgram->CompiledShaders.size(),
 		Material->GetAcceptedCompiledProgram()->CompiledShaders.size());
 	for (size_t Index = 0; Index < DecodedProgram->CompiledShaders.size(); ++Index)

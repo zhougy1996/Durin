@@ -158,8 +158,6 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			case EMaterialProgramOpcode::MakeSurface:
 				Expression = std::format("MakeAuthoredSurface({}, {}, {}, {}, {}, {}, {}, {})",
 					Input(0), Input(1), Input(2), Input(3), Input(4), Input(5), Input(6), Input(7)); break;
-			case EMaterialProgramOpcode::StandardSurface:
-				break; // Authored migration must expand this opcode.
 			case EMaterialProgramOpcode::Constant:
 				Expression = LiteralExpression(Node); break;
 			case EMaterialProgramOpcode::Parameter:
@@ -176,8 +174,6 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 					Expression = std::format("MaterialTexture{}", Field->CompactIndex);
 				break;
 			}
-			case EMaterialProgramOpcode::TextureCoordinate:
-				break; // Authored migration must expand this opcode.
 			case EMaterialProgramOpcode::TextureSample2D:
 			{
 				const auto& TextureNode = IR.Nodes[Node.Inputs[0]];

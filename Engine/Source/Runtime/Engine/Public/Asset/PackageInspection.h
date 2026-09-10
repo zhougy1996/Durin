@@ -61,6 +61,10 @@ namespace Durin
 		ENGINE_API auto TryInspectStructFields(
 			std::vector<FAssetPackageField>& OutFields) const -> bool;
 
+		// Inspects current tagged struct-array elements without constructing asset objects.
+		ENGINE_API auto TryInspectStructArray(
+			std::vector<std::vector<FAssetPackageField>>& OutElements) const -> bool;
+
 		template<typename T>
 		auto TryReadScalar(T& OutValue) const -> bool
 		{

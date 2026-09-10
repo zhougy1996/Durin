@@ -548,9 +548,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
 	FailedSampler.AddressV =
 		Durin::EMaterialSamplerAddressMode::ClampToEdge;
-	ASSERT_TRUE(FailedResourceMaterial->SetScalarParameterValue(
-		Durin::FName("BaseColorSamplerState"),
-		Durin::EncodeMaterialSamplerState(FailedSampler)));
+	ASSERT_TRUE(FailedResourceMaterial->SetParameterOverride(
+		Durin::MaterialParameters::GetBuiltinParameterIds(
+			Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture,
+		Durin::EMaterialParameterType::Texture,
+		Durin::FMaterialParameterValue::MakeTexture(nullptr, FailedSampler)));
 	Durin::FlushRenderingCommands();
 
 	Durin::Editor::FThumbnailVisualContract Contract;

@@ -159,43 +159,6 @@ namespace Durin
 		return bError;
 	}
 
-	auto EncodeMaterialSamplerState(const FMaterialSamplerState& State) -> float
-	{
-		const uint32 Packed = static_cast<uint32>(State.MinFilter)
-			| (static_cast<uint32>(State.MagFilter) << 3)
-			| (static_cast<uint32>(State.AddressU) << 4)
-			| (static_cast<uint32>(State.AddressV) << 6);
-		return static_cast<float>(Packed);
-	}
-
-	auto TryDecodeMaterialSamplerState(
-		float Encoded,
-		FMaterialSamplerState& OutState) -> bool
-	{
-		OutState = {};
-		if (!std::isfinite(Encoded) || Encoded < 0.0f
-			|| Encoded != std::floor(Encoded) || Encoded > 255.0f)
-		{
-			return false;
-		}
-		const uint32 Packed = static_cast<uint32>(Encoded);
-		const uint32 MinFilter = Packed & 0x7u;
-		const uint32 MagFilter = (Packed >> 3) & 0x1u;
-		const uint32 AddressU = (Packed >> 4) & 0x3u;
-		const uint32 AddressV = (Packed >> 6) & 0x3u;
-		if (MinFilter > static_cast<uint32>(EMaterialSamplerMinFilter::LinearMipmapLinear)
-			|| AddressU > static_cast<uint32>(EMaterialSamplerAddressMode::ClampToEdge)
-			|| AddressV > static_cast<uint32>(EMaterialSamplerAddressMode::ClampToEdge))
-		{
-			return false;
-		}
-		OutState.MinFilter = static_cast<EMaterialSamplerMinFilter>(MinFilter);
-		OutState.MagFilter = static_cast<EMaterialSamplerMagFilter>(MagFilter);
-		OutState.AddressU = static_cast<EMaterialSamplerAddressMode>(AddressU);
-		OutState.AddressV = static_cast<EMaterialSamplerAddressMode>(AddressV);
-		return true;
-	}
-
 	auto TryGetMaterialRenderBinding(
 		const FMaterialRenderRepresentation& Representation,
 		FMaterialRenderBinding& OutBinding,

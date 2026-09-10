@@ -309,22 +309,6 @@ TEST(RoadSurfaceContract, ExplicitFitPreservesIdentityAndStationsAndRejectsAtomi
 	EXPECT_EQ(Value.Nodes[0].Position, Before.Nodes[0].Position);
 }
 
-TEST(RoadGraphContract, LegacyStationMigrationIsAtomicAndRetainsLaneTopology)
-{
-	auto Value = MakeRoad();
-	const auto Original = Value;
-	Value.Roads[0].LaneSections[0].EndDistanceMeters = 120;
-	std::string Error;
-	EXPECT_FALSE(ValidateDefinition(Value, Error));
-	ASSERT_TRUE(MigrateRoadDefinition(Value, Error)) << Error;
-	EXPECT_EQ(Value.Roads[0].LaneSections[0].EndDistanceMeters, 100);
-	EXPECT_EQ(Value.Roads[0].ReferenceLine.GetPoints(), Original.Roads[0].ReferenceLine.GetPoints());
-	EXPECT_EQ(Value.Roads[0].LaneSections[0].Lanes[0].Id, Original.Roads[0].LaneSections[0].Lanes[0].Id);
-	Value.Roads[0].LaneSections[0].StartDistanceMeters = 2;
-	EXPECT_FALSE(MigrateRoadDefinition(Value, Error));
-	EXPECT_EQ(Value.Roads[0].LaneSections[0].StartDistanceMeters, 2);
-}
-
 TEST(RoadGraphContract, ExplicitAssetFitRemapsMultipleSectionsAndKeepsPlanetFixed)
 {
 	auto Value = MakeRoad();

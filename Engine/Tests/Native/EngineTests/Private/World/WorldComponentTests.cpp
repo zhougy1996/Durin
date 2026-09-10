@@ -6,7 +6,7 @@
 #include "DObject/Package.h"
 #include "Math/Operations.h"
 
-TEST(FActorComponentTests, LegacyGeneratedRemnantDoesNotDirtyLevelDuringGarbageCollection)
+TEST(FActorComponentTests, TransientRemnantDoesNotDirtyLevelDuringGarbageCollection)
 {
 	using namespace Durin;
 	Testing::InitializeDObjectSystemForTests();
@@ -17,14 +17,14 @@ TEST(FActorComponentTests, LegacyGeneratedRemnantDoesNotDirtyLevelDuringGarbageC
 	DLevel* Level = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<AStaticMeshActor>("Actor");
-	auto* Remnant = NewObject<DSceneComponent>(Actor, "OldGeneratedComponent");
+	auto* Remnant = NewObject<DSceneComponent>(Actor, "TransientComponent", EObjectFlags::Transient);
 	auto* CreationMethod = DActorComponent::StaticClass()->FindPropertyByName("CreationMethod");
 	ASSERT_NE(CreationMethod, nullptr);
 	*CreationMethod->ContainerPtrToValuePtr<EComponentCreationMethod>(Remnant) = EComponentCreationMethod::Generated;
 	Remnant->PostLoad();
 	EXPECT_TRUE(Remnant->HasAnyObjectFlags(EObjectFlags::Transient));
 	ASSERT_TRUE(Remnant->AttachToComponent(Actor->GetRootComponent(), EAttachmentTransformRule::KeepWorld));
-	// Match a legacy export no longer present in the reconstructed ownership graph.
+	// An unowned transient attachment must not dirty the level during collection.
 	EXPECT_FALSE(Actor->OwnsComponent(Remnant));
 	Level->PostLoad();
 	TWeakObjectPtr<DSceneComponent> WeakRemnant(Remnant);

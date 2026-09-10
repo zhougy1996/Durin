@@ -699,7 +699,6 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 
 	const FGuid InstanceId = Value.GetInstanceId();
 	const FXxHash128 ContentId = Value.GetPayloadId();
-	EXPECT_FALSE(Value.ReplaceBytes(FGuid{}, Replacement));
 	EXPECT_EQ(Value.GetInstanceId(), InstanceId);
 	EXPECT_EQ(Value.GetPayloadId(), ContentId);
 	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait().Buffer.GetBytes(), Replacement));

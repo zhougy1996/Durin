@@ -13,8 +13,6 @@ namespace Durin
 {
 	class DTexture;
 	inline constexpr uint32 TextureSourceSchemaVersion = 3;
-	inline constexpr uint32 DescriptorTextureSourceSchemaVersion = 2;
-	inline constexpr uint32 LegacyTextureSourceSchemaVersion = 1;
 	inline constexpr uint64 MaximumTextureSourceBytes = 512ull * 1024ull * 1024ull;
 
 	DENUM()
@@ -69,7 +67,6 @@ namespace Durin
 
 		DPROPERTY()
 		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
-
 		DPROPERTY()
 		uint32 NumMips = 1;
 
@@ -133,23 +130,10 @@ namespace Durin
 		mutable std::shared_ptr<FMipDataState> MipDataState =
 			std::make_shared<FMipDataState>();
 
-		// Legacy v1 mirrors remain reflected so existing DAST v9 packages load.
-		DPROPERTY()
-		uint32 Width = 0;
-		DPROPERTY()
-		uint32 Height = 0;
-		DPROPERTY()
-		uint32 Depth = 1;
-		DPROPERTY()
-		uint8 NumSlices = 1;
 		DPROPERTY()
 		uint8 SourceChannelCount = 0;
 		DPROPERTY()
-		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
-		DPROPERTY()
 		ETextureSourceKind Kind = ETextureSourceKind::Texture2D;
-		DPROPERTY()
-		bool bHasTransparency = false;
 		DPROPERTY()
 		uint8 TransparencyMask = 0;
 
@@ -180,27 +164,27 @@ namespace Durin
 	public:
 		auto GetWidth() const -> uint32
 		{
-			return Blocks.empty() ? Width : Blocks[0].Width;
+			return Blocks.empty() ? 0 : Blocks[0].Width;
 		}
 		auto GetHeight() const -> uint32
 		{
-			return Blocks.empty() ? Height : Blocks[0].Height;
+			return Blocks.empty() ? 0 : Blocks[0].Height;
 		}
 		auto GetDepth() const -> uint32
 		{
-			return Blocks.empty() ? Depth : Blocks[0].Depth;
+			return Blocks.empty() ? 1 : Blocks[0].Depth;
 		}
 		auto GetNumSlices() const -> uint32
 		{
-			return Blocks.empty() ? NumSlices : Blocks[0].NumSlices;
+			return Blocks.empty() ? 1 : Blocks[0].NumSlices;
 		}
 		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
 		auto GetFormat() const -> ETextureSourceFormat
 		{
-			return Layers.empty() ? Format : Layers[0].Format;
+			return Layers.empty() ? ETextureSourceFormat::Invalid : Layers[0].Format;
 		}
 		auto GetKind() const -> ETextureSourceKind { return Kind; }
-		auto HasTransparency() const -> bool { return bHasTransparency; }
+		auto HasTransparency() const -> bool { return TransparencyMask != 0; }
 		auto GetTransparencyMask() const -> uint8 { return TransparencyMask; }
 		auto GetBlocks() const -> std::span<const FTextureSourceBlock> { return Blocks; }
 		auto GetLayers() const -> std::span<const FTextureSourceLayer> { return Layers; }
@@ -230,7 +214,6 @@ namespace Durin
 			uint8 InSourceChannelCount = 0, uint8 InTransparencyMask = 0,
 			ETextureSourceCompression PreferredCompression = ETextureSourceCompression::Raw) -> bool;
 		ENGINE_API auto Reset() -> void;
-		ENGINE_API auto MigrateLegacy() -> bool;
 		ENGINE_API auto GetIdentity() const -> FXxHash128;
 		ENGINE_API auto GetMipInfo(uint32 BlockIndex, uint32 LayerIndex,
 			uint32 MipIndex) const -> FTextureSourceMipInfo;
