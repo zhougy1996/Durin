@@ -10,6 +10,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/AssetCook.h"
 #include "DObject/Class.h"
+#include "DObject/Package.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
@@ -22,6 +23,7 @@
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshCompilation.h"
 #include "StaticMeshEditorModule.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -170,9 +172,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
-	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
-	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
-	ASSERT_NE(Mesh->GetRenderData(), nullptr);
+	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Mesh));
 
 	Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer Renderer;
 	Durin::Editor::FAssetThumbnailGenerationRequest Request;
@@ -182,6 +182,16 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Renderer.CreateGenerationSession(Request, *Request.Input, Error);
 	ASSERT_NE(Session, nullptr) << Error;
 	const Durin::Editor::FThumbnailRendererSessionUpdate Initial = Session->Load();
+	EXPECT_EQ(Initial.State,
+		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
+	EXPECT_NE(Initial.AssetRevision, 0u);
+	EXPECT_EQ(Initial.AssetRevision, Mesh->GetPackage()->GetEditRevision());
+	EXPECT_TRUE(Initial.Diagnostic.empty());
+	EXPECT_EQ(Session->PollResources().AssetRevision, Initial.AssetRevision);
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);
+	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
+	ASSERT_NE(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Session->PollResources().AssetRevision, Initial.AssetRevision);
 	EXPECT_EQ(Initial.Diagnostic.find("non-degenerate LOD 0 bounds"),
 		std::string::npos);
 	Session.reset();

@@ -4,6 +4,7 @@
 
 #include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/Package.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
@@ -81,6 +82,12 @@ namespace Durin::Editor::StaticMesh
 								Input.AssetPath.ToString())
 							: Result.Message};
 				}
+				const DPackage* Package = StaticMesh->GetPackage();
+				if (Package == nullptr)
+					return {
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
+						.Diagnostic = QualifyDiagnostic(Input.AssetPath, "The asset package is unavailable.")};
+				AssetRevision = Package->GetEditRevision();
 				return PollStaticMeshReadiness();
 			}
 
@@ -99,7 +106,9 @@ namespace Durin::Editor::StaticMesh
 				-> ::Durin::Editor::FThumbnailRendererSessionUpdate
 			{
 				if (HasPendingStaticMeshCompilation(*StaticMesh))
-					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources};
+					return {
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
+						.AssetRevision = AssetRevision};
 				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
@@ -111,16 +120,11 @@ namespace Durin::Editor::StaticMesh
 				{
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
-						.AssetRevision = Status.Revision,
+						.AssetRevision = AssetRevision,
 						.ResourceRevision = Status.Revision,
 						.Diagnostic = std::format(
 							"StaticMesh '{}' has no finite, valid LOD 0 bounds.",
 							Input.AssetPath.ToString())};
-				}
-				if (!bCapturedAssetRevision)
-				{
-					AssetRevision = Status.Revision;
-					bCapturedAssetRevision = true;
 				}
 				switch (Status.Readiness)
 				{
@@ -252,6 +256,8 @@ namespace Durin::Editor::StaticMesh
 				const FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
 				if (Status.Readiness != EStaticMeshRenderResourceReadiness::Ready
+					|| StaticMesh->GetPackage() == nullptr
+					|| StaticMesh->GetPackage()->GetEditRevision() != ExpectedAssetRevision
 					|| AssetRevision != ExpectedAssetRevision
 					|| Status.Revision != ExpectedResourceRevision)
 				{
@@ -275,7 +281,6 @@ namespace Durin::Editor::StaticMesh
 			FStaticMeshThumbnailRendererGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
 			uint64 AssetRevision = 0;
-			bool bCapturedAssetRevision = false;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
