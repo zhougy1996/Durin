@@ -9,9 +9,14 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. RenderContractTests passed all 145 tests in
+Stages 0 through 2 are complete. RenderContractTests passed all 149 tests in
 Win64-Debug-DurinEditor (2026-09-10). Forward validation is centralized before
-edge deduplication; invalid handles retain deferred compile failure.
+edge deduplication; invalid handles retain deferred compile failure. Ordering
+now directly filters declaration indices. Retention indexes finalized retaining
+edges once and marks passes before enqueueing. Coverage includes empty/no-root
+graphs, independent passes, chains through 8192 passes, disabled culling, shared
+ancestors, multiple roots, read/write values, execution-to-value upgrades,
+overwrite pruning, and existing extraction/transition/capture oracles.
 
 Audit: all six RDG call sites are in RDGTests.cpp. The lifecycle death test
 keeps its Building-state expectation; the typed-parameter self-edge and the
@@ -121,17 +126,17 @@ all migrated callers compile, and the owning declaration contract tests pass.
 
 Depends on Stage 1.
 
-- [ ] Remove `BuildStablePassOrder` and unused indegree/emitted/outgoing state.
+- [x] Remove `BuildStablePassOrder` and unused indegree/emitted/outgoing state.
   Build the executable sequence directly from retained declaration indices.
-- [ ] Build per-consumer retention predecessor lists from finalized non-Execution
+- [x] Build per-consumer retention predecessor lists from finalized non-Execution
   edges. Skip this allocation when culling is disabled.
-- [ ] Traverse from roots with a visited/retained mark set before enqueueing,
+- [x] Traverse from roots with a visited/retained mark set before enqueueing,
   ensuring each retained node's predecessors are expanded at most once.
-- [ ] Preserve full declaration validation before culling, dependency filtering,
+- [x] Preserve full declaration validation before culling, dependency filtering,
   extraction roots, lifetime/barrier processing, and canonical diagnostics.
-- [ ] Verify empty graphs, all-independent passes, long chains, shared ancestors,
+- [x] Verify empty graphs, all-independent passes, long chains, shared ancestors,
   multiple roots, no roots, disabled culling, and generated exports.
-- [ ] Verify overwrite pruning, read/write value retention, explicit retention,
+- [x] Verify overwrite pruning, read/write value retention, explicit retention,
   and an Execution edge upgraded to a retaining edge for the same endpoints.
 
 Completion condition: retained passes equal the retained declaration subsequence;

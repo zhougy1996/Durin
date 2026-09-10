@@ -1082,12 +1082,9 @@ namespace Durin
 			}
 		};
 
-		// Carries the mutable scheduling state shared by dependency analysis and
-		// stable topological ordering.
+		// Owns canonical typed edges and endpoint deduplication during analysis.
 		struct FDependencyGraph final
 		{
-			std::vector<std::vector<uint32>> Outgoing;
-			std::vector<uint32> Indegree;
 			std::vector<FRDGDependency> Dependencies;
 			std::unordered_map<uint64, size_t> EdgeIndices;
 			uint32 MaxDependencies = 0;
@@ -1123,8 +1120,6 @@ namespace Durin
 				return false;
 			}
 			Graph.EdgeIndices.emplace(Key, Graph.Dependencies.size());
-			Graph.Outgoing[Before].push_back(After);
-			++Graph.Indegree[After];
 			Graph.Dependencies.push_back({Before, After, Cause, Kind});
 			return true;
 		}
@@ -1409,36 +1404,18 @@ namespace Durin
 			return {};
 		}
 
-		auto BuildStablePassOrder(FDependencyGraph& Graph, uint32 PassCount,
-			std::vector<uint32>& OutOrder) -> std::string
-		{
-			OutOrder.reserve(PassCount);
-			std::vector<bool> Emitted(PassCount, false);
-			while (OutOrder.size() < PassCount)
-			{
-				uint32 Selected = PassCount;
-				for (uint32 Index = 0; Index < PassCount; ++Index)
-					if (!Emitted[Index] && Graph.Indegree[Index] == 0)
-					{
-						Selected = Index;
-						break;
-					}
-				if (Selected == PassCount)
-					return "graph contains a dependency cycle";
-				Emitted[Selected] = true;
-				OutOrder.push_back(Selected);
-				for (uint32 After : Graph.Outgoing[Selected])
-					--Graph.Indegree[After];
-			}
-			return {};
-		}
-
 		auto FindRetainedPasses(FGraphPassView Passes,
 			std::span<const FRDGDependency> Dependencies, bool bEnableCulling)
 			-> std::vector<bool>
 		{
 			std::vector<bool> Retained(Passes.size(), !bEnableCulling);
 			if (!bEnableCulling) return Retained;
+
+			// Index finalized kinds so Execution-to-Value upgrades propagate retention.
+			std::vector<std::vector<uint32>> Predecessors(Passes.size());
+			for (const auto& Edge : Dependencies)
+				if (Edge.Kind != ERDGDependencyKind::Execution)
+					Predecessors[Edge.AfterPass].push_back(Edge.BeforePass);
 
 			std::vector<uint32> Pending;
 			Pending.reserve(Passes.size());
@@ -1452,13 +1429,11 @@ namespace Durin
 			{
 				const uint32 After = Pending.back();
 				Pending.pop_back();
-				for (const auto& Edge : Dependencies)
-					if (Edge.AfterPass == After
-						&& Edge.Kind != ERDGDependencyKind::Execution
-						&& !Retained[Edge.BeforePass])
+				for (uint32 Before : Predecessors[After])
+					if (!Retained[Before])
 					{
-						Retained[Edge.BeforePass] = true;
-						Pending.push_back(Edge.BeforePass);
+						Retained[Before] = true;
+						Pending.push_back(Before);
 					}
 			}
 			return Retained;
@@ -2405,8 +2380,6 @@ namespace Durin
 			ExplicitDependencyCount += Pass.Prerequisites.size();
 		}
 		FDependencyGraph DependencyGraph{
-			.Outgoing = std::vector<std::vector<uint32>>(PassCount),
-			.Indegree = std::vector<uint32>(PassCount, 0),
 			.MaxDependencies = State->Budget.MaxDependencies,
 		};
 		DependencyGraph.Dependencies.reserve(
@@ -2429,11 +2402,6 @@ namespace Durin
 
 		if (std::string Error = BuildHazardDependencies(Passes,
 			State->Resources, Cells, DependencyGraph, Work); !Error.empty())
-			return Fail(std::move(Error));
-
-		std::vector<uint32> Order;
-		if (std::string Error = BuildStablePassOrder(DependencyGraph,
-			PassCount, Order); !Error.empty())
 			return Fail(std::move(Error));
 
 		const std::vector<bool> Retained = FindRetainedPasses(Passes,
@@ -2471,7 +2439,7 @@ namespace Durin
 		std::vector<uint32> LastResourcePass(ResourceCount, std::numeric_limits<uint32>::max());
 		size_t BufferTransitionCount = 0;
 		size_t TextureTransitionCount = 0;
-		for (uint32 ScheduledIndex : Order)
+		for (uint32 ScheduledIndex = 0; ScheduledIndex < PassCount; ++ScheduledIndex)
 		{
 			if (!Retained[ScheduledIndex]) continue;
 			const auto& Pass = Passes[ScheduledIndex];

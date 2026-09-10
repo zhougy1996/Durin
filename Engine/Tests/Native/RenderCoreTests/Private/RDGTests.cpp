@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <bit>
+#include <cstdio>
 
 namespace Durin
 {
@@ -2161,6 +2162,114 @@ namespace Durin
 		auto SelfCycle = FRDGBuilderTestAccessor::Compile(SelfDependent);
 		EXPECT_FALSE(SelfCycle.IsSuccess());
 		EXPECT_EQ(SelfCycle.Error, "dependency must point forward: producer[0] consumer[0]");
+	}
+
+	TEST_F(FRDGTests, DeclarationOrderRetainsSharedAncestorsAndFinalizedValueEdges)
+	{
+		for (bool bCull : {false, true})
+		{
+			FRDGBuilder Builder;
+			if (bCull) Builder.EnablePassCulling();
+			const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+				64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+			const auto Token = Builder.CreateToken("Value");
+			const auto First = Builder.AddPass("First", ERDGPassType::Compute);
+			Builder.UseBuffer(First, Buffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			Builder.UseToken(First, Token, ERDGUse::Write);
+			Builder.AddPass("Unused", ERDGPassType::Compute);
+			const auto Second = Builder.AddPass("Second", ERDGPassType::Compute);
+			// The buffer inserts an Execution edge; the token then upgrades it to Value.
+			Builder.UseBuffer(Second, Buffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
+			Builder.UseToken(Second, Token, ERDGUse::Read);
+			const auto Left = Builder.AddPass("Left", ERDGPassType::Compute);
+			const auto Right = Builder.AddPass("Right", ERDGPassType::Compute);
+			Builder.AddPassDependency(Left, Right);
+			Builder.AddPassDependency(Second, Left);
+			Builder.AddPassDependency(Second, Right);
+			Builder.MarkPassRoot(Left);
+			Builder.MarkPassRoot(Right);
+			ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+			ASSERT_EQ(Builder.GetPasses().size(), bCull ? 4u : 5u);
+			uint32 Position = 0;
+			for (uint32 Index = 0; Index < 5; ++Index)
+				if (!bCull || Index != 1)
+					EXPECT_EQ(Builder.GetPasses()[Position++].DeclarationIndex, Index);
+			const auto Edges = Builder.GetDependencies();
+			ASSERT_EQ(Edges.size(), 4u);
+			const auto Upgraded = std::ranges::find_if(Edges, [](const FRDGDependency& Edge) {
+				return Edge.BeforePass == 0 && Edge.AfterPass == 2;
+			});
+			ASSERT_NE(Upgraded, Edges.end());
+			EXPECT_EQ(Upgraded->Kind, ERDGDependencyKind::Value);
+			EXPECT_EQ(Upgraded->Cause, "Value");
+		}
+	}
+
+	TEST_F(FRDGTests, ReadWriteRetentionPreservesItsInputValue)
+	{
+		FRDGBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
+			64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
+		const auto Producer = Builder.AddPass("Producer", ERDGPassType::Compute);
+		Builder.UseBuffer(Producer, Buffer, 0, 64, ERDGUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Update = Builder.AddPass("Update", ERDGPassType::Compute);
+		Builder.UseBuffer(Update, Buffer, 0, 64, ERDGUse::ReadWrite,
+			ERHIAccess::ComputeShaderReadWrite);
+		Builder.MarkPassRoot(Update);
+		ASSERT_TRUE(FRDGBuilderTestAccessor::Compile(Builder).IsSuccess());
+		ASSERT_EQ(Builder.GetPasses().size(), 2u);
+		ASSERT_EQ(Builder.GetDependencies().size(), 1u);
+		EXPECT_EQ(Builder.GetDependencies()[0].Kind, ERDGDependencyKind::Value);
+	}
+
+	TEST_F(FRDGTests, ExplicitDependencyCannotRepairReadBeforeProducer)
+	{
+		FRDGBuilder Builder;
+		const auto Token = Builder.CreateToken("Token");
+		const auto Read = Builder.AddPass("Read", ERDGPassType::Compute);
+		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+		Builder.UseToken(Read, Token, ERDGUse::Read);
+		Builder.UseToken(Write, Token, ERDGUse::Write);
+		Builder.AddPassDependency(Read, Write);
+		EXPECT_NE(FRDGBuilderTestAccessor::Compile(Builder).Error.find(
+			"before its producer"), std::string::npos);
+		EXPECT_TRUE(Builder.GetPasses().empty());
+	}
+
+	TEST_F(FRDGTests, DeclarationOrderScalesAcrossIndependentPassesAndSparseChains)
+	{
+		for (bool bCull : {false, true})
+			for (bool bChain : {false, true})
+				for (uint32 Count : {0u, 128u, 1024u, 8192u})
+					for (bool bRoot : {false, true})
+					{
+						FRDGBuilder Builder;
+						if (bCull) Builder.EnablePassCulling();
+						FRDGPassHandle Previous;
+						for (uint32 Index = 0; Index < Count; ++Index)
+						{
+							const auto Pass = Builder.AddPass("Pass" + std::to_string(Index), ERDGPassType::Compute);
+							if (bChain && Index != 0) Builder.AddPassDependency(Previous, Pass);
+							Previous = Pass;
+						}
+						if (bRoot && Count != 0) Builder.MarkPassRoot(Previous);
+						const auto Start = std::chrono::steady_clock::now();
+						const auto Result = FRDGBuilderTestAccessor::Compile(Builder);
+						const double Milliseconds = std::chrono::duration<double, std::milli>(
+							std::chrono::steady_clock::now() - Start).count();
+						ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+						const uint32 Expected = !bCull ? Count : !bRoot || Count == 0 ? 0 : bChain ? Count : 1;
+						ASSERT_EQ(Builder.GetPasses().size(), Expected);
+						for (uint32 Index = 0; Index < Expected; ++Index)
+							EXPECT_EQ(Builder.GetPasses()[Index].DeclarationIndex,
+								bCull && !bChain ? Count - 1 : Index);
+						std::printf("RDG scale passes=%u chain=%d cull=%d root=%d compile-ms=%.3f\n",
+							Count, bChain, bCull, bRoot, Milliseconds);
+					}
 	}
 
 	TEST_F(FRDGTests, ValidatesDependencyHandlesBeforeCulling)
