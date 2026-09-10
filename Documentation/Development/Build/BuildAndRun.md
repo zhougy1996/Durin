@@ -624,14 +624,14 @@ DurinDevTool serializes all registered presets with one checkout-level ownership
 
 The checkout lock file normally remains on disk after DurinDevTool exits; the OS byte
 lock, not the file's presence or its recorded PID, determines ownership. DurinDevTool
-overwrites metadata when it acquires an unowned file and attempts to reset the
-file ACL to inherit from `Build/.agent-locks`, so later invocations from another
-Agent sandbox identity can reuse it. On Windows, DurinDevTool also attempts to replace an inaccessible stale
-file; Windows refuses that replacement while a live DurinDevTool still has the file
-open. If the directory ACL itself prevents recovery, the error distinguishes the
-permission problem from a live lock and prints `icacls` and `Remove-Item` recovery
-commands. Run those commands only after confirming that DurinDevTool, DurinEditor,
-CMake, and Ninja have exited for the checkout.
+overwrites metadata when it acquires an unowned file, without resetting ACLs or
+replacing inaccessible lock files. Lock contention reports the owning operation;
+other lock I/O failures do not imply ownership. Access-denied errors cannot alone
+distinguish file permissions from execution-environment restrictions. First check
+sandbox access to the reported lock directory, especially for shared dependency
+locks outside the current worktree, and request access before retrying. If access
+also fails in an authorized normal shell, inspect file and directory permissions
+and ownership. ACL resets and lock deletion are not generic recovery steps.
 
 ## Output Layout
 
