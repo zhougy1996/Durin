@@ -26,6 +26,19 @@ namespace Durin::Editor::Material
 {
 	struct FMaterialGraphCanvasTestAccess
 	{
+		static auto Select(FMaterialGraphCanvas& Canvas,
+			std::initializer_list<FMaterialGraphCanvasNodeId> Nodes) -> void
+		{ Canvas.SelectedNodes = Nodes; }
+		static auto Frame(FMaterialGraphCanvas& Canvas, const FMaterialGraphView& View,
+			bool bAll) -> void
+		{
+			Canvas.SurfaceGraphPosition = ImVec2(800.0f, 100.0f);
+			Canvas.FrameNodes(View, {1000.0f, 600.0f}, bAll
+				? FMaterialGraphCanvas::EFrameScope::All
+				: FMaterialGraphCanvas::EFrameScope::Selection);
+		}
+		static auto ProgramSelection(const FMaterialGraphCanvas& Canvas) -> std::vector<FGuid>
+		{ return Canvas.GetSelectedProgramNodes(); }
 		static auto Prepare(FMaterialGraphCanvas& Canvas, DMaterial& Material)
 			-> const FMaterialGraphView& { return Canvas.PrepareView(Material); }
 		static auto PrepareVisuals(FMaterialGraphCanvas& Canvas) -> void
@@ -1057,6 +1070,56 @@ TEST(FMaterialGraphOperationsTests,
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, CanvasFramesExplicitScopeWithMaterialOutputIdentity)
+{
+	FMaterialGraphView View;
+	FMaterialGraphNodeView Node;
+	Node.Node.Id = FGuid::NewGuid();
+	Node.Presentation.X = -1000;
+	Node.Presentation.Y = -100;
+	View.Nodes.push_back(Node);
+	FMaterialGraphCanvas Canvas;
+	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+	const auto ExpectCenter = [&](float X, float Y)
+	{
+		const auto [Zoom, Pan] = Canvas.GetViewport();
+		EXPECT_NEAR((500.0f - Pan.x) / Zoom, X, 0.001f);
+		EXPECT_NEAR((300.0f - Pan.y) / Zoom, Y, 0.001f);
+	};
+	for (const bool bAggregate : {false, true})
+	{
+		View.Outputs.Surface.SourceNodeId = bAggregate ? Node.Node.Id : FGuid{};
+		const float OutputHeight = Metrics.SurfaceHeaderHeight
+			+ Metrics.PinRowHeight * (bAggregate ? 1.0f : 8.0f) + Metrics.BodyPadding;
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {EMaterialGraphTerminal::MaterialOutput});
+		FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
+		ExpectCenter(800.0f + Metrics.SurfaceWidth * 0.5f, 100.0f + OutputHeight * 0.5f);
+		EXPECT_TRUE(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas).empty());
+		const auto Selection = Canvas.GetSelection();
+		FMaterialGraphCanvasTestAccess::Frame(Canvas, View, true);
+		ExpectCenter((-1000.0f + 800.0f + Metrics.SurfaceWidth) * 0.5f,
+			(-100.0f + 100.0f + OutputHeight) * 0.5f);
+		EXPECT_EQ(Canvas.GetSelection(), Selection);
+		const auto AllViewport = Canvas.GetViewport();
+		FMaterialGraphCanvasTestAccess::Select(Canvas, {Node.Node.Id, EMaterialGraphTerminal::MaterialOutput});
+		FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
+		EXPECT_FLOAT_EQ(Canvas.GetViewport().first, AllViewport.first);
+		EXPECT_FLOAT_EQ(Canvas.GetViewport().second.x, AllViewport.second.x);
+		EXPECT_FLOAT_EQ(Canvas.GetViewport().second.y, AllViewport.second.y);
+		EXPECT_EQ(FMaterialGraphCanvasTestAccess::ProgramSelection(Canvas), std::vector<FGuid>{Node.Node.Id});
+	}
+	FMaterialGraphCanvasTestAccess::Select(Canvas, {Node.Node.Id});
+	FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
+	ExpectCenter(-1000.0f + Metrics.NodeWidth * 0.5f,
+		-100.0f + FMaterialGraphGeometry::GetNodeHeight(0) * 0.5f);
+	FMaterialGraphCanvasTestAccess::Select(Canvas, {});
+	const auto Before = Canvas.GetViewport();
+	FMaterialGraphCanvasTestAccess::Frame(Canvas, View, false);
+	EXPECT_FLOAT_EQ(Canvas.GetViewport().first, Before.first);
+	EXPECT_FLOAT_EQ(Canvas.GetViewport().second.x, Before.second.x);
+	EXPECT_FLOAT_EQ(Canvas.GetViewport().second.y, Before.second.y);
+}
+
 TEST(FMaterialGraphOperationsTests, DiagnosticNavigationIsLocatedAndDocumentLocal)
 {
 	const FGuid FirstNode = FGuid::NewGuid();
@@ -1078,7 +1141,7 @@ TEST(FMaterialGraphOperationsTests, DiagnosticNavigationIsLocatedAndDocumentLoca
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 		.LocationIndex = static_cast<uint32>(EMaterialSurfaceOutput::Roughness),
 	}));
-	EXPECT_TRUE(FirstCanvas.GetSelection().empty());
+	EXPECT_TRUE(FirstCanvas.GetSelection().contains(EMaterialGraphTerminal::MaterialOutput));
 	EXPECT_EQ(FirstCanvas.GetSelectedSurfaceOutput(),
 		EMaterialSurfaceOutput::Roughness);
 	EXPECT_TRUE(FirstCanvas.SelectAndFrame(FirstNode));

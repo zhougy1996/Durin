@@ -156,8 +156,8 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::SelectAndFrame(const FGuid& NodeId) -> bool
 	{
 		if (!NodeId.IsValid()) return false;
-		bMaterialOutputSelected = false;
 		SelectedSurfaceOutput.reset();
+		bPendingFrameSurface = false;
 		SelectedNodes = {NodeId};
 		PendingFrameNode = NodeId;
 		return true;
@@ -175,8 +175,8 @@ namespace Durin::Editor::Material
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
 			if (Diagnostic.LocationIndex
 				> static_cast<uint32>(EMaterialSurfaceOutput::OpacityMask)) return false;
-			bMaterialOutputSelected = false;
-			SelectedNodes.clear();
+			SelectedNodes = {EMaterialGraphTerminal::MaterialOutput};
+			PendingFrameNode = {};
 			SelectedSurfaceOutput =
 				static_cast<EMaterialSurfaceOutput>(Diagnostic.LocationIndex);
 			bPendingFrameSurface = true;
@@ -307,17 +307,25 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
+	auto FMaterialGraphCanvas::GetSelectedProgramNodes() const -> std::vector<FGuid>
+	{
+		std::vector<FGuid> Nodes;
+		for (const FMaterialGraphCanvasNodeId& Id : SelectedNodes)
+			if (const auto* Node = std::get_if<FGuid>(&Id)) Nodes.push_back(*Node);
+		return Nodes;
+	}
+
 	auto FMaterialGraphCanvas::FrameNodes(
 		const FMaterialGraphView& View,
-		const ImVec2& CanvasSize) -> void
+		const ImVec2& CanvasSize, EFrameScope Scope) -> void
 	{
 		bool bFound = false;
 		ImVec2 Minimum{};
 		ImVec2 Maximum{};
 		for (const FMaterialGraphNodeView& Node : View.Nodes)
 		{
-			if (SelectedSurfaceOutput && SelectedNodes.empty()) continue;
-			if (!SelectedNodes.empty() && !SelectedNodes.contains(Node.Node.Id)) continue;
+			if (Scope == EFrameScope::Selection
+				&& !SelectedNodes.contains(Node.Node.Id)) continue;
 			const ImVec2 Position(
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
@@ -337,13 +345,16 @@ namespace Durin::Editor::Material
 				Maximum.y = std::max(Maximum.y, Position.y + Height);
 			}
 		}
-		if (SelectedNodes.empty())
+		if (Scope == EFrameScope::All
+			|| SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput))
 		{
 			const ImVec2 SurfaceMinimum = SurfaceGraphPosition.value_or(
 				SurfaceGraphMinimum(View));
 			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum,
 				{Metrics.SurfaceWidth, Metrics.SurfaceHeaderHeight
-					+ Metrics.PinRowHeight * 8.0f + Metrics.BodyPadding});
+					+ Metrics.PinRowHeight
+						* (View.Outputs.Surface.SourceNodeId.IsValid() ? 1.0f : 8.0f)
+					+ Metrics.BodyPadding});
 			if (!bFound) { Minimum = SurfaceMinimum; Maximum = SurfaceMaximum; bFound = true; }
 			else
 			{
@@ -409,17 +420,17 @@ namespace Durin::Editor::Material
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
 		{
-			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 			CopyNodes(Material, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X) && !SelectedNodes.empty())
 		{
-			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 			CutNodes(Material, Transactions, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D) && !SelectedNodes.empty())
 		{
-			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 			DuplicateNodes(Material, Transactions, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
@@ -430,10 +441,12 @@ namespace Durin::Editor::Material
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !SelectedNodes.empty())
 		{
-			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+			const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 			RemoveNodes(Material, Transactions, Selection, ReportError);
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_F)) FrameNodes(View, CanvasSize);
+		if (ImGui::IsKeyPressed(ImGuiKey_F))
+			FrameNodes(View, CanvasSize, SelectedNodes.empty()
+				? EFrameScope::All : EFrameScope::Selection);
 	}
 
 	auto FMaterialGraphCanvas::CopyNodes(
@@ -441,6 +454,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		const FReportError& ReportError) -> void
 	{
+		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Copied =
 			FMaterialGraphOperations::CopySelection(Material, NodeIds, Payload);
@@ -454,6 +468,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		const FReportError& ReportError) -> void
 	{
+		if (NodeIds.empty()) return;
 		FMaterialGraphClipboardPayload Payload;
 		const FMaterialGraphCommandResult Cut = FMaterialGraphOperations::CutSelection(
 			Material, NodeIds, Payload, &Transactions);
@@ -469,6 +484,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		const FReportError& ReportError) -> void
 	{
+		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Duplicated =
 			FMaterialGraphOperations::DuplicateNodes(
 				Material, NodeIds, 40, 40, &Transactions);
@@ -503,6 +519,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		const FReportError& ReportError) -> void
 	{
+		if (NodeIds.empty()) return;
 		const FMaterialGraphCommandResult Removed =
 			FMaterialGraphOperations::RemoveNodes(Material, NodeIds, &Transactions);
 		ReportCommand(Removed, ReportError);
@@ -539,7 +556,7 @@ namespace Durin::Editor::Material
 		{
 			std::vector<FGuid> ContextSelection;
 			if (SelectedNodes.contains(ContextNodeView->Node.Id))
-				ContextSelection.assign(SelectedNodes.begin(), SelectedNodes.end());
+				ContextSelection = GetSelectedProgramNodes();
 			else ContextSelection = {ContextNodeView->Node.Id};
 			FMaterialProgramNode Edited = ContextNodeView->Node;
 			if ((Edited.Opcode == EMaterialProgramOpcode::Parameter
@@ -790,7 +807,9 @@ namespace Durin::Editor::Material
 				const ImVec2 B = SurfacePins[Index];
 				const bool bFocused = SelectedNodes.empty()
 					|| SelectedNodes.contains(VisualNodes[SourceIt->second].View->Node.Id)
-					|| (SelectedSurfaceOutput && static_cast<size_t>(*SelectedSurfaceOutput) == Index);
+					|| (SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput)
+						&& (!SelectedSurfaceOutput
+							|| static_cast<size_t>(*SelectedSurfaceOutput) == Index));
 				const ImU32 Color = TypeColor(SurfaceTypes[Index]);
 				DrawCulledLink(*DrawList, A, B, CanvasMinimum, CanvasMaximum,
 					bFocused ? Color : WithAlpha(Color, 72), bFocused ? 3.0f : 1.5f);
@@ -911,9 +930,10 @@ namespace Durin::Editor::Material
 				if (Contains(Visual.Minimum, Visual.Maximum, Mouse)) HoveredNode = &Visual;
 			}
 			if (DetailLevel == EMaterialGraphDetailLevel::Editing
-				&& SelectedNodes.size() == 1)
+				&& SelectedNodes.size() == 1
+				&& std::holds_alternative<FGuid>(*SelectedNodes.begin()))
 			{
-				const auto SelectedIt = VisualIndices.find(*SelectedNodes.begin());
+				const auto SelectedIt = VisualIndices.find(std::get<FGuid>(*SelectedNodes.begin()));
 				if (SelectedIt != VisualIndices.end())
 				{
 					const FVisualNode& Visual = VisualNodes[SelectedIt->second];
@@ -1128,6 +1148,8 @@ namespace Durin::Editor::Material
 				ImGui::TextDisabled("Output: %s", GetProgramTypeName(HoveredNode->View->Node.ResultType));
 				ImGui::EndTooltip();
 			}
+			const bool bMaterialOutputSelected =
+				SelectedNodes.contains(EMaterialGraphTerminal::MaterialOutput);
 			DrawList->AddRectFilled(SurfaceMinimum, SurfaceMaximum,
 				bMaterialOutputSelected ? IM_COL32(55, 72, 94, 255)
 					: IM_COL32(38, 42, 50, 245), 6.0f);
@@ -1302,8 +1324,7 @@ namespace Durin::Editor::Material
 				}
 				else if (HoveredSurfaceOutput)
 				{
-					bMaterialOutputSelected = false;
-					SelectedNodes.clear();
+					SelectedNodes = {EMaterialGraphTerminal::MaterialOutput};
 					SelectedSurfaceOutput = HoveredSurfaceOutput;
 					Interaction = FReconnectingSurfaceInteraction{*HoveredSurfaceOutput};
 				}
@@ -1311,7 +1332,7 @@ namespace Durin::Editor::Material
 				{
 					SelectedNodes.clear();
 					SelectedSurfaceOutput.reset();
-					bMaterialOutputSelected = true;
+					SelectedNodes.insert(EMaterialGraphTerminal::MaterialOutput);
 					const FMaterialGraphCommandResult Begun =
 						MoveSession.BeginMaterialOutput(Material, &Transactions);
 					ReportCommand(Begun, ReportError);
@@ -1325,7 +1346,7 @@ namespace Durin::Editor::Material
 				else if (HoveredNode)
 				{
 					const FGuid Id = HoveredNode->View->Node.Id;
-					bMaterialOutputSelected = false;
+					SelectedNodes.erase(EMaterialGraphTerminal::MaterialOutput);
 					SelectedSurfaceOutput.reset();
 					bool bRemovedFromSelection = false;
 					if (ImGui::GetIO().KeyCtrl)
@@ -1336,7 +1357,7 @@ namespace Durin::Editor::Material
 					else if (!SelectedNodes.contains(Id)) SelectedNodes = {Id};
 					if (!bRemovedFromSelection)
 					{
-						std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+						const std::vector<FGuid> Selection = GetSelectedProgramNodes();
 						const FMaterialGraphCommandResult Begun = MoveSession.Begin(
 							Material, Selection, &Transactions);
 						ReportCommand(Begun, ReportError);
@@ -1355,7 +1376,6 @@ namespace Durin::Editor::Material
 				{
 					if (!ImGui::GetIO().KeyShift)
 					{
-						bMaterialOutputSelected = false;
 						SelectedNodes.clear();
 						SelectedSurfaceOutput.reset();
 					}
@@ -1509,29 +1529,19 @@ namespace Durin::Editor::Material
 
 			HandleKeyboardInput(Material, Transactions, View, CanvasMinimum,
 				CanvasSize, Mouse, bCanvasKeyboardInteractionAvailable, ReportError);
-			if (bFrameSelectionRequested
-				&& (!SelectedNodes.empty() || SelectedSurfaceOutput
-					|| bMaterialOutputSelected))
-				FrameNodes(View, CanvasSize);
+			if (bFrameSelectionRequested)
+				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 			if (bFrameAllRequested)
-			{
-				const auto SavedSelection = SelectedNodes;
-				const auto SavedSurface = SelectedSurfaceOutput;
-				SelectedNodes.clear();
-				SelectedSurfaceOutput.reset();
-				FrameNodes(View, CanvasSize);
-				SelectedNodes = SavedSelection;
-				SelectedSurfaceOutput = SavedSurface;
-			}
+				FrameNodes(View, CanvasSize, EFrameScope::All);
 			if (PendingFrameNode.IsValid())
 			{
 				SelectedNodes = {PendingFrameNode};
-				FrameNodes(View, CanvasSize);
+				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 				PendingFrameNode = {};
 			}
 			if (bPendingFrameSurface)
 			{
-				FrameNodes(View, CanvasSize);
+				FrameNodes(View, CanvasSize, EFrameScope::Selection);
 				bPendingFrameSurface = false;
 			}
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);

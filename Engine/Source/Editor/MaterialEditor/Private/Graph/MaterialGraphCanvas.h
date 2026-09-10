@@ -12,6 +12,10 @@ namespace Durin
 
 namespace Durin::Editor::Material
 {
+	// Canvas identity includes the derived terminal without adding a semantic program node.
+	enum class EMaterialGraphTerminal { MaterialOutput };
+	using FMaterialGraphCanvasNodeId = std::variant<FGuid, EMaterialGraphTerminal>;
+
 	// Owns one document's transient material graph viewport and interaction state.
 	class FMaterialGraphCanvas
 	{
@@ -38,7 +42,7 @@ namespace Durin::Editor::Material
 				Zoom, EMaterialGraphDetailLevel::Readable);
 		}
 		auto GetViewport() const -> std::pair<float, ImVec2> { return {Zoom, Pan}; }
-		auto GetSelection() const -> const std::unordered_set<FGuid>&
+		auto GetSelection() const -> const std::unordered_set<FMaterialGraphCanvasNodeId>&
 		{
 			return SelectedNodes;
 		}
@@ -106,8 +110,10 @@ namespace Durin::Editor::Material
 		auto PrepareView(DMaterial& Material) -> const FMaterialGraphView&;
 		auto PrepareVisualGraph(const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum) -> const FVisualGraph&;
+		enum class EFrameScope { All, Selection };
+		auto GetSelectedProgramNodes() const -> std::vector<FGuid>;
 		auto FrameNodes(const FMaterialGraphView& View,
-			const ImVec2& CanvasSize) -> void;
+			const ImVec2& CanvasSize, EFrameScope Scope) -> void;
 		auto DrawLinks(const FVisualGraph& VisualGraph,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
 			ImDrawList& DrawList) const -> void;
@@ -144,10 +150,9 @@ namespace Durin::Editor::Material
 		float Zoom = 1.0f;
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
 		std::optional<ImVec2> SurfaceGraphPosition;
-		std::unordered_set<FGuid> SelectedNodes;
+		std::unordered_set<FMaterialGraphCanvasNodeId> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
-		bool bMaterialOutputSelected = false;
 		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentCreationMenuEntries;
 		std::unordered_set<std::string> FavoriteCreationMenuEntries;
