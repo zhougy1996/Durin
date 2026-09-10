@@ -168,7 +168,10 @@ namespace Durin::Editor::Material
 			if (Model && ObservedRevision == Revision) return *Model;
 
 			Revision = ObservedRevision;
-			Model = std::make_unique<FMaterialParameterPanelModel>(Material);
+			if (!Model || Model->GetMaterial() != Material)
+				Model = std::make_unique<FMaterialParameterPanelModel>(Material);
+			else
+				Model->Refresh();
 			std::vector<FSchemaNode> CurrentSchema;
 			const std::span Entries = Model->GetEntries();
 			CurrentSchema.reserve(Entries.size());

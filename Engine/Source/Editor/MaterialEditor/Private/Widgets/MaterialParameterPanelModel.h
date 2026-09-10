@@ -7,6 +7,7 @@ namespace Durin
 {
 	class DMaterialInterface;
 	class DMaterialInstance;
+	class DMaterial;
 }
 
 namespace Durin::Editor::Material
@@ -45,6 +46,8 @@ namespace Durin::Editor::Material
 	{
 	public:
 		explicit FMaterialParameterPanelModel(DMaterialInterface* InMaterial);
+		// Refreshes row snapshots; returns whether the dependency structure was rebuilt.
+		auto Refresh() -> bool;
 
 		auto GetMaterial() const -> DMaterialInterface* { return Material; }
 		auto GetInstance() const -> DMaterialInstance* { return Instance; }
@@ -73,6 +76,13 @@ namespace Durin::Editor::Material
 	private:
 		DMaterialInterface* Material = nullptr;
 		DMaterialInstance* Instance = nullptr;
+		// Values and presentation metadata do not invalidate graph reachability.
+		DMaterial* DependencyMaterial = nullptr;
+		uint64 DependencyProgramRevision = 0;
+		std::vector<std::pair<FGuid, EMaterialParameterType>> DependencySchema;
+		std::vector<FGuid> ParameterIds;
+		std::unordered_set<FGuid> ReachableParameterIds;
+		bool bDependenciesInitialized = false;
 		std::vector<FMaterialParameterPanelEntry> Entries;
 	};
 }

@@ -118,17 +118,50 @@ namespace Durin::Editor::Material
 		: Material(InMaterial)
 		, Instance(Cast<DMaterialInstance>(InMaterial))
 	{
-		if (!Material) return;
-		const FMaterialProgram* Program = Material->GetMaterialProgram();
-		const std::vector Dependencies = Program
-			? InspectMaterialParameterDependencies(
-				*Program, Material->GetParameterDefinitions())
-			: std::vector<FMaterialParameterDependency>{};
-		std::vector<FGuid> ParameterIds;
-		if (Instance)
-			for (const auto& Dependency : Dependencies) ParameterIds.push_back(Dependency.ParameterId);
-		else
-			for (const auto& Definition : Material->GetParameterDefinitions()) ParameterIds.push_back(Definition.Id);
+		Refresh();
+	}
+
+	auto FMaterialParameterPanelModel::Refresh() -> bool
+	{
+		Entries.clear();
+		if (!Material) return false;
+		DMaterial* BaseMaterial = nullptr;
+		std::unordered_set<DMaterialInterface*> Visited;
+		for (auto* Current = Material; Current && Visited.insert(Current).second;
+			Current = Current->GetParent())
+		{
+			BaseMaterial = Cast<DMaterial>(Current);
+			if (BaseMaterial) break;
+		}
+		std::vector<std::pair<FGuid, EMaterialParameterType>> Schema;
+		for (const auto& Definition : Material->GetParameterDefinitions())
+			Schema.emplace_back(Definition.Id, Definition.Type);
+		const uint64 ProgramRevision = BaseMaterial ? BaseMaterial->GetMaterialProgramRevision() : 0;
+		const bool bRebuildDependencies = !bDependenciesInitialized || !BaseMaterial
+			|| BaseMaterial != DependencyMaterial || ProgramRevision != DependencyProgramRevision
+			|| Schema != DependencySchema;
+		if (bRebuildDependencies)
+		{
+			DependencyMaterial = BaseMaterial;
+			DependencyProgramRevision = ProgramRevision;
+			DependencySchema = std::move(Schema);
+			ParameterIds.clear();
+			ReachableParameterIds.clear();
+			if (Instance)
+			{
+				if (const FMaterialProgram* Program = Material->GetMaterialProgram())
+					for (const auto& Dependency : InspectMaterialParameterDependencies(
+						*Program, Material->GetParameterDefinitions()))
+					{
+						ParameterIds.push_back(Dependency.ParameterId);
+						ReachableParameterIds.insert(Dependency.ParameterId);
+					}
+			}
+			else
+				for (const auto& Definition : Material->GetParameterDefinitions())
+					ParameterIds.push_back(Definition.Id);
+			bDependenciesInitialized = true;
+		}
 		for (const FGuid& ParameterId : ParameterIds)
 		{
 			const FMaterialParameterDefinition* Definition =
@@ -146,10 +179,12 @@ namespace Durin::Editor::Material
 				.bHasLocalOverride = Resolved.bHasLocalOverride,
 			});
 		}
-		if (!Instance) return;
+		if (!Instance) return bRebuildDependencies;
 		for (const FMaterialParameterOverride& Override : Instance->GetParameterOverrides())
 		{
-			if (!Instance->IsParameterOverrideOrphan(Override.ParameterId)) continue;
+			const auto* Definition = Material->FindParameterDefinition(Override.ParameterId);
+			if (Definition && Definition->Type == Override.Type
+				&& ReachableParameterIds.contains(Override.ParameterId)) continue;
 			Entries.push_back({
 				.ParameterId = Override.ParameterId,
 				.Value = Override.Value,
@@ -158,6 +193,7 @@ namespace Durin::Editor::Material
 				.bOrphan = true,
 			});
 		}
+		return bRebuildDependencies;
 	}
 
 	auto FMaterialParameterPanelModel::SelectControl(const FMaterialParameterDefinition& Definition)

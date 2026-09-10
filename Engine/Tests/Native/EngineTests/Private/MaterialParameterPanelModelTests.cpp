@@ -370,6 +370,85 @@ TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainPara
 }
 
 
+TEST(FMaterialParameterPanelModelTests, RefreshReusesDependenciesAndInvalidatesForGraphAndParentChanges)
+{
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedBase("PanelCacheBase");
+	auto* OtherBase = MakeExpandedBase("PanelCacheOtherBase");
+	auto* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelCacheParent");
+	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelCacheChild");
+	ASSERT_TRUE(Parent->SetParent(Base));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	const auto Id = Durin::MaterialParameters::GetBuiltinParameterIds(
+		Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
+	Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
+	EXPECT_FALSE(Model.Refresh());
+	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.4f));
+	EXPECT_FALSE(Model.Refresh());
+	ASSERT_NE(FindEntry(Model, Id), nullptr);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.4f);
+	EXPECT_EQ(FindEntry(Model, Id)->Source, Parent);
+	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.2f));
+	EXPECT_FALSE(Model.Refresh());
+	EXPECT_TRUE(FindEntry(Model, Id)->bHasLocalOverride);
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.2f);
+
+	ASSERT_TRUE(Base->SetMaterialProgram({}));
+	EXPECT_TRUE(Model.Refresh());
+	ASSERT_EQ(Model.GetEntries().size(), 1u);
+	EXPECT_TRUE(Model.GetEntries().front().bOrphan);
+	ASSERT_TRUE(Base->SetMaterialProgram(Durin::MakePBRMaterialProgram()));
+	EXPECT_TRUE(Model.Refresh());
+	EXPECT_FALSE(FindEntry(Model, Id)->bOrphan);
+	ASSERT_TRUE(Parent->SetParent(OtherBase));
+	EXPECT_TRUE(Model.Refresh());
+	EXPECT_FALSE(Model.Refresh());
+	ASSERT_TRUE(Parent->SetParent(nullptr));
+	EXPECT_TRUE(Model.Refresh());
+	ASSERT_EQ(Model.GetEntries().size(), 1u);
+	EXPECT_TRUE(Model.GetEntries().front().bOrphan);
+
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Parent);
+	Durin::MarkAsGarbage(Base);
+	Durin::MarkAsGarbage(OtherBase);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialParameterPanelModelTests, ReflectedDefaultEditsRefreshValuesWithoutInvalidatingDependencies)
+{
+	InitializeDObjectSystem();
+	auto* Base = MakeExpandedBase("PanelDefaultCacheBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelDefaultCacheInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	const auto Id = Durin::MaterialParameters::GetBuiltinParameterIds(
+		Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value;
+	Durin::Editor::Material::FMaterialParameterPanelModel BaseModel(Base);
+	Durin::Editor::Material::FMaterialParameterPanelModel Model(Instance);
+	FPropertyTransactionHarness Transactions;
+	Durin::Editor::FPropertyView PropertyView;
+	std::string Error;
+	const auto Context = MakeContext(Transactions, Error);
+	ASSERT_NE(FindEntry(BaseModel, Id), nullptr);
+	const auto SchemaRevision = Base->GetParameterDefinitionSchemaRevision();
+	ASSERT_TRUE(BaseModel.SubmitValueEdit(PropertyView, Context, *FindEntry(BaseModel, Id),
+		Durin::FMaterialParameterValue::MakeScalar(0.35f), true));
+	EXPECT_GT(Base->GetParameterDefinitionSchemaRevision(), SchemaRevision);
+	EXPECT_FALSE(Model.Refresh());
+	EXPECT_FALSE(BaseModel.Refresh());
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 0.35f);
+	EXPECT_FLOAT_EQ(FindEntry(BaseModel, Id)->Definition->Value.ScalarValue, 0.35f);
+	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, false));
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(Model.Refresh());
+	EXPECT_FLOAT_EQ(FindEntry(Model, Id)->Value.ScalarValue, 1.0f);
+	EXPECT_TRUE(Error.empty());
+	Transactions->Reset();
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialParameterPanelModelTests, RootPanelIncludesUnreachableCustomDefaults)
 {
 	InitializeDObjectSystem();
