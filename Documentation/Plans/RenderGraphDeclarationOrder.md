@@ -9,12 +9,23 @@ Completed:
 
 ## Current Status
 
-The refactoring direction is selected; implementation has not started. Source
-inspection confirms that resource dependencies are derived in declaration order,
-while explicit prerequisites can point backward. Stable topological ordering
-repeatedly scans passes, and retention traversal repeatedly scans the edge table.
-This plan replaces that mixed ordering contract with forward-only dependencies.
-All implementation and acceptance tasks remain open.
+Stage 0 is complete. Implementation and native validation are next.
+
+Audit: all six RDG call sites are in RDGTests.cpp. The lifecycle death test
+keeps its Building-state expectation; the typed-parameter self-edge and the
+self/cycle rejection fixtures will expect self/backward declaration errors.
+The dependency-budget fixture migrates `AddDependency(Read, Write)` to
+`AddPassDependency(Write, Read)`. No production or sample caller moves a pass,
+so resource versions and callback capture lifetimes do not change. The RHI
+pipeline creation helper is unrelated and remains unchanged.
+
+All generated edges pass through AddDependencyEdge: explicit prerequisites,
+value producers, and execution frontiers. Resource analysis visits declaration
+indices; RDG.Export is appended after user passes and reads final stored values.
+Outgoing and indegree arrays are used only by the removed scheduler. The owning
+registered target is RenderContractTests; no production/backend wiring changes
+require GPU execution. The authoritative RenderGraph contract is the only live
+contract with obsolete scheduling wording.
 
 ## Goal
 
@@ -70,15 +81,15 @@ entire RDG compiler; the target is ordering and retention after edge generation.
 
 ### Stage 0: Audit dependency callers and freeze migration cases
 
-- [ ] Search source, tests, samples, and relevant active documentation for the
+- [x] Search source, tests, samples, and relevant active documentation for the
   RDG `AddDependency` API and ordering expectations; distinguish unrelated APIs.
-- [ ] Identify every backward explicit dependency and every test expecting
+- [x] Identify every backward explicit dependency and every test expecting
   topological reordering or cycle errors. Record the intended forward replacement
   or new rejection expectation before changing those cases.
-- [ ] For callers requiring declaration movement, record resource read/write
+- [x] For callers requiring declaration movement, record resource read/write
   versions and callback capture lifetimes affected by the move. Do not treat
   successful index validation as proof of equivalent rendering behavior.
-- [ ] Confirm handling of generated export/sentinel passes and every edge creation
+- [x] Confirm handling of generated export/sentinel passes and every edge creation
   path, and identify the smallest owning native test selection using repository
   testing guidance.
 
