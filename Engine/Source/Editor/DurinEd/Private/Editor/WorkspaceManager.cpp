@@ -1,5 +1,7 @@
 #include "Editor/WorkspaceManager.h"
 
+#include "DObject/AssetPath.h"
+
 namespace Durin::Editor::Detail
 {
 	struct FRegisteredWorkspace
@@ -542,6 +544,10 @@ namespace Durin::Editor
 
 	auto FWorkspaceManager::AssetLabel(std::string_view ResourceId) -> std::string
 	{
+		FTopLevelAssetPath AssetPath;
+		if (FTopLevelAssetPath::TryCreate(ResourceId, AssetPath))
+			return std::string(AssetPath.GetAssetName());
+
 		const size_t Separator = ResourceId.find_last_of("/\\");
 		const std::string_view Leaf = Separator == std::string_view::npos ? ResourceId : ResourceId.substr(Separator + 1);
 		return Leaf.empty() ? std::string(ResourceId) : std::string(Leaf);
