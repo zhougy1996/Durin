@@ -145,7 +145,7 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format("Failed to decode StaticMesh source {}.", Filename);
 				return false;
 			}
-			FStaticMeshImportedData Source;
+			FStaticMeshSource Source;
 			if (!Source.Initialize(MakeStaticMeshDecodedGeometry(Scene), OutError)) return false;
 			const auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
 			const auto Owner = MakeObjectHandle(&Mesh);

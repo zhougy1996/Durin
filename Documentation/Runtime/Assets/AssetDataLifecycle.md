@@ -141,7 +141,7 @@ Field state, placement, validation, and resource lifetime are defined by
 [Package Bulk Data](BulkData.md). Optional source-hint resolution is defined by
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md#optional-source-hint-contract).
 
-StaticMesh separates persistent `FStaticMeshImportedData` from detached
+StaticMesh separates persistent `FStaticMeshSource` from detached
 `FStaticMeshDecodedGeometry`. `Initialize` validates a complete replacement;
 `AcquireGeometry` returns a shared const handle that survives source replacement,
 release and asset destruction. `ReleaseGeometry` drops only that source value's

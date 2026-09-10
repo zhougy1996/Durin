@@ -96,9 +96,9 @@ namespace Durin
 			std::unique_ptr<FStaticMeshAuthoredCandidate> Candidate;
 			const FStaticMeshRenderData* Projection = RenderData.get();
 			std::string Error;
-			if (ImportedData.IsValid())
+			if (Source.IsValid())
 			{
-				auto Request = MakeStaticMeshAuthoredBuildRequest(ImportedData, CaptureStaticMeshReconciliation(*this));
+				auto Request = MakeStaticMeshAuthoredBuildRequest(Source, CaptureStaticMeshReconciliation(*this));
 				Request.bPersistDerivedData = false;
 				if (!BuildStaticMeshAuthoredCandidate(std::move(Request), Candidate, Error))
 				{
@@ -219,13 +219,13 @@ namespace Durin
 			}
 		}
 		const DAssetImportData* ImportData = GetAssetImportData();
-		const FSourceFile* Source = ImportData
+		const FSourceFile* SourceFile = ImportData
 			? ImportData->GetSourceData().FindByRole("source") : nullptr;
-		if (!GetImportedData().IsValid() && !Source)
+		if (!GetSource().IsValid() && !SourceFile)
 		{
 			return;
 		}
-		if (!GetImportedData().IsValid())
+		if (!GetSource().IsValid())
 		{
 			Error = "StaticMesh canonical imported geometry is missing or invalid.";
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
@@ -237,8 +237,8 @@ namespace Durin
 		{
 			return;
 		}
-		if (CanJoinStaticMeshCompilation(*this, ImportedData)) return;
-		if (!SubmitStaticMeshCompilation(*this, {.Source = ImportedData, .bMarkPackageDirty = false}, Error))
+		if (CanJoinStaticMeshCompilation(*this, Source)) return;
+		if (!SubmitStaticMeshCompilation(*this, {.Source = Source, .bMarkPackageDirty = false}, Error))
 		{
 			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
 			return;
@@ -438,7 +438,7 @@ namespace Durin
 				"Static mesh '{}' supports only the Win64 game cook target.", GetObjectPath());
 			return false;
 		}
-		if (!RenderData && !ImportedData.IsValid())
+		if (!RenderData && !Source.IsValid())
 		{
 			OutError = std::format("Static mesh '{}' has no render data to cook.", GetObjectPath());
 			return false;

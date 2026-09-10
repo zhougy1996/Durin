@@ -48,7 +48,7 @@ namespace Durin
 			FStaticMeshReconciliationSnapshot Snapshot;
 			FObjectHandle Package;
 			FObjectHandle ImportData;
-			FStaticMeshImportedData RequestedSource;
+			FStaticMeshSource RequestedSource;
 			FVector3 BodyDimensions{0};
 			FVector3 BodyCenter{0};
 			EBodySetupShapeType BodyShape = EBodySetupShapeType::None;
@@ -229,7 +229,7 @@ namespace Durin
 					}
 			}
 
-			auto CanJoin(const DStaticMesh& Mesh, const FStaticMeshImportedData& Source) const -> bool
+			auto CanJoin(const DStaticMesh& Mesh, const FStaticMeshSource& Source) const -> bool
 			{
 				CheckOwnerThread();
 				for (const auto& Record : Records)
@@ -257,7 +257,7 @@ namespace Durin
 				for (const auto& Record : Records)
 					if (Record->Diagnostic.Owner == MakeObjectHandle(const_cast<DStaticMesh*>(&Mesh))
 						&& !Record->bDelivered && !Record->Terminal
-						&& (Record->PreparePublication || Record->RequestedSource.GetIdentity() != Mesh.GetImportedData().GetIdentity())) return true;
+						&& (Record->PreparePublication || Record->RequestedSource.GetIdentity() != Mesh.GetSource().GetIdentity())) return true;
 				return false;
 			}
 
@@ -461,8 +461,8 @@ namespace Durin
 					Record->PreparePublication = {};
 					if (Record->bRequeue && Mesh && bAccepting)
 						Requeues.emplace_back(Record->Diagnostic.Owner, FStaticMeshCompilationRequest{
-							.Source = Mesh->GetImportedData().GetIdentity() == Record->Snapshot.SourceIdentity
-								? Record->RequestedSource : Mesh->GetImportedData(),
+							.Source = Mesh->GetSource().GetIdentity() == Record->Snapshot.SourceIdentity
+								? Record->RequestedSource : Mesh->GetSource(),
 							.Priority = Record->Priority, .bMarkPackageDirty = Record->bMarkPackageDirty});
 					Record->RequestedSource = {};
 					Record->Snapshot = {};
@@ -545,7 +545,7 @@ namespace Durin
 		OutError = "The StaticMesh compiling manager is unavailable.";
 		return false;
 	}
-	auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshImportedData& Source) -> bool
+	auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool
 	{
 		CheckOwnerThread();
 		const auto Manager = GManager.lock();

@@ -425,7 +425,7 @@ TEST(FMaterialThumbnailRendererTests,
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereObject);
 	ASSERT_NE(Sphere, nullptr);
 	ASSERT_TRUE(Durin::SubmitStaticMeshCompilation(*Sphere,
-		{.Source = Sphere->GetImportedData(), .bMarkPackageDirty = false}, Error)) << Error;
+		{.Source = Sphere->GetSource(), .bMarkPackageDirty = false}, Error)) << Error;
 	ASSERT_TRUE(Durin::HasPendingStaticMeshCompilation(*Sphere));
 	ASSERT_EQ(Sphere->GetRenderResourceStatus().Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);

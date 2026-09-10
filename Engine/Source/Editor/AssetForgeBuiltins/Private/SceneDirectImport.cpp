@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FSceneOutputData* Descriptor = nullptr;
 			FPackagePath AssetPath;
-			FStaticMeshImportedData StaticMeshSource;
+			FStaticMeshSource StaticMeshSource;
 			std::unique_ptr<FStaticMeshAuthoredCandidate> StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			DObject* Candidate = nullptr;

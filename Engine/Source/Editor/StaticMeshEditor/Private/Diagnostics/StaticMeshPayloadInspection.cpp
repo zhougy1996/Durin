@@ -76,20 +76,21 @@ namespace Durin
 			if (OutError) *OutError = "Unsupported asset class for StaticMesh payload inspection.";
 			return false;
 		}
-		const auto* Imported = Package.FindField("ImportedData");
+		const auto* Imported = Package.FindField("Source");
+		if (!Imported) Imported = Package.FindField("ImportedData");
 		std::vector<FAssetPackageField> Fields;
 		const FAssetPackageField* Geometry = nullptr;
 		const bool bStructValid = Imported && Imported->TryInspectStructFields(Fields);
 		if (bStructValid)
 			for (const auto& Field : Fields) if (Field.Name == "Geometry") Geometry = &Field;
-		auto Source = InspectField("ImportedData.Geometry", Geometry);
+		auto Source = InspectField("Source.Geometry", Geometry);
 		if (Imported && (!bStructValid || !Geometry))
-		{ Source.State = "Malformed"; Source.Diagnostic = "ImportedData geometry metadata is malformed; restore or reimport authored data."; }
+		{ Source.State = "Malformed"; Source.Diagnostic = "Source geometry metadata is malformed; restore or reimport authored data."; }
 		if (bStructValid)
 		{
 			uint32 Schema = 0;
 			for (const auto& Field : Fields) if (Field.Name == "SchemaVersion") Field.TryReadScalar(Schema);
-			if (Schema != StaticMeshImportedDataSchemaVersion)
+			if (Schema != StaticMeshSourceSchemaVersion)
 			{ Source.State = "Unsupported"; Source.Diagnostic = "Authored source schema unavailable or unsupported; restore or reimport."; }
 		}
 		OutInspection.Fields.push_back(std::move(Source));
@@ -103,9 +104,9 @@ namespace Durin
 	{
 		FStaticMeshPayloadInspection Result;
 		Result.Package = Mesh.GetObjectPath();
-		const auto& Source = Mesh.GetImportedData();
+		const auto& Source = Mesh.GetSource();
 		const auto& Bulk = Source.GetGeometryBulk();
-		Result.Fields.push_back({.Field = "ImportedData.Geometry",
+		Result.Fields.push_back({.Field = "Source.Geometry",
 			.State = Source.IsValid() ? "Metadata present" : "Absent or invalid",
 			.Placement = Bulk.IsMemoryResident() ? "Canonical memory" : "Package resource or absent",
 			.LogicalBytes = Bulk.GetPayloadSize(), .StoredBytes = Bulk.GetPayloadSize(),

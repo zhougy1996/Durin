@@ -222,7 +222,7 @@ namespace Durin
 				return false;
 			}
 			FStaticMeshBuildKeyInput KeyInput{
-				.ImportedDataHash = Request.ImportedData.GetIdentity(),
+				.SourceHash = Request.Source.GetIdentity(),
 				.ReconciliationHash = BuildStaticMeshReconciliationHash(
 					Request.Reconciliation.MaterialSlots,
 					Request.Reconciliation.NormalizedSize),
@@ -253,7 +253,7 @@ namespace Durin
 				}
 			}
 			if (IsCancelled()) return false;
-			auto Decoded = Request.ImportedData.AcquireGeometry(OutError, IsCancelled);
+			auto Decoded = Request.Source.AcquireGeometry(OutError, IsCancelled);
 			if (IsCancelled()) return false;
 			if (!Decoded) return false;
 			std::vector<FStaticMeshRecipeMaterialSlot> RecipeSlots;

@@ -24,7 +24,7 @@ namespace Durin
 	struct FStaticMeshBuildRequest
 	{
 		FStaticMeshReconciliationSnapshot Reconciliation;
-		FStaticMeshImportedData ImportedData;
+		FStaticMeshSource Source;
 		bool bPersistDerivedData = true;
 	};
 
@@ -79,7 +79,7 @@ namespace Durin
 	// Value-only worker input; material object bindings remain in the owner-thread snapshot.
 	struct FStaticMeshAuthoredBuildRequest
 	{
-		FStaticMeshImportedData Source;
+		FStaticMeshSource Source;
 		std::vector<FStaticMeshRecipeMaterialSlot> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		EBodySetupCollisionSourceMode CollisionMode = EBodySetupCollisionSourceMode::None;
@@ -120,7 +120,7 @@ namespace Durin
 			std::string&, bool, const FStaticMeshBuildExecutionControl&, DAssetImportData*) -> FStaticMeshBuildOutcome;
 	};
 
-	ENGINE_API auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshImportedData Source,
+	ENGINE_API auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest;
 	// Completes render, collision and ray acceleration without touching an object.
 	ENGINE_API auto BuildStaticMeshAuthoredCandidate(FStaticMeshAuthoredBuildRequest Request,
@@ -152,10 +152,10 @@ namespace Durin
 		-> FStaticMeshReconciliationSnapshot;
 	// Applies on the owner thread; candidate failure preserves existing resources.
 	ENGINE_API auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
-		FStaticMeshImportedData Source, FStaticMeshBuildResult Product, std::string& OutError,
+		FStaticMeshSource Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty = true) -> bool;
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		const FStaticMeshImportedData& ImportedData,
+		const FStaticMeshSource& Source,
 		std::string& OutError) -> bool;
 	// Fresh authored input boundary: capture once, build from seeded residency, then release.
 	ENGINE_API auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,

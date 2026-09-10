@@ -44,7 +44,7 @@ namespace Durin
 					else if constexpr (std::is_same_v<TValue, FVector4f>) return uint64{16};
 					else return uint64{4};
 				}();
-				if (Count > MaximumCount || Count > MaximumStaticMeshImportedDataBytes / sizeof(TValue)
+				if (Count > MaximumCount || Count > MaximumStaticMeshSourceBytes / sizeof(TValue)
 					|| Count > Ar.GetRemainingPayloadBytes() / MinimumWireBytes)
 				{
 					Ar.Fail(EArchiveFailureCode::LimitExceeded,
@@ -62,15 +62,15 @@ namespace Durin
 			}
 		}
 
-		auto SerializeStaticMeshImportedValue(
+		auto SerializeStaticMeshSourceGeometry(
 			FArchive& Ar, FStaticMeshDecodedGeometry& Value, FSourceReadControl* Control = nullptr) -> void
 		{
-			uint32 Schema = StaticMeshImportedDataSchemaVersion;
+			uint32 Schema = StaticMeshSourceSchemaVersion;
 			Ar << Schema;
-			if (Ar.IsLoading() && Schema != StaticMeshImportedDataSchemaVersion)
+			if (Ar.IsLoading() && Schema != StaticMeshSourceSchemaVersion)
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData,
-					"StaticMesh imported-data schema is incompatible.");
+					"StaticMesh source schema is incompatible.");
 				return;
 			}
 			SerializeImportedArray(Ar, Value.MaterialSlots, MaximumMeshMaterialSlots,
@@ -109,7 +109,7 @@ namespace Durin
 			}
 			uint64 WireBytes = 20;
 			const auto AddBytes = [&](uint64 Count, uint64 Width, uint64 MaximumCount) {
-				if (Count > MaximumCount || Count > (MaximumStaticMeshImportedDataBytes - WireBytes) / Width)
+				if (Count > MaximumCount || Count > (MaximumStaticMeshSourceBytes - WireBytes) / Width)
 				{
 					OutError = "StaticMesh canonical geometry exceeds its authored count or 1 GiB byte limit.";
 					return false;
@@ -174,13 +174,13 @@ namespace Durin
 
 	}
 
-	FStaticMeshImportedData::FStaticMeshImportedData(const FStaticMeshImportedData& Other)
+	FStaticMeshSource::FStaticMeshSource(const FStaticMeshSource& Other)
 	{
 		*this = Other;
 	}
 
-	auto FStaticMeshImportedData::operator=(const FStaticMeshImportedData& Other)
-		-> FStaticMeshImportedData&
+	auto FStaticMeshSource::operator=(const FStaticMeshSource& Other)
+		-> FStaticMeshSource&
 	{
 		if (this == &Other) return *this;
 		std::scoped_lock Lock(ResidencyMutex, Other.ResidencyMutex);
@@ -193,7 +193,7 @@ namespace Durin
 		return *this;
 	}
 
-	auto FStaticMeshImportedData::Initialize(
+	auto FStaticMeshSource::Initialize(
 		FStaticMeshDecodedGeometry Value, std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -202,14 +202,14 @@ namespace Durin
 		FByteBuffer Bytes;
 		Bytes.reserve(static_cast<size_t>(WireBytes));
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
-		SerializeStaticMeshImportedValue(Ar, Value);
-		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
+		SerializeStaticMeshSourceGeometry(Ar, Value);
+		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshSourceBytes)
 		{
 			OutError = Ar.HasError() ? Ar.GetFailure()->Message
 				: "StaticMesh canonical geometry exceeds the 1 GiB authored limit.";
 			return false;
 		}
-		FStaticMeshImportedData Candidate;
+		FStaticMeshSource Candidate;
 		Candidate.Geometry = Geometry;
 		if (!Candidate.Geometry.UpdatePayload(FSharedByteBuffer::Take(std::move(Bytes))))
 		{
@@ -224,7 +224,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FStaticMeshImportedData::AcquireGeometry(std::string& OutError,
+	auto FStaticMeshSource::AcquireGeometry(std::string& OutError,
 		const std::function<bool()>& ShouldCancel) const
 		-> FStaticMeshGeometryReadHandle
 	{
@@ -239,7 +239,7 @@ namespace Durin
 			ResidentGeometry.reset();
 			if (!IsValid())
 			{
-				OutError = "StaticMesh canonical imported-data header is missing or invalid.";
+				OutError = "StaticMesh canonical source header is missing or invalid.";
 				return {};
 			}
 			const FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
@@ -250,14 +250,14 @@ namespace Durin
 				return {};
 			}
 			const FByteView Bytes = Payload.Buffer.GetBytes();
-			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
+			if (Bytes.size() != Geometry.GetPayloadSize() || Bytes.size() > MaximumStaticMeshSourceBytes)
 			{
 				OutError = "StaticMesh canonical geometry payload size does not match metadata.";
 				return {};
 			}
 			auto Decoded = std::make_shared<FStaticMeshDecodedGeometry>();
 			FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
-			SerializeStaticMeshImportedValue(Ar, *Decoded, &Control);
+			SerializeStaticMeshSourceGeometry(Ar, *Decoded, &Control);
 			if (Ar.HasError() || !RequireArchiveEnd(Ar))
 			{
 				OutError = Ar.GetFailure()->Message;
@@ -265,7 +265,7 @@ namespace Durin
 			}
 			if (Decoded->MaterialSlots.size() != MaterialSlotCount || Decoded->Meshes.size() != MeshCount)
 			{
-				OutError = "StaticMesh canonical imported-data counts are invalid.";
+				OutError = "StaticMesh canonical source counts are invalid.";
 				return {};
 			}
 			if (!ValidateStaticMeshDecodedGeometry(*Decoded, OutError, nullptr, &Control)) return {};
@@ -281,28 +281,28 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshImportedData::ReleaseGeometry() const -> void
+	auto FStaticMeshSource::ReleaseGeometry() const -> void
 	{
 		std::lock_guard Lock(ResidencyMutex);
 		ResidentGeometry.reset();
 	}
 
-	auto FStaticMeshImportedData::IsGeometryResident() const -> bool
+	auto FStaticMeshSource::IsGeometryResident() const -> bool
 	{
 		std::lock_guard Lock(ResidencyMutex);
 		return ResidentGeometry && ResidentIdentity == GetIdentity();
 	}
 
-	auto FStaticMeshImportedData::IsValid() const -> bool
+	auto FStaticMeshSource::IsValid() const -> bool
 	{
-		return SchemaVersion == StaticMeshImportedDataSchemaVersion
+		return SchemaVersion == StaticMeshSourceSchemaVersion
 			&& MaterialSlotCount > 0 && MaterialSlotCount <= MaximumMeshMaterialSlots
 			&& MeshCount > 0 && MeshCount <= 65536
 			&& Geometry.GetPayloadSize() > 0
-			&& Geometry.GetPayloadSize() <= MaximumStaticMeshImportedDataBytes;
+			&& Geometry.GetPayloadSize() <= MaximumStaticMeshSourceBytes;
 	}
 
-	auto FStaticMeshImportedData::GetIdentity() const -> FXxHash128
+	auto FStaticMeshSource::GetIdentity() const -> FXxHash128
 	{
 		if (!IsValid()) return {};
 		FXxHash128Builder Builder;

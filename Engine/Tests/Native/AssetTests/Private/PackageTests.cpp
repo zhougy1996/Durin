@@ -8651,12 +8651,14 @@ TEST(FPackageAssetTests, CookOfflineMeshPreparationDoesNotScheduleEditorCompilat
 	Triangle.Name = "Triangle";
 	Triangle.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
 	Triangle.Indices = {0, 1, 2};
-	FStaticMeshImportedData Source;
+	FStaticMeshSource Source;
 	std::string Error;
 	ASSERT_TRUE(Source.Initialize(std::move(Geometry), Error)) << Error;
-	auto* Field = DStaticMesh::StaticClass()->FindPropertyByName("ImportedData");
+	EXPECT_EQ(FindStructBySerializedName(FName("Durin::FStaticMeshImportedData")), FStaticMeshSource::StaticStruct());
+	auto* Field = DStaticMesh::StaticClass()->FindPropertyByName("Source");
+	EXPECT_EQ(Field, DStaticMesh::StaticClass()->FindPropertyBySerializedName(FName("ImportedData")));
 	ASSERT_NE(Field, nullptr);
-	*Field->ContainerPtrToValuePtr<FStaticMeshImportedData>(Mesh) = std::move(Source);
+	*Field->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(Source);
 	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));
 	MarkObjectHierarchyAsGarbage(Mesh->GetPackage()); CollectGarbage();
 	bool Contributed = false;

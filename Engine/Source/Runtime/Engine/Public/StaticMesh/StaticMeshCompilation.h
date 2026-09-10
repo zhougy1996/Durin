@@ -36,7 +36,7 @@ namespace Durin
 	};
 	struct FStaticMeshCompilationRequest
 	{
-		FStaticMeshImportedData Source;
+		FStaticMeshSource Source;
 		EStaticMeshCompilationPriority Priority = EStaticMeshCompilationPriority::Background;
 		bool bPersistDerivedData = true;
 		bool bMarkPackageDirty = true;
@@ -48,7 +48,7 @@ namespace Durin
 
 	ENGINE_API auto SubmitStaticMeshCompilation(DStaticMesh& Mesh, FStaticMeshCompilationRequest Request,
 		std::string& OutError, FStaticMeshCompilationCompletion Completion = {}) -> bool;
-	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshImportedData& Source) -> bool;
+	ENGINE_API auto CanJoinStaticMeshCompilation(const DStaticMesh& Mesh, const FStaticMeshSource& Source) -> bool;
 	ENGINE_API auto HasPendingStaticMeshSourceMutation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto HasPendingStaticMeshCompilation(const DStaticMesh& Mesh) -> bool;
 	ENGINE_API auto GetStaticMeshCompilationDiagnostic(const DStaticMesh& Mesh) -> FStaticMeshCompilationDiagnostic;

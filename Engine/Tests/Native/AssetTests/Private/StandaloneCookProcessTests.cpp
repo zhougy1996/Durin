@@ -248,10 +248,10 @@ TEST(FStandaloneCookProcessTests, CooksSavedFamiliesAndReusesValidatedOutputs)
 	Triangle.Name = "Triangle";
 	Triangle.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
 	Triangle.Indices = {0, 1, 2};
-	FStaticMeshImportedData MeshInput;
+	FStaticMeshSource MeshInput;
 	ASSERT_TRUE(MeshInput.Initialize(std::move(Geometry), Error)) << Error;
-	*DStaticMesh::StaticClass()->FindPropertyByName("ImportedData")
-		->ContainerPtrToValuePtr<FStaticMeshImportedData>(Mesh) = std::move(MeshInput);
+	*DStaticMesh::StaticClass()->FindPropertyByName("Source")
+		->ContainerPtrToValuePtr<FStaticMeshSource>(Mesh) = std::move(MeshInput);
 	*DStaticMesh::StaticClass()->FindPropertyByName("MaterialSlots")
 		->ContainerPtrToValuePtr<std::vector<FMeshMaterialSlotDefinition>>(Mesh) = {{.Name = "Material", .DefaultMaterial = Material}};
 	ASSERT_TRUE(SavePackage(Mesh->GetPackage()));

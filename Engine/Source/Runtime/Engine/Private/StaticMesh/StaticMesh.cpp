@@ -542,7 +542,7 @@ namespace Durin
 			}
 			if (AuthoredCandidate)
 			{
-				ImportedData = std::move(AuthoredCandidate->Request.Source);
+				Source = std::move(AuthoredCandidate->Request.Source);
 				NormalizedSize = AuthoredCandidate->Request.NormalizedSize;
 			}
 			RenderData = std::move(InRenderData);
@@ -687,14 +687,14 @@ namespace Durin
 		return Mesh;
 	}
 
-	auto DStaticMesh::SetImportedRenderData(
-		FStaticMeshImportedData InImportedData,
+	auto DStaticMesh::SetSourceRenderData(
+		FStaticMeshSource InSource,
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 		float InNormalizedSize, std::string& OutError) -> bool
 	{
 		CheckStaticMeshUpdateThread();
-		if (!InImportedData.IsValid()
+		if (!InSource.IsValid()
 			|| !std::isfinite(InNormalizedSize) || InNormalizedSize <= 0.0f)
 		{
 			OutError = "StaticMesh replacement requires valid imported values and normalization.";
@@ -704,8 +704,8 @@ namespace Durin
 			return false;
 		NormalizedSize = InNormalizedSize;
 		// Assets retain canonical storage. Operation handles and other source copies remain valid.
-		InImportedData.ReleaseGeometry();
-		ImportedData = std::move(InImportedData);
+		InSource.ReleaseGeometry();
+		Source = std::move(InSource);
 		NotifyStaticMeshCompilationMutation(*this);
 		return true;
 	}

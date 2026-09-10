@@ -377,10 +377,12 @@ validated as another fallback, so no partial payload can reach a draw.
 
 `StaticMeshSource.h/.cpp` owns canonical source storage and its codec;
 `StaticMeshGeometry.h` defines detached decoded sections and material mappings.
-The reflected `FStaticMeshImportedData` retains `Geometry: FEditorBulkData`,
+The reflected `FStaticMeshSource` retains `Geometry: FEditorBulkData`,
 `MaterialSlotCount: uint32`, `MeshCount: uint32`, and `SchemaVersion: uint32`.
-The owning `DStaticMesh::ImportedData` remains EditorOnly. Schema 1 canonical bytes,
+The owning `DStaticMesh::Source` remains EditorOnly. Schema 1 canonical bytes,
 XXH3-128 content hashing, source identity and DDC keys are unchanged.
+Reflection legacy names accept the former source type and owner field when
+loading authored packages; new saves use FStaticMeshSource and Source.
 
 `Initialize` validates complete geometry before installing canonical bytes and
 seeding one immutable `FStaticMeshGeometryReadHandle`. It checks source mapping,

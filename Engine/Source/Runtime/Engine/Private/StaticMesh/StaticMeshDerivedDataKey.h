@@ -19,7 +19,7 @@ namespace Durin
 	// Canonical Engine-owned identity for one StaticMesh render-data value.
 	struct FStaticMeshBuildKeyInput
 	{
-		FXxHash128 ImportedDataHash;
+		FXxHash128 SourceHash;
 		FXxHash128 ReconciliationHash;
 		uint32 BuilderVersion = StaticMeshBuilderVersion;
 		uint32 PayloadSchemaVersion = StaticMeshPayloadSchemaVersion;

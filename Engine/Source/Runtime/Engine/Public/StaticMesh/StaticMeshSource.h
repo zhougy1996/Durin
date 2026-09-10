@@ -6,23 +6,23 @@
 
 namespace Durin
 {
-	inline constexpr FGuid StaticMeshImportedGeometryPayloadId{
+	inline constexpr FGuid StaticMeshSourceGeometryPayloadId{
 		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
-	inline constexpr uint32 StaticMeshImportedDataSchemaVersion = 1;
-	inline constexpr uint64 MaximumStaticMeshImportedDataBytes =
+	inline constexpr uint32 StaticMeshSourceSchemaVersion = 1;
+	inline constexpr uint64 MaximumStaticMeshSourceBytes =
 		1024ull * 1024ull * 1024ull;
 
 	// Canonical authored value. Mutation/reflection loading requires exclusive owner access.
 	// Stable values support concurrent acquire, release and copy; handles are always immutable.
-	DSTRUCT()
-	struct FStaticMeshImportedData
+	DSTRUCT(LegacyNames = "Durin::FStaticMeshImportedData")
+	struct FStaticMeshSource
 	{
 		GENERATED_BODY()
 
 	public:
-		FStaticMeshImportedData() = default;
-		ENGINE_API FStaticMeshImportedData(const FStaticMeshImportedData& Other);
-		ENGINE_API auto operator=(const FStaticMeshImportedData& Other) -> FStaticMeshImportedData&;
+		FStaticMeshSource() = default;
+		ENGINE_API FStaticMeshSource(const FStaticMeshSource& Other);
+		ENGINE_API auto operator=(const FStaticMeshSource& Other) -> FStaticMeshSource&;
 
 		// Validates the complete candidate before replacement and seeds residency without decoding.
 		ENGINE_API auto Initialize(FStaticMeshDecodedGeometry Value, std::string& OutError) -> bool;
@@ -52,7 +52,7 @@ namespace Durin
 		uint32 MeshCount = 0;
 
 		DPROPERTY()
-		uint32 SchemaVersion = StaticMeshImportedDataSchemaVersion;
+		uint32 SchemaVersion = StaticMeshSourceSchemaVersion;
 
 		mutable std::mutex ResidencyMutex;
 		mutable FStaticMeshGeometryReadHandle ResidentGeometry;

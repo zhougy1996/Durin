@@ -69,7 +69,7 @@ namespace Durin
 		if (!ValidateTargetPlatform(Ar, TargetPlatform)) return;
 		uint32 KeySchemaVersion = StaticMeshDerivedDataKeySchemaVersion;
 		uint32 Platform = static_cast<uint32>(TargetPlatform);
-		Ar << KeySchemaVersion << ImportedDataHash.HashLow << ImportedDataHash.HashHigh
+		Ar << KeySchemaVersion << SourceHash.HashLow << SourceHash.HashHigh
 			<< ReconciliationHash.HashLow << ReconciliationHash.HashHigh
 			<< BuilderVersion << PayloadSchemaVersion << Platform;
 	}

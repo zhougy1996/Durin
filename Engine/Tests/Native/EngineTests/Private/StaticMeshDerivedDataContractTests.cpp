@@ -9,7 +9,7 @@ namespace
 	auto MakeKeyInput() -> Durin::FStaticMeshBuildKeyInput
 	{
 		Durin::FStaticMeshBuildKeyInput Input;
-		Input.ImportedDataHash = Durin::FXxHash128{
+		Input.SourceHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
 		Input.ReconciliationHash = Durin::FXxHash128{
@@ -73,7 +73,7 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 		EXPECT_NE(Durin::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
 	};
 
-	ExpectChanged([](auto& Value) { ++Value.ImportedDataHash.HashLow; });
+	ExpectChanged([](auto& Value) { ++Value.SourceHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.ReconciliationHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
 	ExpectChanged([](auto& Value) { ++Value.PayloadSchemaVersion; });

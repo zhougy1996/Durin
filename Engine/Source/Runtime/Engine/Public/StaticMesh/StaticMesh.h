@@ -153,7 +153,7 @@ namespace Durin
 
 		// Owner-thread observation only; never submits or retries loading.
 		ENGINE_API auto GetRenderDataLoadStatus() const -> FCookedMeshLoadStatus;
-		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
+		auto GetSource() const -> const FStaticMeshSource& { return Source; }
 		auto GetNormalizedSize() const -> float { return NormalizedSize; }
 		auto GetCookedRenderData() const -> const FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const FBulkData& { return CookedCollisionData; }
@@ -176,8 +176,8 @@ namespace Durin
 			std::string& OutError) -> bool;
 		// Validates detached values before atomic render/collision replacement.
 		// Does not dirty the package or retain build-operation diagnostics.
-		ENGINE_API auto SetImportedRenderData(
-			FStaticMeshImportedData InImportedData,
+		ENGINE_API auto SetSourceRenderData(
+			FStaticMeshSource InSource,
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FMeshMaterialSlotDefinition> InMaterialSlots,
 			float InNormalizedSize,
@@ -256,8 +256,8 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		TObjectPtr<DAssetImportData> AssetImportData;
 
-		DPROPERTY(EditorOnly)
-		FStaticMeshImportedData ImportedData;
+		DPROPERTY(EditorOnly, LegacyNames = "ImportedData")
+		FStaticMeshSource Source;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;

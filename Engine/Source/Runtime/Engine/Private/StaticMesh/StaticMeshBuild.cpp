@@ -14,14 +14,14 @@ namespace Durin
 		return {.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
 				Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()),
 			.NormalizedSize = Mesh.GetNormalizedSize(),
-			.SourceIdentity = Mesh.GetImportedData().GetIdentity(),
+			.SourceIdentity = Mesh.GetSource().GetIdentity(),
 			.Body = MakeObjectHandle(Body),
 			.BodyRevision = Body ? Body->GetRevision() : 0,
 			.CollisionMode = Body ? Body->GetCollisionSourceMode() : EBodySetupCollisionSourceMode::None,
 			.CollisionPolicy = Body ? Body->GetCollisionQueryPolicy() : EBodySetupCollisionQueryPolicy::SimpleAndComplex};
 	}
 
-	auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshImportedData Source,
+	auto MakeStaticMeshAuthoredBuildRequest(FStaticMeshSource Source,
 		const FStaticMeshReconciliationSnapshot& Snapshot) -> FStaticMeshAuthoredBuildRequest
 	{
 		FStaticMeshAuthoredBuildRequest Request;
@@ -67,7 +67,7 @@ namespace Durin
 			Reconciliation.MaterialSlots.push_back({.Name = Slot.Name,
 				.SourceName = Slot.SourceName, .SourceMaterialIndex = Slot.SourceMaterialIndex});
 		const auto RenderOutcome = BuildStaticMeshDerivedData({.Reconciliation = std::move(Reconciliation),
-			.ImportedData = Request.Source, .bPersistDerivedData = Request.bPersistDerivedData},
+			.Source = Request.Source, .bPersistDerivedData = Request.bPersistDerivedData},
 			Candidate->Render, OutError, Control);
 		if (!RenderOutcome) return RenderOutcome;
 		auto& Render = Candidate->Render;
@@ -153,10 +153,10 @@ namespace Durin
 	}
 
 	auto ApplyStaticMeshBuildResult(DStaticMesh& Mesh,
-		FStaticMeshImportedData Source, FStaticMeshBuildResult Product, std::string& OutError,
+		FStaticMeshSource Source, FStaticMeshBuildResult Product, std::string& OutError,
 		bool bMarkPackageDirty) -> bool
 	{
-		if (!Mesh.SetImportedRenderData(std::move(Source),
+		if (!Mesh.SetSourceRenderData(std::move(Source),
 			std::move(Product.RenderData), std::move(Product.MaterialSlots),
 			Product.NormalizedSize, OutError)) return false;
 		if (Product.bSlotMetadataChanged)
@@ -170,11 +170,11 @@ namespace Durin
 	}
 
 	auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
-		const FStaticMeshImportedData& ImportedData,
+		const FStaticMeshSource& Source,
 		std::string& OutError) -> bool
 	{
-		if (!CanJoinStaticMeshCompilation(Mesh, ImportedData)
-			&& !SubmitStaticMeshCompilation(Mesh, {.Source = ImportedData,
+		if (!CanJoinStaticMeshCompilation(Mesh, Source)
+			&& !SubmitStaticMeshCompilation(Mesh, {.Source = Source,
 				.Priority = EStaticMeshCompilationPriority::Interactive}, OutError)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Mesh);
 		const auto Diagnostic = GetStaticMeshCompilationDiagnostic(Mesh);
@@ -185,7 +185,7 @@ namespace Durin
 	auto BuildStaticMeshSynchronously(DStaticMesh& Mesh,
 		FStaticMeshDecodedGeometry Geometry, std::string& OutError) -> bool
 	{
-		FStaticMeshImportedData Source;
+		FStaticMeshSource Source;
 		return Source.Initialize(std::move(Geometry), OutError)
 			&& BuildStaticMeshSynchronously(Mesh, Source, OutError);
 	}
