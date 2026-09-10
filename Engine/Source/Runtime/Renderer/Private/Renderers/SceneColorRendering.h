@@ -21,7 +21,7 @@ namespace Durin
 	struct FSceneColorPassParameters final
 	{
 		TRDGValueRead<FSceneColorPassResult> BaseScene;
-		TRDGValueRead<FVolumetricCloudPassResult> VolumetricCloud;
+		std::optional<TRDGValueRead<FVolumetricCloudPassResult>> VolumetricCloud;
 		TRDGValueWrite<FSceneColorPassResult> Completion;
 		FSceneColorPassResources Resources;
 

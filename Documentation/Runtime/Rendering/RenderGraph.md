@@ -11,8 +11,10 @@ Last reviewed: 2026-09-10
 `FRDGBuilder` owns declarations, parameters, typed values, callbacks, compiled
 records, and retained resource references for one graph execution. Handles are
 valid only for their originating builder. There is no public compile operation
-or independently owned executable graph. Graph-created textures and buffers
-use description-first `CreateTexture`/`CreateBuffer` declarations.
+or independently owned executable graph. Frozen resource declarations
+remain in builder storage; compiled records borrow them and keep physical
+backing and allocation observations in a separate execution table.
+Graph-created textures and buffers use description-first `CreateTexture`/`CreateBuffer` declarations.
 
 Non-const `Execute(CommandList, ExecutionContext)` compiles, prepares retained
 resources, records passes, and publishes extraction outputs. The optional
@@ -79,8 +81,9 @@ execution state. Compilation never mutates a command list.
   contracts; null imports retain the ordinary missing-resource failure and do
   not become identity keys.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
-  producer before any read or load, and may omit a final state when their
-  contents do not cross the graph boundary.
+  producer before any read or load, and default to no final state (`ERHIAccess::None`). Renderer frame-local
+  targets use that default; consumers declare their next access on the pass.
+  Explicit final states remain for external boundaries and extraction.
 - `QueueTextureExtraction` and `QueueBufferExtraction` make a resource an
   explicit terminal consumer (`RDG.Export`) of its complete byte or
   aspect/mip/layer range. This node requires valid stored contents in every
@@ -141,7 +144,10 @@ publication, readback, capture, timestamps, and other external effects mark an
 explicit root reason. Compilation retains each root and its complete reverse
 Value/Explicit predecessor closure; Execution edges do not propagate retention.
 Other passes are reported as unreachable. Full declaration validation precedes
-culling. Predecessor lists are built once from finalized edges, including any
+culling. Resource-use indexing stores one contiguous use-pointer array and a prefix-offset
+table, preserving declaration order within each resource. Explicit inspection
+reuses the same index builder. Predecessor slices use contiguous pass indices
+and prefix offsets, built once from finalized edges, including any
 Execution-to-retaining upgrades. Each pass is marked before enqueueing and
 expanded at most once. Ordering costs O(P); retention indexing and traversal
 cost O(P + E) after edge generation. With culling disabled all passes are retained
@@ -209,8 +215,7 @@ metadata rather than RTTI text. One graph cannot assign different stable names
 to the same C++ type or reuse one stable name for different C++ types.
 
 Each typed value requires exactly one declared writer; all consumers declare
-reads. `UseValue` is the bounded manual compatibility declaration. Typed
-parameter members use `TRDGValueWrite<T>` or
+reads. Production parameter members use `TRDGValueWrite<T>` or
 `TRDGValueRead<T>`. Missing or duplicate writers, foreign handles,
 wrong C++ types, reads before the producer, and invalid directions fail
 deterministically before recording. Values lower to token-shaped compiler uses
@@ -250,12 +255,14 @@ metadata-address lookup participates in graph lifetime.
 
 The parameterized `AddPass` consumes the mutable reference, freezes the
 allocation, and scans the layout elements once to lower engaged fields into
-the same canonical use model as the manual `Use*` APIs. Submission is atomic: malformed
+the canonical compiler use model. Submission is atomic: malformed
 metadata, a foreign allocation or handle, an invalid range or access/domain
 combination, overlapping fields, or a reused reference publishes neither a
-pass callback nor a partial use set. A parameterized pass cannot accept manual
-uses or a second parameter object. The legacy `AddPass` and `Use*` surface
-remains a compatibility path only for passes not yet migrated.
+pass callback nor a partial use set. The public `AddPass` requires a parameter
+object and a typed callback; raw declarations and resource-view callbacks are
+private test-accessor operations. Both test and production callbacks enter one
+erased callback slot and one recording path. Test-only mixed-authority
+injection is still rejected before compilation.
 
 Parameter storage and destructor records remain owned by the builder. Objects
 are destroyed in reverse allocation order when the builder dies, not when a
@@ -289,7 +296,7 @@ timestamps, or measured duration.
 
 A texture or buffer parameter member may additionally declare one reflected
 shader binding role with
-`MakeRenderGraphShaderResourceParameterMemberMetadata`. That annotation names
+`WithRDGShaderBinding`. That annotation names
 the binding and its `Texture`, `StorageImage`, or `StorageBuffer` type on the
 same member that owns graph use, access, range, optionality, and array extent.
 It never appends a hidden graph use: graph lowering remains authoritative for
@@ -372,6 +379,21 @@ remains executable when one is exceeded. Compile and execute CPU thresholds are
 also observational; wall-clock or regression-budget observation never rejects
 compilation, aborts execution, or changes renderer correctness.
 
+CPU timing uses Core's monotonic `FTime` clock and scope timers. Statistics and
+captures expose `Phases`: validation (including export construction, explicit
+edges, and resource-use indexing), range partitioning, hazard dependencies,
+culling, and execution-plan generation (barriers, lifetimes, allocation requests,
+and publication). `CompileMicroseconds` covers the whole private compile call.
+`ExecuteMicroseconds` retains its preparation-plus-recording meaning:
+`PreparationMicroseconds` includes allocation, backing validation and adoption;
+`RecordingMicroseconds` includes transition pointer resolution, RHI commands,
+callbacks, final transitions and extraction publication. Neither total includes
+caller-side graph authoring or GPU completion. Phase durations round down to
+microseconds and need not sum to the total because of boundary and cleanup work.
+Timers retain elapsed work on early return and supported exception unwinding;
+unentered phases remain zero. Failed compilation still publishes no compiler
+records. Invalid repeated execution leaves all timing evidence unchanged.
+
 The foundation regression gate compiles a 128-pass same-range hazard chain
 under 250 milliseconds in a Debug native test. Renderer migration plans must
 freeze representative median and p95 budgets before using graph timing as a
@@ -381,9 +403,14 @@ production acceptance gate.
 
 New renderer work that crosses pass boundaries must use the graph path:
 
-- Prefer one typed parameter object as the declaration and callback capability
-  for a new pass. Use the manual surface only for the bounded low-level
-  compatibility oracles, and never mix both authorities on one pass.
+- Submit one typed parameter object and a typed callback for every production
+  pass. The public API rejects raw authoring at compile time.
+- Use `MakeRDGTextureReadMetadata`, `MakeRDGComputeTextureWriteMetadata`,
+  `MakeRDGManagedTextureMetadata`, and `MakeRDGAttachmentMetadata` for common
+  texture roles. These infer or fix wrapper category, range kind, use, access,
+  and attachment discard intent. Shader bindings decorate the same declaration
+  with `WithRDGShaderBinding`; unusual low-level metadata still receives full
+  layout and submission validation.
 - Declare every cross-pass texture/buffer range with exact access and use a
   graph-owned typed value for a non-RHI outcome. Tokens remain for unmigrated
   execution-only compatibility edges.
@@ -407,33 +434,15 @@ and observer-controlled execution are not supported authoring patterns.
 
 ### Low-Level Compatibility Boundary
 
-The non-parameterized `AddPass` overload and manual `UseTexture`, `UseBuffer`,
-attachment, managed-resource, token, and typed-value declarations remain only
-as an independent oracle for canonical compiler semantics and backend
-transition qualification. Their bounded repository consumers are
-`RDGTests.cpp` and `VulkanResourceTransitionTests.cpp`. They are not a
-production Renderer or Renderer contract-fixture authoring option.
+Raw pass creation (`AddTestPass`) and manual `Use*` methods are private.
+The native-only `RDGTestAccess.h` friend accessor retains raw compiler and RHI
+transition oracles, plus existing synthetic allocator/renderer fixtures. It
+also adapts old resource-view callbacks at submission time; recording never
+dispatches between callback forms. Production code cannot call these methods.
+The test injection boundary retains invalid-handle and mixed-authority checks
+so malformed fixtures fail deterministically without corrupting frozen uses.
 
-`RendererSceneContractTests` scans all production Renderer C++ source and
-rejects a manual `Use*` call or an `AddPass` whose third argument is not a moved
-parameter object. This allows new feature-owned parameter structures without
-maintaining a filename allowlist while making the production prohibition
-executable. The compatibility surface may be removed only when these compiler
-and RHI transition oracles have parameterized replacements that remain
-independent of the lowering behavior they validate and no external low-level
-consumer has been admitted.
-
-## Renderer Integration
-
-The production scene schedule, feature ownership, route preparation, resource
-lifetimes, output transaction, and scene budgets are defined by
-[Renderer Frame Preparation](RendererFramePreparation.md). Features contribute
-parameterized passes to that single caller-owned graph. Contact visibility
-uses the same boundary; bounded intra-pass handoffs do not create child graphs.
-
-## Related Documentation
-
-- [Render Graph Architecture Roadmap](../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
-- [RHI Resource Transitions](RHIResourceTransitions.md)
-- [RHI Command Execution](RHICommandExecution.md)
-- [Renderer Frame Preparation](RendererFramePreparation.md)
+`RendererSceneContractTests` additionally scans production Renderer C++ source
+for manual uses and non-parameterized pass authoring. Compiler tests keep raw
+oracles independent of parameter lowering; typed callback tests exercise the
+public API directly.

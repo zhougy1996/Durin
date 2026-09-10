@@ -46,7 +46,8 @@ namespace Durin
 
 	struct FContactShadowGraphOutput final
 	{
-		TRDGValueHandle<FContactShadowVisibilityPassResult> Completion;
+		// Absence means the feature was not requested; no producer pass exists.
+		std::optional<TRDGValueHandle<FContactShadowVisibilityPassResult>> Completion;
 		std::optional<FRDGTextureHandle> Fragment;
 		std::optional<FRDGTextureHandle> Compute;
 	};

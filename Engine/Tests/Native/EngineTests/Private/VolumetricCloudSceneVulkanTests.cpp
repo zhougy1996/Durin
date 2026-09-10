@@ -216,14 +216,16 @@ namespace Durin
 		SetViewRenderTelemetrySink(CaptureSceneCloudTelemetry);
 		SetSceneRenderGraphCaptureSink(CaptureSceneCloudGraph);
 		auto RenderOffscreen = [&Renderer, Scene](
-								   bool bForceFragment
+								   bool bForceFragment, bool bAmbientOcclusion = true,
+			EGroundTruthAmbientOcclusionQuality AOQuality = EGroundTruthAmbientOcclusionQuality::HalfResolution,
+			ERenderMode RenderMode = ERenderMode::Lit
 							   ) {
 			auto Pixels = std::make_shared<Durin::FByteBuffer>();
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable
 			);
 			EnqueueRenderCommand<FSceneCloudRender>(
-				[&Renderer, Scene, Pixels, Result, bForceFragment](
+				[&Renderer, Scene, Pixels, Result, bForceFragment, bAmbientOcclusion, AOQuality, RenderMode](
 					FRHICommandListImmediate& CommandList
 				) {
 					constexpr uint32 Width = 96;
@@ -239,6 +241,9 @@ namespace Durin
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					FSceneView View = MakeSceneCloudView(Width, Height);
+					View.Settings.Mode.RenderMode = RenderMode;
+					View.Settings.AmbientOcclusion.bEnabled = bAmbientOcclusion;
+					View.Settings.AmbientOcclusion.Quality = AOQuality;
 					FScopedRendererQualificationPolicy Qualification({
 						.bForceFragmentVolumetricCloud = bForceFragment});
 					*Result = Renderer.RenderView(
@@ -332,17 +337,57 @@ namespace Durin
 		EXPECT_EQ(RenderPresent(128, 72, true), ERenderViewResult::Success);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
 		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 6u);
-		// Post process now declares its typed isolated-deferred result read; the
-		// former side-channel lookup carried no graph edge.
-		const std::array<uint32, 6> ExpectedDependencies{23, 23, 26, 26, 26, 26};
+		// Contact shadows are disabled throughout; absent cloud inputs also omit
+		// the cloud-shadow producer and its completion dependencies.
+		const std::array<uint32, 6> ExpectedPasses{7, 7, 10, 10, 10, 10};
+		const std::array<uint32, 6> ExpectedDependencies{11, 11, 21, 21, 21, 21};
 		// RDG also emits entry handoffs for discarded render-pass attachments and
 		// same-state writes; render-pass-owned final transitions do not replace them.
 		const std::array<uint32, 6> ExpectedTextureTransitions{13, 13, 30, 16, 30, 16};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{
 			const auto& Statistics = GSceneCloudGraphCaptures[Index].Statistics;
-			EXPECT_EQ(Statistics.DeclaredPasses, 11u) << Index;
-			EXPECT_EQ(Statistics.ScheduledPasses, 11u) << Index;
+			const auto& Capture = GSceneCloudGraphCaptures[Index];
+			// Frame-local backing has no external final-state consumer.
+			for (const auto& Transition : Capture.Transitions)
+				if (Transition.bFinal)
+				{
+					const auto Resource = std::ranges::find_if(Capture.Resources,
+						[&](const auto& Item) { return Item.ResourceId == Transition.ResourceId; });
+					ASSERT_NE(Resource, Capture.Resources.end());
+					EXPECT_TRUE(Resource->bExternal) << Resource->Name;
+				}
+
+			// The feature boundary publishes complete GBuffer and half-resolution AO sets.
+			for (const auto Name : {"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
+				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive", "Scene.AmbientOcclusion.Raw",
+				"Scene.AmbientOcclusion.Scratch", "Scene.AmbientOcclusion.Selector",
+				"Scene.AmbientOcclusion.Resolved"})
+				EXPECT_EQ(std::ranges::count_if(Capture.Resources, [&](const auto& Resource) {
+					return Resource.Name == Name && Resource.Preparation != "culled";
+				}), 1) << Name << " capture=" << Index;
+			EXPECT_FALSE(std::ranges::any_of(Capture.Passes, [](const auto& Pass) {
+				return Pass.Name == "Scene.ContactShadowVisibility";
+			}));
+			EXPECT_EQ(std::ranges::any_of(Capture.Passes, [](const auto& Pass) {
+				return Pass.Name == "Scene.VolumetricCloudShadow";
+			}), Index >= 2);
+			EXPECT_FALSE(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
+				return Resource.Name == "Scene.ContactShadowVisibilityValue";
+			}));
+			EXPECT_EQ(std::ranges::any_of(Capture.Resources, [](const auto& Resource) {
+				return Resource.Name == "Scene.CloudShadowValue";
+			}), Index >= 2);
+			for (const auto Name : {"Scene.VolumetricCloudSpatial", "Scene.VolumetricCloud"})
+				EXPECT_EQ(std::ranges::any_of(Capture.Passes, [&](const auto& Pass) {
+					return Pass.Name == Name;
+				}), Index >= 2) << Name;
+			for (const auto Name : {"Scene.VolumetricCloudSpatialValue", "Scene.VolumetricCloudValue"})
+				EXPECT_EQ(std::ranges::any_of(Capture.Resources, [&](const auto& Resource) {
+					return Resource.Name == Name;
+				}), Index >= 2) << Name;
+			EXPECT_EQ(Statistics.DeclaredPasses, ExpectedPasses[Index]) << Index;
+			EXPECT_EQ(Statistics.ScheduledPasses, ExpectedPasses[Index]) << Index;
 			EXPECT_EQ(Statistics.Dependencies, ExpectedDependencies[Index]) << Index;
 			EXPECT_EQ(Statistics.BufferTransitions, 0u) << Index;
 			EXPECT_EQ(Statistics.TextureTransitions,
@@ -377,6 +422,52 @@ namespace Durin
 			<< FinalAllocation.ReuseHits << ",reuse_misses="
 			<< FinalAllocation.ReuseMisses << ",evictions="
 			<< FinalAllocation.Evictions << '\n';
+
+		RenderOffscreen(false, false);
+		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 7u);
+		const auto& WithoutAO = GSceneCloudGraphCaptures.back();
+		EXPECT_EQ(WithoutAO.Statistics.DeclaredPasses, 9u);
+		EXPECT_FALSE(std::ranges::any_of(WithoutAO.Passes, [](const auto& Pass) {
+			return Pass.Name == "Scene.AmbientOcclusion";
+		}));
+		EXPECT_FALSE(std::ranges::any_of(WithoutAO.Resources, [](const auto& Resource) {
+			return Resource.Name.starts_with("Scene.AmbientOcclusion");
+		}));
+		EXPECT_EQ(GSceneCloudTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews, 0u);
+
+		RenderOffscreen(false, true, EGroundTruthAmbientOcclusionQuality::FullResolution);
+		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 8u);
+		const auto& FullResolution = GSceneCloudGraphCaptures.back();
+		for (const auto Name : {"Scene.AmbientOcclusion.Raw", "Scene.AmbientOcclusion.Scratch"})
+		{
+			const auto Resource = std::ranges::find_if(FullResolution.Resources,
+				[&](const auto& Candidate) { return Candidate.Name == Name; });
+			ASSERT_NE(Resource, FullResolution.Resources.end()) << Name;
+			EXPECT_EQ(Resource->TextureExtent.x, 96u);
+			EXPECT_EQ(Resource->TextureExtent.y, 64u);
+		}
+		EXPECT_FALSE(std::ranges::any_of(FullResolution.Resources, [](const auto& Resource) {
+			return Resource.Name == "Scene.AmbientOcclusion.Selector"
+				|| Resource.Name == "Scene.AmbientOcclusion.Resolved";
+		}));
+		EXPECT_EQ(GSceneCloudTelemetry.AmbientOcclusion.GroundTruthAmbientOcclusionFullResolutionViews, 1u);
+
+		// Forward-only output needs neither GBuffer nor cloud work.
+		Component->SetEnabled(false);
+		RenderOffscreen(false, false, EGroundTruthAmbientOcclusionQuality::FullResolution,
+			ERenderMode::Unlit);
+		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 9u);
+		const auto& ForwardOnly = GSceneCloudGraphCaptures.back();
+		for (const auto Name : {"Scene.GBuffer", "Scene.VolumetricCloudSpatial", "Scene.VolumetricCloud"})
+			EXPECT_FALSE(std::ranges::any_of(ForwardOnly.Passes, [&](const auto& Pass) {
+				return Pass.Name == Name;
+			})) << Name;
+		EXPECT_FALSE(std::ranges::any_of(ForwardOnly.Resources, [](const auto& Resource) {
+			return Resource.Name.starts_with("Scene.GBuffer")
+				|| Resource.Name.starts_with("Scene.VolumetricCloud");
+		}));
+		EXPECT_EQ(GSceneCloudTelemetry.GBuffer.GBufferEnabledViews, 0u);
+		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudDisabledViews, 1u);
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

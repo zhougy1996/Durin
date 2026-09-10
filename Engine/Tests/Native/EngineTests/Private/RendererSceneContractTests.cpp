@@ -1,3 +1,4 @@
+#include "../../RDGTestAccess.h"
 #include "Renderers/MeshVertexFactory.h"
 #include "Rendering/StaticMeshBatchBinding.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -486,6 +487,104 @@ TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 	EXPECT_TRUE(ContactShadow.IsComplete());
 	CloudShadow.Route = Durin::EVolumetricCloudShadowPassRoute::Fragment;
 	EXPECT_TRUE(CloudShadow.IsComplete());
+}
+
+namespace
+{
+	// Keep typed-value identities and parameter metadata in the same module.
+	struct FOptionalVisibilityTestParameters final
+	{
+		std::optional<Durin::TRDGValueRead<Durin::FGroundTruthAmbientOcclusionPassResult>> AmbientOcclusion;
+		std::optional<Durin::TRDGValueRead<Durin::FContactShadowVisibilityPassResult>> ContactShadow;
+		std::optional<Durin::TRDGValueRead<Durin::FVolumetricCloudShadowPassResult>> CloudShadow;
+
+		static auto GetRDGParametersMetadata() -> const Durin::FRDGParametersMetadata*
+		{
+			using namespace Durin;
+			using FParameters = FOptionalVisibilityTestParameters;
+			static const std::array Members{
+				MakeRDGValueParameterMemberMetadata<FParameters,
+					decltype(AmbientOcclusion), FGroundTruthAmbientOcclusionPassResult>(
+						"AmbientOcclusion", offsetof(FParameters, AmbientOcclusion)),
+				MakeRDGValueParameterMemberMetadata<FParameters,
+					decltype(ContactShadow), FContactShadowVisibilityPassResult>(
+						"ContactShadow", offsetof(FParameters, ContactShadow)),
+				MakeRDGValueParameterMemberMetadata<FParameters,
+					decltype(CloudShadow), FVolumetricCloudShadowPassResult>(
+						"CloudShadow", offsetof(FParameters, CloudShadow))};
+			static const auto Metadata = MakeInlineRDGParametersMetadata<FParameters>(
+				"FOptionalVisibilityTestParameters", Members);
+			return &Metadata;
+		}
+	};
+}
+
+// Only declared reads may retain optional producers, including failed results.
+TEST(FRendererSceneContractTests, OptionalVisibilityResultsRetainOnlyRequestedProducers)
+{
+	using namespace Durin;
+	const auto* DeferredMetadata = FDeferredDirectionalLightingPassParameters::GetRDGParametersMetadata();
+	for (const auto Name : {"AmbientOcclusion", "ContactShadow", "CloudShadow"})
+	{
+		const auto Member = std::ranges::find_if(DeferredMetadata->Members,
+			[&](const auto& Candidate) { return std::string_view(Candidate.Name) == Name; });
+		ASSERT_NE(Member, DeferredMetadata->Members.end());
+		EXPECT_TRUE(Member->bOptional);
+		EXPECT_EQ(Member->Kind, ERDGParameterMemberKind::ValueRead);
+	}
+	for (const auto Status : {EScenePassStatus::NotRequested,
+		EScenePassStatus::Complete, EScenePassStatus::Failed})
+	{
+		FRHICommandListExecutor Executor;
+		FRDGBuilder Graph;
+		Graph.EnablePassCulling();
+		const auto Ambient = Graph.CreateValue<FGroundTruthAmbientOcclusionPassResult>(
+			"Ambient", "ambient-occlusion-result");
+		const auto Contact = Graph.CreateValue<FContactShadowVisibilityPassResult>(
+			"Contact", "contact-shadow-result");
+		const auto Cloud = Graph.CreateValue<FVolumetricCloudShadowPassResult>(
+			"Cloud", "cloud-shadow-result");
+		uint32 ProducerCalls = 0;
+		const auto Visibility = FRDGBuilderTestAccessor::AddPass(Graph, "Visibility", ERDGPassType::Graphics,
+			[&](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
+				++ProducerCalls;
+				Resources.WriteValue(Ambient).Status = Status;
+				Resources.WriteValue(Contact).Status = Status;
+				Resources.WriteValue(Cloud).Status = Status;
+			});
+		FRDGBuilderTestAccessor::UseValue(Graph, Visibility, Ambient, ERDGUse::Write);
+		FRDGBuilderTestAccessor::UseValue(Graph, Visibility, Contact, ERDGUse::Write);
+		FRDGBuilderTestAccessor::UseValue(Graph, Visibility, Cloud, ERDGUse::Write);
+		auto Parameters = Graph.AllocParameters<FOptionalVisibilityTestParameters>();
+		const bool bRequested = Status != EScenePassStatus::NotRequested;
+		if (bRequested)
+		{
+			Parameters->AmbientOcclusion = TRDGValueRead<FGroundTruthAmbientOcclusionPassResult>{Ambient};
+			Parameters->ContactShadow = TRDGValueRead<FContactShadowVisibilityPassResult>{Contact};
+			Parameters->CloudShadow = TRDGValueRead<FVolumetricCloudShadowPassResult>{Cloud};
+		}
+		uint32 ConsumerCalls = 0;
+		const auto Consumer = Graph.AddPass("Deferred", ERDGPassType::Graphics,
+			std::move(Parameters), [&](FRHICommandListImmediate&,
+				const FOptionalVisibilityTestParameters& Pass,
+				const FRDGParameterResolver& Resolver) {
+				++ConsumerCalls;
+				const auto CheckResult = [&](const auto& Field) {
+					const auto* Result = Resolver.ReadValue(Field);
+					EXPECT_EQ(Result != nullptr, bRequested);
+					EXPECT_EQ(Result ? Result->Status : EScenePassStatus::NotRequested, Status);
+				};
+				CheckResult(Pass.AmbientOcclusion);
+				CheckResult(Pass.ContactShadow);
+				CheckResult(Pass.CloudShadow);
+			});
+		Graph.MarkPassRoot(Consumer, "test output");
+		const auto Execution = Graph.Execute(Executor.GetImmediateCommandList());
+		ASSERT_TRUE(Execution.IsSuccess()) << Execution.Result.Message;
+		EXPECT_EQ(ProducerCalls, bRequested ? 1u : 0u);
+		EXPECT_EQ(ConsumerCalls, 1u);
+		EXPECT_EQ(Graph.GetStatistics().ScheduledPasses, bRequested ? 2u : 1u);
+	}
 }
 
 TEST(FRendererSceneContractTests, ContactShadowPilotsComposeExactGraphicsAndComputeShaderAuthority)
@@ -1267,7 +1366,7 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		const auto Output = Builder.CreateToken("Scene.Output");
 		auto Parameters = Builder.AllocParameters<FInspectionOutputParameters>();
 		Parameters->Output = {Output};
-		const auto Final = Builder.AddPass(
+		const auto Final = Durin::FRDGBuilderTestAccessor::AddPass(Builder,
 			"Scene.FinalOutput", Durin::ERDGPassType::Graphics,
 			std::move(Parameters)
 		);
@@ -2369,8 +2468,8 @@ namespace Durin::Tests
 						FRHITextureCreateDesc::Create2D("BudgetTest", 8192,
 							Request.Megabytes * 32, EPixelFormat::RGBA8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable)}, Name);
-					const auto Pass = Builder.AddPass("Write" + Name, ERDGPassType::Graphics);
-					Builder.UseColorAttachment(Pass, Texture,
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write" + Name, ERDGPassType::Graphics);
+					FRDGBuilderTestAccessor::UseColorAttachment(Builder, Pass, Texture,
 						{ERHITextureAspect::Color, 0, 1, 0, 1},
 						ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
 					if (Request.bExtracted)
@@ -2381,8 +2480,8 @@ namespace Durin::Tests
 				{
 					const auto Buffer = Builder.CreateBuffer({.Buffer = FRHIBufferDesc(
 						Request.Megabytes * uint32(MiB), 4, EBufferUsageFlags::UnorderedAccess)}, Name);
-					const auto Pass = Builder.AddPass("Write" + Name, ERDGPassType::Compute);
-					Builder.UseBuffer(Pass, Buffer, 0, Request.Megabytes * MiB,
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder, "Write" + Name, ERDGPassType::Compute);
+					FRDGBuilderTestAccessor::UseBuffer(Builder, Pass, Buffer, 0, Request.Megabytes * MiB,
 						ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 					if (Request.bExtracted)
 						Builder.QueueBufferExtraction(Buffer, &ExportedBuffers[Index - 1],

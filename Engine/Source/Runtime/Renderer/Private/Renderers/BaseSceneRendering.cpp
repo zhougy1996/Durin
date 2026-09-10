@@ -10,20 +10,12 @@
 
 namespace Durin
 {
-	#define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, Use, Access, ...) \
-		MakeRDGResourceParameterMemberMetadata<FParameters, \
-			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
-				Kind, ERDGResourceKind::Texture, \
-				ERDGParameterRangeKind::TextureSubresource, Use, Access \
-				__VA_OPT__(,) __VA_ARGS__)
-	#define DURIN_TEXTURE(Field) DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
-		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
-		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_TEXTURE(Field) \
+		MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field))
 	#define DURIN_MANAGED_TEXTURE(Field, EntryAccess, Discard, ResultAccess) \
-		DURIN_RESOURCE_MEMBER(Field, FRDGManagedTextureParameter, \
-			ERDGParameterMemberKind::ManagedTexture, ERDGUse::ReadWrite, EntryAccess, \
-			Discard, ERHIRenderTargetLoadAction::Load, \
-			ERHIRenderTargetStoreAction::Store, true, ResultAccess)
+		MakeRDGManagedTextureMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field), EntryAccess, Discard, ResultAccess)
 	#define DURIN_DEFINE_METADATA(TypeName, ...) \
 		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
 		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
@@ -34,12 +26,9 @@ namespace Durin
 		DURIN_TEXTURE(DirectionalShadow), DURIN_TEXTURE(DefaultWhite),
 		DURIN_TEXTURE(DefaultShadowArray), DURIN_TEXTURE(EnvironmentIrradiance),
 		DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut),
-		DURIN_RESOURCE_MEMBER(SceneColorOutput, FRDGColorAttachmentParameter,
-			ERDGParameterMemberKind::ManagedColorAttachment, ERDGUse::ReadWrite,
-			ERHIAccess::ColorAttachmentReadWrite, true,
-			ERHIRenderTargetLoadAction::Clear,
-			ERHIRenderTargetStoreAction::Store, true,
-			ERHIAccess::GraphicsShaderRead),
+		MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::SceneColorOutput)>(
+			"SceneColorOutput", offsetof(FParameters, SceneColorOutput), ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToGraphics,
 			ERHIAccess::GraphicsShaderRead, false, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToDepth,
@@ -64,7 +53,6 @@ namespace Durin
 	#undef DURIN_DEFINE_METADATA
 	#undef DURIN_MANAGED_TEXTURE
 	#undef DURIN_TEXTURE
-	#undef DURIN_RESOURCE_MEMBER
 
 	namespace
 	{

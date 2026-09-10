@@ -1,3 +1,4 @@
+#include "../../RDGTestAccess.h"
 #include "PCH.VulkanRHI.h"
 #include "VulkanResourceState.h"
 
@@ -328,12 +329,12 @@ namespace Durin::VulkanRHI
 			RejectedBuilder.EnablePassCulling();
 			const auto RejectedBuffer = RejectedBuilder.CreateBuffer(
 				FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "RejectedBuffer");
-			const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
+			const auto RejectedPass = FRDGBuilderTestAccessor::AddPass(RejectedBuilder, "Rejected",
 				ERDGPassType::Copy,
 				[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 					bExecuted = true;
 				});
-			RejectedBuilder.UseBuffer(RejectedPass, RejectedBuffer, 0, 64,
+			FRDGBuilderTestAccessor::UseBuffer(RejectedBuilder, RejectedPass, RejectedBuffer, 0, 64,
 				ERDGUse::Write, ERHIAccess::TransferWrite, true);
 			RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
 			std::string AllocationError;
@@ -354,17 +355,17 @@ namespace Durin::VulkanRHI
 			const auto GraphTexture = Builder.CreateTexture(
 				FRDGTextureDesc{.Texture = TextureDesc}, "GraphTexture",
 				ERHIAccess::GraphicsShaderRead);
-			const auto Copy = Builder.AddPass("Copy", ERDGPassType::Copy);
-			Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERDGUse::Write,
+			const auto Copy = FRDGBuilderTestAccessor::AddPass(Builder, "Copy", ERDGPassType::Copy);
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Copy, GraphBuffer, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
-			Builder.UseTexture(Copy, GraphTexture,
+			FRDGBuilderTestAccessor::UseTexture(Builder, Copy, GraphTexture,
 				{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
-			const auto Consume = Builder.AddPass(
+			const auto Consume = FRDGBuilderTestAccessor::AddPass(Builder,
 				"Consume", ERDGPassType::Graphics);
-			Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERDGUse::Read,
+			FRDGBuilderTestAccessor::UseBuffer(Builder, Consume, GraphBuffer, 0, 64, ERDGUse::Read,
 				ERHIAccess::VertexBufferRead);
-			Builder.UseTexture(Consume, GraphTexture,
+			FRDGBuilderTestAccessor::UseTexture(Builder, Consume, GraphTexture,
 				{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
 				ERHIAccess::GraphicsShaderRead);
 			{
@@ -390,8 +391,8 @@ namespace Durin::VulkanRHI
 			FRDGBuilder Next;
 			const auto External = Next.RegisterExternalBuffer(Buffer, "ExternalHandoff",
 				ERHIAccess::VertexBufferRead, ERHIAccess::TransferWrite);
-			const auto Rewrite = Next.AddPass("Rewrite", ERDGPassType::Copy);
-			Next.UseBuffer(Rewrite, External, 0, 64, ERDGUse::Write,
+			const auto Rewrite = FRDGBuilderTestAccessor::AddPass(Next, "Rewrite", ERDGPassType::Copy);
+			FRDGBuilderTestAccessor::UseBuffer(Next, Rewrite, External, 0, 64, ERDGUse::Write,
 				ERHIAccess::TransferWrite, true);
 			const auto Handoff = Next.Execute(Commands);
 			ASSERT_TRUE(Handoff.IsSuccess()) << Handoff.Result.Message;

@@ -102,7 +102,7 @@ namespace Durin
 	{
 		TRDGValueRead<FSceneColorPassResult> BaseScene;
 		TRDGValueRead<FVolumetricCloudSpatialPassResult> Spatial;
-		TRDGValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
+		std::optional<TRDGValueRead<FVolumetricCloudShadowPassResult>> CloudShadow;
 		TRDGValueWrite<FVolumetricCloudPassResult> Completion;
 		FVolumetricCloudCompositePassResources Resources;
 
@@ -112,14 +112,15 @@ namespace Durin
 
 	struct FCloudShadowGraphOutput final
 	{
-		TRDGValueHandle<FVolumetricCloudShadowPassResult> Completion;
+		// Absence means the feature was not requested; no producer pass exists.
+		std::optional<TRDGValueHandle<FVolumetricCloudShadowPassResult>> Completion;
 		std::optional<FRDGTextureHandle> Fragment;
 		std::optional<FRDGTextureHandle> Compute;
 	};
 
 	struct FCloudSpatialGraphOutput final
 	{
-		TRDGValueHandle<FVolumetricCloudSpatialPassResult> Completion;
+		std::optional<TRDGValueHandle<FVolumetricCloudSpatialPassResult>> Completion;
 		std::optional<FRDGTextureHandle> Fragment;
 		std::optional<FRDGTextureHandle> Compute;
 		std::optional<FRDGTextureHandle> Composite;
@@ -127,7 +128,7 @@ namespace Durin
 
 	struct FCloudCompositeGraphOutput final
 	{
-		TRDGValueHandle<FVolumetricCloudPassResult> Completion;
+		std::optional<TRDGValueHandle<FVolumetricCloudPassResult>> Completion;
 		std::optional<FRDGTextureHandle> Composite;
 	};
 
@@ -147,7 +148,6 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		const FSceneFrameFeaturePlan::FCloudShadow& Feature;
-		const FSceneFeatureDecision& DeferredFeature;
 		uint32 Width;
 		uint32 Height;
 	};

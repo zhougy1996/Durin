@@ -21,10 +21,16 @@ namespace Durin
 			-> const FRDGParametersMetadata*;
 	};
 
+	// The four GBuffer color attachments are declared and consumed as one set.
+	struct FGBufferTextureHandles final
+	{
+		std::array<FRDGTextureHandle, 4> Colors;
+	};
+
 	struct FGBufferGraphOutput final
 	{
-		TRDGValueHandle<FGBufferPassResult> Completion;
-		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
+		std::optional<TRDGValueHandle<FGBufferPassResult>> Completion;
+		std::optional<FGBufferTextureHandles> Textures;
 		FRDGTextureHandle Depth;
 	};
 

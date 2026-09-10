@@ -1,4 +1,5 @@
 #include "Renderers/PostProcessRendering.h"
+#include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/SceneRenderTelemetry.h"
 
 #include "Renderers/SceneRendererProfiling.h"
@@ -10,20 +11,13 @@
 
 namespace Durin
 {
-	#define DURIN_RESOURCE(Field, Wrapper, Kind, Use, Access, ...) \
-		MakeRDGResourceParameterMemberMetadata<FParameters, \
-			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
-				Kind, ERDGResourceKind::Texture, \
-				ERDGParameterRangeKind::TextureSubresource, Use, Access \
-				__VA_OPT__(,) __VA_ARGS__)
-	#define DURIN_TEXTURE(Field) DURIN_RESOURCE(Field, FRDGTextureParameter, \
-		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
-		ERHIAccess::GraphicsShaderRead)
-	#define DURIN_COLOR(Field, Result) DURIN_RESOURCE(Field, \
-		FRDGColorAttachmentParameter, ERDGParameterMemberKind::ManagedColorAttachment, \
-		ERDGUse::ReadWrite, ERHIAccess::ColorAttachmentReadWrite, true, \
-		ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store, true, \
-		Result)
+	#define DURIN_TEXTURE(Field) \
+		MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field))
+	#define DURIN_COLOR(Field, Result) \
+		MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field), ERHIRenderTargetLoadAction::Clear, \
+			ERHIRenderTargetStoreAction::Store, Result)
 
 	auto FPostProcessPassResources::GetRDGParametersMetadata()
 		-> const FRDGParametersMetadata*
@@ -51,9 +45,6 @@ namespace Durin
 				decltype(FParameters::SceneColor), FSceneColorPassResult>(
 					"SceneColor", offsetof(FParameters, SceneColor)),
 			MakeRDGValueParameterMemberMetadata<FParameters,
-				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
-					"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
-			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::DeferredLighting), FIsolatedDeferredPassResult>(
 					"DeferredLighting", offsetof(FParameters, DeferredLighting)),
 			MakeRDGValueParameterMemberMetadata<FParameters,
@@ -70,7 +61,6 @@ namespace Durin
 
 	#undef DURIN_COLOR
 	#undef DURIN_TEXTURE
-	#undef DURIN_RESOURCE
 
 	namespace
 	{
@@ -126,11 +116,9 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
 						ERDGAllocationObservation::GBufferDebug)},
-				"Scene.GBuffer.Debug",
-				ERHIAccess::GraphicsShaderRead);
+				"Scene.GBuffer.Debug");
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
 		Parameters->SceneColor = {.Value = Inputs.SceneColor.Completion};
-		Parameters->GBufferCompletion = {.Value = Inputs.GBuffer.Completion};
 		Parameters->DeferredLighting = {
 			.Value = Inputs.Deferred.Completion};
 		Parameters->Completion = {.Value = PostProcessCompletion};
@@ -157,11 +145,9 @@ namespace Durin
 			Parameters->Resources.GBufferDebugOutput = {
 				*GBufferDebug,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (Inputs.GBuffer.Textures[0] && bGBufferDebug)
-			for (uint32 Index = 0; Index < Inputs.GBuffer.Textures.size(); ++Index)
-				Parameters->Resources.GBuffer[Index] = {
-					*Inputs.GBuffer.Textures[Index],
-					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+		if (Inputs.GBuffer.Textures && bGBufferDebug)
+			SceneTextureGroups::FillGBuffer(Inputs.GBuffer.Textures,
+				Parameters->Resources.GBuffer);
 		if (Inputs.Deferred.Isolated)
 			Parameters->Resources.IsolatedDeferred = {
 				*Inputs.Deferred.Isolated,
@@ -193,13 +179,8 @@ namespace Durin
 				if (PassParameters.Resources.GBufferDebugOutput)
 					DebugTargets = {.Color = Resolver.GetColorAttachment(
 						PassParameters.Resources.GBufferDebugOutput).Texture};
-				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (PassParameters.Resources.GBuffer[0] && bGBufferDebug)
-					GBufferTargets = {
-						.Material = Resolver.GetTexture(PassParameters.Resources.GBuffer[0]),
-						.Normals = Resolver.GetTexture(PassParameters.Resources.GBuffer[1]),
-						.Surface = Resolver.GetTexture(PassParameters.Resources.GBuffer[2]),
-						.Emissive = Resolver.GetTexture(PassParameters.Resources.GBuffer[3])};
+				const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
+					Resolver, PassParameters.Resources.GBuffer);
 				FRHITexture* IsolatedDeferredOutput = nullptr;
 				if (PassParameters.Resources.IsolatedDeferred
 					&& Resolver.ReadValue(PassParameters.DeferredLighting).bOutputValid)

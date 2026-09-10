@@ -143,16 +143,14 @@ namespace Durin
 					| ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::SourceCopy),
 			.ObservationTag = static_cast<uint32>(
-				ERDGAllocationObservation::Scene)}, "Scene.Color",
-			ERHIAccess::GraphicsShaderRead);
+				ERDGAllocationObservation::Scene)}, "Scene.Color");
 		GraphResources.SceneDepth = Graph.CreateTexture(
 			FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneDepth", Width, Height, EPixelFormat::D32)
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 					| ETextureCreateFlags::ShaderResource),
 			.ObservationTag = static_cast<uint32>(
-				ERDGAllocationObservation::Scene)}, "Scene.Depth",
-			ERHIAccess::DepthStencilReadWrite);
+				ERDGAllocationObservation::Scene)}, "Scene.Depth");
 		GraphResources.Output = Graph.RegisterExternalTexture(
 			FTextureRHIRef(OutputTarget), "Scene.Output",
 			ERHIAccess::Discard,
@@ -214,7 +212,6 @@ namespace Durin
 				.Weather = GraphResources.VolumetricCloudWeather,
 				.WeatherTexture = CloudWeatherTexture,
 				.Feature = Features.CloudShadow,
-				.DeferredFeature = Features.Deferred,
 				.Width = Width, .Height = Height});
 		const auto DeferredOutput =
 			FDeferredDirectionalLightingRendering::AddPasses({

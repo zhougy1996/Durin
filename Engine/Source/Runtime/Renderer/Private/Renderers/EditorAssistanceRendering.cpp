@@ -9,27 +9,18 @@
 
 namespace Durin
 {
-	#define DURIN_ATTACHMENT(Field, Wrapper, Kind, Access, Result) \
-		MakeRDGResourceParameterMemberMetadata<FParameters, \
-			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
-				Kind, ERDGResourceKind::Texture, \
-				ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, Access, \
-				false, ERHIRenderTargetLoadAction::Load, \
-				ERHIRenderTargetStoreAction::Store, true, Result)
+	#define DURIN_ATTACHMENT(Field, Result) \
+		MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field), ERHIRenderTargetLoadAction::Load, \
+			ERHIRenderTargetStoreAction::Store, Result)
 	auto FEditorAssistancePassResources::GetRDGParametersMetadata()
 		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FEditorAssistancePassResources;
 		static const std::array Members = {
-			DURIN_ATTACHMENT(EditorOutputPresent, FRDGColorAttachmentParameter,
-				ERDGParameterMemberKind::ManagedColorAttachment,
-				ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::Present),
-			DURIN_ATTACHMENT(EditorOutputOffscreen, FRDGColorAttachmentParameter,
-				ERDGParameterMemberKind::ManagedColorAttachment,
-				ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::GraphicsShaderRead),
-			DURIN_ATTACHMENT(EditorDepth, FRDGDepthStencilAttachmentParameter,
-				ERDGParameterMemberKind::ManagedDepthStencilAttachment,
-				ERHIAccess::DepthStencilReadWrite, ERHIAccess::DepthStencilReadWrite)};
+			DURIN_ATTACHMENT(EditorOutputPresent, ERHIAccess::Present),
+			DURIN_ATTACHMENT(EditorOutputOffscreen, ERHIAccess::GraphicsShaderRead),
+			DURIN_ATTACHMENT(EditorDepth, ERHIAccess::DepthStencilReadWrite)};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FEditorAssistancePassResources", Members);
 		return &Metadata;

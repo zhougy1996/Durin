@@ -29,7 +29,6 @@ namespace Durin
 	struct FPostProcessPassParameters final
 	{
 		TRDGValueRead<FSceneColorPassResult> SceneColor;
-		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
 		TRDGValueRead<FIsolatedDeferredPassResult> DeferredLighting;
 		TRDGValueWrite<FPostProcessPassResult> Completion;
 		FPostProcessPassResources Resources;

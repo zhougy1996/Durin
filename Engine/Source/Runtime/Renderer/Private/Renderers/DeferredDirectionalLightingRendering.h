@@ -38,10 +38,10 @@ namespace Durin
 	struct FDeferredDirectionalLightingPassParameters final
 	{
 		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
-		TRDGValueRead<FGroundTruthAmbientOcclusionPassResult> AmbientOcclusion;
-		TRDGValueRead<FContactShadowVisibilityPassResult> ContactShadow;
-		TRDGValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
+		std::optional<TRDGValueRead<FGBufferPassResult>> GBufferCompletion;
+		std::optional<TRDGValueRead<FGroundTruthAmbientOcclusionPassResult>> AmbientOcclusion;
+		std::optional<TRDGValueRead<FContactShadowVisibilityPassResult>> ContactShadow;
+		std::optional<TRDGValueRead<FVolumetricCloudShadowPassResult>> CloudShadow;
 		TRDGValueWrite<FIsolatedDeferredPassResult> Completion;
 		FDeferredDirectionalLightingPassResources Resources;
 

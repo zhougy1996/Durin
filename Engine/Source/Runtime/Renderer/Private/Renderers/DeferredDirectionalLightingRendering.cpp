@@ -1,4 +1,5 @@
 #include "Renderers/DeferredDirectionalLightingRendering.h"
+#include "Renderers/SceneTextureGroupParameters.h"
 #include "Renderers/VolumetricCloudRendering.h"
 #include "Renderers/SceneRenderTelemetry.h"
 
@@ -11,15 +12,9 @@
 
 namespace Durin
 {
-	#define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, Use, Access, ...) \
-		MakeRDGResourceParameterMemberMetadata<FParameters, \
-			decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
-				Kind, ERDGResourceKind::Texture, \
-				ERDGParameterRangeKind::TextureSubresource, Use, Access \
-				__VA_OPT__(,) __VA_ARGS__)
-	#define DURIN_TEXTURE(Field) DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
-		ERDGParameterMemberKind::Texture, ERDGUse::Read, \
-		ERHIAccess::GraphicsShaderRead)
+	#define DURIN_TEXTURE(Field) \
+		MakeRDGTextureReadMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field))
 	#define DURIN_DEFINE_METADATA(TypeName, ...) \
 		auto TypeName::GetRDGParametersMetadata() -> const FRDGParametersMetadata* \
 		{ using FParameters = TypeName; static const std::array Members = {__VA_ARGS__}; \
@@ -34,13 +29,9 @@ namespace Durin
 		DURIN_TEXTURE(DefaultWhite), DURIN_TEXTURE(DefaultShadowArray),
 		DURIN_TEXTURE(EnvironmentIrradiance),
 		DURIN_TEXTURE(EnvironmentPrefiltered), DURIN_TEXTURE(EnvironmentBrdfLut),
-		DURIN_RESOURCE_MEMBER(IsolatedDeferredOutput,
-			FRDGColorAttachmentParameter,
-			ERDGParameterMemberKind::ManagedColorAttachment, ERDGUse::ReadWrite,
-			ERHIAccess::ColorAttachmentReadWrite, true,
-			ERHIRenderTargetLoadAction::Clear,
-			ERHIRenderTargetStoreAction::Store, true,
-			ERHIAccess::GraphicsShaderRead));
+		MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::IsolatedDeferredOutput)>(
+			"IsolatedDeferredOutput", offsetof(FParameters, IsolatedDeferredOutput), ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store, ERHIAccess::GraphicsShaderRead));
 
 	DURIN_DEFINE_METADATA(FDeferredDirectionalLightingPassParameters,
 		MakeRDGValueParameterMemberMetadata<FParameters,
@@ -69,7 +60,6 @@ namespace Durin
 
 	#undef DURIN_DEFINE_METADATA
 	#undef DURIN_TEXTURE
-	#undef DURIN_RESOURCE_MEMBER
 
 	namespace
 	{
@@ -147,18 +137,23 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
 						ERDGAllocationObservation::DeferredDirectional)},
-				"Scene.DeferredDirectionalLighting.Isolated",
-				ERHIAccess::GraphicsShaderRead);
+				"Scene.DeferredDirectionalLighting.Isolated");
 		auto Parameters = Graph.AllocParameters<
 			FDeferredDirectionalLightingPassParameters>();
 		Parameters->DirectionalShadow = {
 			.Value = Inputs.DirectionalShadow.Completion};
-		Parameters->GBufferCompletion = {.Value = Inputs.GBuffer.Completion};
-		Parameters->AmbientOcclusion = {
-			.Value = Inputs.AmbientOcclusion.Completion};
-		Parameters->ContactShadow = {
-			.Value = Inputs.ContactShadow.Completion};
-		Parameters->CloudShadow = {.Value = Inputs.CloudShadow.Completion};
+		if (Inputs.GBuffer.Completion)
+			Parameters->GBufferCompletion = TRDGValueRead<FGBufferPassResult>{
+				.Value = *Inputs.GBuffer.Completion};
+		if (Inputs.AmbientOcclusion.Completion)
+			Parameters->AmbientOcclusion = TRDGValueRead<FGroundTruthAmbientOcclusionPassResult>{
+				.Value = *Inputs.AmbientOcclusion.Completion};
+		if (Inputs.ContactShadow.Completion)
+			Parameters->ContactShadow = TRDGValueRead<FContactShadowVisibilityPassResult>{
+				.Value = *Inputs.ContactShadow.Completion};
+		if (Inputs.CloudShadow.Completion)
+			Parameters->CloudShadow = TRDGValueRead<FVolumetricCloudShadowPassResult>{
+				.Value = *Inputs.CloudShadow.Completion};
 		Parameters->Completion = {
 			.Value = DeferredDirectionalLightingCompletion};
 		std::vector<FRDGTextureHandle> DeclaredPersistentInputs;
@@ -174,21 +169,16 @@ namespace Durin
 		};
 		AssignRead(Parameters->Resources.DirectionalShadow,
 			Inputs.DirectionalShadow.Shadow, DirectionalShadowTexture);
-		if (Inputs.GBuffer.Textures[0])
+		if (Inputs.GBuffer.Textures)
 		{
-			for (uint32 Index = 0; Index < Inputs.GBuffer.Textures.size(); ++Index)
-				Parameters->Resources.GBuffer[Index] = {
-					*Inputs.GBuffer.Textures[Index],
-					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+			SceneTextureGroups::FillGBuffer(Inputs.GBuffer.Textures,
+				Parameters->Resources.GBuffer);
 			Parameters->Resources.SceneDepth = {Inputs.GBuffer.Depth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		for (uint32 Index = 0;
-			Index < Inputs.AmbientOcclusion.Textures.size(); ++Index)
-			if (Inputs.AmbientOcclusion.Textures[Index])
-				Parameters->Resources.AmbientOcclusion[Index] = {
-					*Inputs.AmbientOcclusion.Textures[Index],
-					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+		if (Inputs.AmbientOcclusion.Textures)
+			SceneTextureGroups::FillAmbientOcclusion(*Inputs.AmbientOcclusion.Textures,
+				Parameters->Resources.AmbientOcclusion);
 		if (Inputs.ContactShadow.Fragment)
 			Parameters->Resources.ContactShadowFragment = {
 				*Inputs.ContactShadow.Fragment,
@@ -235,30 +225,14 @@ namespace Durin
 				FRHICommandListImmediate& Commands,
 				const FDeferredDirectionalLightingPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) mutable {
-				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (PassParameters.Resources.GBuffer[0])
-					GBufferTargets = {
-						.Material = Resolver.GetTexture(PassParameters.Resources.GBuffer[0]),
-						.Normals = Resolver.GetTexture(PassParameters.Resources.GBuffer[1]),
-						.Surface = Resolver.GetTexture(PassParameters.Resources.GBuffer[2]),
-						.Emissive = Resolver.GetTexture(PassParameters.Resources.GBuffer[3])};
+				const auto GBufferTargets = SceneTextureGroups::ResolveGBuffer(
+					Resolver, PassParameters.Resources.GBuffer);
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
 					.Depth = GBufferTargets
 						? Resolver.GetTexture(PassParameters.Resources.SceneDepth) : nullptr};
-				std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
-					AmbientOcclusionTargets;
-				if (PassParameters.Resources.AmbientOcclusion[0])
-					AmbientOcclusionTargets = {
-						.Raw = Resolver.GetTexture(PassParameters.Resources.AmbientOcclusion[0]),
-						.Scratch = Resolver.GetTexture(PassParameters.Resources.AmbientOcclusion[1]),
-						.Selector = PassParameters.Resources.AmbientOcclusion[2]
-							? Resolver.GetTexture(PassParameters.Resources.AmbientOcclusion[2])
-							: nullptr,
-						.Resolved = PassParameters.Resources.AmbientOcclusion[3]
-							? Resolver.GetTexture(PassParameters.Resources.AmbientOcclusion[3])
-							: nullptr,
-						.Quality = AmbientOcclusionQuality};
+				const auto AmbientOcclusionTargets = SceneTextureGroups::ResolveOptionalAmbientOcclusion(
+					Resolver, PassParameters.Resources.AmbientOcclusion, AmbientOcclusionQuality);
 				std::optional<FContactShadowVisibilityRenderer::FTargets>
 					FragmentContactTargets;
 				if (PassParameters.Resources.ContactShadowFragment)
@@ -281,14 +255,18 @@ namespace Durin
 						PassParameters.Resources.CloudShadowCompute)};
 				const auto& DirectionalShadowResult = Resolver.ReadValue(
 					PassParameters.DirectionalShadow);
-				const auto& GBufferResult = Resolver.ReadValue(
+				const auto* GBufferValue = Resolver.ReadValue(
 					PassParameters.GBufferCompletion);
-				const auto& AmbientOcclusionResult = Resolver.ReadValue(
-					PassParameters.AmbientOcclusion);
-				const auto& ContactShadowResult = Resolver.ReadValue(
-					PassParameters.ContactShadow);
-				const auto& CloudShadowResult = Resolver.ReadValue(
-					PassParameters.CloudShadow);
+				const auto GBufferResult = GBufferValue ? *GBufferValue : FGBufferPassResult{};
+				const auto* AmbientOcclusionValue = Resolver.ReadValue(PassParameters.AmbientOcclusion);
+				const auto AmbientOcclusionResult = AmbientOcclusionValue
+					? *AmbientOcclusionValue : FGroundTruthAmbientOcclusionPassResult{};
+				const auto* ContactShadowValue = Resolver.ReadValue(PassParameters.ContactShadow);
+				const auto ContactShadowResult = ContactShadowValue
+					? *ContactShadowValue : FContactShadowVisibilityPassResult{};
+				const auto* CloudShadowValue = Resolver.ReadValue(PassParameters.CloudShadow);
+				const auto CloudShadowResult = CloudShadowValue
+					? *CloudShadowValue : FVolumetricCloudShadowPassResult{};
 				auto& DeferredResult = Resolver.WriteValue(PassParameters.Completion);
 				DeferredParameters = bWantsDeferredInputs
 					? Recorder.BuildDeferredParameters(

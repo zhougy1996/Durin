@@ -1,3 +1,4 @@
+#include "../../RDGTestAccess.h"
 #include <gtest/gtest.h>
 #include "VulkanEngineTestSupport.h"
 
@@ -606,17 +607,17 @@ namespace Durin
 								EPixelFormat::RGBA8_UNORM)
 								.SetFlags(ETextureCreateFlags::RenderTargetable)},
 						Names[Index]);
-					const auto Pass = Builder.AddPass(
+					const auto Pass = FRDGBuilderTestAccessor::AddPass(Builder,
 						"Write", ERDGPassType::Graphics);
-					Builder.UseColorAttachment(Pass, Texture,
+					FRDGBuilderTestAccessor::UseColorAttachment(Builder, Pass, Texture,
 						{ERHITextureAspect::Color, 0, 1, 0, 1},
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store);
 					const auto Buffer = Builder.CreateBuffer(
 						FRDGBufferDesc{.Buffer = FRHIBufferDesc(
 							64, 4, EBufferUsageFlags::UnorderedAccess)}, "Buffer");
-					const auto Compute = Builder.AddPass("Compute", ERDGPassType::Compute);
-					Builder.UseBuffer(Compute, Buffer, 0, 64, ERDGUse::Write,
+					const auto Compute = FRDGBuilderTestAccessor::AddPass(Builder, "Compute", ERDGPassType::Compute);
+					FRDGBuilderTestAccessor::UseBuffer(Builder, Compute, Buffer, 0, 64, ERDGUse::Write,
 						ERHIAccess::ComputeShaderReadWrite, true);
 					if (Index == 1)
 					{

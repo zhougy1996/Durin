@@ -1,4 +1,5 @@
 #include "RDG.h"
+#include "Misc/Time.h"
 
 #include "RHICommandList.h"
 
@@ -19,8 +20,6 @@ namespace Durin
 			FRHITextureDesc TextureDesc;
 			FRHIBufferDesc BufferDesc;
 			uint32 ObservationTag = 0;
-			uint64 PhysicalAllocationId = 0;
-			std::string AllocationDisposition;
 			ERHIAccess InitialAccess = ERHIAccess::Discard;
 			ERHIAccess FinalAccess = ERHIAccess::None;
 			bool bExternal = false;
@@ -42,6 +41,15 @@ namespace Durin
 				return bExternal && InitialAccess != ERHIAccess::None
 					&& !EnumHasAnyFlags(InitialAccess, ERHIAccess::Discard);
 			}
+		};
+
+		// Physical backing is execution state; declarations stay frozen after Building.
+		struct FGraphResourceBacking final
+		{
+			FTextureRHIRef Texture;
+			FBufferRHIRef Buffer;
+			uint64 PhysicalAllocationId = 0;
+			std::string AllocationDisposition;
 		};
 
 		struct FGraphUse
@@ -98,13 +106,11 @@ namespace Durin
 			ERDGPassType Type = ERDGPassType::Graphics;
 			std::vector<FGraphUse> Uses;
 			std::vector<uint32> Prerequisites;
-			FRDGPassExecute Execute;
 			FRDGParameterizedPassExecute ParameterizedExecute;
 			bool bRoot = false;
 			// Terminal exports consume contents but may hand off a writable access state.
 			bool bExport = false;
 			std::string RootReason;
-			bool bParameterized = false;
 			// Only frozen uses may retain validation across later graph declarations.
 			bool bDeclarationsValidated = false;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
@@ -1005,7 +1011,18 @@ namespace Durin
 			return {};
 		}
 
-		using FResourceUseTable = std::vector<std::vector<const FGraphUse*>>;
+		// Borrows frozen uses in declaration order within each resource's contiguous slice.
+		struct FResourceUseTable final
+		{
+			std::vector<size_t> Offsets;
+			std::vector<const FGraphUse*> Uses;
+
+			auto operator[](uint32 ResourceIndex) const -> std::span<const FGraphUse* const>
+			{
+				return std::span(Uses).subspan(Offsets[ResourceIndex],
+					Offsets[ResourceIndex + 1] - Offsets[ResourceIndex]);
+			}
+		};
 
 		auto SafetyLimit(std::string_view Name, size_t Actual, size_t Limit)
 			-> FRDGResult
@@ -1207,18 +1224,18 @@ namespace Durin
 		auto BuildResourceUseTable(FGraphPassView Passes,
 			uint32 ResourceCount) -> FResourceUseTable
 		{
-			FResourceUseTable ResourceUses(ResourceCount);
-			std::vector<size_t> ResourceUseCounts(ResourceCount, 0);
+			FResourceUseTable ResourceUses;
+			ResourceUses.Offsets.resize(static_cast<size_t>(ResourceCount) + 1, 0);
 			for (size_t Index = 0; Index < Passes.size(); ++Index)
 				for (const auto& Use : Passes[Index].Uses)
-					++ResourceUseCounts[Use.ResourceIndex];
-			for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount;
-				++ResourceIndex)
-				ResourceUses[ResourceIndex].reserve(
-					ResourceUseCounts[ResourceIndex]);
+					++ResourceUses.Offsets[Use.ResourceIndex + 1];
+			std::partial_sum(ResourceUses.Offsets.begin(), ResourceUses.Offsets.end(),
+				ResourceUses.Offsets.begin());
+			ResourceUses.Uses.resize(ResourceUses.Offsets.back());
+			auto Cursors = ResourceUses.Offsets;
 			for (size_t Index = 0; Index < Passes.size(); ++Index)
 				for (const auto& Use : Passes[Index].Uses)
-					ResourceUses[Use.ResourceIndex].push_back(&Use);
+					ResourceUses.Uses[Cursors[Use.ResourceIndex]++] = &Use;
 			return ResourceUses;
 		}
 
@@ -1436,10 +1453,18 @@ namespace Durin
 			if (!bEnableCulling) return Retained;
 
 			// Index finalized kinds so Execution-to-Value upgrades propagate retention.
-			std::vector<std::vector<uint32>> Predecessors(Passes.size());
+			std::vector<size_t> Offsets(Passes.size() + 1, 0);
 			for (const auto& Edge : Dependencies)
 				if (Edge.Kind != ERDGDependencyKind::Execution)
-					Predecessors[Edge.AfterPass].push_back(Edge.BeforePass);
+					++Offsets[Edge.AfterPass + 1];
+			std::partial_sum(Offsets.begin(), Offsets.end(), Offsets.begin());
+			std::vector<uint32> Predecessors(Offsets.back());
+			{
+				auto Cursors = Offsets;
+				for (const auto& Edge : Dependencies)
+					if (Edge.Kind != ERDGDependencyKind::Execution)
+						Predecessors[Cursors[Edge.AfterPass]++] = Edge.BeforePass;
+			}
 
 			std::vector<uint32> Pending;
 			Pending.reserve(Passes.size());
@@ -1453,7 +1478,8 @@ namespace Durin
 			{
 				const uint32 After = Pending.back();
 				Pending.pop_back();
-				for (uint32 Before : Predecessors[After])
+				for (uint32 Before : std::span(Predecessors).subspan(
+					Offsets[After], Offsets[After + 1] - Offsets[After]))
 					if (!Retained[Before])
 					{
 						Retained[Before] = true;
@@ -1561,6 +1587,9 @@ namespace Durin
 
 	struct FRDGBuilder::FState
 	{
+		uint64 CompileMicroseconds = 0;
+		uint64 ExecuteMicroseconds = 0;
+		FRDGPhaseTimings Phases;
 		uint64 Owner = 0;
 		std::vector<FGraphResource> Resources;
 		std::unordered_map<const void*, uint32> ExternalResources;
@@ -1590,7 +1619,6 @@ namespace Durin
 		// Keeps all execution-only state for one scheduled pass in one record.
 		struct FCompiledPassRuntime final
 		{
-			const FRDGPassExecute* Execute = nullptr;
 			const FRDGParameterizedPassExecute* ParameterizedExecute = nullptr;
 			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
@@ -1603,7 +1631,9 @@ namespace Durin
 		};
 
 		uint64 Owner = 0;
-		std::vector<FGraphResource> Resources;
+		// Borrows declarations owned by this single-use builder.
+		std::span<const FGraphResource> Resources;
+		std::vector<FGraphResourceBacking> Backings;
 		std::vector<FRDGCompiledPass> Passes;
 		std::vector<FCompiledPassRuntime> RuntimePasses;
 		std::vector<FRDGDependency> Dependencies;
@@ -1616,8 +1646,6 @@ namespace Durin
 		std::vector<uint32> FinalTextureTransitionResources;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		FRDGBudget Budget;
-		uint64 CompileMicroseconds = 0;
-		uint64 ExecuteMicroseconds = 0;
 		FRDGAllocationStatistics AllocationStatistics;
 	};
 
@@ -1992,7 +2020,7 @@ namespace Durin
 		State->Resources[Buffer.Index].BufferDestination = Destination;
 	}
 
-	auto FRDGBuilder::AddPass(std::string_view Name,
+	auto FRDGBuilder::AddTestPass(std::string_view Name,
 		ERDGPassType Type, FRDGPassExecute Execute)
 		-> FRDGPassHandle
 	{
@@ -2001,7 +2029,11 @@ namespace Durin
 		FGraphPass Pass;
 		Pass.Name = Name;
 		Pass.Type = Type;
-		Pass.Execute = std::move(Execute);
+		if (Execute)
+			Pass.ParameterizedExecute = [Callback = std::move(Execute)](
+				FRHICommandListImmediate& CommandList, const FRDGParameterResolver& Resolver) {
+				Callback(CommandList, Resolver.Resources);
+			};
 		State->Passes.push_back(std::move(Pass));
 		return {State->Owner, Index};
 	}
@@ -2009,7 +2041,7 @@ namespace Durin
 	auto FRDGBuilder::AddParameterizedPass(std::string_view Name,
 		ERDGPassType Type,
 		const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
-		std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
+		std::shared_ptr<void> Lifetime,
 		FRDGParameterizedPassExecute ParameterizedExecute)
 		-> FRDGPassHandle
 	{
@@ -2044,9 +2076,7 @@ namespace Durin
 		FGraphPass ParameterizedPass;
 		ParameterizedPass.Name = Name;
 		ParameterizedPass.Type = Type;
-		ParameterizedPass.Execute = std::move(Execute);
 		ParameterizedPass.ParameterizedExecute = std::move(ParameterizedExecute);
-		ParameterizedPass.bParameterized = true;
 		ParameterizedPass.ParameterLayout = Layout;
 		ParameterizedPass.Parameters = Parameters;
 
@@ -2115,7 +2145,7 @@ namespace Durin
 				std::string(InvalidHandleError)});
 			return false;
 		}
-		if (State->Passes[Pass.Index].bParameterized)
+		if (State->Passes[Pass.Index].ParameterLayout != nullptr)
 		{
 			State->DeclarationErrors.push_back({ERDGError::InvalidDeclaration,
 				"pass '"
@@ -2167,25 +2197,39 @@ namespace Durin
 				? Producer.Index : std::numeric_limits<uint32>::max());
 	}
 
+	auto FRDGBuilder::DeclareTextureUse(FRDGPassHandle Pass,
+		FRDGTextureHandle Texture, const FRHITextureSubresourceRange& Range,
+		ERDGUse Use, ERHIAccess Access, bool bDiscard, bool bStore,
+		bool bPassManagedTransition, ERHIAccess ResultAccess) -> void
+	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
+		FGraphUse DeclaredUse;
+		DeclaredUse.ResourceIndex = Texture.Owner == State->Owner ? Texture.Index
+			: std::numeric_limits<uint32>::max();
+		DeclaredUse.Kind = ERDGResourceKind::Texture;
+		DeclaredUse.Use = Use;
+		DeclaredUse.Access = Access;
+		DeclaredUse.bDiscard = bDiscard;
+		DeclaredUse.TextureRange = Range;
+		DeclaredUse.bStore = bStore;
+		DeclaredUse.bPassManagedTransition = bPassManagedTransition;
+		DeclaredUse.ResultAccess = ResultAccess;
+		State->Passes[Pass.Index].Uses.push_back(DeclaredUse);
+	}
+
 	auto FRDGBuilder::UseTexture(FRDGPassHandle Pass,
 		FRDGTextureHandle Texture,
 		const FRHITextureSubresourceRange& Range, ERDGUse Use,
 		ERHIAccess Access, bool bDiscard) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		State->Passes[Pass.Index].Uses.push_back({
-			Texture.Owner == State->Owner ? Texture.Index
-				: std::numeric_limits<uint32>::max(),
-			ERDGResourceKind::Texture, Use, Access, bDiscard, Range});
+		DeclareTextureUse(Pass, Texture, Range, Use, Access, bDiscard);
 	}
 
 	auto FRDGBuilder::UseBuffer(FRDGPassHandle Pass,
 		FRDGBufferHandle Buffer, uint64 Offset, uint64 Size,
 		ERDGUse Use, ERHIAccess Access, bool bDiscard) -> void
 	{
-		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"buffer use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
@@ -2206,15 +2250,10 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		UseTexture(Pass, Texture, Range, ERDGUse::ReadWrite,
+		DeclareTextureUse(Pass, Texture, Range, ERDGUse::ReadWrite,
 			ERHIAccess::ColorAttachmentReadWrite,
-			LoadAction != ERHIRenderTargetLoadAction::Load);
-		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
-			State->Passes[Pass.Index].Uses.back().bStore =
-				StoreAction == ERHIRenderTargetStoreAction::Store;
+			LoadAction != ERHIRenderTargetLoadAction::Load,
+			StoreAction == ERHIRenderTargetStoreAction::Store);
 	}
 
 	auto FRDGBuilder::UseDepthStencilAttachment(
@@ -2223,15 +2262,10 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		UseTexture(Pass, Texture, Range, ERDGUse::ReadWrite,
+		DeclareTextureUse(Pass, Texture, Range, ERDGUse::ReadWrite,
 			ERHIAccess::DepthStencilReadWrite,
-			LoadAction != ERHIRenderTargetLoadAction::Load);
-		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
-			State->Passes[Pass.Index].Uses.back().bStore =
-				StoreAction == ERHIRenderTargetStoreAction::Store;
+			LoadAction != ERHIRenderTargetLoadAction::Load,
+			StoreAction == ERHIRenderTargetStoreAction::Store);
 	}
 
 	auto FRDGBuilder::UseManagedColorAttachment(
@@ -2240,16 +2274,10 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		UseColorAttachment(Pass, Texture, Range, LoadAction, StoreAction);
-		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
-		{
-			auto& Use = State->Passes[Pass.Index].Uses.back();
-			Use.bPassManagedTransition = true;
-			Use.ResultAccess = ResultAccess;
-		}
+		DeclareTextureUse(Pass, Texture, Range, ERDGUse::ReadWrite,
+			ERHIAccess::ColorAttachmentReadWrite,
+			LoadAction != ERHIRenderTargetLoadAction::Load,
+			StoreAction == ERHIRenderTargetStoreAction::Store, true, ResultAccess);
 	}
 
 	auto FRDGBuilder::UseManagedDepthStencilAttachment(
@@ -2258,16 +2286,10 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		UseDepthStencilAttachment(Pass, Texture, Range, LoadAction, StoreAction);
-		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
-		{
-			auto& Use = State->Passes[Pass.Index].Uses.back();
-			Use.bPassManagedTransition = true;
-			Use.ResultAccess = ResultAccess;
-		}
+		DeclareTextureUse(Pass, Texture, Range, ERDGUse::ReadWrite,
+			ERHIAccess::DepthStencilReadWrite,
+			LoadAction != ERHIRenderTargetLoadAction::Load,
+			StoreAction == ERHIRenderTargetStoreAction::Store, true, ResultAccess);
 	}
 
 	auto FRDGBuilder::UseManagedTexture(FRDGPassHandle Pass,
@@ -2275,22 +2297,13 @@ namespace Durin
 		const FRHITextureSubresourceRange& Range, ERDGUse Use,
 		ERHIAccess EntryAccess, ERHIAccess ResultAccess, bool bDiscard) -> void
 	{
-		RequireBuilding();
-		if (!CanDeclareManualUse(Pass,
-			"texture use has an invalid pass handle")) return;
-		UseTexture(Pass, Texture, Range, Use, EntryAccess, bDiscard);
-		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
-		{
-			auto& DeclaredUse = State->Passes[Pass.Index].Uses.back();
-			DeclaredUse.bPassManagedTransition = true;
-			DeclaredUse.ResultAccess = ResultAccess;
-		}
+		DeclareTextureUse(Pass, Texture, Range, Use, EntryAccess, bDiscard,
+			true, true, ResultAccess);
 	}
 
 	auto FRDGBuilder::UseToken(FRDGPassHandle Pass,
 		FRDGTokenHandle Token, ERDGUse Use) -> void
 	{
-		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"token use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
@@ -2306,7 +2319,6 @@ namespace Durin
 		uint64 Owner, uint32 Index, const void* TypeIdentity,
 		ERDGUse Use) -> void
 	{
-		RequireBuilding();
 		if (!CanDeclareManualUse(Pass,
 			"typed value use has an invalid pass handle")) return;
 		if (Use != ERDGUse::Read && Use != ERDGUse::Write)
@@ -2337,9 +2349,10 @@ namespace Durin
 
 	auto FRDGBuilder::Compile() -> FRDGResult
 	{
+		FScopedMicrosecondTimer CompileTimer(State->CompileMicroseconds);
+		FScopedMicrosecondTimer ValidationTimer(State->Phases.ValidationMicroseconds);
 		if (State->PendingConstructions != 0)
 			return {ERDGError::InvalidState, "render graph storage construction is incomplete"};
-		const auto Started = std::chrono::steady_clock::now();
 		if (!State->DeclarationErrors.empty())
 			return State->DeclarationErrors.front();
 		if (State->Resources.size() > State->Budget.MaxResources)
@@ -2415,22 +2428,36 @@ namespace Durin
 			ResourceUses); !Error.IsSuccess())
 			return Error;
 
+		ValidationTimer.Stop();
+		FScopedMicrosecondTimer RangeTimer(State->Phases.RangeMicroseconds);
 		FRangeWork Work{State->Budget};
 		FResourceCells Cells;
 		if (auto Error = BuildRangeCells(State->Resources, ResourceUses, Work, Cells);
 			!Error.IsSuccess()) return Error;
 
+		RangeTimer.Stop();
+		FScopedMicrosecondTimer DependencyTimer(State->Phases.DependencyMicroseconds);
 		if (auto Error = BuildHazardDependencies(Passes,
 			State->Resources, Cells, DependencyGraph, Work); !Error.IsSuccess())
 			return Error;
 
+		DependencyTimer.Stop();
+		FScopedMicrosecondTimer CullingTimer(State->Phases.CullingMicroseconds);
 		const std::vector<bool> Retained = FindRetainedPasses(Passes,
 			DependencyGraph.Dependencies,
 			State->bEnableCulling);
 
+		CullingTimer.Stop();
+		FScopedMicrosecondTimer PlanTimer(State->Phases.PlanMicroseconds);
 		auto CompiledState = std::make_unique<FRDGBuilder::FCompiledState>();
 		CompiledState->Owner = State->Owner;
 		CompiledState->Resources = State->Resources;
+		CompiledState->Backings.resize(ResourceCount);
+		for (uint32 Index = 0; Index < ResourceCount; ++Index)
+		{
+			CompiledState->Backings[Index].Texture = State->Resources[Index].Texture;
+			CompiledState->Backings[Index].Buffer = State->Resources[Index].Buffer;
+		}
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
 		CompiledState->RuntimePasses.reserve(PassCount);
@@ -2470,8 +2497,6 @@ namespace Durin
 					&& Pass.ParameterLayout->Metadata->StructName != nullptr
 					? Pass.ParameterLayout->Metadata->StructName : ""};
 			FRDGBuilder::FCompiledState::FCompiledPassRuntime Runtime{
-				.Execute = ScheduledIndex < State->Passes.size()
-					? &State->Passes[ScheduledIndex].Execute : nullptr,
 				.ParameterizedExecute = ScheduledIndex < State->Passes.size()
 					? &State->Passes[ScheduledIndex].ParameterizedExecute : nullptr,
 				.ParameterLayout = Pass.ParameterLayout,
@@ -2588,9 +2613,6 @@ namespace Durin
 		CompiledState->Retained = Retained;
 		if (bHasExport)
 			CompiledState->ExportPass = std::move(Export);
-		CompiledState->CompileMicroseconds = static_cast<uint64>(
-			std::chrono::duration_cast<std::chrono::microseconds>(
-				std::chrono::steady_clock::now() - Started).count());
 		Diagnostics.reset();
 		Compiled = std::move(CompiledState);
 		State->bCompiled = true;
@@ -2606,19 +2628,16 @@ namespace Durin
 			Diagnostics = std::move(Result);
 			return;
 		}
-		auto DeclaredPass = [&](uint32 Index) -> const FGraphPass& {
-			return Index < State->Passes.size()
-				? State->Passes[Index] : Compiled->ExportPass;
-		};
-		FResourceUseTable ResourceUses(Compiled->Resources.size());
+		const FGraphPassView Passes{State->Passes,
+			Compiled->Retained.size() > State->Passes.size() ? &Compiled->ExportPass : nullptr};
+		const auto ResourceUses = BuildResourceUseTable(Passes,
+			static_cast<uint32>(Compiled->Resources.size()));
 		for (uint32 Index = 0; Index < Compiled->Retained.size(); ++Index)
 		{
-			const auto& Pass = DeclaredPass(Index);
+			const auto& Pass = Passes[Index];
 			Result->CullingDecisions.push_back({Pass.Name, !Compiled->Retained[Index],
 				Compiled->Retained[Index] ? (Pass.bRoot ? Pass.RootReason : "value dependency")
 					: "unreachable from an explicit root"});
-			for (const auto& Use : Pass.Uses)
-				ResourceUses[Use.ResourceIndex].push_back(&Use);
 			if (Pass.ParameterLayout == nullptr) continue;
 			size_t UseIndex = 0;
 			for (const auto& Element : Pass.ParameterLayout->Elements)
@@ -2668,8 +2687,9 @@ namespace Durin
 			Capture.AllocationDisposition = Lifetime.bCulled ? "culled"
 				: Resource.bExternal ? "external"
 				: Resource.Kind == ERDGResourceKind::Token ? "none"
-				: Resource.AllocationDisposition.empty() ? "pending" : Resource.AllocationDisposition;
-			Capture.PhysicalAllocationId = Resource.PhysicalAllocationId;
+				: Compiled->Backings[Index].AllocationDisposition.empty() ? "pending"
+				: Compiled->Backings[Index].AllocationDisposition;
+			Capture.PhysicalAllocationId = Compiled->Backings[Index].PhysicalAllocationId;
 		}
 
 		// Reconstruct the same deterministic partition only on explicit inspection.
@@ -2681,7 +2701,7 @@ namespace Durin
 		for (uint32 PassIndex = 0; PassIndex < Compiled->Passes.size(); ++PassIndex)
 		{
 			const uint32 DeclarationIndex = Compiled->Passes[PassIndex].DeclarationIndex;
-			for (const auto& Use : DeclaredPass(DeclarationIndex).Uses)
+			for (const auto& Use : Passes[DeclarationIndex].Uses)
 			{
 				const auto VisitError = Cells.VisitUse(Use, [&](FRangeState& Cell) -> FRDGResult
 				{
@@ -2741,7 +2761,7 @@ namespace Durin
 		-> std::span<const FRHITextureTransition> { return Compiled->FinalTextureTransitions; }
 	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
 	{
-		return Compiled->CompileMicroseconds;
+		return State->CompileMicroseconds;
 	}
 
 	auto FRDGBuilder::GetBudget() const -> const FRDGBudget&
@@ -2765,9 +2785,10 @@ namespace Durin
 			Result.BufferTransitions += static_cast<uint32>(Pass.BufferTransitions.size());
 			Result.TextureTransitions += static_cast<uint32>(Pass.TextureTransitions.size());
 		}
-		Result.CompileMicroseconds = Compiled->CompileMicroseconds;
+		Result.Phases = State->Phases;
+		Result.CompileMicroseconds = State->CompileMicroseconds;
 		Result.ExecuteMicroseconds =
-			Compiled->ExecuteMicroseconds;
+			State->ExecuteMicroseconds;
 		Result.bPassRegressionBudgetExceeded = Result.DeclaredPasses
 			> Compiled->Budget.RegressionMaxPasses;
 		Result.bDependencyRegressionBudgetExceeded = Result.Dependencies
@@ -2777,9 +2798,9 @@ namespace Durin
 		Result.bTextureTransitionRegressionBudgetExceeded = Result.TextureTransitions
 			> Compiled->Budget.RegressionMaxTextureTransitions;
 		Result.bCompileBudgetExceeded = Result.CompileMicroseconds
-			> Compiled->Budget.MaxCompileMicroseconds;
+			> GetBudget().MaxCompileMicroseconds;
 		Result.bExecuteBudgetExceeded = Result.ExecuteMicroseconds
-			> Compiled->Budget.MaxExecuteMicroseconds;
+			> GetBudget().MaxExecuteMicroseconds;
 		return Result;
 	}
 
@@ -2931,12 +2952,8 @@ namespace Durin
 	auto FRDGBuilder::Record(
 		FRHICommandListImmediate& CommandList, FRDGExecutionContext* Context) -> FRDGResult
 	{
-		const auto Started = std::chrono::steady_clock::now();
-		auto RecordDuration = [&] {
-			Compiled->ExecuteMicroseconds = static_cast<uint64>(
-				std::chrono::duration_cast<std::chrono::microseconds>(
-					std::chrono::steady_clock::now() - Started).count());
-		};
+		FScopedMicrosecondTimer ExecuteTimer(State->ExecuteMicroseconds);
+		FScopedMicrosecondTimer PreparationTimer(State->Phases.PreparationMicroseconds);
 		if (Context != nullptr && !Compiled->AllocationRequests.empty())
 		{
 			FRDGAllocatedResources Candidate(
@@ -2947,7 +2964,6 @@ namespace Durin
 			Compiled->AllocationStatistics = Candidate.Statistics;
 			if (!bAllocated)
 			{
-				RecordDuration();
 				return {ERDGError::AllocationFailed, std::move(Error)};
 			}
 			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
@@ -2957,7 +2973,6 @@ namespace Durin
 					: static_cast<bool>(Candidate.Buffers[Request.ResourceId]);
 				if (!bReady)
 				{
-					RecordDuration();
 					return {ERDGError::MissingAllocation, "RDG allocator omitted retained resource id="
 						+ std::to_string(Request.ResourceId)};
 				}
@@ -2967,7 +2982,6 @@ namespace Durin
 						*Candidate.Textures[Request.ResourceId]);
 					if (!TextureBackingIsCompatible(Actual, Request.TextureDesc))
 					{
-						RecordDuration();
 						return {ERDGError::IncompatibleAllocation, "RDG allocator returned incompatible texture id="
 							+ std::to_string(Request.ResourceId)};
 					}
@@ -2976,14 +2990,13 @@ namespace Durin
 					Candidate.Buffers[Request.ResourceId]->GetDesc(),
 					Request.BufferDesc))
 				{
-					RecordDuration();
 					return {ERDGError::IncompatibleAllocation, "RDG allocator returned incompatible buffer id="
 						+ std::to_string(Request.ResourceId)};
 				}
 			}
 			for (const FRDGAllocationRequest& Request : Compiled->AllocationRequests)
 			{
-				auto& Resource = Compiled->Resources[Request.ResourceId];
+				auto& Resource = Compiled->Backings[Request.ResourceId];
 				Resource.AllocationDisposition =
 					Candidate.AllocationDispositions[Request.ResourceId];
 				Resource.PhysicalAllocationId =
@@ -3006,9 +3019,10 @@ namespace Durin
 		}
 		else if (!Compiled->AllocationRequests.empty())
 		{
-			RecordDuration();
 			return {ERDGError::AllocationFailed, "retained graph resources require an RDG execution allocator"};
 		}
+		PreparationTimer.Stop();
+		FScopedMicrosecondTimer RecordingTimer(State->Phases.RecordingMicroseconds);
 		State->Lifecycle = ERDGBuilderState::Recording;
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
@@ -3019,10 +3033,10 @@ namespace Durin
 			auto& Runtime = Compiled->RuntimePasses[Index];
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.BufferTransitions.size(); ++TransitionIndex)
-				Pass.BufferTransitions[TransitionIndex].Buffer = Compiled->Resources[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
+				Pass.BufferTransitions[TransitionIndex].Buffer = Compiled->Backings[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.TextureTransitions.size(); ++TransitionIndex)
-				Pass.TextureTransitions[TransitionIndex].Texture = Compiled->Resources[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
+				Pass.TextureTransitions[TransitionIndex].Texture = Compiled->Backings[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
 			if (!Pass.BufferTransitions.empty())
 				CommandList.TransitionBuffers(Pass.BufferTransitions);
 			if (!Pass.TextureTransitions.empty())
@@ -3036,28 +3050,24 @@ namespace Durin
 					Pass.Name, Pass.Type);
 				(*Runtime.ParameterizedExecute)(CommandList, Resolver);
 			}
-			else if (Runtime.Execute != nullptr && *Runtime.Execute)
-			{
-				const FRDGPassResources Resources(*this, Index);
-				(*Runtime.Execute)(CommandList, Resources);
-			}
 		}
 		for (uint32 Index = 0; Index < Compiled->FinalBufferTransitions.size(); ++Index)
-			Compiled->FinalBufferTransitions[Index].Buffer = Compiled->Resources[Compiled->FinalBufferTransitionResources[Index]].Buffer.GetReference();
+			Compiled->FinalBufferTransitions[Index].Buffer = Compiled->Backings[Compiled->FinalBufferTransitionResources[Index]].Buffer.GetReference();
 		for (uint32 Index = 0; Index < Compiled->FinalTextureTransitions.size(); ++Index)
-			Compiled->FinalTextureTransitions[Index].Texture = Compiled->Resources[Compiled->FinalTextureTransitionResources[Index]].Texture.GetReference();
+			Compiled->FinalTextureTransitions[Index].Texture = Compiled->Backings[Compiled->FinalTextureTransitionResources[Index]].Texture.GetReference();
 		if (!Compiled->FinalBufferTransitions.empty())
 			CommandList.TransitionBuffers(Compiled->FinalBufferTransitions);
 		if (!Compiled->FinalTextureTransitions.empty())
 			CommandList.TransitionTextures(Compiled->FinalTextureTransitions);
-		for (const auto& Resource : Compiled->Resources)
+		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{
+			const auto& Resource = Compiled->Resources[Index];
+			const auto& Backing = Compiled->Backings[Index];
 			if (Resource.TextureDestination != nullptr)
-				*Resource.TextureDestination = Resource.Texture;
+				*Resource.TextureDestination = Backing.Texture;
 			if (Resource.BufferDestination != nullptr)
-				*Resource.BufferDestination = Resource.Buffer;
+				*Resource.BufferDestination = Backing.Buffer;
 		}
-		RecordDuration();
 		return {};
 	}
 
@@ -3076,8 +3086,9 @@ namespace Durin
 			Handle.Index < Graph.Compiled->Resources.size()
 				? Graph.Compiled->Resources[Handle.Index].Name : "<invalid>");
 		const auto& Resource = Graph.Compiled->Resources[Handle.Index];
-		requiref(Resource.Kind == ERDGResourceKind::Texture && Resource.Texture, "Render graph callback resolved an unavailable texture.");
-		return Resource.Texture.GetReference();
+		const auto& Backing = Graph.Compiled->Backings[Handle.Index];
+		requiref(Resource.Kind == ERDGResourceKind::Texture && Backing.Texture, "Render graph callback resolved an unavailable texture.");
+		return Backing.Texture.GetReference();
 	}
 
 	auto FRDGPassResources::GetBuffer(
@@ -3095,8 +3106,9 @@ namespace Durin
 			Handle.Index < Graph.Compiled->Resources.size()
 				? Graph.Compiled->Resources[Handle.Index].Name : "<invalid>");
 		const auto& Resource = Graph.Compiled->Resources[Handle.Index];
-		requiref(Resource.Kind == ERDGResourceKind::Buffer && Resource.Buffer, "Render graph callback resolved an unavailable buffer.");
-		return Resource.Buffer.GetReference();
+		const auto& Backing = Graph.Compiled->Backings[Handle.Index];
+		requiref(Resource.Kind == ERDGResourceKind::Buffer && Backing.Buffer, "Render graph callback resolved an unavailable buffer.");
+		return Backing.Buffer.GetReference();
 	}
 
 	auto FRDGPassResources::ResolveValue(uint64 Owner, uint32 Index,

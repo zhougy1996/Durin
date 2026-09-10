@@ -471,22 +471,72 @@ namespace Durin
 		return Metadata;
 	}
 
-	// Composes a shader SRV/UAV role onto the exact graph resource declaration.
-	template<typename ParameterStruct, typename MemberType, typename ExpectedType>
-	constexpr auto MakeRDGShaderResourceParameterMemberMetadata(
-		const char* Name, uint32 Offset, ERDGParameterMemberKind Kind,
-		ERDGResourceKind ResourceKind,
-		ERDGParameterRangeKind RangeKind, ERDGUse Use,
-		ERHIAccess Access, ERHIBindingType BindingType,
-		const char* ShaderBindingName = nullptr, bool bDiscard = false)
+	// Common texture roles fix wrapper, range, use, and access as one contract.
+	template<typename ParameterStruct, typename MemberType, ERDGPassType Domain = ERDGPassType::Graphics>
+	constexpr auto MakeRDGTextureReadMetadata(const char* Name, uint32 Offset)
 		-> FRDGParameterMemberMetadata
 	{
-		auto Metadata = MakeRDGResourceParameterMemberMetadata<
-			ParameterStruct, MemberType, ExpectedType>(Name, Offset, Kind,
-			ResourceKind, RangeKind, Use, Access, bDiscard);
+		static_assert(Domain == ERDGPassType::Graphics || Domain == ERDGPassType::Compute);
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGTextureParameter>(Name, Offset, ERDGParameterMemberKind::Texture,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::Read, Domain == ERDGPassType::Graphics
+				? ERHIAccess::GraphicsShaderRead : ERHIAccess::ComputeShaderRead);
+	}
+
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGComputeTextureWriteMetadata(const char* Name, uint32 Offset)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGTextureParameter>(Name, Offset, ERDGParameterMemberKind::Texture,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+	}
+
+	// The pass owns internal transitions; RDG tracks the declared entry and exit.
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGManagedTextureMetadata(const char* Name, uint32 Offset,
+		ERHIAccess EntryAccess, bool bDiscard, ERHIAccess ResultAccess)
+		-> FRDGParameterMemberMetadata
+	{
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType,
+			FRDGManagedTextureParameter>(Name, Offset, ERDGParameterMemberKind::ManagedTexture,
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::ReadWrite, EntryAccess, bDiscard, ERHIRenderTargetLoadAction::Load,
+			ERHIRenderTargetStoreAction::Store, true, ResultAccess);
+	}
+
+	// A non-None exit access delegates attachment transitions to the render pass.
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRDGAttachmentMetadata(const char* Name, uint32 Offset,
+		ERHIRenderTargetLoadAction LoadAction, ERHIRenderTargetStoreAction StoreAction,
+		ERHIAccess ResultAccess = ERHIAccess::None) -> FRDGParameterMemberMetadata
+	{
+		using FWrapper = typename TRDGParameterMemberTraits<MemberType>::ValueType;
+		constexpr bool bDepth = std::same_as<FWrapper, FRDGDepthStencilAttachmentParameter>;
+		static_assert(bDepth || std::same_as<FWrapper, FRDGColorAttachmentParameter>);
+		const bool bManaged = ResultAccess != ERHIAccess::None;
+		return MakeRDGResourceParameterMemberMetadata<ParameterStruct, MemberType, FWrapper>(
+			Name, Offset, bDepth
+				? (bManaged ? ERDGParameterMemberKind::ManagedDepthStencilAttachment
+					: ERDGParameterMemberKind::DepthStencilAttachment)
+				: (bManaged ? ERDGParameterMemberKind::ManagedColorAttachment
+					: ERDGParameterMemberKind::ColorAttachment),
+			ERDGResourceKind::Texture, ERDGParameterRangeKind::TextureSubresource,
+			ERDGUse::ReadWrite, bDepth ? ERHIAccess::DepthStencilReadWrite
+				: ERHIAccess::ColorAttachmentReadWrite,
+			LoadAction != ERHIRenderTargetLoadAction::Load, LoadAction, StoreAction,
+			bManaged, ResultAccess);
+	}
+
+	// Shader annotations decorate an existing semantic declaration without changing its use.
+	constexpr auto WithRDGShaderBinding(FRDGParameterMemberMetadata Metadata,
+		ERHIBindingType BindingType, const char* BindingName = nullptr)
+		-> FRDGParameterMemberMetadata
+	{
 		Metadata.bShaderBinding = true;
-		Metadata.ShaderBindingName = ShaderBindingName != nullptr
-			? ShaderBindingName : Name;
+		Metadata.ShaderBindingName = BindingName != nullptr ? BindingName : Metadata.Name;
 		Metadata.ShaderBindingType = BindingType;
 		return Metadata;
 	}
@@ -1034,6 +1084,19 @@ namespace Durin
 		uint64 MaxExecuteMicroseconds = std::numeric_limits<uint64>::max();
 	};
 
+	// CPU phase durations in microseconds. Unentered phases remain zero; entered
+	// phases retain elapsed time on failure/unwinding. Sub-microsecond work rounds down.
+	struct FRDGPhaseTimings final
+	{
+		uint64 ValidationMicroseconds = 0;
+		uint64 RangeMicroseconds = 0;
+		uint64 DependencyMicroseconds = 0;
+		uint64 CullingMicroseconds = 0;
+		uint64 PlanMicroseconds = 0;
+		uint64 PreparationMicroseconds = 0;
+		uint64 RecordingMicroseconds = 0;
+	};
+
 	// Reports graph shape and CPU cost without affecting execution correctness.
 	struct FRDGStatistics final
 	{
@@ -1044,7 +1107,9 @@ namespace Durin
 		uint32 BufferTransitions = 0;
 		uint32 TextureTransitions = 0;
 		uint64 CompileMicroseconds = 0;
+		// Includes preparation and recording; excludes compilation and authoring.
 		uint64 ExecuteMicroseconds = 0;
+		FRDGPhaseTimings Phases;
 		bool bPassRegressionBudgetExceeded = false;
 		bool bDependencyRegressionBudgetExceeded = false;
 		bool bBufferTransitionRegressionBudgetExceeded = false;
@@ -1180,28 +1245,6 @@ namespace Durin
 			return {StateOwner(), Index};
 		}
 
-		RENDERCORE_API auto AddPass(std::string_view Name, ERDGPassType Type,
-			FRDGPassExecute Execute = {}) -> FRDGPassHandle;
-		template<typename ParameterStruct>
-		requires CRDGParameters<ParameterStruct>
-		auto AddPass(std::string_view Name, ERDGPassType Type,
-			TRDGParametersRef<ParameterStruct>&& Parameters,
-			FRDGPassExecute Execute = {}) -> FRDGPassHandle
-		{
-			RequireBuilding();
-			auto Lifetime = Parameters.Lifetime.lock();
-			void* Data = std::exchange(Parameters.Data, nullptr);
-			const FRDGParameterLayout* Layout =
-				std::exchange(Parameters.Layout, nullptr);
-			if (Layout == nullptr)
-				Layout = GetRDGParameterLayout<ParameterStruct>();
-			Parameters.Lifetime.reset();
-			const size_t AllocationIndex = std::exchange(Parameters.AllocationIndex,
-				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
-			return AddParameterizedPass(Name, Type,
-				Layout, Data, AllocationIndex,
-				std::move(Lifetime), std::move(Execute), {});
-		}
 		template<typename ParameterStruct, typename Execute>
 		requires CRDGParameters<ParameterStruct>
 			&& std::invocable<Execute&, FRHICommandListImmediate&,
@@ -1231,7 +1274,7 @@ namespace Durin
 				TRDGParametersRef<ParameterStruct>::InvalidAllocationIndex);
 			return AddParameterizedPass(Name, Type,
 				Layout, Data, AllocationIndex,
-				std::move(Lifetime), {}, std::move(ErasedExecute));
+				std::move(Lifetime), std::move(ErasedExecute));
 		}
 		// Building only: Producer must precede Consumer in this builder. Retaining
 		// Consumer retains Producer; invalid declarations fail compilation.
@@ -1269,6 +1312,49 @@ namespace Durin
 				static_cast<ParameterStruct*>(Storage));
 			MarkParameterStorageConstructed(AllocationIndex);
 			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get(), AllocationIndex};
+		}
+
+
+		// Consumes this builder even on failure. Retrying requires a newly authored graph.
+		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
+			FRDGExecutionContext* Context = nullptr) -> FRDGExecutionResult;
+		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
+		// Duplicate execution leaves this original report unchanged.
+		RENDERCORE_API auto GetExecutionResult() const -> const FRDGExecutionResult&;
+		RENDERCORE_API auto HasCompiledPlan() const -> bool;
+		RENDERCORE_API auto GetPasses() const -> std::span<const FRDGCompiledPass>;
+		RENDERCORE_API auto GetDependencies() const -> std::span<const FRDGDependency>;
+		RENDERCORE_API auto GetResourceLifetimes() const
+			-> std::span<const FRDGResourceLifetime>;
+		RENDERCORE_API auto GetCullingDecisions() const
+			-> std::span<const FRDGCullingDecision>;
+		RENDERCORE_API auto GetFinalBufferTransitions() const
+			-> std::span<const FRHIBufferTransition>;
+		RENDERCORE_API auto GetFinalTextureTransitions() const
+			-> std::span<const FRHITextureTransition>;
+		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
+		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
+		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
+		// Detailed evidence is materialized on first inspection and cached outside the execution plan.
+		// Owning pointer-free snapshots survive builder destruction and preparation failure.
+		RENDERCORE_API auto Capture() const -> FRDGCapture;
+		RENDERCORE_API auto Dump() const -> std::string;
+
+	private:
+		// Raw declaration injection is restricted to native compiler fixtures.
+		RENDERCORE_API auto AddTestPass(std::string_view Name, ERDGPassType Type,
+			FRDGPassExecute Execute = {}) -> FRDGPassHandle;
+		template<typename ParameterStruct>
+		requires CRDGParameters<ParameterStruct>
+		auto AddTestPass(std::string_view Name, ERDGPassType Type,
+			TRDGParametersRef<ParameterStruct>&& Parameters,
+			FRDGPassExecute Execute = {}) -> FRDGPassHandle
+		{
+			return AddPass(Name, Type, std::move(Parameters),
+				[Callback = std::move(Execute)](FRHICommandListImmediate& CommandList,
+					const ParameterStruct&, const FRDGParameterResolver& Resolver) {
+					if (Callback) Callback(CommandList, Resolver.Resources);
+				});
 		}
 
 		RENDERCORE_API auto UseTexture(FRDGPassHandle Pass,
@@ -1318,32 +1404,6 @@ namespace Durin
 				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
 		}
 
-		// Consumes this builder even on failure. Retrying requires a newly authored graph.
-		RENDERCORE_API auto Execute(FRHICommandListImmediate& CommandList,
-			FRDGExecutionContext* Context = nullptr) -> FRDGExecutionResult;
-		RENDERCORE_API auto GetState() const -> ERDGBuilderState;
-		// Duplicate execution leaves this original report unchanged.
-		RENDERCORE_API auto GetExecutionResult() const -> const FRDGExecutionResult&;
-		RENDERCORE_API auto HasCompiledPlan() const -> bool;
-		RENDERCORE_API auto GetPasses() const -> std::span<const FRDGCompiledPass>;
-		RENDERCORE_API auto GetDependencies() const -> std::span<const FRDGDependency>;
-		RENDERCORE_API auto GetResourceLifetimes() const
-			-> std::span<const FRDGResourceLifetime>;
-		RENDERCORE_API auto GetCullingDecisions() const
-			-> std::span<const FRDGCullingDecision>;
-		RENDERCORE_API auto GetFinalBufferTransitions() const
-			-> std::span<const FRHIBufferTransition>;
-		RENDERCORE_API auto GetFinalTextureTransitions() const
-			-> std::span<const FRHITextureTransition>;
-		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
-		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
-		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;
-		// Detailed evidence is materialized on first inspection and cached outside the execution plan.
-		// Owning pointer-free snapshots survive builder destruction and preparation failure.
-		RENDERCORE_API auto Capture() const -> FRDGCapture;
-		RENDERCORE_API auto Dump() const -> std::string;
-
-	private:
 		friend class FRDGBuilderTestAccessor;
 		friend class FRDGPassResources;
 		RENDERCORE_API auto RequireBuilding() const -> void;
@@ -1371,9 +1431,15 @@ namespace Durin
 		RENDERCORE_API auto AddParameterizedPass(std::string_view Name,
 			ERDGPassType Type,
 			const FRDGParameterLayout* Layout, void* Parameters, size_t AllocationIndex,
-			std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
+			std::shared_ptr<void> Lifetime,
 			FRDGParameterizedPassExecute ParameterizedExecute)
 			-> FRDGPassHandle;
+		// Validates test authority once and appends a complete texture declaration.
+		auto DeclareTextureUse(FRDGPassHandle Pass, FRDGTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range, ERDGUse Use,
+			ERHIAccess Access, bool bDiscard, bool bStore = true,
+			bool bPassManagedTransition = false,
+			ERHIAccess ResultAccess = ERHIAccess::None) -> void;
 		RENDERCORE_API auto CanDeclareManualUse(FRDGPassHandle Pass,
 			std::string_view InvalidHandleError) -> bool;
 		RENDERCORE_API auto AllocateParameterStorage(size_t Size, size_t Alignment,

@@ -38,16 +38,11 @@ namespace Durin
 	{
 		using FParameters = FDirectionalShadowPassResources;
 		static const std::array Members = {
-			MakeRDGResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::DirectionalShadowOutput),
-				FRDGDepthStencilAttachmentParameter>("DirectionalShadowOutput",
+			MakeRDGAttachmentMetadata<FParameters, decltype(FParameters::DirectionalShadowOutput)>(
+				"DirectionalShadowOutput",
 				offsetof(FParameters, DirectionalShadowOutput),
-				ERDGParameterMemberKind::ManagedDepthStencilAttachment,
-				ERDGResourceKind::Texture,
-				ERDGParameterRangeKind::TextureSubresource,
-				ERDGUse::ReadWrite, ERHIAccess::DepthStencilReadWrite, true,
 				ERHIRenderTargetLoadAction::Clear,
-				ERHIRenderTargetStoreAction::Store, true,
+				ERHIRenderTargetStoreAction::Store,
 				ERHIAccess::GraphicsShaderRead)};
 		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FDirectionalShadowPassResources", Members);

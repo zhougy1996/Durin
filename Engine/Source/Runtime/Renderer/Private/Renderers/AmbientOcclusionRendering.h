@@ -31,10 +31,26 @@ namespace Durin
 			-> const FRDGParametersMetadata*;
 	};
 
+	// Half-resolution AO requires both reconstruction targets or neither.
+	struct FAmbientOcclusionHalfResolutionTextures final
+	{
+		FRDGTextureHandle Selector;
+		FRDGTextureHandle Resolved;
+	};
+
+	// Every requested AO route has Raw/Scratch; reconstruction is one optional set.
+	struct FAmbientOcclusionTextureHandles final
+	{
+		FRDGTextureHandle Raw;
+		FRDGTextureHandle Scratch;
+		std::optional<FAmbientOcclusionHalfResolutionTextures> HalfResolution;
+	};
+
 	struct FAmbientOcclusionGraphOutput final
 	{
-		TRDGValueHandle<FGroundTruthAmbientOcclusionPassResult> Completion;
-		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
+		// Absence means the feature was not requested; no producer pass exists.
+		std::optional<TRDGValueHandle<FGroundTruthAmbientOcclusionPassResult>> Completion;
+		std::optional<FAmbientOcclusionTextureHandles> Textures;
 		EGroundTruthAmbientOcclusionQuality Quality =
 			EGroundTruthAmbientOcclusionQuality::FullResolution;
 	};

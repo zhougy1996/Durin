@@ -15,13 +15,8 @@ namespace Durin
 	{
 		using FParameters = FSceneColorPassResources;
 		#define DURIN_MANAGED(Field, Entry, Discard, Result) \
-			MakeRDGResourceParameterMemberMetadata<FParameters, \
-				decltype(FParameters::Field), FRDGManagedTextureParameter>(#Field, \
-					offsetof(FParameters, Field), ERDGParameterMemberKind::ManagedTexture, \
-					ERDGResourceKind::Texture, \
-					ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, Entry, \
-					Discard, ERHIRenderTargetLoadAction::Load, \
-					ERHIRenderTargetStoreAction::Store, true, Result)
+		MakeRDGManagedTextureMetadata<FParameters, decltype(FParameters::Field)>( \
+			#Field, offsetof(FParameters, Field), Entry, Discard, Result)
 		static const std::array Members = {
 			DURIN_MANAGED(SceneColorManaged, ERHIAccess::ColorAttachmentReadWrite,
 				false, ERHIAccess::GraphicsShaderRead),
@@ -86,7 +81,9 @@ namespace Durin
 			"Scene.ColorValue", "scene-color-result");
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
 		Parameters->BaseScene = {.Value = Inputs.BaseScene.Completion};
-		Parameters->VolumetricCloud = {.Value = Inputs.VolumetricCloud.Completion};
+		if (Inputs.VolumetricCloud.Completion)
+			Parameters->VolumetricCloud = TRDGValueRead<FVolumetricCloudPassResult>{
+				.Value = *Inputs.VolumetricCloud.Completion};
 		Parameters->Completion = {.Value = SceneColorCompletion};
 		if (bRequiresDeferredOpaque)
 		{
@@ -113,8 +110,10 @@ namespace Durin
 					PassParameters.Completion);
 				const auto& BaseSceneResult = Resolver.ReadValue(
 					PassParameters.BaseScene);
-				const auto& VolumetricCloudResult = Resolver.ReadValue(
+				const auto* VolumetricCloudValue = Resolver.ReadValue(
 					PassParameters.VolumetricCloud);
+				const auto VolumetricCloudResult = VolumetricCloudValue
+					? *VolumetricCloudValue : FVolumetricCloudPassResult{};
 				if (!bRequiresDeferredOpaque)
 					SceneColorResult = BaseSceneResult;
 				else

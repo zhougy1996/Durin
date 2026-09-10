@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Engine, Renderer, RenderCore, RHI
 
-Last reviewed: 2026-09-08
+Last reviewed: 2026-09-10
 
 ## Ownership Boundary
 
@@ -180,7 +180,27 @@ composer passes that output directly to the exact downstream input; there is
 no frame-wide execution-channel lookup or mutable channel bag. Payload
 storage, one writer, declared readers, dependency lifetime, and callback
 access are owned by RenderCore. Distinct non-RHI results cannot be
-interchanged, and callbacks do not communicate through mutable side payloads. Each
+interchanged, and callbacks do not communicate through mutable side payloads.
+
+Unrequested GBuffer, AO, contact visibility, and cloud-shadow features declare no pass,
+value, or target. Their optional completion handles remain absent; deferred
+lighting and cloud composition declare reads only for present completions and
+interpret absence as `NotRequested`. Requested features retain their failure
+reporting even when the selected resources are unavailable.
+Unrequested cloud spatial work also declares no pass, value, or target; feature
+authoring records the disabled-view and unneeded-route observation. Disabled cloud
+routes declare no composite pass or value. A requested but disabled spatial route
+retains its producer as an explicit diagnostic root, preserving its failed result
+and route observations even without a composite consumer. Scene Color treats an
+absent composite completion as `NotRequested`. GBuffer consumers that are always
+present use optional reads; demanded AO and visibility branches require GBuffer
+through feature-plan dependency closure.
+Their recording functions assume the request was accepted by feature authoring;
+resource readiness and execution failures remain checked at the recording boundary.
+GBuffer color handles cross feature boundaries as one optional set of four required
+handles. AO handles form one optional Raw/Scratch set with an optional, complete
+Selector/Resolved reconstruction pair. Pass parameters lower those sets into exact
+per-resource declarations; callbacks never select a different feature route. Each
 fallible producer publishes `NotRequested`,
 `Complete`, or `Failed`. Graph-owned directional shadow, GBuffer, GTAO,
 contact/cloud visibility, isolated-deferred, Scene Color/cloud, debug, and
