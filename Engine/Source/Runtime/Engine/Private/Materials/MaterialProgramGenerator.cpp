@@ -73,7 +73,7 @@ namespace Durin
 		OutSource.clear();
 		OutError.clear();
 		if (IR.Version != CurrentMaterialIRVersion
-			|| IR.Nodes.size() > MaterialProgramMaxNodeCount)
+			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
 			OutError = "Invalid material IR for Slang generation.";
 			return false;

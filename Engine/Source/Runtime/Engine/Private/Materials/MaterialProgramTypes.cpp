@@ -1,6 +1,8 @@
 #include "Materials/MaterialProgramTypes.h"
 
 #include "Materials/MaterialTypes.h"
+#include "MaterialProgramValidation.h"
+#include "Materials/MaterialFunctionTypes.h"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +16,55 @@
 
 namespace Durin
 {
+	auto Private::ResolveMaterialBuiltinOutput(const FMaterialProgramNode& Node, const FMaterialProgramLink& Link)
+		-> std::optional<EMaterialProgramValueType>
+	{
+		if (Link.SourceOutputId.IsValid()) return {};
+		if (Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes)
+		{
+			if (Link.SourceOutputIndex >= 8 || !(Node.SurfaceAttributeMask & (1u << Link.SourceOutputIndex))) return {};
+			return GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Link.SourceOutputIndex));
+		}
+		if (Link.SourceOutputIndex != 0 || Node.Opcode == EMaterialProgramOpcode::FunctionOutput) return {};
+		return Node.ResultType;
+	}
+
+	auto Private::ValidateMaterialSurfacePayload(const FMaterialProgramNode& Node,
+		const std::function<std::optional<EMaterialProgramValueType>(const FMaterialProgramLink&)>& ResolveType)
+		-> FMaterialProgramValidationResult
+	{
+		FMaterialProgramValidationResult Result;
+		const auto Fail = [&](std::string Message, uint32 Index = 0) {
+			Result.Diagnostics.push_back({.Category = EMaterialProgramDiagnosticCategory::Type,
+				.LocationKind = EMaterialProgramDiagnosticLocationKind::Input, .NodeId = Node.Id,
+				.LocationIndex = Index, .Message = std::move(Message)});
+		};
+		const bool bGet = Node.Opcode == EMaterialProgramOpcode::GetSurfaceAttributes;
+		const bool bSet = Node.Opcode == EMaterialProgramOpcode::SetSurfaceAttributes;
+		if ((bGet && Node.SurfaceAttributeMask == 0) || (!bGet && Node.SurfaceAttributeMask != 0))
+			Fail("Surface attribute selection is missing or attached to an unsupported node.");
+		if ((!bSet && !Node.SurfaceAttributes.empty()) || Node.SurfaceAttributes.size() > 8)
+			Fail("Surface overrides are unsupported on this node or exceed eight attributes.");
+		else
+		{
+			uint8 Seen = 0;
+			for (const auto& Binding : Node.SurfaceAttributes)
+			{
+				const auto Index = static_cast<uint8>(Binding.Attribute);
+				if (Index >= 8 || (Seen & (1u << Index)))
+					Fail("Surface override attribute is invalid or duplicated.", Index);
+				else
+				{
+					Seen |= static_cast<uint8>(1u << Index);
+					if (ResolveType(Binding.Source) != GetMaterialSurfaceOutputType(Binding.Attribute))
+						Fail("Surface override source is missing or has an incompatible type.", Index);
+				}
+			}
+		}
+		Result.bSucceeded = Result.Diagnostics.empty();
+		return Result;
+	}
+
 	auto GetMaterialSurfaceParameterId(
 		EMaterialSurfaceOutput Output,
 		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid
@@ -80,9 +131,10 @@ namespace Durin
 
 		auto IsValidOpcode(EMaterialProgramOpcode Opcode) -> bool
 		{
-			return Opcode >= EMaterialProgramOpcode::Constant
+			return (Opcode >= EMaterialProgramOpcode::Constant
 				&& Opcode <= EMaterialProgramOpcode::MakeSurface
-				&& static_cast<uint8>(Opcode) != 3 && static_cast<uint8>(Opcode) != 30;
+				&& static_cast<uint8>(Opcode) != 3 && static_cast<uint8>(Opcode) != 30)
+				|| Opcode == EMaterialProgramOpcode::GetSurfaceAttributes || Opcode == EMaterialProgramOpcode::SetSurfaceAttributes;
 		}
 
 		auto FindParameter(
@@ -566,11 +618,39 @@ namespace Durin
 		return Outputs.BaseColorDefault;
 	}
 
-	auto ValidateMaterialProgram(
-		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> ParameterDefinitions)
+	auto Private::ValidateMaterialBuiltinNode(const FMaterialProgramNode& Node,
+		std::span<const EMaterialProgramValueType> InputTypes)
 		-> FMaterialProgramValidationResult
 	{
+		FMaterialProgramValidationResult Result;
+		std::array<FMaterialProgramNode, MaterialProgramMaxNodeInputCount> Inputs;
+		for (size_t Index = 0; Index < std::min(InputTypes.size(), Inputs.size()); ++Index)
+			Inputs[Index].ResultType = InputTypes[Index];
+		std::unordered_set<FGuid> Parameters;
+		ValidateNodeShape(Node, [&](size_t Index) -> const FMaterialProgramNode* {
+			return Index < InputTypes.size() && Index < Inputs.size() ? &Inputs[Index] : nullptr;
+		}, {}, Parameters, Result.Diagnostics);
+		Result.bSucceeded = Result.Diagnostics.empty();
+		return Result;
+	}
+
+	auto ValidateMaterialProgram(
+		const FMaterialProgram& Program,
+		std::span<const FMaterialParameterDefinition> ParameterDefinitions,
+		std::span<const FMaterialFunctionCallSnapshot> Calls)
+		-> FMaterialProgramValidationResult
+	{
+		return Private::ValidateMaterialProgramGraph({Program.SchemaVersion, Program.Nodes, Program.Outputs},
+			ParameterDefinitions, Calls, false);
+	}
+
+	auto Private::ValidateMaterialProgramGraph(FMaterialProgramGraphView Program,
+		std::span<const FMaterialParameterDefinition> ParameterDefinitions,
+		std::span<const FMaterialFunctionCallSnapshot> Calls, bool bExpanded)
+		-> FMaterialProgramValidationResult
+	{
+		const uint32 MaximumNodes = bExpanded ? MaterialFunctionMaxExpandedNodes : MaterialProgramMaxNodeCount;
+		const uint32 MaximumLinks = bExpanded ? MaterialFunctionMaxExpandedLinks : MaterialProgramMaxLinkCount;
 		FMaterialProgramValidationResult Result;
 		auto& Diagnostics = Result.Diagnostics;
 		Diagnostics.reserve(MaterialProgramMaxDiagnosticCount);
@@ -579,7 +659,7 @@ namespace Durin
 				EMaterialProgramDiagnosticCategory::Schema,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
 				"Material program schema version is unsupported.");
-		if (Program.Nodes.size() > MaterialProgramMaxNodeCount)
+		if (Program.Nodes.size() > MaximumNodes || Calls.size() > Program.Nodes.size())
 		{
 			AddDiagnostic(Diagnostics,
 				EMaterialProgramDiagnosticCategory::Bounds,
@@ -607,7 +687,7 @@ namespace Durin
 			+ 8 * sizeof(FMaterialProgramLiteral);
 		std::unordered_map<FGuid, size_t> NodeIndices;
 		NodeIndices.reserve(std::min<size_t>(
-			Program.Nodes.size(), MaterialProgramMaxNodeCount));
+			Program.Nodes.size(), MaximumNodes));
 		std::vector<size_t> ScanIndices(Program.Nodes.size());
 		std::iota(ScanIndices.begin(), ScanIndices.end(), size_t{0});
 		std::ranges::sort(ScanIndices, [&](size_t A, size_t B) {
@@ -616,10 +696,11 @@ namespace Durin
 		for (size_t Index : ScanIndices)
 		{
 			const FMaterialProgramNode& Node = Program.Nodes[Index];
-			LinkCount += Node.Inputs.size();
+			LinkCount += Node.Inputs.size() + Node.SurfaceAttributes.size();
 			StringBytes += Node.DisplayName.size();
 			EstimatedBytes += 64 + Node.DisplayName.size()
-				+ Node.Inputs.size() * sizeof(FMaterialProgramLink);
+				+ Node.Inputs.size() * sizeof(FMaterialProgramLink)
+				+ Node.SurfaceAttributes.size() * sizeof(FMaterialSurfaceAttributeBinding);
 			if (!Node.Id.IsValid())
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Schema,
@@ -630,12 +711,13 @@ namespace Durin
 					EMaterialProgramDiagnosticCategory::Schema,
 					EMaterialProgramDiagnosticLocationKind::Node,
 					Node.Id, 0, "Material program node GUID is duplicated.");
-			if (!IsValidOpcode(Node.Opcode) || !IsValidValueType(Node.ResultType))
+			if ((!IsValidOpcode(Node.Opcode) && Node.Opcode != EMaterialProgramOpcode::FunctionCall)
+				|| !IsValidValueType(Node.ResultType) || Node.FunctionPortId.IsValid())
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Schema,
 					EMaterialProgramDiagnosticLocationKind::Node,
 					Node.Id, 0, "Material program node enum value is invalid.");
-			if (Node.Inputs.size() > MaterialProgramMaxNodeInputCount)
+			if (Node.Inputs.size() > MaterialProgramMaxNodeInputCount || Node.SurfaceAttributes.size() > 8)
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Bounds,
 					EMaterialProgramDiagnosticLocationKind::Node,
@@ -646,17 +728,45 @@ namespace Durin
 					EMaterialProgramDiagnosticLocationKind::Node,
 					Node.Id, 0, "Material program node display name exceeds the byte bound.");
 		}
-		if (LinkCount > MaterialProgramMaxLinkCount)
+		std::unordered_map<FGuid, const FMaterialFunctionCallSnapshot*> CallNodes;
+		for (const auto& Call : Calls)
+		{
+			const auto Node = NodeIndices.find(Call.NodeId);
+			if (bExpanded || Node == NodeIndices.end()
+				|| Program.Nodes[Node->second].Opcode != EMaterialProgramOpcode::FunctionCall
+				|| !CallNodes.emplace(Call.NodeId, &Call).second
+				|| Call.Inputs.size() > MaterialFunctionMaxInputs || Call.Outputs.empty()
+				|| Call.Outputs.size() > MaterialFunctionMaxOutputs)
+			{
+				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Schema,
+					EMaterialProgramDiagnosticLocationKind::Node, Call.NodeId, 0,
+					"Function call record, node or port bounds are invalid.");
+				continue;
+			}
+			std::unordered_set<FGuid> Ports;
+			for (const auto& Binding : Call.Inputs)
+				if (!Binding.InputId.IsValid() || !Ports.emplace(Binding.InputId).second || !IsValidValueType(Binding.ExpectedType))
+					AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Schema,
+						EMaterialProgramDiagnosticLocationKind::Node, Call.NodeId, 0, "Function input binding is invalid or duplicated.");
+			for (const auto& Binding : Call.Outputs)
+				if (!Binding.OutputId.IsValid() || !Ports.emplace(Binding.OutputId).second || !IsValidValueType(Binding.ExpectedType))
+					AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Schema,
+						EMaterialProgramDiagnosticLocationKind::Node, Call.NodeId, 0, "Function output binding is invalid or duplicated.");
+			LinkCount += Call.Inputs.size();
+			EstimatedBytes += sizeof(Call) + Call.Inputs.size() * sizeof(FMaterialFunctionInputBinding)
+				+ Call.Outputs.size() * sizeof(FMaterialFunctionOutputBinding) + Call.FunctionPath.size();
+		}
+		if (LinkCount > MaximumLinks)
 			AddDiagnostic(Diagnostics,
 				EMaterialProgramDiagnosticCategory::Bounds,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
 				"Material program link count exceeds the bound.");
-		if (StringBytes > MaterialProgramMaxStringBytes)
+		if (StringBytes > (bExpanded ? MaterialFunctionMaxClosureBytes : MaterialProgramMaxStringBytes))
 			AddDiagnostic(Diagnostics,
 				EMaterialProgramDiagnosticCategory::Bounds,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
 				"Material program aggregate string bytes exceed the bound.");
-		if (EstimatedBytes > MaterialProgramMaxCanonicalBytes)
+		if (EstimatedBytes > (bExpanded ? MaterialFunctionMaxClosureBytes : MaterialProgramMaxCanonicalBytes))
 			AddDiagnostic(Diagnostics,
 				EMaterialProgramDiagnosticCategory::Bounds,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
@@ -672,6 +782,19 @@ namespace Durin
 			return Result;
 		}
 
+		const auto ResolveType = [&](const FMaterialProgramLink& Link) -> std::optional<EMaterialProgramValueType> {
+			const auto Node = NodeIndices.find(Link.SourceNodeId);
+			if (Node == NodeIndices.end()) return {};
+			if (Program.Nodes[Node->second].Opcode == EMaterialProgramOpcode::FunctionCall)
+			{
+				const auto Call = CallNodes.find(Link.SourceNodeId);
+				if (Call == CallNodes.end() || !Link.SourceOutputId.IsValid() || Link.SourceOutputIndex != 0) return {};
+				for (const auto& Output : Call->second->Outputs)
+					if (Output.OutputId == Link.SourceOutputId) return Output.ExpectedType;
+				return {};
+			}
+			return Private::ResolveMaterialBuiltinOutput(Program.Nodes[Node->second], Link);
+		};
 		std::vector<size_t> OrderedIndices;
 		OrderedIndices.reserve(NodeIndices.size());
 		for (const auto& [Id, Index] : NodeIndices) OrderedIndices.push_back(Index);
@@ -688,8 +811,7 @@ namespace Durin
 				++InputIndex)
 			{
 				const FMaterialProgramLink& Link = Node.Inputs[InputIndex];
-				if (Link.SourceOutputIndex != 0
-					|| !NodeIndices.contains(Link.SourceNodeId))
+				if (!ResolveType(Link))
 					AddDiagnostic(Diagnostics,
 						EMaterialProgramDiagnosticCategory::Graph,
 						EMaterialProgramDiagnosticLocationKind::Input,
@@ -702,12 +824,35 @@ namespace Durin
 		for (size_t NodeIndex : OrderedIndices)
 		{
 			const FMaterialProgramNode& Node = Program.Nodes[NodeIndex];
+			for (auto& Diagnostic : Private::ValidateMaterialSurfacePayload(Node, ResolveType).Diagnostics)
+				if (Diagnostics.size() < MaterialProgramMaxDiagnosticCount) Diagnostics.push_back(std::move(Diagnostic));
+			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
+			{
+				const auto Call = CallNodes.find(Node.Id);
+				if (Call == CallNodes.end() || !Node.Inputs.empty() || Node.ParameterId.IsValid())
+					AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
+						EMaterialProgramDiagnosticLocationKind::Node, Node.Id, 0,
+						"Function call requires a record with stable port bindings.");
+				else for (size_t Index = 0; Index < Call->second->Inputs.size(); ++Index)
+				{
+					const auto& Binding = Call->second->Inputs[Index];
+					if (ResolveType(Binding.Source) != Binding.ExpectedType)
+						AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Type,
+							EMaterialProgramDiagnosticLocationKind::Input, Node.Id, static_cast<uint32>(Index),
+							"Function call input source is missing or has an incompatible type.");
+				}
+				continue;
+			}
 			if (!IsValidOpcode(Node.Opcode) || !IsValidValueType(Node.ResultType))
 				continue;
+			std::array<FMaterialProgramNode, MaterialProgramMaxNodeInputCount> ResolvedInputs;
 			ValidateNodeShape(Node, [&](size_t InputIndex) {
-				if (InputIndex >= Node.Inputs.size()) return static_cast<const FMaterialProgramNode*>(nullptr);
-				const auto It = NodeIndices.find(Node.Inputs[InputIndex].SourceNodeId);
-				return It == NodeIndices.end() ? nullptr : &Program.Nodes[It->second];
+				if (InputIndex >= Node.Inputs.size() || InputIndex >= ResolvedInputs.size())
+					return static_cast<const FMaterialProgramNode*>(nullptr);
+				const auto Type = ResolveType(Node.Inputs[InputIndex]);
+				if (!Type) return static_cast<const FMaterialProgramNode*>(nullptr);
+				ResolvedInputs[InputIndex].ResultType = *Type;
+				return static_cast<const FMaterialProgramNode*>(&ResolvedInputs[InputIndex]);
 			}, ParameterDefinitions, ReferencedParameters, Diagnostics);
 		}
 		if (ReferencedParameters.size()
@@ -719,7 +864,14 @@ namespace Durin
 
 		std::vector<uint8> VisitState(Program.Nodes.size(), 0);
 		std::vector<uint32> Depth(Program.Nodes.size(), 0);
-		std::function<uint32(size_t)> Visit = [&](size_t Index) -> uint32 {
+		std::function<uint32(size_t, uint32)> Visit = [&](size_t Index, uint32 ActiveDepth) -> uint32 {
+			if (ActiveDepth > MaterialProgramMaxDepth)
+			{
+				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Bounds,
+					EMaterialProgramDiagnosticLocationKind::Node, Program.Nodes[Index].Id, 0,
+					"Material program dependency depth exceeds the bound.");
+				return 0;
+			}
 			if (VisitState[Index] == 2) return Depth[Index];
 			if (VisitState[Index] == 1)
 			{
@@ -738,7 +890,14 @@ namespace Durin
 				if (const auto It = NodeIndices.find(Link.SourceNodeId);
 					It != NodeIndices.end())
 					MaximumInputDepth = std::max(
-						MaximumInputDepth, Visit(It->second));
+						MaximumInputDepth, Visit(It->second, ActiveDepth + 1));
+			for (const auto& Binding : Program.Nodes[Index].SurfaceAttributes)
+				if (const auto It = NodeIndices.find(Binding.Source.SourceNodeId); It != NodeIndices.end())
+					MaximumInputDepth = std::max(MaximumInputDepth, Visit(It->second, ActiveDepth + 1));
+			if (const auto Call = CallNodes.find(Program.Nodes[Index].Id); Call != CallNodes.end())
+				for (const auto& Binding : Call->second->Inputs)
+					if (const auto It = NodeIndices.find(Binding.Source.SourceNodeId); It != NodeIndices.end())
+						MaximumInputDepth = std::max(MaximumInputDepth, Visit(It->second, ActiveDepth + 1));
 			VisitState[Index] = 2;
 			Depth[Index] = MaximumInputDepth + 1;
 			if (Depth[Index] > MaterialProgramMaxDepth)
@@ -750,7 +909,7 @@ namespace Durin
 			return Depth[Index];
 		};
 		for (size_t Index : OrderedIndices)
-			if (VisitState[Index] == 0) Visit(Index);
+			if (VisitState[Index] == 0) Visit(Index, 1);
 
 		const std::array<std::pair<EMaterialSurfaceOutput,
 			const FMaterialProgramLink*>, 8> Outputs{{
@@ -763,18 +922,18 @@ namespace Durin
 			{EMaterialSurfaceOutput::Opacity, &Program.Outputs.Opacity},
 			{EMaterialSurfaceOutput::OpacityMask, &Program.Outputs.OpacityMask}}};
 		const bool bAggregate = Program.Outputs.Surface.SourceNodeId.IsValid();
-		if (!bAggregate && Program.Outputs.Surface.SourceOutputIndex != 0)
+		if (!bAggregate && (Program.Outputs.Surface.SourceOutputIndex != 0 || Program.Outputs.Surface.SourceOutputId.IsValid()))
 			AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
 				EMaterialProgramDiagnosticLocationKind::SurfaceOutput, {}, 8,
 				"An unconnected aggregate Surface source has an invalid output slot.");
 		if (bAggregate)
 		{
-			const auto It = NodeIndices.find(Program.Outputs.Surface.SourceNodeId);
-			if (Program.Outputs.Surface.SourceOutputIndex != 0 || It == NodeIndices.end())
+			const auto Type = ResolveType(Program.Outputs.Surface);
+			if (!Type)
 				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
 					EMaterialProgramDiagnosticLocationKind::SurfaceOutput, {}, 8,
 					"Aggregate Surface source is missing or dangling.");
-			else if (Program.Nodes[It->second].ResultType != EMaterialProgramValueType::Surface)
+			else if (*Type != EMaterialProgramValueType::Surface)
 				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Type,
 					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 					Program.Outputs.Surface.SourceNodeId, 8,
@@ -796,7 +955,7 @@ namespace Durin
 					"Material surface output default contains a non-finite component.");
 			if (!Link->SourceNodeId.IsValid())
 			{
-				if (Link->SourceOutputIndex != 0)
+				if (Link->SourceOutputIndex != 0 || Link->SourceOutputId.IsValid())
 					AddDiagnostic(Diagnostics,
 						EMaterialProgramDiagnosticCategory::Graph,
 						EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
@@ -812,8 +971,8 @@ namespace Durin
 					"Aggregate and per-property Material Output sources cannot coexist.");
 				continue;
 			}
-			const auto It = NodeIndices.find(Link->SourceNodeId);
-			if (Link->SourceOutputIndex != 0 || It == NodeIndices.end())
+			const auto Type = ResolveType(*Link);
+			if (!Type)
 			{
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Graph,
@@ -822,8 +981,7 @@ namespace Durin
 					"Material surface output is missing or dangling.");
 				continue;
 			}
-			if (Program.Nodes[It->second].ResultType
-				!= GetMaterialSurfaceOutputType(Output))
+			if (*Type != GetMaterialSurfaceOutputType(Output))
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Type,
 					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
@@ -878,7 +1036,8 @@ namespace Durin
 
 	auto InspectMaterialParameterDependencies(
 		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> Definitions)
+		std::span<const FMaterialParameterDefinition> Definitions,
+		std::span<const FMaterialFunctionCall> Calls)
 		-> std::vector<FMaterialParameterDependency>
 	{
 		std::unordered_map<FGuid, const FMaterialProgramNode*> Nodes;
@@ -909,8 +1068,15 @@ namespace Durin
 			const auto It = Nodes.find(Id);
 			if (It == Nodes.end()) return;
 			const FMaterialProgramNode& Node = *It->second;
+			if (Node.Opcode == EMaterialProgramOpcode::FunctionCall)
+			{
+				const auto Call = std::ranges::find(Calls, Node.Id, &FMaterialFunctionCall::NodeId);
+				if (Call != Calls.end())
+					for (const auto& Binding : Call->Inputs) Visit(Binding.Source.SourceNodeId);
+			}
 			for (const FMaterialProgramLink& Input : Node.Inputs)
 				Visit(Input.SourceNodeId);
+			for (const auto& Binding : Node.SurfaceAttributes) Visit(Binding.Source.SourceNodeId);
 			if (Node.Opcode == EMaterialProgramOpcode::Parameter
 				|| Node.Opcode == EMaterialProgramOpcode::TextureParameter)
 				Add(Node.Id, Node.ParameterId);

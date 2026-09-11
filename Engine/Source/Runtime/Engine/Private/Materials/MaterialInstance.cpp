@@ -87,7 +87,7 @@ namespace Durin
 				const FMaterialProgram* AuthoredProgram = Material.GetMaterialProgram();
 				if (!AuthoredProgram) return false;
 				const auto Dependencies = InspectMaterialParameterDependencies(
-					*AuthoredProgram, Material.GetParameterDefinitions());
+					*AuthoredProgram, Material.GetParameterDefinitions(), Material.GetMaterialFunctionCalls());
 				return std::ranges::find(Dependencies, Id,
 					&FMaterialParameterDependency::ParameterId) != Dependencies.end();
 			}

@@ -89,6 +89,8 @@ namespace Durin
 			-> FMaterialStaticProperties;
 		ENGINE_API virtual auto GetMaterialProgram() const
 			-> const FMaterialProgram*;
+		ENGINE_API virtual auto GetMaterialFunctionCalls() const
+			-> std::span<const FMaterialFunctionCall>;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
 

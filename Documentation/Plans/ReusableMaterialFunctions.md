@@ -14,8 +14,12 @@ the 22 source packages have recorded identities, references and SHA-256 hashes.
 MaterialVulkanTests retains shader baselines, and SceneImportVulkanTests now
 retains actual imported PBR, UV1/transform, packed-source/independent-map and
 masked captures with resource counts. Audit schema drift and registered struct
-alias misclassification are corrected. Stage 1 is next; Stages 1-5 are not yet
-implemented.
+alias misclassification are corrected. Stage 1 completed on 2026-09-11: typed function
+assets, stable declarations/call records, base-typed reference serialization and
+bounded detached closure capture are implemented. Root-material call admission,
+compiler expansion, multi-output lowering and expression source metadata are
+implemented, including Surface Get/Set and nested diagnostic qualification.
+Stages 2-5 have not started.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -473,6 +477,115 @@ the bounded package suite plus actual mounted audits and import GPU execution
 cover its changed behavior. Full shared-API/editor validation remains a Stage 5
 gate after function implementation.
 
+## Stage 1 Execution Record
+
+`DMaterialFunctionInterface` is abstract with no class default object. It exposes
+signature, direct dependencies, revision and owning-thread snapshot creation;
+`DMaterialFunction` owns the reflected graph and a separate presentation schema.
+Default functions pass a typed Surface input through a FunctionOutput terminal.
+Calls persist `TObjectPtr<DMaterialFunctionInterface>` in records keyed by node
+GUID. Their input and output records preserve port GUIDs and expected types.
+Common nodes contain no asset references; links now have `SourceOutputId`, and
+function terminals have `FunctionPortId`. Root material graphs admit call records
+with stable output GUIDs. Single-output built-ins require positional output zero;
+GetSurfaceAttributes uses the stable surface-attribute enum index (0 through 7)
+and an invalid function-output GUID.
+
+Graph validation reuses the existing built-in node shape/payload validator and
+adds function terminals, stable call output lookup, no-root-parameter checks and
+bounded graph validation. Signature validation covers typed numeric, texture,
+Surface, UV0 and input-reference defaults, required inputs and default cycles.
+Deleted/retyped call ports report their stable GUID and function path.
+
+`SnapshotMaterialFunctionClosure` consumes only the abstract contract and emits
+pure-value snapshots sorted by asset path. It validates provider snapshots,
+checks revision stability and retains all authored dependencies. It rejects
+recursion, missing dependencies, excessive depth/count/payload and incompatible
+call signatures without replacing an earlier output closure. Memoized shared
+subtrees retain their height so reuse cannot bypass the depth bound. Repeated
+root calls count once against the distinct-dependency limit. Snapshot diagnostics
+carry function paths and call chains. Expansion emits separate expression source
+metadata with authored node/port identity, function path and invocation chain.
+
+Root integration keeps live function-call records on `DMaterial`, alongside
+parameter declarations, rather than adding asset pointers to `FMaterialProgram`.
+`SetMaterialProgramAndFunctionCalls` validates and commits graph and call records
+atomically; instances inherit the root records. Compiler snapshots and lifecycle
+submission capture detached calls and the complete closure on the owning thread.
+Unavailable dependencies fail the current request and retire its generation.
+Authored parameter dependency queries traverse call bindings, including instance
+override availability and existing editor parameter operations.
+
+Expansion uses a separate bounded intermediate, so authored graphs remain limited
+to 256 nodes while expansion admits up to 4096 nodes before pruning. Invocation
+namespaces keep independent inputs separate; output GUIDs forward multiple values
+without duplicating shared callee expressions. Nested connected textures preserve
+the root parameter identity and its resource/sampler/fallback association. Absent
+texture inputs use the enclosing typed default and fold fallback samples to their
+constant color. Surface defaults expand through ordinary MakeSurface nodes.
+GetSurfaceAttributes selects visible outputs by an eight-bit mask; adding or
+removing other visible attributes never renumbers a retained connection.
+SetSurfaceAttributes has one positional base-Surface input and a separate bounded
+list of up to eight typed attribute bindings. This permits all eight overrides
+without widening the ordinary eight-input signature table. Duplicate/unknown
+attributes, invalid selections, incompatible sources and cycles are rejected in
+root and function graphs. Lowering forwards Get expressions and reconstructs
+MakeSurface for Set, preserving unmodified fields. No Surface accessor reaches
+shader generation. Both payloads participate in link/payload/depth bounds and
+reference traversal, and serialize with the graph.
+
+Pruned IR determines active parameter declarations. Pure compiler input validates
+the complete closure, including unreachable recursive dependencies.
+
+Program schema is now 5, IR 4, generator 5 and compiler envelope 7. Functions keep
+schema 1. PostLoad upgrades only bounded, valid schema 4 graphs containing legacy
+built-ins and no function calls, preserving declarations and graph identities.
+Asset loaders retain the resulting canonical-resave recommendation without
+marking the package dirty. Older/unknown versions remain unsupported. Cook recipe
+versioning belongs to Stage 2. No production PBR builder or source package has
+been migrated by this tranche.
+
+Root expansion validation: MaterialTests passed 162/162, receipt
+`Build/.agent-state/logs/20260911-171925-444840-19192-MaterialTests.log`.
+The subsequent function suite passed 11/11, including independent invocation
+inputs, multi-output deterministic identities, pre-pruning bounds, nested texture
+defaults, instance snapshots, missing references, root reference serialization
+and schema 4 load upgrade with a retained resave recommendation. Receipt:
+`Build/.agent-state/logs/20260911-172150-654899-35560-MaterialTests.log`.
+AssetPackageTests passed 148/148 after retaining PostLoad resave recommendations;
+receipt: `Build/.agent-state/logs/20260911-172217-762821-28000-AssetPackageTests.log`.
+The default workspace `all` build passed after root integration and versioning;
+receipt: `Build/.agent-state/logs/20260911-172324-208058-320-cmake.log`.
+
+Stage 1 exit qualification: MaterialTests passed 166/166 with Surface Get/Set
+serialization, selected-output stability, all-eight overrides, untouched-field
+preservation, invalid type/attribute/cycle rejection and nested diagnostics.
+The texture-function fixture composes a sampled root texture into Surface and
+compiles real shader entry points through the existing layout with one resource.
+Owning-thread closure diagnostics now identify the document containing the node
+and retain the root invocation; detached pre-expansion validation recovers that
+path too. Receipt:
+`Build/.agent-state/logs/20260911-173511-907317-31644-MaterialTests.log`.
+The final workspace `all` build passed; receipt:
+`Build/.agent-state/logs/20260911-173655-841131-27664-cmake.log`.
+This completes Stage 1 only. Dependency edit propagation, stale closure admission,
+per-owner source-map lifecycle, asset-operation integration and Cook admission
+remain Stage 2 work; authoring UI and production content migration are later gates.
+
+Validation: MaterialTests passed 158/158 before the final function-only bounds
+and reference-enumeration assertions; receipt:
+`Build/.agent-state/logs/20260911-164437-513249-36716-MaterialTests.log`.
+The updated function suite passed 6/6 with exact base-class reference metadata,
+abstract creation rejection, save/reload, detached snapshot lifetime, port
+rename/reorder/delete/retype, default cycles, recursion and shared-subtree depth.
+Final function receipt:
+`Build/.agent-state/logs/20260911-165031-012621-26700-MaterialTests.log`.
+The default `all` build passed for the Engine, Sandbox and RoadWeaver workspace;
+receipt: `Build/.agent-state/logs/20260911-165123-839524-32580-cmake.log`.
+The registry expands shared Engine header changes to most targets; MaterialTests
+and the complete workspace build cover this tranche. GPU qualification remains
+required after function lowering changes executable shaders.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and migration inventory
@@ -491,14 +604,14 @@ no unresolved schema/default decisions block Stage 1.
 
 Depends on Stage 0.
 
-- [ ] Implement the abstract DMaterialFunctionInterface asset contract and concrete
+- [x] Implement the abstract DMaterialFunctionInterface asset contract and concrete
   DMaterialFunction graph owner; call references and snapshot/dependency queries
   use the base without concrete downcasts. Verify abstract asset creation is
   rejected and base-typed references survive serialization and asset operations.
-- [ ] Implement typed stable interfaces, call bindings,
+- [x] Implement typed stable interfaces, call bindings,
   snapshot closure, bounded expansion, multi-output lowering and source maps.
-- [ ] Add Surface Get/Set and validate nested numeric, texture and Surface calls.
-- [ ] Test round trips, reordered/renamed/deleted ports, recursion, missing assets,
+- [x] Add Surface Get/Set and validate nested numeric, texture and Surface calls.
+- [x] Test round trips, reordered/renamed/deleted ports, recursion, missing assets,
   expansion limits, deterministic output and independent invocation inputs.
 
 Exit: a programmatic texture-to-Surface function compiles through existing layouts;

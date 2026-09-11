@@ -34,6 +34,10 @@ namespace Durin
 		{
 			return &Program;
 		}
+		auto GetMaterialFunctionCalls() const -> std::span<const FMaterialFunctionCall> override
+		{
+			return FunctionCalls;
+		}
 		auto GetMaterialGraphPresentation() const
 			-> const FMaterialGraphPresentation&
 		{
@@ -61,6 +65,9 @@ namespace Durin
 		ENGINE_API auto CompileEdits() -> bool;
 		[[nodiscard]] ENGINE_API auto SetMaterialProgram(
 			FMaterialProgram InProgram) -> FMaterialProgramValidationResult;
+		[[nodiscard]] ENGINE_API auto SetMaterialProgramAndFunctionCalls(
+			FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls)
+			-> FMaterialProgramValidationResult;
 		// Commits definitions and references together only after complete validation.
 		// Callers deleting a referenced definition must remove its references too.
 		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
@@ -127,6 +134,9 @@ namespace Durin
 		// PostLoad validates the current authored program before publication.
 		DPROPERTY(EditorOnly)
 		FMaterialProgram Program;
+
+		DPROPERTY(EditorOnly)
+		std::vector<FMaterialFunctionCall> FunctionCalls;
 
 		// Shared node positions are persisted for authoring but excluded from Cook and compilation.
 		DPROPERTY(EditorOnly)

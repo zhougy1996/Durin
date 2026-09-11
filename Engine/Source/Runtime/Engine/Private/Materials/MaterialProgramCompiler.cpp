@@ -5,6 +5,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Threading/RunnableThread.h"
 #include "DynamicRHI.h"
+#include "MaterialFunctionExpansion.h"
 
 #include <algorithm>
 #include <array>
@@ -212,10 +213,12 @@ namespace Durin
 			return Validation;
 		}
 		const auto Definitions = Material.GetParameterDefinitions();
-		auto Validation = ValidateMaterialProgram(*Program, Definitions);
+		auto Validation = ValidateMaterialProgramWithFunctions(*Program, Definitions, Material.GetMaterialFunctionCalls());
 		if (!Validation) return Validation;
 
 		FMaterialCompilerInput Snapshot;
+		Validation = SnapshotMaterialFunctionCalls(Material.GetMaterialFunctionCalls(), Snapshot.FunctionCalls, Snapshot.Functions);
+		if (!Validation) return Validation;
 		Snapshot.Program = *Program;
 		Snapshot.StaticProperties = Material.GetStaticProperties();
 		Snapshot.Environment = std::move(Environment);
@@ -276,8 +279,9 @@ namespace Durin
 		FMaterialNormalizationResult Result;
 		const std::vector<FMaterialParameterDefinition> Definitions =
 			MakeDefinitions(Input.Parameters);
+		Private::FMaterialExpandedProgram Program;
 		const FMaterialProgramValidationResult Validation =
-			ValidateMaterialProgram(Input.Program, Definitions);
+			Private::ExpandMaterialFunctionCalls(Input, Definitions, Program);
 		if (!Validation)
 		{
 			Result.Diagnostics = Validation.Diagnostics;
@@ -335,28 +339,28 @@ namespace Durin
 		}
 
 		std::unordered_map<FGuid, size_t> AuthoredIndices;
-		AuthoredIndices.reserve(Input.Program.Nodes.size());
-		for (size_t Index = 0; Index < Input.Program.Nodes.size(); ++Index)
-			AuthoredIndices.emplace(Input.Program.Nodes[Index].Id, Index);
+		AuthoredIndices.reserve(Program.Nodes.size());
+		for (size_t Index = 0; Index < Program.Nodes.size(); ++Index)
+			AuthoredIndices.emplace(Program.Nodes[Index].Id, Index);
 
-		std::vector<bool> Reachable(Input.Program.Nodes.size(), false);
+		std::vector<bool> Reachable(Program.Nodes.size(), false);
 		std::function<void(size_t)> MarkReachable = [&](size_t Index) {
 			if (Reachable[Index]) return;
 			Reachable[Index] = true;
 			for (const FMaterialProgramLink& Link
-				: Input.Program.Nodes[Index].Inputs)
+				: Program.Nodes[Index].Inputs)
 				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
 		};
 		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
 		{
 			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-				Input.Program.Outputs, Output);
+				Program.Outputs, Output);
 			if (Link.SourceNodeId.IsValid())
 				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
 		}
-		if (Input.Program.Outputs.Surface.SourceNodeId.IsValid())
+		if (Program.Outputs.Surface.SourceNodeId.IsValid())
 			MarkReachable(AuthoredIndices.at(
-				Input.Program.Outputs.Surface.SourceNodeId));
+				Program.Outputs.Surface.SourceNodeId));
 
 		FMaterialIR IR;
 		const size_t ReachableCount = std::ranges::count(Reachable, true);
@@ -372,7 +376,7 @@ namespace Durin
 			std::vector<size_t> Inputs;
 			bool bBuilt = false;
 		};
-		const size_t NodeCount = Input.Program.Nodes.size();
+		const size_t NodeCount = Program.Nodes.size();
 		std::vector<FStructuralKey> StructuralKeys(NodeCount);
 		std::vector<int8> Comparisons(NodeCount * NodeCount, 2);
 		std::function<int8(size_t, size_t)> CompareKeys = [&](size_t A, size_t B) -> int8 {
@@ -396,7 +400,7 @@ namespace Durin
 		std::function<void(size_t)> BuildStructuralKey = [&](size_t Index) {
 			auto& Key = StructuralKeys[Index];
 			if (Key.bBuilt) return;
-			const auto& Node = Input.Program.Nodes[Index];
+			const auto& Node = Program.Nodes[Index];
 			FMaterialIRNode Header;
 			Header.Opcode = Node.Opcode;
 			Header.ResultType = Node.ResultType;
@@ -421,7 +425,7 @@ namespace Durin
 			if (const auto Existing = NormalizedIndices.find(Id);
 				Existing != NormalizedIndices.end()) return Existing->second;
 			const FMaterialProgramNode& Node =
-				Input.Program.Nodes[AuthoredIndices.at(Id)];
+				Program.Nodes[AuthoredIndices.at(Id)];
 			std::vector<FMaterialProgramLink> OrderedInputs = Node.Inputs;
 			if (IsCommutative(Node.Opcode))
 				std::ranges::stable_sort(OrderedInputs, [&](const auto& A,
@@ -434,6 +438,12 @@ namespace Durin
 			const uint32 IRIndex = static_cast<uint32>(IR.Nodes.size());
 			IR.Nodes.push_back(MakeIRNode(
 				Node, OrderedInputs, NormalizedIndices));
+			if (const auto Source = Program.Sources.find(Id); Source != Program.Sources.end())
+			{
+				auto Location = Source->second;
+				Location.ExpressionIndex = IRIndex;
+				Result.Sources.push_back(std::move(Location));
+			}
 			NormalizedIndices.emplace(Id, IRIndex);
 			return IRIndex;
 		};
@@ -441,11 +451,11 @@ namespace Durin
 		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
 		{
 			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-				Input.Program.Outputs, Output);
+				Program.Outputs, Output);
 			if (Link.SourceNodeId.IsValid()) EmitNode(Link.SourceNodeId);
 		}
-		if (Input.Program.Outputs.Surface.SourceNodeId.IsValid())
-			EmitNode(Input.Program.Outputs.Surface.SourceNodeId);
+		if (Program.Outputs.Surface.SourceNodeId.IsValid())
+			EmitNode(Program.Outputs.Surface.SourceNodeId);
 
 		if (IR.Nodes.size() != ReachableCount)
 		{
@@ -453,19 +463,19 @@ namespace Durin
 				"Material normalization did not consume the complete reachable DAG."));
 			return Result;
 		}
-		if (Input.Program.Outputs.Surface.SourceNodeId.IsValid())
+		if (Program.Outputs.Surface.SourceNodeId.IsValid())
 		{
 			IR.SurfaceRoot.bAggregate = true;
 			IR.SurfaceRoot.AggregateExpressionIndex = NormalizedIndices.at(
-				Input.Program.Outputs.Surface.SourceNodeId);
+				Program.Outputs.Surface.SourceNodeId);
 		}
 		for (size_t OutputIndex = 0; OutputIndex < GSurfaceOutputOrder.size(); ++OutputIndex)
 		{
 			const EMaterialSurfaceOutput Output = GSurfaceOutputOrder[OutputIndex];
 			auto& RootInput = IR.SurfaceRoot.Inputs[OutputIndex];
 			RootInput.Type = GetMaterialSurfaceOutputType(Output);
-			RootInput.Literal = GetMaterialSurfaceOutputDefault(Input.Program.Outputs, Output);
-			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(Input.Program.Outputs, Output);
+			RootInput.Literal = GetMaterialSurfaceOutputDefault(Program.Outputs, Output);
+			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(Program.Outputs, Output);
 			if (Link.SourceNodeId.IsValid())
 			{
 				RootInput.bExpression = true;
@@ -482,9 +492,14 @@ namespace Durin
 		}
 		// Capture explicit and implicit dependencies from the same validated snapshot
 		// that produced the reachable IR; authoring metadata stays out of the result.
-		for (const FMaterialParameterDependency& Dependency :
-			InspectMaterialParameterDependencies(Input.Program, Definitions))
-			Result.ActiveParameters.push_back({Dependency.ParameterId, Dependency.Type});
+		for (const auto& Node : IR.Nodes)
+			if (Node.Opcode == EMaterialProgramOpcode::Parameter || Node.Opcode == EMaterialProgramOpcode::TextureParameter)
+			{
+				const auto Definition = std::ranges::find(Definitions, Node.ParameterId, &FMaterialParameterDefinition::Id);
+				if (Definition != Definitions.end()
+					&& std::ranges::find(Result.ActiveParameters, Node.ParameterId, &FMaterialCompilerParameterDeclaration::Id) == Result.ActiveParameters.end())
+					Result.ActiveParameters.push_back({Node.ParameterId, Definition->Type});
+			}
 		std::ranges::sort(Result.ActiveParameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
 		auto Layout = CompileMaterialLayout(Result.ActiveParameters, Input.Environment.ResourceLimits);
@@ -513,7 +528,7 @@ namespace Durin
 		OutBytes.clear();
 		OutError.clear();
 		if (IR.Version != CurrentMaterialIRVersion
-			|| IR.Nodes.size() > MaterialProgramMaxNodeCount)
+			|| IR.Nodes.size() > MaterialFunctionMaxExpandedNodes)
 		{
 			OutError = "Material IR version, node count, or surface output count is invalid.";
 			return false;

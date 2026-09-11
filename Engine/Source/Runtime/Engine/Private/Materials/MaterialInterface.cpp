@@ -164,6 +164,22 @@ namespace Durin
 		Input.Program = CandidateProgram;
 		Input.StaticProperties = CandidateProperties;
 		Input.Environment = std::move(Environment);
+		const auto Functions = SnapshotMaterialFunctionCalls(GetMaterialFunctionCalls(), Input.FunctionCalls, Input.Functions);
+		if (!Functions)
+		{
+			auto& Status = CompilationOwner.MaterialCompileStatus;
+			Status.RequestGeneration = Status.RequestGeneration == std::numeric_limits<uint64>::max()
+				? 1 : Status.RequestGeneration + 1;
+			Status.State = EMaterialCompileState::Failed;
+			Status.ResultCategory = EMaterialCompileResultCategory::Dependency;
+			CompilationOwner.MaterialCompileDiagnostics.clear();
+			for (const auto& Diagnostic : Functions.Diagnostics)
+				CompilationOwner.MaterialCompileDiagnostics.push_back({
+					.Category = EMaterialCompileResultCategory::Dependency, .Source = Diagnostic,
+					.AssetPath = GetObjectPath(), .Generation = Status.RequestGeneration});
+			RetireFailedMaterialGeneration();
+			return false;
+		}
 		Input.Parameters.reserve(GetParameterDefinitions().size());
 		for (const FMaterialParameterDefinition& Definition : GetParameterDefinitions())
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
@@ -269,6 +285,15 @@ namespace Durin
 		-> const FMaterialProgram*
 	{
 		return nullptr;
+	}
+
+	auto DMaterialInterface::GetMaterialFunctionCalls() const -> std::span<const FMaterialFunctionCall>
+	{
+		FResolvedMaterialProperties Resolved;
+		std::string Error;
+		if (!ResolveMaterialProperties(*this, Resolved, Error)) return {};
+		auto* Root = Cast<DMaterial>(ResolveObjectHandle(Resolved.Root));
+		return Root ? Root->GetMaterialFunctionCalls() : std::span<const FMaterialFunctionCall>{};
 	}
 
 	auto DMaterialInterface::GetAcceptedCompiledProgram() const

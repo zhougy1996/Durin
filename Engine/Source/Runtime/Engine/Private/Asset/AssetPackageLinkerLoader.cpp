@@ -1254,7 +1254,8 @@ namespace Durin::AssetPrivate
 				if (auto Result = ApplyLinkerValues(Application, LoadOptions(Index), Diagnostic, Bindings); !Result)
 					return {Cancelled() ? S::Cancelled : S::InvalidClosure, CurrentPath, Result.Message};
 				Application.Package->ClearDirty();
-				Application.Package->SetCanonicalResaveRecommended(!Application.Report.CanonicalizationEvidence.empty()
+				Application.Package->SetCanonicalResaveRecommended(Application.Package->IsCanonicalResaveRecommended()
+					|| !Application.Report.CanonicalizationEvidence.empty()
 					|| !Application.Report.DeprecatedRouteEvidence.empty() || Application.Report.DiscardedFieldCount != 0);
 				Candidates[Index].State->Report = std::move(Application.Report);
 			}
@@ -1497,7 +1498,8 @@ namespace Durin::AssetPrivate
 			return Finish(Result);
 		}
 		OutPackage = Package;
-		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()
+		Package->SetCanonicalResaveRecommended(Package->IsCanonicalResaveRecommended()
+			|| !Report.CanonicalizationEvidence.empty()
 			|| !Report.DeprecatedRouteEvidence.empty() || Report.DiscardedFieldCount != 0);
 		if (OutReport) *OutReport = std::move(Report);
 		bFinalized = true;

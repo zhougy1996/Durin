@@ -549,9 +549,11 @@ namespace Durin
 		const FMaterialStaticProperties& Properties,
 		std::string& OutError
 	) -> bool;
+	struct FMaterialFunctionCall;
 	ENGINE_API auto InspectMaterialParameterDependencies(
 		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> Definitions)
+		std::span<const FMaterialParameterDefinition> Definitions,
+		std::span<const FMaterialFunctionCall> Calls = {})
 		-> std::vector<FMaterialParameterDependency>;
 
 }

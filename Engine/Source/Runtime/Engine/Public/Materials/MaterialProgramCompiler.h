@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialProgramTypes.h"
+#include "Materials/MaterialFunctionTypes.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompiledLayout.h"
 #include "Shader/MaterialShaderIdentity.h"
@@ -17,9 +18,9 @@ namespace Durin
 {
 	class DMaterialInterface;
 
-	inline constexpr uint32 CurrentMaterialIRVersion = 3;
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 4;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 6;
+	inline constexpr uint32 CurrentMaterialIRVersion = 4;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 5;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 7;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 2;
 
 	struct FMaterialCompilerDependency
@@ -51,6 +52,8 @@ namespace Durin
 		std::vector<FMaterialCompilerParameterDeclaration> Parameters;
 		FMaterialStaticProperties StaticProperties;
 		FMaterialCompilerEnvironment Environment;
+		std::vector<FMaterialFunctionCallSnapshot> FunctionCalls;
+		FMaterialFunctionClosure Functions;
 
 		auto operator==(const FMaterialCompilerInput&) const -> bool = default;
 	};
@@ -95,6 +98,16 @@ namespace Durin
 		auto operator==(const FMaterialIR&) const -> bool = default;
 	};
 
+	// Per-input diagnostic metadata, excluded from shared artifact identity and cooked bytes.
+	struct FMaterialExpressionSource
+	{
+		uint32 ExpressionIndex = 0;
+		FGuid NodeId;
+		FGuid PortId;
+		std::string FunctionAssetPath;
+		std::vector<FGuid> CallPath;
+	};
+
 	struct FMaterialNormalizationResult
 	{
 		bool bSucceeded = false;
@@ -104,6 +117,7 @@ namespace Durin
 		FByteBuffer CanonicalBytes;
 		FMaterialProgramIdentity Identity;
 		std::vector<FMaterialProgramDiagnostic> Diagnostics;
+		std::vector<FMaterialExpressionSource> Sources;
 
 		operator bool() const { return bSucceeded; }
 	};

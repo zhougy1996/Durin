@@ -10,6 +10,7 @@
 #include "DObject/Property.h"
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
+#include "MaterialProgramValidation.h"
 
 #include <functional>
 #include <unordered_map>
@@ -83,6 +84,12 @@ namespace Durin
 	auto DMaterial::SetMaterialProgram(
 		FMaterialProgram InProgram) -> FMaterialProgramValidationResult
 	{
+		return SetMaterialProgramAndFunctionCalls(std::move(InProgram), FunctionCalls);
+	}
+
+	auto DMaterial::SetMaterialProgramAndFunctionCalls(FMaterialProgram InProgram,
+		std::vector<FMaterialFunctionCall> InCalls) -> FMaterialProgramValidationResult
+	{
 		if (InProgram.SchemaVersion != CurrentMaterialProgramSchemaVersion)
 		{
 			FMaterialProgramValidationResult Validation;
@@ -91,11 +98,12 @@ namespace Durin
 				.Message = "Material program schema version is unsupported."});
 			return Validation;
 		}
-		auto Validation = ValidateMaterialProgram(
-			InProgram, ParameterDefinitions);
+		auto Validation = ValidateMaterialProgramWithFunctions(
+			InProgram, ParameterDefinitions, InCalls);
 		if (!Validation) return Validation;
-		if (Program == InProgram) return Validation;
+		if (Program == InProgram && FunctionCalls == InCalls) return Validation;
 		Program = std::move(InProgram);
+		FunctionCalls = std::move(InCalls);
 		AdvanceRevision(MaterialProgramRevision);
 		AdvanceAuthoredRevision();
 		Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);
@@ -112,7 +120,7 @@ namespace Durin
 		if (!Declarations) return {Declarations.Error, Declarations.ParameterId};
 		if (InProgram.SchemaVersion != CurrentMaterialProgramSchemaVersion)
 			return {.Error = EMaterialParameterError::UnsupportedProgramSchema};
-		auto Validation = ValidateMaterialProgram(InProgram, Definitions);
+		auto Validation = ValidateMaterialProgramWithFunctions(InProgram, Definitions, FunctionCalls);
 		if (!Validation)
 			return {.Error = EMaterialParameterError::InvalidProgram,
 				.Diagnostics = std::move(Validation.Diagnostics)};
@@ -468,8 +476,20 @@ namespace Durin
 				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
 			return;
 		}
+		if (Program.SchemaVersion == 4 && FunctionCalls.empty()
+			&& Program.Nodes.size() <= MaterialProgramMaxNodeCount
+			&& std::ranges::all_of(Program.Nodes, [](const auto& Node) {
+				return Node.Opcode <= EMaterialProgramOpcode::MakeSurface
+					&& Node.SurfaceAttributeMask == 0 && Node.SurfaceAttributes.empty();
+			})
+			&& Private::ValidateMaterialProgramGraph({CurrentMaterialProgramSchemaVersion,
+				Program.Nodes, Program.Outputs}, ParameterDefinitions, {}, false))
+		{
+			Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
+			if (auto* Package = GetPackage()) Package->SetCanonicalResaveRecommended(true);
+		}
 		const FMaterialProgramValidationResult ProgramValidation =
-			ValidateMaterialProgram(Program, ParameterDefinitions);
+			ValidateMaterialProgramWithFunctions(Program, ParameterDefinitions, FunctionCalls);
 		if (!ProgramValidation)
 		{
 			Error = ProgramValidation.Diagnostics.empty()
@@ -494,10 +514,10 @@ namespace Durin
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticProperties")) InvalidateMaterialCompilation(false, true);
-		if (Name == FName("Program") || (Name == FName("StaticProperties")
+		if (Name == FName("Program") || Name == FName("FunctionCalls") || (Name == FName("StaticProperties")
 			&& CanonicalizeMaterialShaderProperties(StaticProperties) != CompilationOwner.LastObservedShaderProperties))
 		{
-			if (Name == FName("Program"))
+			if (Name == FName("Program") || Name == FName("FunctionCalls"))
 				AdvanceRevision(MaterialProgramRevision);
 			AdvanceAuthoredRevision();
 			Private::FMaterialCompilationLifecycle::ScheduleEdit(*this);

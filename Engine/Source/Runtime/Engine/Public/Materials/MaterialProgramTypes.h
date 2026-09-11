@@ -14,12 +14,13 @@
 namespace Durin
 {
 	struct FMaterialParameterDefinition;
+	struct FMaterialFunctionCallSnapshot;
 	namespace MaterialParameters
 	{
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 4;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 5;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -80,6 +81,11 @@ namespace Durin
 		Sine,
 		Cosine,
 		MakeSurface,
+		FunctionInput,
+		FunctionOutput,
+		FunctionCall,
+		GetSurfaceAttributes,
+		SetSurfaceAttributes,
 	};
 
 	DENUM()
@@ -123,7 +129,24 @@ namespace Durin
 		DPROPERTY()
 		uint8 SourceOutputIndex = 0;
 
+		DPROPERTY()
+		FGuid SourceOutputId;
+
 		auto operator==(const FMaterialProgramLink&) const -> bool = default;
+	};
+
+	DSTRUCT()
+	struct FMaterialSurfaceAttributeBinding
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		EMaterialSurfaceOutput Attribute = EMaterialSurfaceOutput::BaseColor;
+
+		DPROPERTY()
+		FMaterialProgramLink Source;
+
+		auto operator==(const FMaterialSurfaceAttributeBinding&) const -> bool = default;
 	};
 
 	DSTRUCT()
@@ -186,6 +209,17 @@ namespace Durin
 
 		DPROPERTY()
 		std::string DisplayName;
+
+		DPROPERTY()
+		FGuid FunctionPortId;
+
+		// Get outputs retain the attribute enum index regardless of visible selection.
+		DPROPERTY()
+		uint8 SurfaceAttributeMask = 0;
+
+		// Set overrides are separate from the single positional base-Surface input.
+		DPROPERTY()
+		std::vector<FMaterialSurfaceAttributeBinding> SurfaceAttributes;
 
 		auto operator==(const FMaterialProgramNode&) const -> bool = default;
 	};
@@ -343,6 +377,9 @@ namespace Durin
 		FGuid NodeId;
 		uint32 LocationIndex = 0;
 		std::string Message;
+		FGuid PortId;
+		std::string FunctionAssetPath;
+		std::vector<FGuid> CallPath;
 
 		auto operator==(const FMaterialProgramDiagnostic&) const -> bool = default;
 	};
@@ -375,7 +412,8 @@ namespace Durin
 		-> const FMaterialProgramLiteral&;
 	ENGINE_API auto ValidateMaterialProgram(
 		const FMaterialProgram& Program,
-		std::span<const FMaterialParameterDefinition> ParameterDefinitions)
+		std::span<const FMaterialParameterDefinition> ParameterDefinitions,
+		std::span<const FMaterialFunctionCallSnapshot> Calls = {})
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto SanitizeMaterialGraphPresentation(
 		const FMaterialGraphPresentation& Presentation,

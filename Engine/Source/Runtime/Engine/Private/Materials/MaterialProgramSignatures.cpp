@@ -39,6 +39,11 @@ namespace Durin
 				Signature.Inputs[Index] = One(GetMaterialSurfaceOutputType(
 					static_cast<EMaterialSurfaceOutput>(Index)));
 			break;
+		case EMaterialProgramOpcode::GetSurfaceAttributes:
+		case EMaterialProgramOpcode::SetSurfaceAttributes:
+			if (ResultType != Type::Surface) return std::nullopt;
+			Same(1, Type::Surface);
+			break;
 		case EMaterialProgramOpcode::TextureSample2D:
 			if (ResultType != Type::Float4) return std::nullopt;
 			Signature.InputCount = 2;

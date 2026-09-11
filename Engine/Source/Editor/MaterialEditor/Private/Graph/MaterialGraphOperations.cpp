@@ -461,7 +461,7 @@ namespace Durin::Editor::Material
 		if (Transactions && Transactions->HasPendingOperation())
 			return MakeRejected("The editor transactor is busy.");
 		const std::vector Dependencies = InspectMaterialParameterDependencies(
-			*Material.GetMaterialProgram(), Material.GetParameterDefinitions());
+			*Material.GetMaterialProgram(), Material.GetParameterDefinitions(), Material.GetMaterialFunctionCalls());
 		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
 			return Dependency.ParameterId == ParameterId;
 		}))

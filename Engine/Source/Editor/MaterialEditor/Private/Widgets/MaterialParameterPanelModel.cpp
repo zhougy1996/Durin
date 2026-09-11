@@ -151,7 +151,7 @@ namespace Durin::Editor::Material
 			{
 				if (const FMaterialProgram* Program = Material->GetMaterialProgram())
 					for (const auto& Dependency : InspectMaterialParameterDependencies(
-						*Program, Material->GetParameterDefinitions()))
+						*Program, Material->GetParameterDefinitions(), Material->GetMaterialFunctionCalls()))
 					{
 						ParameterIds.push_back(Dependency.ParameterId);
 						ReachableParameterIds.insert(Dependency.ParameterId);
