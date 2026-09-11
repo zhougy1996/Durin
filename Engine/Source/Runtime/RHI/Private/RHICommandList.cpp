@@ -441,6 +441,30 @@ namespace Durin
 			return *static_cast<FRHICommandReplayContext*>(OpaqueContext);
 		}
 
+		// Begin/end command nodes and the recorder share this lease. An early
+		// payload retirement cannot cancel an end marker still waiting for replay.
+		struct FGPUSubmissionRecordingLease final
+		{
+			FRHIGPUSubmissionReceipt Signal = FRHIGPUSubmissionReceipt::CreatePending();
+			~FGPUSubmissionRecordingLease() { Signal.CancelUnresolved(); }
+		};
+
+		struct FBeginGPUSubmissionCommand final
+		{
+			FRHIGPUSubmissionDesc Desc;
+			std::shared_ptr<FGPUSubmissionRecordingLease> Lease;
+			auto Execute(void* Context) -> void
+			{ GetReplayContext(Context).GetOperationContext("BeginGPUSubmission").RHIBeginGPUSubmission(Desc); }
+			auto GetOwnedPayloadBytes() const -> size_t
+			{ return Desc.Waits.capacity() * sizeof(FRHIGPUSubmissionReceipt); }
+		};
+		struct FEndGPUSubmissionCommand final
+		{
+			std::shared_ptr<FGPUSubmissionRecordingLease> Lease;
+			auto Execute(void* Context) -> void
+			{ GetReplayContext(Context).GetOperationContext("EndGPUSubmission").RHIEndGPUSubmission(Lease->Signal); }
+		};
+
 		struct FSwitchPipelineCommand
 		{
 			explicit FSwitchPipelineCommand(ERHIPipeline InPipeline)
@@ -1491,6 +1515,7 @@ namespace Durin
 		, ActiveGraphicsRequest(std::move(Other.ActiveGraphicsRequest))
 		, ActiveComputeRequest(std::move(Other.ActiveComputeRequest))
 		, bInsideRenderPass(Other.bInsideRenderPass)
+		, ActiveGPUSubmissionLease(std::move(Other.ActiveGPUSubmissionLease))
 		, DiagnosticRegionDepth(Other.DiagnosticRegionDepth)
 		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
 		, ActiveGPUTimingQueries(std::move(Other.ActiveGPUTimingQueries))
@@ -1524,6 +1549,7 @@ namespace Durin
 			ActiveGraphicsRequest = std::move(Other.ActiveGraphicsRequest);
 			ActiveComputeRequest = std::move(Other.ActiveComputeRequest);
 			bInsideRenderPass = Other.bInsideRenderPass;
+			ActiveGPUSubmissionLease = std::move(Other.ActiveGPUSubmissionLease);
 			DiagnosticRegionDepth = Other.DiagnosticRegionDepth;
 			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
 			ActiveGPUTimingQueries = std::move(Other.ActiveGPUTimingQueries);
@@ -1642,6 +1668,7 @@ namespace Durin
 			"FinishRecording requires a recording regular command list.");
 		checkf(!bInsideRenderPass,
 			"FinishRecording cannot seal a command list inside a render pass.");
+		requiref(!ActiveGPUSubmissionLease, "FinishRecording requires a closed GPU submission.");
 		if (DiagnosticRegionDepth != 0) RecordInvalidDiagnosticRegion();
 		checkf(DiagnosticRegionDepth == 0,
 			"FinishRecording cannot seal a command list with open diagnostic regions.");
@@ -1653,6 +1680,26 @@ namespace Durin
 	auto FRHICommandList::IsFinished() const -> bool
 	{
 		return FRHICommandListBase::IsFinished();
+	}
+
+	auto FRHICommandListBase::BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
+		-> FRHIGPUSubmissionReceipt
+	{
+		requiref(!bInsideRenderPass && !ActiveGPUSubmissionLease, "GPU submissions cannot nest or begin inside a render pass.");
+		for (const auto& Wait : Desc.Waits)
+			requiref(Wait.GetState() != ERHIGPUSubmissionState::Invalid, "GPU submission has an invalid dependency.");
+		auto Lease = std::make_shared<FGPUSubmissionRecordingLease>();
+		RecordCommand<FBeginGPUSubmissionCommand>(Desc, Lease);
+		ActiveGPUSubmissionLease = Lease;
+		return Lease->Signal;
+	}
+
+	auto FRHICommandListBase::EndGPUSubmission() -> void
+	{
+		requiref(!bInsideRenderPass && ActiveGPUSubmissionLease, "GPU submission end requires a matching begin outside a render pass.");
+		RecordCommand<FEndGPUSubmissionCommand>(
+			std::static_pointer_cast<FGPUSubmissionRecordingLease>(ActiveGPUSubmissionLease));
+		ActiveGPUSubmissionLease.reset();
 	}
 
 	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void

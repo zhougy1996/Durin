@@ -2,6 +2,7 @@
 
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
+#include "RHICompletion.h"
 
 namespace Durin
 {
@@ -1136,6 +1137,57 @@ namespace Durin
 		}
 	};
 
+	// Graph-local submission identity, independent of native queues and GPU values.
+	struct FRDGSubmissionId final
+	{
+		uint32 Index = 0;
+		auto operator==(const FRDGSubmissionId&) const -> bool = default;
+	};
+
+	// Logical scheduling role; the backend may map both roles to one physical queue.
+	enum class ERDGQueueAssignment : uint8 { Graphics, AsyncCompute };
+
+	// Contiguous scheduled pass interval, or a graph epilogue with no pass callback.
+	struct FRDGSubmissionBatch final
+	{
+		FRDGSubmissionId Id;
+		ERDGQueueAssignment Queue = ERDGQueueAssignment::Graphics;
+		uint32 FirstPass = 0;
+		uint32 NumPasses = 0;
+		bool bEpilogue = false;
+		auto operator==(const FRDGSubmissionBatch&) const -> bool = default;
+	};
+
+	// Dependency causes survive batching; queue order is an explicit execution edge.
+	struct FRDGSubmissionDependency final
+	{
+		FRDGSubmissionId Before;
+		FRDGSubmissionId After;
+		ERDGDependencyKind Kind = ERDGDependencyKind::Execution;
+		std::string Cause;
+		auto operator==(const FRDGSubmissionDependency&) const -> bool = default;
+	};
+
+	// Locates an exact logical transition in its consumer's prologue or epilogue.
+	// Dependencies own execution ordering; this record owns no physical backing.
+	struct FRDGResourceHandoff final
+	{
+		uint32 ResourceId = 0;
+		FRDGSubmissionId Consumer;
+		uint32 TransitionIndex = 0;
+		bool bTexture = false;
+		auto operator==(const FRDGResourceHandoff&) const -> bool = default;
+	};
+
+	// Immutable logical execution data, prepared and replayed through separate state.
+	struct FRDGExecutionPlan final
+	{
+		std::vector<FRDGSubmissionBatch> Batches;
+		std::vector<FRDGSubmissionDependency> Dependencies;
+		std::vector<FRDGResourceHandoff> Handoffs;
+		auto operator==(const FRDGExecutionPlan&) const -> bool = default;
+	};
+
 	// Pointer-free pass record suitable for persistence and tooling.
 	struct FRDGPassCapture final
 	{
@@ -1163,6 +1215,7 @@ namespace Durin
 		std::vector<FRDGDependency> Dependencies;
 		std::vector<FRDGResourceLifetime> ResourceLifetimes;
 		std::vector<FRDGCullingDecision> CullingDecisions;
+		FRDGExecutionPlan ExecutionPlan;
 		std::string Dump;
 	};
 
@@ -1388,6 +1441,9 @@ namespace Durin
 		RENDERCORE_API auto GetCullingDecisions() const
 			-> std::span<const FRDGCullingDecision>;
 		RENDERCORE_API auto GetFinalBarriers() const -> const FRDGBarrierBatch&;
+		RENDERCORE_API auto GetExecutionPlan() const -> const FRDGExecutionPlan&;
+		// Runtime receipts follow logical batch order; they are not graph-success proofs.
+		RENDERCORE_API auto GetSubmissionReceipts() const -> std::span<const FRHIGPUSubmissionReceipt>;
 		RENDERCORE_API auto GetCompileMicroseconds() const -> uint64;
 		RENDERCORE_API auto GetBudget() const -> const FRDGBudget&;
 		RENDERCORE_API auto GetStatistics() const -> FRDGStatistics;

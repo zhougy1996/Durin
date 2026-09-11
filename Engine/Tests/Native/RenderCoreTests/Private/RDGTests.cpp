@@ -30,6 +30,27 @@ namespace Durin
 		auto ExpectCapturedBarriersMatchPlan(const FRDGBuilder& Builder) -> void
 		{
 			const auto Capture = Builder.Capture();
+			EXPECT_EQ(Capture.ExecutionPlan, Builder.GetExecutionPlan());
+			size_t HandoffCount = 0;
+			for (const auto& Handoff : Capture.ExecutionPlan.Handoffs)
+			{
+				ASSERT_LT(Handoff.Consumer.Index, Capture.ExecutionPlan.Batches.size());
+				const auto& Batch = Capture.ExecutionPlan.Batches[Handoff.Consumer.Index];
+				const auto& Barriers = Batch.bEpilogue ? Builder.GetFinalBarriers()
+					: Builder.GetPasses()[Batch.FirstPass].Barriers;
+				if (Handoff.bTexture)
+				{
+					ASSERT_LT(Handoff.TransitionIndex, Barriers.GetTextureTransitions().size());
+					EXPECT_EQ(Handoff.ResourceId, Barriers.GetTextureTransitions()[Handoff.TransitionIndex].ResourceId);
+				}
+				else
+				{
+					ASSERT_LT(Handoff.TransitionIndex, Barriers.GetBufferTransitions().size());
+					EXPECT_EQ(Handoff.ResourceId, Barriers.GetBufferTransitions()[Handoff.TransitionIndex].ResourceId);
+				}
+				++HandoffCount;
+			}
+			EXPECT_EQ(HandoffCount, Capture.Statistics.BufferTransitions + Capture.Statistics.TextureTransitions);
 			for (uint32 PassIndex = 0; PassIndex <= Builder.GetPasses().size(); ++PassIndex)
 			{
 				const bool bFinal = PassIndex == Builder.GetPasses().size();
@@ -2848,6 +2869,50 @@ namespace Durin
 		EXPECT_LT(First.Statistics.CompileMicroseconds, 250000u);
 		EXPECT_LT(Second.Statistics.CompileMicroseconds, 250000u);
 		EXPECT_EQ(First.Dependencies.size(), 127u);
+	}
+
+	TEST_F(FRDGTests, SubmissionPlanCompactsCulledPassesAndSurvivesRecording)
+	{
+		FRDGBuilder Builder;
+		FRDGExecutionPlan DuringRecording;
+		Builder.EnablePassCulling();
+		const auto Value = Builder.CreateToken("Output");
+		FRDGBuilderTestAccessor::AddPass(Builder, "Culled", ERDGPassType::Graphics);
+		const auto Producer = FRDGBuilderTestAccessor::AddPass(Builder, "Producer", ERDGPassType::Compute,
+			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
+				DuringRecording = Builder.GetExecutionPlan();
+			});
+		FRDGBuilderTestAccessor::UseToken(Builder, Producer, Value, ERDGUse::Write);
+		const auto Consumer = FRDGBuilderTestAccessor::AddPass(Builder, "Consumer", ERDGPassType::Graphics);
+		FRDGBuilderTestAccessor::UseToken(Builder, Consumer, Value, ERDGUse::Read);
+		Builder.MarkPassRoot(Consumer, "external-effect");
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+		const auto Before = Builder.Capture();
+		ASSERT_EQ(Before.ExecutionPlan.Batches.size(), 3u);
+		EXPECT_EQ(Before.Passes[0].DeclarationIndex, 1u);
+		EXPECT_EQ(Before.ExecutionPlan.Batches[0].FirstPass, 0u);
+		EXPECT_EQ(Before.ExecutionPlan.Batches[1].FirstPass, 1u);
+		EXPECT_TRUE(Before.ExecutionPlan.Batches[2].bEpilogue);
+		EXPECT_EQ(Before.ExecutionPlan.Batches[2].NumPasses, 0u);
+		for (const auto& Batch : Before.ExecutionPlan.Batches)
+			EXPECT_EQ(Batch.Queue, ERDGQueueAssignment::Graphics);
+		for (const auto& Dependency : Before.ExecutionPlan.Dependencies)
+		{
+			EXPECT_LT(Dependency.Before.Index, Dependency.After.Index);
+			EXPECT_FALSE(Dependency.Cause.empty());
+		}
+		EXPECT_EQ(DuringRecording, Before.ExecutionPlan);
+		EXPECT_EQ(Before.ExecutionPlan, Builder.GetExecutionPlan());
+		EXPECT_EQ(Before.ExecutionPlan, Builder.Capture().ExecutionPlan);
+	}
+
+	TEST_F(FRDGTests, EmptyGraphHasNoSyntheticSubmission)
+	{
+		FRDGBuilder Builder;
+		ASSERT_TRUE(Builder.Execute(GetCommandList()).IsSuccess());
+		EXPECT_TRUE(Builder.GetExecutionPlan().Batches.empty());
+		EXPECT_TRUE(Builder.GetExecutionPlan().Dependencies.empty());
+		EXPECT_TRUE(Builder.GetExecutionPlan().Handoffs.empty());
 	}
 
 	TEST_F(FRDGTests, CullsUnreachableBranchesAndReportsExactLifetimes)

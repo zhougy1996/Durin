@@ -364,6 +364,19 @@ namespace Durin
 		};
 	}
 
+	TEST(FRHICommandListTests, DiscardedRecordingCancelsItsUnresolvedGPUSignal)
+	{
+		FRHIGPUSubmissionReceipt Signal;
+		{
+			FRHICommandList Commands;
+			Signal = Commands.BeginGPUSubmission({});
+			Commands.EndGPUSubmission();
+			Commands.FinishRecording();
+			EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
+		}
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Canceled);
+	}
+
 	TEST(FRHICommandListTests, FinishRecordingDoesNotSubmitOrExecute)
 	{
 		FRHICommandListExecutor Executor;

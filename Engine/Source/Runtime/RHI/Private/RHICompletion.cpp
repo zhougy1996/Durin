@@ -2,6 +2,52 @@
 
 namespace Durin
 {
+	struct FRHIGPUReceiptState final
+	{
+		mutable std::mutex Mutex;
+		FRHIGPUSubmissionTicket Ticket;
+		bool bCanceled = false;
+	};
+
+	auto FRHIGPUSubmissionReceipt::CreatePending() -> FRHIGPUSubmissionReceipt
+	{
+		FRHIGPUSubmissionReceipt Result;
+		Result.State = std::make_shared<FRHIGPUReceiptState>();
+		return Result;
+	}
+
+	auto FRHIGPUSubmissionReceipt::GetTicket() const -> FRHIGPUSubmissionTicket
+	{
+		if (!State) return {};
+		std::lock_guard Lock(State->Mutex);
+		return State->Ticket;
+	}
+
+	auto FRHIGPUSubmissionReceipt::GetState() const -> ERHIGPUSubmissionState
+	{
+		if (!State) return ERHIGPUSubmissionState::Invalid;
+		std::lock_guard Lock(State->Mutex);
+		if (State->bCanceled) return ERHIGPUSubmissionState::Canceled;
+		const auto Status = State->Ticket.GetState();
+		return Status == ERHIGPUSubmissionState::Invalid ? ERHIGPUSubmissionState::Pending : Status;
+	}
+
+	auto FRHIGPUSubmissionReceipt::Resolve(const FRHIGPUSubmissionTicket& Ticket) const -> bool
+	{
+		if (!State || Ticket.GetState() == ERHIGPUSubmissionState::Invalid) return false;
+		std::lock_guard Lock(State->Mutex);
+		if (State->bCanceled || State->Ticket.GetState() != ERHIGPUSubmissionState::Invalid) return false;
+		State->Ticket = Ticket;
+		return true;
+	}
+
+	auto FRHIGPUSubmissionReceipt::CancelUnresolved() const -> void
+	{
+		if (!State) return;
+		std::lock_guard Lock(State->Mutex);
+		if (State->Ticket.GetState() == ERHIGPUSubmissionState::Invalid) State->bCanceled = true;
+	}
+
 	// Shared RHI metadata has no backend vtable, native handle or device pointer.
 	struct FRHIGPUTimelineState final
 	{

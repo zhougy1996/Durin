@@ -373,6 +373,47 @@ namespace Durin::VulkanRHI
 		EXPECT_GE(Readback.ArenaReuseCount, 2u);
 	}
 
+	TEST(FVulkanCompletionIntegrationTests, EarlyNativeRetirementDoesNotCancelAnOpenLogicalBatch)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto Signal = Commands.BeginGPUSubmission(
+			{.Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics});
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		const auto Prefix = GetLastVulkanSubmissionTicketForTesting();
+		ASSERT_EQ(GDynamicRHI->RHIWaitForCompletion(Prefix, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
+		EXPECT_EQ(Signal.GetTicket().GetState(), ERHIGPUSubmissionState::Invalid);
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		ASSERT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Submitted);
+		EXPECT_GT(Signal.GetTicket().GetPoint().Value, Prefix.GetPoint().Value);
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Signal.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+	}
+
+	TEST(FVulkanCompletionIntegrationTests, LogicalBatchesCoalesceAcrossCPUReplaySegments)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		const auto Queue = GDynamicRHI->RHIGetQueueCapabilities().Graphics;
+		const auto First = Commands.BeginGPUSubmission({.Queue = Queue});
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		EXPECT_EQ(First.GetTicket().GetState(), ERHIGPUSubmissionState::Invalid);
+		Commands.EndGPUSubmission();
+		const auto Second = Commands.BeginGPUSubmission({.Queue = Queue, .Waits = {First}});
+		Commands.EndGPUSubmission();
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+		ASSERT_EQ(First.GetState(), ERHIGPUSubmissionState::Pending);
+		EXPECT_EQ(Second.GetTicket().GetPoint(), First.GetTicket().GetPoint());
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second.GetTicket(), 0), ERHIGPUWaitResult::Pending);
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		EXPECT_EQ(Second.GetState(), ERHIGPUSubmissionState::Submitted);
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Second.GetTicket(), 1'000'000'000), ERHIGPUWaitResult::Complete);
+		EXPECT_EQ(First.GetState(), ERHIGPUSubmissionState::Complete);
+	}
+
 	TEST(FVulkanCompletionIntegrationTests,
 		SubmissionPublishesTokenAndRetirementWaitsForItsFence)
 	{

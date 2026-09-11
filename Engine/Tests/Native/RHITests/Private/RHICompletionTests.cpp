@@ -3,6 +3,35 @@
 
 namespace Durin
 {
+	TEST(FRHICompletionTests, RecordedSignalTracksNativeAcceptanceAndFailure)
+	{
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		const auto Signal = FRHIGPUSubmissionReceipt::CreatePending();
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
+		EXPECT_EQ(Signal.GetTicket().GetState(), ERHIGPUSubmissionState::Invalid);
+		EXPECT_FALSE(Signal.Resolve({}));
+		const auto Ticket = Queue.Reserve();
+		ASSERT_TRUE(Signal.Resolve(Ticket));
+		EXPECT_FALSE(Signal.Resolve(Ticket));
+		Signal.CancelUnresolved();
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Pending);
+		ASSERT_TRUE(Queue.MarkSubmitted(Ticket));
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Submitted);
+		Queue.Fail(true);
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::DeviceLost);
+		EXPECT_FALSE(Signal.GetTicket().IsRetirementEligible());
+	}
+
+	TEST(FRHICompletionTests, CanceledRecordingCannotPublishANativePoint)
+	{
+		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});
+		const auto Signal = FRHIGPUSubmissionReceipt::CreatePending();
+		Signal.CancelUnresolved();
+		EXPECT_EQ(Signal.GetState(), ERHIGPUSubmissionState::Canceled);
+		EXPECT_FALSE(Signal.Resolve(Queue.Reserve()));
+		EXPECT_EQ(Signal.GetTicket().GetState(), ERHIGPUSubmissionState::Invalid);
+	}
+
 	TEST(FRHICompletionTests, PendingWorkCannotCompleteOrRetire)
 	{
 		FRHIGPUQueueTimeline Queue(AllocateRHIDeviceGeneration(), {0});

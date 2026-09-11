@@ -361,6 +361,27 @@ path. Uncomposed and manual uses retain their previous capture form.
 
 ## Diagnostics and Budgets
 
+`GetExecutionPlan()` exposes immutable logical submission records. Each
+retained pass currently occupies one graphics-assigned batch, followed by an
+epilogue batch when the graph has work. Empty graphs create no synthetic batch.
+Batch pass intervals index the compact scheduled pass array, not declaration
+indices; culling therefore cannot leave a dangling submission reference.
+Dependencies preserve compiler causes and explicitly record the shared queue's
+FIFO edges. Resource handoffs identify exact transition indices in their
+consumer prologue or epilogue without retaining a physical resource pointer.
+
+Preparation resolves all logical barriers into execution-local physical
+transition arrays before any graph callback or command is recorded. Recording
+traverses the batch intervals and emits RHI GPU submission scopes with owning
+wait receipts. The current Vulkan mapping coalesces same-queue batches into
+native payloads and satisfies their dependencies through FIFO execution and
+resource barriers, without a CPU wait between passes. `GetSubmissionReceipts()`
+exposes runtime signals in batch order; these are separate from the immutable
+plan and do not certify graph success or extraction publication.
+`FRDGCapture::ExecutionPlan` owns a copy, and the dump includes stable
+batch identities, queue roles, dependency causes and handoff locations. No
+native completion values or physical queue-family indices enter this data.
+
 `Dump()` reports stable scheduled pass identities, declaration indices,
 parameter-structure names, domains, dependency kinds/causes, logical resources,
 submitted parameter fields, normalized uses and versions, transition counts,

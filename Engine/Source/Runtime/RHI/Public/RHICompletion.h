@@ -55,6 +55,7 @@ namespace Durin
 	struct FRHIGPUTicketState;
 	struct FRHIGPUTimelineState;
 	class FRHIGPUQueueTimeline;
+	struct FRHIGPUReceiptState;
 
 	// Owns metadata only; safe to retain after backend shutdown and fence recycling.
 	class FRHIGPUSubmissionTicket final
@@ -73,6 +74,31 @@ namespace Durin
 		explicit FRHIGPUSubmissionTicket(std::shared_ptr<FRHIGPUTicketState> InState)
 			: State(std::move(InState)) {}
 		std::shared_ptr<FRHIGPUTicketState> State;
+	};
+
+	// A recorded signal whose native queue point is assigned by backend replay.
+	// Distinct from a ticket: cancellation of a recording never completes GPU work.
+	class FRHIGPUSubmissionReceipt final
+	{
+	public:
+		FRHIGPUSubmissionReceipt() = default;
+		RHI_API static auto CreatePending() -> FRHIGPUSubmissionReceipt;
+		RHI_API auto GetState() const -> ERHIGPUSubmissionState;
+		RHI_API auto GetTicket() const -> FRHIGPUSubmissionTicket;
+		// Backend publication is single assignment; a ticket may still be Pending.
+		RHI_API auto Resolve(const FRHIGPUSubmissionTicket& Ticket) const -> bool;
+		// Called only after all executable recording leases have been detached.
+		RHI_API auto CancelUnresolved() const -> void;
+		auto operator==(const FRHIGPUSubmissionReceipt&) const -> bool = default;
+	private:
+		std::shared_ptr<FRHIGPUReceiptState> State;
+	};
+
+	// Owns graph-execution dependencies; the command recorder copies this value.
+	struct FRHIGPUSubmissionDesc final
+	{
+		FRHIQueueId Queue;
+		std::vector<FRHIGPUSubmissionReceipt> Waits;
 	};
 
 	// RHI owns generation allocation so backend replacement cannot reuse an epoch.

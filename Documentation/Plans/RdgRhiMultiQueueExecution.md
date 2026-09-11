@@ -11,7 +11,9 @@ Completed:
 
 Stage 0's ownership audit is recorded below; its performance measurement is
 deferred by explicit operator instruction. Stage 1's single-queue correctness
-gates passed; Stage 2 is next. The runtime still uses one physical queue; no async compute,
+gates passed in `24ba95e5e`. Stage 2 now includes execution-local physical
+transition preparation and recorded RHI wait/signal submission scopes with
+single-queue Vulkan lowering. The runtime still uses one physical queue; no async compute,
 split-barrier or transient-aliasing acceptance gate is complete.
 
 On 2026-09-11 the operator authorized continuing implementation and deferring
@@ -426,21 +428,87 @@ Dependencies: Stage 1.
 Outcome: RDG emits explicit submission batches and synchronization edges,
 initially mapped to one physical queue.
 
-- [ ] Introduce execution-plan records for pass assignment, submission batches,
+- [x] Introduce execution-plan records for pass assignment, submission batches,
   dependencies, resource handoffs, and prologue/epilogue barrier locations.
-- [ ] Separate logical barrier planning, physical transition preparation, and
+- [x] Separate logical barrier planning, physical transition preparation, and
   submission. Preserve immutable plans and one resource-resolution boundary.
-- [ ] Lower graph submission dependencies to RHI wait/signal operations without
+- [x] Lower graph submission dependencies to RHI wait/signal operations without
   inserting CPU waits between passes.
-- [ ] Extend captures with logical queue assignment, batch IDs, and dependency
+- [x] Extend captures with logical queue assignment, batch IDs, and dependency
   reasons. Keep dumps deterministic and exclude device addresses, native fence
   values, and measured timing from stable identity.
-- [ ] Preserve culling, pass callbacks, extraction publication, failure outcomes,
+- [x] Preserve culling, pass callbacks, extraction publication, failure outcomes,
   budgets, and exact range/access/discard behavior on the single-queue mapping.
 
 Completion: single-queue replay oracles and production graph captures remain
 equivalent; preparation failure emits no graph work, and partial submission
 retains all already-submitted resources correctly.
+
+Initial Stage 2 checkpoint (`6cea0167a`): `FRDGExecutionPlan` owns typed graph-local batch IDs,
+scheduled pass intervals, dependency causes, shared-queue FIFO edges and exact
+logical barrier locations. Each retained pass and the graph epilogue are
+explicit batches; an empty graph has none. Recording traverses this immutable
+plan after preparation, and captures/dumps preserve its owning pointer-free
+data. The existing backend command stream is unchanged at this checkpoint;
+these records alone are not an implementation of RHI queue waits/signals.
+
+That checkpoint identified the need to handle recorded-but-not-replayed graph
+dependencies without a synchronous RHI-thread round trip per pass. Native
+queue points currently reserve during backend replay, so a recorded submission
+receipt must distinguish an unresolved CPU recording from a published native
+ticket. Preserve ownership across intermediate submissions caused by uploads
+or synchronous callbacks, and cancel abandoned recordings without claiming
+completion of any already-submitted prefix.
+Batch lowering must also preserve diagnostic-region and GPU-timing scopes
+that surround graph execution; native command-buffer finalization requires
+balanced diagnostic regions, even when a logical region spans several batches.
+
+Checkpoint validation on `Win64-Debug-DurinEditor`:
+
+- `RenderContractTests`: 162/162 passed, including compact IDs after culling,
+  plan equality during/after recording, empty graphs and exact handoff lookup.
+  Log: `Build/.agent-state/logs/20260911-171744-394510-24316-RenderContractTests.log`.
+- `RendererSceneContractTests`: 54/54 passed. Log:
+  `Build/.agent-state/logs/20260911-172012-525870-37556-RendererSceneContractTests.log`.
+- Vulkan graph-transition replay: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-172118-221077-31720-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-172141-392832-33572-RendererResourceReloadVulkanTests.log`.
+- Shared Engine API `all` build passed in 11.62 seconds. Log:
+  `Build/.agent-state/logs/20260911-172204-072530-29888-cmake.log`.
+
+These results qualify the initial logical-recording checkpoint only.
+
+The subsequent implementation resolves every physical barrier before graph
+recording and lowers batch dependencies to owning RHI submission receipts.
+Receipts receive native queue tickets during replay, without a synchronous
+RHI-thread round trip per pass. Single-queue Vulkan validates dependencies and
+coalesces logical signals onto payload tickets; FIFO execution plus resource
+barriers supplies same-queue synchronization. Existing native submission
+boundaries, diagnostic scopes and GPU-timing scopes remain intact.
+Recorded boundary commands share a cancellation lease across CPU replay
+segments and early native retirement. Preparation failure emits no graph
+submission; a callback failure after native submission retains the submitted
+prefix and leaves extraction unpublished. Runtime receipts remain outside
+capture identity and do not assert graph success.
+
+Stage 2 correctness validation on `Win64-Debug-DurinEditor`:
+
+- The 10 `@domain=renderer,kind=contract` targets passed, including 82
+  RHICommandListTests and existing graph/capture equivalence oracles. Log:
+  `Build/.agent-state/logs/20260911-173857-693166-19132-ctest.log`.
+- `VulkanRHIIntegrationTests`: 77/77 passed, including same-queue coalescing,
+  an open scope spanning native retirement, graph receipt publication,
+  preparation rejection and submitted-prefix failure retention. Log:
+  `Build/.agent-state/logs/20260911-173841-005978-37068-VulkanRHIIntegrationTests.log`.
+- `RendererResourceReloadVulkanTests`: 1/1 passed. Log:
+  `Build/.agent-state/logs/20260911-173934-959668-34912-RendererResourceReloadVulkanTests.log`.
+- Shared API consumers were searched across Engine, Sandbox and RoadWeaver;
+  the required `all` build passed in 22.87 seconds. Log:
+  `Build/.agent-state/logs/20260911-174012-415340-28356-cmake.log`.
+
+Timing baselines remain deferred by operator instruction. Stage 2 does not
+qualify independent-queue execution, which belongs to Stage 3.
 
 ### Stage 3: Enable Async Compute with Multi-Queue Lifetime Safety
 

@@ -105,6 +105,38 @@ namespace Durin::VulkanRHI
 		if (ReplayStorageOwner) GetPayload();
 	}
 
+	auto FVulkanCommandListContext::RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
+	{
+		CheckVulkanRHIThread();
+		requiref(!bInsideGPUSubmission, "GPU submissions cannot nest.");
+		requiref(Desc.Queue == Device.GetQueueCapabilities().Graphics,
+			"This backend context only accepts the graphics queue.");
+		for (const auto& Wait : Desc.Waits)
+		{
+			const auto Ticket = Wait.GetTicket();
+			const auto State = Ticket.GetState();
+			requiref(Device.GetCompletionTracker().Owns(Ticket)
+				&& (State == ERHIGPUSubmissionState::Pending
+					|| State == ERHIGPUSubmissionState::Submitted
+					|| State == ERHIGPUSubmissionState::Complete),
+				"GPU dependency must resolve to earlier work on this queue.");
+		}
+		// Same-queue dependencies use FIFO execution and the recorded resource barriers.
+		// Logical batches can share one native payload without extra CPU or GPU waits.
+		GetPayload();
+		bInsideGPUSubmission = true;
+	}
+
+	auto FVulkanCommandListContext::RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+	{
+		CheckVulkanRHIThread();
+		requiref(bInsideGPUSubmission, "GPU submission end requires a matching begin.");
+		GetPayload();
+		requiref(Signal.Resolve(Device.GetCompletionTracker().GetLastReservedTicket()),
+			"GPU submission signal must be unresolved and live.");
+		bInsideGPUSubmission = false;
+	}
+
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		CheckVulkanRHIThread();

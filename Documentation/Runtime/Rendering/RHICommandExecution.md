@@ -225,6 +225,31 @@ but backend command-storage leases, submitted payloads, command buffers, fences,
 ranges, uniform pages, and descriptor pools remain retained until their exact
 token completes. See [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 
+## Recorded GPU Submissions
+
+`BeginGPUSubmission` copies a physical queue ID and dependency receipts into
+the recording and returns a pending `FRHIGPUSubmissionReceipt`.
+`EndGPUSubmission` closes the scope; scopes cannot nest or cross a render-pass
+boundary. A regular recorder must close the scope before `FinishRecording`.
+The immediate recorder may replay or submit a CPU segment inside a scope.
+Both recorded boundary commands and the open scope share its cancellation
+lease, so retiring an early native payload cannot cancel the later signal.
+Discarding all executable owners cancels an unresolved receipt.
+
+Backend replay resolves each signal once to an RHI-owned native ticket. Until
+then `GetTicket()` is invalid even though the receipt state is pending. A
+resolved receipt observes its ticket's submission, completion, or failure;
+canceling an unresolved recording never cancels already-submitted native work.
+Receipts certify covered GPU work, not the success of a graph callback.
+
+Vulkan currently accepts graphics-queue batches only. Dependencies must resolve
+to live or completed tickets owned by that queue's timeline. Same-queue waits
+lower to FIFO ordering and resource barriers; consecutive logical batches can
+share one native ticket. Their boundaries do not finalize command buffers or
+interrupt surrounding diagnostic and GPU-timing scopes. Existing explicit
+submission, frame pacing and upload-pressure boundaries still submit payloads.
+No cross-queue semaphore behavior is implied by this single-queue mapping.
+
 ## Runtime Drain And Diagnostics
 
 `FFrameSync::EndFrame` preserves the two-slot render-command pacing fence and

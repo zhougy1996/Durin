@@ -309,6 +309,41 @@ namespace Durin::VulkanRHI
 		RHIExit();
 	}
 
+	TEST(FVulkanResourceTransitionTests, FailedGraphRetainsItsSubmittedPrefixWithoutPublishingExtraction)
+	{
+		FInlineRHITestScope Scope;
+		ASSERT_TRUE(RHIInit(GetVulkanTestInitializationContext()));
+		auto& Commands = FRHICommandListImmediate::Get();
+		auto Buffer = RHICreateBuffer(FRHIBufferCreateDesc::Create("PartialGraph", 64, 4,
+			EBufferUsageFlags::Static | EBufferUsageFlags::DestinationCopy));
+		ASSERT_TRUE(Buffer);
+		FBufferRHIRef Extracted;
+		FRHIGPUSubmissionTicket Prefix;
+		{
+			FRDGBuilder Graph;
+			const auto Resource = Graph.RegisterExternalBuffer(Buffer, "PartialGraph",
+				ERHIAccess::None, ERHIAccess::TransferWrite);
+			const auto Pass = FRDGBuilderTestAccessor::AddPass(Graph, "SubmitThenFail", ERDGPassType::Copy,
+				[&](FRHICommandListImmediate& List, const FRDGPassResources&) {
+					List.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+					Prefix = GetLastVulkanSubmissionTicketForTesting();
+					throw std::runtime_error("injected graph callback failure");
+				});
+			FRDGBuilderTestAccessor::UseBuffer(Graph, Pass, Resource, 0, 64,
+				ERDGUse::Write, ERHIAccess::TransferWrite, true);
+			Graph.QueueBufferExtraction(Resource, &Extracted, ERHIAccess::TransferWrite);
+			EXPECT_THROW(Graph.Execute(Commands), std::runtime_error);
+			EXPECT_FALSE(Extracted);
+			EXPECT_EQ(Prefix.GetState(), ERHIGPUSubmissionState::Submitted);
+		}
+		// The builder no longer owns the resource, but the submitted command storage does.
+		EXPECT_GT(Buffer->GetRefCount(), 1u);
+		EXPECT_FALSE(Prefix.IsRetirementEligible());
+		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		EXPECT_EQ(GDynamicRHI->RHIWaitForCompletion(Prefix, 1'000'000'000), ERHIGPUWaitResult::Complete);
+		WaitForAllVulkanSubmissionsForTesting();
+	}
+
 	TEST(FVulkanResourceTransitionTests, RenderGraphTransitionsReplayThroughVulkanStateTracking)
 	{
 		FInlineRHITestScope Scope;
@@ -346,6 +381,7 @@ namespace Durin::VulkanRHI
 				AllocationError = Rejected.Result.Message;
 			}
 			EXPECT_FALSE(bExecuted);
+			EXPECT_TRUE(RejectedBuilder.GetSubmissionReceipts().empty());
 			EXPECT_EQ(AllocationError, "injected allocation failure");
 
 			FRDGBuilder Builder;
@@ -379,6 +415,12 @@ namespace Durin::VulkanRHI
 				ERHISubmitFlags::SubmitToGPU);
 
 			auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
+			ASSERT_EQ(Builder.GetSubmissionReceipts().size(), Builder.GetExecutionPlan().Batches.size());
+			for (const auto& Receipt : Builder.GetSubmissionReceipts())
+			{
+				EXPECT_EQ(Receipt.GetState(), ERHIGPUSubmissionState::Submitted);
+				EXPECT_EQ(Receipt.GetTicket().GetPoint(), Builder.GetSubmissionReceipts().back().GetTicket().GetPoint());
+			}
 			auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
 			EXPECT_EQ(VulkanBuffer->GetStateTracker().GetIntervals(),
 				(std::vector<FVulkanBufferStateTracker::FInterval>{

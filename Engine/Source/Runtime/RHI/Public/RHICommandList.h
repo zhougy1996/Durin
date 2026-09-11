@@ -34,6 +34,9 @@ namespace Durin
 	{
 	public:
 		RHI_API virtual ~FRHICommandListBase();
+		// Records a signal and owned waits without dispatching or reserving native work.
+		RHI_API auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> FRHIGPUSubmissionReceipt;
+		RHI_API auto EndGPUSubmission() -> void;
 
 		FRHICommandListBase(const FRHICommandListBase&) = delete;
 		auto operator=(const FRHICommandListBase&) -> FRHICommandListBase& = delete;
@@ -199,6 +202,7 @@ namespace Durin
 		FRHIPipelineCreationRequest ActiveGraphicsRequest;
 		FRHIPipelineCreationRequest ActiveComputeRequest;
 		bool bInsideRenderPass = false;
+		std::shared_ptr<void> ActiveGPUSubmissionLease;
 		uint32 DiagnosticRegionDepth = 0;
 		uint32 RenderPassDiagnosticRegionDepth = 0;
 		std::vector<FRHIGPUTimingQuery*> ActiveGPUTimingQueries;

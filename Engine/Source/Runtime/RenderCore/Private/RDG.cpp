@@ -2,6 +2,8 @@
 #include "Misc/Time.h"
 
 #include "RHICommandList.h"
+#include "DynamicRHI.h"
+#include "RHIGlobals.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -51,22 +53,25 @@ namespace Durin
 			std::string AllocationDisposition;
 		};
 
-		// Reused across batches; the RHI command list copies each submitted payload.
-		struct FBarrierRecordingScratch final
+		// Execution-local physical data; never stored in the immutable logical plan.
+		struct FPreparedTransitions final
 		{
 			std::vector<FRHIBufferTransition> Buffers;
 			std::vector<FRHITextureTransition> Textures;
 		};
-
-		// Preparation has validated all retained backings before any batch is recorded.
-		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
-			const FRDGBarrierBatch& Batch, std::span<const FGraphResourceBacking> Backings,
-			FBarrierRecordingScratch& Scratch) -> void
+		struct FPreparedBarrierBatch final
 		{
-			Scratch.Buffers.clear();
-			Scratch.Textures.clear();
-			Scratch.Buffers.reserve(Batch.GetBufferTransitions().size());
-			Scratch.Textures.reserve(Batch.GetTextureTransitions().size());
+			size_t FirstBuffer = 0, NumBuffers = 0;
+			size_t FirstTexture = 0, NumTextures = 0;
+		};
+
+		// Resolve every barrier before recording callbacks or emitting any graph work.
+		auto PrepareBarrierBatch(
+			const FRDGBarrierBatch& Batch, std::span<const FGraphResourceBacking> Backings,
+			FPreparedTransitions& Scratch) -> FPreparedBarrierBatch
+		{
+			const FPreparedBarrierBatch Result{Scratch.Buffers.size(), Batch.GetBufferTransitions().size(),
+				Scratch.Textures.size(), Batch.GetTextureTransitions().size()};
 			for (const auto& Transition : Batch.GetBufferTransitions())
 			{
 				check(Transition.ResourceId < Backings.size());
@@ -81,8 +86,16 @@ namespace Durin
 					Transition.Range, Transition.ExpectedBefore,
 					Transition.RequiredAfter, Transition.bDiscardContents});
 			}
-			if (!Scratch.Buffers.empty()) CommandList.TransitionBuffers(Scratch.Buffers);
-			if (!Scratch.Textures.empty()) CommandList.TransitionTextures(Scratch.Textures);
+			return Result;
+		}
+
+		auto RecordBarrierBatch(FRHICommandListImmediate& CommandList,
+			const FPreparedBarrierBatch& Batch, const FPreparedTransitions& Prepared) -> void
+		{
+			if (Batch.NumBuffers) CommandList.TransitionBuffers(
+				std::span{Prepared.Buffers}.subspan(Batch.FirstBuffer, Batch.NumBuffers));
+			if (Batch.NumTextures) CommandList.TransitionTextures(
+				std::span{Prepared.Textures}.subspan(Batch.FirstTexture, Batch.NumTextures));
 		}
 
 		struct FGraphUse
@@ -1612,6 +1625,7 @@ namespace Durin
 		FRDGBudget Budget;
 		ERDGBuilderState Lifecycle = ERDGBuilderState::Building;
 		FRDGExecutionResult ExecutionResult;
+		std::vector<FRHIGPUSubmissionReceipt> SubmissionReceipts;
 		bool bCompiled = false;
 		uint32 PendingConstructions = 0;
 		FGraphParameterStorage ParameterStorage;
@@ -1652,6 +1666,7 @@ namespace Durin
 		std::vector<bool> Retained;
 		FGraphPass ExportPass;
 		FRDGBarrierBatch FinalBarriers;
+		FRDGExecutionPlan ExecutionPlan;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		FRDGBudget Budget;
 		FRDGAllocationStatistics AllocationStatistics;
@@ -2560,6 +2575,44 @@ namespace Durin
 			}, [](uint32, const FGraphUse&, size_t, const FRangeCell&, bool) {});
 		if (!TransitionError.IsSuccess()) return TransitionError;
 
+		auto& Execution = CompiledState->ExecutionPlan;
+		const uint32 ScheduledCount = static_cast<uint32>(CompiledState->Passes.size());
+		std::vector<uint32> DeclarationToSubmission(PassCount, UINT32_MAX);
+		Execution.Batches.reserve(ScheduledCount + (ScheduledCount != 0));
+		for (uint32 Index = 0; Index < ScheduledCount; ++Index)
+		{
+			DeclarationToSubmission[CompiledState->Passes[Index].DeclarationIndex] = Index;
+			Execution.Batches.push_back({.Id = {Index}, .FirstPass = Index, .NumPasses = 1});
+		}
+		if (ScheduledCount != 0 || !CompiledState->FinalBarriers.GetBufferTransitions().empty()
+			|| !CompiledState->FinalBarriers.GetTextureTransitions().empty())
+			Execution.Batches.push_back({.Id = {ScheduledCount},
+				.FirstPass = ScheduledCount, .bEpilogue = true});
+		Execution.Dependencies.reserve(CompiledState->Dependencies.size() + ScheduledCount);
+		for (const auto& Edge : CompiledState->Dependencies)
+		{
+			const uint32 Before = DeclarationToSubmission[Edge.BeforePass];
+			const uint32 After = DeclarationToSubmission[Edge.AfterPass];
+			require(Before != UINT32_MAX && After != UINT32_MAX && Before < After);
+			Execution.Dependencies.push_back({{Before}, {After}, Edge.Kind, Edge.Cause});
+		}
+		// Stage 2 maps every batch to graphics. Keep its physical FIFO order
+		// explicit, including the final publication/transition boundary.
+		for (uint32 Index = 1; Index < Execution.Batches.size(); ++Index)
+			Execution.Dependencies.push_back({{Index - 1}, {Index},
+				ERDGDependencyKind::Execution, "queue-order"});
+		for (const auto& Batch : Execution.Batches)
+		{
+			const auto& Barriers = Batch.bEpilogue ? CompiledState->FinalBarriers
+				: CompiledState->Passes[Batch.FirstPass].Barriers;
+			const auto Buffers = Barriers.GetBufferTransitions();
+			for (uint32 Index = 0; Index < Buffers.size(); ++Index)
+				Execution.Handoffs.push_back({Buffers[Index].ResourceId, Batch.Id, Index, false});
+			const auto Textures = Barriers.GetTextureTransitions();
+			for (uint32 Index = 0; Index < Textures.size(); ++Index)
+				Execution.Handoffs.push_back({Textures[Index].ResourceId, Batch.Id, Index, true});
+		}
+
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
 			const auto& Resource = State->Resources[ResourceIndex];
@@ -2713,6 +2766,11 @@ namespace Durin
 	}
 	auto FRDGBuilder::GetFinalBarriers() const -> const FRDGBarrierBatch&
 	{ return Compiled->FinalBarriers; }
+	auto FRDGBuilder::GetExecutionPlan() const -> const FRDGExecutionPlan&
+	{ return Compiled->ExecutionPlan; }
+
+	auto FRDGBuilder::GetSubmissionReceipts() const -> std::span<const FRHIGPUSubmissionReceipt>
+	{ return State->SubmissionReceipts; }
 
 	auto FRDGBuilder::GetCompileMicroseconds() const -> uint64
 	{
@@ -2774,6 +2832,7 @@ namespace Durin
 		Result.Dependencies = Compiled->Dependencies;
 		Result.ResourceLifetimes = Compiled->ResourceLifetimes;
 		Result.CullingDecisions = Diagnostics->CullingDecisions;
+		Result.ExecutionPlan = Compiled->ExecutionPlan;
 		Result.Dump = Dump();
 		Result.Passes.reserve(Compiled->Passes.size());
 		for (const auto& Pass : Compiled->Passes)
@@ -2791,6 +2850,17 @@ namespace Durin
 		std::ostringstream Output;
 		Output << "render-graph passes=" << Compiled->Passes.size()
 			<< " edges=" << Compiled->Dependencies.size() << '\n';
+		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
+			Output << "submission " << Batch.Id.Index << " queue="
+				<< (Batch.Queue == ERDGQueueAssignment::Graphics ? "graphics" : "async-compute")
+				<< " passes=" << Batch.FirstPass << '+' << Batch.NumPasses
+				<< " epilogue=" << Batch.bEpilogue << '\n';
+		for (const auto& Edge : Compiled->ExecutionPlan.Dependencies)
+			Output << "submission-dependency " << Edge.Before.Index << " -> " << Edge.After.Index
+				<< " kind=" << static_cast<uint32>(Edge.Kind) << " cause=" << Edge.Cause << '\n';
+		for (const auto& Handoff : Compiled->ExecutionPlan.Handoffs)
+			Output << "handoff resource=" << Handoff.ResourceId << " submission=" << Handoff.Consumer.Index
+				<< " texture=" << Handoff.bTexture << " transition=" << Handoff.TransitionIndex << '\n';
 		Output << "allocation active-resources="
 			<< Compiled->AllocationStatistics.ActiveResources
 			<< " retained-resources="
@@ -2978,29 +3048,68 @@ namespace Durin
 		{
 			return {ERDGError::AllocationFailed, "retained graph resources require an RDG execution allocator"};
 		}
+		FPreparedTransitions PreparedTransitions;
+		std::vector<FPreparedBarrierBatch> PreparedPassBarriers;
+		PreparedPassBarriers.reserve(Compiled->Passes.size());
+		for (const auto& Pass : Compiled->Passes)
+			PreparedPassBarriers.push_back(PrepareBarrierBatch(Pass.Barriers, Compiled->Backings, PreparedTransitions));
+		const auto PreparedEpilogue = PrepareBarrierBatch(Compiled->FinalBarriers, Compiled->Backings, PreparedTransitions);
+		const auto* Queues = GDynamicRHI ? &GDynamicRHI->RHIGetQueueCapabilities() : nullptr;
+		const bool bExplicitSubmissions = Queues && !Queues->Queues.empty();
+		std::vector<std::vector<uint32>> Predecessors(Compiled->ExecutionPlan.Batches.size());
+		if (bExplicitSubmissions)
+		{
+			State->SubmissionReceipts.resize(Compiled->ExecutionPlan.Batches.size());
+			for (const auto& Edge : Compiled->ExecutionPlan.Dependencies)
+				Predecessors[Edge.After.Index].push_back(Edge.Before.Index);
+			for (auto& Inputs : Predecessors)
+			{
+				std::ranges::sort(Inputs);
+				Inputs.erase(std::unique(Inputs.begin(), Inputs.end()), Inputs.end());
+			}
+		}
 		PreparationTimer.Stop();
 		FScopedMicrosecondTimer RecordingTimer(State->Phases.RecordingMicroseconds);
 		State->Lifecycle = ERDGBuilderState::Recording;
 		State->ExecutionResult.Status = ERDGExecutionStatus::InvalidState;
 		State->ExecutionResult.Result =
 			{ERDGError::InvalidState, "render graph recording did not complete"};
-		FBarrierRecordingScratch BarrierScratch;
-		for (uint32 Index = 0; Index < Compiled->Passes.size(); ++Index)
+		for (const auto& Batch : Compiled->ExecutionPlan.Batches)
 		{
-			const auto& Pass = Compiled->Passes[Index];
-			const auto& Runtime = Compiled->RuntimePasses[Index];
-			RecordBarrierBatch(CommandList, Pass.Barriers, Compiled->Backings, BarrierScratch);
-			if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
+			if (bExplicitSubmissions)
 			{
-				const FRDGPassResources Resources(*this, Index);
-				const FRDGParameterResolver Resolver(Resources,
-					Runtime.ParameterLayout, Runtime.OptionalAliases,
-					Runtime.Parameters,
-					Pass.Name, Pass.Type);
-				(*Runtime.ParameterizedExecute)(CommandList, Resolver);
+				FRHIGPUSubmissionDesc Desc{.Queue = Queues->Graphics};
+				for (uint32 Input : Predecessors[Batch.Id.Index])
+					Desc.Waits.push_back(State->SubmissionReceipts[Input]);
+				State->SubmissionReceipts[Batch.Id.Index] = CommandList.BeginGPUSubmission(Desc);
+			}
+			struct FCloseSubmission
+			{
+				FRHICommandListImmediate& Commands;
+				bool bEnabled;
+				~FCloseSubmission() { if (bEnabled) Commands.EndGPUSubmission(); }
+			} CloseSubmission{CommandList, bExplicitSubmissions};
+			if (Batch.bEpilogue)
+			{
+				RecordBarrierBatch(CommandList, PreparedEpilogue, PreparedTransitions);
+				continue;
+			}
+			for (uint32 Index = Batch.FirstPass; Index < Batch.FirstPass + Batch.NumPasses; ++Index)
+			{
+				const auto& Pass = Compiled->Passes[Index];
+				const auto& Runtime = Compiled->RuntimePasses[Index];
+				RecordBarrierBatch(CommandList, PreparedPassBarriers[Index], PreparedTransitions);
+				if (Runtime.ParameterizedExecute != nullptr && *Runtime.ParameterizedExecute)
+				{
+					const FRDGPassResources Resources(*this, Index);
+					const FRDGParameterResolver Resolver(Resources,
+						Runtime.ParameterLayout, Runtime.OptionalAliases,
+						Runtime.Parameters,
+						Pass.Name, Pass.Type);
+					(*Runtime.ParameterizedExecute)(CommandList, Resolver);
+				}
 			}
 		}
-		RecordBarrierBatch(CommandList, Compiled->FinalBarriers, Compiled->Backings, BarrierScratch);
 		for (uint32 Index = 0; Index < Compiled->Resources.size(); ++Index)
 		{
 			const auto& Resource = Compiled->Resources[Index];

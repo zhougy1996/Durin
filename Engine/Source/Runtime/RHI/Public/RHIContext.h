@@ -2,6 +2,7 @@
 
 #include "RHIShaderParameters.h"
 #include "RHIResources.h"
+#include "RHICompletion.h"
 
 namespace Durin
 {
@@ -20,6 +21,12 @@ namespace Durin
 		// GPU backends retain this owner in every payload touched during replay,
 		// including intermediate submissions. CPU-only contexts need no retention.
 		virtual auto RHISetReplayStorageOwner(std::shared_ptr<void> Owner) -> void {}
+		// Explicit execution batches may coalesce on one physical queue. Waits are
+		// GPU ordering requirements, never CPU waits inserted between callbacks.
+		virtual auto RHIBeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc) -> void
+		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
+		virtual auto RHIEndGPUSubmission(const FRHIGPUSubmissionReceipt& Signal) -> void
+		{ requiref(false, "This RHI context does not support explicit GPU submissions."); }
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
