@@ -2,12 +2,22 @@
 
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "DObject/ObjectHandle.h"
 
 #include "MaterialFunctionTypes.gen.h"
 
 namespace Durin
 {
 	class DMaterialFunctionInterface;
+
+	// Owning-thread admission metadata. Never included in a compiler snapshot.
+	struct FMaterialFunctionOwnerStamp
+	{
+		FObjectHandle Owner;
+		std::string AssetPath;
+		uint64 Revision = 0;
+		auto operator==(const FMaterialFunctionOwnerStamp&) const -> bool = default;
+	};
 
 	inline constexpr uint32 CurrentMaterialFunctionSchemaVersion = 1;
 	inline constexpr uint32 CurrentMaterialFunctionPresentationSchemaVersion = 1;
@@ -221,10 +231,11 @@ namespace Durin
 	// Owning-thread capture. Failure preserves OutClosure; workers receive no asset references.
 	ENGINE_API auto SnapshotMaterialFunctionClosure(
 		std::span<DMaterialFunctionInterface* const> Roots, FMaterialFunctionClosure& OutClosure,
-		std::span<const FGuid> RootCallIds = {})
+		std::span<const FGuid> RootCallIds = {}, std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
 		-> FMaterialProgramValidationResult;
 	ENGINE_API auto SnapshotMaterialFunctionCalls(std::span<const FMaterialFunctionCall> Calls,
-		std::vector<FMaterialFunctionCallSnapshot>& OutCalls, FMaterialFunctionClosure& OutClosure)
+		std::vector<FMaterialFunctionCallSnapshot>& OutCalls, FMaterialFunctionClosure& OutClosure,
+		std::vector<FMaterialFunctionOwnerStamp>* OutOwners = nullptr)
 		-> FMaterialProgramValidationResult;
 	// Validates local links without requiring dependencies to be available or well formed.
 	ENGINE_API auto ValidateMaterialProgramWithFunctions(const FMaterialProgram& Program,

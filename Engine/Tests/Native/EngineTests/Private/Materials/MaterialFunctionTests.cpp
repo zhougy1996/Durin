@@ -2,6 +2,8 @@
 #include "Materials/MaterialFunction.h"
 #include "Asset/Testing.h"
 #include "Asset/References.h"
+#include "Asset/OfflinePreparation.h"
+#include "Asset/Cook.h"
 #include "AssetTools/IAssetTools.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
@@ -672,6 +674,277 @@ TEST(FMaterialFunctionTests, NestedDiagnosticsIdentifyOwningDocumentAndRootInvoc
 	MarkAsGarbage(Wrapper);
 	MarkAsGarbage(Leaf);
 	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, DependencyEditsPreserveAcceptedContractsAndOwnerSourceMaps)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	auto* Leaf = NewObject<DMaterialFunction>(nullptr, "LifecycleFunctionLeaf");
+	auto* Wrapper = NewObject<DMaterialFunction>(nullptr, "LifecycleFunctionWrapper");
+	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
+	auto* First = NewObject<DMaterial>(nullptr, "FirstFunctionCaller");
+	auto* Second = NewObject<DMaterial>(nullptr, "SecondFunctionCaller");
+	auto* Child = NewObject<DMaterialInstance>(nullptr, "FunctionCallerChild");
+	First->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Second->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Child->SetParent(First));
+	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
+	const FGuid FirstCall{55, 1, 1, 1}, SecondCall{55, 1, 1, 2};
+	for (const auto& Pair : {std::pair{First, FirstCall}, std::pair{Second, SecondCall}})
+	{
+		FMaterialProgram Program;
+		Program.Nodes = {{.Id = Pair.second, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+		Program.Outputs.Surface = {.SourceNodeId = Pair.second, .SourceOutputId = Output.Id};
+		ASSERT_TRUE(Pair.first->SetMaterialProgramAndFunctionCalls(Program,
+			{{.NodeId = Pair.second, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+		ASSERT_TRUE(Pair.first->CompileEdits());
+	}
+	const auto Accepted = First->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(Accepted);
+	EXPECT_EQ(Second->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_EQ(Child->GetAcceptedCompiledProgram(), Accepted);
+	ASSERT_FALSE(First->GetAcceptedExpressionSources().empty());
+	ASSERT_FALSE(Second->GetAcceptedExpressionSources().empty());
+	EXPECT_EQ(First->GetAcceptedExpressionSources()[0].CallPath[0], FirstCall);
+	EXPECT_EQ(Second->GetAcceptedExpressionSources()[0].CallPath[0], SecondCall);
+	const auto Before = First->GetMaterialCompileStatus();
+	ASSERT_TRUE(Leaf->SetFunctionPresentation({.Nodes = {{Leaf->GetFunctionGraph().Nodes[0].Id, 70, 80}}}));
+	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Before.AuthoredRevision);
+	auto Graph = Leaf->GetFunctionGraph();
+	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.21f;
+	ASSERT_TRUE(Leaf->SetFunctionGraph(Graph));
+	for (const DMaterialInterface* Caller : {static_cast<DMaterialInterface*>(First), static_cast<DMaterialInterface*>(Second),
+		static_cast<DMaterialInterface*>(Child)})
+	{
+		EXPECT_EQ(Caller->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+		EXPECT_EQ(Caller->GetAcceptedCompiledProgram(), Accepted);
+	}
+	FMaterialCompileResult Stale{.Owner = MakeObjectHandle(First), .AuthoredRevision = Before.AuthoredRevision,
+		.Generation = Before.RequestGeneration, .DependencyRevision = Before.DependencyRevision,
+		.ParentChainRevision = Before.ParentChainRevision, .ProgramIdentity = Before.RequestedIdentity,
+		.StaticProperties = First->GetStaticProperties(), .Target = Before.Target,
+		.State = EMaterialCompileState::Ready, .CompiledProgram = Accepted};
+	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, Stale));
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
+	ASSERT_TRUE(First->CompileEdits());
+	ASSERT_TRUE(Second->CompileEdits());
+	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Child->GetAcceptedCompiledProgram());
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
+	const auto OriginalWrapper = Wrapper->GetFunctionGraph();
+	auto BrokenWrapper = OriginalWrapper;
+	BrokenWrapper.Calls[0].Function = nullptr;
+	ASSERT_TRUE(Wrapper->SetFunctionGraph(BrokenWrapper));
+	EXPECT_FALSE(First->CompileEdits());
+	EXPECT_FALSE(First->GetAcceptedCompiledProgram());
+	EXPECT_FALSE(Child->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(First->GetAcceptedExpressionSources().empty());
+	ASSERT_TRUE(Wrapper->SetFunctionGraph(OriginalWrapper));
+	ASSERT_TRUE(First->CompileEdits());
+	EXPECT_TRUE(First->GetAcceptedCompiledProgram());
+	const auto Current = First->GetMaterialCompileStatus();
+	const auto CurrentProgram = First->GetAcceptedCompiledProgram();
+	// Simulate a dependency changing across a missed external notification. The
+	// publication boundary must compare captured versions independently of events.
+	auto* FirstBinding = const_cast<FMaterialFunctionCall*>(First->GetMaterialFunctionCalls().data());
+	auto* SecondBinding = const_cast<FMaterialFunctionCall*>(Second->GetMaterialFunctionCalls().data());
+	FirstBinding->Function = nullptr;
+	SecondBinding->Function = nullptr;
+	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.37f;
+	ASSERT_TRUE(Leaf->SetFunctionGraph(Graph));
+	FirstBinding->Function = Wrapper;
+	SecondBinding->Function = Wrapper;
+	EXPECT_EQ(First->GetMaterialCompileStatus().AuthoredRevision, Current.AuthoredRevision);
+	FMaterialCompileResult StaleClosure{.Owner = MakeObjectHandle(First), .AuthoredRevision = Current.AuthoredRevision,
+		.Generation = Current.RequestGeneration, .DependencyRevision = Current.DependencyRevision,
+		.ParentChainRevision = Current.ParentChainRevision, .ProgramIdentity = Current.RequestedIdentity,
+		.StaticProperties = First->GetStaticProperties(), .Target = Current.Target,
+		.State = EMaterialCompileState::Ready, .CompiledProgram = CurrentProgram};
+	EXPECT_FALSE(Private::FMaterialCompilationLifecycle::Admit(*First, std::move(StaleClosure)));
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), CurrentProgram);
+	EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	ASSERT_TRUE(First->CompileEdits());
+	EXPECT_NE(First->GetAcceptedCompiledProgram()->Identity, CurrentProgram->Identity);
+	MarkAsGarbage(Child);
+	MarkAsGarbage(Second);
+	MarkAsGarbage(First);
+	MarkAsGarbage(Wrapper);
+	MarkAsGarbage(Leaf);
+	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, RelocationRefreshesNestedCallersAndDeletionHonorsReferences)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("FunctionMutationAssets");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/FunctionMutationTests/", .Owner = EMountOwner::Test,
+		.Root = Root, .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	FPackagePath WrapperPath, LeafPath, MovedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionMutationTests/Wrapper", WrapperPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionMutationTests/Leaf", LeafPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/FunctionMutationTests/Moved", MovedPath));
+	DMaterialFunction* Wrapper = nullptr;
+	DMaterialFunction* Leaf = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(WrapperPath, Wrapper));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(LeafPath, Leaf));
+	const auto OriginalGraph = Wrapper->GetFunctionGraph();
+	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
+	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
+	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
+	FAssetDeletionOperation Deletion;
+	EXPECT_FALSE(IAssetTools::Get().PrepareDeletion({.AssetPaths = {LeafPath}}, Deletion));
+	EXPECT_TRUE(std::ranges::any_of(Deletion.GetBlockers(), [](const auto& Blocker) {
+		return Blocker.Kind == EAssetDeletionBlocker::ExternalPersistentReference
+			|| Blocker.Kind == EAssetDeletionBlocker::ExternalLoadedReference;
+	}));
+	auto* Material = NewObject<DMaterial>(nullptr, "FunctionRelocationCaller");
+	TStrongObjectPtr<DMaterial> MaterialRoot(Material);
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
+	const FGuid CallId{64, 1, 1, 1};
+	FMaterialProgram Program;
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
+		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(Material->CompileEdits());
+	const auto Accepted = Material->GetAcceptedCompiledProgram();
+	const auto Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	const auto OriginalLeafPath = Leaf->GetObjectPath();
+	const std::array Mappings{FAssetRelocationMapping{LeafPath, MovedPath}};
+	FAssetRelocationSummary Summary;
+	FAssetMutationJob Job;
+	ASSERT_TRUE(PrepareAssetRelocationJob(Mappings, Summary, Job));
+	ASSERT_TRUE(Job.ResumeForward());
+	EXPECT_EQ(Wrapper->GetFunctionDependencies()[0].Get(), Leaf);
+	EXPECT_GT(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	ASSERT_TRUE(Material->CompileEdits());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
+	EXPECT_TRUE(std::ranges::any_of(Material->GetAcceptedExpressionSources(), [&](const auto& Source) {
+		return Source.FunctionAssetPath == Leaf->GetObjectPath();
+	}));
+	EXPECT_FALSE(std::ranges::any_of(Material->GetAcceptedExpressionSources(), [&](const auto& Source) {
+		return Source.FunctionAssetPath == OriginalLeafPath;
+	}));
+	ASSERT_TRUE(Wrapper->SetFunctionGraph(OriginalGraph));
+	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
+	ASSERT_TRUE(Material->CompileEdits());
+	const std::array Removed{LeafPath, MovedPath};
+	FAssetDeletionOperation UnreferencedDeletion;
+	const auto PreparedDeletion = IAssetTools::Get().PrepareDeletion(
+		{.AssetPaths = {LeafPath, MovedPath}}, UnreferencedDeletion);
+	ASSERT_TRUE(PreparedDeletion) << PreparedDeletion.Message;
+	ASSERT_TRUE(Testing::RemoveAssetPackagesForTests(Removed));
+	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
+	MaterialRoot.Reset();
+	MarkAsGarbage(Material);
+	CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(WrapperPath));
+	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, CookFingerprintsNestedFunctionsWithoutProducingRuntimeFunctionPackages)
+{
+	using namespace Durin;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	const auto Root = Testing::CreateTestFixtureDirectory("CookFunctionAssets");
+	std::filesystem::create_directories(Root / "Content");
+	const std::array Mounts{FMountPoint{.VirtualRoot = "/CookFunctionTests/", .Owner = EMountOwner::Test,
+		.Root = Root / "Content", .bAutoScan = true, .bContentWritable = true}};
+	Testing::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(RefreshAssetRegistry());
+	std::vector<FCookContributorHandle> Handles;
+	std::string Error;
+	ASSERT_TRUE(RegisterEngineCookContributors(Handles, Error)) << Error;
+	struct FRetire { std::vector<FCookContributorHandle>& Handles; ~FRetire() { for (auto Handle : Handles) UnregisterCookContributor(Handle); } } Retire{Handles};
+	FPackagePath MaterialPath, WrapperPath, LeafPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Material", MaterialPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Wrapper", WrapperPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/CookFunctionTests/Leaf", LeafPath));
+	DMaterial* Material = nullptr;
+	DMaterialFunction* Wrapper = nullptr;
+	DMaterialFunction* Leaf = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(MaterialPath, Material));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(WrapperPath, Wrapper));
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(LeafPath, Leaf));
+	ASSERT_NO_FATAL_FAILURE(AddFunctionCall(*Wrapper, *Leaf));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
+	const FGuid CallId{63, 1, 1, 1};
+	FMaterialProgram Program;
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
+		{{.NodeId = CallId, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(Material->CompileEdits());
+	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
+	ASSERT_TRUE(SavePackage(Wrapper->GetPackage()));
+	ASSERT_TRUE(SavePackage(Material->GetPackage()));
+	FCookRequest Request{.OutputRoot = Root / "Cooked", .TargetPlatform = ECookTargetPlatform::Win64,
+		.TargetProfile = ECookTargetProfile::Game, .ExplicitRoots = {MaterialPath}};
+	FCookRunResult Result;
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Code << ": " << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
+	auto Edited = Leaf->GetFunctionGraph();
+	Edited.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.27f;
+	ASSERT_TRUE(Leaf->SetFunctionGraph(Edited));
+	ASSERT_TRUE(SavePackage(Leaf->GetPackage()));
+	ASSERT_TRUE(Material->CompileEdits());
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	ASSERT_EQ(Result.Packages.size(), 1u);
+	EXPECT_NE(Result.Packages[0].Status, ECookPackageStatus::CookHit);
+	ASSERT_TRUE(FCookCoordinator().Run(Request, Result)) << Result.Diagnostic;
+	EXPECT_EQ(Result.Packages[0].Status, ECookPackageStatus::CookHit);
+	const auto ExpectedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	ASSERT_TRUE(UnloadPackage(MaterialPath));
+	ASSERT_TRUE(UnloadPackage(WrapperPath));
+	ASSERT_TRUE(UnloadPackage(LeafPath));
+	CollectGarbage();
+	const auto LeafData = FindAssetExact(LeafPath);
+	ASSERT_TRUE(LeafData);
+	const std::filesystem::path LeafFile = LeafData->PhysicalPath;
+	const auto HiddenLeafFile = LeafFile.string() + ".unavailable";
+	std::filesystem::rename(LeafFile, HiddenLeafFile);
+	const auto MissingDependency = FCookCoordinator().Run(Request, Result);
+	std::filesystem::rename(HiddenLeafFile, LeafFile);
+	EXPECT_FALSE(MissingDependency) << "A warm Cook hit must still admit every function source.";
+	ShutdownAssetManager();
+	auto Configuration = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Request.OutputRoot, Configuration));
+	ASSERT_TRUE(InitializeAssetManager(std::move(Configuration)));
+	{
+		const std::array CookMounts{FMountPoint{.VirtualRoot = "/CookFunctionTests/", .Owner = EMountOwner::Test,
+			.Root = Request.OutputRoot / "CookFunctionTests", .bAutoScan = true}};
+		Testing::FScopedMountRegistryFixture CookRegistry(CookMounts);
+		ASSERT_TRUE(CookRegistry.IsValid()) << CookRegistry.GetError();
+		ASSERT_TRUE(RefreshAssetRegistry(EAssetRegistryScanMode::FullValidation));
+		DMaterial* Loaded = nullptr;
+		ASSERT_TRUE(LoadObject(Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), Loaded));
+		ASSERT_NE(Loaded, nullptr);
+		ASSERT_NE(Loaded->GetAcceptedCompiledProgram(), nullptr);
+		EXPECT_EQ(Loaded->GetAcceptedCompiledProgram()->Identity, ExpectedIdentity);
+		EXPECT_TRUE(Loaded->GetMaterialProgram()->Nodes.empty());
+		EXPECT_TRUE(Loaded->GetMaterialFunctionCalls().empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->IR.Nodes.empty());
+		EXPECT_TRUE(Loaded->GetAcceptedCompiledProgram()->GeneratedSource.empty());
+	}
+	ShutdownAssetManager();
+	CollectGarbage();
+	ASSERT_TRUE(InitializeAssetManager());
 }
 
 TEST(FMaterialFunctionTests, ExpandedBoundsApplyBeforePruningWithoutRaisingAuthoredBounds)

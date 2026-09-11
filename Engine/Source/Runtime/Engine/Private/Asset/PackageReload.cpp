@@ -72,7 +72,8 @@ namespace Durin
 			return Class == DTexture2D::StaticClass()
 				|| Class == DVolumeTexture::StaticClass()
 				|| Class == DMaterial::StaticClass()
-				|| Class == DMaterialInstance::StaticClass();
+				|| Class == DMaterialInstance::StaticClass()
+				|| Object.IsA(DMaterialFunctionInterface::StaticClass());
 		}
 
 		auto MakeAdmittedClasses() -> std::vector<const DClass*>
@@ -151,6 +152,19 @@ namespace Durin
 				FAssetCompilingManager::Get().FinishCompilationForObjects(Objects);
 				for (DObject* Object : Objects)
 				{
+					if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
+					{
+						const std::array<DMaterialFunctionInterface*, 1> Roots{Function};
+						FMaterialFunctionClosure Closure;
+						const auto Validation = SnapshotMaterialFunctionClosure(Roots, Closure);
+						if (!Validation)
+						{
+							OutResult = MakeResult(Status::Failed, Failure::ResourcePreparationFailed,
+								Stage::PrepareRuntimeProducts, {}, std::format("Function preparation failed for {}: {}",
+									Object->GetObjectPath(), Validation.Diagnostics.empty() ? "Invalid closure." : Validation.Diagnostics[0].Message));
+							return false;
+						}
+					}
 					if (auto* Texture = Cast<DTexture>(Object);
 						Texture && (!Texture->HasPlatformData()
 							|| !Texture->FinishReloadResourcePreparation()))
@@ -543,6 +557,10 @@ namespace Durin
 					State->Result.Diagnostics.push_back({{}, {}, Stage::Retire, ReleaseResult.Message});
 				}
 				RefreshExternalRenderBindings(ExternalRenderConsumers, bTextures, bMaterials);
+				for (const auto& Path : Paths)
+					if (auto* Package = FindResidentPackage(Path))
+						for (DObject* Object : Package->GetTopLevelAssets())
+							if (auto* Function = Cast<DMaterialFunctionInterface>(Object)) NotifyMaterialFunctionChanged(*Function);
 			}
 			catch (...)
 			{

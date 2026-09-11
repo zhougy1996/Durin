@@ -9,9 +9,11 @@
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialFunctionInterface.h"
 #include "Logging/LogMacros.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
+#include <unordered_set>
 
 namespace Durin
 {
@@ -55,6 +57,35 @@ namespace Durin
 			GMaterialLoadedQueryDiagnostics.LastResultCount = Result.size();
 			return Result;
 		}
+	}
+
+	auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void
+	{
+		CheckMaterialQueryThread();
+		if (GetAssetRuntimeConfiguration().RequiresCookedPayload()) return;
+		const auto Owners = QueryLoadedMaterialHandles(EMaterialLoadedQueryOperation::Dependents,
+			[&](const DMaterialInterface* Material) {
+				std::unordered_set<const DMaterialFunctionInterface*> Visited;
+				const auto Depends = [&](auto&& Self, const DMaterialFunctionInterface* Candidate) -> bool {
+					if (Candidate == &Function) return true;
+					if (!IsValid(Candidate) || !Visited.emplace(Candidate).second) return false;
+					// Malformed excessive closures must still fail/recover when edited.
+					if (Visited.size() > MaterialFunctionMaxDependencies) return true;
+					for (const auto& Dependency : Candidate->GetFunctionDependencies())
+						if (Self(Self, Dependency.Get())) return true;
+					return false;
+				};
+				for (const auto& Call : Material->GetMaterialFunctionCalls())
+					if (Depends(Depends, Call.Function.Get())) return true;
+				return false;
+			});
+		for (const auto Handle : Owners)
+			if (auto* Material = Cast<DMaterialInterface>(ResolveObjectHandle(Handle)); IsValid(Material))
+			{
+				auto& Revision = Material->CompilationOwner.MaterialCompileStatus.AuthoredRevision;
+				Revision = Revision == std::numeric_limits<uint64>::max() ? 1 : Revision + 1;
+				Private::FMaterialCompilationLifecycle::ScheduleEdit(*Material);
+			}
 	}
 
 	auto ResolveMaterialProperties(const DMaterialInterface& Material,
@@ -164,7 +195,8 @@ namespace Durin
 		Input.Program = CandidateProgram;
 		Input.StaticProperties = CandidateProperties;
 		Input.Environment = std::move(Environment);
-		const auto Functions = SnapshotMaterialFunctionCalls(GetMaterialFunctionCalls(), Input.FunctionCalls, Input.Functions);
+		std::vector<FMaterialFunctionOwnerStamp> FunctionOwners;
+		const auto Functions = SnapshotMaterialFunctionCalls(GetMaterialFunctionCalls(), Input.FunctionCalls, Input.Functions, &FunctionOwners);
 		if (!Functions)
 		{
 			auto& Status = CompilationOwner.MaterialCompileStatus;
@@ -187,7 +219,7 @@ namespace Durin
 			&FMaterialCompilerParameterDeclaration::Id);
 		CompilationOwner.LastObservedParameters = Input.Parameters;
 		return Private::FMaterialCompilationLifecycle::Submit(
-			*this, std::move(Input), bForceRecompile);
+			*this, std::move(Input), bForceRecompile, std::move(FunctionOwners));
 	}
 
 	auto DMaterialInterface::InvalidateMaterialCompilation(bool bIncludeSelf, bool bOnlyIfShaderChanged) -> void
@@ -312,6 +344,7 @@ namespace Durin
 	auto DMaterialInterface::AdoptParentRuntimeProgram() -> bool
 	{
 		CompilationOwner.RenderLayer = {};
+		CompilationOwner.AcceptedExpressionSources.clear();
 		auto* Parent = GetParent();
 		const auto Program = Parent ? Parent->GetAcceptedCompiledProgram() : nullptr;
 		if (!Program || CanonicalizeMaterialShaderProperties(GetStaticProperties())
@@ -488,6 +521,7 @@ namespace Durin
 	auto DMaterialInterface::RetireFailedMaterialGeneration() -> void
 	{
 		CompilationOwner.RenderLayer = {};
+		CompilationOwner.AcceptedExpressionSources.clear();
 		CompilationOwner.MaterialCompileStatus.CompiledIdentity = {};
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap
 			| EMaterialRenderDirtyFlags::PipelineState);

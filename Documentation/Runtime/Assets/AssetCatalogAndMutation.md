@@ -172,6 +172,13 @@ compress unrelated upstream aliases; canonicalization belongs exclusively to
 Fix Up. Reclaiming a destination alias requires exact proof that it resolves to
 the selected real source.
 
+After committing relocation, loaded material function assets notify their nested
+material and instance callers through the existing compile policy. This refreshes
+dependency paths and per-owner expression sources without changing shader identity
+for a path-only move. Manual callers retain the accepted generation until compiling.
+Function references participate in ordinary deletion blockers; deleting a function
+does not silently sever call bindings.
+
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
 v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
 Directory bind a nonempty external segment. Relocation, duplication, Save, and

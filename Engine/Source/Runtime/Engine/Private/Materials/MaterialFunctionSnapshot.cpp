@@ -26,7 +26,8 @@ namespace Durin
 	}
 
 	auto SnapshotMaterialFunctionCalls(std::span<const FMaterialFunctionCall> Calls,
-		std::vector<FMaterialFunctionCallSnapshot>& OutCalls, FMaterialFunctionClosure& OutClosure)
+		std::vector<FMaterialFunctionCallSnapshot>& OutCalls, FMaterialFunctionClosure& OutClosure,
+		std::vector<FMaterialFunctionOwnerStamp>* OutOwners)
 		-> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
@@ -57,7 +58,7 @@ namespace Durin
 			RootCallIds.push_back(Call.NodeId);
 		}
 		FMaterialFunctionClosure Closure;
-		Result = SnapshotMaterialFunctionClosure(Roots, Closure, RootCallIds);
+		Result = SnapshotMaterialFunctionClosure(Roots, Closure, RootCallIds, OutOwners);
 		if (!Result) return Result;
 		OutCalls = std::move(Snapshots);
 		OutClosure = std::move(Closure);
@@ -65,11 +66,13 @@ namespace Durin
 	}
 
 	auto SnapshotMaterialFunctionClosure(std::span<DMaterialFunctionInterface* const> Roots,
-		FMaterialFunctionClosure& OutClosure, std::span<const FGuid> RootCallIds) -> FMaterialProgramValidationResult
+		FMaterialFunctionClosure& OutClosure, std::span<const FGuid> RootCallIds,
+		std::vector<FMaterialFunctionOwnerStamp>* OutOwners) -> FMaterialProgramValidationResult
 	{
 		check(IsInGameThread());
 		FMaterialProgramValidationResult Result;
 		FMaterialFunctionClosure Closure;
+		std::vector<FMaterialFunctionOwnerStamp> Owners;
 		std::unordered_map<DMaterialFunctionInterface*, uint8> States;
 		std::unordered_map<DMaterialFunctionInterface*, uint32> Heights;
 		std::unordered_set<std::string> Paths;
@@ -220,6 +223,7 @@ namespace Durin
 				return false;
 			}
 			States[Function] = 2;
+			Owners.push_back({MakeObjectHandle(Function), AssetPath, Revision});
 			Heights[Function] = Height;
 			Closure.Functions.push_back(std::move(Snapshot));
 			return true;
@@ -236,6 +240,8 @@ namespace Durin
 			if (!Visit(Visit, Roots[Index], 1)) return Result;
 		}
 		std::ranges::sort(Closure.Functions, {}, &FMaterialFunctionSnapshot::AssetPath);
+		std::ranges::sort(Owners, {}, &FMaterialFunctionOwnerStamp::AssetPath);
+		if (OutOwners) *OutOwners = std::move(Owners);
 		OutClosure = std::move(Closure);
 		Result.bSucceeded = true;
 		return Result;

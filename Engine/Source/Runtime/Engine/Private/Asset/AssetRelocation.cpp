@@ -15,6 +15,7 @@
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MountPaths.h"
+#include "Materials/MaterialFunctionInterface.h"
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
 
@@ -705,6 +706,10 @@ namespace Durin
 		Result = TransitionMutationJournalState(
 			State.Journal, EAssetMutationState::Committed);
 		if (!Result) return Result;
+		for (const auto& Loaded : State.LoadedPackages)
+			for (DObject* Object : Loaded.Package->GetTopLevelAssets())
+				if (auto* Function = Cast<DMaterialFunctionInterface>(Object))
+					NotifyMaterialFunctionChanged(*Function);
 		AssetPrivate::NotifyAssetMoveObservers(State.Mappings);
 		return {};
 	}

@@ -256,6 +256,13 @@ namespace Durin::AssetPrivate
 					Pending.push_back(Root.TargetPath);
 				}
 		std::unordered_set<FPackagePath> Runtime;
+		const auto IsRuntimeReference = [&](const FAssetReferenceEdge& Reference) {
+			if (Request.bRetainEditorOnlyData) return true;
+			const auto* Class = FindClassByQualifiedName(FName(Reference.SourceClass));
+			const auto* Property = Class ? Class->FindPropertyByName(FName(Reference.FieldName)) : nullptr;
+			// Custom archive fields without a reflected policy remain runtime dependencies.
+			return !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
+		};
 		uint64 RuntimeEdges = 0;
 		while (!Pending.empty())
 		{
@@ -267,7 +274,14 @@ namespace Durin::AssetPrivate
 			RuntimeEdges += Input.Inspection.Header.Dependencies.size() + Input.References.size();
 			if (RuntimeEdges > MaximumCookDependencyRecords)
 				return Fail(EAssetError::CorruptFile, "Cook runtime edge limit exceeded.", ECookInputStatus::LimitExceeded);
-			Pending.insert(Pending.end(), Input.Inspection.Header.Dependencies.begin(), Input.Inspection.Header.Dependencies.end());
+			std::unordered_map<FPackagePath, bool> ReferencedPackages;
+			for (const auto& Reference : Input.References)
+				ReferencedPackages[Reference.TargetPath.GetPackagePath()] |= IsRuntimeReference(Reference);
+			for (const auto& Dependency : Input.Inspection.Header.Dependencies)
+			{
+				const auto Reference = ReferencedPackages.find(Dependency);
+				if (Reference == ReferencedPackages.end() || Reference->second) Pending.push_back(Dependency);
+			}
 			for (const auto& Reference : Input.References)
 			{
 				if (Reference.Kind == EAssetReferenceKind::Redirect) continue;
@@ -278,7 +292,8 @@ namespace Durin::AssetPrivate
 					return Fail(Result.Error == EAssetError::NotFound ? EAssetError::MissingDependency : Result.Error, Result.Message);
 				for (const auto& Alias : Resolution.RedirectChain)
 					if (auto Result = AcquirePackage(Alias.GetPackagePath()); !Result) return Result;
-				Pending.push_back(Resolution.FinalPath.GetPackagePath());
+				if (auto Result = AcquirePackage(Resolution.FinalPath.GetPackagePath()); !Result) return Result;
+				if (IsRuntimeReference(Reference)) Pending.push_back(Resolution.FinalPath.GetPackagePath());
 			}
 		}
 		RuntimePackages.assign(Runtime.begin(), Runtime.end());

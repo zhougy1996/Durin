@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v9 packages, runtime residency, l
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance, AssetTools
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-11
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -370,7 +370,10 @@ reload admission or success result.
 ## Saved Package Reload
 
 `ReloadPackages` is the public GameThread recovery boundary for authored
-Texture2D, VolumeTexture, Material, and MaterialInstance packages. Requests are
+Texture2D, VolumeTexture, Material, MaterialInstance, and material-function
+interface implementations. Function candidates validate their bounded detached
+closure before replacement; committed function replacements invalidate loaded
+callers through the existing material edit scheduler. Requests are
 deduplicated by resident package identity and bounded by package, object,
 reference-slot, retained-CPU, and candidate-GPU limits. Newly created packages,
 cooked runtimes, missing saved files, unregistered top-level classes, projection

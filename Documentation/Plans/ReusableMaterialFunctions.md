@@ -19,7 +19,11 @@ assets, stable declarations/call records, base-typed reference serialization and
 bounded detached closure capture are implemented. Root-material call admission,
 compiler expansion, multi-output lowering and expression source metadata are
 implemented, including Surface Get/Set and nested diagnostic qualification.
-Stages 2-5 have not started.
+Stage 2 completed on 2026-09-11: semantic edits and asset relocation/reload update
+loaded callers through the existing scheduler, publication admits captured
+closures, and Cook includes function build inputs without runtime function graphs.
+Nested asynchronous sharing, cancellation, stale results and shutdown are
+qualified. Stages 3-5 have not started.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -586,6 +590,94 @@ The registry expands shared Engine header changes to most targets; MaterialTests
 and the complete workspace build cover this tranche. GPU qualification remains
 required after function lowering changes executable shaders.
 
+## Stage 2 Execution Record
+
+Shared-seam reconciliation used the current M13 implementation and its active
+plan before modifying lifecycle code: instances already own complete accepted
+generations, DMAT remains version 5, the material Cook recipe started at version 3, and
+failed current requests retire their accepted renderable contract. Function work
+extends those paths; it does not introduce a scheduler or change M13 completion.
+
+`NotifyMaterialFunctionChanged` is the owning-thread semantic notification shared
+by function implementations. Concrete graph edits and reflected graph changes
+notify all loaded root/instance callers, including nested interface dependencies.
+Callers advance their authored revision and use the root's existing Immediate,
+Automatic or Manual compile policy. Presentation edits do not notify or compile.
+
+Each submitted owner retains dependency object handles, paths and revisions
+separately from compiler snapshots and shader identity. Admission re-captures
+these owning-thread stamps before publishing and
+rejects a changed or invalid closure, even when an external notification was
+missed. This check is independent of the normal generation and parent qualifiers.
+Pending semantic edits retain the prior accepted program and source map; current
+failure retires both. Expression source maps are stored per requesting/accepted
+owner, so equal shaders can share immutable artifacts while retaining distinct
+root invocation identities.
+
+The focused function suite passed 15/15, covering nested edits, instance callers,
+manual scheduling, presentation-only edits, shared accepted artifacts with
+different source maps, failure/recovery and a deliberately missed notification
+at admission. Receipt:
+`Build/.agent-state/logs/20260911-174417-049955-36268-MaterialTests.log`.
+The complete MaterialTests target then passed 167/167, receipt
+`Build/.agent-state/logs/20260911-174511-682709-29796-MaterialTests.log`.
+The default workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-174640-221852-26204-cmake.log`.
+Reload now admits implementations through the abstract function interface,
+validates each prepared function closure before committing, rewrites reflected
+calls through the existing replacement machinery and notifies loaded callers
+after publication. Invalid saved recursion preserves the valid old live graph
+and dirty state. Repeated replacement at the same path/revision produces a new
+owner stamp, preventing old results from relying on a reset revision counter.
+AssetPackageReloadTests passed 13/13, including nested function callers, instance
+invalidation, accepted-generation retention until explicit compile, repeated
+replacement and invalid-closure rejection. Receipt:
+`Build/.agent-state/logs/20260911-175447-833652-34692-AssetPackageReloadTests.log`.
+The complete MaterialTests target passed 167/167 with owner stamps, receipt
+`Build/.agent-state/logs/20260911-175617-277711-10196-MaterialTests.log`.
+The workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-175735-849049-37576-cmake.log`.
+Cook now separates stripped reflected EditorOnly references from runtime package
+selection while retaining their complete hard dependency closure as validated,
+fingerprinted build inputs. Function-only packages require no runtime contributor.
+Material/instance recipe version 4 invalidates the old recipe; DMAT is unchanged.
+Material Cook capture also rechecks function owner stamps against the accepted
+generation. No separate cache or publication path was introduced.
+The production coordinator fixture verifies two nested function packages produce
+only one runtime material package, unchanged inputs hit the cache, a leaf edit
+misses then hits, and a missing leaf source fails even with a warm cache. The
+cooked package loads with the same compiled identity without authored calls,
+graph nodes, IR or generated source. Receipt:
+`Build/.agent-state/logs/20260911-181235-687684-13896-MaterialTests.log`.
+The complete MaterialTests target passed 168/168, receipt
+`Build/.agent-state/logs/20260911-181012-528431-35996-MaterialTests.log`.
+AssetPackageTests passed 148/148 after the final dependency traversal change,
+receipt `Build/.agent-state/logs/20260911-181152-977637-28728-AssetPackageTests.log`.
+The workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-181253-650598-29844-cmake.log`.
+Committed relocation now notifies loaded abstract function implementations after
+their package path is updated. The nested-caller fixture verifies manual pending
+state, retained accepted program, unchanged shader identity after recompilation,
+and expression sources updated to the destination path. Existing AssetTools
+deletion acceptance blocks referenced functions and accepts the complete moved
+asset/alias selection after its call is removed and saved; no deletion-specific
+registry or reference-severing behavior was added. Receipt:
+`Build/.agent-state/logs/20260911-181640-627560-36824-MaterialTests.log`.
+AssetPackageTests passed 148/148, receipt
+`Build/.agent-state/logs/20260911-181651-148944-30648-AssetPackageTests.log`.
+The workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-181728-176433-28316-cmake.log`.
+Asynchronous qualification holds worker entry to prove overlapping requests with
+distinct root call GUIDs share work. Canceling one consumer does not cancel the
+other, a nested function edit before completion rejects the captured old closure
+without replacing the accepted program, current compilation recovers, and terminal
+shutdown drains outstanding function requests and retained artifacts. It runs
+inside the existing lifecycle fixture because the compilation manager has one
+terminal shutdown per process. MaterialTests passed 169/169, receipt
+`Build/.agent-state/logs/20260911-182202-753880-17176-MaterialTests.log`.
+Together with the recorded Cook, relocation/deletion and reload receipts this
+completes Stage 2; editor authoring and end-to-end import/GPU gates remain later stages.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and migration inventory
@@ -621,10 +713,10 @@ malformed calls diagnose correctly and no worker reads live assets.
 
 Depends on Stage 1.
 
-- [ ] Integrate function references with invalidation, asset operations, shared
+- [x] Integrate function references with invalidation, asset operations, shared
   compile work, accepted generations, cancellation and shutdown.
-- [ ] Extend Cook dependency admission and cache identity/versioning.
-- [ ] Test nested edits, stale completion, compile failure/recovery, relocation,
+- [x] Extend Cook dependency admission and cache identity/versioning.
+- [x] Test nested edits, stale completion, compile failure/recovery, relocation,
   deletion, cold/warm cache and cooked loading without authored functions.
 
 Exit: dependency edits safely update all callers and Cook artifacts are sufficient

@@ -7,6 +7,7 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialCompileLifecycle.h"
+#include "Materials/MaterialFunctionInterface.h"
 #include <chrono>
 
 #include "MaterialInterface.gen.h"
@@ -60,6 +61,10 @@ namespace Durin
 		// Last scheduled or submitted schema, used to classify reflected dynamic edits.
 		FMaterialStaticProperties LastObservedShaderProperties;
 		std::vector<FMaterialCompilerParameterDeclaration> LastObservedParameters;
+		// Request-local dependency versions; excluded from shared shader artifacts.
+		std::vector<FMaterialFunctionOwnerStamp> RequestedFunctionOwners;
+		std::vector<FMaterialExpressionSource> RequestedExpressionSources;
+		std::vector<FMaterialExpressionSource> AcceptedExpressionSources;
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		bool bDeferredForceRecompile = false;
@@ -71,6 +76,7 @@ namespace Durin
 	class DMaterialInterface : public DObject
 	{
 		GENERATED_BODY()
+		friend ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
 	public:
 		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
 
@@ -93,6 +99,10 @@ namespace Durin
 			-> std::span<const FMaterialFunctionCall>;
 		ENGINE_API virtual auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult>;
+		auto GetAcceptedExpressionSources() const -> std::span<const FMaterialExpressionSource>
+		{
+			return CompilationOwner.AcceptedExpressionSources;
+		}
 
 		auto GetMaterialCompileDiagnostics() const
 			-> std::span<const FMaterialCompileDiagnostic>

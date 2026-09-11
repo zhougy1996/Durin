@@ -20,7 +20,7 @@ namespace Durin
 			std::string Name,
 			std::vector<FCookContributorHandle>& Handles) -> bool
 		{
-			constexpr uint32 Version = std::is_base_of_v<DMaterialInterface, T> ? 3 : 2;
+			constexpr uint32 Version = std::is_base_of_v<DMaterialInterface, T> ? 4 : 2;
 			const FCookContributorHandle Handle = RegisterCookContributor(
 				T::StaticClass(), {std::move(Name), Version, Version,
 					[](DObject& Object, std::string_view VirtualPath,

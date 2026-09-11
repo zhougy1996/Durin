@@ -814,7 +814,7 @@ namespace Durin
 		auto FMaterialCompilationLifecycle::Submit(
 			DMaterialInterface& Material,
 			FMaterialCompilerInput Input,
-			bool bForceRecompile) -> bool
+			bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners) -> bool
 		{
 			CheckMaterialCompileGameThread();
 			const auto Manager = GetMaterialCompilingManager();
@@ -831,8 +831,10 @@ namespace Durin
 				return true;
 			}
 			Material.CompilationOwner.MaterialCompileStatus.State = EMaterialCompileState::Pending;
+			Material.CompilationOwner.RequestedFunctionOwners = std::move(FunctionOwners);
 			const FMaterialNormalizationResult Normalized =
 					NormalizeMaterialProgram(Input);
+			Material.CompilationOwner.RequestedExpressionSources = Normalized.Sources;
 				Material.CompilationOwner.MaterialCompileStatus.RequestGeneration = AdvanceNonzero(
 					Material.CompilationOwner.MaterialCompileStatus.RequestGeneration);
 				Material.CompilationOwner.MaterialCompileStatus.DependencyRevision =
@@ -1001,6 +1003,19 @@ namespace Durin
 					}
 				}
 
+				if (!Material.CompilationOwner.RequestedFunctionOwners.empty() || !Material.GetMaterialFunctionCalls().empty())
+				{
+					std::vector<FMaterialFunctionCallSnapshot> Calls;
+					FMaterialFunctionClosure Closure;
+					std::vector<FMaterialFunctionOwnerStamp> Owners;
+					const auto Validation = SnapshotMaterialFunctionCalls(Material.GetMaterialFunctionCalls(), Calls, Closure, &Owners);
+					if (!Validation || Owners != Material.CompilationOwner.RequestedFunctionOwners)
+					{
+						Status.AuthoredRevision = AdvanceNonzero(Status.AuthoredRevision);
+						ScheduleEdit(Material);
+						return false;
+					}
+				}
 				Status.State = Result.State;
 				Status.ResultCategory = Result.Category;
 				Status.CacheOutcome = Result.CacheOutcome;
@@ -1037,6 +1052,7 @@ namespace Durin
 							Parameter.Id, Parameter.Type, Resolved.Value));
 					}
 					Material.CompilationOwner.RenderLayer = std::move(Candidate);
+					Material.CompilationOwner.AcceptedExpressionSources = Material.CompilationOwner.RequestedExpressionSources;
 					Status.CompiledIdentity = Result.ProgramIdentity;
 					Status.DurationMicroseconds =
 						Material.CompilationOwner.RenderLayer.CompiledProgram->Timings.NormalizationMicroseconds

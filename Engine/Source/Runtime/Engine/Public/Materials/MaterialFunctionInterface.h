@@ -7,6 +7,9 @@
 
 namespace Durin
 {
+	class DMaterialFunctionInterface;
+	// Owning-thread semantic notification shared by all function implementations.
+	ENGINE_API auto NotifyMaterialFunctionChanged(const DMaterialFunctionInterface& Function) -> void;
 	// Calls consume this contract without requiring an editable graph owner.
 	DCLASS(Abstract, NoClassDefaultObject)
 	class DMaterialFunctionInterface : public DObject

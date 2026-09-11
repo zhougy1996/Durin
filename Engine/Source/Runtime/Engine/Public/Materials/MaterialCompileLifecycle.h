@@ -188,7 +188,7 @@ namespace Durin
 			ENGINE_API static auto Submit(
 				DMaterialInterface& Material,
 				FMaterialCompilerInput Input,
-				bool bForceRecompile) -> bool;
+				bool bForceRecompile, std::vector<FMaterialFunctionOwnerStamp> FunctionOwners = {}) -> bool;
 			ENGINE_API static auto Admit(
 				DMaterialInterface& Material,
 				FMaterialCompileResult Result) -> bool;

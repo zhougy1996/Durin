@@ -287,11 +287,11 @@ durin_add_engine_functional_test(AssetPackageReloadVulkanTests
 durin_add_engine_functional_test(AssetPackageReloadTests
 	KIND feature
 	DOMAINS asset-package editor-shell
-	MODULES durin-ed engine texture-build
+	MODULES durin-ed engine texture-build shader-build
 	STACKS editor
-	RUNTIME_STACK_RATIONALE "Exercises saved texture package replacement through editor discard and a live cloud component reference."
+	RUNTIME_STACK_RATIONALE "Exercises texture/material/function package replacement, editor discard, live references and accepted compiled caller generations."
 	SOURCES Private/AssetPackageReloadTests.cpp
-	LIBRARIES DurinEd TextureBuild
+	LIBRARIES DurinEd TextureBuild ShaderBuild
 )
 
 durin_add_engine_functional_test(EditorShellTests

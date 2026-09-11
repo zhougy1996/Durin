@@ -10,6 +10,8 @@
 #include "Editor/WorkspaceRootWindow.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialFunction.h"
+#include "Asset/OfflinePreparation.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "NativeDObjectTestSupport.h"
@@ -30,6 +32,7 @@ namespace
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 			Durin::Testing::InitializeDObjectSystemForTests();
 			Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 		}
 
@@ -182,6 +185,107 @@ TEST_F(FAssetPackageReloadTests, MaterialDiscardRestoresBaseAndInstanceAuthoredS
 	EXPECT_EQ(ReloadedInstance->GetParent(), Reloaded);
 	EXPECT_TRUE(Reloaded->GetStaticProperties().bTwoSided);
 	EXPECT_FALSE(Reloaded->GetPackage()->IsDirty());
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST_F(FAssetPackageReloadTests, FunctionReloadRebindsNestedCallersAndPreservesAcceptedGenerationUntilCompile)
+{
+	using namespace Durin;
+	FScopedOfflinePreparation Offline;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/Function", Path));
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	const auto Name = Function->GetFName();
+	TStrongObjectPtr<DMaterialFunction> Wrapper(NewObject<DMaterialFunction>(nullptr, "ReloadWrapper"));
+	auto Graph = Wrapper->GetFunctionGraph();
+	const auto Output = Function->GetFunctionSignature().Outputs[0];
+	const FGuid InnerCall{61, 1, 1, 1}, RootCall{61, 1, 1, 2};
+	Graph.Nodes.push_back({.Id = InnerCall, .Opcode = EMaterialProgramOpcode::FunctionCall});
+	Graph.Calls.push_back({.NodeId = InnerCall, .Function = Function, .Outputs = {{Output.Id, Output.Type}}});
+	Graph.Nodes[1].Inputs = {{.SourceNodeId = InnerCall, .SourceOutputId = Output.Id}};
+	ASSERT_TRUE(Wrapper->SetFunctionGraph(Graph));
+	Graph.Calls.clear();
+	TStrongObjectPtr<DMaterial> Material(NewObject<DMaterial>(nullptr, "ReloadFunctionCaller"));
+	TStrongObjectPtr<DMaterialInstance> Instance(NewObject<DMaterialInstance>(nullptr, "ReloadFunctionInstance"));
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	ASSERT_TRUE(Instance->SetParent(Material.Get()));
+	FMaterialProgram Program;
+	Program.Nodes = {{.Id = RootCall, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Outputs.Surface = {.SourceNodeId = RootCall, .SourceOutputId = Output.Id};
+	ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
+		{{.NodeId = RootCall, .Function = Wrapper.Get(), .Outputs = {{Output.Id, Output.Type}}}}));
+	ASSERT_TRUE(Material->CompileEdits()) << (Material->GetMaterialCompileDiagnostics().empty() ? "No diagnostic" : Material->GetMaterialCompileDiagnostics()[0].Source.Message);
+	const auto SavedIdentity = Material->GetAcceptedCompiledProgram()->Identity;
+	auto Edited = Function->GetFunctionGraph();
+	Edited.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.15f;
+	ASSERT_TRUE(Function->SetFunctionGraph(Edited));
+	ASSERT_TRUE(Material->CompileEdits());
+	const auto Accepted = Material->GetAcceptedCompiledProgram();
+	ASSERT_NE(Accepted->Identity, SavedIdentity);
+	const auto OldHandle = MakeObjectHandle(Function);
+	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
+	const auto Result = Operation.Wait();
+	ASSERT_TRUE(Result) << (Result.Diagnostics.empty() ? "" : Result.Diagnostics[0].Message);
+	Function = Cast<DMaterialFunction>(FindResidentPackage(Path)->FindTopLevelAsset(Name));
+	ASSERT_NE(Function, nullptr);
+	EXPECT_NE(MakeObjectHandle(Function), OldHandle);
+	EXPECT_EQ(Wrapper->GetFunctionGraph().Calls[0].Function.Get(), Function);
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Instance->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+	EXPECT_EQ(Instance->GetAcceptedCompiledProgram(), Accepted);
+	ASSERT_TRUE(Material->CompileEdits());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, SavedIdentity);
+	std::vector<FMaterialFunctionCallSnapshot> Calls;
+	FMaterialFunctionClosure Closure;
+	std::vector<FMaterialFunctionOwnerStamp> Before, After;
+	ASSERT_TRUE(SnapshotMaterialFunctionCalls(Material->GetMaterialFunctionCalls(), Calls, Closure, &Before));
+	auto Repeated = ReloadPackages({.Packages = {Function->GetPackage()}});
+	ASSERT_TRUE(Repeated.Wait());
+	ASSERT_TRUE(SnapshotMaterialFunctionCalls(Material->GetMaterialFunctionCalls(), Calls, Closure, &After));
+	ASSERT_EQ(Before.size(), After.size());
+	EXPECT_NE(Before, After);
+	for (size_t Index = 0; Index < Before.size(); ++Index)
+	{
+		EXPECT_EQ(Before[Index].AssetPath, After[Index].AssetPath);
+		EXPECT_EQ(Before[Index].Revision, After[Index].Revision);
+	}
+	Instance.Reset();
+	Material.Reset();
+	Wrapper.Reset();
+	CollectGarbage();
+	ASSERT_TRUE(UnloadPackage(Path));
+}
+
+TEST_F(FAssetPackageReloadTests, InvalidSavedFunctionClosureCannotReplaceValidLiveGraph)
+{
+	using namespace Durin;
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/AssetDiscardTests/InvalidFunction", Path));
+	DMaterialFunction* Function = nullptr;
+	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Function));
+	const auto Valid = Function->GetFunctionGraph();
+	const auto Output = Valid.Signature.Outputs[0];
+	const FGuid CallId{62, 1, 1, 1};
+	auto Recursive = Valid;
+	Recursive.Nodes.push_back({.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall});
+	Recursive.Calls.push_back({.NodeId = CallId, .Function = Function, .Outputs = {{Output.Id, Output.Type}}});
+	Recursive.Nodes[1].Inputs = {{.SourceNodeId = CallId, .SourceOutputId = Output.Id}};
+	ASSERT_TRUE(Function->SetFunctionGraph(Recursive));
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
+	Recursive.Calls.clear();
+	ASSERT_TRUE(Function->SetFunctionGraph(Valid));
+	const auto Handle = MakeObjectHandle(Function);
+	auto Operation = ReloadPackages({.Packages = {Function->GetPackage()}});
+	const auto Result = Operation.Wait();
+	EXPECT_EQ(Result.Status, EPackageReloadStatus::Failed);
+	EXPECT_EQ(Result.Failure, EPackageReloadFailure::ResourcePreparationFailed);
+	EXPECT_EQ(ResolveObjectHandle(Handle), Function);
+	EXPECT_EQ(Function->GetFunctionGraph(), Valid);
+	EXPECT_TRUE(Function->GetPackage()->IsDirty());
+	ASSERT_TRUE(SavePackage(Function->GetPackage()));
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 

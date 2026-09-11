@@ -489,7 +489,15 @@ releases assets/resources, then releases the Renderer inventory library.
 The coordinator discovers external root stores once, and inspects exact references
 from stable package files. The standalone `BuildCookReachability` helper remains
 an independent query for callers that need reachability without performing Cook.
-It does not supply persistent incremental identity.
+It reports the full authored reference closure and does not supply persistent
+incremental identity. The coordinator separately selects runtime packages using
+the Cook retention policy: references through reflected top-level `EditorOnly`
+fields remain validated build inputs but do not add runtime packages when those
+fields are stripped. Unknown custom archive fields retain runtime dependencies.
+Material function calls use this policy: nested function package bytes and schemas
+invalidate the material Cook cache, while cooked materials load their accepted
+program without function assets. Material and instance Cook recipe version 4
+includes this dependency policy; DMAT remains version 5.
 
 `FCookCoordinator` requires the object owner thread and rejects nested runs before
 callbacks. It is an internal orchestration component, with no live-editor or

@@ -4,6 +4,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
+#include "Materials/MaterialFunction.h"
 #include "Modules/ModuleManager.h"
 #include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
@@ -11,6 +12,7 @@
 #include <iostream>
 
 auto QualifyMaterialEditingSessionAsync() -> void;
+auto QualifyMaterialFunctionCompilationAsync() -> void;
 
 namespace
 {
@@ -390,6 +392,7 @@ TEST(FMaterialCompileLifecycleTests,
 
 	QualifyEditScheduling();
 	QualifyMaterialEditingSessionAsync();
+	QualifyMaterialFunctionCompilationAsync();
 
 	Durin::MarkAsGarbage(PendingInstance);
 	Durin::MarkAsGarbage(Second);
@@ -589,6 +592,113 @@ auto MeasureInstanceVariantQualificationBaseline() -> void
 		<< " instance_dmat_bytes=" << InstancePayloadBytes
 		<< " root_dmat_bytes=" << Bytes.size() << '\n';
 }
+}
+
+auto QualifyMaterialFunctionCompilationAsync() -> void
+{
+	using namespace Durin;
+	struct FFixture
+	{
+		std::vector<DObject*> Objects;
+		~FFixture()
+		{
+			for (auto* Object : Objects) MarkAsGarbage(Object);
+			CollectGarbage();
+		}
+	} Fixture;
+	struct FHoldWorkers
+	{
+		FThreadEvent Started, Release;
+		std::atomic<uint32> StartedCount = 0;
+		std::vector<FTaskHandle> Tasks;
+		auto Hold() -> bool
+		{
+			const auto Count = GetTaskSchedulerDiagnostics().WorkerCount;
+			for (uint32 Index = 0; Index < Count; ++Index)
+				Tasks.push_back(Durin::Tasks::LaunchTask("HoldFunctionCompile", [this, Count] {
+					if (StartedCount.fetch_add(1) + 1 == Count) Started.Trigger();
+					Release.WaitFor(10.0);
+				}).GetCompletion().GetTaskHandle());
+			return Started.WaitFor(2.0);
+		}
+		~FHoldWorkers() { Release.Trigger(); for (const auto& Task : Tasks) WaitTask(Task); }
+	};
+	auto* Leaf = NewObject<DMaterialFunction>(nullptr, "AsyncFunctionLeaf");
+	auto* Wrapper = NewObject<DMaterialFunction>(nullptr, "AsyncFunctionWrapper");
+	auto* First = NewObject<DMaterial>(nullptr, "AsyncFunctionFirst");
+	auto* Second = NewObject<DMaterial>(nullptr, "AsyncFunctionSecond");
+	Fixture.Objects = {First, Second, Wrapper, Leaf};
+	const auto LeafOutput = Leaf->GetFunctionSignature().Outputs[0];
+	auto Graph = Wrapper->GetFunctionGraph();
+	const FGuid NestedCall{71, 2, 3, 1};
+	Graph.Nodes.push_back({.Id = NestedCall, .Opcode = EMaterialProgramOpcode::FunctionCall});
+	Graph.Nodes[1].Inputs = {{.SourceNodeId = NestedCall, .SourceOutputId = LeafOutput.Id}};
+	Graph.Calls = {{.NodeId = NestedCall, .Function = Leaf, .Outputs = {{LeafOutput.Id, LeafOutput.Type}}}};
+	ASSERT_TRUE(Wrapper->SetFunctionGraph(Graph));
+	const auto Output = Wrapper->GetFunctionSignature().Outputs[0];
+	for (auto* Material : {First, Second})
+	{
+		Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+		const FGuid Call{71, 2, 3, Material == First ? 2u : 3u};
+		FMaterialProgram Program;
+		Program.Nodes = {{.Id = Call, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+		Program.Outputs.Surface = {.SourceNodeId = Call, .SourceOutputId = Output.Id};
+		ASSERT_TRUE(Material->SetMaterialProgramAndFunctionCalls(Program,
+			{{.NodeId = Call, .Function = Wrapper, .Outputs = {{Output.Id, Output.Type}}}}));
+	}
+	{
+		FHoldWorkers Hold;
+		ASSERT_TRUE(Hold.Hold());
+		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
+		ASSERT_TRUE(RequestMaterialRecompile(*Second, true));
+		EXPECT_EQ(Second->GetMaterialCompileStatus().State, EMaterialCompileState::Pending);
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
+		EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
+	}
+	ASSERT_TRUE(WaitForMaterialCompile(*Second));
+	EXPECT_EQ(Second->GetMaterialCompileStatus().CacheOutcome, EMaterialCompileCacheOutcome::SingleFlight);
+	EXPECT_EQ(First->GetMaterialCompileStatus().State, EMaterialCompileState::Canceled);
+	ASSERT_TRUE(First->CompileEdits());
+	ASSERT_TRUE(WaitForMaterialCompile(*First));
+	const auto Accepted = First->GetAcceptedCompiledProgram();
+	EXPECT_EQ(Accepted, Second->GetAcceptedCompiledProgram());
+	auto LeafGraph = Leaf->GetFunctionGraph();
+	{
+		FHoldWorkers Hold;
+		ASSERT_TRUE(Hold.Hold());
+		LeafGraph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.381f;
+		ASSERT_TRUE(Leaf->SetFunctionGraph(LeafGraph));
+		ASSERT_TRUE(First->CompileEdits());
+		ASSERT_TRUE(Second->CompileEdits());
+		LeafGraph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.482f;
+		ASSERT_TRUE(Leaf->SetFunctionGraph(LeafGraph));
+		EXPECT_EQ(First->GetAcceptedCompiledProgram(), Accepted);
+	}
+	FAssetCompilingManager::Get().FinishAllCompilation();
+	for (auto* Material : {First, Second})
+	{
+		EXPECT_EQ(Material->GetMaterialCompileStatus().State, EMaterialCompileState::NeedsCompile);
+		EXPECT_EQ(Material->GetAcceptedCompiledProgram(), Accepted);
+		ASSERT_TRUE(Material->CompileEdits());
+		ASSERT_TRUE(WaitForMaterialCompile(*Material));
+		EXPECT_NE(Material->GetAcceptedCompiledProgram()->Identity, Accepted->Identity);
+	}
+	EXPECT_EQ(First->GetAcceptedCompiledProgram(), Second->GetAcceptedCompiledProgram());
+	{
+		FHoldWorkers Hold;
+		ASSERT_TRUE(Hold.Hold());
+		ASSERT_TRUE(RequestMaterialRecompile(*First, true));
+		ASSERT_TRUE(RequestMaterialRecompile(*Second, true));
+		EXPECT_GE(GetMaterialCompilationDiagnostics().OutstandingConsumerCount, 2u);
+		Hold.Release.Trigger();
+		ShutdownAssetCompilingManager();
+	}
+	const auto Shutdown = GetMaterialCompilationDiagnostics();
+	EXPECT_FALSE(Shutdown.bAcceptingRequests);
+	EXPECT_EQ(Shutdown.InFlightCount, 0u);
+	EXPECT_EQ(Shutdown.OutstandingConsumerCount, 0u);
+	EXPECT_EQ(Shutdown.PendingPublicationCount, 0u);
+	EXPECT_EQ(Shutdown.RetainedProgramCount, 0u);
 }
 
 TEST(FMaterialCompileLifecycleTests,

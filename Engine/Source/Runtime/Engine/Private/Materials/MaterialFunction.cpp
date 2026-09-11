@@ -81,6 +81,7 @@ namespace Durin
 		if (!Result || Candidate == Graph) return Result;
 		Graph = std::move(Candidate);
 		AdvanceFunctionRevision(Revision);
+		NotifyMaterialFunctionChanged(*this);
 		MarkPackageDirty();
 		return Result;
 	}
@@ -104,6 +105,9 @@ namespace Durin
 	{
 		Super::PostEditChangeProperty(Event);
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Graph"))
+		{
 			AdvanceFunctionRevision(Revision);
+			NotifyMaterialFunctionChanged(*this);
+		}
 	}
 }
