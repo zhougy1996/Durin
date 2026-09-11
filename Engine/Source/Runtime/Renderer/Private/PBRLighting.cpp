@@ -1,12 +1,12 @@
 #include "PBRLighting.h"
 
+#include "Math/Constants.h"
 #include "Math/Operations.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr float Pi = 3.14159265358979323846f;
 		constexpr float MinVectorLengthSquared = 1.0e-8f;
 		constexpr float MinBRDFDivisor = 1.0e-5f;
 		constexpr float MinPerceptualRoughness = 0.045f;
