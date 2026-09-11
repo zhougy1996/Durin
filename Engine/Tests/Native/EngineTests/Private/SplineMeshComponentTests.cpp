@@ -173,19 +173,19 @@ TEST(FSplineMeshComponentTests, DeferredEditsPublishOnceAndCleanUpdatesDoNothing
 	EXPECT_TRUE(Component->IsMeshDirty());
 	EXPECT_EQ(Component->GetDerivedState(), Initial);
 	EXPECT_EQ(Component->GetSplineMeshParams(), Params);
-	ASSERT_TRUE(Component->UpdateMesh());
+	Component->UpdateMesh();
 	const auto Updated = Component->GetDerivedState();
 	ASSERT_TRUE(Updated && Updated->CollisionGeometry.IsValid());
 	EXPECT_EQ(Updated->DeformationRevision, Initial->DeformationRevision + 1);
 	EXPECT_EQ(Updated->Params, Params);
 	EXPECT_FALSE(Component->IsMeshDirty());
-	ASSERT_TRUE(Component->UpdateMesh());
+	Component->UpdateMesh();
 	EXPECT_EQ(Component->GetDerivedState(), Updated);
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled, false);
 	FCollisionGeometryRef Geometry;
 	FTransform Transform;
 	EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
-	ASSERT_TRUE(Component->UpdateMesh());
+	Component->UpdateMesh();
 	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
 	EXPECT_EQ(Component->GetDeformationRevision(), Updated->DeformationRevision);
 }
@@ -202,7 +202,7 @@ TEST(FSplineMeshComponentTests, DeferredSourceAndParamsUseOnlyTheFinalMesh)
 	Params.EndPosition.z += 3.0;
 	Component->SetSplineMeshParams(Params, false);
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh, false);
-	ASSERT_TRUE(Component->UpdateMesh());
+	Component->UpdateMesh();
 	EXPECT_EQ(Component->GetDeformationRevision(), Initial->DeformationRevision + 1);
 	EXPECT_TRUE(Component->GetDerivedState()->CollisionGeometry.IsValid());
 	EXPECT_EQ(Component->GetStaticMesh(), Replacement);
@@ -213,7 +213,7 @@ TEST(FSplineMeshComponentTests, DeferredSourceAndParamsUseOnlyTheFinalMesh)
 	EXPECT_EQ(Component->GetDerivedState()->Params, Params);
 }
 
-TEST(FSplineMeshComponentTests, FailedDeferredUpdatePreservesSnapshotAndCanBeCorrected)
+TEST(FSplineMeshComponentTests, FailedDeferredUpdateInvalidatesSnapshotAndCanBeCorrected)
 {
 	auto [Component, Mesh] = MakeComponentWithMesh();
 	const auto Initial = Component->GetDerivedState();
@@ -221,14 +221,14 @@ TEST(FSplineMeshComponentTests, FailedDeferredUpdatePreservesSnapshotAndCanBeCor
 	Params.StartOffset = FVector2(std::numeric_limits<double>::max());
 	Params.EndOffset = Params.StartOffset;
 	Component->SetSplineMeshParams(Params, false);
-	std::string Error;
-	EXPECT_FALSE(Component->UpdateMesh(&Error));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_TRUE(Component->IsMeshDirty());
-	EXPECT_EQ(Component->GetDerivedState(), Initial);
+	Component->UpdateMesh();
+	EXPECT_FALSE(Component->GetMeshUpdateError().empty());
+	EXPECT_FALSE(Component->IsMeshDirty());
+	EXPECT_NE(Component->GetDerivedState(), Initial);
+	EXPECT_FALSE(Component->GetDerivedState()->IsValid());
 	Component->SetSplineMeshParams(Initial->Params, false);
-	ASSERT_TRUE(Component->UpdateMesh(&Error));
-	EXPECT_TRUE(Error.empty());
+	Component->UpdateMesh();
+	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
 	EXPECT_FALSE(Component->IsMeshDirty());
 }
 
@@ -257,9 +257,9 @@ TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBound
 	FSplineMeshParams Params = Component->GetSplineMeshParams();
 	Params.EndPosition = {0.0, 120.0, 20.0};
 	Params.EndTangent = {0.0, 100.0, 0.0};
-	std::string Error;
 	Component->SetSplineMeshParams(Params, false);
-	ASSERT_TRUE(Component->UpdateMesh(&Error)) << Error;
+	Component->UpdateMesh();
+	ASSERT_TRUE(Component->GetMeshUpdateError().empty());
 	const auto Curved = Component->GetDerivedStateForQueries();
 	ASSERT_TRUE(Curved && Curved->IsValid());
 	EXPECT_GT(Curved->DeformationRevision, Initial->DeformationRevision);
@@ -267,7 +267,7 @@ TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBound
 	EXPECT_EQ(Initial->Params.EndPosition, FVector3(5.0, 0.0, 0.0));
 }
 
-TEST(FSplineMeshComponentTests, InvalidUpdatePreservesPublishedStateAndKeepsAuthoredEdits)
+TEST(FSplineMeshComponentTests, InvalidUpdateDropsPublishedStateAndKeepsAuthoredEdits)
 {
 	auto [Component, Mesh] = MakeComponentWithMesh();
 	const FSplineMeshParams BeforeParams = Component->GetSplineMeshParams();
@@ -275,15 +275,70 @@ TEST(FSplineMeshComponentTests, InvalidUpdatePreservesPublishedStateAndKeepsAuth
 	const uint64 BeforeRevision = Component->GetDeformationRevision();
 	FSplineMeshParams Invalid = BeforeParams;
 	Invalid.StartPosition.x = std::numeric_limits<double>::quiet_NaN();
-	std::string Error;
 	Component->SetSplineMeshParams(Invalid);
 	EXPECT_TRUE(std::isnan(Component->GetSplineMeshParams().StartPosition.x));
-	EXPECT_TRUE(Component->IsMeshDirty());
-	EXPECT_FALSE(Component->UpdateMesh(&Error));
-	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Component->IsMeshDirty());
+	Component->UpdateMesh();
+	EXPECT_FALSE(Component->GetMeshUpdateError().empty());
 	EXPECT_TRUE(std::isnan(Component->GetSplineMeshParams().StartPosition.x));
-	EXPECT_EQ(Component->GetDerivedState(), BeforeState);
-	EXPECT_EQ(Component->GetDeformationRevision(), BeforeRevision);
+	EXPECT_NE(Component->GetDerivedState(), BeforeState);
+	EXPECT_FALSE(Component->GetDerivedState()->IsValid());
+	EXPECT_FALSE(Component->GetDerivedStateForQueries()->IsValid());
+	EXPECT_GT(Component->GetDeformationRevision(), BeforeRevision);
+}
+
+TEST(FSplineMeshComponentTests, ExactGeometryFailureKeepsRenderStateAndCanRetry)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	const auto OriginalParams = Component->GetSplineMeshParams();
+	auto Params = OriginalParams;
+	Params.StartOffset = FVector2(1.e40);
+	Params.EndOffset = Params.StartOffset;
+	Component->SetSplineMeshParams(Params);
+	ASSERT_TRUE(Component->GetDerivedState()->IsValid());
+	EXPECT_EQ(Component->GetDerivedStateForQueries(), nullptr);
+	EXPECT_FALSE(Component->GetQueryBuildError().empty());
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
+	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
+	EXPECT_FALSE(Component->GetCollisionBuildError().empty());
+	EXPECT_TRUE(Component->GetDerivedState()->DeformedLOD0Positions.empty());
+	EXPECT_FALSE(Component->GetDerivedState()->CollisionGeometry.IsValid());
+	Component->SetSplineMeshParams(OriginalParams);
+	EXPECT_TRUE(Component->GetQueryBuildError().empty());
+	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
+	EXPECT_TRUE(Component->GetDerivedState()->CollisionGeometry.IsValid());
+}
+
+TEST(FSplineMeshComponentTests, SourcePublicationRecoversUnavailableState)
+{
+	InitializeDObjectSystem();
+	if (!FAssetCompilingManager::Get().IsAcceptingRequests())
+		ASSERT_TRUE(InitializeAssetCompilingManager());
+	auto* World = NewObject<DWorld>(nullptr, "SplineSourceRecoveryWorld");
+	ASSERT_TRUE(World->InitializeSubsystems());
+	auto* Level = NewObject<DLevel>(World, "SplineSourceRecoveryLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("SplineSourceRecoveryActor");
+	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(
+		DSplineMeshComponent::StaticClass(), "SplineMesh"));
+	ASSERT_TRUE(Component->IsRegistered());
+	auto* Pending = NewObject<DStaticMesh>(nullptr, "PendingSplineSource");
+	Component->SetStaticMesh(Pending);
+	EXPECT_FALSE(Component->IsMeshDirty());
+	EXPECT_EQ(Component->GetDerivedState()->Status, ESplineMeshDerivedStateStatus::SourceDataUnavailable);
+	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
+	FStaticMeshDecodedGeometry Imported;
+	Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+	auto& Section = Imported.Meshes.emplace_back();
+	Section.Positions = {FVector3f(-1, -1, 0), FVector3f(1, -1, 0), FVector3f(0, 1, 0)};
+	Section.Indices = {0, 1, 2};
+	Section.SourceMaterialIndex = 0;
+	std::string Error;
+	ASSERT_TRUE(BuildStaticMeshSynchronously(*Pending, std::move(Imported), Error)) << Error;
+	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
+	EXPECT_FALSE(Component->IsMeshDirty());
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage();
 }
 
 TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
@@ -305,6 +360,7 @@ TEST(FSplineMeshComponentTests, ReflectedInvalidDraftIsRejectedBeforeMutation)
 	std::string Error;
 	EXPECT_FALSE(Component->PreEditChangeProperty(Proposal, Error));
 	EXPECT_FALSE(Error.empty());
+	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
 	EXPECT_TRUE(Math::IsFinite(Component->GetSplineMeshParams().EndPosition));
 	EXPECT_TRUE(std::isfinite(Component->GetSplineMeshParams().EndRollRadians));
 }
@@ -399,7 +455,14 @@ TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInp
 	Component->SetSplineMeshParams(Params);
 	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
 	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_FALSE(Component->GetCollisionBuildError().empty());
+	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
+	EXPECT_FALSE(Component->IsMeshDirty());
+	Component->UpdateMesh();
+	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
+	EXPECT_FALSE(Component->GetCollisionBuildError().empty());
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled);
+	EXPECT_TRUE(Component->GetCollisionBuildError().empty());
 	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
 }
 
@@ -440,13 +503,24 @@ TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHand
 	Component->SetSplineMeshParams(Params, false);
 	EXPECT_EQ(Component->GetPhysicsActorHandle(), FirstHandle);
 	EXPECT_EQ(Component->GetPublishedBodySetupRevision(), FirstRevision);
-	ASSERT_TRUE(Component->UpdateMesh());
+	Component->UpdateMesh();
 	EXPECT_EQ(Component->GetDeformationRevision(), DeformationBeforeBatch + 1);
 	ASSERT_EQ(PhysicsScene.GetBodyCount(), 1u);
 	EXPECT_FALSE(PhysicsScene.ContainsBody(FirstHandle));
 	EXPECT_TRUE(Component->GetPhysicsActorHandle().IsValid());
 	EXPECT_NE(Component->GetPhysicsActorHandle(), FirstHandle);
 	EXPECT_NE(Component->GetPublishedBodySetupRevision(), FirstRevision);
+
+	const auto ValidParams = Component->GetSplineMeshParams();
+	Params.StartPosition.x = std::numeric_limits<double>::quiet_NaN();
+	Component->SetSplineMeshParams(Params);
+	EXPECT_FALSE(Component->IsMeshDirty());
+	EXPECT_FALSE(Component->GetDerivedState()->IsValid());
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 0u);
+	EXPECT_FALSE(Component->GetPhysicsActorHandle().IsValid());
+	Component->SetSplineMeshParams(ValidParams);
+	EXPECT_TRUE(Component->GetMeshUpdateError().empty());
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 1u);
 
 	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled);
 	EXPECT_EQ(PhysicsScene.GetBodyCount(), 0u);

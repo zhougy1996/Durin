@@ -18,7 +18,8 @@ namespace Durin
 		Valid,
 		NoStaticMesh,
 		SourceDataUnavailable,
-		InvalidSourceData
+		InvalidSourceData,
+		InvalidDeformation
 	};
 
 	DENUM()
@@ -65,8 +66,12 @@ namespace Durin
 		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
 		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }
 		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode, bool bUpdateMesh = true) -> void;
-		// Applies all pending edits once. Failure preserves the published state and leaves edits dirty for retry.
-		ENGINE_API auto UpdateMesh(std::string* OutError = nullptr) -> bool;
+		// Applies pending edits, invalidates failed results, and logs diagnostics internally.
+		// Also retries a failed update; clean successful updates do nothing.
+		ENGINE_API auto UpdateMesh() -> void;
+		auto GetMeshUpdateError() const -> const std::string& { return MeshUpdateError; }
+		auto GetCollisionBuildError() const -> const std::string& { return CollisionBuildError; }
+		auto GetQueryBuildError() const -> const std::string& { return QueryBuildError; }
 		auto IsMeshDirty() const -> bool { return bSourceDirty || bDeformationDirty || bCollisionDirty; }
 		// Reads the published snapshot without building CPU geometry. IsValid describes render readiness.
 		ENGINE_API auto GetDerivedState() const -> std::shared_ptr<const FSplineMeshDerivedState>;
@@ -105,7 +110,7 @@ namespace Durin
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
 		auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
 		auto GetCollisionStateRevision() const -> uint64 override;
-		auto RebuildCollisionGeometryForPublishedState() -> bool;
+		auto RebuildCollisionGeometryForPublishedState() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -128,7 +133,10 @@ namespace Durin
 		bool bCollisionDirty = false;
 		// Resource requests can synchronously notify this component while UpdateMesh is rebuilding it.
 		bool bUpdatingMesh = false;
-		// Physics reads the applied mode until deferred authored edits are successfully published.
+		std::string MeshUpdateError;
+		std::string CollisionBuildError;
+		std::string QueryBuildError;
+		// Physics reads the applied mode until deferred authored edits are applied.
 		ESplineMeshCollisionMode PublishedCollisionMode = ESplineMeshCollisionMode::Disabled;
 	};
 }

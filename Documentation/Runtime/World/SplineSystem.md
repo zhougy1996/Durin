@@ -223,13 +223,30 @@ status. Consumers retain this value snapshot rather than borrowing mutable CPU
 asset data. Missing assets and temporarily unavailable source data are explicit
 diagnostic states; malformed indexed geometry is never published as valid.
 
+`UpdateMesh()` applies deferred edits without a return value. Setters retain
+accepted authored values; failed updates publish an invalid snapshot and remove
+old rendering, picking geometry, and physics bodies. Errors are logged internally
+and exposed through `GetMeshUpdateError()`. Collision construction is independent:
+its failure clears collision while retaining valid render data, with diagnostics
+available through `GetCollisionBuildError()`. Lazy query failures are reported by
+`GetQueryBuildError()` and logged once until an update retries them.
+
+`bUpdateMesh=false` keeps the applied snapshot during a batch. Dirty flags describe
+unapplied edits only and are cleared even when application fails. `UpdateMesh()`
+retries failures; successful clean updates do nothing. Missing source CPU data is
+an unavailable state, not a build error; source publication automatically refreshes
+registered components unless an authored batch is pending. Registration refreshes
+unregistered components. Editor draft validation still
+rejects invalid proposals before mutation.
+
 StaticMesh and SplineMesh components share positional material-override
 validation and trailing-null canonicalization. StaticMesh resource exchange
 uses the same scoped retirement protocol for both consumer classes: registered
 components release old render state before exchange and rebuild their CPU state
 after the new resource publication. Deformation-only edits retain the source
 asset and component identity, update exact editor picking and collision input,
-and do not request proxy recreation. The component publishes deformation and
+and do not request proxy recreation while render readiness remains valid. Readiness
+transitions recreate the proxy to remove invalid geometry or restore rendering. The component publishes deformation and
 bounds together through one FIFO scene update while retaining primitive and
 source GPU identities. `ESplineMeshCollisionMode::DeformedTriangleMesh`
 explicitly opts into collision construction; Disabled retains no collision BVH.

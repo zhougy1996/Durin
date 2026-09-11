@@ -80,24 +80,29 @@ namespace Durin
 		if (bUpdateMesh) UpdateMesh();
 	}
 
-	auto DSplineMeshComponent::UpdateMesh(std::string* OutError) -> bool
+	auto DSplineMeshComponent::UpdateMesh() -> void
 	{
-		if (OutError) OutError->clear();
-		if (bUpdatingMesh || !IsMeshDirty()) return true;
+		if (bUpdatingMesh) return;
+		const bool bRetryDeformation = !MeshUpdateError.empty();
+		if (!IsMeshDirty() && !bRetryDeformation && CollisionBuildError.empty() && QueryBuildError.empty()) return;
 		bUpdatingMesh = true;
 		if (bSourceDirty && StaticMesh) StaticMesh->RequestRenderDataAndResources();
-		const bool bRebuildDeformation = bSourceDirty || bDeformationDirty;
-		const bool bRecreateRenderState = bSourceDirty;
-		const bool bSuccess = bRebuildDeformation
-			? RebuildDerivedState(OutError) : RebuildCollisionGeometryForPublishedState();
-		bUpdatingMesh = false;
-		if (!bSuccess)
+		const auto Previous = GetDerivedState();
+		const bool bRebuildDeformation = bSourceDirty || bDeformationDirty || bRetryDeformation;
+		bool bRecreateRenderState = bSourceDirty;
+		MeshUpdateError.clear();
+		QueryBuildError.clear();
+		if (bRebuildDeformation && !RebuildDerivedState(&MeshUpdateError))
 		{
-			if (OutError && OutError->empty()) *OutError = "SplineMesh collision geometry is unavailable.";
-			return false;
+			DURIN_ERROR("SplineMesh update '{}': {}", GetObjectPath(), MeshUpdateError);
 		}
+		RebuildCollisionGeometryForPublishedState();
 		PublishedCollisionMode = CollisionMode;
 		bSourceDirty = bDeformationDirty = bCollisionDirty = false;
+		bUpdatingMesh = false;
+		const auto Current = GetDerivedState();
+		// Invalid dynamic data cannot remove a scene proxy; recreate it on readiness transitions.
+		bRecreateRenderState |= !Previous || !Current || Previous->IsValid() != Current->IsValid();
 		if (bRecreateRenderState)
 		{
 			++MaterialComponentRevision;
@@ -111,29 +116,39 @@ namespace Durin
 			PushDynamicDataToScene();
 		}
 		RecreatePhysicsState();
-		return true;
 	}
 
-	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> bool
+	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> void
 	{
-		const auto Published = CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh
-			? GetDerivedStateForQueries() : GetDerivedState();
-		if (!Published) return false;
-		if (!Published->IsValid()) return true;
+		CollisionBuildError.clear();
+		const auto Published = GetDerivedState();
+		if (!Published) return;
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
 		Candidate->CollisionGeometry = {};
-		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
+		if (Candidate->IsValid() && CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
 		{
-			std::vector<FVector3> CollisionPositions;
-			CollisionPositions.reserve(Candidate->DeformedLOD0Positions.size());
-			for (const FVector3f& Position : Candidate->DeformedLOD0Positions)
-				CollisionPositions.emplace_back(Position);
-			Candidate->CollisionGeometry = FCollisionGeometryRef::BuildTriangleMesh(
-				CollisionPositions, Candidate->LOD0Indices);
+			if (!Candidate->DeformedLOD0Positions.empty() || BuildDerivedGeometry(*Candidate, &CollisionBuildError))
+			{
+				std::vector<FVector3> CollisionPositions;
+				CollisionPositions.reserve(Candidate->DeformedLOD0Positions.size());
+				for (const FVector3f& Position : Candidate->DeformedLOD0Positions)
+					CollisionPositions.emplace_back(Position);
+				Candidate->CollisionGeometry = FCollisionGeometryRef::BuildTriangleMesh(
+					CollisionPositions, Candidate->LOD0Indices);
+				if (!Candidate->CollisionGeometry.IsValid())
+					CollisionBuildError = "SplineMesh has no usable collision triangles.";
+			}
+			else
+			{
+				Candidate->DeformedLOD0Positions.clear();
+				Candidate->LOD0Indices.clear();
+				Candidate->EditorAcceleration.reset();
+			}
+			if (!CollisionBuildError.empty())
+				DURIN_ERROR("SplineMesh collision '{}': {}", GetObjectPath(), CollisionBuildError);
 		}
 		std::atomic_store_explicit(&DerivedState,
 			std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
-		return true;
 	}
 
 	auto DSplineMeshComponent::RebuildDerivedState(std::string* OutError) -> bool
@@ -141,6 +156,17 @@ namespace Durin
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>();
 		Candidate->Params = SplineMeshParams;
 		Candidate->DeformationRevision = DeformationRevision;
+		const auto Fail = [&](ESplineMeshDerivedStateStatus Status, const std::string& Error) -> bool
+		{
+			Candidate->Status = Status;
+			Candidate->Diagnostic = Error;
+			Candidate->ConservativeLocalBounds = {};
+			Candidate->DeformationRevision = ++DeformationRevision;
+			if (OutError) *OutError = Error;
+			std::atomic_store_explicit(&DerivedState,
+				std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
+			return false;
+		};
 		if (!StaticMesh)
 		{
 			Candidate->Status = ESplineMeshDerivedStateStatus::NoStaticMesh;
@@ -167,17 +193,17 @@ namespace Durin
 		const auto& Indices = SourceLOD.IndexBuffer.GetIndices();
 		if (Positions.empty() || Indices.empty() || !SourceLOD.LocalBounds.bIsValid)
 		{
-			Candidate->Status = ESplineMeshDerivedStateStatus::InvalidSourceData;
-			Candidate->Diagnostic = "StaticMesh LOD 0 has no finite indexed geometry.";
-			if (OutError) *OutError = Candidate->Diagnostic;
-			return false;
+			return Fail(ESplineMeshDerivedStateStatus::InvalidSourceData,
+				"StaticMesh LOD 0 has no finite indexed geometry.");
 		}
 
 		FSplineMeshParams Params = SplineMeshParams;
 		const auto [Minimum, Maximum] = SourceForwardRange(SourceLOD.LocalBounds, Params.ForwardAxis);
 		Params.SourceForwardMin = Minimum;
 		Params.SourceForwardMax = Maximum;
-		if (!FSplineMeshDeformer::Normalize(Params, Params, OutError)) return false;
+		std::string Error;
+		if (!FSplineMeshDeformer::Normalize(Params, Params, &Error))
+			return Fail(ESplineMeshDerivedStateStatus::InvalidDeformation, Error);
 
 		Candidate->Params = Params;
 		Candidate->ConservativeLocalBounds = FSplineMeshDeformer::ComputeConservativeBounds(Params, RenderData->LocalBounds);
@@ -185,23 +211,12 @@ namespace Durin
 			|| !Math::IsFinite(Candidate->ConservativeLocalBounds.Min)
 			|| !Math::IsFinite(Candidate->ConservativeLocalBounds.Max))
 		{
-			if (OutError) *OutError = "SplineMesh deformation produced invalid bounds.";
-			return false;
+			return Fail(ESplineMeshDerivedStateStatus::InvalidDeformation,
+				"SplineMesh deformation produced invalid bounds.");
 		}
-		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh
-			&& !BuildDerivedGeometry(*Candidate, OutError)) return false;
 		Candidate->DeformationRevision = DeformationRevision + 1;
 		Candidate->CollisionInputIdentity = MakeCollisionInputIdentity(
 			Candidate->SourceRenderResourceRevision, Candidate->DeformationRevision);
-		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
-		{
-			std::vector<FVector3> CollisionPositions;
-			CollisionPositions.reserve(Candidate->DeformedLOD0Positions.size());
-			for (const FVector3f& Position : Candidate->DeformedLOD0Positions)
-				CollisionPositions.emplace_back(Position);
-			Candidate->CollisionGeometry = FCollisionGeometryRef::BuildTriangleMesh(
-				CollisionPositions, Candidate->LOD0Indices);
-		}
 		Candidate->Status = ESplineMeshDerivedStateStatus::Valid;
 		Candidate->Diagnostic.clear();
 		DeformationRevision = Candidate->DeformationRevision;
@@ -228,7 +243,7 @@ namespace Durin
 		for (const FVector3f& Position : Positions)
 		{
 			const FVector3 Deformed = FSplineMeshDeformer::DeformPosition(Candidate.Params, FVector3(Position));
-			if (!Math::IsFinite(Deformed))
+			if (!Math::IsFinite(Deformed) || !Math::IsFinite(FVector3f(Deformed)))
 			{
 				if (OutError) *OutError = "SplineMesh deformation produced a non-finite position.";
 				return false;
@@ -259,8 +274,13 @@ namespace Durin
 		if (!Published->DeformedLOD0Positions.empty()) return Published;
 		// A pending mesh replacement must not deform the new source with the old snapshot.
 		if (bSourceDirty) return nullptr;
+		if (!QueryBuildError.empty()) return nullptr;
 		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
-		if (!BuildDerivedGeometry(*Candidate, nullptr)) return nullptr;
+		if (!BuildDerivedGeometry(*Candidate, &QueryBuildError))
+		{
+			DURIN_ERROR("SplineMesh query '{}': {}", GetObjectPath(), QueryBuildError);
+			return nullptr;
+		}
 		std::atomic_store_explicit(&DerivedState,
 			std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
 		return Candidate;
@@ -403,11 +423,7 @@ namespace Durin
 		}
 		ComponentMaterialOverride::TrimTrailingNulls(OverrideMaterials);
 		bSourceDirty = true;
-		if (!UpdateMesh(&Error))
-		{
-			DURIN_ERROR("PostLoad '{}': {}", GetObjectPath(), Error);
-			return;
-		}
+		UpdateMesh();
 	}
 
 	auto DSplineMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
