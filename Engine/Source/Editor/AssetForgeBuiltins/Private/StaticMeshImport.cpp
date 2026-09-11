@@ -147,8 +147,10 @@ namespace Durin::AssetForge::Builtins
 			}
 			FStaticMeshSource Source;
 			if (!Source.Initialize(MakeStaticMeshDecodedGeometry(Scene), OutError)) return false;
-			const auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
+			auto State = MakeImportDataState(Filename, HintBase, PhysicalPath, Snapshot, Settings);
 			const auto Owner = MakeObjectHandle(&Mesh);
+			State.SourceData.Normalize();
+			if (!State.Validate(OutError)) return false;
 			const auto Save = SaveOptions ? std::optional<FAssetBundleSaveOptions>(*SaveOptions) : std::nullopt;
 			auto Result = std::make_shared<FStaticMeshCompilationDiagnostic>();
 			if (!SubmitStaticMeshCompilation(Mesh, {
@@ -156,7 +158,8 @@ namespace Durin::AssetForge::Builtins
 				.PreparePublication = [State](DStaticMesh& Target, DAssetImportData*& PreparedImportData, std::string& Error) {
 					// The new inner is private until the mesh application boundary. Existing provenance is untouched on failure.
 					auto* Data = NewObject<DStaticMeshImportData>(&Target, FName("AssetImportData_" + FGuid::NewGuid().ToString()));
-					if (!Data || !Data->SetState(State, Error)) return false;
+					if (!Data) { Error = "Could not allocate static-mesh import data."; return false; }
+					Data->SetState(State);
 					PreparedImportData = Data;
 					return true;
 				}}, OutError, [Owner, Save, Result, Completion = std::move(Completion)](const FStaticMeshCompilationDiagnostic& Value) {

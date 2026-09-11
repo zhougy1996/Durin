@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-09-10
+Last reviewed: 2026-09-11
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -19,6 +19,16 @@ branches are removed; transparency is derived from the current channel mask.
 The obsolete EditorBulkData `ReplaceBytes` adapters are removed; authored
 callers use `UpdatePayload`. Existing current-format validation remains active.
 Old Cook outputs are disposable and must be regenerated from current content.
+
+## Import metadata publication
+
+Importers normalize detached `FAssetImportDataState::SourceData` and call the
+state's `Validate` before publication. StaticMesh and VolumeTexture state
+validation includes the base schema and their family-specific constraints.
+`DAssetImportData::SetState` and its family-specific setters require this validated
+state, return void, and only install fields and notify compilation changes.
+Invalid external input is reported before calling the setter; object `Validate`
+continues to check already stored metadata after loading.
 
 ## Texture source storage compression
 

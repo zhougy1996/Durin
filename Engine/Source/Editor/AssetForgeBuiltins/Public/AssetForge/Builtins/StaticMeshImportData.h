@@ -12,6 +12,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FStaticMeshImportSettings ImportSettings;
 
+		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const -> bool;
 		auto operator==(const FStaticMeshImportDataState&) const -> bool = default;
 	};
 
@@ -28,8 +29,8 @@ namespace Durin::AssetForge::Builtins
 		{
 			return ImportSettings;
 		}
-		ASSETFORGEBUILTINS_API auto SetState(
-			FStaticMeshImportDataState State, std::string& OutError) -> bool;
+		// Requires normalized source data and a state that passed its derived Validate.
+		ASSETFORGEBUILTINS_API auto SetState(FStaticMeshImportDataState State) -> void;
 		ASSETFORGEBUILTINS_API auto GetStaticMeshState() const
 			-> FStaticMeshImportDataState;
 		ASSETFORGEBUILTINS_API auto GetCompilationIdentity() const -> FXxHash128 override;

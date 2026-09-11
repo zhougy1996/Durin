@@ -11,8 +11,6 @@ namespace Durin::AssetForge::Builtins
 			std::string_view Family,
 			std::string& OutError) -> bool
 		{
-			if (State.SchemaVersion != AssetImportDataSchemaVersion
-				|| !State.SourceData.Validate(OutError)) return false;
 			const FSourceFile* Source = State.SourceData.FindByRole("source");
 			if (State.SourceData.Sources.size() != 1 || !Source)
 			{
@@ -22,68 +20,62 @@ namespace Durin::AssetForge::Builtins
 			}
 			return true;
 		}
+	}
 
-		auto ValidateState(
-			const FStaticMeshImportDataState& State,
-			std::string& OutError) -> bool
+	auto FStaticMeshImportDataState::Validate(std::string& OutError) const -> bool
+	{
+		if (!FAssetImportDataState::Validate(OutError)) return false;
+		if (SourceData.Sources.empty())
 		{
-			if (State.SourceData.Sources.empty())
-			{
-				OutError.clear();
-				return true;
-			}
-			if (!ValidateSingleSource(State, "StaticMesh", OutError)) return false;
-			if (!State.ImportSettings.IsValid(&OutError))
-			{
-				if (OutError.empty())
-					OutError = "StaticMesh import data requires valid axis settings.";
-				return false;
-			}
 			OutError.clear();
 			return true;
 		}
-
-		auto ValidateState(
-			const FVolumeTextureImportDataState& State,
-			std::string& OutError) -> bool
+		if (!ValidateSingleSource(*this, "StaticMesh", OutError)) return false;
+		if (!ImportSettings.IsValid(&OutError))
 		{
-			if (State.SourceData.Sources.empty() && State.SliceWidth == 0
-				&& State.SliceHeight == 0 && State.Depth == 0
-				&& State.TilesX == 0 && State.TilesY == 0)
-			{
-				OutError.clear();
-				return true;
-			}
-			if (!ValidateSingleSource(State, "VolumeTexture", OutError)) return false;
-			const uint64 Capacity = static_cast<uint64>(State.TilesX) * State.TilesY;
-			if (State.SliceWidth == 0 || State.SliceHeight == 0
-				|| State.Depth == 0 || State.TilesX == 0 || State.TilesY == 0
-				|| Capacity < State.Depth)
-			{
-				OutError = "VolumeTexture import data requires a valid row-major atlas interpretation.";
-				return false;
-			}
+			if (OutError.empty())
+				OutError = "StaticMesh import data requires valid axis settings.";
+			return false;
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto FVolumeTextureImportDataState::Validate(std::string& OutError) const -> bool
+	{
+		if (!FAssetImportDataState::Validate(OutError)) return false;
+		if (SourceData.Sources.empty() && SliceWidth == 0
+			&& SliceHeight == 0 && Depth == 0
+			&& TilesX == 0 && TilesY == 0)
+		{
 			OutError.clear();
 			return true;
 		}
+		if (!ValidateSingleSource(*this, "VolumeTexture", OutError)) return false;
+		const uint64 Capacity = static_cast<uint64>(TilesX) * TilesY;
+		if (SliceWidth == 0 || SliceHeight == 0
+			|| Depth == 0 || TilesX == 0 || TilesY == 0
+			|| Capacity < Depth)
+		{
+			OutError = "VolumeTexture import data requires a valid row-major atlas interpretation.";
+			return false;
+		}
+		OutError.clear();
+		return true;
 	}
 
 	DStaticMeshImportData::DStaticMeshImportData(
 		const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {}
 
 	auto DStaticMeshImportData::SetState(
-		FStaticMeshImportDataState State, std::string& OutError) -> bool
+		FStaticMeshImportDataState State) -> void
 	{
-		State.SourceData.Normalize();
-		if (!ValidateState(State, OutError)) return false;
 		FAssetImportDataState BaseState = State;
-		if (!DAssetImportData::SetState(std::move(BaseState), OutError)) return false;
+		DAssetImportData::SetState(std::move(BaseState));
 		const bool bChanged = ImportSettings != State.ImportSettings;
 		ImportSettings = State.ImportSettings;
 		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); bChanged && Mesh && Mesh->GetAssetImportData() == this)
 			NotifyStaticMeshCompilationMutation(*Mesh);
-		OutError.clear();
-		return true;
 	}
 
 	auto DStaticMeshImportData::GetStaticMeshState() const
@@ -107,27 +99,23 @@ namespace Durin::AssetForge::Builtins
 
 	auto DStaticMeshImportData::Validate(std::string& OutError) const -> bool
 	{
-		return ValidateState(GetStaticMeshState(), OutError);
+		return GetStaticMeshState().Validate(OutError);
 	}
 
 	DVolumeTextureImportData::DVolumeTextureImportData(
 		const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {}
 
 	auto DVolumeTextureImportData::SetState(
-		FVolumeTextureImportDataState State, std::string& OutError) -> bool
+		FVolumeTextureImportDataState State) -> void
 	{
-		State.SourceData.Normalize();
-		if (!ValidateState(State, OutError)) return false;
 		FAssetImportDataState BaseState = State;
-		if (!DAssetImportData::SetState(std::move(BaseState), OutError)) return false;
+		DAssetImportData::SetState(std::move(BaseState));
 		Channels = State.Channels;
 		SliceWidth = State.SliceWidth;
 		SliceHeight = State.SliceHeight;
 		Depth = State.Depth;
 		TilesX = State.TilesX;
 		TilesY = State.TilesY;
-		OutError.clear();
-		return true;
 	}
 
 	auto DVolumeTextureImportData::GetVolumeTextureState() const
@@ -146,6 +134,6 @@ namespace Durin::AssetForge::Builtins
 
 	auto DVolumeTextureImportData::Validate(std::string& OutError) const -> bool
 	{
-		return ValidateState(GetVolumeTextureState(), OutError);
+		return GetVolumeTextureState().Validate(OutError);
 	}
 }

@@ -67,19 +67,17 @@ namespace Durin
 			Builder.UpdateValue(Size);
 			Builder.Update(Value);
 		}
+	}
 
-		auto ValidateBaseState(
-			const FAssetImportDataState& State, std::string& OutError) -> bool
+	auto FAssetImportDataState::Validate(std::string& OutError) const -> bool
+	{
+		if (SchemaVersion != AssetImportDataSchemaVersion)
 		{
-			if (State.SchemaVersion != AssetImportDataSchemaVersion)
-			{
-				OutError = std::format(
-					"Unsupported asset-import-data schema version {}.", State.SchemaVersion);
-				return false;
-			}
-			return State.SourceData.Validate(OutError);
+			OutError = std::format(
+				"Unsupported asset-import-data schema version {}.", SchemaVersion);
+			return false;
 		}
-
+		return SourceData.Validate(OutError);
 	}
 
 	auto FSourceFile::IsEmpty() const -> bool
@@ -292,7 +290,7 @@ namespace Durin
 
 	auto DAssetImportData::Validate(std::string& OutError) const -> bool
 	{
-		return ValidateBaseState(GetState(), OutError);
+		return GetState().Validate(OutError);
 	}
 
 	auto DAssetImportData::GetCompilationIdentity() const -> FXxHash128
@@ -304,17 +302,14 @@ namespace Durin
 	}
 
 	auto DAssetImportData::SetState(
-		FAssetImportDataState State, std::string& OutError) -> bool
+		FAssetImportDataState State) -> void
 	{
-		State.SourceData.Normalize();
-		if (!ValidateBaseState(State, OutError)) return false;
-		if (GetState() == State) { OutError.clear(); return true; }
+		require(State.SchemaVersion == AssetImportDataSchemaVersion);
+		if (GetState() == State) return;
 		SchemaVersion = State.SchemaVersion;
 		SourceData = std::move(State.SourceData);
 		if (auto* Mesh = Cast<DStaticMesh>(GetOuter()); Mesh && Mesh->GetAssetImportData() == this)
 			NotifyStaticMeshCompilationMutation(*Mesh);
-		OutError.clear();
-		return true;
 	}
 
 	auto DAssetImportData::PostLoad() -> void

@@ -78,6 +78,7 @@ namespace Durin
 		uint32 SchemaVersion = AssetImportDataSchemaVersion;
 		FAssetImportInfo SourceData;
 
+		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		auto operator==(const FAssetImportDataState&) const -> bool = default;
 	};
 
@@ -96,8 +97,8 @@ namespace Durin
 
 		ENGINE_API virtual auto GetCompilationIdentity() const -> FXxHash128;
 		ENGINE_API virtual auto Validate(std::string& OutError) const -> bool;
-		ENGINE_API auto SetState(
-			FAssetImportDataState State, std::string& OutError) -> bool;
+		// Requires normalized source data and a state that passed Validate.
+		ENGINE_API auto SetState(FAssetImportDataState State) -> void;
 		auto GetState() const -> FAssetImportDataState
 		{
 			return {.SchemaVersion = SchemaVersion, .SourceData = SourceData};

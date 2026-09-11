@@ -62,7 +62,10 @@ namespace Durin::AssetForge::Builtins
 			if (!ImportData)
 				ImportData = NewObject<DAssetImportData>(
 					&Texture, "AssetImportData");
-			if (!ImportData || !ImportData->SetState(std::move(State), OutError)) return false;
+			State.SourceData.Normalize();
+			if (!State.Validate(OutError)) return false;
+			if (!ImportData) { OutError = "Could not allocate asset import data."; return false; }
+			ImportData->SetState(std::move(State));
 			Texture.SetAssetImportData(*ImportData);
 			Texture.MarkPackageDirty();
 			return true;

@@ -325,7 +325,9 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	ASSERT_NE(ImportData, nullptr);
 	auto State = ImportData->GetStaticMeshState();
 	State.ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
-	ASSERT_TRUE(ImportData->SetState(std::move(State), Error)) << Error;
+	State.SourceData.Normalize();
+	ASSERT_TRUE(State.Validate(Error)) << Error;
+	ImportData->SetState(std::move(State));
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
 		*Fixture.Mesh, Error)) << Error;
 	EXPECT_NE(Fixture.Mesh->GetRenderData(), nullptr);

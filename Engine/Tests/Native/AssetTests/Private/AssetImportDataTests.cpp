@@ -155,3 +155,29 @@ TEST_F(FAssetImportDataTests, SourceHintsSupportAssetProjectAndAbsoluteBases)
 	EXPECT_FALSE(MakeSourceHint(External.generic_string(), Package.generic_string(),
 		Base, Hint, Error, ESourceHintBase::ProjectRelative));
 }
+
+TEST_F(FAssetImportDataTests, ValidatesDetachedStateBeforePublication)
+{
+	auto* Data = Durin::NewObject<Durin::DAssetImportData>(nullptr, "ValidatedImportData");
+	ASSERT_NE(Data, nullptr);
+	const auto Initial = Data->GetState();
+	Durin::FAssetImportDataState State;
+	State.SourceData.Sources = {
+		MakeSource("source", "TestSources/root.png", "root"),
+		MakeSource("dependency", "TestSources/zeta.bin", "zeta")};
+	std::string Error;
+	EXPECT_FALSE(State.Validate(Error));
+	EXPECT_EQ(Data->GetState(), Initial);
+	State.SourceData.Normalize();
+	ASSERT_TRUE(State.Validate(Error)) << Error;
+	Data->SetState(State);
+	EXPECT_EQ(Data->GetState(), State);
+	const auto Identity = Data->GetCompilationIdentity();
+	Data->SetState(State);
+	EXPECT_EQ(Data->GetCompilationIdentity(), Identity);
+
+	++State.SchemaVersion;
+	EXPECT_FALSE(State.Validate(Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Data->GetCompilationIdentity(), Identity);
+}

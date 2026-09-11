@@ -11,7 +11,9 @@ Completed:
 
 Stage 1 is complete: PhysicsSceneTests passed and StaticMeshTests passed all 109 tests.
 A separate Renderer prerequisite fix removed a conflicting local Pi constant; Renderer rebuilt successfully.
-Stage 2 is next. The initial checkout was clean.
+Stage 2 is complete: AssetImportDataTests (3), AssetImportTests (14), SceneImportTests (4),
+and the single-asset/volume import selection in TextureTests (10) passed.
+Stage 3 is next. The initial checkout was clean.
 
 ## Goal
 
@@ -29,8 +31,8 @@ input and build boundaries, including failure-before-publication behavior.
 
 Depends on Stage 1.
 
-- [ ] Prepare and validate import states before void setters, including derived import data and callers.
-- [ ] Validate import state and import workflow coverage and commit independently.
+- [x] Prepare and validate import states before void setters, including derived import data and callers.
+- [x] Validate import state and import workflow coverage and commit independently.
 
 ### Stage 3: Separate material slot lookup
 

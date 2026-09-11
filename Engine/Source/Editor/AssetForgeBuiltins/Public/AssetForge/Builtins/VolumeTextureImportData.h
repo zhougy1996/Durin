@@ -16,6 +16,7 @@ namespace Durin::AssetForge::Builtins
 		uint32 Depth = 0;
 		uint32 TilesX = 0;
 		uint32 TilesY = 0;
+		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const -> bool;
 		auto operator==(const FVolumeTextureImportDataState&) const -> bool = default;
 	};
 
@@ -28,8 +29,8 @@ namespace Durin::AssetForge::Builtins
 	public:
 		ASSETFORGEBUILTINS_API explicit DVolumeTextureImportData(
 			const FObjectInitializer& ObjectInitializer);
-		ASSETFORGEBUILTINS_API auto SetState(
-			FVolumeTextureImportDataState State, std::string& OutError) -> bool;
+		// Requires normalized source data and a state that passed its derived Validate.
+		ASSETFORGEBUILTINS_API auto SetState(FVolumeTextureImportDataState State) -> void;
 		ASSETFORGEBUILTINS_API auto GetVolumeTextureState() const
 			-> FVolumeTextureImportDataState;
 		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const

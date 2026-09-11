@@ -14,6 +14,7 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
+#include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
@@ -135,4 +136,23 @@ TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)
 	EXPECT_EQ(Imported.Asset->GetSourceLayout(),
 		Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	EXPECT_NE(Imported.Asset->GetPlatformData(), nullptr);
+}
+
+TEST(FSingleAssetImportTests, DerivedStateValidationChecksBaseBeforeEmptyStateShortcuts)
+{
+	using namespace Durin::AssetForge::Builtins;
+	FStaticMeshImportDataState Mesh;
+	FVolumeTextureImportDataState Volume;
+	std::string Error;
+	ASSERT_TRUE(Mesh.Validate(Error)) << Error;
+	ASSERT_TRUE(Volume.Validate(Error)) << Error;
+	++Mesh.SchemaVersion;
+	++Volume.SchemaVersion;
+	EXPECT_FALSE(Mesh.Validate(Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Volume.Validate(Error));
+	EXPECT_FALSE(Error.empty());
+	Volume.SchemaVersion = Durin::AssetImportDataSchemaVersion;
+	Volume.Depth = 1;
+	EXPECT_FALSE(Volume.Validate(Error));
 }

@@ -400,7 +400,8 @@ namespace Durin::AssetForge::Builtins
 					.ByteCount = Output.Texture.SourceFileSize});
 				auto* ImportData = NewObject<DAssetImportData>(
 					Output.Candidate, "AssetImportData");
-				if (!ImportData || !ImportData->SetState(std::move(ImportState), Error))
+				ImportState.SourceData.Normalize();
+				if (!ImportData || !ImportState.Validate(Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
@@ -408,6 +409,7 @@ namespace Durin::AssetForge::Builtins
 							? "Scene texture import data could not be published." : std::move(Error),
 						Descriptor.StableIdentity);
 				}
+				ImportData->SetState(std::move(ImportState));
 				Texture->SetAssetImportData(*ImportData);
 				Output.Candidate->MarkPackageDirty();
 			}
