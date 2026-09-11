@@ -219,7 +219,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesAndInstances)
+TEST(FMaterialRenderProxyTests, AuthoredValuesMatchDirectCompilationForBasesAndInstances)
 {
 	FRenderSceneHarness Harness;
 	auto* Base = MakeExpandedMaterial(
@@ -304,11 +304,11 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	const auto BaseBinding = GetMaterialBinding(BaseSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(BaseBinding.Metallic, 0.81f);
 	EXPECT_FLOAT_EQ(BaseBinding.Roughness, 0.23f);
-	EXPECT_EQ(BaseBinding.Normal, Durin::FVector3f(0.0f, 1.0f, 0.0f));
+	EXPECT_EQ(BaseBinding.Normal, Durin::FVector3f(0.0f, 2.0f, 0.0f));
 	EXPECT_EQ(BaseBinding.Emissive, Durin::FVector3f(3.0f, 5.0f, 7.0f));
 	for (size_t Role = 0; Role < BaseBinding.UVChannels.size(); ++Role)
 	{
-		EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 3.0f);
+		EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 2.6f);
 		EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(2.0f, -3.0f));
 		EXPECT_EQ(BaseBinding.UVOffsets[Role], Durin::FVector2f(7.0f, -11.0f));
 		EXPECT_FLOAT_EQ(BaseBinding.UVRotations[Role], 0.75f);
@@ -321,7 +321,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		Durin::MaterialParameters::MetallicName(), 0.17f));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(
 		Durin::MaterialParameters::RoughnessName(),
-		std::numeric_limits<float>::quiet_NaN()));
+		2.5f));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
 		Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
@@ -341,13 +341,13 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		InstanceSnapshot.RenderData, Instance->GetRenderData());
 	const auto InstanceBinding = GetMaterialBinding(InstanceSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(InstanceBinding.Metallic, 0.17f);
-	EXPECT_FLOAT_EQ(InstanceBinding.Roughness, 0.5f);
-	EXPECT_EQ(InstanceBinding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
-	EXPECT_EQ(InstanceBinding.Emissive, Durin::FVector3f(64.0f, 0.0f, 4.0f));
-	EXPECT_FLOAT_EQ(InstanceBinding.UVChannels[3], 1.0f);
+	EXPECT_FLOAT_EQ(InstanceBinding.Roughness, 2.5f);
+	EXPECT_EQ(InstanceBinding.Normal, Durin::FVector3f(0.0f));
+	EXPECT_EQ(InstanceBinding.Emissive, Durin::FVector3f(100.0f, -2.0f, 4.0f));
+	EXPECT_FLOAT_EQ(InstanceBinding.UVChannels[3], 1.4f);
 	EXPECT_EQ(
 		InstanceBinding.UVScales[1],
-		Durin::FVector2f(1024.0f, -1024.0f));
+		Durin::FVector2f(2048.0f, -2048.0f));
 
 	ASSERT_TRUE(Instance->ClearScalarParameterValue(
 		Durin::MaterialParameters::MetallicName()));
@@ -405,10 +405,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 		{
 			ASSERT_LT(TextureRole, size_t{8});
 			const Durin::FRHITextureReferenceRef ExpectedTexture =
-				Definition.TextureUsage == Durin::ETextureUsage::Color
-					? TextureForUsage(
-						Definition.TextureUsage, true)->GetTextureReferenceRHI()
-					: nullptr;
+				OverrideTexture->GetTextureReferenceRHI();
 			EXPECT_EQ(
 				GetMaterialBinding(Overridden.RenderData).Textures[TextureRole],
 				ExpectedTexture);
@@ -449,6 +446,65 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 	Durin::CollectGarbage();
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(InstanceProxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(BaseProxy));
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialRenderProxyTests, TemplateIdentitiesDoNotOverrideEditedDeclarations)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "EditedTemplate");
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "EditedTemplateTexture");
+	auto Definitions = Durin::MakePBRMaterialParameterDefinitions();
+	for (auto& Definition : Definitions)
+	{
+		if (Definition.Name == Durin::MaterialParameters::RoughnessName())
+		{
+			Definition.MaximumValue = 4.0f;
+			Definition.Value = Durin::FMaterialParameterValue::MakeScalar(2.5f);
+		}
+		if (Definition.Name == Durin::MaterialParameters::NormalTextureName())
+		{
+			Definition.TextureUsage = Texture->GetUsage();
+			Definition.Value.TextureValue = Texture;
+		}
+	}
+	ASSERT_TRUE(Base->SetMaterialDefinitionsAndProgram(
+		std::move(Definitions), Durin::MakePBRMaterialProgram()));
+	ASSERT_TRUE(FinishMaterialCompileForTest(*Base));
+	auto Proxy = Base->GetMaterialRenderProxy();
+	const auto Snapshot = CaptureMaterialProxy(Proxy);
+	const auto Binding = GetMaterialBinding(Snapshot.RenderData);
+	EXPECT_FLOAT_EQ(Binding.Roughness, 2.5f);
+	ASSERT_TRUE(Texture->GetTextureReferenceRHI());
+	EXPECT_EQ(Binding.Textures[1], Texture->GetTextureReferenceRHI());
+	ExpectRenderDataMatches(Snapshot.RenderData, Base->GetRenderData());
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	Durin::MarkAsGarbage(Base);
+	Durin::MarkAsGarbage(Texture);
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialRenderProxyTests, NonFiniteTemplateOverrideUsesGenericValidation)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = MakeExpandedMaterial(nullptr, "NonFiniteTemplate");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "NonFiniteOverride");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName(),
+		std::numeric_limits<float>::quiet_NaN()));
+	Durin::ResetMaterialRenderProxyCounters();
+	auto Proxy = Instance->GetMaterialRenderProxy();
+	const auto Snapshot = CaptureMaterialProxy(Proxy);
+	EXPECT_GT(Durin::GetMaterialRenderProxyCounters().RepresentationValidationFailureCount, 0u);
+	ExpectRenderDataMatches(Snapshot.RenderData, Durin::GetErrorMaterialRenderData());
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
 	WaitForRenderingThread();
 	Harness.Shutdown();
 	Durin::CollectGarbage();

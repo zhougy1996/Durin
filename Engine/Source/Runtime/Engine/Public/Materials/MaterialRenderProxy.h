@@ -122,14 +122,15 @@ namespace Durin
 		bool bPublicationCommandQueued = false;
 	};
 
-	// Converts one reflected value to its counted render-safe representation.
+	// Converts one reflected value to its counted render-safe representation without
+	// changing authored values or interpreting parameter identities as semantics.
 	ENGINE_API auto BuildMaterialLocalRenderParameter(
 		const FGuid& Id,
 		EMaterialParameterType Type,
 		const FMaterialParameterValue& Value
 		) -> FMaterialLocalRenderParameter;
 
-	// Applies one already normalized render-safe value by its exact canonical
+	// Applies one render-safe value by its exact canonical
 	// identity and type.
 	ENGINE_API auto ApplyMaterialLocalRenderParameter(
 		FMaterialRenderRepresentationBuilder& RepresentationBuilder,

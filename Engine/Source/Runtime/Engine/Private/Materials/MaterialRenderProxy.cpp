@@ -1,6 +1,5 @@
 #include "Materials/MaterialRenderProxy.h"
 
-#include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
@@ -303,92 +302,6 @@ namespace Durin
 		Result.Vector4Value = Value.Vector4Value;
 		if (Type == EMaterialParameterType::Texture && Value.TextureValue)
 			Result.TextureValue = Value.TextureValue->GetTextureReferenceRHI();
-		const std::span Definitions =
-			GetPBRMaterialParameterDefinitions();
-		const auto Definition = std::ranges::find(
-			Definitions, Id, &FMaterialParameterDefinition::Id);
-		if (Definition == Definitions.end() || Definition->Type != Type)
-		{
-			return Result;
-		}
-		Result.TextureValue = nullptr;
-		switch (Type)
-		{
-		case EMaterialParameterType::Scalar:
-			Result.ScalarValue = std::isfinite(Value.ScalarValue)
-				? Value.ScalarValue
-				: Definition->Value.ScalarValue;
-			Result.ScalarValue = std::clamp(
-				Result.ScalarValue,
-				Definition->MinimumValue,
-				Definition->MaximumValue);
-			if (Definition->Presentation
-				== EMaterialParameterPresentation::Integer)
-			{
-				Result.ScalarValue = std::floor(Result.ScalarValue + 0.5f);
-			}
-			break;
-		case EMaterialParameterType::Vector2:
-			Result.Vector2Value = Value.Vector2Value;
-			if (!std::isfinite(Result.Vector2Value.x)
-				|| !std::isfinite(Result.Vector2Value.y))
-			{
-				Result.Vector2Value = Definition->Value.Vector2Value;
-			}
-			Result.Vector2Value.x = std::clamp(
-				Result.Vector2Value.x,
-				static_cast<double>(Definition->MinimumValue),
-				static_cast<double>(Definition->MaximumValue));
-			Result.Vector2Value.y = std::clamp(
-				Result.Vector2Value.y,
-				static_cast<double>(Definition->MinimumValue),
-				static_cast<double>(Definition->MaximumValue));
-			break;
-		case EMaterialParameterType::Vector:
-			Result.VectorValue = Value.VectorValue;
-			if (!std::isfinite(Result.VectorValue.x)
-				|| !std::isfinite(Result.VectorValue.y)
-				|| !std::isfinite(Result.VectorValue.z))
-			{
-				Result.VectorValue = Definition->Value.VectorValue;
-			}
-			Result.VectorValue.x = std::clamp(
-				Result.VectorValue.x,
-				static_cast<double>(Definition->MinimumValue),
-				static_cast<double>(Definition->MaximumValue));
-			Result.VectorValue.y = std::clamp(
-				Result.VectorValue.y,
-				static_cast<double>(Definition->MinimumValue),
-				static_cast<double>(Definition->MaximumValue));
-			Result.VectorValue.z = std::clamp(
-				Result.VectorValue.z,
-				static_cast<double>(Definition->MinimumValue),
-				static_cast<double>(Definition->MaximumValue));
-			if (Id == MaterialParameters::GetBuiltinParameterIds(
-				MaterialParameters::EMaterialBuiltinParameterRole::Normal).Value)
-			{
-				const double LengthSquared =
-					Math::LengthSquared(Result.VectorValue);
-				Result.VectorValue = LengthSquared < 1.0e-8
-					? Definition->Value.VectorValue
-					: Result.VectorValue / std::sqrt(LengthSquared);
-			}
-			break;
-		case EMaterialParameterType::Vector4:
-			// Built-in PBR definitions have no Vector4 constraints; preserve the copied value.
-			break;
-		case EMaterialParameterType::Texture:
-			if (DTexture2D* Texture = Value.TextureValue.Get();
-				Texture != nullptr
-				&& Texture->GetUsage() == Definition->TextureUsage
-				&& Texture->IsSRGB()
-					== (Definition->TextureUsage == ETextureUsage::Color))
-			{
-				Result.TextureValue =
-					Texture->GetTextureReferenceRHI();
-			}
-			break;
-		}
 		return Result;
 	}
 

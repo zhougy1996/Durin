@@ -767,15 +767,14 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 		Durin::MaterialParameters::GetBuiltinParameterId(Role::Roughness, Kind::Value)), 0.25f);
 }
 
-TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputClass)
+TEST(FMaterialRenderRepresentationTests, CompilationPreservesAuthoredInputsAndRejectsNonFinitePayloads)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = MakeExpandedMaterial("CanonicalPBRMaterial");
-	const double NaN = std::numeric_limits<double>::quiet_NaN();
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(NaN, 0.0, 0.0)));
+	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(2.0, -1.0, 0.0)));
 	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 2.0f));
-	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), std::numeric_limits<float>::quiet_NaN()));
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 2.5f));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::AmbientOcclusionName(), -1.0f));
 	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::EmissiveName(), Durin::FVector3(100.0, -2.0, 4.0)));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.6f));
@@ -785,16 +784,20 @@ TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputCla
 	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
 	const auto Binding = GetMaterialBinding(Material->GetRenderData());
-	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
-	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
-	EXPECT_FLOAT_EQ(Binding.Metallic, 1.0f);
-	EXPECT_FLOAT_EQ(Binding.Roughness, 0.5f);
-	EXPECT_FLOAT_EQ(Binding.AmbientOcclusion, 0.0f);
-	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(64.0f, 0.0f, 4.0f));
-	EXPECT_FLOAT_EQ(Binding.UVChannels[0], 3.0f);
+	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(2.0f, -1.0f, 0.0f, 1.0f));
+	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f));
+	EXPECT_FLOAT_EQ(Binding.Metallic, 2.0f);
+	EXPECT_FLOAT_EQ(Binding.Roughness, 2.5f);
+	EXPECT_FLOAT_EQ(Binding.AmbientOcclusion, -1.0f);
+	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(100.0f, -2.0f, 4.0f));
+	EXPECT_FLOAT_EQ(Binding.UVChannels[0], 2.6f);
 	EXPECT_EQ(Binding.UVScales[0], Durin::FVector2f(2.0f, -3.0f));
-	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector2f(1024.0f, -1024.0f));
-	EXPECT_EQ(Binding.Textures[1], nullptr);
+	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector2f(2048.0f, -2048.0f));
+	EXPECT_EQ(Binding.Textures[1], WrongUsageTexture->GetTextureReferenceRHI());
+
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(),
+		std::numeric_limits<float>::quiet_NaN()));
+	EXPECT_TRUE(Material->GetRenderData().Representation.IsError());
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
 	Durin::MarkAsGarbage(Material);
