@@ -4,7 +4,7 @@ Summary: Replace whole-buffer payload adapters with UE-style archive serializati
 
 Last reviewed: 2026-09-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-09
 
 ## Current Status
@@ -37,11 +37,11 @@ process Cook consumers. Exact receipts and compatibility anchors are below.
 Documentation validation and all-plan lifecycle validation passed. No GPU
 performance or allocation-free decoding claim is made.
 
-Lasting contracts are published in [Serialization](../Runtime/Core/Serialization.md),
-[Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md),
-[BulkData](../Runtime/Assets/BulkData.md),
-[Volume Textures](../Runtime/Assets/VolumeTextures.md), and
-[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md).
+Lasting contracts are published in [Serialization](../../../Runtime/Core/Serialization.md),
+[Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md),
+[BulkData](../../../Runtime/Assets/BulkData.md),
+[Volume Textures](../../../Runtime/Assets/VolumeTextures.md), and
+[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md).
 
 ## Goal
 
@@ -67,9 +67,9 @@ replacement guarantees.
   ownership of package reload transactions or reference replacement.
 
 Existing contracts remain authoritative until their owning implementation stage
-updates them: [Serialization](../Runtime/Core/Serialization.md),
-[Package Bulk Data](../Runtime/Assets/BulkData.md), and
-[Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md).
+updates them: [Serialization](../../../Runtime/Core/Serialization.md),
+[Package Bulk Data](../../../Runtime/Assets/BulkData.md), and
+[Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md).
 
 ## Selected Design
 
@@ -328,8 +328,8 @@ No schema, cache-key or package-version migration was necessary.
 
 ## Validation And Handoff
 
-Before builds read [Agent Build And Run](../Agents/BuildAndRun.md); before
-selecting native tests read [Agent Testing](../Agents/Testing.md). Choose focused
+Before builds read [Agent Build And Run](../../../Agents/BuildAndRun.md); before
+selecting native tests read [Agent Testing](../../../Agents/Testing.md). Choose focused
 existing suites from the Stage 0 caller inventory; add regression coverage for
 changed contracts rather than tests that only mirror helper implementation.
 Documentation-only planning requires documentation validation, not a native build.

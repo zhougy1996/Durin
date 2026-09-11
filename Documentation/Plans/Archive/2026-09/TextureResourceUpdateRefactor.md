@@ -4,7 +4,7 @@ Summary: Replace texture completion revisions with one owned resource update per
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -234,8 +234,8 @@ and implemented documentation describes the actual ownership/publication protoco
 
 ## Validation and Handoff
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); discover registered targets rather than
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); discover registered targets rather than
 inferring them from source directories. Use controlled scheduling/failure injection
 instead of sleeps to prove publication and teardown behavior. No performance or
 application-hosted qualification is added implicitly.
@@ -305,6 +305,6 @@ stages.
 - `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeThumbnailRenderer.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Thumbnail/MaterialThumbnailRenderer.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Texture/TextureFailureTests.cpp`
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)

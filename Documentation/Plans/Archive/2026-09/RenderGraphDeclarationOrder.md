@@ -4,7 +4,7 @@ Summary: Adopt forward-only AddPassDependency declarations, execute retained pas
 
 Last reviewed: 2026-09-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-10
 
 ## Current Status
@@ -230,15 +230,15 @@ kind upgrades, sorting for diagnostics and resource analysis are unchanged.
 
 ## Execution and Handoff
 
-Read [Build and Run](../Agents/BuildAndRun.md) before configuring, building, or
-running repository targets, and [Testing](../Agents/Testing.md) before selecting
-or running native tests. Follow [Documentation Workflow](../Agents/Documentation.md)
+Read [Build and Run](../../../Agents/BuildAndRun.md) before configuring, building, or
+running repository targets, and [Testing](../../../Agents/Testing.md) before selecting
+or running native tests. Follow [Documentation Workflow](../../../Agents/Documentation.md)
 for document validation. Keep each stage's status and evidence in its implementation
 commit, with exact Plan and Stage trailers under the repository handoff rules.
 
 ## Related Code and Contract
 
-- [Render Graph contract](../Runtime/Rendering/RenderGraph.md)
-- [RDG public API](../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
-- [RDG compiler](../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
-- [RDG native tests](../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)
+- [Render Graph contract](../../../Runtime/Rendering/RenderGraph.md)
+- [RDG public API](../../../../Engine/Source/Runtime/RenderCore/Public/RDG.h)
+- [RDG compiler](../../../../Engine/Source/Runtime/RenderCore/Private/RDG.cpp)
+- [RDG native tests](../../../../Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp)

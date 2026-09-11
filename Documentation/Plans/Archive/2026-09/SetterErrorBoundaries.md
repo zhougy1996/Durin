@@ -4,7 +4,7 @@ Summary: Separate infallible state mutation from validation, lookup, and fallibl
 
 Last reviewed: 2026-09-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-11
 
 ## Current Status
@@ -70,6 +70,6 @@ Depends on Stage 4.
 
 ## Validation
 
-Follow [agent testing](../Agents/Testing.md) and [build guidance](../Agents/BuildAndRun.md).
+Follow [agent testing](../../../Agents/Testing.md) and [build guidance](../../../Agents/BuildAndRun.md).
 Reuse passing coverage when its inputs are unchanged. Validate changed documentation
 and all plans when adding or completing this plan.

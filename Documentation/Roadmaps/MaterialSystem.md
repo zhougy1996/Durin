@@ -23,7 +23,7 @@ integration are implemented; the plan remains active for final qualification. It
 extends the M5/M6 compile and Cook foundations and precedes M8's runtime instance
 API work; it does not introduce runtime shader compilation or complete M11.
 
-The [Material Parameters and Compiled Layouts plan](../Plans/MaterialParametersAndCompiledLayouts.md)
+The [Material Parameters and Compiled Layouts plan](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md)
 completed M10 on 2026-09-10: material-owned declarations, compiled layout v4, generic production
 bindings, authored migration, DMAT v4 and the dual-layer rust fixture. The
 fixed-v3 compiler and Renderer adapters are retired. On 2026-09-10 the user
@@ -228,8 +228,8 @@ Dynamic values remain outside program/PSO identity. Input declarations are
 independent of the eight surface outputs; M10 does not expand shading models.
 
 Coordinate with [Geometry Submission Refactor](../Plans/GeometrySubmissionRefactor.md),
-[RHI Resource Creation Refactor](../Plans/RHIResourceCreationRefactor.md) and
-`Documentation/Plans/PayloadArchiveSerializationRefactor.md` (currently in the
+[RHI Resource Creation Refactor](../Plans/Archive/2026-09/RHIResourceCreationRefactor.md) and
+`Documentation/Plans/Archive/2026-09/PayloadArchiveSerializationRefactor.md` (currently in the
 coordinating checkout).
 Consume their accepted interfaces without introducing a second geometry dispatch,
 resource scheduler or payload publication mechanism.
@@ -255,7 +255,7 @@ effect. M13 keeps runtime dynamic edits outside shader compilation.
 | [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
 | [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
 | [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
-| [Material Parameters and Compiled Layouts](../Plans/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
+| [Material Parameters and Compiled Layouts](../Plans/Archive/2026-09/MaterialParametersAndCompiledLayouts.md) | M10 | Declarations, compiled bindings, instances, editor, migration and Cook | Complete; historical baseline cancelled by user |
 | [Material Instance Shader Variants](../Plans/MaterialInstanceShaderVariants.md) | M13 | Per-field configuration, shared variant lifecycle, rendering, migration, Cook and editor/import integration | Implemented; final qualification in progress |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and measured updates; advanced reuse requires profiling evidence | Create after M13 |
 | [Reusable Material Functions](../Plans/ReusableMaterialFunctions.md) | M11 | Typed function assets, Surface access, texture-driven PBR library, editor workflow and asset migration | Selected; Stage 0 next |

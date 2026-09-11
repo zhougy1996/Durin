@@ -4,7 +4,7 @@ Summary: Establish a LaunchTask API that accepts valid work during normal operat
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -39,7 +39,7 @@ name denotes the new contract, not a compatibility wrapper around the old API.
 
 - Include the Core task API, remaining Engine/Editor callers, Launch smoke
   diagnostics, related tools and tests, and legacy interface descriptions in
-  the [task system contract](../Runtime/Core/TaskSystem.md).
+  the [task system contract](../../../Runtime/Core/TaskSystem.md).
 - Limit scheduler changes to those needed for the acceptance and queueing contract;
   do not replace the scheduling algorithm, unify rendering-thread commands, migrate services
   into Subsystems, or change asset formats, build algorithms, or cache policy.
@@ -424,9 +424,9 @@ Required gates that have not run remain incomplete.
 
 ## Validation And Handoff
 
-Follow the [build and run workflow](../Agents/BuildAndRun.md),
-[testing workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md). This plan does not require
+Follow the [build and run workflow](../../../Agents/BuildAndRun.md),
+[testing workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md). This plan does not require
 new GPU performance runs or application-hosted tests. The acceptance-policy
 change requires bounded CPU saturation and dependency-progress tests, with
 pending/active memory and queue-drain evidence. Stage 0 selects the corresponding

@@ -4,7 +4,7 @@ Summary: Replace fixed PBR input identities and bindings with material-owned par
 
 Last reviewed: 2026-09-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-10
 
 ## Current Status
@@ -482,14 +482,14 @@ Final retirement and qualification receipt (2026-09-10):
 
 ## Validation and Coordination
 
-Follow [agent build/run](../Agents/BuildAndRun.md) and
-[agent testing](../Agents/Testing.md) before implementation validation. Select
+Follow [agent build/run](../../../Agents/BuildAndRun.md) and
+[agent testing](../../../Agents/Testing.md) before implementation validation. Select
 tests from the current registry; do not start another build in a checkout with
 an active process tree. Documentation validation closes no implementation box.
 
-Coordinate with [Geometry Submission Refactor](GeometrySubmissionRefactor.md),
+Coordinate with [Geometry Submission Refactor](../../GeometrySubmissionRefactor.md),
 [RHI Resource Creation Refactor](RHIResourceCreationRefactor.md), and
-`Documentation/Plans/PayloadArchiveSerializationRefactor.md` (currently present
+`Documentation/Plans/Archive/2026-09/PayloadArchiveSerializationRefactor.md` (currently present
 only in the coordinating checkout).
 Consume their accepted interfaces; do not edit their code/plans incidentally.
 Record changed interface decisions here before continuing dependent stages.
@@ -512,5 +512,5 @@ Plan/Stage trailers under repository handoff rules.
 - `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphOperations.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/ImportedSurfaceMaterial.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials`
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)

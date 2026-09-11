@@ -4,7 +4,7 @@ Summary: Decouple resource factories from command replay, introduce bounded asyn
 
 Last reviewed: 2026-09-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-09
 
 ## Current Status
@@ -23,7 +23,7 @@ frame median slowdown: those returned near baseline without code changes.
 Following-frame p95 and process private-memory peaks remain elevated; see the
 repeat receipt below. Earlier observations are retained as historical samples.
 The original Balanced power scheme remains active.
-The subsequent [qualification attribution investigation](../Investigations/RHICreationQualificationAttribution.md)
+The subsequent [qualification attribution investigation](../../../Investigations/RHICreationQualificationAttribution.md)
 localizes the remaining memory increase to diagnostics-dependent retention and
 frame tails to host completion waits; exact retaining allocations and host-wait
 contributions remain open. Diagnostic controls do not replace the baseline.
@@ -62,9 +62,9 @@ or promise that first use never waits.
 - The RHI creation service owns request caches, task groups, capacity, and
   concurrency budgets for one device lifetime. Reuse results, dependencies,
   cancellation, and admission from the
-  [CPU Task System](../Runtime/Core/TaskSystem.md), without another generic
+  [CPU Task System](../../../Runtime/Core/TaskSystem.md), without another generic
   future framework. Its API was qualified by the archived
-  [Async Task Framework Refactor](Archive/2026-09/AsyncTaskFrameworkRefactor.md);
+  [Async Task Framework Refactor](AsyncTaskFrameworkRefactor.md);
   use the landed interfaces rather than assuming additional capabilities.
 - Backends declare direct, background, and context-required operations. Vulkan
   factories must not access `GCommandListExecutor` or implicitly wait for replay.
@@ -222,7 +222,7 @@ signed-zero normalization. Its capacity and native-creation assertions also
 depend on caching. `StaticMeshRenderer.cpp` publishes complete candidates by
 slot identity without requiring a unique pointer from each creation call;
 fixed Renderer callers also retain PSO references. The
-[recovery contract](../Runtime/Rendering/RendererResourceRecovery.md) is corrected.
+[recovery contract](../../../Runtime/Rendering/RendererResourceRecovery.md) is corrected.
 
 **Execution-domain inventory.** Production has nine common-wrapper calls, all
 in `FVulkanDynamicRHI::RHICreate*` implementations; tests also call it directly
@@ -1155,8 +1155,8 @@ Receipts:
 
 ## Validation and Handoff
 
-Read the [Build and Run workflow](../Agents/BuildAndRun.md) before building or
-running, and the [Testing workflow](../Agents/Testing.md) before selecting native
+Read the [Build and Run workflow](../../../Agents/BuildAndRun.md) before building or
+running, and the [Testing workflow](../../../Agents/Testing.md) before selecting native
 tests. Do not freeze build commands here that may become stale. Documentation-
 only changes run document and applicable plan validation without claiming
 runtime validation.
@@ -1179,5 +1179,5 @@ repository rules with this plan's path and exact stage title as Plan/Stage trail
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanShader.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render resource lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render resource lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)

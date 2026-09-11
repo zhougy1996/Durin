@@ -4,7 +4,7 @@ Summary: Extract reusable subsystem lifecycle machinery from World services and 
 
 Last reviewed: 2026-09-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-08
 
 ## Current Status
@@ -348,8 +348,8 @@ Final audit receipt (2026-09-08, MacOS-arm64-Debug-DurinEditor):
 
 ## Validation And Handoff
 
-Follow [agent build guidance](../Agents/BuildAndRun.md) before configuring,
-building, or running targets and [agent testing guidance](../Agents/Testing.md)
+Follow [agent build guidance](../../../Agents/BuildAndRun.md) before configuring,
+building, or running targets and [agent testing guidance](../../../Agents/Testing.md)
 before selecting native tests. Use the smallest applicable suites for each
 stage, broadening only for actual failures or newly affected behavior. Record
 target, configuration, test selection, result, and any unavailable platform
@@ -360,20 +360,20 @@ host-instance isolation, GC and code lifetime, non-reentrant retirement,
 unchanged World behavior, real Engine/Editor integration, and one production
 consumer. No performance benchmark or migration of unrelated managers is required.
 
-Follow [documentation workflow](../Agents/Documentation.md) for document and
+Follow [documentation workflow](../../../Agents/Documentation.md) for document and
 plan validation. Keep implementation status and stage evidence in the same
 commit as changes, using the exact plan and stage trailers required by the
 repository. Planning alone does not close implementation checkboxes.
 
 ## Related Code And Contracts
 
-- [World subsystem contract](../Runtime/World/WorldSubsystems.md)
-- [World operation and Level contract](../Runtime/World/LevelSystem.md)
-- [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [World subsystem API](../../Engine/Source/Runtime/Engine/Public/Engine/WorldSubsystem.h)
-- [World collection implementation](../../Engine/Source/Runtime/Engine/Private/Engine/WorldSubsystem.cpp)
-- [World host lifecycle](../../Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp)
-- [Engine host implementation](../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
-- [Editor host API](../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
-- [Editor host implementation](../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
-- [World subsystem tests](../../Engine/Tests/Native/EngineTests/Private/World/WorldSubsystemTests.cpp)
+- [World subsystem contract](../../../Runtime/World/WorldSubsystems.md)
+- [World operation and Level contract](../../../Runtime/World/LevelSystem.md)
+- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [World subsystem API](../../../../Engine/Source/Runtime/Engine/Public/Engine/WorldSubsystem.h)
+- [World collection implementation](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldSubsystem.cpp)
+- [World host lifecycle](../../../../Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp)
+- [Engine host implementation](../../../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
+- [Editor host API](../../../../Engine/Source/Editor/DurinEd/Public/Editor/EditorEngine.h)
+- [Editor host implementation](../../../../Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp)
+- [World subsystem tests](../../../../Engine/Tests/Native/EngineTests/Private/World/WorldSubsystemTests.cpp)

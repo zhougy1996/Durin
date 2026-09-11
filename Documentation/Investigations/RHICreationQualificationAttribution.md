@@ -6,7 +6,7 @@
 
 ## Scope And Verdict
 
-Follow-up to the [RHI resource creation refactor](../Plans/RHIResourceCreationRefactor.md)
+Follow-up to the [RHI resource creation refactor](../Plans/Archive/2026-09/RHIResourceCreationRefactor.md)
 and its repeated qualification. No production behavior or validation checks were changed. The follow-up
 standardizes validation DLL lifetime in the owning qualification fixtures; see
 [the long-term test policy](../Development/Build/NativeTests.md#vulkan-creation-qualification-memory). The experiments identify two distinct

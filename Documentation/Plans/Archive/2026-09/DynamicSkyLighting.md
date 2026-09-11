@@ -4,7 +4,7 @@ Summary: Replace the bespoke IBL asset payload with ordinary HDR cube sources an
 
 Last reviewed: 2026-09-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-09-10
 
 ## Current Status
@@ -15,7 +15,7 @@ packaged Game are validated. All 87 affected native targets and the dedicated
 forward/deferred qualification passed. The final 1920x1080 Game run passed
 three 120-update batches, memory/steady-overhead budgets and actual scene-tick
 latency bounds. Long-lived contracts are in
-[Sky Lighting](../Runtime/Rendering/SkyLighting.md); detailed receipts follow.
+[Sky Lighting](../../../Runtime/Rendering/SkyLighting.md); detailed receipts follow.
 
 ## Goal
 
@@ -172,7 +172,7 @@ lighting until a provider becomes eligible.
 
 ### Radiance and sampling conventions
 
-- Reuse [Cube Textures](../Runtime/Rendering/CubeTextures.md) exactly: world
+- Reuse [Cube Textures](../../../Runtime/Rendering/CubeTextures.md) exactly: world
   `+X/+Y/+Z` is forward/right/up, layer order is `+X/-X/+Y/-Y/+Z/-Z`, rows are
   top-to-bottom and samples use pixel centers. Share the existing face-direction
   equations with capture. Longitude wraps and latitude clamps; filter samples
@@ -388,7 +388,7 @@ panorama. Standard reimport preserves output settings. Builder/projection versio
 are 4/3; TXPL adds stable format 13 without changing schema 2 record layout.
 The import dialog exposes the output choice; viewport and thumbnail display
 mapping remain after sampling. The implemented contract is in
-[Cube Textures](../Runtime/Rendering/CubeTextures.md).
+[Cube Textures](../../../Runtime/Rendering/CubeTextures.md).
 
 Validation on Win64-Debug-DurinEditor:
 
@@ -553,7 +553,7 @@ Studio is now the ordinary `/Engine/Renderer/DefaultStudioCube` source. The
 Sandbox and RoadWeaver checked-in levels, new-level defaults, asset previews,
 and thumbnails use regular Sky Light actors. External legacy packages fail
 with the serialized unknown-class name; migration instructions live in
-[Sky Lighting](../Runtime/Rendering/SkyLighting.md).
+[Sky Lighting](../../../Runtime/Rendering/SkyLighting.md).
 
 Correctness and workflow receipts:
 
@@ -640,8 +640,8 @@ Final affected regression passed all 87 targets:
 
 ## Validation and Execution
 
-Follow [agent build/run guidance](../Agents/BuildAndRun.md) before configuring or
-running targets and [agent testing guidance](../Agents/Testing.md) before selecting
+Follow [agent build/run guidance](../../../Agents/BuildAndRun.md) before configuring or
+running targets and [agent testing guidance](../../../Agents/Testing.md) before selecting
 native tests. Select exact commands and test targets after Stage 0 identifies
 affected modules; this plan does not claim existing tests cover the new feature.
 Each implementation handoff records commands, outcomes, visual/performance
@@ -653,15 +653,15 @@ its gate, not merely code compilation.
 - `Engine/Source/Runtime/Engine/Public/Components/SkyLightComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Components/ProceduralSkyComponent.h`
 - `Engine/Source/Programs/StudioCubeGenerate/Main.cpp`
-- [Sky lighting](../Runtime/Rendering/SkyLighting.md)
+- [Sky lighting](../../../Runtime/Rendering/SkyLighting.md)
 - `Engine/Source/Developer/TextureBuild/Private/Texture/TextureCubeBuilder.cpp`
 - `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp`
-- [Cube textures](../Runtime/Rendering/CubeTextures.md)
-- [Forward lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Package bulk data](../Runtime/Assets/BulkData.md)
-- [Renderer frame preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer resource recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Volumetric cloud scene contract](../Runtime/Rendering/VolumetricCloudSceneContract.md)
-- [Geometry submission refactor](GeometrySubmissionRefactor.md)
+- [Cube textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Forward lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Package bulk data](../../../Runtime/Assets/BulkData.md)
+- [Renderer frame preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer resource recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Volumetric cloud scene contract](../../../Runtime/Rendering/VolumetricCloudSceneContract.md)
+- [Geometry submission refactor](../../GeometrySubmissionRefactor.md)
