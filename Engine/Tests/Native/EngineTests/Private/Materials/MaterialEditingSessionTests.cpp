@@ -5,6 +5,7 @@
 #include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialFunction.h"
 #include "Modules/ModuleManager.h"
 #include "NativeDObjectTestSupport.h"
 #include "EngineTestSupport.h"
@@ -91,6 +92,53 @@ TEST_F(FMaterialEditingSessionTests, PreviewCompilationIsIsolatedAndApplyPreserv
 	EXPECT_TRUE(Session.HasUnappliedChanges());
 	EXPECT_FLOAT_EQ(Source->GetMaterialProgram()->Outputs.RoughnessDefault.X, 0.37f);
 	MarkAsGarbage(Child);
+}
+
+TEST_F(FMaterialEditingSessionTests, FunctionCallDraftIsCompleteAndAppliesBindingsAtomically)
+{
+	auto* First = NewObject<DMaterialFunction>(Package, "FirstFunction");
+	auto* Second = NewObject<DMaterialFunction>(Package, "SecondFunction");
+	auto Graph = Second->GetFunctionGraph();
+	Graph.Signature.Inputs[0].Default.Surface.RoughnessDefault.X = 0.23f;
+	ASSERT_TRUE(Second->SetFunctionGraph(Graph));
+	Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	const auto Output = First->GetFunctionSignature().Outputs[0];
+	const FGuid CallId{72, 1, 1, 1};
+	FMaterialProgram Program;
+	Program.Nodes = {{.Id = CallId, .Opcode = EMaterialProgramOpcode::FunctionCall}};
+	Program.Outputs.Surface = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
+	ASSERT_TRUE(Source->SetMaterialDefinitionsAndProgram({}, Program,
+		{{.NodeId = CallId, .Function = First, .Outputs = {{Output.Id, Output.Type}}}}));
+	Tests::FTestTransactorOwner Transactions;
+	FMaterialEditingSession Session;
+	std::string Error;
+	ASSERT_TRUE(Session.Initialize(*Source, EMaterialEditCompileMode::Manual, Error, Transactions.Get())) << Error;
+	auto* Draft = Session.GetWorkingMaterial();
+	ASSERT_EQ(Draft->GetMaterialFunctionCalls().size(), 1u);
+	EXPECT_EQ(Draft->GetMaterialFunctionCalls()[0].Function.Get(), First);
+	EXPECT_FALSE(Session.HasUnappliedChanges());
+	auto Renamed = Program.Nodes[0];
+	Renamed.DisplayName = "Reusable Surface";
+	ASSERT_TRUE(FMaterialGraphOperations::ReplaceNode(*Draft, Renamed, Transactions.Get()));
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(*Draft->GetMaterialProgram(), Program);
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Draft->GetMaterialProgram()->Nodes[0].DisplayName, Renamed.DisplayName);
+	EXPECT_EQ(Draft->GetMaterialFunctionCalls()[0].Function.Get(), First);
+	std::vector<FMaterialFunctionCall> Calls(Draft->GetMaterialFunctionCalls().begin(),
+		Draft->GetMaterialFunctionCalls().end());
+	Calls[0].Function = Second;
+	ASSERT_TRUE(Draft->SetMaterialProgramAndFunctionCalls(Program, Calls));
+	EXPECT_TRUE(Session.HasUnappliedChanges());
+	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].Function.Get(), First);
+	ASSERT_TRUE(Session.FinishAndApply(Error)) << Error;
+	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].Function.Get(), Second);
+	EXPECT_FALSE(Session.HasUnappliedChanges());
+	const auto Revision = Source->GetMaterialCompileStatus().AuthoredRevision;
+	Calls[0].NodeId = FGuid::NewGuid();
+	EXPECT_FALSE(Source->SetMaterialDefinitionsAndProgram({}, Program, Calls));
+	EXPECT_EQ(Source->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_EQ(Source->GetMaterialFunctionCalls()[0].NodeId, CallId);
 }
 
 TEST_F(FMaterialEditingSessionTests, DefaultsStaticPropertiesAndPresentationStayInTheDraft)

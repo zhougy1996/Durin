@@ -116,11 +116,18 @@ namespace Durin
 		std::vector<FMaterialParameterDefinition> Definitions,
 		FMaterialProgram InProgram) -> FMaterialParameterEditResult
 	{
+		return SetMaterialDefinitionsAndProgram(std::move(Definitions), std::move(InProgram), FunctionCalls);
+	}
+
+	auto DMaterial::SetMaterialDefinitionsAndProgram(
+		std::vector<FMaterialParameterDefinition> Definitions,
+		FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls) -> FMaterialParameterEditResult
+	{
 		const auto Declarations = ValidateMaterialParameterDefinitions(Definitions);
 		if (!Declarations) return {Declarations.Error, Declarations.ParameterId};
 		if (InProgram.SchemaVersion != CurrentMaterialProgramSchemaVersion)
 			return {.Error = EMaterialParameterError::UnsupportedProgramSchema};
-		auto Validation = ValidateMaterialProgramWithFunctions(InProgram, Definitions, FunctionCalls);
+		auto Validation = ValidateMaterialProgramWithFunctions(InProgram, Definitions, InCalls);
 		if (!Validation)
 			return {.Error = EMaterialParameterError::InvalidProgram,
 				.Diagnostics = std::move(Validation.Diagnostics)};
@@ -130,11 +137,12 @@ namespace Durin
 			if (Previous && Previous->Type != Definition.Type)
 				return {EMaterialParameterError::TypeConflict, Definition.Id};
 		}
-		if (Definitions == ParameterDefinitions && InProgram == Program) return {};
+		if (Definitions == ParameterDefinitions && InProgram == Program && InCalls == FunctionCalls) return {};
 		CompilationOwner.RenderLayer.Parameters = BuildMaterialLocalRenderLayer().Parameters;
 		ParameterDefinitions = std::move(Definitions);
 		ParameterDeclarationSchemaVersion = 2;
 		Program = std::move(InProgram);
+		FunctionCalls = std::move(InCalls);
 		GraphPresentation = SanitizeMaterialGraphPresentation(GraphPresentation, Program);
 		AdvanceRevision(ParameterDefinitionSchemaRevision);
 		AdvanceRevision(MaterialProgramRevision);

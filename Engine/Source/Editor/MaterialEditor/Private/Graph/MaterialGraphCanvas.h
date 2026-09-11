@@ -64,7 +64,7 @@ namespace Durin::Editor::Material
 			std::unordered_map<FGuid, FMaterialGraphNodePresentation> StartPositions;
 			std::optional<ImVec2> MaterialOutputStart;
 		};
-		struct FLinkingInteraction { FGuid SourceNode; };
+		struct FLinkingInteraction { FGuid SourceNode; uint8 SourceOutputIndex = 0; FGuid SourceOutputId; };
 		struct FReconnectingInputInteraction
 		{
 			FGuid DestinationNode;
@@ -84,6 +84,8 @@ namespace Durin::Editor::Material
 		struct FNodeCreationMenuInteraction
 		{
 			FGuid SourceNode;
+			uint8 SourceOutputIndex = 0;
+			FGuid SourceOutputId;
 			ImVec2 GraphPosition{};
 			bool bOpenRequested = true;
 			int32 Selection = 0;

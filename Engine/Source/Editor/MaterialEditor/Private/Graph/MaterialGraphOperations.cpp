@@ -1,4 +1,5 @@
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphDocument.h"
 
 #include "Graph/MaterialGraphValueTypes.h"
 
@@ -124,18 +125,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphCreateNodeRequest Request,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		FMaterialProgram Candidate = *Material.GetMaterialProgram();
-		if (Candidate.Nodes.size() >= MaterialProgramMaxNodeCount)
-			return MakeRejected("The material graph node limit has been reached.");
-		if (!Request.Node.Id.IsValid()) Request.Node.Id = FGuid::NewGuid();
-		if (FindNode(Candidate, Request.Node.Id))
-			return MakeRejected("The requested material graph node GUID already exists.");
-		const FGuid GeneratedId = Request.Node.Id;
-		Candidate.Nodes.push_back(std::move(Request.Node));
-		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
-		Presentation.Nodes.push_back({GeneratedId, Request.X, Request.Y});
-		return CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),
-			"Create Material Node", {GeneratedId}, {GeneratedId}, Transactions);
+		return FMaterialGraphDocument(Material).CreateNode(std::move(Request), Transactions);
 	}
 
 	auto FMaterialGraphOperations::CreateNodeWithDefaultInputs(
@@ -245,14 +235,7 @@ namespace Durin::Editor::Material
 		FMaterialProgramNode Node,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		FMaterialProgram Candidate = *Material.GetMaterialProgram();
-		FMaterialProgramNode* Existing = FindNode(Candidate, Node.Id);
-		if (!Existing) return MakeRejected("The material graph node does not exist.");
-		const FGuid AffectedId = Node.Id;
-		*Existing = std::move(Node);
-		return CommitSemanticChange(Material, std::move(Candidate),
-			Material.GetMaterialGraphPresentation(),
-			"Edit Material Node", {AffectedId}, {}, Transactions);
+		return FMaterialGraphDocument(Material).ReplaceNode(std::move(Node), Transactions);
 	}
 
 	auto FMaterialGraphOperations::RemoveNodes(
@@ -260,53 +243,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
-		if (NodeIds.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
-		if (NodeIds.size() > MaterialProgramMaxNodeCount)
-			return MakeRejected("The material graph removal request exceeds the node bound.");
-		std::unordered_set<FGuid> Removed(NodeIds.begin(), NodeIds.end());
-		FMaterialProgram Candidate = *Material.GetMaterialProgram();
-		for (const FMaterialProgramNode& Node : Candidate.Nodes)
-		{
-			if (Removed.contains(Node.Id)) continue;
-			if (std::ranges::any_of(Node.Inputs,
-				[&](const FMaterialProgramLink& Link) {
-					return Removed.contains(Link.SourceNodeId);
-				}))
-			{
-				return MakeRejected(
-					"A material graph node still depends on the requested selection. "
-					"Reconnect or remove the dependent node first.");
-			}
-		}
-		const size_t BeforeCount = Candidate.Nodes.size();
-		std::erase_if(Candidate.Nodes, [&](const FMaterialProgramNode& Node) {
-			return Removed.contains(Node.Id);
-		});
-		if (Candidate.Nodes.size() == BeforeCount)
-			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		for (EMaterialSurfaceOutput Output : {
-			EMaterialSurfaceOutput::BaseColor,
-			EMaterialSurfaceOutput::Normal,
-			EMaterialSurfaceOutput::Metallic,
-			EMaterialSurfaceOutput::Roughness,
-			EMaterialSurfaceOutput::AmbientOcclusion,
-			EMaterialSurfaceOutput::Emissive,
-			EMaterialSurfaceOutput::Opacity,
-			EMaterialSurfaceOutput::OpacityMask})
-		{
-			FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-				Candidate.Outputs, Output);
-			if (Removed.contains(Link.SourceNodeId)) Link = {};
-		}
-		if (Removed.contains(Candidate.Outputs.Surface.SourceNodeId))
-			Candidate.Outputs.Surface = {};
-		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
-		std::erase_if(Presentation.Nodes, [&](const FMaterialGraphNodePresentation& Node) {
-			return Removed.contains(Node.NodeId);
-		});
-		std::vector<FGuid> Affected(NodeIds.begin(), NodeIds.end());
-		return CommitSemanticChange(Material, std::move(Candidate), std::move(Presentation),
-			"Delete Material Nodes", std::move(Affected), {}, Transactions);
+		return FMaterialGraphDocument(Material).RemoveNodes(NodeIds, Transactions);
 	}
 
 	auto FMaterialGraphOperations::Connect(

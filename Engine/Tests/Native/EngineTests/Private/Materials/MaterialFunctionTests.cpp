@@ -8,6 +8,8 @@
 #include "Misc/MountPathTestSupport.h"
 #include "NativeAssetTestSupport.h"
 #include "NativeTestSupport.h"
+#include "MaterialGraphDocument.h"
+#include "Editor/EditorTransactionTestSupport.h"
 
 namespace
 {
@@ -29,6 +31,110 @@ namespace
 		Graph.Nodes[1].Inputs[0] = {.SourceNodeId = CallId, .SourceOutputId = Output.Id};
 		ASSERT_TRUE(Caller.SetFunctionGraph(std::move(Graph)));
 	}
+}
+
+TEST(FMaterialFunctionTests, SharedDocumentsEditStableCallsAndInterfacesWithUndo)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "CommandFunction");
+	auto* Wrapper = NewObject<DMaterialFunction>(nullptr, "CommandWrapper");
+	auto* Material = NewObject<DMaterial>(nullptr, "CommandMaterial");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphDocument FunctionDocument(*Function), WrapperDocument(*Wrapper), MaterialDocument(*Material);
+	auto Signature = Function->GetFunctionSignature();
+	Signature.Inputs[0].Name = "Renamed Surface";
+	ASSERT_TRUE(FunctionDocument.SetSignature(Signature, Transactions.Get()));
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_NE(Function->GetFunctionSignature().Inputs[0].Name, Signature.Inputs[0].Name);
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Function->GetFunctionSignature(), Signature);
+	const auto Nested = WrapperDocument.InsertFunctionCall(*Function, 10, 20, Transactions.Get());
+	ASSERT_TRUE(Nested);
+	EXPECT_FALSE(FunctionDocument.InsertFunctionCall(*Wrapper, 0, 0));
+	const auto Inserted = MaterialDocument.InsertFunctionCall(*Wrapper, 30, 40, Transactions.Get());
+	ASSERT_TRUE(Inserted);
+	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
+	ASSERT_TRUE(Transactions.Get()->Redo());
+	EXPECT_EQ(Material->GetMaterialFunctionCalls()[0].NodeId, Inserted.GeneratedNodeIds[0]);
+	FMaterialGraphDocumentState State;
+	ASSERT_TRUE(WrapperDocument.Capture(State));
+	const auto InputNode = State.Program.Nodes[0].Id;
+	const auto InputPort = Function->GetFunctionSignature().Inputs[0].Id;
+	ASSERT_TRUE(WrapperDocument.ConnectCallInput(Nested.GeneratedNodeIds[0], InputPort, {InputNode}, false, Transactions.Get()));
+	EXPECT_EQ(Wrapper->GetFunctionGraph().Calls[0].Inputs[0].InputId, InputPort);
+	ASSERT_TRUE(WrapperDocument.DisconnectCallInput(Nested.GeneratedNodeIds[0], InputPort, Transactions.Get()));
+	EXPECT_TRUE(Wrapper->GetFunctionGraph().Calls[0].Inputs.empty());
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	EXPECT_EQ(Wrapper->GetFunctionGraph().Calls[0].Inputs[0].Source.SourceNodeId, InputNode);
+	ASSERT_TRUE(MaterialDocument.Capture(State));
+	const auto Before = State;
+	State.Program.Nodes.push_back({.Id = {73, 1, 2, 3}});
+	ASSERT_TRUE(MaterialDocument.Commit(State, "Add Numeric Constant"));
+	EXPECT_FALSE(MaterialDocument.ConnectCallInput(Inserted.GeneratedNodeIds[0],
+		Wrapper->GetFunctionSignature().Inputs[0].Id, {{73, 1, 2, 3}}));
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls()[0].Inputs.empty());
+	ASSERT_TRUE(MaterialDocument.Commit(Before, "Remove Numeric Constant"));
+	MarkAsGarbage(Material);
+	MarkAsGarbage(Wrapper);
+	MarkAsGarbage(Function);
+	CollectGarbage();
+}
+
+TEST(FMaterialFunctionTests, CommandsAuthorFunctionPortsAndCompileASelectedOutput)
+{
+	using namespace Durin;
+	using namespace Durin::Editor::Material;
+	InitializeDObjectSystem();
+	FScopedOfflinePreparation Offline;
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "AuthoredFunction");
+	auto* Material = NewObject<DMaterial>(nullptr, "AuthoredFunctionCaller");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument Document(*Function), Caller(*Material);
+	Tests::FTestTransactorOwner Transactions;
+	auto Input = FunctionPort(90, EMaterialProgramValueType::Float, "Amount");
+	Input.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.X = 0.37f}};
+	const auto AddedInput = Document.AddPort(false, Input, {}, -200, 0, Transactions.Get());
+	ASSERT_TRUE(AddedInput);
+	FMaterialGraphCreateNodeRequest Saturate{.Node = {.Opcode = EMaterialProgramOpcode::Saturate,
+		.Inputs = {{AddedInput.GeneratedNodeIds[0]}}}, .X = 100};
+	const auto AddedNode = Document.CreateNode(Saturate, Transactions.Get());
+	ASSERT_TRUE(AddedNode);
+	const auto Output = FunctionPort(91, EMaterialProgramValueType::Float, "Clamped Amount");
+	const auto AddedOutput = Document.AddPort(true, Output, {AddedNode.GeneratedNodeIds[0]}, 400, 0, Transactions.Get());
+	ASSERT_TRUE(AddedOutput);
+	EXPECT_FALSE(Document.RemovePort(false, Input.Id));
+	const auto Inserted = Caller.InsertFunctionCall(*Function, 0, 0, Transactions.Get());
+	ASSERT_TRUE(Inserted);
+	ASSERT_TRUE(Caller.AssignMaterialOutput(EMaterialSurfaceOutput::Roughness,
+		{.SourceNodeId = Inserted.GeneratedNodeIds[0], .SourceOutputId = Output.Id}, Transactions.Get()));
+	ASSERT_TRUE(Material->CompileEdits());
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+	const auto Identity = Material->GetAcceptedCompiledProgram()->Identity;
+	auto Signature = Function->GetFunctionSignature();
+	std::ranges::reverse(Signature.Inputs);
+	std::ranges::reverse(Signature.Outputs);
+	ASSERT_TRUE(Document.SetSignature(Signature, Transactions.Get()));
+	ASSERT_TRUE(Material->CompileEdits());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity, Identity);
+	const auto CallId = Inserted.GeneratedNodeIds[0];
+	ASSERT_TRUE(Caller.RemoveNodes(std::span(&CallId, 1), Transactions.Get()));
+	EXPECT_TRUE(Material->GetMaterialFunctionCalls().empty());
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Roughness.SourceNodeId.IsValid());
+	ASSERT_TRUE(Transactions.Get()->Undo());
+	ASSERT_EQ(Material->GetMaterialFunctionCalls().size(), 1u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Roughness.SourceOutputId, Output.Id);
+	ASSERT_TRUE(Document.RemovePort(true, Output.Id));
+	const auto NodeId = AddedNode.GeneratedNodeIds[0];
+	ASSERT_TRUE(Document.RemoveNodes(std::span(&NodeId, 1)));
+	ASSERT_TRUE(Document.RemovePort(false, Input.Id));
+	MarkAsGarbage(Material);
+	MarkAsGarbage(Function);
+	CollectGarbage();
 }
 
 TEST(FMaterialFunctionTests, DefaultsAreTypedAndInputReferencesRemainStable)

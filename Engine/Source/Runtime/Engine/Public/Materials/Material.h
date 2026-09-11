@@ -73,6 +73,10 @@ namespace Durin
 		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
 			std::vector<FMaterialParameterDefinition> Definitions,
 			FMaterialProgram InProgram) -> FMaterialParameterEditResult;
+		[[nodiscard]] ENGINE_API auto SetMaterialDefinitionsAndProgram(
+			std::vector<FMaterialParameterDefinition> Definitions,
+			FMaterialProgram InProgram, std::vector<FMaterialFunctionCall> InCalls)
+			-> FMaterialParameterEditResult;
 		// A same-name/type request reuses the existing definition unchanged.
 		[[nodiscard]] ENGINE_API auto CreateParameterDefinition(
 			FMaterialParameterDefinition Definition) -> FMaterialParameterEditResult;

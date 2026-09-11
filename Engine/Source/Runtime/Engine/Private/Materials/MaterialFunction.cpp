@@ -30,6 +30,7 @@ namespace Durin
 		Graph.Nodes.push_back({.Id = OutputNodeId, .Opcode = EMaterialProgramOpcode::FunctionOutput,
 			.ResultType = EMaterialProgramValueType::Surface,
 			.Inputs = {{.SourceNodeId = InputNodeId}}, .FunctionPortId = OutputId});
+		Presentation.Nodes = {{InputNodeId, 0, 0}, {OutputNodeId, 320, 0}};
 	}
 
 	auto DMaterialFunction::GetFunctionDependencies() const

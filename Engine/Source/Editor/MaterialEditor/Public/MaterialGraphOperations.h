@@ -52,6 +52,19 @@ namespace Durin::Editor::Material
 		FMaterialProgramLink Link;
 		EMaterialProgramValueType SourceType = EMaterialProgramValueType::Float;
 		std::vector<EMaterialProgramValueType> AcceptedTypes;
+		FGuid PortId;
+		bool bRequired = false;
+		bool bMissing = false;
+		FMaterialFunctionDefault Default;
+	};
+
+	struct FMaterialGraphOutputPinView
+	{
+		uint8 OutputIndex = 0;
+		FGuid PortId;
+		std::string Name;
+		EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+		bool bMissing = false;
 	};
 
 	// Describes a material-independent node shape; creation search selects exposed variants.
@@ -76,6 +89,8 @@ namespace Durin::Editor::Material
 		std::string SecondaryLabel;
 		std::vector<FMaterialGraphPinView> Inputs;
 		FMaterialGraphNodePresentation Presentation;
+		std::vector<FMaterialGraphOutputPinView> Outputs;
+		std::string FunctionPath;
 	};
 
 	// Is a detached deterministic snapshot used by widgets, tests, and automation.
@@ -84,6 +99,7 @@ namespace Durin::Editor::Material
 		std::vector<FMaterialGraphNodeView> Nodes;
 		FMaterialSurfaceOutputs Outputs;
 		std::pair<int32, int32> MaterialOutputPosition;
+		bool bFunction = false;
 	};
 
 	struct FMaterialGraphCreateNodeRequest

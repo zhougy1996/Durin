@@ -23,7 +23,10 @@ Stage 2 completed on 2026-09-11: semantic edits and asset relocation/reload upda
 loaded callers through the existing scheduler, publication admits captured
 closures, and Cook includes function build inputs without runtime function graphs.
 Nested asynchronous sharing, cancellation, stale results and shutdown are
-qualified. Stages 3-5 have not started.
+qualified. Stage 3 is in progress: material working copies preserve function
+call bindings and use atomic authored-state publication. Shared document inspection
+exposes typed function ports, and the material canvas connects individual function
+outputs by GUID. Stages 4-5 have not started.
 
 The 2026-09-11 prerequisite refactor changes current compilation failure and
 admission rejection to retire the owner's accepted renderable generation and
@@ -677,6 +680,58 @@ terminal shutdown per process. MaterialTests passed 169/169, receipt
 `Build/.agent-state/logs/20260911-182202-753880-17176-MaterialTests.log`.
 Together with the recorded Cook, relocation/deletion and reload receipts this
 completes Stage 2; editor authoring and end-to-end import/GPU gates remain later stages.
+
+## Stage 3 Execution Record
+
+Base material editing sessions capture function calls with their authored state.
+The Engine's declaration/program setter now accepts an explicit call collection
+for atomic initialization and Apply; the two-argument form preserves current
+calls. Draft callee-only edits participate in unapplied-change detection, and
+invalid call records reject without modifying source state or authored revision.
+Ordinary semantic graph commands validate live call records, allowing existing
+function-call graphs to use node editing and Undo/Redo.
+The focused editing-session suite passed 7/7, followed by MaterialTests 170/170
+including the new call-draft/atomic-apply/Undo/Redo fixture. Receipt:
+`Build/.agent-state/logs/20260911-182653-532524-33824-MaterialTests.log`.
+The workspace `all` build passed after the shared Engine API extension, receipt
+`Build/.agent-state/logs/20260911-182824-893312-30788-cmake.log`.
+`FMaterialGraphDocument` now captures material/function state and commits complete
+candidate states through their Engine owners. Ordinary material canvas semantic
+commands route through this boundary. Shared custom transactions retain graph,
+declarations, signature, calls, presentation and referenced assets. Function
+interface replacement and GUID-based call insertion/connect/disconnect are
+available to structured callers; recursive insertion is rejected. The new fixture
+verifies both owner kinds, interface rename, call insertion Undo/Redo, typed
+connection/disconnection, wrong-type rejection and recursion rejection.
+MaterialTests passed 171/171, receipt
+`Build/.agent-state/logs/20260911-183454-903625-25248-MaterialTests.log`.
+The workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-183655-045545-37116-cmake.log`.
+Shared commands now add/remove typed interface ports with terminals, update
+terminal types with interface edits, create/replace/remove nodes, connect ordinary
+inputs, and assign full function output links to Material Output. Existing
+material creation/replacement/removal commands delegate to them. Removing a call
+removes its binding record and restores material output fallbacks atomically.
+The authored-function fixture builds a Float input, Saturate node and Float
+output entirely through commands, inserts the call into a material, compiles the
+selected output, verifies interface reordering preserves shader identity, and
+checks dependency rejection and call-deletion Undo. MaterialTests passed 172/172:
+`Build/.agent-state/logs/20260911-184219-586905-25824-MaterialTests.log`.
+Shared inspection now resolves live function signatures into typed, named input
+and output pins, including defaults, required flags and missing-port records.
+Function terminals receive initial presentation positions. The material canvas
+renders multiple outputs and preserves full source identities during linking,
+reconnection and node creation. Callee interface edits refresh the cached view.
+Surface attribute pins retain their stable indices and support typed reconnection.
+The canvas fixture exercises dragging a second function output, interface rename
+refresh and Surface attribute replacement.
+MaterialTests passed 173/173, receipt
+`Build/.agent-state/logs/20260911-185817-811894-25336-MaterialTests.log`.
+The workspace `all` build passed, receipt
+`Build/.agent-state/logs/20260911-185937-879704-26540-cmake.log`.
+Function document widgets, function canvas, previews,
+clipboard and nested diagnostic navigation remain outstanding; no Stage 3
+checkbox is complete yet.
 
 ## Implementation Stages
 

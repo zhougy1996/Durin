@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
+#include "MaterialGraphDocument.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialAssetCreation.h"
 #include "Graph/MaterialGraphCanvas.h"
@@ -1310,6 +1311,94 @@ TEST(FMaterialGraphOperationsTests, CanvasPositionRefreshPreservesTopologyStorag
 		Material->FindParameterDefinition(Definition.Id)->DisplayName);
 	MarkAsGarbage(Material);
 	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, CanvasConnectsASecondFunctionOutputAndRefreshesItsInterface)
+{
+	InitializeDObjectSystem();
+	auto* Function = NewObject<DMaterialFunction>(nullptr, "CanvasMultiOutputFunction");
+	auto* Material = NewObject<DMaterial>(nullptr, "CanvasMultiOutputCaller");
+	Material->SetEditCompileMode(EMaterialEditCompileMode::Manual);
+	FMaterialGraphDocument FunctionDocument(*Function), Document(*Material);
+	FMaterialFunctionPort Input{.Id = FGuid::NewGuid(), .Name = "Amount",
+		.Default = {.Kind = EMaterialFunctionDefaultKind::Numeric, .Numeric = {.X = 0.4f}}};
+	const auto AddedInput = FunctionDocument.AddPort(false, Input);
+	ASSERT_TRUE(AddedInput);
+	FMaterialFunctionPort Output{.Id = FGuid::NewGuid(), .Name = "Amount Output", .DisplayOrder = 1};
+	ASSERT_TRUE(FunctionDocument.AddPort(true, Output, {AddedInput.GeneratedNodeIds[0]}));
+	const auto Call = Document.InsertFunctionCall(*Function, 0, 0);
+	ASSERT_TRUE(Call);
+	const auto Constant = Document.CreateNode({.Node = {}, .X = 0, .Y = 300});
+	ASSERT_TRUE(Constant);
+	const auto Surface = Document.CreateNode({.Node = {.Opcode = EMaterialProgramOpcode::SetSurfaceAttributes,
+		.ResultType = EMaterialProgramValueType::Surface,
+		.Inputs = {{Call.GeneratedNodeIds[0], 0, Function->GetFunctionSignature().Outputs[0].Id}},
+		.SurfaceAttributes = {{EMaterialSurfaceOutput::Metallic, {Constant.GeneratedNodeIds[0]}}}}, .Y = 450});
+	ASSERT_TRUE(Surface);
+	const uint32 MetallicInput = static_cast<uint32>(EMaterialSurfaceOutput::Metallic) + 1;
+	const FMaterialProgramLink AmountSource{Call.GeneratedNodeIds[0], 0, Output.Id};
+	EXPECT_FALSE(Document.ConnectInput(Surface.GeneratedNodeIds[0], MetallicInput, AmountSource));
+	ASSERT_TRUE(Document.ConnectInput(Surface.GeneratedNodeIds[0], MetallicInput, AmountSource, true));
+	const auto SurfaceInspection = Document.Inspect();
+	const auto* SurfaceView = FindViewNode(SurfaceInspection, Surface.GeneratedNodeIds[0]);
+	ASSERT_NE(SurfaceView, nullptr);
+	ASSERT_EQ(SurfaceView->Inputs.size(), 2u);
+	EXPECT_EQ(SurfaceView->Inputs[0].AcceptedTypes, std::vector{EMaterialProgramValueType::Surface});
+	EXPECT_EQ(SurfaceView->Inputs[1].Link, AmountSource);
+	const auto Destination = Document.CreateNode({.Node = {.Opcode = EMaterialProgramOpcode::Saturate,
+		.Inputs = {{Constant.GeneratedNodeIds[0]}}}, .X = 350});
+	ASSERT_TRUE(Destination);
+	auto Presentation = Material->GetMaterialGraphPresentation();
+	Presentation.bHasMaterialOutputPosition = true;
+	Presentation.MaterialOutputX = 700;
+	Presentation.MaterialOutputY = 0;
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	ImGuiContext* Context = ImGui::CreateContext();
+	auto& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200, 720}; IO.DeltaTime = 1.0f / 60.0f; IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault(); IO.Fonts->Build();
+	Durin::Tests::FTestTransactorOwner Transactions;
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(1.0f, {40, 40});
+	ImVec2 Origin;
+	int Errors = 0;
+	const auto Frame = [&](ImVec2 Mouse, bool Down) {
+		IO.AddMousePosEvent(Mouse.x, Mouse.y); IO.AddMouseButtonEvent(ImGuiMouseButton_Left, Down);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 720});
+		ImGui::Begin("Function Links", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, *Transactions.Get(), 660, [&](std::string) { ++Errors; });
+		const auto* Window = ImGui::GetCurrentWindow()->DC.ChildWindows.back();
+		Origin = {Window->Pos.x + Window->WindowPadding.x + 40,
+			Window->Pos.y + Window->WindowPadding.y + ImGui::GetFrameHeightWithSpacing() + 40};
+		ImGui::End(); ImGui::Render();
+	};
+	Frame({1100, 600}, false); Frame({1100, 600}, false);
+	const auto& Metrics = FMaterialGraphGeometry::GetMetrics();
+	const float PinY = Metrics.HeaderHeight + Metrics.SecondaryHeight + Metrics.BodyPadding;
+	const ImVec2 SecondOutput{Origin.x + Metrics.NodeWidth, Origin.y + PinY + Metrics.PinRowHeight};
+	const ImVec2 Target{Origin.x + 350, Origin.y + PinY};
+	IO.AddKeyEvent(ImGuiMod_Shift, true);
+	Frame(SecondOutput, false); Frame(SecondOutput, true);
+	EXPECT_TRUE(FMaterialGraphCanvasTestAccess::Linking(Canvas));
+	Frame(Target, true); Frame(Target, false);
+	EXPECT_EQ(Errors, 0);
+	const auto Link = FindViewNode(FMaterialGraphOperations::Inspect(*Material), Destination.GeneratedNodeIds[0])->Node.Inputs[0];
+	EXPECT_EQ(Link.SourceNodeId, Call.GeneratedNodeIds[0]);
+	EXPECT_EQ(Link.SourceOutputId, Output.Id);
+	auto Signature = Function->GetFunctionSignature();
+	Signature.Outputs[1].Name = "Renamed Amount";
+	ASSERT_TRUE(FunctionDocument.SetSignature(Signature));
+	const auto& View = FMaterialGraphCanvasTestAccess::Prepare(Canvas, *Material);
+	const auto* CallView = FindViewNode(View, Call.GeneratedNodeIds[0]);
+	ASSERT_NE(CallView, nullptr);
+	ASSERT_EQ(CallView->Outputs.size(), 2u);
+	EXPECT_EQ(CallView->Outputs[1].Name, "Renamed Amount");
+	const auto Pin = std::ranges::find(CallView->Inputs, Input.Id, &FMaterialGraphPinView::PortId);
+	ASSERT_NE(Pin, CallView->Inputs.end());
+	EXPECT_FLOAT_EQ(Pin->Default.Numeric.X, 0.4f);
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material); MarkAsGarbage(Function); CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, CanvasLinkReleaseEndsGestureAcrossFrames)

@@ -1,6 +1,7 @@
 #include "Graph/MaterialGraphControls.h"
 #include "Graph/MaterialGraphValueTypes.h"
 #include "Graph/MaterialGraphCanvas.h"
+#include "MaterialGraphDocument.h"
 
 #include "Editor/Transaction.h"
 #include "MonaImGui.h"
@@ -108,7 +109,7 @@ namespace Durin::Editor::Material
 			{
 				const float Y = static_cast<float>(Node.Presentation.Y);
 				const float Height = FMaterialGraphGeometry::GetNodeHeight(
-					static_cast<uint32>(Node.Inputs.size()));
+					static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
 				MaximumX = std::max(MaximumX,
 					static_cast<float>(Node.Presentation.X) + Metrics.NodeWidth);
 				if (!bFound) { MinimumY = Y; MaximumY = Y + Height; bFound = true; }
@@ -141,7 +142,19 @@ namespace Durin::Editor::Material
 		ImVec2 Minimum{};
 		ImVec2 Maximum{};
 		ImVec2 OutputPin{};
+		std::vector<ImVec2> OutputPins;
 		std::vector<ImVec2> InputPins;
+		auto OutputIndex(const FMaterialProgramLink& Link) const -> size_t
+		{
+			for (size_t Index = 0; Index < View->Outputs.size(); ++Index)
+				if (View->Outputs[Index].PortId == Link.SourceOutputId
+					&& View->Outputs[Index].OutputIndex == Link.SourceOutputIndex) return Index;
+			return 0;
+		}
+		auto OutputPosition(const FMaterialProgramLink& Link) const -> ImVec2
+		{
+			return OutputPins.empty() ? OutputPin : OutputPins[OutputIndex(Link)];
+		}
 	};
 
 	struct FMaterialGraphCanvas::FVisualGraph
@@ -207,7 +220,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material)
 		-> const FMaterialGraphView&
 	{
-		const uint64 ProgramRevision = Material.GetMaterialProgramRevision();
+		const uint64 ProgramRevision = Material.GetMaterialCompileStatus().AuthoredRevision;
 		const uint64 PresentationRevision =
 			Material.GetMaterialGraphPresentationRevision();
 		const uint64 SchemaRevision =
@@ -278,6 +291,7 @@ namespace Durin::Editor::Material
 				FVisualNode Visual;
 				Visual.View = &Node;
 				Visual.InputPins.resize(Node.Inputs.size());
+				Visual.OutputPins.resize(Node.Outputs.size());
 				Result.Indices.emplace(Node.Node.Id, Result.Nodes.size());
 				Result.Nodes.push_back(std::move(Visual));
 			}
@@ -290,7 +304,7 @@ namespace Durin::Editor::Material
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
 			const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(Node.Inputs.size()));
+				static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
 			Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
 			Visual.Maximum = Add(Visual.Minimum,
 				Multiply({NodeWidth, NodeHeight}, Zoom));
@@ -298,6 +312,8 @@ namespace Durin::Editor::Material
 				Visual.Maximum.x,
 				Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
 					+ NodePadding) * Zoom};
+			for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
+				Visual.OutputPins[Index] = {Visual.OutputPin.x, Visual.OutputPin.y + PinSpacing * Index * Zoom};
 			for (size_t Index = 0; Index < Node.Inputs.size(); ++Index)
 				Visual.InputPins[Index] = {
 					Visual.Minimum.x,
@@ -330,7 +346,7 @@ namespace Durin::Editor::Material
 				static_cast<float>(Node.Presentation.X),
 				static_cast<float>(Node.Presentation.Y));
 			const float Height = FMaterialGraphGeometry::GetNodeHeight(
-				static_cast<uint32>(Node.Inputs.size()));
+				static_cast<uint32>(std::max(Node.Inputs.size(), Node.Outputs.size())));
 			if (!bFound)
 			{
 				Minimum = Position;
@@ -386,7 +402,7 @@ namespace Durin::Editor::Material
 				const auto SourceIt = VisualGraph.Indices.find(
 					Destination.View->Inputs[InputIndex].Link.SourceNodeId);
 				if (SourceIt == VisualGraph.Indices.end()) continue;
-				const ImVec2 A = VisualGraph.Nodes[SourceIt->second].OutputPin;
+				const ImVec2 A = VisualGraph.Nodes[SourceIt->second].OutputPosition(Destination.View->Inputs[InputIndex].Link);
 				const ImVec2 B = Destination.InputPins[InputIndex];
 				const bool bFocused = SelectedNodes.empty()
 					|| SelectedNodes.contains(Destination.View->Node.Id)
@@ -783,10 +799,15 @@ namespace Durin::Editor::Material
 			const FLinkingInteraction* Linking =
 				std::get_if<FLinkingInteraction>(&Interaction);
 			const FGuid LinkSourceNode = Linking ? Linking->SourceNode : FGuid{};
+			const FMaterialProgramLink LinkSource{LinkSourceNode, Linking ? Linking->SourceOutputIndex : uint8{0},
+				Linking ? Linking->SourceOutputId : FGuid{}};
 			const bool bConnectingAggregate = std::ranges::any_of(View.Nodes,
 				[&](const FMaterialGraphNodeView& Node) {
 					return Node.Node.Id == LinkSourceNode
-						&& Node.Node.ResultType == EMaterialProgramValueType::Surface;
+						&& std::ranges::any_of(Node.Outputs, [&](const auto& Pin) {
+							return Pin.PortId == LinkSource.SourceOutputId && Pin.OutputIndex == LinkSource.SourceOutputIndex
+								&& Pin.Type == EMaterialProgramValueType::Surface;
+						});
 				});
 			const bool bAggregateOutput = View.Outputs.Surface.SourceNodeId.IsValid()
 				|| bConnectingAggregate;
@@ -810,7 +831,7 @@ namespace Durin::Editor::Material
 						static_cast<uint32>(Row)) * Zoom};
 				const auto SourceIt = VisualIndices.find(OutputLinks[Index]->SourceNodeId);
 				if (SourceIt == VisualIndices.end()) continue;
-				const ImVec2 A = VisualNodes[SourceIt->second].OutputPin;
+				const ImVec2 A = VisualNodes[SourceIt->second].OutputPosition(*OutputLinks[Index]);
 				const ImVec2 B = SurfacePins[Index];
 				const bool bFocused = SelectedNodes.empty()
 					|| SelectedNodes.contains(VisualNodes[SourceIt->second].View->Node.Id)
@@ -824,6 +845,7 @@ namespace Durin::Editor::Material
 
 			const FVisualNode* HoveredNode = nullptr;
 			const FVisualNode* HoveredOutput = nullptr;
+			size_t HoveredOutputIndex = 0;
 			const FVisualNode* HoveredInputNode = nullptr;
 			uint32 HoveredInputIndex = 0;
 			std::optional<EMaterialSurfaceOutput> HoveredSurfaceOutput;
@@ -833,10 +855,20 @@ namespace Durin::Editor::Material
 						SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom}, Mouse)
 				&& Mouse.y < SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom;
 			std::optional<EMaterialProgramValueType> LinkSourceType;
+			const auto ConnectPin = [&](const FGuid& NodeId, uint32 PinIndex, FMaterialProgramLink Source, bool bReplace) {
+				const auto Node = std::ranges::find(View.Nodes, NodeId, [](const auto& Item) { return Item.Node.Id; });
+				if (Node == View.Nodes.end() || PinIndex >= Node->Inputs.size())
+					return FMaterialGraphCommandResult{.Message = "The graph input is unavailable."};
+				const auto& Pin = Node->Inputs[PinIndex];
+				FMaterialGraphDocument Document(Material);
+				return Pin.PortId.IsValid() ? Document.ConnectCallInput(NodeId, Pin.PortId, Source, bReplace, &Transactions)
+					: Document.ConnectInput(NodeId, Pin.InputIndex, Source, bReplace, &Transactions);
+			};
 			bool bEmbeddedControlHoveredOrActive = false;
 			if (const auto It = VisualIndices.find(LinkSourceNode);
 				It != VisualIndices.end())
-				LinkSourceType = VisualNodes[It->second].View->Node.ResultType;
+				if (!VisualNodes[It->second].View->Outputs.empty())
+					LinkSourceType = VisualNodes[It->second].View->Outputs[VisualNodes[It->second].OutputIndex(LinkSource)].Type;
 			for (const FVisualNode& Visual : VisualNodes)
 			{
 				if (!Intersects(Visual.Minimum, Visual.Maximum,
@@ -881,8 +913,8 @@ namespace Durin::Editor::Material
 					}
 				}
 				const float PinRadius = std::max(2.0f, 5.0f * Zoom);
-				DrawList->AddCircleFilled(Visual.OutputPin, PinRadius,
-					TypeColor(Visual.View->Node.ResultType));
+				for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
+					DrawList->AddCircleFilled(Visual.OutputPins[Index], PinRadius, TypeColor(Visual.View->Outputs[Index].Type));
 				const bool bInlineEditorVisible =
 					DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& SelectedNodes.size() == 1
@@ -894,14 +926,17 @@ namespace Durin::Editor::Material
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing
 					&& !bInlineEditorVisible)
 				{
-					const std::string ResultLabel = GetProgramTypeName(Visual.View->Node.ResultType);
+					for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
+					{
+					const std::string ResultLabel = Ellipsize(Visual.View->Outputs[Index].Name, NodeWidth * Zoom * 0.45f);
 					const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
 						GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
 					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
-						Add(Visual.OutputPin,
+						Add(Visual.OutputPins[Index],
 							{-8.0f * Zoom - ResultLabelWidth,
 								-GraphBodyFontSize * 0.5f}),
 						IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
+					}
 				}
 				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
 				{
@@ -931,9 +966,13 @@ namespace Durin::Editor::Material
 						HoveredInputIndex = static_cast<uint32>(Index);
 					}
 				}
-				if (DetailLevel != EMaterialGraphDetailLevel::Overview
-					&& std::hypot(Mouse.x - Visual.OutputPin.x,
-					Mouse.y - Visual.OutputPin.y) <= 8.0f) HoveredOutput = &Visual;
+				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
+					for (size_t Index = 0; Index < Visual.OutputPins.size(); ++Index)
+						if (std::hypot(Mouse.x - Visual.OutputPins[Index].x, Mouse.y - Visual.OutputPins[Index].y) <= 8.0f)
+						{
+							HoveredOutput = &Visual;
+							HoveredOutputIndex = Index;
+						}
 				if (Contains(Visual.Minimum, Visual.Maximum, Mouse)) HoveredNode = &Visual;
 			}
 			if (DetailLevel == EMaterialGraphDetailLevel::Editing
@@ -1327,7 +1366,8 @@ namespace Durin::Editor::Material
 				}
 				else if (HoveredOutput)
 				{
-					Interaction = FLinkingInteraction{HoveredOutput->View->Node.Id};
+					const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
+					Interaction = FLinkingInteraction{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId};
 				}
 				else if (HoveredSurfaceOutput)
 				{
@@ -1440,10 +1480,11 @@ namespace Durin::Editor::Material
 			if (const auto* ActiveLink = std::get_if<FLinkingInteraction>(&Interaction))
 			{
 				const FGuid SourceNode = ActiveLink->SourceNode;
+				const FMaterialProgramLink SourceLink{SourceNode, ActiveLink->SourceOutputIndex, ActiveLink->SourceOutputId};
 				const auto SourceIt = VisualIndices.find(SourceNode);
 				if (SourceIt != VisualIndices.end())
 				{
-					const ImVec2 A = VisualNodes[SourceIt->second].OutputPin;
+					const ImVec2 A = VisualNodes[SourceIt->second].OutputPosition(SourceLink);
 					DrawList->AddBezierCubic(A, Add(A, {60.0f, 0.0f}),
 						Subtract(Mouse, {60.0f, 0.0f}), Mouse,
 						TypeColor(VisualNodes[SourceIt->second].View->Node.ResultType), 2.5f);
@@ -1452,27 +1493,21 @@ namespace Durin::Editor::Material
 				{
 					ResetInteraction();
 					if (HoveredInputNode)
-						ReportCommand(FMaterialGraphOperations::Connect(Material, {
-							.SourceNodeId = SourceNode,
-							.DestinationNodeId = HoveredInputNode->View->Node.Id,
-							.DestinationInputIndex = HoveredInputIndex,
-							.bReplaceExisting = ImGui::GetIO().KeyShift,
-						}, &Transactions), ReportError);
+						ReportCommand(ConnectPin(HoveredInputNode->View->Node.Id, HoveredInputIndex,
+							SourceLink, ImGui::GetIO().KeyShift), ReportError);
 					else if (HoveredSurfaceOutput)
 					{
-						if (static_cast<size_t>(*HoveredSurfaceOutput) == 8)
-							ReportCommand(FMaterialGraphOperations::AssignAggregateSurface(
-								Material, SourceNode, &Transactions), ReportError);
-						else ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
-							.Output = *HoveredSurfaceOutput,
-							.SourceNodeId = SourceNode,
-						}, &Transactions), ReportError);
+						ReportCommand(FMaterialGraphDocument(Material).AssignMaterialOutput(
+							static_cast<size_t>(*HoveredSurfaceOutput) == 8 ? std::nullopt : HoveredSurfaceOutput,
+							SourceLink, &Transactions), ReportError);
 					}
 					else if (bCanvasPointerInteractionAvailable && !HoveredNode
 						&& !HoveredOutput && !Contains(SurfaceMinimum, SurfaceMaximum, Mouse))
 					{
 						Interaction = FNodeCreationMenuInteraction{
 							.SourceNode = SourceNode,
+							.SourceOutputIndex = SourceLink.SourceOutputIndex,
+							.SourceOutputId = SourceLink.SourceOutputId,
 							.GraphPosition = Multiply(
 								Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 					}
@@ -1497,12 +1532,11 @@ namespace Durin::Editor::Material
 				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
 					if (HoveredOutput)
-						ReportCommand(FMaterialGraphOperations::Connect(Material, {
-							.SourceNodeId = HoveredOutput->View->Node.Id,
-							.DestinationNodeId = DestinationNode,
-							.DestinationInputIndex = DestinationInputIndex,
-							.bReplaceExisting = true,
-						}, &Transactions), ReportError);
+					{
+						const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
+						ReportCommand(ConnectPin(DestinationNode, DestinationInputIndex,
+							{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId}, true), ReportError);
+					}
 					ResetInteraction();
 				}
 			}
@@ -1522,13 +1556,10 @@ namespace Durin::Editor::Material
 				{
 					if (HoveredOutput)
 					{
-						if (static_cast<size_t>(ReconnectSurfaceOutput) == 8)
-							ReportCommand(FMaterialGraphOperations::AssignAggregateSurface(
-								Material, HoveredOutput->View->Node.Id, &Transactions), ReportError);
-						else ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
-							.Output = ReconnectSurfaceOutput,
-							.SourceNodeId = HoveredOutput->View->Node.Id,
-						}, &Transactions), ReportError);
+						const auto& Pin = HoveredOutput->View->Outputs[HoveredOutputIndex];
+						ReportCommand(FMaterialGraphDocument(Material).AssignMaterialOutput(
+							OutputIndex == 8 ? std::nullopt : std::optional{ReconnectSurfaceOutput},
+							{HoveredOutput->View->Node.Id, Pin.OutputIndex, Pin.PortId}, &Transactions), ReportError);
 					}
 					ResetInteraction();
 				}

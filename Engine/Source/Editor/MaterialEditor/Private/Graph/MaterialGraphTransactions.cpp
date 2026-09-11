@@ -1,4 +1,5 @@
 #include "MaterialGraphEditInternals.h"
+#include "MaterialGraphDocument.h"
 
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -426,58 +427,19 @@ namespace Durin::Editor::Material
 			DTransactor* Transactions)
 			-> FMaterialGraphCommandResult
 		{
-			if (!IsValid(&Material))
-				return {.Status = EMaterialGraphCommandStatus::StaleOwner,
-					.Message = "The material graph owner is no longer available."};
-			if (Transactions && Transactions->HasPendingOperation())
-				return MakeRejected("The editor transactor is busy.");
-			const FMaterialProgram BeforeProgram = *Material.GetMaterialProgram();
-			const FMaterialGraphPresentation BeforePresentation =
-				Material.GetMaterialGraphPresentation();
-			CandidatePresentation = SanitizeMaterialGraphPresentation(
-				CandidatePresentation, CandidateProgram);
-			if (BeforeProgram == CandidateProgram
-				&& BeforePresentation == CandidatePresentation)
-			{
-				return {.Status = EMaterialGraphCommandStatus::NoChange};
-			}
-
-			FMaterialProgramValidationResult Validation = ValidateMaterialProgram(
-				CandidateProgram, Material.GetParameterDefinitions());
-			if (!Validation)
-				return MakeRejected("The material graph command produced an invalid program.",
-					std::move(Validation.Diagnostics));
-
-			if (!(Validation = Material.SetMaterialProgram(CandidateProgram)))
-				return MakeRejected("The material rejected the candidate program.",
-					std::move(Validation.Diagnostics));
-			if (!Material.SetMaterialGraphPresentation(CandidatePresentation))
-			{
-				const auto RollbackValidation = Material.SetMaterialProgram(BeforeProgram);
-				return MakeRejected("The material rejected the candidate graph presentation.");
-			}
-
-			if (Transactions)
-			{
-				const auto bRecorded = Transactions->CommitApplied(
-					std::make_unique<FMaterialGraphSemanticTransaction>(
-					Material,
-					BeforeProgram,
-					BeforePresentation,
-					std::move(CandidateProgram),
-					std::move(CandidatePresentation),
-					std::move(Description)));
-				check(bRecorded);
-			}
+			FMaterialGraphDocument Document(Material);
+			FMaterialGraphDocumentState Candidate;
+			if (!Document.Capture(Candidate)) return {.Status = EMaterialGraphCommandStatus::StaleOwner};
+			Candidate.Program = std::move(CandidateProgram);
+			Candidate.Presentation = std::move(CandidatePresentation);
+			auto Result = Document.Commit(std::move(Candidate), std::move(Description), Transactions);
+			if (Result.Status != EMaterialGraphCommandStatus::Succeeded) return Result;
 			std::ranges::sort(Affected);
 			Affected.erase(std::unique(Affected.begin(), Affected.end()), Affected.end());
-			return {
-				.Status = EMaterialGraphCommandStatus::Succeeded,
-				.AffectedNodeIds = std::move(Affected),
-				.GeneratedNodeIds = std::move(Generated),
-			};
+			Result.AffectedNodeIds = std::move(Affected);
+			Result.GeneratedNodeIds = std::move(Generated);
+			return Result;
 		}
-
 		auto CommitPresentationChange(
 			DMaterial& Material,
 			FMaterialGraphPresentation CandidatePresentation,

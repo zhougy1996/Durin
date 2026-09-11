@@ -151,7 +151,8 @@ namespace Durin::Editor::Material
 		const auto Source = std::ranges::find(View.Nodes, CreationMenu->SourceNode,
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		if (CreationMenu->SourceNode.IsValid() && Source != View.Nodes.end())
-			SourceType = Source->Node.ResultType;
+			for (const auto& Pin : Source->Outputs)
+				if (Pin.PortId == CreationMenu->SourceOutputId && Pin.OutputIndex == CreationMenu->SourceOutputIndex) SourceType = Pin.Type;
 		const auto EntryGroup = [this, CreationMenu](size_t Index) -> std::pair<int, std::string> {
 			if (CreationMenu->Search.front() == '\0')
 			{
@@ -278,7 +279,7 @@ namespace Durin::Editor::Material
 				return;
 			}
 			FMaterialProgramNode Candidate = Entry.NodeTemplate;
-			if (SourceType) Candidate.Inputs.front() = {CreationMenu->SourceNode, 0};
+			if (SourceType) Candidate.Inputs.front() = {CreationMenu->SourceNode, CreationMenu->SourceOutputIndex, CreationMenu->SourceOutputId};
 			const FMaterialGraphCommandResult Created =
 				FMaterialGraphOperations::CreateNodeWithDefaultInputs(Material, {
 					.Node = std::move(Candidate),

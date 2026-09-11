@@ -34,6 +34,7 @@ namespace Durin::Editor::Material
 			std::vector<FMaterialParameterDefinition> Definitions;
 			FMaterialStaticProperties Properties;
 			FMaterialGraphPresentation Presentation;
+			std::vector<FMaterialFunctionCall> FunctionCalls;
 			auto operator==(const FAuthoredState&) const -> bool = default;
 		};
 		static auto Capture(const DMaterial& Material) -> FAuthoredState;

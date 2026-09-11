@@ -11,8 +11,9 @@ namespace Durin::Editor::Material
 	auto FMaterialEditingSession::Capture(const DMaterial& Material) -> FAuthoredState
 	{
 		const auto Definitions = Material.GetParameterDefinitions();
+		const auto Calls = Material.GetMaterialFunctionCalls();
 		return {*Material.GetMaterialProgram(), {Definitions.begin(), Definitions.end()},
-			Material.GetStaticProperties(), Material.GetMaterialGraphPresentation()};
+			Material.GetStaticProperties(), Material.GetMaterialGraphPresentation(), {Calls.begin(), Calls.end()}};
 	}
 
 	FMaterialEditingSession::~FMaterialEditingSession()
@@ -51,7 +52,7 @@ namespace Durin::Editor::Material
 		Working = NewObject<DMaterial>(DMaterial::StaticClass(), WorkingPackage.Get(),
 			InSource.GetFName(), EObjectFlags::Transient);
 		Working->SetEditCompileMode(EMaterialEditCompileMode::Manual);
-		if (!Working->SetMaterialDefinitionsAndProgram(Applied.Definitions, Applied.Program)
+		if (!Working->SetMaterialDefinitionsAndProgram(Applied.Definitions, Applied.Program, Applied.FunctionCalls)
 			|| !Working->SetStaticProperties(Applied.Properties))
 		{
 			Error = "The source material's authored state is invalid.";
@@ -148,7 +149,7 @@ namespace Durin::Editor::Material
 		const auto PreviousMode = Source->GetEditCompileMode();
 		Source->SetEditCompileMode(EMaterialEditCompileMode::Manual);
 		const auto Result = Source->SetMaterialDefinitionsAndProgram(
-			Candidate.Definitions, Candidate.Program);
+			Candidate.Definitions, Candidate.Program, Candidate.FunctionCalls);
 		if (!Result)
 		{
 			Source->SetEditCompileMode(PreviousMode);

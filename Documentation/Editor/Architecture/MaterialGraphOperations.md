@@ -8,13 +8,37 @@ Last reviewed: 2026-09-11
 
 ## Ownership
 
-`DMaterial` remains the semantic authority. Its reflected
-`FMaterialProgram` is the only authored graph; nodes and pins are bounded values
+`DMaterial` and `DMaterialFunction` own their respective authored graphs. Material
+programs and function graph nodes/pins are bounded values
 addressed by stable GUID and input/output indices rather than `DObject`
 subobjects or canvas coordinates. Material instances never own or edit a graph.
 Base-material documents edit a transient working `DMaterial`; Apply transfers
 its authored state to the existing package-owned source material. Graph commands
 remain reusable against either owner and never implicitly select a source asset.
+Working state includes function call bindings as well as the value-only program.
+Initialization and Apply commit declarations, program and call references through
+one validated Engine boundary, so a changed callee without changed node IDs is
+still an unapplied edit. Invalid call records leave the source unchanged.
+Ordinary semantic commands validate the owner's call records alongside its
+program, allowing node edits and Undo/Redo in materials that already use functions.
+
+`FMaterialGraphDocument` is the shared owning-thread command boundary for both
+owners. It captures declarations, program nodes, function interface/calls and
+presentation, validates candidate state through the owning Engine asset, and
+records a complete undoable change. Function state cannot contain root parameter
+declarations or Material Output bindings. Transaction reference collection retains
+function and texture dependencies. Material canvas semantic commits use this same
+boundary. Interface replacement, call insertion and call input connection commands
+use stable GUIDs; insertion rejects a dependency closure that would recurse into
+the current function. Adding an interface port creates its typed terminal in the
+same transaction; output creation requires a source link. Removing a port rejects
+if retained graph links still require its terminal. Interface type edits update
+terminal types atomically and reject incompatible retained wiring. Shared node
+creation/replacement/removal and positional-input connection work for both graph
+kinds. Material Output assignment accepts the full source link, including a
+function output GUID. Removing a call also removes its call record and restores
+disconnected material output fallbacks. Function document widgets and clipboard
+remain under implementation in the active reusable-functions plan.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
 contains schema version 2, exactly one integral graph-space position for every
@@ -63,6 +87,15 @@ entries come from the opcode/type rules and the live material-owned parameter
 definitions. `MakeSurface` exposes the aggregate Surface output type;
 legacy `StandardSurface` and role-bound `TextureCoordinate` are not authorable
 catalog entries.
+
+Shared document inspection resolves function call pins from the live signature,
+ordered by display order and GUID. Detached pin records retain stable port GUIDs,
+types, names, defaults, required flags and missing-port markers. Function terminals
+have typed named pins; Surface attribute pins retain their fixed attribute indices.
+The material canvas draws each output separately and preserves the full source
+link through drag, reconnection, Material Output assignment and node creation.
+Callee authored revisions refresh the cached inspection, including interface-only
+renames. Surface attribute reconnection uses the same document command boundary.
 
 Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
 `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
