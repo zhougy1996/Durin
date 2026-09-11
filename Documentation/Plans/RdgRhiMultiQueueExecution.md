@@ -9,8 +9,30 @@ Completed:
 
 ## Current Status
 
-This plan records the selected architecture; implementation has not started.
-Stage 0 is the next stage. No multi-queue behavior or acceptance gate is complete.
+Stage 0 is in progress. The source ownership audit and selected submission
+protocol are recorded below. Runtime implementation has not started; no
+multi-queue acceptance gate is complete.
+
+The remaining Stage 0 prerequisite is an authoritative performance baseline.
+On 2026-09-11 the operator confirmed that an exclusive quiet GPU lane cannot
+currently be guaranteed. Under the repository's performance-qualification
+rules, concurrent-machine timings are diagnostic only. Do not freeze budgets,
+start Stage 1, or mark this plan complete from those timings. Resume with the
+measurement procedure below when an exclusive lane becomes available.
+
+Fresh correctness evidence at `3f541aa0a98c468be7226881be6c83a399db9d8d`, using
+the default `Win64-Debug-DurinEditor` profile:
+
+- `RenderContractTests`: 160/160 passed (3530 ms test total).
+- `RendererSceneContractTests`: 54/54 passed (1993 ms test total).
+- `VulkanRHIIntegrationTests
+  FVulkanResourceTransitionTests.RenderGraphTransitionsReplayThroughVulkanStateTracking`:
+  1/1 passed (400 ms test total), with Khronos validation loaded.
+
+These totals are correctness-run durations, not compile/prepare/submit or GPU
+performance measurements. Logs are in `Build/.agent-state/logs/`, with run
+prefixes `20260911-163841`, `20260911-164005`, and `20260911-163755`, respectively.
+No shared API changed, so an `all` build is not claimed for this audit.
 
 The logical barrier foundation landed in commit `7d5812720`:
 `FRDGBufferTransition` and `FRDGTextureTransition` carry resource IDs and
@@ -89,23 +111,23 @@ Dependencies: none beyond the existing logical barrier foundation.
 Outcome: a reviewed ownership and submission contract with an exact migration
 inventory and named validation gates, before implementation changes behavior.
 
-- [ ] Trace RDG preparation/recording, RHI replay, Vulkan submission, resource
+- [x] Trace RDG preparation/recording, RHI replay, Vulkan submission, resource
   release, descriptor recycling, upload storage, and Renderer allocator reuse.
   Identify which lifetime decisions currently depend on implicit queue order.
-- [ ] Specify queue capability discovery and physical queue identity, including
+- [x] Specify queue capability discovery and physical queue identity, including
   graphics/compute sharing one underlying queue and distinct queue families.
-- [ ] Specify GPU completion point creation, publication, polling, ownership,
+- [x] Specify GPU completion point creation, publication, polling, ownership,
   device-generation validation, and shutdown behavior. Determine how points
   reserved before submission distinguish pending, submitted, failed, and
   canceled work without advancing a completion watermark falsely.
-- [ ] Specify transaction boundaries for submission rejection and partial graph
+- [x] Specify transaction boundaries for submission rejection and partial graph
   submission: already-submitted work stays alive until completion; unsubmitted
   work releases references only when it can no longer execute. Device loss
   follows an explicit teardown path rather than normal completion.
-- [ ] Select where retirement metadata lives: resource/allocation state,
+- [x] Select where retirement metadata lives: resource/allocation state,
   in-flight batch ownership, or a documented combination. Avoid competing
   authorities and per-resource hardware fences.
-- [ ] Define cross-graph extraction/import readiness, including external work,
+- [x] Define cross-graph extraction/import readiness, including external work,
   and distinguish resource object reuse from backing-memory aliasing.
 - [ ] Record concrete API signatures, backend capability requirements, test
   selections, and a representative performance baseline in this plan before
@@ -113,6 +135,227 @@ inventory and named validation gates, before implementation changes behavior.
 
 Completion: each lifetime-sensitive consumer has an identified owner and
 completion authority; unresolved protocol decisions are closed and recorded.
+
+### Stage 0 Contract Decisions and Migration Inventory
+
+The following are selected implementation contracts, not descriptions of
+already implemented multi-queue behavior. All source paths in the table are
+relative to `Engine/Source/Runtime/`.
+
+| Consumer and current evidence | Migration owner and completion authority |
+| --- | --- |
+| `RenderCore/Private/RDG.cpp`, `FRDGBuilder::Record`: validates all allocated backings before callbacks, resolves logical barriers once, publishes retained extraction references after recording | RDG owns immutable batch/dependency/handoff records and a separate prepared-resource table. Prepare every retained backing and transition object before graph commands can submit. Preserve this all-or-nothing preparation boundary. |
+| `RHI/Private/RHICommandList.cpp`: typed commands retain resources and copied bytes; executor calls `Group.ReleaseBatches()` after replay/events | RHI batches retain recorded resources before submission. Transfer a deduplicated resource-use bundle to the active backend payload before releasing replay storage, including commands replayed without `SubmitToGPU`. CPU serial completion remains a CPU-only authority. |
+| `VulkanRHI/Private/VulkanContext.cpp`, `GetPayload`/`Finalize`; `VulkanQueue.cpp`, `SubmitPayloads` | Context owns unsubmitted payloads. Queue submission transfers payload ownership to a per-physical-queue tracker only after native acceptance. Preallocate the tracker entry and all ownership storage before the native call so an allocation exception cannot orphan accepted GPU work. |
+| `VulkanRHI/Private/VulkanCompletion.cpp`: one contiguous scalar watermark and fence deque | Each physical queue owns an independent timeline and in-flight deque. Only observed completion of that queue advances its successful GPU progress. Reservation/cancellation state is separate from GPU progress. |
+| `VulkanRHI/Private/VulkanDevice.cpp`, `FDeferredDeletionQueue::EnqueueResource`: snapshots device-wide `GetLastReservedToken()` | Replace the implicit last-global-token authority with retained payload ownership and exact use prerequisites. Move native dependent handles/allocations into deletion records before destroying their wrapper; records also retain prerequisites for external native work. Never create a hardware fence per resource. |
+| `VulkanRHI/Private/VulkanView.cpp`, `VulkanPendingState.cpp`, `VulkanDescriptorSets.cpp`: cached views/descriptors and frame pool maxima | Retain each consumed view and its backing, shader/pipeline dependencies, descriptor snapshot and pool lease in the payload use bundle. Pool reset requires all using queues to finish and no unsubmitted leases; cache eviction alone grants no reset permission. |
+| `VulkanRHI/Private/VulkanTransferArena.cpp`; `VulkanTexture.cpp` readback | A transfer range belongs to its recording payload until submitted or irrevocably canceled. Reclaim only its completed/canceled uses; readback requires successful completion, then invalidate and copy. Capacity waits target the required producer, never another queue's numeric maximum. |
+| `VulkanRHI/Private/VulkanBuffer.cpp`: dynamic uniform/storage producer states and chunk maxima | Each mapped chunk has a use set and a pending producer lease. CPU overwrite requires every use to retire; stamp all consuming payloads, including intermediate submissions, rather than only the final graphics/frame token. |
+| `VulkanRHI/Private/VulkanCommandBuffer.cpp`, `VulkanSubmission.cpp`, `VulkanGPUTiming.cpp` | Payload retains command allocator/buffer, synchronization objects, transition objects and timing-query storage through completion. Frame pacing carries all frame terminal points. Queue-qualified timestamp results report queue-local intervals; cross-queue numeric timestamps are not assumed comparable. |
+| `Renderer/Private/Renderers/RendererRDGAllocator.cpp`, `PlanCandidate`: selects a compatible pool entry without a GPU readiness check | Pool entries retain resource objects plus readiness/use metadata. Before subsequent GPU reuse, import the earlier uses into the new graph's first-use dependencies, or select completed storage. Eviction releases a reference; backend retirement remains the only native destruction authority. |
+| `RenderCore/Private/RenderResource.cpp` and rendering shutdown | Rendering-thread deferred C++ cleanup protects non-owning render-command pointers. Keep this CPU contract distinct; backend payload retention protects later GPU use. Close producers before draining either authority. |
+| `VulkanRHI/Private/VulkanViewport.cpp` | Keep WSI presentation completion and semaphore ownership separate. A graphics submission fence does not alone prove presentation has released its semaphore or image. |
+
+The workspace migration search covered `Engine/Source`, `Engine/Tests`,
+`Sandbox/Source`, `Sandbox/Tests`, `RoadWeaver/Source`, and `RoadWeaver/Tests`,
+as declared by `Durin.dworkspace` and its three project files. The search for
+`FRHICommandListFence`, `GetCompletedSerial`, `GetLastSubmittedSerial`,
+`FRDGExecutionContext`, `QueueTextureExtraction`, `QueueBufferExtraction`,
+`FRDGAllocator`, `RHISubmitCommands`, and `RHICollectCompletedResources` found
+25 consuming files, all in Engine. Repeat the cross-project symbol search for
+each actual API migration; this snapshot does not exempt later consumers.
+
+#### Queue Identity and Backend Requirements
+
+Use `FRHIQueueId { uint32 Index; }` as a device-local physical queue identity,
+independent of `ERDGPassType` and pipeline-stage masks. Capabilities publish an
+immutable `FRHIQueueInfo` array containing identity, supported command classes,
+queue-family ownership domain and timestamp support. Graphics and compute
+roles resolving to the same native queue must publish the same ID and tracker.
+Multiple queues in one family receive distinct IDs. Native family indices are
+capability data, never graph-stable identity.
+
+Stage 1 maps all roles to graphics. Stage 3 prefers a dedicated compute family,
+then another compute-capable queue in the graphics family, then the graphics
+queue itself. Diagnostic policy can force each supported topology. Dedicated
+copy scheduling remains disabled. Vulkan creates one command pool/context per
+selected physical queue, serializes host access on the RHI thread, and uses
+per-queue timeline semaphores for dependency fan-out when supported. Devices
+without the selected synchronization capability retain single-queue execution.
+Fence polling remains sufficient for the Stage 1 path.
+
+`vulkaninfo` on 2026-09-11 reported NVIDIA GeForce GTX 1060 6GB, Vulkan 1.4.312:
+family 0 has 16 graphics/compute/transfer queues, family 2 has eight
+compute/transfer queues, and family 1 has two transfer queues. Both same-family
+and distinct-family compute integration are therefore candidates on this host;
+enumeration is not execution evidence. The current backend still creates only
+family 0, queue 0. Startup also loaded `VK_LAYER_OBS_HOOK`; that observation
+alone neither proves nor disproves an active capture workload.
+
+Queue semaphore waits/signals establish execution dependencies. Resource
+barriers separately establish access/layout visibility. Exclusive resources
+crossing families require paired release/acquire barriers with identical
+family indices and exact ranges, ordered by the semaphore dependency. Shared-
+family handoffs omit ownership transfer but retain memory synchronization.
+Concurrent readers on different exclusive families must be serialized or use
+an explicitly concurrent-sharing allocation; do not give two queues exclusive
+ownership simultaneously.
+
+#### Completion, Failure, and Ownership Protocol
+
+`FRHIGPUCompletionPoint { uint64 DeviceGeneration; FRHIQueueId Queue;
+uint64 Value; }` is a non-owning identifier. Values are nonzero and increase only
+within one physical queue. `FRHICommandBatchSerial` and `FRDGSubmissionId` are
+separate wrappers without implicit conversion to this type. Device generations
+are allocated monotonically by RHI across backend replacement, not reset by a
+Vulkan device constructor.
+
+An owning `FRHIGPUSubmissionTicket` retains the state of a reserved point.
+Its states are `Pending`, `Submitted`, `Complete`, `Canceled`, `Failed`, and
+`DeviceLost`. Polling a foreign/expired identifier yields `Invalid`; it must
+never yield `Complete`. Metadata needed by a live ticket survives deque
+compaction without retaining the hardware fence after completion. This avoids
+an unbounded device-wide history of dead reservations.
+
+Reservations are ordered per queue. A later reservation cannot submit while an
+earlier one is still pending; it may proceed after that earlier reservation is
+irrevocably canceled. A canceled reservation is never signaled as GPU work.
+The query for that ticket stays `Canceled` even if a later signal has a larger
+value. Explicit terminal reservation state lets retirement traverse canceled
+holes without calling them successful completion. Submission rejection before
+ownership transfer leaves the caller's finished batch intact and pending;
+cancellation is allowed only after removal from every executable path.
+
+`FRHIRetirementPrerequisites` retains owning tickets and keeps the maximum use
+only within the same queue/generation, using the enforced reservation order.
+Its retirement predicate accepts successful completion or irrevocable
+cancellation, not unknown points, pending work, failure, or device loss.
+Publication/readiness additionally tracks producer success: replacing a lower
+canceled producer with a later completed point must not make its output valid.
+Do not compress success dependencies as though they were retirement uses.
+An explicit join submits a real wait-for-all batch and returns its signal;
+cross-queue prerequisite elimination requires that recorded coverage proof.
+
+The command batch owns references before backend replay; the unsubmitted
+payload owns them after replay; the in-flight tracker owns them after native
+acceptance. The resource/allocation use set coordinates future readiness and
+recycling, but cannot shorten any of those ownership leases. Descriptor pools,
+upload chunks and other shared storage retain every outstanding use. View
+retention includes the exact backing generation, not just a mutable wrapper.
+
+For a partial graph submission, accepted payloads stay in-flight. Stop new
+admission, detach and cancel the unsubmitted suffix, and publish no successful
+graph extraction. A known pre-submit rejection may release detached storage;
+an ambiguous native failure must quarantine it. Device loss closes the device
+generation and enters a separate teardown path: stop CPU producers/replay,
+detach all work, destroy device-owned objects in dependency order, then release
+quarantined host owners. Never advance completion to infinity to force cleanup.
+Ordinary shutdown instead submits accepted pending work, waits every submitted
+queue, then destroys contexts, pools, deferred handles and the device. Already
+retained tickets remain terminal and cannot address a replacement device.
+
+#### Concrete API Boundaries
+
+The selected public signatures for implementation are:
+
+```cpp
+// FDynamicRHI: immutable capabilities and thread-safe state observation.
+auto RHIGetQueueCapabilities() const -> const FRHIQueueCapabilities&;
+auto RHIGetCompletionStatus(const FRHIGPUSubmissionTicket& Ticket) const
+    -> ERHIGPUSubmissionState;
+auto RHIWaitForCompletion(const FRHIGPUSubmissionTicket& Ticket,
+    uint64 TimeoutNanoseconds) -> ERHIGPUWaitResult;
+
+// FRHICommandListImmediate: recorded, balanced batch boundaries.
+auto BeginGPUSubmission(const FRHIGPUSubmissionDesc& Desc)
+    -> FRHIGPUSubmissionTicket;
+auto EndGPUSubmission() -> void;
+
+// FRHIResource: counted readiness snapshot, separate from logical access.
+auto GetGPUReadiness() const -> FRHIResourceReadiness;
+
+// FRDGBuilder: explicit readiness for externally produced resources.
+auto RegisterExternalTexture(FTextureRHIRef Texture, std::string Name,
+    ERHIAccess Initial, ERHIAccess Final, FRHIResourceReadiness Readiness)
+    -> FRDGTextureHandle;
+auto RegisterExternalBuffer(FBufferRHIRef Buffer, std::string Name,
+    ERHIAccess Initial, ERHIAccess Final, FRHIResourceReadiness Readiness)
+    -> FRDGBufferHandle;
+```
+
+`FRHIGPUSubmissionDesc` owns queue identity, dependency tickets and resource-use
+bundles; no borrowed spans survive recording. Begin reserves a ticket without
+calling a native queue. End seals a balanced batch; ordinary executor dispatch
+performs replay/submission. Admission rejects cycles, foreign generations,
+illegal context commands and open render-pass/batch scopes. No CPU wait is
+inserted between passes. Nonblocking status observes published backend state;
+native polling runs on the RHI thread. A bounded wait reports timeout,
+cancellation, failure or device loss distinctly and cannot block the RHI thread
+waiting for its own pending replay. Allowed wait purposes remain readback,
+bounded allocator pressure, frame pacing and shutdown.
+
+Existing external-registration overloads inherit the resource's recorded
+readiness. Extraction retains the resource and its producing tickets; it
+publishes a reference after successful recording, not completed contents.
+Failure of a producing ticket invalidates content readiness. External native
+work must enter through an owned RHI submission ticket with an explicit
+resource-use bundle; untracked foreign queue access is unsupported. Raw native
+integration hooks must finish or import their work before returning resources
+to ordinary RDG use.
+
+Pool object reuse inherits all prior uses before a new first use. Graph-local
+backing aliasing is a later, separate optimization: every terminal prior user
+must reach the acquiring batch through the submission DAG, followed by an
+aliasing handoff. Extracted/live external allocations are ineligible. Heap
+destruction and mapped-memory CPU overwrite still require observed retirement.
+Split barriers likewise add retained begin/end transition objects to handoff
+records; Vulkan event-based lowering is restricted to legal same-queue scopes.
+Cross-queue handoffs use semaphore plus release/acquire synchronization. Lack
+of event support lowers to full barriers without changing the dependency DAG.
+
+#### Validation Selections and Pending Performance Baseline
+
+Registry discovery confirmed `RHICommandListTests`, `RHIThreadTests`,
+`RHIResourceTransitionValidationTests`, `RHIResourceViewValidationTests`,
+`RHITransferValidationTests`, `RenderContractTests`,
+`RendererSceneContractTests`, and `VulkanRHIIntegrationTests` as existing
+targets. Add CPU completion fixtures to the owning RHI target and independent
+queue scheduling/lifetime fixtures to RenderContractTests; use the existing
+Vulkan integration target for actual shared-family and distinct-family work.
+The new cases must cover canceled holes, pending retention without submission,
+out-of-order observations, stale generations, failure after native acceptance,
+partial graph submission, extraction producer failure, fan-out readers and
+descriptor/upload reuse under delayed compute completion. Run affected tests
+and the mandatory shared-API `all` build after implementation changes.
+
+Before Stage 1, instrument and measure these representative workloads on the
+unchanged single-queue runtime in an exclusive quiet lane:
+
+1. CPU RDG: the existing 128-pass same-buffer hazard chain, a graphics/compute
+   fork/join graph, and a production frame graph. Record compile, prepare,
+   recording and executor replay/submission separately; exclude authoring,
+   shader creation, lazy capture and readback waits from those phase samples.
+2. GPU production: the registered `GBufferQualificationTests` workload
+   `FGBufferQualificationTests.StaticAndSplinePassMeetsFrozenRTX3090TimingAndMemoryGates`
+   provides GBuffer, contact compute and full frame routes. Its RTX 3090 budgets
+   are not GTX 1060 budgets. Preserve the original qualification and collect
+   this plan's adapter-specific baseline separately.
+3. GPU dependencies: a matched independent graphics/compute fork/join fixture
+   with deterministic readback, forced single-queue output oracle and both
+   physical topology overrides. Measure elapsed graph GPU cost and actual
+   overlap using supported timestamp semantics, not summed queue-local times.
+
+For the added measurement fixtures use 10 warm-up iterations followed by 100
+samples in each of three consecutive runs; preserve any longer warm-up already
+required by an existing qualification. Record median/p95, adapter/driver,
+profile, validation configuration and source revision. Also record peak
+transient/retained bytes, retirement backlog and count/duration/purpose of waits.
+Freeze numerical regression budgets from those results, with explicit
+justification for any noise allowance, before modifying execution behavior.
+Keep topology, resolution and warm-up identical for later full/split and
+single/multi-queue comparisons. No numerical thresholds have been frozen yet;
+the Stage 0 measurement checkbox intentionally remains open.
 
 ### Stage 1: Introduce GPU Completion and Retirement on One Queue
 
