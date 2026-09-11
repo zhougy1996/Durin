@@ -1335,7 +1335,7 @@ TEST(FStaticMeshAuthoredCompilationTests, MeasuresCompleteCandidateAndPublicatio
 	Source.ReleaseGeometry();
 	auto* Mesh = NewObject<DStaticMesh>(nullptr, FName("CompleteCandidateTiming"));
 	auto* Body = NewObject<DBodySetup>(Mesh, FName("BodySetup"));
-	ASSERT_TRUE(Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 	ASSERT_TRUE(Mesh->SetBodySetup(Body));
 	const auto Snapshot = CaptureStaticMeshReconciliation(*Mesh);
 	auto Request = MakeStaticMeshAuthoredBuildRequest(Source, Snapshot);
@@ -1861,7 +1861,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ConcurrentLargeCandidatesSeparateCosts
 	{
 		Meshes[Index] = NewObject<DStaticMesh>(nullptr, FName(std::format("ConcurrentCandidate{}", Index)));
 		auto* Body = NewObject<DBodySetup>(Meshes[Index], FName("BodySetup"));
-		ASSERT_TRUE(Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0));
+		Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
 		ASSERT_TRUE(Meshes[Index]->SetBodySetup(Body));
 		ASSERT_TRUE(SubmitStaticMeshCompilation(*Meshes[Index], {.Source = Source, .bPersistDerivedData = false}, Error,
 			[&, Index](const auto& Result) { EXPECT_TRUE(IsInGameThread()); Results[Index] = Result; })) << Error;
@@ -2013,7 +2013,7 @@ TEST(FStaticMeshAuthoredCompilationTests, ManagerQualifiesAllChannelsManySection
 	EXPECT_EQ(MaxStaticMeshUVChannels, Original->LODResources.front().NumTexCoords);
 	EXPECT_EQ(128u, Original->LODResources.front().Sections.size());
 	auto* Body = NewObject<DBodySetup>(Mesh, FName("ConvexLimitBody"));
-	ASSERT_TRUE(Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0));
+	Body->SetCollisionSourceMode(EBodySetupCollisionSourceMode::ConvexHullFromLOD0);
 	ASSERT_TRUE(Mesh->SetBodySetup(Body));
 	ASSERT_TRUE(SubmitStaticMeshCompilation(*Mesh, {.Source = Source, .bPersistDerivedData = false}, Error));
 	FAssetCompilingManager::Get().FinishCompilationForObject(*Mesh);

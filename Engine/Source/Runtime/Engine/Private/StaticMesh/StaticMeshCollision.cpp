@@ -59,15 +59,15 @@ namespace Durin
 				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
 				NotifyStaticMeshCompilationMutation(*this);
 			}
-			const bool bAccepted = BodySetup->SetCollisionSourceMode(Mode);
+			BodySetup->SetCollisionSourceMode(Mode);
 			OutError.clear();
-			return bAccepted;
+			return true;
 		}
 		if (Mode == EBodySetupCollisionSourceMode::None)
 		{
 			if (!BodySetup) { OutError.clear(); return true; }
 			FStaticMeshRenderStateRecreateContext RecreateContext(this);
-			if (!BodySetup->SetCollisionSourceMode(Mode)) return false;
+			BodySetup->SetCollisionSourceMode(Mode);
 			BodySetup->ClearCollisionGeometry();
 			OutError.clear();
 			return true;
@@ -92,8 +92,8 @@ namespace Durin
 			BodySetup = Setup;
 		}
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
-		if (!Setup->SetCollisionSourceMode(Mode)
-			|| !Setup->SetCollisionGeometry(Simple, Complex))
+		Setup->SetCollisionSourceMode(Mode);
+		if (!Setup->SetCollisionGeometry(Simple, Complex))
 		{
 			OutError = "Static mesh could not publish collision state.";
 			return false;
@@ -115,9 +115,9 @@ namespace Durin
 		}
 		if (!RenderData && BodySetup && HasPendingStaticMeshCompilation(*this))
 		{
-			const bool bAccepted = BodySetup->SetCollisionQueryPolicy(Policy);
+			BodySetup->SetCollisionQueryPolicy(Policy);
 			OutError.clear();
-			return bAccepted;
+			return true;
 		}
 		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
 		{
@@ -126,9 +126,9 @@ namespace Durin
 				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
 				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
 			}
-			const bool bChanged = BodySetup->SetCollisionQueryPolicy(Policy);
-			OutError = bChanged ? std::string{} : "Static-mesh collision query policy is invalid.";
-			return bChanged;
+			BodySetup->SetCollisionQueryPolicy(Policy);
+			OutError.clear();
+			return true;
 		}
 		if (!RenderData) { OutError = "Static mesh has no CPU data for collision policy rebuild."; return false; }
 		const EBodySetupCollisionSourceMode Mode = BodySetup->GetCollisionSourceMode();
@@ -137,8 +137,8 @@ namespace Durin
 		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
 			OutError)) return false;
 		FStaticMeshRenderStateRecreateContext RecreateContext(this);
-		if (!BodySetup->SetCollisionQueryPolicy(Policy)
-			|| !BodySetup->SetCollisionGeometry(Simple, Complex))
+		BodySetup->SetCollisionQueryPolicy(Policy);
+		if (!BodySetup->SetCollisionGeometry(Simple, Complex))
 		{
 			OutError = "Static mesh could not publish collision policy state.";
 			return false;

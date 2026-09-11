@@ -114,32 +114,30 @@ namespace Durin
 		return OutGeometry.IsValid();
 	}
 
-	auto DBodySetup::SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> bool
+	auto DBodySetup::SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void
 	{
-		if (Mode != EBodySetupCollisionSourceMode::None
-			&& Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			&& Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0) return false;
-		if (CollisionSourceMode == Mode) return true;
+		require(Mode == EBodySetupCollisionSourceMode::None
+			|| Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			|| Mode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+		if (CollisionSourceMode == Mode) return;
 		CollisionSourceMode = Mode;
 		CachedSimpleCollision = {};
 		CachedComplexCollision = {};
 		++Revision;
 		NotifyBodyMutation(*this);
 		MarkPackageDirty();
-		return true;
 	}
 
-	auto DBodySetup::SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> bool
+	auto DBodySetup::SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void
 	{
-		if (Policy != EBodySetupCollisionQueryPolicy::SimpleOnly
-			&& Policy != EBodySetupCollisionQueryPolicy::ComplexOnly
-			&& Policy != EBodySetupCollisionQueryPolicy::SimpleAndComplex) return false;
-		if (CollisionQueryPolicy == Policy) return true;
+		require(Policy == EBodySetupCollisionQueryPolicy::SimpleOnly
+			|| Policy == EBodySetupCollisionQueryPolicy::ComplexOnly
+			|| Policy == EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+		if (CollisionQueryPolicy == Policy) return;
 		CollisionQueryPolicy = Policy;
 		++Revision;
 		NotifyBodyMutation(*this);
 		MarkPackageDirty();
-		return true;
 	}
 
 	auto DBodySetup::SetCollisionGeometry(

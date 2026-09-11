@@ -33,8 +33,10 @@ namespace Durin
 		ENGINE_API auto BuildGeometry(FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool;
 		ENGINE_API auto BuildSimpleGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
 		ENGINE_API auto BuildComplexGeometry(FCollisionGeometryRef& OutGeometry) const -> bool;
-		ENGINE_API auto SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> bool;
-		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> bool;
+		// Requires a declared EBodySetupCollisionSourceMode value.
+		ENGINE_API auto SetCollisionSourceMode(EBodySetupCollisionSourceMode Mode) -> void;
+		// Requires a declared EBodySetupCollisionQueryPolicy value.
+		ENGINE_API auto SetCollisionQueryPolicy(EBodySetupCollisionQueryPolicy Policy) -> void;
 		// Installs compatible immutable geometry and advances its revision.
 		// Build/cache provenance is deliberately not retained by the physics owner.
 		ENGINE_API auto SetCollisionGeometry(
