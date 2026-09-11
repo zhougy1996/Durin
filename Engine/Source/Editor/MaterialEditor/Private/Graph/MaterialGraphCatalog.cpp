@@ -7,13 +7,6 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr std::array NumericTypes{
-			EMaterialProgramValueType::Float,
-			EMaterialProgramValueType::Float2,
-			EMaterialProgramValueType::Float3,
-			EMaterialProgramValueType::Float4,
-		};
-
 		auto GetInputNames(EMaterialProgramOpcode Opcode, size_t Count)
 			-> std::vector<std::string>
 		{
@@ -112,7 +105,7 @@ namespace Durin::Editor::Material
 		auto MakeCatalogEntry(
 			EMaterialProgramOpcode Opcode,
 			EMaterialProgramValueType ResultType,
-			std::vector<std::vector<EMaterialProgramValueType>> Inputs = {})
+			const FMaterialProgramNodeSignature& Signature)
 			-> FMaterialGraphCatalogEntry
 		{
 			FMaterialGraphCatalogEntry Entry;
@@ -156,9 +149,11 @@ namespace Durin::Editor::Material
 			}
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
-			Entry.NodeTemplate.Inputs.resize(Inputs.size());
-			Entry.InputNames = GetInputNames(Opcode, Inputs.size());
-			Entry.AcceptedInputTypes = std::move(Inputs);
+			Entry.NodeTemplate.Inputs.resize(Signature.InputCount);
+			Entry.InputNames = GetInputNames(Opcode, Signature.InputCount);
+			for (uint8 Index = 0; Index < Signature.InputCount; ++Index)
+				Entry.AcceptedInputTypes.emplace_back(
+					Signature.Inputs[Index].begin(), Signature.Inputs[Index].end());
 			return Entry;
 		}
 
@@ -268,108 +263,36 @@ namespace Durin::Editor::Material
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
-		const auto One = [](EMaterialProgramValueType Type) {
-			return std::vector<EMaterialProgramValueType>{Type};
-		};
-		const auto Numeric = [] {
-			return std::vector<EMaterialProgramValueType>(
-				NumericTypes.begin(), NumericTypes.end());
-		};
-		for (EMaterialProgramValueType Type : NumericTypes)
-			Result.push_back(MakeCatalogEntry(
-				EMaterialProgramOpcode::Constant, Type));
-		for (EMaterialProgramValueType Type : {EMaterialProgramValueType::Float,
-			EMaterialProgramValueType::Float2, EMaterialProgramValueType::Float3,
-			EMaterialProgramValueType::Float4, EMaterialProgramValueType::Texture2D})
-		{
-			auto Entry = MakeCatalogEntry(Type == EMaterialProgramValueType::Texture2D
-				? EMaterialProgramOpcode::TextureParameter : EMaterialProgramOpcode::Parameter, Type);
-			const char* Name = Type == EMaterialProgramValueType::Float ? "Scalar Parameter"
-				: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
-				: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
-				: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Parameter";
-			Entry.OperationName = Name;
-			Entry.Description = "Create a new parameter or reference an existing parameter of this type.";
-			Result.push_back(std::move(Entry));
-		}
-		Result.push_back(MakeCatalogEntry(
-			EMaterialProgramOpcode::TextureSample2D,
-			EMaterialProgramValueType::Float4,
-			{One(EMaterialProgramValueType::Texture2D),
-				One(EMaterialProgramValueType::Float2)}));
-		for (EMaterialProgramOpcode Opcode : {
-			EMaterialProgramOpcode::Add, EMaterialProgramOpcode::Subtract,
-			EMaterialProgramOpcode::Multiply, EMaterialProgramOpcode::Divide,
-			EMaterialProgramOpcode::Minimum, EMaterialProgramOpcode::Maximum})
-			for (EMaterialProgramValueType Type : NumericTypes)
-				Result.push_back(MakeCatalogEntry(Opcode, Type, {One(Type), One(Type)}));
-		for (EMaterialProgramOpcode Opcode : {
-			EMaterialProgramOpcode::Negate, EMaterialProgramOpcode::OneMinus,
-			EMaterialProgramOpcode::Absolute, EMaterialProgramOpcode::Saturate,
-			EMaterialProgramOpcode::Sine, EMaterialProgramOpcode::Cosine})
-			for (EMaterialProgramValueType Type : NumericTypes)
-				Result.push_back(MakeCatalogEntry(Opcode, Type, {One(Type)}));
-		for (EMaterialProgramValueType Type : NumericTypes | std::views::drop(1))
-			Result.push_back(MakeCatalogEntry(
-				EMaterialProgramOpcode::Normalize, Type, {One(Type)}));
-		for (EMaterialProgramValueType Type : NumericTypes)
-		{
-			Result.push_back(MakeCatalogEntry(
-				EMaterialProgramOpcode::Clamp, Type,
-				{One(Type), One(Type), One(Type)}));
-			Result.push_back(MakeCatalogEntry(
-				EMaterialProgramOpcode::Lerp, Type,
-				{One(Type), One(Type), One(EMaterialProgramValueType::Float)}));
-		}
-		for (uint8 Width = 2; Width <= 4; ++Width)
-		{
-			const EMaterialProgramValueType Type = NumericTypes[Width - 1];
-			std::vector<std::vector<EMaterialProgramValueType>> Inputs(
-				Width, One(EMaterialProgramValueType::Float));
-			Result.push_back(MakeCatalogEntry(
-				static_cast<EMaterialProgramOpcode>(
-					static_cast<uint8>(EMaterialProgramOpcode::MakeFloat2) + Width - 2),
-				Type, std::move(Inputs)));
-			Result.push_back(MakeCatalogEntry(
-				static_cast<EMaterialProgramOpcode>(
-					static_cast<uint8>(EMaterialProgramOpcode::Splat2) + Width - 2),
-				Type, {One(EMaterialProgramValueType::Float)}));
-		}
-		for (uint8 Width = 1; Width <= 4; ++Width)
-		{
-			FMaterialGraphCatalogEntry Swizzle = MakeCatalogEntry(
-				EMaterialProgramOpcode::Swizzle, NumericTypes[Width - 1], {Numeric()});
-			Swizzle.NodeTemplate.SwizzleLength = Width;
-			Swizzle.NodeTemplate.SwizzleX = 0;
-			Swizzle.NodeTemplate.SwizzleY = std::min<uint8>(1, Width - 1);
-			Swizzle.NodeTemplate.SwizzleZ = std::min<uint8>(2, Width - 1);
-			Swizzle.NodeTemplate.SwizzleW = std::min<uint8>(3, Width - 1);
-			Result.push_back(std::move(Swizzle));
-		}
-		for (uint8 Width = 1; Width <= 3; ++Width)
-		{
-			std::vector<EMaterialProgramValueType> Wider(
-				NumericTypes.begin() + Width, NumericTypes.end());
-			Result.push_back(MakeCatalogEntry(
-				static_cast<EMaterialProgramOpcode>(
-					static_cast<uint8>(EMaterialProgramOpcode::TruncateToFloat) + Width - 1),
-				NumericTypes[Width - 1], {std::move(Wider)}));
-		}
-		Result.push_back(MakeCatalogEntry(
-			EMaterialProgramOpcode::DecodeNormalRG,
-			EMaterialProgramValueType::Float3,
-			{One(EMaterialProgramValueType::Float2)}));
-		Result.push_back(MakeCatalogEntry(
-			EMaterialProgramOpcode::BlendNormalsRNM,
-			EMaterialProgramValueType::Float3,
-			{One(EMaterialProgramValueType::Float3),
-				One(EMaterialProgramValueType::Float3)}));
-		Result.push_back(MakeCatalogEntry(EMaterialProgramOpcode::UVChannel,
-			EMaterialProgramValueType::Float2, {One(EMaterialProgramValueType::Float)}));
-		Result.push_back(MakeCatalogEntry(EMaterialProgramOpcode::MakeSurface,
-			EMaterialProgramValueType::Surface, {One(EMaterialProgramValueType::Float3), One(EMaterialProgramValueType::Float3),
-				One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float),
-				One(EMaterialProgramValueType::Float3), One(EMaterialProgramValueType::Float), One(EMaterialProgramValueType::Float)}));
+		for (uint8 OpcodeValue = static_cast<uint8>(EMaterialProgramOpcode::Constant);
+			OpcodeValue <= static_cast<uint8>(EMaterialProgramOpcode::MakeSurface); ++OpcodeValue)
+			for (uint8 TypeValue = static_cast<uint8>(EMaterialProgramValueType::Float);
+				TypeValue <= static_cast<uint8>(EMaterialProgramValueType::Surface); ++TypeValue)
+			{
+				const auto Opcode = static_cast<EMaterialProgramOpcode>(OpcodeValue);
+				const auto Type = static_cast<EMaterialProgramValueType>(TypeValue);
+				const auto Signature = GetMaterialProgramNodeSignature(Opcode, Type);
+				if (!Signature) continue;
+				auto Entry = MakeCatalogEntry(Opcode, Type, *Signature);
+				if (Opcode == EMaterialProgramOpcode::Parameter
+					|| Opcode == EMaterialProgramOpcode::TextureParameter)
+				{
+					Entry.OperationName = Type == EMaterialProgramValueType::Float ? "Scalar Parameter"
+						: Type == EMaterialProgramValueType::Float2 ? "Vector2 Parameter"
+						: Type == EMaterialProgramValueType::Float3 ? "Vector3 Parameter"
+						: Type == EMaterialProgramValueType::Float4 ? "Vector4 Parameter" : "Texture Parameter";
+					Entry.Description = "Create a new parameter or reference an existing parameter of this type.";
+				}
+				if (Opcode == EMaterialProgramOpcode::Swizzle)
+				{
+					const uint8 Width = TypeValue + 1;
+					Entry.NodeTemplate.SwizzleLength = Width;
+					Entry.NodeTemplate.SwizzleX = 0;
+					Entry.NodeTemplate.SwizzleY = std::min<uint8>(1, Width - 1);
+					Entry.NodeTemplate.SwizzleZ = std::min<uint8>(2, Width - 1);
+					Entry.NodeTemplate.SwizzleW = std::min<uint8>(3, Width - 1);
+				}
+				Result.push_back(std::move(Entry));
+			}
 		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::OperationName);
 		for (FMaterialGraphCatalogEntry& Entry : Result) PrepareSearchFields(Entry);
 		return Result;

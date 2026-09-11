@@ -57,12 +57,6 @@ namespace Durin
 			return {.SourceNodeId = Node.Id, .SourceOutputIndex = 0};
 		}
 
-		auto IsNumeric(EMaterialProgramValueType Type) -> bool
-		{
-			return Type >= EMaterialProgramValueType::Float
-				&& Type <= EMaterialProgramValueType::Float4;
-		}
-
 		auto GetComponentCount(EMaterialProgramValueType Type) -> uint8
 		{
 			switch (Type)
@@ -170,45 +164,32 @@ namespace Durin
 					EMaterialProgramDiagnosticLocationKind::Input,
 					Node.Id, Input, std::move(Message));
 			};
-			const auto RequireCount = [&](size_t Expected) {
-				if (Node.Inputs.size() == Expected) return true;
+			const auto Signature = GetMaterialProgramNodeSignature(Node.Opcode, Node.ResultType);
+			if (!Signature)
+			{
+				AddType(0, "Material program opcode does not support its result type.");
+				return;
+			}
+			if (Node.Inputs.size() != Signature->InputCount)
 				AddType(0, "Material program opcode has an invalid input count.");
-				return false;
-			};
+			else
+				for (uint32 Index = 0; Index < Signature->InputCount; ++Index)
+				{
+					const FMaterialProgramNode* Input = GetInput(Index);
+					const auto Accepted = Signature->Inputs[Index];
+					if (!Input || std::ranges::find(Accepted, Input->ResultType) == Accepted.end())
+						AddType(Index, "Material program input type does not match its opcode signature.");
+				}
 			const auto InputType = [&](size_t Index) {
 				const FMaterialProgramNode* Input = GetInput(Index);
 				return Input ? Input->ResultType
 					: static_cast<EMaterialProgramValueType>(0xff);
 			};
-			const auto RequireSameNumeric = [&](size_t Count) {
-				if (!RequireCount(Count) || !IsNumeric(Node.ResultType)) return;
-				for (size_t Index = 0; Index < Count; ++Index)
-					if (InputType(Index) != Node.ResultType)
-						AddType(static_cast<uint32>(Index),
-							"Material program numeric input type does not match its result type.");
-			};
 
 			switch (Node.Opcode)
 			{
-			case EMaterialProgramOpcode::UVChannel:
-				if (RequireCount(1) && (InputType(0) != EMaterialProgramValueType::Float
-					|| Node.ResultType != EMaterialProgramValueType::Float2))
-					AddType(0, "UVChannel requires a Float channel and returns Float2.");
-				break;
-			case EMaterialProgramOpcode::MakeSurface:
-				if (RequireCount(8))
-					for (uint32 Index = 0; Index < 8; ++Index)
-					{
-						const auto Expected = GetMaterialSurfaceOutputType(static_cast<EMaterialSurfaceOutput>(Index));
-						if (InputType(Index) != Expected) AddType(Index, "MakeSurface input type does not match the surface property.");
-					}
-				if (Node.ResultType != EMaterialProgramValueType::Surface) AddType(0, "MakeSurface must return Surface.");
-				break;
 			case EMaterialProgramOpcode::Constant:
 			{
-				RequireCount(0);
-				if (!IsNumeric(Node.ResultType))
-					AddType(0, "Material program constants must have a numeric result type.");
 				const std::array Values{
 					Node.Literal.X, Node.Literal.Y,
 					Node.Literal.Z, Node.Literal.W};
@@ -220,7 +201,6 @@ namespace Durin
 			case EMaterialProgramOpcode::Parameter:
 			case EMaterialProgramOpcode::TextureParameter:
 			{
-				RequireCount(0);
 				const FMaterialParameterDefinition* Definition =
 					FindParameter(Definitions, Node.ParameterId);
 				if (!Node.ParameterId.IsValid() || Definition == nullptr)
@@ -240,71 +220,8 @@ namespace Durin
 				}
 				break;
 			}
-			case EMaterialProgramOpcode::TextureSample2D:
-				if (RequireCount(2))
-				{
-					if (Node.ResultType != EMaterialProgramValueType::Float4)
-						AddType(0, "TextureSample2D must return Float4.");
-					if (InputType(0) != EMaterialProgramValueType::Texture2D)
-						AddType(0, "TextureSample2D input 0 must be Texture2D.");
-					if (InputType(1) != EMaterialProgramValueType::Float2)
-						AddType(1, "TextureSample2D input 1 must be Float2.");
-				}
-				break;
-			case EMaterialProgramOpcode::Add:
-			case EMaterialProgramOpcode::Subtract:
-			case EMaterialProgramOpcode::Multiply:
-			case EMaterialProgramOpcode::Divide:
-			case EMaterialProgramOpcode::Minimum:
-			case EMaterialProgramOpcode::Maximum:
-			case EMaterialProgramOpcode::BlendNormalsRNM:
-				RequireSameNumeric(2);
-				if (Node.Opcode == EMaterialProgramOpcode::BlendNormalsRNM
-					&& Node.ResultType != EMaterialProgramValueType::Float3)
-					AddType(0, "BlendNormalsRNM requires two Float3 inputs and a Float3 result.");
-				break;
-			case EMaterialProgramOpcode::Negate:
-			case EMaterialProgramOpcode::OneMinus:
-			case EMaterialProgramOpcode::Absolute:
-			case EMaterialProgramOpcode::Saturate:
-			case EMaterialProgramOpcode::Normalize:
-			case EMaterialProgramOpcode::Sine:
-			case EMaterialProgramOpcode::Cosine:
-				RequireSameNumeric(1);
-				if (Node.Opcode == EMaterialProgramOpcode::Normalize
-					&& Node.ResultType == EMaterialProgramValueType::Float)
-					AddType(0, "Normalize requires Float2, Float3, or Float4.");
-				break;
-			case EMaterialProgramOpcode::Clamp:
-				RequireSameNumeric(3);
-				break;
-			case EMaterialProgramOpcode::Lerp:
-				if (RequireCount(3))
-				{
-					if (!IsNumeric(Node.ResultType)
-						|| InputType(0) != Node.ResultType
-						|| InputType(1) != Node.ResultType)
-						AddType(0, "Lerp value inputs must match its numeric result type.");
-					if (InputType(2) != EMaterialProgramValueType::Float)
-						AddType(2, "Lerp alpha must be Float.");
-				}
-				break;
-			case EMaterialProgramOpcode::MakeFloat2:
-			case EMaterialProgramOpcode::MakeFloat3:
-			case EMaterialProgramOpcode::MakeFloat4:
-			{
-				const uint8 Count = static_cast<uint8>(Node.Opcode)
-					- static_cast<uint8>(EMaterialProgramOpcode::MakeFloat2) + 2;
-				if (RequireCount(Count))
-					for (uint8 Index = 0; Index < Count; ++Index)
-						if (InputType(Index) != EMaterialProgramValueType::Float)
-							AddType(Index, "Vector construction inputs must be Float.");
-				if (GetComponentCount(Node.ResultType) != Count)
-					AddType(0, "Vector construction result width is invalid.");
-				break;
-			}
 			case EMaterialProgramOpcode::Swizzle:
-				if (RequireCount(1))
+				if (Node.Inputs.size() == 1)
 				{
 					const uint8 SourceWidth = GetComponentCount(InputType(0));
 					const std::array Mask{
@@ -318,37 +235,7 @@ namespace Durin
 							AddType(Index, "Swizzle component exceeds the source width.");
 				}
 				break;
-			case EMaterialProgramOpcode::Splat2:
-			case EMaterialProgramOpcode::Splat3:
-			case EMaterialProgramOpcode::Splat4:
-			{
-				const uint8 Width = static_cast<uint8>(Node.Opcode)
-					- static_cast<uint8>(EMaterialProgramOpcode::Splat2) + 2;
-				if (RequireCount(1)
-					&& InputType(0) != EMaterialProgramValueType::Float)
-					AddType(0, "Splat input must be Float.");
-				if (GetComponentCount(Node.ResultType) != Width)
-					AddType(0, "Splat result width is invalid.");
-				break;
-			}
-			case EMaterialProgramOpcode::TruncateToFloat:
-			case EMaterialProgramOpcode::TruncateToFloat2:
-			case EMaterialProgramOpcode::TruncateToFloat3:
-			{
-				const uint8 Width = static_cast<uint8>(Node.Opcode)
-					- static_cast<uint8>(EMaterialProgramOpcode::TruncateToFloat) + 1;
-				if (RequireCount(1)
-					&& GetComponentCount(InputType(0)) <= Width)
-					AddType(0, "Truncate source must be a wider numeric vector.");
-				if (GetComponentCount(Node.ResultType) != Width)
-					AddType(0, "Truncate result width is invalid.");
-				break;
-			}
-			case EMaterialProgramOpcode::DecodeNormalRG:
-				if (RequireCount(1)
-					&& (InputType(0) != EMaterialProgramValueType::Float2
-						|| Node.ResultType != EMaterialProgramValueType::Float3))
-					AddType(0, "DecodeNormalRG requires Float2 and returns Float3.");
+			default:
 				break;
 			}
 		}

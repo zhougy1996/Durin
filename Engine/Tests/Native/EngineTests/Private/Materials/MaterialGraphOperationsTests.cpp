@@ -520,6 +520,106 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, CatalogPinsAgreeWithRuntimeValidation)
+{
+	using Type = EMaterialProgramValueType;
+	for (const auto& Entry : FMaterialGraphOperations::EnumerateCatalog())
+	{
+		const auto Signature = GetMaterialProgramNodeSignature(
+			Entry.NodeTemplate.Opcode, Entry.NodeTemplate.ResultType);
+		ASSERT_TRUE(Signature);
+		ASSERT_EQ(Signature->InputCount, Entry.AcceptedInputTypes.size());
+		for (uint8 Pin = 0; Pin < Signature->InputCount; ++Pin)
+			for (Type SourceType : {Type::Float, Type::Float2, Type::Float3,
+				Type::Float4, Type::Texture2D, Type::Surface})
+			{
+				SCOPED_TRACE(std::format("{} result {} pin {} source {}", Entry.OperationName,
+					static_cast<uint8>(Entry.NodeTemplate.ResultType), Pin, static_cast<uint8>(SourceType)));
+				FMaterialProgram Program;
+				FMaterialParameterDefinition Texture;
+				Texture.Id = FGuid::NewGuid();
+				Texture.Name = "SignatureTexture";
+				Texture.Type = EMaterialParameterType::Texture;
+				const std::array Definitions{Texture};
+				std::function<FGuid(Type)> AddSource = [&](Type ValueType) {
+					FMaterialProgramNode Node;
+					Node.Id = FGuid::NewGuid();
+					Node.ResultType = ValueType;
+					if (ValueType == Type::Texture2D)
+					{
+						Node.Opcode = EMaterialProgramOpcode::TextureParameter;
+						Node.ParameterId = Texture.Id;
+					}
+					else if (ValueType == Type::Surface)
+					{
+						Node.Opcode = EMaterialProgramOpcode::MakeSurface;
+						for (uint8 Index = 0; Index < 8; ++Index)
+							Node.Inputs.push_back({AddSource(GetMaterialSurfaceOutputType(
+								static_cast<EMaterialSurfaceOutput>(Index))), 0});
+					}
+					Program.Nodes.push_back(Node);
+					return Node.Id;
+				};
+				FMaterialProgramNode Target = Entry.NodeTemplate;
+				Target.Id = FGuid::NewGuid();
+				// A zero mask permits every numeric source width; payload bounds are tested separately.
+				Target.SwizzleX = Target.SwizzleY = Target.SwizzleZ = Target.SwizzleW = 0;
+				for (uint8 Index = 0; Index < Signature->InputCount; ++Index)
+					Target.Inputs[Index] = {AddSource(Index == Pin
+						? SourceType : Entry.AcceptedInputTypes[Index].front()), 0};
+				Program.Nodes.push_back(Target);
+				const auto& Accepted = Entry.AcceptedInputTypes[Pin];
+				const bool bAccepted = std::ranges::find(Accepted, SourceType) != Accepted.end();
+				EXPECT_EQ(static_cast<bool>(ValidateMaterialProgram(Program, Definitions)), bAccepted);
+				Program.Nodes.back().Inputs.pop_back();
+				EXPECT_FALSE(ValidateMaterialProgram(Program, Definitions));
+			}
+	}
+}
+
+TEST(FMaterialGraphOperationsTests, SignaturesRejectInvalidResultsAndKeepSwizzlePayloadValidation)
+{
+	using Type = EMaterialProgramValueType;
+	for (EMaterialProgramOpcode Opcode : {EMaterialProgramOpcode::Add,
+		EMaterialProgramOpcode::Negate, EMaterialProgramOpcode::Clamp})
+		for (Type ResultType : {Type::Texture2D, Type::Surface})
+		{
+			EXPECT_FALSE(GetMaterialProgramNodeSignature(Opcode, ResultType));
+			FMaterialProgram Program;
+			FMaterialProgramNode Source;
+			Source.Id = FGuid::NewGuid();
+			Program.Nodes.push_back(Source);
+			FMaterialProgramNode Target;
+			Target.Id = FGuid::NewGuid();
+			Target.Opcode = Opcode;
+			Target.ResultType = ResultType;
+			Target.Inputs.resize(Opcode == EMaterialProgramOpcode::Add ? 2
+				: Opcode == EMaterialProgramOpcode::Clamp ? 3 : 1, {Source.Id, 0});
+			Program.Nodes.push_back(Target);
+			EXPECT_FALSE(ValidateMaterialProgram(Program, {}));
+		}
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(3), Type::Float));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(static_cast<EMaterialProgramOpcode>(255), Type::Float));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Constant, static_cast<Type>(255)));
+	EXPECT_FALSE(GetMaterialProgramNodeSignature(EMaterialProgramOpcode::Normalize, Type::Float));
+	FMaterialProgram Program;
+	FMaterialProgramNode Source;
+	Source.Id = FGuid::NewGuid();
+	Program.Nodes.push_back(Source);
+	FMaterialProgramNode Swizzle;
+	Swizzle.Id = FGuid::NewGuid();
+	Swizzle.Opcode = EMaterialProgramOpcode::Swizzle;
+	Swizzle.Inputs = {{Source.Id, 0}};
+	Swizzle.SwizzleLength = 1;
+	Program.Nodes.push_back(Swizzle);
+	ASSERT_TRUE(ValidateMaterialProgram(Program, {}));
+	Program.Nodes.back().SwizzleX = 1;
+	EXPECT_FALSE(ValidateMaterialProgram(Program, {}));
+	Program.Nodes.back().SwizzleX = 0;
+	Program.Nodes.back().SwizzleLength = 2;
+	EXPECT_FALSE(ValidateMaterialProgram(Program, {}));
+}
+
 TEST(FMaterialGraphOperationsTests, CanvasGeometryUsesStableMetricsAndZoomHysteresis)
 {
 	const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();

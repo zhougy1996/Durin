@@ -95,6 +95,18 @@ namespace Durin
 		OpacityMask,
 	};
 
+	// Describes base pin types only; literal, parameter, and swizzle payloads need validation.
+	struct FMaterialProgramNodeSignature
+	{
+		std::array<std::span<const EMaterialProgramValueType>, MaterialProgramMaxNodeInputCount> Inputs{};
+		uint8 InputCount = 0;
+	};
+
+	// Returns no signature for an unsupported opcode/result pair. Input spans have static lifetime.
+	ENGINE_API auto GetMaterialProgramNodeSignature(
+		EMaterialProgramOpcode Opcode, EMaterialProgramValueType ResultType)
+		-> std::optional<FMaterialProgramNodeSignature>;
+
 	// Resolves the persistent built-in parameter identity owned by one surface output.
 	ENGINE_API auto GetMaterialSurfaceParameterId(
 		EMaterialSurfaceOutput Output,
